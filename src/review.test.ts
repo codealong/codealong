@@ -204,6 +204,14 @@ describe('reviewsRunIn', () => {
     expect(where('background')).toEqual(['in the background', 'in Codealong', 'in a terminal behind your windows']);
     expect(where('terminal')).toEqual(['in Ghostty', 'in Ghostty', 'in Ghostty']);
   });
+  it('tells a Background with no window from a background service by what the Mac says', () => {
+    // Where the Mac runs Cursor's Background in tmux with no window, it still has no service:
+    // never in a terminal, it can't review.
+    const windowless = fx.startAccount({ name: 'cursor', harness: 'cursor', places: [ghostty, { place: 'background', label: 'Background', behind: false, service: false }] });
+    expect(['no-terminal', 'background'].map((s) => reviewsRunIn(windowless, s as 'no-terminal' | 'background'))).toEqual([null, 'in the background']);
+    const served = fx.startAccount({ name: 'claude', places: [ghostty, { place: 'background', label: 'Background', service: true }, codealong] });
+    expect(reviewsRunIn(served, 'no-terminal')).toBe('in the background');
+  });
   it('says which of a routing group’s accounts can’t review where reviews run, which it passes over', () => {
     const agy = fx.startAccount({ name: 'antigravity', harness: 'antigravity', places: [ghostty, behind] });
     const accounts = [claude, codex, cursor, agy];

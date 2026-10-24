@@ -30,10 +30,8 @@
 //! its findings is fixed; a session that isn't running goes on where `[reviews] start` lets it,
 //! and one that's gone, or can't go on there, is replaced by a new one, which closes it where it
 //! still runs and isn't at work (`ask`). A review whose PR moved on before it was done isn't
-//! posted: the next round covers it. A session its round started, or went on with, in a terminal
-//! behind your windows (Background, for Antigravity and Cursor) has that terminal closed once its
-//! review is read (`Part::opened_terminal`, `close_opened_terminal`), so finished reviews don't
-//! pile up there; the next round goes on with it behind your windows again.
+//! posted: the next round covers it. Its session is marked done once its PR is merged, closed or
+//! no longer listed, and ended while it sits unused between rounds (reviewdone.rs).
 //!
 //! A reviewer whose turn was cut off partway (`Session::cut_off`: what ran it ended, as Codealong
 //! restarting ends the sessions it runs) is told to carry on where it runs or can go on, as
@@ -242,16 +240,11 @@ pub struct Part {
     /// was asked for had begun.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub began: Option<i64>,
-    /// This round started its session, or went on with it, in a terminal behind your windows
-    /// (`opens_terminal_behind`), which closes once its review is read (`close_opened_terminal`).
-    /// Not one it was handed running, which may be a terminal you opened.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub opened_terminal: bool,
 }
 
 impl Part {
     pub fn asked(who: &str, session: Option<String>, pending: Option<Pending>, at: i64) -> Part {
-        Part { who: who.to_string(), session, pending, at, state: PartState::Reviewing, review: None, agent: None, note: None, carried_on: Vec::new(), began: None, opened_terminal: false }
+        Part { who: who.to_string(), session, pending, at, state: PartState::Reviewing, review: None, agent: None, note: None, carried_on: Vec::new(), began: None }
     }
 
     pub fn failed(who: &str, why: String, at: i64) -> Part {
@@ -658,10 +651,8 @@ pub enum Job {
     /// done was of. `by_hand`: asked for with Review with… (`review_now`), which needs no
     /// `[reviews] auto` and reviews a commit again.
     Review { pr: PrItem, head: String, since: Option<String>, seat: Seat, by_hand: bool },
-    /// The round's part `part` ended its turn in `session`: read the review it wrote after `at`,
-    /// and with `close_terminal`, close the terminal the round opened for it behind your windows
-    /// (`Part::opened_terminal`).
-    Read { pr: PrItem, head: String, part: usize, session: String, at: i64, close_terminal: bool },
+    /// The round's part `part` ended its turn in `session`: read the review it wrote after `at`.
+    Read { pr: PrItem, head: String, part: usize, session: String, at: i64 },
     /// The round's part `part` was cut off partway in `session`: tell it to carry on, on `model`
     /// at `effort`.
     CarryOn { pr: PrItem, head: String, part: usize, session: String, model: Option<String>, effort: Option<String> },
@@ -717,9 +708,8 @@ pub enum Went {
     /// turn hasn't shown yet (`Part::starting`), which the round tells apart.
     NoReview,
     /// A session cut off partway was told to carry on, from `at`, before it was handed the words:
-    /// the session its turn is in, or where to look for it, and whether it went on in a terminal
-    /// behind your windows, as `hand` says.
-    CarriedOn { session: Option<String>, pending: Option<Pending>, at: i64, opened_terminal: bool },
+    /// the session its turn is in, or where to look for it, as `hand` says.
+    CarriedOn { session: Option<String>, pending: Option<Pending>, at: i64 },
     /// It didn't get done, and why.
     Failed(String),
     /// Posting didn't go through, and why: it's tried again a few times.
@@ -1100,7 +1090,7 @@ fn next(r: &mut Round, board: &Board, pr: &PrItem, head: &str, wanted: bool, now
     for (i, p) in r.parts.iter_mut().enumerate().filter(|(_, p)| p.reviewing()) {
         let Some(k) = p.session.clone() else { continue };
         match board.session(&k) {
-            Some((_, s)) if turn_ended(s, p.at) => return Next::Job(Job::Read { pr: pr.clone(), head: r.head.clone(), part: i, session: k, at: p.at, close_terminal: p.opened_terminal }),
+            Some((_, s)) if turn_ended(s, p.at) => return Next::Job(Job::Read { pr: pr.clone(), head: r.head.clone(), part: i, session: k, at: p.at }),
             Some((_, s)) if s.status != Status::Working && board.automation_blocked(&k) => {
                 fail(p, "Its provider flagged the conversation, so it wasn't told to carry on.");
                 changed = true;
@@ -1475,7 +1465,7 @@ impl Reviewer {
                 let Some(r) = t.rounds.last_mut().filter(|r| r.stage == ReviewStage::Reviewing) else { return Ok(()) };
                 let Some(p) = r.parts.get_mut(*part) else { return Ok(()) };
                 match went {
-                    Went::CarriedOn { session, pending, at, opened_terminal } => {
+                    Went::CarriedOn { session, pending, at } => {
                         // A background job's copy goes on in its place.
                         if let Some(s) = &session {
                             t.sessions.insert(p.who.clone(), s.clone());
@@ -1483,7 +1473,6 @@ impl Reviewer {
                         p.session = session;
                         p.pending = pending;
                         p.carried_on.push(at);
-                        p.opened_terminal = opened_terminal;
                     }
                     Went::Failed(why) => fail(p, &why),
                     _ => {}
@@ -2300,7 +2289,8 @@ fn draft(pr: &PrItem, head: &str, summary: &str, comments: Vec<LineComment>, age
 /// that has a background service of its own (`service`) or not. A new one starts in the first its
 /// account offers (`review_place`), and one that isn't running goes on in the first its account
 /// can go on in (`hand`). Only `background` and `terminal` ever open a terminal: `background` for
-/// a harness with neither a service nor Codealong's adapter, as the account's Background does.
+/// a harness with neither a service nor Codealong's adapter, as the account's Background does (in
+/// tmux with no tab, where it can: `launch::out_of_sight_in_tmux`).
 pub fn review_places(start: ReviewStart, service: bool) -> &'static [Place] {
     match start {
         ReviewStart::NoTerminal | ReviewStart::Background if service => &[Place::Background, Place::Codealong],
@@ -2317,12 +2307,6 @@ fn first_of(start: ReviewStart, service: bool, can: &[Place]) -> Option<Place> {
 
 fn has_service(a: &AccountCfg) -> bool {
     crate::harness::of(a).is_some_and(|h| h.runs_in_background())
-}
-
-/// Whether a review of `a`'s that starts or goes on at `place` does so in a terminal opened
-/// behind your windows: Background, for a harness with no service of its own.
-fn opens_terminal_behind(a: &AccountCfg, place: Place) -> bool {
-    place == Place::Background && !has_service(a)
 }
 
 /// Where a new review on `a` starts, as `[reviews] start` says; none when `a` can't start one
@@ -2400,21 +2384,19 @@ fn keep_files(pr: &PrItem, head: &str, md: &str, diff: &str, changes: Option<&st
 /// and `effort` (none for the account's own), which a resume would otherwise set back to the
 /// account's. The
 /// session the turn is in, which a background job's copy changes, or where to look for it
-/// (`Pending`) when that isn't said, and whether going on opened a terminal behind your windows
-/// (`opens_terminal_behind`).
+/// (`Pending`) when that isn't said.
 #[allow(clippy::too_many_arguments)]
-fn hand(engine: &Handle, board: &Board, cfg: &Config, pr: &PrItem, key: &str, model: Option<&str>, effort: Option<&str>, text: String) -> Result<(Option<String>, Option<Pending>, bool), String> {
+fn hand(engine: &Handle, board: &Board, cfg: &Config, pr: &PrItem, key: &str, model: Option<&str>, effort: Option<&str>, text: String) -> Result<(Option<String>, Option<Pending>), String> {
     let Some((lane, s)) = board.session(key) else { return Err("its session is gone".into()) };
     if s.live {
         crate::send::tell(engine, key, &text).map_err(|e| format!("its session couldn't be sent it: {e:#}"))?;
         // A review you were talking to is the PR's again: what this round says is Codealong's to
         // post. Not before the round goes, as one that fails leaves it yours.
         engine.talking(key, false);
-        return Ok((Some(key.to_string()), None, false));
+        return Ok((Some(key.to_string()), None));
     }
     let start = cfg.reviews.start;
-    let account = cfg.accounts.iter().find(|a| a.name == s.account);
-    let place = account.and_then(|a| first_of(start, has_service(a), &crate::start::resume_places(a, &crate::util::home())));
+    let place = cfg.accounts.iter().find(|a| a.name == s.account).and_then(|a| first_of(start, has_service(a), &crate::start::resume_places(a, &crate::util::home())));
     let Some(place) = place else { return Err(format!("its session isn't running, and can't go on {}", start_words(start))) };
     let at = now_ms();
     let how = ResumeIn { place, model: model.map(str::to_string), effort: effort.map(str::to_string) };
@@ -2424,7 +2406,7 @@ fn hand(engine: &Handle, board: &Board, cfg: &Config, pr: &PrItem, key: &str, mo
         link(engine, pr, k);
     }
     let pending = r.key.is_none().then(|| Pending { lane: lane.id.clone(), account: s.account.clone(), at });
-    Ok((r.key, pending, account.is_some_and(|a| opens_terminal_behind(a, place))))
+    Ok((r.key, pending))
 }
 
 /// Asks the reviewer for its part in a round: its session for the PR is sent the new commits,
@@ -2443,7 +2425,7 @@ fn ask(engine: &Handle, board: &Board, cfg: &Config, pr: &PrItem, head: &str, si
     if let Some(key) = seat.session.as_deref().filter(|k| board.session(k).is_some() && !(can_switch && session_at_limit(board, &cfg.accounts, k, seat.model.as_deref(), at))) {
         let reviews = board.repo_settings.reviews(&cfg.reviews, pr);
         match hand(engine, board, cfg, pr, key, seat.model.as_deref(), seat.effort.as_deref(), again_prompt(pr, head, since, login, &goes(&reviews, &board.lanes, pr), &instructions_for(&reviews, pr), files)) {
-            Ok((session, pending, opened_terminal)) => return Part { opened_terminal, ..Part::asked(&seat.who, session, pending, at) },
+            Ok((session, pending)) => return Part::asked(&seat.who, session, pending, at),
             // A session that can't go on is replaced by a new one, and one still running but not
             // at work is closed rather than left beside it: one waiting at what its harness asks
             // before it starts takes nothing typed.
@@ -2468,8 +2450,7 @@ fn ask(engine: &Handle, board: &Board, cfg: &Config, pr: &PrItem, head: &str, si
                 link(engine, pr, k);
             }
             let pending = started.key.is_none().then(|| Pending { lane: spec.lane_id.clone(), account: spec.account.clone(), at });
-            let opened_terminal = cfg.accounts.iter().find(|a| a.name == spec.account).is_some_and(|a| opens_terminal_behind(a, spec.place));
-            Part { opened_terminal, ..Part::asked(&seat.who, started.key, pending, at) }
+            Part::asked(&seat.who, started.key, pending, at)
         }
         Err(e) => Part::failed(&seat.who, e, at),
     }
@@ -2531,9 +2512,8 @@ fn new_start(board: &Board, cfg: &Config, pr: &PrItem, head: &str, since: Option
 
 /// Reads the review a turn wrote after `at`: its session's last message once the turn ended.
 /// No review there, with nothing running the session, is `NoReview`, which the round judges
-/// (`told`). With `close_terminal`, the terminal its round opened behind your windows closes once
-/// it's read (`close_opened_terminal`).
-fn read(engine: &Handle, session: &str, at: i64, close_terminal: bool) -> Went {
+/// (`told`).
+fn read(engine: &Handle, session: &str, at: i64) -> Went {
     let board = engine.board();
     let cfg = match crate::config::current() {
         Ok(c) => c,
@@ -2545,41 +2525,10 @@ fn read(engine: &Handle, session: &str, at: i64, close_terminal: bool) -> Went {
     let Some(review) = reply_after(&page.items, at, s.last_prompt_at) else {
         return without_review(s, now_ms());
     };
-    let went = match skipped(&review) {
-        Some(why) => Went::Skipped(why),
-        None => Went::Read { review, agent: agent_of(s) },
-    };
-    if close_terminal {
-        // The board as it is now: you may have sent it a message while its record was read.
-        close_opened_terminal(&engine.board(), session);
+    if let Some(why) = skipped(&review) {
+        return Went::Skipped(why);
     }
-    went
-}
-
-/// Closes the terminal a review's round opened behind your windows (`Part::opened_terminal`), its
-/// review read: nobody looks at it there, and each round would leave one more open. Its
-/// conversation is kept, and the next round goes on with it behind your windows again (`hand`).
-/// One you've taken up since stays, as does one at work or with a command left running
-/// (`terminal_to_close`).
-fn close_opened_terminal(board: &Board, key: &str) {
-    let Some((_, s)) = board.session(key) else { return };
-    let Some(pid) = terminal_to_close(board, s) else { return };
-    if let Some(Err(e)) = crate::launch::close_session_terminals(&[(pid, std::path::Path::new(&s.cwd))]).pop() {
-        eprintln!("codealong: the terminal of the review “{}” stays open: {e:#}", s.title);
-    }
-}
-
-/// The process whose terminal `close_opened_terminal` closes: a review that's still a helper and
-/// not yours (`Helper::yours`; one made your own is no helper at all), alone in a terminal that
-/// Mark as done would close without ending anything under way (`idle::ending`).
-fn terminal_to_close(board: &Board, s: &Session) -> Option<u32> {
-    if !s.helper.as_ref().is_some_and(|h| !h.yours) {
-        return None;
-    }
-    match crate::idle::ending(board, s, false) {
-        Ok(crate::idle::Ending::Terminal(pid)) => Some(pid),
-        _ => None,
-    }
+    Went::Read { review, agent: agent_of(s) }
 }
 
 /// What a turn that ended with no review after it comes to at `now`: one whose session still runs
@@ -2607,7 +2556,7 @@ fn carry_on(engine: &Handle, pr: &PrItem, session: &str, model: Option<&str>, ef
     // Before it goes: the turn it starts may be cut off again before this is told how it went.
     let at = now_ms();
     match hand(engine, &board, &cfg, pr, session, model, effort, crate::start::CARRY_ON.to_string()) {
-        Ok((session, pending, opened_terminal)) => Went::CarriedOn { session, pending, at, opened_terminal },
+        Ok((session, pending)) => Went::CarriedOn { session, pending, at },
         Err(e) => Went::Failed(format!("Its turn was cut off partway, and {e}.")),
     }
 }
@@ -3033,7 +2982,7 @@ pub fn send_now(engine: &Handle, reviewer: &Mutex<Reviewer>, key: &str) -> Resul
 pub fn run(engine: &Handle, reviewer: &Mutex<Reviewer>, job: Job) {
     let went = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match &job {
         Job::Review { pr, head, since, seat, by_hand } => review(engine, pr, head, since.as_deref(), seat, *by_hand),
-        Job::Read { session, at, close_terminal, .. } => read(engine, session, *at, *close_terminal),
+        Job::Read { session, at, .. } => read(engine, session, *at),
         Job::CarryOn { pr, session, model, effort, .. } => carry_on(engine, pr, session, model.as_deref(), effort.as_deref()),
         Job::Post { pr, head, review, agent, round, by_hand } => post(engine, pr, head, review, agent, *round, *by_hand),
         Job::Send { .. } => send(engine, &job, false),
@@ -4316,7 +4265,7 @@ mod tests {
         let carried = |r: &mut Reviewer, when: i64, to: &str| {
             let job = r.due(&board(vec![pr(7, HEAD)], vec![cut(when)]), &cfg, when + 1).pop().expect("a carry-on");
             assert_eq!(kinds(std::slice::from_ref(&job)), [format!("carry on 7 part 0 in {S} on Some(\"opus\") at Some(\"high\")")]);
-            r.told(&job, Went::CarriedOn { session: Some(to.into()), pending: None, at: when + 1, opened_terminal: false }, when + 30_000).unwrap();
+            r.told(&job, Went::CarriedOn { session: Some(to.into()), pending: None, at: when + 1 }, when + 30_000).unwrap();
         };
         let mut r = asked();
         carried(&mut r, NOW + 60_000, S);
@@ -4866,72 +4815,6 @@ mod tests {
         // terminal behind your windows, which is where it went on before.
         assert_eq!(first_of(ReviewStart::NoTerminal, false, &[T, Bg, CodexApp, Ca]), Some(Ca));
         assert_eq!(first_of(ReviewStart::NoTerminal, false, &[T, Bg]), None);
-    }
-
-    /// Only Background on a harness with no service of its own opens a terminal behind your
-    /// windows: Claude Code's Background is its service, and Terminal comes forward.
-    #[test]
-    fn a_review_opens_a_terminal_behind_your_windows_only_in_the_background_without_a_service() {
-        let account = |harness: &str| AccountCfg { name: harness.into(), harness: harness.into(), home: format!("/Users/me/.{harness}"), command: Some(harness.into()), start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
-        let (claude, cursor) = (account("claude"), account("cursor"));
-        assert!(opens_terminal_behind(&cursor, Place::Background));
-        assert!(!opens_terminal_behind(&cursor, Place::Terminal), "in front, where you see it");
-        assert!(!opens_terminal_behind(&claude, Place::Background), "Claude Code's background service");
-        assert!(!opens_terminal_behind(&claude, Place::Codealong));
-    }
-
-    /// A review whose round opened its terminal behind your windows is read with that terminal to
-    /// close, and one the round was handed running isn't, as it may be a terminal you opened; a
-    /// carry-on says which again, as it may go on elsewhere.
-    #[test]
-    fn a_review_in_a_terminal_its_round_opened_has_it_closed_once_read() {
-        let done = board(vec![pr(7, HEAD)], vec![session(Status::Unread, NOW + 60_000)]);
-        let asked = |part: Part| {
-            let mut r = Reviewer::default();
-            let jobs = r.due(&board(vec![pr(7, HEAD)], vec![]), &on(), NOW);
-            r.told(&jobs[0], Went::Started(vec![part]), NOW).unwrap();
-            r
-        };
-        let closes = |r: &mut Reviewer, b: &Board, when: i64| match r.due(b, &on(), when).pop() {
-            Some(Job::Read { close_terminal, .. }) => close_terminal,
-            job => panic!("{job:?}"),
-        };
-        assert!(closes(&mut asked(Part { opened_terminal: true, ..started(AUTO, S, NOW) }), &done, NOW + 61_000));
-        assert!(!closes(&mut asked(started(AUTO, S, NOW)), &done, NOW + 61_000), "handed it running");
-
-        let cut = board(vec![pr(7, HEAD)], vec![Session { live: false, cut_off: Some(NOW + 30_000), ..session(Status::Error, NOW + 30_000) }]);
-        for (before, after) in [(false, true), (true, false)] {
-            let mut r = asked(Part { opened_terminal: before, ..started(AUTO, S, NOW) });
-            let job = r.due(&cut, &on(), NOW + 30_001).pop().expect("a carry-on");
-            r.told(&job, Went::CarriedOn { session: Some(S.into()), pending: None, at: NOW + 30_001, opened_terminal: after }, NOW + 30_002).unwrap();
-            assert_eq!(closes(&mut r, &done, NOW + 61_000), after);
-        }
-    }
-
-    /// What's closed is a review alone in its terminal: not one you've taken up or made your own,
-    /// one at work or with a command left running, one sharing its terminal, or one with no
-    /// terminal at all.
-    #[test]
-    fn only_a_review_alone_in_its_terminal_and_not_yours_has_it_closed() {
-        let review = |f: fn(&mut Session)| {
-            let mut s = Session { surface: crate::model::Surface::Cli, pid: Some(42), helper: Some(crate::model::Helper { pr: Some("o/r#7".into()), ..Default::default() }), ..session(Status::Unread, NOW) };
-            f(&mut s);
-            s
-        };
-        let close = |s: Session, others: Vec<Session>| {
-            let b = board(vec![], [vec![s.clone()], others].concat());
-            terminal_to_close(&b, &s)
-        };
-        assert_eq!(close(review(|_| {}), vec![]), Some(42));
-        assert_eq!(close(review(|s| s.helper.as_mut().unwrap().yours = true), vec![]), None, "yours");
-        assert_eq!(close(review(|s| s.helper = None), vec![]), None, "made your own");
-        assert_eq!(close(review(|s| s.status = Status::Working), vec![]), None, "at work");
-        assert_eq!(close(review(|s| s.background = Some("npm test".into())), vec![]), None, "a command left running");
-        assert_eq!(close(review(|s| s.hosted = true), vec![]), None, "run by Codealong");
-        assert_eq!(close(review(|s| s.attach_command = Some("claude attach x".into())), vec![]), None, "a background job");
-        assert_eq!(close(review(|s| s.live = false), vec![]), None, "not running");
-        let beside = Session { pid: Some(42), ..at("opencode:opencode:other", Status::Idle, NOW) };
-        assert_eq!(close(review(|_| {}), vec![beside]), None, "its terminal shows another session");
     }
 
     // ---- Your machines share reviews ----

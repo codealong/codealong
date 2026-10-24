@@ -190,7 +190,8 @@ pub fn options(accounts_in: &[AccountCfg], terminal: &str, codex_projects: Vec<S
                         Place::CodexApp => "Codex app".into(),
                         Place::Codealong => "Codealong".into(),
                     };
-                    PlaceOption { place, label, behind: place == Place::Background && !adapter.runs_in_background() }
+                    let background = place == Place::Background;
+                    PlaceOption { place, label, behind: background && !adapter.runs_in_background(), service: background && adapter.runs_in_background() }
                 })
                 .collect();
             let chosen = a.start.as_deref().and_then(Place::from_word);
@@ -764,8 +765,13 @@ pub fn options_for(cfg: &Config) -> StartOptions {
     let projects = on.iter().flat_map(|a| crate::harness::of(a).map(|h| h.app_projects(a)).unwrap_or_default()).collect();
     let mut out = options(&on, &launch::terminal_name(&cfg.apps.terminal), projects, &home(), |a| crate::harness::of(a).and_then(|h| h.default_model(a)));
     out.auto_group = cfg.routing.auto.trim().to_string();
+    // Where tmux holds what's out of sight, Background opens no tab behind your windows either.
+    let in_tmux = launch::out_of_sight_in_tmux(cfg.apps.tmux);
     for a in &mut out.accounts {
         a.buffer = cfg.routing.buffer;
+        for p in a.places.iter_mut().filter(|_| in_tmux) {
+            p.behind = false;
+        }
     }
     out.groups = cfg
         .routing
@@ -990,7 +996,7 @@ fn make_chat_folder(folder: &Path) -> Result<()> {
 
 /// Opens a new terminal in `cwd` for a start, a resume, a fork or a move, where `[apps]` says
 /// (`launch::session_run`: a tab of the terminal, or tmux shown in it), beside the terminals of
-/// the worktrees near it and named `label`; `behind` your windows for a Background start.
+/// the worktrees near it and named `label`; out of sight for a Background start (`behind`).
 fn in_terminal(board: &Board, cfg: &Config, cwd: &Path, label: Option<&str>, behind: bool, input: &str, env: &[(String, String)]) -> Result<launch::Ran> {
     let near = crate::board::terminal_neighbours(&board.lanes, cwd);
     launch::session_run(&cfg.apps.terminal, cfg.apps.tmux, launch::Placement { new_terminal: cfg.apps.new_terminal, near: &near, behind, label }, cwd, input, env)
@@ -1040,8 +1046,9 @@ pub fn plan_now(cfg: &Config, account: &AccountCfg, place: Place, folder: &Path,
     let (place, instead) = place_now(account, place, &ordered_places(account, &home()).unwrap_or_default(), cfg)?;
     let planned = plan(account, place, folder, prompt, &new_session_id(), model, effort, worktree);
     let mut out = serde_json::to_value(&planned)?;
-    if let Plan::Terminal { .. } = planned {
+    if let Plan::Terminal { behind, .. } = planned {
         out["host"] = match launch::host_for(cfg.apps.tmux) {
+            _ if behind && launch::out_of_sight_in_tmux(cfg.apps.tmux) => "tmux, with no tab".into(),
             Ok(launch::Host::Tmux) => "tmux".into(),
             _ => launch::terminal_name(&cfg.apps.terminal).into(),
         };
@@ -1101,8 +1108,9 @@ fn start_at(board: &Board, cfg: &Config, spec: &StartSpec, lane: &Lane, account:
     let ask = asked(adapter, account, &spec.prompt, &id, model, None, effort, worktree, (&dirs.0, &dirs.1));
     match place {
         Place::Background if adapter.runs_in_background() => adapter.start_in_background(account, folder, &adapter.background_command(account, &ask)),
-        // A harness with no background service of its own starts in its terminal, behind your
-        // windows, so you stay where you are.
+        // A harness with no background service of its own starts out of sight, so you stay where
+        // you are: in tmux with no tab where it can, else in its terminal behind your windows
+        // (`launch::out_of_sight_in_tmux`).
         Place::Terminal | Place::Background => {
             let behind = place == Place::Background;
             let typed = adapter.start_in_terminal(account, &ask);

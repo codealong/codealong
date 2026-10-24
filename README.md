@@ -589,7 +589,7 @@ editor = "cursor"              # or "vscode", "zed", "xcode"… (Settings lists 
 new_terminal = "project"       # a tab beside the same worktree, repo or project; or "tab", "window"
 move_pointer = false           # move the pointer to a terminal brought forward on another screen
 close_command_tabs_after = 10   # minutes after a command Codealong runs in your terminal ends that its tab closes; 0 keeps it (Settings › General)
-tmux = "when-locked"           # sessions Codealong starts run in tmux, shown in your terminal: "always"; "when-locked", only while the screen is locked, when Ghostty can't start one; "never" (Settings › General)
+tmux = "when-locked"           # sessions Codealong starts run in tmux, shown in your terminal: "always"; "when-locked", only while the screen is locked, when Ghostty can't start one; "never" (Settings › General). Either but never, Background starts of agents with no background service run in tmux with no window
 
 [appearance]
 theme = "system"               # follows the system; or "light", "dark"
@@ -651,7 +651,7 @@ model = ""                     # the model it starts on; "" for the account's or
 effort = ""                    # the effort it starts at, with an account named; "" for the account's or group member's own
 other_harness = true           # prefer a harness other than the PR author's (from its session here or Co-Authored-By / Generated with trailers)
 prompt = ""                    # what it's told to do (what to look for, subagents to start); "" for Codealong's own
-start = "no-terminal"          # where its session runs, yours too: "no-terminal" (Claude Code's background service, else Codealong); "codealong"; "background" (a terminal behind your windows where the account has neither); "terminal" (in front, as new_terminal says)
+start = "no-terminal"          # where its session runs, yours too: "no-terminal" (Claude Code's background service, else Codealong); "codealong"; "background" (tmux with no window where the account has neither); "terminal" (in front, as new_terminal says)
 post = "draft"                 # "draft": a draft review of yours to finish; "comment": a comment; "none": stays in the session
 submit = "never"               # submit the agent's verdict as your review once posted: "approve", "approve-or-request-changes", "approve-or-comment"; "request-changes" or "comment" never approve
 

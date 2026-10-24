@@ -918,9 +918,14 @@ pub struct PlaceOption {
     /// The app's name, the way buttons say it: Ghostty, Claude app, Codex app.
     pub label: String,
     /// For `Background`: the account's harness has no background service of its own, so the
-    /// session starts in a terminal opened behind your windows.
+    /// session starts in a terminal opened behind your windows. False where the Mac runs such a
+    /// session in tmux with no tab instead, as Linux does.
     #[serde(default)]
     pub behind: bool,
+    /// For `Background`: it goes under the harness's own background service (Claude Code's).
+    /// Missing from Macs before 2026-10-23.
+    #[serde(default)]
+    pub service: bool,
 }
 
 /// An account as the new-session sheet offers it.

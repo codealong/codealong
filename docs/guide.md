@@ -900,9 +900,8 @@ default (`"no-terminal"`) never opens a terminal: under Claude Code's background
 Codealong through the account's Agent Client Protocol adapter (Codex, OpenCode), so an account that
 can do neither (Antigravity, Cursor) doesn't review. `"codealong"` runs every reviewer in Codealong,
 Claude Code too; `"background"` goes as the account's Background does, which for Antigravity and
-Cursor is a terminal opened behind your windows, closed again once its review is read (unless you
-sent it a message or made it your own meanwhile), its conversation kept for the next round, which
-opens one there again; `"terminal"` opens each in your terminal, a tab
+Cursor is tmux with no window (a terminal behind your windows without tmux, or with Run sessions
+in tmux set to Never); `"terminal"` opens each in your terminal, a tab
 or a window as `[apps] new_terminal` says, which comes forward. When the reviewer is a routing
 group, Settings names its accounts that can't review where reviews run, which the group passes
 over. Reviews of your own PRs and Review with… go there too, in every repo. It
@@ -948,7 +947,12 @@ PR still waits on you, the same session reviews it again once the branch has hel
 minutes, told what changed since and asked what of its findings is fixed (a session that isn't
 running goes on where `[reviews] start` lets it, else a new one starts, and one that still runs
 but can't be handed the new commits, such as one waiting at what its harness asks before it
-starts, is closed). A review whose turn is cut
+starts, is closed). Nobody marks a review's session done, so Codealong does: once its PR is merged
+or closed, it's marked done as Mark as done does (ended where it runs, and archived), and so is one
+whose PR the board no longer lists (a repo whose PRs aren't read hears only of those waiting on your
+review) once it has sat unused six hours; while the PR is open, one that has sat unused six hours
+with no round of the PR under way or due is ended, for the next round to go on with. Neither touches one you've sent a message to or made your
+own, one at work, or one waiting on you. A review whose turn is cut
 off partway (see *Cut off*: Codealong restarting cuts off the reviews it runs) is told to carry on
 the same way, four times at most before its round is given up on; one you stop ends its round
 without a review. One whose turn stops on an error its harness recorded (Cursor's agent giving up
@@ -1437,7 +1441,7 @@ the worktree picked (found by typing its name, branch, repo or project), else in
 routing group or an account with its model and effort (the menu the reviewers' box has), picked
 again at each run, so a round-robin or alternate-harness group spreads the runs over its accounts;
 and where you pick, by default out of sight (Claude Code's background service, else in Codealong,
-else a terminal behind your windows). A run sent to a session goes at once when it's free; when
+else in tmux with no window). A run sent to a session goes at once when it's free; when
 it's at work or waits on you, once its turn ends, several runs' worth in one message; one that
 isn't running goes on out of sight with it, as a PR's news resumes one.
 
@@ -2047,7 +2051,7 @@ A session that isn't running is resumed with the prompt where the foot's left sa
 chip beside Send: its menu has the account's models and effort, as the start menu has them, and
 under them a *Runs in* row of the places its account starts sessions in that its harness can go on
 in (each saying what it is on hover): a terminal, the background (Claude Code's background
-service, else a terminal behind your windows), its app, or Codealong, which runs it from then on.
+service, else tmux with no window), its app, or Codealong, which runs it from then on.
 Picking a model leaves only the places that take one, and a place whose app picks the model leaves
 none to pick. It goes on where the account's last one did, else in a
 terminal; Resume in, in its right-click menu, has the same places, to go on without a prompt. One
@@ -2118,8 +2122,11 @@ Claude Code's trust prompt does (the prompt's default answer quits, and `--bg` r
 hasn't trusted). Background starts it the same way under Claude Code's background service (`claude
 --bg`), with no terminal: it shows on the board like any other, takes prompts from Codealong, and
 Attach opens a terminal on it when you want one. The other agents have no background service of
-their own, so for them Background opens the terminal behind your windows instead (nothing is asked
-to come forward, so you stay where you are). The Claude app opens a new session with the prompt
+their own, so for them Background runs their terminal UI in Codealong's tmux server with no window
+at all: it shows on the board, takes your replies and keys from Codealong, and Show in opens a tab
+of your terminal on it (closing that tab leaves it running there; Close or Mark as done ends it). Without tmux, or
+with Run sessions in tmux set to Never, it opens in a terminal behind your windows instead (nothing
+is asked to come forward, so you stay where you are). The Claude app opens a new session with the prompt
 filled in, and you send it there (its own model and worktree choices included). The Codex app runs
 the new thread on your prompt: Codealong makes the thread, opens it in the app and has the app send
 the prompt, on the model and effort you picked, else the account's own; without a prompt it opens
@@ -2174,15 +2181,20 @@ nor an unlocked screen.
 - **While locked** (the default): sessions open in your terminal as before. While the screen is
   locked, Ghostty can't start a terminal (iTerm2 and Terminal are taken to be the same), so a
   start, a resume, a fork, a move or a command Codealong runs for you goes to tmux, and its tab
-  opens in your terminal once you unlock: in front, or behind your windows for a Background
-  start. tmux keeps what waits for a tab, so it opens even when Codealong restarted meanwhile, or
-  was closed while `codealong start` started it. One that ended meanwhile, or that Show in opened
-  already, gets none.
+  opens in your terminal, in front, once you unlock. tmux keeps what waits for a tab, so it opens
+  even when Codealong restarted meanwhile, or was closed while `codealong start` started it. One
+  that ended meanwhile, or that Show in opened already, gets none.
 - **Always**: every one of those runs in tmux, shown in a tab of your terminal (once you unlock,
   while the screen is locked).
-- **Never**: sessions open in your terminal only. While the screen is locked a start goes where no
-  window is needed instead, saying why: Claude Code's background service, else Codealong itself,
-  where the account can start there. Otherwise it can't start until you unlock.
+- **Never**: sessions open in your terminal only, a Background start too, behind your windows.
+  While the screen is locked a start goes where no window is needed instead, saying why: Claude
+  Code's background service, else Codealong itself, where the account can start there. Otherwise
+  it can't start until you unlock.
+
+Either way but Never, a Background start of an agent with no background service of its own
+(Antigravity, Cursor, Codex in a terminal) runs in tmux with no tab at all, locked or not, until
+Show in opens one: nothing watches it, and a tab behind your windows would stay there once it's
+done.
 
 tmux has to be installed (`brew install tmux`); without it, While locked works as Never does.
 Sessions you start yourself in a terminal stay where they are. On Linux every terminal is a tmux
@@ -2773,7 +2785,7 @@ A session can message another with `codealong session send` even once that one h
 Claude Code's background service ends a job left idle at its prompt for an hour, so the session
 that asked for some work often isn't running by the time it's done, and one coordinating others
 finds them stopped when it has more for them. Codealong resumes the stopped one out of sight (Claude
-Code's background service, else in Codealong or a terminal behind your windows) on the account's
+Code's background service, else in Codealong or in tmux with no window) on the account's
 own model, with the message. The message starts with a line saying the session had stopped and was
 resumed for another session's message, then with the sending agent's, so it's read as neither yours
 nor leave to do what you haven't allowed; the sender is told it wasn't running and was resumed.
@@ -2843,7 +2855,7 @@ send that doesn't go is tried again a few times, then said in a notice.
 A start in a terminal whose harness names its own sessions (Codex, OpenCode, Antigravity) has no
 session until its terminal UI makes one, and the UI can first stop on a screen of its own (Codex's
 question about its background server) that Codealong can't read or answer, in a terminal that may
-be behind your windows. Codex's terminal UI as Codealong opens it (a start, a resume, a fork) never
+be out of sight. Codex's terminal UI as Codealong opens it (a start, a resume, a fork) never
 offers an update; Codex you run yourself still does. When one started with a prompt, by you or by an
 agent, has made no session three minutes on, a notice says where (*Codex hasn't started in …*)
 until its session shows, and a helper started with `--report` is told of to its session once, so

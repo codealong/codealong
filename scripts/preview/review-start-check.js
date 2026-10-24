@@ -1,9 +1,10 @@
 // Checks Where reviews run in Settings › Automation (config.rs `ReviewStart`, review.ts
 // `reviewsRunIn`), with reviews on and Cursor named as the reviewer of your own pull requests
 // (settings-review-start-init.js). A file without it reads as never in a terminal, so Cursor,
-// whose Background is a terminal behind your windows, is said not to be able to start one. Picking
-// where saves `[reviews] start`, and the line under the reviewer follows: Background puts Cursor in
-// a terminal behind your windows, your terminal in the terminal app.
+// whose Background is a terminal of its own, is said not to be able to start one. Picking where
+// saves `[reviews] start`, and the line under the reviewer follows: Background puts Cursor in the
+// background (tmux with no window, where this Mac has tmux; a terminal behind your windows where
+// it doesn't), your terminal in the terminal app.
 //   PREVIEW_INIT=scripts/preview/settings-review-start-init.js PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/review-start-check.js
 (function () {
   var field = function (words) { return all('.ca-settings-pane .ca-field').filter(function (f) { var s = f.querySelector(':scope > span:not(.ca-checkbox)'); return s && words.test(s.textContent); })[0]; };
@@ -41,8 +42,8 @@
       await until(function () { var c = lastSave(); return c && c.reviews.start === 'background'; }, 5000, 'picking Background saved no [reviews] start');
       check('picking where saves [reviews] start', lastSave().reviews.start === 'background', JSON.stringify(lastSave().reviews));
       if (cursor) {
-        await until(function () { return /It runs in a terminal behind your windows\./.test(own()); }, 5000, 'with Background, the line under Cursor says: ' + own());
-        check('with Background, Cursor runs in a terminal behind your windows', true, own());
+        await until(function () { return /It runs (in a terminal behind your windows|in the background)\./.test(own()); }, 5000, 'with Background, the line under Cursor says: ' + own());
+        check('with Background, Cursor runs in the background or a terminal behind your windows', true, own());
       }
       await until(function () { return where() && where().value === 'background'; }, 5000, 'the select went back after the save');
 

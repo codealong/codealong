@@ -88,6 +88,7 @@ mod reconnect;
 mod repos;
 mod rerequest;
 mod reusable;
+mod reviewdone;
 mod send;
 mod route;
 mod routelog;
@@ -2263,6 +2264,9 @@ pub fn run() {
             let _ = engine_slot.set(engine.clone());
             // Schedules (schedules/runner.rs): what's due, every few seconds, for the life of the app.
             schedules::runner::spawn(engine.clone());
+            // Automatic reviews' sessions once they're done with (reviewdone.rs): their PR merged,
+            // closed or gone, or they sat unused. It goes by the clock, so on a thread of its own.
+            reviewdone::spawn(engine.clone());
             // Sessions Codealong runs itself: a turn's start and end recompose the board, and
             // the reply as it streams goes to whichever windows show the session.
             {

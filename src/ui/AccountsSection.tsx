@@ -103,8 +103,8 @@ function defaultsFor(harness: Harness, name: string): { home: string; command: s
  *  Claude and Codex apps each run only the account in the default folder, Codealong runs any
  *  Claude Code, Codex or OpenCode account over its ACP adapter, and Antigravity and Cursor start
  *  in the terminal once their command lines are installed (the engine says when not). Every account
- *  that starts in the terminal can start in the background: Claude Code's own service, or the
- *  terminal behind your windows. */
+ *  that starts in the terminal can start in the background: Claude Code's own service, or tmux
+ *  with no window (a terminal behind your windows without it). */
 export function startPlaces(harness: Harness, home: string): StartPlace[] {
   const main = (dir: string) => new RegExp(`^(~|/Users/[^/]+)/\\.${dir}/?$`).test(home.trim());
   switch (harness) {

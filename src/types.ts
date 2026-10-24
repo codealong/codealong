@@ -937,7 +937,7 @@ export type ReviewPost = 'draft' | 'comment' | 'none';
 
 /** Where a review's session starts (config.rs `ReviewStart`, autoreview.rs `review_places`):
  *  never in a terminal (the harness's background service, else Codealong), in Codealong, as the
- *  account's Background goes (a terminal behind your windows for a harness with neither), or in
+ *  account's Background goes (tmux with no window for a harness with neither), or in
  *  your terminal, in front. */
 export type ReviewStart = 'no-terminal' | 'codealong' | 'background' | 'terminal';
 
@@ -2032,8 +2032,10 @@ export interface StartAccount {
   harness: Harness;
   /** Where this account can start a session, the usual place first: the one `start` names, when set.
    *  `behind`, on Background: its harness has no background service of its own, so the session
-   *  starts in the terminal, behind your windows (missing from Macs before 2026-10-03). */
-  places: { place: StartPlace; label: string; behind?: boolean }[];
+   *  starts in the terminal, behind your windows (missing from Macs before 2026-10-03); false
+   *  where it starts in tmux with no window instead. `service`, on Background: it goes under its
+   *  harness's own background service (missing from Macs before 2026-10-23). */
+  places: { place: StartPlace; label: string; behind?: boolean; service?: boolean }[];
   /** The place its `start` setting names; starts go there rather than where the last one went. */
   chosen: StartPlace | null;
   /** Why there's nowhere, when `places` is empty. */

@@ -1207,13 +1207,15 @@ Options:
 
       --in <PLACE>
           Where its sessions run. Without it, out of sight: Claude Code's background
-          service, else in Codealong, else a terminal behind your windows
+          service, else in Codealong, else in Codealong's tmux with no window (a
+          terminal behind your windows without tmux)
 
           Possible values:
           - terminal
           - background: Nothing comes forward: Claude Code's background service, with no
-            terminal until you attach one; any other agent in a terminal opened behind
-            your windows
+            terminal until you attach one; any other agent in Codealong's tmux with no
+            window until Show in opens one (a terminal opened behind your windows
+            without tmux, or with `[apps] tmux = "never"`)
           - claude-app
           - codex-app
           - codealong:  In Codealong itself, over the account's Agent Client Protocol
@@ -3013,8 +3015,9 @@ Options:
           Possible values:
           - terminal
           - background: Nothing comes forward: Claude Code's background service, with no
-            terminal until you attach one; any other agent in a terminal opened behind
-            your windows
+            terminal until you attach one; any other agent in Codealong's tmux with no
+            window until Show in opens one (a terminal opened behind your windows
+            without tmux, or with `[apps] tmux = "never"`)
           - claude-app
           - codex-app
           - codealong:  In Codealong itself, over the account's Agent Client Protocol
@@ -3037,9 +3040,9 @@ Options:
           lists it under this session, out of their lists and queues, and shows it to
           them only when it needs them (a call to allow, a question, an error). Without
           --in it runs out of sight: Claude Code's background service, else in
-          Codealong, else a terminal behind their windows. `session wait <key>` waits
-          for its turn to end and prints its reply; `session done <key>` once you have
-          what you need from it
+          Codealong, else in Codealong's tmux with no window (a terminal behind their
+          windows without tmux). `session wait <key>` waits for its turn to end and
+          prints its reply; `session done <key>` once you have what you need from it
 
       --report
           With --helper: this session is sent a message when the helper's turn ends, or

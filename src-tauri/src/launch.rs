@@ -330,9 +330,10 @@ fn sweep_launchers(tmp: &Path) {
 }
 
 /// Where a new terminal goes: `[apps] new_terminal`, the folders it belongs beside, nearest
-/// first (`board::terminal_neighbours`), whether it stays behind your windows (a Background
-/// start of a harness with no background service of its own) instead of coming forward, and the
-/// name its tab is given (`board::tab_label`), which a terminal that can't name a tab ignores.
+/// first (`board::terminal_neighbours`), whether it stays out of sight (a Background start of a
+/// harness with no background service of its own: in no tab at all where tmux can hold it,
+/// `out_of_sight_in_tmux`, else behind your windows) instead of coming forward, and the name its
+/// tab is given (`board::tab_label`), which a terminal that can't name a tab ignores.
 #[derive(Debug, Clone, Copy)]
 pub struct Placement<'a> {
     pub new_terminal: NewTerminal,
@@ -412,6 +413,19 @@ fn host_rule(on: Os, use_tmux: TmuxUse, locked: bool, has_tmux: bool) -> std::re
     }
 }
 
+/// Whether a session that's to stay out of sight (a Background start of a harness with no
+/// background service of its own, `Placement::behind`) runs in Codealong's tmux server with no tab
+/// at all, until Show in opens one, rather than in a tab of the terminal app behind your windows:
+/// wherever tmux is installed, unless `[apps] tmux` says never. Nobody watches such a session, and
+/// a tab behind your windows stays there once it's done. Linux's terminal does this already.
+pub fn out_of_sight_in_tmux(use_tmux: TmuxUse) -> bool {
+    out_of_sight_rule(os::current(), use_tmux, tmux::bin().is_some())
+}
+
+fn out_of_sight_rule(on: Os, use_tmux: TmuxUse, has_tmux: bool) -> bool {
+    has_tmux && (on == Os::Linux || use_tmux != TmuxUse::Never)
+}
+
 /// Whether tmux is where Codealong looks for it.
 pub fn tmux_installed() -> bool {
     tmux::bin().is_some()
@@ -444,6 +458,8 @@ pub enum Shown {
     OnUnlock,
     /// When Show in asks, since the terminal didn't open, for this reason.
     Not(String),
+    /// When Show in asks: it's out of sight, in no tab at all (`out_of_sight_in_tmux`).
+    OnAsk,
 }
 
 impl Ran {
@@ -454,6 +470,7 @@ impl Ran {
             Ran::InApp | Ran::InTmux(Shown::Now) => None,
             Ran::InTmux(Shown::OnUnlock) => Some(format!("The screen is locked, so it runs in tmux, and {terminal} shows it once you unlock.")),
             Ran::InTmux(Shown::Not(why)) => Some(format!("It runs in tmux, but {terminal} didn't open it ({why}); Show in opens it.")),
+            Ran::InTmux(Shown::OnAsk) => Some(format!("No window shows it; Show in opens one in {terminal}.")),
         }
     }
 }
@@ -462,8 +479,13 @@ impl Ran {
 /// says: a tab of the terminal app, or a session in Codealong's tmux server with a tab of the
 /// app attached to it, in front or behind your windows as `place` says, which ends it as it
 /// closes, as a tab's own session ends. While the screen is locked the tab opens once it isn't.
-/// A host of Codealong's own would take tmux's place here.
+/// One to stay out of sight runs in tmux with no tab, where tmux can hold it
+/// (`out_of_sight_in_tmux`). A host of Codealong's own would take tmux's place here.
 pub fn session_run(profile: &str, use_tmux: TmuxUse, place: Placement, path: &Path, input: &str, env: &[(String, String)]) -> Result<Ran> {
+    if place.behind && out_of_sight_in_tmux(use_tmux) {
+        tmux::start(path, input, env, place.label)?;
+        return Ok(Ran::InTmux(Shown::OnAsk));
+    }
     let app = opens_in(profile)?;
     match host_for(use_tmux).map_err(|why| anyhow!(why.words(app.name())))? {
         Host::App => terminal_run(profile, place, path, input, env).map(|_| Ran::InApp),
@@ -2189,6 +2211,17 @@ end run
         assert!(Unhosted::Locked { tmux_installed: false }.words("Ghostty").contains("brew install tmux"));
         assert!(Unhosted::Locked { tmux_installed: true }.words("Ghostty").contains("Run sessions in tmux"));
         assert!(Unhosted::NoTmux.words("Ghostty").starts_with("Settings › General says to run sessions in tmux"));
+    }
+
+    /// A session to stay out of sight runs in tmux with no tab wherever tmux is installed, unless
+    /// the setting says never; Linux's terminal is tmux whatever it says.
+    #[test]
+    fn a_session_out_of_sight_runs_in_tmux_with_no_tab_unless_told_never() {
+        use TmuxUse::{Always, Never, WhenLocked};
+        for (use_tmux, has_tmux, want) in [(Always, true, true), (WhenLocked, true, true), (Never, true, false), (WhenLocked, false, false), (Always, false, false)] {
+            assert_eq!(out_of_sight_rule(Os::MacOs, use_tmux, has_tmux), want, "{use_tmux:?}, tmux {has_tmux}");
+            assert_eq!(out_of_sight_rule(Os::Linux, use_tmux, has_tmux), has_tmux);
+        }
     }
 
     #[test]

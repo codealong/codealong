@@ -630,7 +630,7 @@ const REVIEW_POSTS: (Profile & { id: ReviewPost; says: string })[] = [
 const REVIEW_STARTS: (Profile & { id: ReviewStart; says: string; where: string })[] = [
   { id: 'no-terminal', name: 'Never in a terminal', where: 'without a terminal', says: 'Claude Code reviews under its background service, and Codex and OpenCode in Codealong, through their Agent Client Protocol adapters: no window opens, and one running in Codealong stops if Codealong quits. Antigravity and Cursor can do neither, so they don’t review.' },
   { id: 'codealong', name: 'In Codealong', where: 'in Codealong', says: 'Every reviewer runs in Codealong, through its account’s Agent Client Protocol adapter, Claude Code too: no window opens, and a review that’s running stops if Codealong quits.' },
-  { id: 'background', name: 'In the background, as each account starts there', where: 'in the background', says: 'As the quick panel’s Background: Claude Code under its background service, Codex and OpenCode in Codealong, and Antigravity and Cursor in a terminal opened behind your windows.' },
+  { id: 'background', name: 'In the background, as each account starts there', where: 'in the background', says: 'As the quick panel’s Background: Claude Code under its background service, Codex and OpenCode in Codealong, and Antigravity and Cursor in tmux with no window, which Show in opens (a terminal behind your windows without tmux, or with Run sessions in tmux set to Never).' },
   { id: 'terminal', name: 'In your terminal', where: 'in a terminal', says: 'Each review opens in your terminal to watch it in, a tab or a window as New terminals open as says (General), and comes forward when it starts.' },
 ];
 

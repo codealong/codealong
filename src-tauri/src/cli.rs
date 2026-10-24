@@ -1156,7 +1156,7 @@ struct StartArgs {
     /// How hard Claude Code thinks (`claude --effort`); without it, the account's own setting. xhigh is what Claude Code's picker calls Extra.
     #[arg(long, value_parser = clap::builder::PossibleValuesParser::new(start::effort_levels()))]
     effort: Option<String>,
-    /// Start it as a helper of the session running this command: work for that session's agent, not for your user (a review, a check, a second opinion on another account or model). Its finished turns don't wait on your user: the app lists it under this session, out of their lists and queues, and shows it to them only when it needs them (a call to allow, a question, an error). Without --in it runs out of sight: Claude Code's background service, else in Codealong, else a terminal behind their windows. `session wait <key>` waits for its turn to end and prints its reply; `session done <key>` once you have what you need from it.
+    /// Start it as a helper of the session running this command: work for that session's agent, not for your user (a review, a check, a second opinion on another account or model). Its finished turns don't wait on your user: the app lists it under this session, out of their lists and queues, and shows it to them only when it needs them (a call to allow, a question, an error). Without --in it runs out of sight: Claude Code's background service, else in Codealong, else in Codealong's tmux with no window (a terminal behind their windows without tmux). `session wait <key>` waits for its turn to end and prints its reply; `session done <key>` once you have what you need from it.
     #[arg(long, conflicts_with_all = ["todo", "take"])]
     helper: bool,
     /// With --helper: this session is sent a message when the helper's turn ends, or when it waits on your user, saying so and how to read its reply (`session wait <key>`), so you can end your turn meanwhile. It's sent while this session runs and isn't itself waiting on your user. Without it, wait for the helper with `session wait`.
@@ -1253,7 +1253,7 @@ struct ScheduleAddArgs {
     /// How hard Claude Code thinks.
     #[arg(long, value_parser = clap::builder::PossibleValuesParser::new(start::effort_levels()))]
     effort: Option<String>,
-    /// Where its sessions run. Without it, out of sight: Claude Code's background service, else in Codealong, else a terminal behind your windows.
+    /// Where its sessions run. Without it, out of sight: Claude Code's background service, else in Codealong, else in Codealong's tmux with no window (a terminal behind your windows without tmux).
     #[arg(long = "in", value_enum)]
     place: Option<PlaceArg>,
     /// Only when this command, run first in its worktree, succeeds and prints something; what it printed goes to the session with the rest.
@@ -1322,7 +1322,7 @@ enum ScheduleEventArg {
 #[derive(ValueEnum, Clone, Copy, Debug, PartialEq)]
 enum PlaceArg {
     Terminal,
-    /// Nothing comes forward: Claude Code's background service, with no terminal until you attach one; any other agent in a terminal opened behind your windows.
+    /// Nothing comes forward: Claude Code's background service, with no terminal until you attach one; any other agent in Codealong's tmux with no window until Show in opens one (a terminal opened behind your windows without tmux, or with `[apps] tmux = "never"`).
     Background,
     ClaudeApp,
     CodexApp,

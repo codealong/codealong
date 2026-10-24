@@ -30,12 +30,13 @@ export function reviewPlaces(start: ReviewStart, service: boolean): StartPlace[]
 
 /** Where an account's reviews would run, as autoreview.rs `review_place` picks for `[reviews]
  *  start`: never in a terminal by default, under its harness's background service, else in
- *  Codealong. Null for an account that can't start one there, which doesn't review. A Background
- *  that's a terminal behind your windows says so (`behind`), which is also how a harness without
- *  a service shows: where Background isn't offered, which it lacks makes no difference. */
+ *  Codealong. Null for an account that can't start one there, which doesn't review. Background
+ *  says whether it's under the harness's own service (`service`; a Mac before 2026-10-23 says only
+ *  `behind`, which one with a service never is) and whether it's a terminal behind your windows;
+ *  where Background isn't offered, which it lacks makes no difference. */
 export function reviewsRunIn(a: StartAccount, start: ReviewStart = 'no-terminal'): string | null {
   const background = a.places.find((p) => p.place === 'background');
-  for (const place of reviewPlaces(start, !!background && !background.behind)) {
+  for (const place of reviewPlaces(start, !!background && (background.service ?? !background.behind))) {
     const offered = a.places.find((p) => p.place === place);
     if (!offered) continue;
     if (place === 'codealong') return 'in Codealong';
