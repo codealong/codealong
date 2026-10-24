@@ -60,7 +60,12 @@ pub fn terminals(processes: &[crate::procs::PsLine]) -> Vec<Terminal> {
         .iter()
         .filter_map(|p| {
             let (thread, dir) = terminal_args(&p.command)?;
-            let cwd = dir.or_else(|| crate::procs::cwd_of(p.pid))?;
+            // A relative `-C` is from the folder it was run in.
+            let cwd = match dir {
+                Some(d) if d.is_relative() => crate::procs::cwd_of(p.pid)?.join(d),
+                Some(d) => d,
+                None => crate::procs::cwd_of(p.pid)?,
+            };
             let cwd = std::fs::canonicalize(&cwd).unwrap_or(cwd);
             Some(Terminal { pid: p.pid, cwd, thread, started_at: crate::procs::proc_start_ms(p.pid)?, own_features: own_features(&p.command) })
         })
@@ -78,6 +83,10 @@ pub fn terminal_args(command: &str) -> Option<(Option<String>, Option<PathBuf>)>
     }
     let mut dir = None;
     while let Some(w) = words.next() {
+        if let Some(d) = attached_dir(w) {
+            dir = Some(crate::util::expand(d));
+            continue;
+        }
         match w {
             "-C" | "--cd" => dir = words.next().map(crate::util::expand),
             "-c" | "--config" | "--enable" | "--disable" | "--remote" | "--remote-auth-token-env" | "-m" | "--model" | "--local-provider" | "-p" | "--profile" | "-s" | "--sandbox" | "--add-dir" | "-a" | "--ask-for-approval" => {
@@ -95,7 +104,7 @@ pub fn terminal_args(command: &str) -> Option<(Option<String>, Option<PathBuf>)>
                 let rest: Vec<&str> = words.collect();
                 let id = rest.iter().find(|a| looks_like_uuid(a)).map(|a| a.to_string());
                 let id = if w == "resume" { id } else { None };
-                let dir = dir.or_else(|| rest.windows(2).find(|p| p[0] == "-C" || p[0] == "--cd").map(|p| crate::util::expand(p[1])));
+                let dir = dir.or_else(|| rest.iter().enumerate().find_map(|(i, w)| attached_dir(w).or_else(|| matches!(*w, "-C" | "--cd").then(|| rest.get(i + 1).copied()).flatten())).map(crate::util::expand));
                 return Some((id, dir));
             }
             "exec" | "e" | "review" | "login" | "logout" | "mcp" | "plugin" | "app-server" | "remote-control" | "app" | "completion" | "update" | "doctor" | "sandbox" | "debug" | "apply" | "a" | "queue" | "archive" | "delete" | "migrate-rollouts" | "unarchive" | "cloud" | "exec-server" | "features" | "help" | "agents" | "mcp-server" | "proto" | "responses-api-proxy" => return None,
@@ -113,6 +122,11 @@ pub fn terminal_args(command: &str) -> Option<(Option<String>, Option<PathBuf>)>
 /// switched here.
 pub fn own_features(command: &str) -> bool {
     command.split_whitespace().any(|w| (w.starts_with("-p") && !w.starts_with("--")) || w.contains("profile") || w.contains("guardian_approval"))
+}
+
+/// The folder in a `-C` written as one word: `--cd=<dir>`, `-C<dir>`, `-C=<dir>`.
+fn attached_dir(w: &str) -> Option<&str> {
+    w.strip_prefix("--cd=").or_else(|| w.strip_prefix("-C").filter(|d| !d.is_empty()).map(|d| d.strip_prefix('=').unwrap_or(d)))
 }
 
 fn looks_like_uuid(s: &str) -> bool {
@@ -196,6 +210,11 @@ mod tests {
         assert_eq!(terminal_args("codex -m gpt-5 -C /r/spur -i /a.png /b.png -- fix it"), Some((None, Some(PathBuf::from("/r/spur")))));
         assert_eq!(terminal_args(&format!("codex resume {id} carry on")), Some((Some(id.into()), None)));
         assert_eq!(terminal_args("codex resume --last"), Some((None, None)));
+        // A folder written as one word, before `resume` or after it.
+        assert_eq!(terminal_args("codex --cd=/r/atlas"), Some((None, Some(PathBuf::from("/r/atlas")))));
+        assert_eq!(terminal_args("codex -C/r/atlas"), Some((None, Some(PathBuf::from("/r/atlas")))));
+        assert_eq!(terminal_args(&format!("codex resume {id} --cd=atlas")), Some((Some(id.into()), Some(PathBuf::from("atlas")))));
+        assert_eq!(terminal_args(&format!("codex resume {id} -C atlas")), Some((Some(id.into()), Some(PathBuf::from("atlas")))));
         assert_eq!(terminal_args("codex resume the work"), Some((None, None)));
         assert_eq!(terminal_args("codex exec fix it"), None);
         assert_eq!(terminal_args("/Users/me/.codex/packages/app-server-daemon/releases/0.157.1/bin/codex app-server --listen unix://"), None);
