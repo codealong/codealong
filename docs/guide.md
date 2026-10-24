@@ -677,7 +677,19 @@ instead): a session Codealong runs is answered through its agent, and calls it a
 `PermissionRequest` hook when the account has the plugin (wherever the session runs: any terminal,
 the Claude app), with Always too where Claude Code offers to allow calls like it from now on (its
 button says what that adds), and otherwise by a keypress in its Ghostty, iTerm2 or tmux tab, only
-while its own record says the prompt is up for that call. An Antigravity command line conversation
+while its own record says the prompt is up for that call. A Codex session's approval comes the
+moment Codex asks it, through a hook Codealong puts in the account with its skill (Settings ›
+Agents): the command or the edit, with the reason the agent gave, and in its Ghostty, iTerm2 or
+tmux tab Allow presses `y` (Yes, proceed) and Deny presses Escape (No, and tell Codex what to do
+differently, which stops its turn); its other choices, for that command from now on or for the
+session, are left to its terminal, as are a tool's of an MCP server and a request for more
+permissions, which Codex asks in prompts of their own, and the Codex app's, which it asks in its
+own window. While the session's mode is Approve for me, Codex's reviewer agent answers instead,
+and the session isn't waiting on you. One allowed in its terminal can still show as waiting for
+the few seconds Codex takes to hand the command's output back. Codex reads hooks as a session
+starts, so one already running has none until it starts again, and for those, and an account
+without the hook, a call Codex has left without its result for minutes is taken as an approval
+it waits on ("Waiting for approval?"). An Antigravity command line conversation
 in a terminal is answered the same way, by a keypress there while its database says the call
 waits: Allow is its prompt's first choice (run the command, read the file) and Deny cancels the
 prompt, which ends its turn; its other choices (always, for the conversation or in its settings)
@@ -3240,7 +3252,9 @@ Settings › Agents installs the command (a symlink on PATH), the Codealong plug
 Code account (the skill, the command for its Bash tool, and the hooks that let you answer its
 permission prompts and questions from Codealong), and the skill in every other account's skills
 folder (`~/.codex/skills`, `~/.config/opencode/skills`, `~/.gemini/config/skills`,
-`~/.cursor/skills`), and keeps them
+`~/.cursor/skills`), with a hook in a Codex account's `hooks.json` that hands Codealong its
+approvals as Codex asks them (trusted for you as Codex's own review of a new hook would, so no
+terminal stops to ask; one Codex won't trust is taken out again), and keeps them
 current; `codealong install` does the same from a terminal. Settings › Agents is where each
 account's plugin or skill shows. `codealong` alone opens the app as the Dock does: macOS opens a
 new copy, which takes over from the one running, with the environment it gives an app rather than

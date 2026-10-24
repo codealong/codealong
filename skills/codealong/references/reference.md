@@ -84,7 +84,9 @@ Commands:
   install    Put the command on PATH, Codealong's plugin in each Claude Code account
              (the skill, the command for its Bash tool, and the hooks that let Codealong
              answer its permission prompts and questions) and the skill in each other
-             account's skills folder, and the adapters Codealong runs sessions through
+             account's skills folder (with a hook in a Codex account that hands
+             Codealong its approval prompts), and the adapters Codealong runs sessions
+             through
   devices    Your other devices (Settings › Devices): this device, the devices it's
              linked with, your devices on your tailnet that could be, and devices asking
              to link. Linking is how devices see each other's sessions; needs the app
@@ -3150,8 +3152,9 @@ Options:
 ```
 Put the command on PATH, Codealong's plugin in each Claude Code account (the skill, the
 command for its Bash tool, and the hooks that let Codealong answer its permission
-prompts and questions) and the skill in each other account's skills folder, and the
-adapters Codealong runs sessions through
+prompts and questions) and the skill in each other account's skills folder (with a hook
+in a Codex account that hands Codealong its approval prompts), and the adapters
+Codealong runs sessions through
 
 Usage: codealong install [OPTIONS]
 

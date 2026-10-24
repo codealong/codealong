@@ -196,6 +196,29 @@ pub fn refresh_installed() {
             }
         }
     }
+    // The prompt hook goes with the skill Codealong put in an account, and is checked each
+    // launch: a new build's command, or a Codex that no longer trusts it.
+    let mut shim = None;
+    for a in cfg.accounts.iter().filter(|a| !a.disabled && skill_dir(a).is_some_and(|d| copy_state(&src, &d).installed)) {
+        if let Err(e) = prompt_hook(a, &mut shim) {
+            eprintln!("Couldn't put the prompt hook in {}: {e:#}", a.home_path().display());
+        }
+    }
+}
+
+/// Puts Codealong's prompt hook in an account whose harness takes one (`Adapter::install_prompt_hook`),
+/// its command the plugin's shim in Codealong's own folder, which finds the app wherever it is
+/// (`plugin/bin/codealong`), staged the first time a harness asks for it.
+fn prompt_hook(a: &AccountCfg, shim: &mut Option<PathBuf>) -> Result<()> {
+    let Some(harness) = crate::harness::of(a).filter(|h| !h.installs_plugin()) else { return Ok(()) };
+    let mut codealong = || -> Result<PathBuf> {
+        if shim.is_none() {
+            stage_marketplace()?;
+            *shim = Some(marketplace_dir().join("plugin/bin/codealong"));
+        }
+        Ok(shim.clone().unwrap_or_default())
+    };
+    harness.install_prompt_hook(a, &mut codealong).map(|_| ())
 }
 
 /// Where copies Codealong made can be: each account's skills folder, and the `skills` folder
@@ -806,6 +829,7 @@ pub fn run(ask: &Ask) -> Done {
         }
     };
     let source = skill_source();
+    let mut shim = None;
     for name in &ask.accounts {
         let Some(a) = cfg.accounts.iter().find(|a| &a.name == name) else {
             done.errors.push(format!("There's no account named {name}."));
@@ -831,7 +855,13 @@ pub fn run(ask: &Ask) -> Done {
         }
         match copy_skill(src, &dir) {
             Ok(()) => done.accounts.push(a.name.clone()),
-            Err(e) => done.errors.push(format!("{}: {e:#}", a.name)),
+            Err(e) => {
+                done.errors.push(format!("{}: {e:#}", a.name));
+                continue;
+            }
+        }
+        if let Err(e) = prompt_hook(a, &mut shim) {
+            done.errors.push(format!("{}: its permission prompts won't come to Codealong: {e:#}", a.name));
         }
     }
     done

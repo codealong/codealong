@@ -178,6 +178,16 @@ each batch of a reply as the terminal shows it, which `claude/live.rs` keeps unt
 the message. Changing the setting brings the plugin up to date in every account that has
 Codealong's copy (`install::follow_live_replies`).
 
+A Codex account gets the skill copy and, beside it, a `PermissionRequest` hook of Codealong's in
+its `hooks.json` (`codex/hook.rs`), which runs the hidden `codealong session hook
+codex-permission-request` through the staged plugin's `bin/codealong` shim. Codex runs it as a
+call needs approving, before its own prompt, and it writes the request down as a note in
+`~/Library/Application Support/Codealong/codex-asks` and returns at once with nothing printed,
+so Codex asks as it always does; the reader takes a note as the prompt that's up while its turn
+is open and its call has no result (`codex/asks.rs`). Codex runs only hooks you've trusted, so
+the hook is trusted as it goes in, through Codex's own app-server as its terminal UI's review
+does it (`appserver::trust_hook`), and taken out again where that fails.
+
 The command talks to the running app over `codealong.sock` next to the config (JSON lines, one
 request and reply per line, mode 0600), and the app answers with the board its windows have and
 applies todo changes through its engine, so nothing writes over anything. Without the app, todo

@@ -247,6 +247,15 @@ pub trait Adapter: Sync {
         false
     }
 
+    /// Puts Codealong's hook in an account, which hands it the account's permission prompts as
+    /// they come up, where its harness runs such hooks and Codealong doesn't go in as a plugin
+    /// (Codex's `PermissionRequest`, codex/hook.rs), or brings it up to date; `codealong` gives
+    /// the command it runs, made ready as it's asked. Whether it changed anything; false where
+    /// there's no such hook.
+    fn install_prompt_hook(&self, _account: &AccountCfg, _codealong: &mut dyn FnMut() -> Result<PathBuf>) -> Result<bool> {
+        Ok(false)
+    }
+
     /// What the session waits on you to allow, if anything. Only asked of sessions that need you.
     fn pending(&self, _ctx: &Ctx, _session: &Session) -> Option<Pending> {
         None

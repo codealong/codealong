@@ -102,6 +102,41 @@ impl Server {
     }
 }
 
+/// Has Codex trust the hook in `file` that runs `command`, as its terminal UI's own review of a
+/// new hook does it (0.162.1's `tui/src/hooks_rpc.rs`): the hook's key and hash from `hooks/list`,
+/// the hash written under config.toml's `hooks.state` (`config/batchWrite`), and the list asked
+/// again to see it taken. Whether it had to be trusted. Checked 2026-10-24 on a scratch
+/// project's hook, which 0.162.1 and the app's 0.163.0-alpha then both listed as trusted.
+pub fn trust_hook(codex_home: &Path, file: &Path, command: &str) -> Result<bool> {
+    // Codex names it by its path with links resolved (`/private/var` for `/var`).
+    let file = &std::fs::canonicalize(file).unwrap_or_else(|_| file.to_path_buf());
+    with_server(codex_home, |s| {
+        let listed = || -> Result<Value> {
+            let all = s.request("hooks/list", json!({ "cwds": [codex_home] }))?;
+            all["data"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .flat_map(|cwd| cwd["hooks"].as_array().into_iter().flatten())
+                .find(|h| h["command"].as_str() == Some(command) && h["sourcePath"].as_str().map(Path::new) == Some(file))
+                .cloned()
+                .ok_or_else(|| anyhow!("Codex doesn't list Codealong's hook in {}.", file.display()))
+        };
+        let hook = listed()?;
+        if matches!(hook["trustStatus"].as_str(), Some("trusted" | "managed")) {
+            return Ok(false);
+        }
+        let (Some(key), Some(hash)) = (hook["key"].as_str(), hook["currentHash"].as_str()) else {
+            bail!("Codex listed Codealong's hook without its key and hash.");
+        };
+        s.request("config/batchWrite", json!({ "edits": [{ "keyPath": "hooks.state", "value": { key: { "trusted_hash": hash } }, "mergeStrategy": "upsert" }], "reloadUserConfig": true }))?;
+        match listed()?["trustStatus"].as_str() {
+            Some("trusted") => Ok(true),
+            other => bail!("Codex still lists Codealong's hook as {}.", other.unwrap_or("untrusted")),
+        }
+    })
+}
+
 /// Whether Codex has managed requirements for the account (`configRequirements/read`: a
 /// workspace's from its backend, an MDM profile's, `/etc/codex`'s), which can take entries out of
 /// what `/permissions` lists. It answered `requirements: null` with none (2026-10-24).

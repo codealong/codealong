@@ -130,7 +130,7 @@ enum Cmd {
         #[command(subcommand)]
         cmd: ConfigCmd,
     },
-    /// Put the command on PATH, Codealong's plugin in each Claude Code account (the skill, the command for its Bash tool, and the hooks that let Codealong answer its permission prompts and questions) and the skill in each other account's skills folder, and the adapters Codealong runs sessions through.
+    /// Put the command on PATH, Codealong's plugin in each Claude Code account (the skill, the command for its Bash tool, and the hooks that let Codealong answer its permission prompts and questions) and the skill in each other account's skills folder (with a hook in a Codex account that hands Codealong its approval prompts), and the adapters Codealong runs sessions through.
     Install(InstallArgs),
     /// Your other devices (Settings › Devices): this device, the devices it's linked with, your devices on your tailnet that could be, and devices asking to link. Linking is how devices see each other's sessions; needs the app running and Devices on.
     Devices {
@@ -625,7 +625,8 @@ enum SessionCmd {
     /// hands Claude Code's permission request to the app, to be answered from Codealong as well
     /// as the prompt, and prints the answer for Claude Code. It prints nothing, and exits 0,
     /// when the app isn't running or nobody answers there. `message-display` hands the app a
-    /// batch of a reply as Claude Code shows it, and prints nothing.
+    /// batch of a reply as Claude Code shows it, and prints nothing. `codex-permission-request`
+    /// notes Codex's approval request for the app, and prints nothing.
     #[command(hide = true)]
     Hook { event: String },
 }
@@ -4703,10 +4704,11 @@ fn runs_command(call: &str, args: &[String]) -> bool {
 }
 
 /// A hook of the Codealong plugin's (plugin/hooks/hooks.json, and the `MessageDisplay` hook
-/// install.rs adds there). Whatever goes wrong it prints nothing, so Claude Code's own prompt
-/// stays the way to answer.
+/// install.rs adds there), or the one Codealong puts in a Codex account
+/// (`codex-permission-request`, codex/hook.rs). Whatever goes wrong it prints nothing, so the
+/// harness's own prompt stays the way to answer.
 fn session_hook(event: &str) {
-    if event != "permission-request" && event != "message-display" {
+    if !matches!(event, "permission-request" | "message-display" | "codex-permission-request") {
         return;
     }
     let mut input = String::new();
@@ -4714,6 +4716,11 @@ fn session_hook(event: &str) {
         return;
     }
     let Ok(hook) = serde_json::from_str::<Value>(&input) else { return };
+    // Noted for the app to read, whether it's up or not; Codex asks as it would anyway.
+    if event == "codex-permission-request" {
+        crate::codex::note_permission_request(&hook);
+        return;
+    }
     // The session's account folder, from the environment Claude Code gives its hooks.
     let home = std::env::var_os("CLAUDE_CONFIG_DIR").map(std::path::PathBuf::from).unwrap_or_else(|| crate::util::home().join(".claude"));
     // A reply's batch goes to the app as it is: the hook runs without Claude Code waiting on it,

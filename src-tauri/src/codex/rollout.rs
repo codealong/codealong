@@ -20,6 +20,8 @@ pub struct ThreadInfo {
     pub last_ts: i64,
     /// A turn started and hasn't completed or been aborted.
     pub turn_open: bool,
+    /// Its latest turn's id (`task_started`'s `turn_id`), which an approval names (asks.rs).
+    pub turn_id: Option<String>,
     /// A recorded provider content-policy error or refusal, kept across later turns.
     pub flagged: bool,
     pub turn_started_at: Option<i64>,
@@ -89,6 +91,9 @@ pub struct PendingCall {
     pub what: String,
     /// How long it can go unanswered before it's likely waiting for approval.
     pub limit_ms: i64,
+    /// Its input or arguments as written, its first 4,000 characters: where an approval's
+    /// command is found (asks.rs).
+    pub input: String,
 }
 
 /// A rate-limit report from a `token_count` event.
@@ -851,6 +856,7 @@ fn apply_event(info: &mut ThreadInfo, v: &Value) {
     match kind {
         "task_started" => {
             info.turn_open = true;
+            info.turn_id = payload.get("turn_id").and_then(Value::as_str).map(String::from);
             info.turn_started_at = ts;
             info.pending_approval = None;
             info.interrupted_at = None;
@@ -947,7 +953,8 @@ fn note_call(info: &mut ThreadInfo, p: &Value, at: i64) {
             let name = p.get("name").and_then(Value::as_str).unwrap_or_default();
             let Some(limit_ms) = call_limit_ms(name) else { return };
             info.pending_calls.retain(|c| c.call_id != call_id);
-            info.pending_calls.push(PendingCall { call_id: call_id.to_string(), at, what: call_what(p, name), limit_ms });
+            let input = p.get("input").or_else(|| p.get("arguments")).and_then(Value::as_str).map(|i| i.chars().take(4000).collect()).unwrap_or_default();
+            info.pending_calls.push(PendingCall { call_id: call_id.to_string(), at, what: call_what(p, name), limit_ms, input });
         }
         Some("function_call_output" | "custom_tool_call_output") => info.pending_calls.retain(|c| c.call_id != call_id),
         _ => {}

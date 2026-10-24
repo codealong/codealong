@@ -61,7 +61,21 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
 - Approvals aren't recorded anywhere on disk: not in the rollout, `logs_2.sqlite` or the app's
   logs. A call left without its output past its tool's limit is taken as Needs you:
   `codex/rollout.rs` (`ThreadInfo::pending_calls`, `call_limit_ms`), `board.rs`
-  (`codex_unanswered`).
+  (`codex_unanswered`). Where Codealong's `PermissionRequest` hook is in the account, it says so
+  for sure as Codex asks: what Codex hands a hook (0.162.1), how a note is matched to its call and
+  let go, and the prompt's keys: `codex/asks.rs` (module header, `waiting`), `codex/mod.rs`
+  (`pending`, `answer`). Its hook in `hooks.json` and trusting it: `codex/hook.rs`,
+  `codex/appserver.rs` (`trust_hook`). Not there (0.162.1's code): hooks are stable and on
+  (`features.hooks`), `hooks.json` beside config.toml and config.toml's `[hooks]` are both read,
+  a plugin's `hooks/hooks.json` too, and a hook's key is `<file>:permission_request:<group>:<index>`;
+  the hook runs before the reviewer agent (Approve for me) and before the prompt, and a decision
+  it prints (`hookSpecificOutput.decision.behavior` allow or deny, or exit 2 with words on
+  stderr) skips both; a hook that's still running holds the prompt back, so Codealong's returns
+  at once. Its timeout defaults to 600 s. The prompt's keys are `[tui.keymap]` settings
+  (`approval.approve` `y`, `approve_for_session` `a`, `approve_for_prefix` `p`, `deny` `d`, which
+  goes on without running it, `decline` Escape or `n`, which stops the turn, `cancel` `c`), which
+  Codealong takes as they come. A hook's run left nothing in the TUI's screen when it printed
+  nothing, and the hook's environment had no `CODEX_HOME` for `~/.codex` (in tmux, 2026-10-24).
 - Commands (`CommandExecution`, with the folder the agent chose as a `file://` URL), file edits
   (`FileChange`) and the PRs a thread made: `codex/rollout.rs` (`work_of`, `file_path_of`,
   `pr_made`). Scripts don't `cd`, and many run outside the thread's own folder.

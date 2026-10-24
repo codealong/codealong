@@ -10,6 +10,7 @@
 
 mod applog;
 mod appserver;
+mod asks;
 mod conversation;
 mod mcp;
 pub mod ipc;
@@ -18,6 +19,7 @@ mod queue;
 mod rollout;
 mod side;
 mod terminals;
+mod hook;
 mod training;
 mod trust;
 mod usage;
@@ -40,10 +42,20 @@ use rollout::{app_project_roots, archived_rollout_files, chats_dir, never_shown,
 use side::{last_turn, SideThread};
 use terminals::{codex_cli, held_rollouts, TERMINAL_UI, latest_day, pair_terminals, terminals, Terminal};
 
+pub use appserver::trust_hook;
 pub use conversation::{conversation_items, with_images_before};
 #[cfg(test)]
 pub use rollout::PendingCall;
 pub use rollout::ThreadInfo;
+
+/// What the hook Codealong puts in a Codex account (hook.rs) does with the approval Codex hands
+/// it: notes it for the reader (asks.rs). Nothing is said of a note that couldn't be written: the
+/// hook prints nothing whatever happens, and Codex's own prompt comes up either way.
+pub fn note_permission_request(hook: &Value) {
+    if let Some(note) = asks::from_hook(hook, crate::util::now_ms()) {
+        let _ = asks::write(&asks::dir(), &note);
+    }
+}
 
 /// The Codex app's bundle ID. The ChatGPT chat app has the same name, so the app is known by this.
 pub const APP_BUNDLE_ID: &str = "com.openai.codex";
@@ -260,6 +272,50 @@ impl crate::harness::Adapter for Codex {
             (crate::model::Surface::Cli, None) => false,
             _ => ctx.account.home_path().join("ipc/ipc.sock").exists(),
         }
+    }
+
+    /// The approval Codex's hook handed over that the thread's turn waits on (asks.rs), which its
+    /// terminal UI asks with `y` for Yes and Escape for No (`answer`); the app asks in its own
+    /// window, which Codealong can't answer in.
+    fn pending(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> Option<crate::harness::Pending> {
+        let note = self.waiting_note(ctx, s)?;
+        let cannot = match (s.surface, s.pid) {
+            (crate::model::Surface::Cli, Some(pid)) if note.keyed() && crate::launch::terminal_kind(pid).is_some_and(|t| t.presses_keys()) => None,
+            (crate::model::Surface::Cli, Some(_)) if note.keyed() => Some(format!("Codex asks in its terminal, which Codealong can't press keys in ({}); answer it there.", crate::launch::presses_keys_in())),
+            (crate::model::Surface::Cli, _) => Some("Codex asks this in its terminal; answer it there.".to_string()),
+            _ => Some("Codex asks in its own window; answer it there.".to_string()),
+        };
+        Some(crate::harness::Pending { id: note.id(), label: note.label(), input: Some(note.whole()), cannot, ..Default::default() })
+    }
+
+    /// Its terminal UI's approval prompt, with a key (0.162.1, in tmux, 2026-10-24): `y` is
+    /// "Yes, proceed", and Escape "No, and tell Codex what to do differently", which stops the
+    /// turn. Its other choices (for this command from now on, for the session) aren't offered
+    /// for every request, so they're left to its terminal. Pressed only while the note is still
+    /// the one its turn waits on.
+    fn answer(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, id: &str, answer: crate::harness::Answer) -> anyhow::Result<String> {
+        use crate::harness::Answer;
+        let note = self.waiting_note(ctx, s).filter(|n| n.id() == id).ok_or_else(|| anyhow::anyhow!("Codex isn't asking that any more."))?;
+        let key = match answer {
+            Answer::Allow => crate::launch::Key::Keys("y"),
+            Answer::Deny => crate::launch::Key::Escape,
+            Answer::Always => anyhow::bail!("Codex's prompt is answered here with Allow or Deny only; its other choices are in its terminal."),
+        };
+        let pid = s.pid.filter(|_| s.surface == crate::model::Surface::Cli && note.keyed()).ok_or_else(|| anyhow::anyhow!("Answer it where Codex asks it: Codealong can't from here."))?;
+        let Some(host) = crate::launch::terminal_host(pid, Path::new(&s.cwd))? else {
+            anyhow::bail!("Codex's terminal isn't one Codealong can press keys in ({}): answer it there.", crate::launch::presses_keys_in());
+        };
+        crate::launch::press_key(&host, key)?;
+        asks::done(&note);
+        Ok(match answer {
+            Answer::Deny => format!("Denied {}; it stops and waits for you.", note.what()),
+            _ => format!("Allowed {}.", note.what()),
+        })
+    }
+
+    /// Codex's `PermissionRequest` hook (hook.rs), trusted as Codex trusts one it was asked about.
+    fn install_prompt_hook(&self, account: &crate::config::AccountCfg, codealong: &mut dyn FnMut() -> anyhow::Result<PathBuf>) -> anyhow::Result<bool> {
+        hook::install(&account.home_path(), &codealong()?)
     }
 
     /// Its terminal UI lists the permissions under `/permissions`, numbered, and a number picks
@@ -624,6 +680,9 @@ pub struct Reader {
     /// held for sure: the file's last change as it was first read (when it was read, where there
     /// was none: when it went can't be told), else when a change was seen to turn it.
     approve_for_me: HashMap<String, (bool, i64)>,
+    /// The approvals Codex's hook handed over (asks.rs), and when their folder last changed.
+    notes: Vec<asks::Note>,
+    notes_mark: Option<std::time::SystemTime>,
 }
 
 impl Reader {
@@ -642,6 +701,21 @@ impl Reader {
         let &(offered, since) = self.approve_for_me.get(&account.name)?;
         let (cwd, _) = th.said_cwd.as_ref().filter(|(_, at)| *at >= t.started_at)?;
         (!t.own_features && t.started_at >= since && !others_may_say(Path::new(cwd), &account.home_path(), t.started_at)).then_some(offered)
+    }
+
+    /// Reads the approvals Codex's hook handed over again when their folder changed (a note
+    /// written, or taken away). Whether they're other than before.
+    fn read_notes(&mut self, now: i64) -> bool {
+        let dir = asks::dir();
+        let mark = std::fs::metadata(&dir).and_then(|m| m.modified()).ok();
+        if mark.is_some() && mark == self.notes_mark {
+            return false;
+        }
+        self.notes_mark = mark;
+        let notes = asks::read(&dir, now);
+        let changed = notes != self.notes;
+        self.notes = notes;
+        changed
     }
 
     /// The rollouts of turns left open that no Codex process holds now (`held_rollouts`), as of
@@ -800,6 +874,8 @@ impl crate::harness::Reader for Reader {
             self.stopped_by_quit = self.stopped_by_quit_now(look);
         }
         self.refresh_archived(accounts, look);
+        self.notes_mark = None;
+        self.read_notes(look.now);
         crate::providerflags::flush();
     }
 
@@ -838,9 +914,13 @@ impl crate::harness::Reader for Reader {
     }
 
     /// The app's follow-up queue changes without a line in any rollout, and the watcher drops a
-    /// database's writes: it's looked at here, and read again when it changed.
-    fn glance(&mut self, accounts: &[AccountCfg], _look: &Look) -> Applied {
+    /// database's writes: it's looked at here, and read again when it changed. So is the folder
+    /// of approvals Codex's hook hands over, which is Codealong's, not an account's.
+    fn glance(&mut self, accounts: &[AccountCfg], look: &Look) -> Applied {
         let mut out = Applied::default();
+        if !accounts.is_empty() {
+            out.dirty |= self.read_notes(look.now);
+        }
         for a in accounts {
             let home = a.home_path();
             if !self.queue_marks.changed(&a.name, &home.join(queue::DB)) && self.queues.contains_key(&a.name) {
@@ -886,7 +966,8 @@ impl crate::harness::Reader for Reader {
             .map(|(path, th)| {
                 let key = Session::key_for(Harness::Codex, &account.name, &th.id);
                 let name = index.and_then(|i| i.get(&th.id)).map(|(n, _)| n.as_str());
-                let mut s = crate::board::codex_session(account, th, name, terminals.get(&th.id).copied(), self.held(path, th), self.stopped_by_quit.contains(path), look.seen.seen_at(&key), look.now);
+                let asked = asks::waiting(th, &self.notes).map(|n| (n.what(), n.at));
+                let mut s = crate::board::codex_session(account, th, name, terminals.get(&th.id).copied(), self.held(path, th), self.stopped_by_quit.contains(path), look.seen.seen_at(&key), look.now, asked);
                 s.archived = path.starts_with(&archived_dir);
                 // What its terminal UI's `/permissions` lists, which Codealong picks from there
                 // (cycle.rs), where that can be told; `cycle::overlay` keeps them where that tab
@@ -977,6 +1058,15 @@ fn already_archived(codex_home: &Path, id: &str) -> bool {
 fn record(a: &Codex, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> anyhow::Result<PathBuf> {
     use crate::harness::Adapter;
     a.records(ctx.account, s).into_iter().next().ok_or_else(|| anyhow::anyhow!("Its rollout isn't on this Mac any more."))
+}
+
+impl Codex {
+    /// The approval a thread's turn waits on, read afresh: its rollout as it ends now, and the
+    /// notes Codex's hook wrote (asks.rs).
+    fn waiting_note(&self, ctx: &crate::harness::Ctx, s: &Session) -> Option<asks::Note> {
+        let (th, _) = parse_rollout(&record(self, ctx, s).ok()?, 0, None)?;
+        asks::waiting(&th, &asks::read(&asks::dir(), crate::util::now_ms())).cloned()
+    }
 }
 
 /// How far back from a rollout's end a switch looks for the mode it's in: `turn_context` lines
