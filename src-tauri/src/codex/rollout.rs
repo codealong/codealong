@@ -684,7 +684,11 @@ pub(super) fn file_path_of(s: &str) -> String {
 /// 2026-10-13: on-request with auto_review in workspace-write, never in read-only, a few asking
 /// you or with full access); a turn that says none of them says nothing.
 pub fn turn_mode(p: &Value) -> Option<SessionMode> {
-    named_mode(p, p.pointer("/sandbox_policy/type").and_then(Value::as_str))
+    named_mode(p, turn_sandbox(p))
+}
+
+fn turn_sandbox(p: &Value) -> Option<&str> {
+    p.pointer("/sandbox_policy/type").and_then(Value::as_str)
 }
 
 /// The permissions a thread's next turn runs with, as `thread_settings_applied` says them when
@@ -693,14 +697,17 @@ pub fn turn_mode(p: &Value) -> Option<SessionMode> {
 /// by its permission profile, a built-in one's id starting with `:`. None for settings that name
 /// no profile, which leave the sandbox unsaid.
 fn settings_mode(t: &Value) -> Option<SessionMode> {
-    let sandbox = match t.pointer("/active_permission_profile/id").and_then(Value::as_str)? {
+    named_mode(t, Some(settings_sandbox(t)?))
+}
+
+fn settings_sandbox(t: &Value) -> Option<&'static str> {
+    Some(match t.pointer("/active_permission_profile/id").and_then(Value::as_str)? {
         ":workspace" => "workspace-write",
         ":read-only" => "read-only",
         ":danger-full-access" => "danger-full-access",
         // One config.toml sets up.
         _ => "custom",
-    };
-    named_mode(t, Some(sandbox))
+    })
 }
 
 /// The permissions Codex's terminal UI lists under `/permissions`, in its order (0.162.1's
@@ -718,21 +725,28 @@ pub const PICKED: [(&str, &str, &str, &str); 4] = [
 pub const ASK_FOR_APPROVAL: &str = "ask-for-approval";
 pub const APPROVE_FOR_ME: &str = "approve-for-me";
 
-/// The modes `/permissions` lists (`PICKED`), each as a session in it shows it.
-pub fn picked_modes() -> Vec<SessionMode> {
+/// The modes `/permissions` lists (`PICKED`), each as a session in it shows it: Approve for me
+/// only where `approve_for_me` says its feature is on.
+pub fn picked_modes(approve_for_me: bool) -> Vec<SessionMode> {
     PICKED
         .iter()
-        .filter_map(|(_, sandbox, approval, reviewer)| named_mode(&serde_json::json!({ "approval_policy": approval, "approvals_reviewer": reviewer }), Some(sandbox)))
+        .filter(|(id, ..)| approve_for_me || *id != APPROVE_FOR_ME)
+        .filter_map(|(_, sandbox, approval, reviewer)| permissions(&serde_json::json!({ "approval_policy": approval, "approvals_reviewer": reviewer }), Some(sandbox)))
         .collect()
 }
 
-/// The mode a turn's settings name, by its sandbox and who answers what goes past it, with the
-/// id of `/permissions`' entry for it where it's one of those (`PICKED`).
+/// The mode a turn's settings name: Plan, whatever its permissions, else those.
 fn named_mode(p: &Value, sandbox: Option<&str>) -> Option<SessionMode> {
-    let text = |at: &str| p.pointer(at).and_then(Value::as_str);
-    if text("/collaboration_mode/mode") == Some("plan") {
+    if p.pointer("/collaboration_mode/mode").and_then(Value::as_str) == Some("plan") {
         return Some(SessionMode::new(ModeKind::Plan, "Plan", "Plans without changing anything, until you take the plan."));
     }
+    permissions(p, sandbox)
+}
+
+/// The permissions a turn's settings name, by its sandbox and who answers what goes past it,
+/// with the id of `/permissions`' entry for them where they're one of those (`PICKED`).
+fn permissions(p: &Value, sandbox: Option<&str>) -> Option<SessionMode> {
+    let text = |at: &str| p.pointer(at).and_then(Value::as_str);
     // A policy of its own rules is an object (`{"granular": …}`).
     let approval = p.get("approval_policy").map(|a| a.as_str().unwrap_or("custom"));
     if sandbox.is_none() && approval.is_none() {
@@ -754,17 +768,18 @@ fn named_mode(p: &Value, sandbox: Option<&str>) -> Option<SessionMode> {
     Some(SessionMode::new(kind, label, detail).with_id(id))
 }
 
-/// The id of the mode a thread is in by the end of its rollout (`named_mode`), from its latest
-/// turn or settings that say one, within the last `max` bytes: how a switch sees itself taken
-/// (`Codex::mode_said`). Empty for a mode `/permissions` doesn't list.
+/// The id of the permissions a thread has by the end of its rollout (`permissions`), from its
+/// latest turn or settings that say them, within the last `max` bytes: how a switch sees itself
+/// taken (`Codex::mode_said`), in Plan too, which a pick leaves as it is. Empty for permissions
+/// `/permissions` doesn't list.
 pub fn mode_at_end(path: &Path, max: u64) -> Option<String> {
     let tail = crate::util::read_last(path, max).ok()?;
     let text = tail.text();
     text.lines().rev().filter(|l| l.contains("turn_context") || l.contains("thread_settings_applied")).find_map(|line| {
         let v: Value = serde_json::from_str(line).ok()?;
         let mode = match v.get("type").and_then(Value::as_str) {
-            Some("turn_context") => v.get("payload").and_then(turn_mode),
-            _ => event_payload(&v).filter(|p| p.get("type").and_then(Value::as_str) == Some("thread_settings_applied")).and_then(|p| p.get("thread_settings")).and_then(settings_mode),
+            Some("turn_context") => v.get("payload").and_then(|p| permissions(p, turn_sandbox(p))),
+            _ => event_payload(&v).filter(|p| p.get("type").and_then(Value::as_str) == Some("thread_settings_applied")).and_then(|p| p.get("thread_settings")).and_then(|t| permissions(t, Some(settings_sandbox(t)?))),
         };
         mode.map(|m| m.id)
     })
@@ -1117,14 +1132,22 @@ mod tests {
         assert_eq!(mode_at_end(&path, 1 << 16).as_deref(), Some(APPROVE_FOR_ME));
         std::fs::write(&path, format!("{}\n{context}\n", picked("auto_review", ":workspace"))).unwrap();
         assert_eq!(mode_at_end(&path, 1 << 16).as_deref(), Some(ASK_FOR_APPROVAL));
+        // A pick in Plan leaves it in Plan, and the permissions are still told.
+        let planning = picked("auto_review", ":workspace").replace(r#""mode":"default""#, r#""mode":"plan""#);
+        std::fs::write(&path, format!("{context}\n{planning}\n")).unwrap();
+        assert_eq!(mode_at_end(&path, 1 << 16).as_deref(), Some(APPROVE_FOR_ME));
+        let mut info = ThreadInfo::default();
+        apply_events(&mut info, &planning);
+        assert_eq!(info.mode.map(|m| m.kind), Some(ModeKind::Plan));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
     fn lists_the_permissions_as_codex_does() {
-        let modes = picked_modes();
+        let modes = picked_modes(true);
         assert_eq!(modes.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), PICKED.iter().map(|(id, ..)| *id).collect::<Vec<_>>());
         assert_eq!(modes.iter().map(|m| m.label.as_str()).collect::<Vec<_>>(), ["Ask for approval", "Approve for me", "Full Access", "Read Only"]);
+        assert_eq!(picked_modes(false).iter().map(|m| m.label.as_str()).collect::<Vec<_>>(), ["Ask for approval", "Full Access", "Read Only"]);
     }
 
     #[test]

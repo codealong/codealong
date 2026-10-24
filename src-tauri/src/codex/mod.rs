@@ -43,7 +43,6 @@ use terminals::{codex_cli, held_rollouts, TERMINAL_UI, latest_day, pair_terminal
 pub use conversation::{conversation_items, with_images_before};
 #[cfg(test)]
 pub use rollout::PendingCall;
-pub use rollout::picked_modes;
 pub use rollout::ThreadInfo;
 
 /// The Codex app's bundle ID. The ChatGPT chat app has the same name, so the app is known by this.
@@ -264,13 +263,10 @@ impl crate::harness::Adapter for Codex {
     }
 
     /// Its terminal UI lists the permissions under `/permissions`, numbered, and a number picks
-    /// one at once, with no question after (0.162.1 in tmux, 2026-10-24): Approve for me is 2
-    /// where it's listed (`rollout::PICKED`). Only a terminal's thread: the app's are switched
-    /// in its window.
-    fn mode_picker(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> Option<crate::harness::ModePicker> {
-        let offered = approve_for_me_offered(&ctx.account.home_path());
-        let listed = rollout::PICKED.iter().map(|(id, ..)| *id).filter(|id| offered || *id != rollout::APPROVE_FOR_ME).collect();
-        (s.surface == crate::model::Surface::Cli).then_some(crate::harness::ModePicker { command: "/permissions", listed })
+    /// one at once, with no question after (0.162.1 in tmux, 2026-10-24); the reader lists them
+    /// as it does (`Reader::sessions`).
+    fn mode_picker(&self) -> Option<&'static str> {
+        Some("/permissions")
     }
 
     /// A pick is written to the rollout as it takes (`thread_settings_applied`), so a switch
@@ -616,6 +612,9 @@ pub struct Reader {
     /// The rollouts whose last turn was stopped as the app quit rather than by you, as of the
     /// last look at the processes (`stopped_by_quit_now`).
     stopped_by_quit: HashSet<PathBuf>,
+    /// Whether each account's terminal UIs list Approve for me under `/permissions`, by its
+    /// config.toml (`approve_for_me_offered`), read again as that changes.
+    approve_for_me: HashMap<String, bool>,
 }
 
 impl Reader {
@@ -757,6 +756,7 @@ impl crate::harness::Reader for Reader {
         for a in accounts {
             let home = a.home_path();
             self.index.insert(a.name.clone(), read_index(&home));
+            self.approve_for_me.insert(a.name.clone(), approve_for_me_offered(&home));
             self.queue_marks.changed(&a.name, &home.join(queue::DB));
             self.queues.insert(a.name.clone(), queue::read(&home));
             let files = rollout_files(&home, look.since, &look.seen.pinned_ids("codex", &a.name));
@@ -793,6 +793,10 @@ impl crate::harness::Reader for Reader {
         if paths.contains(&index) {
             self.index.insert(account.name.clone(), read_index(&home));
             out.dirty = true;
+        }
+        if paths.contains(&home.join("config.toml")) {
+            let offered = approve_for_me_offered(&home);
+            out.dirty |= self.approve_for_me.insert(account.name.clone(), offered) != Some(offered);
         }
         for p in paths.iter().filter(|p| p.starts_with(&sessions) && p.extension().and_then(|x| x.to_str()) == Some("jsonl")) {
             self.read_rollout(&account.name, p, &mut out);
@@ -855,6 +859,12 @@ impl crate::harness::Reader for Reader {
                 let name = index.and_then(|i| i.get(&th.id)).map(|(n, _)| n.as_str());
                 let mut s = crate::board::codex_session(account, th, name, terminals.get(&th.id).copied(), self.held(path, th), self.stopped_by_quit.contains(path), look.seen.seen_at(&key), look.now);
                 s.archived = path.starts_with(&archived_dir);
+                // What its terminal UI's `/permissions` lists, which Codealong picks from there
+                // (cycle.rs), unless its command line changes that list itself;
+                // `cycle::overlay` keeps them where that tab takes keys.
+                if s.pid.and_then(|pid| self.terminals.iter().find(|t| t.pid == pid)).is_some_and(|t| !t.own_features) {
+                    s.modes = rollout::picked_modes(self.approve_for_me.get(&account.name).copied().unwrap_or(true));
+                }
                 if let Some(queued) = self.queues.get(&account.name).and_then(|q| q.get(&th.id)) {
                     s.queued_at = queued.iter().map(|m| m.at).max();
                     s.queued = queued.clone();
@@ -945,14 +955,14 @@ fn record(a: &Codex, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> an
 /// output can put the last one further back than this.
 const MODE_TAIL: u64 = 256 * 1024;
 
-/// Whether `/permissions` lists Approve for me: its feature (`guardian_approval`) is on unless
-/// the account's config.toml turns it off.
+/// Whether `/permissions` lists Approve for me in a terminal UI started without settings of its
+/// own (`Terminal::own_features`): its feature (`guardian_approval`) is on unless the account's
+/// config.toml turns it off, in the profile it picks or at its top.
 fn approve_for_me_offered(codex_home: &Path) -> bool {
-    std::fs::read_to_string(codex_home.join("config.toml"))
-        .ok()
-        .and_then(|s| toml::from_str::<toml::Table>(&s).ok())
-        .and_then(|t| t.get("features")?.get("guardian_approval")?.as_bool())
-        .unwrap_or(true)
+    let Some(t) = std::fs::read_to_string(codex_home.join("config.toml")).ok().and_then(|s| toml::from_str::<toml::Table>(&s).ok()) else { return true };
+    let feature = |at: Option<&toml::Value>| at?.get("features")?.get("guardian_approval")?.as_bool();
+    let profile = t.get("profile").and_then(|p| p.as_str()).and_then(|p| t.get("profiles")?.get(p));
+    feature(profile).or_else(|| feature(Some(&toml::Value::Table(t.clone())))).unwrap_or(true)
 }
 
 /// The model and level a thread's next turn runs on, as its rollout says now (`ipc::InApp`'s
@@ -982,19 +992,22 @@ mod tests {
     use crate::codex::terminals::terminal_args;
 
     /// `/permissions` numbers what it lists, so a switch presses a mode's place there: Approve
-    /// for me is left out where config.toml turns its feature off, and an app's thread has none.
+    /// for me is left out where config.toml turns its feature off, at its top or in the profile
+    /// it picks, and a terminal UI whose command line sets them itself isn't switched here.
     #[test]
-    fn a_terminals_modes_are_numbered_as_permissions_lists_them() {
-        use crate::harness::Adapter;
+    fn approve_for_me_is_listed_where_its_feature_is_on() {
         let home = crate::fixtures::scratch("codex-picker");
-        let account: AccountCfg = serde_json::from_value(serde_json::json!({ "name": "codex", "harness": "codex", "home": home.to_string_lossy() })).unwrap();
-        let ctx = crate::harness::Ctx { account: &account };
-        let s = Session { surface: crate::model::Surface::Cli, ..Session::new(Harness::Codex, "codex", "t1") };
-        let listed = |s: &Session| Codex.mode_picker(&ctx, s).map(|p| (p.command, p.listed));
-        assert_eq!(listed(&s), Some(("/permissions", vec!["ask-for-approval", "approve-for-me", "full-access", "read-only"])));
-        std::fs::write(home.join("config.toml"), "[features]\nguardian_approval = false\n").unwrap();
-        assert_eq!(listed(&s).map(|(_, l)| l), Some(vec!["ask-for-approval", "full-access", "read-only"]));
-        assert_eq!(listed(&Session { surface: crate::model::Surface::App, ..s }), None);
+        assert!(approve_for_me_offered(&home), "on with no config.toml");
+        let config = |text: &str| std::fs::write(home.join("config.toml"), text).unwrap();
+        config("[features]\nguardian_approval = false\n");
+        assert!(!approve_for_me_offered(&home));
+        config("profile = \"strict\"\n\n[features]\nguardian_approval = true\n\n[profiles.strict.features]\nguardian_approval = false\n");
+        assert!(!approve_for_me_offered(&home), "the profile's own");
+        config("profile = \"plain\"\n\n[features]\nguardian_approval = false\n\n[profiles.plain]\nmodel = \"gpt-6-luna\"\n");
+        assert!(!approve_for_me_offered(&home), "a profile that doesn't say keeps the top's");
+        assert!(terminals::own_features("codex --disable guardian_approval"));
+        assert!(terminals::own_features("codex -p strict resume 01a16e99-a812-7591-9707-1f6a541c1e15"));
+        assert!(!terminals::own_features("codex -c check_for_update_on_startup=false -m gpt-6-luna"));
     }
 
     #[test]

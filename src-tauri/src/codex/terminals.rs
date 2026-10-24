@@ -13,6 +13,8 @@ pub struct Terminal {
     /// The thread it was started on (`codex resume <id>`), when it was.
     pub thread: Option<String>,
     pub started_at: i64,
+    /// Its command line sets what its `/permissions` lists itself (`own_features`).
+    pub own_features: bool,
 }
 
 /// The rollouts Codex's processes hold open, by file name. A thread is loaded in one of them for
@@ -60,7 +62,7 @@ pub fn terminals(processes: &[crate::procs::PsLine]) -> Vec<Terminal> {
             let (thread, dir) = terminal_args(&p.command)?;
             let cwd = dir.or_else(|| crate::procs::cwd_of(p.pid))?;
             let cwd = std::fs::canonicalize(&cwd).unwrap_or(cwd);
-            Some(Terminal { pid: p.pid, cwd, thread, started_at: crate::procs::proc_start_ms(p.pid)? })
+            Some(Terminal { pid: p.pid, cwd, thread, started_at: crate::procs::proc_start_ms(p.pid)?, own_features: own_features(&p.command) })
         })
         .collect()
 }
@@ -102,6 +104,14 @@ pub fn terminal_args(command: &str) -> Option<(Option<String>, Option<PathBuf>)>
         }
     }
     Some((None, dir))
+}
+
+/// Whether a terminal UI's command line sets what its `/permissions` lists itself, past what
+/// config.toml says: a profile (`-p`, `--profile`), or Approve for me's feature
+/// (`--enable`/`--disable guardian_approval`, `-c features.guardian_approval=…`). A prompt that
+/// names them reads the same, which only keeps that session's mode from being switched here.
+pub fn own_features(command: &str) -> bool {
+    command.split_whitespace().any(|w| w == "-p" || w == "--profile" || w.starts_with("--profile=") || w.contains("guardian_approval"))
 }
 
 fn looks_like_uuid(s: &str) -> bool {
@@ -206,7 +216,7 @@ mod tests {
 
     #[test]
     fn pairs_terminals_with_their_threads() {
-        let term = |pid: u32, cwd: &str, thread: Option<&str>, at: i64| Terminal { pid, cwd: PathBuf::from(cwd), thread: thread.map(String::from), started_at: at };
+        let term = |pid: u32, cwd: &str, thread: Option<&str>, at: i64| Terminal { pid, cwd: PathBuf::from(cwd), thread: thread.map(String::from), started_at: at, own_features: false };
         let terms = vec![term(1, "/r/a", None, 100), term(2, "/r/a", None, 200), term(3, "/r/b", Some("app-thread"), 50), term(4, "/r/c", None, 500)];
         let threads = [
             // (id, folder, started, last activity, cli)

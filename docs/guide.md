@@ -640,7 +640,9 @@ tmux has the same menu, of what its terminal's `/permissions` lists (Ask for app
 me, Full Access and Read Only, without Approve for me where config.toml turns its
 `guardian_approval` feature off), and ⇧⇥ in its box steps to the next: Codealong types
 `/permissions` in its tab and presses the number of the mode you picked, and the chip says the
-mode once Codex has written the pick, which it does at once. Not while a step of its turn waits
+mode once Codex has written the pick, which it does at once, in Plan too, which the pick leaves
+it in. One started with a profile or that feature on its command line (`-p`, `--disable
+guardian_approval`) may number its list otherwise, so it isn't switched here. Not while a step of its turn waits
 for its result, since Codex asks its approvals in a list whose letters are choices (`p` allows the
 command from then on), so the keys could answer one. Codealong can't see Codex's box, so something
 you'd typed there yourself and not sent goes ahead of `/permissions`, and Return sends the two as a

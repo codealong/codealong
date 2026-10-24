@@ -30,7 +30,10 @@ const LOOK_EVERY: Duration = Duration::from_millis(50);
 const PRESS_GAP: Duration = Duration::from_millis(100);
 /// From the command that opens a list of modes to the number that picks one: Codex's first
 /// `/permissions` in a session asks for the list before showing it, and a number pressed while
-/// it says "Loading permission profiles…" picks nothing (0.162.1 showed it within 1.5 s).
+/// it says "Loading permission profiles…" picks nothing. 0.162.1 showed it 40 ms after Return,
+/// in a session's first and second (in tmux, 2026-10-24). A number that came too soon leaves
+/// the list up, which the switch then says, and isn't pressed again: had the first been taken,
+/// the second would land in the box.
 const LIST_WAIT: Duration = Duration::from_millis(1200);
 
 /// A mode Codealong pressed a session to, which its harness hasn't written yet.
@@ -112,8 +115,8 @@ pub fn switch(account: &AccountCfg, s: &Session, to: &SessionMode) -> Result<Mod
     };
     let adapter = crate::harness::adapter(s.harness);
     let ctx = Ctx { account };
-    if let Some(picker) = adapter.mode_picker(&ctx, s) {
-        return pick(&ctx, s, to, &picker, &host);
+    if let Some(command) = adapter.mode_picker() {
+        return pick(&ctx, s, to, command, &host);
     }
     let named = |id: &str| s.modes.iter().find(|m| m.id == id).map_or_else(|| id.to_string(), |m| m.label.clone());
     let press = || launch::press_key(&host, Key::BackTab);
@@ -158,28 +161,30 @@ pub fn switch(account: &AccountCfg, s: &Session, to: &SessionMode) -> Result<Mod
 /// so what's typed would answer one up that the board doesn't show yet. What's already in its
 /// box goes ahead of the command, as a typed prompt goes after it: Codealong can't see it, and
 /// Ctrl+C, which would clear it, stops a running turn when the box is empty.
-fn pick(ctx: &Ctx, s: &Session, to: &SessionMode, picker: &crate::harness::ModePicker, host: &launch::TerminalHost) -> Result<ModeSwitched> {
+fn pick(ctx: &Ctx, s: &Session, to: &SessionMode, command: &'static str, host: &launch::TerminalHost) -> Result<ModeSwitched> {
     let title = quoted(&s.title);
     let harness = s.harness.word();
-    let Some(number) = picker.listed.iter().position(|id| *id == to.id) else {
-        bail!("{harness}'s {} doesn't list {} for {title}.", picker.command, to.label);
+    // Numbered as its reader lists them, which is as the list does.
+    let Some(number) = s.modes.iter().position(|m| m.id == to.id) else {
+        bail!("{harness}'s {command} doesn't list {} for {title}.", to.label);
     };
     let adapter = crate::harness::adapter(s.harness);
+    let _one = one_switch();
+    // Looked at once this switch has its turn, just before typing: another's can take seconds.
     if !adapter.open_calls(ctx, s).is_empty() {
         bail!("{title} is in the middle of a step that {harness} may be asking you about in its terminal: switch its mode once the step is done.");
     }
-    let _one = one_switch();
     let mut said = adapter.mode_said(ctx, s);
     if said.as_mut().and_then(|said| said()).as_deref() == Some(to.id.as_str()) {
         return Ok(ModeSwitched { message: format!("{title} is in {} mode already.", to.label), mode: to.id.clone() });
     }
-    launch::press_key(host, Key::Keys(picker.command))?;
+    launch::press_key(host, Key::Keys(command))?;
     std::thread::sleep(PRESS_GAP);
     launch::press_key(host, Key::Return)?;
     std::thread::sleep(LIST_WAIT);
     let digit = u8::try_from(number + 1).unwrap_or(9);
     launch::press_key(host, Key::Digit(digit))?;
-    let typed = format!("Codealong typed {} in its terminal and picked {digit}, {}", picker.command, to.label);
+    let typed = format!("Codealong typed {command} in its terminal and picked {digit}, {}", to.label);
     match said.as_mut().map(|said| reached(said, &to.id)) {
         Some(true) => Ok(ModeSwitched { message: format!("{title} is in {} mode now.", to.label), mode: to.id.clone() }),
         Some(false) => bail!("{typed}, and {harness} hasn't said it took it: look in its terminal."),
