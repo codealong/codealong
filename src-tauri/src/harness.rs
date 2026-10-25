@@ -247,6 +247,14 @@ pub trait Adapter: Sync {
         false
     }
 
+    /// The next time after `now` the session wakes itself, by something it scheduled inside its
+    /// own process (a loop's next tick, a check at a time) that ending the process would lose:
+    /// `codealong hygiene` keeps the process until then. None where nothing such is to come, or
+    /// the harness has no such thing.
+    fn wakes_at(&self, _ctx: &Ctx, _session: &Session, _now: i64) -> Option<i64> {
+        None
+    }
+
     /// Puts Codealong's hook in an account, which hands it the account's permission prompts as
     /// they come up, where its harness runs such hooks and Codealong doesn't go in as a plugin
     /// (Codex's `PermissionRequest`, codex/hook.rs), or brings it up to date; `codealong` gives

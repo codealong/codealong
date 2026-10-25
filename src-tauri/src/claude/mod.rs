@@ -10,8 +10,8 @@
 //! forking and stopping (start.rs), names (names.rs), side conversations (side.rs), what a
 //! session's Bash tool is running (shells.rs), the folders an account trusts (trust.rs), the skills it
 //! reads (skills.rs), plan usage (usage.rs), whether Anthropic may train on the account
-//! (training.rs), and a repo's hooks and a job's record as a worktree
-//! is removed (teardown.rs). See .claude/rules/claude-code.md.
+//! (training.rs), a repo's hooks and a job's record as a worktree is removed (teardown.rs),
+//! and what a session scheduled to wake itself (wakeups.rs). See .claude/rules/claude-code.md.
 
 pub mod app;
 pub mod asks;
@@ -36,6 +36,7 @@ mod training;
 mod transcript;
 mod trust;
 mod usage;
+mod wakeups;
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -832,6 +833,12 @@ impl crate::harness::Adapter for ClaudeCode {
     /// (2.1.296).
     fn leftover(&self, command: &str) -> bool {
         command.split_whitespace().any(|w| w == "--bg-spare" || w == "--bg-pty-host")
+    }
+
+    /// A loop's next tick or a check it scheduled (`ScheduleWakeup`, `CronCreate`), which its
+    /// process holds: wakeups.rs.
+    fn wakes_at(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, now: i64) -> Option<i64> {
+        wakeups::next_wakeup(&record(self, ctx, s).ok()?, now)
     }
 
     /// A Code session the Claude app starts without a folder runs in a scratch workspace it

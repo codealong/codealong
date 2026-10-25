@@ -238,7 +238,8 @@ Each runs only when your user turned it on (`answers.md`).
 
 Each tick, `codealong hygiene --kill --after 24h --log <state>/kills.log`. It ends only what's
 tied to old sessions (`codealong hygiene --help` says what), stops a background job the way Close
-does, logs each, and judges nothing when Codealong doesn't answer. Mention it only when it ended
+does, logs each, and judges nothing when Codealong doesn't answer. A quiet session waiting on a
+check it scheduled itself is kept (`kept`, with `wakesAt`), not ended. Mention it only when it ended
 something (one line: how many, how much memory, what), when load is over twice the CPUs, or swap
 is over 80%. Don't end anything else yourself.
 

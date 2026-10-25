@@ -6,7 +6,10 @@
 //! - a session's own process (the agent, with what it runs), once the session has been quiet
 //!   for the wait and isn't working or waiting on its user, unless it's archived. Only a
 //!   terminal's (`Surface::Cli`), never an app's or one Codealong runs itself, and never a
-//!   process another live session that isn't old shares (OpenCode shows several in one);
+//!   process another live session that isn't old shares (OpenCode shows several in one). One
+//!   that has scheduled a wakeup inside its process that's still to come (`Adapter::wakes_at`:
+//!   a loop's next tick, a check in two days) is kept and said to be (`Kept`): its process is
+//!   all that would fire it. Once it fires, its turn makes it active again;
 //! - older copies of a background job's attach client: its `attach_command` run in a second tab,
 //!   the newest kept;
 //! - a harness's background process whose parent has gone (`Adapter::leftover`), unless a live
@@ -80,8 +83,26 @@ pub struct Found {
     pub memory: u64,
 }
 
+/// A quiet session's process left running, and why.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Kept {
+    pub pid: u32,
+    pub session: String,
+    pub why: String,
+    /// When it wakes itself.
+    pub wakes_at: i64,
+}
+
+/// What `judge` found to end, and the quiet sessions' processes it keeps.
+#[derive(Debug, Default)]
+pub struct Judged {
+    pub found: Vec<Found>,
+    pub kept: Vec<Kept>,
+}
+
 /// What a process can be judged by besides the board and the process table: the folder it runs
-/// in, and the processes listening on a port.
+/// in, the processes listening on a port, and when a session wakes itself.
 pub struct Scene<'a> {
     pub board: &'a Board,
     pub procs: &'a [Proc],
@@ -93,10 +114,13 @@ pub struct Scene<'a> {
     pub listening: &'a HashSet<u32>,
     /// A linked worktree, by its folder (`.git` is a file there, not a folder).
     pub linked: &'a dyn Fn(&str) -> bool,
+    /// The next time after `now` a session wakes itself (`Adapter::wakes_at`). Asked only of a
+    /// session whose process would otherwise go, since it may read the session's record.
+    pub wakes: &'a dyn Fn(&Session, i64) -> Option<i64>,
 }
 
-/// Everything to end, the session processes first.
-pub fn judge(scene: &Scene) -> Vec<Found> {
+/// Everything to end, the session processes first, and the session processes kept.
+pub fn judge(scene: &Scene) -> Judged {
     let Scene { board, procs, now, after_ms, protected, .. } = *scene;
     let by_pid: HashMap<u32, &Proc> = procs.iter().map(|p| (p.pid, p)).collect();
     let kids = children_of(procs);
@@ -104,6 +128,7 @@ pub fn judge(scene: &Scene) -> Vec<Found> {
     let quiet = |s: &Session| now - s.last_activity;
     let old = |s: &Session| quiet(s) >= after_ms && (s.archived || !matches!(s.status, Status::Working | Status::Needs | Status::Error));
     let mut found = Vec::new();
+    let mut kept = Vec::new();
 
     // Sessions' own processes.
     for (s, lane) in &sessions {
@@ -112,6 +137,10 @@ pub fn judge(scene: &Scene) -> Vec<Found> {
             continue;
         }
         if sessions.iter().any(|(o, _)| o.key != s.key && o.live && o.pid == Some(pid) && !old(o)) || found.iter().any(|f: &Found| f.pid == pid) {
+            continue;
+        }
+        if let Some(at) = (scene.wakes)(s, now) {
+            kept.push(Kept { pid, session: s.key.clone(), why: format!("“{}” waits on a check it scheduled itself, due in {}", s.title, span(at - now)), wakes_at: at });
             continue;
         }
         let archived = if s.archived { ", archived" } else { "" };
@@ -229,7 +258,7 @@ pub fn judge(scene: &Scene) -> Vec<Found> {
     for f in &mut found {
         f.children = descendants(&kids, f.pid).into_iter().filter(|p| !protected.contains(p)).collect();
     }
-    found
+    Judged { found, kept }
 }
 
 /// How long nothing has happened in a worktree, by its sessions and itself; None while a session
@@ -615,11 +644,14 @@ mod tests {
         Session { pid: Some(pid), status, last_activity: NOW - hours * H, ..session(key) }
     }
 
-    fn judged(board: &Board, procs: &[Proc], cwd: &dyn Fn(u32) -> Option<String>) -> Vec<(u32, Kind)> {
+    fn judged_waking(board: &Board, procs: &[Proc], cwd: &dyn Fn(u32) -> Option<String>, wakes: &dyn Fn(&Session, i64) -> Option<i64>) -> Judged {
         let protected = HashSet::from([999]);
         let listening = HashSet::new();
-        let scene = Scene { board, procs, now: NOW, after_ms: 24 * H, protected: &protected, cwd, listening: &listening, linked: &|l: &str| l.contains("/wt/") };
-        judge(&scene).into_iter().map(|f| (f.pid, f.kind)).collect()
+        judge(&Scene { board, procs, now: NOW, after_ms: 24 * H, protected: &protected, cwd, listening: &listening, linked: &|l: &str| l.contains("/wt/"), wakes })
+    }
+
+    fn judged(board: &Board, procs: &[Proc], cwd: &dyn Fn(u32) -> Option<String>) -> Vec<(u32, Kind)> {
+        judged_waking(board, procs, cwd, &|_, _| None).found.into_iter().map(|f| (f.pid, f.kind)).collect()
     }
 
     #[test]
@@ -639,6 +671,25 @@ mod tests {
         };
         let procs = [proc(10, 1, 40, "claude --resume old"), proc(11, 1, 40, "claude"), proc(12, 1, 40, "claude"), proc(13, 1, 40, "claude"), proc(14, 10, 40, "node mcp.js"), proc(999, 1, 40, "claude")];
         assert_eq!(judged(&board, &procs, &|_| None), vec![(10, Kind::Session), (13, Kind::Session)]);
+    }
+
+    #[test]
+    fn a_quiet_session_waiting_on_a_check_it_scheduled_keeps_its_process() {
+        let board = Board { lanes: vec![lane("/r", vec![Session { title: "Northwind deploy watch".into(), ..quiet("northwind", 10, 30, Status::Idle) }, quiet("atlas", 11, 30, Status::Idle)])], ..Board::default() };
+        let procs = [proc(10, 1, 40, "claude --resume northwind"), proc(11, 1, 40, "claude --resume atlas")];
+        // Northwind was asked to check back in two days, a day ago.
+        let wakes = |s: &Session, now: i64| (s.key == "northwind").then_some(now + 23 * H);
+        let judged = judged_waking(&board, &procs, &|_| None, &wakes);
+        assert_eq!(judged.found.iter().map(|f| f.pid).collect::<Vec<_>>(), vec![11]);
+        assert_eq!(judged.kept, vec![Kept { pid: 10, session: "northwind".into(), why: "“Northwind deploy watch” waits on a check it scheduled itself, due in 23 hours".into(), wakes_at: NOW + 23 * H }]);
+        // Asked only of what would otherwise go: not of a session at work.
+        let asked = std::cell::RefCell::new(Vec::new());
+        let busy = Board { lanes: vec![lane("/r", vec![quiet("kestrel", 12, 30, Status::Working), quiet("northwind", 10, 30, Status::Idle)])], ..Board::default() };
+        judged_waking(&busy, &[proc(12, 1, 40, "claude"), proc(10, 1, 40, "claude")], &|_| None, &|s: &Session, _| {
+            asked.borrow_mut().push(s.key.clone());
+            None
+        });
+        assert_eq!(asked.into_inner(), vec!["northwind".to_string()]);
     }
 
     #[test]

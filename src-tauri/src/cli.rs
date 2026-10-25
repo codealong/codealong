@@ -144,7 +144,7 @@ enum Cmd {
     },
     /// What changed since an earlier look, for an agent that keeps watch over every session on a loop (an orchestrator: the skill's references/orchestrate.md). Sessions that started (`new`), began a turn (`working`), wait on their user (`waiting`: a call to allow, a question, an error), ended a turn (`finished`) or stopped (`stopped`), a turn that another session's message, Codealong's, a background command's report or a scheduled wakeup began among them, each with its worktree, PRs, todos and `lastPromptAt` (when its user last prompted it, for `session suggest` and `session tag`; a message from another session or from Codealong doesn't move it), and for the first --texts of them, waiting ones first, what began its latest turn and its reply: `prompt` is its user's latest prompt, or a message sent after it, whose sender `promptFrom` names (`agent` for another session, `codealong` for Codealong's own); PRs in your repos opened, out of draft, approved, sent back, merged or closed, or asking your review (`prs`, null when they can't be read); todos added, started, done, reopened, set waiting, archived or unarchived; worktrees a second agent started working in (`shared`; not an app's chats, which are listed together for having no folder of yours). Headless runs (`claude -p`, `codex exec`, which a script or an agent started and reads itself) aren't sessions there, nor a second agent: they're counted by the worktree they ran in (`headless`). With them, every session that waits on you now (`waiting`, as `sessions --waiting` lists them), each saying whether it has suggested replies or a tag, why Codealong took away ones it had (`untagged`, `unsuggested`: it was sent a prompt, or a turn of its started, since), and `helper` when it works for another agent or a PR (`start --helper`, an automatic review), whose reply is that agent's or PR's to read, not a question for you. It prints a `cursor`: give it to --since next time, and what changed is told by difference from what this look saw, so a busy app or a GitHub error never makes a session or a PR look new. What it couldn't read is said in `notes`, and told once it can be. Without --since, or with a duration, it goes by times alone, which can't tell a review's change. The session running it is left out.
     Changes(ChangesArgs),
-    /// Processes left over from old sessions, and this Mac's load, memory and swap, for keeping a Mac with many agents usable. It lists: the processes of sessions quiet for --after (an agent's own process and what it runs; not one working or waiting on you, unless it's archived), older copies of a background job's attach client (`claude attach <job>` in a second tab), a harness's background processes left with no parent, and dev servers and watchers in a linked worktree no session has been active in for --after (never a repo's main checkout). With --kill it ends those, each with its child processes: it checks again that each process runs the same command first, stops a background job through its harness as Close does and asks the rest to end (SIGTERM), kills what's left after a while (SIGKILL), sweeps once more for dev processes that came back in the worktrees it cleared, and logs each to --log. A session whose process ended keeps its conversation and resumes as usual. It judges nothing, and kills nothing, when the app doesn't answer or is still reading after a start: without its board, every session would look old.
+    /// Processes left over from old sessions, and this Mac's load, memory and swap, for keeping a Mac with many agents usable. It lists: the processes of sessions quiet for --after (an agent's own process and what it runs; not one working or waiting on you, unless it's archived), older copies of a background job's attach client (`claude attach <job>` in a second tab), a harness's background processes left with no parent, and dev servers and watchers in a linked worktree no session has been active in for --after (never a repo's main checkout). A quiet session's process is kept while it waits on a wakeup it scheduled itself that its process alone would fire (Claude Code's `ScheduleWakeup` or `CronCreate`: a loop's next tick, a check in two days), and listed under `kept` with when (`wakesAt`). With --kill it ends those, each with its child processes: it checks again that each process runs the same command first, stops a background job through its harness as Close does and asks the rest to end (SIGTERM), kills what's left after a while (SIGKILL), sweeps once more for dev processes that came back in the worktrees it cleared, and logs each to --log. A session whose process ended keeps its conversation and resumes as usual. It judges nothing, and kills nothing, when the app doesn't answer or is still reading after a start: without its board, every session would look old.
     Hygiene(HygieneArgs),
     /// Boards, the app's Kanban and Canvas: named sets of work in a project, each shown as Kanban (todos and sessions in columns) or as Canvas (the work laid out in space, in frames). A project has the boards made in it and no others: none until one's made, for a release, a fix, an investigation, or with --everything one that holds everything in the project. A board holds what its rule takes in (labels, stages, statuses, repos, accounts, how recent, words) and what's added by hand, less what's taken off, so add the session you're in to your user's board for the work you're on (`board add <board> --session me`). Name a board by its id or its name: a name in the project of the folder you're in or --project, or one only one project has. `list`, `new`, `add`, `remove`, `rule`, `set`, `rename` and `delete` work with or without the app; `show`, `move`, `arrange` and `open` need it running, since its main window works boards out. Boards are an experiment, off until your user turns them on in Settings › Experimental (`[experimental] boards = true` in config.toml); until then every board command says so and does nothing.
     Board {
@@ -6270,6 +6270,9 @@ struct HygieneOut {
     notes: Vec<String>,
     /// What's left over from old sessions, the most memory first: what --kill ends.
     found: Vec<crate::hygiene::Found>,
+    /// Quiet sessions' processes left running, each waiting on a check it scheduled itself.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    kept: Vec<crate::hygiene::Kept>,
     #[serde(skip_serializing_if = "Option::is_none")]
     ended: Option<Vec<crate::hygiene::Ended>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -6279,7 +6282,7 @@ struct HygieneOut {
 fn hygiene(c: &mut Client, a: &HygieneArgs, json: bool) -> Result<()> {
     use crate::hygiene;
     let after_ms = crate::idle::parse_after(&a.after).ok_or_else(|| anyhow!("--after is like 90m, 24h, 3d or 1w, not {}.", a.after))?;
-    let mut out = HygieneOut { system: crate::os::system::system(), judged: false, notes: Vec::new(), found: Vec::new(), ended: None, log: None };
+    let mut out = HygieneOut { system: crate::os::system::system(), judged: false, notes: Vec::new(), found: Vec::new(), kept: Vec::new(), ended: None, log: None };
     // Without the app's board every session would look old, so nothing is judged on a light one.
     let app_pid = c.app.as_ref().map(|s| s.pid);
     let ready = match app_pid {
@@ -6307,7 +6310,13 @@ fn hygiene(c: &mut Client, a: &HygieneArgs, json: bool) -> Result<()> {
         let cfg = c.cfg()?.clone();
         let cwd = |pid: u32| procs::cwd_of(pid).map(|p| p.to_string_lossy().into_owned());
         let linked = |dir: &str| Path::new(dir).join(".git").is_file();
-        let mut found = hygiene::judge(&hygiene::Scene { board: c.board()?, procs: &procs, now: now_ms(), after_ms, protected: &protected, cwd: &cwd, listening: &listening, linked: &linked });
+        let wakes = |s: &Session, now: i64| {
+            let account = cfg.accounts.iter().find(|a| a.name == s.account)?;
+            crate::harness::adapter(s.harness).wakes_at(&crate::harness::Ctx { account }, s, now)
+        };
+        let judged = hygiene::judge(&hygiene::Scene { board: c.board()?, procs: &procs, now: now_ms(), after_ms, protected: &protected, cwd: &cwd, listening: &listening, linked: &linked, wakes: &wakes });
+        let mut found = judged.found;
+        out.kept = judged.kept;
         for f in &mut found {
             f.memory = std::iter::once(f.pid).chain(f.children.iter().copied()).filter_map(crate::os::system::footprint).sum();
         }
@@ -6322,8 +6331,8 @@ fn hygiene(c: &mut Client, a: &HygieneArgs, json: bool) -> Result<()> {
             match (table, c.from_app && !c.board()?.loading) {
                 (Ok(table), true) => {
                     let board = c.board()?;
-                    let again = hygiene::judge(&hygiene::Scene { board, procs: &table, now: now_ms(), after_ms, protected: &protected, cwd: &cwd, listening: &listening, linked: &linked });
-                    let due: Vec<hygiene::Found> = again.into_iter().filter(|g| found.iter().any(|f| g.pid == f.pid && g.kind == f.kind)).map(|g| hygiene::Found { memory: found.iter().find(|f| f.pid == g.pid).map_or(0, |f| f.memory), ..g }).collect();
+                    let again = hygiene::judge(&hygiene::Scene { board, procs: &table, now: now_ms(), after_ms, protected: &protected, cwd: &cwd, listening: &listening, linked: &linked, wakes: &wakes });
+                    let due: Vec<hygiene::Found> = again.found.into_iter().filter(|g| found.iter().any(|f| g.pid == f.pid && g.kind == f.kind)).map(|g| hygiene::Found { memory: found.iter().find(|f| f.pid == g.pid).map_or(0, |f| f.memory), ..g }).collect();
                     let fresh = || match server::ask(&Request::Board) {
                         Some(Ok(v)) => serde_json::from_value::<Board>(v).ok().filter(|b| !b.loading),
                         _ => None,
@@ -6379,6 +6388,11 @@ fn print_hygiene(out: &HygieneOut) {
             let rows = out.found.iter().map(|f| vec![mb(f.memory), f.pid.to_string(), word(&f.kind), truncate(&f.why, 90)]).collect();
             print!("{}", table_text(&["MEMORY", "PID", "KIND", "WHY"], rows));
         }
+    }
+    if !out.kept.is_empty() {
+        println!("\nKept, each waiting on a check it scheduled itself:");
+        let rows = out.kept.iter().map(|k| vec![k.pid.to_string(), crate::schedules::clock_text(k.wakes_at, &crate::schedules::rule::Local), truncate(&k.why, 90)]).collect();
+        print!("{}", table_text(&["PID", "WAKES", "WHY"], rows));
     }
 }
 

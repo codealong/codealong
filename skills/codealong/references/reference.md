@@ -139,15 +139,18 @@ Commands:
              background job's attach client (`claude attach <job>` in a second tab), a
              harness's background processes left with no parent, and dev servers and
              watchers in a linked worktree no session has been active in for --after
-             (never a repo's main checkout). With --kill it ends those, each with its
-             child processes: it checks again that each process runs the same command
-             first, stops a background job through its harness as Close does and asks
-             the rest to end (SIGTERM), kills what's left after a while (SIGKILL),
-             sweeps once more for dev processes that came back in the worktrees it
-             cleared, and logs each to --log. A session whose process ended keeps its
-             conversation and resumes as usual. It judges nothing, and kills nothing,
-             when the app doesn't answer or is still reading after a start: without its
-             board, every session would look old
+             (never a repo's main checkout). A quiet session's process is kept while it
+             waits on a wakeup it scheduled itself that its process alone would fire
+             (Claude Code's `ScheduleWakeup` or `CronCreate`: a loop's next tick, a
+             check in two days), and listed under `kept` with when (`wakesAt`). With
+             --kill it ends those, each with its child processes: it checks again that
+             each process runs the same command first, stops a background job through
+             its harness as Close does and asks the rest to end (SIGTERM), kills what's
+             left after a while (SIGKILL), sweeps once more for dev processes that came
+             back in the worktrees it cleared, and logs each to --log. A session whose
+             process ended keeps its conversation and resumes as usual. It judges
+             nothing, and kills nothing, when the app doesn't answer or is still reading
+             after a start: without its board, every session would look old
   board      Boards, the app's Kanban and Canvas: named sets of work in a project, each
              shown as Kanban (todos and sessions in columns) or as Canvas (the work laid
              out in space, in frames). A project has the boards made in it and no
@@ -3681,7 +3684,10 @@ agent's own process and what it runs; not one working or waiting on you, unless 
 archived), older copies of a background job's attach client (`claude attach <job>` in a
 second tab), a harness's background processes left with no parent, and dev servers and
 watchers in a linked worktree no session has been active in for --after (never a repo's
-main checkout). With --kill it ends those, each with its child processes: it checks
+main checkout). A quiet session's process is kept while it waits on a wakeup it
+scheduled itself that its process alone would fire (Claude Code's `ScheduleWakeup` or
+`CronCreate`: a loop's next tick, a check in two days), and listed under `kept` with
+when (`wakesAt`). With --kill it ends those, each with its child processes: it checks
 again that each process runs the same command first, stops a background job through its
 harness as Close does and asks the rest to end (SIGTERM), kills what's left after a
 while (SIGKILL), sweeps once more for dev processes that came back in the worktrees it

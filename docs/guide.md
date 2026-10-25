@@ -3304,7 +3304,9 @@ what's left running of old sessions, with the Mac's load, memory and swap: the a
 session quiet for a day (not one working or waiting on you, unless it's archived), older copies of
 a background job's attach client, a harness's background processes whose parent has gone, and dev
 servers and watchers in a linked worktree no session has been active in for a day, never in a main
-checkout. `--kill` ends them with their child processes, each checked again first and logged, a
+checkout. A quiet session that scheduled a wakeup of its own (in Claude Code a `/loop`'s next tick,
+or a check asked for in two days) keeps its process until then, since only that process would fire
+it; `hygiene` lists it as kept, with when it wakes. `--kill` ends them with their child processes, each checked again first and logged, a
 background job stopped the way Close stops it; it judges nothing when the app doesn't answer.
 
 ## Files Codealong keeps

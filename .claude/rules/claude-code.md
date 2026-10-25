@@ -357,6 +357,17 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   `--resume <id> --bg` brings it back under the same job ID (`bg claimed-spare <job> (fleet)`).
   Seen across a day's jobs on 2.1.296 (2026-10-12); whether a setting changes the hour wasn't
   looked into. Why another session's message may resume it: send.rs (`wakes`).
+- What a session scheduled to wake itself (`ScheduleWakeup`, a self-paced `/loop`'s next tick;
+  `CronCreate`, a `/loop` at an interval or a one-shot check at a time) lives in its process, and
+  a resumed process brings back from the transcript what's still to come: what the calls'
+  results record, how Claude Code reads them back (2.1.310's code) and what each kind lasts:
+  `claude/wakeups.rs` (module header), which `codealong hygiene` asks before it ends a quiet
+  session's process (`hygiene.rs`, `Adapter::wakes_at`). Not there: a session resumed after its
+  wakeup's time is told in a task notification that the wakeup "will not fire", and a recurring
+  `/loop` cron isn't cancelled by `ScheduleWakeup({stop: true})`. On this Mac's transcripts
+  (2026-10-24) `scheduled_task_fire` lines name the wakeup's `taskId`, `cron` and `prompt`
+  ("Claude resuming /loop wakeup (Oct 20 10:04am)"), and `session_cron_carry` attachments follow
+  an orchestrator's compactions with its recurring job.
 - Removing a worktree from outside Claude Code (2.1.296, a scratch repo, 2026-10-12):
   `cleanup.rs`, `claude/teardown.rs`. A `WorktreeCreate` hook's stdin is `{session_id,
   transcript_path, cwd, scratchpad_dir, hook_event_name, name}`, with no base ref; a
