@@ -213,10 +213,20 @@ html.is-notch body {
   pointer-events: none;
   transition: opacity var(--dur-fast) ease-out;
 }
-.ca-notch.is-session .ca-notch-session {
+.ca-notch.is-session .ca-notch-session,
+.ca-notch.is-end .ca-notch-session {
   opacity: 1;
   pointer-events: auto;
   transition: opacity 0.22s ease-out 0.14s;
+}
+/* The end of what waits (QueueEnd.tsx), at the top of where a session would be and as wide as
+   the shape opens for it; the shape is as tall as it is. */
+.ca-notch-end-box {
+  align-self: center;
+}
+.ca-notch-end {
+  margin: 0 auto;
+  padding: var(--space-4) var(--space-5) var(--space-5);
 }
 .ca-notch-card {
   --prfiles-ground: var(--notch);

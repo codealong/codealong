@@ -328,6 +328,8 @@ describe('⌘⏎: answered', () => {
     expect(step.went).toBe('last');
     expect(step.to).toBeUndefined();
     expect(step.handled.get('D')).toBe(40);
+    // The end of what waits says how it went.
+    expect(step.words).toBe('Queue D: sent.');
   });
 
   it('leaves the window where you put it when the answer comes in after you moved on', () => {
@@ -370,9 +372,9 @@ describe('a session that left what waits on you', () => {
     expect(left(card(W), none, 'W', 'archived', NOW)).toMatchObject({ went: 'on', to: A, words: 'Queue W: archived.' });
   });
 
-  it('says so when nothing else waits: the notch closes, the quick panel is done', () => {
-    expect(left(card(A, [A]), none, 'A', 'marked seen', NOW).went).toBe('last');
-    expect(left(card(W, []), none, 'W', 'archived', NOW).went).toBe('last');
+  it('says so when nothing else waits, and how the last one went, for the end of what waits', () => {
+    expect(left(card(A, [A]), none, 'A', 'marked seen', NOW)).toMatchObject({ went: 'last', words: 'Queue A: marked seen.' });
+    expect(left(card(W, []), none, 'W', 'archived', NOW)).toMatchObject({ went: 'last', words: 'Queue W: archived.' });
   });
 
   it('doesn’t keep a snoozed one as dealt with: it waits again when its time comes', () => {

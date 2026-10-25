@@ -4,7 +4,8 @@
 // box says instead: resume-check.js).
 // It opens on the first; ⌘] skips, ⌘E on one that has started running does too, on from where it
 // stood, archiving, sending with ⌘⏎ and marking seen go on to the next, ⏎ sends and stays, a
-// skipped one comes round again, and after the last the window says nothing waits, until one comes to wait on you. The
+// skipped one comes round again, and after the last the window says nothing else waits, and how
+// the last one went, until one comes to wait on you. The
 // other keys for getting about are the ones Sessions and the notch have (queue.ts): ⌥⇧↑ ⌥⇧↓,
 // ⌃- ⌃⇧- and ⌥↑ ⌥↓ along what waits.
 //   PREVIEW_WAIT=60000 scripts/preview.sh waiting '' scripts/preview/queue-check.js
@@ -159,9 +160,12 @@
       check('nothing left after it', !!next && next.disabled, next ? next.outerHTML : 'no Next');
       // Marked seen, the last one leaves what waits on you.
       key(window, { key: 'e', code: 'KeyE', metaKey: true });
-      return until(function () { return /Nothing waits on you/.test(empty()); }, 3000).then(
-        function () { check('after the last the window says nothing waits', true); },
-        function () { check('after the last the window says nothing waits', false, title()); },
+      return until(function () { return /Nothing else waits on you/.test(empty()); }, 3000).then(
+        function () {
+          check('after the last the window says nothing else waits', true);
+          check('and how the last one went', /Queue A: marked seen\./.test(empty()), empty());
+        },
+        function () { check('after the last the window says nothing else waits', false, title() || empty()); },
       );
     })
     .then(function () {

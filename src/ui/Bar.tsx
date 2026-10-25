@@ -35,6 +35,7 @@ import { applyTheme } from './ThemeSwitch';
 import { NotchShell } from './Notch';
 import { NotchReview } from './NotchReview';
 import { NotchSession, useNotchStage } from './NotchSession';
+import { QueueEnd } from './QueueEnd';
 import { placeWords, ProjectShown, usePlaceWords, type PlaceWords } from './ProjectSaid';
 import { LOGO_LABEL, useLogo } from '../logo';
 import { useMarkMoment } from '../mark';
@@ -465,20 +466,21 @@ export function Bar() {
   const onBar = useMemo(() => new Set([...allItems, ...(feed?.recent ?? []), ...(feed?.snoozed ?? [])].map((i) => i.key)), [allItems, feed]);
   const stage = useNotchStage(items, reviews, (key) => onBar.has(key) || reviews.some((r) => r.key === key), notch !== null);
   // The shortcut that goes through what waits on you, docked in the notch: the notch opens on the
-  // session that waits (or puts it away), as a click on the notch does. With nothing on the bar
-  // to show, the waiting window opens instead, and says so.
-  const pressNow = useLatest(stage.press);
+  // session that waits (or puts it away), and with nothing waiting, on the end of what waits,
+  // which says so, even with sessions running, where a click on the notch would open one. The
+  // waiting window is for a bar that isn't docked.
+  const pressNow = useLatest(stage.workThrough);
   const dockedNow = useLatest(notch !== null);
   useEffect(
     () =>
       onWaitingShortcut(() => {
-        if (dockedNow.current && pressNow.current()) return;
-        void showWaiting();
+        if (dockedNow.current) pressNow.current();
+        else void showWaiting();
       }),
     [pressNow, dockedNow],
   );
   // The session the peek shows, or the notch: its pill is marked.
-  const shownKey = notch ? (stage.open ? stage.key : null) : peeked.key;
+  const shownKey = notch ? (stage.open && stage.kind !== 'end' ? stage.key : null) : peeked.key;
 
   // Every pill measured at full size, then folded until the bar fits the screen.
   useLayoutEffect(() => {
@@ -933,6 +935,8 @@ export function Bar() {
                   setFailed({ anchor: 'reviews', message: `${key} no longer waits on your review.` });
                 }}
               />
+            ) : stage.key && stage.kind === 'end' ? (
+              <QueueEnd said={stage.ended} className="ca-notch-end" />
             ) : stage.key ? (
               <NotchSession
                 sessionKey={stage.key}
@@ -958,9 +962,10 @@ export function Bar() {
             ) : null
           }
           sessionOpen={stage.open}
+          sessionEnd={stage.kind === 'end'}
           sessionKeys={stage.keys}
           onSessionLeft={stage.close}
-          onPress={() => void stage.press()}
+          onPress={stage.press}
           onCount={(kind) => {
             const first = kind === 'reviews' ? reviews[0] : byGroup[kind][0];
             if (first) stage.show(first.key);

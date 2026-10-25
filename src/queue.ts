@@ -216,7 +216,8 @@ export interface QueueView<T> {
 }
 
 /** What a step came to: `on` to another session; `last` when there's nowhere to go (nothing else
- *  waits, or it's the end of the list); `stay` when it isn't a step at all (a session that left
+ *  waits, or it's the end of the list): the notch and the waiting window show the end of what
+ *  waits (QueueEnd.tsx) when that came of dealing with the one shown; `stay` when it isn't a step at all (a session that left
  *  without having waited, where it stays as it is; ⌘E on a call to allow); `away` when the session
  *  it was done to is no longer the one shown, and the window stays where you put it. */
 export type Went = 'on' | 'last' | 'stay' | 'away';
@@ -226,7 +227,8 @@ export interface Step<T> {
   /** The row that takes the window, when it went on. */
   to?: T;
   /** What the strip says on it: how the last one went, or null after a step by hand, which takes
-   *  back what it said. */
+   *  back what it said. Dealing with the last one says it too, for the end of what waits
+   *  (QueueEnd.tsx) to say. */
   words?: string | null;
   /** What's been dealt with, after the step. */
   handled: Handled;
@@ -243,11 +245,13 @@ export interface KeyStep<T> extends Step<T> {
   travel?: 'back' | 'forward';
 }
 
-/** The session shown is dealt with: the next that waits takes its place, saying what was done. */
+/** The session shown is dealt with: the next that waits takes its place, saying what was done,
+ *  or with none, the end of what waits says it. */
 function dealt<T>(view: QueueView<T>, handled: Handled, s: Shown, done: string, now: number): Step<T> {
   const after = new Map(handled).set(s.key, s.since ?? now);
   const to = stepTo('next', view, s.key, after);
-  return to ? { went: 'on', to, words: wentWords(s.title, done), handled: after } : { went: 'last', handled: after };
+  const words = wentWords(s.title, done);
+  return to ? { went: 'on', to, words, handled: after } : { went: 'last', words, handled: after };
 }
 
 /**

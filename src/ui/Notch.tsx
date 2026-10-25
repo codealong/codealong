@@ -7,7 +7,9 @@
 // pointer leaves, unless a menu is up or its pin keeps it open. And a click opens it further, into
 // a session under the pills, to read and answer (NotchSession.tsx): a click on a session's pill
 // into that one, a click on the notch itself into the current one, and a second click on either
-// puts it away. There's no peek beside a docked bar. The session's bottom corners and bottom edge
+// puts it away; with nothing to show, the end of what waits (QueueEnd.tsx) opens under the pills
+// instead, as tall as it needs, as it does once you're through the last one. There's no peek
+// beside a docked bar. The session's bottom corners and bottom edge
 // drag it to a size of your own, which it keeps (a double-click on one gives it its usual size
 // back); the notch stays centered, so a corner pulled out widens it as much on the other side. A session has the keyboard, and stays up whatever the
 // pointer does until it's put away; one that lost the keyboard to another app stays while the
@@ -69,9 +71,12 @@ export interface NotchShellProps {
   /** Keeps it open: a menu is up, or a pill is being dragged off it. */
   held: boolean;
   /** The session shown under the pills, while there is one and for a moment after, as it's put
-   *  away; `sessionOpen` while it shows, and `sessionKeys` while it has the keyboard. */
+   *  away; `sessionOpen` while it shows, and `sessionKeys` while it has the keyboard. With
+   *  `sessionEnd` it's the end of what waits, which opens only as tall as it needs, and has
+   *  nothing to size. */
   session: ReactNode;
   sessionOpen: boolean;
+  sessionEnd: boolean;
   sessionKeys: boolean;
   /** The pointer has been off a session without the keyboard for a moment, or the keyboard went
    *  with the pointer elsewhere: time to put it away. */
@@ -91,7 +96,7 @@ export interface NotchShellProps {
   children: ReactNode;
 }
 
-export function NotchShell({ notch, logoStatus, moment, counts, room, screen, zoom, project, held, session, sessionOpen, sessionKeys, onSessionLeft, onCount, onPress, keepOpen, onKeepOpen, onMark, onMenu, children }: NotchShellProps) {
+export function NotchShell({ notch, logoStatus, moment, counts, room, screen, zoom, project, held, session, sessionOpen, sessionEnd, sessionKeys, onSessionLeft, onCount, onPress, keepOpen, onKeepOpen, onMark, onMenu, children }: NotchShellProps) {
   // The pills show, under the pointer or pinned; a session shows under them.
   const [open, setOpen] = useState(keepOpen);
   // The pointer is on the shape.
@@ -112,6 +117,9 @@ export function NotchShell({ notch, logoStatus, moment, counts, room, screen, zo
   const left = useRef<HTMLDivElement>(null);
   const right = useRef<HTMLDivElement>(null);
   const [natural, setNatural] = useState<{ body: Size; side: number }>({ body: { w: 0, h: 0 }, side: 0 });
+  // The end of what waits, and how tall it is at its width.
+  const endBox = useRef<HTMLDivElement>(null);
+  const [endH, setEndH] = useState(0);
   // The window's width, to place the shape at a whole point: centering by halves blurs it.
   const [viewW, setViewW] = useState(() => window.innerWidth);
   useEffect(() => {
@@ -139,11 +147,11 @@ export function NotchShell({ notch, logoStatus, moment, counts, room, screen, zo
       cancelAnimationFrame(second);
     };
   }, [zooming, zoom]);
-  const sizes = notchSizes(notch, natural.body, natural.side, room, screen, want, zoomFactor(zoom));
-  const state: NotchState = sessionOpen ? 'session' : open ? 'pills' : on ? 'hover' : 'closed';
+  const sizes = notchSizes(notch, natural.body, natural.side, room, screen, want, zoomFactor(zoom), endH);
+  const state: NotchState = sessionOpen ? (sessionEnd ? 'end' : 'session') : open ? 'pills' : on ? 'hover' : 'closed';
   const clip = notchClip(sizes, state);
   // Something shows under the notch.
-  const below = state === 'pills' || state === 'session';
+  const below = state === 'pills' || state === 'session' || state === 'end';
 
   // What opens below, and what the sides hold open, measured at their own size.
   useLayoutEffect(() => {
@@ -158,6 +166,16 @@ export function NotchShell({ notch, logoStatus, moment, counts, room, screen, zo
     for (const el of [body.current, left.current, right.current]) if (el) observer.observe(el);
     return () => observer.disconnect();
   }, []);
+  useLayoutEffect(() => {
+    const el = endBox.current;
+    if (!el) return;
+    // From the top of where the session goes, the line over it included.
+    const measure = () => setEndH(Math.ceil(el.getBoundingClientRect().bottom - (el.parentElement ?? el).getBoundingClientRect().top));
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [sessionEnd]);
 
   // The window keeps one size; the shape it shows, where the window takes clicks, changes.
   const reported = useRef('');
@@ -283,7 +301,7 @@ export function NotchShell({ notch, logoStatus, moment, counts, room, screen, zo
     if (!d?.moved) return;
     cancelAnimationFrame(d.frame);
     setSizing(false);
-    const s = notchSizes(notch, natural.body, natural.side, room, screen, d.to, zoomFactor(zoom));
+    const s = notchSizes(notch, natural.body, natural.side, room, screen, d.to, zoomFactor(zoom), endH);
     const kept = { w: s.session.w, h: s.session.h - s.pills.h };
     setWant(kept);
     writeStored(SIZE_KEY, SIZE_STORED, kept);
@@ -374,12 +392,21 @@ export function NotchShell({ notch, logoStatus, moment, counts, room, screen, zo
           {children}
         </div>
         {/* The session, under the pills: as wide as the shape and as tall as it opens, with the
-            edges that size it over its foot. */}
+            edges that size it over its foot; or the end of what waits, at the top, as wide as the
+            shape is then. */}
         <div className="ca-notch-session" style={{ top: sizes.pills.h, left: (sizes.full.w - sizes.session.w) / 2, width: sizes.session.w, height: sizes.session.h - sizes.pills.h }} aria-hidden={!sessionOpen}>
-          {session}
-          {grip('bottom')}
-          {grip('left')}
-          {grip('right')}
+          {sessionEnd ? (
+            <div ref={endBox} className="ca-notch-end-box" style={{ width: sizes.end.w }}>
+              {session}
+            </div>
+          ) : (
+            <>
+              {session}
+              {grip('bottom')}
+              {grip('left')}
+              {grip('right')}
+            </>
+          )}
         </div>
       </div>
     </div>

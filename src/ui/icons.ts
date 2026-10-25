@@ -163,6 +163,10 @@ export const ICONS: Record<string, string[]> = {
   "M17 7l-10 10",
   "M8 7l9 0l0 9"
  ],
+ "circle-check": [
+  "M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0",
+  "M9 12l2 2l4 -4"
+ ],
  "check": [
   "M5 12l5 5l10 -10"
  ],

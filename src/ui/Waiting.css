@@ -14,20 +14,8 @@ html.is-waiting body {
   background: var(--surface-raised);
   color: var(--ink);
 }
-/* Nothing waits on you. (Before the board is read, Tip.tsx Reading fills the window.) */
+/* Nothing waits on you (QueueEnd.tsx), in the middle of the window. (Before the board is read,
+   Tip.tsx Reading fills the window.) */
 .ca-waiting-empty {
   margin: auto;
-  max-width: 360px;
-  padding: var(--space-6);
-  color: var(--ink-3);
-  font: var(--type-body);
-  text-align: center;
-}
-.ca-waiting-empty h1 {
-  margin: 0 0 var(--space-2);
-  color: var(--ink);
-  font: var(--type-heading);
-}
-.ca-waiting-empty p {
-  margin: 0;
 }

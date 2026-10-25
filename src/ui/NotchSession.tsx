@@ -15,8 +15,12 @@
 // of the one shown is marked, and a strip over its header has what's commonly done to it as
 // buttons that say their keys (SessionPanel.tsx `Hotkeys`) and says how many more wait
 // and how the last one went. Marked seen, snoozed or archived, a session leaves the bar, and the
-// next that waits takes its place; with none left the notch closes, and the app you were in has
-// the keyboard back. The session's own shortcuts (⌃⌘A, ⌃⌘R, ⌃⌘P) are its card's.
+// next that waits takes its place; with none left, the end of what waits does (QueueEnd.tsx),
+// saying how the last one went, as the waiting window and the iPhone say it. (⌘⏎ goes on only
+// while something's next: on the last one it sends and stays, as ⏎ does.) So does the shortcut with nothing waiting, though some run, and a click on the notch
+// with nothing on the bar. The end keeps the
+// keyboard until it's put away as a session is, and what comes to wait on you meanwhile takes its
+// place by itself. The session's own shortcuts (⌃⌘A, ⌃⌘R, ⌃⌘P) are its card's.
 //
 // A PR waiting on your review takes the same place (NotchReview.tsx), among the sessions in the
 // bar's order (bar.ts `notchRows`): the keys go from a session to a review and on as one list.
@@ -32,7 +36,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PrTab } from '../agentReview';
 import { keepNotchSession, notchKeys, onNotchKeys, sessionAt } from '../api';
 import { renameAhead, sentWorthSaying } from '../ahead';
-import { currentRow, notchRows, ROW_READS, waitingRows, type NotchRow } from '../bar';
+import { currentRow, notchRows, ROW_READS, waitingRow, waitingRows, type NotchRow } from '../bar';
 import { useSessionHistory } from '../history';
 import { seenable } from '../lanes';
 import type { Left } from '../menus';
@@ -51,6 +55,10 @@ import { chordMod, held } from '../platform';
 const LINGER_MS = 360;
 /** Where the sessions looked at in the notch are kept, apart from the main window's. */
 const HISTORY_KEY = 'codealong.sessionHistory:notch';
+/** The end of what waits shows as this key, which no session's or PR's can be. */
+const END = 'end';
+/** What shows under the pills: a session, a review, or the end of what waits. */
+type ShownKind = NotchRow['kind'] | 'end';
 /** What a key the bar no longer lists is: a PR's key is `owner/name#12`, a session's has its
  *  harness and account in front, with colons. */
 function kindOf(key: string): NotchRow['kind'] {
@@ -58,9 +66,10 @@ function kindOf(key: string): NotchRow['kind'] {
 }
 
 export interface NotchStageState {
-  /** The session or review shown, or the one being put away while its card lingers. */
+  /** The session or review shown, or the one being put away while its card lingers; with `kind`
+   *  `end`, the end of what waits. */
   key: string | null;
-  kind: NotchRow['kind'];
+  kind: ShownKind;
   /** It shows; false as it's put away. */
   open: boolean;
   /** It has the keyboard. */
@@ -70,6 +79,8 @@ export interface NotchStageState {
   /** What's left to work through after it, and how the last one went. */
   queue: Queue | undefined;
   notice: Notice | null;
+  /** At the end of what waits, how the last one went (useWaitingQueue.ts `ended`). */
+  ended: string | null;
   /** Back to the session looked at before it; null with none. */
   back: (() => void) | null;
   /** The session the PR shown was shown in place of (`showPr`); null for any other. */
@@ -85,9 +96,12 @@ export interface NotchStageState {
   returnFrom: (key: string, said?: string) => void;
   /** Shows it, or puts it away if it's the one showing: a click on its pill. */
   toggle: (key: string) => void;
-  /** A click on the notch itself: it opens on the current one, or puts the one showing away.
-   *  False with nothing to show. */
-  press: () => boolean;
+  /** A click on the notch itself: it opens on the current one, or on the end of what waits with
+   *  nothing on the bar, or puts the one showing away. */
+  press: () => void;
+  /** The shortcut that works through what waits: it opens on what waits on you, or on the end of
+   *  what waits with nothing waiting, though some run, or puts the one showing away. */
+  workThrough: () => void;
   close: () => void;
   /** A click in the card of a session that lost the keyboard takes it back. */
   takeKeys: () => void;
@@ -95,7 +109,7 @@ export interface NotchStageState {
    *  waits on you, saying what was done. */
   next: (done: string, from: string) => void;
   /** The session or review left the bar (marked seen, snoozed, archived; approved, reviewed): on
-   *  to the next, or closed when none waits. */
+   *  to the next, or the end of what waits when none does. */
   left: (key: string, done: Left) => void;
   /** The review `key` left on didn't go: it's back among what waits, the notch opens on it again
    *  when it had closed, and the strip says why. */
@@ -111,7 +125,7 @@ export interface NotchStageState {
  *  PRs waiting on your review; `known` says whether the bar still has a key, in any of its pills;
  *  `docked` while the bar is in the notch. */
 export function useNotchStage(items: BarItem[], reviews: BarReview[], known: (key: string) => boolean, docked: boolean): NotchStageState {
-  const [shown, setShown] = useState<{ key: string; kind: NotchRow['kind']; rename: boolean; from: CameFrom | null } | null>(null);
+  const [shown, setShown] = useState<{ key: string; kind: ShownKind; rename: boolean; from: CameFrom | null } | null>(null);
   const [open, setOpen] = useState(false);
   const [keys, setKeys] = useState(false);
   const linger = useRef<number | null>(null);
@@ -132,8 +146,8 @@ export function useNotchStage(items: BarItem[], reviews: BarReview[], known: (ke
   const fromChips = useRef(new Map<string, CameFrom>());
 
   // Back and forward through the sessions looked at here, as in the main window. One the bar no
-  // longer has is passed over.
-  const key = open ? (shown?.key ?? null) : null;
+  // longer has is passed over. The end of what waits shows no session.
+  const key = open && shown?.kind !== 'end' ? (shown?.key ?? null) : null;
   const history = useSessionHistory(key, (k) => known(k) || fromChips.current.has(k), HISTORY_KEY);
 
   // The way through what waits on you (useWaitingQueue.ts), over the bar's own list: the pills
@@ -157,7 +171,7 @@ export function useNotchStage(items: BarItem[], reviews: BarReview[], known: (ke
       return to !== null;
     },
   });
-  const { fresh, onKey: onQueueKey, run, answered, left: leftQueue, say, again } = queue;
+  const { fresh, onKey: onQueueKey, run, answered, left: leftQueue, say, again, first } = queue;
 
   const place = useCallback(
     (key: string, rename: boolean, from: CameFrom | null) => {
@@ -178,6 +192,19 @@ export function useNotchStage(items: BarItem[], reviews: BarReview[], known: (ke
     [fresh],
   );
   const show = useCallback((key: string, rename = false) => place(key, rename, null), [place]);
+  /** The end of what waits, with the keyboard: opened on with nothing to show, or gone on to from
+   *  the last one, which it says how went. */
+  const end = useCallback(() => {
+    if (linger.current != null) window.clearTimeout(linger.current);
+    linger.current = null;
+    if (shownNow.current === null) fresh();
+    shownNow.current = END;
+    fromNow.current = null;
+    setShown({ key: END, kind: 'end', rename: false, from: null });
+    setOpen(true);
+    setKeys(true);
+    void notchKeys(true);
+  }, [fresh]);
   const showPr = useCallback((key: string, from: CameFrom) => place(key, false, from), [place]);
   const returnFrom = useCallback(
     (key: string, said?: string) => {
@@ -207,15 +234,19 @@ export function useNotchStage(items: BarItem[], reviews: BarReview[], known: (ke
 
   const toggle = useCallback((key: string) => (shownNow.current === key ? close() : show(key)), [close, show]);
 
-  const press = useCallback(() => {
-    if (shownNow.current !== null) {
-      close();
-      return true;
-    }
-    const to = currentRow(rowsNow.current, last.current);
-    if (to) show(to.key);
-    return to !== null;
-  }, [close, show]);
+  /** Opens on the row `pick` gives, or the end of what waits with none; or puts away the one
+   *  showing. */
+  const opens = useCallback(
+    (pick: typeof currentRow) => {
+      if (shownNow.current !== null) return close();
+      const to = pick(rowsNow.current, last.current);
+      if (to) show(to.key);
+      else end();
+    },
+    [close, show, end],
+  );
+  const press = useCallback(() => opens(currentRow), [opens]);
+  const workThrough = useCallback(() => opens(waitingRow), [opens]);
 
   const takeKeys = useCallback(() => {
     if (shownNow.current === null) return;
@@ -223,22 +254,36 @@ export function useNotchStage(items: BarItem[], reviews: BarReview[], known: (ke
     void notchKeys(true);
   }, []);
 
-  const next = useCallback((done: string, from: string) => void answered(from, done), [answered]);
+  const next = useCallback(
+    (done: string, from: string) => {
+      if (answered(from, done) === 'last') end();
+    },
+    [answered, end],
+  );
   /** The session or review left the bar: the next that waits takes its place, and with none the
-   *  notch closes, since there's nothing left under it to show. */
+   *  end of what waits does. */
   const left = useCallback(
     (key: string, done: Left) => {
-      if (shownNow.current === key && leftQueue(key, done) === 'last') close();
+      if (shownNow.current === key && leftQueue(key, done) === 'last') end();
     },
-    [close, leftQueue],
+    [end, leftQueue],
   );
 
+  // At the end of what waits, the first that comes to wait on you takes its place, as in the
+  // waiting window; not one just dealt with that the bar still shows waiting (queue.ts
+  // `firstLeft`).
+  const atEnd = open && shown?.kind === 'end';
+  const firstKey = first ? ROW_READS.keyOf(first) : null;
+  useEffect(() => {
+    if (atEnd && firstKey !== null) show(firstKey);
+  }, [atEnd, firstKey, show]);
+
   /** A review sent from the notch didn't go: the PR comes round again, and where the notch closed
-   *  on it as the last one, it opens on it again, saying why. */
+   *  or ended on it as the last one, it opens on it again, saying why. */
   const failed = useCallback(
     (key: string, why: string) => {
       again(key);
-      if (shownNow.current === null) {
+      if (shownNow.current === null || shownNow.current === END) {
         show(key);
         say({ text: why, error: true }, key);
       } else say({ text: why, error: true });
@@ -248,9 +293,13 @@ export function useNotchStage(items: BarItem[], reviews: BarReview[], known: (ke
   const unsent = useCallback(
     (key: string, said: string) => {
       again(key);
-      return say({ text: said, error: true });
+      // At the end of what waits (⏎, then the last one marked seen before the message failed),
+      // the notch goes back to it, saying why, as for a review: it may not wait on you, so
+      // nothing else would bring it back.
+      if (shownNow.current === END) show(key);
+      return say({ text: said, error: true }, shownNow.current === key ? key : undefined);
     },
-    [again, say],
+    [again, say, show],
   );
 
   // The bar left the notch: there's nowhere to show one.
@@ -302,7 +351,7 @@ export function useNotchStage(items: BarItem[], reviews: BarReview[], known: (ke
 
   const back = history.back ? () => void run('historyBack') : null;
 
-  return { key: shown?.key ?? null, kind: shown?.kind ?? 'session', open, keys, rename: shown?.rename ?? false, queue: queue.queue, notice: queue.notice, back, from: shown?.from ?? null, show, showPr, returnFrom, toggle, press, close, takeKeys, next, left, failed, unsent };
+  return { key: shown?.key ?? null, kind: shown?.kind ?? 'session', open, keys, rename: shown?.rename ?? false, queue: queue.queue, notice: queue.notice, ended: queue.ended, back, from: shown?.from ?? null, show, showPr, returnFrom, toggle, press, workThrough, close, takeKeys, next, left, failed, unsent };
 }
 
 interface NotchSessionProps {

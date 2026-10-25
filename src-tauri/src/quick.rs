@@ -353,9 +353,9 @@ fn toggle_for(app: &AppHandle, context: Value) {
 }
 
 /// The shortcut that goes through what waits on you. Docked in the notch, the bar's page opens
-/// the notch on the session that waits (or puts it away), as a click on the notch does; otherwise
-/// the waiting window comes up (waiting.rs), or goes away when it's the window you're in. On the
-/// main thread.
+/// the notch on the session that waits, or with nothing waiting on the end of what waits (or puts
+/// it away; NotchSession.tsx `workThrough`); otherwise the waiting window comes up (waiting.rs), or
+/// goes away when it's the window you're in. On the main thread.
 pub fn work_through(app: &AppHandle) {
     if crate::bar::mode_of(app) == crate::bar::Mode::Notch && app.get_webview_window(crate::bar::LABEL).is_some() {
         let _ = app.emit_to(crate::bar::LABEL, "waiting-shortcut", ());

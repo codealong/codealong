@@ -2419,7 +2419,8 @@ panel*
 A window of its own, sized and placed as you like and kept up until you close it, that works through
 what waits on you one at a time: every session that needs you, then the PRs waiting on your review,
 then the sessions whose turn ended, each the longest wait first, snoozed ones left out. With the bar
-docked in the notch, ⌥⌘. opens the notch instead, as a click on the notch does. Pressed while the
+docked in the notch, ⌥⌘. opens the notch instead, on what waits on you, or with nothing waiting on
+the end of what waits (below, under *The bar in the notch*). Pressed while the
 window is the one you're in, ⌥⌘. puts it away and gives the keyboard back to the app you were in. A
 session shows as the card the bar's peek shows: the same header (the ways to open the session, the
 check, ⋯), the session's whole menu on ⋯ and on a right-click, its conversation, and a box that
@@ -2444,8 +2445,10 @@ and what the box has to say. Once one is sent a message, allowed, reviewed, mark
 archived, the next that waits on you takes its place. ⌘] or ⌥⇧↓ skips to the next (a skipped one
 comes round again after the rest) and ⌘[ or ⌥⇧↑ goes back, ⌥↑ ⌥↓ step along what waits, and ⌃- ⌃⇧-
 go back and forward through the ones you looked at. A message that doesn't go is back in its
-session's box, and that session comes round again. With nothing left it says nothing waits on you,
-and the next that comes to wait on you shows by itself. Brought up again while it's open, it stays
+session's box, and that session comes round again. With nothing waiting it says so, and how many
+sessions are working; once you're through the last one, it says nothing else waits on you and how
+that one went ("Fix the login: sent."), as the iPhone's end page does. The next that comes to wait
+on you shows by itself. Brought up again while it's open, it stays
 where you were; closed and brought up again, it starts on the longest wait. Where it was is kept for
 the next launch.
 
@@ -2581,7 +2584,10 @@ the pointer leaves, and stays open while one of its menus is up. The pin at the 
 side, or Keep the notch open in its right-click menu, keeps it open until you unpin it, across
 launches. There's no peek beside a docked bar: click a session's pill and the notch opens further,
 into that session under the pills, its header, its conversation and the box that answers it, dark as
-the notch is; ⌥⌘. from any app opens it on the session that waits on you. The reviews pill opens it
+the notch is; ⌥⌘. from any app opens it on the session that waits on you, and with nothing waiting,
+though some run, on the end of what waits: a short card under the pills that says nothing waits on
+you, rather than the *Waiting on you* window. A click on the notch itself opens it on the one you
+looked at last, running or not, and on that card only with nothing on the bar. The reviews pill opens it
 the same way on a PR waiting on your review (the one PR; a menu picks among several, and the count
 beside the camera opens the first): the PR's card, with its details and a box at its foot that
 reviews it. It has the keyboard from the click, with the cursor in the box, and works through what
@@ -2611,7 +2617,11 @@ from a session's panel in the main window leads back to it. Snooze is dimmed on 
 your review isn't asked for, and Show in Codealong in the PR's menu still opens it in the main
 window. One the queue goes on to later, as a review, leads back nowhere, however you come back to it.
 The pill of the one shown is marked. Marked seen, snoozed, closed or archived, a session leaves what
-waits on you and the next takes its place; with none left the notch closes. Drag the session's
+waits on you and the next takes its place. With none left, the end of what waits does (⌘⏎ goes on
+only while something's next: on the last one it sends and stays): it says nothing else waits on you
+and how the last one went, and keeps the keyboard
+until you put it away as you would a session (Escape, ⌥⌘., a click elsewhere). What comes to wait
+on you while it's up takes its place by itself. Drag the session's
 bottom corners or its bottom edge to size it: the notch stays centered, so a corner pulled out
 widens it as much on the other side, it keeps the size across launches, and a double-click on a
 corner gives it its usual size back. Escape, a click on its pill again or a click anywhere else puts

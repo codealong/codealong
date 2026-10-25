@@ -52,8 +52,12 @@ export interface WaitingQueue<H = undefined, T = unknown> {
   /** How the last one went, on the session gone on to, or what the window said (`say`). */
   notice: Notice | null;
   /** With nothing shown, the first that waits on you and hasn't been dealt with here (queue.ts
-   *  `firstLeft`): what the waiting window goes to. Null while something shows. */
+   *  `firstLeft`): what the waiting window and the notch's end go to. Null while something shows. */
   first: T | null;
+  /** With nothing shown, how the last one went when dealing with it ended what waits, for the
+   *  end of what waits to say (QueueEnd.tsx); null while something shows, and after opening on
+   *  nothing. */
+  ended: string | null;
   /** Runs a key's action on the session shown (queue.ts `keyStep`). True when the queue took it;
    *  false when it's the window's own or the card's, or nothing shows. */
   run: (action: QueueAction, how?: H) => boolean;
@@ -82,6 +86,13 @@ export function useWaitingQueue<T, H = undefined>(options: WaitingQueueOptions<T
   // What the strip says, and the session it says it on: how one went is for the one gone on to,
   // not for whichever shows after a click elsewhere.
   const [note, setNote] = useState<(Notice & { on: string }) | null>(null);
+  // How the last one went, once dealing with it left nothing else waiting: said at the end until
+  // something shows again.
+  const [ended, setEnded] = useState<string | null>(null);
+  const shownKey = options.shown?.key ?? null;
+  useEffect(() => {
+    if (shownKey !== null) setEnded(null);
+  }, [shownKey]);
   // Where the session shown stood the last time the list had it waiting (queue.ts
   // `QueueView.was`): an answer can take it off the list before it's in.
   const was = useRef<Place | null>(null);
@@ -106,7 +117,7 @@ export function useWaitingQueue<T, H = undefined>(options: WaitingQueueOptions<T
     if (step.to !== undefined) {
       setNote(step.words ? { on: o.reads.keyOf(step.to), text: step.words, error: false } : null);
       o.show(step.to, how);
-    }
+    } else if (step.went === 'last' && step.words) setEnded(step.words);
     return step.went;
   }, []);
 
@@ -143,6 +154,7 @@ export function useWaitingQueue<T, H = undefined>(options: WaitingQueueOptions<T
   const fresh = useCallback(() => {
     handled.current = new Map();
     setNote(null);
+    setEnded(null);
   }, []);
   const next = useCallback(() => void run('next'), [run]);
 
@@ -154,5 +166,5 @@ export function useWaitingQueue<T, H = undefined>(options: WaitingQueueOptions<T
   const notice = note && note.on === view.shown?.key ? { text: note.text, error: note.error } : null;
   const first = view.shown ? null : (rules.firstLeft(view, handled.current) ?? null);
 
-  return { queue, notice, first, run, onKey, answered, left, again, say, fresh };
+  return { queue, notice, first, ended: view.shown ? null : ended, run, onKey, answered, left, again, say, fresh };
 }

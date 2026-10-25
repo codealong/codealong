@@ -4,8 +4,9 @@
 // your review with the box that reviews it (PrCard.tsx), and goes on to the next as each is dealt
 // with: every session in every project that needs you, then the PRs waiting on your review, then
 // the sessions whose turn ended, each the longest wait first (quick.ts `queueRows`, queue.ts
-// `byPlace`), snoozed ones left out. With nothing waiting it says so, and the first that comes
-// to wait on you shows by itself.
+// `byPlace`), snoozed ones left out. With nothing waiting it says so, and once you're through
+// with the last one, how that went (QueueEnd.tsx, as the notch says it); the first that comes to
+// wait on you then shows by itself.
 //
 // It works through them as a session's panel in Sessions and the notch do, with the same keys,
 // from the same code (queue.ts, useWaitingQueue.ts): ⏎ sends and stays to watch the reply, ⌘⏎
@@ -39,7 +40,7 @@ import * as menus from '../menus';
 import { clearNotice, failedNotice, reportNotice } from '../notices';
 import { openWhere, where } from '../open';
 import { prRefOf } from '../prLinks';
-import { ALL_PROJECTS, QUEUE_READS, queueRows, reviewSince, type QueueRow } from '../quick';
+import { ALL_PROJECTS, attentionRows, QUEUE_READS, queueRows, reviewSince, type QueueRow } from '../quick';
 import { errorText, type Report } from '../report';
 import { reuse } from '../reuse';
 import { repoReviews } from '../repoSettings';
@@ -50,6 +51,7 @@ import { PrCard, type CameFrom, type PrWindowCan } from './PrCard';
 import { showPrTab } from './PrInspector';
 import { usePrLinks } from './PrLink';
 import { ProjectShown } from './ProjectSaid';
+import { QueueEnd } from './QueueEnd';
 import { SessionCard, type WindowCan } from './SessionCard';
 import { useTheme } from './ThemeSwitch';
 import { Reading } from './Tip';
@@ -120,6 +122,8 @@ export function Waiting() {
   const cameFrom = from && from.pr === key ? from : null;
   // What it works through. Snoozed ones wait their time (quick.ts `groupOf`).
   const queue = useMemo(() => (board ? queueRows(board, ALL_PROJECTS) : []), [board]);
+  // How many sessions are at work, for the end of what waits to say, as the quick panel counts them.
+  const working = useMemo(() => (board ? attentionRows(board, ALL_PROJECTS).counts.working : 0), [board]);
   const answerable = useMemo(() => new Set(board ? [...board.lanes.flatMap((l) => l.sessions.filter((s) => !s.archived).map((s) => s.key)), ...board.prs.map((p) => p.key)] : []), [board]);
   const shownKey = replying?.session.key ?? reviewing?.key ?? null;
   const looked = useSessionHistory(up ? shownKey : null, (k) => answerable.has(k), LOOKED_KEY);
@@ -199,7 +203,7 @@ export function Waiting() {
     setKey(backTo ?? (first ? QUEUE_READS.keyOf(first) : null));
   }, [up, read, board, key, replying, reviewing, first, backTo]);
 
-  /** Done with the one shown and nothing else waits: the window says so. */
+  /** Done with the one shown and nothing else waits: the window says so, and how it went. */
   const went = (to: 'on' | 'last' | 'stay' | 'away') => {
     if (to === 'last') {
       setKey(null);
@@ -358,11 +362,16 @@ export function Waiting() {
             if (sentWorthSaying(sent)) report.info(sent.message);
           }}
           // It didn't go, after the window went on from it: it's back in what's left, and the
-          // strip says why.
+          // strip says why; at the end of what waits, the window is back on it, as for a review,
+          // since it may not wait on you and nothing else would bring it back.
           onFailed={(why) => {
             const s = replying.session;
+            const said = { text: `Didn’t send to ${s.title}: ${why}`, error: true };
             way.again(s.key);
-            way.say({ text: `Didn’t send to ${s.title}: ${why}`, error: true });
+            if (shownNow.current === null) {
+              setKey(s.key);
+              way.say(said, s.key);
+            } else way.say(said);
           }}
         />
       ) : reviewing ? (
@@ -392,10 +401,7 @@ export function Waiting() {
       ) : !board || board.loading ? (
         <Reading what="Reading sessions…" place="waiting" />
       ) : (
-        <div className="ca-waiting-empty" role="status">
-          <h1>Nothing waits on you</h1>
-          <p>Sessions that need you, PRs waiting on your review and turns that ended show here, one at a time, as they come.</p>
-        </div>
+        <QueueEnd said={way.ended} working={working} className="ca-waiting-empty" />
       )}
     </div>
   );

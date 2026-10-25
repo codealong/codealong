@@ -1,0 +1,50 @@
+/* The end of what waits on you (QueueEnd.tsx), in the waiting window and under the notch's pills:
+   a check, what it says, and how the last one went. Gone on from the last one, the check draws
+   in. */
+
+.ca-queue-end {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  box-sizing: border-box;
+  max-width: 360px;
+  padding: var(--space-6);
+  color: var(--ink-3);
+  font: var(--type-body);
+  text-align: center;
+}
+.ca-queue-end-mark {
+  margin-bottom: var(--space-1);
+  color: var(--ink-3);
+}
+.ca-queue-end-title {
+  margin: 0;
+  color: var(--ink);
+  font: var(--type-heading);
+}
+.ca-queue-end-said {
+  margin: 0;
+  color: var(--ink-2);
+}
+.ca-queue-end-hint {
+  margin: 0;
+}
+/* The check's tick is the icon's second path, some 8.5 long. */
+.ca-queue-end.is-through .ca-queue-end-mark path:last-child {
+  stroke-dasharray: 9;
+  animation: ca-queue-end-tick var(--dur-base) ease-out var(--dur-fast) both;
+}
+@keyframes ca-queue-end-tick {
+  from {
+    stroke-dashoffset: 9;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ca-queue-end.is-through .ca-queue-end-mark path:last-child {
+    animation: none;
+  }
+}

@@ -1,6 +1,8 @@
 // Checks what the notch says of a message that didn't go once its box had gone (NotchSession.tsx
 // `unsent`): after ⌘⏎ went on to the next, the strip over that one says why, and nothing shows on
-// the bar; after the notch closed on it, the bar says why on its session's pill.
+// the bar; after the notch closed on it, the bar says why on its session's pill; and sent with ⏎
+// to the last one, then snoozed, which goes on to the end of what waits, the notch is back on it,
+// saying why, rather than on the end saying it was snoozed.
 //   PREVIEW_SIZE=1512,980 PREVIEW_WAIT=60000 scripts/preview.sh notch '' scripts/preview/notch-unsent-check.js
 (function () {
   var notch = function () { return document.querySelector('.ca-notch'); };
@@ -28,10 +30,10 @@
     l.sessions.forEach(function (s) { if (!s.visitor && !s.archived && s.key.charAt(0) !== '@') onBoard[s.key] = true; });
   });
   var f = json('./bar-feed.json');
-  var items = f.items.filter(function (i) { return onBoard[i.key]; }).slice(0, 2).map(function (i, n) {
-    return Object.assign({}, i, { title: 'Unsent ' + 'AB'[n], group: 'unread', status: 'unread', asks: false, snoozedUntil: null, since: 1000 + n, hidden: false });
+  var items = f.items.filter(function (i) { return onBoard[i.key]; }).slice(0, 3).map(function (i, n) {
+    return Object.assign({}, i, { title: 'Unsent ' + 'ABC'[n], group: 'unread', status: 'unread', asks: false, snoozedUntil: null, since: 1000 + n, hidden: false });
   });
-  var feed = Object.assign({}, f, { loading: false, items: items, recent: [], snoozed: [], reviews: [], todos: [] });
+  var feed = Object.assign({}, f, { loading: false, items: items.slice(0, 2), recent: [], snoozed: [], reviews: [], todos: [] });
   var said = {};
   items.forEach(function (i) {
     said[i.key] = { title: i.title, status: 'unread', asks: false, snoozedUntil: null, archived: false, live: true, surface: 'cli', hosted: false, pid: 4242, attachCommand: null };
@@ -64,7 +66,7 @@
   say('notch unsent check: waiting for it');
   until(function () { return notch() && calls('notch_shape').length > 0; }, 15000, 'the notch')
     .then(function () {
-      if (items.length < 2) throw new Error('the bar has fewer than two of the board’s sessions');
+      if (items.length < 3) throw new Error('the bar has fewer than three of the board’s sessions');
       window.__emit('bar-feed', feed);
       enter();
       return until(function () { return is('pills') && pill(items[0].key); }, 3000, 'its pills');
@@ -103,6 +105,37 @@
     .then(function () {
       var n = barNotes();
       check('one that didn’t go after the notch closed on it is said on the bar, by its pill', n.length === 1 && n[0].key === items[1].key && n[0].message === 'Its terminal is gone.' && n[0].tone === 'error', JSON.stringify(n));
+      // Now only the third is on the bar.
+      window.__emit('bar-feed', Object.assign({}, feed, { items: [items[2]] }));
+      enter();
+      return until(function () { return pill(items[2].key); }, 3000, 'the last one');
+    })
+    .then(function () { return wait(500); })
+    .then(function () {
+      pill(items[2].key).click();
+      return until(shows(2), 3000, 'the last one, shown').then(function () { return until(box, 3000, 'its box'); });
+    })
+    .then(function () {
+      // ⏎ sends and stays; snoozed (⌃⌘1) before the message fails, it leaves what waits.
+      send(false);
+      return wait(50);
+    })
+    .then(function () {
+      document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: '1', code: 'Digit1', metaKey: true, ctrlKey: true, bubbles: true, cancelable: true }));
+      return until(function () { return is('end'); }, 3000, 'the end of what waits');
+    })
+    .then(function () {
+      check('snoozed, the last one goes on to the end of what waits', /Unsent C: snoozed\./.test((document.querySelector('.ca-queue-end') || {}).textContent || ''), notch().className);
+      fail();
+      return until(shows(2), 3000).catch(function () {});
+    })
+    .then(function () {
+      check('a message that didn’t go from there takes the notch back to its session', shows(2)(), notch().className + ' ' + title());
+      return until(function () { return /Didn’t send/.test(strip()); }, 3000).catch(function () {});
+    })
+    .then(function () {
+      check('whose strip says why', strip() === 'Didn’t send to Unsent C: Its terminal is gone.', strip());
+      check('and the end no longer shows', !document.querySelector('.ca-queue-end'));
     })
     .catch(function (e) { check('ran', false, String(e) + ' at ' + title()); })
     .then(done);

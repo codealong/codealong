@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { barWidth, currentRow, elsewhereWaits, fitGroups, NOTCH, notchClip, notchCount, notchDragged, notchRows, notchSizes, plain, projectWaits, ROW_READS, waitingRows, type Metrics, type NotchRow } from './bar';
+import { barWidth, currentRow, elsewhereWaits, fitGroups, NOTCH, notchClip, notchCount, notchDragged, notchRows, notchSizes, plain, projectWaits, ROW_READS, waitingRow, waitingRows, type Metrics, type NotchRow } from './bar';
 import { inQueueOrder, placeOf } from './queue';
 import { ALL_PROJECTS, QUEUE_READS, queueRows } from './quick';
 import * as fx from './testing/fixtures';
@@ -227,6 +227,25 @@ describe('the bar docked in the notch', () => {
     expect(session.radius).toBe(NOTCH.radius.session);
   });
 
+  it('shows the end of what waits under the pills as tall as it needs, never narrower than its least', () => {
+    // Narrow pills: the end's own least, in whole points a side (273 closed, 64 more a side).
+    const narrow = notchSizes(notch, { w: 200, h: 24 }, 60, room, screen, null, 1, 150.4);
+    expect(narrow.end).toEqual({ w: 401, h: narrow.pills.h + 151 });
+    // Wide pills: as wide as they are.
+    const wide = notchSizes(notch, { w: 600, h: 24 }, 60, room, screen, null, 1, 150);
+    expect(wide.end.w).toBe(wide.pills.w);
+    // Never past the session it takes the place of.
+    expect(notchSizes(notch, { w: 200, h: 24 }, 60, room, screen, { w: 300, h: 100 }, 1, 900).end.h).toBe(66 + NOTCH.session.least);
+    const small = notchSizes(notch, { w: 200, h: 24 }, 60, room, { w: 380, h: 700 }, null, 1, 150);
+    expect(small.session.w).toBeLessThan(401);
+    expect(small.end.w).toBe(small.session.w);
+    const end = notchClip(narrow, 'end');
+    expect(narrow.full.w - 2 * end.side).toBe(narrow.end.w);
+    expect(Number.isInteger(end.side)).toBe(true);
+    expect(narrow.full.h - end.bottom).toBe(narrow.end.h);
+    expect(end.radius).toBe(NOTCH.radius.session);
+  });
+
   it('shows the most urgent group beside the camera, in the bar’s order', () => {
     expect(notchCount({ needs: 2, reviews: 3, unread: 1, working: 5 })).toEqual({ kind: 'needs', n: 2 });
     expect(notchCount({ needs: 0, reviews: 3, unread: 1, working: 5 })).toEqual({ kind: 'reviews', n: 3 });
@@ -294,5 +313,15 @@ describe('what the notch works through', () => {
     expect(currentRow(running, 'w2')?.key).toBe('w2');
     expect(currentRow(running, null)?.key).toBe('w1');
     expect(currentRow([], 'w1')).toBeNull();
+  });
+
+  it('opens on what waits from the shortcut, and on nothing that only runs', () => {
+    expect(waitingRow(rows, null)?.key).toBe('n1');
+    expect(waitingRow(rows, 'u1')?.key).toBe('u1');
+    expect(waitingRow(rows, 'w1')?.key).toBe('n1');
+    // Nothing waits: none, whatever runs or was shown last, for the end of what waits.
+    const running = notchRows([item('w1', 'working', 5), item('w2', 'working', 6)], []);
+    expect(waitingRow(running, 'w2')).toBeNull();
+    expect(waitingRow(running, null)).toBeNull();
   });
 });

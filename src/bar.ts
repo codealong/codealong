@@ -126,7 +126,8 @@ export function elsewhereWaits(waits: Record<string, WaitCounts>, projects: stri
  *  size of your own, never narrower than `width` or shorter than `least`, nor wider than `widest`
  *  or taller than `tallest`, and leaving `clear` of the screen beside and under it; and the room
  *  the window keeps beside and under the shape for its shadow (app.css `--shadow-notch` reaches
- *  16 beside it and 30 under it). */
+ *  16 beside it and 30 under it). The end of what waits under the pills is never narrower than
+ *  `end`. */
 export const NOTCH = {
   wing: 44,
   hover: 4,
@@ -134,6 +135,7 @@ export const NOTCH = {
   radius: { closed: 12, open: 22, session: 26 },
   pad: 10,
   session: { width: 680, height: 520, least: 240, widest: 1040, tallest: 900, clear: 96 },
+  end: 400,
   shadow: { side: 20, bottom: 32 },
 };
 
@@ -144,13 +146,16 @@ export interface Size {
 
 /** What the docked bar shows: the notch alone; the notch a little wider, with the pointer just
  *  on it; the bar's pills under it, while the pointer stays or it's pinned; a session under the
- *  pills, to read and answer. */
-export type NotchState = 'closed' | 'hover' | 'pills' | 'session';
+ *  pills, to read and answer; or the end of what waits under them (QueueEnd.tsx). */
+export type NotchState = 'closed' | 'hover' | 'pills' | 'session' | 'end';
 
 export interface NotchSizes {
   closed: Size;
   pills: Size;
   session: Size;
+  /** With the end of what waits under the pills: as wide as they are, or `NOTCH.end`, and as tall
+   *  as it needs. */
+  end: Size;
   /** The biggest the shape can get, a session dragged as far as it goes: what everything is laid
    *  out in. */
   full: Size;
@@ -168,8 +173,9 @@ export interface NotchSizes {
  *  (zoom.ts), so its usual size is as much bigger, within the screen; a size you dragged it to
  *  stays as you left it. The most it can get grows only for a usual size past it, so most zooms
  *  leave the window as it was: a window resized by the engine lands a moment after the page has
- *  laid out for it, and the shape jumped across in between. */
-export function notchSizes(notch: { width: number; height: number }, body: Size, side: number, room: number, screen: Size, want?: Size | null, zoom = 1): NotchSizes {
+ *  laid out for it, and the shape jumped across in between. `endH` is how tall the end of what
+ *  waits is at its width, which it never grows past the session's. */
+export function notchSizes(notch: { width: number; height: number }, body: Size, side: number, room: number, screen: Size, want?: Size | null, zoom = 1, endH = 0): NotchSizes {
   const closed = { w: notch.width + 2 * NOTCH.wing, h: notch.height };
   // As much wider than closed on each side, in whole points: the clip's edges then fall on whole
   // points, where they're sharp.
@@ -184,14 +190,16 @@ export function notchSizes(notch: { width: number; height: number }, body: Size,
   const tall = Math.min(tallest, Math.max(NOTCH.session.least, Math.round(want?.h ?? usual.h)));
   const session = { w: Math.min(widest, Math.max(narrowest, widened(want?.w ?? usual.w))), h: pills.h + tall };
   const full = { w: Math.max(widest, widened(room + 2 * NOTCH.pad)), h: pills.h + tallest };
+  const end = { w: Math.min(session.w, Math.max(pills.w, widened(NOTCH.end))), h: Math.min(session.h, pills.h + Math.ceil(endH)) };
   const margin = Math.max(NOTCH.ear.open, NOTCH.shadow.side);
-  return { closed, pills, session, full, window: { w: full.w + 2 * margin, h: full.h + NOTCH.shadow.bottom } };
+  return { closed, pills, session, end, full, window: { w: full.w + 2 * margin, h: full.h + NOTCH.shadow.bottom } };
 }
 
 /** How much of the layout shows: its insets from the sides and the bottom, and the radius of its
  *  bottom corners. Closed it's the notch and its sides, a little wider under the pointer. */
-export function notchClip(s: Pick<NotchSizes, 'closed' | 'pills' | 'session' | 'full'>, state: NotchState): { side: number; bottom: number; radius: number } {
+export function notchClip(s: Pick<NotchSizes, 'closed' | 'pills' | 'session' | 'end' | 'full'>, state: NotchState): { side: number; bottom: number; radius: number } {
   if (state === 'session') return { side: (s.full.w - s.session.w) / 2, bottom: s.full.h - s.session.h, radius: NOTCH.radius.session };
+  if (state === 'end') return { side: (s.full.w - s.end.w) / 2, bottom: s.full.h - s.end.h, radius: NOTCH.radius.session };
   if (state === 'pills') return { side: (s.full.w - s.pills.w) / 2, bottom: s.full.h - s.pills.h, radius: NOTCH.radius.open };
   const side = Math.max(0, (s.full.w - s.closed.w) / 2 - (state === 'hover' ? NOTCH.hover : 0));
   return { side, bottom: s.full.h - s.closed.h, radius: NOTCH.radius.closed };
@@ -259,10 +267,16 @@ export function waitingRows(rows: NotchRow[]): NotchRow[] {
   return rows.filter((r) => r.kind !== 'session' || r.item.group !== 'working');
 }
 
-/** The row a click on the notch itself opens it on: the one it showed last while that still
- *  waits on you, else the first that waits in the queue's order (the one that has waited
- *  longest), else the one it showed last, else the first row. None with nothing on the bar. */
-export function currentRow(rows: NotchRow[], last: string | null): NotchRow | null {
+/** The row the shortcut that works through what waits opens the notch on: the one it showed last
+ *  while that still waits on you, else the first that waits in the queue's order (the one that
+ *  has waited longest). None with nothing waiting: the end of what waits says so. */
+export function waitingRow(rows: NotchRow[], last: string | null): NotchRow | null {
   const waiting = inQueueOrder(waitingRows(rows), ROW_READS);
-  return waiting.find((r) => r.key === last) ?? waiting[0] ?? rows.find((r) => r.key === last) ?? rows[0] ?? null;
+  return waiting.find((r) => r.key === last) ?? waiting[0] ?? null;
+}
+
+/** The row a click on the notch itself opens it on: the shortcut's (`waitingRow`), else the one
+ *  it showed last, else the first row. None with nothing on the bar. */
+export function currentRow(rows: NotchRow[], last: string | null): NotchRow | null {
+  return waitingRow(rows, last) ?? rows.find((r) => r.key === last) ?? rows[0] ?? null;
 }
