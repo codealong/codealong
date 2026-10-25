@@ -171,6 +171,13 @@ impl State {
         let at = self.closing.iter().position(|o| o.side.id == id)?;
         Some(self.closing.remove(at))
     }
+
+    /// `take_closing`, once it has answered all it was asked: one asked again as it was read,
+    /// and closed again, is answering again.
+    fn take_answered(&mut self, id: &str) -> Option<Open> {
+        let at = self.closing.iter().position(|o| o.side.id == id && !o.side.running)?;
+        Some(self.closing.remove(at))
+    }
 }
 
 fn state() -> std::sync::MutexGuard<'static, State> {
@@ -826,10 +833,10 @@ fn heard(key: &str, id: u64, line: &Value) {
     keep(kept);
     // One closed while it answered has answered all it was asked: its copy's done. It leaves the
     // closing ones only once what it said is kept, so a question asked as it's read finds it in
-    // one or the other (`ask_with`). Asked meanwhile, it's open again, its copy going on, and
-    // the windows have been told so.
+    // one or the other (`ask_with`). Asked meanwhile, it's open again or answering again, its
+    // copy going on, and the windows have been told so.
     if side.closed && !side.running {
-        let Some(answered) = state().take_closing(&side.id) else { return };
+        let Some(answered) = state().take_answered(&side.id) else { return };
         if let Some(p) = answered.proc {
             end(p);
         }
@@ -916,7 +923,10 @@ fn stopped(key: &str, id: u64, complaint: &str) {
 /// long is stuck, with nobody watching it, and ends too.
 fn end_idle(idle: Duration) {
     let mut ended = Vec::new();
-    let stuck: Vec<Open> = {
+    // A stuck one is stopped where it is, its copy taken so that nothing more is heard from it
+    // nor asked of it, and leaves the closing ones only once what it said is kept, as `heard`
+    // has one leave (`ask_with`).
+    let stuck: Vec<(String, Option<Kept>, Option<Proc>)> = {
         let mut st = state();
         for o in st.open.values_mut() {
             if o.side.running || o.used.elapsed() < idle {
@@ -928,25 +938,31 @@ fn end_idle(idle: Duration) {
                 ended.push(o.side.clone());
             }
         }
-        let (stuck, still) = std::mem::take(&mut st.closing).into_iter().partition(|o| o.used.elapsed() >= idle);
-        st.closing = still;
-        stuck
+        st.closing
+            .iter_mut()
+            .filter(|o| o.used.elapsed() >= idle)
+            .map(|o| {
+                for t in o.side.turns.iter_mut().filter(|t| !t.done) {
+                    t.done = true;
+                    t.tool = None;
+                    t.answer = t.answer.trim().to_string();
+                    t.error = Some(format!("Stopped: once closed, nothing came from it for {} minutes.", idle.as_secs() / 60));
+                }
+                o.side.running = false;
+                o.side.ended = true;
+                (o.side.id.clone(), kept_of(o), o.proc.take())
+            })
+            .collect()
     };
     let any = !ended.is_empty() || !stuck.is_empty();
-    for mut o in stuck {
-        for t in o.side.turns.iter_mut().filter(|t| !t.done) {
-            t.done = true;
-            t.tool = None;
-            t.answer = t.answer.trim().to_string();
-            t.error = Some(format!("Stopped: once closed, nothing came from it for {} minutes.", idle.as_secs() / 60));
-        }
-        o.side.running = false;
-        o.side.ended = true;
-        keep(kept_of(&o));
-        if let Some(p) = o.proc.take() {
+    for (id, kept, proc) in stuck {
+        if let Some(p) = proc {
             end(p);
         }
-        ended.push(o.side);
+        keep(kept);
+        if let Some(o) = state().take_closing(&id) {
+            ended.push(o.side);
+        }
     }
     for side in ended {
         notify(side);
@@ -1089,6 +1105,18 @@ mod tests {
         assert!(side.ended);
         assert_eq!(side.turns[0].answer, "You asked: one");
         close(key);
+    }
+
+    /// Word that a closed copy has answered all it was asked comes after what it said is kept
+    /// (`heard`): asked again meanwhile and closed again, it's answering again, and the word
+    /// doesn't end it.
+    #[test]
+    fn one_asked_again_and_closed_again_is_not_taken_for_answered() {
+        let mut st = State::default();
+        st.closing.push(Open { side: Side { id: "a".into(), key: "claude:c:1".into(), running: true, closed: true, ..Default::default() }, title: String::new(), started_at: 1, queue: VecDeque::new(), proc: None, used: Instant::now() });
+        assert!(st.take_answered("a").is_none());
+        st.closing[0].side.running = false;
+        assert!(st.take_answered("a").is_some() && st.closing.is_empty());
     }
 
     /// A copy that answers as `Echo` does, as `ask_with` makes one.

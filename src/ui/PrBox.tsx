@@ -41,7 +41,7 @@ import { mayApprove, yourApproval, yourReview, yourVerdictStands } from '../prSt
 import { errorText, type Report } from '../report';
 import { againFor, againTitle, approvedWords, askAccounts, askOn, reviewLineWords, sinceWords, suggestWords, tryAgain } from '../review';
 import { showSince, useSince } from '../since';
-import { beingRead, notAsked, showSides, startingSide, useKept, useSide, useSideView, type SideView } from '../side';
+import { beingRead, notAsked, showSides, startingSide, useClosing, useKept, useSide, useSideView, type SideView } from '../side';
 import { useStartAccounts, useStartGroups } from '../startAccounts';
 import { AUTO, isAuto, modelName, ownModels } from '../start';
 import { asText, readStored, writeStored } from '../stored';
@@ -108,10 +108,13 @@ export interface PrBox {
   conversation: Side | null;
   shown: SideView;
   kept: SideKept[];
-  /** The account that answers: the open conversation's, else the one picked or Auto's. */
+  /** The account that answers: the agent's of the conversation a question goes on in, where it
+   *  has one, else the one picked or Auto's. */
   answerer: string | null;
-  /** A question goes to the open conversation, on what it was made on. */
-  toOpen: boolean;
+  /** The conversation a question goes on in on the agent it has: the open one, or one read
+   *  that's closed and still answering. None when a question starts a new copy, on what's
+   *  picked. */
+  bound: Side | null;
   /** Who was picked beside Ask, Auto's or an account's. */
   asker: AgentPick;
   starting: boolean;
@@ -164,14 +167,19 @@ export function usePrBox(pr: PrItem, { report, usage, now, onSent, onFailed, aut
 
   // Ask's conversation, and the account that answers: the open conversation's, else the one
   // picked, else Auto's. A question asked while one from before is read goes on in that one
-  // (side.ts `beingRead`), in a new copy on the one picked, not the open one's.
+  // (side.ts `beingRead`): on its own agent while it's still answering, else in a new copy on
+  // the one picked.
   const conversation = useSide(pr.key);
   const shown = useSideView(pr.key);
   const kept = useKept(pr.key);
+  const closing = useClosing();
   const [asker, setAsker] = useState<AgentPick>(readAsker);
   const asks = askOn(accounts, usage, now, isAuto(asker.account) ? null : asker);
-  const toOpen = !!conversation && !conversation.ended && shown?.kind !== 'past';
-  const answerer = toOpen ? (conversation.account ?? null) : (asks?.account ?? null);
+  const read = shown?.kind === 'past' ? shown.id : null;
+  // One answering that this window hasn't heard from yet is answering by what's kept, which
+  // doesn't say on what.
+  const bound = read ? (closing.get(read) ?? (kept.some((k) => k.id === read && k.answering) ? { id: read, key: pr.key, turns: [], running: true, ended: false } : null)) : conversation && !conversation.ended ? conversation : null;
+  const answerer = bound ? (bound.account ?? null) : (asks?.account ?? null);
   const [starting, setStarting] = useState(false);
 
   const switchTo = (to: BoxSide) => {
@@ -237,7 +245,7 @@ export function usePrBox(pr: PrItem, { report, usage, now, onSent, onFailed, aut
       showSides(pr.key, { kind: 'list' });
       return;
     }
-    if (!answerer) {
+    if (!answerer && !bound) {
       setAskText(question);
       setNote({ text: 'No account here can answer questions about a PR: a Claude Code or Codex one can.', error: true });
       return;
@@ -247,8 +255,8 @@ export function usePrBox(pr: PrItem, { report, usage, now, onSent, onFailed, aut
     const from = beingRead(pr.key);
     startingSide(pr.key);
     setStarting(true);
-    // An open conversation goes on on what it was made on.
-    prSideAsk(pr.key, asks && !toOpen ? asks : { account: answerer, model: null, effort: null }, question, from)
+    // One with an agent goes on on what it was made on.
+    prSideAsk(pr.key, asks && !bound ? asks : { account: answerer ?? asks?.account ?? '', model: null, effort: null }, question, from)
       .catch((e: unknown) => {
         setAskText((now_) => [question, now_].filter((t) => t.trim()).join('\n\n'));
         notAsked(pr.key);
@@ -267,7 +275,7 @@ export function usePrBox(pr: PrItem, { report, usage, now, onSent, onFailed, aut
     writeStored(ASK_EFFORT, asText, auto ? '' : (pick.effort ?? ''));
   };
 
-  return { side, asking, reviewText, setReviewText, askText, setAskText, note, setNote, box, draft, reviewable, stillOpen, conversation, shown, kept, answerer, toOpen, asker, starting, sending, agents, accounts, groups, usage, now, switchTo, review, ask, pickAnswerer, tryAgain: () => tryAgain(pr, report) };
+  return { side, asking, reviewText, setReviewText, askText, setAskText, note, setNote, box, draft, reviewable, stillOpen, conversation, shown, kept, answerer, bound, asker, starting, sending, agents, accounts, groups, usage, now, switchTo, review, ask, pickAnswerer, tryAgain: () => tryAgain(pr, report) };
 }
 
 /** The model and effort an open conversation about a PR answers on, as its chip says them; null
@@ -461,10 +469,10 @@ export function PrBoxView({ pr, box: b, keys, ownKeys = false, after, onShow, cl
           </div>
           {asking ? (
             <div className="ca-composer-buttons ca-prreview-buttons">
-              {conversation && b.toOpen ? (
-                <span className="ca-prreview-who" title="The open conversation’s agent answers. Close it above to ask another account, model or effort.">
-                  {conversation.account}
-                  {conversationOn(conversation, b.accounts) && <span className="ca-modelmenu-detail">{conversationOn(conversation, b.accounts)}</span>}
+              {b.bound ? (
+                <span className="ca-prreview-who" title={b.bound === conversation ? 'The open conversation’s agent answers. Close it above to ask another account, model or effort.' : 'Its agent is still answering, and takes the question next.'}>
+                  {b.bound.account ?? 'Its agent'}
+                  {conversationOn(b.bound, b.accounts) && <span className="ca-modelmenu-detail">{conversationOn(b.bound, b.accounts)}</span>}
                 </span>
               ) : (
                 <AgentMenu

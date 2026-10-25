@@ -6,8 +6,9 @@
 // "1 earlier" lists it; the agent menu beside Ask (AgentMenu.tsx) offers Auto and the accounts
 // whose harness can answer, each with its models and an effort row, and the account, model and
 // effort picked are asked next and remembered; a question that can't be asked is back in the box
-// with why; a question asked while one from before is read goes on in it, on what's picked rather
-// than the open one's account; and ⌘⏎ on Ask approves with Review's text.
+// with why; one from before read while it's still answering says its own agent answers, and once
+// it has answered, a question asked as it's read goes on in it, on what's picked rather than the
+// open one's account; and ⌘⏎ on Ask approves with Review's text.
 //   PREVIEW_WAIT=60000 scripts/preview.sh waiting '' scripts/preview/pr-ask-check.js
 (function () {
   ['account', 'model', 'effort'].forEach(function (k) { localStorage.removeItem('codealong.prask.' + k); });
@@ -183,7 +184,17 @@
       return until(function () { return all('.ca-sidestrip-q').length === 2 && q('.ca-sidestrip-q').textContent === 'Why a new table?'; }, 3000, 'the first read again');
     })
     .then(function () {
-      check('while one from before is read, who answers can be picked', !!chip() && !q('.ca-prreview-who'));
+      // Closed with its follow-up unanswered, it's still answering, on its own agent.
+      check('one read while it’s still answering says its own agent answers', !chip() && ((q('.ca-prreview-who') || {}).textContent || '').indexOf(auto) === 0, (q('.ca-prreview-who') || {}).textContent);
+      var first = window.__closing[firstId];
+      var turns = first.turns.map(function (t) { return Object.assign({}, t, { answer: 'In one step.', done: true }); });
+      delete window.__closing[firstId];
+      window.__past = (window.__past || []).concat([{ id: firstId, key: pr.key, title: '', startedAt: first.startedAt, lastAt: Date.now(), turns: turns }]);
+      window.__emit('side', Object.assign({}, first, { turns: turns, running: false }));
+      return until(function () { return !!chip(); }, 3000, 'it answered');
+    })
+    .then(function () {
+      check('once it has answered, who answers can be picked', !!chip() && !q('.ca-prreview-who'));
       type(box(), 'And the index?');
       enter();
       return until(function () { return asked().text === 'And the index?'; }, 3000, 'the question');
