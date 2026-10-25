@@ -152,6 +152,9 @@ struct State {
     open: HashMap<String, Open>,
     /// The ones closed while their copies answered, until the copies have answered.
     closing: Vec<Open>,
+    /// What's kept of each one closed with nothing to answer, by id, while that's written to
+    /// sides.json (`put_away`): a question asked of it meanwhile goes on from this (`ask_with`).
+    keeping: HashMap<String, Kept>,
     next: u64,
 }
 
@@ -376,19 +379,21 @@ fn ask_with(key: &str, text: &str, reading: Option<Reading>, chosen: Option<(&st
     let sent = crate::attachments::expand(text, crate::attachments::Style::Path);
     // One read that's the open one is simply asked.
     let is_open = |st: &State, id: &str| st.open.get(key).is_some_and(|o| o.side.id == id);
-    let (reading, has_copy) = {
+    let (reading, has_copy, keeping) = {
         let st = state();
         let reading = reading.filter(|r| !is_open(&st, r.id));
         let has_copy = match &reading {
             Some(r) => st.closing.iter().any(|o| o.side.id == r.id),
             None => st.open.get(key).is_some_and(|o| o.proc.is_some()),
         };
-        (reading, has_copy)
+        let keeping = reading.as_ref().and_then(|r| st.keeping.get(r.id).cloned());
+        (reading, has_copy, keeping)
     };
     // What's kept of one read whose copy has gone, read only now: a copy leaves the closing ones
-    // once what it said is kept (`heard`, `stopped`), so this has all of it. None for one that
-    // was closing then, and none in it once another window deleted it.
-    let kept = reading.as_ref().filter(|_| !has_copy).map(|r| past_in(r.kept_in, key).into_iter().find(|k| k.id == r.id));
+    // once what it said is kept (`heard`, `stopped`, `end_idle`), and one closed with nothing to
+    // answer is among those being kept until it is (`put_away`), so this has all of it. None for
+    // one that was closing then, and none in it once another window deleted it.
+    let kept = reading.as_ref().filter(|_| !has_copy).map(|r| keeping.or_else(|| past_in(r.kept_in, key).into_iter().find(|k| k.id == r.id)));
     // Made outside the lock: it reads the session's record, or asks GitHub about the PR.
     let made = if has_copy { None } else { Some(made()?) };
     let now = now_ms();
@@ -463,8 +468,8 @@ fn ask_with(key: &str, text: &str, reading: Option<Reading>, chosen: Option<(&st
         (o.side.clone(), closed)
     };
     // The one open before is closed, and the one asked shows in its place.
-    if let Some((ended, closing)) = closed {
-        put_away(ended, closing);
+    if let Some(away) = closed {
+        put_away(away);
     }
     notify(side.clone());
     changed();
@@ -486,39 +491,57 @@ pub fn close_now(key: &str) {
 }
 
 fn close_as(key: &str, finish: bool) {
-    let Some((ended, closing)) = take_open(&mut state(), key, finish) else { return };
+    let Some(away) = take_open(&mut state(), key, finish) else { return };
     // Gone from above its box, and still answering where it's read, if it is.
     notify(Side { key: key.to_string(), ..Default::default() });
-    put_away(ended, closing);
+    put_away(away);
     changed();
 }
 
+/// What `take_open` took, to put away outside the lock (`put_away`).
+struct Away {
+    /// What's kept of one with nothing to answer, among those being kept until it is.
+    kept: Option<Kept>,
+    /// Its copy, to end.
+    proc: Option<Proc>,
+    /// One closed and still answering, for the windows to hear of.
+    closing: Option<Side>,
+}
+
 /// Takes the session's open side conversation out of the open ones, if it has one: among the
-/// closed ones still answering when its copy is answering and may `finish`, else handed back to
-/// be put away.
-fn take_open(st: &mut State, key: &str, finish: bool) -> Option<(Option<Open>, Option<Side>)> {
+/// closed ones still answering when its copy is answering and may `finish`, else ended, what's
+/// kept of it among those being kept (`State::keeping`) until `put_away` has kept it.
+fn take_open(st: &mut State, key: &str, finish: bool) -> Option<Away> {
     let mut o = st.open.remove(key)?;
     if finish && o.side.running && o.proc.is_some() {
         o.side.closed = true;
         let side = o.side.clone();
         st.closing.push(o);
-        Some((None, Some(side)))
-    } else {
-        Some((Some(o), None))
+        return Some(Away { kept: None, proc: None, closing: Some(side) });
     }
+    cut_short(&mut o.side);
+    let kept = kept_of(&o);
+    if let Some(k) = &kept {
+        st.keeping.insert(k.id.clone(), k.clone());
+    }
+    Some(Away { kept, proc: o.proc, closing: None })
 }
 
 /// Puts away what `take_open` took, outside the lock: one ended is kept and its copy ended, and
 /// the windows hear of one still answering.
-fn put_away(ended: Option<Open>, closing: Option<Side>) {
-    if let Some(mut o) = ended {
-        cut_short(&mut o.side);
-        keep(kept_of(&o));
-        if let Some(p) = o.proc {
-            end(p);
+fn put_away(away: Away) {
+    if let Some(k) = away.kept {
+        keep(Some(k.clone()));
+        // Unless it was asked again and closed again meanwhile, which is kept in its turn.
+        let mut st = state();
+        if st.keeping.get(&k.id) == Some(&k) {
+            st.keeping.remove(&k.id);
         }
     }
-    if let Some(side) = closing {
+    if let Some(p) = away.proc {
+        end(p);
+    }
+    if let Some(side) = away.closing {
         notify(side);
     }
 }
@@ -553,6 +576,7 @@ fn with_closing(kept: Vec<Kept>, closing: Vec<Kept>) -> Vec<Kept> {
 /// Forgets a kept side conversation, and stops it if it was closed and is still answering.
 pub fn forget(id: &str) -> Result<()> {
     stop_closing(id);
+    state().keeping.remove(id);
     let forgot = forget_at(&store_path(), id);
     *kept_cache() = None;
     changed();
@@ -1117,6 +1141,28 @@ mod tests {
         assert!(st.take_answered("a").is_none());
         st.closing[0].side.running = false;
         assert!(st.take_answered("a").is_some() && st.closing.is_empty());
+    }
+
+    /// Closed with nothing to answer, a side conversation is among those being kept until
+    /// sides.json has it: a question asked of it meanwhile goes on from all it said, not from
+    /// what the file had before.
+    #[test]
+    fn a_question_asked_while_one_closed_is_being_kept_goes_on_from_all_it_said() {
+        let key = "test:side:being-kept";
+        open_with(key, "/bin/cat", &[]);
+        put(key, "one");
+        let first = wait_for(key, |s| !s.running);
+        // Closed, and not kept yet: `put_away` hasn't run.
+        let Some(away) = take_open(&mut state(), key, true) else { panic!("nothing open") };
+        assert!(away.closing.is_none() && state().keeping.contains_key(&first.id));
+        let nowhere = store::test_dir("sides-being-kept").join("sides.json");
+        let side = ask_with(key, "two", Some(Reading { id: &first.id, kept_in: &nowhere }), None, echo).unwrap();
+        assert_eq!((side.id.as_str(), side.turns.len()), (first.id.as_str(), 2));
+        put_away(away);
+        assert!(!state().keeping.contains_key(&first.id));
+        let side = wait_for(key, |s| !s.running);
+        assert!(side.turns[1].answer.contains("<question>\none\n</question>\n<answer>\nYou asked: one\n</answer>"), "{}", side.turns[1].answer);
+        close(key);
     }
 
     /// A copy that answers as `Echo` does, as `ask_with` makes one.
