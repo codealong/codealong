@@ -6,7 +6,8 @@
 // from the one list kept here (`useKept`), and its header and its row in Sessions name each, as
 // the board lists them (`Board.sides`), a click showing one (`showSide`). One closed while its
 // copy answers is among them, the copy answering what it was asked before it ends, and reads as
-// it answers (`useClosing`).
+// it answers (`useClosing`). A question asked while one is read goes on in it (`beingRead`): it's
+// the open one again, the copy told what was said in it, and the one open before is closed.
 //
 // What shows above a session's box is the same in every window (`SideView`, kept in local
 // storage, which they share), and so is whether the box is the side conversation's: a box in
@@ -27,11 +28,15 @@ const sides = new Map<string, Side>();
 /** The side conversations closed while their copies answered, by id, as the engine last said, until
  *  they've answered: a new map whenever one changes, for `useClosing`. */
 let closing: ReadonlyMap<string, Side> = new Map();
-/** The ones closed, and of those the ones whose copies have stopped, by id. A closed one is never
- *  open again, nor answering once it has stopped, so what says so was sent before and came late:
- *  the engine tells of one from more than one thread (its copy's, a window's close). */
-const closedIds = new Set<string>();
-const stoppedIds = new Set<string>();
+/** How many questions each one closed had as it closed, and each one whose copy stopped as it
+ *  stopped, by id. A closed one is open again only once it's asked again (side.rs `Reading`),
+ *  with a question more, nor answering once it has stopped, so what says so with no more
+ *  questions was sent before and came late: the engine tells of one from more than one thread
+ *  (its copy's, a window's close). One forgotten is never back. */
+const closedAt = new Map<string, number>();
+const stoppedAt = new Map<string, number>();
+/** Whether what's said of a side conversation was said before what `at` holds of it. */
+const saidBefore = (at: ReadonlyMap<string, number>, side: Side) => side.turns.length <= (at.get(side.id) ?? -1);
 const hearers = new Set<() => void>();
 let listening = false;
 
@@ -92,7 +97,13 @@ const toldOf = new Map<string, number>();
 export function noteSide(side: Side): void {
   toldOf.set(side.key, (toldOf.get(side.key) ?? 0) + 1);
   if (side.closed) return noteClosing(side);
-  if (side.turns.length > 0 && closedIds.has(side.id)) return;
+  if (side.turns.length > 0 && saidBefore(closedAt, side)) return;
+  // Asked again as it was read, one closed is the open one.
+  if (side.turns.length > 0 && closing.has(side.id)) {
+    const next = new Map(closing);
+    next.delete(side.id);
+    closing = next;
+  }
   const before = sides.get(side.key);
   if (side.turns.length > 0) sides.set(side.key, side);
   else sides.delete(side.key);
@@ -105,15 +116,18 @@ export function noteSide(side: Side): void {
 /** Takes what the engine says of one closed while its copy answered. Once it has answered, what's
  *  kept of it is what it said, until that's read again. */
 function noteClosing(side: Side): void {
-  if (stoppedIds.has(side.id)) return;
-  closedIds.add(side.id);
+  if (saidBefore(stoppedAt, side)) return;
+  // Open again with a question more since, as another window asked it.
+  const open = sides.get(side.key);
+  if (open?.id === side.id && open.turns.length > side.turns.length) return;
+  closedAt.set(side.id, Math.max(closedAt.get(side.id) ?? 0, side.turns.length));
   // Closed in another window, its open copy may have come late, after the word that it's gone.
   if (sides.get(side.key)?.id === side.id) sides.delete(side.key);
   const before = closing.get(side.id);
   const next = new Map(closing);
   if (side.running) next.set(side.id, side);
   else {
-    stoppedIds.add(side.id);
+    stoppedAt.set(side.id, side.turns.length);
     next.delete(side.id);
     const list = kept.get(side.key);
     if (list) kept.set(side.key, list.map((k) => (k.id === side.id ? { ...k, turns: side.turns, answering: false } : k)));
@@ -199,6 +213,14 @@ export function showSide(key: string, side: Pick<SideGlance, 'id' | 'open'>): vo
   if (popped.has(key)) void sideWindow(key, true).catch(() => {});
 }
 
+/** The side conversation a question asked now goes on in rather than the open one: the one being
+ *  read above the box, if one is (side.rs `Reading`). Asked there, a question is for what you
+ *  read, not for a new copy that knows none of it (2026-10-25). */
+export function beingRead(key: string): string | null {
+  const view = viewOf(key);
+  return view?.kind === 'past' ? view.id : null;
+}
+
 /** A question goes to a session's side conversation: its box stays the side conversation's
  *  while the engine starts the copy, in every window. */
 export function startingSide(key: string): void {
@@ -262,7 +284,7 @@ function answeredSince(key: string, list: SideKept[]): void {
   if (done.length === 0) return;
   const next = new Map(closing);
   for (const c of done) {
-    stoppedIds.add(c.id);
+    stoppedAt.set(c.id, c.turns.length);
     next.delete(c.id);
   }
   closing = next;
@@ -286,10 +308,12 @@ export function useKept(key: string): SideKept[] {
 export function endSide(key: string, close: (key: string) => Promise<void>, failed?: (why: string) => void): void {
   const side = sides.get(key);
   if (!side) return;
-  closedIds.add(side.id);
+  const was = closedAt.get(side.id);
+  closedAt.set(side.id, side.turns.length);
   noteSide({ id: side.id, key, turns: [], running: false, ended: true });
   close(key).catch((e: unknown) => {
-    closedIds.delete(side.id);
+    if (was === undefined) closedAt.delete(side.id);
+    else closedAt.set(side.id, was);
     noteSide(side);
     readSide(key);
     failed?.(errorText(e));
@@ -303,7 +327,7 @@ export function forgetSide(key: string, id: string): void {
     key,
     (kept.get(key) ?? NONE).filter((k) => k.id !== id),
   );
-  stoppedIds.add(id);
+  stoppedAt.set(id, Infinity);
   if (closing.has(id)) {
     const next = new Map(closing);
     next.delete(id);

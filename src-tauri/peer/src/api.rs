@@ -535,13 +535,17 @@ pub mod params {
         pub effort: Option<String>,
     }
 
-    /// `side-ask`: the question for its side conversation.
+    /// `side-ask`: the question for its side conversation, and the one it goes on in where a
+    /// window showed one as it was asked (`SideKept::id`). A device of a build before `from` asks
+    /// the open one, or starts a new one.
     #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
     #[serde(default)]
     pub struct Side {
         #[serde(skip_serializing_if = "String::is_empty")]
         pub key: String,
         pub text: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub from: Option<String>,
     }
 
     /// `side-forget`: the kept side conversation, by its id (`SideKept::id`).
@@ -972,7 +976,7 @@ pub struct Side {
     /// The copy is answering.
     pub running: bool,
     /// The copy is gone (it sat idle, or stopped): what was said can still be read, and the
-    /// next question goes to a new copy, which knows none of it.
+    /// next question goes to a new copy, told what was said.
     pub ended: bool,
     /// The account whose agent answers, where that's chosen: a PR's conversation's. A session's
     /// copy answers on the session's own.
@@ -1316,7 +1320,9 @@ mod tests {
         assert_eq!(v(&params::Keys { keys: vec![key()] }), json!({ "keys": ["claude:claude:abc"] }));
         // A window's own question carried no key before a side conversation could be asked from
         // another device.
-        assert_eq!(v(&params::Side { key: String::new(), text: "Why a queue?".into() }), json!({ "text": "Why a queue?" }));
+        assert_eq!(v(&params::Side { key: String::new(), text: "Why a queue?".into(), from: None }), json!({ "text": "Why a queue?" }));
+        // A question asked as one is read names it, which a device of a build before leaves alone.
+        assert_eq!(v(&params::Side { key: String::new(), text: "And then?".into(), from: Some("7-1".into()) }), json!({ "text": "And then?", "from": "7-1" }));
         assert_eq!(v(&params::SideForget { key: key(), id: "7-1".into() }), json!({ "key": "claude:claude:abc", "id": "7-1" }));
         assert_eq!(v(&params::Search { words: vec!["webhook".into()] }), json!({ "words": ["webhook"] }));
         assert_eq!(v(&params::Route { project: "All projects".into(), text: "fix it".into() }), json!({ "project": "All projects", "text": "fix it" }));

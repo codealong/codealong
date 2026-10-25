@@ -2670,7 +2670,7 @@ export interface Side {
   /** The copy is answering. */
   running: boolean;
   /** The copy is gone: what was said can still be read, and the next question goes to a new copy,
-   *  which knows none of it. */
+   *  told what was said. */
   ended: boolean;
   /** The account whose agent answers, where that was chosen: a PR's conversation's, with the model
    *  and effort picked with it (none for the account's own). */

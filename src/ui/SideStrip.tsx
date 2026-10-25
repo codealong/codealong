@@ -4,7 +4,8 @@
 // what it was asked first and then ends, listed with the ones from before and read as it answers.
 // Codealong keeps what was asked and answered, with what the copy did to answer, so `/side` alone
 // (or Earlier, beside an open one) lists the ones from before, and picking one shows it to read,
-// or to delete. None of it reaches the session.
+// to go on with (a question in the box goes on in the one shown, side.ts `beingRead`), or to
+// delete. None of it reaches the session.
 // The session's header names each under its title, with what came of it (SessionHeader.tsx), and
 // a click on one shows it here; its row in Sessions lists the one answering (LaneRow.tsx `SideRow`).
 // What can be done with them is a row of icons at the strip's top right, each saying what it does
@@ -60,13 +61,13 @@ export interface SideWords {
 export const SESSION_SIDES: SideWords = {
   title: 'On the side',
   open: 'A throwaway copy answers. The session never sees this.',
-  ended: 'Its copy has ended. Another question starts a new one.',
+  ended: 'Its copy has ended. Another question goes on from here, in a new copy told what was said.',
   starting: 'Starting a copy of the conversation…',
   listTitle: 'Side conversations',
   listAbout: 'Kept by Codealong. The session never saw them.',
   none: 'None with this session yet. /side, then a question, starts one.',
-  closed: 'closed. A new question starts a new copy, which knows none of this.',
-  answering: 'Closed, and still answering. A new question starts a new copy, which knows none of this.',
+  closed: 'closed. A question below goes on from here, in a new copy told what was said.',
+  answering: 'Closed, and still answering. A question below goes on from here.',
   closeTitle: 'Close: the box goes back to the session. An answer on its way still comes, and what was said is kept: /side shows it.',
   close: sideClose,
   window: { pop: (key) => sideWindow(key, true), empty: 'Nothing open on the side. Ask below, and a throwaway copy of the conversation answers. The session never sees it.' },
@@ -77,13 +78,13 @@ export function prSides(pr: Pick<PrItem, 'number'>, account: string | null): Sid
   return {
     title: `About #${pr.number}`,
     open: `${account ?? 'An agent'} reads the PR and its code to answer, and changes nothing. GitHub never sees this.`,
-    ended: 'It has ended. Another question starts a new conversation.',
+    ended: 'It has ended. Another question goes on from here.',
     starting: 'Reading the PR…',
     listTitle: `Questions about #${pr.number}`,
     listAbout: 'Kept by Codealong. GitHub never saw them.',
     none: 'None about this PR yet. Ask, and an agent reads it to answer.',
-    closed: 'closed. A new question starts a new conversation, which knows none of this.',
-    answering: 'Closed, and still answering. A new question starts a new conversation, which knows none of this.',
+    closed: 'closed. A question below goes on from here.',
+    answering: 'Closed, and still answering. A question below goes on from here.',
     closeTitle: 'Close: an answer on its way still comes, and what was said is kept: Earlier lists it.',
     close: prSideClose,
   };

@@ -867,11 +867,12 @@ export async function moveSessionTo(key: string, laneId: string): Promise<Starte
 }
 
 /** Asks something about a session on the side (side.rs): a throwaway copy of its conversation
- *  answers, and the session carries on, unaware. Resolves with the side conversation, the
- *  question in it; the answer comes through `onSide`. */
-export async function sideAsk(key: string, text: string): Promise<Side> {
+ *  answers, and the session carries on, unaware. Asked as one of its side conversations is read
+ *  (`from`, its id), it goes on in that one. Resolves with the side conversation, the question in
+ *  it; the answer comes through `onSide`. */
+export async function sideAsk(key: string, text: string, from: string | null): Promise<Side> {
   if (!inTauri) throw new Error('A side conversation needs the app.');
-  return invoke<Side>('side_ask', { key, text });
+  return invoke<Side>('side_ask', { key, text, from });
 }
 
 /** A session's side conversation, if it has one. */
@@ -903,10 +904,11 @@ export async function sideClose(key: string): Promise<void> {
 /** Asks about a PR (its key, `owner/name#number`) in a conversation of its own on `account`, on
  *  `model` and at `effort` where they're picked (side.rs `ask_pr`): an agent that reads the PR and
  *  its code and changes nothing. Returns the conversation with the question in it; the answer
- *  comes through `onSide`. A conversation that's open goes on on what it was made on. */
-export async function prSideAsk(key: string, { account, model, effort }: { account: string; model: string | null; effort: string | null }, text: string): Promise<Side> {
+ *  comes through `onSide`. A conversation that's open goes on on what it was made on, and one read
+ *  as it's asked (`from`, its id) goes on in that one. */
+export async function prSideAsk(key: string, { account, model, effort }: { account: string; model: string | null; effort: string | null }, text: string, from: string | null): Promise<Side> {
   if (!inTauri) throw new Error('Asking about a PR needs the app.');
-  return invoke<Side>('pr_side_ask', { key, account, model, effort, text });
+  return invoke<Side>('pr_side_ask', { key, account, model, effort, text, from });
 }
 
 /** Closes a PR's conversation: an agent that's answering answers what it was asked and then ends,

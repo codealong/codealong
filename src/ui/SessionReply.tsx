@@ -54,7 +54,8 @@
 //
 // While a side conversation shows above it (the open one, the list, one being read, or a question
 // whose copy is starting), the box is the side conversation's, as Codex's `/side` takes its box
-// until you go back: ⏎ asks the copy (a new one when none is open), Escape leaves the session's
+// until you go back: ⏎ asks the copy (a new one when none is open, and while one from before is
+// read, a copy that goes on in that one, told what was said there), Escape leaves the session's
 // turn alone, and the placeholder and what the box says (`BoxSays`) say where it goes. Closing what
 // shows gives the box back to the session. What shows is the same in every window showing the
 // session (side.ts), and the box holds a draft of its own while it's the side conversation's
@@ -89,7 +90,7 @@ import { filesToAttach, keepFiles, useFileDrop } from '../attachInput';
 import { onDraftChange, readDraft, sideDraft, writeDraft } from '../drafts';
 import { sessionPlace } from '../harness';
 import { stoppable, stuckMidTurn, waitsOnYou } from '../lanes';
-import { notAsked, showSides, startingSide, useAside, usePopped } from '../side';
+import { beingRead, notAsked, showSides, startingSide, useAside, usePopped } from '../side';
 import { COMMANDS, slashCommand, slashMatches } from '../slash';
 import { completed, matching, mentionAt, mentionsIn, sessionSkills, skillNamed, writtenFor } from '../skills';
 import { rememberResumed, resumeChoice, resumedIn, resumeIn, resumeWords, type ResumePicks } from '../start';
@@ -629,13 +630,15 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
       showSides(key, { kind: 'list' });
       return;
     }
-    // The open one shows, whatever was being read, and until the engine says its copy started
-    // the box is still the side conversation's, in every window.
+    // Asked while one is read, it goes on in that one, which is the open one from then on. That
+    // shows, and until the engine says its copy started the box is still the side conversation's,
+    // in every window.
+    const from = beingRead(key);
     startingSide(key);
     setAsking(true);
     // The question shows as the engine tells of it (side.ts), as its answer does: what this
     // resolves with can be behind what's been heard since.
-    sideAsk(key, full)
+    sideAsk(key, full, from)
       .catch((e: unknown) => {
         const why = errorText(e);
         const side = sideDraft(key);

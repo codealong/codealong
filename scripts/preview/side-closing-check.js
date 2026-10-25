@@ -2,8 +2,9 @@
 // `useClosing`, SideStrip.tsx), in the bar's peek: Close gives the box back to the session at
 // once, and the answer isn't cut off; the session's header names it, still answering; a click on
 // it there shows it to read, saying it's closed and still answering, its answer growing as it
-// comes; Earlier lists it as answering; a question asked meanwhile starts a new side conversation
-// rather than joining it; and once it has answered, it reads as a kept one, its answer in it.
+// comes; Earlier lists it as answering; a question asked from the list meanwhile starts a new side
+// conversation rather than joining it; once it has answered, it reads as a kept one, its answer
+// in it; and a question asked while it's read goes on in it.
 //   PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/side-closing-check.js
 (function () {
   // A Claude Code session to peek at, idle and taking messages.
@@ -93,7 +94,8 @@
       var row = q('.ca-sidestrip-kept', strip()).textContent;
       check('Earlier lists it as answering', row.indexOf('why a queue?') === 0 && /answering · 1 question/.test(row), row);
 
-      // A question meanwhile starts a new side conversation; the closed one answers on.
+      // A question from the list meanwhile starts a new side conversation; the closed one answers
+      // on.
       type(box(), 'and without one?');
       await wait(50);
       enter();
@@ -108,7 +110,7 @@
       await until(function () { return all('.ca-sidestrip-kept', strip()).length === 1 && !/answering/.test(q('.ca-sidestrip-kept', strip()).textContent); }, 5000, 'it listed as answered');
       q('.ca-sidestrip-kept', strip()).click();
       await until(function () { return turns().length === 1 && turns()[0].indexOf('why a queue?') === 0; }, 5000, 'it shown to read');
-      check('once answered it reads as a kept one, its answer in it', /closed\. A new question/.test(strip().textContent) && turns()[0].indexOf('must keep their order') > 0 && !/still answering/.test(strip().textContent), strip().textContent.slice(0, 200));
+      check('once answered it reads as a kept one, its answer in it', /closed\. A question below goes on from here/.test(strip().textContent) && turns()[0].indexOf('must keep their order') > 0 && !/still answering/.test(strip().textContent), strip().textContent.slice(0, 200));
       await until(function () { return !!sideLine('why a queue?') || !!q('.ca-sessinsp-head .ca-sessinsp-kids-more'); }, 5000, 'the header');
       var line = sideLine('why a queue?');
       check('and the header no longer says it’s answering', !line || !q('.ca-glyph--working', line), line && line.innerHTML.slice(0, 200));
@@ -117,7 +119,7 @@
       // another thread than its copy's lines), changes nothing.
       window.__emit('side', { id: first.id, key: key, turns: [{ question: 'why a queue?', answer: 'Because sends ', done: false, at: at }], running: true, ended: false, closed: true });
       await wait(100);
-      check('word of it answering that comes after it stopped is too late to change it', /closed\. A new question/.test(strip().textContent) && turns()[0].indexOf('must keep their order') > 0, strip().textContent.slice(0, 200));
+      check('word of it answering that comes after it stopped is too late to change it', /closed\. A question below goes on from here/.test(strip().textContent) && turns()[0].indexOf('must keep their order') > 0, strip().textContent.slice(0, 200));
 
       // One closed and answering before this window heard of it: read as answering all the same.
       window.__closing.pre = { id: 'pre', key: key, turns: [{ question: 'what ran last?', answer: '', tool: 'Read · `send.rs`', done: false, at: Date.now() }], running: true, ended: false, closed: true, startedAt: Date.now() };
@@ -141,6 +143,25 @@
       window.__emit('side', Object.assign({}, second, { closed: true, running: false, turns: second.turns.map(function (t) { return Object.assign({}, t, { answer: 'The same.', done: true }); }) }));
       await wait(100);
       check('nor once it has answered, and the box is the session’s', !strip() && !aside(), strip() && strip().textContent.slice(0, 200));
+
+      // A question asked while one from before is read goes on in it, not in a new copy that knows
+      // none of it: the engine is told which, and it's the open one again, with what it was asked
+      // before above the new question.
+      type(box(), '/side');
+      await wait(50);
+      enter();
+      var keptRow = function () { return all('.ca-sidestrip-kept', strip() || document).filter(function (b) { return b.textContent.indexOf('why a queue?') === 0; })[0]; };
+      await until(keptRow, 5000, 'the list from before');
+      keptRow().click();
+      await until(function () { return strip() && turns().length === 1 && turns()[0].indexOf('why a queue?') === 0; }, 5000, 'it shown to read');
+      type(box(), 'and with two queues?');
+      await wait(50);
+      enter();
+      await until(function () { return turns().length === 2; }, 5000, 'the question joining it');
+      var asks = calls('side_ask');
+      var last = asks[asks.length - 1][1];
+      check('a question asked as one is read goes on in it', last.from === first.id && window.__sides[key].id === first.id && turns()[0].indexOf('must keep their order') > 0 && turns()[1].indexOf('and with two queues?') === 0 && !/closed\./.test(strip().textContent), JSON.stringify(last) + ' ' + strip().textContent.slice(0, 200));
+      check('and it goes on above the box, which asks it', aside() && !!headButton('Close'));
     } catch (e) {
       return stopped(e);
     }

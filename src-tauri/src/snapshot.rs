@@ -520,7 +520,7 @@ fn pr_side(args: &Args, rest: &[String]) -> Done {
     let cfg = config::current().map_err(|e| Stop::Failed(format!("{e:#}")))?;
     let on = side::RunsOn { model: args.option("--model"), effort: args.option("--effort") };
     for q in questions {
-        if let Err(e) = side::ask_pr(&board, &cfg, &key, account, on, q) {
+        if let Err(e) = side::ask_pr(&board, &cfg, &key, account, on, q, None) {
             side::close_now(&key);
             return Err(Stop::Failed(format!("{e:#}")));
         }

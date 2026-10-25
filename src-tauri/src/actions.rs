@@ -1472,7 +1472,7 @@ fn done_anyway(engine: &Handle, peers: &Peers, device: &str, own: &str, why: &st
 fn side_ask(engine: &Handle, c: &Call) -> Result<Value, String> {
     let p: params::Side = c.read()?;
     let key = c.session()?;
-    let side = crate::side::ask(&engine.board(), &cfg()?, key, &p.text).map_err(words)?;
+    let side = crate::side::ask(&engine.board(), &cfg()?, key, &p.text, p.from.as_deref()).map_err(words)?;
     note_talking(engine, c, key);
     to_value(side)
 }

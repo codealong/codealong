@@ -785,10 +785,25 @@ window.__TAURI_INTERNALS__ = {
     // goes on answering, closed (`window.__closing`, by id, listed and read as it is): a check
     // tells of what it says with `closed: true`, and of its end with `running: false` too.
     // A PR's questions (`pr_side_ask`, `pr_side_close`) are kept with them, by the PR's key, with
-    // the account that answers.
+    // the account that answers. One asked as a window reads one from before (`from`) goes on in
+    // that one, and the one open until then is closed (side.rs `Reading`).
     if (cmd === 'side_ask' || cmd === 'pr_side_ask') {
       window.__sides = window.__sides || {};
       window.__sideIds = (window.__sideIds || 0) + 1;
+      var was = window.__sides[args.key];
+      if (args.from && (!was || was.id !== args.from)) {
+        var again = (window.__closing || {})[args.from] || (window.__past || []).filter(function (k) { return k.id === args.from && k.key === args.key; })[0];
+        if (!again) return Promise.reject(new Error('That side conversation has been deleted. Ask again to start a new one.'));
+        window.__past = (window.__past || []).filter(function (k) { return k.id !== again.id; });
+        if (window.__closing) delete window.__closing[again.id];
+        var closedNow = was && was.running && Object.assign({}, was, { closed: true });
+        if (closedNow) {
+          window.__closing = window.__closing || {};
+          window.__closing[was.id] = closedNow;
+          setTimeout(function () { window.__emit('side', closedNow); }, 0);
+        } else if (was) window.__past.push({ id: was.id, key: was.key, title: '', startedAt: was.startedAt || Date.now(), lastAt: Date.now(), turns: was.turns });
+        window.__sides[args.key] = { id: again.id, key: args.key, turns: again.turns, running: !!again.running, ended: false, account: args.account, startedAt: again.startedAt };
+      }
       var side = window.__sides[args.key] || { id: 'side-' + window.__sideIds, key: args.key, turns: [], running: false, ended: false, account: args.account, startedAt: Date.now() };
       side = { id: side.id, key: side.key, turns: side.turns.concat([{ question: args.text, answer: '', done: false, at: Date.now() }]), running: true, ended: false, account: side.account, startedAt: side.startedAt };
       window.__sides[args.key] = side;

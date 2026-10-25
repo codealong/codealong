@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
-import { keptLine, STARTING_MS, takesBox, turnState, viewCodec } from './side';
-import type { SideKept, SideTurn } from './types';
+import { describe, expect, it, vi } from 'vitest';
+import { endSide, keptLine, noteSide, STARTING_MS, takesBox, turnState, viewCodec } from './side';
+import type { Side, SideKept, SideTurn } from './types';
 
 const turn = (t: Partial<SideTurn>): SideTurn => ({ question: 'why?', answer: '', done: false, ...t });
 
@@ -54,5 +54,27 @@ describe('viewCodec', () => {
     expect(viewCodec.parse('{"kind":"past"}')).toBeUndefined();
     expect(viewCodec.parse('{"kind":"open"}')).toBeUndefined();
     expect(viewCodec.parse('"list"')).toBeUndefined();
+  });
+});
+
+describe('noteSide', () => {
+  const side = (questions: number): Side => ({ id: 's1', key: 'claude:c:reopened', turns: Array.from({ length: questions }, (_, i) => turn({ question: `q${i}`, done: true })), running: false, ended: false });
+  /** Whether the window holds an open side conversation for the session: Close only asks the
+   *  engine to close one it holds. */
+  const holdsOpen = () => {
+    const close = vi.fn(() => Promise.resolve());
+    endSide('claude:c:reopened', close);
+    return close.mock.calls.length > 0;
+  };
+
+  it('drops word of a closed one that came late, and takes it once it is asked again', () => {
+    noteSide(side(1));
+    expect(holdsOpen()).toBe(true);
+    // Closed just now: what its copy said before that comes late.
+    noteSide(side(1));
+    expect(holdsOpen()).toBe(false);
+    // Asked again as it was read, it's open with a question more (side.rs `Reading`).
+    noteSide(side(2));
+    expect(holdsOpen()).toBe(true);
   });
 });

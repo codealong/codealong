@@ -385,12 +385,15 @@ not the session (its placeholder says Ask on the side): type a follow-up and pre
 the box back to the session at once. A copy that's still answering when you close it answers what it
 was asked before it ends, so closing one to talk to the session loses no answer: it stays listed
 under the session as answering, and a click on it shows it to read as the answer comes (Delete there
-stops it). A new question after a close starts a new copy, which knows none of the closed one. A copy
-left idle for 15 minutes ends by itself, and a closed one that nothing comes from for 15 minutes is
-stopped. Codealong keeps what was asked and answered, with what the copy did to answer
+stops it). A copy left idle for 15 minutes ends by itself, and a closed one that nothing comes from
+for 15 minutes is stopped; a question to one whose copy has ended goes on in it, in a new copy told
+what was asked and answered there. Codealong keeps what was asked and answered, with what the copy did to answer
 (`sides.json`, the latest 300): `/side` alone, or Earlier beside an open one, lists a session's
-side conversations from before, and each opens to read, or to delete; while they show, a question
-in the box starts a new one. A
+side conversations from before, and each opens to read, to go on with, or to delete. A question in
+the box goes on in the one that shows: one from before is open again, the one open until then is
+closed, and a new copy is told what was asked and answered in it (a closed one still answering takes
+the question once it has answered). Asked while the list shows, a question goes to the open one, or
+starts a new one. A
 session's header names each under its title, with the sessions that came of it (*Where a session
 came from*), and a click on one shows it above the box. In Sessions, the one answering is listed
 under its session, set in as a helper at work is, and a click on its row selects the session with

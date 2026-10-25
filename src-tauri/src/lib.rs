@@ -1657,13 +1657,14 @@ async fn fork_session(engine: State<'_, engine::Handle>, peers: State<'_, peers:
 }
 
 /// Asks something about a session on the side (side.rs): a throwaway copy of its conversation
-/// answers, and the session carries on, unaware. Returns the side conversation with the question
-/// in it; the answer comes as `side` events, from the session's device for one on another
-/// (`Msg::Side`).
+/// answers, and the session carries on, unaware. Asked as a window shows one of its side
+/// conversations (`from`), it goes on in that one. Returns the side conversation with the
+/// question in it; the answer comes as `side` events, from the session's device for one on
+/// another (`Msg::Side`).
 #[tauri::command]
-async fn side_ask(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, text: String) -> Result<serde_json::Value, String> {
+async fn side_ask(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, text: String, from: Option<String>) -> Result<serde_json::Value, String> {
     let (engine, peers) = (engine.inner().clone(), peers.inner().clone());
-    blocking(move || actions::run(&engine, &peers, api::SIDE_ASK, &key, actions::params::Side { text, ..Default::default() })).await?
+    blocking(move || actions::run(&engine, &peers, api::SIDE_ASK, &key, actions::params::Side { text, from, ..Default::default() })).await?
 }
 
 /// A session's side conversation, for a window that starts showing the session: from its
@@ -1699,15 +1700,16 @@ async fn side_close(engine: State<'_, engine::Handle>, peers: State<'_, peers::P
 
 /// Asks about a PR (`key`, `owner/name#number`) in a conversation of its own on `account`, on
 /// `model` and `effort` where they're picked (side.rs `ask_pr`): an agent that reads the PR and
-/// the code around it and changes nothing.
+/// the code around it and changes nothing; asked as a window shows one of its conversations
+/// (`from`), it goes on in that one.
 /// Returns the conversation with the question in it; the answer comes as `side` events, as a
 /// session's side conversation's does. Only here: the PR's card is in this Mac's windows.
 #[tauri::command]
-async fn pr_side_ask(engine: State<'_, engine::Handle>, key: String, account: String, model: Option<String>, effort: Option<String>, text: String) -> Result<side::Side, String> {
+async fn pr_side_ask(engine: State<'_, engine::Handle>, key: String, account: String, model: Option<String>, effort: Option<String>, text: String, from: Option<String>) -> Result<side::Side, String> {
     let engine = engine.inner().clone();
     blocking(move || {
         let on = side::RunsOn { model: model.as_deref(), effort: effort.as_deref() };
-        side::ask_pr(&engine.board(), &config::current().map_err(words)?, &key, &account, on, &text).map_err(words)
+        side::ask_pr(&engine.board(), &config::current().map_err(words)?, &key, &account, on, &text, from.as_deref()).map_err(words)
     })
     .await?
 }

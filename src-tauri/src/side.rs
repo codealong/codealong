@@ -11,7 +11,8 @@
 //!
 //! What was asked and answered is Codealong's to keep (`sides.json`), so a side conversation
 //! can be read after it's closed (`past`, a closed one still answering as it answers), with what
-//! the copy did to answer. A new question after that goes to a new copy, which knows none of it.
+//! the copy did to answer. A question asked as one is read goes on in it, in a new copy told what
+//! was said (`Reading`).
 //!
 //! A PR's questions are a side conversation too, by the PR's key (`ask_pr`): nobody's copy, but a
 //! conversation of its own on an account you pick (`Adapter::fresh_side`), in a checkout of the
@@ -278,13 +279,53 @@ pub fn runs(pid: u32) -> bool {
 }
 
 /// Asks the session's copy `text`, making the copy when there's none, and returns the side
-/// conversation with the question in it. The answer comes through `init`'s `notify`.
-pub fn ask(board: &Board, cfg: &Config, key: &str, text: &str) -> Result<Side> {
+/// conversation with the question in it. The answer comes through `init`'s `notify`. Asked as a
+/// window shows one of the session's side conversations (`from`, its id), it goes on in that
+/// one (`Reading`).
+pub fn ask(board: &Board, cfg: &Config, key: &str, text: &str, from: Option<&str>) -> Result<Side> {
     let text = text.trim();
     if text.is_empty() {
         bail!("Ask it something: /side, then your question.");
     }
-    ask_with(key, text, None, || recipe(board, cfg, key))
+    ask_with(key, text, reading(key, from), None, || recipe(board, cfg, key))
+}
+
+/// The side conversation a window showed as a question was asked, which the question goes on in:
+/// asked while you read one, it's for that one, not for a new copy that knows none of it
+/// (2026-10-25). It's the open one from then on, and the one open before is closed, as Close
+/// closes it. A closed one still answering is asked as its copy answers; any other gets a new
+/// copy, told first what was asked and answered in it (`goes_on_from`).
+struct Reading {
+    id: String,
+    /// What's kept of it, read as the question's asked: none once another window deleted it.
+    kept: Option<Kept>,
+}
+
+/// The one `from` names among the session's, as it's kept.
+fn reading(key: &str, from: Option<&str>) -> Option<Reading> {
+    let id = from.map(str::trim).filter(|id| !id.is_empty())?;
+    Some(Reading { id: id.to_string(), kept: past_in(&store_path(), key).into_iter().find(|k| k.id == id) })
+}
+
+/// What a question to a deleted side conversation is told.
+const DELETED: &str = "That side conversation has been deleted. Ask again to start a new one.";
+
+/// What a new copy is asked first when its side conversation was asked things before, by a copy
+/// that has ended: what was asked and answered, then the question. The copy is of the session as
+/// it is now, which may have gone on since.
+fn goes_on_from(turns: &[Turn], text: &str) -> String {
+    let mut said = String::from("This side conversation began with an earlier copy of the conversation, which has ended, so the conversation above may have gone on since. What you were asked there, and what you answered, oldest first:\n");
+    for t in turns {
+        let answer = t.answer.trim();
+        let answer = match &t.error {
+            _ if !answer.is_empty() => answer.to_string(),
+            Some(why) => format!("(No answer: {why})"),
+            None => "(No answer.)".to_string(),
+        };
+        said.push_str(&format!("\n<question>\n{}\n</question>\n<answer>\n{answer}\n</answer>\n", t.question.trim()));
+    }
+    said.push_str(&format!("\nGo on from there. What you're asked now:\n\n{text}"));
+    said
 }
 
 /// The model and effort a conversation of its own runs on, as the agent menu picks them with its
@@ -300,8 +341,9 @@ pub struct RunsOn<'a> {
 /// and changes nothing (`Adapter::fresh_side`), made when there's none, as a session's copy is.
 /// From there it's a side conversation like a session's, asked, closed, kept and read the same
 /// way by the PR's key, and nobody's copy: the PR and GitHub hear nothing of it. A question asked
-/// while one is open goes to it, on whatever it was made on.
-pub fn ask_pr(board: &Board, cfg: &Config, key: &str, account: &str, on: RunsOn, text: &str) -> Result<Side> {
+/// while one is open goes to it, on whatever it was made on, and one asked as a window shows
+/// another (`from`) goes on in that one, as a session's does.
+pub fn ask_pr(board: &Board, cfg: &Config, key: &str, account: &str, on: RunsOn, text: &str, from: Option<&str>) -> Result<Side> {
     let text = text.trim();
     if text.is_empty() {
         bail!("Ask it something about the PR.");
@@ -313,37 +355,77 @@ pub fn ask_pr(board: &Board, cfg: &Config, key: &str, account: &str, on: RunsOn,
     if let Some(e) = on.effort.filter(|e| !crate::start::effort_levels().contains(e)) {
         bail!("{e:?} isn't an effort level Codealong knows.");
     }
-    ask_with(key, text, Some((account, on)), || pr_recipe(board, cfg, key, account, on))
+    ask_with(key, text, reading(key, from), Some((account, on)), || pr_recipe(board, cfg, key, account, on))
 }
 
-/// Asks `key`'s side conversation `text`, making its process with `made` when there's none, on
-/// the account, model and effort the asker chose, where they chose them.
-fn ask_with(key: &str, text: &str, chosen: Option<(&str, RunsOn)>, made: impl FnOnce() -> Result<(Recipe, PathBuf, String)>) -> Result<Side> {
+/// Asks `key`'s side conversation `text`, the open one or the one being read, making its process
+/// with `made` when there's none, on the account, model and effort the asker chose, where they
+/// chose them.
+fn ask_with(key: &str, text: &str, reading: Option<Reading>, chosen: Option<(&str, RunsOn)>, made: impl FnOnce() -> Result<(Recipe, PathBuf, String)>) -> Result<Side> {
     // Pasted files and screenshots go as their paths, which the copy reads, as they do to a session
     // (send.rs); the question shows as it was typed.
     let sent = crate::attachments::expand(text, crate::attachments::Style::Path);
-    let has_copy = state().open.get(key).is_some_and(|o| o.proc.is_some());
+    // One read that's the open one is simply asked.
+    let is_open = |st: &State, id: &str| st.open.get(key).is_some_and(|o| o.side.id == id);
+    let has_copy = {
+        let st = state();
+        match reading.as_ref().filter(|r| !is_open(&st, &r.id)) {
+            Some(r) => st.closing.iter().any(|o| o.side.id == r.id),
+            None => st.open.get(key).is_some_and(|o| o.proc.is_some()),
+        }
+    };
     // Made outside the lock: it reads the session's record, or asks GitHub about the PR.
     let made = if has_copy { None } else { Some(made()?) };
     let now = now_ms();
-    let side = {
+    let (side, closed) = {
         let mut st = state();
         st.next += 1;
         let id = st.next;
-        let copy = if st.open.get(key).is_some_and(|o| o.proc.is_some()) {
-            None
-        } else {
-            let Some((recipe, cwd, title)) = made else { bail!("Its copy just ended. Ask again.") };
-            Some((spawn(key, id, recipe, &cwd)?, title))
+        // What's read, to be the open one: one closed with its copy still answering, else what's
+        // kept of it, which needs a new copy. Nothing's changed until that has started.
+        let again = match reading.filter(|r| !is_open(&st, &r.id)) {
+            None => None,
+            Some(r) => Some(match st.take_closing(&r.id) {
+                Some(mut o) => {
+                    o.side.closed = false;
+                    o
+                }
+                None => {
+                    let Some(k) = r.kept else { bail!(DELETED) };
+                    Open { side: Side { id: k.id, key: key.to_string(), turns: k.turns, ended: true, ..Default::default() }, title: k.title, started_at: k.started_at, queue: VecDeque::new(), proc: None, used: Instant::now() }
+                }
+            }),
         };
+        let copy = match &again {
+            Some(o) if o.proc.is_some() => None,
+            None if st.open.get(key).is_some_and(|o| o.proc.is_some()) => None,
+            _ => {
+                let Some((recipe, cwd, title)) = made else { bail!("Its copy just ended. Ask again.") };
+                Some((spawn(key, id, recipe, &cwd)?, title))
+            }
+        };
+        let closed = again.and_then(|o| {
+            let closed = take_open(&mut st, key, true);
+            st.open.insert(key.to_string(), o);
+            closed
+        });
         let o = st.open.entry(key.to_string()).or_insert_with(|| Open { side: Side { key: key.to_string(), ..Default::default() }, title: String::new(), started_at: now, queue: VecDeque::new(), proc: None, used: Instant::now() });
+        let mut sent = sent;
         if let Some((copy, title)) = copy {
-            // A new copy knows nothing of what the last one was asked: it's a new side
+            // A new copy goes on in the open one where that was asked things before (its copy
+            // ended, or it's one read again), told what was said; else it's a new side
             // conversation, and the last one is among the kept ones.
             let (account, on) = chosen.map_or((None, RunsOn::default()), |(a, on)| (Some(a), on));
-            o.side = Side { id: format!("{now}-{id}"), key: key.to_string(), account: account.map(String::from), model: on.model.map(String::from), effort: on.effort.map(String::from), ..Default::default() };
+            let turns = std::mem::take(&mut o.side.turns);
+            let id = if turns.is_empty() {
+                o.started_at = now;
+                format!("{now}-{id}")
+            } else {
+                sent = goes_on_from(&turns, &sent);
+                o.side.id.clone()
+            };
+            o.side = Side { id, key: key.to_string(), turns, account: account.map(String::from), model: on.model.map(String::from), effort: on.effort.map(String::from), ..Default::default() };
             o.title = title;
-            o.started_at = now;
             o.queue.clear();
             o.proc = Some(copy);
         }
@@ -358,8 +440,12 @@ fn ask_with(key: &str, text: &str, chosen: Option<(&str, RunsOn)>, made: impl Fn
                 write(p, &lines);
             }
         }
-        o.side.clone()
+        (o.side.clone(), closed)
     };
+    // The one open before is closed, and the one asked shows in its place.
+    if let Some((ended, closing)) = closed {
+        put_away(ended, closing);
+    }
     notify(side.clone());
     changed();
     Ok(side)
@@ -380,18 +466,31 @@ pub fn close_now(key: &str) {
 }
 
 fn close_as(key: &str, finish: bool) {
-    let (ended, closing) = {
-        let mut st = state();
-        let Some(mut o) = st.open.remove(key) else { return };
-        if finish && o.side.running && o.proc.is_some() {
-            o.side.closed = true;
-            let side = o.side.clone();
-            st.closing.push(o);
-            (None, Some(side))
-        } else {
-            (Some(o), None)
-        }
-    };
+    let Some((ended, closing)) = take_open(&mut state(), key, finish) else { return };
+    // Gone from above its box, and still answering where it's read, if it is.
+    notify(Side { key: key.to_string(), ..Default::default() });
+    put_away(ended, closing);
+    changed();
+}
+
+/// Takes the session's open side conversation out of the open ones, if it has one: among the
+/// closed ones still answering when its copy is answering and may `finish`, else handed back to
+/// be put away.
+fn take_open(st: &mut State, key: &str, finish: bool) -> Option<(Option<Open>, Option<Side>)> {
+    let mut o = st.open.remove(key)?;
+    if finish && o.side.running && o.proc.is_some() {
+        o.side.closed = true;
+        let side = o.side.clone();
+        st.closing.push(o);
+        Some((None, Some(side)))
+    } else {
+        Some((Some(o), None))
+    }
+}
+
+/// Puts away what `take_open` took, outside the lock: one ended is kept and its copy ended, and
+/// the windows hear of one still answering.
+fn put_away(ended: Option<Open>, closing: Option<Side>) {
     if let Some(mut o) = ended {
         cut_short(&mut o.side);
         keep(kept_of(&o));
@@ -399,12 +498,9 @@ fn close_as(key: &str, finish: bool) {
             end(p);
         }
     }
-    // Gone from above its box, and still answering where it's read, if it is.
-    notify(Side { key: key.to_string(), ..Default::default() });
     if let Some(side) = closing {
         notify(side);
     }
-    changed();
 }
 
 /// Ends the turns a closing leaves without their answer, saying so.
@@ -975,6 +1071,83 @@ mod tests {
         let side = get(key).unwrap();
         assert!(side.ended);
         assert_eq!(side.turns[0].answer, "You asked: one");
+        close(key);
+    }
+
+    /// A copy that answers as `Echo` does, as `ask_with` makes one.
+    fn echo() -> Result<(Recipe, PathBuf, String)> {
+        Ok((Recipe { program: "/bin/cat".into(), args: Vec::new(), env: Vec::new(), unset: Vec::new(), dialect: Box::new(Echo) }, PathBuf::from("/"), "A session".into()))
+    }
+
+    /// Asked while you read one that's closed, a question goes on in it, not in a new copy that
+    /// knows none of it: the new copy is told what was asked and answered there first, and the one
+    /// open before is closed.
+    #[test]
+    fn a_question_asked_as_one_is_read_goes_on_in_it() {
+        let key = "test:side:goes-on";
+        open_with(key, "/bin/cat", &[]);
+        put(key, "what's open?");
+        let before = wait_for(key, |s| !s.running);
+        let before_pid = state().open.get(key).unwrap().proc.as_ref().unwrap().pid;
+        let turn = |question: &str, answer: &str, error: Option<&str>| Turn { question: question.into(), answer: answer.into(), error: error.map(String::from), done: true, at: 2, ..Default::default() };
+        let kept = Kept { id: "k1".into(), key: key.into(), title: "A session".into(), started_at: 2, last_at: 3, turns: vec![turn("which commits need a review?", "#177 and #182.", None), turn("who wrote them?", "", Some("Closed before it answered."))], answering: false };
+        // One deleted meanwhile is said to be, and nothing changes.
+        let gone = ask_with(key, "and now?", Some(Reading { id: "k0".into(), kept: None }), None, echo).unwrap_err();
+        assert_eq!(gone.to_string(), DELETED);
+        assert_eq!(get(key).unwrap().id, before.id);
+        let side = ask_with(key, "who reviews them?", Some(Reading { id: "k1".into(), kept: Some(kept) }), None, echo).unwrap();
+        assert_eq!(side.id, "k1");
+        assert_eq!(side.turns.iter().map(|t| t.question.as_str()).collect::<Vec<_>>(), ["which commits need a review?", "who wrote them?", "who reviews them?"]);
+        // The one open before ended, as Close ends one that isn't answering.
+        assert!(!runs(before_pid));
+        let side = wait_for(key, |s| !s.running);
+        let answer = &side.turns[2].answer;
+        assert!(answer.starts_with("You asked: This side conversation began with an earlier copy"), "{answer}");
+        assert!(answer.contains("<question>\nwhich commits need a review?\n</question>\n<answer>\n#177 and #182.\n</answer>\n\n<question>\nwho wrote them?\n</question>\n<answer>\n(No answer: Closed before it answered.)\n</answer>"), "{answer}");
+        assert!(answer.ends_with("What you're asked now:\n\nwho reviews them?"), "{answer}");
+        // What's shown and kept is what was typed.
+        assert_eq!(state().open.get(key).map(|o| (o.started_at, kept_of(o).unwrap().turns.len())), Some((2, 3)));
+        close(key);
+    }
+
+    /// A question to an open one whose copy has ended goes on in it, in a new copy told what was
+    /// said.
+    #[test]
+    fn a_question_to_one_whose_copy_ended_goes_on_in_it() {
+        let key = "test:side:ended";
+        open_with(key, "/bin/cat", &[]);
+        put(key, "one");
+        let first = wait_for(key, |s| !s.running);
+        {
+            let mut st = state();
+            let o = st.open.get_mut(key).unwrap();
+            end(o.proc.take().unwrap());
+            o.side.ended = true;
+        }
+        let side = ask_with(key, "two", None, None, echo).unwrap();
+        assert_eq!((side.id.as_str(), side.ended), (first.id.as_str(), false));
+        let side = wait_for(key, |s| !s.running);
+        assert_eq!(side.turns[0].answer, "You asked: one");
+        assert!(side.turns[1].answer.contains("<question>\none\n</question>\n<answer>\nYou asked: one\n</answer>"), "{}", side.turns[1].answer);
+        close(key);
+    }
+
+    /// Asked again as it's read, one closed while its copy answers is the open one again, and its
+    /// copy takes the question once it has answered: no new copy is made.
+    #[test]
+    fn a_question_to_one_closed_and_still_answering_goes_to_its_copy() {
+        let key = "test:side:reopened";
+        // Each line comes back almost half a second after it went, so it's still answering.
+        open_with(key, "/bin/sh", &["-c", "while read -r l; do sleep 0.4; printf '%s\\n' \"$l\"; done"]);
+        put(key, "one");
+        let (id, pid) = state().open.get(key).map(|o| (o.side.id.clone(), o.proc.as_ref().unwrap().pid)).unwrap();
+        close(key);
+        assert!(get(key).is_none() && closing_of(key).is_some());
+        let side = ask_with(key, "two", Some(Reading { id: id.clone(), kept: None }), None, || bail!("No new copy is wanted.")).unwrap();
+        assert_eq!((side.id.as_str(), side.closed, side.running), (id.as_str(), false, true));
+        assert!(closing_of(key).is_none() && runs(pid));
+        let side = wait_for(key, |s| !s.running);
+        assert_eq!(side.turns.iter().map(|t| t.answer.as_str()).collect::<Vec<_>>(), ["You asked: one", "You asked: two"]);
         close(key);
     }
 

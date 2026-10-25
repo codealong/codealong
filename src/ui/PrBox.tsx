@@ -41,7 +41,7 @@ import { mayApprove, yourApproval, yourReview, yourVerdictStands } from '../prSt
 import { errorText, type Report } from '../report';
 import { againFor, againTitle, approvedWords, askAccounts, askOn, reviewLineWords, sinceWords, suggestWords, tryAgain } from '../review';
 import { showSince, useSince } from '../since';
-import { notAsked, showSides, startingSide, useKept, useSide, useSideView, type SideView } from '../side';
+import { beingRead, notAsked, showSides, startingSide, useKept, useSide, useSideView, type SideView } from '../side';
 import { useStartAccounts, useStartGroups } from '../startAccounts';
 import { AUTO, isAuto, modelName, ownModels } from '../start';
 import { asText, readStored, writeStored } from '../stored';
@@ -239,10 +239,12 @@ export function usePrBox(pr: PrItem, { report, usage, now, onSent, onFailed, aut
       return;
     }
     setAskText('');
+    // Asked while one is read, it goes on in that one.
+    const from = beingRead(pr.key);
     startingSide(pr.key);
     setStarting(true);
     // An open conversation goes on on what it was made on.
-    prSideAsk(pr.key, asks && !(conversation && !conversation.ended) ? asks : { account: answerer, model: null, effort: null }, question)
+    prSideAsk(pr.key, asks && !(conversation && !conversation.ended) ? asks : { account: answerer, model: null, effort: null }, question, from)
       .catch((e: unknown) => {
         setAskText((now_) => [question, now_].filter((t) => t.trim()).join('\n\n'));
         notAsked(pr.key);
