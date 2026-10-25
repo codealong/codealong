@@ -759,6 +759,13 @@ impl Peers {
         self.0.name_of(&st, &key)
     }
 
+    /// Whether a linked device, by its short id, said as it connected that it knows `word`
+    /// (codealong-peer's `proto::KNOWS`); none while it isn't connected, which asking it says.
+    pub fn knows(&self, short: &str, word: &str) -> Option<bool> {
+        let st = self.0.lock();
+        st.conns.iter().find(|(key, _)| short_of(key) == short).map(|(_, c)| c.knows.iter().any(|k| k == word))
+    }
+
     /// Asks a linked device, by its short id, to run a request, and waits for its answer.
     pub fn ask(&self, short: &str, method: &str, params: Value, timeout: Duration) -> std::result::Result<Value, String> {
         let inner = &self.0;

@@ -171,6 +171,10 @@ struct Request {
     /// the session and why: it's from before the request, or doesn't let this device drive its
     /// agents. Its answer stands, unless this fails too.
     instead: Option<fn(&Handle, &Peers, &str, &str, &str) -> Result<Value, String>>,
+    /// What another device must say it knows to be asked it with these params (codealong-peer's
+    /// `proto::KNOWS`), and why one that doesn't isn't asked: it's from before them, and would do
+    /// something else with them.
+    knows: fn(&Value) -> Option<(&'static str, &'static str)>,
 }
 
 /// How long an image is given to go one way or the other, as a phone gives it (codealong-peer's
@@ -178,7 +182,7 @@ struct Request {
 const IMAGE_WAIT: Duration = Duration::from_secs(60);
 
 /// A request any linked device can make and the command too; each line says what differs.
-const ANY: Request = Request { name: "", only_here: None, command: |_| Ok(()), here: |_, _| Ok(Value::Null), there: with_key, back: |v, _| Ok(v), wait: None, prompt: None, instead: None };
+const ANY: Request = Request { name: "", only_here: None, command: |_| Ok(()), here: |_, _| Ok(Value::Null), there: with_key, back: |v, _| Ok(v), wait: None, prompt: None, instead: None, knows: |_| None };
 
 const REQUESTS: &[Request] = &[
     Request { name: api::SESSION_PAGE, here: page, ..ANY },
@@ -248,7 +252,7 @@ const REQUESTS: &[Request] = &[
     // there and to the devices that asked about it (`Msg::Side`). The copy may do what its session
     // may without asking, which isn't the command's to borrow. A question carries its images as a
     // prompt does.
-    Request { name: api::SIDE_ASK, here: side_ask, command: side_in_windows, back: side_back, prompt: Some("/text"), ..ANY },
+    Request { name: api::SIDE_ASK, here: side_ask, command: side_in_windows, back: side_back, prompt: Some("/text"), knows: side_from, ..ANY },
     Request { name: api::SIDE_CLOSE, here: side_close, command: side_in_windows, ..ANY },
     Request { name: api::SIDE_GET, here: side_get, back: side_back, ..ANY },
     Request { name: api::SIDE_PAST, here: side_past, back: kept_back, ..ANY },
@@ -420,6 +424,9 @@ fn by_device(keys: Vec<String>) -> BTreeMap<Option<String>, Vec<String>> {
 /// here are the request's to say (`there`, `back`).
 fn ask_there(peers: &Peers, req: &Request, from: &From, device: &str, own: &str, params: Value) -> Result<Value, String> {
     elsewhere(req, from)?;
+    if let Some((_, why)) = (req.knows)(&params).filter(|(word, _)| peers.knows(device, word) == Some(false)) {
+        return Err(format!("Update Codealong on {} {why}", peers.name(device)));
+    }
     let mut params = (req.there)(params, own)?;
     carry_images(peers, req, device, &mut params)?;
     (req.back)(ask(peers, req, device, params)?, device)
@@ -1477,6 +1484,12 @@ fn side_ask(engine: &Handle, c: &Call) -> Result<Value, String> {
     to_value(side)
 }
 
+/// A question that goes on in the side conversation a window reads needs a Mac that knows to: one
+/// from before would ask the open one, or a new copy that knows none of it.
+fn side_from(params: &Value) -> Option<(&'static str, &'static str)> {
+    params.get("from").is_some_and(|f| !f.is_null()).then_some((codealong_peer::proto::SIDE_FROM, "to go on with a side conversation from before from here: its version would ask a new copy that knows none of it."))
+}
+
 /// Closes its side conversation: a copy that's answering answers what it was asked and then ends,
 /// and what was said is kept to read (`side::close`, `side::past`).
 fn side_close(_: &Handle, c: &Call) -> Result<Value, String> {
@@ -1978,6 +1991,10 @@ mod tests {
         let ask = find(api::SIDE_ASK).unwrap();
         assert_eq!((ask.there)(json!({ "text": "Why a queue?" }), "claude:claude:abc").unwrap(), json!({ "key": "claude:claude:abc", "text": "Why a queue?" }));
         assert_eq!(ask.prompt, Some("/text"));
+        // Only a Mac that knows to go on in the one a window reads is asked to.
+        assert_eq!((ask.knows)(&json!({ "text": "And then?", "from": "7-1" })).map(|(word, _)| word), Some(codealong_peer::proto::SIDE_FROM));
+        assert_eq!((ask.knows)(&json!({ "text": "Why a queue?" })), None);
+        assert_eq!((ask.knows)(&json!({ "text": "Why a queue?", "from": null })), None);
         let side = json!({ "id": "7-1", "key": "claude:claude:abc", "turns": [{ "question": "Why a queue?", "answer": "", "done": false, "at": 1 }], "running": true, "ended": false });
         assert_eq!((ask.back)(side.clone(), "a1b2c3d4e5").unwrap()["key"], "@a1b2c3d4e5:claude:claude:abc");
         let get = find(api::SIDE_GET).unwrap();

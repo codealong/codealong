@@ -6,7 +6,8 @@
 // "1 earlier" lists it; the agent menu beside Ask (AgentMenu.tsx) offers Auto and the accounts
 // whose harness can answer, each with its models and an effort row, and the account, model and
 // effort picked are asked next and remembered; a question that can't be asked is back in the box
-// with why; and ⌘⏎ on Ask approves with Review's text.
+// with why; a question asked while one from before is read goes on in it, on what's picked rather
+// than the open one's account; and ⌘⏎ on Ask approves with Review's text.
 //   PREVIEW_WAIT=60000 scripts/preview.sh waiting '' scripts/preview/pr-ask-check.js
 (function () {
   ['account', 'model', 'effort'].forEach(function (k) { localStorage.removeItem('codealong.prask.' + k); });
@@ -58,6 +59,7 @@
   };
   var model = null;
   var effort = null;
+  var firstId = null;
 
   say('pr ask check: waiting for the card');
   until(function () { return !!pr && !!box() && !!on(); }, 20000, 'the card')
@@ -73,6 +75,7 @@
     .then(function () {
       var a = asked();
       auto = a.account;
+      firstId = window.__sides[pr.key].id;
       check('/side asks about the PR, by its key', a.key === pr.key && a.text === 'Why a new table?', JSON.stringify(a));
       check('on an account that can answer', ['claude', 'claude2', 'codex'].indexOf(auto) >= 0, auto);
       return until(function () { return on() === 'Ask' && !!q('.ca-sidestrip-q'); }, 3000, 'Ask with the question');
@@ -166,6 +169,28 @@
       check('one that can’t be asked is back in the box, with why', box().value === 'Is it safe?' && asked().account === 'codex', box().value);
       check('it was asked on the model and effort picked', (model === null ? asked().model === null : !!asked().model) && asked().effort === effort, JSON.stringify(asked()) + ' picked ' + model);
       check('and nothing shows as starting', !q('.ca-sidestrip-doing') || q('.ca-sidestrip-doing').textContent !== 'Reading the PR…');
+      // Another conversation, open on what's picked; then the first, read again and asked.
+      type(box(), 'Is it safe?');
+      enter();
+      return until(function () { var s = (window.__sides || {})[pr.key]; return s && s.id !== firstId && !!q('.ca-prreview-who'); }, 3000, 'another conversation open');
+    })
+    .then(function () {
+      all('.ca-sidestrip-head button').filter(function (b) { return b.getAttribute('aria-label') === 'Earlier'; })[0].click();
+      return until(function () { return all('.ca-sidestrip-kept').filter(function (b) { return b.textContent.indexOf('Why a new table?') === 0; })[0]; }, 3000, 'the list');
+    })
+    .then(function (row) {
+      row.click();
+      return until(function () { return all('.ca-sidestrip-q').length === 2 && q('.ca-sidestrip-q').textContent === 'Why a new table?'; }, 3000, 'the first read again');
+    })
+    .then(function () {
+      check('while one from before is read, who answers can be picked', !!chip() && !q('.ca-prreview-who'));
+      type(box(), 'And the index?');
+      enter();
+      return until(function () { return asked().text === 'And the index?'; }, 3000, 'the question');
+    })
+    .then(function () {
+      var a = asked();
+      check('a question asked as one from before is read goes on in it, on what’s picked', a.from === firstId && a.account === 'codex' && (model === null ? a.model === null : !!a.model) && a.effort === effort, JSON.stringify(a) + ' first ' + firstId);
       key(window, { key: 'Enter', metaKey: true });
       return until(function () { return sent('review_pr').length === 1; }, 3000, 'the approval');
     })

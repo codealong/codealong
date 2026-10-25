@@ -416,7 +416,8 @@ A session on another machine is asked on the side the same way: its copy runs on
 beside the session, and the answer shows here as it's written. Asking needs remote control on that
 machine, since the copy can do what the session can, and a build of Codealong from 2026-10-23 or
 later there; what was asked is kept on that machine, where its earlier side conversations are listed
-from and deleted. Its header and its row in Sessions don't name another machine's side
+from and deleted. Going on with one from before needs a build from 2026-10-25 or later there: an
+earlier one is not asked, and says to update Codealong on it. Its header and its row in Sessions don't name another machine's side
 conversations yet.
 
 #### The session panel

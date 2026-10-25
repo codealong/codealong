@@ -110,6 +110,8 @@ export interface PrBox {
   kept: SideKept[];
   /** The account that answers: the open conversation's, else the one picked or Auto's. */
   answerer: string | null;
+  /** A question goes to the open conversation, on what it was made on. */
+  toOpen: boolean;
   /** Who was picked beside Ask, Auto's or an account's. */
   asker: AgentPick;
   starting: boolean;
@@ -161,13 +163,15 @@ export function usePrBox(pr: PrItem, { report, usage, now, onSent, onFailed, aut
   }, [autoFocus, pr.key]);
 
   // Ask's conversation, and the account that answers: the open conversation's, else the one
-  // picked, else Auto's.
+  // picked, else Auto's. A question asked while one from before is read goes on in that one
+  // (side.ts `beingRead`), in a new copy on the one picked, not the open one's.
   const conversation = useSide(pr.key);
   const shown = useSideView(pr.key);
   const kept = useKept(pr.key);
   const [asker, setAsker] = useState<AgentPick>(readAsker);
   const asks = askOn(accounts, usage, now, isAuto(asker.account) ? null : asker);
-  const answerer = conversation && !conversation.ended ? (conversation.account ?? null) : (asks?.account ?? null);
+  const toOpen = !!conversation && !conversation.ended && shown?.kind !== 'past';
+  const answerer = toOpen ? (conversation.account ?? null) : (asks?.account ?? null);
   const [starting, setStarting] = useState(false);
 
   const switchTo = (to: BoxSide) => {
@@ -244,7 +248,7 @@ export function usePrBox(pr: PrItem, { report, usage, now, onSent, onFailed, aut
     startingSide(pr.key);
     setStarting(true);
     // An open conversation goes on on what it was made on.
-    prSideAsk(pr.key, asks && !(conversation && !conversation.ended) ? asks : { account: answerer, model: null, effort: null }, question, from)
+    prSideAsk(pr.key, asks && !toOpen ? asks : { account: answerer, model: null, effort: null }, question, from)
       .catch((e: unknown) => {
         setAskText((now_) => [question, now_].filter((t) => t.trim()).join('\n\n'));
         notAsked(pr.key);
@@ -263,7 +267,7 @@ export function usePrBox(pr: PrItem, { report, usage, now, onSent, onFailed, aut
     writeStored(ASK_EFFORT, asText, auto ? '' : (pick.effort ?? ''));
   };
 
-  return { side, asking, reviewText, setReviewText, askText, setAskText, note, setNote, box, draft, reviewable, stillOpen, conversation, shown, kept, answerer, asker, starting, sending, agents, accounts, groups, usage, now, switchTo, review, ask, pickAnswerer, tryAgain: () => tryAgain(pr, report) };
+  return { side, asking, reviewText, setReviewText, askText, setAskText, note, setNote, box, draft, reviewable, stillOpen, conversation, shown, kept, answerer, toOpen, asker, starting, sending, agents, accounts, groups, usage, now, switchTo, review, ask, pickAnswerer, tryAgain: () => tryAgain(pr, report) };
 }
 
 /** The model and effort an open conversation about a PR answers on, as its chip says them; null
@@ -457,7 +461,7 @@ export function PrBoxView({ pr, box: b, keys, ownKeys = false, after, onShow, cl
           </div>
           {asking ? (
             <div className="ca-composer-buttons ca-prreview-buttons">
-              {conversation && !conversation.ended ? (
+              {conversation && b.toOpen ? (
                 <span className="ca-prreview-who" title="The open conversation’s agent answers. Close it above to ask another account, model or effort.">
                   {conversation.account}
                   {conversationOn(conversation, b.accounts) && <span className="ca-modelmenu-detail">{conversationOn(conversation, b.accounts)}</span>}

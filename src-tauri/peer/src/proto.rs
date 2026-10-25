@@ -118,6 +118,9 @@ pub const TABLET: &str = "tablet";
 /// `SCHEDULES` says it keeps the schedules your machines share (`FeedMsg::schedules`,
 /// `schedules::Shared`): only a device that says it is sent them. `SIDES` says it takes a
 /// session's side conversations as they change (`Msg::Side`) once it has asked about them.
+/// `SIDE_FROM` is a Mac's word that a side question naming the one a window reads
+/// (`params::Side::from`) goes on in that one; a device asks one with `from` only when it says
+/// so, since one from before asks the open one or a new copy that knows none of it.
 pub const HAVE: &str = "have";
 pub const WATCH: &str = "watch";
 pub const CURSOR: &str = "cursor";
@@ -127,7 +130,8 @@ pub const EMBLEMS: &str = "emblems";
 pub const PEER_ITEMS: &str = "peer-items";
 pub const SCHEDULES: &str = "schedules";
 pub const SIDES: &str = "sides";
-pub const KNOWS: [&str; 9] = [HAVE, WATCH, CURSOR, PRS, PR_DRAFTS, EMBLEMS, PEER_ITEMS, SCHEDULES, SIDES];
+pub const SIDE_FROM: &str = "side-from";
+pub const KNOWS: [&str; 10] = [HAVE, WATCH, CURSOR, PRS, PR_DRAFTS, EMBLEMS, PEER_ITEMS, SCHEDULES, SIDES, SIDE_FROM];
 
 /// Whether a device of this kind only watches.
 pub fn watches(kind: Option<&str>) -> bool {

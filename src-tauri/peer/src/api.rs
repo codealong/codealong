@@ -537,7 +537,8 @@ pub mod params {
 
     /// `side-ask`: the question for its side conversation, and the one it goes on in where a
     /// window showed one as it was asked (`SideKept::id`). A device of a build before `from` asks
-    /// the open one, or starts a new one.
+    /// the open one, or starts a new one, so it's asked with `from` only when it says it knows
+    /// `proto::SIDE_FROM`.
     #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
     #[serde(default)]
     pub struct Side {

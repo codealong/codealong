@@ -287,7 +287,8 @@ pub fn ask(board: &Board, cfg: &Config, key: &str, text: &str, from: Option<&str
     if text.is_empty() {
         bail!("Ask it something: /side, then your question.");
     }
-    ask_with(key, text, reading(key, from), None, || recipe(board, cfg, key))
+    let kept_in = store_path();
+    ask_with(key, text, reading(from, &kept_in), None, || recipe(board, cfg, key))
 }
 
 /// The side conversation a window showed as a question was asked, which the question goes on in:
@@ -295,16 +296,14 @@ pub fn ask(board: &Board, cfg: &Config, key: &str, text: &str, from: Option<&str
 /// (2026-10-25). It's the open one from then on, and the one open before is closed, as Close
 /// closes it. A closed one still answering is asked as its copy answers; any other gets a new
 /// copy, told first what was asked and answered in it (`goes_on_from`).
-struct Reading {
-    id: String,
-    /// What's kept of it, read as the question's asked: none once another window deleted it.
-    kept: Option<Kept>,
+struct Reading<'a> {
+    id: &'a str,
+    /// Where what's kept of it is read (`sides.json`).
+    kept_in: &'a Path,
 }
 
-/// The one `from` names among the session's, as it's kept.
-fn reading(key: &str, from: Option<&str>) -> Option<Reading> {
-    let id = from.map(str::trim).filter(|id| !id.is_empty())?;
-    Some(Reading { id: id.to_string(), kept: past_in(&store_path(), key).into_iter().find(|k| k.id == id) })
+fn reading<'a>(from: Option<&'a str>, kept_in: &'a Path) -> Option<Reading<'a>> {
+    Some(Reading { id: from.map(str::trim).filter(|id| !id.is_empty())?, kept_in })
 }
 
 /// What a question to a deleted side conversation is told.
@@ -322,7 +321,9 @@ fn goes_on_from(turns: &[Turn], text: &str) -> String {
             Some(why) => format!("(No answer: {why})"),
             None => "(No answer.)".to_string(),
         };
-        said.push_str(&format!("\n<question>\n{}\n</question>\n<answer>\n{answer}\n</answer>\n", t.question.trim()));
+        // What was pasted with it goes as its path, as it did then (`ask_with`).
+        let question = crate::attachments::expand(t.question.trim(), crate::attachments::Style::Path);
+        said.push_str(&format!("\n<question>\n{question}\n</question>\n<answer>\n{answer}\n</answer>\n"));
     }
     said.push_str(&format!("\nGo on from there. What you're asked now:\n\n{text}"));
     said
@@ -355,7 +356,8 @@ pub fn ask_pr(board: &Board, cfg: &Config, key: &str, account: &str, on: RunsOn,
     if let Some(e) = on.effort.filter(|e| !crate::start::effort_levels().contains(e)) {
         bail!("{e:?} isn't an effort level Codealong knows.");
     }
-    ask_with(key, text, reading(key, from), Some((account, on)), || pr_recipe(board, cfg, key, account, on))
+    let kept_in = store_path();
+    ask_with(key, text, reading(from, &kept_in), Some((account, on)), || pr_recipe(board, cfg, key, account, on))
 }
 
 /// Asks `key`'s side conversation `text`, the open one or the one being read, making its process
@@ -367,13 +369,19 @@ fn ask_with(key: &str, text: &str, reading: Option<Reading>, chosen: Option<(&st
     let sent = crate::attachments::expand(text, crate::attachments::Style::Path);
     // One read that's the open one is simply asked.
     let is_open = |st: &State, id: &str| st.open.get(key).is_some_and(|o| o.side.id == id);
-    let has_copy = {
+    let (reading, has_copy) = {
         let st = state();
-        match reading.as_ref().filter(|r| !is_open(&st, &r.id)) {
+        let reading = reading.filter(|r| !is_open(&st, r.id));
+        let has_copy = match &reading {
             Some(r) => st.closing.iter().any(|o| o.side.id == r.id),
             None => st.open.get(key).is_some_and(|o| o.proc.is_some()),
-        }
+        };
+        (reading, has_copy)
     };
+    // What's kept of one read whose copy has gone, read only now: a copy leaves the closing ones
+    // once what it said is kept (`heard`, `stopped`), so this has all of it. None for one that
+    // was closing then, and none in it once another window deleted it.
+    let kept = reading.as_ref().filter(|_| !has_copy).map(|r| past_in(r.kept_in, key).into_iter().find(|k| k.id == r.id));
     // Made outside the lock: it reads the session's record, or asks GitHub about the PR.
     let made = if has_copy { None } else { Some(made()?) };
     let now = now_ms();
@@ -383,18 +391,23 @@ fn ask_with(key: &str, text: &str, reading: Option<Reading>, chosen: Option<(&st
         let id = st.next;
         // What's read, to be the open one: one closed with its copy still answering, else what's
         // kept of it, which needs a new copy. Nothing's changed until that has started.
-        let again = match reading.filter(|r| !is_open(&st, &r.id)) {
+        let again = match reading.filter(|r| !is_open(&st, r.id)) {
             None => None,
-            Some(r) => Some(match st.take_closing(&r.id) {
-                Some(mut o) => {
-                    o.side.closed = false;
-                    o
-                }
-                None => {
-                    let Some(k) = r.kept else { bail!(DELETED) };
-                    Open { side: Side { id: k.id, key: key.to_string(), turns: k.turns, ended: true, ..Default::default() }, title: k.title, started_at: k.started_at, queue: VecDeque::new(), proc: None, used: Instant::now() }
-                }
-            }),
+            Some(r) => {
+                let answers = st.closing.iter().any(|o| o.side.id == r.id && o.proc.is_some());
+                Some(match answers.then(|| st.take_closing(r.id)).flatten() {
+                    Some(mut o) => {
+                        o.side.closed = false;
+                        o
+                    }
+                    None => match kept {
+                        Some(Some(k)) => Open { side: Side { id: k.id, key: key.to_string(), turns: k.turns, ended: true, ..Default::default() }, title: k.title, started_at: k.started_at, queue: VecDeque::new(), proc: None, used: Instant::now() },
+                        Some(None) => bail!(DELETED),
+                        // It was closing, and its copy has ended since.
+                        None => bail!("Its copy just ended. Ask again."),
+                    },
+                })
+            }
         };
         let copy = match &again {
             Some(o) if o.proc.is_some() => None,
@@ -791,7 +804,7 @@ fn write(p: &mut Proc, lines: &[Value]) {
 
 /// A line from copy `id` of the session's conversation.
 fn heard(key: &str, id: u64, line: &Value) {
-    let (side, kept, answered) = {
+    let (side, kept) = {
         let mut st = state();
         let Some(o) = st.of_copy(key, id) else { return };
         let Some(p) = o.proc.as_mut() else { return };
@@ -807,16 +820,20 @@ fn heard(key: &str, id: u64, line: &Value) {
         for e in events {
             apply(o, e);
         }
-        let (side, kept) = (o.side.clone(), if ended { kept_of(o) } else { None });
-        // One closed while it answered has answered all it was asked: its copy's done.
-        let answered = if side.closed && !side.running { st.take_closing(&side.id) } else { None };
-        (side, kept, answered)
+        (o.side.clone(), if ended { kept_of(o) } else { None })
     };
-    if let Some(p) = answered.and_then(|o| o.proc) {
-        end(p);
-    }
     let ended = kept.is_some();
     keep(kept);
+    // One closed while it answered has answered all it was asked: its copy's done. It leaves the
+    // closing ones only once what it said is kept, so a question asked as it's read finds it in
+    // one or the other (`ask_with`). Asked meanwhile, it's open again, its copy going on, and
+    // the windows have been told so.
+    if side.closed && !side.running {
+        let Some(answered) = state().take_closing(&side.id) else { return };
+        if let Some(p) = answered.proc {
+            end(p);
+        }
+    }
     notify(side);
     if ended {
         changed();
@@ -883,13 +900,13 @@ fn stopped(key: &str, id: u64, complaint: &str) {
         o.queue.clear();
         o.side.running = false;
         o.side.ended = true;
-        let (side, kept) = (o.side.clone(), kept_of(o));
-        if side.closed {
-            st.take_closing(&side.id);
-        }
-        (side, kept)
+        (o.side.clone(), kept_of(o))
     };
     keep(kept);
+    // Out of the closing ones once it's kept, as `heard` takes one.
+    if side.closed {
+        state().take_closing(&side.id);
+    }
     notify(side);
     changed();
 }
@@ -1090,20 +1107,23 @@ mod tests {
         let before = wait_for(key, |s| !s.running);
         let before_pid = state().open.get(key).unwrap().proc.as_ref().unwrap().pid;
         let turn = |question: &str, answer: &str, error: Option<&str>| Turn { question: question.into(), answer: answer.into(), error: error.map(String::from), done: true, at: 2, ..Default::default() };
-        let kept = Kept { id: "k1".into(), key: key.into(), title: "A session".into(), started_at: 2, last_at: 3, turns: vec![turn("which commits need a review?", "#177 and #182.", None), turn("who wrote them?", "", Some("Closed before it answered."))], answering: false };
+        let kept_in = store::test_dir("sides-goes-on").join("sides.json");
+        keep_in(&kept_in, Kept { id: "k1".into(), key: key.into(), title: "A session".into(), started_at: 2, last_at: 3, turns: vec![turn("which commits need a review? images/0123456789abcdef.png", "#177 and #182.", None), turn("who wrote them?", "", Some("Closed before it answered."))], answering: false }).unwrap();
         // One deleted meanwhile is said to be, and nothing changes.
-        let gone = ask_with(key, "and now?", Some(Reading { id: "k0".into(), kept: None }), None, echo).unwrap_err();
+        let gone = ask_with(key, "and now?", Some(Reading { id: "k0", kept_in: &kept_in }), None, echo).unwrap_err();
         assert_eq!(gone.to_string(), DELETED);
         assert_eq!(get(key).unwrap().id, before.id);
-        let side = ask_with(key, "who reviews them?", Some(Reading { id: "k1".into(), kept: Some(kept) }), None, echo).unwrap();
+        let side = ask_with(key, "who reviews them?", Some(Reading { id: "k1", kept_in: &kept_in }), None, echo).unwrap();
         assert_eq!(side.id, "k1");
-        assert_eq!(side.turns.iter().map(|t| t.question.as_str()).collect::<Vec<_>>(), ["which commits need a review?", "who wrote them?", "who reviews them?"]);
+        assert_eq!(side.turns.iter().map(|t| t.question.as_str()).collect::<Vec<_>>(), ["which commits need a review? images/0123456789abcdef.png", "who wrote them?", "who reviews them?"]);
         // The one open before ended, as Close ends one that isn't answering.
         assert!(!runs(before_pid));
         let side = wait_for(key, |s| !s.running);
         let answer = &side.turns[2].answer;
         assert!(answer.starts_with("You asked: This side conversation began with an earlier copy"), "{answer}");
-        assert!(answer.contains("<question>\nwhich commits need a review?\n</question>\n<answer>\n#177 and #182.\n</answer>\n\n<question>\nwho wrote them?\n</question>\n<answer>\n(No answer: Closed before it answered.)\n</answer>"), "{answer}");
+        // What was pasted with a question goes as its path, as it did then.
+        let image = crate::attachments::images_dir().join("0123456789abcdef.png");
+        assert!(answer.contains(&format!("<question>\nwhich commits need a review? {}\n</question>\n<answer>\n#177 and #182.\n</answer>\n\n<question>\nwho wrote them?\n</question>\n<answer>\n(No answer: Closed before it answered.)\n</answer>", image.display())), "{answer}");
         assert!(answer.ends_with("What you're asked now:\n\nwho reviews them?"), "{answer}");
         // What's shown and kept is what was typed.
         assert_eq!(state().open.get(key).map(|o| (o.started_at, kept_of(o).unwrap().turns.len())), Some((2, 3)));
@@ -1143,7 +1163,8 @@ mod tests {
         let (id, pid) = state().open.get(key).map(|o| (o.side.id.clone(), o.proc.as_ref().unwrap().pid)).unwrap();
         close(key);
         assert!(get(key).is_none() && closing_of(key).is_some());
-        let side = ask_with(key, "two", Some(Reading { id: id.clone(), kept: None }), None, || bail!("No new copy is wanted.")).unwrap();
+        let nowhere = store::test_dir("sides-reopened").join("sides.json");
+        let side = ask_with(key, "two", Some(Reading { id: &id, kept_in: &nowhere }), None, || bail!("No new copy is wanted.")).unwrap();
         assert_eq!((side.id.as_str(), side.closed, side.running), (id.as_str(), false, true));
         assert!(closing_of(key).is_none() && runs(pid));
         let side = wait_for(key, |s| !s.running);
