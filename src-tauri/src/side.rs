@@ -658,10 +658,15 @@ fn forget_at(path: &Path, id: &str) -> Result<()> {
 }
 
 /// Writes a side conversation in place of what was kept of it, the latest last, and lets the
-/// oldest go past `KEPT`. A file that doesn't parse is an error and is left as it is: every
+/// oldest go past `KEPT`. A conversation only grows, so one with fewer turns than what's kept of
+/// it was made before that and written late (a close's, behind the answers of a copy that went
+/// on from it): it's left out. A file that doesn't parse is an error and is left as it is: every
 /// conversation kept so far is in it.
 fn keep_in(path: &Path, kept: Kept) -> Result<()> {
     store::change(path, WHAT, |all: &mut Vec<Kept>| {
+        if all.iter().any(|k| k.id == kept.id && k.turns.len() > kept.turns.len()) {
+            return false;
+        }
         all.retain(|k| k.id != kept.id);
         all.push(kept);
         let extra = all.len().saturating_sub(KEPT);
@@ -1416,6 +1421,18 @@ mod tests {
         assert_eq!(of("claude:c:1"), [("b", 1, false, false, 51), ("a", 2, true, true, 70)]);
         assert_eq!(of("codex:x:2"), [("c", 1, false, false, 31)]);
         assert_eq!(by.len(), 2);
+    }
+
+    /// What's kept of a conversation that went on is never written over by a record of it from
+    /// before, written late: a close's, say, behind the answers of a copy that went on from it.
+    #[test]
+    fn a_record_from_before_written_late_leaves_what_went_on_kept() {
+        let path = store::test_dir("sides-written-late").join("sides.json");
+        let turn = |q: &str| Turn { question: q.into(), answer: "Yes.".into(), done: true, at: 1, ..Default::default() };
+        let kept = |turns: Vec<Turn>| Kept { id: "a".into(), key: "claude:c:1".into(), title: "A session".into(), started_at: 1, last_at: 2, turns, answering: false };
+        keep_in(&path, kept(vec![turn("one"), turn("two")])).unwrap();
+        keep_in(&path, kept(vec![turn("one")])).unwrap();
+        assert_eq!(past_in(&path, "claude:c:1").iter().map(|k| k.turns.len()).collect::<Vec<_>>(), [2]);
     }
 
     /// sides.json holds every conversation kept: one that doesn't read (another build's shape, a
