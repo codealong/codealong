@@ -16,9 +16,9 @@
 //!   days"): the running scheduler fires it once more after that and deletes it ("aged out …
 //!   deleting after final fire"), while a resume after its 7 days leaves it out. Each fire is a
 //!   `system` / `scheduled_task_fire` line naming the job (`taskId`). Claude Code doesn't bring
-//!   back a durable one (`durable: true`) from the transcript, since the project's
-//!   `.claude/scheduled_tasks.json` keeps it, but it fires only while a process runs too, so it
-//!   counts here.
+//!   back a durable one (`durable: true`) from the transcript: a process that starts reloads it
+//!   from the project's `.claude/scheduled_tasks.json`, past its 7 days too, and it fires only
+//!   while a process runs, so it counts here.
 //! - The latest `ScheduleWakeup` call's result (`scheduledFor`, ms), which takes the place of any
 //!   before it; `{stop: true}` cancels it (`stopped: true`), and a `scheduled_task_fire` line
 //!   with `taskKind: "loop"` says it fired. A resumed process arms it again, and tells the
@@ -65,6 +65,7 @@ struct Job {
     cron: String,
     made: i64,
     recurring: bool,
+    durable: bool,
     /// When a one-shot job fires, where its result says.
     fires: Option<i64>,
 }
@@ -153,7 +154,7 @@ impl Scan {
                 if let Some(tasks) = carry["tasks"].as_array() {
                     self.carried = tasks
                         .iter()
-                        .filter_map(|t| Some(Job { id: t["id"].as_str()?.to_string(), cron: t["cron"].as_str()?.to_string(), made: t["createdAt"].as_f64()? as i64, recurring: t["recurring"] == true, fires: None }))
+                        .filter_map(|t| Some(Job { id: t["id"].as_str()?.to_string(), cron: t["cron"].as_str()?.to_string(), made: t["createdAt"].as_f64()? as i64, recurring: t["recurring"] == true, durable: false, fires: None }))
                         .collect();
                 }
                 self.deleted.extend(carry["ended"].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_string));
@@ -170,7 +171,7 @@ impl Scan {
     fn next_after(&self, now: i64, since: i64, zone: &dyn Zone) -> Option<i64> {
         let made = self.crons.iter().filter_map(|(call, cron, made)| {
             let r = self.results.get(call)?;
-            Some(Job { id: r["id"].as_str()?.to_string(), cron: cron.clone(), made: *made, recurring: r["recurring"] != false, fires: r["nextFireAt"].as_f64().map(|t| t as i64) })
+            Some(Job { id: r["id"].as_str()?.to_string(), cron: cron.clone(), made: *made, recurring: r["recurring"] != false, durable: r["durable"] == true, fires: r["nextFireAt"].as_f64().map(|t| t as i64) })
         });
         let mut seen = HashSet::new();
         let jobs = made.chain(self.carried.iter().map(|j| Job { id: j.id.clone(), cron: j.cron.clone(), ..*j })).filter(|j| !self.deleted.contains(&j.id) && seen.insert(j.id.clone()));
@@ -182,7 +183,7 @@ impl Scan {
                 return j.fires.or_else(|| rule::next_after(&cron, j.made, j.made, zone)).filter(|t| *t > now);
             }
             let expires = j.made + RECURRING_MAX_AGE_MS;
-            let ended = self.fired.get(&j.id).is_some_and(|t| *t >= expires) || (now >= expires && since >= expires);
+            let ended = self.fired.get(&j.id).is_some_and(|t| *t >= expires) || (now >= expires && since >= expires && !j.durable);
             (!ended).then(|| rule::next_after(&cron, now, j.made, zone)).flatten()
         });
         fires.chain(self.wakeup.filter(|t| *t > now)).min()
@@ -259,6 +260,10 @@ mod tests {
         assert_eq!(next(&lines, asked, week_on), Some(next_month));
         assert_eq!(next(&lines, week_on - 3_600_000, week_on), None);
         assert_eq!(next(&[lines.clone(), vec![fired(next_month, "beef0001")]].concat(), asked, next_month + 60_000), None);
+        // A durable one is reloaded from its project's file by a process started after its week.
+        let durable = [lines[0].clone(), result(asked, "toolu_1", json!({"id": "beef0001", "recurring": true, "durable": true}))];
+        assert_eq!(next(&durable, week_on - 3_600_000, week_on), Some(next_month));
+        assert_eq!(next(&[durable.to_vec(), vec![fired(next_month, "beef0001")]].concat(), week_on - 3_600_000, next_month + 60_000), None);
         // A fire within its week isn't the last.
         let weekly = [call(asked, "toolu_3", "CronCreate", json!({"cron": "0 9 * * 5", "prompt": "Weekly kestrel digest", "recurring": true})), result(asked, "toolu_3", json!({"id": "beef0002", "recurring": true})), fired(ms(&z, 2026, 10, 2, 9, 0), "beef0002")];
         assert_eq!(next(&weekly, asked, ms(&z, 2026, 10, 3, 12, 0)), Some(ms(&z, 2026, 10, 9, 9, 0)));
