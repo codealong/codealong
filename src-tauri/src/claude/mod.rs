@@ -836,9 +836,9 @@ impl crate::harness::Adapter for ClaudeCode {
     }
 
     /// A loop's next tick or a check it scheduled (`ScheduleWakeup`, `CronCreate`), which its
-    /// process holds: wakeups.rs.
-    fn wakes_at(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, now: i64) -> Option<i64> {
-        wakeups::next_wakeup(&record(self, ctx, s).ok()?, now)
+    /// process holds, by every transcript it has: wakeups.rs.
+    fn wakes_at(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, since: i64, now: i64) -> Option<i64> {
+        wakeups::next_wakeup(&self.records(ctx.account, s), since, now)
     }
 
     /// A Code session the Claude app starts without a folder runs in a scratch workspace it

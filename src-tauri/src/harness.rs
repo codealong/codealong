@@ -248,10 +248,10 @@ pub trait Adapter: Sync {
     }
 
     /// The next time after `now` the session wakes itself, by something it scheduled inside its
-    /// own process (a loop's next tick, a check at a time) that ending the process would lose:
-    /// `codealong hygiene` keeps the process until then. None where nothing such is to come, or
-    /// the harness has no such thing.
-    fn wakes_at(&self, _ctx: &Ctx, _session: &Session, _now: i64) -> Option<i64> {
+    /// own process, which started at `since` (a loop's next tick, a check at a time), that ending
+    /// the process would lose: `codealong hygiene` keeps the process until then. None where
+    /// nothing such is to come, or the harness has no such thing.
+    fn wakes_at(&self, _ctx: &Ctx, _session: &Session, _since: i64, _now: i64) -> Option<i64> {
         None
     }
 

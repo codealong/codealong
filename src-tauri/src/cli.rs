@@ -6310,9 +6310,9 @@ fn hygiene(c: &mut Client, a: &HygieneArgs, json: bool) -> Result<()> {
         let cfg = c.cfg()?.clone();
         let cwd = |pid: u32| procs::cwd_of(pid).map(|p| p.to_string_lossy().into_owned());
         let linked = |dir: &str| Path::new(dir).join(".git").is_file();
-        let wakes = |s: &Session, now: i64| {
+        let wakes = |s: &Session, since: i64, now: i64| {
             let account = cfg.accounts.iter().find(|a| a.name == s.account)?;
-            crate::harness::adapter(s.harness).wakes_at(&crate::harness::Ctx { account }, s, now)
+            crate::harness::adapter(s.harness).wakes_at(&crate::harness::Ctx { account }, s, since, now)
         };
         let judged = hygiene::judge(&hygiene::Scene { board: c.board()?, procs: &procs, now: now_ms(), after_ms, protected: &protected, cwd: &cwd, listening: &listening, linked: &linked, wakes: &wakes });
         let mut found = judged.found;
