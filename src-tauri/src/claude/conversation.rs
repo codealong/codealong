@@ -10,7 +10,7 @@ use super::ClaudeCode;
 use super::asks::REFUSED_SAYING;
 use super::peer::{FROM_CODEALONG, FROM_YOU};
 use super::registry::session_entry;
-use super::transcript::{comment_in, prompt_words, ran_a_turn, tool_request, typed_text, unmarked_command, without_context, you_typed, SEND_FILE};
+use super::transcript::{comment_in, comment_quote, prompt_words, ran_a_turn, tool_request, typed_text, unmarked_command, without_context, you_typed, SEND_FILE};
 use crate::harness::Link;
 use crate::transcript::{clip_input, clip_output, item, kept_whole, text_of, Image, Item};
 use crate::util::{one_line, parse_rfc3339_ms, read_line_at, read_range, scan_lines_back, unescape_html};
@@ -579,6 +579,31 @@ fn artifact_about(said: &str) -> Option<Link> {
     link(format!("https://claude.ai/code/artifact/{id}"), note)
 }
 
+/// What a copy goes on with when a prompt of yours is edited (`ClaudeCode::fork_from`): your edit
+/// in the place the prompt's words had in what came with them, which the conversation leaves out.
+/// What you were looking at in an artifact stays ahead of it, and a comment from an artifact's
+/// thread stays one, your edit quoted in place of the comment, so the agent still knows which
+/// artifact it's about and where its answer goes.
+pub(super) fn resent(path: &Path, cursor: u64, edit: &str) -> String {
+    let Some(said) = said_at(path, cursor) else { return edit.to_string() };
+    let words = without_context(&said);
+    let ahead = &said[..said.len() - words.len()];
+    match comment_quote(words) {
+        Some(quote) => {
+            let quoted: Vec<String> = edit.trim().lines().map(|l| if l.is_empty() { ">".to_string() } else { format!("> {l}") }).collect();
+            format!("{ahead}{}{}\n{}", &words[..quote.start], quoted.join("\n"), &words[quote.end..])
+        }
+        None => format!("{ahead}{edit}"),
+    }
+}
+
+/// The text of the prompt of yours whose line is at `cursor`, a message sent while it worked too.
+fn said_at(path: &Path, cursor: u64) -> Option<String> {
+    let v: Value = serde_json::from_str(&read_line_at(path, cursor, PROMPT_LINE_MAX)?).ok()?;
+    let said = v.pointer("/message/content").or_else(|| v.pointer("/attachment/prompt"))?;
+    Some(text_of(said))
+}
+
 /// Names the artifacts the prompts among `items` were about (`artifact_about`) as the session's
 /// own list does (artifacts.rs), where the session made or showed them.
 pub(super) fn name_artifacts(items: &mut [Item], made: &[crate::model::Artifact]) {
@@ -705,6 +730,34 @@ mod tests {
         assert_eq!(point(14).as_deref(), Some("s1"));
         assert_eq!(point(15).as_deref(), Some("q2"));
         assert_eq!(point(18).as_deref(), Some("msg_4"), "past what the SDK doesn't list");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// An edited prompt goes with what came with it and the conversation leaves out: what you
+    /// were looking at, or the comment's thread, your edit quoted in place of the comment.
+    #[test]
+    fn an_edit_keeps_what_came_with_the_prompt() {
+        let looking = "<artifact-view-context artifact=\"a0c97093\">\n{\"context\":{}}\n</artifact-view-context>\n\n";
+        let comment = "[Artifact comment sent to Claude]\nArtifact: https://claude.ai/code/artifact/a0c97093\nComment thread: 8c47\n\nIt is quoted below.\n\n=== BEGIN ARTIFACT COMMENT 6be3 ===\n> what is all this sidebar stuff?\n=== END ARTIFACT COMMENT 6be3 ===\n\nAnswer this comment in its thread, not here.";
+        let lines = [
+            prompt("p1", None, &format!("{looking}Why this?")),
+            prompt("p2", Some("p1"), comment),
+            chained("attachment", "q1", Some("p2"), "2026-09-30T00:16:40.000Z", serde_json::json!({ "attachment": { "type": "queued_command", "prompt": format!("{looking}And this?") } })),
+            prompt("p3", Some("q1"), "Plain"),
+        ];
+        let dir = crate::fixtures::scratch("claude-resent");
+        let path = dir.join("s1.jsonl");
+        std::fs::write(&path, lines.join("\n") + "\n").unwrap();
+        let at = |n: usize| lines[..n].iter().map(|l| l.len() as u64 + 1).sum::<u64>();
+        assert_eq!(resent(&path, at(0), "Why that?"), format!("{looking}Why that?"));
+        assert_eq!(
+            resent(&path, at(1), "Drop the sidebar\n\nand the footer"),
+            "[Artifact comment sent to Claude]\nArtifact: https://claude.ai/code/artifact/a0c97093\nComment thread: 8c47\n\nIt is quoted below.\n\n=== BEGIN ARTIFACT COMMENT 6be3 ===\n> Drop the sidebar\n>\n> and the footer\n=== END ARTIFACT COMMENT 6be3 ===\n\nAnswer this comment in its thread, not here."
+        );
+        assert_eq!(resent(&path, at(2), "And that?"), format!("{looking}And that?"));
+        assert_eq!(resent(&path, at(3), "Plainer"), "Plainer");
+        // A place that isn't a line's start is sent as edited.
+        assert_eq!(resent(&path, 3, "As is"), "As is");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

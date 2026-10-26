@@ -1166,11 +1166,21 @@ pub(super) const COMMENT_HEAD: &str = "[Artifact comment sent to Claude]";
 /// The comment a prompt hands on (`COMMENT_HEAD`), as it was written; None for any other prompt,
 /// or one whose quote doesn't close.
 pub(super) fn comment_in(text: &str) -> Option<String> {
-    let rest = text.trim_start().strip_prefix(COMMENT_HEAD)?;
-    let (token, quoted) = rest.split_once("\n=== BEGIN ARTIFACT COMMENT ")?.1.split_once(" ===\n")?;
-    let quoted = &quoted[..quoted.find(&format!("=== END ARTIFACT COMMENT {token} ==="))?];
+    let quoted = &text[comment_quote(text)?];
     let lines: Vec<&str> = quoted.lines().map(|l| l.strip_prefix("> ").or_else(|| l.strip_prefix('>')).unwrap_or(l)).collect();
     Some(lines.join("\n").trim().to_string())
+}
+
+/// Where in a prompt that hands on a comment (`COMMENT_HEAD`) its quoted lines are: between the
+/// line that opens the quote and the one that closes it, which carry the same token.
+pub(super) fn comment_quote(text: &str) -> Option<std::ops::Range<usize>> {
+    let from = text.len() - text.trim_start().strip_prefix(COMMENT_HEAD)?.len();
+    let open = "\n=== BEGIN ARTIFACT COMMENT ";
+    let token_at = from + text[from..].find(open)? + open.len();
+    let token_len = text[token_at..].find(" ===\n")?;
+    let start = token_at + token_len + " ===\n".len();
+    let end = start + text[start..].find(&format!("=== END ARTIFACT COMMENT {} ===", &text[token_at..token_at + token_len]))?;
+    Some(start..end)
 }
 
 /// A prompt line's text, or its text parts joined, without what was put ahead of what you typed.

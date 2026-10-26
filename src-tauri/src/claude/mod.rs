@@ -442,7 +442,7 @@ impl crate::harness::Adapter for ClaudeCode {
         let through = conversation::fork_point_before(&path, cursor)?.ok_or_else(|| crate::harness::nothing_before(Harness::Claude))?;
         let cwd = transcript_cwd(&path).map(PathBuf::from).filter(|p| p.is_dir()).unwrap_or_else(|| cwd.to_path_buf());
         let id = path.file_stem().and_then(|n| n.to_str()).unwrap_or(&s.id);
-        match crate::acp::fork(ctx.account, id, &cwd, prompt, Some(&through)) {
+        match crate::acp::fork(ctx.account, id, &cwd, &conversation::resent(&path, cursor, prompt), Some(&through)) {
             // claude-agent-acp 0.81.2 answers "Invalid params: Fork point message <id> was not
             // found in session <id>" (checked 2026-10-20).
             Err(e) if e.to_string().contains(&format!("{through} was not found")) => Err(anyhow::anyhow!(
