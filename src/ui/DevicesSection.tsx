@@ -112,6 +112,11 @@ export function DevicesPane({ cfg, disabled, onSave, now }: DevicesPaneProps) {
                 Reading and searching don't need this.
               </small>
             </label>
+            <label className="ca-field ca-settings-check">
+              <CheckBox checked={d.in_bar} onChange={(on) => set({ in_bar: on })} />
+              <span>Show their sessions in the bar and the notch</span>
+              <small>What waits on you on your other devices shows in the bar, the notch and Waiting on you too, and plays its sound here, while they're connected.</small>
+            </label>
             <div className="ca-field">
               <span>For automations my machines share</span>
               <Seg className="ca-settings-theme" label="For automations my machines share" options={RANKS} value={d.automations} onPick={(id) => id !== d.automations && set({ automations: id })} />

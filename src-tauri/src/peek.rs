@@ -231,9 +231,10 @@ pub struct Target {
     pub zoom: u32,
 }
 
-/// The session and its lane, as the board has them.
-pub fn target(board: &Board, key: &str) -> Option<Target> {
-    let (lane, session) = board.session(key).map(|(l, s)| (l.clone(), s.clone()))?;
+/// The session and its lane, as the board has them, or as `there` has one of another device's
+/// that the bar lists (lib.rs `BarFeeds`).
+pub fn target(board: &Board, there: Option<(Lane, Session)>, key: &str) -> Option<Target> {
+    let (lane, session) = there.or_else(|| board.session(key).map(|(l, s)| (l.clone(), s.clone())))?;
     Some(Target { lane, session, terminal: board.apps.terminal.clone(), apps: board.apps.clone(), theme: board.theme, zoom: board.zoom })
 }
 

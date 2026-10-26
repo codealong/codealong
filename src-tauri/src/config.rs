@@ -221,6 +221,10 @@ pub struct DevicesCfg {
     /// allow, and start sessions. Reading and searching don't need it.
     #[serde(default)]
     pub remote_control: bool,
+    /// Your other devices' sessions show in the bar, the notch and Waiting on you too, and sound
+    /// as this device's do (barfeed.rs), while those devices are connected.
+    #[serde(default = "yes")]
+    pub in_bar: bool,
     /// The TCP port Codealong listens on, on this device's tailnet address only.
     #[serde(default = "default_devices_port")]
     pub port: u16,
@@ -233,7 +237,7 @@ pub struct DevicesCfg {
 
 impl Default for DevicesCfg {
     fn default() -> Self {
-        DevicesCfg { enabled: false, name: String::new(), tailscale: true, iroh: true, remote_control: false, port: default_devices_port(), automations: Rank::First }
+        DevicesCfg { enabled: false, name: String::new(), tailscale: true, iroh: true, remote_control: false, in_bar: true, port: default_devices_port(), automations: Rank::First }
     }
 }
 
@@ -1681,7 +1685,7 @@ const APPS_COMMENT: &str = "# Where Codealong opens things. terminal: \"ghostty\
 const APPEARANCE_COMMENT: &str = "# Light or dark. \"system\" follows macOS. The buttons at the foot of the sidebar set this too.\n# zoom: how big the windows draw, in percent, 50 to 200. View › Zoom in and Zoom out (⌘= and ⌘-) set it.\n";
 const JEV_COMMENT: &str = "# What Codealong asks TypeSafe's Jev, feature by feature (Settings › Jev says what each one sends).\n# The API key is kept in the login keychain; set it in Settings.\n";
 const SEARCH_COMMENT: &str = "# The quick panel, the main window's filter and `codealong sessions find` search what was said in\n# sessions active in the last `days` days, not just their titles. 0 turns it off; 14, the board's\n# reach, is the most.\n";
-const DEVICES_COMMENT: &str = "# Your other devices: Codealong on each shows the others' sessions and can read and search them.\n# tailscale finds them on your tailnet; iroh reaches devices you link with a code, anywhere.\n# remote_control lets your linked devices send prompts, answer approvals and start sessions here.\n# automations: \"first\" or \"backup\", where this machine stands for what your machines share, so one of them\n# runs it (reviewing a PR that asks for yours): a backup does only when no first choice can.\n";
+const DEVICES_COMMENT: &str = "# Your other devices: Codealong on each shows the others' sessions and can read and search them.\n# tailscale finds them on your tailnet; iroh reaches devices you link with a code, anywhere.\n# remote_control lets your linked devices send prompts, answer approvals and start sessions here.\n# in_bar shows their sessions in the bar, the notch and Waiting on you too, while they're connected.\n# automations: \"first\" or \"backup\", where this machine stands for what your machines share, so one of them\n# runs it (reviewing a PR that asks for yours): a backup does only when no first choice can.\n";
 const UPDATES_COMMENT: &str = "# check: look for a newer Codealong now and then, and put it in place for the next launch.\n# The app menu's Check for updates… works either way.\n";
 const LIMITS_COMMENT: &str = "# When a session stops at its account's usage limit. when_hit: \"suggest\" offers to move it to an account\n# of its harness that has room; \"move\" moves it there by itself, and it carries on where it stopped.\n# continue_when_lifted: when the limit lifts and it's still stopped there, tell it to carry on.\n";
 const ROUTING_COMMENT: &str = "# Model groups ([[routing.groups]]) that starts and reviews can pick, which group Auto uses (`auto`),\n# and what Jev is told when suggesting an account and model in the quick panel (`prompt`).\n# strategy: \"usage\" (most room under usage_cap), \"alternate-harness\" (rotate harnesses), \"round-robin\",\n# or \"fallback\" (the members in order, each until it's within `buffer` of its usage_cap).\n# buffer: the percent below each account's usage_cap left for the sessions already running on it (default 5).\n";
@@ -2086,6 +2090,9 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
         set_value(&mut doc["devices"]["tailscale"], Value::from(d.tailscale));
         set_value(&mut doc["devices"]["iroh"], Value::from(d.iroh));
         set_value(&mut doc["devices"]["remote_control"], Value::from(d.remote_control));
+        if !d.in_bar || doc["devices"].get("in_bar").is_some() {
+            set_value(&mut doc["devices"]["in_bar"], Value::from(d.in_bar));
+        }
         if d.port != DEFAULT_DEVICES_PORT || doc["devices"].get("port").is_some() {
             set_value(&mut doc["devices"]["port"], Value::from(d.port as i64));
         }
@@ -2615,6 +2622,9 @@ pub fn render(cfg: &Config) -> String {
         s.push_str(&format!("tailscale = {}\n", d.tailscale));
         s.push_str(&format!("iroh = {}\n", d.iroh));
         s.push_str(&format!("remote_control = {}\n", d.remote_control));
+        if !d.in_bar {
+            s.push_str("in_bar = false\n");
+        }
         if d.port != DEFAULT_DEVICES_PORT {
             s.push_str(&format!("port = {}\n", d.port));
         }
@@ -2810,7 +2820,7 @@ mod tests {
             jev: JevCfg { model: "jev-1.13.0".into(), quick_panel: true, sessions: false, todos: true, pull_requests: false, emblems: true },
             router: None,
             search: SearchCfg { days: 7 },
-            devices: DevicesCfg { enabled: true, name: "Studio".into(), tailscale: true, iroh: false, remote_control: true, port: 47000, automations: Rank::Backup },
+            devices: DevicesCfg { enabled: true, name: "Studio".into(), tailscale: true, iroh: false, remote_control: true, in_bar: false, port: 47000, automations: Rank::Backup },
             updates: UpdatesCfg { check: false },
             limits: LimitsCfg { when_hit: WhenLimited::Move, continue_when_lifted: false },
             routing: RoutingCfg {
@@ -3129,6 +3139,18 @@ mod tests {
         assert!(out.contains("remote_control = true\nautomations = \"backup\"\n"), "{out}");
         assert_eq!(parse(&out).unwrap().devices.automations, Rank::Backup);
         assert!(parse("[devices]\nautomations = \"sometimes\"\n").is_err());
+
+        // Other devices' sessions in the bar are on unless turned off, which is written and reads
+        // back; turned on again, the line stays, changed in place.
+        assert!(!out.contains("in_bar ="), "{out}");
+        assert!(parse("[devices]\nenabled = true\n").unwrap().devices.in_bar);
+        let apart = Config { devices: DevicesCfg { in_bar: false, ..backup.devices.clone() }, ..full() };
+        let out = with_config(&out, &apart).unwrap();
+        assert!(out.contains("in_bar = false\n"), "{out}");
+        assert!(!parse(&out).unwrap().devices.in_bar);
+        let together = with_config(&out, &backup).unwrap();
+        assert!(together.contains("in_bar = true\n"), "{together}");
+        assert!(render(&apart).contains("remote_control = true\nin_bar = false\n"));
     }
 
     fn full() -> Config {

@@ -103,6 +103,11 @@ html.is-bar body {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* Another device's session: its device's color, as its badge has it (DeviceBadge.css). */
+.ca-hud-pill > .ca-labeldot {
+  width: 6px;
+  height: 6px;
+}
 .ca-hud-pill:hover {
   box-shadow: inset 0 0 0 1px var(--line-strong);
 }

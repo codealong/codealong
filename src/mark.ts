@@ -8,11 +8,13 @@
 //   knock   a session, or a PR's review, starts to need you: the node beats twice
 //
 // What happened is read from two feeds in a row, by the pills that color the mark (ahead.ts,
-// `logoOfBar`). MarkLive.tsx plays the moment; MarkLive.css has the motion, and what pointing at
+// `logoOfBar`), your other devices' among them; what one of those brings as it connects again
+// isn't news, as their sounds aren't (sounds.rs). MarkLive.tsx plays the moment; MarkLive.css has the motion, and what pointing at
 // the mark does (the C turns once about the node), which is styles alone.
 
 import { useEffect, useRef, useState } from 'react';
 import type { Ahead } from './ahead';
+import { shortOf } from './devices';
 import type { BarFeed } from './types';
 
 /** The least urgent first: one that comes while another plays takes over only if it's more
@@ -38,6 +40,8 @@ export interface Marked {
   unread: Set<string>;
   /** Every session the bar knows of, in a group or not. */
   known: Set<string>;
+  /** The other devices whose sessions the feed lists (BarFeed.devices). */
+  devices: Set<string>;
 }
 
 export function marked(feed: BarFeed): Marked {
@@ -53,16 +57,21 @@ export function marked(feed: BarFeed): Marked {
   for (const r of feed.recent) known.add(r.key);
   for (const s of feed.snoozed ?? []) known.add(s.key);
   for (const r of feed.reviews) needs.add(`review:${r.key}`);
-  return { needs, unread, known };
+  return { needs, unread, known, devices: new Set(feed.devices ?? []) };
 }
 
-/** What happened between two feeds, the most urgent of it; null when nothing did. */
+/** What happened between two feeds, the most urgent of it; null when nothing did. A session of
+ *  a device that wasn't on the feed before came with the device, not since. */
 export function happened(was: Marked, feed: BarFeed): MomentKind | null {
   const now = marked(feed);
-  const came = (a: Set<string>, b: Set<string>) => [...a].some((k) => !b.has(k));
+  const back = (key: string) => {
+    const short = shortOf(key);
+    return short !== null && !was.devices.has(short);
+  };
+  const came = (a: Set<string>, b: Set<string>) => [...a].some((k) => !b.has(k) && !back(k));
   if (came(now.needs, was.needs)) return 'knock';
   if (came(now.unread, was.unread)) return 'ripple';
-  if (feed.items.some((i) => !i.hidden && i.group === 'working' && !was.known.has(i.key))) return 'run';
+  if (feed.items.some((i) => !i.hidden && i.group === 'working' && !was.known.has(i.key) && !back(i.key))) return 'run';
   return null;
 }
 

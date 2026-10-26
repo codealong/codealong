@@ -442,6 +442,7 @@ export function Peek({ kept = false, side = false }: { kept?: boolean; side?: bo
           now={now}
           zoom={zoom}
           board={live.board}
+          device={live.device}
           can={can}
           // A session it came from, or that came of it: its menu shows it in Codealong. What's
           // done to it leaves the peek up, which is on another session.
@@ -454,7 +455,8 @@ export function Peek({ kept = false, side = false }: { kept?: boolean; side?: bo
           onLoaded={loaded}
           renaming={open.rename || renameAsked === session.key}
           onRename={renamed}
-          onKeep={kept ? undefined : keep}
+          // A kept window reads this Mac's board, which has none of another device's sessions.
+          onKeep={kept || lane.device ? undefined : keep}
           onClose={kept ? () => void keptClose() : away}
           closeTitle={kept ? undefined : 'Close (esc)'}
           onSending={away}

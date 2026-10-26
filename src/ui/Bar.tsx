@@ -12,7 +12,9 @@
 // no peek: a click on a session's pill opens the notch further, into that session under the pills
 // (NotchSession.tsx), where its conversation is read and answered and the ones that wait on you
 // are worked through in turn. There a session picked from a folded pill's menu or from the recent
-// ones shows the same way, and a count beside the camera shows its group's first.
+// ones shows the same way, and a count beside the camera shows its group's first. Your other
+// devices' sessions are among the pills (barfeed.rs), each with its device's color; one of theirs
+// isn't dragged onto the desktop, whose cards read this Mac's board.
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -74,9 +76,11 @@ function tone(status: Status): string {
 }
 
 /** What a pill says to a screen reader; the peek shows the rest. `place` says its worktree, after
- *  its project where the bar lists every project (ProjectSaid.tsx). */
+ *  its project where the bar lists every project (ProjectSaid.tsx), on the device it's on when
+ *  that's another. */
 function sessionLabel(i: BarItem, now: number, place: PlaceWords): string {
-  const where = `${STATUS_WORD[i.status]} · ${place(i.project, i.callsign)} · ${i.account}`;
+  const device = i.device ? `On ${i.device.name} · ` : '';
+  const where = `${STATUS_WORD[i.status]} · ${device}${place(i.project, i.callsign)} · ${i.account}`;
   return [i.title, where, i.detail ? plain(i.detail, now) : ''].filter(Boolean).join('. ');
 }
 
@@ -132,6 +136,7 @@ function SessionPill({ item, now, peeked, told, onOpen, onMenu, onHover, onLeave
       <StatusGlyph status={item.status} waiting={item.waiting} title="" />
       <SessionEmblem emblem={item.emblem} size={14} />
       <span>{item.title}</span>
+      {item.device && <i className={`ca-labeldot is-${item.device.color}`} aria-hidden="true" />}
     </button>
   );
 }
@@ -647,7 +652,7 @@ export function Bar() {
    *  the pointer onto the desktop, pinned where you let go, or put back if that's on the bar. */
   const dragPill = (i: BarItem, e: PointerEvent<HTMLElement>) => {
     const p = press.current;
-    if (!p || p.key !== i.key || p.dragged || !(e.buttons & 1) || Math.abs(e.screenX - p.x) + Math.abs(e.screenY - p.y) < DRAG_AFTER) return;
+    if (i.device || !p || p.key !== i.key || p.dragged || !(e.buttons & 1) || Math.abs(e.screenX - p.x) + Math.abs(e.screenY - p.y) < DRAG_AFTER) return;
     p.dragged = true;
     stopHover();
     if (clickTimer.current != null) window.clearTimeout(clickTimer.current);

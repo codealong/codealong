@@ -40,6 +40,16 @@ describe('happened', () => {
     expect(after(feed([]), feed([item('h', 'unread', true)]))).toBeNull();
     expect(after(feed([]), feed([item('h', 'working', true)]))).toBeNull();
   });
+
+  it('takes another device’s sessions as news, but not what the device brings as it connects again', () => {
+    const there = { devices: ['abc'] };
+    expect(after(feed([item('@abc:a', 'working')], there), feed([item('@abc:a', 'needs')], there))).toBe('knock');
+    // Back after being away: what it shows came with it.
+    expect(after(feed([]), feed([item('@abc:a', 'needs'), item('@abc:b', 'working')], there))).toBeNull();
+    expect(after(feed([], { devices: ['def'] }), feed([item('@abc:a', 'unread')], { devices: ['abc', 'def'] }))).toBeNull();
+    // This device's still counts meanwhile.
+    expect(after(feed([]), feed([item('@abc:a', 'needs'), item('u', 'unread')], there))).toBe('ripple');
+  });
 });
 
 describe('plays', () => {

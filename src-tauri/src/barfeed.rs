@@ -4,11 +4,18 @@
 //! The bar gets this instead of the board, and only when it changes: the board is about half a
 //! megabyte and is published many times a minute, while this is a few kilobytes and changes far
 //! less often.
+//!
+//! Your other devices' sessions are among them, each with its device, while `[devices] in_bar`
+//! is on (it is unless you turn it off): what waits on you there waits on you wherever you sit.
+//! Only the devices connected now: one that's away shows in the main window as it was when last
+//! seen, but nothing of it can be answered from here, and what it shows isn't news. Their
+//! worktrees come from peers.rs apart from the board, so `Feeder` keeps the latest of them and the
+//! feed is cut again from whichever came last.
 
 use serde::Serialize;
 
 use crate::config::Theme;
-use crate::model::{Board, LogoStatus, PrItem, Status};
+use crate::model::{Board, DeviceTag, Lane, LogoStatus, PrItem, Session, Status};
 use crate::todos;
 
 /// The bar's groups, most urgent first.
@@ -48,7 +55,7 @@ pub struct BarFeed {
     pub theme: Theme,
     /// The zoom, in percent: the session or PR the notch shows draws at it (zoom.rs).
     pub zoom: u32,
-    /// What the mark's colors say, as on the board.
+    /// What the mark's colors say, as on the board, with your other devices' sessions it lists.
     pub logo_status: LogoStatus,
     pub perf_log: bool,
     /// The terminal app's name, for menu items such as "Show in Ghostty".
@@ -69,6 +76,10 @@ pub struct BarFeed {
     pub reviews: Vec<BarReview>,
     /// Todos ready to start (not started, and waiting on nothing), in your order.
     pub todos: Vec<BarTodo>,
+    /// The other devices whose sessions it lists, by short id: those connected now. One that
+    /// wasn't on the feed before has just come back, and what it brings isn't news to sound or
+    /// knock for (sounds.rs, src/mark.ts).
+    pub devices: Vec<String>,
 }
 
 /// One session on the bar, with what its pill, tooltip and menu need.
@@ -111,6 +122,9 @@ pub struct BarItem {
     /// Its emblem (`Session::emblem`), drawn on its pill beside its title.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub emblem: Option<crate::model::Emblem>,
+    /// The device it's on, when that's another of yours: its key starts `@<short>:`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub device: Option<DeviceTag>,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -159,14 +173,16 @@ pub struct BarTodo {
     pub due: Option<String>,
 }
 
-/// The bar's feed. Status times don't move while a status lasts, so ordering by them keeps pills
-/// in place while agents work. Visitors, archived sessions and helpers that don't need you are
-/// left out, as on the board.
-pub fn feed(board: &Board) -> BarFeed {
+/// The bar's feed, from the board and the worktrees of your other devices connected now
+/// (`Feeder`). Status times don't move while a status lasts, so ordering by them keeps pills in
+/// place while agents work. Visitors, archived sessions and helpers that don't need you are left
+/// out, as on the board.
+pub fn feed(board: &Board, there: &[Lane]) -> BarFeed {
+    let there = if board.devices.enabled && board.devices.in_bar { there } else { &[] };
     let mut items: Vec<(i64, BarItem)> = Vec::new();
     let mut recent: Vec<(i64, BarItem)> = Vec::new();
     let mut snoozed: Vec<(i64, BarItem)> = Vec::new();
-    for lane in &board.lanes {
+    for lane in board.lanes.iter().chain(there) {
         for s in &lane.sessions {
             // A helper or a headless run is on the bar only while it needs you
             // (`Session::unattended`): its agent or script waits on it, not you.
@@ -207,6 +223,7 @@ pub fn feed(board: &Board) -> BarFeed {
                 quiet: s.quiet,
                 stoppable: s.stoppable,
                 emblem: s.emblem.clone(),
+                device: lane.device.clone(),
             };
             match group {
                 Group::Recent => recent.push((at, item)),
@@ -245,13 +262,16 @@ pub fn feed(board: &Board) -> BarFeed {
         .collect();
 
     let ready = board.todos.iter().filter(|t| todos::is_ready(t, &board.todos)).map(|t| bar_todo(board, t)).collect();
+    let mut devices: Vec<String> = there.iter().filter_map(|l| l.device.as_ref().map(|d| d.short.clone())).collect();
+    devices.sort();
+    devices.dedup();
 
     BarFeed {
         loading: board.loading,
         generated_at: board.generated_at,
         theme: board.theme,
         zoom: board.zoom,
-        logo_status: board.logo_status,
+        logo_status: board.logo_status.min(crate::board::logo_status(there, &[])),
         perf_log: board.perf_log,
         terminal: board.apps.terminal.clone(),
         projects: board.projects.iter().map(|p| p.name.clone()).collect(),
@@ -260,6 +280,35 @@ pub fn feed(board: &Board) -> BarFeed {
         snoozed: snoozed.into_iter().map(|(_, item)| item).collect(),
         reviews,
         todos: ready,
+        devices,
+    }
+}
+
+/// Your other devices' worktrees beside the board, for the bar's feed: they come from peers.rs
+/// apart from the board, so the feed is cut again from whichever came last, with the other's
+/// latest (lib.rs `BarFeeds`).
+#[derive(Default)]
+pub struct Feeder {
+    /// The worktrees of the devices connected now, as the windows get them (`@<short>:` keys).
+    there: Vec<Lane>,
+}
+
+impl Feeder {
+    /// The feed for a board the engine published.
+    pub fn on_board(&self, board: &Board) -> BarFeed {
+        feed(board, &self.there)
+    }
+
+    /// Your other devices' worktrees as peers.rs last handed them to the windows, for the feeds
+    /// after: the next is cut from the latest board. A device that's away is left out.
+    pub fn on_there(&mut self, lanes: &[Lane]) {
+        self.there = lanes.iter().filter(|l| l.device.as_ref().is_some_and(|d| d.online)).cloned().collect();
+    }
+
+    /// A session on another device the bar may list, with its worktree there, for a window that
+    /// shows it (`session_at`, the peek).
+    pub fn session(&self, key: &str) -> Option<(&Lane, &Session)> {
+        crate::board::home(&self.there, key)
     }
 }
 
@@ -307,7 +356,7 @@ mod tests {
             ],
             vec![],
         );
-        let got: Vec<(String, Group)> = feed(&b).items.into_iter().map(|i| (i.key, i.group)).collect();
+        let got: Vec<(String, Group)> = feed(&b, &[]).items.into_iter().map(|i| (i.key, i.group)).collect();
         let want = [("n1", Group::Needs), ("e1", Group::Needs), ("u2", Group::Unread), ("u1", Group::Unread), ("u3", Group::Unread), ("w1", Group::Working), ("w2", Group::Working)];
         assert_eq!(got, want.map(|(k, g)| (k.to_string(), g)));
     }
@@ -321,7 +370,7 @@ mod tests {
         let mut elsewhere = lane("/elsewhere", vec![session("h", Status::Working, NOW - 1)], true);
         elsewhere.project = "Elsewhere".into();
         let b = board(vec![lane("/a", vec![visitor, archived], false), elsewhere, lane("/b", vec![session("ok", Status::Working, NOW)], false)], vec![]);
-        let got: Vec<(String, String, bool)> = feed(&b).items.into_iter().map(|i| (i.key, i.project, i.hidden)).collect();
+        let got: Vec<(String, String, bool)> = feed(&b, &[]).items.into_iter().map(|i| (i.key, i.project, i.hidden)).collect();
         assert_eq!(got, vec![("h".to_string(), "Elsewhere".to_string(), true), ("ok".to_string(), "P".to_string(), false)]);
     }
 
@@ -329,7 +378,7 @@ mod tests {
     fn lists_a_helper_only_while_it_needs_you() {
         let helper = |key: &str, status: Status| Session { helper: Some(crate::model::Helper { parent: Some("parent".into()), pr: None, report: false, yours: false }), ..session(key, status, NOW - 10) };
         let b = board(vec![lane("/a", vec![session("parent", Status::Working, NOW - 20), helper("busy", Status::Working), helper("done", Status::Idle), helper("asks", Status::Needs), helper("failed", Status::Error)], false)], vec![]);
-        let f = feed(&b);
+        let f = feed(&b, &[]);
         let got: Vec<(String, Group)> = f.items.into_iter().map(|i| (i.key, i.group)).collect();
         assert_eq!(got, vec![("asks".to_string(), Group::Needs), ("failed".to_string(), Group::Needs), ("parent".to_string(), Group::Working)]);
         // Nor among the last day's sessions.
@@ -360,7 +409,7 @@ mod tests {
             vec![],
         );
         b.generated_at = NOW;
-        let f = feed(&b);
+        let f = feed(&b, &[]);
         assert_eq!(f.items.iter().map(|i| i.key.as_str()).collect::<Vec<_>>(), vec!["w"]);
         let got: Vec<(&str, Group)> = f.recent.iter().map(|i| (i.key.as_str(), i.group)).collect();
         assert_eq!(got, vec![("s1", Group::Recent), ("guess", Group::Recent), ("i1", Group::Recent)]);
@@ -388,12 +437,46 @@ mod tests {
             vec![],
         );
         b.generated_at = NOW;
-        let f = feed(&b);
+        let f = feed(&b, &[]);
         let got: Vec<(&str, Group, Option<i64>)> = f.items.iter().map(|i| (i.key.as_str(), i.group, i.snoozed_until)).collect();
         assert_eq!(got, vec![("n", Group::Needs, None), ("busy", Group::Working, Some(NOW + 1_000))]);
         let got: Vec<(&str, Group)> = f.snoozed.iter().map(|i| (i.key.as_str(), i.group)).collect();
         assert_eq!(got, vec![("soon", Group::Snoozed), ("idle", Group::Snoozed), ("later", Group::Snoozed)]);
         assert!(f.recent.is_empty());
+    }
+
+    /// A worktree of another device's, as peers.rs hands it to the windows.
+    fn there(short: &str, online: bool, sessions: Vec<Session>) -> Lane {
+        let tag = DeviceTag { name: format!("Mac {short}"), short: short.into(), color: "teal".into(), online, last_seen: None };
+        Lane { device: Some(tag), ..lane(&format!("@{short}:/a"), sessions, false) }
+    }
+
+    #[test]
+    fn lists_the_sessions_of_your_other_devices_connected_now_unless_turned_off() {
+        let mut b = board(vec![lane("/a", vec![session("w", Status::Working, NOW - 10)], false)], vec![]);
+        b.devices.enabled = true;
+        b.logo_status = LogoStatus::Working;
+        let mut f = Feeder::default();
+        let lanes = [there("abc", true, vec![session("@abc:n", Status::Needs, NOW - 20), session("@abc:i", Status::Idle, NOW)]), there("def", false, vec![session("@def:u", Status::Unread, NOW - 30)])];
+        f.on_there(&lanes);
+        let got = f.on_board(&b);
+        let items: Vec<(&str, Option<&str>)> = got.items.iter().map(|i| (i.key.as_str(), i.device.as_ref().map(|d| d.name.as_str()))).collect();
+        assert_eq!(items, vec![("@abc:n", Some("Mac abc")), ("w", None)]);
+        assert_eq!(got.devices, vec!["abc"]);
+        // The mark says what waits on you there too.
+        assert_eq!(got.logo_status, LogoStatus::Needs);
+        // A window can read one.
+        assert_eq!(f.session("@abc:n").map(|(l, _)| l.id.as_str()), Some("@abc:/a"));
+        assert!(f.session("@def:u").is_none(), "an away device's aren't kept");
+
+        // Turned off, or with devices off, only this device's.
+        b.devices.in_bar = false;
+        let off = f.on_board(&b);
+        assert_eq!(off.items.iter().map(|i| i.key.as_str()).collect::<Vec<_>>(), vec!["w"]);
+        assert!(off.devices.is_empty());
+        assert_eq!(off.logo_status, LogoStatus::Working);
+        b.devices = crate::config::DevicesCfg { enabled: false, ..Default::default() };
+        assert_eq!(f.on_board(&b).items.len(), 1);
     }
 
     #[test]
@@ -407,7 +490,7 @@ mod tests {
             .expect("projects"),
             ..Board::default()
         };
-        assert_eq!(feed(&b).projects, vec!["Spruce", "Spur", "Elsewhere"]);
+        assert_eq!(feed(&b, &[]).projects, vec!["Spruce", "Spur", "Elsewhere"]);
     }
 
     #[test]
@@ -430,7 +513,7 @@ mod tests {
             todo("finished", serde_json::json!({ "status": "done" })),
             todo("unblocked", serde_json::json!({ "dependsOn": ["finished"], "sessions": ["s3", "s2"] })),
         ];
-        let got: Vec<(String, String, Option<String>)> = feed(&b).todos.into_iter().map(|t| (t.id, t.project, t.callsign)).collect();
+        let got: Vec<(String, String, Option<String>)> = feed(&b, &[]).todos.into_iter().map(|t| (t.id, t.project, t.callsign)).collect();
         assert_eq!(
             got,
             vec![
@@ -448,7 +531,7 @@ mod tests {
         let mut a = session("a", Status::Working, NOW - 100);
         a.last_activity = NOW;
         let c = session("c", Status::Working, NOW - 50);
-        let got: Vec<String> = feed(&board(vec![lane("/a", vec![a, c], false)], vec![])).items.into_iter().map(|i| i.key).collect();
+        let got: Vec<String> = feed(&board(vec![lane("/a", vec![a, c], false)], vec![]), &[]).items.into_iter().map(|i| i.key).collect();
         assert_eq!(got, vec!["a".to_string(), "c".to_string()]);
     }
 
@@ -460,7 +543,7 @@ mod tests {
             { "id": "l|editor", "icon": "code", "label": "Open in Cursor", "detail": null, "kbd": null, "disabled": false, "group": "lane" }
         ]))
         .expect("targets");
-        let item = &feed(&board(vec![l], vec![])).items[0];
+        let item = &feed(&board(vec![l], vec![]), &[]).items[0];
         assert_eq!((item.lane_id.as_str(), item.callsign.as_str(), item.open_target.as_str()), ("/a", "a", "s|s|focus"));
         assert_eq!(item.target.as_ref().map(|t| t.label.as_str()), Some("Respond in Ghostty"));
     }
@@ -480,7 +563,7 @@ mod tests {
         // One you snoozed is off the bar until its time.
         let snoozed = PrItem { snoozed_until: Some(NOW + 1_000), ..pr(5, true, PrState::Open, 5) };
         let b = board(vec![], vec![pr(1, true, PrState::Open, 1), pr(2, true, PrState::Merged, 3), pr(3, false, PrState::Open, 4), pr(4, true, PrState::Draft, 2), snoozed]);
-        let got: Vec<(u64, String, Option<String>)> = feed(&b).reviews.into_iter().map(|r| (r.number, r.project, r.requested_by)).collect();
+        let got: Vec<(u64, String, Option<String>)> = feed(&b, &[]).reviews.into_iter().map(|r| (r.number, r.project, r.requested_by)).collect();
         assert_eq!(got, vec![(1, "P".to_string(), Some("ana".to_string())), (4, "P".to_string(), None)]);
     }
 
@@ -498,7 +581,7 @@ mod tests {
         };
         // The one asked for first waits first, whichever was updated last.
         let b = board(vec![], vec![pr(2, None), pr(1, Some(20))]);
-        let got: Vec<(u64, i64, i64, String, String)> = feed(&b).reviews.into_iter().map(|r| (r.number, r.since, r.updated_at, r.repo_slug, r.url)).collect();
+        let got: Vec<(u64, i64, i64, String, String)> = feed(&b, &[]).reviews.into_iter().map(|r| (r.number, r.since, r.updated_at, r.repo_slug, r.url)).collect();
         assert_eq!(got, vec![(1, 20, 50, "o/r".into(), "https://github.com/o/r/pull/1".into()), (2, 50, 50, "o/r".into(), "https://github.com/o/r/pull/2".into())]);
     }
 }

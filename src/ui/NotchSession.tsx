@@ -466,6 +466,7 @@ export function NotchSession({ sessionKey, rename, now, queue, notice, onBack, k
         now={now}
         zoom={zoom}
         board={live.board}
+        device={live.device}
         can={can}
         // A session it came from, or that came of it: its menu shows it in Codealong.
         canFor={(l, s) => ({ report, open: host.open, reveal: () => host.showSession(l, s) })}
@@ -482,7 +483,8 @@ export function NotchSession({ sessionKey, rename, now, queue, notice, onBack, k
         hotkeys={{ onBack, onClose }}
         renaming={(rename && renamed !== session.key) || renameAsked === session.key}
         onRename={rename_}
-        onKeep={keep}
+        // A kept window reads this Mac's board, which has none of another device's sessions.
+        onKeep={lane.device ? undefined : keep}
         keepTitle="Keep on the desktop: it gets a window of its own, here, that stays up until you close it."
         onDone={(done) => onNext(done, session.key)}
         onSent={(sent) => {

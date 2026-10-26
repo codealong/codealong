@@ -401,7 +401,8 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
     // It joins what waits on you rather than leaving it, so a window working through that stays.
     unread: unreadable(s) ? { label: 'Mark as unread', run: () => void unreadAhead([s.key]).catch((e: unknown) => report.error(errorText(e))) } : undefined,
     pin: s.archived ? undefined : can.pin,
-    desktop: !s.archived && can.desktop ? desktopItem('session', s.key, can.desktop, report) : undefined,
+    // A desktop card reads this Mac's board, so not for a session on another device.
+    desktop: here && !s.archived && can.desktop ? desktopItem('session', s.key, can.desktop, report) : undefined,
     // On the Mac it runs on, which keeps it, so it's snoozed on every device.
     snooze: s.archived ? undefined : snoozeMenu([s.key], Date.now(), { until: s.snoozedUntil, onDone: settle('snoozed'), chords: !!can.keys }),
     // Kept on the Mac it runs on too. Quieted, a turn that ended leaves what waits on you, and a

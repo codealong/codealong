@@ -986,6 +986,8 @@ export interface DevicesCfg {
   iroh: boolean;
   /** Let linked devices send prompts, answer approvals and start sessions here. */
   remote_control: boolean;
+  /** Show their sessions in the bar, the notch and Waiting on you too, while they're connected. */
+  in_bar: boolean;
   port: number;
   /** Where this machine stands for the automations your machines share (shared.rs). */
   automations: Rank;
@@ -995,7 +997,7 @@ export interface DevicesCfg {
  *  backup runs one only when no first choice that can is around. */
 export type Rank = 'first' | 'backup';
 
-export const DEVICES_OFF: DevicesCfg = { enabled: false, name: '', tailscale: true, iroh: true, remote_control: false, port: 47471, automations: 'first' };
+export const DEVICES_OFF: DevicesCfg = { enabled: false, name: '', tailscale: true, iroh: true, remote_control: false, in_bar: true, port: 47471, automations: 'first' };
 
 export type DeviceVia = 'tailscale' | 'iroh' | 'test';
 
@@ -2177,7 +2179,7 @@ export interface BarFeed {
   theme: Theme;
   /** The zoom, in percent: the session or PR the notch shows draws at it (zoom.ts). */
   zoom?: number;
-  /** What the mark's colors say, as on the board. */
+  /** What the mark's colors say, as on the board, with your other devices' sessions it lists. */
   logoStatus: LogoStatus;
   perfLog: boolean;
   /** The terminal app's name, for menu items such as "Show in Ghostty". */
@@ -2195,6 +2197,10 @@ export interface BarFeed {
   reviews: BarReview[];
   /** Todos ready to start (not started, and waiting on nothing), in your order. */
   todos: BarTodo[];
+  /** The other devices whose sessions it lists (`[devices] in_bar`), by short id: those connected
+   *  now. What one that wasn't on the feed before brings isn't news (mark.ts). Missing from a feed
+   *  an older app sent. */
+  devices?: string[];
 }
 
 export interface BarItem {
@@ -2231,6 +2237,8 @@ export interface BarItem {
   quiet?: boolean;
   /** Its turn is running and Codealong can stop it. Missing from a feed an older app sent. */
   stoppable?: boolean;
+  /** The device it's on, when that's another of yours: its key starts `@<short>:`. */
+  device?: DeviceTag;
 }
 
 /** A session on the bar's recent pill: started in the last day, and in none of its groups. */

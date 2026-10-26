@@ -353,8 +353,11 @@ window.__TAURI_INTERNALS__ = {
         optionalJson('./training-fixture.json'),
         optionalJson('./mcp-fixture.json'),
         optionalJson('./schedules-fixture.json'),
+        optionalJson('./devices-fixture.json'),
       ]).then(function (all) {
         var board = withExperiments(all[1] ? withFixture(all[0], all[1]) : all[0]);
+        // `[devices]` as devices-fixture.json has it (PREVIEW_DEVICES), as get_config does.
+        if (all[9] && all[9].cfg) board.devices = all[9].cfg;
         // Background failures from notices-fixture.json (PREVIEW_NOTICES), `untilIn` minutes
         // from now where one says when it ends.
         if (all[5]) {
@@ -404,11 +407,14 @@ window.__TAURI_INTERNALS__ = {
       var api = Math.round(hashOf(key) * 4000) / 100;
       return Promise.resolve({ total: spentOf(key, api), models: [spentOf('claude-opus-5-5', api * 0.9), spentOf('claude-haiku-5-5', api * 0.1)] });
     }
-    // One session with its worktree, for the bar's pill menus (lib.rs `session_at`).
+    // One session with its worktree, for the bar's pill menus (lib.rs `session_at`): another
+    // device's from what your devices say (PREVIEW_DEVICES).
     if (cmd === 'session_at') {
-      return window.__TAURI_INTERNALS__.invoke('get_board').then(function (board) {
+      var at = args.key.charAt(0) === '@' ? window.__TAURI_INTERNALS__.invoke('devices') : Promise.resolve(null);
+      return Promise.all([window.__TAURI_INTERNALS__.invoke('get_board'), at]).then(function (all) {
+        var board = all[0];
         var found = null;
-        board.lanes.forEach(function (l) {
+        board.lanes.concat(all[1] ? all[1].lanes : []).forEach(function (l) {
           l.sessions.forEach(function (s) { if (!found && s.key === args.key && !s.visitor) found = { lane: l, session: s, apps: board.apps }; });
         });
         return found;
@@ -482,13 +488,31 @@ window.__TAURI_INTERNALS__ = {
         return feed;
       });
     }
-    if (cmd === 'bar_feed' && window.__PREVIEW_EMBLEMS__) {
-      return fetch('./bar-feed.json').then(function (r) { return r.json(); }).then(function (feed) {
-        (feed.items || []).forEach(function (i) { i.emblem = emblemOf(i.key); });
-        return feed;
+    // The bar's feed, with emblems (PREVIEW_EMBLEMS), and with the sessions of the worktrees
+    // shown as if they were on your other devices (PREVIEW_DEVICES) moved over to those devices,
+    // as the engine lists another device's (barfeed.rs): the connected ones', with their tags.
+    if (cmd === 'bar_feed') {
+      return Promise.all([fetch('./bar-feed.json').then(function (r) { return r.json(); }), optionalJson('./devices-fixture.json')]).then(function (all) {
+        var feed = all[0];
+        if (window.__PREVIEW_EMBLEMS__) (feed.items || []).forEach(function (i) { i.emblem = emblemOf(i.key); });
+        if (!all[1] || all[1].cfg.in_bar === false) return feed;
+        return window.__TAURI_INTERNALS__.invoke('devices').then(function (view) {
+          var there = {};
+          view.lanes.forEach(function (l) { there[l.id.slice(l.id.indexOf(':') + 1)] = l; });
+          var shorts = {};
+          var moved = function (i) {
+            var l = there[i.laneId];
+            if (!l) return i;
+            if (!l.device.online) return null;
+            shorts[l.device.short] = true;
+            return Object.assign({}, i, { key: '@' + l.device.short + ':' + i.key, laneId: l.id, device: l.device, openTarget: '', target: null });
+          };
+          var keep = function (list) { return (list || []).map(moved).filter(Boolean); };
+          return Object.assign(feed, { items: keep(feed.items), recent: keep(feed.recent), snoozed: keep(feed.snoozed), devices: Object.keys(shorts).sort() });
+        });
       });
     }
-    var file = { get_accounts: './accounts.json', found_accounts: './found.json', setup_view: './setup.json', get_config: './config.json', pr_detail: './pr-detail.json', start_options: './start-options.json', device_start_options: './start-options.json', bar_feed: './bar-feed.json', editor_icons: './editor-icons.json', shell_commands: './shell-commands.json' }[cmd];
+    var file = { get_accounts: './accounts.json', found_accounts: './found.json', setup_view: './setup.json', get_config: './config.json', pr_detail: './pr-detail.json', start_options: './start-options.json', device_start_options: './start-options.json', editor_icons: './editor-icons.json', shell_commands: './shell-commands.json' }[cmd];
     if (file) return fetch(file).then(function (r) { return r.ok ? r.json() : Promise.reject(new Error(file + ' is missing')); });
     // The `/` lists' skills: from skills-fixture.json (PREVIEW_SKILLS) where there is one, else
     // what the engine listed for every worktree on the board (skills.json), a folder inside a

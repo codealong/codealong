@@ -2582,7 +2582,8 @@ you (*Sounds*).
 shape with the notch, dark whatever the theme, showing the mark on the camera's left and, on its
 right, the most urgent
 thing and how many (Needs you, then PRs that wait on your review, then Your turn, then Working; a
-new one that needs you pulses). Rest the pointer on it for a moment, or click it, and it opens down
+new one that needs you pulses). Your other Macs' sessions are among them while those Macs are
+connected, each pill with its Mac's color (*Your other devices*). Rest the pointer on it for a moment, or click it, and it opens down
 into the bar's pills, with the project and every count beside the camera; it closes a moment after
 the pointer leaves, and stays open while one of its menus is up. The pin at the end of its right
 side, or Keep the notch open in its right-click menu, keeps it open until you unpin it, across
@@ -2673,11 +2674,12 @@ notch's count already show what came (*Queues, pills and the mark*), and the sou
 aren't looking at them.
 
 The sounds follow the bar's pills, whether the bar is up or not, so a snoozed session, the end of a
-quieted one's turn, a helper that doesn't need you and a worktree kept out of sight make none. Each
-Mac sounds for its own sessions: one on another of your Macs sounds there. To stay out of the way:
+quieted one's turn, a helper that doesn't need you and a worktree kept out of sight make none. A
+session on another of your Macs that's connected is on the bar too (*Your other devices*), so it
+sounds here as well as there, wherever you are. To stay out of the way:
 
 - nothing sounds for what already waits when Codealong opens, nor for the reviews already asked of
-  you that GitHub's first read brings;
+  you that GitHub's first read brings, nor for what another Mac brings as it connects again;
 - a session that comes back to you within 15 seconds of going back to work makes none: you just
   sent it something or answered it, and are likely still looking at it;
 - a few at once make one sound, the most urgent's (a session that needs you, then a review, then a
@@ -3179,8 +3181,14 @@ Everything from another device wears that device's badge, a colored square and i
 device's color in Settings › Devices); other devices' worktrees go into this device's projects by
 their repos, whatever those devices call them, even where a checkout still has a renamed repo's old
 name; work on a device that's away stays, faded, as it was when last seen; the sidebar's Devices
-narrow the views to the ones you pick. A session on another device shows its whole conversation in
-its panel, read from that device as it shows: when the device is away for a moment, what the panel
+narrow the views to the ones you pick. What waits on you on a device that's connected waits here
+too: its sessions are on the floating bar and in the notch, each pill with the device's color
+after its title, in Waiting on you, and on the mark, and they sound as this Mac's do (*Sounds*);
+one shown in the notch, the peek or Waiting on you says the device in its header, and it can't be
+kept or pinned on the desktop, whose cards read only this Mac's. A device that's away leaves them
+until it's back. Settings › Devices' *Show their sessions in the bar and the notch* (`[devices]
+in_bar`) turns that off, for each Mac's bar to be its own. A session on another device shows its
+whole conversation in its panel, read from that device as it shows: when the device is away for a moment, what the panel
 already shows stays (a notice says it isn't updating), one opened meanwhile says the device isn't
 connected, and either is read again once the device is back. You can mark it seen or snooze it
 from here, and when that device lets its linked devices act on its sessions (remote control, off

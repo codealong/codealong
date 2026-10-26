@@ -7,12 +7,14 @@
 //! (src/mark.ts). The sound is for when you aren't looking at those.
 //!
 //! What came is read from two bar feeds in a row, as the mark's knock and ripple are (mark.ts
-//! `happened`), so a sound goes with what the bar shows: this Mac's sessions (another Mac sounds
-//! for its own), and of those not a snoozed one, the end of a quieted one's turn, a helper that
-//! doesn't need you, or one in a worktree kept out of sight. And to stay out of the way:
+//! `happened`), so a sound goes with what the bar shows: this Mac's sessions and, with `[devices]
+//! in_bar` on, those of your other devices that are connected (each of them sounds too, so you
+//! hear it wherever you are), and of those not a snoozed one, the end of a quieted one's turn, a
+//! helper that doesn't need you, or one in a worktree kept out of sight. And to stay out of the
+//! way:
 //!
 //! - nothing sounds for what's there already at launch, nor for the reviews GitHub's first poll
-//!   brings;
+//!   brings, nor for what another device brings as it connects again;
 //! - a session that comes to wait on you within `WATCHED_MS` of going back to work makes none:
 //!   you just sent it something or answered it, so you're likely still looking at it;
 //! - one sound at most every `REST_MS`: a burst, as when the Mac wakes, is one sound, the most
@@ -60,6 +62,8 @@ struct Waiting {
     /// None until GitHub's first poll has ended (`Board::github_polled`): until then the board
     /// has only the reviews its answers so far brought, and the rest coming in isn't news.
     reviews: Option<HashSet<String>>,
+    /// The other devices whose sessions the feed listed (`BarFeed::devices`).
+    devices: HashSet<String>,
 }
 
 fn waiting(feed: &BarFeed, reviews_read: bool) -> Waiting {
@@ -74,6 +78,7 @@ fn waiting(feed: &BarFeed, reviews_read: bool) -> Waiting {
         };
     }
     w.reviews = reviews_read.then(|| feed.reviews.iter().map(|r| r.key.clone()).collect());
+    w.devices = feed.devices.iter().cloned().collect();
     w
 }
 
@@ -91,13 +96,14 @@ pub struct Chimer {
 }
 
 impl Chimer {
-    /// The sound due on a board and its bar feed, if any: the most urgent kind that came and has a
-    /// sound in `cfg`. A kind without one leaves the way clear for the rest.
-    pub fn due(&mut self, board: &Board, feed: &BarFeed, cfg: &SoundsCfg) -> Option<Kind> {
+    /// The sound due on a board and its bar feed at `now` (ms), if any: the most urgent kind that
+    /// came and has a sound in `cfg`. A kind without one leaves the way clear for the rest. `now`
+    /// is the board's time for a board the engine published, and the clock's for your other
+    /// devices' worktrees, which come while the board stays as it was.
+    pub fn due(&mut self, board: &Board, feed: &BarFeed, cfg: &SoundsCfg, now: i64) -> Option<Kind> {
         if feed.loading {
             return None;
         }
-        let now = board.generated_at;
         let now_waiting = waiting(feed, board.github_polled);
         let came = self.was.as_ref().map(|was| self.came(was, &now_waiting, feed)).unwrap_or_default();
         self.remember_work(feed, now);
@@ -110,11 +116,13 @@ impl Chimer {
         Some(kind)
     }
 
-    /// What came to wait on you between two feeds, less the sessions you're likely watching.
+    /// What came to wait on you between two feeds, less the sessions you're likely watching and
+    /// those of a device that wasn't on the feed before.
     fn came(&self, was: &Waiting, now: &Waiting, feed: &BarFeed) -> Vec<Kind> {
         let watched = |key: &str, since: i64| self.working_since.get(key).is_some_and(|&w| since >= w && since - w < WATCHED_MS);
+        let back = |key: &str| crate::peerfeed::split_remote(key).is_some_and(|(short, _)| !was.devices.contains(short));
         let mut out = Vec::new();
-        for i in feed.items.iter().filter(|i| !i.hidden) {
+        for i in feed.items.iter().filter(|i| !i.hidden && !back(&i.key)) {
             let (kind, before) = match i.group {
                 Group::Needs => (Kind::NeedsYou, &was.needs),
                 Group::Unread => (Kind::YourTurn, &was.turn),
@@ -226,7 +234,7 @@ mod tests {
     }
 
     fn due(c: &mut Chimer, b: &Board, cfg: &SoundsCfg) -> Option<Kind> {
-        c.due(b, &feed(b), cfg)
+        c.due(b, &feed(b, &[]), cfg, b.generated_at)
     }
 
     /// The chimer after a first board of `sessions` an hour before `NOW`, which never sounds.
@@ -343,6 +351,29 @@ mod tests {
         quiet.status = Status::Unread;
         crate::board::apply_quiet(&mut quiet, true);
         assert_eq!(due(&mut c, &board(vec![quiet]), &cfg()), None);
+    }
+
+    #[test]
+    fn another_devices_session_sounds_but_not_what_it_brings_as_it_connects_again() {
+        let there = |online: bool, sessions: Vec<Session>| {
+            let tag = crate::model::DeviceTag { name: "Mac mini".into(), short: "abc".into(), color: "teal".into(), online, last_seen: None };
+            vec![Lane { device: Some(tag), ..crate::fixtures::lane("@abc:/a", sessions) }]
+        };
+        let on = |at: i64| Board { devices: crate::config::DevicesCfg { enabled: true, ..Default::default() }, ..board_at(at, vec![]) };
+        let (mut c, mut f) = (Chimer::default(), crate::barfeed::Feeder::default());
+        let mut due = |b: &Board, lanes: &[Lane]| {
+            f.on_there(lanes);
+            c.due(b, &f.on_board(b), &cfg(), b.generated_at)
+        };
+        let (s1, s2) = ("@abc:claude:claude:s1", "@abc:claude:claude:s2");
+        assert_eq!(due(&on(NOW - 3_600_000), &there(true, vec![session(s1, Status::Working, NOW - 3_600_000)])), None);
+        assert_eq!(due(&on(NOW), &there(true, vec![session(s1, Status::Needs, NOW)])), Some(Kind::NeedsYou));
+        // Away, it's off the bar; back, what it brings isn't news.
+        assert_eq!(due(&on(NOW + REST_MS), &there(false, vec![session(s1, Status::Needs, NOW)])), None);
+        assert_eq!(due(&on(NOW + 2 * REST_MS), &there(true, vec![session(s1, Status::Unread, NOW + REST_MS), session(s2, Status::Working, NOW - 3_600_000)])), None);
+        // What comes after that is.
+        let next = there(true, vec![session(s1, Status::Unread, NOW + REST_MS), session(s2, Status::Unread, NOW + 4 * REST_MS)]);
+        assert_eq!(due(&on(NOW + 4 * REST_MS), &next), Some(Kind::YourTurn));
     }
 
     #[test]

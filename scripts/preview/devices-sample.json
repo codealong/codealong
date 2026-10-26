@@ -5,6 +5,7 @@
     "tailscale": true,
     "iroh": true,
     "remote_control": false,
+    "in_bar": true,
     "port": 47471,
     "automations": "first"
   },

@@ -3,7 +3,7 @@
 // read off its key, and a click on it goes back to that device.
 
 import { unattended } from './lanes';
-import type { DeviceView, DevicesView, Lane, Session } from './types';
+import type { DevicesCfg, DeviceView, DevicesView, Lane, Session } from './types';
 
 /** The short id of the device a lane id or session key is on; null when it's this device's. */
 export function shortOf(key: string): string | null {
@@ -29,6 +29,14 @@ export function withDevices(here: Lane[], there: Lane[], picked: DeviceFilter): 
   const mine = picked.includes('here') ? here : [];
   const theirs = there.filter((l) => picked.includes(shortOf(l.id) ?? ''));
   return theirs.length === 0 ? mine : mine.concat(theirs);
+}
+
+/** Your other devices' worktrees that the windows that float list beside this device's, as the
+ *  bar's feed has them (barfeed.rs `feed`): those of the devices connected now, unless `[devices]
+ *  in_bar` is off. One that's away can't be answered from here. */
+export function floatingLanes(cfg: DevicesCfg | undefined, view: DevicesView | null): Lane[] {
+  if (!cfg?.enabled || cfg.in_bar === false || !view?.enabled) return [];
+  return view.lanes.filter((l) => l.device?.online);
 }
 
 /** How many of a device's sessions need you, for its row in the sidebar. */

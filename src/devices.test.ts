@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { deviceLabel, deviceOf, needsOn, shortOf, withDevices, workingOn } from './devices';
+import { deviceLabel, deviceOf, floatingLanes, needsOn, shortOf, withDevices, workingOn } from './devices';
 import * as fx from './testing/fixtures';
-import type { Lane, Session } from './types';
+import { DEVICES_OFF, type DeviceTag, type Lane, type Session } from './types';
 
 const session = (key: string, status: Session['status']): Session => fx.session({ key, status });
 const lane = (id: string, sessions: Session[] = []): Lane => fx.lane({ id, sessions });
@@ -32,6 +32,17 @@ describe('your other devices', () => {
     expect(withDevices(here, there, ['here'])).toBe(here);
     // With no other device's lanes, this device's list is handed back as it is.
     expect(withDevices(here, [], [])).toBe(here);
+  });
+
+  it('lists in the windows that float the connected devices’ worktrees, unless that’s turned off', () => {
+    const tag = (short: string, online: boolean): DeviceTag => ({ name: `Mac ${short}`, short, color: 'teal', online, lastSeen: null });
+    const view = fx.devicesView({ enabled: true, lanes: [{ ...lane('@m1:/b'), device: tag('m1', true) }, { ...lane('@m2:/c'), device: tag('m2', false) }] });
+    const on = { ...DEVICES_OFF, enabled: true };
+    expect(floatingLanes(on, view).map((l) => l.id)).toEqual(['@m1:/b']);
+    expect(floatingLanes({ ...on, in_bar: false }, view)).toEqual([]);
+    expect(floatingLanes(DEVICES_OFF, view)).toEqual([]);
+    expect(floatingLanes(undefined, view)).toEqual([]);
+    expect(floatingLanes(on, null)).toEqual([]);
   });
 
   it('counts what needs you and what works on each device', () => {

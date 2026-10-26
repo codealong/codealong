@@ -548,11 +548,15 @@ fn show_main(app: tauri::AppHandle, reveal: Option<serde_json::Value>) -> Result
 }
 
 /// Opens a session from the floating bar, then asks macOS to bring its app forward: a click in the
-/// bar doesn't make Codealong the active app.
+/// bar doesn't make Codealong the active app. One on another device opens there, as from the main
+/// window (`open_target`).
 #[tauri::command]
-async fn open_from_bar(app: tauri::AppHandle, engine: State<'_, engine::Handle>, lane_id: String, target_id: String) -> Result<(), String> {
-    let engine = engine.inner().clone();
+async fn open_from_bar(app: tauri::AppHandle, engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, lane_id: String, target_id: String) -> Result<(), String> {
+    let (engine, peers) = (engine.inner().clone(), peers.inner().clone());
     blocking(move || {
+        if peerfeed::split_remote(&lane_id).is_some() {
+            return actions::run(&engine, &peers, actions::OPEN, &lane_id, actions::params::Open { target: target_id }).map(|_| ());
+        }
         if let Some(key) = target_id.strip_prefix("s|").and_then(|t| t.strip_suffix("|hosted")) {
             // Codealong runs it: its panel in the main window is where it lives.
             engine.mark_seen(vec![key.to_string()]);
@@ -573,8 +577,9 @@ async fn open_from_bar(app: tauri::AppHandle, engine: State<'_, engine::Handle>,
 /// the desktop (where the window's page measured it), with `focus` ready to type into, or with
 /// `rename` its name ready to change (peek.rs).
 #[tauri::command]
-fn peek_open(app: tauri::AppHandle, window: tauri::WebviewWindow, engine: State<'_, engine::Handle>, key: String, pill: Option<geometry::PageRect>, focus: Option<bool>, rename: Option<bool>) -> Result<(), String> {
-    let target = engine.read(|b| peek::target(b, &key)).ok_or_else(|| "That session isn't on the board any more.".to_string())?;
+fn peek_open(app: tauri::AppHandle, window: tauri::WebviewWindow, engine: State<'_, engine::Handle>, bars: State<'_, BarFeeds>, key: String, pill: Option<geometry::PageRect>, focus: Option<bool>, rename: Option<bool>) -> Result<(), String> {
+    let there = bars.session(&key);
+    let target = engine.read(|b| peek::target(b, there, &key)).ok_or_else(|| "That session isn't on the board any more.".to_string())?;
     let rename = rename.unwrap_or(false);
     // Kept on the desktop, it's up already: its own window comes forward, to type into if asked.
     if !rename && kept::raise_session(&app, &key, focus.unwrap_or(false)) {
@@ -614,11 +619,12 @@ fn pr_at(engine: State<'_, engine::Handle>, key: String) -> Option<PrAt> {
 }
 
 #[tauri::command(async)]
-fn session_at(engine: State<'_, engine::Handle>, key: String) -> Option<SessionAt> {
-    // From the worktree it runs in, not one it only visits.
+fn session_at(engine: State<'_, engine::Handle>, bars: State<'_, BarFeeds>, key: String) -> Option<SessionAt> {
+    // From the worktree it runs in, not one it only visits; another device's as the bar has it.
+    let there = bars.session(&key);
     engine.read(|b| {
-        let (lane, session) = b.session(&key)?;
-        Some(SessionAt { lane: lane.clone(), session: session.clone(), apps: b.apps.clone() })
+        let (lane, session) = there.or_else(|| b.session(&key).map(|(l, s)| (l.clone(), s.clone())))?;
+        Some(SessionAt { lane, session, apps: b.apps.clone() })
     })
 }
 
@@ -713,8 +719,46 @@ fn side_windows(app: tauri::AppHandle) -> Vec<String> {
 
 /// What the floating bar shows, for its first render; after that it gets `bar-feed` events.
 #[tauri::command(async)]
-fn bar_feed(engine: State<'_, engine::Handle>) -> barfeed::BarFeed {
-    barfeed::feed(&engine.board())
+fn bar_feed(engine: State<'_, engine::Handle>, bars: State<'_, BarFeeds>) -> barfeed::BarFeed {
+    let board = engine.board();
+    bars.0.lock().map(|held| held.0.on_board(&board)).unwrap_or_else(|_| barfeed::feed(&board, &[]))
+}
+
+/// Your other devices' worktrees beside each board, for the bar's feed (barfeed.rs `Feeder`), and
+/// the sound that goes with each feed (sounds.rs). A board and those worktrees each cut the feed
+/// (`publish`), under this one lock, so the bar and its sounds go by the feeds in the order they
+/// were cut.
+#[derive(Clone, Default)]
+struct BarFeeds(std::sync::Arc<std::sync::Mutex<(barfeed::Feeder, sounds::Chimer)>>);
+
+impl BarFeeds {
+    /// Makes `change` to the feeder, then, with a board, cuts the bar's feed, plays the sound for
+    /// what came to wait on you by then (`now`, `Chimer::due`) and sends the bar the feed.
+    fn publish(&self, app: &tauri::AppHandle, board: Option<&model::Board>, now: i64, change: impl FnOnce(&mut barfeed::Feeder)) {
+        let Ok(mut held) = self.0.lock() else { return };
+        let (feeder, chimer) = &mut *held;
+        change(feeder);
+        let Some(board) = board else { return };
+        let feed = feeder.on_board(board);
+        // On a thread of its own, since the first one waits on macOS's audio to start.
+        if let Ok(cfg) = config::current() {
+            if let Some(kind) = chimer.due(board, &feed, &cfg.sounds, now) {
+                let (name, volume) = (kind.sound(&cfg.sounds).to_string(), cfg.sounds.volume);
+                std::thread::spawn(move || {
+                    if let Err(e) = sounds::play(&name, volume) {
+                        eprintln!("Couldn't play the sound for {kind:?}: {e}");
+                    }
+                });
+            }
+        }
+        bar::publish(app, feed);
+    }
+
+    /// A session on another device the bar may list, with its worktree there.
+    fn session(&self, key: &str) -> Option<(model::Lane, model::Session)> {
+        let held = self.0.lock().ok()?;
+        held.0.session(key).map(|(l, s)| (l.clone(), s.clone()))
+    }
 }
 
 /// What's pinned to the desktop, for the windows' menus; after that they get `desktop-pins` events.
@@ -2123,14 +2167,15 @@ pub fn run() {
             zoom::follow(app.handle(), config::zoom());
             let shown = std::sync::Mutex::new(theme);
             let shown_logo = std::sync::Mutex::new(model::LogoStatus::Idle);
-            let chimer = std::sync::Mutex::new(sounds::Chimer::default());
+            let bars = BarFeeds::default();
+            app.manage(bars.clone());
             let shortcuts = config::shortcuts();
             let shortcut = std::sync::Mutex::new(quick::Keys::ALL.map(|which| which.in_config(&shortcuts).to_string()));
             // Your other devices (peers.rs). They come before the engine, which publishes to them,
             // and ask it for the board and for answers once it's there.
             let engine_slot: std::sync::Arc<std::sync::OnceLock<engine::Handle>> = Default::default();
             let peers = {
-                let (boards, answers, emits, runs, sides) = (engine_slot.clone(), engine_slot.clone(), app.handle().clone(), engine_slot.clone(), app.handle().clone());
+                let (boards, answers, emits, runs, sides, bars) = (engine_slot.clone(), engine_slot.clone(), app.handle().clone(), engine_slot.clone(), app.handle().clone(), bars.clone());
                 peers::Peers::new(
                     config::support_dir(),
                     peers::Hooks {
@@ -2140,10 +2185,16 @@ pub fn run() {
                             None => Err("Codealong is still starting on that device.".into()),
                         }),
                         emit: Box::new(move |view| {
-                            // The engine goes by what they run too (nudges.rs `running_elsewhere`).
-                            if let Some(engine) = runs.get() {
-                                engine.peer_lanes(&view.lanes);
-                                engine.peer_machines(view.machines.clone());
+                            // The engine goes by what they run too (nudges.rs `running_elsewhere`),
+                            // and the bar lists what waits on you there, with the board as it is.
+                            let there = |f: &mut barfeed::Feeder| f.on_there(&view.lanes);
+                            match runs.get() {
+                                Some(engine) => {
+                                    engine.peer_lanes(&view.lanes);
+                                    engine.peer_machines(view.machines.clone());
+                                    engine.read(|board| bars.publish(&emits, Some(board), util::now_ms(), there));
+                                }
+                                None => bars.publish(&emits, None, 0, there),
                             }
                             let _ = emits.emit("devices", view);
                         }),
@@ -2192,20 +2243,8 @@ pub fn run() {
                     }
                 }
                 let _ = emitter.emit("board", board);
-                let feed = barfeed::feed(board);
-                // A sound for what came to wait on you (sounds.rs), on a thread of its own, since
-                // the first one waits on macOS's audio to start.
-                if let (Ok(mut chimer), Ok(cfg)) = (chimer.lock(), config::current()) {
-                    if let Some(kind) = chimer.due(board, &feed, &cfg.sounds) {
-                        let (name, volume) = (kind.sound(&cfg.sounds).to_string(), cfg.sounds.volume);
-                        std::thread::spawn(move || {
-                            if let Err(e) = sounds::play(&name, volume) {
-                                eprintln!("Couldn't play the sound for {kind:?}: {e}");
-                            }
-                        });
-                    }
-                }
-                bar::publish(&emitter, feed);
+                // With a sound for what came to wait on you (sounds.rs).
+                bars.publish(&emitter, Some(board), board.generated_at, |_| {});
                 desktop::publish(&emitter, board);
                 lineage::publish(&emitter, board);
                 publishes.publish(board);

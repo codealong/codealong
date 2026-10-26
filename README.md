@@ -619,6 +619,7 @@ name = ""                      # this machine's name on your other devices; "" i
 tailscale = true               # find them on your tailnet
 iroh = true                    # reach linked devices anywhere
 remote_control = false         # let linked devices act on sessions here
+in_bar = true                  # their sessions show in the bar, the notch and Waiting on you too, while they're connected
 automations = "first"          # what your machines share (a review of a PR that asks for yours, a schedule that runs on one of them) runs on one; "backup" runs it only when no first choice can
 
 [limits]

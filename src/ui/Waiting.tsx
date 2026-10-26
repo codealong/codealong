@@ -26,10 +26,11 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { PrTab } from '../agentReview';
-import { onWaitingHidden, onWaitingOpen, showMain, waitingAsked, type WaitingOpen } from '../api';
-import { boardAhead, boardView, observe, renameAhead, sentWorthSaying, useAhead } from '../ahead';
+import { getDevices, onDevices, onWaitingHidden, onWaitingOpen, showMain, waitingAsked, type WaitingOpen } from '../api';
+import { boardAhead, boardView, lanesAhead, observe, renameAhead, sentWorthSaying, useAhead } from '../ahead';
 import { prCardItem } from '../boardLists';
 import { showContextMenu, type MenuSpec } from '../contextMenu';
+import { deviceOf, floatingLanes } from '../devices';
 import { useEditorIcons } from '../editors';
 import { followBoard } from '../followBoard';
 import { useSessionHistory } from '../history';
@@ -44,7 +45,7 @@ import { ALL_PROJECTS, attentionRows, QUEUE_READS, queueRows, reviewSince, type 
 import { errorText, type Report } from '../report';
 import { reuse } from '../reuse';
 import { repoReviews } from '../repoSettings';
-import type { Board, Lane, PrItem, Session } from '../types';
+import type { Board, DevicesView, Lane, PrItem, Session } from '../types';
 import { shownSession, useWaitingQueue } from '../useWaitingQueue';
 import { dialogUp } from './focusTrap';
 import { PrCard, type CameFrom, type PrWindowCan } from './PrCard';
@@ -103,28 +104,40 @@ export function Waiting() {
     );
     return following.off;
   }, [up, opened]);
+  // Your other devices' sessions wait here too, the connected ones' (devices.ts `floatingLanes`),
+  // with what any window changed of them.
+  const [devices, setDevices] = useState<DevicesView | null>(null);
+  useEffect(() => {
+    if (!up) return;
+    const take = (d: DevicesView) => setDevices((prev) => (prev ? reuse(prev, d) : d));
+    // The next push brings them, when a read doesn't.
+    getDevices().then((d) => d && take(d), () => {});
+    return onDevices(take);
+  }, [up]);
+  const there = useMemo(() => lanesAhead(floatingLanes(engineBoard?.devices, devices), ahead), [engineBoard?.devices, devices, ahead]);
+  const everywhere = useMemo(() => (board && there.length > 0 ? { ...board, lanes: board.lanes.concat(there) } : board), [board, there]);
   // What it knows of the changes ahead of the engine follows the board while it's up.
   useEffect(() => {
-    if (up && engineBoard) observe(boardView(engineBoard.generatedAt, [engineBoard.lanes]));
-  }, [up, engineBoard]);
+    if (up && engineBoard) observe(boardView(engineBoard.generatedAt, [engineBoard.lanes, devices?.lanes ?? []]));
+  }, [up, engineBoard, devices]);
 
-  // The session shown, while it's on the board.
+  // The session shown, while it's on the board or another device's.
   const replying = useMemo(() => {
-    if (!board || !key) return null;
-    for (const l of board.lanes) {
+    if (!everywhere || !key) return null;
+    for (const l of everywhere.lanes) {
       const session = l.sessions.find((x) => x.key === key);
       if (session) return { lane: l, session };
     }
     return null;
-  }, [board, key]);
+  }, [everywhere, key]);
   // A PR waiting on your review, or one shown from a session's chip, while the board lists it.
   const reviewing = useMemo(() => (board && key && !replying ? (board.prs.find((p) => p.key === key) ?? null) : null), [board, key, replying]);
   const cameFrom = from && from.pr === key ? from : null;
   // What it works through. Snoozed ones wait their time (quick.ts `groupOf`).
-  const queue = useMemo(() => (board ? queueRows(board, ALL_PROJECTS) : []), [board]);
+  const queue = useMemo(() => (everywhere ? queueRows(everywhere, ALL_PROJECTS) : []), [everywhere]);
   // How many sessions are at work, for the end of what waits to say, as the quick panel counts them.
-  const working = useMemo(() => (board ? attentionRows(board, ALL_PROJECTS).counts.working : 0), [board]);
-  const answerable = useMemo(() => new Set(board ? [...board.lanes.flatMap((l) => l.sessions.filter((s) => !s.archived).map((s) => s.key)), ...board.prs.map((p) => p.key)] : []), [board]);
+  const working = useMemo(() => (everywhere ? attentionRows(everywhere, ALL_PROJECTS).counts.working : 0), [everywhere]);
+  const answerable = useMemo(() => new Set(everywhere ? [...everywhere.lanes.flatMap((l) => l.sessions.filter((s) => !s.archived).map((s) => s.key)), ...everywhere.prs.map((p) => p.key)] : []), [everywhere]);
   const shownKey = replying?.session.key ?? reviewing?.key ?? null;
   const looked = useSessionHistory(up ? shownKey : null, (k) => answerable.has(k), LOOKED_KEY);
 
@@ -331,7 +344,8 @@ export function Waiting() {
           apps={apps}
           now={now}
           zoom={board?.zoom}
-          board={board}
+          board={everywhere}
+          device={deviceOf(devices, replying.session.key)}
           can={can(replying.lane, replying.session)}
           canFor={can}
           // A session it came from, or that came of it, shows here in its place.
