@@ -214,9 +214,19 @@ pub fn ready(app: &AppHandle, label: &str) {
     }
 }
 
-/// Keeps the session the peek shows on the desktop, where the peek's card is. On the main thread.
+/// Whether a session can be kept: a kept window reads this Mac's board (Peek.tsx), which has none
+/// of another device's sessions, so one of those stays where it's shown.
+fn keeps(key: &str) -> bool {
+    crate::peerfeed::split_remote(key).is_none()
+}
+
+/// Keeps the session the peek shows on the desktop, where the peek's card is; one on another
+/// device stays in the peek, sized or moved. On the main thread.
 pub fn keep_peeked(app: &AppHandle) -> Result<()> {
     let (key, card) = crate::peek::showing(app).ok_or_else(|| anyhow!("The peek isn't showing a session."))?;
+    if !keeps(&key) {
+        return Ok(());
+    }
     // One kept already has no new window whose showing puts the peek away.
     if keep(app, key, card, crate::peek::engaged(app))? {
         crate::peek::hide(app);
@@ -229,6 +239,9 @@ pub fn keep_peeked(app: &AppHandle) -> Result<()> {
 /// keyboard as it shows. One kept already comes forward where it is, and the answer is true. On
 /// the main thread.
 pub fn keep(app: &AppHandle, key: String, card: Rect, keys: bool) -> Result<bool> {
+    if !keeps(&key) {
+        return Err(anyhow!("A session on another device can't be kept on the desktop."));
+    }
     let state = app.try_state::<State>().ok_or_else(|| anyhow!("Kept sessions aren't ready yet."))?;
     let already = state.inner.lock().map_err(|_| anyhow!("Kept sessions are unavailable."))?.label_of(&key, false);
     if let Some(label) = already {
@@ -498,6 +511,12 @@ mod tests {
     }
 
     const SCREEN: Screen = Screen { frame: Rect { x: 0.0, y: 0.0, w: 1500.0, h: 900.0 }, visible: Rect { x: 0.0, y: 60.0, w: 1500.0, h: 815.0 } };
+
+    #[test]
+    fn only_this_macs_sessions_are_kept() {
+        assert!(keeps("claude:claude:s1"));
+        assert!(!keeps("@9f8e7d6c5b:claude:claude:s1"));
+    }
 
     #[test]
     fn a_window_keeps_its_top_left_corner_as_its_size_changes() {

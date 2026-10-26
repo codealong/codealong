@@ -232,6 +232,14 @@ pub struct ProjectThere {
     pub repos: Vec<String>,
 }
 
+/// Whether what a device's worktrees say is current: it's connected, and a feed has come since the
+/// connection opened (its first always comes, with the device's own state). Until then they're as
+/// they were when it was last seen, so its worktrees show as away, and the bar doesn't take what
+/// changed there meanwhile as news (barfeed.rs).
+fn caught_up(connected_since: Option<i64>, fed_at: i64) -> bool {
+    connected_since.is_some_and(|since| fed_at >= since)
+}
+
 /// What a device's own worktrees say of its projects, in the order they come, before
 /// `project_here` puts them into this device's: each repo once, by what GitHub calls it now. Its
 /// chats and its worktrees in none of its projects (Elsewhere) are left out.
@@ -1047,7 +1055,8 @@ impl Inner {
                 .filter(|l| !l.watches())
                 .filter_map(|l| {
                     let c = st.replicas.get(&l.key)?;
-                    let tag = DeviceTag { name: self.name_of(st, &l.key), short: short_of(&l.key).to_string(), color: color_of(l), online: st.conns.contains_key(&l.key), last_seen: Some(c.last_seen).filter(|t| *t > 0) };
+                    let online = caught_up(st.conns.get(&l.key).map(|conn| conn.since), c.fed_at);
+                    let tag = DeviceTag { name: self.name_of(st, &l.key), short: short_of(&l.key).to_string(), color: color_of(l), online, last_seen: Some(c.last_seen).filter(|t| *t > 0) };
                     Some(peerfeed::for_windows(short_of(&l.key), &tag, &c.replica))
                 })
                 .flatten()
@@ -2618,6 +2627,14 @@ mod tests {
         ];
         let p = |name: &str, repos: &[&str]| ProjectThere { name: name.into(), repos: repos.iter().map(|r| r.to_string()).collect() };
         assert_eq!(projects_there(&lanes), vec![p("Northwind", &["github.com/northwind/app", "github.com/northwind/api"]), p("Atlas", &["/r/notes"])]);
+    }
+
+    #[test]
+    fn a_devices_worktrees_are_current_once_a_feed_came_on_its_connection() {
+        assert!(!caught_up(None, 2_000), "not connected");
+        assert!(!caught_up(Some(3_000), 2_000), "connected, its last feed from before");
+        assert!(caught_up(Some(3_000), 3_000));
+        assert!(caught_up(Some(3_000), 4_000));
     }
 
     #[test]

@@ -60,7 +60,10 @@ export interface LiveSession {
  *  window shows it as told, which is newer. */
 export function useLiveSession(told: Told | null, shown: boolean): LiveSession {
   const [live, setLive] = useState<{ under: Told; lane: Lane; session: Session; theme: Theme; zoom: number | null } | null>(null);
-  const [there, setThere] = useState<{ under: Told; lane: Lane; session: Session; device: DeviceView | null } | null>(null);
+  const [there, setThere] = useState<{ under: Told; lane: Lane; session: Session } | null>(null);
+  // Your devices as they last said, for the device of whichever session is shown: going from one
+  // of theirs to another reads them again only as they change.
+  const [devices, setDevices] = useState<DevicesView | null>(null);
   // The theme and zoom as the latest push says, for one the board doesn't list (another device's).
   const [look, setLook] = useState<{ theme: Theme; zoom: number | null } | null>(null);
   const [board, setBoard] = useState<CardBoard | null>(null);
@@ -103,9 +106,10 @@ export function useLiveSession(told: Told | null, shown: boolean): LiveSession {
       if (over) return;
       // Its time isn't this board's: a change shown ahead goes once this view shows it.
       observe(boardView(null, [d.lanes]));
+      setDevices(d);
       const under = toldNow.current;
       const home = under && homeOf(d.lanes, under.session.key);
-      if (under && home) setThere({ under, ...home, device: deviceOf(d, under.session.key) });
+      if (under && home) setThere({ under, ...home });
     };
     void getDevices().then((d) => d && take(d), () => {});
     const off = onDevices(take);
@@ -127,7 +131,7 @@ export function useLiveSession(told: Told | null, shown: boolean): LiveSession {
     if (following.current) following.current.read(failed);
     else void getBoard().then(takeBoard, failed);
   }, [takeBoard]);
-  return { lane, session, theme: now?.theme ?? (nowThere ? look?.theme : null) ?? null, zoom: now?.zoom ?? (nowThere ? look?.zoom : null) ?? null, board, device: nowThere?.device ?? null, needBoard };
+  return { lane, session, theme: now?.theme ?? (elsewhere ? look?.theme : null) ?? null, zoom: now?.zoom ?? (elsewhere ? look?.zoom : null) ?? null, board, device: elsewhere && key ? deviceOf(devices, key) : null, needBoard };
 }
 
 /** ⌘= ⌘- ⌘0 on a card in a window that floats: they zoom every window, as in the board's, and
