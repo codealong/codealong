@@ -131,6 +131,11 @@ dir="${PREVIEW_DIR:-.preview}"
 # A free port unless one is given, so a stray server can't answer for this one.
 port="${PREVIEW_PORT:-$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')}"
 chrome="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+# As it starts, Chrome links its own program into a folder of its own, so an update can't change
+# it under the running browser. macOS counts that as changing an app, and refuses it for a
+# program it can't ask about, such as the bare Claude Code binary that hosts a background
+# session, with a notification that the program "was prevented from modifying apps". A headless
+# run needs no such copy, so every launch here turns it off (MacAppCodeSignClone).
 scheme=""
 case "${PREVIEW_SCHEME:-}" in
   dark) scheme="--blink-settings=preferredColorScheme=0" ;;
@@ -374,7 +379,7 @@ if [ -n "$check" ] && [ -n "${PREVIEW_WAIT:-}" ]; then
   # wait runs out): --dump-dom would read the page as soon as it loads. The endpoint gives the
   # title as HTML.
   debug_port="$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')"
-  "$chrome" --headless=new --disable-gpu --enable-unsafe-swiftshader ${scheme:+"$scheme"} --window-size="$width,$((height + 32))" --remote-debugging-port="$debug_port" --user-data-dir="$work/profile" --app="$url" >/dev/null 2>&1 &
+  "$chrome" --headless=new --disable-features=MacAppCodeSignClone --disable-gpu --enable-unsafe-swiftshader ${scheme:+"$scheme"} --window-size="$width,$((height + 32))" --remote-debugging-port="$debug_port" --user-data-dir="$work/profile" --app="$url" >/dev/null 2>&1 &
   browser=$!
   title=""
   started=$SECONDS
@@ -390,7 +395,7 @@ if [ -n "$check" ] && [ -n "${PREVIEW_WAIT:-}" ]; then
   done
   report "$title" || exit $?
 elif [ -n "$check" ]; then
-  "$chrome" --headless=new --disable-gpu --enable-unsafe-swiftshader ${scheme:+"$scheme"} --window-size="$width,$((height + 87))" --virtual-time-budget=8000 --user-data-dir="$work/profile" --dump-dom "$url" >"$work/dom.html" 2>/dev/null &
+  "$chrome" --headless=new --disable-features=MacAppCodeSignClone --disable-gpu --enable-unsafe-swiftshader ${scheme:+"$scheme"} --window-size="$width,$((height + 87))" --virtual-time-budget=8000 --user-data-dir="$work/profile" --dump-dom "$url" >"$work/dom.html" 2>/dev/null &
   browser=$!
   # Under a heavy load Chrome can print the page and then never exit: once the page is out it
   # gets a few seconds more, then it's stopped.
@@ -409,6 +414,6 @@ elif [ -n "$check" ]; then
   title="$(python3 -c 'import html, re, sys; m = re.search(r"<title>(.*?)</title>", sys.stdin.read(), re.S); print(" ".join(html.unescape(m.group(1)).split()) if m else "")' <"$work/dom.html")"
   report "$title" || exit $?
 else
-  "$chrome" --headless=new --disable-gpu --enable-unsafe-swiftshader ${scheme:+"$scheme"} --hide-scrollbars --force-device-scale-factor=1 --window-size="$size" --virtual-time-budget=6000 --screenshot="$shot" "$url" 2>/dev/null
+  "$chrome" --headless=new --disable-features=MacAppCodeSignClone --disable-gpu --enable-unsafe-swiftshader ${scheme:+"$scheme"} --hide-scrollbars --force-device-scale-factor=1 --window-size="$size" --virtual-time-budget=6000 --screenshot="$shot" "$url" 2>/dev/null
   echo "$shot"
 fi

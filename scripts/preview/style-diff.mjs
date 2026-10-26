@@ -207,7 +207,8 @@ function serve(dist, data, scenes) {
 
 async function launch() {
   const profile = mkdtempSync(join(tmpdir(), 'style-diff-'));
-  const child = spawn(chrome, ['--headless=new', '--disable-gpu', '--enable-unsafe-swiftshader', '--force-device-scale-factor=1', '--remote-debugging-port=0', `--user-data-dir=${profile}`, 'about:blank'], { stdio: 'ignore' });
+  // MacAppCodeSignClone is off for the reason preview.sh gives.
+  const child = spawn(chrome, ['--headless=new', '--disable-features=MacAppCodeSignClone', '--disable-gpu','--enable-unsafe-swiftshader', '--force-device-scale-factor=1', '--remote-debugging-port=0', `--user-data-dir=${profile}`, 'about:blank'], { stdio: 'ignore' });
   // Chrome writes its port and its socket's path to a file in the profile once it's listening.
   const portFile = join(profile, 'DevToolsActivePort');
   const listening = () => (existsSync(portFile) ? readFileSync(portFile, 'utf8').trim().split('\n') : []);

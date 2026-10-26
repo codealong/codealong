@@ -52,8 +52,9 @@ const dir = mkdtempSync(join(tmpdir(), 'codealong-icon-'));
 const html = join(dir, 'icon.html');
 function render(svg, png) {
   writeFileSync(html, `<!doctype html><html><body style="margin:0;background:transparent">${svg.replace('<svg ', '<svg style="display:block;width:1024px;height:1024px" ')}</body></html>`);
+  // MacAppCodeSignClone is off for the reason scripts/preview.sh gives.
   execFileSync('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', [
-    '--headless=new', '--disable-gpu', '--hide-scrollbars', '--force-device-scale-factor=1',
+    '--headless=new', '--disable-features=MacAppCodeSignClone', '--disable-gpu','--hide-scrollbars', '--force-device-scale-factor=1',
     '--default-background-color=00000000', '--window-size=1024,1024', `--screenshot=${png}`, `file://${html}`,
   ], { stdio: 'ignore' });
 }
