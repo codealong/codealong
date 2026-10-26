@@ -7,7 +7,7 @@
 
 import { useEffect, useState } from 'react';
 import { below, showContextMenu } from '../contextMenu';
-import { answerLink, askAgent, deviceLinkCode, getDevices, linkCodeQr, linkDevice, linkWithCode, onDevices, setDeviceColor, unlinkDevice } from '../api';
+import { answerLink, askAgent, deviceLinkCode, linkCodeQr, linkDevice, linkWithCode, setDeviceColor, unlinkDevice } from '../api';
 import { iphoneTask, syncProjectsTask } from '../agentTasks';
 import { agoPhrase } from '../format';
 import { COLOR_WORD } from '../todos';
@@ -16,6 +16,7 @@ import { DEVICES_OFF, LABEL_COLORS } from '../types';
 import { Button, CheckBox, Seg } from './primitives';
 import { errorText } from '../report';
 import { platform } from '../platform';
+import { useDevices } from '../useDevices';
 
 /** Where a machine stands for the automations your machines share, in words. */
 const RANKS: { id: Rank; label: string; says: string }[] = [
@@ -33,7 +34,7 @@ interface DevicesPaneProps {
 export function DevicesPane({ cfg, disabled, onSave, now }: DevicesPaneProps) {
   const d: DevicesCfg = { ...DEVICES_OFF, ...cfg.devices };
   const set = (patch: Partial<DevicesCfg>) => void onSave({ ...cfg, devices: { ...d, ...patch } });
-  const [view, setView] = useState<DevicesView | null>(null);
+  const view = useDevices();
   const [name, setName] = useState(d.name);
   const [code, setCode] = useState<string | null>(null);
   const [qr, setQr] = useState<string | null>(null);
@@ -41,10 +42,6 @@ export function DevicesPane({ cfg, disabled, onSave, now }: DevicesPaneProps) {
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
 
-  useEffect(() => {
-    void getDevices().then(setView);
-    return onDevices(setView);
-  }, []);
   useEffect(() => setName(d.name), [d.name]);
 
   const run = async (what: string, f: () => Promise<string | null>) => {

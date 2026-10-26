@@ -483,8 +483,7 @@ export function NotchSession({ sessionKey, rename, now, queue, notice, onBack, k
         hotkeys={{ onBack, onClose }}
         renaming={(rename && renamed !== session.key) || renameAsked === session.key}
         onRename={rename_}
-        // A kept window reads this Mac's board, which has none of another device's sessions.
-        onKeep={lane.device ? undefined : keep}
+        onKeep={keep}
         keepTitle="Keep on the desktop: it gets a window of its own, here, that stays up until you close it."
         onDone={(done) => onNext(done, session.key)}
         onSent={(sent) => {

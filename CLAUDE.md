@@ -271,6 +271,9 @@ Each rule names the file whose header has the rest.
   build them from the shared fixtures (`peer/src/fixtures.rs`). The iPhone app builds on the
   crate at a pinned commit and talks to Macs of other builds, so a new message goes only to
   peers that say they know it.
+- Other Macs' worktrees never go into the board, which is what the engine acts on and sends
+  them: what the engine cuts for a window from both goes through `shown.rs` (`Shown`), and a
+  window that shows both follows them through `src/useDevices.ts`, never on its own.
 - `src-tauri/src/board.rs` holds the model's rules as pure functions with tests; each harness's
   reader gathers a session's inputs and calls them, and the engine the rest. `src/lanes.ts`
   mirrors `bay_of`, the agent bays' headlines and the order of sessions (`sort_sessions`) for

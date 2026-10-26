@@ -29,7 +29,7 @@ use tauri::{AppHandle, Emitter, Manager, Window, WindowEvent};
 
 use crate::geometry::{screen_for, PageRect, Rect, CARD_MARGIN};
 use crate::config::Theme;
-use crate::model::{Board, Lane, Session};
+use crate::model::{Lane, Session};
 use crate::panel;
 
 pub const LABEL: &str = "peek";
@@ -231,10 +231,10 @@ pub struct Target {
     pub zoom: u32,
 }
 
-/// The session and its lane, as the board has them, or as `there` has one of another device's
-/// that the bar lists (lib.rs `BarFeeds`).
-pub fn target(board: &Board, there: Option<(Lane, Session)>, key: &str) -> Option<Target> {
-    let (lane, session) = there.or_else(|| board.session(key).map(|(l, s)| (l.clone(), s.clone())))?;
+/// The session and its lane, on whichever Mac it's on (shown.rs).
+pub fn target(shown: crate::shown::Shown, key: &str) -> Option<Target> {
+    let board = shown.board;
+    let (lane, session) = shown.session(key).map(|(l, s)| (l.clone(), s.clone()))?;
     Some(Target { lane, session, terminal: board.apps.terminal.clone(), apps: board.apps.clone(), theme: board.theme, zoom: board.zoom })
 }
 

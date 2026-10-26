@@ -26,9 +26,10 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { barNote, getBoard, inPreview, keepSession, keptClose, keptFocus, keptReady, keptResize, keptSession, onKeptKeys, onPeekHidden, onPeekOpen, onPeekShown, peekDrag, peekFit, peekFocus, peekHide, peekOpen, peekReady, peekResize, sideClose } from '../api';
+import { barNote, getBoard, getDevices, inPreview, keepSession, keptClose, keptFocus, keptReady, keptResize, keptSession, onKeptKeys, onPeekHidden, onPeekOpen, onPeekShown, peekDrag, peekFit, peekFocus, peekHide, peekOpen, peekReady, peekResize, sideClose } from '../api';
 import { renameAhead, sentWorthSaying } from '../ahead';
 import { BAR_PROJECT_KEY } from '../bar';
+import { shortOf } from '../devices';
 import { readDraft } from '../drafts';
 import { followBoard } from '../followBoard';
 import { useLatest } from '../latest';
@@ -38,6 +39,7 @@ import { homeOf } from '../lanes';
 import { attentionRows, ALL_PROJECTS } from '../quick';
 import type { Board, Lane, PeekOpen, Session } from '../types';
 import { useKeyPerf } from '../perf';
+import { useDevices } from '../useDevices';
 import { useCardHost, useLiveSession } from './cardHost';
 import { ProjectShown } from './ProjectSaid';
 import { SessionCard, type WindowCan } from './SessionCard';
@@ -68,18 +70,24 @@ const LOAD_WAIT_MS = 250;
 /** Where a preview (scripts/preview.sh) says which session to peek at. */
 const PREVIEW_KEY = 'codealong.preview.peek';
 
-/** A preview has no engine to open the peek: it opens on the session named for it, else the first
- *  one that needs you. */
-async function previewOpen(): Promise<PeekOpen | null> {
-  const board = await getBoard();
+/** The session a preview names for the peek or a kept window, else the first one that needs you;
+ *  `@` names a connected device's first session (PREVIEW_DEVICES). */
+async function previewKey(board: Board): Promise<string | null> {
   let key: string | null = null;
   try {
     key = window.localStorage.getItem(PREVIEW_KEY);
   } catch {
     // No storage: the first session that needs you.
   }
-  key = key || attentionRows(board, ALL_PROJECTS).rows.find((r) => r.kind === 'session')?.key || null;
-  const home = homeOf(board.lanes, key);
+  if (key === '@') return (await getDevices())?.lanes.find((l) => l.device?.online)?.sessions.find((s) => !s.visitor)?.key ?? null;
+  return key || attentionRows(board, ALL_PROJECTS).rows.find((r) => r.kind === 'session')?.key || null;
+}
+
+/** A preview has no engine to open the peek: it opens on `previewKey`'s session. */
+async function previewOpen(): Promise<PeekOpen | null> {
+  const board = await getBoard();
+  const key = await previewKey(board);
+  const home = homeOf(board.lanes, key) ?? homeOf((await getDevices())?.lanes ?? [], key);
   if (!home) return null;
   const { lane, session } = home;
   return { id: 1, lane, session, terminal: board.apps.terminal, apps: board.apps, theme: board.theme, zoom: board.zoom, room: Math.round(580 * zoomFactor(board.zoom)) + FAR + NEAR, below: true, focus: false, rename: false };
@@ -137,41 +145,47 @@ export function Peek({ kept = false, side = false }: { kept?: boolean; side?: bo
   }, [kept]);
 
   // A kept session's window knows which session it keeps; the board says the rest, once it has
-  // read the session (at launch, the window is there before the first scan is done).
+  // read the session (at launch, the window is there before the first scan is done), and for one
+  // on another Mac, your devices (useDevices.ts), as it was when last seen while that Mac is away.
+  const [keptKey, setKeptKey] = useState<string | null>(null);
+  const [keptBoard, setKeptBoard] = useState<Board | null>(null);
+  const keptElsewhere = keptKey !== null && shortOf(keptKey) !== null;
+  const found = open !== null;
+  const keptDevices = useDevices(kept && keptElsewhere && !found);
   useEffect(() => {
     if (!kept) return;
-    let stop = () => {};
     let over = false;
     const offKeys = onKeptKeys(setEngaged);
-    void (inPreview ? previewOpen().then((o) => o?.session.key ?? null) : keptSession()).then((key) => {
+    void (inPreview ? getBoard().then(previewKey) : keptSession()).then((key) => {
       if (over) return;
-      if (!key) {
-        setGone(true);
-        void keptReady();
+      if (key) {
+        setKeptKey(key);
         return;
       }
-      const take = (b: Board) => {
-        const home = homeOf(b.lanes, key);
-        if (home) {
-          setGone(false);
-          setShown(true);
-          setOpen((o) => o ?? { id: 1, lane: home.lane, session: home.session, terminal: b.apps.terminal, apps: b.apps, theme: b.theme, zoom: b.zoom, room: 0, below: true, focus: false, rename: false });
-          stop();
-        } else if (!b.loading) {
-          setGone(true);
-          void keptReady();
-        }
-      };
-      // Read once, then taken push by push (followBoard.ts): a read that didn't come back is made
-      // up for by the next push.
-      stop = followBoard(take).off;
+      setGone(true);
+      void keptReady();
     });
     return () => {
       over = true;
-      stop();
       offKeys();
     };
   }, [kept]);
+  // Read once, then taken push by push until it's found (followBoard.ts): a read that didn't come
+  // back is made up for by the next push.
+  useEffect(() => (kept && keptKey !== null && !found ? followBoard(setKeptBoard).off : undefined), [kept, keptKey, found]);
+  useEffect(() => {
+    if (!keptKey || !keptBoard || found) return;
+    const home = keptElsewhere ? keptDevices && homeOf(keptDevices.lanes, keptKey) : homeOf(keptBoard.lanes, keptKey);
+    if (home) {
+      const b = keptBoard;
+      setGone(false);
+      setShown(true);
+      setOpen((o) => o ?? { id: 1, lane: home.lane, session: home.session, terminal: b.apps.terminal, apps: b.apps, theme: b.theme, zoom: b.zoom, room: 0, below: true, focus: false, rename: false });
+    } else if (!keptBoard.loading && (!keptElsewhere || keptDevices)) {
+      setGone(true);
+      void keptReady();
+    }
+  }, [keptKey, keptBoard, keptElsewhere, keptDevices, found]);
 
   // The session as the board has it now, while the peek is up, and the board's PRs, worktrees and
   // todos for what its header says around it (cardHost.ts). Each open tells of the session
@@ -455,8 +469,7 @@ export function Peek({ kept = false, side = false }: { kept?: boolean; side?: bo
           onLoaded={loaded}
           renaming={open.rename || renameAsked === session.key}
           onRename={renamed}
-          // A kept window reads this Mac's board, which has none of another device's sessions.
-          onKeep={kept || lane.device ? undefined : keep}
+          onKeep={kept ? undefined : keep}
           onClose={kept ? () => void keptClose() : away}
           closeTitle={kept ? undefined : 'Close (esc)'}
           onSending={away}

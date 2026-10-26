@@ -234,7 +234,7 @@ mod tests {
     }
 
     fn due(c: &mut Chimer, b: &Board, cfg: &SoundsCfg) -> Option<Kind> {
-        c.due(b, &feed(b, &[]), cfg, b.generated_at)
+        c.due(b, &feed(crate::shown::Shown::here(b)), cfg, b.generated_at)
     }
 
     /// The chimer after a first board of `sessions` an hour before `NOW`, which never sounds.
@@ -360,10 +360,10 @@ mod tests {
             vec![Lane { device: Some(tag), ..crate::fixtures::lane("@abc:/a", sessions) }]
         };
         let on = |at: i64| Board { devices: crate::config::DevicesCfg { enabled: true, ..Default::default() }, ..board_at(at, vec![]) };
-        let (mut c, mut f) = (Chimer::default(), crate::barfeed::Feeder::default());
+        let (mut c, mut elsewhere) = (Chimer::default(), crate::shown::Elsewhere::default());
         let mut due = |b: &Board, lanes: &[Lane]| {
-            f.on_there(lanes);
-            c.due(b, &f.on_board(b), &cfg(), b.generated_at)
+            elsewhere.on_devices(lanes);
+            c.due(b, &feed(elsewhere.beside(b)), &cfg(), b.generated_at)
         };
         let (s1, s2) = ("@abc:claude:claude:s1", "@abc:claude:claude:s2");
         assert_eq!(due(&on(NOW - 3_600_000), &there(true, vec![session(s1, Status::Working, NOW - 3_600_000)])), None);

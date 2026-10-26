@@ -15,18 +15,17 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { below, showContextMenu, type MenuAction, type MenuSpec } from './contextMenu';
 import { useEditorIcons } from './editors';
 import { homeOf, narrowed, runsShownKey, sidesShownKey, type BoardRow, type Filter } from './lanes';
-import { answerLink, barMode, getDevices, onDevices, onBarMode, onCloseIdle, onCloseStale, onUsageMenu, onWebsiteMenu, onNewWindow, onReveal, onSettings, onSetupMenu, onCheckUpdates, openConfig, openProjectWindow, openUrl, orderAccounts, refresh, refreshUsage, scheduleOp, setBarMode, startOptions, setPinned, setPinnedPrs, setPinnedRepos, setPinnedWorktrees, setTheme, setupNeeded, showQuick, signIn, stopTraining, windowLabel, zoomWindows, onZoomMenu, WEBSITE, type BarMode, type Reveal } from './api';
+import { answerLink, barMode, onBarMode, onCloseIdle, onCloseStale, onUsageMenu, onWebsiteMenu, onNewWindow, onReveal, onSettings, onSetupMenu, onCheckUpdates, openConfig, openProjectWindow, openUrl, orderAccounts, refresh, refreshUsage, scheduleOp, setBarMode, startOptions, setPinned, setPinnedPrs, setPinnedRepos, setPinnedWorktrees, setTheme, setupNeeded, showQuick, signIn, stopTraining, windowLabel, zoomWindows, onZoomMenu, WEBSITE, type BarMode, type Reveal } from './api';
 import { count, middleTruncate } from './format';
 import * as menus from './menus';
 import { prRefOf } from './prLinks';
-import { archiveAhead, boardView, lanesAhead, observe, reviewAhead, seenAhead } from './ahead';
-import { reuse } from './reuse';
+import { archiveAhead, reviewAhead, seenAhead } from './ahead';
 import { usePins } from './pins';
 import { reviewItems as reviewItemsFor, tryAgain } from './review';
 import { START_OPTIONS_NOTICE, startOptionsFailed } from './start';
 import { itemPrimaryHolds, statusSection, todoAgent, todoInFilter, todoProjects, todoPrompt, useTodoStore, type TodoItem, type TodoSort } from './todos';
 import { repoReviews } from './repoSettings';
-import type { DevicesView, Lane, Pr, PrItem, Schedule, ScheduleItem, Session, SideGlance, StartOptions, TeamFile, Theme, Todo } from './types';
+import type { Lane, Pr, PrItem, Schedule, ScheduleItem, Session, SideGlance, StartOptions, TeamFile, Theme, Todo } from './types';
 import { showSide } from './side';
 import { shortOf, type DeviceFilter } from './devices';
 import { NEW_PROJECT, SettingsDialog, type SettingsSection } from './ui/SettingsDialog';
@@ -87,6 +86,7 @@ import { SESSION_READS, shownSession as queueShown, useWaitingQueue } from './us
 import { openWhere, where } from './open';
 import { asText, flag, oneOf, readStored, strings, useStored } from './stored';
 import { useBoard } from './useBoard';
+import { useDeviceLanes, useDevices, useObserve } from './useDevices';
 import { useTextSearch } from './useTextSearch';
 import { useLatest } from './latest';
 import { reorderKey, useMainKeys, VIEW_CHORDS } from './mainKeys';
@@ -222,18 +222,12 @@ const widthVar = (width: number | null) => (width == null ? undefined : `${width
 export function App() {
   // The board, with changes you made that the engine hasn't shown yet on top (useBoard.ts).
   const { engine: engineBoard, board, ahead, loadError, loading } = useBoard();
-  // Your other devices (src-tauri/src/peers.rs): their worktrees join this device's in every view,
-  // and the sidebar's Devices narrow the views to one of them.
-  const [devices, setDevices] = useState<DevicesView | null>(null);
+  // Your other devices (useDevices.ts): their worktrees join this device's in every view, with
+  // your changes to their sessions too, and the sidebar's Devices narrow the views to one of them.
+  const devices = useDevices();
   const [deviceFilter, setDeviceFilter] = useState<DeviceFilter>([]);
-  // Other devices' worktrees, with your changes to their sessions too.
-  const deviceLanes = useMemo(() => (devices?.enabled ? lanesAhead(devices.lanes, ahead) : []), [devices, ahead]);
-  useEffect(() => observe(boardView(engineBoard?.generatedAt ?? null, [engineBoard?.lanes ?? [], devices?.lanes ?? []])), [engineBoard, devices]);
-  useEffect(() => {
-    const show = (d: DevicesView) => setDevices((prev) => (prev ? reuse(prev, d) : d));
-    void getDevices().then((d) => d && show(d));
-    return onDevices(show);
-  }, []);
+  const deviceLanes = useDeviceLanes(devices, ahead);
+  useObserve(engineBoard, devices);
   // A project window keeps its choice to itself; the main window's is remembered.
   const [project, setProject] = useStored(WINDOW_PROJECT ? null : PROJECT_KEY, asText, WINDOW_PROJECT);
   const [bayFilter, setBayFilter] = useState<readonly Filter[]>([]);

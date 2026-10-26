@@ -10,8 +10,10 @@
 //!
 //! Each card is its own window, made the way the bar is (panel.rs): a non-activating panel, so a
 //! click in one leaves the app you're in active and never takes the keyboard. It gets what it
-//! shows cut from the board, and only when that changed, as the bar gets its feed. What's pinned
-//! and where each card was left are kept in `desktop.json` next to the config.
+//! shows cut from the board, and only when that changed, as the bar gets its feed. A session or a
+//! worktree on another of your Macs is cut from that Mac's worktrees beside the board (shown.rs),
+//! faded while the Mac is away, as it was when last seen. What's pinned and where each card was
+//! left are kept in `desktop.json` next to the config.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -23,6 +25,7 @@ use tauri::{AppHandle, Emitter, Manager, Window, WindowEvent};
 use crate::config::{support_dir, Theme};
 use crate::geometry::{clamp, place, screen_for, screen_holding, Rect, EDGE, TOP_GAP};
 use crate::model::{Board, Lane, PrItem};
+use crate::shown::Shown;
 use crate::panel;
 use crate::todos::{Label, Todo};
 
@@ -184,9 +187,10 @@ pub struct Feed {
     pub labels: Vec<Label>,
 }
 
-/// The lane a session is listed under as its own, cut down to that session.
-fn session_lane(board: &Board, key: &str) -> Option<Lane> {
-    let lane = board.lanes.iter().find(|l| l.sessions.iter().any(|s| s.key == key && s.visitor.is_none()))?;
+/// The lane a session is listed under as its own, on whichever Mac it's on, cut down to that
+/// session.
+fn session_lane(shown: Shown, key: &str) -> Option<Lane> {
+    let lane = shown.lanes().find(|l| l.sessions.iter().any(|s| s.key == key && s.visitor.is_none()))?;
     let mut lane = lane.clone();
     lane.sessions.retain(|s| s.key == key && s.visitor.is_none());
     Some(lane)
@@ -200,20 +204,22 @@ fn listed_pr(board: &Board, lane: &Lane) -> Option<PrItem> {
     board.prs.iter().find(|p| p.url == pr.url).cloned()
 }
 
-/// What a card shows, cut from the board.
-pub fn feed(board: &Board, pin: &Pinned, last_title: Option<&str>) -> Feed {
+/// What a card shows, cut from the board, or for a session or a worktree on another Mac from that
+/// Mac's worktrees beside it. Todos and PRs are this Mac's.
+pub fn feed(shown: Shown, pin: &Pinned, last_title: Option<&str>) -> Feed {
+    let board = shown.board;
     let mut lanes: Vec<Lane> = Vec::new();
     let mut todos = Vec::new();
     let mut labels = Vec::new();
     let mut prs = Vec::new();
     let title = match pin.kind {
-        Kind::Session => session_lane(board, &pin.key).map(|l| {
+        Kind::Session => session_lane(shown, &pin.key).map(|l| {
             let title = l.sessions[0].title.clone();
             prs.extend(listed_pr(board, &l));
             lanes.push(l);
             title
         }),
-        Kind::Worktree => board.lanes.iter().find(|l| l.id == pin.key).map(|l| {
+        Kind::Worktree => shown.lane(&pin.key).map(|l| {
             prs.extend(listed_pr(board, l));
             lanes.push(l.clone());
             l.callsign.clone()
@@ -709,23 +715,24 @@ fn tell(app: &AppHandle) {
 
 /// The feed for the card in this window, for its first render; after that it gets
 /// `desktop-feed` events.
-pub fn feed_for(app: &AppHandle, label: &str, board: &Board) -> Option<Feed> {
+pub fn feed_for(app: &AppHandle, label: &str, shown: Shown) -> Option<Feed> {
     let state = app.try_state::<Desktop>()?;
     let inner = state.inner.lock().ok()?;
     let (_, pin) = inner.cards.iter().find(|(l, _)| l == label)?;
-    Some(feed(board, &pin.what, pin.title.as_deref()))
+    Some(feed(shown, &pin.what, pin.title.as_deref()))
 }
 
-/// Sends each card what it shows after the engine publishes, if that changed. The board's time
-/// changes with every publish and alone doesn't send a feed.
-pub fn publish(app: &AppHandle, board: &Board) {
+/// Sends each card what it shows after the engine publishes, or your other Macs' worktrees
+/// change, if that changed. The board's time changes with every publish and alone doesn't send a
+/// feed.
+pub fn publish(app: &AppHandle, shown: Shown) {
     let Some(state) = app.try_state::<Desktop>() else { return };
     let mut out = Vec::new();
     {
         let Ok(mut inner) = state.inner.lock() else { return };
         let Inner { cards, sent, dirty, .. } = &mut *inner;
         for (label, pin) in cards.iter_mut() {
-            let mut feed = feed(board, &pin.what, pin.title.as_deref());
+            let mut feed = feed(shown, &pin.what, pin.title.as_deref());
             if feed.title.is_some() && feed.title != pin.title {
                 pin.title = feed.title.clone();
                 *dirty = true;
@@ -900,7 +907,7 @@ mod tests {
 
     #[test]
     fn a_session_comes_with_its_own_lane_cut_down_to_it() {
-        let f = feed(&board(), &Pinned { kind: Kind::Session, key: "s3".into() }, None);
+        let f = feed(Shown::here(&board()), &Pinned { kind: Kind::Session, key: "s3".into() }, None);
         assert_eq!(f.title.as_deref(), Some("Title s3"));
         assert_eq!(f.lanes.len(), 1);
         // Listed under /a as a visitor, its own lane is /b.
@@ -910,14 +917,14 @@ mod tests {
 
     #[test]
     fn a_worktree_comes_with_all_its_sessions() {
-        let f = feed(&board(), &Pinned { kind: Kind::Worktree, key: "/a".into() }, None);
+        let f = feed(Shown::here(&board()), &Pinned { kind: Kind::Worktree, key: "/a".into() }, None);
         assert_eq!(f.title.as_deref(), Some("cs-/a"));
         assert_eq!(keys(&f.lanes[0]), ["s1", "s2", "s3"]);
     }
 
     #[test]
     fn a_todo_comes_with_its_worktrees_sessions_and_labels() {
-        let f = feed(&board(), &Pinned { kind: Kind::Todo, key: "t1".into() }, None);
+        let f = feed(Shown::here(&board()), &Pinned { kind: Kind::Todo, key: "t1".into() }, None);
         assert_eq!(f.title.as_deref(), Some("Todo t1"));
         let lanes: Vec<(&str, Vec<&str>)> = f.lanes.iter().map(|l| (l.id.as_str(), keys(l))).collect();
         assert_eq!(lanes, [("/a", vec!["s2"]), ("/b", vec!["s3"]), ("/c", vec![])]);
@@ -949,7 +956,7 @@ mod tests {
         b.lanes[0].pr = Some(pr("https://github.com/o/r/pull/7"));
         b.lanes[1].pr = Some(pr("https://github.com/o/r/pull/8"));
         b.prs = vec![pr7()];
-        let prs = |kind: Kind, key: &str| feed(&b, &Pinned { kind, key: key.into() }, None).prs.into_iter().map(|p| p.key).collect::<Vec<_>>();
+        let prs = |kind: Kind, key: &str| feed(Shown::here(&b), &Pinned { kind, key: key.into() }, None).prs.into_iter().map(|p| p.key).collect::<Vec<_>>();
         assert_eq!(prs(Kind::Worktree, "/a"), ["o/r#7"]);
         assert_eq!(prs(Kind::Session, "s1"), ["o/r#7"]);
         // #8 isn't on the board: the card opens it on GitHub.
@@ -962,7 +969,7 @@ mod tests {
     fn a_pr_comes_with_the_worktrees_that_hold_it_and_the_sessions_that_worked_on_it() {
         let mut b = board();
         b.prs = vec![pr7()];
-        let f = feed(&b, &Pinned { kind: Kind::Pr, key: "o/r#7".into() }, None);
+        let f = feed(Shown::here(&b), &Pinned { kind: Kind::Pr, key: "o/r#7".into() }, None);
         assert_eq!(f.title.as_deref(), Some("#7 Fix it"));
         assert_eq!(f.prs.len(), 1);
         let lanes: Vec<(&str, Vec<&str>)> = f.lanes.iter().map(|l| (l.id.as_str(), keys(l))).collect();
@@ -972,8 +979,26 @@ mod tests {
     }
 
     #[test]
+    fn a_session_or_worktree_on_another_mac_comes_from_its_worktrees_beside_the_board() {
+        let tag = crate::model::DeviceTag { name: "Mac mini".into(), short: "abc".into(), color: "teal".into(), online: false, last_seen: Some(1) };
+        let there = Lane { device: Some(tag), ..lane("@abc:/x", vec![session("@abc:s9", false), session("@abc:s8", false)]) };
+        let mut elsewhere = crate::shown::Elsewhere::default();
+        elsewhere.on_devices(&[there]);
+        let b = board();
+        let f = feed(elsewhere.beside(&b), &Pinned { kind: Kind::Session, key: "@abc:s9".into() }, None);
+        assert_eq!(f.title.as_deref(), Some("Title @abc:s9"));
+        // Its Mac is away: it shows as it was when last seen, with the device it's on.
+        assert_eq!(keys(&f.lanes[0]), ["@abc:s9"]);
+        assert!(f.lanes[0].device.as_ref().is_some_and(|d| !d.online));
+        let f = feed(elsewhere.beside(&b), &Pinned { kind: Kind::Worktree, key: "@abc:/x".into() }, None);
+        assert_eq!(keys(&f.lanes[0]), ["@abc:s9", "@abc:s8"]);
+        // Without them, nothing: the card keeps its last title.
+        assert!(feed(Shown::here(&b), &Pinned { kind: Kind::Session, key: "@abc:s9".into() }, Some("Old")).lanes.is_empty());
+    }
+
+    #[test]
     fn a_thing_the_board_lost_keeps_its_last_title() {
-        let f = feed(&board(), &Pinned { kind: Kind::Todo, key: "gone".into() }, Some("Old title"));
+        let f = feed(Shown::here(&board()), &Pinned { kind: Kind::Todo, key: "gone".into() }, Some("Old title"));
         assert_eq!(f.title.as_deref(), Some("Old title"));
         assert!(f.lanes.is_empty() && f.todos.is_empty());
     }

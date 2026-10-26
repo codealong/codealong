@@ -26,8 +26,8 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { PrTab } from '../agentReview';
-import { getDevices, onDevices, onWaitingHidden, onWaitingOpen, showMain, waitingAsked, type WaitingOpen } from '../api';
-import { boardAhead, boardView, lanesAhead, observe, renameAhead, sentWorthSaying, useAhead } from '../ahead';
+import { onWaitingHidden, onWaitingOpen, showMain, waitingAsked, type WaitingOpen } from '../api';
+import { boardAhead, renameAhead, sentWorthSaying, useAhead } from '../ahead';
 import { prCardItem } from '../boardLists';
 import { showContextMenu, type MenuSpec } from '../contextMenu';
 import { deviceOf, floatingLanes } from '../devices';
@@ -45,7 +45,8 @@ import { ALL_PROJECTS, attentionRows, QUEUE_READS, queueRows, reviewSince, type 
 import { errorText, type Report } from '../report';
 import { reuse } from '../reuse';
 import { repoReviews } from '../repoSettings';
-import type { Board, DevicesView, Lane, PrItem, Session } from '../types';
+import type { Board, Lane, PrItem, Session } from '../types';
+import { useDeviceLanes, useDevices, useObserve } from '../useDevices';
 import { shownSession, useWaitingQueue } from '../useWaitingQueue';
 import { dialogUp } from './focusTrap';
 import { PrCard, type CameFrom, type PrWindowCan } from './PrCard';
@@ -105,21 +106,13 @@ export function Waiting() {
     return following.off;
   }, [up, opened]);
   // Your other devices' sessions wait here too, the connected ones' (devices.ts `floatingLanes`),
-  // with what any window changed of them.
-  const [devices, setDevices] = useState<DevicesView | null>(null);
-  useEffect(() => {
-    if (!up) return;
-    const take = (d: DevicesView) => setDevices((prev) => (prev ? reuse(prev, d) : d));
-    // The next push brings them, when a read doesn't.
-    getDevices().then((d) => d && take(d), () => {});
-    return onDevices(take);
-  }, [up]);
-  const there = useMemo(() => lanesAhead(floatingLanes(engineBoard?.devices, devices), ahead), [engineBoard?.devices, devices, ahead]);
+  // with what any window changed of them (useDevices.ts).
+  const devices = useDevices(up);
+  const deviceLanes = useDeviceLanes(devices, ahead);
+  const there = useMemo(() => floatingLanes(engineBoard?.devices, deviceLanes), [engineBoard?.devices, deviceLanes]);
   const everywhere = useMemo(() => (board && there.length > 0 ? { ...board, lanes: board.lanes.concat(there) } : board), [board, there]);
   // What it knows of the changes ahead of the engine follows the board while it's up.
-  useEffect(() => {
-    if (up && engineBoard) observe(boardView(engineBoard.generatedAt, [engineBoard.lanes, devices?.lanes ?? []]));
-  }, [up, engineBoard, devices]);
+  useObserve(engineBoard, devices, up && !!engineBoard);
 
   // The session shown, while it's on the board or another device's.
   const replying = useMemo(() => {

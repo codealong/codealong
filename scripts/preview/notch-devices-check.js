@@ -2,7 +2,7 @@
 // pill carries its device's color and says the device in its tooltip, a click opens the notch on
 // it with its conversation read from that device (session_at, which finds it among your devices'
 // worktrees) and its header saying the device, still so after going on to another of that
-// device's, and it can't be kept on the desktop nor dragged there, as this Mac's can.
+// device's, and it can be kept on the desktop and its pill dragged there, as this Mac's can.
 //   PREVIEW_DEVICES=scripts/preview/devices-sample.json PREVIEW_SIZE=1512,980 PREVIEW_WAIT=60000 scripts/preview.sh notch '' scripts/preview/notch-devices-check.js
 (function () {
   var notch = function () { return document.querySelector('.ca-notch'); };
@@ -57,10 +57,6 @@
       check('another device’s pill has its color', !!dot && dot.classList.contains('is-' + theirs.device.color), dot ? dot.className : 'none');
       check('and says the device', (pill(theirs.key).title || '').indexOf('On ' + theirs.device.name) >= 0, pill(theirs.key).title);
       check('this Mac’s has none', !pill(mine.key).querySelector('.ca-labeldot') && (pill(mine.key).title || '').indexOf(' · On ') < 0, pill(mine.key).title);
-      pointer(pill(theirs.key), 'pointerdown', 100, 20);
-      pointer(pill(theirs.key), 'pointermove', 104, 22);
-      pointer(pill(theirs.key), 'pointermove', 140, 80);
-      check('it isn’t dragged onto the desktop', calls('drag_to_desktop').length === 0, String(calls('drag_to_desktop').length));
       pill(theirs.key).dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }));
       return until(function () { return is('session') && title().indexOf(theirs.title.slice(0, 20)) === 0; }, 5000, 'its session');
     })
@@ -68,7 +64,7 @@
     .then(function () {
       check('a click opens the notch on it', is('session') && is('open'), title());
       check('read through session_at', sent('session_at').some(function (a) { return a.key === theirs.key; }));
-      check('it can’t be kept on the desktop', !keep());
+      check('it can be kept on the desktop', !!keep());
       check('its header says the device', badge() === 'On ' + theirs.device.name, badge() || 'none');
       pill(next.key).click();
       return until(function () { return is('session') && title().indexOf(next.title.slice(0, 20)) === 0; }, 5000, 'the device’s next session');
@@ -81,7 +77,12 @@
     })
     .then(function () { return wait(400); })
     .then(function () {
-      check('this Mac’s can', !!keep());
+      check('as this Mac’s can', !!keep());
+      pointer(pill(theirs.key), 'pointerdown', 100, 20);
+      pointer(pill(theirs.key), 'pointermove', 104, 22);
+      pointer(pill(theirs.key), 'pointermove', 140, 80);
+      var d = last('drag_to_desktop');
+      check('its pill is dragged onto the desktop', !!d && d.pin.ref === 'session' && d.pin.key === theirs.key, JSON.stringify(d));
       done();
     })
     .catch(stopped);

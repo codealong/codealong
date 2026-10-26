@@ -328,7 +328,7 @@ fn print_board(args: &Args) -> i32 {
     let started = std::time::Instant::now();
     let board = engine::snapshot(!args.has("--no-github"), args.has("--usage"));
     if args.has("--bar") {
-        println!("{}", pretty(&barfeed::feed(&board, &[])));
+        println!("{}", pretty(&barfeed::feed(crate::shown::Shown::here(&board))));
         return 0;
     }
     if args.has("--table") {

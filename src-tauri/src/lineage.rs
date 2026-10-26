@@ -17,7 +17,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use crate::config::Theme;
 use crate::desktop;
 use crate::geometry::{screen_at, PageRect, Rect, Screen, CARD_MARGIN};
-use crate::model::Board;
+use crate::shown::Shown;
 use crate::panel;
 
 pub const LABEL: &str = "lineage";
@@ -74,13 +74,13 @@ pub fn setup(app: &AppHandle) {
     app.manage(Lineage::default());
 }
 
-/// Keeps what came of what from each board the engine publishes, and makes the window once two
-/// cards on the desktop are tied that way.
-pub fn publish(app: &AppHandle, board: &Board) {
+/// Keeps what came of what from each board the engine publishes, with your other Macs' sessions
+/// beside it (shown.rs), and makes the window once two cards on the desktop are tied that way.
+pub fn publish(app: &AppHandle, shown: Shown) {
     let Some(st) = app.try_state::<Lineage>() else { return };
-    let pairs: Vec<(String, String)> = board
-        .lanes
-        .iter()
+    let board = shown.board;
+    let pairs: Vec<(String, String)> = shown
+        .lanes()
         .flat_map(|l| l.sessions.iter())
         .filter(|s| s.visitor.is_none())
         .filter_map(|s| s.origin.as_ref().map(|o| (o.key.clone(), s.key.clone())))

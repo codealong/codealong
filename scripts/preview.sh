@@ -49,7 +49,8 @@
 # a side conversation's window (520,640) and the waiting window (default 820,760, an ordinary window, so on no desktop) open on
 # PREVIEW_TRANSCRIPT's session when there is one, else on the first that needs you.
 # A desktop card (default 360,300) shows PREVIEW_PIN: `session`, `worktree`, `todo` or `pr` for the
-# latest session, the latest worktree with sessions, the first todo or a PR with sessions, or `<ref>:<key>` for one.
+# latest session, the latest worktree with sessions, the first todo or a PR with sessions, or `<ref>:<key>` for one;
+# with PREVIEW_DEVICES, `session:@` or `worktree:@` for a connected device's (`@<short>` for that device's).
 #
 # PREVIEW_TODOS=<file> shows the todos in it (scripts/preview/todos-sample.json has some) in
 # place of yours; "$lane:N" and "$session:N" in it stand for the project's Nth most recent

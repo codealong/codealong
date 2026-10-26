@@ -31,12 +31,12 @@ export function withDevices(here: Lane[], there: Lane[], picked: DeviceFilter): 
   return theirs.length === 0 ? mine : mine.concat(theirs);
 }
 
-/** Your other devices' worktrees that the windows that float list beside this device's, as the
- *  bar's feed has them (barfeed.rs `feed`): those of the devices connected now, unless `[devices]
- *  in_bar` is off. One that's away can't be answered from here. */
-export function floatingLanes(cfg: DevicesCfg | undefined, view: DevicesView | null): Lane[] {
-  if (!cfg?.enabled || cfg.in_bar === false || !view?.enabled) return [];
-  return view.lanes.filter((l) => l.device?.online);
+/** Of your other devices' worktrees, the ones the windows that float list beside this device's, as
+ *  the bar's feed has them (barfeed.rs `feed`): those of the devices connected now, unless
+ *  `[devices] in_bar` is off. One that's away can't be answered from here. */
+export function floatingLanes(cfg: DevicesCfg | undefined, lanes: Lane[]): Lane[] {
+  if (!cfg?.enabled || cfg.in_bar === false) return [];
+  return lanes.filter((l) => l.device?.online);
 }
 
 /** How many of a device's sessions need you, for its row in the sidebar. */

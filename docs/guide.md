@@ -3190,10 +3190,11 @@ name; work on a device that's away stays, faded, as it was when last seen; the s
 narrow the views to the ones you pick. What waits on you on a device that's connected waits here
 too: its sessions are on the floating bar and in the notch, each pill with the device's color
 after its title, in Waiting on you, and on the mark, and they sound as this Mac's do (*Sounds*);
-one shown in the notch, the peek or Waiting on you says the device in its header, and it can't be
-kept or pinned on the desktop, whose cards read only this Mac's. A device that's away leaves them
-until it's back. Settings › Devices' *Show their sessions in the bar and the notch* (`[devices]
-in_bar`) turns that off, for each Mac's bar to be its own. A session on another device shows its
+one shown in the notch, the peek or Waiting on you says the device in its header. A device that's
+away leaves them until it's back. Settings › Devices' *Show their sessions in the bar and the
+notch* (`[devices] in_bar`) turns that off, for each Mac's bar to be its own. A session or a
+worktree on another device can be pinned to the desktop or kept there as this Mac's are; while its
+device is away, its card shows it faded, as it was when last seen. A session on another device shows its
 whole conversation in its panel, read from that device as it shows: when the device is away for a moment, what the panel
 already shows stays (a notice says it isn't updating), one opened meanwhile says the device isn't
 connected, and either is read again once the device is back. You can mark it seen or snooze it

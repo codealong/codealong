@@ -13,8 +13,7 @@
 // (NotchSession.tsx), where its conversation is read and answered and the ones that wait on you
 // are worked through in turn. There a session picked from a folded pill's menu or from the recent
 // ones shows the same way, and a count beside the camera shows its group's first. Your other
-// devices' sessions are among the pills (barfeed.rs), each with its device's color; one of theirs
-// isn't dragged onto the desktop, whose cards read this Mac's board.
+// devices' sessions are among the pills (barfeed.rs), each with its device's color.
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -652,7 +651,7 @@ export function Bar() {
    *  the pointer onto the desktop, pinned where you let go, or put back if that's on the bar. */
   const dragPill = (i: BarItem, e: PointerEvent<HTMLElement>) => {
     const p = press.current;
-    if (i.device || !p || p.key !== i.key || p.dragged || !(e.buttons & 1) || Math.abs(e.screenX - p.x) + Math.abs(e.screenY - p.y) < DRAG_AFTER) return;
+    if (!p || p.key !== i.key || p.dragged || !(e.buttons & 1) || Math.abs(e.screenX - p.x) + Math.abs(e.screenY - p.y) < DRAG_AFTER) return;
     p.dragged = true;
     stopHover();
     if (clickTimer.current != null) window.clearTimeout(clickTimer.current);

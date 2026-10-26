@@ -10,7 +10,7 @@
 
 import { useCallback, useMemo, useRef, useState, useEffect } from 'react';
 import type { PrTab } from '../agentReview';
-import { barNote, getBoard, getDevices, onDevices, prAt, showMain, zoomWindows } from '../api';
+import { barNote, getBoard, prAt, showMain, zoomWindows } from '../api';
 import { boardView, lanesAhead, observe, useAhead } from '../ahead';
 import { showContextMenu } from '../contextMenu';
 import { deviceOf, shortOf } from '../devices';
@@ -22,7 +22,8 @@ import { openWhere, where } from '../open';
 import { prRefOf } from '../prLinks';
 import { errorText, type Report } from '../report';
 import { reuse } from '../reuse';
-import type { Board, DeviceView, DevicesView, Lane, PrItem, Session, Theme, Todo, Usage } from '../types';
+import type { Board, DeviceView, Lane, PrItem, Session, Theme, Todo, Usage } from '../types';
+import { useDevices, useObserve } from '../useDevices';
 import { zoomStep } from '../zoom';
 import { usePrLinks } from './PrLink';
 import type { CardBoard } from './SessionCard';
@@ -55,15 +56,14 @@ export interface LiveSession {
 /** The session `told` of, kept up with the board while it's `shown`: the windows that show one
  *  don't get the board otherwise, so it's asked for as the card shows and then taken from the
  *  pushes that come while it's up. One on another device is kept up the same way from what your
- *  devices say (`devices` events); the board still says the theme, the zoom and what's around it
+ *  devices say (useDevices.ts); the board still says the theme, the zoom and what's around it
  *  here. What a push says counts only for the telling it came under: told of a session again, the
  *  window shows it as told, which is newer. */
 export function useLiveSession(told: Told | null, shown: boolean): LiveSession {
   const [live, setLive] = useState<{ under: Told; lane: Lane; session: Session; theme: Theme; zoom: number | null } | null>(null);
   const [there, setThere] = useState<{ under: Told; lane: Lane; session: Session } | null>(null);
-  // Your devices as they last said, for the device of whichever session is shown: going from one
-  // of theirs to another reads them again only as they change.
-  const [devices, setDevices] = useState<DevicesView | null>(null);
+  // The board as it came last, which the changes shown ahead of the engine settle by.
+  const [engine, setEngine] = useState<Board | null>(null);
   // The theme and zoom as the latest push says, for one the board doesn't list (another device's).
   const [look, setLook] = useState<{ theme: Theme; zoom: number | null } | null>(null);
   const [board, setBoard] = useState<CardBoard | null>(null);
@@ -82,8 +82,8 @@ export function useLiveSession(told: Told | null, shown: boolean): LiveSession {
     if (!up) return;
     // The board's pushes come while the card is up, so one that didn't read comes with the next.
     const f = followBoard((b, how) => {
+      setEngine(b);
       if (how === 'push') {
-        observe(boardView(b.generatedAt, [b.lanes]));
         const under = toldNow.current;
         const home = under && homeOf(b.lanes, under.session.key);
         if (under && home) setLive({ under, ...home, theme: b.theme, zoom: b.zoom ?? null });
@@ -98,26 +98,16 @@ export function useLiveSession(told: Told | null, shown: boolean): LiveSession {
     };
   }, [up, takeBoard]);
 
-  // Another device's session, from what your devices say: read as the card shows, then each push.
+  // Another device's session, from what your devices say: read as the card shows, then each push,
+  // which counts for the telling it came under as the board's do. The latest view says its device
+  // for whichever of theirs is shown.
+  const devices = useDevices(up && elsewhere);
   useEffect(() => {
-    if (!up || !elsewhere) return;
-    let over = false;
-    const take = (d: DevicesView) => {
-      if (over) return;
-      // Its time isn't this board's: a change shown ahead goes once this view shows it.
-      observe(boardView(null, [d.lanes]));
-      setDevices(d);
-      const under = toldNow.current;
-      const home = under && homeOf(d.lanes, under.session.key);
-      if (under && home) setThere({ under, ...home });
-    };
-    void getDevices().then((d) => d && take(d), () => {});
-    const off = onDevices(take);
-    return () => {
-      over = true;
-      off();
-    };
-  }, [up, elsewhere]);
+    const under = toldNow.current;
+    const home = devices && under && homeOf(devices.lanes, under.session.key);
+    if (under && home) setThere({ under, ...home });
+  }, [devices]);
+  useObserve(engine, devices, up);
 
   const ahead = useAhead();
   const now = live && live.under === told ? live : null;

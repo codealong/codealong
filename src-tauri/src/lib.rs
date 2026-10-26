@@ -98,6 +98,7 @@ mod schedules;
 mod search;
 mod setup;
 mod shared;
+mod shown;
 mod side;
 mod skills;
 mod sounds;
@@ -577,9 +578,8 @@ async fn open_from_bar(app: tauri::AppHandle, engine: State<'_, engine::Handle>,
 /// the desktop (where the window's page measured it), with `focus` ready to type into, or with
 /// `rename` its name ready to change (peek.rs).
 #[tauri::command]
-fn peek_open(app: tauri::AppHandle, window: tauri::WebviewWindow, engine: State<'_, engine::Handle>, bars: State<'_, BarFeeds>, key: String, pill: Option<geometry::PageRect>, focus: Option<bool>, rename: Option<bool>) -> Result<(), String> {
-    let there = bars.session(&key);
-    let target = engine.read(|b| peek::target(b, there, &key)).ok_or_else(|| "That session isn't on the board any more.".to_string())?;
+fn peek_open(app: tauri::AppHandle, window: tauri::WebviewWindow, engine: State<'_, engine::Handle>, floating: State<'_, Floating>, key: String, pill: Option<geometry::PageRect>, focus: Option<bool>, rename: Option<bool>) -> Result<(), String> {
+    let target = engine.read(|b| floating.read(b, |shown| peek::target(shown, &key))).ok_or_else(|| "That session isn't on the board any more.".to_string())?;
     let rename = rename.unwrap_or(false);
     // Kept on the desktop, it's up already: its own window comes forward, to type into if asked.
     if !rename && kept::raise_session(&app, &key, focus.unwrap_or(false)) {
@@ -619,12 +619,13 @@ fn pr_at(engine: State<'_, engine::Handle>, key: String) -> Option<PrAt> {
 }
 
 #[tauri::command(async)]
-fn session_at(engine: State<'_, engine::Handle>, bars: State<'_, BarFeeds>, key: String) -> Option<SessionAt> {
-    // From the worktree it runs in, not one it only visits; another device's as the bar has it.
-    let there = bars.session(&key);
+fn session_at(engine: State<'_, engine::Handle>, floating: State<'_, Floating>, key: String) -> Option<SessionAt> {
+    // From the worktree it runs in, not one it only visits, on whichever Mac it's on.
     engine.read(|b| {
-        let (lane, session) = there.or_else(|| b.session(&key).map(|(l, s)| (l.clone(), s.clone())))?;
-        Some(SessionAt { lane, session, apps: b.apps.clone() })
+        floating.read(b, |shown| {
+            let (lane, session) = shown.session(&key)?;
+            Some(SessionAt { lane: lane.clone(), session: session.clone(), apps: b.apps.clone() })
+        })
     })
 }
 
@@ -719,27 +720,29 @@ fn side_windows(app: tauri::AppHandle) -> Vec<String> {
 
 /// What the floating bar shows, for its first render; after that it gets `bar-feed` events.
 #[tauri::command(async)]
-fn bar_feed(engine: State<'_, engine::Handle>, bars: State<'_, BarFeeds>) -> barfeed::BarFeed {
-    let board = engine.board();
-    bars.0.lock().map(|held| held.0.on_board(&board)).unwrap_or_else(|_| barfeed::feed(&board, &[]))
+fn bar_feed(engine: State<'_, engine::Handle>, floating: State<'_, Floating>) -> barfeed::BarFeed {
+    engine.read(|b| floating.read(b, barfeed::feed))
 }
 
-/// Your other devices' worktrees beside each board, for the bar's feed (barfeed.rs `Feeder`), and
-/// the sound that goes with each feed (sounds.rs). A board and those worktrees each cut the feed
-/// (`publish`), under this one lock, so the bar and its sounds go by the feeds in the order they
-/// were cut.
+/// What the windows that float are cut from beside each board: your other Macs' worktrees
+/// (shown.rs `Elsewhere`), and the sound that goes with the bar's feed (sounds.rs). A board and
+/// those worktrees each come on their own, so each publishes the bar's feed, the desktop cards and
+/// the lines between them with the other's latest (`publish`), under this one lock, so the bar and
+/// its sounds go by the feeds in the order they were cut.
 #[derive(Clone, Default)]
-struct BarFeeds(std::sync::Arc<std::sync::Mutex<(barfeed::Feeder, sounds::Chimer)>>);
+struct Floating(std::sync::Arc<std::sync::Mutex<(shown::Elsewhere, sounds::Chimer)>>);
 
-impl BarFeeds {
-    /// Makes `change` to the feeder, then, with a board, cuts the bar's feed, plays the sound for
-    /// what came to wait on you by then (`now`, `Chimer::due`) and sends the bar the feed.
-    fn publish(&self, app: &tauri::AppHandle, board: Option<&model::Board>, now: i64, change: impl FnOnce(&mut barfeed::Feeder)) {
+impl Floating {
+    /// Makes `change` to your other Macs' worktrees, then, with a board, cuts the bar's feed, plays
+    /// the sound for what came to wait on you by then (`now`, `Chimer::due`), and sends the bar,
+    /// the desktop cards and the lines between them what they show.
+    fn publish(&self, app: &tauri::AppHandle, board: Option<&model::Board>, now: i64, change: impl FnOnce(&mut shown::Elsewhere)) {
         let Ok(mut held) = self.0.lock() else { return };
-        let (feeder, chimer) = &mut *held;
-        change(feeder);
+        let (elsewhere, chimer) = &mut *held;
+        change(elsewhere);
         let Some(board) = board else { return };
-        let feed = feeder.on_board(board);
+        let shown = elsewhere.beside(board);
+        let feed = barfeed::feed(shown);
         // On a thread of its own, since the first one waits on macOS's audio to start.
         if let Ok(cfg) = config::current() {
             if let Some(kind) = chimer.due(board, &feed, &cfg.sounds, now) {
@@ -752,12 +755,17 @@ impl BarFeeds {
             }
         }
         bar::publish(app, feed);
+        desktop::publish(app, shown);
+        lineage::publish(app, shown);
     }
 
-    /// A session on another device the bar may list, with its worktree there.
-    fn session(&self, key: &str) -> Option<(model::Lane, model::Session)> {
-        let held = self.0.lock().ok()?;
-        held.0.session(key).map(|(l, s)| (l.clone(), s.clone()))
+    /// What the windows show with `board` (shown.rs), for a command that cuts something of it.
+    /// The board's lock is taken before this one, as the engine's publish takes them.
+    fn read<T>(&self, board: &model::Board, f: impl FnOnce(shown::Shown) -> T) -> T {
+        match self.0.lock() {
+            Ok(held) => f(held.0.beside(board)),
+            Err(_) => f(shown::Shown::here(board)),
+        }
     }
 }
 
@@ -789,8 +797,8 @@ fn unpin_from_desktop(app: tauri::AppHandle, pin: desktop::Pinned) {
 
 /// What a desktop card shows, for its first render; after that it gets `desktop-feed` events.
 #[tauri::command]
-fn desktop_feed(app: tauri::AppHandle, window: tauri::Window, engine: State<'_, engine::Handle>) -> Option<desktop::Feed> {
-    engine.read(|b| desktop::feed_for(&app, window.label(), b))
+fn desktop_feed(app: tauri::AppHandle, window: tauri::Window, engine: State<'_, engine::Handle>, floating: State<'_, Floating>) -> Option<desktop::Feed> {
+    engine.read(|b| floating.read(b, |shown| desktop::feed_for(&app, window.label(), shown)))
 }
 
 /// A desktop card's page measured itself.
@@ -2167,15 +2175,15 @@ pub fn run() {
             zoom::follow(app.handle(), config::zoom());
             let shown = std::sync::Mutex::new(theme);
             let shown_logo = std::sync::Mutex::new(model::LogoStatus::Idle);
-            let bars = BarFeeds::default();
-            app.manage(bars.clone());
+            let floating = Floating::default();
+            app.manage(floating.clone());
             let shortcuts = config::shortcuts();
             let shortcut = std::sync::Mutex::new(quick::Keys::ALL.map(|which| which.in_config(&shortcuts).to_string()));
             // Your other devices (peers.rs). They come before the engine, which publishes to them,
             // and ask it for the board and for answers once it's there.
             let engine_slot: std::sync::Arc<std::sync::OnceLock<engine::Handle>> = Default::default();
             let peers = {
-                let (boards, answers, emits, runs, sides, bars) = (engine_slot.clone(), engine_slot.clone(), app.handle().clone(), engine_slot.clone(), app.handle().clone(), bars.clone());
+                let (boards, answers, emits, runs, sides, floating) = (engine_slot.clone(), engine_slot.clone(), app.handle().clone(), engine_slot.clone(), app.handle().clone(), floating.clone());
                 peers::Peers::new(
                     config::support_dir(),
                     peers::Hooks {
@@ -2186,15 +2194,15 @@ pub fn run() {
                         }),
                         emit: Box::new(move |view| {
                             // The engine goes by what they run too (nudges.rs `running_elsewhere`),
-                            // and the bar lists what waits on you there, with the board as it is.
-                            let there = |f: &mut barfeed::Feeder| f.on_there(&view.lanes);
+                            // and the windows that float show them beside the board as it is.
+                            let there = |e: &mut shown::Elsewhere| e.on_devices(&view.lanes);
                             match runs.get() {
                                 Some(engine) => {
                                     engine.peer_lanes(&view.lanes);
                                     engine.peer_machines(view.machines.clone());
-                                    engine.read(|board| bars.publish(&emits, Some(board), util::now_ms(), there));
+                                    engine.read(|board| floating.publish(&emits, Some(board), util::now_ms(), there));
                                 }
-                                None => bars.publish(&emits, None, 0, there),
+                                None => floating.publish(&emits, None, 0, there),
                             }
                             let _ = emits.emit("devices", view);
                         }),
@@ -2243,10 +2251,9 @@ pub fn run() {
                     }
                 }
                 let _ = emitter.emit("board", board);
-                // With a sound for what came to wait on you (sounds.rs).
-                bars.publish(&emitter, Some(board), board.generated_at, |_| {});
-                desktop::publish(&emitter, board);
-                lineage::publish(&emitter, board);
+                // The bar with a sound for what came to wait on you (sounds.rs), the desktop cards
+                // and the lines between them.
+                floating.publish(&emitter, Some(board), board.generated_at, |_| {});
                 publishes.publish(board);
                 // Only once there's a handle to move them with, so a board before that leaves them due.
                 if let (Some(engine), Ok(mut mover)) = (moves_with.get(), mover.lock()) {

@@ -441,12 +441,22 @@ window.__TAURI_INTERNALS__ = {
     // A card pinned to the desktop (preview.sh desktop): PREVIEW_PIN's session, worktree, todo or
     // PR (`<ref>:<key>`), cut from the board as desktop.rs cuts it. A ref alone takes the latest
     // worktree with sessions, the latest session, the first todo, or the first PR with a session.
+    // A session or worktree on another device (PREVIEW_DEVICES) is cut from its worktrees: `@` for
+    // the first of a connected device's, `@<short>` for the first of that device's.
     if (cmd === 'desktop_feed') {
-      return window.__TAURI_INTERNALS__.invoke('get_board').then(function (board) {
+      return Promise.all([window.__TAURI_INTERNALS__.invoke('get_board'), window.__TAURI_INTERNALS__.invoke('devices')]).then(function (all) {
+        var board = all[0];
+        var there = all[1] ? all[1].lanes : [];
         var pin = window.__CODEALONG_PIN__ || 'session';
         var at = pin.indexOf(':');
         var ref = at < 0 ? pin : pin.slice(0, at);
         var key = at < 0 ? '' : pin.slice(at + 1);
+        if (key.charAt(0) === '@' && key.indexOf(':') < 0) {
+          var short = key.slice(1);
+          var on = there.filter(function (l) { return short ? l.device.short === short : l.device.online; }).filter(function (l) { return l.sessions.some(function (s) { return !s.visitor; }); })[0];
+          key = !on ? '' : ref === 'worktree' ? on.id : on.sessions.filter(function (s) { return !s.visitor; })[0].key;
+        }
+        var everywhere = board.lanes.concat(there);
         var lanes = board.lanes.filter(function (l) { return !l.hidden; }).sort(function (a, b) { return b.lastActivity - a.lastActivity; });
         var own = function (l) { return l.sessions.filter(function (s) { return !s.visitor && !s.archived; }); };
         if (!key && ref === 'worktree') key = (lanes.find(function (l) { return own(l).length > 1; }) || lanes[0] || {}).id;
@@ -456,13 +466,13 @@ window.__TAURI_INTERNALS__ = {
         var feed = { pin: { ref: ref, key: key }, title: null, loading: false, generatedAt: board.generatedAt, theme: board.theme, terminal: board.apps.terminal, editor: board.apps.editor, editorId: board.apps.editorId, editors: board.apps.editors || [], lanes: [], prs: [], todos: [], labels: [] };
         var cut = function (l, keep) { return Object.assign({}, l, { sessions: l.sessions.filter(keep) }); };
         if (ref === 'session') {
-          var home = board.lanes.find(function (l) { return l.sessions.some(function (s) { return s.key === key && !s.visitor; }); });
+          var home = everywhere.find(function (l) { return l.sessions.some(function (s) { return s.key === key && !s.visitor; }); });
           if (home) {
             feed.lanes = [cut(home, function (s) { return s.key === key && !s.visitor; })];
             feed.title = feed.lanes[0].sessions[0].title;
           }
         } else if (ref === 'worktree') {
-          var lane = board.lanes.find(function (l) { return l.id === key; });
+          var lane = everywhere.find(function (l) { return l.id === key; });
           if (lane) {
             feed.lanes = [lane];
             feed.title = lane.callsign;

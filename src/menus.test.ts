@@ -156,9 +156,9 @@ describe('sessionMenu', () => {
     expect(there).toContain('Mark as done');
     expect(there).not.toContain('New session here…');
     expect(labels(sessionMenu(remoteLane, remote, { ...base, newSession: noop }))).toContain('New session here…');
-    // A desktop card reads this Mac's board.
-    expect(has(remote, 'Pin to desktop', { desktop: new Set() })).toBe(false);
-    expect(has(session(), 'Pin to desktop', { desktop: new Set() })).toBe(true);
+    // A card on the desktop shows it from that device's worktrees, and its menu takes it off.
+    expect(has(remote, 'Pin to desktop', { desktop: new Set() })).toBe(true);
+    expect(has(remote, 'Remove from desktop', { desktop: new Set(['session:@ab12:claude:c:1']) })).toBe(true);
   });
 
   it('moves to another worktree on this Mac, by project, or to a chat of its own', () => {

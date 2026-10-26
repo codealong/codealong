@@ -2343,8 +2343,8 @@ pub use codealong_peer::model::ELSEWHERE;
 /// Match the floating bar's scope: all visible projects, without archived sessions, duplicate
 /// visitors, or helpers and headless runs that don't need you. An open review request you
 /// haven't snoozed also needs the user's attention.
-pub fn logo_status(lanes: &[Lane], prs: &[PrItem]) -> LogoStatus {
-    let sessions = lanes.iter().filter(|l| !l.hidden).flat_map(|l| &l.sessions)
+pub fn logo_status<'a>(lanes: impl IntoIterator<Item = &'a Lane>, prs: &[PrItem]) -> LogoStatus {
+    let sessions = lanes.into_iter().filter(|l| !l.hidden).flat_map(|l| &l.sessions)
         .filter(|s| !s.archived && s.visitor.is_none() && !s.unattended())
         .map(|s| match s.status {
             Status::Working => LogoStatus::Working,

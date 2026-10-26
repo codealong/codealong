@@ -243,7 +243,8 @@ light scan (no git, PRs or visitors).
 | `src-tauri/peer/` | codealong-peer, what goes between devices: the protocol (each side proves its device key), link codes and iroh, feeds, the requests and their answers, the worktree and session model, the schedules your machines share, and a device that only watches. The iPhone app ([codealong-ios](https://github.com/codealong/codealong-ios)) builds on it; `design/plans/ios.md` has the plan |
 | `src-tauri/src/tailnet.rs`, `devicekey.rs` | Reaching them on your tailnet through Tailscale's command (iroh is in codealong-peer), and this device's key in the keychain |
 | `src/menus.ts`, `src/contextMenu.ts` | Right-click menus of sessions, worktrees, PRs and todos, each defined once and the same in every window (each says what it can do); native menus through Tauri |
-| `src/devices.ts`, `src/ui/DevicesSection.tsx` | Other devices' worktrees in the views, and Settings › Devices |
+| `src/devices.ts`, `src/useDevices.ts`, `src/ui/DevicesSection.tsx` | Other devices' worktrees in the views, followed beside the board by every window that shows them, and Settings › Devices |
+| `src-tauri/src/shown.rs` | What the windows show: the board and your other Macs' worktrees beside it, which the bar's feed, desktop cards, the lines between them and a session for the peek are cut from; the board alone is what the engine acts on |
 | `src/notices.ts`, `src/ui/Notices.tsx` | Notices: what isn't working in the background, the engine's and a window's own, as a chip that can be dismissed |
 | `src/tips.ts`, `src/ui/Tip.tsx` | Tips on using Codealong: the one list, each tip with the places it shows and its keys from the chord tables, and the box that shows them where a window waits on what it reads |
 | `src/ui/Sidebar.tsx`, `src/savedViews.ts` | The sidebar: the view and what narrows it, open or folded to a rail, and saved views |

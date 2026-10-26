@@ -36,13 +36,12 @@ describe('your other devices', () => {
 
   it('lists in the windows that float the connected devices’ worktrees, unless that’s turned off', () => {
     const tag = (short: string, online: boolean): DeviceTag => ({ name: `Mac ${short}`, short, color: 'teal', online, lastSeen: null });
-    const view = fx.devicesView({ enabled: true, lanes: [{ ...lane('@m1:/b'), device: tag('m1', true) }, { ...lane('@m2:/c'), device: tag('m2', false) }] });
+    const lanes = [{ ...lane('@m1:/b'), device: tag('m1', true) }, { ...lane('@m2:/c'), device: tag('m2', false) }];
     const on = { ...DEVICES_OFF, enabled: true };
-    expect(floatingLanes(on, view).map((l) => l.id)).toEqual(['@m1:/b']);
-    expect(floatingLanes({ ...on, in_bar: false }, view)).toEqual([]);
-    expect(floatingLanes(DEVICES_OFF, view)).toEqual([]);
-    expect(floatingLanes(undefined, view)).toEqual([]);
-    expect(floatingLanes(on, null)).toEqual([]);
+    expect(floatingLanes(on, lanes).map((l) => l.id)).toEqual(['@m1:/b']);
+    expect(floatingLanes({ ...on, in_bar: false }, lanes)).toEqual([]);
+    expect(floatingLanes(DEVICES_OFF, lanes)).toEqual([]);
+    expect(floatingLanes(undefined, lanes)).toEqual([]);
   });
 
   it('counts what needs you and what works on each device', () => {
