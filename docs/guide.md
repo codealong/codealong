@@ -1010,7 +1010,8 @@ without a review. One whose turn stops on an error its harness recorded (Cursor'
 on a connection that kept dropping, say), rather than a usage limit or a lost connection, ends its
 round saying why, and the commit is reviewed once more by itself in a new session: on another
 account than that one's where Auto, or the routing group Settings names, has one that can start
-it, else on the same account. While that one runs, the PR's card says why the first stopped. A
+it, else on the same account. While that one runs, the PR's card says why the first stopped, and
+the session that stopped is marked done, so it no longer waits on you. A
 round with nothing at work on it for six hours (its session gone, or a turn it never took) is given
 up on, so it holds no place among the reviews that run at once, and a session that still runs is
 waited on ten minutes at most for a review its ended turn didn't write. A start that couldn't reach

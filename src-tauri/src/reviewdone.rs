@@ -12,8 +12,11 @@
 //!   or due (new commits it hasn't reviewed), is ended and kept: the next round goes on with it
 //!   where `[reviews] start` says. One that runs in Codealong, which holds no process of its own,
 //!   is left as it is.
+//! - once another review of its PR has started on this Mac since its turn stopped on an error
+//!   (autoreview.rs reviews the commit again in a new session, `past_error`), it's marked done the
+//!   same way, whatever its PR: nothing in it waits on you, and its PR's card says what went wrong.
 //!
-//! Neither touches one you've taken up (`Helper::yours`; one made your own is no helper), one at
+//! None touches one you've taken up (`Helper::yours`; one made your own is no helper), one at
 //! work or with a command left running, or one waiting on you, and each is judged again on the
 //! board as it is just before it's ended. One asked to end that didn't (something held it) is
 //! asked again a while later. It goes by the clock as well as the board, so it has a thread of
@@ -53,6 +56,8 @@ pub enum Why {
     Unlisted,
     /// It sat unused while its PR is open: ended, and kept for its PR's next round.
     Idle,
+    /// Its turn stopped on an error, and its review went on in another session: marked done.
+    Replaced,
 }
 
 impl Why {
@@ -117,8 +122,10 @@ impl Finisher {
 /// PR is gone only once `read`), is done with now, if it is.
 fn why(board: &Board, s: &Session, pr: Option<PrNow>, read: bool, now: i64) -> Option<Why> {
     let h = s.helper.as_ref()?;
-    // What's past for one that no longer runs (an error its last turn ended on) doesn't hold it.
-    let busy = s.live && (matches!(s.status, Status::Working | Status::Needs | Status::Error) || s.background.is_some());
+    let replaced = s.status == Status::Error && replaced(board, s);
+    // What's past for one that no longer runs (an error its last turn ended on) doesn't hold it,
+    // nor an error whose review went on elsewhere.
+    let busy = s.live && (matches!(s.status, Status::Working | Status::Needs) || (s.status == Status::Error && !replaced) || s.background.is_some());
     if h.yours || s.visitor.is_some() || busy {
         return None;
     }
@@ -129,9 +136,20 @@ fn why(board: &Board, s: &Session, pr: Option<PrNow>, read: bool, now: i64) -> O
     let done = !s.archived || ends;
     match pr {
         Some(p) if p.ended => done.then_some(Why::PrEnded),
+        _ if replaced => done.then_some(Why::Replaced),
         None if read => (done && unused).then_some(Why::Unlisted),
         p => (ends && unused && !p.is_some_and(|p| p.round)).then_some(Why::Idle),
     }
+}
+
+/// Another review of `s`'s PR on this Mac started after `s` last did anything: the round went on
+/// there, as autoreview.rs has it do in a new session after a turn that stopped on an error.
+fn replaced(board: &Board, s: &Session) -> bool {
+    fn pr(s: &Session) -> Option<&str> {
+        s.helper.as_ref()?.pr.as_deref()
+    }
+    let Some(mine) = pr(s) else { return false };
+    board.lanes.iter().filter(|l| l.device.is_none()).flat_map(|l| &l.sessions).any(|o| o.key != s.key && pr(o) == Some(mine) && o.started_at.unwrap_or(o.last_prompt_at) > s.last_activity)
 }
 
 /// Why the review `key` is done with on `board` as it is now, if it still is.
@@ -281,6 +299,31 @@ mod tests {
         let beside = Session { pid: review("rev-a", 0).pid, ..fixtures::session("opencode:opencode:other") };
         let shared = board(vec![review("rev-a", IDLE_MS), beside]);
         assert!(due(&shared, &prs(false, false)).is_empty(), "its terminal shows another session");
+    }
+
+    /// One whose turn stopped on an error is marked done once another review of its PR started
+    /// after it, which its round went on in, whether it still runs or not and whatever its PR:
+    /// nothing in it waits on you. Not while nothing took it over, nor for a review of another PR,
+    /// nor once you've taken it up or with a command it left running.
+    #[test]
+    fn an_errored_review_is_done_once_another_took_its_round() {
+        let errored = Session { status: Status::Error, ..review("rev-a", 60_000) };
+        let after = |key: &str, by: i64| Session { started_at: Some(errored.last_activity + by), ..review(key, 0) };
+        let with = |s: Session, other: Session| board(vec![s, other]);
+        assert!(due(&board(vec![errored.clone()]), &prs(false, true)).is_empty(), "nothing took it over");
+        assert!(due(&with(errored.clone(), after("rev-b", -1)), &prs(false, true)).is_empty(), "one that started before its error");
+        let elsewhere = Session { helper: Some(Helper { pr: Some("o/r#8".into()), ..Default::default() }), ..after("rev-b", 1) };
+        assert!(due(&with(errored.clone(), elsewhere), &prs(false, true)).is_empty(), "a review of another PR");
+
+        let replaced = |s: Session| due(&with(s, after("rev-b", 1)), &prs(false, true));
+        assert_eq!(replaced(errored.clone()), keys(&[("rev-a", Why::Replaced)]));
+        assert_eq!(replaced(Session { live: false, ..errored.clone() }), keys(&[("rev-a", Why::Replaced)]), "no longer running");
+        assert_eq!(due(&with(errored.clone(), after("rev-b", 1)), &HashMap::new()), keys(&[("rev-a", Why::Replaced)]), "its PR no longer listed");
+        let mut yours = errored.clone();
+        yours.helper.as_mut().unwrap().yours = true;
+        assert!(replaced(yours).is_empty(), "taken up");
+        assert!(replaced(Session { background: Some("npm test".into()), ..errored.clone() }).is_empty(), "a command left running");
+        assert!(replaced(Session { status: Status::Idle, ..errored }).is_empty(), "no error: the usual rules");
     }
 
     /// One asked to end is asked once, and again only once `AGAIN_MS` is up while it's still due;

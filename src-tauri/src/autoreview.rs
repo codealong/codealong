@@ -41,7 +41,7 @@
 //! that kept dropping, not a usage limit or a lost connection) ends its round saying why, and the
 //! commit is reviewed once more in a new session, on another account than that one's where Auto or
 //! the routing group has one that can start (`Tracked::retries`, `past_error`), its card saying
-//! why meanwhile (`after_error`). A round nothing else moves that has had nothing at work on it for
+//! why meanwhile (`after_error`) and the session that stopped marked done (reviewdone.rs). A round nothing else moves that has had nothing at work on it for
 //! hours is given up on (`Round::stuck`), a PR's no longer listed too, so a turn's end nothing read
 //! can't hold a place for good; and a turn whose session still runs is waited on for the review
 //! it didn't write only a while (`without_review`).
