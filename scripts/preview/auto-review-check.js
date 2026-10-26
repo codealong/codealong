@@ -5,8 +5,8 @@
 // the draft's comments, beside Description and Changes, which counts its files. The tab says
 // where the latest round stands (review.ts `autoReviewWords`), its Draft link the PR's files
 // (open_url) and, when the PR lists a session, the session. Then your draft as GitHub has it
-// (pr_draft, stubbed; AgentReview.tsx `DraftReview`): its text as Markdown, the line saying an
-// agent wrote it in italics, then each comment with its file, folder and line, the lines around
+// (pr_draft, stubbed; AgentReview.tsx `DraftReview`): its text as Markdown, the line naming the
+// agent it was reviewed with in italics, then each comment with its file, folder and line, the lines around
 // it from the PR's diff (pr_detail, stubbed) with its own marked, its place opening that line on
 // GitHub at the draft's commit; an outdated one says so and has no lines. A comment is changed
 // (edit_draft_comment) and shows what it says now; Remove asks for a second click, then takes it
@@ -77,7 +77,7 @@
   // Your draft on GitHub, as pr_draft has it, until it's submitted.
   var DRAFT = {
     id: 'PRR_1',
-    body: 'I’d hold this until the **first** finding is fixed.\n\n<sub>An agent’s review (Claude Code, claude-opus-5-5) of 309811a, drafted by Codealong.</sub>',
+    body: 'I’d hold this until the **first** finding is fixed.\n\n<sub>Reviewed 309811a with Claude Code, claude-opus-5-5 · drafted via Codealong</sub>',
     commit: '309811aaaabbbbcccc',
     url: null,
     count: 2,
@@ -234,7 +234,7 @@
       var draft = q('.ca-agentrev-draft');
       check('your draft says its comments, and that only you see it', q('.ca-agentrev-drafttitle', draft).textContent === 'Your draft review · 2 comments' && /^Only you see it\. Approve, Comment or Request changes in the box below submits it/.test(q('.ca-agentrev-draftnote', draft).textContent), q('.ca-agentrev-drafthead', draft).textContent);
       var text = q('.ca-agentrev-drafttext .ca-agentrev-text', draft);
-      check('its text, as Markdown, the line saying an agent wrote it in italics', !!q('strong', text) && /drafted by Codealong\.$/.test((q('em', text) || {}).textContent || '') && !/<sub>/.test(text.textContent), text.innerHTML.slice(0, 160));
+      check('its text, as Markdown, the line naming the agent it was reviewed with in italics', !!q('strong', text) && /drafted via Codealong$/.test((q('em', text) || {}).textContent || '') && !/<sub>/.test(text.textContent), text.innerHTML.slice(0, 160));
       await until(function () { return all('.ca-agentrev-comment').length === 2; }, 5000, 'the draft’s comments never showed');
       var first = all('.ca-agentrev-comment')[0];
       check('each comment says its file, folder and line', q('.ca-agentrev-file', first).textContent === 'a.rs' && q('.ca-agentrev-dir', first).textContent === 'src' && q('.ca-agentrev-line', first).textContent === 'line 2', first.textContent.slice(0, 60));
@@ -272,7 +272,7 @@
       press(button('Edit text'));
       await until(function () { return !!q('.ca-agentrev-draft .ca-agentrev-edit textarea'); }, 3000, 'Edit text opened no box');
       var textBox = q('.ca-agentrev-draft .ca-agentrev-edit textarea');
-      check('Edit text opens a box with its text as it goes, signed', /^I’d hold this/.test(textBox.value) && /<sub>An agent’s review/.test(textBox.value), textBox.value.slice(0, 80));
+      check('Edit text opens a box with its text as it goes, signed', /^I’d hold this/.test(textBox.value) && /<sub>Reviewed 309811a with /.test(textBox.value), textBox.value.slice(0, 80));
       type(textBox, 'Hold it for the first one.');
       press(button('Save', q('.ca-agentrev-draft .ca-agentrev-edit')));
       await until(function () { return calls('edit_draft').length === 1; }, 3000, 'Save sent no text');

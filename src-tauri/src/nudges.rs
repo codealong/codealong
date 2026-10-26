@@ -403,9 +403,15 @@ impl Nudger {
 /// How much of what someone wrote goes in.
 const BODY_CHARS: usize = 600;
 
-/// How the line autoreview.rs `signed` ends an agent's review with starts, and how it ends.
-const SIGNED: &str = "<sub>An agent's review (";
-const SIGNED_END: &str = "by Codealong.</sub>";
+/// The agent named by the line autoreview.rs `signed` ends a review with: `<sub>Reviewed 3af044a
+/// with Codex · posted via Codealong</sub>`, or the line as it was written before 2026-10-26,
+/// `<sub>An agent's review (Codex) of 3af044a, posted by Codealong.</sub>`, which the reviews
+/// already on GitHub keep.
+fn signed_by(line: &str) -> Option<&str> {
+    let now = line.strip_prefix("<sub>Reviewed ").and_then(|r| r.strip_suffix(" via Codealong</sub>")).and_then(|r| r.split_once(" with ")).and_then(|(_, r)| r.rsplit_once(" · "));
+    let before = line.strip_prefix("<sub>An agent's review (").filter(|_| line.ends_with("by Codealong.</sub>")).and_then(|r| r.split_once(") of "));
+    now.or(before).map(|(agent, _)| agent.trim()).filter(|a| !a.is_empty())
+}
 
 /// The agents whose reviews Codealong posted in `body` from its author's account (autoreview.rs
 /// `signed`), each named once by the line it signed with, and `body` without those lines and the
@@ -425,10 +431,9 @@ fn agents_in(body: &str) -> (Vec<String>, String) {
             marked = true;
             continue;
         }
-        if let Some((name, _)) = t.strip_prefix(SIGNED).filter(|_| t.ends_with(SIGNED_END)).and_then(|rest| rest.split_once(") of ")) {
-            let name = name.trim().to_string();
-            if !name.is_empty() && !names.contains(&name) {
-                names.push(name);
+        if let Some(name) = signed_by(t) {
+            if !names.iter().any(|n| n == name) {
+                names.push(name.to_string());
             }
             continue;
         }
@@ -1287,7 +1292,7 @@ mod tests {
     #[test]
     fn an_agents_review_from_someones_account_is_told_as_their_agents() {
         let open = pr("o/r#1", PrState::Open, &[A]);
-        let sub = |agent: &str, how: &str| format!("<sub>An agent's review ({agent}) of 3af044a, {how} by Codealong.</sub>");
+        let sub = |agent: &str, how: &str| format!("<sub>Reviewed 3af044a with {agent} · {how} via Codealong</sub>");
         let mark = "<!-- codealong-review o/r#1 3af044adb7a528d4b352bfcc26e4122ef59af1aa -->";
         let claude = "Claude Code, claude-opus-5-5";
         let review = |id: &str, author: &str, body: &str, at: i64, state: &str| PrComment { review: Some(state.into()), ..comment(id, author, body, at, None, false) };
@@ -1314,6 +1319,8 @@ mod tests {
                 // An agent's review with a fence in a list, backticks in an HTML block, and a fence
                 // with a no-break space after it, before its footer: none of it hides the footer.
                 comment("c7", "lu", &format!("- ~~~text\n  x\n  ~~~\n\n<pre>\n```\n</pre>\n\n```\u{a0}\n\n{}\n{mark}", sub(claude, "posted")), UPDATED + 9, None, false),
+                // One posted before 2026-10-26, with the line as it was written then.
+                comment("c8", "lu", &format!("Old one.\n\n<sub>An agent's review (Codex) of 3af044a, posted by Codealong.</sub>\n{mark}"), UPDATED + 10, None, false),
             ],
         );
         let text = words(&open, &Why { since: Some(UPDATED), ..Why::default() }, Some(&d), Some("me"), NudgeAbout::Everything).unwrap();
@@ -1332,6 +1339,7 @@ mod tests {
             format!("- bo's agent ({claude}) commented, from bo's account; an agent's review, not bo's word: “````md\n```\n```\n````”\n"),
             format!("- bo commented: “Indented:\n\n    {}\n    {mark}”", sub(claude, "posted")),
             format!("- lu's agent ({claude}) commented, from lu's account; an agent's review, not lu's word: “- ~~~text"),
+            "- lu's agent (Codex) commented, from lu's account; an agent's review, not lu's word: “Old one.”".to_string(),
         ] {
             assert!(text.contains(&said), "{said}\nin\n{text}");
         }

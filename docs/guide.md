@@ -993,7 +993,8 @@ what you wrote when you have a draft on that PR already: you finish it in the PR
 GitHub, approving or asking for changes, and the review stays asked of you until you submit it. `"comment"` posts a
 comment from your account instead, each line comment under a link to its line, and `"none"` leaves
 the review in the session. Never a submitted review, which would settle the request to you. What
-goes on GitHub says an agent wrote it and which commit it read. When new commits come in while the
+goes on GitHub ends with a small line naming the commit it read and the agent it was reviewed with,
+as `Reviewed 5db6167 with Codex · posted via Codealong`. When new commits come in while the
 PR still waits on you, the same session reviews it again once the branch has held still five
 minutes, told what changed since and asked what of its findings is fixed (a session that isn't
 running goes on where `[reviews] start` lets it, else a new one starts, and one that still runs

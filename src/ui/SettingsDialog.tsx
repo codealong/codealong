@@ -621,7 +621,7 @@ function LimitsField({ cfg, disabled, onSave }: PaneProps) {
 /** Where each review goes (config.rs `ReviewPost`), as the select offers it. */
 const REVIEW_POSTS: (Profile & { id: ReviewPost; says: string })[] = [
   { id: 'draft', name: 'A draft review for you to finish', says: 'A review on your GitHub account with its comments on the lines they’re about, left as a draft that only you see. You finish it from the pull request’s box in Codealong or on GitHub, approving or asking for changes, and your review is still asked for until you do.' },
-  { id: 'comment', name: 'A comment on the pull request', says: 'A comment from your GitHub account that says an agent wrote it and which commit it read, each line comment under a link to its line. A comment leaves your review still asked for.' },
+  { id: 'comment', name: 'A comment on the pull request', says: 'A comment from your GitHub account that names the agent it was reviewed with and the commit it read, each line comment under a link to its line. A comment leaves your review still asked for.' },
   { id: 'none', name: 'Nowhere: it stays in its session', says: 'Each review is in its session for you to read; nothing goes on GitHub but what’s submitted for you (below).' },
 ];
 

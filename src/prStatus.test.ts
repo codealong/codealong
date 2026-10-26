@@ -219,17 +219,17 @@ describe('review comments', () => {
 
   it('keeps an agent’s review asking for changes until its review of another commit is posted', () => {
     // As autoreview.rs `signed` ends one.
-    const signed = (commit: string, how: string) => `\n\n<sub>An agent's review (Codex, gpt-6-astra) of ${commit.slice(0, 7)}, ${how} by Codealong.</sub>\n<!-- codealong-review o/r#7 ${commit} -->`;
+    const signed = (commit: string, how: string) => `\n\n<sub>Reviewed ${commit.slice(0, 7)} with Codex, gpt-6-astra · ${how} via Codealong</sub>\n<!-- codealong-review o/r#7 ${commit} -->`;
     const [one, two, three, four] = ['6a00420be3', 'd07730f309', 'c2a5d6b9f7', 'b4908ef58e'];
     // A PR seen on 2026-10-22, newest first: two passes asked for changes (the review posted as a comment,
     // then a request for changes linking to it), each followed by one at the next commit that
     // found them fixed, posted as a comment only.
     const thread = [
       c('fixed-4', { body: `All earlier findings are fixed.${signed(four, 'posted')}`, at: 70 }),
-      c('asks-3', { body: `The agent's review asks for changes: #3${signed(three, 'submitted')}`, at: 61, review: 'CHANGES_REQUESTED' }),
+      c('asks-3', { body: `Requesting changes: #3${signed(three, 'submitted')}`, at: 61, review: 'CHANGES_REQUESTED' }),
       c('finding-3', { body: `One more issue.\n\nIn **a.ts**.${signed(three, 'posted')}`, at: 60 }),
       c('fixed-2', { body: `Both earlier findings are fixed.${signed(two, 'posted')}`, at: 40 }),
-      c('asks-1', { body: `The agent's review asks for changes: #1${signed(one, 'submitted')}`, at: 21, review: 'CHANGES_REQUESTED' }),
+      c('asks-1', { body: `Requesting changes: #1${signed(one, 'submitted')}`, at: 21, review: 'CHANGES_REQUESTED' }),
       c('finding-1', { body: `Both findings remain.${signed(one, 'posted')}`, at: 20 }),
       // Someone's own words, and another account's agent, stand whatever comes after.
       c('by-hand', { body: 'Please rename it.', at: 10 }),
@@ -242,15 +242,25 @@ describe('review comments', () => {
 
     // What its person may have written in stands: a request submitted from the PR's box with
     // words of theirs before the agent's, and a draft, rewritten or not.
-    const boxed = c('boxed', { body: `Rename it too.\n\nThe agent's review asks for changes: #1${signed(one, 'submitted')}`, at: 22, review: 'CHANGES_REQUESTED' });
+    const boxed = c('boxed', { body: `Rename it too.\n\nRequesting changes: #1${signed(one, 'submitted')}`, at: 22, review: 'CHANGES_REQUESTED' });
     const drafted = c('drafted', { body: `Fix it.${signed(one, 'drafted')}`, at: 23, review: 'CHANGES_REQUESTED' });
     expect([...asksFor([thread[0], boxed, drafted], { ...jev, boxed: 0.9, drafted: 0.9 })]).toEqual(['boxed', 'drafted']);
     // A draft of an earlier commit submitted after a later review was posted doesn't take that
     // review's place as the latest; nor does a review of another commit after the latest posted
     // one give way to it.
     const late = c('late', { body: `Fine.${signed(one, 'drafted')}`, at: 80, review: 'COMMENTED' });
-    const after = c('after', { body: `The agent's review asks for changes: #5${signed(one, 'submitted')}`, at: 75, review: 'CHANGES_REQUESTED' });
+    const after = c('after', { body: `Requesting changes: #5${signed(one, 'submitted')}`, at: 75, review: 'CHANGES_REQUESTED' });
     expect([...asksFor([late, after, ...thread.slice(1, 3)], { ...jev, late: 0.02, after: 0.9 })]).toEqual(['after', 'asks-3', 'finding-3']);
+
+    // Reviews on GitHub from before 2026-10-26 end with the line as it was written then.
+    const before = (commit: string, how: string) => `\n\n<sub>An agent's review (Codex, gpt-6-astra) of ${commit.slice(0, 7)}, ${how} by Codealong.</sub>\n<!-- codealong-review o/r#7 ${commit} -->`;
+    const old = [
+      c('old-fixed', { body: `All earlier findings are fixed.${before(two, 'posted')}`, at: 40 }),
+      c('old-asks', { body: `The agent's review asks for changes: #1${before(one, 'submitted')}`, at: 21, review: 'CHANGES_REQUESTED' }),
+      c('old-finding', { body: `Both findings remain.${before(one, 'posted')}`, at: 20 }),
+    ];
+    expect([...asksFor(old, { 'old-fixed': 0.02, 'old-asks': 0.86, 'old-finding': 0.99 })]).toEqual([]);
+    expect([...asksFor(old.slice(1), { 'old-asks': 0.86, 'old-finding': 0.99 })]).toEqual(['old-asks', 'old-finding']);
   });
 
   it('shows a comment as plain text on one line', () => {

@@ -13,8 +13,8 @@ describe('prDraft', () => {
     expect(draftStamp({ updatedAt: 5, autoReview: { ...auto, stage: 'reviewing', at: 12, rounds: 2 } })).not.toBe(draftStamp({ updatedAt: 5, autoReview: auto }));
   });
 
-  it('shows the line saying an agent wrote it in italics', () => {
-    expect(draftShown("Hold it.\n\n<sub>An agent's review (Claude Code) of 322941c, drafted by Codealong.</sub>")).toBe("Hold it.\n\n*An agent's review (Claude Code) of 322941c, drafted by Codealong.*");
+  it('shows the line naming the agent it was reviewed with in italics', () => {
+    expect(draftShown('Hold it.\n\n<sub>Reviewed 322941c with Claude Code · drafted via Codealong</sub>')).toBe('Hold it.\n\n*Reviewed 322941c with Claude Code · drafted via Codealong*');
     expect(draftShown('Plain.')).toBe('Plain.');
   });
 

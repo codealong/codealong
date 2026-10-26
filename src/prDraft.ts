@@ -83,8 +83,8 @@ export function changeDraft(key: string, change: (d: Draft) => Draft | null) {
   tell();
 }
 
-/** Its text as the Markdown view shows it: the line saying an agent wrote it, which GitHub
- *  shows small (`<sub>`), in italics. */
+/** Its text as the Markdown view shows it: the line naming the agent it was reviewed with, which
+ *  GitHub shows small (`<sub>`), in italics. */
 export function draftShown(body: string): string {
   return body.replace(/<sub>([\s\S]*?)<\/sub>/g, (_, inner: string) => `*${inner.trim()}*`).trim();
 }

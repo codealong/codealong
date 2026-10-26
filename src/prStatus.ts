@@ -435,8 +435,10 @@ export function commentsToAsk(comments: PrComment[]): PrComment[] {
 }
 
 /** How an agent's review Codealong posted or submitted ends (autoreview.rs `signed`): the line
- *  saying so, then the hidden mark naming the PR and the commit it was of (`marker`). */
-const SIGNED = /\n\n<sub>An agent's review \([^\n]*\) of \w+, (posted|submitted) by Codealong\.<\/sub>\n<!-- codealong-review \S+ ([0-9a-f]{7,40}) -->\s*$/;
+ *  naming the agent and how it went, then the hidden mark naming the PR and the commit it was of
+ *  (`marker`). The line is the one written since 2026-10-26 or the one before, which the reviews
+ *  already on GitHub keep. */
+const SIGNED = /\n\n<sub>(?:Reviewed \w+ with [^\n]* · (posted|submitted) via Codealong|An agent's review \([^\n]*\) of \w+, (posted|submitted) by Codealong\.)<\/sub>\n<!-- codealong-review \S+ ([0-9a-f]{7,40}) -->\s*$/;
 
 /** An agent's review as Codealong wrote it, with nothing of its person's in it: one posted as a
  *  comment of its own, or a review submitted with one line of text (the link to a posted one;
@@ -445,8 +447,9 @@ const SIGNED = /\n\n<sub>An agent's review \([^\n]*\) of \w+, (posted|submitted)
  *  when they like and may have written in. */
 function agentsReview(c: PrComment): { posted: boolean; commit: string } | null {
   const m = c.path ? null : SIGNED.exec(c.body);
-  if (!m || (m[1] === 'submitted' && c.body.slice(0, m.index).trim().includes('\n'))) return null;
-  return { posted: m[1] === 'posted', commit: m[2] };
+  const how = m?.[1] ?? m?.[2];
+  if (!m || (how === 'submitted' && c.body.slice(0, m.index).trim().includes('\n'))) return null;
+  return { posted: how === 'posted', commit: m[3] };
 }
 
 /**
@@ -485,8 +488,8 @@ const HTML_TAG = /<\/?(?:a|b|br|details|div|em|h[1-6]|hr|i|img|li|ol|p|picture|s
 const PARTS = /^[ \t]*```[^\n]*(?:\n[\s\S]*?^[ \t]*```[^\n]*$|[\s\S]*)|<!--[\s\S]*?-->|`(?:[^`\n]|\n(?![ \t]*\n))+`|<sub>\s*|\s*<\/sub>/gim;
 
 /** A GitHub comment's text as the Markdown view shows it (ui/Markdown.tsx): its hidden HTML
- *  comments dropped (Codealong's marks on the reviews it posts are some), the line saying an agent
- *  wrote it, which GitHub shows small (`<sub>`), in italics, and the HTML tags it draws left out,
+ *  comments dropped (Codealong's marks on the reviews it posts are some), the line naming the agent
+ *  it was reviewed with, which GitHub shows small (`<sub>`), in italics, and the HTML tags it draws left out,
  *  everywhere but in its code, which keeps every character. */
 export function commentText(body: string): string {
   const code: string[] = [];

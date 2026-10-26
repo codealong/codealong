@@ -19,7 +19,7 @@
 //! its comments on their lines where the PR's diff shows them (`draft_plan`), for you to finish and
 //! submit; or a comment on the PR, each line comment under a link to its line; or nowhere. Never a
 //! submitted review, which would settle the request to you, unless `[reviews] submit` says to
-//! (below). What's posted says an agent wrote it
+//! (below). What's posted ends with a line naming the agent it was reviewed with
 //! and which commit it read, with a hidden mark (`marker`) so a review already there for that
 //! commit, from another Mac or before a restart, isn't posted twice. An agent that can't review
 //! it says `SKIP:` and why.
@@ -1001,7 +1001,7 @@ fn without_draft(r: &Round, pr: &PrItem, head: &str, verdict: Verdict) -> Option
         // The line that points to it says what the agent said: one that asks for changes says so,
         // one that couldn't tell (submitted as a comment by hand, `submit_now`) doesn't.
         ReviewStage::Posted => {
-            let says = if round_verdict(r) == Some(Verdict::RequestChanges) { "The agent's review asks for changes" } else { "The agent's review" };
+            let says = if round_verdict(r) == Some(Verdict::RequestChanges) { "Requesting changes" } else { "Review" };
             r.comment.as_ref().map(|link| signed(&format!("{says}: {link}"), pr, head, &p.label(), "submitted"))
         }
         ReviewStage::Kept => {
@@ -1983,8 +1983,8 @@ fn agent_of(s: &Session) -> String {
 /// Where the review's last message goes, and how to lay it out for that.
 fn last_message(login: &str, goes: &Goes) -> String {
     match goes {
-        Goes::Post(ReviewPost::Draft) => format!("Codealong puts your last message on the PR as a review on {login}'s GitHub account, left as a draft that only {login} sees until they finish it there, with each line comment on its line and a line saying an agent wrote it. {}", layout("the PR's author")),
-        Goes::Post(ReviewPost::Comment) => format!("Codealong posts your last message on the PR as a comment from {login}'s GitHub account, with each line comment written in under a link to its line, and a line saying an agent wrote it. {}", layout("the PR's author")),
+        Goes::Post(ReviewPost::Draft) => format!("Codealong puts your last message on the PR as a review on {login}'s GitHub account, left as a draft that only {login} sees until they finish it there, with each line comment on its line and a line naming you and the commit you reviewed. {}", layout("the PR's author")),
+        Goes::Post(ReviewPost::Comment) => format!("Codealong posts your last message on the PR as a comment from {login}'s GitHub account, with each line comment written in under a link to its line, and a line naming you and the commit you reviewed. {}", layout("the PR's author")),
         Goes::Post(ReviewPost::None) => format!("Your last message is the review, for {login} to read here; nothing is posted. Make it the review and nothing else, in Markdown: a line on what you make of it, then each finding, most serious first, with its file and line and what to do about it. {VERDICT}"),
         Goes::Back(who) => format!("Codealong hands your last message to the agent that wrote the PR ({who}) to act on, unless you'd approve it, and shows it to {login}; nothing goes on GitHub. {}", layout("that agent")),
     }
@@ -2179,8 +2179,10 @@ fn written_in(pr: &PrItem, head: &str, comments: &[LineComment]) -> String {
     comments.iter().map(|c| format!("**`{}` line {}**\n{}\n\n{}", c.path, c.line, line_link(pr, head, c), c.body.trim())).collect::<Vec<_>>().join("\n\n")
 }
 
-/// A review's text as it's posted: `text`, cut to what GitHub takes, then a line saying an agent
-/// wrote it, of which commit, and the unseen mark (`marker`).
+/// A review's text as it's posted: `text`, cut to what GitHub takes, then a line saying which
+/// commit was reviewed with which agent and how it went on GitHub, and the unseen mark (`marker`).
+/// The line says what was used, as a tool is named, not that no one but an agent had a hand in
+/// it (asked 2026-10-26). nudges.rs `signed_by` and prStatus.ts `SIGNED` read it back.
 fn signed(text: &str, pr: &PrItem, head: &str, agent: &str, how: &str) -> String {
     signed_with(text, head, agent, how, &marker(&pr.key, head))
 }
@@ -2192,7 +2194,7 @@ fn signed_with(text: &str, head: &str, agent: &str, how: &str, mark: &str) -> St
         let cut = crate::util::truncate(&text, COMMENT_MAX);
         text = format!("{}\n\n…(cut short: the whole review is longer than GitHub takes)", cut.trim_end());
     }
-    format!("{text}\n\n<sub>An agent's review ({agent}) of {}, {how} by Codealong.</sub>\n{mark}", short(head))
+    format!("{text}\n\n<sub>Reviewed {} with {agent} · {how} via Codealong</sub>\n{mark}", short(head))
 }
 
 /// The comment posted for a review: its text, then its comments on particular lines, each under a
@@ -3620,16 +3622,16 @@ mod tests {
         let mut r = reviewed(&changes, "Two problems.\n\nVerdict: request changes", Went::Posted("https://github.com/o/r/pull/7#issuecomment-1".into()));
         let Some(Job::Submit { verdict, text: Some(text), .. }) = r.due(&done, &changes, NOW + 64_000).pop() else { panic!("a submit") };
         assert_eq!(verdict, Verdict::RequestChanges);
-        assert!(text.starts_with("The agent's review asks for changes: https://github.com/o/r/pull/7#issuecomment-1\n\n<sub>An agent's review (Codex) of 1111111, submitted by Codealong.</sub>"), "{text}");
+        assert!(text.starts_with("Requesting changes: https://github.com/o/r/pull/7#issuecomment-1\n\n<sub>Reviewed 1111111 with Codex · submitted via Codealong</sub>"), "{text}");
         let mut r = reviewed(&changes, "Two problems.\n\nVerdict: request changes", Went::Kept(None));
         let Some(Job::Submit { text: Some(text), .. }) = r.due(&done, &changes, NOW + 64_000).pop() else { panic!("a submit") };
-        assert!(text.starts_with("Two problems.\n\n<sub>An agent's review (Codex) of 1111111, submitted by Codealong.</sub>"), "{text}");
+        assert!(text.starts_with("Two problems.\n\n<sub>Reviewed 1111111 with Codex · submitted via Codealong</sub>"), "{text}");
         // One whose agent couldn't tell, submitted as a comment by hand, doesn't say it asks for
         // changes.
         let r = reviewed(&changes, "Hm.\n\nVerdict: comment", Went::Posted("https://github.com/o/r/pull/7#issuecomment-1".into()));
         let round = r.store.prs.values().next().and_then(|t| t.rounds.last()).unwrap();
         let text = without_draft(round, &pr(7, HEAD), HEAD, Verdict::Comment).unwrap();
-        assert!(text.starts_with("The agent's review: https://github.com/o/r/pull/7#issuecomment-1\n\n"), "{text}");
+        assert!(text.starts_with("Review: https://github.com/o/r/pull/7#issuecomment-1\n\n"), "{text}");
         // One that isn't for you to submit now says why, and isn't tried again.
         for (submit, verdict, says) in [
             (ReviewSubmit::Approve, "approve", "It wasn't approved for you"),
@@ -4750,7 +4752,7 @@ mod tests {
         let plan = draft_plan("Two problems.", comments.clone(), &lines, None, &pr(7, HEAD), HEAD, "Claude Code", NOW);
         assert_eq!(plan.add_to, None);
         assert_eq!(plan.threads, [c("src/a.rs", 2, "This panics."), c("docs/new file.md", 1, "Typo.")]);
-        assert!(plan.body.starts_with("Two problems.\n\n**On other lines**\n\n**`src/a.rs` line 7**\nhttps://github.com/o/r/blob/1111111aaaa/src/a.rs#L7\n\nNot in the diff.\n\n<sub>An agent's review (Claude Code) of 1111111, drafted by Codealong.</sub>"), "{}", plan.body);
+        assert!(plan.body.starts_with("Two problems.\n\n**On other lines**\n\n**`src/a.rs` line 7**\nhttps://github.com/o/r/blob/1111111aaaa/src/a.rs#L7\n\nNot in the diff.\n\n<sub>Reviewed 1111111 with Claude Code · drafted via Codealong</sub>"), "{}", plan.body);
         assert!(plan.body.ends_with(&draft_mark("o/r#7", HEAD, NOW)));
         // Your draft at the same commit: added to, after what you wrote.
         let mine = PendingReview { id: "R_1".into(), body: "My notes.".into(), commit: Some(HEAD.into()) };
@@ -4767,7 +4769,7 @@ mod tests {
     #[test]
     fn a_comment_has_its_line_comments_written_in_under_links() {
         let body = comment_body("  Looks right.\n", &[], &pr(7, HEAD), HEAD, "Claude Code, claude-opus-5-5");
-        assert_eq!(body, "Looks right.\n\n<sub>An agent's review (Claude Code, claude-opus-5-5) of 1111111, posted by Codealong.</sub>\n<!-- codealong-review o/r#7 1111111aaaa -->");
+        assert_eq!(body, "Looks right.\n\n<sub>Reviewed 1111111 with Claude Code, claude-opus-5-5 · posted via Codealong</sub>\n<!-- codealong-review o/r#7 1111111aaaa -->");
         let body = comment_body("One thing.", &[c("src/a.rs", 2, "This panics.")], &pr(7, HEAD), HEAD, "Codex");
         assert!(body.starts_with("One thing.\n\n**`src/a.rs` line 2**\nhttps://github.com/o/r/blob/1111111aaaa/src/a.rs#L2\n\nThis panics.\n\n<sub>"), "{body}");
         let long = comment_body(&"x".repeat(COMMENT_MAX + 10), &[], &pr(7, HEAD), HEAD, "Codex");
