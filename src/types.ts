@@ -2495,7 +2495,9 @@ export interface TranscriptItem {
    *  wrote, several where it took more. */
   answers?: Record<string, string[]>;
   /** A page on the web the call made or opened (an artifact Claude Code published), on its
-   *  result: its title, and what the call did with it ("Updated · version 9"). */
+   *  result: its title, and what the call did with it ("Updated · version 9"). On a prompt of
+   *  yours, the artifact it was about: the one you were looking at as you sent it ("Viewing
+   *  Activity"), or the one whose comment it hands on ("Comment on Activity"). */
   link?: { url: string; title: string; note?: string };
   /** The files the call handed you to look at (Claude Code's `SendUserFile`), on the call: each a
    *  full path on the session's Mac, with what the agent said of them. */

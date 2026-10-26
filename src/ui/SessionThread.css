@@ -299,6 +299,17 @@
   flex: none;
   white-space: nowrap;
 }
+/* Under a prompt of yours, the artifact it was about (where you were in it, or the part a comment
+   is on): in line with its text, and where you were cut short before it runs out of the panel. */
+.ca-thread-said.is-you > .ca-thread-made {
+  margin: 0 10px;
+}
+.ca-thread-said.is-you > .ca-thread-made > .ca-meta {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 /* The files a call sent you, under its line as a page it made is: what it said of them, then
    each file on a line of its own. */
 .ca-thread-sent {

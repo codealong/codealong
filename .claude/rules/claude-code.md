@@ -737,4 +737,9 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   lists every such session in one lane (`engine.rs` `chat_roots`), and the app's
   `<system-reminder>` ahead of the first prompt is skipped, as is the `<artifact-view-context>`
   ahead of a prompt sent while you look at an artifact, in the app or a terminal
-  (`claude/transcript.rs` `AHEAD_OF_PROMPT`).
+  (`claude/transcript.rs` `AHEAD_OF_PROMPT`). A comment sent to a session from an artifact's
+  comment thread comes as a prompt of its own, the comment quoted in what the app wraps it in
+  (`claude/transcript.rs` `COMMENT_HEAD`). Both name the artifact by its uuid
+  (`claude.ai/code/artifact/<uuid>`), where Claude Code's `Artifact` results link to
+  `claude.ai/artifact/<id>`, the same uuid in base58: `claude/conversation.rs` (`artifact_about`,
+  `artifact_id`).

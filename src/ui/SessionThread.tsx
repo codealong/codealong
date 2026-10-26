@@ -24,6 +24,10 @@
 // pasted into the session's terminal, or attached in its harness's app. The engine keeps the
 // ones a record holds with Codealong's own and writes each as text refers to a kept image
 // (transcript.rs), so they show as an image in a todo's description does; a click opens one.
+// One sent about an artifact, looking at it in the Claude app or as a comment sent from its
+// thread, says which under it, as a page a call made does, with where in it you were or the part
+// the comment is on; a comment shows as the comment, without what the app wrapped it in for the
+// agent (claude/conversation.rs `artifact_about`).
 //
 // While its agent works, a line at the end says so, with a word for what it's up to and, now and
 // then in the main window, a tip on its right (Working.tsx).
@@ -255,6 +259,20 @@ export function questionsLine(questions: Question[]): string {
   return `Asks you · ${about}`;
 }
 
+/** A page on the web a call made, or a prompt of yours was about: its title as a link to it, then
+ *  what was done with it or where in it you were. */
+function MadeLine({ link }: { link: NonNullable<TranscriptItem['link']> }) {
+  return (
+    <div className="ca-thread-made">
+      <Link url={link.url} plain>
+        <span className="ca-thread-madetitle">{link.title}</span>
+        <Icon name="arrow-up-right" size={12} />
+      </Link>
+      {link.note && <span className="ca-meta">{link.note}</span>}
+    </div>
+  );
+}
+
 function ToolLine({ item, result, state, onOpen }: { item: TranscriptItem; result?: TranscriptItem; state: 'done' | 'running' | 'asks' | 'open'; onOpen?: () => void }) {
   const questions = item.questions?.length ? item.questions : null;
   // Questions it waits on you for show without a click, unless the reply area below shows them.
@@ -281,15 +299,7 @@ function ToolLine({ item, result, state, onOpen }: { item: TranscriptItem; resul
         ) : null}
         {detail && <Icon name={open ? 'chevron-down' : 'chevron-right'} size={12} />}
       </button>
-      {link && (
-        <div className="ca-thread-made">
-          <Link url={link.url} plain>
-            <span className="ca-thread-madetitle">{link.title}</span>
-            <Icon name="arrow-up-right" size={12} />
-          </Link>
-          {link.note && <span className="ca-meta">{link.note}</span>}
-        </div>
-      )}
+      {link && <MadeLine link={link} />}
       {item.sent && (
         <div className="ca-thread-sent">
           {item.sent.caption && <p className="ca-thread-sentcaption">{item.sent.caption}</p>}
@@ -412,7 +422,10 @@ function Said({ item, result, now, label, head, onPutBack, onMenu, onEdit }: { i
           )}
         </div>
       ) : item.kind === 'you' ? (
-        <YourText text={item.text} />
+        <>
+          <YourText text={item.text} />
+          {item.link && <MadeLine link={item.link} />}
+        </>
       ) : item.kind === 'codealong' ? (
         // Its files (a review handed back) open as yours do.
         <div className="ca-thread-codealong">

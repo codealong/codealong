@@ -99,7 +99,8 @@ pub struct Item {
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub answers: BTreeMap<String, Vec<String>>,
     /// What a call made or opened that has a page on the web (an artifact Claude Code
-    /// published), on the call's result: its line in the panel links to it.
+    /// published), on the call's result: its line in the panel links to it. On a prompt of
+    /// yours, the artifact it was about: the one you were looking at, or whose comment it hands on.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub link: Option<crate::harness::Link>,
     /// The files a call handed you to look at (Claude Code's `SendUserFile`), on the call: its

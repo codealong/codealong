@@ -342,7 +342,7 @@ fn title_of(html: &str) -> Option<String> {
     let start = open + lower[open..].find('>')? + 1;
     let end = start + lower[start..].find("</title")?;
     let raw = html[start..end].split_whitespace().collect::<Vec<_>>().join(" ");
-    let title = raw.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&#39;", "'").replace("&amp;", "&");
+    let title = crate::util::unescape_html(&raw);
     let title: String = title.chars().take(120).collect();
     (!title.is_empty()).then_some(title)
 }

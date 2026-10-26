@@ -1036,9 +1036,13 @@ const PASTE_CLOSE: &str = "</pasted_content id=\"";
 
 /// What a prompt says, or None for a line of Claude Code's own rather than words of yours: empty,
 /// tagged (a command's output, a notification) or an interruption. A paste is yours, so its tags
-/// come off instead, and what was pasted stays where it was, even when it starts with a tag.
+/// come off instead, and what was pasted stays where it was, even when it starts with a tag. A
+/// comment sent from an artifact says what the comment does (`comment_in`).
 pub(super) fn prompt_words(text: &str) -> Option<String> {
     let t = without_context(text).trim();
+    if let Some(comment) = comment_in(t) {
+        return (!comment.is_empty()).then_some(comment);
+    }
     if t.is_empty() || (t.starts_with('<') && !t.starts_with(PASTE_OPEN)) || t.starts_with("[Request interrupted") {
         return None;
     }
@@ -1149,6 +1153,24 @@ pub(super) fn without_context(text: &str) -> &str {
         rest = after;
     }
     rest
+}
+
+/// How the Claude app hands a session a comment sent to it from an artifact's comment thread
+/// (2.1.308): this heading, `Artifact: <link>`, the thread and the time, a note to the model, the
+/// comment quoted between lines that carry one token, each of its lines led by `>`, where in the
+/// artifact it's anchored (`<comment-anchor-context>`, its `Location:` line written for HTML), and
+/// what to do with it. What it says is the comment; the rest is for the model (7 of this Mac's
+/// prompts, 2026-10-26, each shown whole).
+pub(super) const COMMENT_HEAD: &str = "[Artifact comment sent to Claude]";
+
+/// The comment a prompt hands on (`COMMENT_HEAD`), as it was written; None for any other prompt,
+/// or one whose quote doesn't close.
+pub(super) fn comment_in(text: &str) -> Option<String> {
+    let rest = text.trim_start().strip_prefix(COMMENT_HEAD)?;
+    let (token, quoted) = rest.split_once("\n=== BEGIN ARTIFACT COMMENT ")?.1.split_once(" ===\n")?;
+    let quoted = &quoted[..quoted.find(&format!("=== END ARTIFACT COMMENT {token} ==="))?];
+    let lines: Vec<&str> = quoted.lines().map(|l| l.strip_prefix("> ").or_else(|| l.strip_prefix('>')).unwrap_or(l)).collect();
+    Some(lines.join("\n").trim().to_string())
 }
 
 /// A prompt line's text, or its text parts joined, without what was put ahead of what you typed.
@@ -1758,6 +1780,15 @@ pub(super) mod tests {
         assert_eq!(prompt_words("<artifact-view-context artifact=\"a\">\nwords"), None);
         // Another tag, or the name as a prefix of one, is left alone.
         assert_eq!(prompt_words("<artifact-view-contexts>x</artifact-view-contexts>\n\nwords"), None);
+        // A comment sent from an artifact's thread is the comment, as written; one whose quote
+        // doesn't close is shown whole, and an empty one says nothing.
+        let comment = |quoted: &str| format!("[Artifact comment sent to Claude]\nArtifact: https://claude.ai/code/artifact/a1\n\nIt is quoted below.\n\n=== BEGIN ARTIFACT COMMENT 7f ===\n{quoted}\n\nAnswer this comment in its thread.");
+        let sent = comment("> Use the usual list\n>    with its filters\n=== END ARTIFACT COMMENT 7f ===");
+        assert_eq!(typed_text(&line(sent.clone().into())).as_deref(), Some("Use the usual list\n   with its filters"));
+        assert_eq!(user_prompt(&line(sent.into())).as_deref(), Some("Use the usual list"));
+        let open = comment("> Use the usual list\n=== END ARTIFACT COMMENT 8e ===");
+        assert_eq!(typed_text(&line(open.clone().into())).as_deref(), Some(open.trim()));
+        assert_eq!(prompt_words(&comment(">\n=== END ARTIFACT COMMENT 7f ===")), None);
         // A part without one is as it was, its indent kept.
         let parts = line(serde_json::json!([{ "type": "text", "text": format!("{looking}Example:") }, { "type": "text", "text": "    return 1" }]));
         assert_eq!(typed_text(&parts).as_deref(), Some("Example:\n    return 1"));

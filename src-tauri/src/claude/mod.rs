@@ -52,7 +52,7 @@ use crate::procs;
 use crate::transcript::{Item, Page};
 use crate::util::{file_name, mtime_ms, one_line, parallel_map, parse_rfc3339_ms};
 
-use conversation::{idle_since, last_prompt_taken_back, mark_taken_back, name_commands, open_prompt_before, questions_of};
+use conversation::{idle_since, last_prompt_taken_back, mark_taken_back, name_artifacts, name_commands, open_prompt_before, questions_of};
 use daemon::{daemon_press_escape, daemon_socket, daemon_type};
 use held::held_in;
 use mode::permission_mode;
@@ -213,6 +213,7 @@ impl crate::harness::Adapter for ClaudeCode {
                 let mut page = crate::transcript::file_page(&path, conversation_items, before, limit)?;
                 name_commands(&path, &mut page.items);
                 mark_taken_back(&path, &mut page.items, idle_since(&ctx.account.home_path(), s));
+                name_artifacts(&mut page.items, &s.artifacts);
                 Ok(page)
             }
             // A live session writes its transcript at its first prompt.
@@ -247,6 +248,7 @@ impl crate::harness::Adapter for ClaudeCode {
                 let mut page = crate::transcript::file_newer(&path, conversation_items, from)?;
                 name_commands(&path, &mut page.items);
                 mark_taken_back(&path, &mut page.items, idle_since(&ctx.account.home_path(), s));
+                name_artifacts(&mut page.items, &s.artifacts);
                 Ok(page)
             }
             Err(_) if s.live => Ok(Page { items: Vec::new(), before: None, after }),

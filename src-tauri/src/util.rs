@@ -379,6 +379,11 @@ pub fn listed(names: &[String], last: &str) -> String {
     }
 }
 
+/// Text written for HTML read back: its five entities, `&amp;` last so `&amp;lt;` reads `&lt;`.
+pub fn unescape_html(s: &str) -> String {
+    s.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&#39;", "'").replace("&amp;", "&")
+}
+
 /// First non-empty line, whitespace collapsed, markdown links reduced to their text, cut to
 /// `max` characters with an ellipsis. A line that only opens or closes a block a directive wraps
 /// (`:::writing{variant="email" id="83147"}`, `:::`, as Codex wraps a piece of writing) isn't

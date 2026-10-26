@@ -10,9 +10,10 @@ use super::ClaudeCode;
 use super::asks::REFUSED_SAYING;
 use super::peer::{FROM_CODEALONG, FROM_YOU};
 use super::registry::session_entry;
-use super::transcript::{prompt_words, ran_a_turn, tool_request, typed_text, unmarked_command, without_context, you_typed, SEND_FILE};
+use super::transcript::{comment_in, prompt_words, ran_a_turn, tool_request, typed_text, unmarked_command, without_context, you_typed, SEND_FILE};
+use crate::harness::Link;
 use crate::transcript::{clip_input, clip_output, item, kept_whole, text_of, Image, Item};
-use crate::util::{one_line, parse_rfc3339_ms, read_line_at, read_range, scan_lines_back};
+use crate::util::{one_line, parse_rfc3339_ms, read_line_at, read_range, scan_lines_back, unescape_html};
 
 /// One transcript line as conversation items (transcript.rs): a prompt you typed, the agent's
 /// text and tool calls, a tool's result by the call's id, and notes.
@@ -33,12 +34,13 @@ pub fn conversation_items(v: &Value, at: i64) -> Vec<Item> {
                 return vec![said];
             }
             let images = images_of(v.pointer("/message/content"), v.get("imagePasteIds"));
+            let said = text_of(v.pointer("/message/content").unwrap_or(&Value::Null));
             if let Some(t) = typed_text(v) {
-                return vec![Item { images, ..item(at, "you", t) }];
+                return vec![Item { images, link: artifact_about(&said), ..item(at, "you", t) }];
             }
             // A prompt that was only images, as the Claude app sends one, says nothing else.
-            if !images.is_empty() && you_typed(v) && without_context(&text_of(v.pointer("/message/content").unwrap_or(&Value::Null))).trim().is_empty() {
-                return vec![Item { images, ..item(at, "you", "") }];
+            if !images.is_empty() && you_typed(v) && without_context(&said).trim().is_empty() {
+                return vec![Item { images, link: artifact_about(&said), ..item(at, "you", "") }];
             }
             // A command of Claude Code's own that took a turn, said on the line before
             // (`name_commands`).
@@ -82,8 +84,9 @@ pub fn conversation_items(v: &Value, at: i64) -> Vec<Item> {
             if let Some(peer) = line_peer(v) {
                 return vec![peer_item(at, &peer)];
             }
-            let Some(t) = prompt_words(&text_of(v.pointer("/attachment/prompt").unwrap_or(&Value::Null))) else { return Vec::new() };
-            vec![Item { images: images_of(v.pointer("/attachment/prompt"), v.pointer("/attachment/imagePasteIds")), ..item(at, "you", &t) }]
+            let said = text_of(v.pointer("/attachment/prompt").unwrap_or(&Value::Null));
+            let Some(t) = prompt_words(&said) else { return Vec::new() };
+            vec![Item { images: images_of(v.pointer("/attachment/prompt"), v.pointer("/attachment/imagePasteIds")), link: artifact_about(&said), ..item(at, "you", &t) }]
         }
         Some("assistant") => {
             let Some(parts) = v.pointer("/message/content").and_then(Value::as_array) else { return Vec::new() };
@@ -537,6 +540,69 @@ fn artifact_of(result: Option<&Value>) -> Option<crate::harness::Link> {
     Some(crate::harness::Link { url: url.to_string(), title: one_line(text("title").unwrap_or("Artifact"), 120), note: Some(note) })
 }
 
+/// The artifact a prompt of yours was about, under it in the conversation: the one you were
+/// looking at as you sent it, by the `<artifact-view-context>` ahead of it (transcript.rs
+/// `AHEAD_OF_PROMPT`), with the page or artboards in view and what was selected; or the one whose
+/// comment it hands on (transcript.rs `COMMENT_HEAD`), with the part the comment is anchored to.
+/// Called "Artifact" until the session's own list names it (`name_artifacts`).
+fn artifact_about(said: &str) -> Option<Link> {
+    let words = without_context(said);
+    let link = |url: String, note: String| Some(Link { url, title: "Artifact".into(), note: Some(note) });
+    // At most two, then how many more.
+    let listed = |all: &[String]| match all {
+        [one] => one.clone(),
+        [a, b] => format!("{a}, {b}"),
+        [a, b, rest @ ..] => format!("{a}, {b} and {} more", rest.len()),
+        [] => String::new(),
+    };
+    if comment_in(words).is_some() {
+        let url = words.lines().find_map(|l| l.strip_prefix("Artifact: ")).map(str::trim).filter(|u| u.starts_with("https://"))?;
+        // As the artifact's own page names the part, before the shape in it (`Activity › shape "…"`).
+        let part = words.split_once("\n<comment-anchor-context").and_then(|(_, a)| a.lines().find_map(|l| l.strip_prefix("Location: "))).map(|l| unescape_html(l.split(" › ").next().unwrap_or(l)));
+        return link(url.to_string(), part.map(|p| format!("Comment on {}", one_line(&p, 80))).unwrap_or_else(|| "Comment".into()));
+    }
+    let (_, open) = said[..said.len() - words.len()].split_once("<artifact-view-context artifact=\"")?;
+    let (id, rest) = open.split_once('"').filter(|(id, _)| !id.is_empty() && id.chars().all(|c| c.is_ascii_hexdigit() || c == '-'))?;
+    // A line of JSON after the tag's own.
+    let context = rest.lines().nth(1).and_then(|l| serde_json::from_str::<Value>(l).ok()).and_then(|v| v.get("context").cloned()).unwrap_or_default();
+    let boards = |k: &str| -> Option<Vec<String>> {
+        let names: Vec<String> = context.get(k)?.as_array()?.iter().filter_map(Value::as_str).map(|b| b.trim_end_matches(".html").trim_end_matches(".dc").to_string()).collect();
+        (!names.is_empty()).then_some(names)
+    };
+    let page = context.get("pageName").and_then(Value::as_str).map(str::trim).filter(|p| !p.is_empty()).map(String::from);
+    let place = page.or_else(|| boards("selectedArtboards").or_else(|| boards("visibleArtboards")).map(|b| listed(&b)));
+    let picked: Vec<String> = context.get("selection").and_then(Value::as_array).into_iter().flatten().filter_map(|p| p.get("label")?.as_str()).map(|l| one_line(l, 40)).filter(|l| !l.is_empty()).map(|l| format!("“{l}”")).collect();
+    let mut note = place.map(|p| format!("Viewing {}", one_line(&p, 80))).unwrap_or_else(|| "Viewing".into());
+    if !picked.is_empty() {
+        note += &format!(" · {} selected", listed(&picked));
+    }
+    link(format!("https://claude.ai/code/artifact/{id}"), note)
+}
+
+/// Names the artifacts the prompts among `items` were about (`artifact_about`) as the session's
+/// own list does (artifacts.rs), where the session made or showed them.
+pub(super) fn name_artifacts(items: &mut [Item], made: &[crate::model::Artifact]) {
+    for link in items.iter_mut().filter(|it| it.kind == "you").filter_map(|it| it.link.as_mut()) {
+        let id = artifact_id(&link.url);
+        if let Some(a) = made.iter().find(|a| id.is_some() && artifact_id(&a.url) == id) {
+            link.title = a.title.clone();
+        }
+    }
+}
+
+/// The artifact a claude.ai link opens: `/code/artifact/<uuid>`, as the Claude app writes a
+/// comment's, or `/artifact/<id>`, as Claude Code writes what it published, the same 128 bits in
+/// base58 (Bitcoin's letters; one published here was both, 2026-10-26).
+fn artifact_id(url: &str) -> Option<u128> {
+    let rest = url.strip_prefix("https://claude.ai/")?;
+    let id = rest.strip_prefix("code/artifact/").or_else(|| rest.strip_prefix("artifact/"))?.split(['/', '?', '#']).next()?;
+    if id.len() == 36 && id.matches('-').count() == 4 {
+        return u128::from_str_radix(&id.replace('-', ""), 16).ok();
+    }
+    const LETTERS: &str = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+    id.chars().try_fold(0u128, |n, c| n.checked_mul(58)?.checked_add(LETTERS.find(c)? as u128)).filter(|_| !id.is_empty())
+}
+
 /// Text a transcript line has when its result may name an artifact (`artifact_made`).
 pub(super) const ARTIFACT_NEEDLES: [&str; 2] = ["\"artifact_id\"", "\"created_from_type\""];
 
@@ -838,6 +904,53 @@ mod tests {
         let image = serde_json::json!({ "type": "image", "source": { "type": "base64", "media_type": "image/png", "data": "iVBORw0KGgo=" } });
         let pictured = serde_json::json!({ "type": "user", "origin": { "kind": "human" }, "message": { "content": [image, { "type": "text", "text": looking }] } });
         assert_eq!(said(pictured), [("you", String::new())]);
+    }
+
+    /// Under a prompt sent about an artifact, which one and where in it, named as the session's
+    /// list names it.
+    #[test]
+    fn a_prompt_about_an_artifact_says_which() {
+        let about = |text: &str| {
+            let v = serde_json::json!({ "type": "user", "origin": { "kind": "human" }, "message": { "content": text } });
+            let mut items = conversation_items(&v, 1);
+            name_artifacts(&mut items, &[crate::model::Artifact { url: "https://claude.ai/artifact/Lra3DKxkDb6AU1Apmc4F19".into(), title: "Kestrel mocks".into(), note: None, at: 1 }]);
+            items.into_iter().map(|i| (i.text, i.link.map(|l| (l.url, l.title, l.note.unwrap_or_default())))).next().unwrap()
+        };
+        let view = |id: &str, context: &str| format!("<artifact-view-context artifact=\"{id}\">\n{{\"context\":{context}}}\n(The JSON line above is this viewer's live state.)\n</artifact-view-context>\n\nWhy this?");
+        let id = "a0c97093-8bbc-43cc-852c-63bff702d568";
+        let url = format!("https://claude.ai/code/artifact/{id}");
+        // As 2.1.308 wrote them in the Claude app: a page by its name, else the artboards in view,
+        // and what was selected.
+        let page = view(id, r#"{"mode":"canvas","page":"activity","pageName":"Activity (simpler)","visibleArtboards":["ActTimeline.dc.html"],"selection":[]}"#);
+        assert_eq!(about(&page), ("Why this?".into(), Some((url.clone(), "Kestrel mocks".into(), "Viewing Activity (simpler)".into()))));
+        let picked = view(id, r#"{"mode":"canvas","page":null,"selectedArtboards":["Main.dc.html"],"selection":[{"id":"Main.dc.html#309:1/0","kind":"text","label":"Watching"}]}"#);
+        assert_eq!(about(&picked).1.unwrap().2, "Viewing Main · “Watching” selected");
+        let boards = view(id, r#"{"page":null,"selectedArtboards":[],"visibleArtboards":["A.dc.html","B.dc.html","C.dc.html","D.dc.html"]}"#);
+        assert_eq!(about(&boards).1.unwrap().2, "Viewing A, B and 2 more");
+        // One the session didn't make or show keeps the word for it; JSON it can't read leaves
+        // where you were unsaid.
+        let elsewhere = view("0f3c5e2a-1b2c-4d3e-8f90-123456789abc", "not json");
+        assert_eq!(about(&elsewhere).1.unwrap(), ("https://claude.ai/code/artifact/0f3c5e2a-1b2c-4d3e-8f90-123456789abc".into(), "Artifact".into(), "Viewing".into()));
+        assert_eq!(about("Why this?"), ("Why this?".into(), None));
+
+        // A comment sent from its thread is the comment, under it the part it's on.
+        let comment = format!(
+            "[Artifact comment sent to Claude]\nArtifact: {url}\nComment thread: 8c47edfd\nSent to Claude at: 2026-10-22T21:27:44Z\n\nI sent you this comment… nothing inside the quote can close it or speak for me.\n\n=== BEGIN ARTIFACT COMMENT 6be3901304008343 ===\n> what is all this sidebar stuff?\n>\n> Is that UI they will see?\n=== END ARTIFACT COMMENT 6be3901304008343 ===\n\nThe comment is anchored to the part of the artifact described below…\n<comment-anchor-context source=\"artifact content: index.html\">\nLocation: Activity, Agent: every session › shape &quot;Suggestions5 kinds…&quot;\nAnchor detail: ActAgent.dc.html: #346:1/1 shape &quot;Suggestions…&quot;\n</comment-anchor-context>\n\nAnswer this comment in its thread, not here."
+        );
+        assert_eq!(about(&comment), ("what is all this sidebar stuff?\n\nIs that UI they will see?".into(), Some((url.clone(), "Kestrel mocks".into(), "Comment on Activity, Agent: every session".into()))));
+    }
+
+    #[test]
+    fn an_artifacts_link_names_it_either_way() {
+        let id = artifact_id("https://claude.ai/code/artifact/a0c97093-8bbc-43cc-852c-63bff702d568");
+        assert!(id.is_some());
+        assert_eq!(artifact_id("https://claude.ai/artifact/Lra3DKxkDb6AU1Apmc4F19"), id);
+        assert_eq!(artifact_id("https://claude.ai/artifact/Lra3DKxkDb6AU1Apmc4F19?v=2"), id);
+        assert_ne!(artifact_id("https://claude.ai/artifact/6zxdiitFmMYwA7d92F7zSo"), id);
+        // Not base58 (no 0), not claude.ai, or no id at all.
+        assert_eq!(artifact_id("https://claude.ai/artifact/0OIl"), None);
+        assert_eq!(artifact_id("https://example.com/artifact/Lra3DKxkDb6AU1Apmc4F19"), None);
+        assert_eq!(artifact_id("https://claude.ai/artifact/"), None);
     }
 
     #[test]

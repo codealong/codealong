@@ -680,7 +680,7 @@ pub struct Item {
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub answers: std::collections::BTreeMap<String, Vec<String>>,
     /// What a call made or opened that has a page on the web (a Claude artifact), on the call's
-    /// result.
+    /// result; on a prompt of yours, the artifact it was about.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub link: Option<Link>,
     /// The files a call handed you to look at (Claude Code's `SendUserFile`), on the call.
