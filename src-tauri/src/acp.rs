@@ -464,10 +464,10 @@ fn agent(a: &AccountCfg) -> Result<Arc<Agent>> {
         return Ok(ag);
     }
     a.ensure_on()?;
-    let (command, env) = adapter_command(a).map_err(|e| anyhow!(e))?;
     // An install under way (`refresh_adapters` at launch) finishes before one of the packages
-    // is run, and none starts until it has answered.
-    let _installing = command.contains(&*install_dir().to_string_lossy()).then(|| INSTALLING.read().unwrap_or_else(|e| e.into_inner()));
+    // is looked for, since npm may not have written it yet, and none starts until it has answered.
+    let _installing = runs_a_package(a).then(|| INSTALLING.read().unwrap_or_else(|e| e.into_inner()));
+    let (command, env) = adapter_command(a).map_err(|e| anyhow!(e))?;
     // Through a shell, so an account's command may set variables the way it does in a terminal.
     let mut cmd = Command::new("/bin/sh");
     cmd.args(["-c", &format!("exec {command}")]).envs(env).env("PATH", adapter_path()).current_dir(crate::util::home());
