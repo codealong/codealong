@@ -201,7 +201,8 @@ export function mergesWith(prs: readonly PrItem[], s: Pick<Session, 'key' | 'arc
  *  action is missing when the window can't do it or the session doesn't allow it, so the rule for
  *  when each applies is here and nowhere else. */
 export interface SessionActions {
-  open: MenuAction;
+  /** Where it lives: missing for one on another device, which opens on its own Mac. */
+  open?: MenuAction;
   /** A session on this Mac that isn't running: each place its account's sessions go on in, on
    *  the account's own model (its box picks another). */
   resume?: MenuGroup;
@@ -370,7 +371,8 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
   };
   const merges = can.mergeDone && mergesWith(can.mergeDone.prs, s);
   return {
-    open: { label: openLabel(lane, s, can.terminal), run: () => can.open(lane, s.openTarget) },
+    // One on another device opens on its own Mac (peerfeed.rs `shareable`): Show in Codealong reads it.
+    open: s.openTarget ? { label: openLabel(lane, s, can.terminal), run: () => can.open(lane, s.openTarget) } : undefined,
     resume: resumeTo.length > 1 ? { label: cutOff ? 'Carry on in' : 'Resume in', items: resumeTo.map((to) => ({ label: to.label, run: () => void resume(to) })) } : undefined,
     terminal: opensInEditor(lane) ? { label: `Open folder in ${can.terminal}`, run: () => can.open(lane, terminalTarget(s.key)) } : undefined,
     folder: can.editors && opensInEditor(lane) ? item(folderMenu(can.editors.apps, can.editors.icons, (id) => can.open(lane, id), { name: can.terminal, key: s.key, accelerator: can.keys ? CHORDS.terminal : undefined })) : undefined,

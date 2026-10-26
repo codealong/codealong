@@ -2,7 +2,8 @@
 // pill carries its device's color and says the device in its tooltip, a click opens the notch on
 // it with its conversation read from that device (session_at, which finds it among your devices'
 // worktrees) and its header saying the device, still so after going on to another of that
-// device's, and it can be kept on the desktop and its pill dragged there, as this Mac's can.
+// device's; a double-click, with nothing to open here, shows it in Codealong; and it can be kept on
+// the desktop and its pill dragged there, as this Mac's can.
 //   PREVIEW_DEVICES=scripts/preview/devices-sample.json PREVIEW_SIZE=1512,980 PREVIEW_WAIT=60000 scripts/preview.sh notch '' scripts/preview/notch-devices-check.js
 (function () {
   var notch = function () { return document.querySelector('.ca-notch'); };
@@ -72,6 +73,15 @@
     .then(function () { return wait(400); })
     .then(function () {
       check('going on to another of the device’s, it still says the device', badge() === 'On ' + next.device.name, badge() || 'none');
+      var shows = calls('show_main').length;
+      pill(theirs.key).dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }));
+      pill(theirs.key).dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 2 }));
+      var m = last('show_main');
+      check('a double-click, with nothing to open here, shows it in Codealong', calls('open_from_bar').length === 0 && calls('show_main').length === shows + 1 && !!m && m.reveal.key === theirs.key, JSON.stringify(m));
+      enter();
+      return until(function () { return is('pills') && !!pill(mine.key); }, 3000, 'its pills again');
+    })
+    .then(function () {
       pill(mine.key).click();
       return until(function () { return is('session') && title().indexOf(mine.title.slice(0, 20)) === 0; }, 5000, 'this Mac’s session');
     })

@@ -158,6 +158,8 @@ describe('sessionMenu', () => {
     expect(labels(sessionMenu(remoteLane, remote, { ...base, newSession: noop }))).toContain('New session here…');
     // A card on the desktop shows it from that device's worktrees, and its menu takes it off.
     expect(has(remote, 'Pin to desktop', { desktop: new Set() })).toBe(true);
+    // It has nothing to open here: its feed carries no open target.
+    expect(labels(sessionMenu(remoteLane, { ...remote, openTarget: '' }, base))).not.toContain('Open');
     expect(has(remote, 'Remove from desktop', { desktop: new Set(['session:@ab12:claude:c:1']) })).toBe(true);
   });
 

@@ -142,9 +142,10 @@ export function DesktopPin() {
   const said: Report = { error: setFailed, info: setFailed };
 
   /** Opens a session where it lives and brings that app forward: a click here leaves Codealong
-   *  in the background, as one in the bar does. */
+   *  in the background, as one in the bar does. One on another device has nothing to open here
+   *  (peerfeed.rs `shareable`), and shows in Codealong, as a worktree there does. */
   const openOn = (lane: Lane, target: string) => openWhere(where(lane, target), { report: said, from: 'panel' });
-  const openSession = (lane: Lane, s: Session) => openOn(lane, s.openTarget);
+  const openSession = (lane: Lane, s: Session) => (s.openTarget ? openOn(lane, s.openTarget) : void showMain({ kind: 'session', laneId: lane.id, key: s.key }));
 
   /** What a click on the card does: a session opens where it lives, a worktree the way its row's
    *  double-click opens it, and a todo its session, or the quick panel ready to start one. */

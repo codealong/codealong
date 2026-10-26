@@ -583,9 +583,15 @@ export function Bar() {
   };
 
   /** Opens a session where it lives (open.ts), or with `target` another of its worktree's
-   *  targets; what goes wrong shows on the pill `anchor`. */
+   *  targets; what goes wrong shows on the pill `anchor`. A session on another device has nothing
+   *  to open here (its feed has no open target, peerfeed.rs `shareable`): it shows in Codealong,
+   *  where its panel reads it from that device. */
   const open = (i: BarItem | BarRecent | BarSnoozed, anchor = i.key, target = i.openTarget) => {
     stopHover();
+    if (!target) {
+      reveal(i);
+      return;
+    }
     const w = target === i.openTarget ? { laneId: i.laneId, target, listed: i.target } : { laneId: i.laneId, target };
     openWhere(w, {
       report: { error: (message) => setFailed({ anchor, message }), info: (message) => setFailed({ anchor, message, tone: 'info' }) },

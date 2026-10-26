@@ -549,15 +549,11 @@ fn show_main(app: tauri::AppHandle, reveal: Option<serde_json::Value>) -> Result
 }
 
 /// Opens a session from the floating bar, then asks macOS to bring its app forward: a click in the
-/// bar doesn't make Codealong the active app. One on another device opens there, as from the main
-/// window (`open_target`).
+/// bar doesn't make Codealong the active app.
 #[tauri::command]
-async fn open_from_bar(app: tauri::AppHandle, engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, lane_id: String, target_id: String) -> Result<(), String> {
-    let (engine, peers) = (engine.inner().clone(), peers.inner().clone());
+async fn open_from_bar(app: tauri::AppHandle, engine: State<'_, engine::Handle>, lane_id: String, target_id: String) -> Result<(), String> {
+    let engine = engine.inner().clone();
     blocking(move || {
-        if peerfeed::split_remote(&lane_id).is_some() {
-            return actions::run(&engine, &peers, actions::OPEN, &lane_id, actions::params::Open { target: target_id }).map(|_| ());
-        }
         if let Some(key) = target_id.strip_prefix("s|").and_then(|t| t.strip_suffix("|hosted")) {
             // Codealong runs it: its panel in the main window is where it lives.
             engine.mark_seen(vec![key.to_string()]);

@@ -1,7 +1,7 @@
 // Checks a session of another device's pinned to the desktop (DesktopPin.tsx, desktop.rs cutting it
 // from that device's worktrees beside the board): its card shows it with its device's badge, faded
-// while the device is away, a click shows it in the peek, a double-click opens it where it lives
-// (open_from_bar, which reaches that device), and its menu takes it off the desktop.
+// while the device is away, a click shows it in the peek, a double-click, with nothing to open
+// here, shows it in Codealong, and its menu takes it off the desktop.
 //   PREVIEW_DEVICES=scripts/preview/devices-sample.json PREVIEW_WAIT=60000 PREVIEW_PIN=session:@ scripts/preview.sh desktop '' scripts/preview/desktop-devices-check.js
 //   PREVIEW_DEVICES=scripts/preview/devices-sample.json PREVIEW_WAIT=60000 PREVIEW_PIN=session:@4a3b2c1d0e scripts/preview.sh desktop '' scripts/preview/desktop-devices-check.js
 (function () {
@@ -31,11 +31,11 @@
       return wait(100);
     })
     .then(function () {
-      var opens = calls('open_from_bar').length;
+      var shows = calls('show_main').length;
       click(document.querySelector('.ca-desk .ca-cv-l1'), 1);
       click(document.querySelector('.ca-desk .ca-cv-l1'), 2);
-      var o = last('open_from_bar');
-      check('a double-click opens it where it lives', calls('open_from_bar').length === opens + 1 && o.laneId === feed.lanes[0].id && o.targetId === feed.lanes[0].sessions[0].openTarget, JSON.stringify(o));
+      var o = last('show_main');
+      check('a double-click, with nothing to open here, shows it in Codealong', calls('open_from_bar').length === 0 && calls('show_main').length === shows + 1 && o.reveal.kind === 'session' && o.reveal.key === feed.pin.key, JSON.stringify(o));
       return menuOf(card());
     })
     .then(function (labels) {
