@@ -735,5 +735,6 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
 - A Code session started without a folder runs in a scratch workspace the app makes for it and
   removes once the session is gone (2.9939's code): `claude/app.rs` (`scratch_dir`). The engine
   lists every such session in one lane (`engine.rs` `chat_roots`), and the app's
-  `<system-reminder>` part ahead of the first prompt is skipped (`claude/transcript.rs`
-  `typed_text`).
+  `<system-reminder>` ahead of the first prompt is skipped, as is the `<artifact-view-context>`
+  ahead of a prompt sent while you look at an artifact, in the app or a terminal
+  (`claude/transcript.rs` `AHEAD_OF_PROMPT`).

@@ -10,7 +10,7 @@ use super::ClaudeCode;
 use super::asks::REFUSED_SAYING;
 use super::peer::{FROM_CODEALONG, FROM_YOU};
 use super::registry::session_entry;
-use super::transcript::{prompt_words, ran_a_turn, tool_request, typed_text, unmarked_command, you_typed, SEND_FILE};
+use super::transcript::{prompt_words, ran_a_turn, tool_request, typed_text, unmarked_command, without_context, you_typed, SEND_FILE};
 use crate::transcript::{clip_input, clip_output, item, kept_whole, text_of, Image, Item};
 use crate::util::{one_line, parse_rfc3339_ms, read_line_at, read_range, scan_lines_back};
 
@@ -37,7 +37,7 @@ pub fn conversation_items(v: &Value, at: i64) -> Vec<Item> {
                 return vec![Item { images, ..item(at, "you", t) }];
             }
             // A prompt that was only images, as the Claude app sends one, says nothing else.
-            if !images.is_empty() && you_typed(v) && text_of(v.pointer("/message/content").unwrap_or(&Value::Null)).trim().is_empty() {
+            if !images.is_empty() && you_typed(v) && without_context(&text_of(v.pointer("/message/content").unwrap_or(&Value::Null))).trim().is_empty() {
                 return vec![Item { images, ..item(at, "you", "") }];
             }
             // A command of Claude Code's own that took a turn, said on the line before
@@ -821,6 +821,23 @@ mod tests {
         assert_eq!(said(queued), [("you", "Also the docs.".to_string())]);
         let notified = serde_json::json!({ "type": "attachment", "attachment": { "type": "queued_command", "prompt": "<task-notification>\n<task-id>b1</task-id>\n</task-notification>" } });
         assert!(said(notified).is_empty(), "a background task's notification isn't yours");
+    }
+
+    /// A prompt sent while you look at an artifact comes after what you were looking at, which
+    /// is for the model alone (a message typed in the Claude app went missing from its panel,
+    /// 2026-10-26).
+    #[test]
+    fn a_prompt_sent_looking_at_an_artifact_shows_as_yours() {
+        let said = |v: Value| conversation_items(&v, 1).into_iter().map(|i| (i.kind, i.text)).collect::<Vec<_>>();
+        let looking = "<artifact-view-context artifact=\"a0c97093\">\n{\"context\":{\"mode\":\"canvas\"}}\n</artifact-view-context>\n\n";
+        let typed = serde_json::json!({ "type": "user", "origin": { "kind": "human" }, "message": { "content": format!("{looking}Why not per run?") } });
+        assert_eq!(said(typed), [("you", "Why not per run?".to_string())]);
+        let queued = serde_json::json!({ "type": "attachment", "attachment": { "type": "queued_command", "origin": { "kind": "human" }, "prompt": format!("{looking}And the timeline?") } });
+        assert_eq!(said(queued), [("you", "And the timeline?".to_string())]);
+        // Images sent with nothing typed are still a message of yours.
+        let image = serde_json::json!({ "type": "image", "source": { "type": "base64", "media_type": "image/png", "data": "iVBORw0KGgo=" } });
+        let pictured = serde_json::json!({ "type": "user", "origin": { "kind": "human" }, "message": { "content": [image, { "type": "text", "text": looking }] } });
+        assert_eq!(said(pictured), [("you", String::new())]);
     }
 
     #[test]

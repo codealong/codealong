@@ -805,15 +805,7 @@ fn user_prompt(v: &Value) -> Option<String> {
     if flag("isMeta") || flag("isSidechain") || flag("isCompactSummary") || flag("stackedExpansion") {
         return None;
     }
-    let content = v.pointer("/message/content")?;
-    let text = match content {
-        Value::String(s) => s.clone(),
-        Value::Array(items) => items
-            .iter()
-            .find(|i| i.get("type").and_then(Value::as_str) == Some("text"))
-            .and_then(|i| str_of(i, "text"))?,
-        _ => return None,
-    };
+    let text = prompt_text(v)?;
     if text.trim_start().starts_with("Caveat:") {
         return None;
     }
@@ -1044,7 +1036,7 @@ const PASTE_CLOSE: &str = "</pasted_content id=\"";
 /// tagged (a command's output, a notification) or an interruption. A paste is yours, so its tags
 /// come off instead, and what was pasted stays where it was, even when it starts with a tag.
 pub(super) fn prompt_words(text: &str) -> Option<String> {
-    let t = text.trim();
+    let t = without_context(text).trim();
     if t.is_empty() || (t.starts_with('<') && !t.starts_with(PASTE_OPEN)) || t.starts_with("[Request interrupted") {
         return None;
     }
@@ -1128,20 +1120,47 @@ pub fn typed_text(v: &Value) -> Option<String> {
     if let Some(peer) = line_peer(v) {
         return sent_from_codealong(&peer);
     }
-    let text = match v.pointer("/message/content")? {
-        Value::String(s) => s.clone(),
-        // The Claude app puts a system reminder of its own in front of the first prompt of a
-        // chat it started without a folder, as a part of its own: what you typed follows it.
+    let text = prompt_text(v)?;
+    command_run(v, &text).or_else(|| prompt_words(&text))
+}
+
+/// What Claude Code and the Claude app put ahead of the words you typed, for the model alone,
+/// each a block of its own followed by a blank line: the app's reminder ahead of a chat's first
+/// prompt (one without a folder, or in a worktree), as a text part of its own or at the start of
+/// the prompt's text (2.1.280); and what you were looking at in an artifact as you sent it,
+/// `<artifact-view-context artifact="<id>">`, a line of JSON and a note to the model, in the
+/// Claude app and in a terminal (2.1.308). Read as tags, such a prompt wasn't yours: 23 of this
+/// Mac's typed prompts started with an artifact's (2026-10-26), and none showed.
+const AHEAD_OF_PROMPT: [&str; 2] = ["system-reminder", "artifact-view-context"];
+
+/// A prompt's text without the blocks put ahead of what you typed (`AHEAD_OF_PROMPT`). A block
+/// that isn't closed is left as it is.
+pub(super) fn without_context(text: &str) -> &str {
+    let mut rest = text.trim_start();
+    while let Some(after) = AHEAD_OF_PROMPT.iter().find_map(|tag| {
+        rest.strip_prefix('<')?.strip_prefix(tag)?.starts_with(['>', ' ']).then_some(())?;
+        let close = format!("</{tag}>");
+        rest.find(&close).map(|at| &rest[at + close.len()..])
+    }) {
+        rest = after.trim_start();
+    }
+    rest
+}
+
+/// A prompt line's text, or its text parts joined, without what was put ahead of what you typed.
+fn prompt_text(v: &Value) -> Option<String> {
+    Some(match v.pointer("/message/content")? {
+        Value::String(s) => without_context(s).to_string(),
         Value::Array(items) => items
             .iter()
             .filter(|i| i.get("type").and_then(Value::as_str) == Some("text"))
             .filter_map(|i| i.get("text").and_then(Value::as_str))
-            .filter(|t| !t.trim_start().starts_with("<system-reminder>"))
+            .map(without_context)
+            .filter(|t| !t.is_empty())
             .collect::<Vec<_>>()
             .join("\n"),
         _ => return None,
-    };
-    command_run(v, &text).or_else(|| prompt_words(&text))
+    })
 }
 
 /// What an agent said in an assistant line, its text parts joined; tool calls and thinking
@@ -1706,6 +1725,35 @@ pub(super) mod tests {
         assert_eq!(typed_text(&line(&[reminder, "Give Graham access on GitHub"])).as_deref(), Some("Give Graham access on GitHub"));
         assert_eq!(typed_text(&line(&[reminder])), None);
         assert_eq!(typed_text(&line(&["<local-command-stdout>Cleared</local-command-stdout>"])), None);
+        assert_eq!(user_prompt(&line(&[reminder, "Give Graham access on GitHub"])).as_deref(), Some("Give Graham access on GitHub"));
+        // 2.1.280 put it at the start of the prompt's text instead.
+        let said = |text: &str| serde_json::json!({ "type": "user", "origin": { "kind": "human" }, "message": { "content": text } });
+        let worktree = "<system-reminder>\nYou are operating in a git worktree.\nWorktree name: kestrel\n</system-reminder>\n\nRows in the PRs view overflow.";
+        assert_eq!(typed_text(&said(worktree)).as_deref(), Some("Rows in the PRs view overflow."));
+        assert_eq!(user_prompt(&said(worktree)).as_deref(), Some("Rows in the PRs view overflow."));
+    }
+
+    #[test]
+    fn a_prompt_sent_looking_at_an_artifact_is_what_you_typed() {
+        let line = |content: Value| serde_json::json!({ "type": "user", "origin": { "kind": "human" }, "message": { "content": content } });
+        // As 2.1.308 wrote one in the Claude app, the artifact's state ahead of the words typed.
+        let looking = "<artifact-view-context artifact=\"a0c97093\">\n{\"context\":{\"mode\":\"canvas\",\"page\":\"activity\",\"selected\":[]}}\n(The JSON line above is this viewer's live state in the artifact <not typed by the user>.)\n</artifact-view-context>\n\n";
+        let asked = format!("{looking}So how would later runs share memories?");
+        assert_eq!(typed_text(&line(asked.clone().into())).as_deref(), Some("So how would later runs share memories?"));
+        assert_eq!(user_prompt(&line(asked.clone().into())).as_deref(), Some("So how would later runs share memories?"));
+        assert_eq!(prompt_words(&asked).as_deref(), Some("So how would later runs share memories?"));
+        // In a terminal, after the images attached to it.
+        let image = serde_json::json!({ "type": "image", "source": { "type": "base64", "media_type": "image/png", "data": "" } });
+        let with_image = line(serde_json::json!([image, { "type": "text", "text": format!("{looking}Redesign this page") }]));
+        assert_eq!(typed_text(&with_image).as_deref(), Some("Redesign this page"));
+        // A command run looking at one is still the command; the block alone, or one never
+        // closed, is no prompt.
+        let ran = format!("{looking}<command-message>design</command-message>\n<command-name>/design</command-name>");
+        assert_eq!(typed_text(&line(ran.into())).as_deref(), Some("/design"));
+        assert_eq!(typed_text(&line(looking.into())), None);
+        assert_eq!(prompt_words("<artifact-view-context artifact=\"a\">\nwords"), None);
+        // Another tag, or the name as a prefix of one, is left alone.
+        assert_eq!(prompt_words("<artifact-view-contexts>x</artifact-view-contexts>\n\nwords"), None);
     }
 
     #[test]
