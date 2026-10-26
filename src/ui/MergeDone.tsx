@@ -18,6 +18,7 @@ import { below, showContextMenu } from '../contextMenu';
 import { middleTruncate } from '../format';
 import { doneWords, METHOD, offers, opFor, pickMethod, rereads, standing } from '../merge';
 import { whatDoneDoes, type MergeDoneAsk } from '../menus';
+import { useReloads } from '../reload';
 import { errorText } from '../report';
 import type { MergeBox as Box, MergeMethod, Session } from '../types';
 import { CommitFields, methodItems, RECHECK_MS, RECHECKS, TONE_ICON, useCommit, useMethod } from './MergeBox';
@@ -47,6 +48,7 @@ export function MergeDoneDialog({ ask, onClose }: MergeDoneDialogProps) {
   const { pr } = ask;
   const [read, setRead] = useState<{ box?: Box; error?: string }>({});
   const [again, setAgain] = useState(0);
+  const reloads = useReloads();
   useEffect(() => {
     let live = true;
     mergeBox(pr.repoSlug, pr.number)
@@ -56,7 +58,7 @@ export function MergeDoneDialog({ ask, onClose }: MergeDoneDialogProps) {
     return () => {
       live = false;
     };
-  }, [pr.repoSlug, pr.number, again]);
+  }, [pr.repoSlug, pr.number, again, reloads]);
   // GitHub works out whether a PR can merge when it's first asked, and can take a moment to agree
   // with the board that it's ready: read again a few times, as the merge box does, each a while
   // after the last read came back, so a slow one isn't dropped for the next.

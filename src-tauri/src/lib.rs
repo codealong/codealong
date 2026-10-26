@@ -2114,6 +2114,39 @@ fn add_usage_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
 
 const USAGE_MENU_ID: &str = "usage";
 
+/// Puts Reload (⌘R) at the top of the View menu, over the zoom, as a browser has it: the front
+/// board window reads again what it shows (src/reload.ts), or the main window, shown, when none
+/// is in front. The key reaches the page before the menu (zoom.rs `add_menu`), and every window
+/// that shows something to read again takes it there, the ones that float too.
+fn add_reload_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
+    use tauri::menu::{MenuItem, MenuItemKind, PredefinedMenuItem};
+    let Some(menu) = app.menu() else { return Ok(()) };
+    let view = menu.items()?.into_iter().find_map(|item| match item {
+        MenuItemKind::Submenu(s) if s.text().is_ok_and(|t| t == "View") => Some(s),
+        _ => None,
+    });
+    let Some(view) = view else { return Ok(()) };
+    let item = MenuItem::with_id(app, RELOAD_MENU_ID, "Reload", true, Some("CmdOrCtrl+R"))?;
+    view.prepend_items(&[&item, &PredefinedMenuItem::separator(app)?])?;
+    app.on_menu_event(|app, event| {
+        if event.id().as_ref() != RELOAD_MENU_ID {
+            return;
+        }
+        match front_window(app) {
+            Some(w) => {
+                let _ = app.emit_to(w.label(), RELOAD_MENU_ID, ());
+            }
+            None => {
+                let _ = front::show_main(app, None);
+                let _ = app.emit_to("main", RELOAD_MENU_ID, ());
+            }
+        }
+    });
+    Ok(())
+}
+
+const RELOAD_MENU_ID: &str = "reload";
+
 /// Every second while the perf log is on, posts to the main thread and logs how late it ran:
 /// the main thread carries every click and pointer move to the windows, so its lag is theirs.
 /// One still waiting after a second is stuck at that moment, so it's sampled then (a lag line
@@ -2412,6 +2445,9 @@ pub fn run() {
             }
             if let Err(e) = zoom::add_menu(app.handle()) {
                 eprintln!("Couldn't add zooming to the menu: {e:#}");
+            }
+            if let Err(e) = add_reload_menu(app.handle()) {
+                eprintln!("Couldn't add Reload to the menu: {e:#}");
             }
             if let Err(e) = add_usage_menu(app.handle()) {
                 eprintln!("Couldn't add Usage to the menu: {e:#}");

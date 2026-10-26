@@ -2,7 +2,7 @@
 // `your_review`): the draft review you haven't submitted, an agent's (autoreview.rs) or one you
 // began on GitHub, with its comments, and the agent's review you did submit. It's read when
 // something that shows the PR wants it (`useYourReview`), once for every part of the window, and
-// again when the PR changes on GitHub or its agent review moves on. What's done to the draft here
+// again when the PR changes on GitHub, its agent review moves on or the window reloads. What's done to the draft here
 // (its text or a comment changed, a comment taken out, the draft submitted) shows at once
 // (`changeDraft`) and is read again after (`readAgain`).
 //
@@ -12,6 +12,7 @@
 
 import { useEffect, useSyncExternalStore } from 'react';
 import { prDraft } from './api';
+import { onReload, useReloads } from './reload';
 import { errorText } from './report';
 import type { Draft, PrItem, Reviewed, Verdict, YourReview } from './types';
 
@@ -31,6 +32,10 @@ const subscribe = (l: () => void) => {
   listeners.add(l);
   return () => void listeners.delete(l);
 };
+// A reload has every review read again as it's next wanted, what was read showing meanwhile.
+onReload(() => {
+  for (const [key, h] of held) held.set(key, { ...h, stamp: '' });
+});
 
 /** How long what was read stands: until the PR changes on GitHub or its agent review moves. */
 export function draftStamp(pr: Pick<PrItem, 'updatedAt' | 'autoReview'>): string {
@@ -59,12 +64,13 @@ function read(pr: Pick<PrItem, 'key' | 'repoSlug' | 'number'>, stamp: string) {
 export function useYourReview(pr: Pick<PrItem, 'key' | 'repoSlug' | 'number' | 'updatedAt' | 'autoReview'>, want: boolean): Held | undefined {
   const stamp = draftStamp(pr);
   const { key, repoSlug, number } = pr;
+  const reloads = useReloads();
   useEffect(() => {
     if (!want) return;
     // Read or being read for this stamp already, by this part of the window or another.
     if (held.get(key)?.stamp === stamp) return;
     read({ key, repoSlug, number }, stamp);
-  }, [want, key, repoSlug, number, stamp]);
+  }, [want, key, repoSlug, number, stamp, reloads]);
   return useSyncExternalStore(subscribe, () => held.get(key));
 }
 

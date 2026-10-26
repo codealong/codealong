@@ -14,8 +14,8 @@
 // too (MergeDone.tsx).
 //
 // The box is read when it shows (prmerge.rs `merge_box`), kept for the PR as long as it isn't
-// updated, read again a few times while GitHub works out whether it can merge, and again after
-// each thing done here. What was done, or why it wasn't, shows under the row.
+// updated, read again a few times while GitHub works out whether it can merge, again after each
+// thing done here, and as the window reloads (reload.ts). What was done, or why it wasn't, shows under the row.
 
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type Ref } from 'react';
 import { mergeAhead } from '../ahead';
@@ -23,6 +23,7 @@ import { mergeBox, openUrl } from '../api';
 import { below, showContextMenu, type MenuSpec } from '../contextMenu';
 import { boxKey, commitText, confirmLabel, DELETE_KEY, deletesWith, doneWords, mainMode, METHOD, METHODS_KEY, methodsByRepo, modeLabel, offers, opFor, pickMethod, plainlyReady, rereads, standing, type MergeMode, type Tone } from '../merge';
 import { errorText } from '../report';
+import { onReload, useReloads } from '../reload';
 import { flag, readStored, writeStored } from '../stored';
 import type { MergeBox as Box, MergeMethod, MergeOp, PrItem } from '../types';
 import { Button, CheckBox, cx, Icon } from './primitives';
@@ -31,6 +32,7 @@ import { cmd, keysIn } from '../platform';
 /** Boxes already read, by what they were read for (merge.ts `boxKey`), so going back to a PR
  *  shows it at once. */
 const cache = new Map<string, Box>();
+onReload(() => cache.clear());
 
 /** How often, and how many times, it's read again while GitHub works out whether it can merge, or
  *  says otherwise than the board. */
@@ -81,6 +83,7 @@ export function MergeBox({ pr, lead, trail, goesOn }: { pr: PrItem } & Row) {
   const key = boxKey(pr);
   const [read, setRead] = useState<{ key: string; box?: Box; error?: string }>({ key: '' });
   const [again, setAgain] = useState(0);
+  const reloads = useReloads();
   const rechecks = useRef({ key, n: 0 });
   if (rechecks.current.key !== key) rechecks.current = { key, n: 0 };
   // Kept here, so what was done stays said once the PR it merged has nothing left to offer.
@@ -104,7 +107,7 @@ export function MergeBox({ pr, lead, trail, goesOn }: { pr: PrItem } & Row) {
     return () => {
       live = false;
     };
-  }, [key, again, pr.repoSlug, pr.number]);
+  }, [key, again, reloads, pr.repoSlug, pr.number]);
 
   // The box last read for this PR shows while it's read again, so its buttons hold still.
   const box = read.box;

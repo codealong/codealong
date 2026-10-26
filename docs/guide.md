@@ -1806,6 +1806,21 @@ you're typing in it. The session or PR shown in the notch, the peek, a kept sess
 window draws at the same zoom, and the keys work there too; the notch and the peek open as much
 bigger, while the notch's shape and the bar's pills stay at actual size.
 
+### Reload
+
+*View › Reload, ⌘R*
+
+⌘R reads again what the window shows, as a browser's reload does, from anywhere in it, a text field
+too, and keeps your place: what's selected, the tab, what you've typed. It's for when GitHub
+couldn't be reached and a PR says so, or something looks out of date. Codealong asks GitHub about
+your PRs again (unless it just did), and a PR's details, its merge box, your review of it and its
+agent's reviews are read again, as is a conversation or what changed since your last review when
+they couldn't be read; what was read stays up until the new read comes, and stays beside the error
+when that fails too. The main window and the project windows read plan usage again too, as the
+usage bar's button does. On a session or PR in the notch, the peek, a kept session and the waiting
+window ⌘R does the same for what the card shows. A session's own network errors are the agent's,
+from its own turn, which a reload doesn't change (*Network errors*).
+
 ### Resizable panels
 
 Drag the inner edge of the sidebar or the panel on the right, and double-click it to go back to the

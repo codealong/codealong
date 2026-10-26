@@ -50,6 +50,7 @@ import { PrGlyph, prIsOpen, reviewSnoozed, syncWords, type PrPlace, type PrRowIt
 import { Tip } from './Tip';
 import { untilWords } from '../snooze';
 import { errorText } from '../report';
+import { onReload, useReloads } from '../reload';
 import { clearNotice, failedNotice, reportNotice } from '../notices';
 import { cmd, keysIn, keysSaid } from '../platform';
 import { prRefOf } from '../prLinks';
@@ -58,8 +59,10 @@ import { followPrLink } from './PrLink';
 /** Whether a PR's details are open, for every PR, as you left them. */
 const DETAILS_KEY = 'codealong.prDetailsOpen';
 
-/** Details already fetched, by PR and last update, so going back to a PR is instant. */
+/** Details already fetched, by PR and last update, so going back to a PR is instant; a reload
+ *  reads them again. */
 const cache = new Map<string, PrDetail>();
+onReload(() => cache.clear());
 
 /** Jev's word on comments already asked about, by comment id, across PRs. */
 const askCache = new Map<string, Record<string, number>>();
@@ -273,6 +276,7 @@ export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpe
   const draft = yours?.review?.draft;
   const cacheKey = `${pr.key}@${pr.updatedAt}`;
   const [state, setState] = useState<{ key: string; detail?: PrDetail; error?: string }>({ key: '' });
+  const reloads = useReloads();
 
   useEffect(() => {
     const hit = cache.get(cacheKey);
@@ -281,19 +285,21 @@ export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpe
       return;
     }
     let live = true;
-    setState({ key: cacheKey });
+    // Read again for a reload, what was read stays up meanwhile, and after a read that fails.
+    const kept = (was: { key: string; detail?: PrDetail }) => (was.key === cacheKey ? was.detail : undefined);
+    setState((was) => ({ key: cacheKey, detail: kept(was) }));
     prDetail(pr.repoSlug, pr.number)
       .then((d) => {
         cache.set(cacheKey, d);
         if (live) setState({ key: cacheKey, detail: d });
       })
       .catch((e: unknown) => {
-        if (live) setState({ key: cacheKey, error: errorText(e) });
+        if (live) setState((was) => ({ key: cacheKey, detail: kept(was), error: errorText(e) }));
       });
     return () => {
       live = false;
     };
-  }, [cacheKey, pr.repoSlug, pr.number]);
+  }, [cacheKey, pr.repoSlug, pr.number, reloads]);
 
   const detail = state.key === cacheKey ? state.detail : undefined;
 

@@ -6,7 +6,8 @@
 // bar lists those too, barfeed.rs), and what a click on something around it does,
 // which is show it in the main window and put the card away (`useCardHost`). A PR waiting on
 // your review shown as a card (PrCard.tsx, in the notch) is kept up the same way (`useLivePr`).
-// A card in a window that floats draws at the zoom and takes its keys (`zoomKey`, zoom.ts).
+// A card in a window that floats draws at the zoom and takes its keys (`zoomKey`, zoom.ts), and
+// ⌘R, which reloads what it shows (`reloadKey`, reload.ts).
 
 import { useCallback, useMemo, useRef, useState, useEffect } from 'react';
 import type { PrTab } from '../agentReview';
@@ -21,6 +22,7 @@ import * as menus from '../menus';
 import { openWhere, where } from '../open';
 import { prRefOf } from '../prLinks';
 import { errorText, type Report } from '../report';
+import { reloadPressed, reloadWindow } from '../reload';
 import { reuse } from '../reuse';
 import type { Board, DeviceView, Lane, PrItem, Session, Theme, Todo, Usage } from '../types';
 import { useDevices, useObserve } from '../useDevices';
@@ -134,6 +136,16 @@ export function zoomKey(e: KeyboardEvent, report: Report): boolean {
     (percent) => report.info(`Zoomed to ${percent}%.`),
     (err: unknown) => report.error(errorText(err)),
   );
+  return true;
+}
+
+/** ⌘R on a card in a window that floats: what it shows is read again, as in the board's windows,
+ *  and the card says so. True when it took the key. */
+export function reloadKey(e: KeyboardEvent, report: Report): boolean {
+  if (!reloadPressed(e)) return false;
+  e.preventDefault();
+  reloadWindow({ usage: false });
+  report.info('Reloading…');
   return true;
 }
 

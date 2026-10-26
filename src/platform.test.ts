@@ -3,6 +3,7 @@ import { CHORDS, PR_CHORDS, SUGGESTION_CHORDS } from './menus';
 import { VIEW_CHORDS } from './mainKeys';
 import { capsSaid, chordKeys, chordPressed, chordSigns, cmd, contextPress, ctrl, emacsCtrl, held, keysIn, keysSaid, parseChord, platform, platformChord, setPlatform, writeChord } from './platform';
 import { AWAY_CHORD, QUEUE_CHORDS } from './queue';
+import { RELOAD_CHORD } from './reload';
 import { SNOOZE_CHORDS } from './snooze';
 
 afterEach(() => setPlatform(null));
@@ -20,6 +21,7 @@ const APP_CHORDS = [
   ...SNOOZE_CHORDS,
   ...Object.values(VIEW_CHORDS),
   AWAY_CHORD,
+  RELOAD_CHORD,
   ...[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((d) => `Alt+Cmd+${d}`),
   ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map((d) => `Cmd+${d}`),
   ...['Ctrl+Cmd+S', 'Ctrl+Cmd+Up', 'Ctrl+Cmd+Down', 'Ctrl+Tab', 'Ctrl+Shift+Tab', 'Ctrl+Enter'],

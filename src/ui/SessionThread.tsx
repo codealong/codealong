@@ -70,6 +70,7 @@ import { cx, Icon, Rich, StatusGlyph } from './primitives';
 import { waitsInBackground } from '../lanes';
 import { QuestionList } from './QuestionList';
 import { RunContext, type RunPlace } from './RunButton';
+import { useReloads } from '../reload';
 import { errorText } from '../report';
 import { clearNotice, failedNotice, reportNotice } from '../notices';
 import { useLatest } from '../latest';
@@ -756,6 +757,12 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
     failed.current = next.failed;
     if (next.again) setAgain((n) => n + 1);
   }, [failures, online, seen]);
+  // A reload (reload.ts) reads it again when the last read failed; one that worked is kept up as
+  // the session goes on.
+  const reloads = useReloads();
+  useEffect(() => {
+    if (failed.current) setAgain((n) => n + 1);
+  }, [reloads]);
 
   const loadOlder = useCallback(() => {
     if (loading.current || before == null || !current) return;

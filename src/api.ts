@@ -782,6 +782,11 @@ export function onZoomMenu(cb: (step: ZoomStep) => void): () => void {
   return onWindowEvent<ZoomStep>('zoom', cb);
 }
 
+/** View › Reload (⌘R), sent to the front board window (lib.rs `add_reload_menu`). */
+export function onReloadMenu(cb: () => void): () => void {
+  return onWindowEvent('reload', () => cb());
+}
+
 /** Calls `cb` when the app menu's Settings… asks this window to open Settings. */
 export function onSettings(cb: () => void): () => void {
   if (!inTauri) return () => {};

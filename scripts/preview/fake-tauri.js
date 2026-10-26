@@ -1055,6 +1055,8 @@ window.__TAURI_INTERNALS__ = {
     // finishing it, and saving what it picked, need no answer.
     if (cmd === 'setup_needed') return Promise.resolve(!!window.__setupNeeded);
     if (cmd === 'finish_setup' || cmd === 'save_accounts' || cmd === 'save_config') return Promise.resolve(null);
+    // Asking the engine to poll GitHub or read usage again (a window's focus, ⌘R) needs no answer.
+    if (cmd === 'refresh' || cmd === 'refresh_usage') return Promise.resolve(null);
     if (window.__unknown.indexOf(cmd) < 0) window.__unknown.push(cmd);
     return Promise.resolve(null);
   },

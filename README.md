@@ -529,6 +529,7 @@ In Codealong:
 | ⇧⌘F | Expand the session panel (in Sessions) or the PR panel (in PRs) to the whole window |
 | ⌃⌘S | Open or fold the sidebar |
 | ⌘= · ⌘- · ⌘0 | Zoom in, out, actual size |
+| ⌘R | Reload: read again what the window shows, from GitHub too, keeping your place |
 | ⇧⌘U | Usage: what sessions used and cost, at API prices and paid |
 | ⌘, | Settings |
 

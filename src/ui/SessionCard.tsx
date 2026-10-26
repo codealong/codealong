@@ -5,8 +5,9 @@
 // came from and that came of it), the session's menu on ⋯ and on a right-click, the menus of the
 // PRs and sessions the header names, and the Sessions list's shortcuts for the session shown:
 // ⌘E marks it seen, ⌃⌘A archives it, ⌃⌘R renames it, ⌃⌘P pins it in Sessions and ⌃` opens a
-// terminal in its folder, each shown beside its item in the menu. It draws at the zoom, and ⌘=
-// ⌘- ⌘0 zoom it as they do the board's windows (zoom.ts, cardHost.ts `zoomKey`).
+// terminal in its folder, each shown beside its item in the menu. It draws at the zoom, ⌘= ⌘- ⌘0
+// zoom it as they do the board's windows (zoom.ts, cardHost.ts `zoomKey`), and ⌘R reloads what it
+// shows (cardHost.ts `reloadKey`).
 //
 // A window says only what differs: how it reports, how it opens things and shows them in
 // Codealong (a click on a PR's chip shows the PR's card in the session's place in the notch and
@@ -25,7 +26,7 @@ import { useLatest } from '../latest';
 import { sessionContext } from '../sessionContext';
 import { useStartAccounts } from '../startAccounts';
 import type { Board, Lane, Pr, PrItem, Session, Todo } from '../types';
-import { zoomKey } from './cardHost';
+import { reloadKey, zoomKey } from './cardHost';
 import { dialogUp } from './focusTrap';
 import { MergeDoneDialog } from './MergeDone';
 import { SessionPanel, type SessionPanelProps } from './SessionPanel';
@@ -116,7 +117,7 @@ export function SessionCard({ lane, session, apps, now, board, can, canFor, outg
     if (renaming) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.isComposing) return;
-      if (zoomKey(e, reportNow.current) || dialogUp()) return;
+      if (zoomKey(e, reportNow.current) || reloadKey(e, reportNow.current) || dialogUp()) return;
       const action = menus.chorded(latest.current, e);
       if (!action) return;
       e.preventDefault();

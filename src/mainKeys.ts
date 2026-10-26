@@ -16,6 +16,7 @@ import * as menus from './menus';
 import type { Pins } from './pins';
 import { chordPressed, cmd, ctrl, held, platform, typed } from './platform';
 import { queueKey, type QueueAction } from './queue';
+import { reloadPressed } from './reload';
 import type { TodoItem } from './todos';
 import type { ListPicksKeys } from './useListPicks';
 import type { Bay, Lane, ProjectSummary, Session } from './types';
@@ -166,11 +167,13 @@ export interface MainKeys<V extends string> {
   setSelectedKey: (key: string) => void;
   /** Zooms every board window a step (zoom.ts). */
   zoom: (step: ZoomStep) => void;
+  /** Reads again what the window shows (reload.ts). */
+  reload: () => void;
 }
 
 /** Does what a key pressed in the main window does. */
 export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>): void {
-  const { view, views: VIEWS, settings, previewFor, renaming, panelMax, selected, visible, pickedRows, listPicks, selectedLane, startLaneId, terminalAt, projects, pinnedRows, pinnedLanes, pinnedPrRows, sessionPins, lanePins, prPins, searchRef, boardRef, listRef, canvasKeys, kanbanKeys, gPending, todoKeys, travel, actionsRef, openSettings, runQueue, toggleSidebar, pickProject, startForTodos, startForTodo, newSession, openFind, setQuery, setCanvasFit, openRow, setView, togglePanelMax, togglePrPanelMax, movePinnedSession, movePinnedLane, move, focusBox, open, copy, say, markSeen, setSelectedKey, zoom } = keys;
+  const { view, views: VIEWS, settings, previewFor, renaming, panelMax, selected, visible, pickedRows, listPicks, selectedLane, startLaneId, terminalAt, projects, pinnedRows, pinnedLanes, pinnedPrRows, sessionPins, lanePins, prPins, searchRef, boardRef, listRef, canvasKeys, kanbanKeys, gPending, todoKeys, travel, actionsRef, openSettings, runQueue, toggleSidebar, pickProject, startForTodos, startForTodo, newSession, openFind, setQuery, setCanvasFit, openRow, setView, togglePanelMax, togglePrPanelMax, movePinnedSession, movePinnedLane, move, focusBox, open, copy, say, markSeen, setSelectedKey, zoom, reload } = keys;
   const typing = document.activeElement === searchRef.current;
   // ⌘ held, whatever else is (Ctrl on Linux, platform.ts).
   const mod = cmd(e);
@@ -201,6 +204,12 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
   if (zoomTo && !canvasZooms) {
     e.preventDefault();
     zoom(zoomTo);
+    return;
+  }
+  // ⌘R reloads what the window shows, as a browser's does, from any field or sheet.
+  if (reloadPressed(e)) {
+    e.preventDefault();
+    reload();
     return;
   }
   // Escape in a session panel's box gives the list its keys back (a click on a row put them

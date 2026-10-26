@@ -15,7 +15,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { below, showContextMenu, type MenuAction, type MenuSpec } from './contextMenu';
 import { useEditorIcons } from './editors';
 import { homeOf, narrowed, runsShownKey, sidesShownKey, type BoardRow, type Filter } from './lanes';
-import { answerLink, barMode, onBarMode, onCloseIdle, onCloseStale, onUsageMenu, onWebsiteMenu, onNewWindow, onReveal, onSettings, onSetupMenu, onCheckUpdates, openConfig, openProjectWindow, openUrl, orderAccounts, refresh, refreshUsage, scheduleOp, setBarMode, startOptions, setPinned, setPinnedPrs, setPinnedRepos, setPinnedWorktrees, setTheme, setupNeeded, showQuick, signIn, stopTraining, windowLabel, zoomWindows, onZoomMenu, WEBSITE, type BarMode, type Reveal } from './api';
+import { answerLink, barMode, onBarMode, onCloseIdle, onCloseStale, onUsageMenu, onWebsiteMenu, onNewWindow, onReveal, onSettings, onSetupMenu, onCheckUpdates, openConfig, openProjectWindow, openUrl, orderAccounts, refresh, refreshUsage, scheduleOp, setBarMode, startOptions, setPinned, setPinnedPrs, setPinnedRepos, setPinnedWorktrees, setTheme, setupNeeded, showQuick, signIn, stopTraining, windowLabel, zoomWindows, onZoomMenu, onReloadMenu, WEBSITE, type BarMode, type Reveal } from './api';
 import { count, middleTruncate } from './format';
 import * as menus from './menus';
 import { prRefOf } from './prLinks';
@@ -77,6 +77,7 @@ import { Sidebar, type SideBoard, type SideStatus } from './ui/Sidebar';
 import { checkedSays, untilChecked } from './ui/Updates';
 import { loadSaved, newSavedId, onSavedChange, sameView, storeSaved, suggestName, type SavedView, type ViewState } from './savedViews';
 import { useNow } from './ui/useNow';
+import { reloadWindow } from './reload';
 import { errorText } from './report';
 import { afterStop } from './training';
 import { reviewSnoozeMenu } from './snooze';
@@ -396,6 +397,12 @@ export function App() {
     [setToast],
   );
   useEffect(() => onZoomMenu(zoom), [zoom]);
+  // ⌘R (mainKeys.ts) and View › Reload read again what the window shows, usage too (reload.ts).
+  const reload = useCallback(() => {
+    reloadWindow({ usage: true });
+    setToast('Reloading…');
+  }, [setToast]);
+  useEffect(() => onReloadMenu(reload), [reload]);
   useEffect(() => setPageZoom(board?.zoom), [board?.zoom]);
   /** Marks sessions seen, shown at once; the engine turning it down puts them back and says why. */
   const markSeen = useCallback(
@@ -1753,6 +1760,7 @@ export function App() {
     markSeen,
     setSelectedKey,
     zoom,
+    reload,
   });
 
   const toggleBay = (f: Filter) => {

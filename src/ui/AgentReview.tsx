@@ -19,6 +19,7 @@ import { dropDraftComment, editDraft, editDraftComment, openUrl, prAgentReviews,
 import { absolute, ago, agoPhrase, middleTruncate } from '../format';
 import { changeDraft, commentsWord, draftShown, readAgain, submittedWord, type Held } from '../prDraft';
 import { splitPath } from '../prFiles';
+import { useReloads } from '../reload';
 import { errorText } from '../report';
 import { offerFor, offerKey, offerWords, teamInstructions } from '../repoSettings';
 import { againFor, againTitle, autoReviewWords, suggestWords, tryAgain } from '../review';
@@ -316,9 +317,11 @@ const ROUNDS_SHOWN = 3;
 /** The review the agent wrote, from reviews.json: its text and comments on lines, each earlier
  *  commit's a click away. */
 function Written({ pr, review, detail, now, sessions, onShowSession }: { pr: PrItem; review: AutoReview; detail?: PrDetail; now: number; sessions: { lane: Lane; session: Session }[]; onShowSession: (lane: Lane, session: Session) => void }) {
-  // Read again as a round ends or begins; what was read stays up meanwhile.
+  // Read again as a round ends or begins, and as the window reloads; what was read stays up
+  // meanwhile.
   const asked = `${pr.key}@${review.stage}:${review.at}:${review.rounds}`;
   const [read, setRead] = useState<{ key: string; reviews: WrittenReview[] }>({ key: '', reviews: [] });
+  const reloads = useReloads();
   useEffect(() => {
     let live = true;
     prAgentReviews(pr.key)
@@ -329,7 +332,7 @@ function Written({ pr, review, detail, now, sessions, onShowSession }: { pr: PrI
     return () => {
       live = false;
     };
-  }, [asked, pr.key]);
+  }, [asked, pr.key, reloads]);
   const reviews = read.key === pr.key ? read.reviews : [];
   const [picked, setPicked] = useState<string | null>(null);
   // The PR whose earlier rounds are all shown, after a click on the `+`.

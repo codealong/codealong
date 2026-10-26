@@ -42,7 +42,7 @@ import { reviewItems } from '../review';
 import { reviewSnoozeMenu } from '../snooze';
 import type { Board, Lane, ReviewsCfg, Session, TeamFile, Usage, Verdict } from '../types';
 import { cardZoom } from '../zoom';
-import { zoomKey } from './cardHost';
+import { reloadKey, zoomKey } from './cardHost';
 import { PrBoxView, usePrBox } from './PrBox';
 import { PrDetails, usePrTab } from './PrInspector';
 import type { PrRowItem } from './PrsView';
@@ -142,8 +142,8 @@ export function PrCard({ item, now, lanes, usage, reviews, can, outgoing = false
     github: { label: 'Open on GitHub', run: () => open(pr.url) },
   };
 
-  // The PR's chords, for the card shown, and ⌘= ⌘- ⌘0, which zoom it as a session's card. Not for
-  // one on its way out.
+  // The PR's chords, for the card shown, ⌘= ⌘- ⌘0, which zoom it as a session's card, and ⌘R,
+  // which reloads it. Not for one on its way out.
   const latest = useRef(actions);
   latest.current = actions;
   const leaving = useRef(outgoing);
@@ -152,7 +152,7 @@ export function PrCard({ item, now, lanes, usage, reviews, can, outgoing = false
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.isComposing) return;
-      if (zoomKey(e, reportNow.current)) return;
+      if (zoomKey(e, reportNow.current) || reloadKey(e, reportNow.current)) return;
       const action = menus.prChorded(latest.current, e);
       if (!action) return;
       e.preventDefault();

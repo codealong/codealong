@@ -2,11 +2,13 @@
 // beside the line over its box (PrBox.tsx) and its Changes tab (PrFiles.tsx): GitHub's comparison
 // of the commit your review was of with the one the PR's at (github.rs `since`, REST, so no
 // GraphQL points), read once for each pair while something shows it, for every part of the window,
-// and kept. Whether a PR's Changes tab shows only those changes is kept for each PR while the
+// and kept: two commits' comparison doesn't change, so a reload (reload.ts) reads again only one
+// that failed. Whether a PR's Changes tab shows only those changes is kept for each PR while the
 // window goes from one to the next; the pill turns it on as it shows the tab.
 
 import { useEffect, useSyncExternalStore } from 'react';
 import { prSince } from './api';
+import { onReload, useReloads } from './reload';
 import { errorText } from './report';
 import type { Since } from './types';
 
@@ -28,6 +30,10 @@ const subscribe = (l: () => void) => {
 
 const keyOf = (repo: string, from: string, to: string) => `${repo}@${from}...${to}`;
 
+onReload(() => {
+  for (const [key, h] of held) if (h.error) held.delete(key);
+});
+
 function read(repo: string, from: string, to: string) {
   const key = keyOf(repo, from, to);
   held.set(key, { loading: true });
@@ -48,10 +54,11 @@ function read(repo: string, from: string, to: string) {
  *  without both. */
 export function useSince(repo: string, from: string | null, to: string | null): SinceHeld | undefined {
   const key = from && to ? keyOf(repo, from, to) : null;
+  const reloads = useReloads();
   useEffect(() => {
     if (!key || !from || !to || held.has(key)) return;
     read(repo, from, to);
-  }, [key, repo, from, to]);
+  }, [key, repo, from, to, reloads]);
   return useSyncExternalStore(subscribe, () => (key ? held.get(key) : undefined));
 }
 
