@@ -59,7 +59,9 @@
 //! written but couldn't be posted rather than have it written again (`Reviewer::repost`), and takes
 //! up a round in the session it never found, wherever that showed (`Reviewer::take_up`). A start
 //! that couldn't reach GitHub to read the PR (`github::unreachable`: the network back from sleep,
-//! GitHub struggling) isn't a round yet: it's tried again a few times first (`START_TRIES`). Until a
+//! GitHub struggling) isn't a round yet: it's tried again a few times first (`START_TRIES`), and a
+//! round that never started that way is started once more after GitHub answers again, as a Mac
+//! asleep with its lid closed spends those tries without a network (`Tracked::retries`). Until a
 //! PR's round is done the PR is out of what waits on you (`apply`, `AutoReview::holds`), an earlier
 //! approval of the agent's too: what waits on you is only what you can act on. Where
 //! each PR stands is kept in reviews.json next to the config (`Store`), which this keeps in memory
@@ -131,7 +133,9 @@ const RETRY_MS: i64 = 30_000;
 const POST_TRIES: u32 = 4;
 /// How many times a round that couldn't reach GitHub to read its PR is started before it's given
 /// up on, waiting `RETRY_MS` and twice as long each time after: a quarter of an hour, which a
-/// network coming back after a wake, or a blip of GitHub's, is over in.
+/// network coming back after a wake, or a blip of GitHub's, is over in. With the lid closed the
+/// Mac wakes for a few seconds every minute or two without a network, and the tries run out
+/// there: the round is started once more when GitHub answers again (`Tracked::retries`).
 const START_TRIES: u32 = 6;
 /// How many times a reviewer whose turn was cut off is told to carry on before the round is
 /// given up on: Codealong restarts often while it's being worked on, and each cuts off the
@@ -403,6 +407,12 @@ impl Round {
         self.stage == ReviewStage::Failed && !self.parts.is_empty() && self.parts.iter().all(|p| p.state == PartState::Failed && p.note.as_deref().is_some_and(|n| n.starts_with(ERRORED)))
     }
 
+    /// It never started because GitHub couldn't be reached to read its PR, `START_TRIES` times
+    /// (`Went::Unreachable`, whose words are its note).
+    fn unreached(&self) -> bool {
+        self.stage == ReviewStage::Failed && self.parts.is_empty() && self.note.as_deref().is_some_and(crate::github::unreachable)
+    }
+
     /// Under way with a part still reviewing, every one of which has had nothing at work on it
     /// for `STUCK_MS` (`Part::stuck`). A round whose parts are all done waits on its post, which
     /// `next` sees to.
@@ -512,11 +522,15 @@ impl Tracked {
 
     /// Commit `head` is reviewed once more by itself: its only round (one that gave way to another
     /// machine's aside), the latest, an automatic one, ended because its reviewer's turn stopped
-    /// with an error (`Round::errored`). The next goes to another account where one can take it
-    /// (`past_error`).
-    fn retries(&self, head: &str) -> bool {
+    /// with an error (`Round::errored`), and the next goes to another account where one can take it
+    /// (`past_error`); or it never started for want of GitHub (`Round::unreached`), and GitHub has
+    /// answered since, at `answered` (`Board::github_at`). Any answer will do: what failed was
+    /// the network, and a repo's own time (`github_current`) stays as it was once the repo is no
+    /// longer read, while the search for the reviews asked of you still answers for its PRs.
+    fn retries(&self, head: &str, answered: Option<i64>) -> bool {
         let mut of = self.rounds.iter().filter(|r| r.head == head && !gave_way(r));
-        self.rounds.last().is_some_and(|r| r.head == head && !r.by_hand && r.errored()) && of.next().is_some() && of.next().is_none()
+        let again = |r: &Round| r.errored() || (r.unreached() && answered.is_some_and(|t| t > r.ended_at.unwrap_or(r.at)));
+        self.rounds.last().is_some_and(|r| r.head == head && !r.by_hand && again(r)) && of.next().is_some() && of.next().is_none()
     }
 }
 
@@ -1286,7 +1300,7 @@ impl Reviewer {
             if review_seat(board, pr, seat_for(cfg, t, &board.lanes, pr), false).is_none() {
                 continue;
             }
-            if t.is_some_and(|t| t.rounds.iter().any(|r| r.head == head && !gave_way(r)) && !t.retries(&head)) {
+            if t.is_some_and(|t| t.rounds.iter().any(|r| r.head == head && !gave_way(r)) && !t.retries(&head, board.github_at)) {
                 continue;
             }
             let again = t.is_some_and(|t| !t.rounds.is_empty());
@@ -4178,7 +4192,9 @@ mod tests {
     /// A start that couldn't reach GitHub to read the PR (the network coming back after a wake,
     /// GitHub struggling) isn't a round yet: it's started again, waiting longer each time, its
     /// notice saying so and offering Try again, and only after a quarter of an hour is it a round
-    /// that didn't start. One that gets through counts its tries afresh.
+    /// that didn't start. That round is started once more once GitHub has answered since it
+    /// ended, as it does when a Mac that slept with its lid closed, spending its tries in moments
+    /// awake without a network, wakes. One that gets through counts its tries afresh.
     #[test]
     fn a_start_that_couldnt_reach_github_is_tried_again_a_few_times() {
         let b = board(vec![pr(7, HEAD)], vec![]);
@@ -4205,7 +4221,34 @@ mod tests {
         assert_eq!(said.again.as_deref(), Some("o/r#7"));
         let round = &r.store.prs["o/r#7"].rounds[0];
         assert_eq!((round.stage, round.parts.len(), round.note.as_deref()), (ReviewStage::Failed, 0, Some("GitHub: gh error connecting to api.github.com")));
-        assert!(r.due(&b, &on(), when + 10 * QUIET_MS).is_empty(), "the next push tries again");
+        const MIN: i64 = 60_000;
+        let gave_up = when;
+        when += 10 * QUIET_MS;
+        assert!(r.due(&b, &on(), when).is_empty(), "not until GitHub answers");
+        // GitHub last answering before it gave up isn't GitHub answering again.
+        let answered = |at: i64| Board { github_at: Some(at), ..b.clone() };
+        assert!(r.due(&answered(gave_up - 1), &on(), when).is_empty());
+        // Once it does, whatever it answered (a repo no longer read keeps its own time from
+        // before), the commit is started once more, on the same reviewer.
+        let back = Board { github_current: [("o/r".to_string(), Some(gave_up - MIN))].into(), ..answered(gave_up + MIN) };
+        let mut jobs = r.due(&back, &on(), when);
+        assert!(matches!(jobs.as_slice(), [Job::Review { head, seat, .. }] if head == HEAD && seat.who == AUTO && seat.instead_of.is_none()), "{jobs:?}");
+        // Only once: a second round that never started is left for the next push, or Try again.
+        for _ in 0..START_TRIES {
+            let job = jobs.pop().expect("a start");
+            r.told(&job, offline(), when).unwrap_err();
+            r.busy.clear();
+            when += 10 * QUIET_MS;
+            jobs = r.due(&back, &on(), when);
+        }
+        assert!(jobs.is_empty(), "{jobs:?}");
+        assert_eq!(r.store.prs["o/r#7"].rounds.len(), 2);
+        assert!(r.due(&answered(when + MIN), &on(), when + 2 * MIN).is_empty());
+        // A round that didn't start for another reason isn't started again when GitHub answers.
+        let mut other = Reviewer::default();
+        let job = other.due(&b, &on(), NOW).pop().unwrap();
+        other.told(&job, Went::NotStarted("Codex isn't signed in.".into()), NOW).unwrap_err();
+        assert!(other.due(&answered(NOW + MIN), &on(), NOW + 10 * QUIET_MS).is_empty());
 
         let mut r = Reviewer::default();
         let job = r.due(&b, &on(), NOW).pop().unwrap();

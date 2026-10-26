@@ -1016,7 +1016,9 @@ up on, so it holds no place among the reviews that run at once, and a session th
 waited on ten minutes at most for a review its ended turn didn't write. A start that couldn't reach
 GitHub to read the PR (the network still coming back after a wake, GitHub struggling) is tried
 again by itself, waiting longer each time, for about a
-quarter of an hour; a post that doesn't go through is tried a few times too. A harness that names
+quarter of an hour, and once more after GitHub answers again: with the lid closed the Mac wakes
+for moments without a network, and spends those tries there. A post that doesn't go through is
+tried a few times too. A harness that names
 its sessions itself (Antigravity, OpenCode, Codex in a terminal) has ten minutes for the review's
 session to show; one
 that shows later, the PR still at that commit, is taken up all the same, and its review read and
