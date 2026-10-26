@@ -148,9 +148,9 @@ pub struct TranscriptInfo {
 impl TranscriptInfo {
     /// What it holds of yours (`queue`): words typed or sent, not a background task's
     /// notification or another session's message, which the conversation shows as theirs once
-    /// the turn takes it in.
+    /// the turn takes it in. Each says what the conversation will say it said (`prompt_words`).
     pub fn held(&self) -> Vec<QueuedMessage> {
-        self.queue.iter().filter(|m| prompt_words(&m.text).is_some()).cloned().collect()
+        self.queue.iter().filter_map(|m| Some(QueuedMessage { text: prompt_words(&m.text)?, ..m.clone() })).collect()
     }
 
     /// When it last did something: its last line, or the end of its last turn while a compaction
@@ -1017,12 +1017,14 @@ fn queue_before(path: &Path, end: u64) -> Vec<QueuedMessage> {
 /// (`dequeued`): the same command held twice is still held once.
 fn turn_took(queue: &mut Vec<QueuedMessage>, at: i64, typed: Option<&str>, dequeued: &[String]) {
     let typed = typed.map(str::trim);
-    if !dequeued.iter().any(|d| Some(d.trim()) == typed) {
-        if let Some(i) = queue.iter().position(|m| m.at <= at && Some(m.text.trim()) == typed) {
+    // Held as sent, with what you were looking at ahead of it (`without_context`).
+    let held = |text: &str| Some(without_context(text).trim()) == typed;
+    if !dequeued.iter().any(|d| held(d)) {
+        if let Some(i) = queue.iter().position(|m| m.at <= at && held(&m.text)) {
             queue.remove(i);
         }
     }
-    queue.retain(|m| m.at > at || prompt_words(&m.text).is_none() || m.text.trim_start().starts_with(['/', '!']));
+    queue.retain(|m| m.at > at || prompt_words(&m.text).is_none() || without_context(&m.text).trim_start().starts_with(['/', '!']));
 }
 
 /// How Claude Code wraps text pasted into a prompt (2.1.28x): the tag, the text on lines of its
@@ -1133,16 +1135,18 @@ pub fn typed_text(v: &Value) -> Option<String> {
 /// Mac's typed prompts started with an artifact's (2026-10-26), and none showed.
 const AHEAD_OF_PROMPT: [&str; 2] = ["system-reminder", "artifact-view-context"];
 
-/// A prompt's text without the blocks put ahead of what you typed (`AHEAD_OF_PROMPT`). A block
-/// that isn't closed is left as it is.
+/// A prompt's text without the blocks put ahead of what you typed (`AHEAD_OF_PROMPT`), and the
+/// space before them and after; a text without one is as it was, its indent kept. A block that
+/// isn't closed is left as it is.
 pub(super) fn without_context(text: &str) -> &str {
-    let mut rest = text.trim_start();
+    let mut rest = text;
     while let Some(after) = AHEAD_OF_PROMPT.iter().find_map(|tag| {
-        rest.strip_prefix('<')?.strip_prefix(tag)?.starts_with(['>', ' ']).then_some(())?;
+        let block = rest.trim_start();
+        block.strip_prefix('<')?.strip_prefix(tag)?.starts_with(['>', ' ']).then_some(())?;
         let close = format!("</{tag}>");
-        rest.find(&close).map(|at| &rest[at + close.len()..])
+        block.find(&close).map(|at| block[at + close.len()..].trim_start())
     }) {
-        rest = after.trim_start();
+        rest = after;
     }
     rest
 }
@@ -1754,6 +1758,9 @@ pub(super) mod tests {
         assert_eq!(prompt_words("<artifact-view-context artifact=\"a\">\nwords"), None);
         // Another tag, or the name as a prefix of one, is left alone.
         assert_eq!(prompt_words("<artifact-view-contexts>x</artifact-view-contexts>\n\nwords"), None);
+        // A part without one is as it was, its indent kept.
+        let parts = line(serde_json::json!([{ "type": "text", "text": format!("{looking}Example:") }, { "type": "text", "text": "    return 1" }]));
+        assert_eq!(typed_text(&parts).as_deref(), Some("Example:\n    return 1"));
     }
 
     #[test]
@@ -1866,6 +1873,16 @@ pub(super) mod tests {
         lines.push(queue_line("2026-10-21T10:00:15.000Z", "dequeue", None));
         lines.push(r#"{"type":"user","timestamp":"2026-10-21T10:00:15.010Z","origin":{"kind":"human"},"message":{"content":"<command-message>review</command-message>\n<command-name>/review</command-name>\n<command-args>the docs</command-args>"}}"#.to_string());
         assert_eq!(info(&lines).held(), vec![held("2026-10-21T10:00:14.000Z", "/review the docs")]);
+        // One sent looking at an artifact is held in your words, and a command so sent is still
+        // one at a time.
+        let looking = "<artifact-view-context artifact=\"a1\">\n{\"context\":{}}\n</artifact-view-context>\n\n";
+        lines.push(queue_line("2026-10-21T10:00:16.000Z", "popAll", None));
+        lines.push(queue_line("2026-10-21T10:00:17.000Z", "enqueue", Some(&format!("{looking}And the timeline?"))));
+        lines.push(queue_line("2026-10-21T10:00:18.000Z", "enqueue", Some(&format!("{looking}/review the mocks"))));
+        assert_eq!(info(&lines).held(), vec![held("2026-10-21T10:00:17.000Z", "And the timeline?"), held("2026-10-21T10:00:18.000Z", "/review the mocks")]);
+        lines.push(queue_line("2026-10-21T10:00:19.000Z", "dequeue", None));
+        lines.push(format!(r#"{{"type":"user","timestamp":"2026-10-21T10:00:19.010Z","origin":{{"kind":"human"}},"message":{{"content":{}}}}}"#, Value::from(format!("{looking}And the timeline?"))));
+        assert_eq!(info(&lines).held(), vec![held("2026-10-21T10:00:18.000Z", "/review the mocks")]);
     }
 
     #[test]
