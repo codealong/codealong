@@ -24,7 +24,7 @@ const WORKED_DAYS: i64 = 30;
 const COUNT_WAIT: Duration = Duration::from_secs(5);
 
 /// How long the wizard waits for a first run to write config.toml (`view_once_read`).
-const FIRST_RUN_WAIT: Duration = Duration::from_secs(120);
+pub(crate) const FIRST_RUN_WAIT: Duration = Duration::from_secs(120);
 
 /// Folders people keep code in, right in their home folder, matched whatever their case. None
 /// that macOS guards with a privacy prompt (Documents, Desktop): looking in one would ask.

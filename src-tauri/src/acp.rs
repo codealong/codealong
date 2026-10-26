@@ -335,9 +335,9 @@ pub(crate) fn package_program(bin: &str, h: Harness) -> std::result::Result<Stri
     installed_bin(bin).map(|p| sh_quote(&p.to_string_lossy())).ok_or_else(|| format!("Run `codealong install` to add the adapter that lets Codealong run {} sessions itself.", h.word()))
 }
 
-/// Held while npm installs the adapters, so an account's process doesn't start from a folder
-/// npm is still writing (`agent`), and two installs don't write it at once.
-static INSTALLING: Mutex<()> = Mutex::new(());
+/// Written while npm installs the adapters, and read while an account's process starts from
+/// them (`agent`) until it has answered, so neither happens in a folder npm is writing.
+static INSTALLING: std::sync::RwLock<()> = std::sync::RwLock::new(());
 
 /// Whether the adapter packages in `dir` are the versions Codealong expects.
 fn packages_current(dir: &Path) -> bool {
@@ -365,6 +365,11 @@ fn runs_a_package(a: &AccountCfg) -> bool {
 /// would go elsewhere until someone ran `codealong install` at the Mac. Without npm, nothing
 /// is installed and that's only logged: In Codealong stays off for accounts that need it.
 pub fn refresh_adapters() {
+    // A first run's accounts are found after launch: until then there are none.
+    let start = std::time::Instant::now();
+    while !config::read_by_the_app() && start.elapsed() < crate::setup::FIRST_RUN_WAIT {
+        std::thread::sleep(Duration::from_millis(100));
+    }
     let Ok(cfg) = config::current() else { return };
     if packages_current(&install_dir()) || !cfg.accounts.iter().any(|a| !a.disabled && runs_a_package(a)) {
         return;
@@ -378,9 +383,10 @@ pub fn refresh_adapters() {
 /// Installs the adapter packages with npm, or brings them to the versions Codealong expects.
 /// Says what it did.
 pub fn install_adapters() -> Result<String> {
-    let _installing = INSTALLING.lock().unwrap_or_else(|e| e.into_inner());
+    let _installing = INSTALLING.write().unwrap_or_else(|e| e.into_inner());
     let dir = install_dir();
-    std::fs::create_dir_all(&dir)?;
+    // `codealong install` may be running npm here too, in its own process.
+    let _one = store::lock(&dir.join("install"))?;
     let manifest = dir.join("package.json");
     if !manifest.exists() {
         std::fs::write(&manifest, "{\n  \"name\": \"codealong-acp\",\n  \"private\": true\n}\n")?;
@@ -458,9 +464,10 @@ fn agent(a: &AccountCfg) -> Result<Arc<Agent>> {
         return Ok(ag);
     }
     a.ensure_on()?;
-    // An install under way (`refresh_adapters` at launch) finishes before its program is run.
-    drop(INSTALLING.lock().unwrap_or_else(|e| e.into_inner()));
     let (command, env) = adapter_command(a).map_err(|e| anyhow!(e))?;
+    // An install under way (`refresh_adapters` at launch) finishes before one of the packages
+    // is run, and none starts until it has answered.
+    let _installing = command.contains(&*install_dir().to_string_lossy()).then(|| INSTALLING.read().unwrap_or_else(|e| e.into_inner()));
     // Through a shell, so an account's command may set variables the way it does in a terminal.
     let mut cmd = Command::new("/bin/sh");
     cmd.args(["-c", &format!("exec {command}")]).envs(env).env("PATH", adapter_path()).current_dir(crate::util::home());
