@@ -67,7 +67,11 @@ fn adapter_of(a: &AccountCfg) -> &'static dyn Adapter {
 /// account, the one in the default folder (`~/.claude`, `~/.codex`), with no command line of yours.
 pub fn places_of(a: &AccountCfg, home: &Path) -> std::result::Result<Vec<Place>, String> {
     let adapter = adapter_of(a);
-    let offered = adapter.places(a, home)?;
+    let mut offered = adapter.places(a, home)?;
+    // In Codealong runs on the account's ACP adapter: until there is one (the app installs the
+    // packages at launch, `codealong install` does too), a start there would only say to
+    // install it, and a phone, which starts there first, goes elsewhere instead.
+    offered.retain(|&p| p != Place::Codealong || crate::acp::adapter_command(a).is_ok());
     match adapter.missing_cli(a, home) {
         Some(cli) => without_cli(a, offered, cli),
         None => Ok(offered),
@@ -2273,6 +2277,25 @@ mod tests {
         assert_eq!(o.accounts[1].default_model.as_deref(), Some("claude-fable-5-1"));
         assert_eq!(o.accounts[0].default_model, None);
         assert!(o.claude_models.iter().any(|m| m.id == "opus[1m]"));
+    }
+
+    /// In Codealong needs the account's ACP adapter: without the packages it isn't offered to the
+    /// accounts that run on them, so a phone's start goes to Background instead of failing, while
+    /// OpenCode's own and an account's `acp` still are.
+    #[test]
+    fn codealong_is_offered_only_with_an_adapter_to_run() {
+        crate::acp::TEST_INSTALLED.with(|i| i.set(false));
+        let home = Path::new("/Users/me");
+        let custom = AccountCfg { acp: Some("my-adapter --stdio".into()), ..account("claude3", "claude", "/Users/me/.claude3", None) };
+        let accounts = [account("claude2", "claude", "/Users/me/.claude2", Some("claude2")), account("codex2", "codex", "/Users/me/.codex2", None), account("opencode", "opencode", "/Users/me/.local/share/opencode", Some("opencode")), custom];
+        let got: Vec<_> = accounts.iter().map(|a| places_of(a, home).unwrap()).collect();
+        crate::acp::TEST_INSTALLED.with(|i| i.set(true));
+        assert_eq!(got[0], vec![Place::Terminal, Place::Background]);
+        assert_eq!(got[1], vec![Place::Terminal, Place::Background]);
+        assert_eq!(got[2], vec![Place::Terminal, Place::Background, Place::Codealong]);
+        assert_eq!(got[3], vec![Place::Terminal, Place::Background, Place::Codealong]);
+        // A `start` there is still a setting config.toml may hold.
+        assert!(check_start(&accounts[0], "codealong", home).is_ok());
     }
 
     #[test]

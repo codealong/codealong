@@ -2372,6 +2372,7 @@ pub fn run() {
             std::thread::spawn(|| {
                 install::follow_command_link();
                 install::refresh_installed();
+                acp::refresh_adapters();
             });
             if let Err(e) = bar::setup(app.handle()) {
                 eprintln!("Couldn't make the floating bar: {e:#}");

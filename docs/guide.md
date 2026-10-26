@@ -266,7 +266,7 @@ and Fork and send (⌘⏎). A copy of the session goes on from just before that 
 edit in its place and nothing that came after it, while the session itself stays as it was. Only
 the conversation goes back: files the agent changed since stay changed. Where the window was
 showing the session, it shows the copy once it's listed. A Claude Code or Codex copy runs In
-Codealong (over the account's ACP adapter, which `codealong install` adds); an OpenCode copy runs
+Codealong (over the account's ACP adapter, which the app installs as it starts); an OpenCode copy runs
 in its service, so OpenCode must be running. The session's first message has no Edit from here,
 since a copy from before it would have nothing in it: start a new session instead. A Codex copy
 goes back to the start of the turn your message was in, so a message sent into a running turn
@@ -2211,8 +2211,11 @@ servers): nothing is typed into it until it starts.
 #### In Codealong
 
 **In Codealong** runs the session in Codealong itself, for any Claude Code, Codex or OpenCode
-account, through the agent's Agent Client Protocol adapter (`codealong install` adds the ones for
-Claude Code and Codex; OpenCode has its own): its panel shows the reply as it's written, takes the
+account, through the agent's Agent Client Protocol adapter (OpenCode has its own; the ones for
+Claude Code and Codex are Node packages, which the app installs with npm as it starts, or brings
+up to date, and `codealong install` does too). Until an account's adapter is there, In Codealong
+isn't offered for it, so a start from your phone, which goes In Codealong first, goes to Background
+instead. Without Node (`brew install node`), it stays that way: its panel shows the reply as it's written, takes the
 next prompt (queued while a turn runs), answers what it asks to run with Allow and Deny, and Stop
 ends a turn, as it does for sessions running elsewhere. The agent keeps the session in its usual
 records, so it can be resumed in a terminal too, and after Codealong restarts, sending to it picks

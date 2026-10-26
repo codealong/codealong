@@ -306,8 +306,18 @@ pub fn install_dir() -> PathBuf {
     config::support_dir().join("acp")
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Whether a test's adapters are installed: they are, so what's offered doesn't hang on what
+    /// this machine has, unless a test says they aren't.
+    pub(crate) static TEST_INSTALLED: std::cell::Cell<bool> = const { std::cell::Cell::new(true) };
+}
+
 fn installed_bin(name: &str) -> Option<PathBuf> {
     let p = install_dir().join("node_modules/.bin").join(name);
+    #[cfg(test)]
+    return TEST_INSTALLED.with(|i| i.get()).then_some(p);
+    #[cfg(not(test))]
     p.exists().then_some(p)
 }
 
@@ -325,23 +335,57 @@ pub(crate) fn package_program(bin: &str, h: Harness) -> std::result::Result<Stri
     installed_bin(bin).map(|p| sh_quote(&p.to_string_lossy())).ok_or_else(|| format!("Run `codealong install` to add the adapter that lets Codealong run {} sessions itself.", h.word()))
 }
 
+/// Held while npm installs the adapters, so an account's process doesn't start from a folder
+/// npm is still writing (`agent`), and two installs don't write it at once.
+static INSTALLING: Mutex<()> = Mutex::new(());
+
+/// Whether the adapter packages in `dir` are the versions Codealong expects.
+fn packages_current(dir: &Path) -> bool {
+    PACKAGES.iter().all(|(name, version)| {
+        std::fs::read(dir.join("node_modules").join(name).join("package.json"))
+            .ok()
+            .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+            .and_then(|v| v.get("version").and_then(Value::as_str).map(|v| v == *version))
+            .unwrap_or(false)
+    })
+}
+
+/// Whether `a`'s sessions in Codealong would run on one of the adapter packages, installed or
+/// not: it has no `acp` of its own, its harness offers Codealong as a place, and the command
+/// it would run is one `install_dir` holds, or can't be made until it does.
+fn runs_a_package(a: &AccountCfg) -> bool {
+    let offers = crate::harness::of(a).and_then(|h| h.places(a, &crate::util::home()).ok()).is_some_and(|ps| ps.contains(&crate::start::Place::Codealong));
+    let dir = install_dir().to_string_lossy().into_owned();
+    a.acp.is_none() && offers && adapter_command(a).map_or(true, |(command, _)| command.contains(&dir))
+}
+
+/// At launch: the adapter packages are installed, or brought to the versions this build
+/// expects, when an account runs its sessions in Codealong on one of them. Without that, In
+/// Codealong isn't offered (`start::places_of`), and a phone's starts, which go there first,
+/// would go elsewhere until someone ran `codealong install` at the Mac. Without npm, nothing
+/// is installed and that's only logged: In Codealong stays off for accounts that need it.
+pub fn refresh_adapters() {
+    let Ok(cfg) = config::current() else { return };
+    if packages_current(&install_dir()) || !cfg.accounts.iter().any(|a| !a.disabled && runs_a_package(a)) {
+        return;
+    }
+    match install_adapters() {
+        Ok(done) => eprintln!("{done}"),
+        Err(e) => eprintln!("Couldn't install the ACP adapters: {e:#}"),
+    }
+}
+
 /// Installs the adapter packages with npm, or brings them to the versions Codealong expects.
 /// Says what it did.
 pub fn install_adapters() -> Result<String> {
+    let _installing = INSTALLING.lock().unwrap_or_else(|e| e.into_inner());
     let dir = install_dir();
     std::fs::create_dir_all(&dir)?;
     let manifest = dir.join("package.json");
     if !manifest.exists() {
         std::fs::write(&manifest, "{\n  \"name\": \"codealong-acp\",\n  \"private\": true\n}\n")?;
     }
-    let current = PACKAGES.iter().all(|(name, version)| {
-        std::fs::read(dir.join("node_modules").join(name).join("package.json"))
-            .ok()
-            .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
-            .and_then(|v| v.get("version").and_then(Value::as_str).map(|v| v == *version))
-            .unwrap_or(false)
-    });
-    if current {
+    if packages_current(&dir) {
         return Ok(format!("ACP adapters: up to date in {}", crate::util::tilde(&dir)));
     }
     let specs: Vec<String> = PACKAGES.iter().map(|(n, v)| format!("{n}@{v}")).collect();
@@ -414,6 +458,8 @@ fn agent(a: &AccountCfg) -> Result<Arc<Agent>> {
         return Ok(ag);
     }
     a.ensure_on()?;
+    // An install under way (`refresh_adapters` at launch) finishes before its program is run.
+    drop(INSTALLING.lock().unwrap_or_else(|e| e.into_inner()));
     let (command, env) = adapter_command(a).map_err(|e| anyhow!(e))?;
     // Through a shell, so an account's command may set variables the way it does in a terminal.
     let mut cmd = Command::new("/bin/sh");
