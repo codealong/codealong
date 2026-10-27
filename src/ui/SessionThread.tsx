@@ -805,10 +805,13 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
     if (!loaded || error || !current) return;
     let live = true;
     const notice = `conversation:${s.key}`;
+    // Only the latest read says whether the conversation is updating: one a reload or the
+    // session's going on asked again for after it says nothing, however it ends.
+    const latest = () => live && read === reading.current;
     sessionNewer(s.key, after.current)
       .then((p) => {
+        if (!latest()) return;
         clearNotice(notice);
-        if (!live || read !== reading.current) return;
         // After the record's read, which may have the message now. A question that waits
         // changes the status without a line written.
         askStream(s.key, () => live);
@@ -818,7 +821,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
         const fresh = new Set(p.items.map((it) => it.cursor));
         setItems((old) => [...old.filter((it) => !fresh.has(it.cursor)), ...p.items]);
       })
-      .catch((e: unknown) => reportNotice(failedNotice(notice, 'A conversation isn’t updating', `Couldn’t read what’s new in “${s.title}”; it’s asked again as the session goes on`, e)));
+      .catch((e: unknown) => latest() && reportNotice(failedNotice(notice, 'A conversation isn’t updating', `Couldn’t read what’s new in “${s.title}”; it’s asked again as the session goes on`, e)));
     return () => {
       live = false;
     };
