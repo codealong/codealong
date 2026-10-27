@@ -56,7 +56,7 @@ conversation has shown for a second, so the ones passed over on the way down a l
 and each window keeps its own history across launches. A session's or worktree's actions have
 letters (`p` pin, `a` archive, `r` rename, `e` mark seen) and chords that work in every view (⌃⌘P,
 ⌃⌘A, ⌃⌘R, ⌘E, and four with no letter of their own: ⌃⌘W closes a session's terminal, ⇧⌘E marks it
-done, ⇧⌘M asks to merge its PR and mark it done (Merge and done, see *Merging*), and ⌃⌘1 to ⌃⌘4
+done, ⇧⌘M asks to merge its PR and mark it done (Merge and done, see *Merging*), and ⌃⌘1 to ⌃⌘6
 snooze it for one of the Snooze menu's times); the right-click menu shows them.
 A click on a row's chips selects the row, as a click anywhere on it does, and a double-click does
 the chip's own thing (the session where it runs, its todo, its app) in place of opening the row; in
@@ -822,8 +822,8 @@ you press it again; Escape in the box then leaves the keys with the window.
 A strip at the top of the panel says how the last one went, at its left, on one line beside its
 buttons, cut short where they leave it too little room, with all of it under the pointer (what the
 box has to say is in the box: *What the box says*). It has what's commonly done to a session as
-buttons that say their keys: Seen (⌘E), Done (⇧⌘E), Snooze (⌃⌘1 to ⌃⌘4, one for each of its menu's times: 15
-minutes, 1 hour, 3 hours, the next morning), Close (⌃⌘W, which closes its terminal, or ends a
+buttons that say their keys: Seen (⌘E), Done (⇧⌘E), Snooze (⌃⌘1 to ⌃⌘6, one for each of its menu's times: 15
+minutes, 30 minutes, 1 hour, 3 hours, the next morning, the next week), Close (⌃⌘W, which closes its terminal, or ends a
 background job where the session is one; the conversation stays, to go on with later), Archive (⌃⌘A)
 and Next (⌘]). One that doesn't apply to the session shown is dimmed in its place. Ahead of them,
 for a PR's primary session once the PR is ready to merge, is Merge and done (⇧⌘M), whose words and
@@ -1246,7 +1246,7 @@ reviews asked of you; they're listed for every repo a project has here, one chec
 default branch too, whose other PRs aren't read. Approve is in a PR's panel and its menu, not on its
 row, for any open PR but your own (GitHub doesn't let you approve that), your review asked for or
 not; it's filled when it was asked. Snooze review (in the menu, or Snooze… in the panel) puts one
-off for 15 minutes, an hour, three hours or until 9 the next morning: it leaves Review requested,
+off for 15 minutes, half an hour, an hour, three hours, until 9 the next morning or until 9 on the Monday after: it leaves Review requested,
 the bar's reviews pill, the mark and the sidebar's count, and waits under Snoozed with when it's
 back, the soonest first, until its time or Wake now. PRs picked together open on GitHub one after
 another (⌘O), pin (`p`) and copy their links and branch names; the open ones that aren't yours are
@@ -2490,7 +2490,7 @@ looks. The answers show above the box as a session's side conversation's do, and
 again (N earlier); neither GitHub nor anyone on the PR sees them, and Review keeps its text
 meanwhile. It has no title bar: a strip along the top, with the window's buttons at its start and
 that drags the window, has what's commonly done, with its keys (⌘E marks a finished turn seen, ⌃⌘1
-to ⌃⌘4 snooze, ⌃⌘A archives, ⌃⌘R renames, ⌃⌘P pins it in Sessions), and says how the last one went
+to ⌃⌘6 snooze, ⌃⌘A archives, ⌃⌘R renames, ⌃⌘P pins it in Sessions), and says how the last one went
 and what the box has to say. Once one is sent a message, allowed, reviewed, marked seen, snoozed or
 archived, the next that waits on you takes its place. ⌘] or ⌥⇧↓ skips to the next (a skipped one
 comes round again after the rest) and ⌘[ or ⌥⇧↑ goes back, ⌥↑ ⌥↓ step along what waits, and ⌃- ⌃⇧-
@@ -2564,7 +2564,8 @@ pill opens the quick panel ready to start a session for a todo (its menu picks w
 #### Snooze
 
 **Snooze** (a session's menu on the bar or in Codealong, the peek's ⋯ menu, or a folded pill's menu
-for all of its sessions): for 15 minutes, an hour, three hours or until 9 the next morning. A
+for all of its sessions): for 15 minutes, half an hour, an hour, three hours, until 9 the next
+morning, or until 9 on the Monday after it (a week on, when the next morning is a Monday's). A
 snoozed session leaves Needs you and Your turn (on the bar, in the quick panel and the waiting
 window), and the mark stops counting it; the snoozed pill
 lists it with when it's back, to show it in Codealong, open it or wake it early. When the time comes
@@ -2653,7 +2654,7 @@ panel in Sessions has: Merge and done (⇧⌘M) where it applies, Seen (⌘E), D
 to ⌃⌘4), Close (⌃⌘W), Archive (⌃⌘A), Back (⌃-), Next (⌘]) and × (esc). The PRs waiting on your review are in that same list, after the
 sessions that need you and before the turns that ended, so the keys go from a session to a review
 and on. On a review the strip has Approve (⌘⏎, with what's in the box as the review's text), Comment
-(⌥⌘⏎, which needs text), Snooze (⌃⌘1 to ⌃⌘4), Review with (⌃⌘R starts one on the reviewer Settings names, else Auto's; the
+(⌥⌘⏎, which needs text), Snooze (⌃⌘1 to ⌃⌘6), Review with (⌃⌘R starts one on the reviewer Settings names, else Auto's; the
 button picks) and GitHub (⌃⌘G); Request changes is a button in the box, with no key, and needs text
 too. Any of those settles GitHub's request to you, so the PR leaves what waits on you and the next
 takes its place at once, in every window (the notch's count, the bar's pill, the mark), the review

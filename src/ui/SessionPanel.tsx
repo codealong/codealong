@@ -122,7 +122,7 @@ export function snoozeKeys(snooze: MenuGroup): string {
     .join(', ');
 }
 
-/** The snooze chords as one range, for the button that opens their menu: ⌃⌘1–4. */
+/** The snooze chords as one range, for the button that opens their menu: ⌃⌘1–6. */
 export function snoozeRange(): string {
   const last = SNOOZE_CHORDS[SNOOZE_CHORDS.length - 1] ?? '';
   return `${chordSigns(SNOOZE_CHORDS[0] ?? '')}–${last.slice(-1)}`;
@@ -153,7 +153,7 @@ export interface StripAction {
   label: string;
   /** Its chord, as menus.ts keeps it: the button says it, and the ⋯ menu shows it. */
   chord?: string;
-  /** What the button says in its place, for several chords: Snooze's ⌃⌘1–4. */
+  /** What the button says in its place, for several chords: Snooze's ⌃⌘1–6. */
   keys?: string;
   icon?: string;
   title: string;

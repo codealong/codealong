@@ -13,21 +13,27 @@ const HOUR = 60 * MIN;
 /** Tomorrow's snooze ends at this hour, and before this hour "tomorrow" still means this morning. */
 const MORNING = 9;
 const SMALL_HOURS = 5;
+const MONDAY = 1;
 
 export interface SnoozeChoice {
   label: string;
   until: number;
 }
 
-/** The times a snooze can run to: a few from now, and the next morning. */
+/** The times a snooze can run to: a few from now, the next morning, and the Monday morning after
+ *  it, a week on when the next morning is a Monday itself, so the two are never the same time. */
 export function snoozeChoices(now: number): SnoozeChoice[] {
   const d = new Date(now);
-  const morning = new Date(d.getFullYear(), d.getMonth(), d.getDate() + (d.getHours() < SMALL_HOURS ? 0 : 1), MORNING).getTime();
+  const day = new Date(d.getFullYear(), d.getMonth(), d.getDate() + (d.getHours() < SMALL_HOURS ? 0 : 1), MORNING);
+  const morning = day.getTime();
+  const week = new Date(day.getFullYear(), day.getMonth(), day.getDate() + ((MONDAY - day.getDay() + 7) % 7 || 7), MORNING).getTime();
   return [
     { label: 'For 15 minutes', until: now + 15 * MIN },
+    { label: 'For 30 minutes', until: now + 30 * MIN },
     { label: 'For 1 hour', until: now + HOUR },
     { label: 'For 3 hours', until: now + 3 * HOUR },
     { label: `Until ${untilWords(morning, now)}`, until: morning },
+    { label: `Until ${untilWords(week, now)}`, until: week },
   ];
 }
 
@@ -50,8 +56,8 @@ export function untilWords(at: number, now: number): string {
 }
 
 /** The chord for each time a snooze can run to, in the menu's order: ⌃⌘1 for the first (15
- *  minutes) to ⌃⌘4 for the last (the next morning). */
-export const SNOOZE_CHORDS = ['Ctrl+Cmd+1', 'Ctrl+Cmd+2', 'Ctrl+Cmd+3', 'Ctrl+Cmd+4'];
+ *  minutes) to ⌃⌘6 for the last (the next week). */
+export const SNOOZE_CHORDS = ['Ctrl+Cmd+1', 'Ctrl+Cmd+2', 'Ctrl+Cmd+3', 'Ctrl+Cmd+4', 'Ctrl+Cmd+5', 'Ctrl+Cmd+6'];
 
 /** Which of a snooze menu's times ⌃⌘ with this key picks, from 0; -1 for a key that picks none. */
 export function snoozeChordIndex(key: string): number {

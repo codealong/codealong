@@ -72,7 +72,7 @@
         var menu = lastMenu();
         var group = find(menu, 'Snooze');
         check('a session pill has a Snooze submenu', !!group && group.items, JSON.stringify(texts(menu)));
-        check('with four times', group && texts(group.items).join('|').indexOf('For 15 minutes|For 1 hour|For 3 hours|Until ') === 0, group && texts(group.items).join('|'));
+        check('with six times', group && texts(group.items).join('|').indexOf('For 15 minutes|For 30 minutes|For 1 hour|For 3 hours|Until ') === 0, group && texts(group.items).join('|'));
         var before = Date.now();
         pick(find(group.items, 'For 1 hour'));
         return wait(100).then(function () {

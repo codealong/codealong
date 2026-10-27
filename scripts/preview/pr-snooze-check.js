@@ -114,7 +114,7 @@
         snooze.click();
         return until(function () { return menus() > made; }, 3000, 'no menu from Snooze…').then(function () {
           var labels = menuLabels();
-          check('Snooze… drops the times, and Wake now', labels.join('|').indexOf('For 15 minutes|For 1 hour|For 3 hours|Until ') === 0 && labels[labels.length - 1] === 'Wake now', labels.join(' | '));
+          check('Snooze… drops the times, and Wake now', labels.join('|').indexOf('For 15 minutes|For 30 minutes|For 1 hour|For 3 hours|Until ') === 0 && labels[labels.length - 1] === 'Wake now', labels.join(' | '));
           menuItem('Wake now')();
           return wait(100);
         });
