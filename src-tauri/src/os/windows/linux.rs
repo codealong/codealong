@@ -159,11 +159,22 @@ pub fn tops() -> Vec<Top> {
         return Vec::new();
     }
     let (Some(display), Some(main)) = (gdk::Display::default(), primary()) else { return Vec::new() };
-    let mut all: Vec<gdk::Monitor> = (0..display.n_monitors()).filter_map(|i| display.monitor(i)).collect();
-    all.sort_by_key(|m| !m.is_primary());
+    let mut all: Vec<(i32, gdk::Monitor)> = (0..display.n_monitors()).filter_map(|i| Some((i, display.monitor(i)?))).collect();
+    all.sort_by_key(|(_, m)| !m.is_primary());
     all.iter()
-        .map(|m| Top { screen: Screen { frame: flipped(of(m.geometry()), main), visible: flipped(of(m.workarea()), main) }, safe_top: 0.0, sides: (0.0, 0.0) })
+        .map(|(i, m)| Top { screen: Screen { frame: flipped(of(m.geometry()), main), visible: flipped(of(m.workarea()), main) }, safe_top: 0.0, sides: (0.0, 0.0), id: monitor_id(*i, m) })
         .collect()
+}
+
+/// A monitor by its maker and model, which GTK 3 gives where it has no connector's name: two of
+/// one model are the first of them. One that says neither goes by where it is in the list.
+fn monitor_id(i: i32, m: &gdk::Monitor) -> String {
+    let named = [m.manufacturer(), m.model()].into_iter().flatten().map(|s| s.to_string()).collect::<Vec<_>>().join(" ");
+    if named.trim().is_empty() {
+        format!("monitor {i}")
+    } else {
+        named
+    }
 }
 
 /// Where the pointer is, in screen points.

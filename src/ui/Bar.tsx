@@ -976,6 +976,7 @@ export function Bar() {
           sessionKeys={stage.keys}
           onSessionLeft={stage.close}
           onPress={stage.press}
+          onMove={stage.close}
           onCount={(kind) => {
             const first = kind === 'reviews' ? reviews[0] : byGroup[kind][0];
             if (first) stage.show(first.key);

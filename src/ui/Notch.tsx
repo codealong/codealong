@@ -20,9 +20,15 @@
 // the window keeps its size throughout (a window resized as it opens shows its old picture for a
 // frame in the wrong place). The window takes clicks only on the shape, so Codealong watches the
 // pointer and says when it comes onto the shape and leaves it (`notch-pointer`).
+//
+// Pressed where a click is the notch's own and moved, the notch goes to another screen: closed,
+// that's anywhere on it; open, it's the black around the camera, since the pills, the buttons and
+// the session keep their presses (a pill drags its card onto the desktop). It closes as it goes and
+// Codealong takes it along the top of whichever screen the pointer is on, docking it there when
+// it's let go (bar.rs `drag`).
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
-import { fitBar, notchShape, onNotchPointer, type Notch } from '../api';
+import { fitBar, notchDrag, notchShape, onNotchDragEnd, onNotchPointer, type Notch } from '../api';
 import { NOTCH, NOTCH_ORDER, notchClip, notchDragged, notchSizes, type Group, type NotchEdge, type NotchKind, type NotchState, type Size } from '../bar';
 import type { Moment } from '../mark';
 import type { LogoStatus } from '../types';
@@ -39,6 +45,11 @@ const CLOSE_AFTER_MS = 400;
 const SIZE_KEY = 'codealong.notch.size';
 /** How far an edge moves with the button down before it sizes the session rather than clicks. */
 const SIZE_AFTER = 3;
+/** How far the notch itself moves with the button down before it goes to another screen rather
+ *  than clicks: as far as a pill does before it comes off the bar (Bar.tsx). */
+const MOVE_AFTER = 6;
+/** What has clicks of its own once the notch is open: a click elsewhere on it is the notch's. */
+const OWN_CLICKS = 'button, a, input, textarea, [role="button"], .ca-notch-session';
 
 /** The size you dragged the session to, as JSON; one that doesn't read is none. */
 const SIZE_STORED: Codec<Size | null> = {
@@ -87,6 +98,8 @@ export interface NotchShellProps {
   /** A click on the notch itself, off its pills and buttons: the current session shows, or the
    *  one showing is put away. Closed, a click anywhere on it is one. */
   onPress: () => void;
+  /** The notch itself is being dragged to another screen: the session under it is put away. */
+  onMove: () => void;
   /** Kept open until it's unpinned, whatever the pointer does. */
   keepOpen: boolean;
   onKeepOpen: (keep: boolean) => void;
@@ -96,7 +109,7 @@ export interface NotchShellProps {
   children: ReactNode;
 }
 
-export function NotchShell({ notch, logoStatus, moment, counts, room, screen, zoom, project, held, session, sessionOpen, sessionEnd, sessionKeys, onSessionLeft, onCount, onPress, keepOpen, onKeepOpen, onMark, onMenu, children }: NotchShellProps) {
+export function NotchShell({ notch, logoStatus, moment, counts, room, screen, zoom, project, held, session, sessionOpen, sessionEnd, sessionKeys, onSessionLeft, onCount, onPress, onMove, keepOpen, onKeepOpen, onMark, onMenu, children }: NotchShellProps) {
   // The pills show, under the pointer or pinned; a session shows under them.
   const [open, setOpen] = useState(keepOpen);
   // The pointer is on the shape.
@@ -131,6 +144,9 @@ export function NotchShell({ notch, logoStatus, moment, counts, room, screen, zo
   const [want, setWant] = useState<Size | null>(() => readStored(SIZE_KEY, SIZE_STORED, null));
   // An edge is being dragged: the shape follows the pointer, with no easing to catch up.
   const [sizing, setSizing] = useState(false);
+  // The notch itself is being dragged to another screen, closed until Codealong has docked it.
+  const [moving, setMoving] = useState(false);
+  useEffect(() => onNotchDragEnd(() => setMoving(false)), []);
   // The zoom changed: the shape takes its new size at once, as the card in it does, rather than
   // easing after a card that's already bigger. Known as the render that changes it is, so its
   // size and the easing's going come in one style change; back two frames on, once that's drawn.
@@ -148,7 +164,7 @@ export function NotchShell({ notch, logoStatus, moment, counts, room, screen, zo
     };
   }, [zooming, zoom]);
   const sizes = notchSizes(notch, natural.body, natural.side, room, screen, want, zoomFactor(zoom), endH);
-  const state: NotchState = sessionOpen ? (sessionEnd ? 'end' : 'session') : open ? 'pills' : on ? 'hover' : 'closed';
+  const state: NotchState = moving ? 'closed' : sessionOpen ? (sessionEnd ? 'end' : 'session') : open ? 'pills' : on ? 'hover' : 'closed';
   const clip = notchClip(sizes, state);
   // Something shows under the notch.
   const below = state === 'pills' || state === 'session' || state === 'end';
@@ -263,6 +279,30 @@ export function NotchShell({ notch, logoStatus, moment, counts, room, screen, zo
 
   useEffect(() => clear, []);
 
+  // The notch itself pressed, where it may be dragged from: where the pointer went down, and
+  // whether it has moved far enough to be a drag. Noted before anything in it hears the press.
+  const press = useRef<{ x: number; y: number; moved: boolean } | null>(null);
+  const pressNotch = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const target = e.target instanceof Element ? e.target : null;
+    press.current = e.button === 0 && target && !(open && target.closest(`${OWN_CLICKS}, .ca-notch-body`)) ? { x: e.screenX, y: e.screenY, moved: false } : null;
+  };
+  const moveNotch = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const p = press.current;
+    if (!p || p.moved || !(e.buttons & 1) || Math.abs(e.screenX - p.x) + Math.abs(e.screenY - p.y) < MOVE_AFTER) return;
+    p.moved = true;
+    clear();
+    if (!keepNow.current) setOpen(false);
+    setMoving(true);
+    onMove();
+    // One that didn't start doesn't hold the notch shut.
+    notchDrag(e.screenX - p.x).then(
+      (started) => {
+        if (!started) setMoving(false);
+      },
+      () => setMoving(false),
+    );
+  };
+
   // An edge of the session being dragged: where the pointer went down and the size it had then.
   const drag = useRef<{ edge: NotchEdge; x: number; y: number; from: Size; to: Size; moved: boolean; frame: number } | null>(null);
   const sizeNow = useRef<Size>({ w: 0, h: 0 });
@@ -340,9 +380,16 @@ export function NotchShell({ notch, logoStatus, moment, counts, room, screen, zo
         style={{ clipPath: `inset(0 ${clip.side}px ${clip.bottom}px ${clip.side}px round 0 0 ${clip.radius}px ${clip.radius}px)` }}
         onPointerEnter={enter}
         onPointerLeave={leave}
+        onPointerDownCapture={pressNotch}
+        onPointerMove={moveNotch}
+        onClickCapture={(e) => {
+          // The click a drag of the notch ends in is no click, on the notch or on anything in it.
+          if (press.current?.moved) e.stopPropagation();
+          press.current = null;
+        }}
         onClick={(e) => {
           // What's in it has clicks of its own once it shows.
-          if (open && e.target instanceof Element && e.target.closest('button, a, input, textarea, [role="button"], .ca-notch-session')) return;
+          if (open && e.target instanceof Element && e.target.closest(OWN_CLICKS)) return;
           clear();
           setOpen(true);
           onPress();

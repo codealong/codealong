@@ -222,8 +222,8 @@ prompt stays up too, and whichever you answer first counts.
 You can answer from wherever suits you:
 
 - **The notch.** The bar starts docked in your MacBook's notch (an external display gets one
-  drawn for it). Closed, it shows the most urgent count; click it and it opens on the agent that
-  has waited longest.
+  drawn for it; drag the notch there to keep it on that display). Closed, it shows the most
+  urgent count; click it and it opens on the agent that has waited longest.
 - **The floating bar.** Or float the bar, over every app, on every Space, even over full-screen
   apps, with pills for the agents that need you, have just finished or are working, one for PRs
   waiting on your review and one for todos ready to start. Hover a pill to read the conversation

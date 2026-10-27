@@ -1496,6 +1496,19 @@ export function onNotchPointer(cb: (on: boolean) => void): () => void {
   return onWindowEvent<boolean>('notch-pointer', cb);
 }
 
+/** The notch itself is being dragged, `dx` across since the button went down: Codealong takes the
+ *  docked bar where the pointer goes and docks it on the screen it's let go on (bar.rs `drag`).
+ *  Whether it started: only a docked bar is dragged. */
+export async function notchDrag(dx: number): Promise<boolean> {
+  if (!inTauri) return false;
+  return invoke<boolean>('notch_drag', { dx });
+}
+
+/** Calls `cb` once a drag of the notch is over, docked on the screen it was let go on. */
+export function onNotchDragEnd(cb: () => void): () => void {
+  return onWindowEvent<null>('notch-drag-end', () => cb());
+}
+
 /** The bar docked in the notch shows a session under its pills and takes the keyboard for it, or
  *  has put it away and hands the keyboard back to the app you're in (bar.rs `set_keys`). */
 export async function notchKeys(on: boolean): Promise<void> {

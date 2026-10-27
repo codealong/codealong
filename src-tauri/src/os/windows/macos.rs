@@ -4,7 +4,7 @@
 //! side has, a picture of it, the title bar a board window draws under.
 
 use std::cell::OnceCell;
-use std::ffi::CString;
+use std::ffi::{c_void, CString};
 use std::sync::Mutex;
 
 use objc2::rc::Retained;
@@ -437,8 +437,44 @@ pub fn tops() -> Vec<Top> {
             screen: Screen { frame: rect(s.frame()), visible: rect(s.visibleFrame()) },
             safe_top: s.safeAreaInsets().top,
             sides: (s.auxiliaryTopLeftArea().size.width, s.auxiliaryTopRightArea().size.width),
+            id: display_id(&s),
         })
         .collect()
+}
+
+#[link(name = "ApplicationServices", kind = "framework")]
+extern "C" {
+    fn CGDisplayCreateUUIDFromDisplayID(display: u32) -> *const c_void;
+}
+
+#[link(name = "CoreFoundation", kind = "framework")]
+extern "C" {
+    fn CFUUIDCreateString(allocator: *const c_void, uuid: *const c_void) -> *const c_void;
+    fn CFRelease(cf: *const c_void);
+}
+
+/// The display a screen shows, by the UUID macOS keeps its arrangement under. Its number
+/// (`NSScreenNumber`) can change when it's plugged in again, and two of one model share a name.
+fn display_id(s: &NSScreen) -> String {
+    let Some(number) = s.deviceDescription().objectForKey(&NSString::from_str("NSScreenNumber")) else { return String::new() };
+    // SAFETY: AppKit keeps the screen's number as an NSNumber.
+    let number: u32 = unsafe { msg_send![&*number, unsignedIntValue] };
+    // SAFETY: both are created here, so they're released here; a display that's gone has no UUID.
+    unsafe {
+        let uuid = CGDisplayCreateUUIDFromDisplayID(number);
+        if uuid.is_null() {
+            return number.to_string();
+        }
+        let text = CFUUIDCreateString(std::ptr::null(), uuid);
+        CFRelease(uuid);
+        if text.is_null() {
+            return number.to_string();
+        }
+        // A CFString is an NSString.
+        let id = (*(text as *const NSString)).to_string();
+        CFRelease(text);
+        id
+    }
 }
 
 /// Where the pointer is, in screen points.

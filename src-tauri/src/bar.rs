@@ -21,11 +21,17 @@
 //! as the peek has under the floating bar. After it opens a session, Codealong asks macOS to
 //! bring that app forward (`front::bring_forward`).
 //!
+//! It docks into the first screen with a notch, else one drawn on the screen with the menu bar,
+//! unless you've dragged it to another: a press on the notch itself, off its pills, buttons and
+//! session (Notch.tsx), slides it along the top of whichever screen the pointer is on, and let go
+//! it docks there (`drag`). That screen is kept, and while it isn't connected the bar docks where
+//! it would without it, going back once it is (`notch_on`).
+//!
 //! Closing the main window hides it and the app keeps running with the bar; the Dock icon and the
-//! bar's mark bring it back. Whether the bar is on, where you left it and whether it stays open
-//! in the notch are kept in `bar.json` next to the config.
+//! bar's mark bring it back. Whether the bar is on, where you left it, the screen its notch is on
+//! and whether it stays open there are kept in `bar.json` next to the config.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -104,12 +110,40 @@ pub fn notch_of(frame: Rect, visible: Rect, safe_top: f64, sides: Option<(f64, f
     }
 }
 
-/// The notch the bar docks into: the first screen's with one, else one drawn on the screen with
-/// the menu bar. On the main thread.
-fn notch() -> Option<Notch> {
-    let tops = panel::tops();
-    let of = |t: &panel::Top| notch_of(t.screen.frame, t.screen.visible, t.safe_top, Some(t.sides));
-    tops.iter().map(of).find(|n| n.real).or_else(|| tops.first().map(of))
+fn notch_of_top(t: &panel::Top) -> Notch {
+    notch_of(t.screen.frame, t.screen.visible, t.safe_top, Some(t.sides))
+}
+
+/// The screen the bar docks on by itself: the first with a notch, else the one with the menu bar.
+fn automatic(tops: &[panel::Top]) -> Option<&panel::Top> {
+    tops.iter().find(|t| notch_of_top(t).real).or(tops.first())
+}
+
+/// The notch the bar docks into: on the screen it was dragged to (`chosen`) while that's
+/// connected, else on the one it picks by itself.
+pub fn notch_on(tops: &[panel::Top], chosen: Option<&str>) -> Option<Notch> {
+    chosen.and_then(|id| tops.iter().find(|t| t.id == id)).or_else(|| automatic(tops)).map(notch_of_top)
+}
+
+/// The screen kept for the notch once it's dropped on the one with `id`: none when that's where
+/// the bar docks by itself, so a notch dragged back there follows it again (to the MacBook's own
+/// screen when its lid opens, say).
+pub fn chosen_by_drop(tops: &[panel::Top], id: &str) -> Option<String> {
+    (automatic(tops).map(|t| t.id.as_str()) != Some(id)).then(|| id.to_string())
+}
+
+/// The docked bar's frame while it's dragged: its top at the top of the screen the pointer is on,
+/// centered `center` across it, as near as keeps a notch `width` wide on that screen.
+pub fn sliding(window: Rect, screen: Rect, center: f64, width: f64) -> Rect {
+    let half = (width / 2.0).min(screen.w / 2.0);
+    let x = center.clamp(screen.x + half, screen.right() - half);
+    Rect { x: (x - window.w / 2.0).round(), y: screen.top() - window.h, w: window.w, h: window.h }
+}
+
+/// The notch the bar docks into now. On the main thread.
+fn notch(app: &AppHandle) -> Option<Notch> {
+    let chosen = app.try_state::<Bar>().and_then(|s| s.saved.lock().ok().and_then(|s| s.screen.clone()));
+    notch_on(&panel::tops(), chosen.as_deref())
 }
 
 /// The docked bar's frame at a size: centered on the notch, its top at the top of the screen.
@@ -146,11 +180,14 @@ struct Saved {
     /// Where the bar was last.
     #[serde(default)]
     frame: Option<Rect>,
+    /// The screen the notch was dragged to (`panel::Top`'s `id`); none where it docks by itself.
+    #[serde(default)]
+    screen: Option<String>,
 }
 
 impl Default for Saved {
     fn default() -> Saved {
-        Saved { off: false, notch: docked_at_first(), keep_open: false, frame: None }
+        Saved { off: false, notch: docked_at_first(), keep_open: false, frame: None, screen: None }
     }
 }
 
@@ -198,6 +235,17 @@ struct Bar {
     on_shape: AtomicBool,
     /// Docked, it has the keyboard, for the session it shows under its pills.
     keys: AtomicBool,
+    /// The notch is being dragged to another screen: how far right of its middle the pointer
+    /// went down, and which drag it is, so the look left from an earlier one stops (`drag`).
+    moving: Mutex<Option<(f64, u64)>>,
+    drags: AtomicU64,
+}
+
+impl Bar {
+    /// How wide the notch it docks into is, which a drag keeps on the screen.
+    fn notch_width(&self) -> f64 {
+        self.notch.lock().ok().and_then(|n| *n).map_or(DRAWN_NOTCH_WIDTH, |n| n.width)
+    }
 }
 
 /// Makes the bar, shows it unless it's turned off, and adds Window › Floating bar.
@@ -215,6 +263,8 @@ pub fn setup(app: &AppHandle) -> Result<()> {
         // A new window takes clicks everywhere: the first look lets them through off the shape.
         on_shape: AtomicBool::new(true),
         keys: AtomicBool::new(false),
+        moving: Mutex::new(None),
+        drags: AtomicU64::new(0),
     });
 
     let page = panel::Page { title: "Codealong bar", script: "window.__CODEALONG_BAR__ = true;", size: START, focusable: false, first_mouse: true };
@@ -356,7 +406,7 @@ fn keep_up(app: &AppHandle) {
     // Docked, the bar follows the notch: a display plugged in or out, the lid closed, the menu
     // bar's height changed.
     if mode == Mode::Notch {
-        let now = notch();
+        let now = notch(app);
         let before = state.notch.lock().ok().and_then(|n| *n);
         if now != before {
             place_for(app, &bar, Mode::Notch);
@@ -403,11 +453,14 @@ pub fn fit(app: &AppHandle, width: f64, height: f64) {
     let _ = app.run_on_main_thread(move || {
         let Some(bar) = handle.get_webview_window(LABEL) else { return };
         let Some(current) = panel::frame(&bar) else { return };
-        let next = match (mode_of(&handle), notch()) {
-            (Mode::Notch, Some(n)) => notch_frame(n, width.ceil(), height.ceil()),
+        let (w, h) = (width.ceil(), height.ceil());
+        let next = match (mode_of(&handle), notch(&handle)) {
+            // Being dragged, it stays under the pointer.
+            (Mode::Notch, _) if dragging(&handle) => Rect { x: (current.center().0 - w / 2.0).round(), y: current.top() - h, w, h },
+            (Mode::Notch, Some(n)) => notch_frame(n, w, h),
             _ => {
                 let Some(screen) = screen_for(current, &panel::screens()) else { return };
-                place(current, width.ceil(), height.ceil(), screen)
+                place(current, w, h, screen)
             }
         };
         if next != current {
@@ -477,7 +530,7 @@ pub fn mode_of(app: &AppHandle) -> Mode {
 pub fn mode_view(app: &AppHandle) -> ModeView {
     let mode = mode_of(app);
     let keep_open = app.try_state::<Bar>().and_then(|s| s.saved.lock().ok().map(|s| s.keep_open)).unwrap_or(false);
-    ModeView { mode, notch: (mode == Mode::Notch).then(notch).flatten(), keep_open }
+    ModeView { mode, notch: (mode == Mode::Notch).then(|| notch(app)).flatten(), keep_open }
 }
 
 /// Keeps the docked bar open, or lets it close again once the pointer is off it, and tells every
@@ -528,10 +581,13 @@ pub fn set_mode(app: &AppHandle, mode: Mode) {
     let _ = app.run_on_main_thread(move || {
         let Some(bar) = handle.get_webview_window(LABEL) else { return };
         // Floating, the bar takes every click; docked, the pointer watch decides. Only a docked
-        // bar ever has the keyboard.
+        // bar ever has the keyboard, or is dragged.
         if let Some(state) = handle.try_state::<Bar>() {
             if state.keys.swap(false, Ordering::Relaxed) {
                 panel::drop_keys(&bar);
+            }
+            if state.moving.lock().ok().and_then(|mut m| m.take()).is_some() {
+                let _ = handle.emit_to(LABEL, "notch-drag-end", ());
             }
             state.on_shape.store(true, Ordering::Relaxed);
             if let Ok(mut s) = state.shape.lock() {
@@ -568,7 +624,7 @@ fn place_for(app: &AppHandle, bar: &tauri::WebviewWindow, mode: Mode) {
     if mode != Mode::Notch {
         return;
     }
-    let notch = notch();
+    let notch = notch(app);
     if let (Some(n), Some(current)) = (notch, panel::frame(bar)) {
         panel::set_frame(bar, notch_frame(n, current.w, current.h));
     }
@@ -577,6 +633,63 @@ fn place_for(app: &AppHandle, bar: &tauri::WebviewWindow, mode: Mode) {
             *slot = notch;
         }
     }
+}
+
+/// You're dragging the docked bar by the notch itself, and the pointer has gone `dx` across since
+/// the button went down: from here it slides along the top of whichever screen the pointer is
+/// on, and once the button comes up it docks in that screen's notch, which is kept. The pointer
+/// is read here until then, as it is for the peek's drag (peek.rs), rather than from the page's
+/// pointer events, which come from a window that's moving under the pointer. Whether it started:
+/// only a docked bar is dragged. On the main thread.
+pub fn drag(app: &AppHandle, dx: f64) -> bool {
+    let (Some(state), Some(bar)) = (app.try_state::<Bar>(), app.get_webview_window(LABEL)) else { return false };
+    let (Some(p), Some(frame)) = (panel::pointer(), panel::frame(&bar)) else { return false };
+    if mode_of(app) != Mode::Notch {
+        return false;
+    }
+    let n = state.drags.fetch_add(1, Ordering::Relaxed) + 1;
+    {
+        let Ok(mut moving) = state.moving.lock() else { return false };
+        // Where on the notch it was taken: as far from its middle as keeps the pointer on it.
+        let half = state.notch_width() / 2.0;
+        *moving = Some(((p.0 - dx - frame.center().0).clamp(-half, half), n));
+    }
+    follow_drag(app, n);
+    let going = move |app: &AppHandle| app.try_state::<Bar>().is_some_and(|s| s.moving.lock().is_ok_and(|m| m.is_some_and(|(_, at)| at == n)));
+    panel::poll(app, panel::DRAG_EVERY, going, move |app| follow_drag(app, n));
+    true
+}
+
+/// Whether the docked bar is being dragged to another screen.
+fn dragging(app: &AppHandle) -> bool {
+    app.try_state::<Bar>().is_some_and(|s| s.moving.lock().is_ok_and(|m| m.is_some()))
+}
+
+/// Looks at the pointer for a drag of the notch: the bar slides along the top of the screen the
+/// pointer is on, and with the button up docks on that screen and keeps it. On the main thread.
+fn follow_drag(app: &AppHandle, n: u64) {
+    let (Some(state), Some(bar)) = (app.try_state::<Bar>(), app.get_webview_window(LABEL)) else { return };
+    let Some(grab) = state.moving.lock().ok().and_then(|m| *m).filter(|(_, at)| *at == n).map(|(grab, _)| grab) else { return };
+    let (Some(p), Some(frame)) = (panel::pointer(), panel::frame(&bar)) else { return };
+    let tops = panel::tops();
+    let Some(top) = tops.iter().find(|t| t.screen.frame.contains(p)).or(tops.first()) else { return };
+    if panel::button_down() {
+        let next = sliding(frame, top.screen.frame, p.0 - grab, state.notch_width());
+        if next != frame {
+            panel::set_frame(&bar, next);
+        }
+        return;
+    }
+    if let Ok(mut moving) = state.moving.lock() {
+        *moving = None;
+    }
+    if let Ok(mut saved) = state.saved.lock() {
+        saved.screen = chosen_by_drop(&tops, &top.id);
+        saved.save();
+    }
+    place_for(app, &bar, Mode::Notch);
+    let _ = app.emit("bar-mode", mode_view(app));
+    let _ = app.emit_to(LABEL, "notch-drag-end", ());
 }
 
 /// The app an open target lands in, by bundle ID: the terminal for terminal sessions, Chrome
@@ -659,6 +772,9 @@ mod tests {
         assert!(!s.keep_open);
         let s: Saved = serde_json::from_str(r#"{"notch":true,"keepOpen":true}"#).unwrap();
         assert!(s.keep_open);
+        assert_eq!(s.screen, None);
+        let s: Saved = serde_json::from_str(r#"{"notch":true,"screen":"9C4B2D1E-0000-4000-8000-000000000001"}"#).unwrap();
+        assert_eq!(s.screen.as_deref(), Some("9C4B2D1E-0000-4000-8000-000000000001"));
         assert_eq!(serde_json::to_value(Mode::Notch).unwrap(), "notch");
     }
 
@@ -716,5 +832,53 @@ mod tests {
         let n = Notch { x: 756.0, top: 982.0, width: 185.0, height: 32.0, real: true };
         assert_eq!(notch_frame(n, 281.0, 32.0), r(616.0, 950.0, 281.0, 32.0));
         assert_eq!(notch_frame(n, 600.0, 120.0), r(456.0, 862.0, 600.0, 120.0));
+    }
+
+    /// A screen's top, with a MacBook's notch or without one.
+    fn top(id: &str, frame: Rect, notch: bool) -> panel::Top {
+        let visible = Rect { h: frame.h - 32.0, ..frame };
+        let side = if notch { (frame.w - 185.0) / 2.0 } else { 0.0 };
+        panel::Top { screen: Screen { frame, visible }, safe_top: if notch { 32.0 } else { 0.0 }, sides: (side, side), id: id.to_string() }
+    }
+
+    #[test]
+    fn docks_on_the_screen_it_was_dragged_to_while_that_one_is_connected() {
+        // An external display with the menu bar, a MacBook to its left and another display right.
+        let ext = top("ext", r(0.0, 0.0, 2560.0, 1440.0), false);
+        let mac = top("mac", r(-1512.0, 0.0, 1512.0, 982.0), true);
+        let side = top("side", r(2560.0, 0.0, 1920.0, 1080.0), false);
+        let all = [ext.clone(), mac.clone(), side.clone()];
+        // By itself, the MacBook's notch, wherever the menu bar is.
+        assert_eq!(notch_on(&all, None), Some(notch_of_top(&mac)));
+        // Dragged to the display on the right: drawn at the top center of it.
+        let n = notch_on(&all, Some("side")).unwrap();
+        assert_eq!((n.x, n.top, n.real), (3520.0, 1080.0, false));
+        // That display unplugged: where it docks by itself, until it's back.
+        assert_eq!(notch_on(&[ext.clone(), mac.clone()], Some("side")), Some(notch_of_top(&mac)));
+        assert_eq!(notch_on(&[ext.clone()], Some("side")), Some(notch_of_top(&ext)), "the lid closed too");
+        assert_eq!(notch_on(&all, Some("side")), Some(n), "plugged in again");
+        assert_eq!(notch_on(&[], Some("side")), None);
+    }
+
+    #[test]
+    fn a_notch_dropped_where_it_docks_by_itself_follows_that_again() {
+        let ext = top("ext", r(0.0, 0.0, 2560.0, 1440.0), false);
+        let mac = top("mac", r(-1512.0, 0.0, 1512.0, 982.0), true);
+        let all = [ext.clone(), mac];
+        assert_eq!(chosen_by_drop(&all, "ext"), Some("ext".to_string()));
+        assert_eq!(chosen_by_drop(&all, "mac"), None);
+        // The lid closed: the menu bar's screen is the one it docks on by itself.
+        assert_eq!(chosen_by_drop(&[ext], "ext"), None);
+    }
+
+    #[test]
+    fn a_dragged_notch_slides_along_the_top_of_the_pointer_s_screen() {
+        let window = r(600.0, 900.0, 300.0, 82.0);
+        let screen = r(-1920.0, 200.0, 1920.0, 1080.0);
+        // Its top at the screen's, centered where the pointer takes it.
+        assert_eq!(sliding(window, screen, -1000.0, 185.0), r(-1150.0, 1198.0, 300.0, 82.0));
+        // No further than keeps the notch on that screen.
+        assert_eq!(sliding(window, screen, -1910.0, 185.0), r(-1978.0, 1198.0, 300.0, 82.0));
+        assert_eq!(sliding(window, screen, 10.0, 185.0), r(-243.0, 1198.0, 300.0, 82.0));
     }
 }

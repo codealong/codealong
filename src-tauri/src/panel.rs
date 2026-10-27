@@ -199,10 +199,12 @@ pub fn poll(app: &AppHandle, every: Duration, going: impl Fn(&AppHandle) -> bool
 
 /// The top of a screen, as a notch is found from it: the safe area the screen keeps from its
 /// top, and how wide the menu bar is on either side of the camera (`auxiliaryTopLeftArea` and
-/// `…RightArea`). A screen without a notch has no safe area and empty sides.
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// `…RightArea`). A screen without a notch has no safe area and empty sides. `id` names the
+/// display the same way each time it's connected, for the notch to go back to it (bar.rs).
+#[derive(Clone, Debug, PartialEq)]
 pub struct Top {
     pub screen: Screen,
     pub safe_top: f64,
     pub sides: (f64, f64),
+    pub id: String,
 }

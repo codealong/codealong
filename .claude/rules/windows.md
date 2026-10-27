@@ -40,7 +40,10 @@ under `src-tauri/src/`.
 - The notch: how it's found and how the docked bar's window keeps one size and takes clicks only
   on its shape: `bar.rs` (module header, `notch_of`, `watch_pointer`), `panel.rs` (`Top`),
   `src/bar.ts` (`NOTCH`, `notchSizes`). On a 16-inch MacBook Pro (2026-09-28) the safe area is
-  32, the notch 185 wide and the menu bar 33 tall (`frame` top less `visibleFrame` top).
+  32, the notch 185 wide and the menu bar 33 tall (`frame` top less `visibleFrame` top). The
+  screen it's dragged to is kept by the display's UUID (`CGDisplayCreateUUIDFromDisplayID` on
+  its `NSScreenNumber`): the number alone can change when a display is plugged in again, and two
+  of one model share a name (`os/windows/macos.rs` `display_id`, `bar.rs` `notch_on`, `drag`).
 - The docked bar has the keyboard only while it shows a session, and gives it back through an
   unseen panel that takes it and is ordered out: a panel ordered out and in again, even in one
   turn of the run loop, has WebKit hide its page until it draws again, and the notch blinked
@@ -211,6 +214,12 @@ under `src-tauri/src/`.
   the window drags from anywhere. The preview shows where the strip's first line falls and that
   it asks to drag (`waiting-titlebar-check.js`).
 
+- Not yet checked by hand (2026-10-27): dragging the notch to another screen in the real app
+  (`bar.rs` `drag`): that it slides along the top of each screen the pointer crosses, docks on
+  the one it's let go on, keeps it across a relaunch, falls back when that display is unplugged
+  and returns when it's plugged in again; and that the UUID stays the same for a display plugged
+  into another port. The preview shows only where a drag starts and what it asks for
+  (`notch-move-check.js`); the engine's choice of screen is tested (`bar.rs`).
 - Not yet checked by hand (2026-10-05): that the app you were in gets its keys back at once when
   the unseen panel takes them from the docked bar and is ordered out, and that the notch no
   longer blinks as a session in it closes (it did while the bar itself was ordered out).

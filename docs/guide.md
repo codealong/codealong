@@ -2686,7 +2686,13 @@ while the pointer is still on it, it stays until the pointer leaves. A count bes
 its group's first session, a session picked from a folded pill's menu or the recent ones shows there
 too, a double-click on a pill still opens the session where it lives, and the pin in the session's
 header keeps it on the desktop in a window of its own, where it was. A screen without a notch (an
-external display) gets one drawn at the top center of its menu bar. The pair of buttons at the top
+external display) gets one drawn at the top center of its menu bar. Drag the notch itself to put
+it on another screen: closed, from anywhere on it; open, from the black around the camera, since
+its pills, buttons and session keep their own drags and clicks. It closes and slides along the top
+of whichever screen the pointer is on, and docks there when you let go. It stays on that screen
+across launches; while the screen isn't connected the notch is where it would be by itself (on the
+MacBook's own screen, else the one with the menu bar) and goes back once it is. Dragged back to the
+screen it picks by itself, it follows that again. The pair of buttons at the top
 right of the window floats the bar or puts it in the notch, and picking the one that's on turns it
 off, as do Window › Floating bar and Bar in the notch and the bar's own right-click menu. Wherever
 you leave it is where it is at the next launch; on Linux, which has no notch, it starts floating.
@@ -3404,8 +3410,8 @@ in `~/.config/codealong/` (`$XDG_CONFIG_HOME`), with the logs in `~/.local/state
 caches in `~/.cache/codealong/`.
 
 What you've seen (for Your turn), what you've pinned, snoozed and archived in Codealong are kept in
-`state.json` next to it; whether the bar is on, floating or in the notch, and where you left it
-floating, in `bar.json`; what's pinned to the desktop, and where each card was left, in
+`state.json` next to it; whether the bar is on, floating or in the notch, where you left it
+floating and the screen you dragged the notch to, in `bar.json`; what's pinned to the desktop, and where each card was left, in
 `desktop.json`; the sessions kept there from the peek, and their windows' frames, in `kept.json`;
 the boards, with each one's canvas, in `boards.json` (until there was a change to them, each
 project's canvas came from `canvas.json`, which is left as it was); which session started or was forked into which (and which

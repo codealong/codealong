@@ -1057,6 +1057,9 @@ window.__TAURI_INTERNALS__ = {
     if (cmd === 'finish_setup' || cmd === 'save_accounts' || cmd === 'save_config') return Promise.resolve(null);
     // Asking the engine to poll GitHub or read usage again (a window's focus, ⌘R) needs no answer.
     if (cmd === 'refresh' || cmd === 'refresh_usage') return Promise.resolve(null);
+    // A drag of the notch starts, as it does in the app while the bar is docked (bar.rs `drag`),
+    // unless a check says it doesn't.
+    if (cmd === 'notch_drag') return Promise.resolve(window.__NOTCH_DRAG__ !== false);
     if (window.__unknown.indexOf(cmd) < 0) window.__unknown.push(cmd);
     return Promise.resolve(null);
   },
