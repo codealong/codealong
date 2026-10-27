@@ -729,31 +729,32 @@ const PICK_MS = 10 * 60_000;
 /** The Pick a time… this window waits on (`snoozedFrom`), to stop waiting: one at a time. */
 let picking: (() => void) | null = null;
 
-/** Resolves once Pick a time…'s dialog (ui/SnoozeDialog.tsx), in the main window, snoozes these
- *  sessions or your review of these PRs, so the window it was asked from says they left, as it
- *  does for a time in its own menu. Never, when the dialog is put away, left open past `wait`, or
- *  asked again from this window: a snooze of the window's own isn't it, nor one asked for since. */
-export function snoozedFrom(keys: string[], reviews: boolean, wait = PICK_MS): Promise<void> {
+/** Calls `heard` once Pick a time…'s dialog (ui/SnoozeDialog.tsx), in the main window, snoozes
+ *  these sessions or your review of these PRs, so the window it was asked from says they left, as
+ *  it does for a time in its own menu. It's called as the snooze is put, before the window draws
+ *  it, as a time of the menu's own settles: once drawn, the session is no longer in the waiting
+ *  list a queue goes on from (queue.ts `left`). Never, when the dialog is put away, left open past
+ *  `wait`, or asked again from this window: a snooze of the window's own isn't it, nor one asked
+ *  for since. */
+export function snoozedFrom(keys: string[], reviews: boolean, heard: () => void, wait = PICK_MS): void {
   picking?.();
   const since = Date.now();
   const same = (a: Ahead) => {
     const c = a.change;
     return a.at >= since && (c.kind === 'snooze' || c.kind === 'review-snooze') && !!c.picked && (c.kind === 'review-snooze') === reviews && c.until != null && c.keys.length === keys.length && c.keys.every((k) => keys.includes(k));
   };
-  return new Promise((resolve) => {
-    const unsubscribe = subscribe(() => {
-      if (!all.some(same)) return;
-      stop();
-      resolve();
-    });
-    const timer = setTimeout(() => stop(), wait);
-    const stop = () => {
-      clearTimeout(timer);
-      unsubscribe();
-      if (picking === stop) picking = null;
-    };
-    picking = stop;
+  const unsubscribe = subscribe(() => {
+    if (!all.some(same)) return;
+    stop();
+    heard();
   });
+  const timer = setTimeout(() => stop(), wait);
+  const stop = () => {
+    clearTimeout(timer);
+    unsubscribe();
+    if (picking === stop) picking = null;
+  };
+  picking = stop;
 }
 
 /** Snoozes your review of PRs (by PR key) until `until`, or wakes them now with null, in every

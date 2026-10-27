@@ -134,7 +134,7 @@ function timesMenu(set: (until: number | null) => Promise<void>, ask: SnoozeAsk,
       // The main window asks, snoozes and says how that went; this one says they left, as for a
       // time of its own, once they're snoozed (a queue goes on to the next), and nothing if the
       // dialog is put away. The main window coming forward is all there is to fail here.
-      void snoozedFrom(ask.keys, ask.reviews).then(() => done(Promise.resolve()));
+      snoozedFrom(ask.keys, ask.reviews, () => done(Promise.resolve()));
       void showMain({ kind: 'snooze', ...ask }).catch(() => {});
     },
   });

@@ -646,7 +646,7 @@ describe('snoozedFrom', () => {
 
   it('hears the snooze Pick a time… asked the main window for, and no other', async () => {
     const heard = vi.fn();
-    void snoozedFrom(['claude:claude:a'], false).then(heard);
+    snoozedFrom(['claude:claude:a'], false, heard);
     // Your review of a PR of that key, another session, waking it, or a time from a menu of the
     // window's own (the dialog put away), isn't it.
     await snoozeReviewsAhead(['claude:claude:a'], later(), true);
@@ -655,7 +655,9 @@ describe('snoozedFrom', () => {
     await snoozeAhead(['claude:claude:a'], later());
     await flush();
     expect(heard).not.toHaveBeenCalled();
-    await snoozeAhead(['claude:claude:a'], later(), true);
+    // As the snooze is put, before anything draws it: a queue goes on only from what it listed.
+    void snoozeAhead(['claude:claude:a'], later(), true);
+    expect(heard).toHaveBeenCalledTimes(1);
     await flush();
     expect(heard).toHaveBeenCalledTimes(1);
   });
@@ -663,8 +665,8 @@ describe('snoozedFrom', () => {
   it('waits on the last asked for alone', async () => {
     const first = vi.fn();
     const second = vi.fn();
-    void snoozedFrom(['claude:claude:c'], false).then(first);
-    void snoozedFrom(['claude:claude:c'], false).then(second);
+    snoozedFrom(['claude:claude:c'], false, first);
+    snoozedFrom(['claude:claude:c'], false, second);
     await snoozeAhead(['claude:claude:c'], later(), true);
     await flush();
     expect([first.mock.calls.length, second.mock.calls.length]).toEqual([0, 1]);
@@ -674,7 +676,7 @@ describe('snoozedFrom', () => {
     vi.useFakeTimers();
     try {
       const heard = vi.fn();
-      void snoozedFrom(['northwind/app#12'], true, 1000).then(heard);
+      snoozedFrom(['northwind/app#12'], true, heard, 1000);
       vi.advanceTimersByTime(1500);
       await snoozeReviewsAhead(['northwind/app#12'], Date.now() + 60_000, true);
       await vi.runAllTimersAsync();
