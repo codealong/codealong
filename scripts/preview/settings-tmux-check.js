@@ -1,6 +1,8 @@
 // Checks Settings › General's Run sessions in tmux (`[apps] tmux`): only while the screen is
 // locked as a new install has it, each choice saying what it comes to in the terminal's name,
-// and a pick saved to config.toml. On Linux, where a terminal is tmux already, it isn't there.
+// and a pick saved to config.toml. With a terminal that holds sessions itself (Rex) as
+// config.toml's, the choice says tmux isn't used instead. On Linux, where a terminal is tmux
+// already, it isn't there.
 //   scripts/preview.sh sessions '' scripts/preview/settings-tmux-check.js
 //   PREVIEW_PLATFORM=linux scripts/preview.sh sessions '' scripts/preview/settings-tmux-check.js
 (function () {
@@ -16,7 +18,15 @@
     return on ? on.textContent.trim() : '';
   };
 
-  until(function () { return q('.ca-side-config'); }, 20000, 'the settings button')
+  // What the stub answers get_config with: which terminal config.toml names, and whether it
+  // holds sessions itself (config.rs `holds_sessions`).
+  var holds = false;
+  fetch('./config.json')
+    .then(function (r) { return r.json(); })
+    .then(function (view) {
+      holds = (view.holdsSessions || []).indexOf(view.config.apps.terminal) >= 0;
+      return until(function () { return q('.ca-side-config'); }, 20000, 'the settings button');
+    })
     .then(function (gear) {
       gear.click();
       return until(function () { return all('.ca-settings-pane .ca-field > span:not(.ca-checkbox)').filter(function (s) { return s.textContent === 'Terminal'; })[0]; }, 20000, 'the terminal settings in General');
@@ -29,7 +39,8 @@
       var f = field();
       check('offered beside the terminal settings', !!f);
       check('only while locked to begin with', picked() === 'While locked', picked() + ' | ' + f.textContent);
-      check('says what that comes to, in the terminal’s name', /While the screen is locked/.test(f.textContent) && /opens in \S+ once you unlock/.test(f.textContent), f.textContent);
+      if (holds) check('says the terminal holds sessions itself, so tmux isn’t used', /starts them while the screen is locked too/.test(f.textContent) && /tmux isn’t used/.test(f.textContent), f.textContent);
+      else check('says what that comes to, in the terminal’s name', /While the screen is locked/.test(f.textContent) && /opens in \S+ once you unlock/.test(f.textContent), f.textContent);
       choice('Always').click();
       return until(function () { return calls('save_config').length; }, 5000, 'the pick saved');
     })
