@@ -1923,10 +1923,10 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         self.remember_accounts();
         self.save_state();
         self.load_todos();
-        // Only with every todo read: a list that didn't read would make every attachment look unused.
-        if !self.todos_unreadable {
-            // Pictures drawn for emblems are kept images too.
-            let texts: Vec<String> = self.todos.todos.iter().map(|t| t.description.clone()).chain(self.emblems.pictures()).collect();
+        // Only with every todo and emblem read: a list that didn't read would make every
+        // attachment look unused. Pictures drawn for emblems are kept images too.
+        if let (false, Some(pictures)) = (self.todos_unreadable, self.emblems.pictures()) {
+            let texts: Vec<String> = self.todos.todos.iter().map(|t| t.description.clone()).chain(pictures).collect();
             let _ = std::thread::Builder::new().name("codealong-attachments".into()).spawn(move || {
                 attachments::collect_garbage(&texts.iter().map(String::as_str).collect::<Vec<_>>());
             });

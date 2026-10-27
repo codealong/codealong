@@ -640,6 +640,8 @@ pub struct Store {
     pub drawing: Option<String>,
     /// When a drawing last failed.
     draw_failed: Option<i64>,
+    /// emblems.json was there and didn't read, so what's kept here isn't all it holds.
+    unread: bool,
     dirty: bool,
 }
 
@@ -651,7 +653,8 @@ impl Store {
     pub fn load() -> Store {
         // A file that doesn't read is left as it is, and a notice says so: sessions are
         // remembered by how they look, so their emblems aren't given out again over it.
-        Store { kept: crate::store::load_whole(&path(), "the sessions' emblems"), ..Default::default() }
+        let kept = crate::store::load_whole(&path(), "the sessions' emblems");
+        Store { kept, unread: crate::store::unread(&path()), ..Default::default() }
     }
 
     /// What the session shows when emblems are `kind`: its own, or a helper's, the emblem of the
@@ -747,9 +750,10 @@ impl Store {
     }
 
     /// The kept pictures, as text refers to kept images (`images/<name>`), so they aren't
-    /// cleared as unused (`attachments::collect_garbage`).
-    pub fn pictures(&self) -> Vec<String> {
-        self.kept.values().filter_map(|m| m.picture.as_ref()).map(|p| format!("{}{p}", crate::attachments::IMAGES)).collect()
+    /// cleared as unused (`attachments::collect_garbage`). None while emblems.json is one that
+    /// didn't read, whose pictures can't be told from unused ones.
+    pub fn pictures(&self) -> Option<Vec<String>> {
+        (!self.unread).then(|| self.kept.values().filter_map(|m| m.picture.as_ref()).map(|p| format!("{}{p}", crate::attachments::IMAGES)).collect())
     }
 
     /// Notes that a session with an emblem is still around.
@@ -883,7 +887,10 @@ mod tests {
         assert_eq!(store.emblem_of(&helper, EmblemKind::Drawn), Some(picture));
         assert_eq!(store.emblem_of(&a, EmblemKind::Emoji).and_then(|e| e.emoji).as_deref(), Some("🧪"));
         assert!(store.drawing.is_none());
-        assert_eq!(store.pictures(), vec!["images/0123456789abcdef.png".to_string()]);
+        assert_eq!(store.pictures(), Some(vec!["images/0123456789abcdef.png".to_string()]));
+        // From an emblems.json that didn't read, no picture can be told from an unused one.
+        store.unread = true;
+        assert_eq!(store.pictures(), None);
     }
 
     /// What the sessions beside one show is what its project's other current sessions show.

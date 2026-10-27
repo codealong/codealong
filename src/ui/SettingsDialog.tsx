@@ -450,6 +450,8 @@ function EmblemsFields({ cfg, disabled, onSave }: { cfg: Config; disabled: boole
   const [prompt, setPrompt] = useState(emblems.prompt);
   useEffect(() => setPrompt(emblems.prompt), [emblems.prompt]);
   const drawers = cfg.accounts.filter((a) => !a.disabled && DRAWS.includes(a.harness));
+  // The one named while it can draw, else the first that can, as the engine picks (config.rs
+  // `drawing_account`).
   const drawer = drawers.find((a) => a.name === emblems.account) ?? drawers[0];
   const save = (next: Partial<EmblemsCfg>) => onSave({ ...cfg, emblems: { ...emblems, ...next } });
   // Drawn only with an account that draws, or its save would be refused; one already set stays.
@@ -460,7 +462,8 @@ function EmblemsFields({ cfg, disabled, onSave }: { cfg: Config; disabled: boole
         <span>Session emblems</span>
         <Seg className="ca-settings-theme" label="Session emblems" options={kinds} value={emblems.kind} onPick={(kind) => kind !== emblems.kind && save({ kind })} />
         <small>
-          {EMBLEM_KINDS.find((k) => k.id === emblems.kind)?.says} {drawers.length === 0 && 'A Codex account can draw them instead: add one in Settings › Accounts.'}
+          {EMBLEM_KINDS.find((k) => k.id === emblems.kind)?.says}{' '}
+          {drawers.length === 0 && (emblems.kind === 'drawn' ? 'No account here can draw them now: add a Codex account in Settings › Accounts, or turn one on.' : 'A Codex account can draw them instead: add one in Settings › Accounts.')}
         </small>
       </div>
       {emblems.kind === 'drawn' && drawers.length > 1 && (

@@ -1,7 +1,7 @@
 // Small pieces from the Codealong design system, typed for the live board.
 
 import type { AriaRole, ButtonHTMLAttributes, CSSProperties, FormEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode, TextareaHTMLAttributes } from 'react';
-import { forwardRef, Fragment, useId, useLayoutEffect, useRef, useState } from 'react';
+import { forwardRef, Fragment, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { CLICK_WAIT_MS } from '../bar';
 import { imageUrl } from '../api';
 import { fieldAt, typingIn } from '../contextMenu';
@@ -141,16 +141,31 @@ export function Mark({ size = 16, status = 'idle' }: { size?: number; status?: L
   );
 }
 
+/** How long a picture on another Mac that didn't load waits before it's asked for again, the
+ *  last again and again: that Mac may have been away. */
+const EMBLEM_AGAIN_MS = [15_000, 60_000, 300_000];
+
 /** A session's emblem (emblems.rs): the emoji Jev picked, or the picture an account drew, which
  *  loads from the Mac the session is on (`of`, its key). Its name is its tooltip; it says
  *  nothing a row doesn't, so a reader passes over it. Nothing when it has none, and a picture
- *  that doesn't load gives way to its emoji, when it has one. */
+ *  that doesn't load gives way to its emoji, when it has one, until it's asked for again. */
 export function SessionEmblem({ emblem, of, size = 16 }: { emblem?: Emblem; of: string; size?: number }) {
-  // The picture that didn't load, so a new one is tried.
+  const from = shortOf(of);
+  // The picture that didn't load, so a new one is tried, and how many times it was asked again.
   const [failed, setFailed] = useState<string | null>(null);
+  const [again, setAgain] = useState(0);
+  useEffect(() => {
+    // One kept here that didn't load isn't coming.
+    if (!failed || !from) return;
+    const wait = window.setTimeout(() => {
+      setAgain((n) => n + 1);
+      setFailed(null);
+    }, EMBLEM_AGAIN_MS[Math.min(again, EMBLEM_AGAIN_MS.length - 1)]);
+    return () => window.clearTimeout(wait);
+  }, [failed, from, again]);
   if (emblem?.picture && emblem.picture !== failed) {
     const picture = emblem.picture;
-    return <img className="ca-emblem" src={imageUrl(picture, shortOf(of))} width={size} height={size} alt="" title={emblem.name} draggable={false} onError={() => setFailed(picture)} />;
+    return <img className="ca-emblem" src={imageUrl(picture, from, again)} width={size} height={size} alt="" title={emblem.name} draggable={false} onError={() => setFailed(picture)} />;
   }
   if (!emblem?.emoji) return null;
   // The emoji drawn to fill its square, on a line its own height, wherever it sits.

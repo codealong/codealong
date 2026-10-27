@@ -214,7 +214,8 @@ its title, so the sessions beside each other read apart at a glance and you can 
   Where another session of the project shows the emoji Jev likes best, the session gets the next
   that fits nearly as well. It needs Jev's key (Settings › Jev), and a question costs a fraction of
   a cent.
-- **Drawn**: an account that can draw (Codex, with its image tool) draws a small picture of one
+- **Drawn**: an account that can draw (Codex, with its image tool: the one you pick, else the first
+  that can) draws a small picture of one
   thing that stands for what the session works on, told what the sessions beside it show so it
   draws something else, and mostly in the color you gave the session with Claude Code's `/color`,
   if you did. How they're drawn is yours to say in Settings' box (`prompt`): flat colors with a dark

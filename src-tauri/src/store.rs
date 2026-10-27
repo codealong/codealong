@@ -168,6 +168,12 @@ pub fn load_whole<T: DeserializeOwned + Default>(path: &Path, what: &str) -> T {
     }
 }
 
+/// Whether `load_whole` found the file there and couldn't read it: what was loaded from it is
+/// the default, not what the file holds.
+pub fn unread(path: &Path) -> bool {
+    UNREAD.lock().unwrap_or_else(|e| e.into_inner()).contains_key(path)
+}
+
 /// Saves the whole of a value `load_whole` read, in one step, and notes how it went (`noted`),
 /// for a part of the app that saves in the background. Refused while the file is one that didn't
 /// read when it was loaded: what's in memory started from empty, so saving it would lose what

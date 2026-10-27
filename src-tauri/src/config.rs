@@ -212,8 +212,8 @@ pub struct EmblemsCfg {
     /// What each session gets.
     #[serde(default)]
     pub kind: EmblemKind,
-    /// The account that draws them, for `drawn`: one whose harness draws (Codex). Empty is the
-    /// first that does (`drawing_account`).
+    /// The account that draws them, for `drawn`: one whose harness draws (Codex). Empty, or one
+    /// that can't now (turned off, gone), is the first that can (`drawing_account`).
     #[serde(default)]
     pub account: String,
     /// How they're drawn, for `drawn`, said to the account with each one. Empty is Codealong's
@@ -245,16 +245,13 @@ impl EmblemKind {
     }
 }
 
-/// The account that draws emblems: `[emblems] account`, or the first that draws when it names
-/// none. None when it names one that doesn't draw or isn't there.
+/// The account that draws emblems: `[emblems] account` while it can, else the first that can.
+/// None when none can, which the engine says in a notice: a save isn't refused over it, so an
+/// account can be turned off or removed without changing emblems first.
 pub fn drawing_account(cfg: &Config) -> Option<&AccountCfg> {
     let draws = |a: &&AccountCfg| !a.disabled && crate::harness::of(a).is_some_and(|h| h.draws());
     let named = cfg.emblems.account.trim();
-    if named.is_empty() {
-        cfg.accounts.iter().find(draws)
-    } else {
-        cfg.accounts.iter().filter(|a| a.name == named).find(draws)
-    }
+    cfg.accounts.iter().filter(draws).find(|a| a.name == named).or_else(|| cfg.accounts.iter().find(draws))
 }
 
 fn default_search_days() -> u32 {
@@ -2001,14 +1998,6 @@ pub fn check(cfg: &Config) -> std::result::Result<(), String> {
     }
     if cfg.jev.model.trim().is_empty() {
         return Err("[jev] model is empty; use \"jev-preview\".".into());
-    }
-    if cfg.emblems.kind == EmblemKind::Drawn && drawing_account(cfg).is_none() {
-        let named = cfg.emblems.account.trim();
-        return Err(if named.is_empty() {
-            "[emblems] kind is \"drawn\", and none of the [[accounts]] can draw: add a Codex account, or use \"emoji\".".into()
-        } else {
-            format!("[emblems] account is {named:?}, which isn't one of the [[accounts]] that can draw (Codex); use one, or \"\" for the first.")
-        });
     }
     let reviewer = cfg.reviews.account.trim();
     if !reviewer.is_empty() && !valid_reviewer(cfg, reviewer) {
@@ -3894,20 +3883,23 @@ mod tests {
         assert_eq!(parse(&format!("{old}\n[emblems]\nkind = \"off\"\n")).unwrap().emblems.kind, EmblemKind::Off);
     }
 
-    /// Drawn emblems need an account that draws: the one named, or the first.
+    /// Drawn emblems go to the account named while it can draw, else the first that can; none
+    /// that can refuses no save, so an account can be turned off or removed whatever emblems are.
     #[test]
-    fn drawn_emblems_need_an_account_that_draws() {
+    fn drawn_emblems_go_to_the_account_named_or_the_first_that_draws() {
         let mut cfg = full();
         cfg.emblems.kind = EmblemKind::Drawn;
-        assert_eq!(drawing_account(&cfg).map(|a| a.name.as_str()), Some("codex"));
-        assert!(check(&cfg).is_ok());
+        let drawer = |cfg: &Config| drawing_account(cfg).map(|a| a.name.clone());
+        assert_eq!(drawer(&cfg).as_deref(), Some("codex"));
+        cfg.accounts.push(AccountCfg { name: "codex2".into(), home: "~/.codex2".into(), ..cfg.accounts[1].clone() });
+        cfg.emblems.account = "codex2".into();
+        assert_eq!(drawer(&cfg).as_deref(), Some("codex2"));
+        cfg.accounts[2].disabled = true;
+        assert_eq!(drawer(&cfg).as_deref(), Some("codex"), "turned off, the first that can");
         cfg.emblems.account = "claude".into();
-        assert!(drawing_account(&cfg).is_none());
-        assert!(check(&cfg).unwrap_err().contains("[emblems] account is \"claude\""));
-        cfg.emblems.account = String::new();
+        assert_eq!(drawer(&cfg).as_deref(), Some("codex"), "one that can't draw, the first that can");
         cfg.accounts.retain(|a| a.harness != "codex");
-        assert!(check(&cfg).unwrap_err().contains("none of the [[accounts]] can draw"));
-        cfg.emblems.kind = EmblemKind::Emoji;
+        assert_eq!(drawer(&cfg), None);
         assert!(check(&cfg).is_ok());
     }
 
