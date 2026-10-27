@@ -9,7 +9,7 @@ paths:
 
 # Terminals
 
-What Ghostty, iTerm2 and Terminal take from a script, and how Codealong starts a session in
+What Ghostty, iTerm2, Terminal and Rex take from a script, and how Codealong starts a session in
 them, moved from CLAUDE.md's Harness facts: Ghostty 1.3 (its AppleScript dictionary and 1.3.1's
 source), iTerm2 3.7.3 and Terminal 2.15 on macOS 26.6 (their dictionaries and a program
 recording its input, 2026-09-29), and launch.rs's starts in iTerm2 and Terminal (checked
@@ -137,6 +137,46 @@ recording its input, 2026-09-29), and launch.rs's starts in iTerm2 and Terminal 
   you can see count: `launch/terminal_app.rs` (`TAB_ON`). The profile's setting is
   `shellExitAction = 2` ("When the shell exits: Don't close the window"). In AppleScript
   `contents of <tab>` is the tab itself (the keyword wins); `history of <tab>` is its text.
+
+## Rex
+
+Rex Beta 0.1.0 (1497), its `rex` 0.0.1793047680 at API revision 7, on macOS 26.6 (2026-10-26).
+Its docs are markdown at `https://www.superlogical.com/rex/docs.md` (every page in one file at
+`/rex/docs/llms-full.txt`), and `rex help <command>`, `rex api ls` and `rex api describe <method>`
+say the rest.
+
+- `/Applications/Rex Beta.app`, bundle id `com.superlogical.rex`, no AppleScript dictionary; its
+  only URL route found is `rex://settings/server`. A server of its own (`rex server run`, named
+  `rex` in the kernel, its parent launchd) runs every terminal and outlives the app, which is a
+  client of it like `rex` is. `rex` is the server's own copy under `~/Library/Application
+  Support/com.superlogical.rex/RexServer/Versions/Current/Rex Server.app/Contents/MacOS/`, and the
+  app holds one at `Contents/Helpers/Rex Server.rex/Contents/MacOS/rex`: `launch/rex.rs` (`cli`).
+  `--autostart=false` keeps it from starting a server (exit 4, "rex server is not running").
+- Sessions hold windows (the app's tabs), windows a layout of blocks, each block a terminal on a
+  TTY of its own under the server: rex → login → zsh, `login` there even for a block whose
+  program is a command (`shell = "none"`). Ids are `session:<uuid>`, `window:…`, `block:…`; each
+  terminal has `REX_SESSION`, `REX_BLOCK`, `REX_SERVER` and `REX_BIN_DIR` set.
+- `rex do -e <lua> --args <json> --json` runs a script against the server and prints what it
+  returned (an empty table as `{}`); `error(msg, 0)` exits 1 with `Error: msg`. A script hears a
+  session only after `rex.session.attach`, else "stream is not attached" (409). What Codealong
+  asks, each in one call: `launch/rex.rs` (`LIST`, `NEW`, `SHOW`, `WRITE`, `CLOSE`). Not said
+  there: the terminal's `pwd` method is a `file://` URL when the shell reported OSC 7 and absent
+  until it does, so the folder is `process`'s `foreground.cwd`.
+- A terminal block takes `cwd`, `command`, `shell`, `initial_input` (typed once its program
+  starts, as given) and `exit`, but no environment, so a start with one runs the launcher as its
+  `command`. `session.create` with `initial_windows` doesn't move the app to the new session, and
+  `new_window` with `focus = false` leaves the session's active window alone.
+- The terminal's `write` method types raw bytes as if typed (nothing bracketed), so a send is a
+  bracketed paste, then Return a moment later, as iTerm2's. `block.close` ends what runs there
+  without asking; closing a window's last block closes the window.
+- The app shows one session at a time, and nothing says which: a client's `session_ids` are every
+  session it's attached to. `client.perform` of `session.select` (`session_id`, `window_id`) moves
+  it, refused (403, "Rex.app is not accepting actions. Turn on Remote Control in its Settings under
+  Rex Server.") until Remote Control is on, which was off here; `session.focus_block` on the server
+  needs nothing. So whether `session.select` shows the right tab with Remote Control on is
+  unchecked.
+- `cargo test rex_round_trip -- --ignored` opens a terminal in a session of its own behind your
+  windows, checks its environment and typing, presses a key and closes it.
 
 ## Codealong's tmux server
 

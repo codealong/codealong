@@ -1,6 +1,6 @@
 //! Switching the mode of a session that runs in a terminal: Claude Code's and Antigravity's
 //! terminal UIs step through their modes with Shift+Tab, mid-turn too, and Codealong presses it
-//! in the session's tab (Ghostty, iTerm2, tmux; Terminal presses no key alone). Their readers
+//! in the session's tab (Ghostty, iTerm2, Rex, tmux; Terminal presses no key alone). Their readers
 //! list the modes in that order (`Session::modes`), and `overlay` keeps them where the tab takes
 //! keys. Antigravity writes each switch to its log as it takes it, so a switch watches it there
 //! (`Adapter::mode_said`). Claude Code writes the mode only with the next prompt, so the mode a

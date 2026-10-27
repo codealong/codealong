@@ -380,8 +380,9 @@ pub fn ttys() -> Result<Vec<String>> {
     Ok(osascript(TTYS, &[])?.lines().map(str::trim).filter(|l| !l.is_empty()).map(String::from).collect())
 }
 
-pub fn in_front() -> Result<String> {
-    Ok(osascript(IN_FRONT, &[])?.trim().to_string())
+/// The tab you're in, while the app is in front.
+pub fn in_front() -> Result<Vec<String>> {
+    Ok(Some(osascript(IN_FRONT, &[])?.trim().to_string()).filter(|tty| !tty.is_empty()).into_iter().collect())
 }
 
 pub fn close(ttys: &[&str]) -> Result<()> {

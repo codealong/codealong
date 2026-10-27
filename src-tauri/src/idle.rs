@@ -1,6 +1,6 @@
 //! Closing the sessions that sat idle a long while and want nothing from you. It's a one-off
 //! action: `plan` says what would close and why, and `close` closes the ones you kept ticked,
-//! checking each again first. A session in a Ghostty, iTerm2 or Terminal tab closes with its tab,
+//! checking each again first. A session in a Ghostty, iTerm2, Terminal or Rex tab closes with its tab,
 //! and one in tmux with its pane, which ends the agent's process; a background job is stopped by
 //! its harness. Either way its
 //! conversation stays on disk and resumes like any other.
@@ -142,7 +142,7 @@ pub fn verdict(s: &Session, now: i64, after_ms: i64) -> Result<String, String> {
 /// process (one terminal can show several OpenCode sessions), and it closes only where all of
 /// them agree; a background job stops on its own. With `archive`, a session that could close
 /// but that Codealong can't end is listed to be archived only. `closable` says whether a process
-/// runs in a tab Codealong can close: Ghostty's, iTerm2's or Terminal's.
+/// runs in a tab Codealong can close: Ghostty's, iTerm2's, Terminal's or Rex's.
 pub fn plan(board: &Board, now: i64, after_ms: i64, archive: bool, closable: impl Fn(u32) -> bool) -> Plan {
     let mut seen = HashSet::new();
     let mut by_pid: BTreeMap<u32, Vec<(&Session, &Lane)>> = BTreeMap::new();

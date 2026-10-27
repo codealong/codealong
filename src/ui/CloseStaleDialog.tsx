@@ -1,4 +1,4 @@
-// File › Close stale terminals…: every Ghostty, iTerm2 and Terminal tab nothing was typed or
+// File › Close stale terminals…: every Ghostty, iTerm2, Terminal and Rex tab nothing was typed or
 // printed in for the wait, whatever runs in it, each saying what it shows. The ones whose closing
 // loses nothing (a shell at its prompt, sessions Close idle sessions would close) start ticked;
 // a tab running something else, or a session that waits on you, starts unticked and says what
@@ -146,7 +146,7 @@ export function CloseStaleDialog({ onClose, onDone }: Props) {
     <Dialog
       className="ca-idle"
       title="Close stale terminals"
-      lede="Ghostty, iTerm2 and Terminal tabs nothing was typed or printed in for a while, whatever runs in them. Closing a tab ends what runs there; a session’s conversation stays and resumes like any other. A tab running something else, or a session that waits on you, starts unticked."
+      lede="Ghostty, iTerm2, Terminal and Rex tabs nothing was typed or printed in for a while, whatever runs in them. Closing a tab ends what runs there; a session’s conversation stays and resumes like any other. A tab running something else, or a session that waits on you, starts unticked."
       busy={closing}
       onClose={onClose}
       aside={<span className="ca-idle-count">{!failed && plan && plan.tabs.length > 0 ? `${chosen.length} of ${plan.tabs.length} ticked` : ''}</span>}

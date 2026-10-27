@@ -1,5 +1,5 @@
 //! Closing the terminal tabs nobody has used in a while (File › Close stale terminals…): every
-//! Ghostty, iTerm2 and Terminal tab, whatever runs in it, that nothing was typed or printed in
+//! Ghostty, iTerm2, Terminal and Rex tab, whatever runs in it, that nothing was typed or printed in
 //! for the wait. Close idle sessions (idle.rs) goes by the board's sessions; this goes by tabs,
 //! so a tab left at a shell, or one whose agent ended, goes too. `plan` says what would close and
 //! why, and `close` closes the ones you picked, looking at every tab again first.
@@ -41,7 +41,7 @@ use crate::procs::PsLine;
 pub struct Tab {
     /// Its terminal device as `ps` names it: `ttys004`.
     pub tty: String,
-    /// The terminal it's in: Ghostty, iTerm2, Terminal.
+    /// The terminal it's in: Ghostty, iTerm2, Terminal, Rex.
     pub terminal: &'static str,
     /// Its shell: the process its terminal started for it, under `login` where there's one.
     pub shell: u32,
@@ -397,7 +397,7 @@ mod tests {
     fn lists_the_tabs_of_terminal_apps_and_not_tmux_panes() {
         let taken: Vec<&str> = crate::launch::terminals().iter().filter(|t| takes_tabs_of(**t)).map(|t| t.name()).collect();
         match crate::os::current() {
-            crate::os::Os::MacOs => assert_eq!(taken, ["Ghostty", "iTerm2", "Terminal"]),
+            crate::os::Os::MacOs => assert_eq!(taken, ["Ghostty", "iTerm2", "Terminal", "Rex"]),
             crate::os::Os::Linux => assert!(taken.is_empty(), "{taken:?}"),
         }
     }

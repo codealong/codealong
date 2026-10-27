@@ -1,5 +1,5 @@
 // File › Close idle sessions…: the sessions that sat idle and want nothing from you, each with
-// why and what closing does to it, ticked to close. A Ghostty, iTerm2 or Terminal tab, or a tmux
+// why and what closing does to it, ticked to close. A Ghostty, iTerm2, Terminal or Rex tab, or a tmux
 // pane, closes, ending the agent's process; a background job is stopped. With Also archive them,
 // each is archived too, as Mark as done does, and the ones Codealong can't close (an app's, one it
 // runs itself) are listed to be archived only. It says first what would happen and does
@@ -175,7 +175,7 @@ export function CloseIdleDialog({ onClose, onDone }: Props) {
     <Dialog
       className="ca-idle"
       title="Close idle sessions"
-      lede="Sessions that are idle and whose last reply asks you nothing. A Ghostty, iTerm2 or Terminal tab, or a tmux pane, closes, which ends the agent’s process, and a background job is stopped; the conversation stays and resumes like any other."
+      lede="Sessions that are idle and whose last reply asks you nothing. A Ghostty, iTerm2, Terminal or Rex tab, or a tmux pane, closes, which ends the agent’s process, and a background job is stopped; the conversation stays and resumes like any other."
       busy={closing}
       onClose={onClose}
       aside={<span className="ca-idle-count">{!failed && plan && plan.close.length > 0 ? `${chosen.length} of ${plan.close.length} ticked` : ''}</span>}

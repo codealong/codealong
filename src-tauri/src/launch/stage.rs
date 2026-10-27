@@ -1,8 +1,8 @@
 //! A stand-in for the Mac, for tests of what the terminals are sent. While a test plays on it,
-//! every program launch.rs would run (`osascript`, `tmux`, `open`) is written down with its
+//! every program launch.rs would run (`osascript`, `rex`, `tmux`, `open`) is written down with its
 //! arguments and answered by the test in place of being run, and the processes, their terminal
 //! devices, the folder reports written to them and the waits are the stage's. So a test says
-//! exactly what Ghostty, iTerm2, Terminal and tmux would have been asked, in order, for each
+//! exactly what Ghostty, iTerm2, Terminal, Rex and tmux would have been asked, in order, for each
 //! thing Codealong does with a terminal, and no window opens and nothing is typed.
 
 use std::cell::RefCell;
@@ -41,13 +41,16 @@ impl Default for Setup {
     }
 }
 
+/// Rex's command, on the stage.
+pub const REX_BIN: &str = "/rex/rex";
+
 /// Codealong's own tmux server's socket and settings, on the stage.
 pub const HOSTED_SOCKET: &str = "/support/Codealong/tmux.sock";
 pub const HOSTED_CONFIG: &str = "/support/Codealong/tmux.conf";
 
 /// Something a program was sent: an AppleScript by its name in `SCRIPTS` (or `script#<hash>` for
-/// one that isn't there), or another program by its path, with the arguments as they were, and
-/// how long it was given.
+/// one that isn't there), or another program by its path, with the arguments as they were (a Lua
+/// script handed to `rex do -e` by its name there too), and how long it was given.
 pub struct Sent {
     pub what: String,
     pub args: Vec<String>,
@@ -68,8 +71,9 @@ thread_local! {
 /// One play at a time: focusing takes turns through a lock every test shares.
 static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
 
-/// Every AppleScript by the hash of its text, so a test names the script that was sent and a
-/// script whose text changed stops being known. Terminal's TYPE and TYPE_LINE are the same text.
+/// Every AppleScript, and Rex's Lua scripts, by the hash of its text, so a test names the script
+/// that was sent and a script whose text changed stops being known. Terminal's TYPE and TYPE_LINE
+/// are the same text.
 const SCRIPTS: &[(&str, u64)] = &[
     ("GHOSTTY_NEW", 0xcfd07ea6d9f9e85b),
     ("GHOSTTY_LIST", 0xb5f37a7f6c1d405c),
@@ -95,6 +99,11 @@ const SCRIPTS: &[(&str, u64)] = &[
     ("TERMINAL_FOCUS+TAB_ON", 0x7ae29d2776b9d20b),
     ("TERMINAL_TYPE+TAB_ON", 0xa7c5c56b1a8acc66),
     ("TERMINAL_CLOSE+TAB_ON", 0x395c0be9fa50e975),
+    ("REX_LIST", 0x748adcebc363a3fa),
+    ("REX_NEW", 0x88cef4d3b9428eb1),
+    ("REX_SHOW", 0x7927f5650b28826e),
+    ("REX_WRITE", 0x1141908aae8d52fa),
+    ("REX_CLOSE", 0x14410192a422cbfb),
 ];
 
 fn fnv(text: &str) -> u64 {
@@ -129,7 +138,8 @@ pub fn play<T>(setup: Setup, answer: impl Fn(&Sent) -> Result<String, String> + 
             assert!(timeout == Duration::from_secs(60) || finding, "{what} was given {timeout:?}");
             Sent { what, args: args[1..].iter().map(|a| a.to_string()).collect(), timeout }
         } else {
-            Sent { what: program.to_string(), args: args.iter().map(|a| a.to_string()).collect(), timeout }
+            let lua = |i: usize| i > 0 && program == REX_BIN && args[i - 1] == "-e";
+            Sent { what: program.to_string(), args: args.iter().enumerate().map(|(i, a)| if lua(i) { script_name(a) } else { a.to_string() }).collect(), timeout }
         };
         let shown: Vec<String> = sent.args.iter().map(|a| tidy(a)).collect();
         let mut line = format!("{} {shown:?}", sent.what);
@@ -217,6 +227,11 @@ pub fn tty(pid: u32) -> Option<Option<PathBuf>> {
 /// Every Linux terminal emulator is on the PATH when the apps are installed.
 pub fn on_path(command: &str) -> Option<Option<PathBuf>> {
     staged(|s| s.setup.installed.then(|| PathBuf::from("/usr/bin").join(command)))
+}
+
+/// Rex's command is there when the apps are installed.
+pub fn rex_bin() -> Option<Option<PathBuf>> {
+    staged(|s| s.setup.installed.then(|| PathBuf::from(REX_BIN)))
 }
 
 pub fn tmux_bin() -> Option<PathBuf> {
@@ -310,6 +325,14 @@ mod tests {
         (400_010, 400_002, "claude", Some("/dev/ttys401")),
         (500_010, 1, "claude", None),
         (600_001, 1, "kitty", None),
+        // Rex's server runs each block's program under `login`, on the block's TTY.
+        (700_001, 1, "rex", None),
+        (700_002, 700_001, "login", Some("/dev/ttys701")),
+        (700_003, 700_002, "zsh", Some("/dev/ttys701")),
+        (700_010, 700_003, "claude", Some("/dev/ttys701")),
+        (700_012, 700_001, "login", Some("/dev/ttys702")),
+        (700_013, 700_012, "zsh", Some("/dev/ttys702")),
+        (700_020, 700_013, "codex", Some("/dev/ttys702")),
         (600_002, 600_001, "zsh", Some("/dev/ttys601")),
         (600_010, 600_002, "claude", Some("/dev/ttys601")),
         // Clients of tmux (`tmux attach`): in Ghostty, iTerm2 and kitty, and in a pane of tmux.
@@ -331,6 +354,8 @@ mod tests {
     const IN_TMUX: u32 = 400_010;
     const IN_BACKGROUND: u32 = 500_010;
     const IN_KITTY: u32 = 600_010;
+    const IN_REX: u32 = 700_010;
+    const ALSO_IN_REX: u32 = 700_020;
 
     fn setup() -> Setup {
         Setup { procs: PROCS, ..Setup::default() }
@@ -530,8 +555,8 @@ mod tests {
     #[test]
     fn a_profile_that_is_unknown_or_not_installed_is_said_before_anything_is_sent() {
         let p = played(|_| Ok(String::new()), || (terminal_run("kitty", window(), Path::new("/r/app"), "ls\n", &[]), terminal_open("tmux", window(), Path::new("/r/app"), None)));
-        assert_eq!(err(p.got.0), "There's no terminal profile called \"kitty\". Use \"ghostty\", \"iterm2\" or \"terminal\" in config.toml.");
-        assert_eq!(err(p.got.1), "There's no terminal profile called \"tmux\". Use \"ghostty\", \"iterm2\" or \"terminal\" in config.toml.");
+        assert_eq!(err(p.got.0), "There's no terminal profile called \"kitty\". Use \"ghostty\", \"iterm2\", \"terminal\" or \"rex\" in config.toml.");
+        assert_eq!(err(p.got.1), "There's no terminal profile called \"tmux\". Use \"ghostty\", \"iterm2\", \"terminal\" or \"rex\" in config.toml.");
         assert!(p.log.is_empty());
         let p = play(Setup { installed: false, ..setup() }, |_| Ok("/dev/ttys310\n".into()), || {
             (terminal_run("ghostty", window(), Path::new("/r/app"), "ls\n", &[]), terminal_open("iterm2", window(), Path::new("/r/app"), None), terminal_open("terminal", window(), Path::new("/r/app"), None))
@@ -544,14 +569,14 @@ mod tests {
         assert_eq!(p.got.0.iter().map(|t| (t.id.as_str(), t.name.as_str())).collect::<Vec<_>>(), [("terminal", "Terminal")]);
         assert_eq!(p.got.1, "terminal");
         let p = played(|_| Ok(String::new()), || (crate::config::terminal_profiles(), default_terminal()));
-        assert_eq!(p.got.0.iter().map(|t| (t.id.as_str(), t.name.as_str())).collect::<Vec<_>>(), [("ghostty", "Ghostty"), ("iterm2", "iTerm2"), ("terminal", "Terminal")]);
+        assert_eq!(p.got.0.iter().map(|t| (t.id.as_str(), t.name.as_str())).collect::<Vec<_>>(), [("ghostty", "Ghostty"), ("iterm2", "iTerm2"), ("terminal", "Terminal"), ("rex", "Rex")]);
         assert_eq!(p.got.1, "ghostty");
     }
 
     #[test]
     fn a_session_is_known_by_the_terminal_its_process_runs_under() {
         let p = played(|_| Ok(String::new()), || {
-            [IN_GHOSTTY, IN_ITERM, IN_TERMINAL, IN_TMUX, IN_BACKGROUND, IN_KITTY].map(|pid| terminal_kind(pid).map(|k| (k.name(), k.bundle(), k.presses_keys())))
+            [IN_GHOSTTY, IN_ITERM, IN_TERMINAL, IN_TMUX, IN_BACKGROUND, IN_KITTY, IN_REX].map(|pid| terminal_kind(pid).map(|k| (k.name(), k.bundle(), k.presses_keys())))
         });
         assert_eq!(
             p.got,
@@ -562,10 +587,11 @@ mod tests {
                 Some(("tmux", None, true)),
                 None,
                 None,
+                Some(("Rex", Some("com.superlogical.rex"), true)),
             ]
         );
         assert!(p.log.is_empty(), "nothing is asked of any app");
-        assert_eq!(crate::os::as_if(crate::os::Os::MacOs, presses_keys_in), "Ghostty, iTerm2 or tmux");
+        assert_eq!(crate::os::as_if(crate::os::Os::MacOs, presses_keys_in), "Ghostty, iTerm2, Rex or tmux");
     }
 
     #[test]
@@ -1117,8 +1143,8 @@ mod tests {
 
         // In no terminal Codealong types into.
         let p = played(|_| Ok(String::new()), || (terminal_type_session(IN_KITTY, Path::new("/r/app"), "Fix it", false, Submit::Return, false), terminal_type_session(IN_BACKGROUND, Path::new("/r/app"), "Fix it", true, Submit::Return, false)));
-        assert_eq!(p.got.0.unwrap(), Typed::Nowhere("it isn't in a Ghostty, iTerm2, Terminal or tmux tab".into()));
-        assert_eq!(p.got.1.unwrap(), Typed::Nowhere("it isn't in a Ghostty, iTerm2, Terminal or tmux tab".into()));
+        assert_eq!(p.got.0.unwrap(), Typed::Nowhere("it isn't in a Ghostty, iTerm2, Terminal, Rex or tmux tab".into()));
+        assert_eq!(p.got.1.unwrap(), Typed::Nowhere("it isn't in a Ghostty, iTerm2, Terminal, Rex or tmux tab".into()));
         assert!(p.log.is_empty());
     }
 
@@ -1247,10 +1273,10 @@ mod tests {
                 "It's the tab you're in.",
                 "Couldn't find its iTerm2 tab.",
                 "closed",
-                "It isn't in a Ghostty, iTerm2, Terminal or tmux tab.",
+                "It isn't in a Ghostty, iTerm2, Terminal, Rex or tmux tab.",
                 "closed",
                 "It's the tab you're in.",
-                "It isn't in a Ghostty, iTerm2, Terminal or tmux tab.",
+                "It isn't in a Ghostty, iTerm2, Terminal, Rex or tmux tab.",
             ]
         );
         assert_eq!(
@@ -1441,5 +1467,161 @@ mod tests {
         let p = played(no, move || (crate::chrome::open("http://localhost:3000", &other), crate::editors::open("An Editor", Path::new("/r/app"))));
         assert_eq!(err(p.got.0), "Couldn't open http://localhost:3000 in Chrome's Work profile: /usr/bin/open no such app");
         assert_eq!(err(p.got.1), "Couldn't open An Editor. Is it installed?");
+    }
+    /// Rex's blocks as REX_LIST answers: the first session's is the one a session runs in, the
+    /// second session's has focus in its active window, and the last one's program ended.
+    const REX_BLOCKS: &str = r#"[{"session":"session:s1","window":"window:w1","block":"block:b1","pid":700002,"cwd":"/r/app","title":"✳ Fix the login","focused":false},{"session":"session:s2","window":"window:w2","block":"block:b2","pid":700012,"cwd":"/r/other","title":"zsh","focused":true},{"session":"session:s2","window":"window:w3","block":"block:b3","pid":0,"cwd":"","title":"","focused":false}]"#;
+    const REX_OPEN: &str = r#"/usr/bin/open ["-b", "com.superlogical.rex"] (10s)"#;
+    const REX_SHOWN: &str = r#"{"apps":1,"refused":""}"#;
+    const REX_REFUSED: &str = r#"{"apps":0,"refused":"stream response \"control-7\" failed: Rex.app is not accepting actions. Turn on Remote Control in its Settings under Rex Server. (status=403 code=refused)"}"#;
+
+    /// What a Lua script was run with, as the log has it.
+    fn rex(script: &str, args: &str, start: bool) -> String {
+        format!(r#"/rex/rex ["--autostart={start}", "do", "-e", "{script}", "--args", {args:?}, "--json"] (30s)"#)
+    }
+
+    /// Rex's server answering with REX_BLOCKS, a new window in the second session, and `shows`
+    /// for asking its apps to show one.
+    fn rex_answers(shows: &'static str) -> impl Fn(&Sent) -> Result<String, String> {
+        move |s: &Sent| {
+            Ok(match (s.what.as_str(), s.args.get(3).map(String::as_str)) {
+                ("/rex/rex", Some("REX_LIST")) => REX_BLOCKS.to_string(),
+                ("/rex/rex", Some("REX_NEW")) => r#"{"session":"session:s2","window":"window:w9","block":"block:b9"}"#.to_string(),
+                ("/rex/rex", Some("REX_SHOW")) => shows.to_string(),
+                ("/rex/rex", Some("REX_WRITE" | "REX_CLOSE")) => "\"ok\"\n".to_string(),
+                ("/usr/bin/open", _) => String::new(),
+                _ => panic!("unexpected {} {:?}", s.what, s.args),
+            })
+        }
+    }
+
+    #[test]
+    fn rex_is_sent_a_window_in_the_session_beside_its_folder_or_a_session_of_its_own() {
+        // Beside the nearest folders that have a terminal, in that terminal's session, with the
+        // launcher as its program for the environment, and then shown.
+        let near = [vec!["/r/elsewhere".to_string()], vec!["/r/other".to_string()]];
+        let env = [("CODEALONG_PROMPT".to_string(), "Fix the 'flaky' test".to_string())];
+        let place = Placement { new_terminal: NewTerminal::Project, near: &near, behind: false, label: Some("app · Fix it") };
+        let p = played(rex_answers(REX_SHOWN), || terminal_run("rex", place, Path::new("/r/my app"), "claude2 --session-id x \"$CODEALONG_PROMPT\"\n", &env));
+        p.got.unwrap();
+        assert_eq!(
+            p.log,
+            [
+                rex("REX_LIST", "{}", false),
+                rex("REX_NEW", r#"{"command":["/bin/sh","LAUNCHER"],"cwd":"/r/my app","focus":true,"input":"claude2 --session-id x \"$CODEALONG_PROMPT\"\n","label":"app · Fix it","session":"session:s2","session_label":"my app"}"#, true),
+                rex("REX_SHOW", r#"{"block":"block:b9","session":"session:s2","window":"window:w9"}"#, false),
+                REX_OPEN.to_string(),
+            ]
+        );
+        assert_eq!(p.launchers, ["rm -f 'LAUNCHER'\ncd '/r/my app' 2>/dev/null\nexport CODEALONG_PROMPT='Fix the '\\''flaky'\\'' test'\nexec SHELL -l"]);
+        // Rex can't say which session its app shows, so a tab goes as a project's does.
+        let p = played(rex_answers(REX_SHOWN), || terminal_run("rex", Placement { new_terminal: NewTerminal::Tab, ..place }, Path::new("/r/my app"), "ls\n", &[]));
+        p.got.unwrap();
+        assert_eq!(p.log[1], rex("REX_NEW", r#"{"cwd":"/r/my app","focus":true,"input":"ls\n","label":"app · Fix it","session":"session:s2","session_label":"my app"}"#, true));
+        assert!(p.launchers.is_empty(), "with no environment Rex starts the login shell itself");
+
+        // A window, a tab with no terminal near, or the server not saying: a session of its own,
+        // named for its folder. A Background start is neither focused nor shown.
+        let far = [vec!["/r/none".to_string()]];
+        for place in [window(), Placement { new_terminal: NewTerminal::Tab, near: &[], behind: false, label: None }, Placement { new_terminal: NewTerminal::Project, near: &far, behind: true, label: None }] {
+            let p = played(rex_answers(REX_SHOWN), move || terminal_run("rex", place, Path::new("/r/app"), "ls\n", &[]));
+            p.got.unwrap();
+            let new = rex("REX_NEW", &format!(r#"{{"cwd":"/r/app","focus":{},"input":"ls\n","session":"","session_label":"app"}}"#, !place.behind), true);
+            assert_eq!(p.log.iter().find(|l| l.contains("REX_NEW")), Some(&new));
+            assert_eq!(p.log.iter().any(|l| l.contains("REX_SHOW")), !place.behind);
+        }
+        let p = played(|s| if s.args.get(3).is_some_and(|a| a == "REX_LIST") { Err("/rex/rex Error: rex server is not running".into()) } else { rex_answers(REX_SHOWN)(s) }, || terminal_run("rex", place, Path::new("/r/app"), "ls\n", &[]));
+        p.got.unwrap();
+        assert!(p.log[1].contains(r#"\"session\":\"\""#));
+
+        // Its app not taking actions doesn't make the start a failure: it started.
+        let p = played(rex_answers(REX_REFUSED), || terminal_run("rex", window(), Path::new("/r/app"), "ls\n", &[]));
+        p.got.unwrap();
+        // The server refusing is said, and the launcher, which can hold a prompt, taken away.
+        let p = played(|_| Err("/rex/rex Error: session.create failed: label too long".into()), || terminal_run("rex", window(), Path::new("/r/app"), "ls\n", &env));
+        assert_eq!(err(p.got), "Rex didn't do it: session.create failed: label too long");
+        assert!(p.launchers.is_empty(), "the launcher is gone");
+        // Rex not here: said before anything is sent, and its sessions aren't known as Rex's.
+        let p = play(Setup { installed: false, ..setup() }, rex_answers(REX_SHOWN), || (terminal_run("rex", window(), Path::new("/r/app"), "ls\n", &[]), terminal_kind(IN_REX).map(|t| t.name())));
+        assert_eq!(err(p.got.0), "Rex isn't installed. Install it, or pick another terminal in Settings.");
+        assert_eq!(p.got.1, None);
+        assert!(p.log.is_empty());
+    }
+
+    #[test]
+    fn focusing_a_session_in_rex_shows_its_block_and_brings_rex_forward() {
+        let show = |block: &str, session: &str, window: &str| rex("REX_SHOW", &format!(r#"{{"block":"{block}","session":"{session}","window":"{window}"}}"#), false);
+        let p = played(rex_answers(REX_SHOWN), || terminal_focus_session("ghostty", IN_REX, "Fix the login", Path::new("/r/app")));
+        assert!(p.got.unwrap());
+        assert_eq!(p.log, [rex("REX_LIST", "{}", false), show("block:b1", "session:s1", "window:w1"), REX_OPEN.to_string()]);
+        // Rex's app takes actions only with Remote Control on: the block has focus in its session
+        // and Rex comes forward, but it may be showing another session.
+        let p = played(rex_answers(REX_REFUSED), || terminal_focus_session("ghostty", IN_REX, "Fix the login", Path::new("/r/app")));
+        assert_eq!(err(p.got), "Rex is in front, but it goes to this session's tab only with Remote Control on (Rex › Settings › Rex Server).");
+        assert_eq!(p.log.len(), 3);
+        // No app connected to the server: Rex is opened, and asked again once it has connected.
+        let shows = Rc::new(Cell::new(0));
+        let answer = move |s: &Sent| {
+            if s.args.get(3).is_some_and(|a| a == "REX_SHOW") {
+                shows.set(shows.get() + 1);
+                return Ok(if shows.get() == 1 { r#"{"apps":0,"refused":""}"# } else { REX_SHOWN }.to_string());
+            }
+            rex_answers(REX_SHOWN)(s)
+        };
+        let p = played(answer, || terminal_focus_session("ghostty", IN_REX, "Fix the login", Path::new("/r/app")));
+        assert!(p.got.unwrap());
+        assert_eq!(p.log[1..], [show("block:b1", "session:s1", "window:w1"), REX_OPEN.to_string(), show("block:b1", "session:s1", "window:w1")]);
+
+        // No block on its TTY (an empty list comes back as `{}`), or the server not running.
+        let p = played(|_| Ok("{}\n".into()), || terminal_focus_session("ghostty", IN_REX, "Fix the login", Path::new("/r/app")));
+        assert!(!p.got.unwrap());
+        assert_eq!(p.log, [rex("REX_LIST", "{}", false)]);
+        let p = played(|_| Err("/rex/rex Error: rex server is not running\nrex server autostart is disabled\nconnecting to Rex server …".into()), || terminal_focus_session("ghostty", IN_REX, "Fix the login", Path::new("/r/app")));
+        assert_eq!(err(p.got), "Rex's server isn't running.");
+        // Raised again by its TTY.
+        let p = played(rex_answers(REX_SHOWN), || TerminalHost { terminal: terminal_app("rex").unwrap(), at: "/dev/ttys702".into() }.again());
+        assert_eq!(p.log[1], show("block:b2", "session:s2", "window:w2"));
+    }
+
+    #[test]
+    fn typing_into_a_session_in_rex_writes_a_paste_then_the_keys_that_send_it() {
+        let write = |args: &str| rex("REX_WRITE", args, false);
+        let list = rex("REX_LIST", "{}", false);
+        let p = played(rex_answers(""), || terminal_type_session(IN_REX, Path::new("/r/app"), "Fix it\nand \u{1b}that", false, Submit::Return, false));
+        assert_eq!(p.got.unwrap(), Typed::Into("Rex"));
+        assert_eq!(p.log, [list.clone(), write(r#"{"after":"\r","block":"block:b1","session":"session:s1","text":"\u001b[200~Fix it\nand that\u001b[201~"}"#)]);
+        // Ctrl+C alone first, and keys in place of Return.
+        let p = played(rex_answers(""), || terminal_type_session(IN_REX, Path::new("/r/app"), "Fix it", true, Submit::Keys("\x18\x13"), false));
+        assert_eq!(p.got.unwrap(), Typed::Into("Rex"));
+        assert_eq!(
+            p.log,
+            [
+                list.clone(),
+                write(r#"{"after":"","block":"block:b1","session":"session:s1","text":"\u0003"}"#),
+                list.clone(),
+                write(r#"{"after":"\u0018\u0013","block":"block:b1","session":"session:s1","text":"\u001b[200~Fix it\u001b[201~"}"#),
+            ]
+        );
+        // A key pressed alone, as the digit that answers a prompt.
+        let p = played(rex_answers(""), || press_key(&terminal_host(ALSO_IN_REX, Path::new("/r/other")).unwrap().unwrap(), Key::Digit(1)));
+        p.got.unwrap();
+        assert_eq!(p.log, [list.clone(), write(r#"{"after":"","block":"block:b2","session":"session:s2","text":"1"}"#)]);
+
+        // No block on its TTY: nothing typed, and another way can take it.
+        let p = played(|_| Ok("[]\n".into()), || terminal_type_session(IN_REX, Path::new("/r/app"), "Fix it", false, Submit::Return, false));
+        assert_eq!(p.got.unwrap(), Typed::Nowhere("Codealong couldn't find its Rex tab".into()));
+        let p = played(|s| if s.args.get(3).is_some_and(|a| a == "REX_WRITE") { Err("/rex/rex Error: block not found".into()) } else { rex_answers("")(s) }, || terminal_type_session(IN_REX, Path::new("/r/app"), "Fix it", false, Submit::Return, false));
+        assert_eq!(err(p.got), "Rex didn't do it: block not found");
+    }
+
+    #[test]
+    fn closing_sessions_in_rex_hangs_them_up_then_closes_their_blocks() {
+        let dir = Path::new("/r/app");
+        let p = played(rex_answers(""), move || close_session_terminals(&[(IN_REX, dir), (ALSO_IN_REX, dir)]));
+        assert_eq!(p.got.iter().map(|r| r.as_ref().map_err(|e| e.to_string()).err().unwrap_or_else(|| "closed".into())).collect::<Vec<_>>(), ["closed", "It's the tab you're in."]);
+        let list = rex("REX_LIST", "{}", false);
+        // Rex in front (as every app is on the stage): the tab with focus in each session may be
+        // the one you're in.
+        assert_eq!(p.log, [list.clone(), list.clone(), "hang up [700010]".to_string(), list, rex("REX_CLOSE", r#"{"blocks":[{"block":"block:b1","session":"session:s1"}]}"#, false)]);
     }
 }

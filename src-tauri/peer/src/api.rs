@@ -916,7 +916,7 @@ pub struct Removal {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum Way {
-    /// Typed into its tab or pane in this terminal: Ghostty, iTerm2, Terminal, tmux.
+    /// Typed into its tab or pane in this terminal: Ghostty, iTerm2, Terminal, Rex, tmux.
     Typed { app: String },
     /// Pasted into its background job by Claude Code's background service.
     Background,

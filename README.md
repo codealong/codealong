@@ -133,9 +133,10 @@ the notch, the Claude and Codex apps, and Antigravity's and Cursor's usage among
 - At least one coding agent: [Claude Code](https://code.claude.com/docs), the
   [Codex](https://openai.com/codex/) CLI or app, [OpenCode](https://opencode.ai),
   [Antigravity](https://antigravity.google) or [Cursor](https://cursor.com)
-- A terminal: on macOS, [Ghostty](https://ghostty.org) 1.3 or later (the best supported), iTerm2 or
-  Terminal, and [tmux](https://github.com/tmux/tmux) (`brew install tmux`) to start sessions while
-  the screen is locked; on Linux, tmux and a terminal emulator
+- A terminal: on macOS, [Ghostty](https://ghostty.org) 1.3 or later (the best supported), iTerm2,
+  Terminal or [Rex](https://www.superlogical.com/rex) (in beta), and
+  [tmux](https://github.com/tmux/tmux) (`brew install tmux`) to start sessions while the screen is
+  locked; on Linux, tmux and a terminal emulator
 - For pull requests, the [GitHub CLI](https://cli.github.com) signed in: `gh auth login`
 
 ### Your first five minutes
@@ -416,7 +417,7 @@ are an experiment, off until you turn them on in Settings › Experimental.
 
 ### Open anything where it lives
 
-Double-click a session to bring forward its exact terminal tab in Ghostty, iTerm2 or Terminal,
+Double-click a session to bring forward its exact terminal tab in Ghostty, iTerm2, Terminal or Rex,
 its Claude app session or its Codex thread, or to resume it in a new terminal. Open a worktree in
 your editor: VS Code, Cursor, Windsurf, Kiro, Zed, Sublime Text, Nova, BBEdit, Xcode, the JetBrains
 IDEs or Android Studio. ⌃` opens a terminal in the folder of whatever you're looking at. A worktree
@@ -481,8 +482,8 @@ session where it lives.**
 | **Cursor** (new) | ✓ | `cursor-agent` in a terminal; app chats open with the prompt on the clipboard | `cursor-agent` in its terminal; app chats in Cursor | `cursor-agent` | — | Monthly, Cursor's models and the others |
 | **In Codealong** (Claude Code, Codex or OpenCode) | ✓ | ✓ | ✓ | ✓ | ✓ | Per account |
 
-Terminals: Ghostty (the exact tab, keypresses, new tabs beside their worktree), iTerm2 and tmux
-(typing and keypresses), and Terminal (typing). Approvals for Claude Code go through Codealong's
+Terminals: Ghostty (the exact tab, keypresses, new tabs beside their worktree), iTerm2, Rex and
+tmux (typing and keypresses), and Terminal (typing). Approvals for Claude Code go through Codealong's
 plugin, which Settings › Agents installs into each account. *In Codealong* means the agent runs in
 Codealong's own panel, over the [Agent Client Protocol](https://agentclientprotocol.com).
 
@@ -585,7 +586,7 @@ that sets one goes unused, with a notice saying why.
 scan = ["~/projects"]          # where repos are found, three levels deep
 
 [apps]
-terminal = "ghostty"           # or "iterm2", "terminal"
+terminal = "ghostty"           # or "iterm2", "terminal", "rex"
 editor = "cursor"              # or "vscode", "zed", "xcode"… (Settings lists those installed), or an app's name
 new_terminal = "project"       # a tab beside the same worktree, repo or project; or "tab", "window"
 move_pointer = false           # move the pointer to a terminal brought forward on another screen
@@ -823,7 +824,7 @@ needs a new worktree, the agent makes it, and a pull request is merged only when
 
 **Which systems, terminals and editors does it support?**
 macOS 13 or later, on Apple silicon or Intel, and Linux under X11. On macOS, Ghostty is the best
-supported terminal; iTerm2, Terminal and tmux work too, and sessions Codealong starts can run in
+supported terminal; iTerm2, Terminal, Rex and tmux work too, and sessions Codealong starts can run in
 tmux shown in your terminal, always or only while the screen is locked. On Linux, sessions run in
 tmux, shown in your terminal emulator. It opens worktrees in VS Code, Cursor, Windsurf, Kiro, Zed, Sublime Text,
 Nova, BBEdit, Xcode, the JetBrains IDEs and Android Studio, or any editor you name.

@@ -16,7 +16,7 @@ devices is its own crate, codealong-peer (`src-tauri/peer/`), which the
 - macOS 13 or later, with Xcode's command line tools (`xcode-select --install`)
 - Rust 1.91 or later (`rustup`) and Node 22.13 or later
 - `gh` signed in (`gh auth login`) for PRs
-- A terminal: Ghostty 1.3+, iTerm2 or Terminal (a new config.toml picks the first of those installed)
+- A terminal: Ghostty 1.3+, iTerm2, Terminal or Rex (a new config.toml picks the first of those installed)
 
 ## Build and run
 
@@ -103,7 +103,7 @@ other with `os::as_if`:
 | `os/dirs.rs` | `~/Library/Application Support/Codealong`, `Logs`, `Caches` | `~/.config/codealong`, `~/.local/state/codealong`, `~/.cache/codealong` |
 | `os/open.rs` | `open` | `xdg-open`, and an app's own command started by itself |
 | `os/secrets.rs` | the login keychain (`security`) | the desktop's Secret Service (`secret-tool`) |
-| `launch::terminals()` | Ghostty, iTerm2 and Terminal through AppleScript | `launch/linux.rs`: each new terminal a tmux session, shown in the desktop's terminal emulator |
+| `launch::terminals()` | Ghostty, iTerm2 and Terminal through AppleScript; Rex through its command | `launch/linux.rs`: each new terminal a tmux session, shown in the desktop's terminal emulator |
 
 CI (`.github/workflows/linux.yml`) builds and tests the engine on Linux every four hours, on
 `main`, with warnings as errors; `gh workflow run linux.yml` runs it now (`--ref <branch>` for a
@@ -208,7 +208,7 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/suggestions.rs`, `src/ui/SuggestedReplies.tsx` | Suggested replies: what another session suggested a session's user send it (`codealong session suggest`, `suggestions.json`), kept until the session moves on (`board::suggestions_hold`), and the list above the reply box that sends one with a click; for questions a session asks, choices of their own picked in its question box (`suggestions::picked`) |
 | `src-tauri/src/repos.rs`, `git.rs`, `github.rs`, `ghpoll.rs` | Repo discovery, callsigns, worktrees, git status, PRs, and when GitHub is asked for them |
 | `src-tauri/src/held.rs` | The repo scan's reads of folders it doesn't own, each on a thread of its own, so one macOS holds for a privacy prompt holds up only that folder |
-| `src-tauri/src/launch.rs`, `launch/iterm.rs`, `launch/terminal_app.rs`, `launch/linux.rs` | Terminal profiles: Ghostty, iTerm2 and Terminal through AppleScript (a session's tab found exactly, typing, closing), on Linux tmux shown in the desktop's emulator, deep links |
+| `src-tauri/src/launch.rs`, `launch/iterm.rs`, `launch/terminal_app.rs`, `launch/rex.rs`, `launch/linux.rs` | Terminal profiles: Ghostty, iTerm2 and Terminal through AppleScript, Rex through its command (a session's tab found exactly, typing, closing), on Linux tmux shown in the desktop's emulator, deep links |
 | `src-tauri/src/editors.rs`, `src/editors.ts` | The editors a folder opens in: the ones Codealong knows, found where Mac apps are installed, and the Open in menus |
 | `src-tauri/src/flash.rs` | Outlines a focused terminal that came forward on another screen |
 | `src-tauri/src/caret.rs`, `src/caret.ts` | A text cursor WebKit stopped drawing in a window you type in: typing into a page that says it isn't focused hands it its focus again, and the perf log says what macOS said of the window |

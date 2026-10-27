@@ -375,7 +375,7 @@ its adapter, and add what you find to it, not here.
 - `claude-code.md`: Claude Code and the Claude app. `codex.md`, `opencode.md`,
   `antigravity.md`, `cursor.md`, `acp.md` (the Agent Client Protocol adapters). `skills.md`: skills and the
   plugin, in every harness. `adding-a-harness.md`.
-- `terminals.md`: Ghostty, iTerm2, Terminal, and starting a session in them. `chrome.md`:
+- `terminals.md`: Ghostty, iTerm2, Terminal, Rex, and starting a session in them. `chrome.md`:
   Chrome's profiles and tabs, Claude in Chrome.
 - `windows.md`: Tauri, AppKit and WebKit (panels and their levels, the notch, the keyboard,
   events). `macos-privacy.md`: macOS's privacy prompts. `linux.md`: Linux, its desktops and

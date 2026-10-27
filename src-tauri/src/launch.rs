@@ -2,7 +2,8 @@
 //! are in editors.rs. See `[apps]` in README.md's Settings section.
 //!
 //! Each terminal is a module of its own behind `Terminal` (Ghostty, iTerm2 and Terminal through
-//! AppleScript, tmux through its command, and on Linux an emulator's window showing tmux). What's
+//! AppleScript, Rex and tmux through their commands, and on Linux an emulator's window showing
+//! tmux). What's
 //! here is what they share: where a new terminal goes, the launcher that sets up a new tab's
 //! shell, waiting for that shell, a process's TTY and which terminal it runs under, marks on a
 //! TTY, and focus requests taking turns.
@@ -10,6 +11,7 @@
 mod ghostty;
 mod iterm;
 mod linux;
+mod rex;
 #[cfg(test)]
 pub(crate) mod stage;
 mod terminal_app;
@@ -28,8 +30,8 @@ use crate::procs;
 use crate::util::{home, sh_quote};
 
 /// A terminal Codealong drives: an app it opens sessions in, finds their tabs in, types into and
-/// closes (Ghostty, iTerm2 and Terminal, each through AppleScript), or tmux, which runs inside
-/// one of those and takes typing through its own command. Each has a module under `launch/` that
+/// closes (Ghostty, iTerm2 and Terminal, each through AppleScript, and Rex through its command),
+/// or tmux, which runs inside one of those and takes typing through its own command. Each has a module under `launch/` that
 /// knows its scripts and its ways, with a struct that answers here for what the rest of the app
 /// asks of a terminal; what one can't do has a default that says so. Nothing outside those
 /// modules branches on which terminal it is: it asks `terminal_app(profile)` for the one
@@ -37,7 +39,7 @@ use crate::util::{home, sh_quote};
 /// terminal is a module, a variant of `HostKind` and a line in `terminals()`.
 ///
 /// A tab is addressed by what its terminal finds it again by (`at`): Ghostty's terminal id, the
-/// TTY in iTerm2 and Terminal, a tmux pane.
+/// TTY in iTerm2, Terminal and Rex, a tmux pane.
 pub trait Terminal: Sync {
     fn kind(&self) -> HostKind;
 
@@ -159,7 +161,7 @@ fn app_installed(app: &str) -> bool {
 /// desktop's emulator through tmux. tmux sessions run in any terminal.
 pub fn terminals() -> &'static [&'static dyn Terminal] {
     match os::current() {
-        Os::MacOs => &[&ghostty::Ghostty, &iterm::ITerm2, &terminal_app::AppleTerminal, &tmux::Tmux],
+        Os::MacOs => &[&ghostty::Ghostty, &iterm::ITerm2, &terminal_app::AppleTerminal, &rex::Rex, &tmux::Tmux],
         Os::Linux => &[&linux::LinuxTerminal, &tmux::Tmux],
     }
 }
@@ -852,7 +854,7 @@ fn focus_by_title(profile: &str, title: &str, cwd: &Path) -> Result<Option<Termi
     }
 }
 
-/// Focusing where each tab has a TTY (iTerm2, Terminal): the tab on the session's.
+/// Focusing where each tab has a TTY (iTerm2, Terminal, Rex): the tab on the session's.
 fn focus_on_tty(terminal: &'static dyn Terminal, tty: &Path) -> Result<Option<TerminalHost>> {
     let at = tty.to_string_lossy().into_owned();
     Ok(terminal.focus(&at)?.then(|| TerminalHost { terminal, at }))
@@ -891,7 +893,7 @@ pub fn terminal_type_session(pid: u32, cwd: &Path, text: &str, clear: bool, subm
     }
 }
 
-/// Typing where each tab has a TTY (iTerm2, Terminal): into the tab on the process's, by the
+/// Typing where each tab has a TTY (iTerm2, Terminal, Rex): into the tab on the process's, by the
 /// app's own way to type there. `clear` is its way to press one key, where the input box is to
 /// be cleared first and it has one.
 fn type_on_tty(app: &'static str, pid: u32, text: &str, clear: Option<fn(&str, Key) -> Result<()>>, type_text: impl FnOnce(&str, &str) -> Result<bool>) -> Result<Typed> {
@@ -952,13 +954,13 @@ pub fn close_terminals(tabs: &[Closing]) -> Vec<Result<()>> {
     out.into_iter().map(|r| r.unwrap_or_else(|| Err(anyhow!("It isn't in a {} tab.", closes_tabs_in())))).collect()
 }
 
-/// Closing where each tab has a TTY (iTerm2, Terminal): the tabs the app lists that hold these
+/// Closing where each tab has a TTY (iTerm2, Terminal, Rex): the tabs the app lists that hold these
 /// processes, each tab's processes hung up, then the tabs whose processes exited closed in one
 /// script. A tab whose last process is hung up (a program run in place of a shell) is left to its
 /// terminal, whose settings say whether it closes a tab whose process ended (Terminal keeps one
 /// that didn't exit cleanly): with nothing running there the script can't find it by what runs in
 /// it, and its TTY is free for a new tab to take, which the script would close in its place.
-fn close_tty_terminals(tabs: &[&Closing], app: &str, ttys: fn() -> Result<Vec<String>>, in_front: fn() -> Result<String>, close: fn(&[&str]) -> Result<()>) -> Result<Vec<Result<()>>> {
+fn close_tty_terminals(tabs: &[&Closing], app: &str, ttys: fn() -> Result<Vec<String>>, in_front: fn() -> Result<Vec<String>>, close: fn(&[&str]) -> Result<()>) -> Result<Vec<Result<()>>> {
     let listed = ttys()?;
     let front = in_front().unwrap_or_default();
     let mut out: Vec<Result<()>> = Vec::new();
@@ -968,7 +970,7 @@ fn close_tty_terminals(tabs: &[&Closing], app: &str, ttys: fn() -> Result<Vec<St
         match tty_of(tab.pid).map(|t| t.to_string_lossy().into_owned()) {
             None => out.push(Err(anyhow!("It has no terminal tab."))),
             Some(tty) if !listed.contains(&tty) => out.push(Err(anyhow!("Couldn't find its {app} tab."))),
-            Some(tty) if tty == front => out.push(Err(anyhow!("It's the tab you're in."))),
+            Some(tty) if front.contains(&tty) => out.push(Err(anyhow!("It's the tab you're in."))),
             Some(tty) => {
                 out.push(Ok(()));
                 ending.push((i, tty));
@@ -1044,6 +1046,7 @@ pub enum HostKind {
     Ghostty,
     ITerm2,
     Terminal,
+    Rex,
     Tmux,
     Linux,
 }
@@ -1075,7 +1078,8 @@ fn parent_and_name(pid: u32) -> Option<(u32, String)> {
 /// The nearest of a process's ancestors that's a terminal, with `step` giving each process's
 /// parent and name. Ghostty and Terminal start a login shell per tab (claude → zsh → login →
 /// ghostty); iTerm2 starts them under a server of its own (`iTermServer-3.7.3`), which carries on
-/// if iTerm2 restarts. tmux's server leaves the terminal it started in, so nothing above it is.
+/// if iTerm2 restarts, and Rex under its server (claude → zsh → login → rex), which carries on
+/// when Rex quits. tmux's server leaves the terminal it started in, so nothing above it is.
 fn kind_by(pid: u32, step: impl Fn(u32) -> Option<(u32, String)>) -> Option<HostKind> {
     let mut at = pid;
     for _ in 0..16 {

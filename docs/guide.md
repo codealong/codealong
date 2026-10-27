@@ -172,8 +172,8 @@ chats.
 Archive a session with ⌃⌘A (`a` elsewhere) or its right-click menu; Codex threads are archived in
 Codex itself. A message you send an archived session, or a resume, takes it out of the archive as
 it goes (a Codex thread out of Codex's too, since Codex resumes no archived thread); an agent's
-message through the `codealong` command leaves it there. Close terminal, in the right-click menu of a session running in a Ghostty, iTerm2 or
-Terminal tab, closes that tab whatever the session is doing, and End background job stops a Claude
+message through the `codealong` command leaves it there. Close terminal, in the right-click menu of a session running in a Ghostty, iTerm2,
+Terminal or Rex tab, closes that tab whatever the session is doing, and End background job stops a Claude
 Code background job; either way its conversation is kept and resumes. Mark as done (⇧⌘E, or Done on
 the strip) is for a session you're finished with: it closes the session's terminal or ends its
 background job, as Close does, and marks it seen and archives it, so it leaves every list but
@@ -237,7 +237,7 @@ session, through its service, so OpenCode must be running. Antigravity's can't b
 
 Stop turn, in the right-click menu of a session whose turn is running (here, on the floating bar and
 in the quick panel), ends that turn and leaves the session waiting for you, as its own Stop or
-Escape would: Escape pressed in its Ghostty, iTerm2 or tmux tab for Claude Code and the Codex CLI
+Escape would: Escape pressed in its Ghostty, iTerm2, Rex or tmux tab for Claude Code and the Codex CLI
 (through its account's background service for a Claude Code background job), the Codex app's own
 Stop for its threads, and OpenCode's service for OpenCode. Claude app sessions, Terminal tabs and
 Antigravity can't be stopped from Codealong.
@@ -602,7 +602,7 @@ the turn takes it in at its next step; one Codex didn't take stays queued, with 
 Claude Code holds a message sent while its turn runs until the step it's on ends (a long command
 included), and lists it the same way, from Codealong, its own terminal or another device, saying
 Queued until its current step ends. Send now there is Claude Code's own send-now key, the one its
-terminal offers under what it holds (Ctrl+X Ctrl+S), pressed in its Ghostty, iTerm2 or tmux tab or
+terminal offers under what it holds (Ctrl+X Ctrl+S), pressed in its Ghostty, iTerm2, Rex or tmux tab or
 through the background service for a background job: Claude Code stops the step it's on, as
 Escape would, cutting a running command short, and goes on with everything it holds. To keep a
 long command running, send the message with the box's own Send now (⌃⏎) instead, which moves the
@@ -635,7 +635,7 @@ Code's Manual, Accept edits, Plan, Auto and Bypass); ⇧⇥ in its box steps to 
 Code's terminal. Either switches that session alone, mid-turn too and while it waits on you: what it
 asks from then on goes by the new mode, and what it asks now still waits for your answer.
 
-A Claude Code or Antigravity session running in Ghostty, iTerm2 or tmux has the same menu, of the
+A Claude Code or Antigravity session running in Ghostty, iTerm2, Rex or tmux has the same menu, of the
 modes its terminal steps through with Shift+Tab, in that order, and ⇧⇥ in its box steps to the
 next: Codealong presses Shift+Tab in its tab, as often as it takes to reach the mode you picked,
 mid-turn too, but not while it waits on you, where Shift+Tab would go to what it asks. Antigravity
@@ -645,7 +645,7 @@ Accept edits and Plan, then Bypass where the session started bypassing permissio
 `--allow-dangerously-skip-permissions`), then Auto unless its settings or Anthropic's flag turn
 Auto off, and writes the mode it's in only with your next message: until then the chip says, in
 italics, the mode Codealong expects by that order, which can be wrong if you switched it in the
-terminal too, or where a model doesn't take Auto. A Codex session running in Ghostty, iTerm2 or
+terminal too, or where a model doesn't take Auto. A Codex session running in Ghostty, iTerm2, Rex or
 tmux has the same menu, of what its terminal's `/permissions` lists (Ask for approval, Approve for
 me, Full Access and Read Only, without Approve for me where config.toml turns its
 `guardian_approval` feature off), and ⇧⇥ in its box steps to the next: Codealong types
@@ -686,10 +686,10 @@ instead): a session Codealong runs is answered through its agent, and calls it a
 (Claude Code reading several files at once) show one after another; OpenCode's are answered through its service, Claude Code's through the Codealong plugin's
 `PermissionRequest` hook when the account has the plugin (wherever the session runs: any terminal,
 the Claude app), with Always too where Claude Code offers to allow calls like it from now on (its
-button says what that adds), and otherwise by a keypress in its Ghostty, iTerm2 or tmux tab, only
+button says what that adds), and otherwise by a keypress in its Ghostty, iTerm2, Rex or tmux tab, only
 while its own record says the prompt is up for that call. A Codex session's approval comes the
 moment Codex asks it, through a hook Codealong puts in the account with its skill (Settings ›
-Agents): the command or the edit, with the reason the agent gave, and in its Ghostty, iTerm2 or
+Agents): the command or the edit, with the reason the agent gave, and in its Ghostty, iTerm2, Rex or
 tmux tab Allow presses `y` (Yes, proceed) and Deny presses Escape (No, and tell Codex what to do
 differently, which stops its turn); its other choices, for that command from now on or for the
 session, are left to its terminal, as are a tool's of an MCP server and a request for more
@@ -731,14 +731,14 @@ its conversation has the question (an Opus job writes it only once it's answered
 doesn't say whether a question takes several choices, so it's offered as one that takes one: to
 give several, write them in your own answer ("Red, Blue"), which is how the job takes several
 anyway. An Antigravity command line conversation's questions (its
-`ask_question`) show the same way while it runs in a Ghostty, iTerm2 or tmux tab: Answer presses
+`ask_question`) show the same way while it runs in a Ghostty, iTerm2, Rex or tmux tab: Answer presses
 the keys there that give your picks, typing your own words into its Write-in box, and Decline
 skips them all and stops its turn. A question with more than eight choices is answered in its
 terminal. What you'd begun answering in its terminal is cleared first, except on the last
 question, where a choice you ticked there and pick here too ends up unticked; the conversation
 shows the answers it took. Another session's message that a Claude Code session holds for
 you to allow (it skips permission prompts and the sender didn't say it does too) shows the same way,
-all of it when Codealong sent it, with Deliver and Deny, pressed in its Ghostty, iTerm2 or tmux tab
+all of it when Codealong sent it, with Deliver and Deny, pressed in its Ghostty, iTerm2, Rex or tmux tab
 or typed into its background job; with several held, it opens where it runs, which shows them one at
 a time. Others open where they run to be answered. The box stays meanwhile, keeping what you'd
 written. Where the call can be answered here, sending what you wrote (⏎) denies it and tells the
@@ -768,7 +768,7 @@ buttons' tooltips have them.
 #### Stop and send now
 
 The box's send button sits inside it, at its corner, and its placeholder says how a message gets
-there: typed into its Ghostty, iTerm2, Terminal or tmux tab, pasted into its background job, as a
+there: typed into its Ghostty, iTerm2, Terminal, Rex or tmux tab, pasted into its background job, as a
 message from Codealong, or through its app. While a turn runs that Codealong can stop, Escape in the
 box stops it, as it does in Claude Code and Codex (⌘. anywhere in the window too), and so does the
 button while the box is empty; it says Stopping until the turn has ended. While a turn runs, ⏎ sends
@@ -2090,7 +2090,7 @@ TypeSafe won't take one, Jev answers from the words alone.
 #### How a prompt gets to a session
 
 Sending goes the way each harness takes a prompt: pasted into the session's Ghostty, iTerm2,
-Terminal or tmux tab, Claude Code's daemon for a background job, OpenCode's service, a turn started
+Terminal, Rex or tmux tab, Claude Code's daemon for a background job, OpenCode's service, a turn started
 by the Codex app itself (opening the thread there first when no window has it; when the app doesn't
 take it, nothing is sent: the message goes back in the box with why, and the app opens the thread
 with it filled in to send from there), and Claude Code's cross-session socket for Claude app
@@ -2190,7 +2190,7 @@ control on over there).
 
 #### Each place
 
-Your terminal (Ghostty, iTerm2 or Terminal) starts Claude Code on your prompt, on the account's
+Your terminal (Ghostty, iTerm2, Terminal or Rex) starts Claude Code on your prompt, on the account's
 default model or the one you picked (Fable, Opus, Sonnet, Haiku, 1M context, Opus Plan Mode) at the
 effort you picked (`--effort`; Haiku takes none, and Default is the account's `effortLevel`), and
 with New worktree Claude Code makes a fresh worktree for it (`claude --worktree`: its folder, branch
@@ -2721,7 +2721,7 @@ Settings won't save one.
 
 ### Open where it lives
 
-The session's own terminal tab (Ghostty, iTerm2 or Terminal, whichever it runs in; for a session in
+The session's own terminal tab (Ghostty, iTerm2, Terminal or Rex, whichever it runs in; for a session in
 tmux, the tab running `tmux attach` on its tmux session, with its pane brought up there, or, when
 nothing is attached to that session, a new terminal that attaches to it), the Claude app
 session, the Codex thread (a CLI thread's terminal, or `codex resume` in a new one), an OpenCode
@@ -2737,7 +2737,12 @@ session): the app shows it and sends it what you type there, and it goes on runn
 Without Remote Control the app can't take it while it runs, so the entry says so; one that isn't
 running continues in the app (Continue in Claude app). A new terminal opens in the terminal app config.toml names, as a tab
 in the window already showing that worktree, repo or project (`new_terminal` in config.toml;
-Terminal can't open tabs for another app, so there it's a window). A worktree opens in your editor
+Terminal can't open tabs for another app, so there it's a window). In Rex a window is a Rex
+session: a new terminal is a tab in the Rex session already working in that worktree, repo or
+project, or else in a session of its own named for its folder, since Rex doesn't say which session
+its app shows. Rex goes to a session's tab only with Remote Control on in its settings (Rex ›
+Settings › Rex Server), and says so when it's off; typing, keypresses, starting and closing go to
+its server and need nothing. A worktree opens in your editor
 (`editor` in config.toml, ⌘2) or, from Open in in its right-click menu and its Open button, any
 other editor installed on the Mac: VS Code, Cursor, Windsurf, Zed, Sublime Text, Nova, BBEdit,
 Xcode, the JetBrains IDEs and Android Studio, each with its app's icon. A session's right-click menu
@@ -3148,7 +3153,7 @@ a period that reaches back past that.
 Lists the sessions that sat idle for a day or more (12 hours to a week, you choose) and asked you
 nothing in their last reply, by Jev's read where it has one, else by it not ending in a question. It
 says why for each and what closing does to it, and closes the ones you leave ticked: a Ghostty,
-iTerm2 or Terminal tab, or a tmux pane, closes, which ends the agent's process, and a Claude Code
+iTerm2, Terminal or Rex tab, or a tmux pane, closes, which ends the agent's process, and a Claude Code
 background job is stopped. Nothing closes by itself, and the conversation stays and resumes. With
 **Also archive them** (remembered), each is marked seen and archived too, as Mark as done does,
 and the sessions Codealong can't close (in the Claude or Codex app, run by Codealong) are listed to be
@@ -3159,7 +3164,7 @@ lists the same from the command line.
 
 *File › Close stale terminals…*
 
-Lists every Ghostty, iTerm2 and Terminal tab (or split) that nothing was typed or printed in for a
+Lists every Ghostty, iTerm2, Terminal and Rex tab (or split) that nothing was typed or printed in for a
 day or more (12 hours to a week, you choose), whatever runs in it, the longest unused first: a
 shell, a session, or another program. It goes by the tab's terminal device, which is touched as you
 type there and as anything prints, so a working agent or a server printing its log stays fresh and
@@ -3174,7 +3179,7 @@ unticked and says closing ends it, and so does one whose session needs you or as
 Tick or untick any of them. Closing hangs up what the tab's shell runs, leaving it at its prompt,
 and has the terminal close the tab; a session's conversation stays and resumes like any other. A
 program run in place of a shell (`exec vim`, a profile that starts one) is hung up itself, and in
-iTerm2 or Terminal whether its tab then closes is their own setting (Terminal keeps one whose
+iTerm2, Terminal or Rex whether its tab then closes is their own setting (Terminal keeps one whose
 program didn't exit cleanly). The tab you're in stays open, and a tab used since the list was made
 isn't closed.
 

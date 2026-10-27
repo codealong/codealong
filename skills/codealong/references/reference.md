@@ -1461,13 +1461,14 @@ Commands:
   close-idle  Close the sessions that sat idle and want nothing from you: idle or
               unread, quiet for --after, nothing left running in the background, and a
               last reply that asks nothing (Jev's read with `[jev] sessions` on, else no
-              question mark at its end). A session in a Ghostty, iTerm2 or Terminal tab
-              closes with its tab, which closes only when every session in it qualifies;
-              a Claude Code background job is stopped. Its agent's process ends; the
-              conversation stays and resumes as usual. With --archive each is also
-              marked seen and archived, as Mark as done does, and the ones Codealong
-              can't close (in the Claude or Codex app, run by Codealong, in tmux) are
-              archived only. Lists what it would do with --dry-run; run that first
+              question mark at its end). A session in a Ghostty, iTerm2, Terminal or Rex
+              tab closes with its tab, which closes only when every session in it
+              qualifies; a Claude Code background job is stopped. Its agent's process
+              ends; the conversation stays and resumes as usual. With --archive each is
+              also marked seen and archived, as Mark as done does, and the ones
+              Codealong can't close (in the Claude or Codex app, run by Codealong, in
+              tmux) are archived only. Lists what it would do with --dry-run; run that
+              first
   help        Print this message or the help of the given subcommand(s)
 
 Options:
@@ -1594,7 +1595,7 @@ Options:
 Close the sessions that sat idle and want nothing from you: idle or unread, quiet for
 --after, nothing left running in the background, and a last reply that asks nothing
 (Jev's read with `[jev] sessions` on, else no question mark at its end). A session in a
-Ghostty, iTerm2 or Terminal tab closes with its tab, which closes only when every
+Ghostty, iTerm2, Terminal or Rex tab closes with its tab, which closes only when every
 session in it qualifies; a Claude Code background job is stopped. Its agent's process
 ends; the conversation stays and resumes as usual. With --archive each is also marked
 seen and archived, as Mark as done does, and the ones Codealong can't close (in the
