@@ -963,10 +963,13 @@ pub fn scratch_owner(path: &Path) -> Option<(Harness, String)> {
     ADAPTERS.iter().find_map(|a| Some((a.harness(), a.scratch_owner(path)?)))
 }
 
-/// The session a process's environment (`procs::environment`) says started it, by its harness
-/// and ID (`Adapter::session_var`).
-pub fn started_under(env: &HashMap<String, String>) -> Option<(Harness, String)> {
-    ADAPTERS.iter().find_map(|a| Some((a.harness(), env.get(a.session_var()?)?.clone())))
+/// The sessions a process's environment (`procs::environment`) says started it, by harness and
+/// ID (`Adapter::session_var`), in the adapters' order. It can name more than one: a harness
+/// passes on what it was started with, so a Codex thread's commands carry the
+/// `CLAUDE_CODE_SESSION_ID` of a Claude Code session above Codex as well as their own thread's
+/// ID, and one environment doesn't say which was set nearer.
+pub fn started_under(env: &HashMap<String, String>) -> Vec<(Harness, String)> {
+    ADAPTERS.iter().filter_map(|a| Some((a.harness(), env.get(a.session_var()?)?.clone()))).collect()
 }
 
 /// A reader for each harness, in the adapters' order.
@@ -1230,11 +1233,15 @@ mod tests {
     use crate::model::{Status, Surface};
 
     #[test]
-    fn a_process_environment_names_the_claude_code_session_whose_command_started_it() {
-        let env = HashMap::from([("HOME".to_string(), "/Users/me".to_string()), ("CLAUDE_CODE_SESSION_ID".to_string(), "d6098a2f".to_string())]);
-        assert_eq!(started_under(&env), Some((Harness::Claude, "d6098a2f".to_string())));
+    fn a_process_environment_names_the_sessions_whose_commands_started_it() {
+        let env = |vars: &[(&str, &str)]| vars.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect::<HashMap<_, _>>();
+        let claude = env(&[("HOME", "/Users/me"), ("CLAUDE_CODE_SESSION_ID", "d6098a2f")]);
+        assert_eq!(started_under(&claude), vec![(Harness::Claude, "d6098a2f".to_string())]);
+        // A Codex thread's command, as 0.156.1 gives it, under a Claude Code session that started Codex.
+        let codex = env(&[("CODEX_THREAD_ID", "01a17ddd"), ("CODEX_SESSION_ID", "01a17ddd"), ("CLAUDE_CODE_SESSION_ID", "d6098a2f")]);
+        assert_eq!(started_under(&codex), vec![(Harness::Claude, "d6098a2f".to_string()), (Harness::Codex, "01a17ddd".to_string())]);
         // A terminal of yours names none.
-        assert_eq!(started_under(&HashMap::from([("HOME".to_string(), "/Users/me".to_string())])), None);
+        assert_eq!(started_under(&env(&[("HOME", "/Users/me")])), vec![]);
     }
     use crate::send::{agent_routes, Route};
     use serde_json::json;

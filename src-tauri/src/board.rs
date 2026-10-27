@@ -1511,17 +1511,14 @@ pub fn started_by<'a>(pid: u32, parent: impl Fn(u32) -> Option<u32>, by_pid: &Ha
 }
 
 /// The session that started a headless run: the nearest running session above its process
-/// (`started_by`), else the one named in the environment the run started with (`under`, a
+/// (`started_by`), else the first named in the environment the run started with (`under`, each a
 /// harness and a session ID: `harness::started_under`) of the sessions on the board (`by_id`). A
 /// script an agent starts on its own (`start_new_session`, `nohup … &`) is launchd's once its
 /// launcher returns, so no session is above it, but it keeps what the agent's tool set: an
 /// eval's driver did, and each `claude -p` its judge ran was listed as a session of its own. A
 /// script you run in a terminal of yours carries no session's.
-pub fn run_started_by<'a>(pid: u32, parent: impl Fn(u32) -> Option<u32>, under: impl Fn(u32) -> Option<(Harness, String)>, by_pid: &HashMap<u32, &'a str>, by_id: &HashMap<(Harness, &str), &'a str>) -> Option<&'a str> {
-    started_by(pid, parent, by_pid).or_else(|| {
-        let (harness, id) = under(pid)?;
-        by_id.get(&(harness, id.as_str())).copied()
-    })
+pub fn run_started_by<'a>(pid: u32, parent: impl Fn(u32) -> Option<u32>, under: impl Fn(u32) -> Vec<(Harness, String)>, by_pid: &HashMap<u32, &'a str>, by_id: &HashMap<(Harness, &str), &'a str>) -> Option<&'a str> {
+    started_by(pid, parent, by_pid).or_else(|| under(pid).iter().find_map(|(harness, id)| by_id.get(&(*harness, id.as_str())).copied()))
 }
 
 /// What moved a session on from where it stood when an agent gave its word on it (a tag, replies
@@ -4851,9 +4848,9 @@ mod tests {
         // session isn't on the board (88).
         let parents = HashMap::from([(40, 30), (30, 1), (50, 10), (10, 1), (77, 1), (88, 1)]);
         let under = |p: u32| match p {
-            40 | 50 => Some((Harness::Claude, "agent".to_string())),
-            88 => Some((Harness::Claude, "gone".to_string())),
-            _ => None,
+            40 | 50 => vec![(Harness::Claude, "agent".to_string())],
+            88 => vec![(Harness::Claude, "gone".to_string())],
+            _ => vec![],
         };
         let by_pid = HashMap::from([(10, "claude:claude2:beside")]);
         let by_id = HashMap::from([((Harness::Claude, "agent"), "claude:claude2:agent")]);
@@ -4866,6 +4863,10 @@ mod tests {
         // An ID is another harness's session's only under that harness.
         let codex = HashMap::from([((Harness::Codex, "agent"), "codex:codex:agent")]);
         assert_eq!(run_started_by(40, |p: u32| parents.get(&p).copied(), under, &by_pid, &codex), None);
+        // A run from a Codex thread's command names the thread and the Claude Code session that
+        // started Codex: the one on the board is the run's.
+        let both = |_: u32| vec![(Harness::Claude, "gone".to_string()), (Harness::Codex, "agent".to_string())];
+        assert_eq!(run_started_by(40, |p: u32| parents.get(&p).copied(), both, &by_pid, &codex), Some("codex:codex:agent"));
     }
 
     #[test]

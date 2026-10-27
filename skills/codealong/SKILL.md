@@ -165,6 +165,10 @@ ones your harness's own tools don't list: another Claude Code account, Codex, Op
   saying it's from another agent and not the user, which session, and how to answer, so an
   answer comes back to you as a new message. `--attach <file>` sends a screenshot or log with
   it (the session gets its path); `--message-file -` reads a long message from stdin.
+- A sandbox on your commands, such as Codex's, keeps the message from reaching the session
+  (`Operation not permitted`): run `session send` outside it from the first, as a command that
+  needs the network. Run it as the command itself, not from a script you write: where your
+  harness doesn't say which session runs a command, Codealong tells who sent it by your call.
 - Send when your user's task calls for it: a question for the session that wrote the code, a
   result another session is waiting on. Say what you need in one message, then go on or end
   your turn; don't poll for the answer.

@@ -1765,7 +1765,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         }
         let by_pid: HashMap<u32, &str> = sessions.iter().filter(|s| s.live && !s.headless).filter_map(|s| Some((s.pid?, s.key.as_str()))).collect();
         let by_id: HashMap<(Harness, &str), &str> = sessions.iter().filter(|s| !s.headless).map(|s| ((s.harness, s.id.as_str()), s.key.as_str())).collect();
-        let under = |pid: u32| harness::started_under(&procs::environment(pid)?);
+        let under = |pid: u32| procs::environment(pid).map(|env| harness::started_under(&env)).unwrap_or_default();
         let found: Vec<(String, String)> = sessions
             .iter()
             .filter(|s| s.headless && s.live && s.origin.is_none() && !known.contains_key(&s.key))

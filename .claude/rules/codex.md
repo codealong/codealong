@@ -79,12 +79,18 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
 - Commands (`CommandExecution`, with the folder the agent chose as a `file://` URL), file edits
   (`FileChange`) and the PRs a thread made: `codex/rollout.rs` (`work_of`, `file_path_of`,
   `pr_made`). Scripts don't `cd`, and many run outside the thread's own folder.
-- The app runs every thread's commands under its one `codex app-server` process, with no thread
-  id in their environment, so `codealong` finds the thread that runs it by the calls with no
-  output yet at the end of a rollout: `codex/conversation.rs` (`open_calls`, `call_items`),
-  `codex/mod.rs` (`runs_its_commands`). The app's `exec` tool's `input` is JavaScript holding
-  the command in a string literal (`tools.exec_command({cmd:\"…\"})`); a `function_call`'s
-  `arguments` are JSON.
+- The app runs every thread's commands under its one `codex app-server` process, so `codealong`
+  finds the thread that runs it by the calls with no output yet at the end of a rollout:
+  `codex/conversation.rs` (`open_calls`, `call_items`), `codex/mod.rs` (`runs_its_commands`).
+  The app's `exec` tool's `input` is JavaScript holding the command in a string literal
+  (`tools.exec_command({cmd:\"…\"})`); a `function_call`'s `arguments` are JSON.
+- A thread's commands are given `CODEX_THREAD_ID` and `CODEX_SESSION_ID`, both the thread's ID,
+  and keep what Codex was started with (a `CLAUDE_CODE_SESSION_ID` among them): `codex exec` on
+  0.156.1 (codex-acp's) and on 0.163.0-alpha.10.2 (the app's, which adds `CODEX_TOOL_CALL_ID`),
+  2026-10-27. Codealong goes by it only for a thread it runs itself (`codex/mod.rs`
+  `session_var`, `cli.rs` `hosted_above`), and for a headless run no session is above
+  (`engine.rs` `with_run_origins`); the app's own threads are still found by their calls, since a
+  terminal or tmux server started from a thread's shell keeps its ID after the thread moves on.
 - `codex exec` runs (`originator: "codex_exec"`, `source: "exec"`, `thread_source: "user"`,
   0.157.1) are threads like any other, with nobody at them: `codex/rollout.rs`
   (`ThreadInfo::exec`), `board.rs` (`Session::headless`). An exec run doesn't hold its rollout

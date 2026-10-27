@@ -203,6 +203,15 @@ impl crate::harness::Adapter for Codex {
         true
     }
 
+    /// Set to the thread's ID in the environment of every command a thread runs, beside
+    /// `CODEX_SESSION_ID` with the same value, with whatever its app-server was started with
+    /// (0.156.1, the build codex-acp runs, 2026-10-27). It's how the `codealong` command finds
+    /// a thread Codealong runs that ran it through a wrapper (a script, `python3 -` calling
+    /// `subprocess.run`), whose call in the rollout isn't the `codealong` command.
+    fn session_var(&self) -> Option<&'static str> {
+        Some("CODEX_THREAD_ID")
+    }
+
     /// `codex fork <id>` opens its terminal UI on a copy of the thread, an app's thread too.
     /// Codex picks the copy's id, so it shows on the board once it's written.
     fn fork(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> anyhow::Result<crate::harness::Typed> {

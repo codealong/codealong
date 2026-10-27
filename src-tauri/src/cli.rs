@@ -4601,7 +4601,7 @@ fn find_me(c: &mut Client) -> Result<(Option<String>, Option<&'static str>)> {
     }
     let live: Vec<&Session> = all_sessions(c.board()?).into_iter().map(|(s, _)| s).filter(|s| s.live).collect();
     let chain: Vec<(u32, String)> = procs::ancestors(std::process::id()).into_iter().filter_map(|p| procs::parent_and_name(p).map(|(_, name)| (p, name))).collect();
-    let by_process = session_above(&chain, &live).or_else(|| hosted_above(&chain, &live, |p| crate::harness::started_under(&procs::environment(p)?)));
+    let by_process = session_above(&chain, &live).or_else(|| hosted_above(&chain, &live, |p| procs::environment(p).map(|env| crate::harness::started_under(&env)).unwrap_or_default()));
     let me = match by_process {
         Some(key) => (Some(key), Some("process")),
         None => match running_this(c)? {
@@ -4632,18 +4632,21 @@ fn session_above(chain: &[(u32, String)], live: &[&Session]) -> Option<String> {
 /// harness gives what it runs the session's ID in their environment (`Adapter::session_var`, read
 /// from a process's by `under`), so it's the nearest process of the chain below Codealong's app
 /// whose environment names a live hosted session. A command not under the app isn't one's, and
-/// the ID the app itself started with is passed on to everything the app runs. Before this, such
-/// a session was found only by its record of the command, which a Claude Code session Codealong
-/// ran had often not written yet when a command run at once read it, so `start --helper`
-/// and `session done` refused the session as none (2026-10-16).
-fn hosted_above(chain: &[(u32, String)], live: &[&Session], under: impl Fn(u32) -> Option<(Harness, String)>) -> Option<String> {
+/// the IDs the app itself started with are passed on to everything the app runs, beside the
+/// session's own (a Codex thread's commands keep a `CLAUDE_CODE_SESSION_ID` the app had). Before
+/// this, such a session was found only by its record of the command, which a Claude Code session
+/// Codealong ran had often not written yet when a command run at once read it, so `start
+/// --helper` and `session done` refused the session as none (2026-10-16); and a Codex helper
+/// that ran `session send` from a script had no call that was the command, so its message to its
+/// parent went as nobody's and was held for that session's user (2026-10-27).
+fn hosted_above(chain: &[(u32, String)], live: &[&Session], under: impl Fn(u32) -> Vec<(Harness, String)>) -> Option<String> {
     let (_, me) = chain.first()?;
     let app = 1 + chain.iter().skip(1).position(|(_, name)| name == me)?;
     let inherited = under(chain[app].0);
     chain[..app]
         .iter()
-        .filter_map(|(p, _)| under(*p))
-        .filter(|named| inherited.as_ref() != Some(named))
+        .flat_map(|(p, _)| under(*p))
+        .filter(|named| !inherited.contains(named))
         .find_map(|(harness, id)| live.iter().find(|s| s.hosted && s.harness == harness && s.id == id))
         .map(|s| s.key.clone())
 }
@@ -7211,7 +7214,7 @@ mod tests {
         let chain = |links: &[(u32, &str)]| links.iter().map(|(p, n)| (*p, n.to_string())).collect::<Vec<_>>();
         // This command, the shell its session's claude started, that claude, the ACP adapter, the app.
         let under_app = chain(&[(50, "codealong"), (51, "zsh"), (52, "claude"), (53, "node"), (60, "codealong")]);
-        let named = |env: &'static [(u32, &'static str)]| move |p: u32| env.iter().find(|(q, _)| *q == p).map(|(_, id)| (Harness::Claude, id.to_string()));
+        let named = |env: &'static [(u32, &'static str)]| move |p: u32| env.iter().filter(|(q, _)| *q == p).map(|(_, id)| (Harness::Claude, id.to_string())).collect::<Vec<_>>();
         // Apple's zsh shows no environment; the command's own names the session.
         assert_eq!(hosted_above(&under_app, &live, named(&[(50, "mine")])).as_deref(), Some("claude:claude:mine"));
         // A `claude -p` run from its shell (54) names its own ID to what it runs, which isn't on
@@ -7226,6 +7229,33 @@ mod tests {
         assert_eq!(hosted_above(&under_app, &live, named(&[(50, "term")])), None);
         // One that's gone from the board, or no longer live, isn't found.
         assert_eq!(hosted_above(&under_app, &[&other], named(&[(50, "mine")])), None);
+    }
+
+    /// A Codex helper Codealong ran sent its review to its parent from a script (`python3 -`
+    /// calling `subprocess.run`), so no call in its rollout was the `codealong` command and the
+    /// message went as nobody's, held for the parent's user (2026-10-27). Codex gives a thread's
+    /// commands its ID, beside what its app-server inherited from the app.
+    #[test]
+    fn a_codex_thread_codealong_runs_is_found_by_its_id_through_a_wrapper() {
+        let hosted = |harness: Harness, key: &str| Session { id: key.rsplit(':').next().unwrap().to_string(), harness, hosted: true, pid: None, ..session(key, true, None) };
+        let (helper, boss) = (hosted(Harness::Codex, "codex:codex:helper"), hosted(Harness::Claude, "claude:claude:boss"));
+        let live = [&helper, &boss];
+        let chain = |links: &[(u32, &str)]| links.iter().map(|(p, n)| (*p, n.to_string())).collect::<Vec<_>>();
+        // This command, the script, Codex's shell, its app-server, codex-acp, the app.
+        let wrapped = chain(&[(50, "codealong"), (51, "python3"), (52, "bash"), (53, "codex"), (54, "node"), (60, "codealong")]);
+        let env = |p: u32| match p {
+            50 | 51 => vec![(Harness::Claude, "boss".to_string()), (Harness::Codex, "helper".to_string())],
+            53 | 54 | 60 => vec![(Harness::Claude, "boss".to_string())],
+            _ => vec![],
+        };
+        // The app was opened from the boss's shell, whose ID everything it runs keeps.
+        assert_eq!(hosted_above(&wrapped, &live, env).as_deref(), Some("codex:codex:helper"));
+        // Opened the usual way, the app has none.
+        let fresh = |p: u32| if p <= 51 { vec![(Harness::Codex, "helper".to_string())] } else { vec![] };
+        assert_eq!(hosted_above(&wrapped, &live, fresh).as_deref(), Some("codex:codex:helper"));
+        // A thread's ID names only a Codex session.
+        let claude_id = |p: u32| if p <= 51 { vec![(Harness::Claude, "helper".to_string())] } else { vec![] };
+        assert_eq!(hosted_above(&wrapped, &live, claude_id), None);
     }
 
 

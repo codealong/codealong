@@ -77,7 +77,9 @@ on 2026-09-27. Paths are under `src-tauri/src/`.
   of Codealong's answers gives: `acp.rs` (`pick`, `clears_context`).
 - `@agentclientprotocol/codex-acp` 1.13.1 runs its own bundled `codex app-server` (0.156.1)
   with `CODEX_HOME` (`codex/mod.rs`, `acp_command`); the session id is the thread id, and the
-  rollout is an ordinary one with `originator: "codealong"`. With `approvals_reviewer =
+  rollout is an ordinary one with `originator: "codealong"`. The board gives such a session no
+  process; its commands carry the thread's ID in `CODEX_THREAD_ID`, which is how the `codealong`
+  command run there finds its session however it was run (`cli.rs` `hosted_above`). With `approvals_reviewer =
   "auto_review"` in config.toml it doesn't ask: its reviewer model decides. It can put a prompt
   into the running turn, which Codealong doesn't use yet: the extension request
   `_session/steering {sessionId, prompt}` (`turn/steer` underneath), offered in `initialize`'s
