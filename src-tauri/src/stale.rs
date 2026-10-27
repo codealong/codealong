@@ -253,6 +253,7 @@ pub struct Uses {
     /// By device (`ttys004`). A device a new tab takes keeps its record, which its tab's
     /// opening comes after.
     seen: BTreeMap<String, Seen>,
+    /// When the file was last written, or tried to be.
     #[serde(skip)]
     saved_at: i64,
     /// Something changed since the file was written.
@@ -264,14 +265,23 @@ pub struct Uses {
 struct Seen {
     /// The device's time at the last look.
     at: i64,
-    /// When it was used last: `at`, or `still_before` once its move is known for a redraw's.
+    /// When it was used last: `at`, or `still.before` once its move is known for a redraw's.
     /// 0 when no look saw it used, so its tab counts from its opening.
     used: i64,
-    /// When its last move came after it sat still for `QUIET_MS`, its use before that move,
-    /// which stands if the move turns out to be a redraw's. A look can come partway through a
-    /// redraw, so whether it was is asked again at every look until it's known.
+    /// When it moved after sitting still for `QUIET_MS`, which may turn out to be a redraw.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    still_before: Option<i64>,
+    still: Option<Still>,
+}
+
+/// A move after sitting still. A look can come partway through a redraw, so whether this was
+/// one is asked again at every look until it's known; and a redraw can touch a device more than
+/// once, so its touches within `REDRAW_WITHIN_MS` of the first are one move.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+struct Still {
+    /// When it first moved.
+    since: i64,
+    /// Its use before, which stands if the move was a redraw's.
+    before: i64,
 }
 
 impl Uses {
@@ -283,14 +293,13 @@ impl Uses {
         crate::store::read_or_default(&Self::path())
     }
 
+    /// Writes the file. One that can't be written is a notice (`store::noted`), and is tried
+    /// again after `SAVE_EVERY_MS` rather than at every look.
     pub fn save(&mut self, now: i64) {
-        self.written(now);
-        let _ = crate::store::save(&Self::path(), self);
-    }
-
-    fn written(&mut self, now: i64) {
+        let path = Self::path();
+        let done = crate::store::noted(&path, crate::store::save(&path, self));
         self.saved_at = now;
-        self.unsaved = false;
+        self.unsaved &= done.is_err();
     }
 
     /// A look at every device's time `now`: whether to write the file now, because a redraw
@@ -307,19 +316,20 @@ impl Uses {
             .map(|(tty, at)| {
                 let next = match self.seen.get(tty) {
                     Some(s) if *at <= s.at => *s,
-                    Some(s) => Seen { at: *at, used: *at, still_before: (*at - s.at >= QUIET_MS).then_some(s.used) },
-                    None => Seen { at: *at, used: *at, still_before: (now - *at >= QUIET_MS).then_some(0) },
+                    Some(Seen { still: Some(still), .. }) if *at - still.since <= REDRAW_WITHIN_MS => Seen { at: *at, used: *at, still: Some(*still) },
+                    Some(s) => Seen { at: *at, used: *at, still: (*at - s.at >= QUIET_MS).then_some(Still { since: *at, before: s.used }) },
+                    None => Seen { at: *at, used: *at, still: (now - *at >= QUIET_MS).then_some(Still { since: *at, before: 0 }) },
                 };
                 (tty.clone(), next)
             })
             .collect();
-        let moves: Vec<(&str, i64)> = seen.iter().filter(|(_, s)| s.still_before.is_some()).map(|(tty, s)| (tty.as_str(), s.at)).collect();
+        let moves: Vec<(&str, i64)> = seen.iter().filter_map(|(tty, s)| Some((tty.as_str(), s.still?.since))).collect();
         let redrawn: Vec<String> = moved_together(moves).into_iter().map(String::from).collect();
         let mut found = false;
         for tty in redrawn {
-            if let Some(s) = seen.get_mut(&tty) {
-                found |= s.used == s.at;
-                s.used = s.still_before.unwrap_or(s.used);
+            if let Some(Seen { used, still: Some(still), .. }) = seen.get_mut(&tty) {
+                found |= *used != still.before;
+                *used = still.before;
             }
         }
         self.unsaved |= seen != self.seen;
@@ -593,6 +603,12 @@ mod tests {
         assert_eq!(row("ttys010:102"), (Shows::Session, "Session nested", false, "/work/northwind · unused 3 days · also runs `vim notes.md`"));
     }
 
+    /// As a write that went through would leave it, without writing the real file.
+    fn written(uses: &mut Uses, now: i64) {
+        uses.saved_at = now;
+        uses.unsaved = false;
+    }
+
     fn look(uses: &mut Uses, now: i64, devices: &[(&str, i64)]) -> bool {
         uses.on_look(now, &devices.iter().map(|(tty, at)| (tty.to_string(), *at)).collect::<Vec<_>>())
     }
@@ -626,7 +642,7 @@ mod tests {
         let mut uses = Uses::default();
         let before: Vec<(&str, i64)> = ["ttys001", "ttys002", "ttys003", "ttys004"].into_iter().map(|t| (t, NOW - 9_000)).collect();
         assert!(look(&mut uses, NOW - 8_000, &before), "what's new is written");
-        uses.written(NOW - 8_000);
+        written(&mut uses, NOW - 8_000);
         let after: Vec<(&str, i64)> = ["ttys001", "ttys002", "ttys003", "ttys004"].into_iter().map(|t| (t, NOW - 500)).collect();
         assert!(!look(&mut uses, NOW, &after), "written only every few minutes");
         assert!(after.iter().all(|(t, at)| uses.used(t) == *at));
@@ -660,7 +676,7 @@ mod tests {
         let hour = 3_600_000;
         let old = [("ttys001", NOW - 9 * hour), ("ttys002", NOW - 8 * hour), ("ttys003", NOW - 7 * hour)];
         look(&mut uses, NOW - hour, &old);
-        uses.written(NOW - 3_000);
+        written(&mut uses, NOW - 3_000);
         assert!(!look(&mut uses, NOW - 2_000, &[("ttys001", NOW - 4_000), ("ttys002", NOW - 3_500), old[2]]), "two alone aren't a redraw yet");
         assert_eq!(uses.used("ttys001"), NOW - 4_000);
         assert!(look(&mut uses, NOW, &[("ttys001", NOW - 4_000), ("ttys002", NOW - 3_500), ("ttys003", NOW - 1_000)]), "the third makes it one, written at once");
@@ -668,6 +684,22 @@ mod tests {
         // A tab of it closing later leaves the others' redraw as it was.
         look(&mut uses, NOW + 60_000, &[("ttys001", NOW - 4_000), ("ttys002", NOW - 3_500)]);
         assert_eq!(uses.used("ttys001"), NOW - 9 * hour);
+    }
+
+    #[test]
+    fn a_redraw_that_touches_a_tab_twice_is_one_move() {
+        let mut uses = Uses::default();
+        let hour = 3_600_000;
+        let old = [("ttys001", NOW - 9 * hour), ("ttys002", NOW - 8 * hour), ("ttys003", NOW - 7 * hour)];
+        look(&mut uses, NOW - hour, &old);
+        let t = NOW - 5_000;
+        look(&mut uses, t + 300, &[("ttys001", t + 100), ("ttys002", t + 200), old[2]]);
+        look(&mut uses, NOW, &[("ttys001", t + 1_500), ("ttys002", t + 1_600), ("ttys003", t + 1_700)]);
+        assert_eq!([uses.used("ttys001"), uses.used("ttys002"), uses.used("ttys003")], [NOW - 9 * hour, NOW - 8 * hour, NOW - 7 * hour]);
+        // An agent the redraw woke works on: once it prints past the redraw, it's used.
+        look(&mut uses, NOW + 10_000, &[("ttys001", NOW + 9_000), ("ttys002", t + 1_600), ("ttys003", t + 1_700)]);
+        assert_eq!(uses.used("ttys001"), NOW + 9_000);
+        assert_eq!(uses.used("ttys002"), NOW - 8 * hour);
     }
 
     #[test]
@@ -686,10 +718,10 @@ mod tests {
     fn writes_a_change_within_a_few_minutes() {
         let mut uses = Uses::default();
         assert!(look(&mut uses, NOW, &[("ttys001", NOW - 100)]));
-        uses.written(NOW);
+        written(&mut uses, NOW);
         assert!(!look(&mut uses, NOW + 60_000, &[("ttys001", NOW + 59_000)]), "written a minute ago");
         assert!(look(&mut uses, NOW + SAVE_EVERY_MS, &[("ttys001", NOW + 59_000)]), "what changed since is still to write");
-        uses.written(NOW + SAVE_EVERY_MS);
+        written(&mut uses, NOW + SAVE_EVERY_MS);
         assert!(!look(&mut uses, NOW + 2 * SAVE_EVERY_MS, &[("ttys001", NOW + 59_000)]), "nothing changed");
     }
 
