@@ -91,13 +91,16 @@
   gap: 6px;
   min-width: 0;
 }
+/* Your question, raised off the strip's sunken ground: the tint the thread gives a prompt is
+   all but the strip's own grey in light. In a window of its own, the ground is raised and the
+   question tinted, as in the thread. */
 .ca-sidestrip-q {
   justify-self: start;
   max-width: 100%;
   box-sizing: border-box;
   padding: 6px 10px;
   border-radius: var(--radius-md);
-  background: var(--neutral-tint);
+  background: var(--surface-raised);
   color: var(--ink);
   font: var(--type-reading);
   white-space: pre-wrap;
@@ -162,7 +165,7 @@
 .ca-sidestrip-kept:hover,
 .ca-sidestrip-kept:focus-visible {
   outline: none;
-  background: var(--neutral-tint);
+  background: var(--surface-raised);
 }
 .ca-sidestrip-kept-q {
   flex: 1;
@@ -185,6 +188,11 @@
   padding-top: var(--space-3);
   border-top: 0;
   background: transparent;
+}
+.ca-sidestrip.is-window .ca-sidestrip-q,
+.ca-sidestrip.is-window .ca-sidestrip-kept:hover,
+.ca-sidestrip.is-window .ca-sidestrip-kept:focus-visible {
+  background: var(--neutral-tint);
 }
 .ca-sidestrip.is-window .ca-sidestrip-head {
   cursor: default;
