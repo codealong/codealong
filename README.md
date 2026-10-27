@@ -247,8 +247,8 @@ sounds, or turn them off, in Settings › Sounds.
 
 The keys are the same everywhere: **⌘⏎** sends your reply (or allows the call) and moves on to the
 next agent waiting, **⌘⌫** denies, **⌘E** marks a finished turn seen, **⌘]** skips, and
-**⌃⌘1** to **⌃⌘6** snooze a session for 15 minutes, half an hour, an hour, three hours, until tomorrow
-morning or until next week.
+**⌃⌘1** to **⌃⌘7** snooze a session for 15 minutes, half an hour, an hour, three hours, until 5 PM,
+until tomorrow morning or until next week, and its Snooze menu's Pick a time… for any other.
 
 Approvals and questions can be answered for Claude Code (in a terminal, as a background job or in
 the Claude app), OpenCode, Antigravity's command line in a terminal that takes keypresses, and any
@@ -520,7 +520,7 @@ In Codealong:
 | ⌘. (or Esc in the reply box) | Stop the turn |
 | ⌘E / ⇧⌘E | Mark seen / mark as done |
 | ⌘] / ⌘[ | Next / previous of what waits on you (in Sessions, the notch and the waiting window) |
-| ⌃⌘1 – ⌃⌘6 | Snooze: 15 minutes, 30 minutes, 1 hour, 3 hours, tomorrow morning, next week |
+| ⌃⌘1 – ⌃⌘7 | Snooze: 15 minutes, 30 minutes, 1 hour, 3 hours, 5 PM, tomorrow morning, next week |
 | ⌃⌘P · ⌃⌘A · ⌃⌘R · ⌃⌘U | Pin, archive, rename, mark as unread |
 | ⌃⌘W | Close the session's terminal (the conversation stays, to resume) |
 | ⌘F | Find where you are: in a session's conversation, a PR's files, or the view's list |

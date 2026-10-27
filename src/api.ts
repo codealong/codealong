@@ -1189,7 +1189,7 @@ export async function setTheme(theme: Theme): Promise<void> {
  *  A session's `find` is the words the quick panel found it by in what was said, which its
  *  conversation's find bar opens on; a PR's `tab` the one a link to a part of it goes to. A
  *  `view` is one a view's chord asked for in another window (mainKeys.ts `useViewKeys`). */
-export type Reveal = { kind: 'session'; laneId: string; key: string; find?: string } | { kind: 'worktree'; laneId: string } | { kind: 'pr'; key: string; tab?: PrTab } | { kind: 'todo'; id: string } | { kind: 'schedule'; id: string } | { kind: 'board'; board: string; project: string; layout: 'kanban' | 'canvas'; focus?: string[] } | { kind: 'view'; view: string };
+export type Reveal = { kind: 'session'; laneId: string; key: string; find?: string } | { kind: 'worktree'; laneId: string } | { kind: 'pr'; key: string; tab?: PrTab } | { kind: 'todo'; id: string } | { kind: 'schedule'; id: string } | { kind: 'board'; board: string; project: string; layout: 'kanban' | 'canvas'; focus?: string[] } | { kind: 'view'; view: string } | { kind: 'snooze'; keys: string[]; reviews: boolean };
 
 /** Brings the main window forward, showing a session, worktree, PR or todo if given. */
 export async function showMain(reveal: Reveal | null = null): Promise<void> {

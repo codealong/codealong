@@ -1,0 +1,17 @@
+/* Pick a time… for a snooze (SnoozeDialog.tsx). */
+
+.ca-dialog.ca-snoozedlg {
+  width: min(400px, 100%);
+}
+/* The day and the time side by side, in the meta type a date is read in rather than code's. */
+.ca-snoozedlg-fields {
+  grid-template-columns: 1fr 1fr;
+}
+.ca-snoozedlg .ca-field input {
+  font: var(--type-meta);
+}
+/* When it would come back, at the foot's start. */
+.ca-snoozedlg-when {
+  font: var(--type-meta);
+  color: var(--ink-2);
+}

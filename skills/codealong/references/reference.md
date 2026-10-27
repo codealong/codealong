@@ -1754,6 +1754,14 @@ Commands:
               `untagged`); tagging again replaces it, and --clear takes it away. The
               session's `insight` in `session show` and `sessions` is the read it shows
               now, Jev's, yours (`by`) or both
+  snooze      Snooze a session, as Snooze in its menu in Codealong does: it leaves Needs
+              you and Your turn on every device, and the mark stops counting it, until
+              WHEN, when it's back as it is then (as Your turn when nothing else would
+              bring it). A prompt sent to it ends the snooze, and --wake ends it now.
+              WHEN is on this Mac's clock: a span from now (30m, 2h, 3d), a time (5pm,
+              17:30: the next one), a day (tomorrow, fri, next week, 2026-11-03: at 9
+              AM) or a day and a time (tomorrow 2pm, fri 17:00, 2026-11-03 15:00). A
+              session on another device is snoozed on its Mac. Needs the app running
   rename      Name a session where its harness keeps names (Claude Code's /rename, a
               Codex thread's name, an OpenCode session's title), so the harness shows
               the name as Codealong does
@@ -2257,6 +2265,44 @@ Options:
           Print help
 ```
 
+## codealong session snooze
+
+```
+Snooze a session, as Snooze in its menu in Codealong does: it leaves Needs you and Your
+turn on every device, and the mark stops counting it, until WHEN, when it's back as it
+is then (as Your turn when nothing else would bring it). A prompt sent to it ends the
+snooze, and --wake ends it now. WHEN is on this Mac's clock: a span from now (30m, 2h,
+3d), a time (5pm, 17:30: the next one), a day (tomorrow, fri, next week, 2026-11-03: at
+9 AM) or a day and a time (tomorrow 2pm, fri 17:00, 2026-11-03 15:00). A session on
+another device is snoozed on its Mac. Needs the app running
+
+Usage: codealong session snooze [OPTIONS] <KEY> [WHEN]...
+
+Arguments:
+  <KEY>
+          The session: its key, its id, a unique start of its id, or `me`
+
+  [WHEN]...
+          When it comes back, in a word or a few: 30m, 2h, 5pm, tomorrow, tomorrow 2pm,
+          fri 17:00, next week, 2026-11-03 15:00
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --wake
+          Wake it now, ending its snooze
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
 ## codealong session rename
 
 ```
@@ -2486,6 +2532,11 @@ Commands:
           under way. The answer names the round's session: `codealong session wait
           <key>` waits for its turn, and `codealong pr show <pr>` says where the review
           stands. Needs the app
+  snooze  Snooze your review of a PR that asks for it, as Snooze review in its menu in
+          Codealong does: it leaves Review requested, the floating bar's reviews and the
+          mark until WHEN, waiting under Snoozed, and is back then if it still asks for
+          your review. --wake ends it now. WHEN as `session snooze` takes it: 30m, 5pm,
+          tomorrow, fri 17:00. Needs the app running
   help    Print this message or the help of the given subcommand(s)
 
 Options:
@@ -2676,6 +2727,43 @@ Options:
 
       --json
           JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong pr snooze
+
+```
+Snooze your review of a PR that asks for it, as Snooze review in its menu in Codealong
+does: it leaves Review requested, the floating bar's reviews and the mark until WHEN,
+waiting under Snoozed, and is back then if it still asks for your review. --wake ends it
+now. WHEN as `session snooze` takes it: 30m, 5pm, tomorrow, fri 17:00. Needs the app
+running
+
+Usage: codealong pr snooze [OPTIONS] <PR> [WHEN]...
+
+Arguments:
+  <PR>
+          The PR: its URL, owner/name#number, or a number (#123) in the repo of the
+          current folder's worktree
+
+  [WHEN]...
+          When it comes back, in a word or a few: 30m, 2h, 5pm, tomorrow, tomorrow 2pm,
+          fri 17:00, next week, 2026-11-03 15:00
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --wake
+          Wake it now, ending its snooze
 
       --table
           Tables, even when piped

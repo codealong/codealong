@@ -4,7 +4,7 @@
 // the strip over its header, its details and the box that reviews it. It works through what waits
 // on you with the same keys as a session there, from the same code (queue.ts, useWaitingQueue.ts),
 // the reviews among the sessions in the bar's order (bar.ts `notchRows`): ⌘⏎ approves it and goes
-// on to the next that waits on you, ⌃⌘1 to ⌃⌘6 snooze the review and go on, ⌘] skips, and so on.
+// on to the next that waits on you, ⌃⌘1 to ⌃⌘7 snooze the review and go on, ⌘] skips, and so on.
 // Approved, commented on, asked for changes, snoozed or handed to a review session, the PR leaves
 // what waits on you and the next takes its place; with none left the notch closes.
 //

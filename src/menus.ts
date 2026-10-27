@@ -21,7 +21,7 @@ import { EDITS, HARNESS_WORD, MOVES_ACCOUNTS, MOVES_FOLDERS, renames } from './h
 import { chromeLabel, openLabel } from './open';
 import { closable, exitsItsOwnWay, seenable, stoppable, unreadable } from './lanes';
 import { chordPressed, QUEUE_CHORDS, type Key } from './queue';
-import { reviewsSnoozeMenu, SNOOZE_CHORDS, snoozeChordIndex, snoozeMenu } from './snooze';
+import { reviewsSnoozeMenu, SNOOZE_CHORDS, snoozeChordIndex, snoozeChorded as timeChorded, snoozeMenu } from './snooze';
 import { rememberResumed, resumeAccount, resumedIn } from './start';
 import { accountOf, startAccountsNow } from './startAccounts';
 import { reviewChange, STATUSES, STATUS_WORD, todosPrompt, waitingChange, type TodoOp } from './todos';
@@ -1063,7 +1063,7 @@ export function suggestionChord(e: Key): number | null {
   return index >= 0 ? index : null;
 }
 
-// Snoozing has a chord for each of its times, ⌃⌘1 to ⌃⌘6 (snooze.ts `SNOOZE_CHORDS`), which its
+// Snoozing has a chord for each of its times, ⌃⌘1 to ⌃⌘7 (snooze.ts `SNOOZE_CHORDS`), which its
 // menu shows beside them. The keys for getting from one session to the next are queue.ts
 // `QUEUE_CHORDS`, written the same way.
 const CTRL_CMD = 'Ctrl+Cmd+';
@@ -1087,8 +1087,7 @@ export function chordLetter(key: string): boolean {
  *  that isn't one of them. */
 function snoozeChorded(actions: SessionActions | SessionsActions | LaneActions | LanesActions | PrActions | PrsActions, key: string): MenuAction | null {
   const snooze = 'snooze' in actions ? actions.snooze : undefined;
-  const it = snooze?.items[snoozeChordIndex(key)];
-  return it && it !== 'separator' && !('items' in it) ? it : null;
+  return snooze ? timeChorded(snooze, key) : null;
 }
 
 /** A chord as the keys' own signs, for a button that says it: `Ctrl+Cmd+W` is ⌃⌘W, and
@@ -1147,7 +1146,7 @@ export interface PrActions {
 /** A PR card's chords, written as `CHORDS` are. ⌘⏎ approves and goes on, as it sends a session's
  *  message and goes on; ⌥⌘⏎ comments; ⌃⌘R starts a review (Rename on a session, which a PR has
  *  no name for); ⌃⌘G opens it on GitHub. Asking for changes has no chord: it's not one to press
- *  by mistake. Snoozing has ⌃⌘1 to ⌃⌘6, as a session's does. */
+ *  by mistake. Snoozing has ⌃⌘1 to ⌃⌘7, as a session's does. */
 export const PR_CHORDS: Partial<Record<keyof PrActions, string>> = { approve: 'Cmd+Enter', comment: 'Alt+Cmd+Enter', review: 'Ctrl+Cmd+R', github: 'Ctrl+Cmd+G' };
 
 /** The action a chord runs among a PR card's (`PR_CHORDS`, and the snooze digits), when it

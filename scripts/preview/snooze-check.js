@@ -72,15 +72,23 @@
         var menu = lastMenu();
         var group = find(menu, 'Snooze');
         check('a session pill has a Snooze submenu', !!group && group.items, JSON.stringify(texts(menu)));
-        check('with six times', group && texts(group.items).join('|').indexOf('For 15 minutes|For 30 minutes|For 1 hour|For 3 hours|Until ') === 0, group && texts(group.items).join('|'));
-        var before = Date.now();
-        pick(find(group.items, 'For 1 hour'));
+        // 5 PM is offered until an hour before it.
+        check('with its times, and Pick a time…', group && /^For 15 minutes\|For 30 minutes\|For 1 hour\|For 3 hours\|(Until 5 PM\|)?Until [^|]+\|Until [^|]+\|Pick a time…$/.test(texts(group.items).join('|')), group && texts(group.items).join('|'));
+        pick(find(group.items, 'Pick a time…'));
         return wait(100).then(function () {
+          var asked = calls('show_main').pop();
+          var reveal = asked && asked[1] && asked[1].reveal;
+          check('Pick a time… asks the main window to snooze that session', !!reveal && reveal.kind === 'snooze' && reveal.keys.join() === pill.dataset.key && reveal.reviews === false, JSON.stringify(reveal));
+          check('and snoozes nothing itself', snoozes().length === 0, JSON.stringify(snoozes()));
+          var before = Date.now();
+          pick(find(group.items, 'For 1 hour'));
+          return wait(100).then(function () {
           var s = snoozes().pop();
           check('it snoozes that session for an hour', s && s.keys.join() === pill.dataset.key && Math.abs(s.until - before - 3600000) < 60000, JSON.stringify(s));
           asleep += 1;
           var snoozedPill = document.querySelector('.ca-hud .is-snoozed');
           check('and it leaves its group for the snoozed pill at once', !document.querySelector('.ca-hud [data-key="' + CSS.escape(pill.dataset.key) + '"]') && snoozedPill.textContent === asleep + ' snoozed', snoozedPill.textContent);
+          });
         });
       });
     })

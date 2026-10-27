@@ -24,7 +24,7 @@ use crate::boards::{self, BoardDoc, BoardOp, Rule};
 use crate::config::{self, AccountCfg, Config};
 use crate::engine;
 use crate::insights;
-use crate::model::{Board, Harness, Lane, Origin, PreviewServer, Reuse, Session, Status};
+use crate::model::{Board, Harness, Lane, Origin, PrState, PreviewServer, Reuse, Session, Status};
 use crate::procs;
 use crate::search;
 use crate::server::{self, Request};
@@ -603,6 +603,13 @@ enum SessionCmd {
     Suggest(SuggestArgs),
     /// Tag a session with your read of where it stands, in the words Codealong's rows use, after reading its conversation (`session transcript`): whether its last reply asks its user something, how far its code change got, whether what was asked for is done, how risky the call it waits on looks, and what a command it left running in the background does. Each shows on the session in Codealong as Jev's read does (Asks you, Landed, Pushed, Destructive, Looks finished…), over Jev's for the same moment, with who tagged it and the note; an orchestrator going over its sessions tags them so the user sees at a glance where each stands, with `[jev] sessions` on or off. Say only what you read: a field left out stays Jev's. Give --prompt-at the session's `lastPromptAt` as you read it: the tag is turned down if the user replied since, or while it takes a turn, and goes once anything is sent to it or a turn of its starts (`changes` says which, as `untagged`); tagging again replaces it, and --clear takes it away. The session's `insight` in `session show` and `sessions` is the read it shows now, Jev's, yours (`by`) or both.
     Tag(TagArgs),
+    /// Snooze a session, as Snooze in its menu in Codealong does: it leaves Needs you and Your turn on every device, and the mark stops counting it, until WHEN, when it's back as it is then (as Your turn when nothing else would bring it). A prompt sent to it ends the snooze, and --wake ends it now. WHEN is on this Mac's clock: a span from now (30m, 2h, 3d), a time (5pm, 17:30: the next one), a day (tomorrow, fri, next week, 2026-11-03: at 9 AM) or a day and a time (tomorrow 2pm, fri 17:00, 2026-11-03 15:00). A session on another device is snoozed on its Mac. Needs the app running.
+    Snooze {
+        /// The session: its key, its id, a unique start of its id, or `me`.
+        key: String,
+        #[command(flatten)]
+        when: SnoozeWhen,
+    },
     /// Name a session where its harness keeps names (Claude Code's /rename, a Codex thread's name, an OpenCode session's title), so the harness shows the name as Codealong does.
     Rename {
         /// The session: its key, its id, a unique start of its id, or `me`.
@@ -781,6 +788,34 @@ enum PrCmd {
     Nudge(PrNudgeArgs),
     /// Start an agent's review of a PR now, as Review with… does in the app: a round of Codealong's own reviews (Settings › Automation), whatever `[reviews] auto` says and of a commit reviewed already too, in a session of its own where `[reviews] start` says, its review posted where `[reviews] post` says (one of a PR of yours is kept and handed back to its primary session). That reviewer's session for the PR is asked again when it has one. Not while a round of it is under way. The answer names the round's session: `codealong session wait <key>` waits for its turn, and `codealong pr show <pr>` says where the review stands. Needs the app.
     Review(PrReviewArgs),
+    /// Snooze your review of a PR that asks for it, as Snooze review in its menu in Codealong does: it leaves Review requested, the floating bar's reviews and the mark until WHEN, waiting under Snoozed, and is back then if it still asks for your review. --wake ends it now. WHEN as `session snooze` takes it: 30m, 5pm, tomorrow, fri 17:00. Needs the app running.
+    Snooze {
+        /// The PR: its URL, owner/name#number, or a number (#123) in the repo of the current folder's worktree.
+        pr: String,
+        #[command(flatten)]
+        when: SnoozeWhen,
+    },
+}
+
+/// When a snooze ends (snoozewhen.rs), or Wake now.
+#[derive(Args, Debug)]
+struct SnoozeWhen {
+    /// When it comes back, in a word or a few: 30m, 2h, 5pm, tomorrow, tomorrow 2pm, fri 17:00, next week, 2026-11-03 15:00.
+    #[arg(required_unless_present = "wake", conflicts_with = "wake")]
+    when: Vec<String>,
+    /// Wake it now, ending its snooze.
+    #[arg(long)]
+    wake: bool,
+}
+
+impl SnoozeWhen {
+    /// When the snooze ends, or none for --wake.
+    fn until(&self) -> Result<Option<i64>> {
+        if self.wake {
+            return Ok(None);
+        }
+        crate::snoozewhen::until(&self.when.join(" "), crate::util::now_ms(), &crate::schedules::rule::Local).map(Some).map_err(|e| anyhow!(e))
+    }
 }
 
 #[derive(Args, Debug)]
@@ -1799,6 +1834,7 @@ fn run(cmd: Cmd, c: &mut Client, json: bool) -> Result<()> {
         Cmd::Session { cmd: SessionCmd::Wait(a) } => session_wait(c, &a, json),
         Cmd::Session { cmd: SessionCmd::Suggest(a) } => session_suggest(c, a, json),
         Cmd::Session { cmd: SessionCmd::Tag(a) } => session_tag(c, a, json),
+        Cmd::Session { cmd: SessionCmd::Snooze { key, when } } => session_snooze(c, &key, &when, json),
         Cmd::Session { cmd: SessionCmd::Rename { key, name } } => session_act(c, &key, api::SESSION_RENAME, params::Rename { name, ..Default::default() }, json),
         Cmd::Session { cmd: SessionCmd::Fork { key, prompt, from: Some(cursor) } } => session_act(c, &key, api::SESSION_EDIT, params::Edit { cursor, prompt: prompt.unwrap_or_default(), ..Default::default() }, json),
         Cmd::Session { cmd: SessionCmd::Fork { key, prompt, from: None } } => session_act(c, &key, api::SESSION_FORK, params::Fork { prompt: prompt.unwrap_or_default(), ..Default::default() }, json),
@@ -1813,6 +1849,7 @@ fn run(cmd: Cmd, c: &mut Client, json: bool) -> Result<()> {
         Cmd::Pr { cmd: PrCmd::Unlink(a) } => pr_link(c, &a, false, json),
         Cmd::Pr { cmd: PrCmd::Nudge(a) } => pr_nudge(c, &a, json),
         Cmd::Pr { cmd: PrCmd::Review(a) } => pr_review(c, &a, json),
+        Cmd::Pr { cmd: PrCmd::Snooze { pr, when } } => pr_snooze(c, &pr, &when, json),
         Cmd::Preview { cmd: PreviewCmd::Show(a) } => preview_show(c, &a.worktree, json),
         Cmd::Preview { cmd: PreviewCmd::Set(a) } => {
             // What's left out stays: the URL set (and its port, unless one is given), and the worktree's own profile.
@@ -3556,6 +3593,64 @@ fn session_act(c: &mut Client, key: &str, name: &str, params: impl Serialize, js
         println!("The copy: {copy}");
     }
     Ok(())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SnoozeOut {
+    /// The session's key, or the PR's `owner/name#number`.
+    key: String,
+    /// When it comes back (ms since the epoch), or null once woken.
+    until: Option<i64>,
+    said: String,
+}
+
+impl SnoozeOut {
+    fn print(self, json: bool) -> Result<()> {
+        if json {
+            return print_json(&self);
+        }
+        println!("{}", self.said);
+        Ok(())
+    }
+}
+
+/// How a snooze went, in a sentence: `Snoozed until Fri 9 AM.`, or `Woken.`
+fn snooze_said(until: Option<i64>) -> String {
+    let now = crate::util::now_ms();
+    until.map_or_else(|| "Woken.".to_string(), |t| format!("Snoozed until {}.", crate::snoozewhen::words_at(t, now, &crate::schedules::rule::Local)))
+}
+
+/// `session snooze`: through the app, which keeps snoozes (a board read here would drop it:
+/// `engine::Handle::over`) and brings the session back when its time comes.
+fn session_snooze(c: &mut Client, key: &str, when: &SnoozeWhen, json: bool) -> Result<()> {
+    let until = when.until()?;
+    if c.app.is_none() {
+        bail!("Snoozing needs the Codealong app running: it keeps the snooze, and brings the session back when it ends.");
+    }
+    let key = resolve_session(c, key)?;
+    // Another device's session is snoozed there, by the key its Mac knows it by.
+    let own = crate::peerfeed::split_remote(&key).map_or(key.as_str(), |(_, own)| own).to_string();
+    c.act(api::SESSION_SNOOZE, &key, params::Snooze { keys: vec![own], until }, None)?;
+    SnoozeOut { key, until, said: snooze_said(until) }.print(json)
+}
+
+/// `pr snooze`: your review of a PR that asks for it, as its menu offers Snooze review only then.
+/// Waking one is fine whatever it asks now.
+fn pr_snooze(c: &mut Client, pr: &str, when: &SnoozeWhen, json: bool) -> Result<()> {
+    let until = when.until()?;
+    let key = resolve_pr(c, pr)?;
+    if c.app.is_none() {
+        bail!("Snoozing needs the Codealong app running: it keeps the snooze, and PRs come through it.");
+    }
+    let board = c.board()?;
+    let p = find_pr(board, &key).ok_or_else(|| anyhow!("Codealong doesn't read {key}: its repo isn't in a project, or it's closed and older than GitHub's recent list."))?;
+    let key = p.key.clone();
+    if until.is_some() && (!p.review_requested || matches!(p.state, PrState::Merged | PrState::Closed)) {
+        bail!("{key} doesn't ask for your review, so there's no review of it to snooze.");
+    }
+    c.act(api::PR_SNOOZE, &key, params::Snooze { keys: vec![key.clone()], until }, None)?;
+    SnoozeOut { key, until, said: snooze_said(until) }.print(json)
 }
 
 /// `session done`: asked as the session running the command, which the app holds to what an
@@ -6850,6 +6945,16 @@ mod tests {
         assert!(matches!(Cli::try_parse_from(["codealong", "session", "stop", "me"]).unwrap().cmd, Cmd::Session { cmd: SessionCmd::Stop { ref key } } if key == "me"));
         assert!(matches!(Cli::try_parse_from(["codealong", "session", "done", "me"]).unwrap().cmd, Cmd::Session { cmd: SessionCmd::Done { ref key } } if key == "me"));
         assert!(matches!(Cli::try_parse_from(["codealong", "session", "pending", "abc"]).unwrap().cmd, Cmd::Session { cmd: SessionCmd::Pending { .. } }));
+        // A snooze's time is the words after the session, quoted or not; --wake takes none.
+        let cli = Cli::try_parse_from(["codealong", "session", "snooze", "abc", "tomorrow", "2pm"]).unwrap();
+        assert!(matches!(cli.cmd, Cmd::Session { cmd: SessionCmd::Snooze { ref key, ref when } } if key == "abc" && when.when == ["tomorrow", "2pm"] && !when.wake));
+        assert!(matches!(Cli::try_parse_from(["codealong", "session", "snooze", "abc", "--wake"]).unwrap().cmd, Cmd::Session { cmd: SessionCmd::Snooze { ref when, .. } } if when.wake && when.until().unwrap().is_none()));
+        assert!(Cli::try_parse_from(["codealong", "session", "snooze", "abc"]).is_err());
+        assert!(Cli::try_parse_from(["codealong", "session", "snooze", "abc", "5pm", "--wake"]).is_err());
+        let cli = Cli::try_parse_from(["codealong", "pr", "snooze", "northwind/app#12", "30m"]).unwrap();
+        let Cmd::Pr { cmd: PrCmd::Snooze { pr, when } } = cli.cmd else { panic!() };
+        assert_eq!(pr, "northwind/app#12");
+        assert!(when.until().unwrap().is_some_and(|t| t > crate::util::now_ms()));
         // A tag says each thing by the board's names, and needs the prompt that was read.
         let cli = parse_from(["codealong", "session", "tag", "abc", "--landing", "pushed", "--finished", "yes", "--asks-you", "no", "--risk", "2", "--background", "polling", "--prompt-at", "4", "--note", "PR #12 is up"]).unwrap();
         assert!(matches!(cli.cmd, Cmd::Session { cmd: SessionCmd::Tag(ref a) } if a.landing.as_deref() == Some("pushed") && a.finished == Some(true) && a.asks_you == Some(false) && a.risk == Some(2) && a.background.as_deref() == Some("polling") && a.prompt_at == Some(4)));

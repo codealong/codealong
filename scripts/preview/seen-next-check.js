@@ -237,7 +237,13 @@
       var chords = window.__CODEALONG_CHORDS__;
       var esc = function (text) { return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); };
       var item = function (label, chord) { return label + '=' + esc(chord); };
-      var snoozes = ['For 15 minutes', 'For 30 minutes', 'For 1 hour', 'For 3 hours', 'Until [^=]+', 'Until [^=]+'].map(function (label, i) { return item(label, chords.snooze[i]) + ', '; }).join('');
+      // 5 PM's, the fifth, only until an hour before it.
+      var snoozes = ['For 15 minutes', 'For 30 minutes', 'For 1 hour', 'For 3 hours', 'Until 5 PM', 'Until [^=]+', 'Until [^=]+']
+        .map(function (label, i) {
+          var it = item(label, chords.snooze[i]) + ', ';
+          return i === 4 ? '(' + it + ')?' : it;
+        })
+        .join('');
       // Its folder's new terminal first, where it has a folder, by the terminal's name in the
       // Open folder in submenu, or in an item of its own when there's no editor. The first was
       // marked seen, so its menu has no Mark as seen, and has Mark as unread in its place. Whether

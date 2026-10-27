@@ -1001,18 +1001,21 @@ describe('actions by name', () => {
     expect(chorded(sessionActions(lane(), session(), base), { key: 'r', code: '', metaKey: true, ctrlKey: true, altKey: false, shiftKey: false })).toBeNull();
   });
 
-  it('snoozes on ⌃⌘1 to ⌃⌘6, one for each of the menu’s times, and shows them there', () => {
+  it('snoozes on ⌃⌘1 to ⌃⌘7, one for each of the menu’s times, and shows them there', () => {
     const left: string[] = [];
     const can: SessionCan = { ...base, keys: 'chords', left: (done) => left.push(done) };
     const acts = sessionActions(lane(), session(), can);
     const times = (acts.snooze?.items ?? []).flatMap((i) => (i !== 'separator' && !('items' in i) ? [i] : []));
-    expect(times.map((i) => i.accelerator)).toEqual(['Ctrl+Cmd+1', 'Ctrl+Cmd+2', 'Ctrl+Cmd+3', 'Ctrl+Cmd+4', 'Ctrl+Cmd+5', 'Ctrl+Cmd+6']);
+    // The times say their chords (5 PM's only while it's offered), and Pick a time… none.
+    const chords = times.map((i) => i.accelerator);
+    expect(chords.slice(0, 4)).toEqual(['Ctrl+Cmd+1', 'Ctrl+Cmd+2', 'Ctrl+Cmd+3', 'Ctrl+Cmd+4']);
+    expect(chords.slice(-3)).toEqual(['Ctrl+Cmd+6', 'Ctrl+Cmd+7', undefined]);
     const press = (key: string, ctrl = true) => chorded(acts, { key, code: '', metaKey: true, ctrlKey: ctrl, altKey: false, shiftKey: false });
     expect(press('1')).toBe(times[0]);
-    expect(press('6')).toBe(times[5]);
-    // ⌘1 opens things, and there's no seventh time.
+    expect(press('7')).toBe(times[times.length - 2]);
+    // ⌘1 opens things, and there's no eighth time.
     expect(press('1', false)).toBeNull();
-    expect(press('7')).toBeNull();
+    expect(press('8')).toBeNull();
     setPlatform('linux');
     try {
       expect(chorded(acts, { key: '3', code: 'Digit3', metaKey: false, ctrlKey: true, altKey: true, shiftKey: false })).toBe(times[2]);
@@ -1022,7 +1025,7 @@ describe('actions by name', () => {
     expect(keyed(acts, '2', true)).toEqual({ id: 'snooze', action: times[1] });
     expect(keyed(acts, '2')).toBeNull();
     expect(chordLetter('3')).toBe(true);
-    expect(chordLetter('7')).toBe(false);
+    expect(chordLetter('8')).toBe(false);
     press('2')?.run();
     expect(left).toEqual(['snoozed']);
     // Where no window takes the chords, the menu doesn't show them; one that can't be snoozed has none.

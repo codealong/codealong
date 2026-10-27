@@ -5,7 +5,7 @@
 // with what's commonly done to the PR as buttons that say their keys, the box at its foot that
 // reviews it, the PR's menu on a right-click, and its chords (menus.ts `PR_CHORDS`): ⌘⏎
 // approves it with what's in the box and goes on, as it sends a session's message and goes on;
-// ⌥⌘⏎ comments; ⌃⌘1 to ⌃⌘6 snooze the review; ⌃⌘R starts a review on an account (review.ts);
+// ⌥⌘⏎ comments; ⌃⌘1 to ⌃⌘7 snooze the review; ⌃⌘R starts a review on an account (review.ts);
 // ⌃⌘G opens it on GitHub. Asking for changes is a button in the box, with no key to press by
 // mistake, and needs something written, as a comment does. It draws at the zoom, and ⌘= ⌘- ⌘0
 // zoom it, as a session's card (SessionCard.tsx).

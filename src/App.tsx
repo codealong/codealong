@@ -36,6 +36,7 @@ import { SetupDialog } from './ui/SetupDialog';
 import { UsageDialog } from './ui/UsageDialog';
 import { PreviewDialog } from './ui/PreviewBits';
 import { RenameDialog } from './ui/RenameDialog';
+import { SnoozeDialog } from './ui/SnoozeDialog';
 import { MergeDoneDialog } from './ui/MergeDone';
 import type { HelperActions } from './ui/HelpersCard';
 import { Button, cx, Icon, Kbd, Seg } from './ui/primitives';
@@ -80,7 +81,7 @@ import { useNow } from './ui/useNow';
 import { reloadWindow } from './reload';
 import { errorText } from './report';
 import { afterStop } from './training';
-import { reviewSnoozeMenu } from './snooze';
+import { askWords, reviewSnoozeMenu, type SnoozeAsk } from './snooze';
 import { useSessionHistory } from './history';
 import { QUEUE_CHORDS } from './queue';
 import { SESSION_READS, shownSession as queueShown, useWaitingQueue } from './useWaitingQueue';
@@ -382,6 +383,9 @@ export function App() {
   const [previewFor, setPreviewFor] = useState<string | null>(null);
   // The session being renamed (ui/RenameDialog.tsx), by key.
   const [renaming, setRenaming] = useState<string | null>(null);
+  // What Pick a time… in a Snooze menu, in this window or another, asked to snooze
+  // (ui/SnoozeDialog.tsx).
+  const [snoozing, setSnoozing] = useState<SnoozeAsk | null>(null);
   // The worktrees Clean up worktree… asks about (ui/CleanUpDialog.tsx).
   const [cleaning, setCleaning] = useState<Lane[] | null>(null);
   // The session and PR Merge and done… asks about (ui/MergeDone.tsx).
@@ -1028,6 +1032,11 @@ export function App() {
     if (r.kind === 'view') {
       const to = views.find((v) => v.id === r.view);
       if (to) setView(to.id);
+      return;
+    }
+    // Pick a time… in a Snooze menu: the window it was in is left as it is, and this one asks.
+    if (r.kind === 'snooze') {
+      setSnoozing({ keys: r.keys, reviews: r.reviews });
       return;
     }
     setRevealed((n) => n + 1);
@@ -2703,6 +2712,7 @@ export function App() {
       {previewLane && <PreviewDialog lane={previewLane} onClose={() => setPreviewFor(null)} />}
       {cleaning && <CleanUpDialog lanes={cleaning} onClose={() => setCleaning(null)} onDone={setToast} />}
       {renamed && <RenameDialog lane={renamed.lane} session={renamed.session} onClose={() => setRenaming(null)} onFailed={setToast} />}
+      {snoozing && <SnoozeDialog ask={snoozing} what={askWords(snoozing, (key) => homeOf([...(board?.lanes ?? []), ...deviceLanes], key)?.session.title)} onClose={() => setSnoozing(null)} onFailed={setToast} />}
       {mergingDone && <MergeDoneDialog ask={mergingDone} onClose={() => setMergingDone(null)} />}
       {scheduleEdit && board && <ScheduleDialog schedule={scheduleEdit} board={board} devices={devices} now={now} onClose={() => setScheduleEdit(null)} onSaved={setScheduleId} />}
       {boardEdit && <BoardDialog board={boardEdit.board} project={current} onSave={saveBoard} onClose={() => setBoardEdit(null)} {...ruleChoices} />}

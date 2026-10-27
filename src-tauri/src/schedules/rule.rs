@@ -248,7 +248,7 @@ fn days_in_a_row(rule: &Rule) -> bool {
 
 /// A time of day as written: `9`, `9am`, `9:30`, `09:30pm`, `21:15`, `noon`, `midnight`. `pm`
 /// may come as the next word, which says how many words it took.
-fn time_of_day(word: &str, next: Option<&str>) -> Option<(i64, usize)> {
+pub(crate) fn time_of_day(word: &str, next: Option<&str>) -> Option<(i64, usize)> {
     match word {
         "noon" => return Some((12 * 60, 1)),
         "midnight" => return Some((0, 1)),

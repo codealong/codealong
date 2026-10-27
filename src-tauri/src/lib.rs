@@ -104,6 +104,7 @@ mod skills;
 mod sounds;
 mod server;
 mod snapshot;
+mod snoozewhen;
 mod stale;
 mod start;
 mod starts;

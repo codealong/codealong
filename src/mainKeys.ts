@@ -452,7 +452,7 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
   }
   // P, A and R run the selected row's menu actions (menus.ts `KEYS`), plain outside Sessions and
   // with ⌃⌘ anywhere, so each applies where the menu's would; ⌃⌘W closes a session's terminal
-  // and ⌃⌘1 to ⌃⌘6 snooze it for one of its menu's times, which no letter alone does. P pins what's
+  // and ⌃⌘1 to ⌃⌘7 snooze it for one of its menu's times, which no letter alone does. P pins what's
   // selected: a session, or a worktree's heading in Sessions grouped by worktree. E, below, marks
   // seen more than one session at once.
   if (((!mod && letters) || chord) && selected && selected.kind !== 'pr' && selected.kind !== 'todo') {
@@ -465,8 +465,8 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
       return;
     }
   }
-  // ⌃⌘1 to ⌃⌘6 snooze, and nothing else: on a row that can't be snoozed they don't fall
-  // through to ⌘1 to ⌘6, which open things.
+  // ⌃⌘1 to ⌃⌘7 snooze, and nothing else: on a row that can't be snoozed they don't fall
+  // through to ⌘ and the same digit, which open things.
   if (chord && snoozeChordIndex(key) >= 0) {
     e.preventDefault();
     return;
