@@ -248,9 +248,10 @@ Mac)", "(your phone)", "(“Kestrel lead”, with the codealong command)". A mov
 Send now on a message Claude Code holds (which stops the step it's on) and a call denied say so
 too. Each of those is written to `~/Library/Logs/Codealong/stops.log` (on Linux,
 `~/.local/state/codealong/stops.log`): when, what, the session, who asked and how it went; so is
-Mark as done on a session whose turn runs, which stops the turn, closes its terminal or stops its
-background job. A stop with no line there came from somewhere else: a key in its terminal, or
-Claude Code's Remote Control.
+Mark as done on a session with work under way (a turn running or waiting on you, or a command left
+running), which stops the turn, closes its terminal or stops its background job. Denying a message
+held for you isn't one, since the turn goes on. A stop with no line there came from somewhere
+else: a key in its terminal, or Claude Code's Remote Control.
 
 #### Seen and unread
 

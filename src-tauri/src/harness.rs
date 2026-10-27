@@ -281,6 +281,13 @@ pub trait Adapter: Sync {
         bail!("Answer it in {}: Codealong can't answer it from here.", self.harness().word())
     }
 
+    /// Whether denying the pending request `id` ends the turn, as a stop does, so it goes in
+    /// stops.log: a call's prompt answered No does; something the turn goes on past (a message
+    /// held for you) doesn't.
+    fn deny_stops(&self, _id: &str) -> bool {
+        true
+    }
+
     /// Denies the pending request `id` and tells it `words` in the same answer, as what to do
     /// instead, so it goes on with them in the turn it's taking. None where the harness can't
     /// take words with a deny: actions.rs then denies it and sends them once it no longer waits.

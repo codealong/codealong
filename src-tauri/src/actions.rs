@@ -714,7 +714,7 @@ fn answer_here(engine: &Handle, c: &Call) -> Result<Value, String> {
     }
     if acp::hosts(key) {
         // A session Codealong runs takes a message while it waits, after its current turn.
-        let said = noting_deny(engine, c, key, answer, || acp::answer(key, &id, answer)).map_err(words)?;
+        let said = noting_deny(engine, c, key, answer == api::Answer::Deny, || acp::answer(key, &id, answer)).map_err(words)?;
         return match saying {
             Some(m) => sent_after(engine, c, key, m, &said),
             None => Ok(Value::String(said)),
@@ -724,28 +724,29 @@ fn answer_here(engine: &Handle, c: &Call) -> Result<Value, String> {
     let (s, account) = harness::find(&board, &cfg, key).map_err(words)?;
     let ctx = harness::Ctx { account };
     let adapter = harness::adapter(s.harness);
+    let stops_it = answer == api::Answer::Deny && adapter.deny_stops(&id);
     if let Some(m) = saying {
         if let Some(said) = adapter.deny_saying(&ctx, s, &id, m).map_err(words)? {
             note_talking(engine, c, key);
             return Ok(Value::String(said));
         }
-        let said = noting_deny(engine, c, key, answer, || adapter.answer(&ctx, s, &id, answer)).map_err(words)?;
+        let said = noting_deny(engine, c, key, stops_it, || adapter.answer(&ctx, s, &id, answer)).map_err(words)?;
         return sent_after(engine, c, key, m, &said);
     }
     match answers {
         Some(a) => adapter.answer_questions(&ctx, s, &id, &a),
-        None => noting_deny(engine, c, key, answer, || adapter.answer(&ctx, s, &id, answer)),
+        None => noting_deny(engine, c, key, stops_it, || adapter.answer(&ctx, s, &id, answer)),
     }
     .map(Value::String)
     .map_err(words)
 }
 
-/// Answers the call of the session `key` as `act` does, and logs a deny in stops.log as soon as
-/// it's made: pressed as its prompt's No it ends the turn, as a stop does. What's sent after it
-/// (`sent_after`) isn't part of it. A deny whose words a hook carries (`Adapter::deny_saying`)
-/// lets the turn go on, so it isn't logged.
-fn noting_deny<E: std::fmt::Display>(engine: &Handle, c: &Call, key: &str, answer: api::Answer, act: impl FnOnce() -> Result<String, E>) -> Result<String, E> {
-    if answer != api::Answer::Deny {
+/// Answers the call of the session `key` as `act` does, and logs it in stops.log as it's made
+/// when it's a deny that ends the turn (`stops_it`, `Adapter::deny_stops`), as a prompt's No does.
+/// What's sent after it (`sent_after`) isn't part of it. A deny whose words a hook carries
+/// (`Adapter::deny_saying`) lets the turn go on, so it isn't logged.
+fn noting_deny<E: std::fmt::Display>(engine: &Handle, c: &Call, key: &str, stops_it: bool, act: impl FnOnce() -> Result<String, E>) -> Result<String, E> {
+    if !stops_it {
         return act();
     }
     let board = engine.board();
@@ -1403,7 +1404,7 @@ fn helpers_done_words(done: usize, left: usize) -> Option<String> {
 
 /// Ends a session as `ends` says: what ended, and what's worth saying besides (why nothing did,
 /// or what didn't go). `who` asked, for stops.log: closing its terminal, stopping its job or
-/// stopping its turn while the turn runs is a stop (`stopping`).
+/// stopping its turn while work is under way is a stop (`stopping`).
 fn end(s: &crate::model::Session, account: &config::AccountCfg, ends: crate::idle::Ending, who: &str) -> (Option<String>, Option<String>) {
     use crate::idle::{Ending, Exited};
     let ctx = harness::Ctx { account };
@@ -1448,9 +1449,10 @@ fn end(s: &crate::model::Session, account: &config::AccountCfg, ends: crate::idl
 }
 
 /// Does `act`, which ends the session `s`, and logs it as Mark as done's stop in stops.log when
-/// it ends a turn that's running (`idle::ending` ends one only when asked to stop it). `who` asked.
+/// it ends work under way: a turn running, one waiting on you to allow a call, or a command its
+/// turn left running. `who` asked.
 fn stopping<T, E: std::fmt::Display>(s: &crate::model::Session, who: &str, act: impl FnOnce() -> Result<T, E>) -> Result<T, E> {
-    if harness::turn_running(s) {
+    if s.live && (harness::turn_running(s) || send::waits_on_you(s) || s.background.is_some()) {
         stops::noted(Stop::Done, &s.key, &s.title, who, act)
     } else {
         act()

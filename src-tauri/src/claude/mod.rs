@@ -316,6 +316,11 @@ impl crate::harness::Adapter for ClaudeCode {
         Some(crate::harness::Pending { id: call.id.clone().unwrap_or_default(), label: call.text, input: call.input, cannot, always: false, no_once: false, plan, message: false, always_rule: None, questions: Vec::new(), unwritten: false, terminal: None })
     }
 
+    /// A held message denied is dropped while the turn goes on (held.rs).
+    fn deny_stops(&self, id: &str) -> bool {
+        !id.starts_with(HELD_ID)
+    }
+
     fn answer(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, id: &str, answer: crate::harness::Answer) -> anyhow::Result<String> {
         if let Some(held) = id.strip_prefix(HELD_ID) {
             return answer_held(self, ctx, s, held, answer);
@@ -1894,6 +1899,16 @@ fn holds_in(mode: Option<&str>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// What stops.log takes for a stop: a call's prompt denied and Send now, which both end the
+    /// step the turn is on, but not a held message denied, which the turn goes on past.
+    #[test]
+    fn a_deny_stops_the_turn_but_a_held_message_denied_doesnt() {
+        use crate::harness::Adapter;
+        assert!(ClaudeCode.deny_stops("toolu_01"));
+        assert!(!ClaudeCode.deny_stops(&format!("{HELD_ID}6f1c")));
+        assert!(ClaudeCode.steer_queued_stops());
+    }
 
     /// The sessions Codealong runs sign in as the account's terminal sessions do: `~/.claude` is
     /// never named, and another folder always is.
