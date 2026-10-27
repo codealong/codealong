@@ -1239,18 +1239,19 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
       </div>
     );
   }
-  // A held message that can only be answered where it runs still shows here, to read first.
-  if (pending?.cannot && pending.message) {
+  // A held message or a call that can only be answered where it runs still shows here, to read
+  // first: the Claude app's own approvals (its browser's sites) are answered only there.
+  if (pending?.cannot) {
     return (
       <div className="ca-composer is-approval is-elsewhere">
         <div className="ca-approval-head">
-          <Icon name="message-circle" size={14} />
-          <span>Holds a message for you</span>
+          <Icon name={pending.message ? 'message-circle' : 'alert'} size={14} />
+          <span>{pending.message ? 'Holds a message for you' : 'Wants to run'}</span>
         </div>
         <div className="ca-approval-label">
           <Rich text={pending.label} now={0} />
         </div>
-        {pending.input && <Plan session={s} text={pending.input} />}
+        {pending.input && pending.input !== pending.label && (pending.message ? <Plan session={s} text={pending.input} /> : <CodeBlock text={pending.input} className="ca-approval-input" />)}
         <div className="ca-composer-foot">
           <span className="ca-composer-note" title={pending.cannot}>
             {note?.text ?? `${pending.cannot} Answer it in ${where}.`}
@@ -1262,13 +1263,10 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
       </div>
     );
   }
-  if (!pending || pending.cannot) {
+  if (!pending) {
     return (
       <div className="ca-composer is-waiting">
-        <span>
-          {note?.text ?? `It’s waiting on you. Answer it in ${where}.`}
-          {pending?.cannot ? ` ${pending.cannot}` : ''}
-        </span>
+        <span>{note?.text ?? `It’s waiting on you. Answer it in ${where}.`}</span>
         <Button size="sm" icon="arrow-up-right" onClick={onOpen}>
           Open
         </Button>

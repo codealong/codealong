@@ -48,9 +48,13 @@ pub fn claude_busy_since(reg: Option<&RegistryEntry>, tr: Option<&TranscriptInfo
     Some([tr.map(|t| t.last_ts), r.status_updated_at].into_iter().flatten().max().unwrap_or(0))
 }
 
-/// What the engine found outside the transcript for a busy session that has gone quiet.
+/// What the engine found outside the transcript for a busy session that has gone quiet, or
+/// waits on the Claude app.
 #[derive(Default)]
 pub struct Quiet<'a> {
+    /// An approval the Claude app asks for itself (claude/applog.rs), which Claude Code's
+    /// registry doesn't know of: it says busy while the call the app asks about runs.
+    pub app_ask: Option<&'a crate::claude::applog::Ask>,
     /// The newest write to the session's subagent logs.
     pub subagent_at: Option<i64>,
     /// The command its shell is running, from the process table: for a quiet busy session, and
@@ -264,11 +268,13 @@ pub fn claude_session(
         .filter(|(r, t)| matches!(r.status.as_str(), "idle" | "shell") && t.compacted.is_some())
         .map(|(r, t)| RegistryEntry { status_updated_at: Some(t.active_at()), ..r.clone() });
     let reg = restarted.as_ref().or(compacted.as_ref()).or(reg);
+    // An approval up in the Claude app is what a busy session waits on, however long it's quiet.
+    let app_ask = quiet.app_ask.filter(|_| reg.is_some_and(|r| r.status == "busy"));
     // The registry doesn't refresh while a session is busy; its transcript, status changes and
     // subagent logs do. Stuck mid-turn, it can't go on without you.
     let stalled_since = claude_busy_since(reg, tr)
         .map(|t| t.max(quiet.subagent_at.unwrap_or(0)))
-        .filter(|t| now - t > CLAUDE_STALL_MS);
+        .filter(|t| now - t > CLAUDE_STALL_MS && app_ask.is_none());
     let background = reg.is_some_and(|r| r.status == "shell");
     let left_running = background && quiet.background_active_at.is_some_and(|t| now - t >= BACKGROUND_QUIET_MS);
     let status = match reg {
@@ -276,7 +282,7 @@ pub fn claude_session(
         // still yours to read for a while.
         None if tr.map(TranscriptInfo::active_at).is_some_and(|t| t > seen_at && now - t < CLAUDE_UNSEEN_STOPPED_MS) => Status::Unread,
         None => Status::Stopped,
-        Some(_) if stalled_since.is_some() => Status::Needs,
+        Some(_) if stalled_since.is_some() || app_ask.is_some() => Status::Needs,
         Some(r) => match r.status.as_str() {
             "shell" if !left_running => Status::Working,
             "busy" => Status::Working,
@@ -334,6 +340,7 @@ pub fn claude_session(
                 None => format!("No activity for {{for:{t}}}"),
             })
         }
+        Status::Needs if app_ask.is_some() => app_ask.map(crate::claude::applog::Ask::label),
         // A background job's record says what it asks, which its transcript may not have yet.
         Status::Needs if reg.is_some_and(|r| r.asks.is_some()) => reg.and_then(|r| r.asks.as_deref()).map(asks_you),
         // A message held since its last call was made is what it waits on: a turn goes on under
@@ -3563,6 +3570,26 @@ mod tests {
         assert_eq!(busy.stalled_since, None);
     }
 
+    /// The Claude app's built-in browser asks before it reads a site, inside a call Claude Code
+    /// is still making: the session says busy, its transcript goes quiet, and it waits on you.
+    #[test]
+    fn an_approval_up_in_the_claude_app_needs_you() {
+        let a = acct("claude");
+        let mut t = tr();
+        t.last_ts = NOW - 12 * 3_600_000;
+        let r = reg("busy", NOW - DAY_MS);
+        let ask = crate::claude::applog::Ask { id: "a1".into(), session: "local_c3".into(), tool: "browser:screenshot".into(), site: Some("https://app.northwind.dev".into()), at: NOW - 12 * 3_600_000 };
+        let quiet = Quiet { app_ask: Some(&ask), ..Default::default() };
+        let s = claude_session(&a, Some(&r), Some(&t), 0, NOW, &quiet).unwrap();
+        assert_eq!((s.status, s.stalled_since), (Status::Needs, None), "waiting on you, not stuck");
+        assert_eq!(s.excerpt.as_deref(), Some("browser · screenshot · `app.northwind.dev`"));
+        // Asked right away, before the quiet that makes a session stuck.
+        t.last_ts = NOW - 5_000;
+        assert_eq!(claude_session(&a, Some(&r), Some(&t), 0, NOW, &quiet).unwrap().status, Status::Needs);
+        // Only while the turn runs: once it's over, the request went with it.
+        assert_eq!(claude_session(&a, Some(&reg("idle", NOW - 1_000)), Some(&t), 0, NOW, &quiet).unwrap().status, Status::Unread);
+    }
+
     fn insight(f: impl FnOnce(&mut SessionInsight)) -> SessionInsight {
         let mut i = SessionInsight::default();
         f(&mut i);
@@ -3917,7 +3944,7 @@ mod tests {
         let a = acct("claude2");
         let r = reg("shell", NOW - DAY_MS);
         let login = "spruce login --host https://app.spruce.example";
-        let at = |active_at| Quiet { subagent_at: None, running: Some(login), background_active_at: Some(active_at) };
+        let at = |active_at| Quiet { running: Some(login), background_active_at: Some(active_at), ..Quiet::default() };
         let busy = claude_session(&a, Some(&r), Some(&tr()), 0, NOW, &at(NOW - 60_000)).unwrap();
         assert_eq!(busy.status, Status::Working);
         let left = claude_session(&a, Some(&r), Some(&tr()), 0, NOW, &at(NOW - BACKGROUND_QUIET_MS)).unwrap();

@@ -14,6 +14,7 @@
 //! and what a session scheduled to wake itself (wakeups.rs). See .claude/rules/claude-code.md.
 
 pub mod app;
+pub mod applog;
 pub mod asks;
 mod builtin;
 mod conversation;
@@ -306,6 +307,9 @@ impl crate::harness::Adapter for ClaudeCode {
         if let Some((held, reg)) = waiting_hold(self, ctx, s) {
             return Some(held_pending(ctx, s, &held, &reg));
         }
+        if let Some(p) = app_pending(ctx, s) {
+            return Some(p);
+        }
         let (call, reg) = waiting_call(self, ctx, s)?;
         // A background job's prompt is answered through its account's background service, as a
         // held message is; a terminal's, by a key pressed there.
@@ -327,6 +331,9 @@ impl crate::harness::Adapter for ClaudeCode {
         }
         if id.starts_with(JOB_ASKS_ID) {
             return decline_job_questions(self, ctx, s, id, answer);
+        }
+        if id.starts_with(APP_ASK_ID) {
+            anyhow::bail!("{APP_ASKS} Answer it there.");
         }
         let decision = match answer {
             crate::harness::Answer::Allow => asks::Decision::Allow,
@@ -1229,6 +1236,7 @@ impl crate::harness::Reader for Reader {
         if !accounts.is_empty() {
             self.app_records.refresh(&app::records_dir());
             self.app_records_at = Some(Instant::now());
+            applog::refresh();
         }
         for a in accounts {
             let home = a.home_path();
@@ -1308,6 +1316,10 @@ impl crate::harness::Reader for Reader {
             self.app_records_at = Some(Instant::now());
             out.dirty |= self.app_records.refresh(&app::records_dir());
         }
+        // An approval the app asks for itself shows only in its log.
+        if !accounts.is_empty() {
+            out.dirty |= applog::refresh();
+        }
         out
     }
 
@@ -1376,7 +1388,8 @@ impl crate::harness::Reader for Reader {
                 _ => (None, None),
             };
             let background_active_at = background.and_then(|r| self.background.get(&r.pid)).filter(|w| Some(w.since) == background.and_then(|r| r.status_updated_at)).map(|w| w.active_at);
-            let quiet = board::Quiet { subagent_at, running: running.as_deref(), background_active_at };
+            let app_ask = reg.and_then(applog::up_for);
+            let quiet = board::Quiet { app_ask: app_ask.as_ref(), subagent_at, running: running.as_deref(), background_active_at };
             if let Some(mut s) = board::claude_session(a, reg, info, seen_at, now, &quiet) {
                 // Archived here until it's active again, or archived in the Claude app.
                 s.archived = look.archived_here(&key, s.last_activity) || app_archived.contains(id);
@@ -1670,6 +1683,33 @@ fn helper_name(log: &Path) -> Option<String> {
 
 /// How the id of a held message's request starts: the held line's uuid follows.
 const HELD_ID: &str = "held:";
+
+/// How the id of an approval the Claude app asks for itself starts: the app's id for it follows.
+const APP_ASK_ID: &str = "app:";
+
+/// Why Codealong can't answer an approval the Claude app asks for itself.
+const APP_ASKS: &str = "The Claude app asks this itself, not Claude Code, so only the app can answer it.";
+
+/// An approval the Claude app asks for itself for one of its sessions (applog.rs), which only the
+/// app can answer: the session waits on it while its registry says busy.
+fn app_pending(ctx: &crate::harness::Ctx, s: &crate::model::Session) -> Option<crate::harness::Pending> {
+    let reg = registry_of(&ctx.account.home_path(), s.pid?).filter(|r| r.session_id == s.id)?;
+    let ask = applog::up_for(&reg)?;
+    Some(crate::harness::Pending {
+        id: format!("{APP_ASK_ID}{}", ask.id),
+        label: ask.label(),
+        input: None,
+        cannot: Some(APP_ASKS.into()),
+        always: false,
+        no_once: false,
+        plan: false,
+        message: false,
+        always_rule: None,
+        questions: Vec::new(),
+        unwritten: false,
+        terminal: None,
+    })
+}
 
 /// The message a live session holds for you, while Claude Code's own record of it says it waits
 /// on a prompt, with that record. A call made since, in a session that asks about calls, may be

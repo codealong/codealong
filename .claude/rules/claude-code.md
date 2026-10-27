@@ -732,6 +732,10 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   `ssh_host`, `ssh_port`, `ssh_folder` and `source` are taken too. `file` is only logged, so a
   new Code session can't be handed images (`claude://cowork/new?file=` does take files). The
   Code tab takes images only from its own input box.
+- The approvals the app asks for itself (its built-in browser's sites, computer use), which leave
+  Claude Code's registry saying `busy` while they're up, and how its log, `main.log`, records them
+  as they're asked, answered and withdrawn: `claude/applog.rs` (module header, `Log::up_for`).
+  Before it, a session waiting on one read as stuck after 30 minutes (2026-10-27).
 - A Code session started without a folder runs in a scratch workspace the app makes for it and
   removes once the session is gone (2.9939's code): `claude/app.rs` (`scratch_dir`). The engine
   lists every such session in one lane (`engine.rs` `chat_roots`), and the app's

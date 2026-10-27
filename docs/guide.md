@@ -721,6 +721,10 @@ in a terminal is answered the same way, by a keypress there while its database s
 waits: Allow is its prompt's first choice (run the command, read the file) and Deny cancels the
 prompt, which ends its turn; its other choices (always, for the conversation or in its settings)
 are left to its terminal, since they're numbered differently from one prompt to another.
+The Claude app asks some approvals itself, inside a call Claude Code is still making: its built-in
+browser's, before it opens a site or reads one on a private network, and computer use's. Codealong
+reads them from the app's log, so the session shows *Needs approval* with what the app asks (the
+browser's tool and the site), not *Stuck*, and Open in Claude app takes you there to answer it.
 Questions a Claude Code session asks you
 (its `AskUserQuestion`) show the same way through the plugin, one at a time under a strip of their
 headers, each with its choices listed as Claude Code lists them, what each says about itself under it,
