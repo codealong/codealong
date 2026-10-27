@@ -71,6 +71,13 @@ export function workingFor(s: Pick<Session, 'helper' | 'headless' | 'origin'>): 
   return s.helper?.parent ?? (s.headless ? s.origin?.key : undefined);
 }
 
+/** The session Sessions lists `s` under when that's listed: the one it works for (`workingFor`),
+ *  else, with `started` (Sessions' Started sessions), the one whose agent started it as a
+ *  session of yours (`codealong start`, a task the Claude app offered). A fork stays apart. */
+export function listedUnder(s: Pick<Session, 'helper' | 'headless' | 'origin'>, started: boolean): string | undefined {
+  return workingFor(s) ?? (started && s.origin?.how === 'started' ? s.origin.key : undefined);
+}
+
 /** What Sessions keeps to list every headless run of a session under it (boardLists.ts
  *  `placeHelpers`'s `shown`), beside the session's own key for its helpers: a judge's runs come
  *  by the hundred, so listing its helpers doesn't list them too. */

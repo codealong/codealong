@@ -8,7 +8,7 @@
 import { useCallback, useMemo } from 'react';
 import type { DeviceFilter } from './devices';
 import { needsOn, withDevices, workingOn } from './devices';
-import { AGENT_BAY, bySession, byStatusTime, filterByAge, homeOf, type HelperGlance, inboxCounts, keptCopy, prNeedsWork, runsShownKey, sessionHomes, sideTitle, snoozedApart, unattended, workingFor, worktreeName, type BoardRow, type Filter, type LaneCopies, type Placed } from './lanes';
+import { AGENT_BAY, bySession, byStatusTime, filterByAge, homeOf, type HelperGlance, inboxCounts, keptCopy, listedUnder, prNeedsWork, runsShownKey, sessionHomes, sideTitle, snoozedApart, unattended, workingFor, worktreeName, type BoardRow, type Filter, type LaneCopies, type Placed } from './lanes';
 import type { Pins } from './pins';
 import type { RefKind } from './canvas/model';
 import { columnsOf, stageOfColumn, type BoardColumn, type BoardDoc, type Stage } from './boards/model';
@@ -19,7 +19,7 @@ import { scheduleProject } from './schedules';
 import type { Board, DevicesView, Label, Lane, PrItem, ProjectSummary, ScheduleItem, Session, TextHit, Todo } from './types';
 import type { ActionCounts } from './ui/ProjectSwitcher';
 import { prIsOpen, prPlace, prPlaces, prSections, waitsOnReview, type PrRowItem, type PrSort } from './ui/PrsView';
-import { groupedRows, groupSessions, helpersUnder, sessionSections, waitingQueue, type SessionItem, type SessionSort } from './ui/SessionsView';
+import { groupedRows, groupSessions, helpersUnder, sessionSections, waitingQueue, type SessionItem, type SessionSort, type StartedPlace } from './ui/SessionsView';
 import { groupRows, placeIn, type ListGroupBy } from './groups';
 
 const ELSEWHERE = 'Elsewhere';
@@ -549,12 +549,13 @@ const NONE: ReadonlySet<string> = new Set();
 const onNoBoard = (): boolean => false;
 
 /** A session and the ones Sessions lists it under, nearest first (lanes.ts `workingFor`): a run's
- *  session, a helper's, and so on up, as far as `all` has them and as deep as Sessions nests. */
-export function chainOf(item: SessionItem, all: readonly SessionItem[]): SessionItem[] {
+ *  session, a helper's, and so on up, as far as `all` has them and as deep as Sessions nests; with
+ *  `started`, a session's that started it too (`listedUnder`). */
+export function chainOf(item: SessionItem, all: readonly SessionItem[], started = false): SessionItem[] {
   const byKey = new Map(all.map((r) => [r.session.key, r]));
   const chain = [item];
   for (let i = 0; i < 4; i++) {
-    const up = workingFor(chain[chain.length - 1].session);
+    const up = listedUnder(chain[chain.length - 1].session, started);
     const parent = up ? byKey.get(up) : undefined;
     if (!parent || chain.includes(parent)) break;
     chain.push(parent);
@@ -941,6 +942,8 @@ export interface ListsInput {
   lanePins: Pins;
   prPins: Pins;
   sessionSort: SessionSort;
+  /** Whether a session another one started is listed under that one (SessionsView.tsx). */
+  sessionStarted: StartedPlace;
   /** Whether Sessions is grouped, and by what; the groups pinned (worktrees' or repos', as it
    *  is), and the groups opened past their fold. */
   sessionGroup: ListGroupBy;
@@ -971,7 +974,7 @@ export interface ListsInput {
 
 /** The lists, each kept while what it's made from stays the same. */
 export function useBoardLists(input: ListsInput) {
-  const { board, deviceLanes, devices, deviceFilter, project, loading, cutoff, since, now, query, said, filter, sessionPins, helpersShown, lanePins, prPins, sessionSort, sessionGroup, repoPins, openGroups, prGroup, openPrGroups, todoGroup, openTodoGroups, prSort, todoSort, showArchived, showDonePrs, todos, labels, facets, showDoneTodos, showArchivedTodos, shownBoard, columnOpen } = input;
+  const { board, deviceLanes, devices, deviceFilter, project, loading, cutoff, since, now, query, said, filter, sessionPins, helpersShown, lanePins, prPins, sessionSort, sessionStarted, sessionGroup, repoPins, openGroups, prGroup, openPrGroups, todoGroup, openTodoGroups, prSort, todoSort, showArchived, showDonePrs, todos, labels, facets, showDoneTodos, showArchivedTodos, shownBoard, columnOpen } = input;
 
   const projects = useMemo(() => projectsOf(board?.projects ?? [], deviceLanes), [board?.projects, deviceLanes]);
   const current = currentProject(project, projects, loading);
@@ -1015,16 +1018,18 @@ export function useBoardLists(input: ListsInput) {
   const sideGlancesOf = useCallback((k: string) => board?.sides?.[k], [board?.sides]);
   const shownSessionCount = useMemo(() => recentSessionCount(sessionItems, cutoff, sessionPins.set), [sessionItems, cutoff, sessionPins.set]);
   const pinnedRows = useMemo(() => inPinOrder(shownSessions, sessionPins.keys, (r) => r.session.key), [shownSessions, sessionPins.keys]);
-  // A pinned session's helpers go under it among the pinned ones, not among the rest.
-  const pinnedHelpers = useMemo(() => helpersUnder(shownSessions, sessionPins.set), [shownSessions, sessionPins.set]);
+  // A pinned session's helpers go under it among the pinned ones, not among the rest, and so do
+  // the sessions it started when they go under it.
+  const pinnedHelpers = useMemo(() => helpersUnder(shownSessions, sessionPins.set, sessionStarted), [shownSessions, sessionPins.set, sessionStarted]);
   const sessionSecs = useMemo(() => {
     const underPins = new Set([...pinnedHelpers.values()].flat().map((r) => r.session.key));
     return sessionSections(
       shownSessions.filter((r) => !sessionPins.set.has(r.session.key) && !underPins.has(r.session.key)),
       sessionSort,
       now,
+      sessionStarted,
     );
-  }, [shownSessions, sessionPins.set, pinnedHelpers, sessionSort, now]);
+  }, [shownSessions, sessionPins.set, pinnedHelpers, sessionSort, now, sessionStarted]);
   // Grouped by worktree or repo (SessionsView.tsx `groupSessions`): the pinned groups after the
   // pinned sessions, then each group under its first session's heading. A pinned group with no
   // session listed still shows while only the age narrows the list.

@@ -83,12 +83,13 @@ and size in every list, and none is cut off: on a row short of room a long name 
 chip, and the last chips drop out whole.
 
 Sessions, PRs and Todo list their rows alike: each row's status at the left, what it is, and its
-age at the right, with no lines between them. The bar over each of those lists has three groups of
+age at the right, with no lines between them. The bar over each of those lists has groups of
 icon buttons, each named in its tooltip. Sort by orders the list by status, as it starts, or
 newest first under the day each started, was opened or was added (Today, Yesterday, Last 7 days,
 Older), each row's age then saying when; Group by puts the rows under their worktrees or repos
 (see [Grouped by worktree or repo](#grouped-by-worktree-or-repo)); Rows puts each row on one line,
-as they start, or on two. Each list keeps its own choices. On
+as they start, or on two; and in Sessions, Started sessions says where a session another one
+started goes. Each list keeps its own choices. On
 one line a row leads with its title, then what it's doing or says while there's room, then its
 chips at the line's end, the last of them giving way first, then the title.
 
@@ -96,17 +97,18 @@ chips at the line's end, the last of them giving way first, then the title.
 
 Every session, under headings as the other views have them. Pinned ones come first in your order
 (drag or ⌃⌘↑ ⌃⌘↓). Drag any session up among them to pin it there,
-and a pinned one down to the rest to unpin it. The bar over the list has three groups of icon
+and a pinned one down to the rest to unpin it. The bar over the list has four groups of icon
 buttons, each named in its tooltip: Sort by, Group by (see [Grouped by worktree or
-repo](#grouped-by-worktree-or-repo)) and Rows. Sort by orders the rest: Status puts Needs you, Your turn and Working
+repo](#grouped-by-worktree-or-repo)), Started sessions (see [Where a session came
+from](#where-a-session-came-from)) and Rows. Sort by orders the rest: Status puts Needs you, Your turn and Working
 first, as the floating bar orders them, then Snoozed, the soonest back first, then the rest under
 the day they were last active (Today, Yesterday, Last 7 days, Older), the one you last sent a prompt
 first. Started puts the newest session first, under the day it started, and each row's age then
 says when it started. A row leads with the session's title, then what it's doing or said last; one
 that needs you has a label beside its title for what it waits on (Asks you, Needs approval,
 Message, Stuck, Error). Its second line says where and why: its worktree, its todo and Jev's read,
-then its account, with the worktree's PR and diff at the right: that's on two lines (Rows, after
-Sort by). On one line, as it starts, a row is its title, then its status, worktree and PR chips at
+then its account, with the worktree's PR and diff at the right: that's on two lines (Rows, the
+last group). On one line, as it starts, a row is its title, then its status, worktree and PR chips at
 the line's end, and its status says its account when you point at it. A snoozed session's row says how long until it's
 back, and a quiet one's says Quiet. Here letters alone do nothing, so a word typed on the list by
 mistake doesn't pin, archive or rename: the keys are the chords, and they work from the panel's box
@@ -2868,6 +2870,15 @@ session in Sessions, and one on a side conversation shows it above the box. The 
 its card's popover on the canvas lists them too. On the canvas, hovering or selecting a session
 draws a line from the session it came from and to the ones that came of it, and a session's card on
 the desktop does the same to the cards of those sessions pinned on the same screen.
+
+In Sessions, Started sessions (in the bar over the list) picks where a session another session's
+agent started goes (one started with `codealong start`, from a task the Claude app offered, or a
+thread the Codex app made for an agent). On their own, as it starts, lists it as any other session.
+Under their session lists it under the session that started it, set in as a helper is, with its own
+helpers and the sessions it started in turn, and under a pinned session among the pinned ones. The
+session and what's under it then go where the most urgent of them would: one it started that needs
+you, is your turn or is working takes it up to Needs you, Your turn or Working. A fork stays on its
+own, and so does a session whose starter isn't listed (filtered out, past the age, or archived).
 
 A session can message another with `codealong session send` even once that one has stopped:
 Claude Code's background service ends a job left idle at its prompt for an hour, so the session

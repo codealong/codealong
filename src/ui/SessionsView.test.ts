@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import * as fx from '../testing/fixtures';
 import type { Session } from '../types';
-import { sessionSections, sortSessions, waitingQueue, type SessionItem, type SessionSection } from './SessionsView';
+import { helpersUnder, sessionSections, sortSessions, waitingQueue, type SessionItem, type SessionSection } from './SessionsView';
 
 const item = (key: string, lastActivity: number, status: Session['status'] = 'idle', lastPromptAt = lastActivity, statusSince: number | null = null, startedAt: number | null = null): SessionItem => ({
   kind: 'agent',
@@ -149,6 +149,48 @@ describe('helpers in Sessions', () => {
     const list = [item('boss', at(13), 'idle', at(13)), helper(item('here', at(14), 'working', at(11), at(11)), 'boss'), { ...elsewhere, lane: fx.lane({ id: 'other' }) }];
     const under = sessionSections(list, 'status', now).flatMap((s) => s.rows).filter((r) => r.nested);
     expect(under.map((r) => `${r.session.key} ${r.elsewhere ? 'elsewhere' : 'here'}`)).toEqual(['there elsewhere', 'here here']);
+  });
+});
+
+describe('sessions another one started, in Sessions', () => {
+  const now = new Date(2026, 8, 24, 15, 0).getTime();
+  const at = (h: number) => new Date(2026, 8, 24, h, 0).getTime();
+  const from = (r: SessionItem, key: string, how: 'started' | 'fork' = 'started'): SessionItem => ({ ...r, session: { ...r.session, origin: { key, how } } });
+  const helper = (r: SessionItem, parent: string): SessionItem => ({ ...r, session: { ...r.session, helper: { parent } } });
+  const rows = (s: SessionSection[]) => s.flatMap((x) => x.rows.map((r) => `${x.id} ${r.nested ? '  ' : ''}${r.session.key}`));
+
+  it('lists one under the session that started it only when asked to, and a fork on its own', () => {
+    const list = [item('boss', at(13), 'idle', at(13)), from(item('kid', at(12), 'idle', at(12)), 'boss'), from(item('copy', at(11), 'idle', at(11)), 'boss', 'fork')];
+    expect(rows(sessionSections(list, 'status', now))).toEqual(['today boss', 'today kid', 'today copy']);
+    expect(rows(sessionSections(list, 'status', now, 'under'))).toEqual(['today boss', 'today   kid', 'today copy']);
+    expect(rows(sessionSections(list, 'started', now, 'under'))).toEqual(['today boss', 'today   kid', 'today copy']);
+  });
+
+  it('takes its session as far up as it is itself, where a helper at work wouldn’t', () => {
+    const boss = item('boss', at(10), 'idle', at(10));
+    const other = item('other', at(13), 'working', at(11), at(11));
+    const working = from(item('kid', at(14), 'working', at(12), at(12)), 'boss');
+    expect(rows(sessionSections([boss, working, other], 'status', now, 'under'))).toEqual(['working other', 'working boss', 'working   kid']);
+    const turn = from(item('kid', at(14), 'unread', at(12), at(14)), 'boss');
+    expect(rows(sessionSections([boss, turn, other], 'status', now, 'under'))).toEqual(['unread boss', 'unread   kid', 'working other']);
+    const asks = from(item('kid', at(14), 'needs', at(12), at(14)), 'boss');
+    expect(rows(sessionSections([boss, asks, other], 'status', now, 'under'))).toEqual(['needs boss', 'needs   kid', 'working other']);
+    // A helper of it at work stays with its session, as it does under a session of yours.
+    const check = helper(item('check', at(14), 'working', at(12), at(12)), 'kid');
+    const idleKid = from(item('kid', at(11), 'idle', at(11)), 'boss');
+    expect(rows(sessionSections([boss, idleKid, check, other], 'status', now, 'under'))).toEqual(['working other', 'today boss', 'today   check', 'today   kid']);
+  });
+
+  it('lists one on its own when its session isn’t listed, and sessions that name each other both', () => {
+    expect(rows(sessionSections([from(item('kid', at(12), 'idle', at(12)), 'gone')], 'status', now, 'under'))).toEqual(['today kid']);
+    const loop = [from(item('a', at(13), 'idle', at(13)), 'b'), from(item('b', at(12), 'idle', at(12)), 'a')];
+    expect(rows(sessionSections(loop, 'status', now, 'under'))).toEqual(['today a', 'today b']);
+  });
+
+  it('lists the sessions a pinned session started under it, with their helpers, when asked to', () => {
+    const list = [item('boss', at(13), 'idle', at(13)), from(item('kid', at(12), 'idle', at(12)), 'boss'), helper(item('check', at(14), 'working', at(11), at(11)), 'kid')];
+    expect(keys(helpersUnder(list, new Set(['boss']), 'under').get('boss') ?? [])).toEqual(['check', 'kid']);
+    expect(helpersUnder(list, new Set(['boss'])).has('boss')).toBe(false);
   });
 });
 

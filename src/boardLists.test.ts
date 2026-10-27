@@ -665,6 +665,14 @@ describe('the Sessions view’s lists', () => {
       expect(ageListingChain([recent, old], new Set(), ages, '3d', NOW)).toBeNull();
     });
 
+    it('climbs to the session that started one only when Sessions lists it there', () => {
+      const kid = session('claude:claude2:kid', { status: 'idle', origin: { key: boss.key, how: 'started' } });
+      const items = sessionItemsOf([lane('/r/a', [boss]), lane('/r/b', [kid])]);
+      const row = items.find((r) => r.session.key === kid.key)!;
+      expect(chainOf(row, items).map((r) => r.session.key)).toEqual([kid.key]);
+      expect(chainOf(row, items, true).map((r) => r.session.key)).toEqual([kid.key, boss.key]);
+    });
+
     it('lists a run of a finished helper a window asks to show, with the helper', () => {
       const helper = session('codex:codex:helper', { status: 'idle', helper: { parent: boss.key } });
       const run2 = run('claude:claude2:deep', 'idle', { origin: { key: helper.key, how: 'started' } });

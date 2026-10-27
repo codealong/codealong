@@ -1,8 +1,9 @@
 // The Sessions view: every session in the project, Pinned first in your order.
 // The rest go by status under the headings the other views have (Needs you, Your turn, Working,
 // Snoozed, then the days they were last active), or by when they started, under the days they
-// started; the bar over the list picks which, whether they're grouped by worktree or by repo, and
-// two lines a row or one (`SessionsBar`). Drag a pinned session, or press ⌃⌘↑ ⌃⌘↓, to reorder;
+// started; the bar over the list picks which, whether they're grouped by worktree or by repo,
+// whether a session another one started goes under that one, and two lines a row or one
+// (`SessionsBar`). Drag a pinned session, or press ⌃⌘↑ ⌃⌘↓, to reorder;
 // drag any session up among them to pin it there, a pinned one down to unpin it, and any out of
 // the window to pin it to the desktop (useRowDrag.tsx). ⌘-click and ⇧-click (or ⇧↑ ⇧↓) pick
 // several, to mark seen, snooze, close, mark done or archive together (picks.ts,
@@ -18,12 +19,13 @@
 // What works for a session goes under its row, set in: its helpers at work, its side conversation
 // while one answers (LaneRow.tsx `SideRow`, which is no session: a click shows it above the
 // session's box), and every one of a kind where its chip's double-click asked, with a row at the
-// end that takes them away again (`FoldRow`).
+// end that takes them away again (`FoldRow`); and, with Started sessions under their session, the
+// sessions its agent started.
 
 import { Fragment } from 'react';
 import { byDay, newestFirst } from '../days';
 import { groupOptions, groupRows, groupsOf, placeIn, type GroupBy, type Grouped, type GroupOptions, type ListGroup, type ListGroupBy } from '../groups';
-import { bySession, byStatusTime, foldsOf, runsShownKey, sidesListed, sidesShownKey, snoozedApart, startedOf, waitingSince, workingFor, type Fold, type LaneItem } from '../lanes';
+import { bySession, byStatusTime, foldsOf, listedUnder, runsShownKey, sidesListed, sidesShownKey, snoozedApart, startedOf, waitingSince, workingFor, type Fold, type LaneItem } from '../lanes';
 import type { SelectHow } from '../picks';
 import type { HelperCount, RunCount, SideCount } from '../boardLists';
 import type { SaidLine } from '../quick';
@@ -41,7 +43,8 @@ export interface SessionItem {
   key: string;
   lane: Lane;
   session: Session;
-  /** A helper or a headless run listed under the session it works for (`sessionSections`). */
+  /** A helper, a headless run or a session another one started, listed under that session
+   *  (`sessionSections`). */
   nested?: boolean;
   /** A helper listed under a session in another worktree than its own, which its row then names. */
   elsewhere?: boolean;
@@ -53,6 +56,15 @@ export type SessionSort = 'status' | 'started';
 export const SESSION_SORTS: { id: SessionSort; label: string; icon: string; title: string }[] = [
   { id: 'status', label: 'Status', icon: 'sort-descending-shapes', title: 'Sort by status: what needs you first, then your turns, working agents and snoozed ones, then the rest by the day they were last active' },
   { id: 'started', label: 'Started', icon: 'sort-descending-numbers', title: 'Sort by start: the newest session first, under the day it started' },
+];
+
+/** Where a session another session's agent started is listed: on its own, or under that session
+ *  as its helpers are (lanes.ts `listedUnder`). */
+export type StartedPlace = 'apart' | 'under';
+
+export const STARTED_PLACES: { id: StartedPlace; label: string; icon: string; title: string }[] = [
+  { id: 'apart', label: 'On their own', icon: 'layout-rows', title: 'Started sessions on their own: a session another session’s agent started is listed as any other' },
+  { id: 'under', label: 'Under their session', icon: 'subtask', title: 'Started sessions under their session: a session another session’s agent started (codealong start, a task the Claude app offered) is listed under that session, as its helpers are' },
 ];
 
 /** How much each session's row says: where it runs, its todo and its account on a second line,
@@ -117,6 +129,11 @@ const ATTENTION: { bay: Bay; statuses: Status[]; queue: boolean }[] = [
 
 const inGroup = (statuses: Status[]) => (r: SessionItem) => statuses.includes(r.session.status) && !snoozedApart(r.session);
 const byGroupTime = (a: SessionItem, b: SessionItem) => byStatusTime(a.session, b.session) || a.key.localeCompare(b.key);
+/** Which of the bar's groups a session is in, the most urgent 0; past them all when it's in none. */
+const urgency = (s: Session) => {
+  const i = ATTENTION.findIndex(({ statuses }) => statuses.includes(s.status) && !snoozedApart(s));
+  return i < 0 ? ATTENTION.length : i;
+};
 
 /**
  * What a session's panel works through with ⌘⏎, `e` and ⌘]: the sessions listed that wait on you,
@@ -135,17 +152,23 @@ export function waitingQueue(rows: SessionItem[]): SessionItem[] {
  * the newest first.
  *
  * A helper or headless run listed with the session it works for (lanes.ts `workingFor`) goes
- * under that session (`nested`), its own the most urgent first. The two go where the session
- * would, unless the helper waits on you and the session doesn't: then they're in Needs you, by
- * the helper's wait, so what it asks is seen beside the work it's for.
+ * under that session (`nested`), its own the most urgent first, and with `place` under, so does a
+ * session it started (`listedUnder`). The two go where the session would, unless the helper waits
+ * on you and the session doesn't: then they're in Needs you, by the helper's wait, so what it asks
+ * is seen beside the work it's for. A session it started takes them as far up as it is itself
+ * (Your turn, Working), as it would be on its own.
  */
-export function sessionSections(rows: SessionItem[], sort: SessionSort, now: number): SessionSection[] {
-  const { top, under } = families(rows);
-  // What a session's place goes by: itself, or the helper under it that has waited on you longest.
+export function sessionSections(rows: SessionItem[], sort: SessionSort, now: number, place: StartedPlace = 'apart'): SessionSection[] {
+  const { top, under } = families(rows, place === 'under');
+  // What a session's place goes by: itself, the helper under it that has waited on you longest, or
+  // the session it started that's furthest up the bar's groups when that's further than itself.
   const lead = (r: SessionItem): Session => {
     if (waitingSince(r.session) != null) return r.session;
-    const waiting = (under.get(r.session.key) ?? []).filter((k) => waitingSince(k.session) != null && k.session.snoozedUntil == null).sort(byGroupTime);
-    return waiting[0]?.session ?? r.session;
+    const kids = under.get(r.session.key) ?? [];
+    const waiting = kids.filter((k) => waitingSince(k.session) != null && k.session.snoozedUntil == null).sort(byGroupTime);
+    if (waiting.length > 0) return waiting[0].session;
+    const ahead = kids.filter((k) => !workingFor(k.session) && urgency(k.session) < urgency(r.session)).sort((a, b) => urgency(a.session) - urgency(b.session) || byGroupTime(a, b));
+    return ahead[0]?.session ?? r.session;
   };
   const withHelpers = (s: SessionSection): SessionSection => ({ ...s, rows: s.rows.flatMap((r) => [r, ...(under.get(r.session.key) ?? [])]) });
   if (sort === 'started') {
@@ -166,8 +189,9 @@ export function sessionSections(rows: SessionItem[], sort: SessionSort, now: num
 /** The helpers listed under each of `heads` (pinned sessions, which Pinned lists apart), as
  *  `sessionSections` would list them under those sessions, the most urgent first: each under the
  *  nearest of its sessions that's one of them. One that's a head itself (pinned too) isn't, so
- *  it's listed once; a pinned helper's own helpers go under it. */
-export function helpersUnder(rows: SessionItem[], heads: ReadonlySet<string>): Map<string, SessionItem[]> {
+ *  it's listed once; a pinned helper's own helpers go under it. With `place` under, the sessions
+ *  each started go under it too. */
+export function helpersUnder(rows: SessionItem[], heads: ReadonlySet<string>, place: StartedPlace = 'apart'): Map<string, SessionItem[]> {
   const under = new Map<string, SessionItem[]>();
   if (heads.size === 0) return under;
   const byKey = new Map(rows.map((r) => [r.session.key, r]));
@@ -175,7 +199,7 @@ export function helpersUnder(rows: SessionItem[], heads: ReadonlySet<string>): M
     if (heads.has(r.session.key)) continue;
     let at = r;
     for (let i = 0; i < 4; i++) {
-      const up = workingFor(at.session);
+      const up = listedUnder(at.session, place === 'under');
       const parent = up ? byKey.get(up) : undefined;
       if (!parent || parent === r) break;
       if (heads.has(parent.session.key)) {
@@ -189,19 +213,22 @@ export function helpersUnder(rows: SessionItem[], heads: ReadonlySet<string>): M
   return under;
 }
 
-/** The rows that lead, and under each session's key the helpers listed with it, the most urgent
- *  first. Only one deep: a helper's own helpers go under the session at the top. */
-function families(rows: SessionItem[]): { top: SessionItem[]; under: Map<string, SessionItem[]> } {
+/** The rows that lead, and under each session's key the helpers listed with it (and with
+ *  `started`, the sessions it started), the most urgent first. Only one deep: a helper's own
+ *  helpers go under the session at the top. */
+function families(rows: SessionItem[], started: boolean): { top: SessionItem[]; under: Map<string, SessionItem[]> } {
   const under = new Map<string, SessionItem[]>();
-  if (!rows.some((r) => workingFor(r.session))) return { top: rows, under };
+  if (!rows.some((r) => listedUnder(r.session, started))) return { top: rows, under };
   const byKey = new Map(rows.map((r) => [r.session.key, r]));
-  // The listed session a row goes under, climbing past helpers to the one at the top.
+  // The listed session a row goes under, climbing past helpers to the one at the top. One whose
+  // climb comes back to it leads, so sessions that name each other as their origin both show.
   const headOf = (r: SessionItem): SessionItem | null => {
     let at = r;
     for (let i = 0; i < 4; i++) {
-      const up = workingFor(at.session);
+      const up = listedUnder(at.session, started);
       const parent = up ? byKey.get(up) : undefined;
-      if (!parent || parent === r) return at === r ? null : at;
+      if (parent === r) return null;
+      if (!parent) return at === r ? null : at;
       at = parent;
     }
     return at === r ? null : at;
@@ -229,17 +256,18 @@ export function familiesOf(rows: readonly SessionItem[]): { head: SessionItem; k
 }
 
 /** The sessions in `sort`'s order, as their headings list them: the order the keyboard goes in. */
-export function sortSessions(rows: SessionItem[], sort: SessionSort, now: number): SessionItem[] {
-  return sessionSections(rows, sort, now).flatMap((s) => s.rows);
+export function sortSessions(rows: SessionItem[], sort: SessionSort, now: number, place: StartedPlace = 'apart'): SessionItem[] {
+  return sessionSections(rows, sort, now, place).flatMap((s) => s.rows);
 }
 
 /** Sessions' tools in the bar over the list (ListBar.tsx): how the list is sorted, what groups
- *  it, and how much each row says. */
-export function SessionsBar({ sort, onSort, group, onGroup, lines, onLines }: { sort: SessionSort; onSort: (sort: SessionSort) => void; group: SessionGroupBy; onGroup: (group: SessionGroupBy) => void; lines: RowLines; onLines: (lines: RowLines) => void }) {
+ *  it, where a session another one started goes, and how much each row says. */
+export function SessionsBar({ sort, onSort, group, onGroup, started, onStarted, lines, onLines }: { sort: SessionSort; onSort: (sort: SessionSort) => void; group: SessionGroupBy; onGroup: (group: SessionGroupBy) => void; started: StartedPlace; onStarted: (place: StartedPlace) => void; lines: RowLines; onLines: (lines: RowLines) => void }) {
   return (
     <ListTools label="How Sessions is listed">
       <ListSeg label="Sort by" options={SESSION_SORTS} value={sort} onPick={onSort} />
       <ListSeg label="Group by" options={SESSION_GROUPS} value={group} onPick={onGroup} />
+      <ListSeg label="Started sessions" options={STARTED_PLACES} value={started} onPick={onStarted} />
       <RowsSeg options={SESSION_ROWS} value={lines} onPick={onLines} />
     </ListTools>
   );

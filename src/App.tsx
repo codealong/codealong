@@ -47,7 +47,7 @@ import { reviewedWords } from './prDraft';
 import { mayApprove } from './prStatus';
 import { PR_GROUPS, PR_ROWS, PR_SORTS, prPlace, PrsView, type PrRowItem, type PrSort } from './ui/PrsView';
 import { Resizer, usePanelWidth } from './ui/Resizer';
-import { groupKeyOf, headItem, SESSION_GROUPS, SESSION_ROWS, SESSION_SORTS, SessionsBar, SessionsView, type SessionItem, type SessionSort } from './ui/SessionsView';
+import { groupKeyOf, headItem, SESSION_GROUPS, SESSION_ROWS, SESSION_SORTS, SessionsBar, SessionsView, STARTED_PLACES, type SessionItem, type SessionSort, type StartedPlace } from './ui/SessionsView';
 import type { GroupActs } from './ui/Groups';
 import { placeIn, type ListGroupBy, type RepoName } from './groups';
 import { ListBar, ListFind, ListSeg, ListTools, RowsSeg, type RowLines } from './ui/ListBar';
@@ -128,6 +128,7 @@ const DISMISSED_KEY = 'codealong.dismissedNotices';
 const SESSION_SORT_KEY = 'codealong.sessionSort';
 const SESSION_ROWS_KEY = 'codealong.sessionRows';
 const SESSION_GROUP_KEY = 'codealong.sessionGroup';
+const SESSION_STARTED_KEY = 'codealong.sessionStarted';
 const PR_GROUP_KEY = 'codealong.prGroup';
 const TODO_GROUP_KEY = 'codealong.todoGroup';
 const PR_ROWS_KEY = 'codealong.prRows';
@@ -216,6 +217,7 @@ const PR_SORT_STORED = oneOf(PR_SORTS.map((o) => o.id));
 const TODO_SORT_STORED = oneOf(TODO_SORTS.map((o) => o.id));
 const ROWS_STORED = oneOf(SESSION_ROWS.map((o) => o.id));
 const GROUP_STORED = oneOf(SESSION_GROUPS.map((o) => o.id));
+const STARTED_STORED = oneOf(STARTED_PLACES.map((o) => o.id));
 
 /** A dragged panel width for the grid's style; left out, the panel takes its default from the CSS. */
 const widthVar = (width: number | null) => (width == null ? undefined : `${width}px`);
@@ -473,6 +475,8 @@ export function App() {
   const prPins = usePins(board?.pinnedPrs, setPinnedPrs, setToast);
   // How Sessions orders the sessions that aren't pinned: by status, or the newest start first.
   const [sessionSort, setSessionSort] = useStored<SessionSort>(SESSION_SORT_KEY, SORT_STORED, 'status');
+  // Whether Sessions lists a session another one's agent started under that one, or on its own.
+  const [sessionStarted, setSessionStarted] = useStored<StartedPlace>(SESSION_STARTED_KEY, STARTED_STORED, 'apart');
   // Whether Sessions, PRs and Todo group by worktree or by repo, each as you left it, and each
   // one's groups opened past their fold, until the window closes (groups.ts).
   const [leftOnWorktrees] = useState(() => readStored(VIEW_KEY, asText, '') === 'worktrees');
@@ -597,6 +601,7 @@ export function App() {
     lanePins,
     prPins,
     sessionSort,
+    sessionStarted,
     sessionGroup,
     repoPins,
     openGroups,
@@ -1622,7 +1627,7 @@ export function App() {
   const unfoldedFor = useRef<string | null>(null);
   const [scrollTo, setScrollTo] = useState<string | null>(null);
   useEffect(() => {
-    const ask = `${selectedKey}#${revealed}#${view}:${view === 'prs' ? prGroup : view === 'todo' ? todoGroup : sessionGroup}`;
+    const ask = `${selectedKey}#${revealed}#${view}:${view === 'prs' ? prGroup : view === 'todo' ? todoGroup : `${sessionGroup}:${sessionStarted}`}`;
     if (loading || !selectedKey || unfoldedFor.current === ask) return;
     unfoldedFor.current = ask;
     if (visible.some((r) => r.key === selectedKey)) return;
@@ -1633,7 +1638,7 @@ export function App() {
     if (view === 'sessions' && sessionGroup !== 'none') {
       const by = sessionGroup;
       const home = homes.get(selectedKey.split('::')[1] ?? '');
-      if (home) opening(setOpenGroups, chainOf(sessionItemOf(home), sessionItemsOf(lanes)).map((r) => groupKeyOf(r.lane, by)));
+      if (home) opening(setOpenGroups, chainOf(sessionItemOf(home), sessionItemsOf(lanes), sessionStarted === 'under').map((r) => groupKeyOf(r.lane, by)));
     } else if (view === 'prs' && prGroup !== 'none') {
       const r = prRows.find((x) => x.key === selectedKey);
       if (r) opening(setOpenPrGroups, [prPlace(r, prGroup).key]);
@@ -1641,7 +1646,7 @@ export function App() {
       const r = todoItems.find((x) => x.key === selectedKey);
       if (r) opening(setOpenTodoGroups, [placeIn(r.lane, todoGroup).key]);
     }
-  }, [loading, selectedKey, revealed, visible, view, sessionGroup, prGroup, todoGroup, homes, lanes, prRows, todoItems]);
+  }, [loading, selectedKey, revealed, visible, view, sessionGroup, sessionStarted, prGroup, todoGroup, homes, lanes, prRows, todoItems]);
   useEffect(() => {
     if (!scrollTo) return;
     // Only while it's still the row selected: another selected meanwhile is scrolled to as it's
@@ -2270,7 +2275,7 @@ export function App() {
               {(view === 'kanban' || view === 'canvas') && shownBoard && (
                 <BoardBar board={shownBoard} project={shownBoard.project !== current ? shownBoard.project : null} layout={boardLayout} labels={todoStore.labels} onLayout={setView} onMenu={() => boardMenu()} onEdit={() => setBoardEdit({ board: shownBoard })} />
               )}
-              {view === 'sessions' && <SessionsBar sort={sessionSort} onSort={setSessionSort} group={sessionGroup} onGroup={setSessionGroup} lines={sessionLines} onLines={setSessionLines} />}
+              {view === 'sessions' && <SessionsBar sort={sessionSort} onSort={setSessionSort} group={sessionGroup} onGroup={setSessionGroup} started={sessionStarted} onStarted={setSessionStarted} lines={sessionLines} onLines={setSessionLines} />}
               {view === 'prs' && (
                 <ListTools label="How PRs are listed">
                   <ListSeg label="Sort by" options={PR_SORTS} value={prSort} onPick={setPrSort} />
