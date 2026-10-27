@@ -2270,9 +2270,8 @@ export function App() {
           loading={loading}
           foot={
             <div className="ca-side-foot">
-              <button type="button" className="ca-linkbtn ca-side-config" title={keysIn('Settings (⌘,)')} onClick={() => openSettings()}>
+              <button type="button" className="ca-linkbtn ca-side-config" title={keysIn('Settings (⌘,)')} aria-label="Settings" onClick={() => openSettings()}>
                 <Icon name="settings" size={14} />
-                <span>Settings</span>
               </button>
               <button type="button" className="ca-linkbtn ca-side-github" title="Codealong on GitHub" aria-label="Codealong on GitHub" onClick={openRepo}>
                 <Icon name="brand-github" size={14} />

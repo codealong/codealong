@@ -1,6 +1,6 @@
 // Checks the GitHub button at the foot of the sidebar (App.tsx's foot, Sidebar.tsx's rail): it
-// sits beside Settings, the theme switch still at the right, and a click opens Codealong's repo
-// in the browser, from the open sidebar and from the rail it folds to.
+// sits beside Settings, both icons alone, the theme switch still at the right, and a click opens
+// Codealong's repo in the browser, from the open sidebar and from the rail it folds to.
 //   scripts/preview.sh sessions '' scripts/preview/sidebar-github-check.js
 (function () {
   var REPO = 'https://github.com/codealong/codealong';
@@ -12,7 +12,9 @@
       q('.ca-sidetoggle').click();
     }
     var button = await until(function () { return q('.ca-side-foot .ca-side-github'); }, 3000, 'the GitHub button at the sidebar’s foot');
-    var settings = q('.ca-side-foot .ca-side-config').getBoundingClientRect();
+    var gear = q('.ca-side-foot .ca-side-config');
+    check('Settings is an icon, named for the keyboard and screen readers', gear.textContent.trim() === '' && gear.getAttribute('aria-label') === 'Settings', JSON.stringify(gear.textContent));
+    var settings = gear.getBoundingClientRect();
     var github = button.getBoundingClientRect();
     var theme = q('.ca-side-foot .ca-theme').getBoundingClientRect();
     check('it sits just after Settings', github.left > settings.right && github.left - settings.right < 24, Math.round(github.left - settings.right) + 'px after');

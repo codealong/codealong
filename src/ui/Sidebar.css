@@ -29,14 +29,12 @@
   padding: 6px var(--space-3) 8px var(--space-4);
   border-top: 1px solid var(--line);
 }
-.ca-side-config {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-/* Beside Settings, the theme switch kept at the right. */
+/* Settings and the GitHub link, icons side by side; the theme switch keeps to the right. */
+.ca-side-config,
 .ca-side-github {
   display: inline-flex;
+}
+.ca-side-github {
   margin-right: auto;
 }
 /* Restart to update: above the foot of the sidebar once a newer version is in place. */
