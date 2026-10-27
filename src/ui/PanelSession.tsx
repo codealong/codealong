@@ -42,7 +42,7 @@ export function PanelSession({ lane, session: s, now, onShow, onOpen, onMenu, pr
         <SessionGlyph s={s} size={10} />
         <span className="ca-psess-text">
           <span className="ca-psess-line1">
-            <SessionEmblem emblem={s.emblem} size={14} />
+            <SessionEmblem emblem={s.emblem} of={s.key} size={14} />
             <span className="ca-psess-title">{s.title}</span>
             {primary && (
               <span className="ca-tag ca-psess-primary" title={primary}>

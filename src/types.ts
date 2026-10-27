@@ -220,8 +220,8 @@ export interface Session {
    *  last published, updated or opened first (artifacts.rs). Missing when it has none, and from
    *  older Macs. */
   artifacts?: Artifact[];
-  /** A small icon in a color beside its title, to tell it apart and remember it by
-   *  (emblems.rs, when `[jev] emblems` is on). Missing until both are known, and from older Macs. */
+  /** Something to know it by beside its title, an emoji or a small picture (emblems.rs, when
+   *  `[emblems]` is on). Missing until it has one, and from older Macs. */
   emblem?: Emblem;
   resumeCommand: string | null;
   /** The Claude app is signed into this session's account. */
@@ -238,24 +238,17 @@ export interface Session {
   detail: string | null;
 }
 
-/** An emblem's color (emblems.rs `COLORS`); each is an `--emblem-<color>` token. */
-export type EmblemColor = 'red' | 'rose' | 'pink' | 'magenta' | 'violet' | 'purple' | 'indigo' | 'blue' | 'sky' | 'teal' | 'mint' | 'green' | 'lime';
-
-/** A session's emblem (peer model.rs `Emblem`): an icon Jev picked for what it works on, on a
- *  radial gradient of two colors that go together (emblems.rs `PAIRS`), lit from one of
- *  eight places around its edge. Codealong gives each session its pair and its light so that the
- *  sessions beside it differ. */
+/** A session's emblem (peer model.rs `Emblem`): something you can name that stands for what it
+ *  works on, an emoji Jev picked or a picture an account drew, different from the sessions'
+ *  beside it where it can be. */
 export interface Emblem {
-  /** The color over most of it. */
-  color: EmblemColor;
-  /** The color where the light falls: its harness's (Claude Code's `/color`) while it gives one,
-   *  else one Codealong gave it to go with `color`. */
-  accent: EmblemColor;
-  /** Where the light falls, 0 to 7 clockwise around its edge from the top left corner
-   *  (primitives.tsx `EMBLEM_LIGHTS`). */
-  light: number;
-  /** The icon's name in `ICONS`. */
-  icon: string;
+  /** The emoji, when it's one. */
+  emoji?: string;
+  /** The picture, when it's one: a kept image's name (`<hash>.png`), loaded from the Mac the
+   *  session is on (api.ts `imageUrl`). */
+  picture?: string;
+  /** What it shows, in a word or two, for its tooltip. */
+  name: string;
 }
 
 /** How a message sent to a session would reach it (send.rs `way_in`): typed into its terminal,
@@ -742,6 +735,8 @@ export interface Config {
   shortcuts: { quick_panel: string; chat?: string; waiting: string; improve?: string; main_window?: string };
   /** What Codealong asks TypeSafe's Jev, feature by feature. Older files have none: all off. */
   jev?: JevCfg;
+  /** Session emblems. Older files have none: off. */
+  emblems?: EmblemsCfg;
   accounts: AccountCfg[];
   projects: ProjectCfg[];
   /** How many days of sessions have what was said in them searched; 0 is off. */
@@ -1382,8 +1377,21 @@ export interface JevCfg {
   sessions: boolean;
   todos: boolean;
   pull_requests: boolean;
-  /** Each session gets an emblem beside its title (emblems.rs). */
-  emblems: boolean;
+}
+
+/** What each session gets beside its title (`[emblems] kind`): nothing, an emoji Jev picks, or a
+ *  picture an account draws. */
+export type EmblemKind = 'off' | 'emoji' | 'drawn';
+
+/** `[emblems]` in config.toml (config.rs `EmblemsCfg`). */
+export interface EmblemsCfg {
+  kind: EmblemKind;
+  /** The account that draws them, for `drawn`; empty is the first that draws (harness.ts
+   *  `DRAWS`). */
+  account: string;
+  /** How they're drawn, for `drawn`; empty is Codealong's own (SettingsDialog.tsx
+   *  `DRAWN_STYLE`). */
+  prompt: string;
 }
 
 /** What Jev's requests for one feature used on a day: input tokens, all TypeSafe charges for. */

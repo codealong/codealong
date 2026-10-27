@@ -174,6 +174,9 @@ pub enum Msg {
     /// The read of the accounts' MCP servers is over (mcp.rs): what it read, or none when it fell
     /// over or never started.
     McpRead(Option<Vec<crate::mcp::Mcp>>),
+    /// A session's emblem was drawn, or why it wasn't (emblems.rs `draw`): the kept picture's
+    /// name and what it shows.
+    EmblemDrawn(String, std::result::Result<(String, String), String>),
     /// A harness's reader has something new that it read off this thread (`harness::Wake`).
     Read,
     /// The full pinned list, in order.
@@ -1218,6 +1221,8 @@ struct Engine {
     /// wasn't.
     show_warning: Option<String>,
     report_warning: Option<String>,
+    /// Why the last emblem drawn wasn't, until one is.
+    emblem_warning: Option<String>,
     /// The files changed in the background whose last change couldn't be made, by name with
     /// why (`store::problems`), as of the last board.
     store_warnings: Vec<(String, String)>,
@@ -1287,7 +1292,7 @@ struct Engine {
     jev_todos_failed: Option<Instant>,
     /// Jev's reads of sessions, by the moment each was asked about (insights.rs).
     insights: crate::insights::Store,
-    /// Each session's emblem: the color it was given and the icon Jev picked (emblems.rs).
+    /// Each session's emblem: the emoji Jev picked or the picture drawn for it (emblems.rs).
     emblems: crate::emblems::Store,
 }
 
@@ -1372,6 +1377,7 @@ impl Engine {
             continue_warning: None,
             rerequest_warning: None,
             show_warning: None,
+            emblem_warning: None,
             report_warning: None,
             store_warnings: Vec::new(),
             servers: None,
@@ -1539,51 +1545,96 @@ impl Engine {
         if self.cfg.jev.sessions {
             self.look_insights(board);
         }
-        if self.cfg.jev.emblems {
-            self.look_emblems(board);
-        }
     }
 
-    /// Gives a color to each session seen for the first time and asks Jev for the icon of each
-    /// that has none yet (emblems.rs). At most a few new questions per board, as for insights.
-    /// Another Mac's sessions come with the emblems that Mac gave them.
+    /// Gives this Mac's current sessions emblems of the kind that's on (emblems.rs): asks Jev
+    /// for the emoji of each that has none, at most a few new questions per board as for
+    /// insights, or starts drawing the newest that has no picture, one at a time. Another Mac's
+    /// sessions come with the emblems that Mac gave them.
     fn look_emblems(&mut self, board: &Board) {
+        use crate::config::EmblemKind;
         const PER_BOARD: usize = 20;
+        let kind = self.cfg.emblems.kind;
+        if kind != EmblemKind::Drawn {
+            self.emblem_warning = None;
+        }
+        if kind == EmblemKind::Off || self.passing {
+            return;
+        }
         let now = now_ms();
         let sessions = board.lanes.iter().filter(|l| l.device.is_none()).flat_map(|l| l.sessions.iter().filter(|s| s.visitor.is_none()).map(move |s| (l.project.as_str(), s)));
-        let mut asked = 0;
-        for key in self.emblems.look(sessions, now) {
-            let id = format!("emblem:{key}");
-            if asked >= PER_BOARD {
-                break;
+        let wanting = self.emblems.look(sessions, kind, now);
+        if kind == EmblemKind::Emoji {
+            let mut asked = 0;
+            for key in wanting {
+                let id = format!("emblem:{key}");
+                if asked >= PER_BOARD {
+                    break;
+                }
+                let Some((_, s)) = board.session(&key).filter(|_| !self.jev_pending.contains(&id)) else { continue };
+                self.ask_jev(jev::Feature::Emblems, id, crate::emblems::emoji_request(s, &self.cfg.jev.model));
+                asked += 1;
             }
-            let Some((_, s)) = board.session(&key).filter(|_| !self.jev_pending.contains(&id)) else { continue };
-            self.ask_jev(jev::Feature::Emblems, id, crate::emblems::request(s, &self.cfg.jev.model));
-            asked += 1;
+        } else if let Some(key) = wanting.into_iter().next().filter(|_| self.emblems.can_draw(now)) {
+            self.draw_emblem(board, key);
         }
         self.emblems.save(now);
     }
 
-    /// The icon Jev picked for a session's emblem.
+    /// Starts drawing a session's emblem on the account that draws them, on a background
+    /// thread (emblems.rs `draw`).
+    fn draw_emblem(&mut self, board: &Board, key: String) {
+        let Some((_, s)) = board.session(&key) else { return };
+        let Some(account) = config::drawing_account(&self.cfg).cloned() else {
+            self.emblem_warning = Some("No account can draw emblems: add a Codex account in Settings › Accounts, or have Jev pick emoji in Settings › General.".into());
+            return;
+        };
+        let prompt = crate::emblems::draw_prompt(s, &self.emblems.taken(&key, config::EmblemKind::Drawn), &self.cfg.emblems.prompt);
+        self.emblems.drawing = Some(key.clone());
+        let tx = self.tx.clone();
+        // `on_emblem_drawn` hears that it's over however it ends, so the next one can start.
+        throttle::background(
+            "codealong-emblem",
+            move || crate::emblems::draw(&account, &crate::emblems::drawing_dir(), &prompt).map_err(crate::util::words),
+            move |drawn| {
+                let _ = tx.send(Msg::EmblemDrawn(key, drawn.unwrap_or_else(|| Err("The drawing stopped partway.".into()))));
+            },
+        );
+    }
+
+    fn on_emblem_drawn(&mut self, key: &str, drawn: std::result::Result<(String, String), String>) {
+        let now = now_ms();
+        match drawn {
+            Ok((picture, name)) => {
+                self.emblems.drawn(key, picture, name, now);
+                self.emblem_warning = None;
+            }
+            Err(why) => {
+                self.emblems.draw_failed(key, now);
+                self.emblem_warning = Some(why);
+            }
+        }
+        self.dirty = true;
+        self.emblems.save(now);
+    }
+
+    /// The emoji Jev ranked for a session's emblem.
     fn on_emblem(&mut self, key: &str, answer: std::result::Result<serde_json::Value, String>) {
         let now = now_ms();
-        match answer.ok().as_ref().and_then(crate::emblems::read) {
-            Some(icon) => {
-                self.emblems.answered(key, icon, now);
+        match answer {
+            Ok(response) if self.emblems.answered_emoji(key, &jev::choice(&response, "emoji"), now) => {
                 self.emblems.save(now);
                 self.dirty = true;
             }
-            None => self.emblems.failed(key, now),
+            Ok(_) => {}
+            Err(_) => self.emblems.failed(key, now),
         }
     }
 
-    /// Sessions with their emblems, when `[jev] emblems` is on.
+    /// Sessions with their emblems, of the kind `[emblems]` has on.
     fn with_emblems(&self, mut sessions: Vec<Session>) -> Vec<Session> {
-        if !self.cfg.jev.emblems {
-            return sessions;
-        }
         for s in &mut sessions {
-            s.emblem = self.emblems.emblem_of(s);
+            s.emblem = self.emblems.emblem_of(s, self.cfg.emblems.kind);
         }
         sessions
     }
@@ -1874,7 +1925,8 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         self.load_todos();
         // Only with every todo read: a list that didn't read would make every attachment look unused.
         if !self.todos_unreadable {
-            let texts: Vec<String> = self.todos.todos.iter().map(|t| t.description.clone()).collect();
+            // Pictures drawn for emblems are kept images too.
+            let texts: Vec<String> = self.todos.todos.iter().map(|t| t.description.clone()).chain(self.emblems.pictures()).collect();
             let _ = std::thread::Builder::new().name("codealong-attachments".into()).spawn(move || {
                 attachments::collect_garbage(&texts.iter().map(String::as_str).collect::<Vec<_>>());
             });
@@ -2336,6 +2388,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                 Ok(Msg::TrainingRead(list)) => self.dirty |= self.training.on_read(list),
                 Ok(Msg::TrainingOne(asked_as, t)) => self.dirty |= self.training.on_changed(&asked_as, t),
                 Ok(Msg::McpRead(list)) => self.dirty |= self.mcp.on_read(list),
+                Ok(Msg::EmblemDrawn(key, drawn)) => self.on_emblem_drawn(&key, drawn),
                 Ok(Msg::MarkSeen(keys, reply)) => {
                     let now = now_ms();
                     for k in keys {
@@ -2783,6 +2836,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             said("rerequests", "A reviewer wasn't asked to look again", self.rerequest_warning.as_ref()),
             said("unlocked", "A session didn't open in your terminal", self.show_warning.as_ref()),
             said("helpers", "A session wasn't told what its helper did", self.report_warning.as_ref()),
+            said("emblems", "An emblem wasn't drawn", self.emblem_warning.as_ref()),
             said("reviews", "A pull request wasn't reviewed", review.map(|s| &s.text)).map(|n| Notice { review_again: review.and_then(|s| s.again.clone()), ..n }),
             said("team-files", "A repo's team settings aren't used", team_files.as_ref()),
             said("ledger", "Usage is missing some sessions", ledger.as_ref()),
@@ -3681,6 +3735,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         self.forget_stale_suggestions(&board);
         self.forget_stale_tags(&board);
         self.jev_look(&board);
+        self.look_emblems(&board);
         let composed = t.elapsed();
         self.dirty = false;
         self.dirty_git = false;

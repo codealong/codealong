@@ -3,8 +3,9 @@
 import type { AriaRole, ButtonHTMLAttributes, CSSProperties, FormEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode, TextareaHTMLAttributes } from 'react';
 import { forwardRef, Fragment, useId, useLayoutEffect, useRef, useState } from 'react';
 import { CLICK_WAIT_MS } from '../bar';
+import { imageUrl } from '../api';
 import { fieldAt, typingIn } from '../contextMenu';
-import { deviceLabel } from '../devices';
+import { deviceLabel, shortOf } from '../devices';
 import { middleTruncate, withTimes } from '../format';
 import { HARNESS_WORD, sessionPlace } from '../harness';
 import { branchLabel, laneWaits, waitsInBackground } from '../lanes';
@@ -140,25 +141,23 @@ export function Mark({ size = 16, status = 'idle' }: { size?: number; status?: L
   );
 }
 
-/** Where the light falls on an emblem, as the center of its gradient: clockwise around its edge
- *  from the top left corner, as many as emblems.rs `LIGHTS` says. */
-export const EMBLEM_LIGHTS = ['28% 26%', '50% 16%', '72% 26%', '84% 50%', '72% 74%', '50% 84%', '28% 74%', '16% 50%'];
-
-/** A session's emblem (emblems.rs): the icon Jev picked for what it works on, on a radial
- *  gradient of its two colors, the accent where its light falls and its main color over the rest.
- *  It says nothing a row doesn't, so a reader passes over it. Nothing when it has none. */
-export function SessionEmblem({ emblem, size = 16 }: { emblem?: Emblem; size?: number }) {
-  if (!emblem || !ICONS[emblem.icon]) return null;
-  const tones = {
-    '--emblem-color': `var(--emblem-${emblem.color})`,
-    '--emblem-accent': `var(--emblem-${emblem.accent})`,
-    '--emblem-at': EMBLEM_LIGHTS[emblem.light] ?? EMBLEM_LIGHTS[0],
-    width: size,
-    height: size,
-  } as CSSProperties;
+/** A session's emblem (emblems.rs): the emoji Jev picked, or the picture an account drew, which
+ *  loads from the Mac the session is on (`of`, its key). Its name is its tooltip; it says
+ *  nothing a row doesn't, so a reader passes over it. Nothing when it has none, and a picture
+ *  that doesn't load gives way to its emoji, when it has one. */
+export function SessionEmblem({ emblem, of, size = 16 }: { emblem?: Emblem; of: string; size?: number }) {
+  // The picture that didn't load, so a new one is tried.
+  const [failed, setFailed] = useState<string | null>(null);
+  if (emblem?.picture && emblem.picture !== failed) {
+    const picture = emblem.picture;
+    return <img className="ca-emblem" src={imageUrl(picture, shortOf(of))} width={size} height={size} alt="" title={emblem.name} draggable={false} onError={() => setFailed(picture)} />;
+  }
+  if (!emblem?.emoji) return null;
+  // The emoji drawn to fill its square, on a line its own height, wherever it sits.
+  const box: CSSProperties = { width: size, height: size, fontSize: Math.round(size * 0.86), lineHeight: 1 };
   return (
-    <span className="ca-emblem" style={tones} aria-hidden="true">
-      <Icon name={emblem.icon} size={Math.round(size * 0.7)} stroke={1.75} />
+    <span className="ca-emblem" style={box} title={emblem.name} aria-hidden="true">
+      {emblem.emoji}
     </span>
   );
 }
@@ -716,7 +715,7 @@ export function HarnessChip({ session, withStatus = true, named = false, onOpen,
     >
       {withStatus && <StatusGlyph status={session.status} size={10} />}
       {/* Named, the chip stands for the session: its emblem, where it has one, says which. */}
-      {named && session.emblem ? <SessionEmblem emblem={session.emblem} size={14} /> : <Icon name={SURFACE_ICON[session.surface]} size={12} />}
+      {named && session.emblem ? <SessionEmblem emblem={session.emblem} of={session.key} size={14} /> : <Icon name={SURFACE_ICON[session.surface]} size={12} />}
       {named ? <span className="ca-sesschip-title">{session.title}</span> : <span>{session.account}</span>}
       {children}
     </Chip>

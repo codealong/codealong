@@ -208,8 +208,8 @@ pub struct Outbox {
     knows_prs: bool,
     /// The other device keeps the schedules your machines share (`proto::SCHEDULES`).
     knows_schedules: bool,
-    /// The other device draws every emblem color (`proto::EMBLEMS`); one from before gets the
-    /// label colors nearest them (`emblems::for_older`).
+    /// The other device draws emblems as emoji and pictures (`proto::EMBLEM_PICTURES`); one from
+    /// before gets none.
     knows_emblems: bool,
 }
 
@@ -217,7 +217,7 @@ impl Outbox {
     /// The outbox for a device whose hello said `knows`.
     pub fn for_device(knows: &[String]) -> Outbox {
         let says = |word: &str| knows.iter().any(|k| k == word);
-        Outbox { older: !knows_every_harness(knows), knows_prs: says(codealong_peer::proto::PRS), knows_schedules: says(codealong_peer::proto::SCHEDULES), knows_emblems: says(codealong_peer::proto::EMBLEMS), ..Outbox::default() }
+        Outbox { older: !knows_every_harness(knows), knows_prs: says(codealong_peer::proto::PRS), knows_schedules: says(codealong_peer::proto::SCHEDULES), knows_emblems: says(codealong_peer::proto::EMBLEM_PICTURES), ..Outbox::default() }
     }
 
     /// Starts over, so the next feed carries everything, for the same device.
@@ -268,7 +268,7 @@ impl Outbox {
             if self.lanes.get(&lane.id) != Some(h) {
                 let mut sent = lane.clone();
                 if !self.knows_emblems {
-                    crate::emblems::for_older(&mut sent);
+                    sent.sessions.iter_mut().for_each(|s| s.emblem = None);
                 }
                 msg.lanes.push(sent);
                 msg.hashes.insert(lane.id.clone(), *h);
@@ -550,24 +550,20 @@ mod tests {
         assert_eq!(said, [("note", "From another session, “Review the parser”: Which test fails?", None), ("note", "From another session: Looks good", None), ("you", "Thanks", None)]);
     }
 
-    /// A device from before emblems came in more than the label colors gets the label colors
-    /// nearest them, which its windows draw; one that says it knows them (`proto::EMBLEMS`) gets
-    /// them as they are.
+    /// A device from before emblems were emoji and pictures gets none, since it reads an
+    /// emblem only as an icon on colors; one that says it draws them
+    /// (`proto::EMBLEM_PICTURES`) gets them as they are.
     #[test]
-    fn a_device_from_before_gets_emblems_in_label_colors() {
-        let emblem = |color: &str, accent: &str| crate::model::Emblem { color: color.into(), accent: accent.into(), light: 2, icon: "bug".into() };
-        let s = Session { emblem: Some(emblem("rose", "sky")), ..session("s1", Status::Working) };
+    fn a_device_from_before_gets_no_emblems() {
+        let emblem = crate::model::Emblem { emoji: Some("🦖".into()), picture: None, name: "t rex".into() };
+        let s = Session { emblem: Some(emblem.clone()), ..session("s1", Status::Working) };
         let snap = snapshot(&board(vec![lane("/a", vec![s, session("s2", Status::Idle)])]), info("Mini"));
-        let mut older = Outbox::for_device(&["have".into(), "watch".into(), "cursor".into(), "prs".into(), "pr-drafts".into()]);
-        let sent = older.next(&snap).unwrap();
-        assert_eq!(sent.lanes[0].sessions[0].emblem, Some(emblem("red", "blue")));
-        assert_eq!(sent.lanes[0].sessions[1].emblem, None);
+        let mut older = Outbox::for_device(&["have".into(), "watch".into(), "cursor".into(), "prs".into(), "pr-drafts".into(), "emblems".into()]);
+        assert_eq!(older.next(&snap).unwrap().lanes[0].sessions[0].emblem, None);
         older.restart();
-        assert_eq!(older.next(&snap).unwrap().lanes[0].sessions[0].emblem, Some(emblem("red", "blue")), "starting over keeps it what it is");
+        assert_eq!(older.next(&snap).unwrap().lanes[0].sessions[0].emblem, None, "starting over keeps it what it is");
         let mut newer = Outbox::for_device(&codealong_peer::proto::KNOWS.map(String::from));
-        assert_eq!(newer.next(&snap).unwrap().lanes[0].sessions[0].emblem, Some(emblem("rose", "sky")));
-        // Every color it could get is one its windows draw.
-        assert!(crate::emblems::COLORS.iter().all(|c| ["red", "pink", "purple", "indigo", "blue", "teal", "green"].contains(&crate::emblems::label_color(c))));
+        assert_eq!(newer.next(&snap).unwrap().lanes[0].sessions[0].emblem, Some(emblem));
     }
 
     /// The schedules this machine shares go to a machine that keeps them, whole, and again only

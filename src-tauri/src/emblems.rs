@@ -1,286 +1,353 @@
-//! Session emblems (`[jev] emblems`): a small icon in a color beside each session's title, so the
-//! sessions beside each other read apart at a glance and one is remembered as "the teal bug".
+//! Session emblems (`[emblems]`): something you can name beside each session's title, an emoji
+//! or a small picture, so the sessions beside each other read apart at a glance and one is
+//! remembered as "the dinosaur".
 //!
-//! - The icon stands for what the session works on. Jev picks it from `ICONS` by the session's
-//!   title and first prompt (or its latest, where its harness keeps only that), once it has been
-//!   sent one, and it's kept for the session's life (emblems.json): it doesn't change under you
-//!   as the title does.
-//! - It's drawn on a radial gradient of two colors that go together (`PAIRS`), lit from one of
-//!   eight places around its edge: a main color over most of it and an accent where the light
-//!   falls. Codealong gives each session its pair and its light as it first sees it, so the
-//!   sessions of a project differ as much as they can (`pick`), and keeps them with the icon.
-//!   The color its harness gives it, Claude Code's `/color` (`Session::color`), is the accent
-//!   while it has one, with a main color that goes with it (`tones`).
+//! - `kind = "emoji"`: Jev picks the emoji that stands for what the session works on, from
+//!   `EMOJI`, by its title and first prompt (or its latest, where its harness keeps only that).
+//!   Its answer ranks them, and the session gets the likeliest that no other current session of
+//!   its project shows, among those nearly as likely as the first (`pick_emoji`).
+//! - `kind = "drawn"`: an account that draws (`Adapter::draw`, Codex's image tool) draws one
+//!   thing it picks for what the session works on, told what the sessions beside it show so it
+//!   picks something else, and drawn as `[emblems] prompt` says (`draw_prompt`). The picture is
+//!   cut to the thing, a plain white background made clear, and kept small (`shrink`) as a kept
+//!   image, which the windows load and other devices ask for. One at a time: each takes a minute
+//!   or so and an image turn of the account's usage.
 //!
-//! The colors are the label colors (`--label-*`), which name your own things: there's no
-//! amber among them, since amber means only that something needs you, so a harness's yellow or
-//! orange is drawn in the nearest color that isn't (`palette_color`). The engine asks Jev and
-//! gives colors (`engine.rs` `look_emblems`); `Store::emblem_of` is what each session shows.
+//! What a session is given is kept for its life (emblems.json), whatever its title becomes, and
+//! the newest sessions are given theirs first. A helper shows the emblem of the session it works
+//! for and gets none of its own. The engine asks (`engine.rs` `look_emblems`, `draw_emblem`);
+//! `Store::emblem_of` is what each session shows.
 
 use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
+use anyhow::{anyhow, bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
+use crate::config::{AccountCfg, EmblemKind};
 use crate::jev;
 use crate::model::{Emblem, Session};
 use crate::util::DAY_MS;
 
-/// The colors an emblem is drawn in, as the windows' `--emblem-<color>` tokens name them, in hue
-/// order: round the color wheel about 21° apart in OKLCH, skipping amber, which means only that
-/// something needs you. Seven are the label colors; the rest sit between them.
-pub const COLORS: [&str; 13] = ["red", "rose", "pink", "magenta", "violet", "purple", "indigo", "blue", "sky", "teal", "mint", "green", "lime"];
-
-/// The colors an emblem's two tones are drawn in together: those whose hues are at most 90° apart
-/// in OKLCH in both themes, up to four steps along `COLORS`, near enough on the color wheel to sit
-/// together. Farther ones clash (red and lime, across where amber would be; violet and sky, 91°).
-/// Every color is in three pairs at least. A test holds this to the tokens' colors.
-pub const PAIRS: [(&str, &str); 37] = [
-    ("red", "rose"),
-    ("red", "pink"),
-    ("red", "magenta"),
-    ("red", "violet"),
-    ("rose", "pink"),
-    ("rose", "magenta"),
-    ("rose", "violet"),
-    ("rose", "purple"),
-    ("pink", "magenta"),
-    ("pink", "violet"),
-    ("pink", "purple"),
-    ("pink", "indigo"),
-    ("magenta", "violet"),
-    ("magenta", "purple"),
-    ("magenta", "indigo"),
-    ("magenta", "blue"),
-    ("violet", "purple"),
-    ("violet", "indigo"),
-    ("violet", "blue"),
-    ("purple", "indigo"),
-    ("purple", "blue"),
-    ("purple", "sky"),
-    ("indigo", "blue"),
-    ("indigo", "sky"),
-    ("indigo", "teal"),
-    ("blue", "sky"),
-    ("blue", "teal"),
-    ("blue", "mint"),
-    ("sky", "teal"),
-    ("sky", "mint"),
-    ("sky", "green"),
-    ("teal", "mint"),
-    ("teal", "green"),
-    ("teal", "lime"),
-    ("mint", "green"),
-    ("mint", "lime"),
-    ("green", "lime"),
+/// The emoji Jev picks from: a name, the emoji, and what it stands for, which is what Jev reads.
+/// Each is a thing you can name at a glance; what it stands for leans on what coding sessions
+/// work on, and on a pun where one is handy (a spool for threads, a dinosaur for Rex). Jev takes
+/// at most 255 options.
+pub const EMOJI: &[(&str, &str, &str)] = &[
+    ("bug", "🐛", "A bug: something broken, a crash, an error, a regression."),
+    ("ladybug", "🐞", "A small bug: a glitch, a cosmetic problem, a nit, a flaky test."),
+    ("fire", "🔥", "Something urgent: an outage, a hotfix, an incident in production."),
+    ("ambulance", "🚑", "Recovering from a disaster: a rollback, restoring lost data, a post-mortem."),
+    ("test-tube", "🧪", "Tests: writing or running them, coverage, a test harness, checks."),
+    ("microscope", "🔬", "Looking closely: debugging one path, tracing why something happens."),
+    ("magnifier", "🔍", "Search: a search feature, finding things, indexing, lookups."),
+    ("detective", "🕵️", "An investigation: hunting down a cause, gathering evidence, auditing."),
+    ("compass", "🧭", "Exploring: finding your way around a codebase, research, navigation."),
+    ("map", "🗺️", "Maps: locations, geography, routes between places, a site map."),
+    ("palette", "🎨", "Visual design: colors, styles, CSS, themes, how something looks."),
+    ("paintbrush", "🖌️", "Painting the screen: rendering, repainting, drawing, fills."),
+    ("crayon", "🖍️", "Sketching: a canvas, drawing tools, doodles, mockups."),
+    ("frame", "🖼️", "Images: photos, icons, image processing, thumbnails."),
+    ("camera", "📸", "Screenshots: capturing the screen, snapshots, photos taken."),
+    ("movie", "🎬", "Video and motion: animation, recordings, transitions."),
+    ("music", "🎵", "Music and audio playback."),
+    ("microphone", "🎤", "Voice: speech input, dictation, recording audio, a talk."),
+    ("speaker", "🔊", "Sounds: sound effects, alerts that play, volume."),
+    ("bell", "🔔", "Notifications: alerts, badges, reminders."),
+    ("envelope", "✉️", "Email: sending mail, newsletters, mail templates."),
+    ("mailbox", "📬", "An inbox: messages arriving, incoming mail, a queue of things to read."),
+    ("speech", "💬", "Chat: conversations, messages, replies, transcripts."),
+    ("thought", "💭", "Thinking: an agent's reasoning, ideas being weighed."),
+    ("megaphone", "📣", "Announcing: marketing, a launch post, broadcasting to many."),
+    ("newspaper", "📰", "News: a changelog, release notes, a blog post."),
+    ("book", "📖", "Documentation: a guide, a README, explaining how something works."),
+    ("books", "📚", "A library of documents: a knowledge base, references, a wiki."),
+    ("memo", "📝", "Notes and drafts: writing prose, a letter, a report."),
+    ("pencil", "✏️", "Editing words: wording, copy changes, renaming."),
+    ("clipboard", "📋", "Copy and paste, the clipboard, forms to fill in."),
+    ("checkmark", "✅", "Tasks: todos, checklists, marking things done, triage."),
+    ("calendar", "📅", "Dates: calendars, events, schedules, planning."),
+    ("alarm-clock", "⏰", "Alarms: timers, snoozing, reminders at a time, waking up later."),
+    ("hourglass", "⏳", "Waiting: slowness, long-running work, progress bars, delays."),
+    ("stopwatch", "⏱️", "Timing: benchmarks, measuring how long something takes."),
+    ("zap", "⚡", "Speed: performance, latency, making something faster."),
+    ("rocket", "🚀", "Shipping: a release, a deploy, launching, publishing a version."),
+    ("package", "📦", "Packaging: dependencies, upgrades, npm, cargo, bundles, installers."),
+    ("gift", "🎁", "A new feature as a present: a surprise, a welcome, onboarding."),
+    ("toolbox", "🧰", "A kit of tools: utilities, an SDK, developer tooling."),
+    ("hammer-wrench", "🛠️", "The dev setup: build scripts, CI, linting, configuration."),
+    ("wrench", "🔧", "A small fix or adjustment: tuning, maintenance, tweaks."),
+    ("hammer", "🔨", "Building: compiling, builds that break, construction."),
+    ("nut-bolt", "🔩", "Nuts and bolts: low-level internals, fastening parts together."),
+    ("gear", "⚙️", "Settings: preferences, options, configuration files."),
+    ("robot", "🤖", "Agents and bots: automation, agents working on their own."),
+    ("sparkles", "✨", "AI and polish: models, prompts, making something shine."),
+    ("brain", "🧠", "Memory and reasoning: what an agent remembers, learning, intelligence."),
+    ("crystal-ball", "🔮", "Predictions: suggestions, forecasts, guessing what's next."),
+    ("dice", "🎲", "Chance: randomness, probabilities, sampling, shuffling."),
+    ("puzzle", "🧩", "Add-ons: plugins, skills, extensions, pieces that fit together."),
+    ("plug", "🔌", "Integrations: connecting another service, connectors, MCP servers."),
+    ("link", "🔗", "Links: URLs, deep links, linking things together."),
+    ("chain", "⛓️", "Chains: pipelines, steps that depend on each other."),
+    ("hook", "🪝", "Hooks: git hooks, webhooks, React hooks, lifecycle hooks."),
+    ("key", "🔑", "Sign-in: authentication, logins, tokens, API keys, the keychain."),
+    ("old-key", "🗝️", "Secrets: old credentials, unlocking something long locked."),
+    ("lock", "🔒", "Privacy and encryption: locking things down, permissions."),
+    ("shield", "🛡️", "Security: vulnerabilities, sandboxing, protection, security reviews."),
+    ("passport", "🛂", "Approvals: permission prompts, checks before something is allowed."),
+    ("siren", "🚨", "Alarms: monitoring alerts, something flagged as wrong."),
+    ("stop-sign", "🛑", "Stopping: cancelling, aborting, interrupting a turn, stop logs."),
+    ("no-entry", "⛔", "Blocked: access denied, rejected calls, forbidden actions."),
+    ("construction", "🚧", "Work in progress: a migration under way, something half-built."),
+    ("traffic-light", "🚦", "Flow control: rate limiting, statuses, go and wait."),
+    ("thermometer", "🌡️", "Health checks: metrics running hot, load, temperature."),
+    ("chart-up", "📈", "Growth: analytics, usage going up, dashboards."),
+    ("chart-down", "📉", "Falling numbers: costs or metrics going down, a drop."),
+    ("bar-chart", "📊", "Data: statistics, reports, evaluations, numbers in charts."),
+    ("abacus", "🧮", "Counting: calculations, math, totals, tokens counted."),
+    ("money-bag", "💰", "Money: pricing, costs, billing, budgets."),
+    ("credit-card", "💳", "Payments: checkout, cards, subscriptions."),
+    ("receipt", "🧾", "Receipts: invoices, accounting, a record of what was spent."),
+    ("cart", "🛒", "Shopping: a store, products, orders, a marketplace."),
+    ("bank", "🏦", "Finance: banking, accounts and balances."),
+    ("scales", "⚖️", "Weighing: comparing options, trade-offs, legal matters, licenses."),
+    ("briefcase", "💼", "Business: a client, a job, professional matters, hiring."),
+    ("handshake", "🤝", "Agreements: collaboration, partnerships, handing work over."),
+    ("people", "👥", "People: users, teams, profiles, sharing, roles."),
+    ("family", "👪", "Parents and children: lineage, child sessions, inheritance."),
+    ("baby", "👶", "Something brand new: a first version, bootstrapping a project."),
+    ("hatching", "🐣", "Hatching: something just born, a first run, an MVP."),
+    ("egg", "🥚", "Beginnings: chicken-and-egg problems, setup before setup."),
+    ("tree", "🌳", "Trees: hierarchies, file trees, a tree view."),
+    ("seedling", "🌱", "Starting small: scaffolding, seeding data, growing something."),
+    ("cactus", "🌵", "Something prickly: touchy code, a thorny problem."),
+    ("mushroom", "🍄", "Spreading: things that multiply, growth in the dark, power-ups."),
+    ("leaf", "🍂", "Falling away: deprecations, sunsetting, removing what's old."),
+    ("sunflower", "🌻", "Cheer: brightness, light themes, a friendly touch."),
+    ("rose", "🌹", "Something pretty: a polished design, a gift for someone."),
+    ("bouquet", "💐", "A bunch of things: many changes gathered, a collection."),
+    ("broom", "🧹", "Cleanup: refactoring, tidying, removing clutter, simplifying."),
+    ("recycle", "♻️", "Reuse: caching, reusing worktrees, retries, recycling."),
+    ("wastebasket", "🗑️", "Deleting: removal, garbage collection, archiving old things."),
+    ("scissors", "✂️", "Cutting: trimming, splitting, cropping, removing parts."),
+    ("sponge", "🧽", "Scrubbing: sanitizing data, soaking up input, cleaning."),
+    ("spool", "🧵", "Threads: conversation threads, threading, concurrency, weaving things in."),
+    ("yarn", "🧶", "Tangles: untangling messy code, knitting pieces together."),
+    ("knot", "🪢", "A knot: deadlocks, tied-up dependencies, a hard problem."),
+    ("t-rex", "🦖", "Something old or big and fierce: legacy code; anything called Rex."),
+    ("sauropod", "🦕", "Something huge and slow-moving: big files, monoliths, big migrations."),
+    ("dragon", "🐉", "A dragon to slay: a big hairy problem, a legendary bug."),
+    ("unicorn", "🦄", "Something rare: an edge case, magic, an unlikely idea."),
+    ("snail", "🐌", "Slowness: a slow build, a slow page, latency that crawls."),
+    ("turtle", "🐢", "Steady pacing: backoff, throttling, patience."),
+    ("rabbit", "🐇", "Quick hops: speedups, quick fixes, going down a rabbit hole."),
+    ("octopus", "🐙", "GitHub: issues, pull requests, Actions, the gh command."),
+    ("snake", "🐍", "Python: Python scripts and packages."),
+    ("crab", "🦀", "Rust: Rust code, cargo, crates."),
+    ("elephant", "🐘", "Big memory: Postgres, large databases, remembering a lot, PHP."),
+    ("whale", "🐳", "Containers: Docker, images, Kubernetes."),
+    ("penguin", "🐧", "Linux: running on Linux, distributions, its desktops."),
+    ("apple", "🍎", "Apple's platforms: macOS, iOS, Swift, Xcode."),
+    ("phone", "📱", "A phone app: iPhone, Android, mobile layouts."),
+    ("laptop", "💻", "A laptop app: native windows, the Mac, its notch, the menu bar."),
+    ("desktop", "🖥️", "Big screens: displays, monitors, where windows go."),
+    ("keyboard", "⌨️", "The keyboard: shortcuts, key handling, typing, focus."),
+    ("mouse", "🖱️", "The pointer: clicks, hover, drag and drop."),
+    ("joystick", "🕹️", "Controls: input devices, steering, game controls."),
+    ("game", "🎮", "Games: game logic, gamepads, playful features."),
+    ("globe", "🌍", "The web: websites, the browser, the world, languages."),
+    ("satellite", "📡", "Remote connections: syncing between devices, signals, polling."),
+    ("antenna", "📶", "Connectivity: being online or offline, Wi-Fi, signal strength."),
+    ("cloud", "☁️", "The cloud: hosting, workers, buckets, DNS, servers somewhere else."),
+    ("storm", "⛈️", "A storm: many failures at once, flaky infrastructure, chaos."),
+    ("sun", "☀️", "Light: light mode, mornings, a fresh start, daily jobs."),
+    ("moon", "🌙", "Night: dark mode, sleeping, idle states, overnight jobs."),
+    ("star", "⭐", "Favorites: stars, ratings, pins, highlights."),
+    ("rainbow", "🌈", "Many colors: color palettes, gradients, variety."),
+    ("snowflake", "❄️", "Freezing: frozen windows, hangs, cold starts, a code freeze."),
+    ("ice", "🧊", "Cold storage: caches, frozen data, cooling down."),
+    ("droplet", "💧", "Leaks: memory leaks, draining, something dripping away."),
+    ("wave", "🌊", "Streams: streaming data, floods of events, waves of requests."),
+    ("volcano", "🌋", "Eruptions: crashes that blow up, panics, overflows."),
+    ("comet", "☄️", "Something fleeting: one-off runs, spikes, transient errors."),
+    ("mountain", "⛰️", "A big climb: a large project, a hard milestone, peak load."),
+    ("island", "🏝️", "Isolation: sandboxes, isolated worktrees, offline mode, time off."),
+    ("house", "🏠", "Home: the home screen, home life, the household."),
+    ("office", "🏢", "Organizations: companies, workspaces, enterprise, teams."),
+    ("factory", "🏭", "Production: generators, making things at scale."),
+    ("bridge", "🌉", "Bridges: adapters, interop, gateways between systems."),
+    ("door", "🚪", "Doors: entry points, sign-in screens, openings and exits."),
+    ("window", "🪟", "Windows: app windows, panels, Microsoft Windows."),
+    ("mirror", "🪞", "Mirrors: reflections, replicas, previews, mirrored state."),
+    ("ladder", "🪜", "Step by step: escalation, levels, incremental work."),
+    ("school", "🏫", "Learning: tutorials, teaching, explaining a concept."),
+    ("graduation", "🎓", "Mastery: onboarding done, skills learned, certification."),
+    ("trophy", "🏆", "Winning: achievements, scores, goals reached, leaderboards."),
+    ("medal", "🥇", "Ranking: sorting, order, priorities, first place."),
+    ("target", "🎯", "Aiming: goals, accuracy, precision, targeting."),
+    ("red-flag", "🚩", "Flags: feature flags, red flags, markers to look at."),
+    ("finish-flag", "🏁", "Finishing: wrapping up, landing work, the end of a race."),
+    ("pushpin", "📌", "Pinning: pinned items, keeping something in place."),
+    ("bookmark", "🔖", "Bookmarks: saved views, saved places, marks to come back to."),
+    ("label", "🏷️", "Labels: tags, names, attribution, versions, prices."),
+    ("paperclip", "📎", "Attachments: attached files, uploads, clipping things together."),
+    ("folder", "📁", "Folders: files, paths, directories, organizing."),
+    ("cabinet", "🗄️", "Storage: archives, records kept, file storage."),
+    ("floppy", "💾", "Saving: persistence, saved state, backups."),
+    ("card-index", "🗃️", "Databases: tables, schemas, migrations, queries, SQL."),
+    ("scroll", "📜", "Logs and history: log files, long records, scripts."),
+    ("page", "📄", "Documents and formats: PDFs, parsing, importing, exporting files."),
+    ("inbox-tray", "📥", "Importing: downloads, ingest, incoming data."),
+    ("outbox-tray", "📤", "Exporting: uploads, sending out, publishing data."),
+    ("refresh", "🔄", "Refreshing: reloads, syncing, loops that come back around."),
+    ("repeat", "🔁", "Repeating: recurring schedules, cron jobs, loops, retries."),
+    ("shuffle", "🔀", "Branching and merging: git branches, rebases, reordering."),
+    ("anchor", "⚓", "Anchors: fixed positions, docking, anchors in a page, stability."),
+    ("ship", "🚢", "A big crossing: a major release, a large move, a fleet."),
+    ("airplane", "✈️", "Travel and moving: moving between machines, migrations, trips."),
+    ("car", "🚗", "Driving: drivers, getting from place to place, a quick trip."),
+    ("train", "🚆", "Trains: release trains, queues in order, things on a timetable."),
+    ("bicycle", "🚲", "Something light: a minimal version, a lightweight approach."),
+    ("fuel", "⛽", "Limits: usage limits, quotas, running out, credits."),
+    ("battery", "🔋", "Power: battery life, energy use, resources left."),
+    ("light-bulb", "💡", "Ideas: brainstorming, a proposal, a spec, product thinking."),
+    ("flashlight", "🔦", "Finding hidden things: highlighting, spotlighting, discovery."),
+    ("telescope", "🔭", "Looking far: long-term plans, roadmaps, distant systems."),
+    ("magnet", "🧲", "Pulling in: fetching, snapping into place, sticky things."),
+    ("dna", "🧬", "Structure: schemas, types, what makes something itself."),
+    ("atom", "⚛️", "React: components, state, atoms of a UI."),
+    ("pill", "💊", "Remedies: patches, small cures, a quick fix that works."),
+    ("syringe", "💉", "Injection: dependency injection, injected scripts, inserted content."),
+    ("stethoscope", "🩺", "Diagnosis: a doctor command, figuring out what's wrong."),
+    ("bandage", "🩹", "A patch: a workaround, healing a small break."),
+    ("microbe", "🦠", "Contagion: malware, viruses, problems that spread."),
+    ("bomb", "💣", "Something explosive: a risky change, a crash that takes everything down."),
+    ("boom", "💥", "Collisions: conflicts, merge conflicts, crashes."),
+    ("ghost", "👻", "Something missing: invisible UI, things not showing, hidden state."),
+    ("alien", "👽", "Something foreign: third-party code, an unfamiliar codebase, odd behavior."),
+    ("skull", "💀", "Dead things: dead code, killed processes."),
+    ("zombie", "🧟", "Zombies: orphaned processes, stale sessions that won't die."),
+    ("mask", "🎭", "Roles: modes, personas, switching between modes."),
+    ("eyes", "👀", "Watching: monitoring, observing, reviewing, looking over work."),
+    ("ear", "👂", "Listening: event listeners, feedback, hearing back."),
+    ("raised-hand", "✋", "Holding on: pausing, waiting for permission, asking to wait."),
+    ("waving-hand", "👋", "Greetings: welcome screens, hellos and goodbyes, onboarding."),
+    ("thumbs-up", "👍", "Approval: approving, sign-off, reactions, likes."),
+    ("muscle", "💪", "Strength: robustness, hardening, resilience."),
+    ("party", "🎉", "Celebrating: a launch, completion, delight."),
+    ("balloon", "🎈", "Something playful: an easter egg, a light touch."),
+    ("smile", "😊", "Something friendly: a small delight, a casual chat."),
+    ("thinking", "🤔", "Open questions: figuring out what to do, uncertainty."),
+    ("question", "❓", "Questions: asking you something, help, FAQs."),
+    ("warning", "⚠️", "Warnings: lint warnings, deprecations, caution."),
+    ("hundred", "💯", "Completeness: full coverage, perfect scores, 100%."),
+    ("new", "🆕", "Something new: new features, new versions, fresh starts."),
+    ("up", "🆙", "Upgrades: version bumps, updates, raising levels."),
+    ("zzz", "💤", "Sleep: snoozing, idle, sleeping processes, delays until later."),
+    ("dizzy", "💫", "Spinning: spinners, loading states, confusion, rotation."),
+    ("dash", "💨", "Rushing: running fast, quitting, exits."),
+    ("hole", "🕳️", "Holes: gaps, missing data, rabbit holes."),
+    ("infinity", "♾️", "Endless: infinite loops, infinite scroll, things that run forever."),
+    ("crown", "👑", "The main one: the primary, root, admins, leaders."),
+    ("gem", "💎", "Quality and Ruby: Ruby gems, polish, something precious."),
+    ("coffee", "☕", "Coffee: Java, long sessions, a break while waiting."),
+    ("pizza", "🍕", "Slices: splitting work into pieces, sharing out."),
+    ("cookie", "🍪", "Cookies: browser cookies, sessions on the web, consent."),
+    ("cake", "🎂", "Layers: layered architecture, birthdays, anniversaries."),
+    ("pepper", "🌶️", "Spicy: hard or risky work, heat, intensity."),
+    ("salt", "🧂", "Salt: hashing, cryptography, a pinch of something."),
+    ("honey", "🍯", "Honey: honeypots, sweet spots, sticky state."),
+    ("bee", "🐝", "Busy workers: a hive of jobs, many small tasks."),
+    ("ant", "🐜", "Tiny workers: background workers, many small processes."),
+    ("spider", "🕷️", "Crawling: web scraping, crawlers, spidering links."),
+    ("web", "🕸️", "Webs: graphs, networks of dependencies, tangled links."),
+    ("owl", "🦉", "Night owls and wisdom: late-night jobs, insight."),
+    ("parrot", "🦜", "Repeating: echoes, mimicking, copied output, duplicates."),
+    ("fox", "🦊", "Cleverness: a clever trick, browsers, Firefox."),
+    ("cat", "🐱", "Cats: concatenation, curiosity, small pets."),
+    ("dog", "🐶", "Watchdogs: guarding, fetching, loyal background jobs."),
+    ("bird", "🐦", "Small messages: posts, tweets, notes that fly out."),
+    ("butterfly", "🦋", "Transformation: rewrites, migrations, the butterfly effect."),
+    ("frog", "🐸", "Leaps: jumping between screens, hopping from step to step."),
+    ("shark", "🦈", "Lurking danger: threats, attackers, aggressive bots."),
+    ("fish", "🐟", "Fishing: phishing, catching things, the fish shell."),
+    ("shell", "🐚", "The shell: shell scripts, the command line, terminals."),
+    ("paws", "🐾", "Tracks: tracing footsteps, telemetry, following a trail."),
+    ("horse", "🐎", "Workhorses: reliable jobs, horsepower, racing."),
+    ("lion", "🦁", "Bold moves: big decisions, brave changes, leadership."),
+    ("ufo", "🛸", "The unexplained: mysterious behavior, unknown causes."),
+    ("telephone", "☎️", "Calls: RPC, calling functions, phoning someone."),
+    ("pager", "📟", "Paging: on-call, pagination, pages of results."),
+    ("printer", "🖨️", "Printing: print layouts, output devices, printed reports."),
+    ("tv", "📺", "Screens to watch: streaming video, dashboards on a wall."),
+    ("radio", "📻", "Broadcasts: pub/sub, signals sent to many listeners."),
+    ("watch", "⌚", "Wearables: watches, watchOS, keeping time."),
+    ("ruler", "📏", "Measuring: sizes, spacing, lengths, measurements."),
+    ("set-square", "📐", "Layout and geometry: positions, alignment, rectangles, grids."),
+    ("abc", "🔤", "Text and type: fonts, typography, characters, Unicode, spelling."),
+    ("numbers", "🔢", "Numbers: numeric formats, IDs, versions, counting up."),
+    ("speaking-head", "🗣️", "Languages: translation, localization, speech."),
 ];
 
-/// How many places the light can fall on an emblem: clockwise around its edge from the top left
-/// corner, as the windows draw them (primitives.tsx `EMBLEM_LIGHTS`).
-pub const LIGHTS: u8 = 8;
+/// How a picture is drawn when `[emblems] prompt` says nothing. Settings shows it in the prompt's
+/// box until you write your own (SettingsDialog.tsx `DRAWN_STYLE`).
+pub const DRAWN_STYLE: &str = "Flat colors and a bold, simple shape with a dark outline, centered on a plain white background.";
 
-/// Which set of colors and pairs emblems are given from now; one more each time `COLORS` or
-/// `PAIRS` changes. A current session's emblem given from an earlier set is given its tones
-/// again, keeping its icon, so the change shows on every session at once rather than only new ones.
-pub const PALETTE: u8 = 2;
+/// How many pixels a side a kept picture is: twice the 20 points of a session header's emblem,
+/// for a Retina screen, with room to spare.
+const PICTURE_PX: usize = 64;
 
-/// The label color nearest an emblem color: what a device from before there were more than the
-/// label colors gets (`proto::EMBLEMS`), since its windows draw an emblem's colors as label colors.
-pub fn label_color(color: &str) -> &str {
-    match color {
-        "rose" => "red",
-        "magenta" => "pink",
-        "violet" => "purple",
-        "sky" => "blue",
-        "mint" | "lime" => "green",
-        c => c,
-    }
-}
+/// How likely, next to the likeliest, an emoji must be for a session to get it in place of one
+/// a session beside it shows: below this, the two share one rather than one getting an emoji
+/// that doesn't fit.
+const NEARLY: f64 = 0.25;
 
-/// A lane as a device from before there were more than the label colors gets it: its sessions'
-/// emblems in the label colors nearest theirs.
-pub fn for_older(lane: &mut crate::model::Lane) {
-    for e in lane.sessions.iter_mut().filter_map(|s| s.emblem.as_mut()) {
-        e.color = label_color(&e.color).to_string();
-        e.accent = label_color(&e.accent).to_string();
-    }
-}
-
-/// The colors that go with one, in `PAIRS`' order.
-pub fn partners(color: &str) -> Vec<&'static str> {
-    PAIRS.iter().filter_map(|(a, b)| if *a == color { Some(*b) } else if *b == color { Some(*a) } else { None }).collect()
-}
-
-/// A color as another program names it, as one of `COLORS`: Claude Code's `/color` takes red,
-/// blue, green, yellow, purple, orange, pink and cyan. None for one it doesn't know.
-pub fn palette_color(name: &str) -> Option<&'static str> {
-    let name = name.trim().to_lowercase();
-    match name.as_str() {
-        "cyan" => Some("teal"),
-        // No amber: it means only that something needs you. Yellow goes to the yellowish green.
-        "yellow" => Some("lime"),
-        "orange" => Some("red"),
-        "fuchsia" => Some("magenta"),
-        _ => COLORS.iter().copied().find(|c| *c == name),
-    }
-}
-
-/// The icons Jev picks from, by name in the windows' icon set (Tabler's outline icons), with
-/// what each stands for. `code` is for work with no clearer subject.
-pub const ICONS: [(&str, &str); 59] = [
-    ("bug", "Fixing a bug: something broken, a crash, an error, a regression, a flaky or failing test."),
-    ("test-pipe", "Writing or running tests: test coverage, a test harness, checks."),
-    ("palette", "Visual design: colors, styles, CSS, themes, dark mode, how something looks."),
-    ("layout", "A screen's layout: UI components, a panel, a dialog, a page, how a window is arranged."),
-    ("typography", "Words on screen: fonts, type sizes, the wording of labels and messages in a UI."),
-    ("database", "Stored data: databases, schemas, migrations, queries, SQL, caches."),
-    ("book", "Documentation: a guide, a README, notes, writing down how something works."),
-    ("rocket", "Shipping: a release, a deploy, publishing, launching, a version bump."),
-    ("git-merge", "Git chores: branches, merges, rebases, commits, landing a pull request."),
-    ("compass", "Research: exploring a codebase, finding out why or how something happens, comparing options."),
-    ("bolt", "Performance: speed, slowness, latency, memory use, profiling, optimizing."),
-    ("shield", "Security and privacy: vulnerabilities, permissions, sandboxing, secrets."),
-    ("key", "Sign-in and access: authentication, logins, accounts, tokens, API keys, the keychain."),
-    ("cloud", "Cloud infrastructure: hosting, Cloudflare, AWS, workers, buckets, DNS."),
-    ("server", "A backend service: a server, daemons, background workers, queues."),
-    ("api", "An API or protocol: endpoints, HTTP requests, webhooks, JSON, RPC, an SDK."),
-    ("terminal-2", "The command line: a CLI tool, shell scripts, how a terminal behaves."),
-    ("device-mobile", "A phone app: iPhone, iOS, Android, mobile layouts."),
-    ("device-desktop", "A desktop app: a Mac app, native windows, menus, the menu bar."),
-    ("world", "A website: web pages, a landing page, the browser, SEO."),
-    ("message", "Conversations: chat, messages, replies, threads, transcripts."),
-    ("mail", "Email: sending mail, inboxes, newsletters."),
-    ("bell", "Notifications: alerts, badges, sounds, reminders."),
-    ("chart-line", "Data and metrics: analytics, usage, charts, dashboards, reports."),
-    ("table", "Tables of data: spreadsheets, CSV, rows and columns, a data grid."),
-    ("calendar", "Dates and schedules: calendars, events, planning, due dates."),
-    ("clock", "Timing: timers, cron jobs, timeouts, polling, durations."),
-    ("tool", "Developer tooling: build scripts, CI, linting, configuration, the dev setup."),
-    ("package", "Dependencies and packaging: upgrades, npm, cargo, bundling, installers."),
-    ("recycle", "Cleanup: refactoring, restructuring, renaming, removing old code, simplifying."),
-    ("sparkles", "AI: models, prompts, LLM features, how agents behave, evaluations."),
-    ("robot", "Automation: agents working on their own, bots, scheduled jobs, workflows."),
-    ("keyboard", "The keyboard: shortcuts, key handling, typing, focus."),
-    ("photo", "Images: photos, screenshots, icons, image processing."),
-    ("movie", "Video and motion: animation, recordings, GIFs, transitions."),
-    ("music", "Audio: sounds, music, voice, speech."),
-    ("map", "Places: maps, locations, geography, addresses."),
-    ("credit-card", "Money: payments, billing, pricing, subscriptions, invoices, finance."),
-    ("users", "People: users, teams, profiles, sharing, collaboration."),
-    ("file-text", "Files and documents: PDFs, parsing, importing, exporting, file formats."),
-    ("pencil", "Writing prose: drafting a letter, an essay, a post, editing text."),
-    ("plug", "Integrations: connecting another service, connectors, MCP servers."),
-    ("puzzle", "Add-ons: a plugin, a skill, an extension or a module that adds a capability."),
-    ("network", "Networking: syncing between machines, peers, devices, connections."),
-    ("cpu", "Low-level systems: processes, threads, memory, the operating system, hardware."),
-    ("flask", "An experiment: a prototype, a spike, trying an idea out."),
-    ("bulb", "Ideas and planning: brainstorming, a proposal, a spec, product thinking."),
-    ("checklist", "Tasks: todos, checklists, a tracker, triage."),
-    ("school", "Learning: a tutorial, explaining a concept, teaching."),
-    ("home", "Home life: the household, family matters, personal errands."),
-    ("heart", "Health and wellbeing."),
-    ("building-store", "Commerce: a shop, products, orders, a marketplace."),
-    ("language", "Languages: translation, localization, internationalization."),
-    ("accessible", "Accessibility: screen readers, contrast, keyboard access."),
-    ("brand-github", "GitHub itself: issues, Actions, the gh command, repository settings."),
-    ("gauge", "Limits: rate limits, usage limits, quotas, capacity."),
-    ("cube", "Graphics and games: 3D, rendering, game logic."),
-    ("mood-smile", "Something fun: a small delight, an easter egg, a casual chat."),
-    ("code", "Writing code with no clearer subject than the ones above."),
-];
-
-/// Sessions quiet for longer than this aren't asked about or counted among a project's current
+/// Sessions quiet for longer than this aren't given one or counted among a project's current
 /// ones: turning emblems on shouldn't ask about every session of the past two weeks.
 const RECENT_MS: i64 = 2 * DAY_MS;
 /// Emblems of sessions not seen for this long are dropped from emblems.json.
 const KEEP_MS: i64 = 30 * DAY_MS;
-/// How long a session whose question failed waits before it's asked again.
+/// How long a session whose emblem failed waits before it's tried again, and how long no
+/// drawing starts after one failed: what failed it (an account signed out, out of usage)
+/// fails the next one too.
 const RETRY_MS: i64 = 5 * 60_000;
 
-fn hash(s: &str) -> u64 {
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    s.hash(&mut h);
-    h.finish()
-}
-
-/// What the session is about, for Jev: the first prompt you gave it, else the latest where its
-/// harness keeps only that (OpenCode). None while it has been sent nothing: its title then
-/// is its harness's word for an empty one ("Codex thread"), which an icon kept for its life
-/// mustn't be picked from.
+/// What the session is about, for Jev or the account that draws: the first prompt you gave it,
+/// else the latest where its harness keeps only that (OpenCode). None while it has been sent
+/// nothing: its title then is its harness's word for an empty one ("Codex thread"), which an
+/// emblem kept for its life mustn't be picked from.
 fn about(s: &Session) -> Option<&str> {
     [s.first_prompt.as_deref(), s.last_prompt.as_deref()].into_iter().flatten().map(str::trim).find(|p| !p.is_empty())
 }
 
-/// Whether the session counts among those it's set apart from, and gets an emblem of its own now:
-/// not archived and active lately, or running.
+/// Whether the session counts among those it's set apart from: not archived and active lately,
+/// or running.
 fn current(s: &Session, now: i64) -> bool {
     !s.archived && (s.live || now - s.last_activity < RECENT_MS)
 }
 
-/// What another current session shows, for `pick` to set a new one apart from.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Taken {
-    pub project: String,
-    pub color: String,
-    pub accent: String,
-    pub light: u8,
+/// Whether the session gets an emblem of its own: not a run nobody is at, nor a helper, which
+/// shows the emblem of the session it works for.
+fn has_own(s: &Session) -> bool {
+    !s.headless && s.helper.as_ref().and_then(|h| h.parent.as_ref()).is_none()
 }
 
-/// The list rotated to start where the key says, so sessions that come at once and tie don't all
-/// take the first.
-fn from_key<T: Copy>(key: &str, salt: &str, list: &[T]) -> Vec<T> {
-    let start = (hash(&format!("{salt}{key}")) % list.len().max(1) as u64) as usize;
-    (0..list.len()).map(|i| list[(start + i) % list.len()]).collect()
+/// A session's color as its harness names it (`Session::color`): one of the colors Claude Code's
+/// `/color` takes, which a picture drawn for it is mostly in. None for its default or one it
+/// doesn't take.
+pub fn harness_color(name: &str) -> Option<String> {
+    let name = name.trim().to_lowercase();
+    ["red", "blue", "green", "yellow", "purple", "orange", "pink", "cyan"].contains(&name.as_str()).then_some(name)
 }
 
-/// A session's main color, accent and light, as Codealong gives them. With its harness's color
-/// (`own`) the accent is that, and the main color the partner of it the fewest of its project's
-/// current sessions have; without one, the pair whose main color the fewest have, then the pair
-/// itself the fewest, in this project, then on the whole board. Then the light the fewest of the
-/// project's sessions in that main color have, then the fewest of the project's. `taken` is what
-/// each other current session shows.
-pub fn pick(key: &str, project: &str, own: Option<&str>, taken: &[Taken]) -> (&'static str, &'static str, u8) {
-    let own = own.filter(|c| COLORS.contains(c));
-    let both_ways: Vec<(&'static str, &'static str)> = PAIRS.iter().flat_map(|(a, b)| [(*a, *b), (*b, *a)]).collect();
-    let with_own: Vec<(&'static str, &'static str)> = both_ways.iter().copied().filter(|(_, accent)| Some(*accent) == own).collect();
-    let pairs = if with_own.is_empty() { both_ways } else { with_own };
-    let count = |here: bool, f: &dyn Fn(&Taken) -> bool| taken.iter().filter(|t| (!here || t.project == project) && f(t)).count();
-    let (color, accent) = from_key(key, "pair", &pairs)
-        .into_iter()
-        .min_by_key(|(c, a)| {
-            let main = |t: &Taken| t.color == *c;
-            let pair = |t: &Taken| t.color == *c && t.accent == *a;
-            (count(true, &main), count(true, &pair), count(false, &main), count(false, &pair))
-        })
-        .unwrap_or(pairs[0]);
-    let lights: Vec<u8> = (0..LIGHTS).collect();
-    let light = from_key(key, "light", &lights).into_iter().min_by_key(|l| (count(true, &|t: &Taken| t.color == color && t.light == *l), count(true, &|t: &Taken| t.light == *l))).unwrap_or(0);
-    (color, accent, light)
+/// The emoji by its name in `EMOJI`.
+fn emoji_named(name: &str) -> Option<&'static (&'static str, &'static str, &'static str)> {
+    EMOJI.iter().find(|e| e.0 == name)
 }
 
-/// The two tones a session shows: what Codealong gave it, or with its harness's color (`own`) as
-/// the accent, a main color that goes with it: Codealong's own when it does, the accent Codealong
-/// gave it when that does (`/color` set to its main color swaps them), else a partner of it.
-/// Emblems kept before they had accents get a partner of their color.
-pub fn tones(key: &str, kept: &Kept, own: Option<&str>) -> (String, String) {
-    let accent = kept.accent.clone().unwrap_or_else(|| from_key(key, "pair", &partners(&kept.color)).first().copied().unwrap_or("teal").to_string());
-    // A color the windows can't draw (none comes through `palette_color`) is left out.
-    let Some(own) = own.filter(|c| COLORS.contains(c)) else { return (kept.color.clone(), accent) };
-    let goes = partners(own);
-    let main = [kept.color.as_str(), accent.as_str()].into_iter().find(|c| goes.contains(c)).map(String::from);
-    (main.unwrap_or_else(|| from_key(key, "pair", &goes).first().copied().unwrap_or("teal").to_string()), own.to_string())
-}
-
-/// Where the light falls on a session's emblem: where Codealong put it, or from its key for an
-/// emblem kept before it had one.
-fn light_of(key: &str, kept: &Kept) -> u8 {
-    kept.light.filter(|l| *l < LIGHTS).unwrap_or((hash(&format!("light{key}")) % LIGHTS as u64) as u8)
-}
-
-/// Jev's question: which icon stands for what the session works on.
-pub fn request(s: &Session, model: &str) -> Value {
+/// Jev's question: which emoji stands for what the session works on.
+pub fn emoji_request(s: &Session, model: &str) -> Value {
     let mut state = Map::new();
     state.insert("session title".into(), json!(jev::clip(&s.title, 200)));
     if let Some(p) = about(s) {
@@ -291,51 +358,288 @@ pub fn request(s: &Session, model: &str) -> Value {
         model,
         Value::Object(state),
         json!({
-            "icon": {
+            "emoji": {
                 "type": "choice",
-                "instructions": "Which icon best stands for what this coding session works on? Go by its subject, not by the kind of work every session does.",
-                "criteria": Value::Object(ICONS.iter().map(|(k, v)| (k.to_string(), json!(v))).collect()),
+                "instructions": "Which emoji best stands for what this coding session works on? Go by its subject, not by the kind of work every session does (writing code, reviewing it, committing). A playful match is good: a thing its subject brings to mind.",
+                "criteria": Value::Object(EMOJI.iter().map(|(name, _, about)| (name.to_string(), json!(about))).collect()),
             },
         }),
     )
 }
 
-/// The icon Jev picked, when it's one of `ICONS`.
-pub fn read(response: &Value) -> Option<&'static str> {
-    let (pick, _) = jev::choice(response, "icon").into_iter().next()?;
-    ICONS.iter().map(|(name, _)| *name).find(|name| *name == pick)
+/// The emoji a session gets from Jev's ranking (`jev::choice`, the likeliest first): the
+/// likeliest that no session beside it shows (`taken`, by name), among those nearly as likely as
+/// the first; else the first. None when Jev named none of `EMOJI`.
+pub fn pick_emoji(ranking: &[(String, f64)], taken: &[String]) -> Option<&'static str> {
+    let known: Vec<(&'static str, f64)> = ranking.iter().filter_map(|(name, p)| emoji_named(name).map(|e| (e.0, *p))).collect();
+    let top = known.first()?.1;
+    known.iter().find(|(name, p)| *p >= top * NEARLY && !taken.iter().any(|t| t == name)).or(known.first()).map(|(name, _)| *name)
+}
+
+/// What the account that draws is asked: one thing that stands for what the session works on,
+/// not what the sessions beside it show (`taken`), mostly in the color its harness gives it,
+/// drawn as `style` says (`DRAWN_STYLE` when it says nothing), and its name after.
+pub fn draw_prompt(s: &Session, taken: &[String], style: &str) -> String {
+    let mut p = String::from("Draw an emblem for a coding session with your image generation tool: one picture. Use the tool directly; don't read any files or skills, and don't write code.\n\n");
+    p.push_str(&format!("The session is called “{}”.", jev::clip(&s.title, 200)));
+    if let Some(asked) = about(s).filter(|a| a.trim() != s.title.trim()) {
+        p.push_str(&format!(" It was asked: “{}”", jev::clip(asked, 600)));
+    }
+    p.push_str("\n\nPick one thing you can name in a word or two (an object, an animal, a plant, a place) that stands for what it works on; a pun is welcome. Draw only that thing, big, filling most of a square picture. It's shown at 16 to 20 pixels, so: one bold shape, no text or letters, no fine detail.");
+    if !taken.is_empty() {
+        p.push_str(&format!(" The sessions beside it show {}, so pick something else.", crate::util::listed(taken, "and")));
+    }
+    if let Some(color) = s.color.as_deref() {
+        p.push_str(&format!(" Make it mostly {color}."));
+    }
+    let style = if style.trim().is_empty() { DRAWN_STYLE } else { style.trim() };
+    p.push_str(&format!("\n\nHow to draw it: {style}\n\nOnce it's drawn, answer with only the thing's name, in a word or two."));
+    p
+}
+
+/// Has `account` draw what `prompt` asks, in `cwd`: the kept picture's name (`<hash>.png`) and
+/// what it shows, as the account said.
+pub fn draw(account: &AccountCfg, cwd: &Path, prompt: &str) -> Result<(String, String)> {
+    let adapter = crate::harness::of(account).ok_or_else(|| anyhow!("{} isn't an account Codealong knows how to run.", account.name))?;
+    std::fs::create_dir_all(cwd).with_context(|| format!("making {}", cwd.display()))?;
+    let drawn = adapter.draw(&crate::harness::Ctx { account }, cwd, prompt)?;
+    let small = shrink(&drawn.image)?;
+    let kept = crate::attachments::keep_image_in(&crate::attachments::images_dir(), &small).ok_or_else(|| anyhow!("Codealong couldn't keep the picture {} drew.", account.name))?;
+    let picture = kept.strip_prefix(crate::attachments::IMAGES).unwrap_or(&kept).to_string();
+    Ok((picture, name_of(&drawn.said)))
+}
+
+/// Where the account that draws runs: a folder of Codealong's own, with nothing in it to read.
+pub fn drawing_dir() -> PathBuf {
+    crate::config::support_dir().join("emblem-drawing")
+}
+
+/// The thing's name from what the account answered after drawing: its last line, without
+/// quotes, marks or a full stop.
+fn name_of(said: &str) -> String {
+    let line = said.lines().map(str::trim).rfind(|l| !l.is_empty()).unwrap_or("");
+    let name = line.trim_matches(|c: char| "\"'`*_.“”‘’".contains(c)).trim();
+    if name.is_empty() {
+        "picture".to_string()
+    } else {
+        jev::clip(name, 40)
+    }
+}
+
+/* ---- Pictures ---- */
+
+/// A drawn picture made an emblem: a plain white background around the thing made clear, cut
+/// to a square around what's left with a little room, scaled down to `PICTURE_PX` by averaging,
+/// and written as a PNG.
+pub fn shrink(png_bytes: &[u8]) -> Result<Vec<u8>> {
+    let (w, h, mut px) = decode(png_bytes)?;
+    clear_white(&mut px, w, h);
+    let (x0, y0, side) = square_around(&px, w, h);
+    encode(&scale_down(&px, w, h, (x0, y0, side), PICTURE_PX), PICTURE_PX)
+}
+
+/// A PNG's pixels as RGBA, 8 bits a channel.
+fn decode(bytes: &[u8]) -> Result<(usize, usize, Vec<u8>)> {
+    let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
+    decoder.set_transformations(png::Transformations::normalize_to_color8());
+    let mut reader = decoder.read_info().context("The drawing isn't a PNG Codealong can read")?;
+    let mut buf = vec![0; reader.output_buffer_size().ok_or_else(|| anyhow!("The drawing is too big to read."))?];
+    let info = reader.next_frame(&mut buf).context("The drawing isn't a PNG Codealong can read")?;
+    let (w, h) = (info.width as usize, info.height as usize);
+    let data = &buf[..info.buffer_size()];
+    let rgba: Vec<u8> = match info.color_type {
+        png::ColorType::Rgba => data.to_vec(),
+        png::ColorType::Rgb => data.chunks_exact(3).flat_map(|p| [p[0], p[1], p[2], 255]).collect(),
+        png::ColorType::GrayscaleAlpha => data.chunks_exact(2).flat_map(|p| [p[0], p[0], p[0], p[1]]).collect(),
+        png::ColorType::Grayscale => data.iter().flat_map(|g| [*g, *g, *g, 255]).collect(),
+        png::ColorType::Indexed => bail!("The drawing's colors didn't read."),
+    };
+    if w == 0 || h == 0 || rgba.len() != w * h * 4 {
+        bail!("The drawing is empty.");
+    }
+    Ok((w, h, rgba))
+}
+
+/// Whether a pixel is the plain white a picture is drawn on, or already clear.
+fn background(p: &[u8]) -> bool {
+    p[3] < 16 || (p[0] >= 230 && p[1] >= 230 && p[2] >= 230)
+}
+
+/// Makes the white a picture is drawn on clear, so it sits on any window: every pixel of it
+/// that reaches the edge, when most of the edge is white (a picture that fills its square keeps
+/// it). The thing's own light edge, where it was blended into the white, is made partly clear
+/// and unblended, so no white rim shows on a dark window.
+fn clear_white(px: &mut [u8], w: usize, h: usize) {
+    let at = |x: usize, y: usize| (y * w + x) * 4;
+    let edge: Vec<(usize, usize)> = (0..w).flat_map(|x| [(x, 0), (x, h - 1)]).chain((0..h).flat_map(|y| [(0, y), (w - 1, y)])).collect();
+    if edge.iter().filter(|(x, y)| background(&px[at(*x, *y)..at(*x, *y) + 4])).count() * 2 < edge.len() {
+        return;
+    }
+    let mut clear = vec![false; w * h];
+    let mut stack: Vec<(usize, usize)> = edge.into_iter().filter(|(x, y)| background(&px[at(*x, *y)..at(*x, *y) + 4])).collect();
+    while let Some((x, y)) = stack.pop() {
+        if clear[y * w + x] {
+            continue;
+        }
+        clear[y * w + x] = true;
+        let next = [(x.wrapping_sub(1), y), (x + 1, y), (x, y.wrapping_sub(1)), (x, y + 1)];
+        for (nx, ny) in next {
+            if nx < w && ny < h && !clear[ny * w + nx] && background(&px[at(nx, ny)..at(nx, ny) + 4]) {
+                stack.push((nx, ny));
+            }
+        }
+    }
+    // Lighter than this, a pixel beside the background is taken as partly white.
+    const SOFT: f64 = 170.0;
+    for y in 0..h {
+        for x in 0..w {
+            let i = at(x, y);
+            if clear[y * w + x] {
+                px[i..i + 4].copy_from_slice(&[0, 0, 0, 0]);
+                continue;
+            }
+            let beside = [(x.wrapping_sub(1), y), (x + 1, y), (x, y.wrapping_sub(1)), (x, y + 1)].iter().any(|(nx, ny)| *nx < w && *ny < h && clear[ny * w + nx]);
+            let light = f64::from(px[i].min(px[i + 1]).min(px[i + 2]));
+            if beside && light > SOFT {
+                let a = ((255.0 - light) / (255.0 - SOFT)).clamp(0.05, 1.0);
+                for c in 0..3 {
+                    px[i + c] = ((f64::from(px[i + c]) - 255.0 * (1.0 - a)) / a).clamp(0.0, 255.0) as u8;
+                }
+                px[i + 3] = (f64::from(px[i + 3]) * a) as u8;
+            }
+        }
+    }
+}
+
+/// The square a picture is cut to: around what isn't clear, with a twentieth of room on each
+/// side, centered on it; the whole picture's when none of it, or all of it, is clear. It can
+/// reach past the picture's edges, which are clear there.
+fn square_around(px: &[u8], w: usize, h: usize) -> (i64, i64, i64) {
+    let (mut x0, mut y0, mut x1, mut y1) = (w, h, 0, 0);
+    for y in 0..h {
+        for x in 0..w {
+            if px[(y * w + x) * 4 + 3] > 24 {
+                (x0, y0, x1, y1) = (x0.min(x), y0.min(y), x1.max(x + 1), y1.max(y + 1));
+            }
+        }
+    }
+    if x1 <= x0 || y1 <= y0 || (x0, y0, x1, y1) == (0, 0, w, h) {
+        let side = w.max(h) as i64;
+        return ((w as i64 - side) / 2, (h as i64 - side) / 2, side);
+    }
+    let (bw, bh) = ((x1 - x0) as i64, (y1 - y0) as i64);
+    let side = (bw.max(bh) as f64 * 1.1).ceil() as i64;
+    let (cx, cy) = (x0 as i64 + bw / 2, y0 as i64 + bh / 2);
+    (cx - side / 2, cy - side / 2, side.max(1))
+}
+
+/// The square `at` (left, top, side) scaled to `n` pixels a side, each the average of the
+/// pixels it covers, weighted by how clear they are so a clear pixel's color doesn't darken the
+/// edge. Past the picture's edges counts as clear.
+fn scale_down(px: &[u8], w: usize, h: usize, at: (i64, i64, i64), n: usize) -> Vec<u8> {
+    let (left, top, side) = at;
+    let span = |o: usize, from: i64| (from + (o as i64 * side) / n as i64, from + ((o as i64 + 1) * side) / n as i64);
+    let mut out = vec![0u8; n * n * 4];
+    for oy in 0..n {
+        let (sy0, sy1) = span(oy, top);
+        for ox in 0..n {
+            let (sx0, sx1) = span(ox, left);
+            let (mut rgb, mut alpha, mut count) = ([0f64; 3], 0f64, 0f64);
+            for sy in sy0..sy1.max(sy0 + 1) {
+                for sx in sx0..sx1.max(sx0 + 1) {
+                    count += 1.0;
+                    if sx < 0 || sy < 0 || sx as usize >= w || sy as usize >= h {
+                        continue;
+                    }
+                    let i = (sy as usize * w + sx as usize) * 4;
+                    let a = f64::from(px[i + 3]) / 255.0;
+                    for c in 0..3 {
+                        rgb[c] += f64::from(px[i + c]) * a;
+                    }
+                    alpha += a;
+                }
+            }
+            let o = (oy * n + ox) * 4;
+            if alpha > 0.0 {
+                for c in 0..3 {
+                    out[o + c] = (rgb[c] / alpha).round().clamp(0.0, 255.0) as u8;
+                }
+            }
+            out[o + 3] = (alpha / count * 255.0).round().clamp(0.0, 255.0) as u8;
+        }
+    }
+    out
+}
+
+/// RGBA pixels, `n` a side, as a PNG.
+fn encode(px: &[u8], n: usize) -> Result<Vec<u8>> {
+    let mut out = Vec::new();
+    {
+        let mut encoder = png::Encoder::new(&mut out, n as u32, n as u32);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder.write_header()?;
+        writer.write_image_data(px)?;
+        writer.finish()?;
+    }
+    Ok(out)
 }
 
 /* ---- Kept emblems ---- */
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+/// What a session was given. Emblems kept before 2026-10-27, icons on colors, read as neither
+/// and are given again.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Kept {
-    /// The main color Codealong gave it.
-    pub color: String,
-    /// The accent Codealong gave it, a color that goes with `color`; its harness's color stands
-    /// over it while it has one (`tones`). None in emblems kept before emblems had two.
+    /// The emoji Jev picked, by its name in `EMOJI`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub accent: Option<String>,
-    /// Where Codealong put its light, 0 to `LIGHTS` - 1. None in emblems kept before that.
+    pub emoji: Option<String>,
+    /// The picture drawn for it: a kept image's name, `<hash>.png`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub light: Option<u8>,
-    /// The `PALETTE` its tones were given from. None in emblems given before there was one.
+    pub picture: Option<String>,
+    /// What the picture shows, as the account that drew it said.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub palette: Option<u8>,
-    /// The icon Jev picked, once it has.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub icon: Option<String>,
+    pub drawn: Option<String>,
     /// When the session was last seen, to drop old ones.
     pub seen_at: i64,
+}
+
+impl Kept {
+    /// What it shows when emblems are `kind`: its emoji, or its picture, else its emoji until
+    /// it has one.
+    fn shown(&self, kind: EmblemKind) -> Option<Emblem> {
+        let emoji = || self.emoji.as_deref().and_then(emoji_named).map(|(name, emoji, _)| Emblem { emoji: Some(emoji.to_string()), picture: None, name: name.replace('-', " ") });
+        match kind {
+            EmblemKind::Off => None,
+            EmblemKind::Emoji => emoji(),
+            EmblemKind::Drawn => self.picture.as_ref().map(|p| Emblem { emoji: None, picture: Some(p.clone()), name: self.drawn.clone().unwrap_or_default() }).or_else(emoji),
+        }
+    }
+
+    /// Whether it has what emblems of `kind` show.
+    fn has(&self, kind: EmblemKind) -> bool {
+        match kind {
+            EmblemKind::Off => true,
+            EmblemKind::Emoji => self.emoji.is_some(),
+            EmblemKind::Drawn => self.picture.is_some(),
+        }
+    }
 }
 
 /// Emblems by session key, as emblems.json keeps them.
 #[derive(Default)]
 pub struct Store {
     pub kept: HashMap<String, Kept>,
-    /// Sessions whose question failed, and when: asked again only after a while.
+    /// Each current session's project, as the last look found them: what the sessions beside
+    /// one show is asked of these.
+    projects: HashMap<String, String>,
+    /// Sessions whose emblem failed, and when: tried again only after a while.
     failed: HashMap<String, i64>,
+    /// The session whose picture is being drawn.
+    pub drawing: Option<String>,
+    /// When a drawing last failed.
+    draw_failed: Option<i64>,
     dirty: bool,
 }
 
@@ -350,79 +654,102 @@ impl Store {
         Store { kept: crate::store::load_whole(&path(), "the sessions' emblems"), ..Default::default() }
     }
 
-    /// What the session shows: the tones and light Codealong gave it, its harness's color as the
-    /// accent while it has one, with the icon Jev picked. None until it has an icon.
-    pub fn emblem_of(&self, s: &Session) -> Option<Emblem> {
-        let kept = self.kept.get(&s.key)?;
-        let icon = kept.icon.clone()?;
-        let (color, accent) = tones(&s.key, kept, s.color.as_deref());
-        Some(Emblem { color, accent, light: light_of(&s.key, kept), icon })
+    /// What the session shows when emblems are `kind`: its own, or a helper's, the emblem of the
+    /// session it works for. None until it has one.
+    pub fn emblem_of(&self, s: &Session, kind: EmblemKind) -> Option<Emblem> {
+        let parent = s.helper.as_ref().and_then(|h| h.parent.as_deref());
+        self.kept.get(parent.unwrap_or(&s.key))?.shown(kind)
     }
 
-    /// What a session with an emblem shows, icon or not, for the sessions after it to be set
-    /// apart from.
-    fn taken(&self, project: &str, s: &Session) -> Option<Taken> {
-        let kept = self.kept.get(&s.key)?;
-        let (color, accent) = tones(&s.key, kept, s.color.as_deref());
-        Some(Taken { project: project.to_string(), color, accent, light: light_of(&s.key, kept) })
+    /// What the other current sessions of the session's project show, by name.
+    pub fn taken(&self, key: &str, kind: EmblemKind) -> Vec<String> {
+        let Some(project) = self.projects.get(key) else { return Vec::new() };
+        let mut names: Vec<String> = self
+            .projects
+            .iter()
+            .filter(|(k, p)| *p == project && k.as_str() != key)
+            .filter_map(|(k, _)| self.kept.get(k))
+            .filter_map(|m| match kind {
+                EmblemKind::Emoji => m.emoji.clone(),
+                EmblemKind::Drawn => m.drawn.clone(),
+                EmblemKind::Off => None,
+            })
+            .collect();
+        names.sort();
+        names.dedup();
+        names
     }
 
-    /// Looks over the board's sessions, each with its project: gives tones and a light to each
-    /// current one seen for the first time, and says which to ask Jev for an icon, by key. Each
-    /// session once, however many lanes list it.
-    pub fn look<'a>(&mut self, sessions: impl IntoIterator<Item = (&'a str, &'a Session)>, now: i64) -> Vec<String> {
+    /// Looks over the board's sessions, each with its project, and says which want an emblem of
+    /// `kind`, by key, the newest first: current ones with a prompt and an emblem of their own,
+    /// not given one yet, and not failed lately. Each session once, however many lanes list it.
+    pub fn look<'a>(&mut self, sessions: impl IntoIterator<Item = (&'a str, &'a Session)>, kind: EmblemKind, now: i64) -> Vec<String> {
         let mut by_key: HashMap<&str, (&str, &Session)> = HashMap::new();
         for (project, s) in sessions {
             by_key.entry(s.key.as_str()).or_insert((project, s));
         }
-        let mut keys: Vec<&str> = by_key.keys().copied().collect();
-        // The oldest first, so colors are given in the order the sessions came.
-        keys.sort_by_key(|k| (by_key[k].1.started_at.unwrap_or(by_key[k].1.last_prompt_at), *k));
-        let mut taken: Vec<Taken> = Vec::new();
-        // Seen for the first time, or given their tones from an earlier palette.
-        let mut fresh: Vec<&str> = Vec::new();
-        for k in &keys {
-            let (project, s) = by_key[k];
+        self.projects = by_key.iter().filter(|(_, (_, s))| current(s, now)).map(|(k, (p, _))| (k.to_string(), p.to_string())).collect();
+        for k in by_key.keys() {
             self.seen(k, now);
-            if !current(s, now) {
-                continue;
-            }
-            let earlier = self.kept.get(*k).is_some_and(|m| m.palette != Some(PALETTE));
-            match self.taken(project, s) {
-                Some(_) if earlier => fresh.push(k),
-                Some(t) => taken.push(t),
-                None if about(s).is_some() => fresh.push(k),
-                None => {}
-            }
         }
-        for k in fresh {
-            let (project, s) = by_key[k];
-            let (color, accent, light) = pick(k, project, s.color.as_deref(), &taken);
-            let icon = self.kept.get(k).and_then(|m| m.icon.clone());
-            self.kept.insert(k.to_string(), Kept { color: color.into(), accent: Some(accent.into()), light: Some(light), palette: Some(PALETTE), icon, seen_at: now });
-            taken.extend(self.taken(project, s));
-            self.dirty = true;
-        }
-        keys.into_iter()
-            .filter(|k| {
-                let s = by_key[k].1;
-                current(s, now) && about(s).is_some() && self.kept.get(*k).is_some_and(|m| m.icon.is_none()) && self.failed.get(*k).is_none_or(|at| now - at > RETRY_MS)
+        let mut keys: Vec<&str> = by_key
+            .iter()
+            .filter(|(k, (_, s))| {
+                current(s, now) && has_own(s) && about(s).is_some() && !self.kept.get(**k).is_some_and(|m| m.has(kind)) && self.failed.get(**k).is_none_or(|at| now - at > RETRY_MS)
             })
-            .map(String::from)
-            .collect()
+            .map(|(k, _)| *k)
+            .collect();
+        keys.sort_by_key(|k| (std::cmp::Reverse(by_key[k].1.last_prompt_at.max(by_key[k].1.started_at.unwrap_or(0))), *k));
+        keys.into_iter().map(String::from).collect()
     }
 
-    pub fn answered(&mut self, key: &str, icon: &str, now: i64) {
+    /// Jev's ranking for a session's emoji: it gets the one `pick_emoji` picks. False when Jev
+    /// named none it knows.
+    pub fn answered_emoji(&mut self, key: &str, ranking: &[(String, f64)], now: i64) -> bool {
+        let Some(name) = pick_emoji(ranking, &self.taken(key, EmblemKind::Emoji)) else {
+            self.failed(key, now);
+            return false;
+        };
         self.failed.remove(key);
-        if let Some(m) = self.kept.get_mut(key) {
-            m.icon = Some(icon.to_string());
-            m.seen_at = now;
-            self.dirty = true;
-        }
+        let m = self.kept.entry(key.to_string()).or_default();
+        m.emoji = Some(name.to_string());
+        m.seen_at = now;
+        self.dirty = true;
+        true
+    }
+
+    /// A session's picture is drawn: the kept image's name, and what it shows.
+    pub fn drawn(&mut self, key: &str, picture: String, name: String, now: i64) {
+        self.drawing = None;
+        self.draw_failed = None;
+        self.failed.remove(key);
+        let m = self.kept.entry(key.to_string()).or_default();
+        m.picture = Some(picture);
+        m.drawn = Some(name);
+        m.seen_at = now;
+        self.dirty = true;
     }
 
     pub fn failed(&mut self, key: &str, now: i64) {
         self.failed.insert(key.to_string(), now);
+    }
+
+    /// A session's picture couldn't be drawn: neither it nor another is drawn for a while.
+    pub fn draw_failed(&mut self, key: &str, now: i64) {
+        self.drawing = None;
+        self.draw_failed = Some(now);
+        self.failed(key, now);
+    }
+
+    /// Whether a drawing can start: none is under way, and none failed lately.
+    pub fn can_draw(&self, now: i64) -> bool {
+        self.drawing.is_none() && self.draw_failed.is_none_or(|at| now - at > RETRY_MS)
+    }
+
+    /// The kept pictures, as text refers to kept images (`images/<name>`), so they aren't
+    /// cleared as unused (`attachments::collect_garbage`).
+    pub fn pictures(&self) -> Vec<String> {
+        self.kept.values().filter_map(|m| m.picture.as_ref()).map(|p| format!("{}{p}", crate::attachments::IMAGES)).collect()
     }
 
     /// Notes that a session with an emblem is still around.
@@ -436,12 +763,13 @@ impl Store {
         }
     }
 
-    /// Writes emblems.json when something changed, dropping emblems of sessions not seen for a month.
+    /// Writes emblems.json when something changed, dropping emblems of sessions not seen for a
+    /// month and those from before that show nothing.
     pub fn save(&mut self, now: i64) {
         if !self.dirty {
             return;
         }
-        self.kept.retain(|_, m| now - m.seen_at < KEEP_MS);
+        self.kept.retain(|_, m| now - m.seen_at < KEEP_MS && (m.emoji.is_some() || m.picture.is_some()));
         self.dirty = false;
         // Not over a file that didn't read: save_whole leaves it and its notice says why.
         let _ = crate::store::save_whole(&path(), &self.kept);
@@ -451,7 +779,7 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::Harness;
+    use crate::model::{Harness, Helper};
 
     const NOW: i64 = 40 * DAY_MS;
 
@@ -466,244 +794,210 @@ mod tests {
         }
     }
 
+    fn ranked(names: &[(&str, f64)]) -> Vec<(String, f64)> {
+        names.iter().map(|(n, p)| (n.to_string(), *p)).collect()
+    }
+
+    /// Every emoji has a name of its own, an emoji and what it stands for, and Jev's limit of
+    /// 255 options holds.
     #[test]
-    fn a_harness_color_is_drawn_without_amber() {
-        assert_eq!(["red", "blue", "green", "yellow", "purple", "orange", "pink", "cyan"].map(palette_color), [Some("red"), Some("blue"), Some("green"), Some("lime"), Some("purple"), Some("red"), Some("pink"), Some("teal")]);
-        assert_eq!(palette_color("magenta"), Some("magenta"));
-        assert_eq!(palette_color(" Teal "), Some("teal"));
-        assert_eq!(palette_color("default"), None);
-        assert!(["red", "blue", "green", "yellow", "purple", "orange", "pink", "cyan"].iter().filter_map(|c| palette_color(c)).all(|c| COLORS.contains(&c)));
+    fn the_emoji_are_named_once_each() {
+        let names: std::collections::HashSet<&str> = EMOJI.iter().map(|e| e.0).collect();
+        assert_eq!(names.len(), EMOJI.len(), "an emoji named twice");
+        let emoji: std::collections::HashSet<&str> = EMOJI.iter().map(|e| e.1).collect();
+        assert_eq!(emoji.len(), EMOJI.len(), "an emoji listed twice");
+        assert!(EMOJI.len() <= 255);
+        assert!(EMOJI.iter().all(|(n, e, about)| !n.is_empty() && !e.is_empty() && about.ends_with('.')));
     }
 
-    fn taken(project: &str, color: &str, accent: &str, light: u8) -> Taken {
-        Taken { project: project.into(), color: color.into(), accent: accent.into(), light }
-    }
-
-    /// A token's color in a theme, through any alias (`{label-red}`).
-    fn token_hex(tokens: &Value, name: &str, theme: &str) -> String {
-        let t = tokens["color"]["tokens"].as_array().unwrap().iter().find(|t| t["name"] == name).unwrap_or_else(|| panic!("no {name} token"));
-        let v = t["value"].get(theme).unwrap_or(&t["value"]).as_str().unwrap();
-        match v.strip_prefix('{').and_then(|v| v.strip_suffix('}')) {
-            Some(alias) => token_hex(tokens, alias, theme),
-            None => v.to_string(),
-        }
-    }
-
-    /// A color's hue in OKLCH, which spaces hues as the eye does.
-    fn oklch_hue(hex: &str) -> f64 {
-        let lin = |c: f64| if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) };
-        let [r, g, b] = [1, 3, 5].map(|i| lin(u8::from_str_radix(&hex[i..i + 2], 16).unwrap() as f64 / 255.0));
-        let l = (0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b).cbrt();
-        let m = (0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b).cbrt();
-        let s = (0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b).cbrt();
-        let a = 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s;
-        let bb = 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s;
-        bb.atan2(a).to_degrees().rem_euclid(360.0)
-    }
-
-    /// The colors are the windows' `emblem-*` tokens, in hue order, and the pairs are all of those
-    /// at most 90° apart in OKLCH in both themes, as the tokens have them, so a change to a color
-    /// can't leave a pair that clashes.
+    /// The likeliest emoji no session beside it shows, among those nearly as likely; else the
+    /// likeliest, rather than one that doesn't fit.
     #[test]
-    fn the_pairs_are_the_colors_that_go_together() {
-        let tokens: Value = serde_json::from_str(&std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../design/tokens.json")).unwrap()).unwrap();
-        let hue = |c: &str, theme: &str| oklch_hue(&token_hex(&tokens, &format!("emblem-{c}"), theme));
-        let apart = |a: &str, b: &str, theme: &str| {
-            let d = (hue(a, theme) - hue(b, theme)).abs();
-            d.min(360.0 - d)
-        };
-        // Round the wheel in one direction, as COLORS lists them.
-        for w in COLORS.windows(2) {
-            let step = (hue(w[0], "light") - hue(w[1], "light")).rem_euclid(360.0);
-            assert!((10.0..35.0).contains(&step), "{} to {} is {step:.0}°", w[0], w[1]);
-        }
-        let mut want: Vec<(&str, &str)> = Vec::new();
-        for (i, a) in COLORS.iter().enumerate() {
-            for b in &COLORS[i + 1..] {
-                if ["light", "dark"].iter().all(|theme| apart(a, b, theme) <= 90.0) {
-                    want.push((a, b));
-                }
-            }
-        }
-        let norm = |(a, b): (&str, &str)| if a < b { (a.to_string(), b.to_string()) } else { (b.to_string(), a.to_string()) };
-        let mut have: Vec<_> = PAIRS.iter().map(|p| norm(*p)).collect();
-        let mut want: Vec<_> = want.into_iter().map(norm).collect();
-        have.sort();
-        want.sort();
-        assert_eq!(have, want);
-        assert!(COLORS.iter().all(|c| partners(c).len() >= 3), "every color in three pairs at least");
+    fn picks_the_likeliest_emoji_nobody_beside_it_shows() {
+        let ranking = ranked(&[("bug", 0.6), ("ladybug", 0.3), ("fire", 0.05)]);
+        assert_eq!(pick_emoji(&ranking, &[]), Some("bug"));
+        assert_eq!(pick_emoji(&ranking, &["bug".into()]), Some("ladybug"));
+        assert_eq!(pick_emoji(&ranking, &["bug".into(), "ladybug".into()]), Some("bug"), "fire is too unlikely to stand in");
+        assert_eq!(pick_emoji(&ranked(&[("not-an-emoji", 0.9), ("crab", 0.1)]), &[]), Some("crab"));
+        assert_eq!(pick_emoji(&ranked(&[("not-an-emoji", 0.9)]), &[]), None);
     }
 
     #[test]
-    fn a_new_emblem_is_set_apart_from_its_projects() {
-        // Every main color but indigo is taken once in this project: indigo, whatever the key.
-        let here: Vec<Taken> = COLORS.iter().filter(|c| **c != "indigo").map(|c| taken("A", c, partners(c)[0], 0)).collect();
-        for key in ["k1", "k2", "k3"] {
-            let (color, accent, _) = pick(key, "A", None, &here);
-            assert_eq!(color, "indigo");
-            assert!(partners("indigo").contains(&accent), "{accent} goes with indigo");
-        }
-        // Another project's sessions count only to break a tie in this one.
-        let mut there = here.clone();
-        there.retain(|t| t.color != "red");
-        there.extend([taken("B", "indigo", "teal", 0), taken("B", "indigo", "pink", 1)]);
-        assert_eq!(pick("k4", "A", None, &there).0, "red");
-        // Two sessions in one main color get different lights.
-        let reds: Vec<Taken> = (0..LIGHTS - 1).map(|l| taken("A", "red", "pink", l)).collect();
-        let only: Vec<Taken> = COLORS.iter().filter(|c| **c != "red").flat_map(|c| (0..LIGHTS).map(move |l| taken("A", c, partners(c)[0], l))).chain(reds).collect();
-        let (color, accent, light) = pick("k5", "A", None, &only);
-        assert_eq!((color, light), ("red", LIGHTS - 1));
-        assert!(accent != "pink" && partners("red").contains(&accent), "a pair of red's not taken yet: {accent}");
-        // With nothing taken, sessions that come at once spread by key, in pairs that go together.
-        let picks: Vec<_> = (0..40).map(|i| pick(&format!("claude:claude:{i}"), "A", None, &[])).collect();
-        assert!(picks.iter().map(|p| p.0).collect::<std::collections::HashSet<_>>().len() > 3);
-        assert!(picks.iter().map(|p| p.2).collect::<std::collections::HashSet<_>>().len() > 3);
-        assert!(picks.iter().all(|(c, a, _)| partners(c).contains(a)));
-    }
-
-    /// With its harness's color, that's the accent, and the main color one that goes with it.
-    #[test]
-    fn a_harness_color_is_the_accent() {
-        let (color, accent, _) = pick("k", "A", Some("red"), &[]);
-        assert_eq!(accent, "red");
-        assert!(partners("red").contains(&color));
-        let kept = Kept { color: "teal".into(), accent: Some("blue".into()), light: Some(3), palette: Some(PALETTE), icon: None, seen_at: NOW };
-        assert_eq!(tones("k", &kept, None), ("teal".into(), "blue".into()));
-        // `/color` set later: the main color stays where it goes with it.
-        assert_eq!(tones("k", &kept, Some("green")), ("teal".into(), "green".into()));
-        // Set to the main color itself, the two swap.
-        assert_eq!(tones("k", &kept, Some("teal")), ("blue".into(), "teal".into()));
-        // To one neither goes with, a partner of it.
-        let (main, accent) = tones("k", &kept, Some("red"));
-        assert_eq!(accent, "red");
-        assert!(partners("red").contains(&main.as_str()), "{main}");
-        // A color the windows can't draw is left out.
-        assert_eq!(tones("k", &kept, Some("mauve")), ("teal".into(), "blue".into()));
-        // An emblem kept before emblems had two tones gets a partner of its color, and a light.
-        let old = Kept { color: "teal".into(), accent: None, light: None, palette: None, icon: None, seen_at: NOW };
-        assert!(partners("teal").contains(&tones("k", &old, None).1.as_str()));
-        assert!(light_of("k", &old) < LIGHTS);
-        let kept: Kept = serde_json::from_str(r#"{"color":"teal","icon":"bug","seenAt":1}"#).unwrap();
-        assert_eq!((kept.accent, kept.light), (None, None), "emblems.json from before reads");
-    }
-
-    #[test]
-    fn gives_each_current_session_a_color_once_and_asks_for_its_icon() {
-        let mut store = Store::default();
-        let a = session("a", "Fix the flaky login test");
-        let b = Session { started_at: Some(NOW - 1_800_000), ..session("b", "Dark mode for the settings") };
-        let old = Session { last_activity: NOW - 3 * DAY_MS, ..session("old", "Old work") };
-        let archived = Session { archived: true, ..session("arch", "Archived work") };
-        // Sent nothing yet, its title is its harness's word for an empty one.
-        let empty = Session { first_prompt: None, title: "Codex thread".into(), ..session("empty12", "") };
-        let board = [("A", &a), ("A", &b), ("A", &old), ("A", &archived), ("A", &empty), ("B", &a)];
-        let asks = store.look(board, NOW);
-        assert_eq!(asks, vec![a.key.clone(), b.key.clone()], "the oldest first, each once");
-        assert_ne!(store.kept[&a.key].color, store.kept[&b.key].color, "two sessions side by side");
-        assert!(!store.kept.contains_key(&old.key) && !store.kept.contains_key(&archived.key) && !store.kept.contains_key(&empty.key));
-        assert_eq!(store.emblem_of(&a), None, "no emblem until it has an icon");
-        // What's given stays; asked again until Jev answers, then not.
-        let given = store.kept[&a.key].clone();
-        store.answered(&a.key, "bug", NOW);
-        assert_eq!(store.look(board, NOW + 1000), vec![b.key.clone()]);
-        let shown = store.emblem_of(&a).unwrap();
-        assert_eq!((Some(shown.color), Some(shown.accent), Some(shown.light), shown.icon.as_str()), (Some(given.color), given.accent, given.light, "bug"));
-    }
-
-    /// Sessions whose harness gives them all one color still read apart: the main colors and
-    /// lights Codealong gives them differ.
-    #[test]
-    fn one_harness_color_for_all_still_reads_apart() {
-        let mut store = Store::default();
-        let sessions: Vec<Session> = (0..4).map(|i| Session { color: Some("blue".into()), ..session(&format!("s{i}"), "Some work") }).collect();
-        store.look(sessions.iter().map(|s| ("A", s)), NOW);
-        let shown: Vec<(String, String, u8)> = sessions.iter().map(|s| store.taken("A", s).map(|t| (t.color, t.accent, t.light)).unwrap()).collect();
-        assert!(shown.iter().all(|(c, a, _)| a == "blue" && partners("blue").contains(&c.as_str())), "{shown:?}");
-        let mains: std::collections::HashSet<&str> = shown.iter().map(|s| s.0.as_str()).collect();
-        assert_eq!(mains.len(), sessions.len(), "no partner of blue twice while others are left: {shown:?}");
-        assert_eq!(shown.iter().collect::<std::collections::HashSet<_>>().len(), shown.len(), "no two alike: {shown:?}");
-    }
-
-    /// A current session whose emblem was given from an earlier palette is given its tones again
-    /// from this one, keeping its icon; one that isn't current, or was given from this one, keeps
-    /// what it has.
-    #[test]
-    fn an_earlier_palettes_emblem_is_given_new_tones() {
-        let mut store = Store::default();
-        let now = session("now", "Fix the login");
-        let quiet = Session { last_activity: NOW - 3 * DAY_MS, ..session("quiet", "Old work") };
-        let fresh = session("fresh", "Docs");
-        let earlier = Kept { color: "green".into(), accent: Some("indigo".into()), light: Some(1), palette: None, icon: Some("bug".into()), seen_at: NOW };
-        store.kept.insert(now.key.clone(), earlier.clone());
-        store.kept.insert(quiet.key.clone(), earlier.clone());
-        store.kept.insert(fresh.key.clone(), Kept { palette: Some(PALETTE), ..earlier.clone() });
-        let asks = store.look([("A", &now), ("A", &quiet), ("A", &fresh)], NOW);
-        assert!(asks.is_empty(), "the icons stay, so Jev isn't asked again");
-        let given = &store.kept[&now.key];
-        assert_eq!((given.palette, given.icon.as_deref()), (Some(PALETTE), Some("bug")));
-        assert!(partners(&given.color).contains(&given.accent.as_deref().unwrap()), "{given:?}");
-        assert_eq!(store.kept[&quiet.key], earlier, "not current: as it was");
-        assert_eq!(store.kept[&fresh.key].palette, Some(PALETTE));
-        assert_eq!((store.kept[&fresh.key].color.as_str(), store.kept[&fresh.key].light), ("green", Some(1)), "from this palette: as it was");
-        // Given again once only.
-        let again = store.kept[&now.key].clone();
-        store.look([("A", &now)], NOW + 1000);
-        assert_eq!(store.kept[&now.key], again);
-    }
-
-    /// Where a harness keeps only the latest prompt (OpenCode), that's what Jev goes by.
-    #[test]
-    fn goes_by_the_latest_prompt_where_theres_no_first() {
-        let latest = Session { first_prompt: None, last_prompt: Some("Speed up the search index".into()), title: "Speed up the search index".into(), ..session("oc", "") };
-        let mut store = Store::default();
-        assert_eq!(store.look([("A", &latest)], NOW), vec![latest.key.clone()]);
-        let body = request(&latest, "m");
+    fn asks_one_choice_over_the_emoji() {
+        let s = session("a", "Make the settings dialog look right in dark mode");
+        let body = emoji_request(&s, "jev-latest");
+        assert_eq!(body["state"]["first prompt"], "Make the settings dialog look right in dark mode");
+        assert_eq!(body["questions"]["emoji"]["type"], "choice");
+        assert_eq!(body["questions"]["emoji"]["criteria"].as_object().unwrap().len(), EMOJI.len());
+        // Where a harness keeps only the latest prompt (OpenCode), that's what it goes by.
+        let latest = Session { first_prompt: None, last_prompt: Some("Speed up the search index".into()), ..session("oc", "x") };
+        let body = emoji_request(&latest, "m");
         assert_eq!(body["state"]["latest prompt"], "Speed up the search index");
         assert!(body["state"].get("first prompt").is_none());
-        let claude = Session { last_prompt: Some("And the docs".into()), ..session("cl", "Fix the login") };
-        assert_eq!(request(&claude, "m")["state"]["first prompt"], "Fix the login", "the first says what it's for");
     }
 
+    /// Current sessions with a prompt and an emblem of their own, newest first; not ones quiet
+    /// for days, archived, sent nothing yet, run by nobody, or helping another session.
     #[test]
-    fn waits_after_a_failure() {
+    fn looks_for_the_sessions_that_want_one() {
         let mut store = Store::default();
-        let a = session("a", "Fix the login");
-        assert_eq!(store.look([("A", &a)], NOW).len(), 1);
-        store.failed(&a.key, NOW);
-        assert!(store.look([("A", &a)], NOW + 60_000).is_empty());
-        assert_eq!(store.look([("A", &a)], NOW + RETRY_MS + 1).len(), 1);
+        let a = session("a", "Fix the flaky login test");
+        let b = Session { last_prompt_at: NOW - 60_000, ..session("b", "Dark mode for the settings") };
+        let old = Session { last_activity: NOW - 3 * DAY_MS, ..session("old", "Old work") };
+        let archived = Session { archived: true, ..session("arch", "Archived work") };
+        let empty = Session { first_prompt: None, title: "Codex thread".into(), ..session("empty12", "") };
+        let headless = Session { headless: true, ..session("run", "Summarize the logs") };
+        let helper = Session { helper: Some(Helper { parent: Some(a.key.clone()), ..Default::default() }), ..session("help", "Review the login fix") };
+        let review = Session { helper: Some(Helper { pr: Some("acme/app#7".into()), ..Default::default() }), ..session("rev", "Review PR 7") };
+        let board = [("A", &a), ("A", &b), ("A", &old), ("A", &archived), ("A", &empty), ("A", &headless), ("A", &helper), ("A", &review), ("B", &a)];
+        assert_eq!(store.look(board, EmblemKind::Emoji, NOW), vec![b.key.clone(), a.key.clone(), review.key.clone()]);
+        // Given one, a session isn't asked about again; another kind asks again.
+        assert!(store.answered_emoji(&a.key, &ranked(&[("bug", 0.9)]), NOW));
+        assert_eq!(store.look(board, EmblemKind::Emoji, NOW), vec![b.key.clone(), review.key.clone()]);
+        assert_eq!(store.look(board, EmblemKind::Drawn, NOW), vec![b.key.clone(), a.key.clone(), review.key.clone()]);
+        // A failed one waits.
+        store.failed(&b.key, NOW);
+        assert_eq!(store.look(board, EmblemKind::Emoji, NOW + 60_000), vec![review.key.clone()]);
+        assert_eq!(store.look(board, EmblemKind::Emoji, NOW + RETRY_MS + 1).len(), 2);
+    }
+
+    /// A session shows what it was given for the kind that's on, a drawn one its emoji until its
+    /// picture comes, and a helper the emblem of the session it works for.
+    #[test]
+    fn shows_what_it_was_given() {
+        let mut store = Store::default();
+        let a = session("a", "Fix the flaky login test");
+        let helper = Session { helper: Some(Helper { parent: Some(a.key.clone()), ..Default::default() }), ..session("help", "Review it") };
+        store.look([("A", &a), ("A", &helper)], EmblemKind::Emoji, NOW);
+        assert_eq!(store.emblem_of(&a, EmblemKind::Emoji), None);
+        store.answered_emoji(&a.key, &ranked(&[("test-tube", 0.7)]), NOW);
+        let emoji = Emblem { emoji: Some("🧪".into()), picture: None, name: "test tube".into() };
+        assert_eq!(store.emblem_of(&a, EmblemKind::Emoji), Some(emoji.clone()));
+        assert_eq!(store.emblem_of(&a, EmblemKind::Drawn), Some(emoji.clone()), "its emoji until it's drawn");
+        assert_eq!(store.emblem_of(&helper, EmblemKind::Emoji), Some(emoji));
+        assert_eq!(store.emblem_of(&a, EmblemKind::Off), None);
+        store.drawing = Some(a.key.clone());
+        store.drawn(&a.key, "0123456789abcdef.png".into(), "beaker".into(), NOW);
+        let picture = Emblem { emoji: None, picture: Some("0123456789abcdef.png".into()), name: "beaker".into() };
+        assert_eq!(store.emblem_of(&a, EmblemKind::Drawn), Some(picture.clone()));
+        assert_eq!(store.emblem_of(&helper, EmblemKind::Drawn), Some(picture));
+        assert_eq!(store.emblem_of(&a, EmblemKind::Emoji).and_then(|e| e.emoji).as_deref(), Some("🧪"));
+        assert!(store.drawing.is_none());
+        assert_eq!(store.pictures(), vec!["images/0123456789abcdef.png".to_string()]);
+    }
+
+    /// What the sessions beside one show is what its project's other current sessions show.
+    #[test]
+    fn sets_a_session_apart_from_its_projects() {
+        let mut store = Store::default();
+        let (a, b, c) = (session("a", "Fix the login"), session("b", "Fix the logout"), session("c", "Other work"));
+        store.look([("A", &a), ("A", &b), ("B", &c)], EmblemKind::Emoji, NOW);
+        store.answered_emoji(&a.key, &ranked(&[("bug", 0.6), ("ladybug", 0.4)]), NOW);
+        store.answered_emoji(&c.key, &ranked(&[("ladybug", 0.9)]), NOW);
+        assert_eq!(store.taken(&b.key, EmblemKind::Emoji), vec!["bug".to_string()]);
+        store.answered_emoji(&b.key, &ranked(&[("bug", 0.6), ("ladybug", 0.4)]), NOW);
+        assert_eq!(store.kept[&b.key].emoji.as_deref(), Some("ladybug"), "another project's ladybug doesn't count");
+        // Drawn ones go by what each picture shows.
+        store.drawn(&a.key, "a.png".into(), "padlock".into(), NOW);
+        assert_eq!(store.taken(&b.key, EmblemKind::Drawn), vec!["padlock".to_string()]);
+    }
+
+    /// One drawing at a time, and none for a while after one failed.
+    #[test]
+    fn draws_one_at_a_time_and_waits_after_a_failure() {
+        let mut store = Store::default();
+        assert!(store.can_draw(NOW));
+        store.drawing = Some("a".into());
+        assert!(!store.can_draw(NOW));
+        store.draw_failed("a", NOW);
+        assert!(!store.can_draw(NOW + 60_000));
+        assert!(store.can_draw(NOW + RETRY_MS + 1));
     }
 
     #[test]
-    fn asks_one_choice_over_the_icons_and_reads_it_back() {
-        let s = session("a", "Make the settings dialog look right in dark mode");
-        let body = request(&s, "jev-latest");
-        assert_eq!(body["state"]["first prompt"], "Make the settings dialog look right in dark mode");
-        assert_eq!(body["questions"]["icon"]["type"], "choice");
-        assert_eq!(body["questions"]["icon"]["criteria"].as_object().unwrap().len(), ICONS.len());
-        assert_eq!(read(&json!({ "answers": { "icon": { "probabilities": { "palette": 0.8, "layout": 0.2 } } } })), Some("palette"));
-        assert_eq!(read(&json!({ "answers": { "icon": { "probabilities": { "not-an-icon": 0.9 } } } })), None);
-        assert_eq!(read(&json!({ "answers": {} })), None);
+    fn asks_for_one_thing_set_apart_from_the_sessions_beside_it() {
+        let s = Session { color: Some("cyan".into()), ..session("a", "Make the threads view faster") };
+        let p = draw_prompt(&s, &["dinosaur".into(), "spool".into()], "");
+        assert!(p.contains("“Make the threads view faster”"), "{p}");
+        assert!(!p.contains("It was asked"), "the prompt is its title: said once");
+        assert!(p.contains("show dinosaur and spool, so pick something else"), "{p}");
+        assert!(p.contains("Make it mostly cyan."), "{p}");
+        assert!(p.contains(&format!("How to draw it: {DRAWN_STYLE}")), "{p}");
+        let p = draw_prompt(&Session { title: "threads view".into(), color: None, ..s }, &[], "  Pixel art on a 16 by 16 grid.  ");
+        assert!(p.contains("It was asked: “Make the threads view faster”") && p.contains("How to draw it: Pixel art on a 16 by 16 grid.\n"), "{p}");
+        assert!(!p.contains("beside it show") && !p.contains("mostly"), "{p}");
     }
 
-    /// Every icon Jev can pick is one the windows can draw, and Jev's limit of 255 options holds.
     #[test]
-    fn every_icon_is_in_the_windows_icon_set() {
-        let icons = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../src/ui/icons.ts")).unwrap();
-        for (name, _) in ICONS {
-            assert!(icons.contains(&format!("\n \"{name}\": [")), "{name} isn't in src/ui/icons.ts");
-        }
-        let names: std::collections::HashSet<&str> = ICONS.iter().map(|(n, _)| *n).collect();
-        assert_eq!(names.len(), ICONS.len(), "an icon listed twice");
-        assert!(ICONS.len() <= 255);
+    fn names_the_thing_from_the_answer() {
+        assert_eq!(name_of("Cactus"), "Cactus");
+        assert_eq!(name_of("I drew it.\n\n**“Spool of thread.”**\n"), "Spool of thread");
+        assert_eq!(name_of("  "), "picture");
     }
 
-    /// The windows draw as many lights as Codealong gives out.
+    /// A test picture: `w` by `h` white, with a red square from (x0, y0) to (x1, y1).
+    fn picture(w: u32, h: u32, square: (u32, u32, u32, u32)) -> Vec<u8> {
+        let (x0, y0, x1, y1) = square;
+        let px: Vec<u8> = (0..h).flat_map(|y| (0..w).flat_map(move |x| if x >= x0 && x < x1 && y >= y0 && y < y1 { [200, 20, 20] } else { [255, 255, 255] })).collect();
+        let mut out = Vec::new();
+        let mut e = png::Encoder::new(&mut out, w, h);
+        e.set_color(png::ColorType::Rgb);
+        e.set_depth(png::BitDepth::Eight);
+        let mut writer = e.write_header().unwrap();
+        writer.write_image_data(&px).unwrap();
+        writer.finish().unwrap();
+        out
+    }
+
+    /// The white around the thing goes clear, the picture is cut to the thing and made small.
     #[test]
-    fn the_windows_draw_every_light() {
-        let ui = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../src/ui/primitives.tsx")).unwrap();
-        let start = ui.find("export const EMBLEM_LIGHTS = [").expect("EMBLEM_LIGHTS in primitives.tsx");
-        let list = &ui[start..start + ui[start..].find("];").unwrap()];
-        assert_eq!(list.matches('%').count(), 2 * LIGHTS as usize, "{list}");
+    fn shrinks_a_drawing_to_the_thing_on_clear() {
+        let small = shrink(&picture(400, 300, (100, 50, 300, 250))).unwrap();
+        let (w, h, px) = decode(&small).unwrap();
+        assert_eq!((w, h), (PICTURE_PX, PICTURE_PX));
+        let at = |x: usize, y: usize| &px[(y * w + x) * 4..(y * w + x) * 4 + 4];
+        assert_eq!(at(0, 0)[3], 0, "the corner is clear");
+        assert_eq!(at(PICTURE_PX / 2, PICTURE_PX / 2), &[200, 20, 20, 255], "the middle is the thing");
+        // The thing fills the square but for the room left round it.
+        let opaque = (0..PICTURE_PX).filter(|x| at(*x, PICTURE_PX / 2)[3] == 255).count();
+        assert!((52..=60).contains(&opaque), "{opaque} of {PICTURE_PX} across");
+        // A picture whose edge is mostly drawn on keeps its background, and its whole square.
+        let full = shrink(&picture(100, 100, (0, 0, 100, 70))).unwrap();
+        let (_, _, px) = decode(&full).unwrap();
+        assert_eq!(&px[px.len() - 4..], &[255, 255, 255, 255]);
+        assert!(shrink(b"not a png").is_err());
+    }
+
+    /// emblems.json from before, icons on colors, reads: as nothing to show, given again.
+    #[test]
+    fn reads_emblems_kept_before() {
+        let kept: HashMap<String, Kept> = serde_json::from_str(r#"{"k":{"color":"teal","accent":"blue","light":3,"palette":2,"icon":"bug","seenAt":1}}"#).unwrap();
+        assert_eq!(kept["k"], Kept { seen_at: 1, ..Default::default() });
+        assert_eq!(kept["k"].shown(EmblemKind::Emoji), None);
+    }
+
+    /// Draws one emblem with this Mac's Codex account (`~/.codex`), for real: it spends an image
+    /// turn of that account's usage, so it runs only when asked
+    /// (`cargo test draws_with_codex -- --ignored --nocapture`), and leaves the emblem in the
+    /// temp folder to look at.
+    #[test]
+    #[ignore]
+    fn draws_with_codex() {
+        let account = AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let s = Session { first_prompt: Some("Add 30 minutes and next Monday to the snooze menu".into()), ..session("x", "Snooze duration options") };
+        let cwd = std::env::temp_dir().join("codealong-emblem-drawing");
+        std::fs::create_dir_all(&cwd).unwrap();
+        let started = std::time::Instant::now();
+        let drawn = crate::harness::of(&account).unwrap().draw(&crate::harness::Ctx { account: &account }, &cwd, &draw_prompt(&s, &["dinosaur".into()], "")).unwrap();
+        let out = cwd.join("emblem.png");
+        std::fs::write(&out, shrink(&drawn.image).unwrap()).unwrap();
+        println!("Drew “{}” in {:?}: {}", name_of(&drawn.said), started.elapsed(), out.display());
+    }
+
+    /// Settings shows the style a picture is drawn in when you've written none.
+    #[test]
+    fn settings_shows_the_style_it_draws_in() {
+        let ui = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../src/ui/SettingsDialog.tsx")).unwrap();
+        assert!(ui.contains(&format!("const DRAWN_STYLE = '{DRAWN_STYLE}';")), "SettingsDialog.tsx's DRAWN_STYLE differs from emblems.rs's");
     }
 }

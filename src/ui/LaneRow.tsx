@@ -212,7 +212,7 @@ export function GroupFoldRow({ folded, opened, onToggle }: { folded: number; ope
 function SessionText({ s, now, flag = true }: { s: Session; now: number; flag?: boolean }) {
   return (
     <span className="ca-agentline-text">
-      <SessionEmblem emblem={s.emblem} />
+      <SessionEmblem emblem={s.emblem} of={s.key} />
       <span className="ca-lane-headline ca-agentline-title">
         <Rich text={s.title} now={now} />
       </span>

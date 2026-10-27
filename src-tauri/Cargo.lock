@@ -620,6 +620,7 @@ dependencies = [
  "objc2-service-management",
  "objc2-web-kit",
  "plist",
+ "png 0.18.1",
  "qrcode",
  "rusqlite",
  "serde",

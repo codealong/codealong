@@ -111,8 +111,9 @@
 # PREVIEW_SETUP=<file> gives the setup wizard what's in it (scripts/preview/setup-sample.json is a
 # new Mac's: accounts listed and not, folders searched and not) in place of this Mac's
 # (--snapshot --setup); scripts/preview/setup-init.js opens the wizard.
-# PREVIEW_EMBLEMS=1 gives every session an emblem made up from its key, as `[jev] emblems` would
-# once Jev had picked their icons: some with a harness's color too, for the two-tone gradient.
+# PREVIEW_EMBLEMS=1 gives every session an emblem made up from its key, as `[emblems] kind = "emoji"`
+# would once Jev had picked them; PREVIEW_EMBLEMS=drawn a picture of scripts/preview/emblems/, as
+# `"drawn"` would once they were drawn.
 # PREVIEW_GROUP=worktree|repo shows Sessions, PRs and Todo grouped by worktree or by repo (Group
 # by, over each list); without it, as the window was left: not grouped.
 # PREVIEW_LOADING=1 shows every window as it is at launch, before the engine's first scan has
@@ -216,6 +217,10 @@ rm -rf "$dir/images"
 if [ -d "$images" ]; then
   cp -R "$images" "$dir/images"
 fi
+if [ "${PREVIEW_EMBLEMS:-}" = drawn ]; then
+  mkdir -p "$dir/images"
+  cp scripts/preview/emblems/*.png "$dir/images/"
+fi
 cp "${PREVIEW_FOUND:-$dir/found-here.json}" "$dir/found.json"
 cp "${PREVIEW_SETUP:-$dir/setup-here.json}" "$dir/setup.json"
 
@@ -225,7 +230,7 @@ setup="localStorage.setItem('codealong.view','$view');localStorage.setItem('code
 [ -n "$project" ] && setup="$setup localStorage.setItem('codealong.project','$project');"
 [ -n "${PREVIEW_GROUP:-}" ] && setup="$setup localStorage.setItem('codealong.sessionGroup','$PREVIEW_GROUP'); localStorage.setItem('codealong.prGroup','$PREVIEW_GROUP'); localStorage.setItem('codealong.todoGroup','$PREVIEW_GROUP');"
 [ -n "${PREVIEW_LOADING:-}" ] && setup="$setup window.__PREVIEW_LOADING__=true;"
-[ -n "${PREVIEW_EMBLEMS:-}" ] && setup="$setup window.__PREVIEW_EMBLEMS__=true;"
+[ -n "${PREVIEW_EMBLEMS:-}" ] && setup="$setup window.__PREVIEW_EMBLEMS__='$PREVIEW_EMBLEMS';"
 # The window remembers whether boards were on, for before the board comes: as the stub has them.
 if [ -n "${PREVIEW_BOARDS_OFF:-}" ]; then
   setup="$setup window.__PREVIEW_BOARDS_OFF__=true; localStorage.setItem('codealong.boardsOn','0');"

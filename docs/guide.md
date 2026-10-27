@@ -204,24 +204,35 @@ sessions it finds, so its count says how many match.
 
 #### Emblems
 
-With Jev on for emblems (Settings › Jev, `[jev] emblems`), each session gets a small icon beside its
-title, so the sessions beside each other read apart at a glance and you can remember one as "the
-teal bug". Jev picks the icon for what the session works on, from its title and first prompt (the
-latest, for Codex and OpenCode, which keep only that), once: it stays for the session's life,
-however its title changes. The icon sits on a rounded square shaded in two colors that go
-together, as if lit from one of eight places around its edge: a main color over most of it, and an
-accent where the light falls. There are thirteen colors, evenly round the color wheel: the label
-colors and rose, magenta, violet, sky, mint and lime between them. A pair is any two of them at
-most four steps apart, close ones included (blue and sky, teal and lime, pink and indigo…), never
-two that clash. Codealong gives each session its pair and its light when it first sees it, so that the
-sessions of a project differ as much as they can: a main color the fewest of its recent sessions
-have, then a pair, then a light none of the sessions in that color has. When you give a session a
-color with Claude Code's `/color`, that's its accent, with a main color that goes with it. The
-colors have no amber, since amber only means something needs you, so `/color`'s yellow shows as
-lime and its orange as red. The emblem shows wherever the session's title does: its rows, its header,
-the floating bar's and the notch's pills, cards on the canvas and the desktop, and the list of what
-waits on you. A session gets its emblem once it has a prompt, and only while it's recent: one quiet
-for two days or archived keeps the one it had. Emblems are kept in `emblems.json`.
+Session emblems (Settings › General, `[emblems]`) give each session something you can name beside
+its title, so the sessions beside each other read apart at a glance and you can remember one as
+"the dinosaur". Each is one of two kinds:
+
+- **Emoji**: Jev picks an emoji for what the session works on, from its title and first prompt
+  (the latest, for OpenCode, which keeps only that), out of some 250 that each stand for
+  something sessions work on, a pun where one is handy (a spool for threads, a dinosaur for Rex).
+  Where another session of the project shows the emoji Jev likes best, the session gets the next
+  that fits nearly as well. It needs Jev's key (Settings › Jev), and a question costs a fraction of
+  a cent.
+- **Drawn**: an account that can draw (Codex, with its image tool) draws a small picture of one
+  thing that stands for what the session works on, told what the sessions beside it show so it
+  draws something else, and mostly in the color you gave the session with Claude Code's `/color`,
+  if you did. How they're drawn is yours to say in Settings' box (`prompt`): flat colors with a dark
+  outline on white unless you write otherwise, pixel art on a 16 by 16 grid, say, or a white
+  silhouette on a tile of one color. A plain white background is made clear, so the picture sits on
+  any window. Each takes Codex half a minute to a minute and an image turn of the account's usage,
+  in a run of `codex exec` that keeps no record; the newest sessions are drawn first, one at a time,
+  and a session shows its emoji, if it has one, until its picture comes. A drawing that fails says
+  why in a notice, and none is tried for five minutes.
+
+A session gets its emblem once it has a prompt, and only while it's recent: one quiet for two days
+or archived keeps the one it had, and a run nobody is at (`claude -p`, `codex exec`) gets none. A
+helper shows the emblem of the session it works for. What a session is given stays for its life,
+however its title changes; changing the prompt changes only the sessions drawn after. The emblem
+shows wherever the session's title does: its rows, its header, the floating bar's and the notch's
+pills, cards on the canvas and the desktop, and the list of what waits on you, with what it is as
+its tooltip. Emblems are kept in `emblems.json`, the pictures with the kept images, and your other
+devices show the ones each Mac gave its sessions.
 
 #### Rename
 
@@ -3426,7 +3437,7 @@ latest quick-panel starts in each repo went into a new worktree, in `starts.json
 PRs nudged or not and the sessions picked as their primary, in `pr-links.json`; worktrees marked
 reusable or not in `worktrees.json`; where each PR's automatic reviews stand in `reviews.json`;
 replies suggested for sessions, until the sessions move on, in `suggestions.json`; each session's
-emblem, the color Codealong gave it and the icon Jev picked, in `emblems.json`; each command you
+emblem, the emoji Jev picked or the picture drawn for it, in `emblems.json`; each command you
 allowed an agent to run in your terminal, with what it printed, for a week in `terminal-runs/`;
 what `codealong changes` saw at each of its last dozen looks, for a week, in `changes.json`; an
 orchestrator's answers, cursor and narrative in `orchestrator/`; what every

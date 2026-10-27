@@ -50,6 +50,8 @@ a change to what's sent shows there. What each harness records and accepts is in
      `Session::own_worktree`), `rename`,
      `interrupts` and `interrupt`, `archive`, `skips_permission_prompts`, `runs_its_commands`,
      `session_var` (the variable its commands are given the session's ID in);
+   - pictures (emblems.rs): `draws` with `draw`, one picture from its own image generation in a
+     run that keeps no record, and `src/harness.ts` `DRAWS`;
    - starting (start.rs): `places`, `start_in_terminal`, `runs_in_background` with
      `background_command` and `start_in_background`, `app_link` and `start_in_app`, `models`,
      `takes_model`, `offers_model`, `efforts`, `default_model`, `makes_worktrees`,

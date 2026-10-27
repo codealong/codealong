@@ -113,6 +113,13 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
   PR is `thread/start {ephemeral: true, cwd, sandbox: "read-only", approvalPolicy: "never",
   developerInstructions}` on the same app-server (`SideThread::fresh`); read-only, it read and
   `rg`'d files under Codealong's support folder outside its `cwd` (0.160, 2026-10-07).
+- Drawing pictures (session emblems): `codex/draw.rs` (module header). Not there (0.162.1,
+  2026-10-27): `codex features list` has `image_generation` stable and on; a turn asked for a
+  picture read the bundled `imagegen` skill (`~/.codex/skills/.system/imagegen/SKILL.md`) before
+  drawing when it wasn't told not to; `background=transparent` is refused by gpt-image-2 (the skill keys out a
+  chroma background instead); a run without `--ephemeral` is an ordinary `exec` thread. Pixel art
+  asked for on a 16 by 16 grid came back as sprites on a looser grid of hard square pixels, at the
+  picture's full size.
 - A prompt's images, which are in the rollout twice: `codex/conversation.rs` (the comment above
   `prompt_images`, and `sent_images`). A pasted one's `local_image` path is
   `$TMPDIR/codex-clipboard-<uuid>.png`.

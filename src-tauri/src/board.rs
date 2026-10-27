@@ -422,7 +422,7 @@ pub fn claude_session(
         context: tr.and_then(|t| t.context).map(|used| ContextUse { used, window: tr.and_then(|t| t.window_model.as_deref().or(t.model.as_deref())).and_then(crate::prices::context_window) }),
         // Held only while it runs: the lock and the cleanup at exit are its process's.
         own_worktree: tr.and_then(|t| t.own_worktree.clone()).filter(|_| reg.is_some()),
-        color: tr.and_then(|t| t.color.as_deref()).and_then(crate::emblems::palette_color).map(String::from),
+        color: tr.and_then(|t| t.color.as_deref()).and_then(crate::emblems::harness_color),
         headless,
         queued_at: held.iter().map(|m| m.at).max(),
         queued: held,
@@ -3474,12 +3474,12 @@ mod tests {
         assert_eq!((busy.status, busy.connection_lost), (Status::Working, None));
     }
 
-    /// `/color`'s names, as the emblem's colors have them: cyan is teal, and no amber.
+    /// `/color`'s names as it gives them, and none for one it doesn't.
     #[test]
-    fn the_color_it_was_given_is_an_emblem_color() {
+    fn the_color_it_was_given_is_kept_by_name() {
         let a = acct("claude");
         let s = |color: Option<&str>| claude_session(&a, Some(&reg("idle", NOW)), Some(&TranscriptInfo { color: color.map(String::from), ..tr() }), 0, NOW, &Quiet::default()).unwrap().color;
-        assert_eq!((s(Some("cyan")), s(Some("orange")), s(Some("mauve")), s(None)), (Some("teal".into()), Some("red".into()), None, None));
+        assert_eq!((s(Some("Cyan")), s(Some("orange")), s(Some("default")), s(Some("mauve")), s(None)), (Some("cyan".into()), Some("orange".into()), None, None, None));
     }
 
     #[test]

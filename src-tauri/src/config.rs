@@ -34,6 +34,8 @@ pub struct Config {
     #[serde(default, skip_serializing)]
     pub router: Option<LegacyRouter>,
     #[serde(default)]
+    pub emblems: EmblemsCfg,
+    #[serde(default)]
     pub search: SearchCfg,
     #[serde(default)]
     pub devices: DevicesCfg,
@@ -75,6 +77,7 @@ impl Default for Config {
             projects: Vec::new(),
             jev: JevCfg::default(),
             router: None,
+            emblems: EmblemsCfg::default(),
             search: SearchCfg::default(),
             devices: DevicesCfg::default(),
             updates: UpdatesCfg::default(),
@@ -115,9 +118,9 @@ pub struct JevCfg {
     /// Marks the review comments on a pull request that ask for a change.
     #[serde(default)]
     pub pull_requests: bool,
-    /// Gives each session an emblem beside its title: an icon for what it works on, which Jev
-    /// picks, in a color that sets it apart from the sessions beside it (emblems.rs).
-    #[serde(default)]
+    /// `emblems = true` from before `[emblems]`, when Jev gave sessions icons: read, folded into
+    /// `[emblems]` as emoji, and never written back.
+    #[serde(default, skip_serializing)]
     pub emblems: bool,
 }
 
@@ -129,7 +132,7 @@ impl Default for JevCfg {
 
 impl JevCfg {
     pub fn any(&self) -> bool {
-        self.quick_panel || self.sessions || self.todos || self.pull_requests || self.emblems
+        self.quick_panel || self.sessions || self.todos || self.pull_requests
     }
 }
 
@@ -147,7 +150,8 @@ pub struct LegacyRouter {
     pub model: Option<String>,
 }
 
-/// Settings from config.toml's text, with an old `[router]` folded into `[jev]`.
+/// Settings from config.toml's text, with an old `[router]` folded into `[jev]` and an old
+/// `[jev] emblems` into `[emblems]`.
 fn from_text(text: &str) -> std::result::Result<Config, toml::de::Error> {
     let mut cfg: Config = toml::from_str(text)?;
     if let Some(first) = cfg.reviews.reviewers.first().cloned() {
@@ -168,6 +172,10 @@ fn from_text(text: &str) -> std::result::Result<Config, toml::de::Error> {
         }
     }
     cfg.reviews.auto_approve = false;
+    if cfg.jev.emblems && !text.parse::<toml_edit::DocumentMut>().is_ok_and(|d| d.get("emblems").is_some()) {
+        cfg.emblems.kind = EmblemKind::Emoji;
+    }
+    cfg.jev.emblems = false;
     if let Some(old) = cfg.router.take() {
         let has_jev = text.parse::<toml_edit::DocumentMut>().is_ok_and(|d| d.get("jev").is_some());
         if !has_jev {
@@ -196,6 +204,58 @@ impl Default for SearchCfg {
 }
 
 pub const MAX_SEARCH_DAYS: u32 = 14;
+
+/// Session emblems (emblems.rs): something you can name beside each session's title, to tell it
+/// from the sessions beside it at a glance and remember it by. Off until you turn it on.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct EmblemsCfg {
+    /// What each session gets.
+    #[serde(default)]
+    pub kind: EmblemKind,
+    /// The account that draws them, for `drawn`: one whose harness draws (Codex). Empty is the
+    /// first that does (`drawing_account`).
+    #[serde(default)]
+    pub account: String,
+    /// How they're drawn, for `drawn`, said to the account with each one. Empty is Codealong's
+    /// own (`emblems::DRAWN_STYLE`).
+    #[serde(default)]
+    pub prompt: String,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum EmblemKind {
+    /// None.
+    #[default]
+    Off,
+    /// An emoji Jev picks for what the session works on, so it needs Jev's key.
+    Emoji,
+    /// A small picture an account draws of one thing that stands for it, an image turn of the
+    /// account's usage each.
+    Drawn,
+}
+
+impl EmblemKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            EmblemKind::Off => "off",
+            EmblemKind::Emoji => "emoji",
+            EmblemKind::Drawn => "drawn",
+        }
+    }
+}
+
+/// The account that draws emblems: `[emblems] account`, or the first that draws when it names
+/// none. None when it names one that doesn't draw or isn't there.
+pub fn drawing_account(cfg: &Config) -> Option<&AccountCfg> {
+    let draws = |a: &&AccountCfg| !a.disabled && crate::harness::of(a).is_some_and(|h| h.draws());
+    let named = cfg.emblems.account.trim();
+    if named.is_empty() {
+        cfg.accounts.iter().find(draws)
+    } else {
+        cfg.accounts.iter().filter(|a| a.name == named).find(draws)
+    }
+}
 
 fn default_search_days() -> u32 {
     MAX_SEARCH_DAYS
@@ -1684,6 +1744,7 @@ fn set_accounts(doc: &mut toml_edit::DocumentMut, accounts: &[AccountCfg]) {
 const APPS_COMMENT: &str = "# Where Codealong opens things. terminal: \"ghostty\", \"iterm2\", \"terminal\" or \"rex\". editor: \"vscode\", \"cursor\", \"zed\", \"xcode\" and the others\n# Settings lists, or any app's name. Picking another editor from an Open in menu sets it here.\n# new_terminal: \"window\", \"tab\" (in the front window), or \"project\" (a tab beside the same repo or project).\n# move_pointer: move the pointer to a terminal Codealong brings forward on another screen.\n# close_command_tabs_after: minutes after a command Codealong runs in your terminal ends that its tab\n# closes, unless you pressed Return for a shell there; 0 keeps it open.\n# tmux: when the sessions Codealong starts run in tmux, shown in your terminal: \"always\", \"when-locked\"\n# (only while the screen is locked, when Ghostty can't start a terminal) or \"never\".\n";
 const APPEARANCE_COMMENT: &str = "# Light or dark. \"system\" follows macOS. The buttons at the foot of the sidebar set this too.\n# zoom: how big the windows draw, in percent, 50 to 200. View › Zoom in and Zoom out (⌘= and ⌘-) set it.\n";
 const JEV_COMMENT: &str = "# What Codealong asks TypeSafe's Jev, feature by feature (Settings › Jev says what each one sends).\n# The API key is kept in the login keychain; set it in Settings.\n";
+const EMBLEMS_COMMENT: &str = "# Something to know each session by beside its title (Settings › General): an emoji Jev picks\n# (`kind = \"emoji\"`), or a picture an account draws (`\"drawn\"`), as `prompt` says.\n";
 const SEARCH_COMMENT: &str = "# The quick panel, the main window's filter and `codealong sessions find` search what was said in\n# sessions active in the last `days` days, not just their titles. 0 turns it off; 14, the board's\n# reach, is the most.\n";
 const DEVICES_COMMENT: &str = "# Your other devices: Codealong on each shows the others' sessions and can read and search them.\n# tailscale finds them on your tailnet; iroh reaches devices you link with a code, anywhere.\n# remote_control lets your linked devices send prompts, answer approvals and start sessions here.\n# in_bar shows their sessions in the bar, the notch and Waiting on you too, while they're connected.\n# automations: \"first\" or \"backup\", where this machine stands for what your machines share, so one of them\n# runs it (reviewing a PR that asks for yours): a backup does only when no first choice can.\n";
 const UPDATES_COMMENT: &str = "# check: look for a newer Codealong now and then, and put it in place for the next launch.\n# The app menu's Check for updates… works either way.\n";
@@ -1941,6 +2002,14 @@ pub fn check(cfg: &Config) -> std::result::Result<(), String> {
     if cfg.jev.model.trim().is_empty() {
         return Err("[jev] model is empty; use \"jev-preview\".".into());
     }
+    if cfg.emblems.kind == EmblemKind::Drawn && drawing_account(cfg).is_none() {
+        let named = cfg.emblems.account.trim();
+        return Err(if named.is_empty() {
+            "[emblems] kind is \"drawn\", and none of the [[accounts]] can draw: add a Codex account, or use \"emoji\".".into()
+        } else {
+            format!("[emblems] account is {named:?}, which isn't one of the [[accounts]] that can draw (Codex); use one, or \"\" for the first.")
+        });
+    }
     let reviewer = cfg.reviews.account.trim();
     if !reviewer.is_empty() && !valid_reviewer(cfg, reviewer) {
         return Err(format!("[reviews] account is {reviewer:?}, which isn't one of the [[accounts]] or [[routing.groups]]; use one of them, or \"\" for Auto."));
@@ -2062,7 +2131,29 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
         set_value(&mut doc["jev"]["sessions"], Value::from(cfg.jev.sessions));
         set_value(&mut doc["jev"]["todos"], Value::from(cfg.jev.todos));
         set_value(&mut doc["jev"]["pull_requests"], Value::from(cfg.jev.pull_requests));
-        set_value(&mut doc["jev"]["emblems"], Value::from(cfg.jev.emblems));
+        // Folded into [emblems] as it was read.
+        if let Some(jev) = doc["jev"].as_table_like_mut() {
+            jev.remove("emblems");
+        }
+    }
+
+    // Like [search], only a file that has the table or turns emblems on gets it.
+    if cfg.emblems != EmblemsCfg::default() || doc.get("emblems").is_some() {
+        if !doc.get("emblems").is_some_and(toml_edit::Item::is_table_like) {
+            let mut t = Table::new();
+            t.decor_mut().set_prefix(format!("\n{EMBLEMS_COMMENT}"));
+            doc.insert("emblems", Item::Table(t));
+            let after = if doc.get("jev").is_some() { "jev" } else { "shortcuts" };
+            place_after(&mut doc, "emblems", after);
+        }
+        let e = &cfg.emblems;
+        set_value(&mut doc["emblems"]["kind"], Value::from(e.kind.as_str()));
+        if !e.account.trim().is_empty() || doc["emblems"].get("account").is_some() {
+            set_value(&mut doc["emblems"]["account"], Value::from(e.account.trim()));
+        }
+        if !e.prompt.trim().is_empty() || doc["emblems"].get("prompt").is_some() {
+            set_value(&mut doc["emblems"]["prompt"], Value::from(e.prompt.trim()));
+        }
     }
 
     // Like [jev], only a file that has the table or changes the default gets it.
@@ -2608,7 +2699,19 @@ pub fn render(cfg: &Config) -> String {
         s.push_str(&format!("sessions = {}\n", cfg.jev.sessions));
         s.push_str(&format!("todos = {}\n", cfg.jev.todos));
         s.push_str(&format!("pull_requests = {}\n", cfg.jev.pull_requests));
-        s.push_str(&format!("emblems = {}\n", cfg.jev.emblems));
+    }
+    if cfg.emblems != EmblemsCfg::default() {
+        let e = &cfg.emblems;
+        s.push('\n');
+        s.push_str(EMBLEMS_COMMENT);
+        s.push_str("[emblems]\n");
+        s.push_str(&format!("kind = {}\n", q(e.kind.as_str())));
+        if !e.account.trim().is_empty() {
+            s.push_str(&format!("account = {}\n", q(e.account.trim())));
+        }
+        if !e.prompt.trim().is_empty() {
+            s.push_str(&format!("prompt = {}\n", q(e.prompt.trim())));
+        }
     }
     s.push('\n');
     s.push_str(SEARCH_COMMENT);
@@ -2821,8 +2924,9 @@ mod tests {
                 folders: vec!["~/projects/sparkhq/vault".into()],
                 chrome_profile: Some("Work".into()),
             }],
-            jev: JevCfg { model: "jev-1.13.0".into(), quick_panel: true, sessions: false, todos: true, pull_requests: false, emblems: true },
+            jev: JevCfg { model: "jev-1.13.0".into(), quick_panel: true, sessions: false, todos: true, pull_requests: false, emblems: false },
             router: None,
+            emblems: EmblemsCfg { kind: EmblemKind::Emoji, account: String::new(), prompt: "Pixel art, 16 by 16.".into() },
             search: SearchCfg { days: 7 },
             devices: DevicesCfg { enabled: true, name: "Studio".into(), tailscale: true, iroh: false, remote_control: true, in_bar: false, port: 47000, automations: Rank::Backup },
             updates: UpdatesCfg { check: false },
@@ -3173,6 +3277,7 @@ mod tests {
             ],
             jev: JevCfg::default(),
             router: None,
+            emblems: EmblemsCfg::default(),
             search: SearchCfg::default(),
             devices: DevicesCfg::default(),
             updates: UpdatesCfg::default(),
@@ -3757,12 +3862,53 @@ mod tests {
         let out = with_config(&text, &on).unwrap();
         let shortcuts = out.find("[shortcuts]").unwrap();
         let jev = out
-            .find(&format!("{JEV_COMMENT}[jev]\nmodel = \"jev-preview\"\nquick_panel = false\nsessions = true\ntodos = false\npull_requests = false\nemblems = false\n"))
+            .find(&format!("{JEV_COMMENT}[jev]\nmodel = \"jev-preview\"\nquick_panel = false\nsessions = true\ntodos = false\npull_requests = false\n"))
             .unwrap_or_else(|| panic!("{out}"));
         assert!(jev > shortcuts && jev < out.find("[[accounts]]").unwrap(), "{out}");
         // Turned off again, the table stays and says so.
         assert!(with_config(&out, &full()).unwrap().contains("sessions = false\n"));
         assert_eq!(parse(&out).unwrap().jev, on.jev);
+    }
+
+    #[test]
+    fn emblems_have_a_table_of_their_own_that_an_old_jev_switch_folds_into() {
+        let text = render(&full());
+        assert!(!text.contains("[emblems]"), "{text}");
+        let mut on = full();
+        on.emblems.kind = EmblemKind::Emoji;
+        let out = with_config(&text, &on).unwrap();
+        assert!(out.contains(&format!("{EMBLEMS_COMMENT}[emblems]\nkind = \"emoji\"\n")), "{out}");
+        assert_eq!(parse(&out).unwrap().emblems, on.emblems);
+        on.emblems = EmblemsCfg { kind: EmblemKind::Drawn, account: "codex".into(), prompt: "Pixel art, 16 by 16.".into() };
+        let out = with_config(&out, &on).unwrap();
+        assert!(out.contains("[emblems]\nkind = \"drawn\"\naccount = \"codex\"\nprompt = \"Pixel art, 16 by 16.\"\n"), "{out}");
+        assert_eq!(parse(&out).unwrap().emblems, on.emblems);
+        assert_eq!(render(&on).matches("[emblems]").count(), 1);
+        // `[jev] emblems = true` from before is emoji, and is written as the table.
+        let old = format!("{text}\n[jev]\nmodel = \"jev-preview\"\nemblems = true\n");
+        let cfg = parse(&old).unwrap();
+        assert_eq!((cfg.emblems.kind, cfg.jev.emblems), (EmblemKind::Emoji, false));
+        let out = with_config(&old, &cfg).unwrap();
+        assert!(!out.contains("emblems = true") && out.contains("[emblems]\nkind = \"emoji\"\n"), "{out}");
+        // A table of its own wins over the old switch.
+        assert_eq!(parse(&format!("{old}\n[emblems]\nkind = \"off\"\n")).unwrap().emblems.kind, EmblemKind::Off);
+    }
+
+    /// Drawn emblems need an account that draws: the one named, or the first.
+    #[test]
+    fn drawn_emblems_need_an_account_that_draws() {
+        let mut cfg = full();
+        cfg.emblems.kind = EmblemKind::Drawn;
+        assert_eq!(drawing_account(&cfg).map(|a| a.name.as_str()), Some("codex"));
+        assert!(check(&cfg).is_ok());
+        cfg.emblems.account = "claude".into();
+        assert!(drawing_account(&cfg).is_none());
+        assert!(check(&cfg).unwrap_err().contains("[emblems] account is \"claude\""));
+        cfg.emblems.account = String::new();
+        cfg.accounts.retain(|a| a.harness != "codex");
+        assert!(check(&cfg).unwrap_err().contains("none of the [[accounts]] can draw"));
+        cfg.emblems.kind = EmblemKind::Emoji;
+        assert!(check(&cfg).is_ok());
     }
 
     #[test]

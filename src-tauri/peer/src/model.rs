@@ -379,59 +379,41 @@ pub struct Session {
     /// 2026-10-12.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub artifacts: Vec<Artifact>,
-    /// The color its harness gives it, as the emblem's colors name it (Claude Code's `/color`):
-    /// one of its emblem's two tones, beside the one Codealong gives it.
+    /// The color its harness gives it, as that names it (Claude Code's `/color`: red, blue,
+    /// green, yellow, purple, orange, pink or cyan), which a picture drawn for its emblem is
+    /// mostly in.
     #[serde(skip)]
     pub color: Option<String>,
-    /// A small icon in a color beside its title, to tell it apart and remember it by
-    /// (emblems.rs, when `[jev] emblems` is on). None until both are known, and from Macs before
-    /// 2026-10-13.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// A small picture beside its title, to tell it apart and remember it by (emblems.rs, when
+    /// `[emblems]` is on). None until it has one, and from Macs before 2026-10-27, whose emblems
+    /// were icons on colors.
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "emblem_or_none")]
     pub emblem: Option<Emblem>,
 }
 
-/// A session's emblem: an icon that stands for what it works on, picked by Jev from the ones
-/// `emblems::ICONS` lists, on a radial gradient of two colors that go together
-/// (`emblems::PAIRS`), lit from one of eight places around its edge. Codealong gives each session
-/// its pair and its light so that the sessions beside it differ. Both colors are among
-/// `emblems::COLORS`, as the windows' `--emblem-<color>` tokens name them: red, rose, pink,
-/// magenta, violet, purple, indigo, blue, sky, teal, mint, green or lime.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
-#[serde(rename_all = "camelCase", from = "EmblemSent")]
-pub struct Emblem {
-    /// The color over most of it.
-    pub color: String,
-    /// The color where the light falls: the one its harness gives it (Claude Code's `/color`)
-    /// while it gives one, else one Codealong gave it to go with `color`.
-    pub accent: String,
-    /// Where the light falls, 0 to 7 clockwise around its edge from the top left corner
-    /// (primitives.tsx `EMBLEM_LIGHTS`).
-    pub light: u8,
-    /// The icon's name in the windows' icon set (Tabler's).
-    pub icon: String,
-}
-
-/// An emblem as any Mac sends it. Macs from 2026-10-12, whose emblems had one color and a
-/// harness's when it gave one, send `harnessColor` and no accent or light: read as that accent,
-/// else the main color again, in the first light, so their feeds still read.
-#[derive(Deserialize)]
+/// A session's emblem: something you can name that stands for what it works on, an emoji Jev
+/// picked or a picture an account drew (emblems.rs), different from the ones of the sessions
+/// beside it where it can be.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-struct EmblemSent {
-    color: String,
+pub struct Emblem {
+    /// The emoji, when it's one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub emoji: Option<String>,
+    /// The picture, when it's one: a kept image's name (`<hash>.png`), which a window loads from
+    /// the Mac the session is on and another device asks that Mac for (`api::IMAGE_READ`, as
+    /// `images/<name>`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub picture: Option<String>,
+    /// What it shows, in a word or two ("dinosaur"), for its tooltip.
     #[serde(default)]
-    accent: Option<String>,
-    #[serde(default)]
-    harness_color: Option<String>,
-    #[serde(default)]
-    light: u8,
-    icon: String,
+    pub name: String,
 }
 
-impl From<EmblemSent> for Emblem {
-    fn from(e: EmblemSent) -> Emblem {
-        let accent = e.accent.or(e.harness_color).unwrap_or_else(|| e.color.clone());
-        Emblem { color: e.color, accent, light: e.light, icon: e.icon }
-    }
+/// An emblem, or None for one that shows nothing: Macs before 2026-10-27 sent icons on colors
+/// (`{color, accent, light, icon}`), which read as an emblem with no emoji or picture.
+fn emblem_or_none<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Emblem>, D::Error> {
+    Ok(Option::<Emblem>::deserialize(d)?.filter(|e| e.emoji.is_some() || e.picture.is_some()))
 }
 
 /// A page on the web a session made or showed you, as its records say: an artifact Claude Code
@@ -1201,21 +1183,23 @@ mod tests {
     use super::*;
     use serde_json::Value;
 
-    /// A Mac from before emblems had two colors sends them without an accent or a light; its feed
-    /// still reads, the harness's color as the accent where it sent one.
+    /// An emblem is an emoji or a picture, with its name. A Mac from before sends icons on colors,
+    /// which still read, as no emblem, so its feed isn't lost over one.
     #[test]
-    fn an_emblem_from_an_older_mac_still_reads() {
-        let read = |json: &str| serde_json::from_str::<Emblem>(json).unwrap();
-        let emblem = |color: &str, accent: &str, light: u8| Emblem { color: color.into(), accent: accent.into(), light, icon: "bug".into() };
-        assert_eq!(read(r#"{"color":"teal","harnessColor":"red","icon":"bug"}"#), emblem("teal", "red", 0));
-        assert_eq!(read(r#"{"color":"teal","icon":"bug"}"#), emblem("teal", "teal", 0));
-        let now = emblem("teal", "blue", 5);
-        assert_eq!(read(&serde_json::to_string(&now).unwrap()), now);
-        assert_eq!(serde_json::to_value(&now).unwrap(), serde_json::json!({ "color": "teal", "accent": "blue", "light": 5, "icon": "bug" }));
-        // In a whole session, as a feed carries it.
-        let mut s = serde_json::to_value(Session::new(Harness::Claude, "claude", "abc")).unwrap();
-        s["emblem"] = serde_json::json!({ "color": "pink", "harnessColor": "purple", "icon": "bug" });
-        assert_eq!(serde_json::from_value::<Session>(s).unwrap().emblem, Some(emblem("pink", "purple", 0)));
+    fn an_emblem_is_an_emoji_or_a_picture() {
+        let with = |emblem: Value| {
+            let mut s = serde_json::to_value(Session::new(Harness::Claude, "claude", "abc")).unwrap();
+            s["emblem"] = emblem;
+            serde_json::from_value::<Session>(s).unwrap().emblem
+        };
+        let emoji = Emblem { emoji: Some("🦖".into()), picture: None, name: "t rex".into() };
+        assert_eq!(serde_json::to_value(&emoji).unwrap(), serde_json::json!({ "emoji": "🦖", "name": "t rex" }));
+        assert_eq!(with(serde_json::to_value(&emoji).unwrap()), Some(emoji));
+        let picture = Emblem { emoji: None, picture: Some("0123456789abcdef.png".into()), name: "spool".into() };
+        assert_eq!(with(serde_json::to_value(&picture).unwrap()), Some(picture));
+        assert_eq!(with(serde_json::json!({ "color": "teal", "accent": "blue", "light": 5, "icon": "bug" })), None);
+        assert_eq!(with(serde_json::json!({ "color": "pink", "harnessColor": "purple", "icon": "bug" })), None);
+        assert_eq!(with(Value::Null), None);
     }
 
     #[test]

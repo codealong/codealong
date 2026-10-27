@@ -136,7 +136,7 @@ export const TIPS: readonly Tip[] = [
   { id: 'usage', places: BOARD, says: says`The bar across the top shows each account's usage. Point at one for all its limits and when they reset.` },
   { id: 'usage-window', places: BOARD, says: says`${key('Shift+Cmd+U')}, or a click on the usage bar, shows what your sessions used and cost at API prices, against what you paid.` },
   { id: 'sounds', places: BOARD, says: says`Settings › Sounds picks the sound for a session that needs you, a turn that ends and a review asked of you, or None.` },
-  { id: 'emblems', places: BOARD, says: says`Session emblems, in Settings › Jev, give each session an icon for what it works on, so the ones side by side read apart.` },
+  { id: 'emblems', places: BOARD, says: says`Session emblems, in Settings › General, give each session an emoji or a small drawn picture for what it works on, so the ones side by side read apart.` },
   { id: 'devices', places: BOARD, says: says`Link your other Macs in Settings › Devices, and their sessions show here beside yours.` },
   { id: 'zoom', places: BOARD, says: says`${key('Cmd+=')} and ${key('Cmd+-')} make the windows bigger or smaller, and ${key('Cmd+0')} puts them back.` },
   { id: 'agents', places: ['board', 'session'], says: says`Agents can run the ${code('codealong')} command to list todos, message other sessions and start work.` },

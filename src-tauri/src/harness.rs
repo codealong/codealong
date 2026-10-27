@@ -40,6 +40,14 @@ pub struct Ctx<'a> {
     pub account: &'a AccountCfg,
 }
 
+/// A picture an account drew (`Adapter::draw`).
+pub struct Drawn {
+    /// The picture, as the harness wrote it (a PNG).
+    pub image: Vec<u8>,
+    /// What its agent answered after drawing it.
+    pub said: String,
+}
+
 pub trait Adapter: Sync {
     fn harness(&self) -> Harness;
 
@@ -430,6 +438,19 @@ pub trait Adapter: Sync {
     /// `src/harness.ts` `FRESH_SIDES` lists the harnesses that have one.
     fn fresh_side(&self, _ctx: &Ctx, _cwd: &Path, _rules: &str, _reads: &Path, _on: crate::side::RunsOn) -> Result<crate::side::Recipe> {
         bail!("{} can't answer questions about a PR here.", self.harness().word())
+    }
+
+    /// Whether its accounts draw pictures (`draw`). `src/harness.ts` `DRAWS` lists the
+    /// harnesses that do.
+    fn draws(&self) -> bool {
+        false
+    }
+
+    /// Draws one picture as `prompt` asks, with the account's own image generation, in a
+    /// throwaway run in `cwd` that may only look and keeps no record: what it drew, and what it
+    /// answered once it had. It spends the account's usage (emblems.rs).
+    fn draw(&self, _ctx: &Ctx, _cwd: &Path, _prompt: &str) -> Result<Drawn> {
+        bail!("{} can't draw pictures.", self.harness().word())
     }
 
     /// Ends a live session that has no terminal of its own (a background job), keeping its

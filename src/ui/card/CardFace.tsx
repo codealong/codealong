@@ -88,7 +88,7 @@ export function CardFace({ item, data, now, style, className, children, onPrShow
         <div className={cls('session', cx(`st-${s.status}`, data.lane.device && !data.lane.device.online && 'is-away'))} style={style} data-id={id}>
           <div className="ca-cv-l1">
             <SessionGlyph s={s} />
-            <SessionEmblem emblem={s.emblem} size={16} />
+            <SessionEmblem emblem={s.emblem} of={s.key} size={16} />
             <span className="ca-cv-title">{s.title}</span>
             <span className="ca-cv-age">{s.status === 'working' && s.statusSince ? duration(s.statusSince, now) : ago(s.lastActivity, now)}</span>
           </div>

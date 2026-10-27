@@ -4,14 +4,15 @@
 //! board. Beside it: rollouts and the thread index (rollout.rs), the conversation a rollout
 //! holds (conversation.rs), its app-server, for what Codex does itself (appserver.rs), the
 //! socket the app's windows talk on (ipc.rs), the app's logs (applog.rs), its follow-up queue
-//! (queue.rs), its terminal UIs (terminals.rs), side conversations (side.rs), the models an
-//! account offers (models.rs), plan usage (usage.rs) and whether OpenAI may train on the account
-//! (training.rs). See .claude/rules/codex.md.
+//! (queue.rs), its terminal UIs (terminals.rs), side conversations (side.rs), pictures drawn
+//! for Codealong (draw.rs), the models an account offers (models.rs), plan usage (usage.rs) and
+//! whether OpenAI may train on the account (training.rs). See .claude/rules/codex.md.
 
 mod applog;
 mod appserver;
 mod asks;
 mod conversation;
+mod draw;
 mod mcp;
 pub mod ipc;
 mod models;
@@ -256,6 +257,16 @@ impl crate::harness::Adapter for Codex {
             unset: Vec::new(),
             dialect: Box::new(SideThread::fresh(cwd, rules, on)),
         })
+    }
+
+    fn draws(&self) -> bool {
+        true
+    }
+
+    /// Codex's image tool, in a `codex exec` run that keeps no record and may only look
+    /// (draw.rs).
+    fn draw(&self, ctx: &crate::harness::Ctx, cwd: &Path, prompt: &str) -> anyhow::Result<crate::harness::Drawn> {
+        draw::draw(&ctx.account.home_path(), cwd, prompt)
     }
 
     /// Names the thread through Codex's app-server, as the Codex app does (`appserver::set_name`).

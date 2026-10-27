@@ -58,6 +58,8 @@ tauri-plugin-updater = "~2.12"
 codealong-peer = { path = "peer" }
 iroh = "1"
 data-encoding = "2"
+# Pictures drawn for session emblems are shrunk before they're kept (emblems.rs); tauri builds it already.
+png = "0.18"
 # Link codes as QR codes, for the phone app to scan (Settings › Devices).
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 

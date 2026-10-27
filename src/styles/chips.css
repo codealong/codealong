@@ -187,21 +187,15 @@
 .ca-labeldot.is-teal { background: var(--label-teal); }
 .ca-labeldot.is-green { background: var(--label-green); }
 
-/* A session's emblem (primitives.tsx SessionEmblem): the icon for what it works on, on a radial
-   gradient of two emblem colors that go together, the accent (--emblem-accent) where its light
-   falls (--emblem-at) and its main color (--emblem-color) over the rest, both strong enough to
-   read as two at 16px. The emblem colors name a session, never a status, so there's no amber;
-   both stay tints over whatever is behind (the notch's black too), so the icon, drawn in a
-   deeper shade of the main color, reads over them. */
+/* A session's emblem (primitives.tsx SessionEmblem): an emoji, or a picture drawn on a clear
+   background, each in its own colors on whatever is behind (the notch's black too), as it is. */
 .ca-emblem {
   flex: none;
   align-self: center;
   display: inline-grid;
   place-items: center;
   vertical-align: middle;
-  border-radius: 32%;
-  color: color-mix(in srgb, var(--emblem-color) 50%, var(--ink));
-  background: radial-gradient(circle at var(--emblem-at), color-mix(in srgb, var(--emblem-accent) 66%, transparent) 0%, color-mix(in srgb, var(--emblem-accent) 40%, transparent) 36%, color-mix(in srgb, var(--emblem-color) 42%, transparent) 70%, color-mix(in srgb, var(--emblem-color) 58%, transparent) 100%);
+  object-fit: contain;
 }
 
 /* The worktree reads as a place, not an actor: outlined where the agent's chip is filled. Its

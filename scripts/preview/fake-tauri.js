@@ -145,19 +145,21 @@ function withInsights(board, fixture) {
   return board;
 }
 // Emblems on every session (PREVIEW_EMBLEMS in preview.sh), made up from its key, the same every
-// time: an icon from emblems.rs's list, one of its pairs of colors either way round, and one of
-// its eight lights, as `[jev] emblems` would give them once Jev had answered.
-var EMBLEM_ICONS = ['bug', 'palette', 'database', 'rocket', 'book', 'compass', 'bolt', 'key', 'device-mobile', 'test-pipe', 'chart-line', 'terminal-2', 'sparkles', 'recycle', 'network', 'puzzle'];
-var EMBLEM_PAIRS = [['red', 'rose'], ['red', 'pink'], ['red', 'magenta'], ['red', 'violet'], ['rose', 'pink'], ['rose', 'magenta'], ['rose', 'violet'], ['rose', 'purple'], ['pink', 'magenta'], ['pink', 'violet'], ['pink', 'purple'], ['pink', 'indigo'], ['magenta', 'violet'], ['magenta', 'purple'], ['magenta', 'indigo'], ['magenta', 'blue'], ['violet', 'purple'], ['violet', 'indigo'], ['violet', 'blue'], ['purple', 'indigo'], ['purple', 'blue'], ['purple', 'sky'], ['indigo', 'blue'], ['indigo', 'sky'], ['indigo', 'teal'], ['blue', 'sky'], ['blue', 'teal'], ['blue', 'mint'], ['sky', 'teal'], ['sky', 'mint'], ['sky', 'green'], ['teal', 'mint'], ['teal', 'green'], ['teal', 'lime'], ['mint', 'green'], ['mint', 'lime'], ['green', 'lime']];
+// time, as `[emblems]` gives them: an emoji from emblems.rs's list, or with PREVIEW_EMBLEMS=drawn
+// a picture from scripts/preview/emblems/, which preview.sh puts with the kept images.
+var EMBLEM_EMOJI = [['🐛', 'bug'], ['🎨', 'palette'], ['🦖', 't rex'], ['🧵', 'spool'], ['🚀', 'rocket'], ['🔑', 'key'], ['🧪', 'test tube'], ['🐙', 'octopus'], ['💤', 'zzz'], ['🌳', 'tree'], ['📱', 'phone'], ['🛂', 'passport']];
+var EMBLEM_PICTURES = ['moon', 'dinosaur', 'spool', 'stamp', 'tree', 'laptop'];
 function emblemOf(key) {
   var pick = function (list, salt) { return list[Math.floor(hashOf(salt + key) * list.length)]; };
-  var pair = pick(EMBLEM_PAIRS, 'p');
-  var swap = hashOf('s' + key) < 0.5;
-  return { color: pair[swap ? 1 : 0], accent: pair[swap ? 0 : 1], light: Math.floor(hashOf('l' + key) * 8), icon: pick(EMBLEM_ICONS, 'i') };
+  if (window.__PREVIEW_EMBLEMS__ === 'drawn') {
+    var drawn = pick(EMBLEM_PICTURES, 'p');
+    return { picture: drawn + '.png', name: drawn };
+  }
+  var emoji = pick(EMBLEM_EMOJI, 'e');
+  return { emoji: emoji[0], name: emoji[1] };
 }
 function withEmblems(board) {
   board.lanes.forEach(function (l) { l.sessions.forEach(function (s) { s.emblem = emblemOf(s.key); }); });
-  board.jev = Object.assign({ model: 'jev-latest', quick_panel: false, sessions: false, todos: false, pull_requests: false }, board.jev, { emblems: true });
   return board;
 }
 function optionalJson(file) {

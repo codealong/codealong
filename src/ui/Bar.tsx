@@ -133,7 +133,7 @@ function SessionPill({ item, now, peeked, told, onOpen, onMenu, onHover, onLeave
       }
     >
       <StatusGlyph status={item.status} waiting={item.waiting} title="" />
-      <SessionEmblem emblem={item.emblem} size={14} />
+      <SessionEmblem emblem={item.emblem} of={item.key} size={14} />
       <span>{item.title}</span>
       {item.device && <i className={`ca-labeldot is-${item.device.color}`} aria-hidden="true" />}
     </button>

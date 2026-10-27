@@ -8,13 +8,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getConfig, onQuickShortcut, openAtLogin, openTeamFile, openUrl, pauseQuickShortcut, playSound, quickShortcut, jevKey, saveConfig, saveConfigText, setJevKey, setOpenAtLogin, setReusable, startOptions, takeTeamSettings, testJev } from '../api';
 import { nudgeKind, nudgeMerges, withMerges } from '../prStatus';
 import { heldSaid, shortcutFromKey, shortcutLabel, takenFor } from '../quick';
-import { HARNESS_WORD, MOVES_ACCOUNTS } from '../harness';
+import { DRAWS, HARNESS_WORD, MOVES_ACCOUNTS } from '../harness';
 import { worktreeName } from '../lanes';
 import { REUSE_WORDS } from '../reusable';
 import { groupReviewWords, reviewsRunIn } from '../review';
 import { type Field, mineOf, offerWords, pullRequestsFor, repoChoices, reviewsEverywhere, reviewsFor, type Reviews, sourceOf, type Source, teamFileOf, withOwn, withPullRequests, withRepo, withReviews, without, PULL_REQUESTS_OFF } from '../repoSettings';
 import { BUFFER, modelName, withLists } from '../start';
-import type { AtLogin, ChromeProfile, Config, ConfigView, ExperimentalCfg, GroupMemberCfg, JevCfg, Lane, Mcp, NewTerminal, NudgeAbout, OwnReviewsCfg, Profile, ProjectCfg, PullRequestsCfg, RepoCfg, Reuse, ReviewPost, ReviewsCfg, ReviewStart, ReviewSubmit, RoutingCfg, RoutingGroup, RoutingGroupCfg, RoutingStrategy, SessionsCfg, ShortcutStatus, SoundsCfg, StartAccount, TeamCfg, TeamFile, Theme, TmuxUse, Training, Usage, Verdict, WhenLimited } from '../types';
+import type { AtLogin, ChromeProfile, Config, ConfigView, EmblemKind, EmblemsCfg, ExperimentalCfg, GroupMemberCfg, JevCfg, Lane, Mcp, NewTerminal, NudgeAbout, OwnReviewsCfg, Profile, ProjectCfg, PullRequestsCfg, RepoCfg, Reuse, ReviewPost, ReviewsCfg, ReviewStart, ReviewSubmit, RoutingCfg, RoutingGroup, RoutingGroupCfg, RoutingStrategy, SessionsCfg, ShortcutStatus, SoundsCfg, StartAccount, TeamCfg, TeamFile, Theme, TmuxUse, Training, Usage, Verdict, WhenLimited } from '../types';
 import { AccountsSection } from './AccountsSection';
 import { AgentMenu, type AgentPick } from './AgentMenu';
 import { AgentPromptBox } from './AgentPromptBox';
@@ -411,9 +411,74 @@ function GeneralPane({ cfg, view, theme, onPickTheme, disabled, onSave, now }: P
           <Seg className="ca-settings-theme" label="Theme" look="text" options={THEMES} value={theme} onPick={(t) => theme !== t && onPickTheme(t)} />
           <small>Every window follows, and so do the window chrome and menus.</small>
         </div>
+        <EmblemsFields cfg={cfg} disabled={disabled} onSave={(next) => void onSave(next)} />
         <OpenAtLoginField />
         <UpdatesFields cfg={cfg} onSave={(next) => void onSave(next)} now={now} />
       </fieldset>
+    </>
+  );
+}
+
+/** `[emblems]` when config.toml has none (config.rs `EmblemsCfg`). */
+const EMBLEMS_OFF: EmblemsCfg = { kind: 'off', account: '', prompt: '' };
+
+/** How a picture is drawn when you've written nothing (emblems.rs `DRAWN_STYLE`, which a test
+ *  holds this to). */
+const DRAWN_STYLE = 'Flat colors and a bold, simple shape with a dark outline, centered on a plain white background.';
+
+const EMBLEM_KINDS: { id: EmblemKind; label: string; says: string }[] = [
+  { id: 'off', label: 'None', says: 'Sessions show only their titles.' },
+  {
+    id: 'emoji',
+    label: 'Emoji',
+    says: 'Jev picks an emoji for what each session works on, from its title and first prompt, and one the sessions beside it don’t show where another fits nearly as well. It needs Jev’s key (Settings › Jev), and costs a fraction of a cent a session.',
+  },
+  {
+    id: 'drawn',
+    label: 'Drawn',
+    says: 'An account draws a small picture of one thing that stands for what each session works on, something the sessions beside it don’t show. Each takes a minute or so and an image turn of that account’s usage; the newest sessions are drawn first, one at a time, and show their emoji, if they have one, until then.',
+  },
+];
+
+/**
+ * Settings › General's session emblems: what each session gets beside its title, and for drawn
+ * ones the account that draws them and how, in words of your own. The prompt is saved as you
+ * leave its box, as the routing instructions are.
+ */
+function EmblemsFields({ cfg, disabled, onSave }: { cfg: Config; disabled: boolean; onSave: (next: Config) => void }) {
+  const emblems = cfg.emblems ?? EMBLEMS_OFF;
+  const [prompt, setPrompt] = useState(emblems.prompt);
+  useEffect(() => setPrompt(emblems.prompt), [emblems.prompt]);
+  const drawers = cfg.accounts.filter((a) => !a.disabled && DRAWS.includes(a.harness));
+  const drawer = drawers.find((a) => a.name === emblems.account) ?? drawers[0];
+  const save = (next: Partial<EmblemsCfg>) => onSave({ ...cfg, emblems: { ...emblems, ...next } });
+  // Drawn only with an account that draws, or its save would be refused; one already set stays.
+  const kinds = EMBLEM_KINDS.filter((k) => k.id !== 'drawn' || drawers.length > 0 || emblems.kind === 'drawn');
+  return (
+    <>
+      <div className="ca-field">
+        <span>Session emblems</span>
+        <Seg className="ca-settings-theme" label="Session emblems" options={kinds} value={emblems.kind} onPick={(kind) => kind !== emblems.kind && save({ kind })} />
+        <small>
+          {EMBLEM_KINDS.find((k) => k.id === emblems.kind)?.says} {drawers.length === 0 && 'A Codex account can draw them instead: add one in Settings › Accounts.'}
+        </small>
+      </div>
+      {emblems.kind === 'drawn' && drawers.length > 1 && (
+        <label className="ca-field">
+          <span>Drawn by</span>
+          <ProfileSelect value={drawer?.name ?? ''} profiles={drawers.map((a) => ({ id: a.name, name: a.name }))} onChange={(account) => save({ account })} />
+          <small>The account whose usage the pictures spend.</small>
+        </label>
+      )}
+      {emblems.kind === 'drawn' && (
+        <label className="ca-field">
+          <span>How they’re drawn</span>
+          <textarea rows={3} value={prompt} placeholder={DRAWN_STYLE} disabled={disabled} onChange={(e) => setPrompt(e.target.value)} onBlur={() => prompt.trim() !== emblems.prompt.trim() && save({ prompt: prompt.trim() })} />
+          <small>
+            Said to {drawer?.name ?? 'the account'} with each session’s title and first prompt: “Pixel art on a 16 by 16 grid, with a dark outline”, say, or “A white silhouette on a rounded tile of one strong color”. A plain white background is made clear. Sessions drawn already keep their pictures.
+          </small>
+        </label>
+      )}
     </>
   );
 }
@@ -1496,9 +1561,9 @@ function dayOptions(current: number): Profile[] {
   return days.map((d) => ({ id: String(d), name: d === 0 ? 'Off: titles only' : d === 1 ? 'The last day' : `The last ${d} days` }));
 }
 
-const JEV_OFF: JevCfg = { model: 'jev-preview', quick_panel: false, sessions: false, todos: false, pull_requests: false, emblems: false };
+const JEV_OFF: JevCfg = { model: 'jev-preview', quick_panel: false, sessions: false, todos: false, pull_requests: false };
 
-type JevFeature = 'quick_panel' | 'sessions' | 'todos' | 'pull_requests' | 'emblems';
+type JevFeature = 'quick_panel' | 'sessions' | 'todos' | 'pull_requests';
 
 /** Each switch: what it does, and what it sends to TypeSafe to do it. */
 const JEV_FEATURES: { id: JevFeature; label: string; does: string; sends: string }[] = [
@@ -1526,17 +1591,12 @@ const JEV_FEATURES: { id: JevFeature; label: string; does: string; sends: string
     does: 'Lists a pull request’s comments in its panel and marks the ones that ask the author for a change or an answer, so you can see what still needs a reply.',
     sends: 'The pull request’s title and others’ comments on threads still open, when you open it in Codealong. Answers are kept, so only new or edited comments are sent again.',
   },
-  {
-    id: 'emblems',
-    label: 'Session emblems',
-    does: 'Puts a small icon beside each session’s title, for what it works on, so you can tell sessions apart at a glance and remember one as “the teal bug”. Its background shades between two colors that go together, lit from one of eight places, which Codealong picks so the sessions beside it look different. The color you give a session with Claude Code’s /color is one of the two.',
-    sends: 'Each new session’s title and first prompt, once. The icon is kept for the session’s life.',
-  },
 ];
 
-/** A feature's name in Jev's usage: its switch's label, or the Test button's. */
+/** A feature's name in Jev's usage: its switch's label, Session emblems' (Settings › General), or
+ *  the Test button's. */
 function jevFeatureName(feature: string): string {
-  return JEV_FEATURES.find((f) => f.id === feature)?.label ?? (feature === 'test' ? 'Test button' : feature);
+  return JEV_FEATURES.find((f) => f.id === feature)?.label ?? ({ emblems: 'Session emblems', test: 'Test button' } as Record<string, string>)[feature] ?? feature;
 }
 
 /**

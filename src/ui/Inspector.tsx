@@ -130,7 +130,7 @@ function SessionRow({ session: s, terminal, now, focused, onOpen, todos, onShowT
       <SessionGlyph s={s} />
       <div className="ca-srow-main">
         <div className="ca-srow-title">
-          <SessionEmblem emblem={s.emblem} size={14} />
+          <SessionEmblem emblem={s.emblem} of={s.key} size={14} />
           {s.title}
         </div>
         <div className="ca-srow-meta">

@@ -373,7 +373,7 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
       {!lineage?.from && !s.helper?.pr && schedule && <FromSchedule schedule={schedule} onShow={onShowSchedule} />}
       <div className="ca-sessinsp-top">
         <SessionGlyph s={s} size={14} />
-        <SessionEmblem emblem={s.emblem} size={20} />
+        <SessionEmblem emblem={s.emblem} of={s.key} size={20} />
         {naming ? (
           <NameField title={s.title} onDone={onRename} />
         ) : (

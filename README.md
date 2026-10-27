@@ -611,7 +611,11 @@ quick_panel = false            # suggestions as you type in the quick panel
 sessions = false               # how each turn ended: asks you, stuck, landed, finished, risk
 todos = false                  # links sessions to todos, done hints, new todos' labels
 pull_requests = false          # review comments that ask for a change
-emblems = false                # an icon beside each session's title, for what it works on
+
+[emblems]                      # something to know each session by beside its title (Settings › General)
+kind = "off"                   # "emoji" (Jev picks one) or "drawn" (an account draws one)
+account = "codex"              # drawn: the account that draws them; the first that can when unset
+prompt = "Pixel art on a 16 by 16 grid, with a dark outline."  # drawn: how; Codealong's own when unset
 
 [search]
 days = 14                      # prompts and replies searched this far back; 0 is titles only (Settings › General)
