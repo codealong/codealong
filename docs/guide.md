@@ -2651,7 +2651,7 @@ through the ones you looked at there. A strip over the header says how the last 
 message that didn't go after ⌘⏎ went on says why there, or on its session's pill once the notch has
 closed), and has what's commonly done to the session as buttons that say their keys, as its
 panel in Sessions has: Merge and done (⇧⌘M) where it applies, Seen (⌘E), Done (⇧⌘E), Snooze (⌃⌘1
-to ⌃⌘4), Close (⌃⌘W), Archive (⌃⌘A), Back (⌃-), Next (⌘]) and × (esc). The PRs waiting on your review are in that same list, after the
+to ⌃⌘6), Close (⌃⌘W), Archive (⌃⌘A), Back (⌃-), Next (⌘]) and × (esc). The PRs waiting on your review are in that same list, after the
 sessions that need you and before the turns that ended, so the keys go from a session to a review
 and on. On a review the strip has Approve (⌘⏎, with what's in the box as the review's text), Comment
 (⌥⌘⏎, which needs text), Snooze (⌃⌘1 to ⌃⌘6), Review with (⌃⌘R starts one on the reviewer Settings names, else Auto's; the
