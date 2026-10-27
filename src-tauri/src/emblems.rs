@@ -606,14 +606,18 @@ pub struct Kept {
 }
 
 impl Kept {
-    /// What it shows when emblems are `kind`: its emoji, or its picture, else its emoji until
-    /// it has one.
+    /// What it shows when emblems are `kind`: its emoji, or its picture, with its emoji where it
+    /// has one for the windows to show when the picture doesn't load, else its emoji until it has
+    /// a picture.
     fn shown(&self, kind: EmblemKind) -> Option<Emblem> {
         let emoji = || self.emoji.as_deref().and_then(emoji_named).map(|(name, emoji, _)| Emblem { emoji: Some(emoji.to_string()), picture: None, name: name.replace('-', " ") });
         match kind {
             EmblemKind::Off => None,
             EmblemKind::Emoji => emoji(),
-            EmblemKind::Drawn => self.picture.as_ref().map(|p| Emblem { emoji: None, picture: Some(p.clone()), name: self.drawn.clone().unwrap_or_default() }).or_else(emoji),
+            EmblemKind::Drawn => match &self.picture {
+                Some(p) => Some(Emblem { emoji: emoji().and_then(|e| e.emoji), picture: Some(p.clone()), name: self.drawn.clone().unwrap_or_default() }),
+                None => emoji(),
+            },
         }
     }
 
@@ -882,12 +886,19 @@ mod tests {
         assert_eq!(store.emblem_of(&a, EmblemKind::Off), None);
         store.drawing = Some(a.key.clone());
         store.drawn(&a.key, "0123456789abcdef.png".into(), "beaker".into(), NOW);
-        let picture = Emblem { emoji: None, picture: Some("0123456789abcdef.png".into()), name: "beaker".into() };
+        // With its emoji, for when the picture doesn't load.
+        let picture = Emblem { emoji: Some("🧪".into()), picture: Some("0123456789abcdef.png".into()), name: "beaker".into() };
         assert_eq!(store.emblem_of(&a, EmblemKind::Drawn), Some(picture.clone()));
         assert_eq!(store.emblem_of(&helper, EmblemKind::Drawn), Some(picture));
         assert_eq!(store.emblem_of(&a, EmblemKind::Emoji).and_then(|e| e.emoji).as_deref(), Some("🧪"));
         assert!(store.drawing.is_none());
-        assert_eq!(store.pictures(), Some(vec!["images/0123456789abcdef.png".to_string()]));
+        // One drawn with no emoji is the picture alone.
+        let b = session("b", "Draw it");
+        store.drawn(&b.key, "b.png".into(), "kite".into(), NOW);
+        assert_eq!(store.emblem_of(&b, EmblemKind::Drawn), Some(Emblem { emoji: None, picture: Some("b.png".into()), name: "kite".into() }));
+        let mut pictures = store.pictures().unwrap();
+        pictures.sort();
+        assert_eq!(pictures, vec!["images/0123456789abcdef.png".to_string(), "images/b.png".to_string()]);
         // From an emblems.json that didn't read, no picture can be told from an unused one.
         store.unread = true;
         assert_eq!(store.pictures(), None);

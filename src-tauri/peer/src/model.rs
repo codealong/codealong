@@ -397,7 +397,8 @@ pub struct Session {
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct Emblem {
-    /// The emoji, when it's one.
+    /// The emoji, when it's one, or when it has one beside its picture, shown in place of a
+    /// picture that doesn't load.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub emoji: Option<String>,
     /// The picture, when it's one: a kept image's name (`<hash>.png`), which a window loads from

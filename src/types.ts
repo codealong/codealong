@@ -242,7 +242,8 @@ export interface Session {
  *  works on, an emoji Jev picked or a picture an account drew, different from the sessions'
  *  beside it where it can be. */
 export interface Emblem {
-  /** The emoji, when it's one. */
+  /** The emoji, when it's one, or when it has one beside its picture, shown in place of a picture
+   *  that doesn't load. */
   emoji?: string;
   /** The picture, when it's one: a kept image's name (`<hash>.png`), loaded from the Mac the
    *  session is on (api.ts `imageUrl`). */
