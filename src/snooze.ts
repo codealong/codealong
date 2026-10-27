@@ -5,7 +5,7 @@
 // state.json; these are the menus that set them, and Pick a time… asks the main window for any
 // other time (ui/SnoozeDialog.tsx).
 
-import { snoozeAhead, snoozeReviewsAhead } from './ahead';
+import { snoozeAhead, snoozedFrom, snoozeReviewsAhead } from './ahead';
 import { showMain } from './api';
 import type { MenuAction, MenuGroup } from './contextMenu';
 import type { PrItem } from './types';
@@ -128,9 +128,16 @@ interface SnoozeOpts {
 function timesMenu(set: (until: number | null) => Promise<void>, ask: SnoozeAsk, now: number, opts: SnoozeOpts, label: string): MenuGroup {
   const done = opts.onDone;
   const items: (TimeAction | MenuAction | 'separator')[] = snoozeChoices(now).map((c) => ({ label: c.label, run: () => done(set(c.until)), chord: c.chord, ...(opts.chords ? { accelerator: c.chord } : {}) }));
-  // The main window says how the snooze went once it's picked there; this one has nothing to
-  // say until then, and the main window coming forward is all there is to fail.
-  items.push({ label: 'Pick a time…', run: () => void showMain({ kind: 'snooze', ...ask }).catch(() => {}) });
+  items.push({
+    label: 'Pick a time…',
+    run: () => {
+      // The main window asks, snoozes and says how that went; this one says they left, as for a
+      // time of its own, once they're snoozed (a queue goes on to the next), and nothing if the
+      // dialog is put away. The main window coming forward is all there is to fail here.
+      void snoozedFrom(ask.keys, ask.reviews).then(() => done(Promise.resolve()));
+      void showMain({ kind: 'snooze', ...ask }).catch(() => {});
+    },
+  });
   if (opts.until) items.push('separator', { label: 'Wake now', run: () => done(set(null)) });
   return { label, items };
 }

@@ -66,12 +66,14 @@ export type Change =
   | { kind: 'seen'; keys: string[] }
   /** Marked unread: Your turn again, from when it was marked. */
   | { kind: 'unread'; keys: string[] }
-  /** Snoozed until then, or woken now with null. */
-  | { kind: 'snooze'; keys: string[]; until: number | null }
+  /** Snoozed until then, or woken now with null. `picked` by Pick a time… (ui/SnoozeDialog.tsx),
+   *  which the window it was asked from waits on (`snoozedFrom`). */
+  | { kind: 'snooze'; keys: string[]; until: number | null; picked?: boolean }
   /** Quieted, or made heard again with false: a quiet one's finished turn is idle. */
   | { kind: 'quiet'; keys: string[]; quiet: boolean }
-  /** Your review of these PRs (by PR key) snoozed until then, or woken now with null. */
-  | { kind: 'review-snooze'; keys: string[]; until: number | null }
+  /** Your review of these PRs (by PR key) snoozed until then, or woken now with null; `picked`
+   *  as a session's snooze is. */
+  | { kind: 'review-snooze'; keys: string[]; until: number | null; picked?: boolean }
   /** A PR (by its key) merged: merged from when it was made, and waiting on no review. */
   | { kind: 'pr-merge'; key: string }
   /** Your review of a PR (by its key) submitted: it waits on your review no more, and shows
@@ -693,9 +695,9 @@ export function seenAhead(keys: string[]): Promise<void> {
 }
 
 /** Snoozes sessions until `until`, or wakes them now with null, in every window at once. */
-export function snoozeAhead(keys: string[], until: number | null): Promise<void> {
+export function snoozeAhead(keys: string[], until: number | null, picked = false): Promise<void> {
   if (keys.length === 0) return Promise.resolve();
-  const a = made({ kind: 'snooze', keys, until });
+  const a = made({ kind: 'snooze', keys, until, ...(picked && { picked }) });
   put(a, true);
   return snoozeSessions(keys, until).then(
     (shownAt) => answered(a.id, shownAt),
@@ -720,11 +722,45 @@ export function quietAhead(keys: string[], quiet: boolean): Promise<void> {
   );
 }
 
+/** How long a window waits on the main window's Pick a time… (snooze.ts `timesMenu`): one left
+ *  open longer, or cancelled, says nothing in the window it was asked from. */
+const PICK_MS = 10 * 60_000;
+
+/** The Pick a time… this window waits on (`snoozedFrom`), to stop waiting: one at a time. */
+let picking: (() => void) | null = null;
+
+/** Resolves once Pick a time…'s dialog (ui/SnoozeDialog.tsx), in the main window, snoozes these
+ *  sessions or your review of these PRs, so the window it was asked from says they left, as it
+ *  does for a time in its own menu. Never, when the dialog is put away, left open past `wait`, or
+ *  asked again from this window: a snooze of the window's own isn't it, nor one asked for since. */
+export function snoozedFrom(keys: string[], reviews: boolean, wait = PICK_MS): Promise<void> {
+  picking?.();
+  const since = Date.now();
+  const same = (a: Ahead) => {
+    const c = a.change;
+    return a.at >= since && (c.kind === 'snooze' || c.kind === 'review-snooze') && !!c.picked && (c.kind === 'review-snooze') === reviews && c.until != null && c.keys.length === keys.length && c.keys.every((k) => keys.includes(k));
+  };
+  return new Promise((resolve) => {
+    const unsubscribe = subscribe(() => {
+      if (!all.some(same)) return;
+      stop();
+      resolve();
+    });
+    const timer = setTimeout(() => stop(), wait);
+    const stop = () => {
+      clearTimeout(timer);
+      unsubscribe();
+      if (picking === stop) picking = null;
+    };
+    picking = stop;
+  });
+}
+
 /** Snoozes your review of PRs (by PR key) until `until`, or wakes them now with null, in every
  *  window at once. */
-export function snoozeReviewsAhead(keys: string[], until: number | null): Promise<void> {
+export function snoozeReviewsAhead(keys: string[], until: number | null, picked = false): Promise<void> {
   if (keys.length === 0) return Promise.resolve();
-  const a = made({ kind: 'review-snooze', keys, until });
+  const a = made({ kind: 'review-snooze', keys, until, ...(picked && { picked }) });
   put(a, true);
   return snoozeReviews(keys, until).then(
     (shownAt) => answered(a.id, shownAt),

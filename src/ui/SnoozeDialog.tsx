@@ -36,12 +36,20 @@ export function fieldsTime(day: string, time: string): number | null {
 export function SnoozeDialog({ ask, what, onClose, onFailed }: SnoozeDialogProps) {
   // It opens on the next morning, the menus' time for tomorrow, to change the day or the hour of.
   const [{ day, time }, setFields] = useState(() => snoozeFields(nextMorning(Date.now())));
+  // Drawn again when a time picked has passed by the time it's sent, to say so.
+  const [, redraw] = useState(0);
   const now = Date.now();
   const until = fieldsTime(day, time);
   const ahead = until != null && until > now;
   const save = () => {
-    if (!ahead) return;
-    (ask.reviews ? snoozeReviewsAhead : snoozeAhead)(ask.keys, until).catch((e: unknown) => onFailed(errorText(e)));
+    // Checked as it's sent, not as it was drawn: a time gone by would end the snooze at once,
+    // and any it had before.
+    if (until == null || until <= Date.now()) {
+      redraw((n) => n + 1);
+      return;
+    }
+    // Picked, for the window it was asked from to hear (ahead.ts `snoozedFrom`).
+    (ask.reviews ? snoozeReviewsAhead : snoozeAhead)(ask.keys, until, true).catch((e: unknown) => onFailed(errorText(e)));
     onClose();
   };
 

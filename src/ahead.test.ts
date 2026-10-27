@@ -9,6 +9,8 @@ const api = vi.hoisted(() => ({
   sessionAnswer: vi.fn(),
   sessionSteer: vi.fn(),
   reviewPr: vi.fn(),
+  snoozeSessions: vi.fn(() => Promise.resolve(null)),
+  snoozeReviews: vi.fn(() => Promise.resolve(null)),
 }));
 vi.mock('./api', () => ({
   ...api,
@@ -17,7 +19,7 @@ vi.mock('./api', () => ({
   windowLabel: () => 'test',
 }));
 
-import { answerAhead, barAhead, boardAhead, boardView, CONFIRM_MS, inRecord, lanesAhead, logoOf, mergeAhead, mergeDoneAhead, renameAhead, reviewAhead, sendAhead, sentWorthSaying, settled, steerAhead, type Ahead, type View } from './ahead';
+import { answerAhead, barAhead, boardAhead, boardView, CONFIRM_MS, inRecord, lanesAhead, logoOf, mergeAhead, mergeDoneAhead, renameAhead, reviewAhead, sendAhead, sentWorthSaying, settled, snoozeAhead, snoozedFrom, snoozeReviewsAhead, steerAhead, type Ahead, type View } from './ahead';
 import { readDraft, writeDraft } from './drafts';
 import { bayOf, stuckMidTurn } from './lanes';
 import * as fx from './testing/fixtures';
@@ -635,5 +637,50 @@ describe('sentWorthSaying', () => {
     expect(sentWorthSaying({ ...typed, opened: true })).toBe(true);
     expect(sentWorthSaying({ ...typed, fellBack: true })).toBe(true);
     expect(sentWorthSaying({ ...typed, uncertain: true })).toBe(true);
+  });
+});
+
+describe('snoozedFrom', () => {
+  const flush = () => new Promise((r) => setTimeout(r, 0));
+  const later = () => Date.now() + 60_000;
+
+  it('hears the snooze Pick a time… asked the main window for, and no other', async () => {
+    const heard = vi.fn();
+    void snoozedFrom(['claude:claude:a'], false).then(heard);
+    // Your review of a PR of that key, another session, waking it, or a time from a menu of the
+    // window's own (the dialog put away), isn't it.
+    await snoozeReviewsAhead(['claude:claude:a'], later(), true);
+    await snoozeAhead(['claude:claude:b'], later(), true);
+    await snoozeAhead(['claude:claude:a'], null, true);
+    await snoozeAhead(['claude:claude:a'], later());
+    await flush();
+    expect(heard).not.toHaveBeenCalled();
+    await snoozeAhead(['claude:claude:a'], later(), true);
+    await flush();
+    expect(heard).toHaveBeenCalledTimes(1);
+  });
+
+  it('waits on the last asked for alone', async () => {
+    const first = vi.fn();
+    const second = vi.fn();
+    void snoozedFrom(['claude:claude:c'], false).then(first);
+    void snoozedFrom(['claude:claude:c'], false).then(second);
+    await snoozeAhead(['claude:claude:c'], later(), true);
+    await flush();
+    expect([first.mock.calls.length, second.mock.calls.length]).toEqual([0, 1]);
+  });
+
+  it('gives up on one that is never snoozed', async () => {
+    vi.useFakeTimers();
+    try {
+      const heard = vi.fn();
+      void snoozedFrom(['northwind/app#12'], true, 1000).then(heard);
+      vi.advanceTimersByTime(1500);
+      await snoozeReviewsAhead(['northwind/app#12'], Date.now() + 60_000, true);
+      await vi.runAllTimersAsync();
+      expect(heard).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
