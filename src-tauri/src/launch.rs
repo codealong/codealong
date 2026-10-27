@@ -65,6 +65,13 @@ pub trait Terminal: Sync {
     /// above a session's says which terminal the session runs in (`kind_by`).
     fn runs_as(&self, process: &str) -> bool;
 
+    /// Whether it keeps a session running with no window showing it, and starts one while the
+    /// screen is locked, as Codealong's tmux server does for the others: Rex, whose server does
+    /// both, so its starts don't go to tmux unless `[apps] tmux` says always (`host_for`).
+    fn holds_sessions(&self) -> bool {
+        false
+    }
+
     /// Whether Codealong can talk to it when a session runs under it. An app that's running
     /// takes scripts wherever it's installed.
     fn reachable(&self) -> bool {
@@ -397,19 +404,27 @@ impl Unhosted {
     }
 }
 
-/// Where a session Codealong starts in a terminal runs, as `[apps] tmux` says, the screen is,
-/// and tmux is installed. While the screen is locked a terminal app can't be counted on to start
-/// one: Ghostty's terminals don't start then, and iTerm2's and Terminal's are unchecked. Linux's
-/// terminal is a tmux session already.
-pub fn host_for(use_tmux: TmuxUse) -> std::result::Result<Host, Unhosted> {
-    host_rule(os::current(), use_tmux, screen_locked(), tmux::bin().is_some())
+/// Where a session Codealong starts in the terminal `profile` names runs, as `[apps] tmux`
+/// says, the screen is, and tmux is installed. While the screen is locked a terminal app can't be
+/// counted on to start one: Ghostty's terminals don't start then, and iTerm2's and Terminal's are
+/// unchecked. One that holds sessions itself (Rex) starts them locked or not. Linux's terminal is
+/// a tmux session already.
+pub fn host_for(profile: &str, use_tmux: TmuxUse) -> std::result::Result<Host, Unhosted> {
+    host_rule(os::current(), use_tmux, screen_locked(), tmux::bin().is_some(), holds_sessions(profile))
 }
 
-fn host_rule(on: Os, use_tmux: TmuxUse, locked: bool, has_tmux: bool) -> std::result::Result<Host, Unhosted> {
+/// Whether the terminal a profile names holds sessions itself (`Terminal::holds_sessions`).
+fn holds_sessions(profile: &str) -> bool {
+    terminal_app(profile).is_some_and(|t| t.holds_sessions())
+}
+
+fn host_rule(on: Os, use_tmux: TmuxUse, locked: bool, has_tmux: bool, holds: bool) -> std::result::Result<Host, Unhosted> {
     match (on, use_tmux, locked, has_tmux) {
         (Os::Linux, ..) => Ok(Host::App),
-        (_, TmuxUse::Always, _, true) | (_, TmuxUse::WhenLocked, true, true) => Ok(Host::Tmux),
+        (_, TmuxUse::Always, _, true) => Ok(Host::Tmux),
         (_, TmuxUse::Always, _, false) => Err(Unhosted::NoTmux),
+        _ if holds => Ok(Host::App),
+        (_, TmuxUse::WhenLocked, true, true) => Ok(Host::Tmux),
         (_, _, false, _) => Ok(Host::App),
         (_, _, true, tmux_installed) => Err(Unhosted::Locked { tmux_installed }),
     }
@@ -419,13 +434,15 @@ fn host_rule(on: Os, use_tmux: TmuxUse, locked: bool, has_tmux: bool) -> std::re
 /// background service of its own, `Placement::behind`) runs in Codealong's tmux server with no tab
 /// at all, until Show in opens one, rather than in a tab of the terminal app behind your windows:
 /// wherever tmux is installed, unless `[apps] tmux` says never. Nobody watches such a session, and
-/// a tab behind your windows stays there once it's done. Linux's terminal does this already.
-pub fn out_of_sight_in_tmux(use_tmux: TmuxUse) -> bool {
-    out_of_sight_rule(os::current(), use_tmux, tmux::bin().is_some())
+/// a tab behind your windows stays there once it's done. Linux's terminal does this already. A
+/// terminal that holds sessions (Rex) keeps one out of sight itself, unless `[apps] tmux` says
+/// always.
+pub fn out_of_sight_in_tmux(profile: &str, use_tmux: TmuxUse) -> bool {
+    out_of_sight_rule(os::current(), use_tmux, tmux::bin().is_some(), holds_sessions(profile))
 }
 
-fn out_of_sight_rule(on: Os, use_tmux: TmuxUse, has_tmux: bool) -> bool {
-    has_tmux && (on == Os::Linux || use_tmux != TmuxUse::Never)
+fn out_of_sight_rule(on: Os, use_tmux: TmuxUse, has_tmux: bool, holds: bool) -> bool {
+    has_tmux && (on == Os::Linux || use_tmux == TmuxUse::Always || (use_tmux == TmuxUse::WhenLocked && !holds))
 }
 
 /// Whether tmux is where Codealong looks for it.
@@ -484,12 +501,12 @@ impl Ran {
 /// One to stay out of sight runs in tmux with no tab, where tmux can hold it
 /// (`out_of_sight_in_tmux`). A host of Codealong's own would take tmux's place here.
 pub fn session_run(profile: &str, use_tmux: TmuxUse, place: Placement, path: &Path, input: &str, env: &[(String, String)]) -> Result<Ran> {
-    if place.behind && out_of_sight_in_tmux(use_tmux) {
+    if place.behind && out_of_sight_in_tmux(profile, use_tmux) {
         tmux::start(path, input, env, place.label)?;
         return Ok(Ran::InTmux(Shown::OnAsk));
     }
     let app = opens_in(profile)?;
-    match host_for(use_tmux).map_err(|why| anyhow!(why.words(app.name())))? {
+    match host_for(profile, use_tmux).map_err(|why| anyhow!(why.words(app.name())))? {
         Host::App => terminal_run(profile, place, path, input, env).map(|_| Ran::InApp),
         Host::Tmux => {
             let hosted = tmux::start(path, input, env, place.label)?;
@@ -2208,8 +2225,12 @@ end run
             (Never, true, true, locked(true)),
             (Never, true, false, locked(false)),
         ] {
-            assert_eq!(host_rule(Os::MacOs, use_tmux, locked_now, has_tmux), want, "{use_tmux:?}, locked {locked_now}, tmux {has_tmux}");
-            assert_eq!(host_rule(Os::Linux, use_tmux, locked_now, has_tmux), Ok(Host::App));
+            assert_eq!(host_rule(Os::MacOs, use_tmux, locked_now, has_tmux, false), want, "{use_tmux:?}, locked {locked_now}, tmux {has_tmux}");
+            assert_eq!(host_rule(Os::Linux, use_tmux, locked_now, has_tmux, false), Ok(Host::App));
+            // A terminal that holds sessions itself (Rex) starts them locked or not, in tmux only
+            // when the setting says always.
+            let held = if use_tmux == Always { want.clone() } else { Ok(Host::App) };
+            assert_eq!(host_rule(Os::MacOs, use_tmux, locked_now, has_tmux, true), held, "holding, {use_tmux:?}, locked {locked_now}, tmux {has_tmux}");
         }
         // What a start says of each, in the terminal's words.
         assert!(Unhosted::Locked { tmux_installed: false }.words("Ghostty").contains("brew install tmux"));
@@ -2223,8 +2244,10 @@ end run
     fn a_session_out_of_sight_runs_in_tmux_with_no_tab_unless_told_never() {
         use TmuxUse::{Always, Never, WhenLocked};
         for (use_tmux, has_tmux, want) in [(Always, true, true), (WhenLocked, true, true), (Never, true, false), (WhenLocked, false, false), (Always, false, false)] {
-            assert_eq!(out_of_sight_rule(Os::MacOs, use_tmux, has_tmux), want, "{use_tmux:?}, tmux {has_tmux}");
-            assert_eq!(out_of_sight_rule(Os::Linux, use_tmux, has_tmux), has_tmux);
+            assert_eq!(out_of_sight_rule(Os::MacOs, use_tmux, has_tmux, false), want, "{use_tmux:?}, tmux {has_tmux}");
+            assert_eq!(out_of_sight_rule(Os::Linux, use_tmux, has_tmux, false), has_tmux);
+            // A terminal that holds sessions itself keeps it out of sight, unless told always.
+            assert_eq!(out_of_sight_rule(Os::MacOs, use_tmux, has_tmux, true), want && use_tmux == Always, "holding, {use_tmux:?}, tmux {has_tmux}");
         }
     }
 

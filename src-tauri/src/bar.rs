@@ -587,7 +587,7 @@ fn place_for(app: &AppHandle, bar: &tauri::WebviewWindow, mode: Mode) {
 pub fn target_app(target_id: &str, terminal: &str, host: Option<&'static str>, own: Option<&'static str>) -> Option<&'static str> {
     match target_id.rsplit('|').next()? {
         "focus" => host.or_else(|| crate::launch::bundle_id(terminal)),
-        "attach" | "resume" => crate::launch::bundle_id(terminal),
+        "attach" | "resume" | "terminal" => crate::launch::bundle_id(terminal),
         "chrome" => Some(crate::chrome::BUNDLE_ID),
         _ => own,
     }
@@ -626,6 +626,9 @@ mod tests {
         assert_eq!(target_app("s|claude:claude2:1|resume", "terminal", None, None), Some("com.apple.Terminal"));
         assert_eq!(target_app("s|claude:claude:1|focus", "kitty", None, None), None);
         assert_eq!(target_app("l|editor", "ghostty", None, None), None);
+        // A new terminal in a session's or a worktree's folder opens in the terminal.
+        assert_eq!(target_app("s|claude:claude:1|terminal", "rex", None, None), Some("com.superlogical.rex"));
+        assert_eq!(target_app("l|terminal", "iterm2", None, None), Some("com.googlecode.iterm2"));
         // A harness's own way lands in its app, which its adapter names; a terminal's never does.
         let own = |h: crate::model::Harness, action: &str| crate::harness::adapter(h).app_bundle(action);
         use crate::model::Harness::{Antigravity, Claude, Codex, Opencode};

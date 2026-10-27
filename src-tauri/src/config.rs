@@ -1885,6 +1885,10 @@ pub struct ConfigView {
     pub default_shortcuts: ShortcutsCfg,
     /// Whether tmux is where Codealong looks for it, for `[apps] tmux`.
     pub tmux_installed: bool,
+    /// The terminal profiles that keep sessions out of sight and start them while the screen is
+    /// locked by themselves (`Terminal::holds_sessions`), for which `[apps] tmux` matters only
+    /// when it says always.
+    pub holds_sessions: Vec<String>,
 }
 
 pub fn view() -> ConfigView {
@@ -1898,7 +1902,7 @@ fn view_of(text: &str, path: &str) -> ConfigView {
         Ok(c) => (c, None),
         Err(e) => (Config::default(), Some(e.to_string().trim().to_string())),
     };
-    ConfigView { config, text: text.to_string(), path: path.to_string(), error, terminals: terminal_profiles(), editors: editor_profiles(), chrome_profiles: crate::chrome::profiles(), review_prompt: crate::autoreview::INSTRUCTIONS.to_string(), sounds: crate::sounds::names(), default_shortcuts: ShortcutsCfg::default(), tmux_installed: crate::launch::tmux_installed() }
+    ConfigView { config, text: text.to_string(), path: path.to_string(), error, terminals: terminal_profiles(), editors: editor_profiles(), chrome_profiles: crate::chrome::profiles(), review_prompt: crate::autoreview::INSTRUCTIONS.to_string(), sounds: crate::sounds::names(), default_shortcuts: ShortcutsCfg::default(), tmux_installed: crate::launch::tmux_installed(), holds_sessions: crate::launch::profiles().filter(|(_, t)| t.holds_sessions()).map(|(id, _)| id.to_string()).collect() }
 }
 
 /// Why a list of projects can't be saved, in words.

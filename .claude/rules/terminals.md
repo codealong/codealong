@@ -169,14 +169,26 @@ say the rest.
 - The terminal's `write` method types raw bytes as if typed (nothing bracketed), so a send is a
   bracketed paste, then Return a moment later, as iTerm2's. `block.close` ends what runs there
   without asking; closing a window's last block closes the window.
-- The app shows one session at a time, and nothing says which: a client's `session_ids` are every
-  session it's attached to. `client.perform` of `session.select` (`session_id`, `window_id`) moves
-  it, refused (403, "Rex.app is not accepting actions. Turn on Remote Control in its Settings under
-  Rex Server.") until Remote Control is on, which was off here; `session.focus_block` on the server
-  needs nothing. So whether `session.select` shows the right tab with Remote Control on is
-  unchecked.
+- The app shows one session at a time, and the server doesn't say which: a client's
+  `session_ids` are every session it's attached to. The app notes it in its own settings,
+  `Workspace.lastFocusedSession` in `com.superlogical.rex`, `{"sessionID": …}` held as data, which
+  `defaults export com.superlogical.rex -` prints in full (`defaults read` cuts data short); it
+  followed a switch made by `session.select` (2026-10-27): `launch/rex.rs` (`shown_session`).
+- `client.perform` of `session.select` (`session_id`, `window_id`) moves the app, refused (403,
+  "Rex.app is not accepting actions. Turn on Remote Control in its Settings under Rex Server.")
+  until Remote Control is on; `session.focus_block` on the server needs nothing. Remote Control is
+  the app's preference `rex.client.remoteControl` (a bool, absent when off), which the running app
+  takes at once when written with `defaults write`. With it on, `session.select` of a session
+  made a moment before answered 200 and the app took the new block (the server's log, `rex server
+  logs --all`, has each request), but Rex stayed behind the app that was clicked in: `open -b`,
+  run by Codealong's engine from a click in its main window, didn't bring it forward, so the
+  windows bring the terminal's app forward themselves (`lib.rs` `open_target`, `start_session`).
+- The server makes a block's pty with no display to draw in, so it should start one while the
+  screen is locked; unchecked with the screen locked. Starts go to Rex then rather than tmux
+  (`Terminal::holds_sessions`, `launch.rs` `host_rule`).
 - `cargo test rex_round_trip -- --ignored` opens a terminal in a session of its own behind your
-  windows, checks its environment and typing, presses a key and closes it.
+  windows, checks its environment and typing, presses a key and closes it;
+  `rex_notes_the_session_it_shows` checks the app's note names one of the server's sessions.
 
 ## Codealong's tmux server
 

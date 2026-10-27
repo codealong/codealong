@@ -40,6 +40,8 @@ dirs = "6"
 anyhow = "1"
 libc = "0.2"
 urlencoding = "2"
+# Another app's settings as `defaults export` prints them (launch/rex.rs); Tauri builds it already.
+plist = "1"
 sha2 = "0.10"
 toml_edit = "0.23"
 # OpenCode and Antigravity keep their sessions in SQLite databases.

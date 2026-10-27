@@ -770,7 +770,7 @@ pub fn options_for(cfg: &Config) -> StartOptions {
     let mut out = options(&on, &launch::terminal_name(&cfg.apps.terminal), projects, &home(), |a| crate::harness::of(a).and_then(|h| h.default_model(a)));
     out.auto_group = cfg.routing.auto.trim().to_string();
     // Where tmux holds what's out of sight, Background opens no tab behind your windows either.
-    let in_tmux = launch::out_of_sight_in_tmux(cfg.apps.tmux);
+    let in_tmux = launch::out_of_sight_in_tmux(&cfg.apps.terminal, cfg.apps.tmux);
     for a in &mut out.accounts {
         a.buffer = cfg.routing.buffer;
         for p in a.places.iter_mut().filter(|_| in_tmux) {
@@ -1039,7 +1039,7 @@ fn locked_place(place: Place, offered: &[Place], service: bool, hosted: std::res
 /// Where one of `account`'s starts at `place` goes now (`locked_place`), of the places it
 /// starts sessions in (`offered`), and why where that isn't `place`.
 fn place_now(account: &AccountCfg, place: Place, offered: &[Place], cfg: &Config) -> Result<(Place, Option<String>)> {
-    locked_place(place, offered, adapter_of(account).runs_in_background(), launch::host_for(cfg.apps.tmux), &launch::terminal_name(&cfg.apps.terminal))
+    locked_place(place, offered, adapter_of(account).runs_in_background(), launch::host_for(&cfg.apps.terminal, cfg.apps.tmux), &launch::terminal_name(&cfg.apps.terminal))
 }
 
 /// What a start would run (`plan`) at the place it would go now (`place_now`): with `host`, where
@@ -1051,8 +1051,8 @@ pub fn plan_now(cfg: &Config, account: &AccountCfg, place: Place, folder: &Path,
     let planned = plan(account, place, folder, prompt, &new_session_id(), model, effort, worktree);
     let mut out = serde_json::to_value(&planned)?;
     if let Plan::Terminal { behind, .. } = planned {
-        out["host"] = match launch::host_for(cfg.apps.tmux) {
-            _ if behind && launch::out_of_sight_in_tmux(cfg.apps.tmux) => "tmux, with no tab".into(),
+        out["host"] = match launch::host_for(&cfg.apps.terminal, cfg.apps.tmux) {
+            _ if behind && launch::out_of_sight_in_tmux(&cfg.apps.terminal, cfg.apps.tmux) => "tmux, with no tab".into(),
             Ok(launch::Host::Tmux) => "tmux".into(),
             _ => launch::terminal_name(&cfg.apps.terminal).into(),
         };
@@ -1214,7 +1214,7 @@ pub fn resume(board: &Board, cfg: &Config, key: &str, how: &ResumeIn, prompt: &s
     if !offered.contains(&how.place) {
         bail!("{title} can't go on {} from here.", place_words(how.place, cfg));
     }
-    let (place, instead) = locked_place(how.place, &offered, adapter.runs_in_background(), launch::host_for(cfg.apps.tmux), &launch::terminal_name(&cfg.apps.terminal))?;
+    let (place, instead) = locked_place(how.place, &offered, adapter.runs_in_background(), launch::host_for(&cfg.apps.terminal, cfg.apps.tmux), &launch::terminal_name(&cfg.apps.terminal))?;
     let resumed = resume_at(board, cfg, key, &ResumeIn { place, ..how.clone() }, prompt, (s, account, &cwd))?;
     let sent = crate::send::Sent { message: with_instead(Some(resumed.sent.message), instead).unwrap_or_default(), ..resumed.sent };
     Ok(Resumed { sent, ..resumed })

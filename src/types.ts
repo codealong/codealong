@@ -1140,6 +1140,10 @@ export interface ConfigView {
   defaultShortcuts?: Config['shortcuts'];
   /** Whether tmux is where Codealong looks for it, for `[apps] tmux`. Missing from older engines. */
   tmuxInstalled?: boolean;
+  /** The terminal profiles that keep sessions out of sight and start them while the screen is
+   *  locked by themselves (Rex), for which `[apps] tmux` matters only when it says always.
+   *  Missing from older engines. */
+  holdsSessions?: string[];
 }
 
 /** A Chrome profile (src-tauri/src/chrome.rs). */

@@ -1125,7 +1125,8 @@ impl crate::harness::Adapter for OpenCode {
             (false, true) => ("Show in", "focus"),
             (false, false) => ("Resume in", "resume"),
         };
-        vec![o.way(s, action, "terminal", format!("{verb} {}", o.term), o.who.clone(), true, false)]
+        let term = if action == "focus" { o.shown_in(s) } else { o.term };
+        vec![o.way(s, action, "terminal", format!("{verb} {term}"), o.who.clone(), true, false)]
     }
 
     /// OpenCode picks its own session id and takes the prompt as an option; its files go as

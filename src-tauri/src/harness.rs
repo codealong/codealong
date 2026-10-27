@@ -1132,7 +1132,14 @@ impl Opens<'_> {
             (false, true) => ("Show in", "focus"),
             (_, false) => ("Resume in", "resume"),
         };
-        self.way(s, action, "terminal", format!("{verb} {}", self.term), detail, true, disabled)
+        let term = if action == "focus" { self.shown_in(s) } else { self.term };
+        self.way(s, action, "terminal", format!("{verb} {term}"), detail, true, disabled)
+    }
+
+    /// The terminal a live session's tab is in, for Show in: the app its process runs under
+    /// (`Session::terminal`), else the one config.toml names.
+    pub fn shown_in<'s>(&'s self, s: &'s Session) -> &'s str {
+        s.terminal.as_deref().unwrap_or(self.term)
     }
 }
 

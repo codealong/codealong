@@ -100,7 +100,7 @@ const SCRIPTS: &[(&str, u64)] = &[
     ("TERMINAL_TYPE+TAB_ON", 0xa7c5c56b1a8acc66),
     ("TERMINAL_CLOSE+TAB_ON", 0x395c0be9fa50e975),
     ("REX_LIST", 0x748adcebc363a3fa),
-    ("REX_NEW", 0x88cef4d3b9428eb1),
+    ("REX_NEW", 0x17a9ec125713ba14),
     ("REX_SHOW", 0x745acad78b776075),
     ("REX_WRITE", 0x1141908aae8d52fa),
     ("REX_CLOSE", 0x14410192a422cbfb),
@@ -1472,6 +1472,10 @@ mod tests {
     /// second session's has focus in its active window, and the last one's program ended.
     const REX_BLOCKS: &str = r#"[{"session":"session:s1","window":"window:w1","block":"block:b1","pid":700002,"cwd":"/r/app","title":"✳ Fix the login","focused":false},{"session":"session:s2","window":"window:w2","block":"block:b2","pid":700012,"cwd":"/r/other","title":"zsh","focused":true},{"session":"session:s2","window":"window:w3","block":"block:b3","pid":0,"cwd":"","title":"","focused":false}]"#;
     const REX_OPEN: &str = r#"/usr/bin/open ["-b", "com.superlogical.rex"] (10s)"#;
+    /// Rex's settings as `defaults export` prints them, noting the first session as the one its
+    /// app shows (`{"sessionID":"session:s1"}`).
+    const REX_PREFS: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<plist version=\"1.0\">\n<dict>\n\t<key>Workspace.lastFocusedSession</key>\n\t<data>\n\teyJzZXNzaW9uSUQiOiJzZXNzaW9uOnMxIn0=\n\t</data>\n</dict>\n</plist>\n";
+    const REX_DEFAULTS: &str = r#"/usr/bin/defaults ["export", "com.superlogical.rex", "-"] (5s)"#;
     const REX_SHOWN: &str = r#"{"apps":1,"shown":1,"refused":"","failed":""}"#;
     const REX_REFUSED: &str = r#"{"apps":1,"shown":0,"refused":"stream response \"control-7\" failed: Rex.app is not accepting actions. Turn on Remote Control in its Settings under Rex Server. (status=403 code=refused)","failed":""}"#;
 
@@ -1490,6 +1494,7 @@ mod tests {
                 ("/rex/rex", Some("REX_SHOW")) => shows.to_string(),
                 ("/rex/rex", Some("REX_WRITE" | "REX_CLOSE")) => "\"ok\"\n".to_string(),
                 ("/usr/bin/open", _) => String::new(),
+                ("/usr/bin/defaults", _) => REX_PREFS.to_string(),
                 _ => panic!("unexpected {} {:?}", s.what, s.args),
             })
         }
@@ -1514,16 +1519,26 @@ mod tests {
             ]
         );
         assert_eq!(p.launchers, ["rm -f 'LAUNCHER'\ncd '/r/my app' 2>/dev/null\nexport CODEALONG_PROMPT='Fix the '\\''flaky'\\'' test'\nexec SHELL -l"]);
-        // Rex can't say which session its app shows, so a tab goes as a project's does.
-        let p = played(rex_answers(REX_SHOWN), || terminal_run("rex", Placement { new_terminal: NewTerminal::Tab, ..place }, Path::new("/r/my app"), "ls\n", &[]));
+        // A tab in the front window goes into the session the app shows, as its settings note it.
+        let tab = Placement { new_terminal: NewTerminal::Tab, ..place };
+        let p = played(rex_answers(REX_SHOWN), || terminal_run("rex", tab, Path::new("/r/my app"), "ls\n", &[]));
         p.got.unwrap();
-        assert_eq!(p.log[1], rex("REX_NEW", r#"{"cwd":"/r/my app","focus":true,"input":"ls\n","label":"app · Fix it","session":"session:s2","session_label":"my app"}"#, true));
+        assert_eq!(p.log[1..3], [REX_DEFAULTS.to_string(), rex("REX_NEW", r#"{"cwd":"/r/my app","focus":true,"input":"ls\n","label":"app · Fix it","session":"session:s1","session_label":"my app"}"#, true)]);
         assert!(p.launchers.is_empty(), "with no environment Rex starts the login shell itself");
+        // With none noted, beside the nearest folders' terminals, as a project's; with none of
+        // those either, a session of its own.
+        let unnoted = |s: &Sent| if s.what == "/usr/bin/defaults" { Ok("<plist version=\"1.0\"><dict/></plist>".to_string()) } else { rex_answers(REX_SHOWN)(s) };
+        let p = played(unnoted, || terminal_run("rex", tab, Path::new("/r/my app"), "ls\n", &[]));
+        p.got.unwrap();
+        assert!(p.log[2].contains(r#"\"session\":\"session:s2\""#), "{}", p.log[2]);
+        let p = played(move |s| if s.what == "/usr/bin/defaults" { Err("no such domain".into()) } else { rex_answers(REX_SHOWN)(s) }, || terminal_run("rex", Placement { new_terminal: NewTerminal::Tab, near: &[], behind: false, label: None }, Path::new("/r/app"), "ls\n", &[]));
+        p.got.unwrap();
+        assert_eq!(p.log[1], rex("REX_NEW", r#"{"cwd":"/r/app","focus":true,"input":"ls\n","session":"","session_label":"app"}"#, true));
 
-        // A window, a tab with no terminal near, or the server not saying: a session of its own,
-        // named for its folder. A Background start is neither focused nor shown.
+        // A window, a project with no terminal near, or the server not saying: a session of its
+        // own, named for its folder. A Background start is neither focused nor shown.
         let far = [vec!["/r/none".to_string()]];
-        for place in [window(), Placement { new_terminal: NewTerminal::Tab, near: &[], behind: false, label: None }, Placement { new_terminal: NewTerminal::Project, near: &far, behind: true, label: None }] {
+        for place in [window(), Placement { new_terminal: NewTerminal::Project, near: &far, behind: false, label: None }, Placement { new_terminal: NewTerminal::Project, near: &far, behind: true, label: None }] {
             let p = played(rex_answers(REX_SHOWN), move || terminal_run("rex", place, Path::new("/r/app"), "ls\n", &[]));
             p.got.unwrap();
             let new = rex("REX_NEW", &format!(r#"{{"cwd":"/r/app","focus":{},"input":"ls\n","session":"","session_label":"app"}}"#, !place.behind), true);
@@ -1638,5 +1653,26 @@ mod tests {
         // Rex in front (as every app is on the stage): the tab with focus in each session may be
         // the one you're in.
         assert_eq!(p.log, [list.clone(), list.clone(), "hang up [700010]".to_string(), list, rex("REX_CLOSE", r#"{"blocks":[{"block":"block:b1","session":"session:s1"}]}"#, false)]);
+    }
+
+    /// Rex's server holds a session nobody looks at and starts one while the screen is locked, so
+    /// with Rex a start goes to it where others go to tmux, unless the setting says always.
+    #[test]
+    fn rex_holds_sessions_so_starts_go_to_it_rather_than_tmux() {
+        let place = Placement { label: Some("app · fix"), ..window() };
+        for (locked, behind) in [(true, false), (false, true), (true, true)] {
+            let p = play(Setup { locked, ..setup() }, rex_answers(REX_SHOWN), move || session_run("rex", TmuxUse::WhenLocked, Placement { behind, ..place }, Path::new("/r/app"), "claude\n", &[]));
+            assert_eq!(p.got.unwrap(), Ran::InApp, "locked {locked}, behind {behind}");
+            let new = p.log.iter().find(|l| l.contains("REX_NEW")).expect("a terminal in Rex");
+            assert!(new.contains(&format!(r#"\"focus\":{}"#, !behind)), "{new}");
+            assert!(!p.log.iter().any(|l| l.contains("tmux")), "{:?}", p.log);
+            assert_eq!(p.log.iter().any(|l| l.contains("REX_SHOW")), !behind, "out of sight, it isn't shown");
+        }
+        let tmux = |s: &Sent| Ok(if s.args.iter().any(|a| a == "new-session") { "$4 %9 /dev/ttys409\n".to_string() } else { "ok\n".to_string() });
+        let p = played(tmux, || session_run("rex", TmuxUse::Always, Placement { behind: true, ..place }, Path::new("/r/app"), "claude\n", &[]));
+        assert_eq!(p.got.unwrap(), Ran::InTmux(Shown::OnAsk));
+        // What a start plans says so too.
+        let p = play(Setup { locked: true, ..setup() }, tmux, || (host_for("rex", TmuxUse::WhenLocked), host_for("ghostty", TmuxUse::WhenLocked), out_of_sight_in_tmux("rex", TmuxUse::WhenLocked), out_of_sight_in_tmux("ghostty", TmuxUse::WhenLocked)));
+        assert_eq!(p.got, (Ok(Host::App), Ok(Host::Tmux), false, true));
     }
 }

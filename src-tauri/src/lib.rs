@@ -230,6 +230,12 @@ async fn open_target(app: tauri::AppHandle, engine: State<'_, engine::Handle>, p
     blocking(move || {
         let from = flash::pointer();
         actions::run(&engine, &peers, actions::OPEN, &lane_id, actions::params::Open { target: target_id.clone() })?;
+        // The terminals Codealong scripts bring themselves forward; Rex, driven through its
+        // command, can't, and macOS lets the app you clicked in bring it forward where a program
+        // it runs can't.
+        if let Some(bundle) = target_app(&engine, &lane_id, &target_id) {
+            front::bring_forward(&app, bundle);
+        }
         flash_focused(&app, &engine, &lane_id, &target_id, from);
         Ok(())
     })
@@ -1651,9 +1657,19 @@ async fn start_options(engine: State<'_, engine::Handle>, peers: State<'_, peers
 /// todos links each of them to the session, or to the next one of that account in the repo when
 /// an app picks the session's ID.
 #[tauri::command]
-async fn start_session(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, spec: start::StartSpec) -> Result<start::Started, String> {
+async fn start_session(app: tauri::AppHandle, engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, spec: start::StartSpec) -> Result<start::Started, String> {
     let (engine, peers) = (engine.inner().clone(), peers.inner().clone());
-    blocking(move || actions::typed(actions::run(&engine, &peers, api::START, &spec.lane_id, actions::params::Start { spec: spec.clone() })?)).await?
+    blocking(move || {
+        let started = actions::typed(actions::run(&engine, &peers, api::START, &spec.lane_id, actions::params::Start { spec: spec.clone() })?)?;
+        // As an open from the main window does (`open_target`).
+        if peerfeed::split_remote(&spec.lane_id).is_none() {
+            if let Some(bundle) = quick::start_app(spec.place, &engine.board().apps.terminal_id) {
+                front::bring_forward(&app, bundle);
+            }
+        }
+        Ok(started)
+    })
+    .await?
 }
 
 /// Moves a session to another account of its harness (`start::move_to`): a copy goes on in a new

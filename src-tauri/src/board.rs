@@ -5067,9 +5067,12 @@ mod tests {
         let apps = AppNames { terminal: "Ghostty".into(), terminal_id: "ghostty".into(), editor: "Cursor".into(), editor_id: "cursor".into(), ..Default::default() };
         let a = acct("claude2");
         let live = claude_session(&a, Some(&reg("waiting", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
-        let (t, default) = targets(&seed("/r/spark-portal", "portal"), &[live], None, None, &apps);
+        let (t, default) = targets(&seed("/r/spark-portal", "portal"), &[live.clone()], None, None, &apps);
         assert_eq!(t[0].label, "Respond in Ghostty");
         assert_eq!(default.as_deref(), Some("s|claude:claude2:abc1234567|focus"));
+        // A session running in another terminal than the one config.toml names is shown there.
+        let (t, _) = targets(&seed("/r/spark-portal", "portal"), &[Session { terminal: Some("Rex".into()), ..live }], None, None, &apps);
+        assert_eq!(t[0].label, "Respond in Rex");
         assert!(t.iter().all(|x| !x.id.ends_with("|claude-app")), "claude2 isn't the Claude app's account");
         assert!(t.iter().any(|x| x.label == "Open in Cursor"));
         let main = AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };

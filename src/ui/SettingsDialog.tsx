@@ -62,6 +62,12 @@ const TMUX_USES: { id: TmuxUse; label: string; says: (terminal: string) => strin
   { id: 'never', label: 'Never', says: (t) => `Sessions open in ${t} only. While the screen is locked, a start goes to the background or to Codealong where its account can, and otherwise can’t start until you unlock.` },
 ];
 
+/** What a choice other than Always comes to in a terminal that holds sessions itself (config.rs
+ *  `holds_sessions`; launch.rs `host_rule`), tmux installed or not. */
+function heldBy(terminal: string): string {
+  return `Sessions open in ${terminal}, which starts them while the screen is locked too and keeps a Background start out of sight itself, so tmux isn’t used. Always runs each in tmux anyway.`;
+}
+
 /** What a choice comes to while tmux isn't installed: Always starts nothing in a terminal, and
  *  the others open sessions in the terminal only (launch.rs `host_rule`). */
 function withoutTmux(use: TmuxUse, terminal: string): string {
@@ -370,7 +376,13 @@ function GeneralPane({ cfg, view, theme, onPickTheme, disabled, onSave, now }: P
               value={tmuxUse}
               onPick={(id) => id !== tmuxUse && void onSave({ ...cfg, apps: { ...cfg.apps, tmux: id } })}
             />
-            <small>{view.tmuxInstalled === false ? withoutTmux(tmuxUse, terminalName) : TMUX_USES.find((u) => u.id === tmuxUse)?.says(terminalName)}</small>
+            <small>
+              {tmuxUse !== 'always' && view.holdsSessions?.includes(cfg.apps.terminal)
+                ? heldBy(terminalName)
+                : view.tmuxInstalled === false
+                  ? withoutTmux(tmuxUse, terminalName)
+                  : TMUX_USES.find((u) => u.id === tmuxUse)?.says(terminalName)}
+            </small>
           </div>
         )}
         <div className="ca-field">

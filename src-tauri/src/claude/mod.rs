@@ -687,7 +687,7 @@ impl crate::harness::Adapter for ClaudeCode {
                     t.push(o.way(s, "attach", "terminal", format!("Attach in {term}"), format!("{who} · runs in the background"), true, false));
                 } else {
                     let verb = if o.respond { "Respond in" } else { "Show in" };
-                    t.push(o.way(s, "focus", "terminal", format!("{verb} {term}"), who.clone(), true, false));
+                    t.push(o.way(s, "focus", "terminal", format!("{verb} {}", o.shown_in(s)), who.clone(), true, false));
                 }
                 // The app shows a running session and sends it what you type there through its
                 // Remote Control, as it runs on here; without one it can't take it while it runs.

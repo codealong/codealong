@@ -213,6 +213,11 @@ pub struct Session {
     /// sends to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remote_control: Option<String>,
+    /// The terminal app a live session's process runs in, by its name (Ghostty, Rex…), which is
+    /// where Show in takes it whatever terminal config.toml names for new ones. None when it runs
+    /// in none Codealong knows as an app (tmux, a background job), or isn't running.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminal: Option<String>,
     /// The session whose record holds this one's conversation until it writes its own: a
     /// Claude Code conversation moved to the background goes on in a job that writes nothing
     /// until its next prompt (`board::claude_moves`). Its panel reads again when this changes.
@@ -543,6 +548,7 @@ impl Session {
             archived: false,
             attach_command: None,
             remote_control: None,
+            terminal: None,
             continues: None,
             origin: None,
             stalled_since: None,

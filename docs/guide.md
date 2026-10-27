@@ -2293,6 +2293,10 @@ Either way but Never, a Background start of an agent with no background service 
 Show in opens one: nothing watches it, and a tab behind your windows would stay there once it's
 done.
 
+Rex needs none of this but with Always: its own server keeps a session running with no window and
+starts one while the screen is locked, so with Rex as your terminal a start goes to Rex locked or
+not, and a Background start is a Rex tab that doesn't come forward or switch Rex's session.
+
 tmux has to be installed (`brew install tmux`); without it, While locked works as Never does.
 Sessions you start yourself in a terminal stay where they are. On Linux every terminal is a tmux
 session already ([On Linux](#on-linux)).
@@ -2757,10 +2761,10 @@ running continues in the app (Continue in Claude app). A new terminal opens in t
 in the window already showing that worktree, repo or project (`new_terminal` in config.toml;
 Terminal can't open tabs for another app, so there it's a window). In Rex a window is a Rex
 session: a new terminal is a tab in the Rex session already working in that worktree, repo or
-project, or else in a session of its own named for its folder, since Rex doesn't say which session
-its app shows. Rex goes to a session's tab only with Remote Control on in its settings (Rex ›
-Settings › Rex Server), and says so when it's off; typing, keypresses, starting and closing go to
-its server and need nothing. A worktree opens in your editor
+project, or with Tab in front window in the session Rex shows, and otherwise in a session of its
+own named for its folder. Rex goes to a session's tab only with Remote Control on in its settings
+(Rex › Settings › Rex Server), and says so when it's off; typing, keypresses, starting and closing
+go to its server and need nothing. A worktree opens in your editor
 (`editor` in config.toml, ⌘2) or, from Open in in its right-click menu and its Open button, any
 other editor installed on the Mac: VS Code, Cursor, Windsurf, Zed, Sublime Text, Nova, BBEdit,
 Xcode, the JetBrains IDEs and Android Studio, each with its app's icon. A session's right-click menu
