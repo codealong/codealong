@@ -1,9 +1,10 @@
 // Checks dragging the notch to another screen (Notch.tsx): closed, a press anywhere on it that
 // moves far enough hands the drag to the engine (notch_drag, which takes the docked bar along the
-// top of the screens) and one that barely moves is still a click; the click a drag ends in does
-// nothing; the notch stays closed until the engine says it's docked. Open, the pills, the
-// buttons and the session keep their presses, and only the black around the camera drags it. A
-// drag the engine doesn't start doesn't hold the notch shut.
+// top of the screens) and one that barely moves is still a click; a press let go is over, so a
+// move with the button down from elsewhere drags nothing; the click a drag ends in does nothing;
+// the notch stays closed until the engine says it's docked, then opens as it would under the
+// pointer. Open, the pills, the buttons and the session keep their presses, and only the black
+// around the camera drags it. A drag the engine doesn't start doesn't hold the notch shut.
 //   PREVIEW_WAIT=40000 scripts/preview.sh notch '' scripts/preview/notch-move-check.js
 (function () {
   var notch = function () { return document.querySelector('.ca-notch'); };
@@ -41,6 +42,11 @@
     })
     .then(function () {
       var count = document.querySelector('.ca-notch-count');
+      pointer(count, 'pointerdown', 400, 10, 1);
+      pointer(count, 'pointerup', 400, 10, 0);
+      pointer(count, 'pointermove', 460, 10, 1);
+      check('a press let go is over: a move with the button down from elsewhere drags nothing', drags() === 0);
+      enter();
       press(count, [404, 430]);
       var d = last('notch_drag');
       check('closed, one that moves far enough drags the notch from anywhere on it', drags() === 1 && d && d.dx === 30, JSON.stringify(d));
@@ -51,16 +57,15 @@
     })
     .then(function () {
       check('the click it ends in opens nothing', !isOpen() && isClosed());
-      enter();
       return wait(600);
     })
     .then(function () {
-      check('and it stays closed while it moves, the pointer on it or not', isClosed());
+      check('and it stays closed while it moves, with the pointer on it', isClosed());
       window.__emit('notch-drag-end', null);
       return until(isOpen, 1500, 'the notch to open under the pointer');
     })
     .then(function () {
-      check('docked, it opens under the pointer again', true);
+      check('docked with the pointer still on it, it opens as it would under the pointer', true);
       var pill = notch().querySelector('.ca-notch-body .ca-hud-pill');
       var before = calls('drag_to_desktop').length;
       press(pill, [430, 460]);
@@ -87,10 +92,11 @@
     })
     .then(function () {
       press(notch().querySelector('.ca-notch-cam'), [430]);
-      return wait(300);
+      check('one more drag asked for', drags() === 3);
+      return until(isOpen, 1500, 'the notch to open again');
     })
     .then(function () {
-      check('a drag the engine doesn’t start leaves it under the pointer, not held shut', drags() === 3 && notch().classList.contains('is-hover'), notch().className);
+      check('a drag the engine doesn’t start doesn’t hold it shut', true);
     })
     .then(done)
     .catch(stopped);

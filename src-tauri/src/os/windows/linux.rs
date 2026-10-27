@@ -159,22 +159,17 @@ pub fn tops() -> Vec<Top> {
         return Vec::new();
     }
     let (Some(display), Some(main)) = (gdk::Display::default(), primary()) else { return Vec::new() };
-    let mut all: Vec<(i32, gdk::Monitor)> = (0..display.n_monitors()).filter_map(|i| Some((i, display.monitor(i)?))).collect();
-    all.sort_by_key(|(_, m)| !m.is_primary());
-    all.iter()
-        .map(|(i, m)| Top { screen: Screen { frame: flipped(of(m.geometry()), main), visible: flipped(of(m.workarea()), main) }, safe_top: 0.0, sides: (0.0, 0.0), id: monitor_id(*i, m) })
-        .collect()
-}
-
-/// A monitor by its maker and model, which GTK 3 gives where it has no connector's name: two of
-/// one model are the first of them. One that says neither goes by where it is in the list.
-fn monitor_id(i: i32, m: &gdk::Monitor) -> String {
-    let named = [m.manufacturer(), m.model()].into_iter().flatten().map(|s| s.to_string()).collect::<Vec<_>>().join(" ");
-    if named.trim().is_empty() {
-        format!("monitor {i}")
-    } else {
-        named
-    }
+    let all: Vec<gdk::Monitor> = (0..display.n_monitors()).filter_map(|i| display.monitor(i)).collect();
+    // By maker and model, which GTK 3 gives where it has no connector's name, numbered in GDK's
+    // order before the primary is put first, so two of one model keep their IDs.
+    let ids = crate::panel::told_apart(all.iter().map(|m| [m.manufacturer(), m.model()].into_iter().flatten().map(|s| s.to_string()).collect::<Vec<_>>().join(" ")));
+    let mut tops: Vec<(bool, Top)> = all
+        .iter()
+        .zip(ids)
+        .map(|(m, id)| (m.is_primary(), Top { screen: Screen { frame: flipped(of(m.geometry()), main), visible: flipped(of(m.workarea()), main) }, safe_top: 0.0, sides: (0.0, 0.0), id }))
+        .collect();
+    tops.sort_by_key(|(primary, _)| !primary);
+    tops.into_iter().map(|(_, t)| t).collect()
 }
 
 /// Where the pointer is, in screen points.

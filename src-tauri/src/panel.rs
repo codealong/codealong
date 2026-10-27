@@ -208,3 +208,35 @@ pub struct Top {
     pub sides: (f64, f64),
     pub id: String,
 }
+
+/// IDs for screens known only by a name two can share (Linux's maker and model): the second of a
+/// name, in the order the screens are listed, is `#2`, and one with no name is "screen". macOS's
+/// have UUIDs and don't need it.
+#[allow(dead_code)]
+pub fn told_apart(names: impl IntoIterator<Item = String>) -> Vec<String> {
+    let mut seen: Vec<String> = Vec::new();
+    names
+        .into_iter()
+        .map(|name| {
+            let name = if name.trim().is_empty() { "screen".to_string() } else { name.trim().to_string() };
+            let n = seen.iter().filter(|s| **s == name).count() + 1;
+            seen.push(name.clone());
+            if n == 1 {
+                name
+            } else {
+                format!("{name} #{n}")
+            }
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn screens_of_one_name_are_told_apart_by_their_order() {
+        let names = ["Dell U2720Q", "Dell U2720Q", "", "LG HDR 4K", " "].map(String::from);
+        assert_eq!(told_apart(names), ["Dell U2720Q", "Dell U2720Q #2", "screen", "LG HDR 4K", "screen #2"]);
+    }
+}

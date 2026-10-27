@@ -146,7 +146,6 @@ export function NotchShell({ notch, logoStatus, moment, counts, room, screen, zo
   const [sizing, setSizing] = useState(false);
   // The notch itself is being dragged to another screen, closed until Codealong has docked it.
   const [moving, setMoving] = useState(false);
-  useEffect(() => onNotchDragEnd(() => setMoving(false)), []);
   // The zoom changed: the shape takes its new size at once, as the card in it does, rather than
   // easing after a card that's already bigger. Known as the render that changes it is, so its
   // size and the easing's going come in one style change; back two frames on, once that's drawn.
@@ -224,16 +223,20 @@ export function NotchShell({ notch, logoStatus, moment, counts, room, screen, zo
     }, CLOSE_AFTER_MS);
   }, []);
 
-  const enter = useCallback(() => {
-    if (onNow.current) return;
-    onNow.current = true;
-    setOn(true);
+  const openSoon = useCallback(() => {
     clear();
     timer.current = window.setTimeout(() => {
       timer.current = null;
       setOpen(true);
     }, OPEN_AFTER_MS);
   }, []);
+
+  const enter = useCallback(() => {
+    if (onNow.current) return;
+    onNow.current = true;
+    setOn(true);
+    openSoon();
+  }, [openSoon]);
 
   const leave = useCallback(() => {
     if (!onNow.current) return;
@@ -279,12 +282,33 @@ export function NotchShell({ notch, logoStatus, moment, counts, room, screen, zo
 
   useEffect(() => clear, []);
 
+  // Docked where it was let go (or not dragged after all), it's as if the pointer had just come
+  // onto it, if it's there.
+  const moved = useCallback(() => {
+    setMoving(false);
+    if (onNow.current) openSoon();
+  }, [openSoon]);
+  useEffect(() => onNotchDragEnd(moved), [moved]);
+
   // The notch itself pressed, where it may be dragged from: where the pointer went down, and
   // whether it has moved far enough to be a drag. Noted before anything in it hears the press.
   const press = useRef<{ x: number; y: number; moved: boolean } | null>(null);
   const pressNotch = (e: ReactPointerEvent<HTMLDivElement>) => {
     const target = e.target instanceof Element ? e.target : null;
-    press.current = e.button === 0 && target && !(open && target.closest(`${OWN_CLICKS}, .ca-notch-body`)) ? { x: e.screenX, y: e.screenY, moved: false } : null;
+    const grabbed = e.button === 0 && target && !(open && target.closest(`${OWN_CLICKS}, .ca-notch-body`));
+    press.current = grabbed ? { x: e.screenX, y: e.screenY, moved: false } : null;
+    if (!grabbed) return;
+    // The notch keeps the pointer while it's pressed: a press near its edge that moves off it
+    // still drags it, and it hears the press end wherever that is.
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      // No such pointer to keep (a check's made-up one).
+    }
+  };
+  /** Let go short of a drag, the press is over; a drag's is kept for the click it ends in. */
+  const letGo = () => {
+    if (!press.current?.moved) press.current = null;
   };
   const moveNotch = (e: ReactPointerEvent<HTMLDivElement>) => {
     const p = press.current;
@@ -297,9 +321,9 @@ export function NotchShell({ notch, logoStatus, moment, counts, room, screen, zo
     // One that didn't start doesn't hold the notch shut.
     notchDrag(e.screenX - p.x).then(
       (started) => {
-        if (!started) setMoving(false);
+        if (!started) moved();
       },
-      () => setMoving(false),
+      () => moved(),
     );
   };
 
@@ -382,6 +406,8 @@ export function NotchShell({ notch, logoStatus, moment, counts, room, screen, zo
         onPointerLeave={leave}
         onPointerDownCapture={pressNotch}
         onPointerMove={moveNotch}
+        onPointerUp={letGo}
+        onPointerCancel={letGo}
         onClickCapture={(e) => {
           // The click a drag of the notch ends in is no click, on the notch or on anything in it.
           if (press.current?.moved) e.stopPropagation();
