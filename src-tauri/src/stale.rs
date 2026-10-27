@@ -245,24 +245,33 @@ const SAVE_EVERY_MS: i64 = 5 * 60_000;
 
 /// When each terminal device was last used, as the engine's looks saw it (`on_look`, each
 /// tick's process listing): its time but for a redraw, which leaves the use before it standing.
-/// Written to terminal-use.json, which outlives a restart, and read by the plan, which takes
-/// a look of its own over it. Only a cache: one that doesn't read starts over.
-#[derive(Serialize, Deserialize, Debug, Default)]
+/// The app's engine keeps it, and the plan takes a look of its own over the engine's
+/// (`engine::Handle::terminal_use`); written to terminal-use.json, which outlives a restart
+/// and is all `--snapshot` has. Only a cache: one that doesn't read starts over.
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct Uses {
     /// By device (`ttys004`). A device a new tab takes keeps its record, which its tab's
     /// opening comes after.
     seen: BTreeMap<String, Seen>,
     #[serde(skip)]
     saved_at: i64,
+    /// Something changed since the file was written.
+    #[serde(skip)]
+    unsaved: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 struct Seen {
     /// The device's time at the last look.
     at: i64,
-    /// When it was used last; 0 when no look saw it used, only redrawn, so its tab counts
-    /// from its opening.
+    /// When it was used last: `at`, or `still_before` once its move is known for a redraw's.
+    /// 0 when no look saw it used, so its tab counts from its opening.
     used: i64,
+    /// When its last move came after it sat still for `QUIET_MS`, its use before that move,
+    /// which stands if the move turns out to be a redraw's. A look can come partway through a
+    /// redraw, so whether it was is asked again at every look until it's known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    still_before: Option<i64>,
 }
 
 impl Uses {
@@ -275,44 +284,47 @@ impl Uses {
     }
 
     pub fn save(&mut self, now: i64) {
-        self.saved_at = now;
+        self.written(now);
         let _ = crate::store::save(&Self::path(), self);
     }
 
+    fn written(&mut self, now: i64) {
+        self.saved_at = now;
+        self.unsaved = false;
+    }
+
     /// A look at every device's time `now`: whether to write the file now, because a redraw
-    /// was seen, or because something moved and the file is older than `SAVE_EVERY_MS`.
+    /// was found, or because something changed and the file is older than `SAVE_EVERY_MS`.
     ///
-    /// A device's move is a redraw when `REDRAW_TABS` or more devices that sat still for
-    /// `QUIET_MS` before it moved within `REDRAW_WITHIN_MS` of one another. A device no look saw
-    /// before (Codealong just started, or its tab is new) has only its time, which counts when
-    /// it's `QUIET_MS` old; when that's a redraw's, no look saw the device used.
+    /// A device's move is a redraw's when `REDRAW_TABS` or more devices that sat still for
+    /// `QUIET_MS` before their last move made it within `REDRAW_WITHIN_MS` of one another,
+    /// counting those already known for a redraw's, so one whose tab has closed since still
+    /// counts. A device no look saw before (Codealong just started, or its tab is new) has only
+    /// its time, which counts as such a move when it's `QUIET_MS` old, with no use before it.
     pub fn on_look(&mut self, now: i64, devices: &[(String, i64)]) -> bool {
-        let quiet: Vec<(&str, i64)> = devices
+        let mut seen: BTreeMap<String, Seen> = devices
             .iter()
-            .filter(|(tty, at)| match self.seen.get(tty) {
-                Some(s) => *at > s.at && *at - s.at >= QUIET_MS,
-                None => now - *at >= QUIET_MS,
+            .map(|(tty, at)| {
+                let next = match self.seen.get(tty) {
+                    Some(s) if *at <= s.at => *s,
+                    Some(s) => Seen { at: *at, used: *at, still_before: (*at - s.at >= QUIET_MS).then_some(s.used) },
+                    None => Seen { at: *at, used: *at, still_before: (now - *at >= QUIET_MS).then_some(0) },
+                };
+                (tty.clone(), next)
             })
-            .map(|(tty, at)| (tty.as_str(), *at))
             .collect();
-        // A look can come partway through a redraw: what's left of it joins what a look before saw.
-        let redrawn = moved_together(quiet, self.seen.values().filter(|s| s.used != s.at).map(|s| s.at));
-        let mut changed = devices.len() != self.seen.len();
-        let mut seen = BTreeMap::new();
-        for (tty, at) in devices {
-            let before = self.seen.get(tty);
-            let used = match before {
-                Some(s) if *at <= s.at => s.used,
-                Some(s) if redrawn.contains(tty.as_str()) => s.used,
-                None if redrawn.contains(tty.as_str()) => 0,
-                _ => *at,
-            };
-            let now_seen = Seen { at: *at, used };
-            changed |= before != Some(&now_seen);
-            seen.insert(tty.clone(), now_seen);
+        let moves: Vec<(&str, i64)> = seen.iter().filter(|(_, s)| s.still_before.is_some()).map(|(tty, s)| (tty.as_str(), s.at)).collect();
+        let redrawn: Vec<String> = moved_together(moves).into_iter().map(String::from).collect();
+        let mut found = false;
+        for tty in redrawn {
+            if let Some(s) = seen.get_mut(&tty) {
+                found |= s.used == s.at;
+                s.used = s.still_before.unwrap_or(s.used);
+            }
         }
+        self.unsaved |= seen != self.seen;
         self.seen = seen;
-        !redrawn.is_empty() || (changed && now - self.saved_at >= SAVE_EVERY_MS)
+        found || (self.unsaved && now - self.saved_at >= SAVE_EVERY_MS)
     }
 
     /// When `tty` was used last, as the last look saw it; 0 when no look saw it used.
@@ -321,19 +333,19 @@ impl Uses {
     }
 }
 
-/// The devices of `moved` that moved together: `REDRAW_TABS` or more within `REDRAW_WITHIN_MS`
-/// of the first of them, counting the moves of a redraw seen before (`redrawn`).
-fn moved_together<'a>(moved: Vec<(&'a str, i64)>, redrawn: impl Iterator<Item = i64>) -> std::collections::HashSet<&'a str> {
-    let mut all: Vec<(Option<&str>, i64)> = moved.into_iter().map(|(tty, at)| (Some(tty), at)).chain(redrawn.map(|at| (None, at))).collect();
-    all.sort_by_key(|m| m.1);
+/// The devices of `moves` that moved together: `REDRAW_TABS` or more within `REDRAW_WITHIN_MS`
+/// of one another, in any window that long.
+fn moved_together(mut moves: Vec<(&str, i64)>) -> std::collections::HashSet<&str> {
+    moves.sort_by_key(|m| m.1);
     let mut out = std::collections::HashSet::new();
-    let mut from = 0;
-    for to in 1..=all.len() {
-        if to == all.len() || all[to].1 - all[from].1 > REDRAW_WITHIN_MS {
-            if to - from >= REDRAW_TABS {
-                out.extend(all[from..to].iter().filter_map(|m| m.0));
-            }
-            from = to;
+    let mut to = 0;
+    for from in 0..moves.len() {
+        to = to.max(from);
+        while to + 1 < moves.len() && moves[to + 1].1 - moves[from].1 <= REDRAW_WITHIN_MS {
+            to += 1;
+        }
+        if to + 1 - from >= REDRAW_TABS {
+            out.extend(moves[from..=to].iter().map(|m| m.0));
         }
     }
     out
@@ -347,11 +359,9 @@ pub fn device_times(lines: &[PsLine]) -> Vec<(String, i64)> {
 }
 
 /// The tabs on this Mac now: one `ps`, and the kernel asked about each tab's shell and device,
-/// with what the engine's looks saw of them before (`Uses`).
-pub fn tabs_now() -> Vec<Tab> {
+/// with what the engine's looks saw of them before (`uses`), which this look adds to.
+pub fn tabs_now(mut uses: Uses) -> Vec<Tab> {
     let listed = crate::procs::list(Duration::from_secs(10));
-    // Not written: the engine keeps the file, and this look sees no more than its next will.
-    let mut uses = Uses::load();
     uses.on_look(crate::util::now_ms(), &device_times(&listed.lines));
     let terminal = |pid: u32| crate::launch::terminal_kind(pid).filter(|t| takes_tabs_of(*t)).map(|t| t.name());
     let shells: Vec<String> = std::fs::read_to_string("/etc/shells")
@@ -418,15 +428,15 @@ fn tabs_in(lines: &[PsLine], terminal: impl Fn(u32) -> Option<&'static str>, is_
     out
 }
 
-/// The plan for the tabs open now.
-pub fn plan_now(board: &Board, after_ms: i64) -> Plan {
-    plan(board, &tabs_now(), crate::util::now_ms(), after_ms)
+/// The plan for the tabs open now, with what the engine saw of them (`Uses`).
+pub fn plan_now(board: &Board, uses: Uses, after_ms: i64) -> Plan {
+    plan(board, &tabs_now(uses), crate::util::now_ms(), after_ms)
 }
 
 /// Closes the tabs of `keys` that are still stale, looked at again now, whether they were
 /// ticked or not: you picked them. One outcome a key, in order.
-pub fn close(board: &Board, keys: &[String], after_ms: i64) -> Vec<Outcome> {
-    let tabs = tabs_now();
+pub fn close(board: &Board, uses: Uses, keys: &[String], after_ms: i64) -> Vec<Outcome> {
+    let tabs = tabs_now(uses);
     let fresh = plan(board, &tabs, crate::util::now_ms(), after_ms);
     let chosen: Vec<(&Stale, &Tab)> = keys.iter().filter_map(|k| Some((fresh.tabs.iter().find(|t| &t.key == k)?, tabs.iter().find(|t| &key_of(t) == k)?))).collect();
     let closing: Vec<crate::launch::Closing> = chosen.iter().map(|(_, tab)| crate::launch::Closing { pid: tab.shell, cwd: Path::new(&tab.cwd), hang_up: tab.runs.iter().map(|r| r.0).collect() }).collect();
@@ -616,7 +626,7 @@ mod tests {
         let mut uses = Uses::default();
         let before: Vec<(&str, i64)> = ["ttys001", "ttys002", "ttys003", "ttys004"].into_iter().map(|t| (t, NOW - 9_000)).collect();
         assert!(look(&mut uses, NOW - 8_000, &before), "what's new is written");
-        uses.saved_at = NOW - 8_000;
+        uses.written(NOW - 8_000);
         let after: Vec<(&str, i64)> = ["ttys001", "ttys002", "ttys003", "ttys004"].into_iter().map(|t| (t, NOW - 500)).collect();
         assert!(!look(&mut uses, NOW, &after), "written only every few minutes");
         assert!(after.iter().all(|(t, at)| uses.used(t) == *at));
@@ -645,13 +655,42 @@ mod tests {
     }
 
     #[test]
-    fn writes_a_change_every_few_minutes() {
+    fn a_redraw_split_two_then_one_is_one() {
+        let mut uses = Uses::default();
+        let hour = 3_600_000;
+        let old = [("ttys001", NOW - 9 * hour), ("ttys002", NOW - 8 * hour), ("ttys003", NOW - 7 * hour)];
+        look(&mut uses, NOW - hour, &old);
+        uses.written(NOW - 3_000);
+        assert!(!look(&mut uses, NOW - 2_000, &[("ttys001", NOW - 4_000), ("ttys002", NOW - 3_500), old[2]]), "two alone aren't a redraw yet");
+        assert_eq!(uses.used("ttys001"), NOW - 4_000);
+        assert!(look(&mut uses, NOW, &[("ttys001", NOW - 4_000), ("ttys002", NOW - 3_500), ("ttys003", NOW - 1_000)]), "the third makes it one, written at once");
+        assert_eq!([uses.used("ttys001"), uses.used("ttys002"), uses.used("ttys003")], [NOW - 9 * hour, NOW - 8 * hour, NOW - 7 * hour]);
+        // A tab of it closing later leaves the others' redraw as it was.
+        look(&mut uses, NOW + 60_000, &[("ttys001", NOW - 4_000), ("ttys002", NOW - 3_500)]);
+        assert_eq!(uses.used("ttys001"), NOW - 9 * hour);
+    }
+
+    #[test]
+    fn a_redraw_is_any_ten_seconds_of_moves() {
+        let mut uses = Uses::default();
+        let hour = 3_600_000;
+        let devices = ["ttys001", "ttys002", "ttys003", "ttys004"];
+        look(&mut uses, NOW - hour, &devices.iter().enumerate().map(|(i, t)| (*t, NOW - 9 * hour - i as i64 * hour)).collect::<Vec<_>>());
+        // A move of one, then three together nine to twelve seconds after it.
+        look(&mut uses, NOW, &[("ttys001", NOW - 20_000), ("ttys002", NOW - 11_000), ("ttys003", NOW - 9_000), ("ttys004", NOW - 8_000)]);
+        assert_eq!(uses.used("ttys001"), NOW - 20_000);
+        assert_eq!([uses.used("ttys002"), uses.used("ttys003"), uses.used("ttys004")], [NOW - 10 * hour, NOW - 11 * hour, NOW - 12 * hour]);
+    }
+
+    #[test]
+    fn writes_a_change_within_a_few_minutes() {
         let mut uses = Uses::default();
         assert!(look(&mut uses, NOW, &[("ttys001", NOW - 100)]));
-        uses.saved_at = NOW;
-        assert!(!look(&mut uses, NOW + 60_000, &[("ttys001", NOW + 59_000)]));
-        assert!(!look(&mut uses, NOW + SAVE_EVERY_MS, &[("ttys001", NOW + 59_000)]), "nothing changed");
-        assert!(look(&mut uses, NOW + SAVE_EVERY_MS, &[("ttys001", NOW + SAVE_EVERY_MS - 100)]));
+        uses.written(NOW);
+        assert!(!look(&mut uses, NOW + 60_000, &[("ttys001", NOW + 59_000)]), "written a minute ago");
+        assert!(look(&mut uses, NOW + SAVE_EVERY_MS, &[("ttys001", NOW + 59_000)]), "what changed since is still to write");
+        uses.written(NOW + SAVE_EVERY_MS);
+        assert!(!look(&mut uses, NOW + 2 * SAVE_EVERY_MS, &[("ttys001", NOW + 59_000)]), "nothing changed");
     }
 
     #[test]
@@ -682,7 +721,7 @@ mod tests {
         let (behind_at, front_at) = (real(&behind), real(&front));
         let find = |at: &str, ready: &dyn Fn(&Tab) -> bool| {
             for _ in 0..100 {
-                if let Some(t) = tabs_now().into_iter().find(|t| t.cwd == at && ready(t)) {
+                if let Some(t) = tabs_now(Uses::default()).into_iter().find(|t| t.cwd == at && ready(t)) {
                     return Some(t);
                 }
                 std::thread::sleep(Duration::from_millis(100));
@@ -695,13 +734,13 @@ mod tests {
         let tab = find(&behind_at, &|t| t.runs.first().is_some_and(|r| r.1 == format!("sleep {secs}")));
         terminal_open("ghostty", place, &front, None).unwrap();
         let in_front = find(&front_at, &|_| true);
-        let out = tab.as_ref().map(|t| close(&Board::default(), &[key_of(t)], 0));
+        let out = tab.as_ref().map(|t| close(&Board::default(), Uses::default(), &[key_of(t)], 0));
         std::thread::sleep(Duration::from_secs(1));
         let alive = |pid: u32, at: &str| crate::procs::pid_alive(pid) && crate::procs::cwd_of(pid).is_some_and(|c| c.to_string_lossy() == at);
         let shell_runs = tab.as_ref().is_some_and(|t| alive(t.shell, &behind_at));
         let sleep_runs = tab.as_ref().is_some_and(|t| crate::procs::pid_alive(t.runs[0].0));
         // Only the shells in the test's own folders are hung up, which closes their tabs.
-        for t in tabs_now().into_iter().filter(|t| t.cwd == behind_at || t.cwd == front_at) {
+        for t in tabs_now(Uses::default()).into_iter().filter(|t| t.cwd == behind_at || t.cwd == front_at) {
             unsafe { libc::kill(t.shell as libc::pid_t, libc::SIGHUP) };
         }
         let _ = std::fs::remove_dir_all(&root);
@@ -718,7 +757,7 @@ mod tests {
     #[test]
     #[ignore]
     fn this_macs_stale_terminals() {
-        let p = plan_now(&crate::engine::light_snapshot(), 0);
+        let p = plan_now(&crate::engine::light_snapshot(), Uses::load(), 0);
         for t in &p.tabs {
             println!("{:<8} {:<16} {:<5} {:<40} {}", t.terminal, t.key, if t.ticked { "close" } else { "keep" }, t.title.chars().take(40).collect::<String>(), t.why);
         }

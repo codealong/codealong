@@ -119,7 +119,7 @@ fn stale_terminals(_: &Args, rest: &[String]) -> Done {
         Some(wait) => crate::idle::parse_after(wait).ok_or(Stop::Usage)?,
         None => util::DAY_MS,
     };
-    Ok(pretty(&crate::stale::plan_now(&engine::snapshot(false, false), after_ms)))
+    Ok(pretty(&crate::stale::plan_now(&engine::snapshot(false, false), crate::stale::Uses::load(), after_ms)))
 }
 
 /// `codealong --snapshot --schedules`: the schedules as the Schedules view lists them, with when

@@ -233,6 +233,8 @@ pub enum Msg {
 pub struct Handle {
     tx: Sender<Msg>,
     board: Arc<RwLock<Board>>,
+    /// The app's engine's `Engine::terminal_use`.
+    terminal_use: Option<Arc<Mutex<crate::stale::Uses>>>,
 }
 
 impl Handle {
@@ -240,7 +242,7 @@ impl Handle {
     #[cfg(test)]
     pub fn for_tests() -> Handle {
         let (tx, _) = channel();
-        Handle { tx, board: Arc::new(RwLock::new(Board::default())) }
+        Handle { tx, board: Arc::new(RwLock::new(Board::default())), terminal_use: None }
     }
 
     /// A handle on a board read once (`snapshot`, `light_snapshot`), with no engine behind it,
@@ -250,11 +252,21 @@ impl Handle {
     pub fn over(board: Board) -> Handle {
         let (tx, rx) = channel();
         std::thread::spawn(move || for _ in rx {});
-        Handle { tx, board: Arc::new(RwLock::new(board)) }
+        Handle { tx, board: Arc::new(RwLock::new(board)), terminal_use: None }
     }
 
     pub fn board(&self) -> Board {
         self.board.read().map(|b| b.clone()).unwrap_or_default()
+    }
+
+    /// When each terminal tab was last used, as the engine's looks saw it, for Close stale
+    /// terminals (`stale::Uses`); with no engine behind the handle, as the app last wrote it.
+    /// The file is up to a few minutes behind the engine.
+    pub fn terminal_use(&self) -> crate::stale::Uses {
+        match &self.terminal_use {
+            Some(uses) => uses.lock().map(|u| u.clone()).unwrap_or_default(),
+            None => crate::stale::Uses::load(),
+        }
     }
 
     /// Reads the board in place, for a caller that needs only a piece of it.
@@ -863,7 +875,8 @@ pub fn start(emit: impl Fn(&Board) + Send + 'static) -> Handle {
         main_window_shortcut: shortcuts.main_window,
         ..Default::default()
     }));
-    let handle = Handle { tx: tx.clone(), board: board.clone() };
+    let terminal_use = crate::stale::lists_tabs().then(|| Arc::new(Mutex::new(crate::stale::Uses::load())));
+    let handle = Handle { tx: tx.clone(), board: board.clone(), terminal_use: terminal_use.clone() };
     let ping = tx.clone();
     std::thread::spawn(move || loop {
         std::thread::sleep(Duration::from_secs(1));
@@ -881,6 +894,7 @@ pub fn start(emit: impl Fn(&Board) + Send + 'static) -> Handle {
             crate::os::system::user_initiated_thread();
             let back = tx.clone();
             let mut engine = Engine::new(Box::new(emit), tx, board);
+            engine.terminal_use = terminal_use;
             engine.servers = previews::watch(move |servers| back.send(Msg::Servers(servers)).is_ok());
             engine.full_scan();
             crate::skills::warm(&engine.cfg.accounts);
@@ -1264,8 +1278,9 @@ struct Engine {
     /// When to look for sessions that wait for a tab of your terminal (`launch::show_unlocked`).
     tab_looks: launch::TabLooks,
     /// When each terminal tab was last used, a redraw of every tab not counted, for Close stale
-    /// terminals (`stale::Uses`).
-    terminal_use: crate::stale::Uses,
+    /// terminals (`stale::Uses`), shared with the handle. Only the app's engine keeps it and
+    /// writes it; a snapshot's or a test's has none.
+    terminal_use: Option<Arc<Mutex<crate::stale::Uses>>>,
     /// Each repo's team settings, `.codealong/config.toml` on its branches (teamfile.rs).
     team_files: teamfile::TeamFiles,
     /// Whether each account's provider may train on it (training.rs).
@@ -1403,7 +1418,7 @@ impl Engine {
             processes: None,
             processes_inflight: false,
             tab_looks: launch::TabLooks::default(),
-            terminal_use: crate::stale::Uses::load(),
+            terminal_use: None,
             team_files: teamfile::TeamFiles::default(),
             training: training::TrainingPoll::default(),
             mcp: crate::mcp::McpPoll::default(),
@@ -2917,10 +2932,10 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
     fn on_processes(&mut self, listed: Option<procs::Listed>) {
         self.processes_inflight = false;
         let Some(listed) = listed.filter(|l| !l.lines.is_empty()) else { return };
-        if crate::stale::lists_tabs() {
+        if let Some(Ok(mut uses)) = self.terminal_use.as_ref().map(|u| u.lock()) {
             let now = crate::util::now_ms();
-            if self.terminal_use.on_look(now, &crate::stale::device_times(&listed.lines)) {
-                self.terminal_use.save(now);
+            if uses.on_look(now, &crate::stale::device_times(&listed.lines)) {
+                uses.save(now);
             }
         }
         self.processes = Some(Arc::new(listed));

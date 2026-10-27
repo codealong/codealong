@@ -311,7 +311,7 @@ async fn close_idle_sessions(engine: State<'_, engine::Handle>, keys: Vec<String
 #[tauri::command]
 async fn stale_terminals(engine: State<'_, engine::Handle>, after_ms: i64) -> Result<stale::Plan, String> {
     let engine = engine.inner().clone();
-    blocking(move || stale::plan_now(&engine.board(), after_ms)).await
+    blocking(move || stale::plan_now(&engine.board(), engine.terminal_use(), after_ms)).await
 }
 
 /// Closes these tabs, each looked at again first. On the blocking pool: each terminal is told by
@@ -319,7 +319,7 @@ async fn stale_terminals(engine: State<'_, engine::Handle>, after_ms: i64) -> Re
 #[tauri::command]
 async fn close_stale_terminals(engine: State<'_, engine::Handle>, keys: Vec<String>, after_ms: i64) -> Result<Vec<stale::Outcome>, String> {
     let engine = engine.inner().clone();
-    blocking(move || stale::close(&engine.board(), &keys, after_ms)).await
+    blocking(move || stale::close(&engine.board(), engine.terminal_use(), &keys, after_ms)).await
 }
 
 /// Closes one session from its menu: its terminal tab, or a background job stopped (idle.rs).
