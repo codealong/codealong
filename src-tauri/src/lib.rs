@@ -2115,9 +2115,10 @@ fn add_usage_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
 const USAGE_MENU_ID: &str = "usage";
 
 /// Puts Reload (⌘R) at the top of the View menu, over the zoom, as a browser has it: the front
-/// board window reads again what it shows (src/reload.ts), or the main window, shown, when none
-/// is in front. The key reaches the page before the menu (zoom.rs `add_menu`), and every window
-/// that shows something to read again takes it there, the ones that float too.
+/// board window reads again what it shows (src/reload.ts), else the waiting window when it's in
+/// front (an ordinary window, key when it says so, waiting.rs), else the main window, shown. The
+/// key reaches the page before the menu (zoom.rs `add_menu`), and every window that shows
+/// something to read again takes it there, the ones that float too.
 fn add_reload_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
     use tauri::menu::{MenuItem, MenuItemKind, PredefinedMenuItem};
     let Some(menu) = app.menu() else { return Ok(()) };
@@ -2132,7 +2133,8 @@ fn add_reload_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
         if event.id().as_ref() != RELOAD_MENU_ID {
             return;
         }
-        match front_window(app) {
+        let waiting = || app.get_webview_window(waiting::LABEL).filter(|w| w.is_focused().unwrap_or(false));
+        match front_window(app).or_else(waiting) {
             Some(w) => {
                 let _ = app.emit_to(w.label(), RELOAD_MENU_ID, ());
             }

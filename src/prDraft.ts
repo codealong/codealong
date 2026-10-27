@@ -32,9 +32,13 @@ const subscribe = (l: () => void) => {
   listeners.add(l);
   return () => void listeners.delete(l);
 };
+// The latest read asked for each PR, which alone has the say: a reload asks again for the stamp a
+// read on its way was asked for.
+const latest = new Map<string, number>();
+let reads = 0;
 // A reload has every review read again as it's next wanted, what was read showing meanwhile.
 onReload(() => {
-  for (const [key, h] of held) held.set(key, { ...h, stamp: '' });
+  for (const [key, h] of held) held.set(key, { ...h, stamp: '', loading: false });
 });
 
 /** How long what was read stands: until the PR changes on GitHub or its agent review moves. */
@@ -45,11 +49,13 @@ export function draftStamp(pr: Pick<PrItem, 'updatedAt' | 'autoReview'>): string
 
 function read(pr: Pick<PrItem, 'key' | 'repoSlug' | 'number'>, stamp: string) {
   const was = held.get(pr.key);
+  const id = ++reads;
+  latest.set(pr.key, id);
   held.set(pr.key, { stamp, review: was?.review, loading: true });
   tell();
   const settle = (next: Omit<Held, 'stamp' | 'loading'>) => {
-    // A later read for the PR has the say.
-    if (held.get(pr.key)?.stamp !== stamp) return;
+    // A later read for the PR has the say, and none counts once a reload forgot its stamp.
+    if (latest.get(pr.key) !== id || held.get(pr.key)?.stamp !== stamp) return;
     held.set(pr.key, { stamp, loading: false, ...next });
     tell();
   };

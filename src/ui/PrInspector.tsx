@@ -50,7 +50,7 @@ import { PrGlyph, prIsOpen, reviewSnoozed, syncWords, type PrPlace, type PrRowIt
 import { Tip } from './Tip';
 import { untilWords } from '../snooze';
 import { errorText } from '../report';
-import { onReload, useReloads } from '../reload';
+import { onReload, reloadCount, useReloads } from '../reload';
 import { clearNotice, failedNotice, reportNotice } from '../notices';
 import { cmd, keysIn, keysSaid } from '../platform';
 import { prRefOf } from '../prLinks';
@@ -290,7 +290,8 @@ export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpe
     setState((was) => ({ key: cacheKey, detail: kept(was) }));
     prDetail(pr.repoSlug, pr.number)
       .then((d) => {
-        cache.set(cacheKey, d);
+        // Not one asked before a reload, which would put back what the reload forgot.
+        if (reloadCount() === reloads) cache.set(cacheKey, d);
         if (live) setState({ key: cacheKey, detail: d });
       })
       .catch((e: unknown) => {

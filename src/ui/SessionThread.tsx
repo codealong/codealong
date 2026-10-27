@@ -757,8 +757,8 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
     failed.current = next.failed;
     if (next.again) setAgain((n) => n + 1);
   }, [failures, online, seen]);
-  // A reload (reload.ts) reads it again when the last read failed; one that worked is kept up as
-  // the session goes on.
+  // A reload (reload.ts) reads it again from the start when the last read failed, and otherwise
+  // what's new since (below), which leaves the view where it is.
   const reloads = useReloads();
   useEffect(() => {
     if (failed.current) setAgain((n) => n + 1);
@@ -822,7 +822,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
     return () => {
       live = false;
     };
-  }, [s.lastActivity, s.status, s.title, loaded, error, current, s.key, askStream, follows]);
+  }, [s.lastActivity, s.status, s.title, loaded, error, current, s.key, askStream, follows, reloads]);
 
   useLayoutEffect(() => {
     const el = scroller.current;

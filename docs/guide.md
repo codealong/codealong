@@ -1815,10 +1815,11 @@ too, and keeps your place: what's selected, the tab, what you've typed. It's for
 couldn't be reached and a PR says so, or something looks out of date. Codealong asks GitHub about
 your PRs again (unless it just did), and a PR's details, its merge box, your review of it and its
 agent's reviews are read again, as is a conversation or what changed since your last review when
-they couldn't be read; what was read stays up until the new read comes, and stays beside the error
-when that fails too. The main window and the project windows read plan usage again too, as the
+they couldn't be read, and what's new in a conversation; what was read stays up until the new read
+comes, and stays when that fails too, the PR's details saying why. The main window and the project windows read plan usage again too, as the
 usage bar's button does. On a session or PR in the notch, the peek, a kept session and the waiting
-window ⌘R does the same for what the card shows. A session's own network errors are the agent's,
+window ⌘R does the same for what the card shows, and so does View › Reload with the waiting window
+in front. A session's own network errors are the agent's,
 from its own turn, which a reload doesn't change (*Network errors*).
 
 ### Resizable panels

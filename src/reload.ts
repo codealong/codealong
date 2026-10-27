@@ -7,8 +7,10 @@
 // told what to show only as it changes, and a reloaded one would forget it.
 //
 // Each of those reads goes by the window's count of reloads (`useReloads`) as well as by what
-// it's of, and the caches that would answer it instead forget first (`onReload`). What was read
-// stays up until the new read takes its place, or beside the error when that fails too.
+// it's of, and the caches that would answer it instead forget first (`onReload`); a read asked
+// before the reload that comes back after it isn't kept (`reloadCount`). What was read stays up
+// until the new read takes its place, and when that fails too, stays up beside the error: the
+// merge box keeps its buttons and leaves saying why to the PR's details.
 
 import { useSyncExternalStore } from 'react';
 import { refresh, refreshUsage } from './api';
@@ -47,7 +49,12 @@ export function reloadWindow({ usage }: { usage: boolean }): void {
   for (const l of listeners) l();
 }
 
+/** How many times this window has reloaded so far. */
+export function reloadCount(): number {
+  return count;
+}
+
 /** How many times this window has reloaded: a read that goes by it is made again at each. */
 export function useReloads(): number {
-  return useSyncExternalStore(subscribe, () => count);
+  return useSyncExternalStore(subscribe, reloadCount);
 }

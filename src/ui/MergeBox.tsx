@@ -23,7 +23,7 @@ import { mergeBox, openUrl } from '../api';
 import { below, showContextMenu, type MenuSpec } from '../contextMenu';
 import { boxKey, commitText, confirmLabel, DELETE_KEY, deletesWith, doneWords, mainMode, METHOD, METHODS_KEY, methodsByRepo, modeLabel, offers, opFor, pickMethod, plainlyReady, rereads, standing, type MergeMode, type Tone } from '../merge';
 import { errorText } from '../report';
-import { onReload, useReloads } from '../reload';
+import { onReload, reloadCount, useReloads } from '../reload';
 import { flag, readStored, writeStored } from '../stored';
 import type { MergeBox as Box, MergeMethod, MergeOp, PrItem } from '../types';
 import { Button, CheckBox, cx, Icon } from './primitives';
@@ -98,7 +98,8 @@ export function MergeBox({ pr, lead, trail, goesOn }: { pr: PrItem } & Row) {
     let live = true;
     mergeBox(pr.repoSlug, pr.number)
       .then((b) => {
-        cache.set(key, b);
+        // Not one asked before a reload, which would put back what the reload forgot.
+        if (reloadCount() === reloads) cache.set(key, b);
         if (live) setRead({ key, box: b });
       })
       .catch((e: unknown) => {

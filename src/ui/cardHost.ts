@@ -139,14 +139,19 @@ export function zoomKey(e: KeyboardEvent, report: Report): boolean {
   return true;
 }
 
-/** ⌘R on a card in a window that floats: what it shows is read again, as in the board's windows,
- *  and the card says so. True when it took the key. */
+/** ⌘R on a card in a window that floats: what it shows is read again, as in the board's windows
+ *  (`reloadCard`). True when it took the key. */
 export function reloadKey(e: KeyboardEvent, report: Report): boolean {
   if (!reloadPressed(e)) return false;
   e.preventDefault();
+  reloadCard(report);
+  return true;
+}
+
+/** Reads again what a window that floats shows, which has no usage to read, and says so. */
+export function reloadCard(report: Report): void {
   reloadWindow({ usage: false });
   report.info('Reloading…');
-  return true;
 }
 
 export interface LivePr {

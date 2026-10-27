@@ -26,7 +26,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { PrTab } from '../agentReview';
-import { onWaitingHidden, onWaitingOpen, showMain, waitingAsked, type WaitingOpen } from '../api';
+import { onReloadMenu, onWaitingHidden, onWaitingOpen, showMain, waitingAsked, type WaitingOpen } from '../api';
 import { boardAhead, renameAhead, sentWorthSaying, useAhead } from '../ahead';
 import { prCardItem } from '../boardLists';
 import { showContextMenu, type MenuSpec } from '../contextMenu';
@@ -48,6 +48,7 @@ import { repoReviews } from '../repoSettings';
 import type { Board, Lane, PrItem, Session } from '../types';
 import { useDeviceLanes, useDevices, useObserve } from '../useDevices';
 import { shownSession, useWaitingQueue } from '../useWaitingQueue';
+import { reloadCard } from './cardHost';
 import { dialogUp } from './focusTrap';
 import { PrCard, type CameFrom, type PrWindowCan } from './PrCard';
 import { showPrTab } from './PrInspector';
@@ -229,6 +230,9 @@ export function Waiting() {
   const revealLane = (lane: Lane) => void showMain({ kind: 'worktree', laneId: lane.id });
   // A view's keys: Codealong's window comes forward over this one, as Show in Codealong has it.
   useViewKeys();
+  // View › Reload with this window in front reloads it as ⌘R on its card does.
+  const reportNow = useLatest(report);
+  useEffect(() => onReloadMenu(() => reloadCard(reportNow.current)), [reportNow]);
 
   /** What the window does for a session's actions (SessionCard.tsx has the rest): the one shown
    *  goes on to the next that waits once it's left what waits on you; another is shown here. */
