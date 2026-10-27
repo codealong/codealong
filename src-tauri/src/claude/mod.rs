@@ -630,6 +630,11 @@ impl crate::harness::Adapter for ClaudeCode {
         Ok(if held > 1 { format!("“{}” takes the {held} messages it held now, stopping the step it was on.", s.title) } else { format!("“{}” takes it now, stopping the step it was on.", s.title) })
     }
 
+    /// It stops the step the turn is on, as Escape does (`steer_queued`).
+    fn steer_queued_stops(&self) -> bool {
+        true
+    }
+
     /// Presses Escape only while its own record says a turn is running: busy, or waiting on a
     /// prompt, which Escape answers No to, ending the turn. With nothing running, an Escape would
     /// go to whatever the terminal shows then (two in a row open Claude Code's rewind).

@@ -244,12 +244,13 @@ Antigravity can't be stopped from Codealong.
 
 The conversation marks where a turn was stopped, in amber under the call it cut short: "The turn
 was stopped", or, when Codealong stopped it, who asked: "Stopped from Codealong (a window on this
-Mac)", "(your phone)", "(“Kestrel lead”, with the codealong command)". A move and Mark as done
-stopping it first, Send now on a message Claude Code holds (which stops the step it's on) and a
-call denied say so too. Each of those is written to `~/Library/Logs/Codealong/stops.log` (on
-Linux, `~/.local/state/codealong/stops.log`): when, what, the session, who asked and how it went.
-A stop with no line there came from somewhere else: a key in its terminal, or Claude Code's Remote
-Control.
+Mac)", "(your phone)", "(“Kestrel lead”, with the codealong command)". A move stopping it first,
+Send now on a message Claude Code holds (which stops the step it's on) and a call denied say so
+too. Each of those is written to `~/Library/Logs/Codealong/stops.log` (on Linux,
+`~/.local/state/codealong/stops.log`): when, what, the session, who asked and how it went; so is
+Mark as done on a session whose turn runs, which stops the turn, closes its terminal or stops its
+background job. A stop with no line there came from somewhere else: a key in its terminal, or
+Claude Code's Remote Control.
 
 #### Seen and unread
 

@@ -640,19 +640,10 @@ const ANSWERED_WAIT: Duration = Duration::from_secs(10);
 /// tells it what to do instead: in the same answer where its harness takes words with one
 /// (`Adapter::deny_saying`), else sent as a prompt once it no longer waits.
 fn answer_call(engine: &Handle, c: &Call) -> Result<Value, String> {
-    let p: params::Answer = c.read()?;
-    // A deny ends the turn where its harness takes it as a stop (Escape at Claude Code's prompt),
-    // so it's logged as one; a command asked for your terminal isn't the session's turn.
-    let denies = p.answer == Some(api::Answer::Deny) && !p.answers.as_ref().is_some_and(|a| !a.is_null()) && !crate::terminal::is_id(&p.id);
-    let said = if denies {
-        let (key, board) = (c.session()?, engine.board());
-        let title = board.session(key).map(|(_, s)| s.title.clone()).unwrap_or_default();
-        stops::noted(Stop::Deny, key, &title, &stops::who(&board, c.from), || answer_here(engine, c))?
-    } else {
-        answer_here(engine, c)?
-    };
+    let said = answer_here(engine, c)?;
     // Answers to its questions, or words sent in place of the call, answer what was suggested
     // for it, as a message does (`send_prompt`).
+    let p: params::Answer = c.read()?;
     let words_sent = p.message.as_deref().is_some_and(|m| !m.trim().is_empty());
     if (words_sent || p.answers.as_ref().is_some_and(|a| !a.is_null())) && !matches!(c.from, From::Command(_)) {
         forget_suggested(engine, c.session()?);
@@ -723,7 +714,7 @@ fn answer_here(engine: &Handle, c: &Call) -> Result<Value, String> {
     }
     if acp::hosts(key) {
         // A session Codealong runs takes a message while it waits, after its current turn.
-        let said = acp::answer(key, &id, answer).map_err(words)?;
+        let said = noting_deny(engine, c, key, answer, || acp::answer(key, &id, answer)).map_err(words)?;
         return match saying {
             Some(m) => sent_after(engine, c, key, m, &said),
             None => Ok(Value::String(said)),
@@ -738,15 +729,28 @@ fn answer_here(engine: &Handle, c: &Call) -> Result<Value, String> {
             note_talking(engine, c, key);
             return Ok(Value::String(said));
         }
-        let said = adapter.answer(&ctx, s, &id, answer).map_err(words)?;
+        let said = noting_deny(engine, c, key, answer, || adapter.answer(&ctx, s, &id, answer)).map_err(words)?;
         return sent_after(engine, c, key, m, &said);
     }
     match answers {
         Some(a) => adapter.answer_questions(&ctx, s, &id, &a),
-        None => adapter.answer(&ctx, s, &id, answer),
+        None => noting_deny(engine, c, key, answer, || adapter.answer(&ctx, s, &id, answer)),
     }
     .map(Value::String)
     .map_err(words)
+}
+
+/// Answers the call of the session `key` as `act` does, and logs a deny in stops.log as soon as
+/// it's made: pressed as its prompt's No it ends the turn, as a stop does. What's sent after it
+/// (`sent_after`) isn't part of it. A deny whose words a hook carries (`Adapter::deny_saying`)
+/// lets the turn go on, so it isn't logged.
+fn noting_deny<E: std::fmt::Display>(engine: &Handle, c: &Call, key: &str, answer: api::Answer, act: impl FnOnce() -> Result<String, E>) -> Result<String, E> {
+    if answer != api::Answer::Deny {
+        return act();
+    }
+    let board = engine.board();
+    let title = board.session(key).map(|(_, s)| s.title.clone()).unwrap_or_default();
+    stops::noted(Stop::Deny, key, &title, &stops::who(&board, c.from), act)
 }
 
 /// Sends `text` to the session `key` after a deny that couldn't carry it (`said` says how that
@@ -1010,8 +1014,8 @@ fn cancel(engine: &Handle, c: &Call) -> Result<Value, String> {
 }
 
 /// Sends a message its harness holds until the turn ends into the turn it's taking now
-/// (`Adapter::steer_queued`), which in Claude Code stops the step it's on, so it's logged as a
-/// stop (stops.rs). Says what happened.
+/// (`Adapter::steer_queued`). Where that stops the step the turn is on, it's logged as a stop
+/// (stops.rs). Says what happened.
 fn steer(engine: &Handle, c: &Call) -> Result<Value, String> {
     let p: params::Steer = c.read()?;
     let (cfg, board) = (cfg()?, engine.board());
@@ -1019,8 +1023,10 @@ fn steer(engine: &Handle, c: &Call) -> Result<Value, String> {
     if !harness::turn_running(s) {
         return Err("Its turn has already ended, so it takes what's held next.".into());
     }
-    let who = stops::who(&board, c.from);
-    stops::noted(Stop::SendNow, &s.key, &s.title, &who, || harness::adapter(s.harness).steer_queued(&harness::Ctx { account }, s, &p.id)).map(Value::String).map_err(words)
+    let adapter = harness::adapter(s.harness);
+    let steer = || adapter.steer_queued(&harness::Ctx { account }, s, &p.id);
+    let said = if adapter.steer_queued_stops() { stops::noted(Stop::SendNow, &s.key, &s.title, &stops::who(&board, c.from), steer) } else { steer() };
+    said.map(Value::String).map_err(words)
 }
 
 /// The time of this device's board that shows a change, for a window here to know when the
@@ -1396,17 +1402,24 @@ fn helpers_done_words(done: usize, left: usize) -> Option<String> {
 }
 
 /// Ends a session as `ends` says: what ended, and what's worth saying besides (why nothing did,
-/// or what didn't go). `who` asked, for stops.log when its turn is stopped.
+/// or what didn't go). `who` asked, for stops.log: closing its terminal, stopping its job or
+/// stopping its turn while the turn runs is a stop (`stopping`).
 fn end(s: &crate::model::Session, account: &config::AccountCfg, ends: crate::idle::Ending, who: &str) -> (Option<String>, Option<String>) {
     use crate::idle::{Ending, Exited};
     let ctx = harness::Ctx { account };
     let adapter = harness::adapter(s.harness);
     match ends {
-        Ending::Terminal(pid) => match crate::launch::close_session_terminals(&[(pid, std::path::Path::new(&s.cwd))]).pop() {
-            Some(Ok(())) => (Some("its terminal is closed".into()), None),
-            Some(Err(e)) => (None, Some(format!("Its terminal didn't close: {}", words(e)))),
-            None => (None, Some("Its terminal didn't close.".to_string())),
-        },
+        Ending::Terminal(pid) => {
+            let close = || match crate::launch::close_session_terminals(&[(pid, std::path::Path::new(&s.cwd))]).pop() {
+                Some(Ok(())) => Ok(()),
+                Some(Err(e)) => Err(format!("Its terminal didn't close: {}", words(e))),
+                None => Err("Its terminal didn't close.".to_string()),
+            };
+            match stopping(s, who, close) {
+                Ok(()) => (Some("its terminal is closed".into()), None),
+                Err(e) => (None, Some(e)),
+            }
+        }
         Ending::Exit(pid) => {
             let word = adapter.harness().word();
             let worktree = s.own_worktree.as_deref().map(|w| crate::util::file_name(std::path::Path::new(w))).unwrap_or_default();
@@ -1422,15 +1435,25 @@ fn end(s: &crate::model::Session, account: &config::AccountCfg, ends: crate::idl
                 Err(e) => (None, Some(format!("{e} It's still open, its worktree with it."))),
             }
         }
-        Ending::Job => match adapter.stop(&ctx, s) {
+        Ending::Job => match stopping(s, who, || adapter.stop(&ctx, s)) {
             Ok(_) => (Some("its background job is stopped".into()), None),
             Err(e) => (None, Some(format!("Its background job didn't stop: {}", words(e)))),
         },
-        Ending::Turn => match stops::noted(Stop::Done, &s.key, &s.title, who, || adapter.interrupt(&ctx, s)) {
+        Ending::Turn => match stopping(s, who, || adapter.interrupt(&ctx, s)) {
             Ok(_) => (Some("its turn is stopped".into()), None),
             Err(e) => (None, Some(format!("Its turn didn't stop: {}", words(e)))),
         },
         Ending::Nothing(why) => (None, why),
+    }
+}
+
+/// Does `act`, which ends the session `s`, and logs it as Mark as done's stop in stops.log when
+/// it ends a turn that's running (`idle::ending` ends one only when asked to stop it). `who` asked.
+fn stopping<T, E: std::fmt::Display>(s: &crate::model::Session, who: &str, act: impl FnOnce() -> Result<T, E>) -> Result<T, E> {
+    if harness::turn_running(s) {
+        stops::noted(Stop::Done, &s.key, &s.title, who, act)
+    } else {
+        act()
     }
 }
 

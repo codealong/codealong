@@ -144,6 +144,12 @@ pub trait Adapter: Sync {
         bail!("{} can't send what it holds for {} any sooner.", self.harness().word(), crate::send::quoted(&session.title))
     }
 
+    /// Whether `steer_queued` stops the step the turn is on, a running command cut short, as a
+    /// stop does, rather than handing the message in beside it: then it goes in stops.log.
+    fn steer_queued_stops(&self) -> bool {
+        false
+    }
+
     /// What a new terminal types to go on with a session that isn't running (`start::resume`),
     /// on the prompt, model and effort `ask` has where there are any, and the environment that
     /// carries the prompt: typed through the shell, as a new session's is, so no quoting of
