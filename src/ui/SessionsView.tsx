@@ -161,9 +161,10 @@ export function waitingQueue(rows: SessionItem[]): SessionItem[] {
 export function sessionSections(rows: SessionItem[], sort: SessionSort, now: number, place: StartedPlace = 'apart'): SessionSection[] {
   const { top, under } = families(rows, place === 'under');
   // What a session's place goes by: itself, the helper under it that has waited on you longest, or
-  // the session it started that's furthest up the bar's groups when that's further than itself.
+  // the session it started that's furthest up the bar's groups when that's further than itself. A
+  // snoozed one waits its time only when nothing under it is further up.
   const lead = (r: SessionItem): Session => {
-    if (waitingSince(r.session) != null) return r.session;
+    if (waitingSince(r.session) != null && r.session.snoozedUntil == null) return r.session;
     const kids = under.get(r.session.key) ?? [];
     const waiting = kids.filter((k) => waitingSince(k.session) != null && k.session.snoozedUntil == null).sort(byGroupTime);
     if (waiting.length > 0) return waiting[0].session;
@@ -197,15 +198,16 @@ export function helpersUnder(rows: SessionItem[], heads: ReadonlySet<string>, pl
   const byKey = new Map(rows.map((r) => [r.session.key, r]));
   for (const r of rows) {
     if (heads.has(r.session.key)) continue;
-    let at = r;
-    for (let i = 0; i < 4; i++) {
+    const seen = new Set([r]);
+    for (let at = r; ; ) {
       const up = listedUnder(at.session, place === 'under');
       const parent = up ? byKey.get(up) : undefined;
-      if (!parent || parent === r) break;
+      if (!parent || seen.has(parent)) break;
       if (heads.has(parent.session.key)) {
         under.set(parent.session.key, [...(under.get(parent.session.key) ?? []), { ...r, nested: true, elsewhere: r.lane.id !== parent.lane.id }]);
         break;
       }
+      seen.add(parent);
       at = parent;
     }
   }
@@ -220,18 +222,19 @@ function families(rows: SessionItem[], started: boolean): { top: SessionItem[]; 
   const under = new Map<string, SessionItem[]>();
   if (!rows.some((r) => listedUnder(r.session, started))) return { top: rows, under };
   const byKey = new Map(rows.map((r) => [r.session.key, r]));
-  // The listed session a row goes under, climbing past helpers to the one at the top. One whose
-  // climb comes back to it leads, so sessions that name each other as their origin both show.
+  // The listed session a row goes under, climbing however far to the one at the top, which leads
+  // itself, so no row goes under one that's under another and goes unlisted. One whose climb goes
+  // round in a loop leads, so sessions that name each other as their origin all show.
   const headOf = (r: SessionItem): SessionItem | null => {
-    let at = r;
-    for (let i = 0; i < 4; i++) {
+    const seen = new Set([r]);
+    for (let at = r; ; ) {
       const up = listedUnder(at.session, started);
       const parent = up ? byKey.get(up) : undefined;
-      if (parent === r) return null;
       if (!parent) return at === r ? null : at;
+      if (seen.has(parent)) return null;
+      seen.add(parent);
       at = parent;
     }
-    return at === r ? null : at;
   };
   const top: SessionItem[] = [];
   for (const r of rows) {

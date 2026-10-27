@@ -549,12 +549,12 @@ const NONE: ReadonlySet<string> = new Set();
 const onNoBoard = (): boolean => false;
 
 /** A session and the ones Sessions lists it under, nearest first (lanes.ts `workingFor`): a run's
- *  session, a helper's, and so on up, as far as `all` has them and as deep as Sessions nests; with
- *  `started`, a session's that started it too (`listedUnder`). */
+ *  session, a helper's, and so on up, as far as `all` has them; with `started`, a session's that
+ *  started it too (`listedUnder`). */
 export function chainOf(item: SessionItem, all: readonly SessionItem[], started = false): SessionItem[] {
   const byKey = new Map(all.map((r) => [r.session.key, r]));
   const chain = [item];
-  for (let i = 0; i < 4; i++) {
+  for (;;) {
     const up = listedUnder(chain[chain.length - 1].session, started);
     const parent = up ? byKey.get(up) : undefined;
     if (!parent || chain.includes(parent)) break;

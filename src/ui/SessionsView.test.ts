@@ -181,6 +181,22 @@ describe('sessions another one started, in Sessions', () => {
     expect(rows(sessionSections([boss, idleKid, check, other], 'status', now, 'under'))).toEqual(['working other', 'today boss', 'today   check', 'today   kid']);
   });
 
+  it('lists every one of a long chain under the session at its top', () => {
+    const chain = ['s0', 's1', 's2', 's3', 's4', 's5'].map((k, i) => (i === 0 ? item(k, at(9), 'idle', at(9)) : from(item(k, at(9 + i), 'idle', at(9 + i)), `s${i - 1}`)));
+    const last = chain.length - 1;
+    chain[last] = { ...chain[last], session: { ...chain[last].session, status: 'needs', statusSince: at(14) } };
+    expect(rows(sessionSections(chain, 'status', now, 'under'))).toEqual(['needs s0', 'needs   s5', 'needs   s4', 'needs   s3', 'needs   s2', 'needs   s1']);
+    expect(keys(helpersUnder(chain, new Set(['s0']), 'under').get('s0') ?? [])).toEqual(['s5', 's4', 's3', 's2', 's1']);
+  });
+
+  it('takes a snoozed session up with what under it is further up, and leaves it snoozed otherwise', () => {
+    const snoozed = (r: SessionItem): SessionItem => ({ ...r, session: { ...r.session, snoozedUntil: at(18) } });
+    const boss = snoozed(item('boss', at(10), 'needs', at(9), at(10)));
+    expect(rows(sessionSections([boss, from(item('kid', at(14), 'working', at(12), at(12)), 'boss')], 'status', now, 'under'))).toEqual(['working boss', 'working   kid']);
+    expect(rows(sessionSections([boss, helper(item('asks', at(14), 'needs', at(12), at(12)), 'boss')], 'status', now))).toEqual(['needs boss', 'needs   asks']);
+    expect(rows(sessionSections([boss, from(item('kid', at(14), 'idle', at(12)), 'boss')], 'status', now, 'under'))).toEqual(['snoozed boss', 'snoozed   kid']);
+  });
+
   it('lists one on its own when its session isn’t listed, and sessions that name each other both', () => {
     expect(rows(sessionSections([from(item('kid', at(12), 'idle', at(12)), 'gone')], 'status', now, 'under'))).toEqual(['today kid']);
     const loop = [from(item('a', at(13), 'idle', at(13)), 'b'), from(item('b', at(12), 'idle', at(12)), 'a')];
