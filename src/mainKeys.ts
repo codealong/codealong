@@ -213,8 +213,8 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
     return;
   }
   // Escape in a session panel's box gives the list its keys back (a click on a row put them
-  // there), unless it stopped the session's turn. With the panel expanded there's no list to
-  // give them to, so the window has them.
+  // there), whether or not its turn is running (⌘. stops that). With the panel expanded there's
+  // no list to give them to, so the window has them.
   if (e.key === 'Escape' && !e.isComposing && !e.defaultPrevented && inBox) {
     e.preventDefault();
     if (panelMax) (document.activeElement as HTMLElement).blur();

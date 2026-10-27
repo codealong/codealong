@@ -10,9 +10,9 @@ use super::ClaudeCode;
 use super::asks::REFUSED_SAYING;
 use super::peer::{FROM_CODEALONG, FROM_YOU};
 use super::registry::session_entry;
-use super::transcript::{comment_in, comment_quote, prompt_words, ran_a_turn, tool_request, typed_text, unmarked_command, without_context, you_typed, SEND_FILE};
+use super::transcript::{comment_in, comment_quote, prompt_words, ran_a_turn, tool_request, typed_text, unmarked_command, without_context, you_typed, INTERRUPTED, SEND_FILE};
 use crate::harness::Link;
-use crate::transcript::{clip_input, clip_output, item, kept_whole, text_of, Image, Item};
+use crate::transcript::{clip_input, clip_output, item, kept_whole, stopped, text_of, Image, Item};
 use crate::util::{one_line, parse_rfc3339_ms, read_line_at, read_range, scan_lines_back, unescape_html};
 
 /// One transcript line as conversation items (transcript.rs): a prompt you typed, the agent's
@@ -35,6 +35,11 @@ pub fn conversation_items(v: &Value, at: i64) -> Vec<Item> {
             }
             let images = images_of(v.pointer("/message/content"), v.get("imagePasteIds"));
             let said = text_of(v.pointer("/message/content").unwrap_or(&Value::Null));
+            // Escape in its terminal, Codealong's Stop and a call denied all leave this line,
+            // after the call they cut short.
+            if said.trim_start().starts_with(INTERRUPTED) {
+                return vec![stopped(at)];
+            }
             if let Some(t) = typed_text(v) {
                 return vec![Item { images, link: artifact_about(&said), ..item(at, "you", t) }];
             }
@@ -295,7 +300,7 @@ fn fate_of<'a>(mut lines: impl Iterator<Item = &'a str>) -> Option<(Fate, i64)> 
         match v.get("type").and_then(Value::as_str) {
             Some("assistant") => return Some((Fate::Kept, at)),
             // Escape with text in the box interrupts instead, keeping the prompt.
-            Some("user") if text_of(v.pointer("/message/content").unwrap_or(&Value::Null)).trim_start().starts_with("[Request interrupted") => return Some((Fate::Kept, at)),
+            Some("user") if text_of(v.pointer("/message/content").unwrap_or(&Value::Null)).trim_start().starts_with(INTERRUPTED) => return Some((Fate::Kept, at)),
             // A session's first prompt taken back leaves nothing before it to go on from, so the
             // next prompt follows on from its lines, often with its text again.
             Some("user") if typed_text(&v).is_some() => return Some((Fate::TakenBack, at)),
@@ -804,6 +809,21 @@ mod tests {
         assert_eq!(fate(&p()), Some(Fate::Open));
         // Only prompts of yours are asked about.
         assert_eq!(fate(&[attachment("p1", "p")]), None);
+    }
+
+    #[test]
+    fn a_stopped_turn_says_so_after_the_call_it_cut_short() {
+        // As 2.1.311 writes Escape pressed in a running command: the call's result, then the
+        // interruption (2026-10-27).
+        let refused = serde_json::json!({ "type": "user", "toolUseResult": "User rejected tool use", "toolDenialKind": "user-rejected", "message": { "role": "user", "content": [{ "type": "tool_result", "tool_use_id": "t1", "is_error": true, "content": "The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file). STOP what you are doing and wait for the user to tell you how to proceed." }] } });
+        let interrupted = serde_json::json!({ "type": "user", "message": { "role": "user", "content": [{ "type": "text", "text": "[Request interrupted by user for tool use]" }] } });
+        let items: Vec<Item> = [refused, interrupted].iter().flat_map(|l| conversation_items(l, 9)).collect();
+        let said: Vec<(&str, bool, bool)> = items.iter().map(|i| (i.kind, i.failed, i.stop)).collect();
+        assert_eq!(said, [("result", true, false), ("note", false, true)]);
+        assert_eq!(items[1].text, crate::transcript::STOPPED);
+        // In a reply, with no call running, as well.
+        let in_reply = serde_json::json!({ "type": "user", "message": { "role": "user", "content": [{ "type": "text", "text": "[Request interrupted by user]" }] } });
+        assert!(conversation_items(&in_reply, 9).iter().all(|i| i.stop));
     }
 
     #[test]

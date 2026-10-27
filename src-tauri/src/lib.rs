@@ -108,6 +108,7 @@ mod stale;
 mod start;
 mod starts;
 mod state;
+mod stops;
 mod store;
 mod suggestions;
 mod tags;

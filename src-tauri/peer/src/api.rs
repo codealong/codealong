@@ -672,6 +672,10 @@ pub struct Item {
     /// saw it (Claude Code, when a turn is stopped before any reply).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub withdrawn: bool,
+    /// A note where the turn was stopped, whose text says who stopped it when the session's Mac
+    /// knows. A device from before it shows it as any other note.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub stop: bool,
     /// The questions a call asks you (Claude Code's `AskUserQuestion`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub questions: Vec<Question>,
@@ -1272,9 +1276,10 @@ mod tests {
     fn a_page_reads_back_what_it_wrote() {
         let page = Page {
             items: vec![
-                Item { at: 1, kind: "you".into(), text: "Fix the build".into(), from: None, id: None, input: None, output: None, failed: false, withdrawn: false, questions: Vec::new(), answers: Default::default(), link: None, sent: None, cursor: 0, n: 0 },
-                Item { at: 2, kind: "tool".into(), text: "Bash · `cargo test`".into(), from: None, id: Some("t1".into()), input: Some("cargo test".into()), output: Some("ok".into()), failed: false, withdrawn: false, questions: vec![Question { question: "Which?".into(), header: None, options: vec![Choice { label: "This".into(), description: None }], multi_select: false }], answers: [("Which?".to_string(), vec!["This".to_string()])].into(), link: Some(Link { url: "https://claude.ai/artifact/Vuaw".into(), title: "Dashboard".into(), note: None }), sent: Some(SentFiles { files: vec!["/Users/me/app/shot.png".into()], caption: Some("Before and after".into()) }), cursor: 120, n: 1 },
-                Item { at: 3, kind: "peer".into(), text: "Which test fails?\n\nThe parser's, I think.".into(), from: Some("Review the parser".into()), id: None, input: None, output: None, failed: false, withdrawn: false, questions: Vec::new(), answers: Default::default(), link: None, sent: None, cursor: 300, n: 0 },
+                Item { at: 1, kind: "you".into(), text: "Fix the build".into(), from: None, id: None, input: None, output: None, failed: false, withdrawn: false, stop: false, questions: Vec::new(), answers: Default::default(), link: None, sent: None, cursor: 0, n: 0 },
+                Item { at: 2, kind: "tool".into(), text: "Bash · `cargo test`".into(), from: None, id: Some("t1".into()), input: Some("cargo test".into()), output: Some("ok".into()), failed: false, withdrawn: false, stop: false, questions: vec![Question { question: "Which?".into(), header: None, options: vec![Choice { label: "This".into(), description: None }], multi_select: false }], answers: [("Which?".to_string(), vec!["This".to_string()])].into(), link: Some(Link { url: "https://claude.ai/artifact/Vuaw".into(), title: "Dashboard".into(), note: None }), sent: Some(SentFiles { files: vec!["/Users/me/app/shot.png".into()], caption: Some("Before and after".into()) }), cursor: 120, n: 1 },
+                Item { at: 3, kind: "peer".into(), text: "Which test fails?\n\nThe parser's, I think.".into(), from: Some("Review the parser".into()), id: None, input: None, output: None, failed: false, withdrawn: false, stop: false, questions: Vec::new(), answers: Default::default(), link: None, sent: None, cursor: 300, n: 0 },
+                Item { at: 4, kind: "note".into(), text: "Stopped from Codealong (your phone)".into(), from: None, id: None, input: None, output: None, failed: false, withdrawn: false, stop: true, questions: Vec::new(), answers: Default::default(), link: None, sent: None, cursor: 360, n: 0 },
             ],
             before: Some(0),
             after: 400,

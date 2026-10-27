@@ -19,8 +19,9 @@ use serde_json::{json, Value};
 
 use crate::engine::Handle;
 use crate::peers::Peers;
+use crate::stops::Stop;
 use crate::util::words;
-use crate::{acp, config, harness, peerfeed, send, transcript};
+use crate::{acp, config, harness, peerfeed, send, stops, transcript};
 
 /// What only happens on the device a session runs on: another device can't ask for them, so
 /// they have names here but none in `api`.
@@ -639,10 +640,19 @@ const ANSWERED_WAIT: Duration = Duration::from_secs(10);
 /// tells it what to do instead: in the same answer where its harness takes words with one
 /// (`Adapter::deny_saying`), else sent as a prompt once it no longer waits.
 fn answer_call(engine: &Handle, c: &Call) -> Result<Value, String> {
-    let said = answer_here(engine, c)?;
+    let p: params::Answer = c.read()?;
+    // A deny ends the turn where its harness takes it as a stop (Escape at Claude Code's prompt),
+    // so it's logged as one; a command asked for your terminal isn't the session's turn.
+    let denies = p.answer == Some(api::Answer::Deny) && !p.answers.as_ref().is_some_and(|a| !a.is_null()) && !crate::terminal::is_id(&p.id);
+    let said = if denies {
+        let (key, board) = (c.session()?, engine.board());
+        let title = board.session(key).map(|(_, s)| s.title.clone()).unwrap_or_default();
+        stops::noted(Stop::Deny, key, &title, &stops::who(&board, c.from), || answer_here(engine, c))?
+    } else {
+        answer_here(engine, c)?
+    };
     // Answers to its questions, or words sent in place of the call, answer what was suggested
     // for it, as a message does (`send_prompt`).
-    let p: params::Answer = c.read()?;
     let words_sent = p.message.as_deref().is_some_and(|m| !m.trim().is_empty());
     if (words_sent || p.answers.as_ref().is_some_and(|a| !a.is_null())) && !matches!(c.from, From::Command(_)) {
         forget_suggested(engine, c.session()?);
@@ -982,22 +992,26 @@ fn switch_mode(engine: &Handle, c: &Call) -> Result<Value, String> {
 }
 
 /// Stops the turn it's taking: one Codealong runs, through its agent; any other, through its
-/// harness (`Adapter::interrupt`). Says what happened.
+/// harness (`Adapter::interrupt`). Says what happened, and logs it (stops.rs).
 fn cancel(engine: &Handle, c: &Call) -> Result<Value, String> {
     let key = c.session()?;
+    let board = engine.board();
+    let who = stops::who(&board, c.from);
     if acp::hosts(key) {
-        return acp::cancel(key).map(|_| json!("Stopped.")).map_err(words);
+        let title = board.session(key).map(|(_, s)| s.title.clone()).unwrap_or_default();
+        return stops::noted(Stop::Stop, key, &title, &who, || acp::cancel(key)).map(|_| json!("Stopped.")).map_err(words);
     }
-    let (cfg, board) = (cfg()?, engine.board());
+    let cfg = cfg()?;
     let (s, account) = harness::find(&board, &cfg, key).map_err(words)?;
     if !harness::turn_running(s) {
         return Err("Its turn has already ended.".into());
     }
-    harness::adapter(s.harness).interrupt(&harness::Ctx { account }, s).map(Value::String).map_err(words)
+    stops::noted(Stop::Stop, key, &s.title, &who, || harness::adapter(s.harness).interrupt(&harness::Ctx { account }, s)).map(Value::String).map_err(words)
 }
 
 /// Sends a message its harness holds until the turn ends into the turn it's taking now
-/// (`Adapter::steer_queued`). Says what happened.
+/// (`Adapter::steer_queued`), which in Claude Code stops the step it's on, so it's logged as a
+/// stop (stops.rs). Says what happened.
 fn steer(engine: &Handle, c: &Call) -> Result<Value, String> {
     let p: params::Steer = c.read()?;
     let (cfg, board) = (cfg()?, engine.board());
@@ -1005,7 +1019,8 @@ fn steer(engine: &Handle, c: &Call) -> Result<Value, String> {
     if !harness::turn_running(s) {
         return Err("Its turn has already ended, so it takes what's held next.".into());
     }
-    harness::adapter(s.harness).steer_queued(&harness::Ctx { account }, s, &p.id).map(Value::String).map_err(words)
+    let who = stops::who(&board, c.from);
+    stops::noted(Stop::SendNow, &s.key, &s.title, &who, || harness::adapter(s.harness).steer_queued(&harness::Ctx { account }, s, &p.id)).map(Value::String).map_err(words)
 }
 
 /// The time of this device's board that shows a change, for a window here to know when the
@@ -1169,7 +1184,7 @@ fn move_session(engine: &Handle, c: &Call) -> Result<Value, String> {
     if let Some(target) = cfg.accounts.iter().find(|a| a.name == to.account) {
         target.ensure_on().map_err(words)?;
     }
-    let stopped = stop_to_move(engine, &cfg, key)?;
+    let stopped = stop_to_move(engine, &cfg, key, &stops::who(&before, c.from))?;
     let board = engine.board();
     if !to.lane.is_empty() {
         // It goes on as itself, unless the harness copied it.
@@ -1224,8 +1239,9 @@ fn archive_moved(engine: &Handle, key: &str) {
 
 /// Stops the turn a session is taking so it can move, as Stop does (`cancel`), and waits for the
 /// board to show the turn ended: a copy made mid-turn would see it cut off, where one made after
-/// sees it interrupted. Says whether there was a turn to stop.
-fn stop_to_move(engine: &Handle, cfg: &config::Config, key: &str) -> Result<bool, String> {
+/// sees it interrupted. Says whether there was a turn to stop. `who` asked for the move, for
+/// stops.log.
+fn stop_to_move(engine: &Handle, cfg: &config::Config, key: &str, who: &str) -> Result<bool, String> {
     let running = || engine.read(|b| b.session(key).is_some_and(|(_, s)| harness::turn_running(s)));
     if !running() {
         return Ok(false);
@@ -1235,11 +1251,7 @@ fn stop_to_move(engine: &Handle, cfg: &config::Config, key: &str) -> Result<bool
     if !harness::stoppable(s, Some(account)) {
         return Err(format!("“{}” is in the middle of a turn Codealong can't stop. Stop it where it runs, then move it.", s.title));
     }
-    if acp::hosts(key) {
-        acp::cancel(key).map_err(words)?;
-    } else {
-        harness::adapter(s.harness).interrupt(&harness::Ctx { account }, s).map_err(words)?;
-    }
+    stops::noted(Stop::Move, key, &s.title, who, || if acp::hosts(key) { acp::cancel(key) } else { harness::adapter(s.harness).interrupt(&harness::Ctx { account }, s).map(|_| ()) }).map_err(words)?;
     let until = std::time::Instant::now() + Duration::from_secs(30);
     while running() {
         if std::time::Instant::now() > until {
@@ -1304,7 +1316,8 @@ fn finish(engine: &Handle, c: &Call, key: &str, stop: bool, by: Option<&str>) ->
         Err(busy) => return to_value(api::Done { done: false, message: busy, noted: false }),
     };
     let job = matches!(ends, crate::idle::Ending::Job);
-    let (ended, note) = end(s, account, ends);
+    let who = stops::who(&board, c.from);
+    let (ended, note) = end(s, account, ends, &who);
     let stopped = ended.is_some();
     let title = s.title.clone();
     engine.mark_seen(vec![key.to_string()]);
@@ -1326,7 +1339,7 @@ fn finish(engine: &Handle, c: &Call, key: &str, stop: bool, by: Option<&str>) ->
     if let Some((words, _)) = &worktree {
         message = format!("{message} {words}");
     }
-    let (helped, later) = finish_helpers(engine, &board, &cfg, key, stop);
+    let (helped, later) = finish_helpers(engine, &board, &cfg, key, stop, &who);
     let at = later.or(at);
     if let Some(words) = &helped {
         message = format!("{message} {words}");
@@ -1340,8 +1353,8 @@ fn finish(engine: &Handle, c: &Call, key: &str, stop: bool, by: Option<&str>) ->
 /// Marks done the helpers of `key`, a session just marked done: the work they did was for it.
 /// Each ends as Mark as done ends a session and is archived, but one at work (or waiting on its
 /// turn to end) is left to finish unless `stop` ends that too, as it did for `key`. What to say of
-/// them, and the time of the board that shows the last one archived.
-fn finish_helpers(engine: &Handle, board: &crate::model::Board, cfg: &config::Config, key: &str, stop: bool) -> (Option<String>, Option<i64>) {
+/// them, and the time of the board that shows the last one archived. `who` marked `key` done.
+fn finish_helpers(engine: &Handle, board: &crate::model::Board, cfg: &config::Config, key: &str, stop: bool, who: &str) -> (Option<String>, Option<i64>) {
     let (mut done, mut left, mut at) = (0, 0, None);
     for h in crate::board::helpers_of(&board.lanes, key) {
         let Some(account) = cfg.accounts.iter().find(|a| a.name == h.account) else { continue };
@@ -1350,7 +1363,7 @@ fn finish_helpers(engine: &Handle, board: &crate::model::Board, cfg: &config::Co
                 // What didn't go for a helper is left unsaid: it's archived either way, and
                 // its own panel says how it stands.
                 let job = matches!(ends, crate::idle::Ending::Job);
-                let (ended, _) = end(h, account, ends);
+                let (ended, _) = end(h, account, ends, who);
                 engine.mark_seen(vec![h.key.clone()]);
                 if let Ok(shown) = engine.archive(&h.key, true) {
                     done += 1;
@@ -1383,8 +1396,8 @@ fn helpers_done_words(done: usize, left: usize) -> Option<String> {
 }
 
 /// Ends a session as `ends` says: what ended, and what's worth saying besides (why nothing did,
-/// or what didn't go).
-fn end(s: &crate::model::Session, account: &config::AccountCfg, ends: crate::idle::Ending) -> (Option<String>, Option<String>) {
+/// or what didn't go). `who` asked, for stops.log when its turn is stopped.
+fn end(s: &crate::model::Session, account: &config::AccountCfg, ends: crate::idle::Ending, who: &str) -> (Option<String>, Option<String>) {
     use crate::idle::{Ending, Exited};
     let ctx = harness::Ctx { account };
     let adapter = harness::adapter(s.harness);
@@ -1413,7 +1426,7 @@ fn end(s: &crate::model::Session, account: &config::AccountCfg, ends: crate::idl
             Ok(_) => (Some("its background job is stopped".into()), None),
             Err(e) => (None, Some(format!("Its background job didn't stop: {}", words(e)))),
         },
-        Ending::Turn => match adapter.interrupt(&ctx, s) {
+        Ending::Turn => match stops::noted(Stop::Done, &s.key, &s.title, who, || adapter.interrupt(&ctx, s)) {
             Ok(_) => (Some("its turn is stopped".into()), None),
             Err(e) => (None, Some(format!("Its turn didn't stop: {}", words(e)))),
         },
@@ -1430,7 +1443,8 @@ pub fn end_after_turn(engine: &Handle, key: &str) -> Result<String, String> {
     let (s, account) = harness::find(&board, &cfg, key).map_err(words)?;
     let ends = crate::idle::ending(&board, s, false)?;
     let job = matches!(ends, crate::idle::Ending::Job);
-    let (ended, note) = end(s, account, ends);
+    // Its own agent asked, and a turn that has ended has nothing to stop.
+    let (ended, note) = end(s, account, ends, "its own agent, with the codealong command");
     let worktree = job_worktree(engine, &cfg, s, job && ended.is_some()).map(|(words, _)| words);
     Ok([ended.map(|e| format!("“{}”: {e}.", s.title)), note, worktree].into_iter().flatten().collect::<Vec<_>>().join(" "))
 }

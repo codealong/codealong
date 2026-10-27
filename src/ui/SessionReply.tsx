@@ -64,10 +64,12 @@
 // only ever asks it, and the session's boxes are the session's again; `/side` in one of them
 // still asks it, and brings its window forward.
 //
-// While its turn runs, Escape in the box stops it where Codealong can reach the session (the
-// engine's `stoppable`), as Escape does in Claude Code and Codex, and so does the button while
-// the box is empty, whose placeholder says so (⌘. too, from anywhere in the window). It sends what the harness's own Stop
-// sends, or presses Escape in its terminal. The session carries on, waiting for you.
+// While its turn runs, the button stops it while the box is empty, where Codealong can reach the
+// session (the engine's `stoppable`), and so does ⌘. from anywhere in the window; the placeholder
+// says so. It sends what the harness's own Stop sends, or presses Escape in its terminal, and the
+// session carries on, waiting for you. Escape in the box only leaves it, as in the window's other
+// boxes (it closes the peek, gives Sessions' list its keys back): when it stopped the turn too, an
+// Escape meant to leave cut a running command short (asked 2026-10-26).
 //
 // Replies another session suggested for this one (`codealong session suggest`) show above the box
 // (SuggestedReplies.tsx), the box's own: a click sends one as ⏎ sends what's typed, leaving what's
@@ -846,7 +848,7 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
           ref={box}
           value={text}
           lines={LINES}
-          hint={aside ? 'Ask on the side' : denies === 'question' ? `Or decline it, and write to ${s.account} instead` : denies ? `Or deny it, and tell ${s.account} what to do instead` : replyPlaceholder(s, terminal, way, resumeWhere) + (canStop ? ' · esc stops its turn' : '')}
+          hint={aside ? 'Ask on the side' : denies === 'question' ? `Or decline it, and write to ${s.account} instead` : denies ? `Or deny it, and tell ${s.account} what to do instead` : replyPlaceholder(s, terminal, way, resumeWhere) + (canStop ? keysIn(' · ⌘. stops its turn') : '')}
           onChange={(e) => {
             setText(e.target.value);
             setCaret(e.target.selectionStart);
@@ -889,13 +891,6 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
             if (e.key === 'ArrowUp' && !text && suggested && bare(e) && !e.nativeEvent.isComposing && intoSuggestions()) {
               e.preventDefault();
               e.stopPropagation();
-              return;
-            }
-            // Escape stops a running turn; once it's stopping, Escape does what it does in the
-            // window (closes the peek, gives Sessions' list its keys back).
-            if (e.key === 'Escape' && canStop && !aside && !stopping && !e.nativeEvent.isComposing) {
-              e.preventDefault();
-              stop();
               return;
             }
             // ⌘⌫ with nothing written denies the call it waits on; with words, it deletes them as
@@ -986,7 +981,7 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
               </button>
             )}
             {stopButton ? (
-              <button type="button" className="ca-composer-send is-stop" aria-label={stopping ? 'Stopping' : 'Stop'} title="Stop its turn (esc)" disabled={stopping} onClick={stop}>
+              <button type="button" className="ca-composer-send is-stop" aria-label={stopping ? 'Stopping' : 'Stop'} title={keysIn('Stop its turn (⌘.)')} disabled={stopping} onClick={stop}>
                 <Icon name="player-stop" size={12} stroke={2} />
               </button>
             ) : (
@@ -1009,7 +1004,7 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
 }
 
 /** What the box has to say when nothing's happened: only the keys that aren't a chat box's usual
- *  ones. ⏎ sends and ⇧⏎ starts a new line, as everywhere, and the placeholder says Escape stops a
+ *  ones. ⏎ sends and ⇧⏎ starts a new line, as everywhere, and the placeholder says ⌘. stops a
  *  turn while it can. */
 function hint(waiting: boolean | undefined, next: boolean, allow: boolean, sendNow = false, denies?: Denies, written = false, suggested = false): string {
   const keys = hintKeys(waiting, next, allow, sendNow, denies, written);

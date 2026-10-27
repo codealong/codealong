@@ -1152,8 +1152,11 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
                 const it = r.item;
                 if (it.kind === 'tool') return <ToolLine key={keyOf(it)} item={it} result={r.result} state={stateOf(it)} onOpen={askHere} />;
                 if (it.kind === 'note') {
+                  // Where the turn was stopped stands out: otherwise only the call it cut short,
+                  // marked failed, said so.
                   return (
-                    <div key={keyOf(it)} className="ca-thread-note">
+                    <div key={keyOf(it)} className={cx('ca-thread-note', it.stop && 'is-stop')}>
+                      {it.stop && <Icon name="player-stop" size={11} stroke={2} />}
                       {it.text}
                     </div>
                   );

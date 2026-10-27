@@ -2489,6 +2489,9 @@ export interface TranscriptItem {
   /** A prompt of yours the session took back before its agent saw it: Claude Code does that when
    *  a turn is stopped before any reply. */
   withdrawn?: boolean;
+  /** A note where the turn was stopped, set apart from the other notes; its text says who stopped
+   *  it when Codealong did (stops.rs). */
+  stop?: boolean;
   /** The questions a call asks you (Claude Code's AskUserQuestion), shown in place of its input. */
   questions?: Question[];
   /** Your answers to them, on the call's result: each question's text to what you picked or

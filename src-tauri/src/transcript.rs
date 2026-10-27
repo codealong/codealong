@@ -90,6 +90,11 @@ pub struct Item {
     /// saw it: Claude Code does that when a turn is stopped before any reply (claude/conversation.rs).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub withdrawn: bool,
+    /// A note where the turn was stopped (`stopped`), which a window sets apart from the others:
+    /// a stop nobody meant left only a call marked failed (asked 2026-10-26). Its text says who
+    /// stopped it when Codealong did (stops.rs `attribute`).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub stop: bool,
     /// The questions a call asks you (Claude Code's `AskUserQuestion`), so the panel shows them
     /// as questions rather than the call's input.
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -135,21 +140,32 @@ pub type Parse = fn(&Value, i64) -> Vec<Item>;
 /// Up to about `limit` items of a session's conversation before `before` (from the newest when none).
 pub fn page(board: &Board, cfg: &Config, key: &str, before: Option<u64>, limit: usize) -> Result<Page> {
     let (s, account) = find(board, cfg, key)?;
-    Ok(shown(adapter(s.harness).conversation(&Ctx { account }, s, before, limit)?))
+    Ok(shown(adapter(s.harness).conversation(&Ctx { account }, s, before, limit)?, key))
 }
 
 /// What came after `after`, oldest first.
 pub fn newer(board: &Board, cfg: &Config, key: &str, after: u64) -> Result<Page> {
     let (s, account) = find(board, cfg, key)?;
-    Ok(shown(adapter(s.harness).conversation_after(&Ctx { account }, s, after)?))
+    Ok(shown(adapter(s.harness).conversation_after(&Ctx { account }, s, after)?, key))
+}
+
+/// What a stop note says when nothing here says who stopped the turn (stops.rs `attribute`).
+pub const STOPPED: &str = "The turn was stopped";
+
+/// The note where a turn was stopped.
+pub fn stopped(at: i64) -> Item {
+    Item { stop: true, ..item(at, "note", STOPPED) }
 }
 
 /// A page as a window shows it: each prompt of yours as you wrote it, with its images, and what
 /// Codealong sent by itself (send.rs `tell`) or another agent sent (`session send`), typed in
 /// where the session had no other way to take it, as Codealong's (`codealong`) or that agent's
-/// (`peer`), not yours.
-fn shown(page: Page) -> Page {
-    shown_in(page, &attachments::images_dir(), &attachments::files_dir())
+/// (`peer`), not yours; and where the session `key`'s turn was stopped, who stopped it when it
+/// was Codealong.
+fn shown(page: Page, key: &str) -> Page {
+    let mut page = shown_in(page, &attachments::images_dir(), &attachments::files_dir());
+    crate::stops::attribute(&mut page, key);
+    page
 }
 
 fn shown_in(mut page: Page, images: &Path, files: &Path) -> Page {
@@ -332,7 +348,7 @@ fn items_of(line: &[u8], parse: Parse, cursor: u64) -> Vec<Item> {
 }
 
 pub fn item(at: i64, kind: &'static str, text: impl Into<String>) -> Item {
-    Item { at, kind, text: text.into(), from: None, id: None, input: None, output: None, failed: false, shell: false, cwd: None, withdrawn: false, questions: Vec::new(), answers: BTreeMap::new(), link: None, sent: None, images: Vec::new(), cursor: 0, n: 0 }
+    Item { at, kind, text: text.into(), from: None, id: None, input: None, output: None, failed: false, shell: false, cwd: None, withdrawn: false, stop: false, questions: Vec::new(), answers: BTreeMap::new(), link: None, sent: None, images: Vec::new(), cursor: 0, n: 0 }
 }
 
 /// The tool calls among `items` that have no result yet, oldest first, for records that keep a
@@ -415,7 +431,7 @@ mod tests {
     /// A page goes to other devices as it is; the phone app reads it with codealong-peer's `Page`.
     #[test]
     fn pages_read_back_on_other_devices() {
-        let item = |kind: &'static str, id: Option<&str>, output: Option<&str>| Item { at: 7, kind, text: format!("{kind} text"), from: None, id: id.map(String::from), input: output.map(|_| "cargo test".to_string()), output: output.map(String::from), failed: kind == "result", shell: false, cwd: None, withdrawn: false, questions: Vec::new(), answers: BTreeMap::new(), link: None, sent: None, images: Vec::new(), cursor: 40, n: 2 };
+        let item = |kind: &'static str, id: Option<&str>, output: Option<&str>| Item { at: 7, kind, text: format!("{kind} text"), from: None, id: id.map(String::from), input: output.map(|_| "cargo test".to_string()), output: output.map(String::from), failed: kind == "result", shell: false, cwd: None, withdrawn: false, stop: false, questions: Vec::new(), answers: BTreeMap::new(), link: None, sent: None, images: Vec::new(), cursor: 40, n: 2 };
         let page = Page { items: vec![Item { withdrawn: true, ..item("you", None, None) }, item("agent", None, None), item("tool", Some("t1"), None), item("result", Some("t1"), Some("ok")), item("note", None, None), Item { from: Some("Review the parser".into()), ..item("peer", None, None) }], before: Some(12), after: 900 };
         let theirs: codealong_peer::api::Page = serde_json::from_value(serde_json::to_value(&page).unwrap()).unwrap();
         assert_eq!((theirs.before, theirs.after, theirs.items.len()), (Some(12), 900, 6));
@@ -438,6 +454,11 @@ mod tests {
         let page = Page { items: vec![sent], before: None, after: 0 };
         let theirs: codealong_peer::api::Page = serde_json::from_value(serde_json::to_value(&page).unwrap()).unwrap();
         assert_eq!(theirs.items[0].sent.as_ref().map(|s| s.files.clone()), Some(vec!["/Users/me/app/shot.png".to_string()]));
+        assert_eq!(serde_json::to_value(&theirs).unwrap(), serde_json::to_value(&page).unwrap());
+        // And where a turn was stopped, and who stopped it.
+        let page = Page { items: vec![Item { text: "Stopped from Codealong (your phone)".into(), ..stopped(8) }], before: None, after: 0 };
+        let theirs: codealong_peer::api::Page = serde_json::from_value(serde_json::to_value(&page).unwrap()).unwrap();
+        assert!(theirs.items[0].stop);
         assert_eq!(serde_json::to_value(&theirs).unwrap(), serde_json::to_value(&page).unwrap());
     }
 

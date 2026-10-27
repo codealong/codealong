@@ -1,9 +1,8 @@
 // Checks Stop in the reply box (SessionReply.tsx), in the bar's peek: a session whose turn can be
 // stopped shows Stop in the box's corner while the box is empty, Send once something's typed,
-// and its placeholder says Escape stops it; Escape in the box asks for session_cancel once and
-// doesn't close the peek, the button says Stopping and the box says what happened; another
-// Escape meanwhile asks nothing more and closes the peek as usual, as ⌘. asks nothing more; and
-// the button goes once the session's turn has ended.
+// and its placeholder says ⌘. stops it; Escape in the box stops nothing and closes the peek as
+// usual; the button asks for session_cancel once, says Stopping, and the box says what happened;
+// ⌘. meanwhile asks nothing more; and the button goes once the session's turn has ended.
 //   PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/stop-check.js
 (function () {
   // This runs before the app's script: pick a session to peek at, and have it working with a
@@ -42,7 +41,7 @@
     try {
       await until(stopButton, 20000);
       check('shows Stop in the box', stopButton().getAttribute('aria-label') === 'Stop' && !sendButton());
-      check('its placeholder says Escape stops it', /esc stops its turn$/.test(box().getAttribute('aria-placeholder')), box().getAttribute('aria-placeholder'));
+      check('its placeholder says ⌘. stops it', /⌘\. stops its turn$/.test(box().getAttribute('aria-placeholder')), box().getAttribute('aria-placeholder'));
       type(box(), 'and then');
       await wait(50);
       check('turns to Send once something is typed', !stopButton() && sendButton() && !sendButton().disabled);
@@ -53,17 +52,18 @@
       var hidden = hides();
       escape();
       await wait(50);
+      check('Escape in the box stops nothing', cancels().length === 0, JSON.stringify(cancels().map(function (c) { return c[1]; })));
+      check('and closes the peek as usual', hides() === hidden + 1, String(hides() - hidden));
+      stopButton().click();
+      await wait(50);
       var asked = cancels();
-      check('Escape in the box stops it', asked.length === 1 && asked[0][1].key === key, JSON.stringify(asked.map(function (c) { return c[1]; })));
-      check('and leaves the peek open', hides() === hidden, String(hides() - hidden));
+      check('the button stops it', asked.length === 1 && asked[0][1].key === key, JSON.stringify(asked.map(function (c) { return c[1]; })));
       check('says Stopping', stopButton() && stopButton().getAttribute('aria-label') === 'Stopping' && stopButton().disabled);
       await until(function () { return noteText().indexOf('Stopped') === 0; }, 5000);
       check('says what happened', true);
-      escape();
       cmdDot();
       await wait(50);
       check('asks once while stopping', cancels().length === 1, String(cancels().length));
-      check('Escape then closes the peek as usual', hides() === hidden + 1, String(hides() - hidden));
       // The turn ends: the next board has it idle.
       turn = { status: 'idle', live: true, stoppable: false };
       var next = await window.__TAURI_INTERNALS__.invoke('get_board');

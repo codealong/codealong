@@ -6,7 +6,7 @@ use std::path::Path;
 use serde_json::Value;
 
 use super::rollout::{file_path_of, is_turn_event, prose_of};
-use crate::transcript::{clip_input, clip_output, item, kept_whole, text_of, Image, Item, Page, IMAGES};
+use crate::transcript::{clip_input, clip_output, item, kept_whole, stopped, text_of, Image, Item, Page, IMAGES};
 use crate::util::{code, one_line, without_cd};
 
 /// One rollout line as conversation items (transcript.rs): prompts and replies, and completed
@@ -22,7 +22,7 @@ pub fn conversation_items(v: &Value, at: i64) -> Vec<Item> {
     }
     let Some(p) = (v.get("type").and_then(Value::as_str) == Some("event_msg")).then(|| v.get("payload")).flatten() else { return Vec::new() };
     match p.get("type").and_then(Value::as_str) {
-        Some("turn_aborted") => vec![item(at, "note", "The turn was stopped")],
+        Some("turn_aborted") => vec![stopped(at)],
         Some("item_completed") => {
             let Some(it) = p.get("item") else { return Vec::new() };
             let at = p.get("completed_at_ms").and_then(Value::as_i64).unwrap_or(at);

@@ -242,6 +242,15 @@ Escape would: Escape pressed in its Ghostty, iTerm2, Rex or tmux tab for Claude 
 Stop for its threads, and OpenCode's service for OpenCode. Claude app sessions, Terminal tabs and
 Antigravity can't be stopped from Codealong.
 
+The conversation marks where a turn was stopped, in amber under the call it cut short: "The turn
+was stopped", or, when Codealong stopped it, who asked: "Stopped from Codealong (a window on this
+Mac)", "(your phone)", "(“Kestrel lead”, with the codealong command)". A move and Mark as done
+stopping it first, Send now on a message Claude Code holds (which stops the step it's on) and a
+call denied say so too. Each of those is written to `~/Library/Logs/Codealong/stops.log` (on
+Linux, `~/.local/state/codealong/stops.log`): when, what, the session, who asked and how it went.
+A stop with no line there came from somewhere else: a key in its terminal, or Claude Code's Remote
+Control.
+
 #### Seen and unread
 
 Mark a finished turn seen, which makes it idle and takes it off the floating bar, with ⌘E (`e`
@@ -769,9 +778,11 @@ buttons' tooltips have them.
 
 The box's send button sits inside it, at its corner, and its placeholder says how a message gets
 there: typed into its Ghostty, iTerm2, Terminal, Rex or tmux tab, pasted into its background job, as a
-message from Codealong, or through its app. While a turn runs that Codealong can stop, Escape in the
-box stops it, as it does in Claude Code and Codex (⌘. anywhere in the window too), and so does the
-button while the box is empty; it says Stopping until the turn has ended. While a turn runs, ⏎ sends
+message from Codealong, or through its app. While a turn runs that Codealong can stop, the button
+stops it while the box is empty, and so does ⌘. anywhere in the window, as the placeholder says; it
+says Stopping until the turn has ended. Escape in the box never stops a turn: it only leaves the box,
+as it does everywhere else (closing the peek, giving Sessions' list its keys back), since an Escape
+meant for that used to cut a running command short. While a turn runs, ⏎ sends
 as the session's own box would (Claude Code takes it in once its current step ends, the Codex app
 into the turn, or queued to start once it ends when Codex is set to queue follow-ups, and OpenCode
 after the turn), and Send now (the bolt beside Send, or ⌃⏎ as in Claude Code) sends it

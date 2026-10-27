@@ -757,7 +757,7 @@ fn turn_step(v: &Value) -> Option<Option<i64>> {
             let content = v.pointer("/message/content");
             let items = content.and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
             let mut texts = content.and_then(Value::as_str).into_iter().chain(items.iter().filter_map(|i| i.get("text")?.as_str()));
-            if texts.any(|t| t.starts_with("[Request interrupted")) {
+            if texts.any(|t| t.starts_with(INTERRUPTED)) {
                 Some(None)
             } else if items.iter().any(|i| i.get("type").and_then(Value::as_str) == Some("tool_result")) {
                 at().map(Some)
@@ -1034,6 +1034,10 @@ fn turn_took(queue: &mut Vec<QueuedMessage>, at: i64, typed: Option<&str>, deque
 const PASTE_OPEN: &str = "<pasted_content id=\"";
 const PASTE_CLOSE: &str = "</pasted_content id=\"";
 
+/// How the line Claude Code writes as a turn is stopped starts: `[Request interrupted by user]`
+/// in a reply, `… for tool use]` after the call it cut short.
+pub(super) const INTERRUPTED: &str = "[Request interrupted";
+
 /// What a prompt says, or None for a line of Claude Code's own rather than words of yours: empty,
 /// tagged (a command's output, a notification) or an interruption. A paste is yours, so its tags
 /// come off instead, and what was pasted stays where it was, even when it starts with a tag. A
@@ -1043,7 +1047,7 @@ pub(super) fn prompt_words(text: &str) -> Option<String> {
     if let Some(comment) = comment_in(t) {
         return (!comment.is_empty()).then_some(comment);
     }
-    if t.is_empty() || (t.starts_with('<') && !t.starts_with(PASTE_OPEN)) || t.starts_with("[Request interrupted") {
+    if t.is_empty() || (t.starts_with('<') && !t.starts_with(PASTE_OPEN)) || t.starts_with(INTERRUPTED) {
         return None;
     }
     let words = unwrap_pastes(t);

@@ -32,6 +32,15 @@
   border-radius: var(--radius-pill);
   background: var(--neutral-tint);
 }
+/* Where the turn was stopped, and by whom when Codealong did it: a stop nobody meant otherwise
+   showed only as the call it cut short, marked failed. */
+.ca-thread-note.is-stop {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--attn);
+  background: var(--attn-tint);
+}
 .ca-thread-said {
   display: grid;
   gap: var(--space-1);
