@@ -1,10 +1,10 @@
 // The sidebar: what the window shows and what narrows it. The view, the devices, how recently
 // things were active, their statuses, what else the view narrows by (`SideFacetChips`: agents,
-// repos, labels, authors) and views you saved, above Settings. How Sessions, PRs and Todo are sorted, and how
-// much a row says, is the bar over the list (ListBar.tsx `ListTools`). Devices, statuses and
-// facets toggle, any number of each: none picked shows all. Collapsed,
-// as it starts, it's a rail of the views and devices, whose filter button carries a badge while a
-// filter narrows the view. The project stays in the switcher at top left.
+// repos, labels, authors) and views you saved, above Settings and the link to Codealong on GitHub.
+// How Sessions, PRs and Todo are sorted, and how much a row says, is the bar over the list
+// (ListBar.tsx `ListTools`). Devices, statuses and facets toggle, any number of each: none picked
+// shows all. Collapsed, as it starts, it's a rail of the views and devices, whose filter button
+// carries a badge while a filter narrows the view. The project stays in the switcher at top left.
 
 import { Fragment, useState, type CSSProperties, type ReactNode } from 'react';
 import type { FacetId, FacetOption } from '../boardLists';
@@ -111,7 +111,9 @@ interface SidebarProps {
   /** The filters narrowing the view (age, statuses, facets), for the rail's badge and tooltip. */
   filters: string[];
   onSettings: () => void;
-  /** Settings and the theme switch, at the foot of the open sidebar. */
+  /** Opens Codealong's repo on GitHub, from the foot of the sidebar or the rail. */
+  onGitHub: () => void;
+  /** Settings, the GitHub link and the theme switch, at the foot of the open sidebar. */
   foot: ReactNode;
   /** This Mac's board hasn't been read yet: no counts show, since they'd be other devices' alone. */
   loading: boolean;
@@ -385,6 +387,7 @@ function Rail(p: SidebarProps) {
       <RailButton icon="filter" label={filtered ? `Filtered: ${p.filters.join(', ')}. Show the sidebar` : 'Filters: show the sidebar'} active={filtered} badge={p.filters.length} tone="ink" onClick={p.onExpand} />
       <span className="ca-rail-fill" />
       <SidebarUpdate compact />
+      <RailButton icon="brand-github" label="Codealong on GitHub" onClick={p.onGitHub} />
       <RailButton icon="settings" label={keysIn('Settings (⌘,)')} onClick={p.onSettings} />
     </nav>
   );

@@ -102,7 +102,7 @@ import { Toasts, useToasts } from './ui/Toasts';
 import { ageListingChain, ageListingPr, chainOf, currentProject, FACET_WORD, facetsIn, facetsOn, laneInQuery, onlyPick, prInDone, prInFilter, prInQuery, projectOfCard, revealing, unarchived, scheduleSessions, schedulesIn, sessionInFacets, sessionInFilter, sessionInQuery, sessionItemOf, sessionItemsOf, showingHelper, todoInQuery, togglePick, toggleShown, useBoardLists, projectsOf, type Facets } from './boardLists';
 import { inProject, QUICK_PLACEHOLDER, queryWords, shortcutKeys, shortcutLabel } from './quick';
 import { findFor } from './threadFind';
-import { improveTitle } from './improve';
+import { CODEALONG_REPO, improveTitle } from './improve';
 import { setPageZoom, type ZoomStep } from './zoom';
 import { bare, keysIn } from './platform';
 
@@ -379,6 +379,8 @@ export function App() {
   useEffect(() => onUsageMenu(() => setUsageOf({ account: null })), []);
   // Help › Codealong Website opens the website in the browser.
   useEffect(() => onWebsiteMenu(() => void openUrl(WEBSITE).catch((e: unknown) => setToast(errorText(e)))), [setToast]);
+  // The sidebar's GitHub button opens Codealong's repo in the browser.
+  const openRepo = () => void openUrl(CODEALONG_REPO).catch((e: unknown) => setToast(errorText(e)));
   // The worktree whose preview URL is being set (ui/PreviewBits.tsx), by id.
   const [previewFor, setPreviewFor] = useState<string | null>(null);
   // The session being renamed (ui/RenameDialog.tsx), by key.
@@ -2264,12 +2266,16 @@ export function App() {
           onSave={(name) => keepSaved([...savedViews, { id: newSavedId(), name, ...viewNow }])}
           filters={sideFilters}
           onSettings={() => openSettings()}
+          onGitHub={openRepo}
           loading={loading}
           foot={
             <div className="ca-side-foot">
               <button type="button" className="ca-linkbtn ca-side-config" title={keysIn('Settings (⌘,)')} onClick={() => openSettings()}>
                 <Icon name="settings" size={14} />
                 <span>Settings</span>
+              </button>
+              <button type="button" className="ca-linkbtn ca-side-github" title="Codealong on GitHub" aria-label="Codealong on GitHub" onClick={openRepo}>
+                <Icon name="brand-github" size={14} />
               </button>
               <ThemeSwitch theme={theme} onPick={pickTheme} />
             </div>

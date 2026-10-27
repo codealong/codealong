@@ -50,7 +50,7 @@ export function withCodealongProject(cfg: Config, source: ImproveSource): Config
   return { ...cfg, projects: cfg.projects.map((p) => (p === have ? merged : p)) };
 }
 
-/** Where Codealong's source is published, for a clone. */
+/** Where Codealong's source is published, for a clone and the sidebar's GitHub button. */
 export const CODEALONG_REPO = 'https://github.com/codealong/codealong';
 
 /** Codealong's source among your other Macs' worktrees (the devices' lanes, each id `@<short>:…`),

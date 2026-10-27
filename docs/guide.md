@@ -1774,7 +1774,8 @@ picks shows, none picked shows all, and Clear unpicks them. Save the view as it 
 come back to it; right-click a saved view to update or delete it (they're kept per Mac, not in
 config.toml), with the agents, repos and labels picked. It starts folded to a rail of the views and
 devices, whose filter button opens it and carries a badge while a filter narrows the view; ⌃⌘S, or
-the button beside the traffic lights, opens and folds it, and it stays as you left it.
+the button beside the traffic lights, opens and folds it, and it stays as you left it. Its foot,
+open or folded, has Settings and a button that opens Codealong's repo on GitHub.
 
 ### Find in the list
 

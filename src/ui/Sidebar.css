@@ -1,5 +1,5 @@
 /* The sidebar (Sidebar.tsx): the view and what narrows it, devices, saved views, the foot with
-   Settings and the update button, and the rail it collapses to. */
+   Settings, the GitHub link and the update button, and the rail it collapses to. */
 
 .ca-side { display: flex; flex-direction: column; gap: 1px; min-height: 0; padding: var(--space-2) var(--space-2) 0; overflow: hidden; background: var(--surface-sunken); border-right: 1px solid var(--line); }
 .ca-side-label { padding: var(--space-3) 8px var(--space-1); }
@@ -33,6 +33,11 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+/* Beside Settings, the theme switch kept at the right. */
+.ca-side-github {
+  display: inline-flex;
+  margin-right: auto;
 }
 /* Restart to update: above the foot of the sidebar once a newer version is in place. */
 .ca-side-update {
