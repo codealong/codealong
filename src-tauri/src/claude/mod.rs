@@ -1172,6 +1172,7 @@ impl Reader {
     fn refresh_registry(&mut self, a: &AccountCfg, now: i64) -> bool {
         let home = a.home_path();
         let fresh = read_registry(&home);
+        applog::saw(&fresh);
         let changed = self.registry.get(&a.name) != Some(&fresh);
         self.registry.insert(a.name.clone(), fresh);
         // A new job shows in the registry as it starts, and its record says what it's a fork of.
@@ -1240,7 +1241,9 @@ impl crate::harness::Reader for Reader {
         }
         for a in accounts {
             let home = a.home_path();
-            self.registry.insert(a.name.clone(), read_registry(&home));
+            let entries = read_registry(&home);
+            applog::saw(&entries);
+            self.registry.insert(a.name.clone(), entries);
             self.forks.entry(a.name.clone()).or_default().refresh(&home, look.now);
             let files = transcript_files(&home, look.since, &look.seen.pinned_ids("claude", &a.name));
             for (path, parsed) in parallel_map(files, |(p, m)| parse_transcript(&p, m, None).map(|r| (p, r))) {

@@ -20,13 +20,20 @@
 //! Claude Code's own prompts in the app are logged the same way (Bash, AskUserQuestion). Times
 //! are the Mac's clock, to the second. At about 10 MB the log moves to `main1.log` and a new one
 //! starts; a request left open in the old one when Codealong starts isn't seen.
+//!
+//! A request whose end the log doesn't say (the app quit with it up, say) goes with the turn it
+//! was asked in. The registry says when a process started, and Codealong sees its session at
+//! rest as the turn ends; the time it last said busy won't do, since a prompt of Claude Code's own
+//! answered meanwhile moves it (`waiting`, then `busy` again) while the app's is still up.
 
 use std::collections::HashMap;
+use std::fs::File;
+use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use super::registry::RegistryEntry;
-use crate::util::{code, home, local_ms, read_tail};
+use crate::util::{code, home, local_ms};
 
 /// Where the app logs.
 pub fn path() -> PathBuf {
@@ -68,12 +75,15 @@ fn host(origin: &str) -> &str {
 /// The log as far as it's been read, and the requests it has up.
 #[derive(Default)]
 struct Log {
-    /// The file read (its inode) and how far into it.
-    read: Option<(u64, u64)>,
+    /// The log as opened, and how far into it it's been read. It's held open, so one the app
+    /// moves aside is read to its end before the new one is read from its start.
+    file: Option<(File, u64)>,
     /// Requests asked and not yet answered or withdrawn, by id.
     open: HashMap<String, Ask>,
     /// The site the lines just read named, for a browser's request that follows them.
     site: Option<String>,
+    /// By the app's id for a session, when it last came to rest, as Codealong saw it (`saw`).
+    rested: HashMap<String, i64>,
 }
 
 impl Log {
@@ -81,22 +91,23 @@ impl Log {
     /// changed.
     fn refresh(&mut self, path: &Path) -> bool {
         use std::os::unix::fs::MetadataExt;
-        let Ok(meta) = std::fs::metadata(path) else { return false };
-        // Another file is the log started again, read from its start; the requests up stay up.
-        let from = match self.read {
-            Some((ino, at)) if ino == meta.ino() && at <= meta.len() => at,
-            _ => 0,
-        };
-        if self.read == Some((meta.ino(), meta.len())) {
-            return false;
-        }
-        let Ok(tail) = read_tail(path, from) else { return false };
-        self.read = Some((meta.ino(), tail.end));
-        let mut changed = false;
-        for line in tail.text().lines() {
-            changed |= self.take(line);
+        let mut changed = self.read_on();
+        // Another file there is the log started again: the requests up stay up.
+        let there = std::fs::metadata(path).ok().map(|m| m.ino());
+        let held = self.file.as_ref().and_then(|(f, _)| f.metadata().ok()).map(|m| m.ino());
+        if there.is_some() && there != held {
+            let Ok(f) = File::open(path) else { return changed };
+            self.file = Some((f, 0));
+            changed |= self.read_on();
         }
         changed
+    }
+
+    /// Reads on in the file held open. True when the requests up changed.
+    fn read_on(&mut self) -> bool {
+        let Some((file, at)) = &mut self.file else { return false };
+        let Some(text) = whole_lines(file, at) else { return false };
+        text.lines().fold(false, |changed, line| self.take(line) | changed)
     }
 
     /// Takes in one line of the log. True when it asked or ended a request.
@@ -121,15 +132,42 @@ impl Log {
         answered.or_else(withdrawn).is_some_and(|id| self.open.remove(id).is_some())
     }
 
+    /// Takes in a registry entry as read: one of the app's sessions at rest (idle, or its turn
+    /// over with a command left in the background) has ended the turn of every request up for it.
+    fn saw(&mut self, reg: &RegistryEntry) {
+        let Some(session) = reg.host_session.as_deref().filter(|_| matches!(reg.status.as_str(), "idle" | "shell")) else { return };
+        let since = reg.status_updated_at.unwrap_or(0);
+        let rested = self.rested.entry(session.to_string()).or_insert(since);
+        *rested = (*rested).max(since);
+    }
+
     /// The latest request up for the session `reg` is the registry entry of: one of the app's
-    /// sessions that says it's busy. One asked before it said so belongs to an earlier turn and
-    /// was ended some way the log didn't say (the app quit with it up, say).
+    /// sessions that says it's busy, the request asked since its process started and since it
+    /// was last seen at rest.
     fn up_for(&self, reg: &RegistryEntry) -> Option<&Ask> {
         let session = reg.host_session.as_deref().filter(|_| reg.status == "busy")?;
+        let since = reg.started_at.unwrap_or(0).max(self.rested.get(session).copied().unwrap_or(0));
         // The log's times are to the second, the registry's to the millisecond.
-        let since = reg.status_updated_at.unwrap_or(0) - 999;
-        self.open.values().filter(|a| a.session == session && a.at >= since).max_by_key(|a| a.at)
+        self.open.values().filter(|a| a.session == session && a.at + 1000 > since).max_by_key(|a| a.at)
     }
+}
+
+/// What `file` has from `at` on, whole lines only, with `at` moved past them. A file shorter
+/// than `at` was cut short where it is, and is read from its start.
+fn whole_lines(file: &mut File, at: &mut u64) -> Option<String> {
+    let len = file.metadata().ok()?.len();
+    if len < *at {
+        *at = 0;
+    }
+    if len == *at {
+        return None;
+    }
+    file.seek(SeekFrom::Start(*at)).ok()?;
+    let mut bytes = Vec::new();
+    file.by_ref().take(len - *at).read_to_end(&mut bytes).ok()?;
+    bytes.truncate(bytes.iter().rposition(|&b| b == b'\n')? + 1);
+    *at += bytes.len() as u64;
+    Some(String::from_utf8_lossy(&bytes).into_owned())
 }
 
 /// A line's time and what it says after its level: `2026-10-27 07:20:04 [info] …`.
@@ -155,6 +193,15 @@ pub fn refresh() -> bool {
     log().get_or_insert_with(Log::default).refresh(&path())
 }
 
+/// Takes in an account's registry as read, for the app's sessions that have come to rest.
+pub fn saw(entries: &[RegistryEntry]) {
+    let mut log = log();
+    let log = log.get_or_insert_with(Log::default);
+    for r in entries.iter().filter(|r| r.host_session.is_some()) {
+        log.saw(r);
+    }
+}
+
 /// The approval the Claude app has up for a live session of its own, by its registry entry.
 pub fn up_for(reg: &RegistryEntry) -> Option<Ask> {
     if reg.host_session.is_none() || reg.status != "busy" {
@@ -166,15 +213,22 @@ pub fn up_for(reg: &RegistryEntry) -> Option<Ask> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write;
 
     const ASKED: &str = "2026-10-27 07:20:04 [info] [Preview] cat3 per-action read approval requested {\n  origin: 'https://app.northwind.dev',\n  toolName: 'read_console_messages',\n  offerAlwaysGrant: false\n}\n2026-10-27 07:20:04 [info] Emitted tool permission request a1b2-01 for browser:read_console_messages in session local_c3d4-77\n";
 
-    fn reg(status: &str, since: i64) -> RegistryEntry {
-        RegistryEntry { status: status.into(), status_updated_at: Some(since), host_session: Some("local_c3d4-77".into()), ..Default::default() }
+    /// One of the app's sessions, its process started at `started`, saying `status` since a
+    /// minute later.
+    fn reg(status: &str, started: i64) -> RegistryEntry {
+        RegistryEntry { status: status.into(), started_at: Some(started), status_updated_at: Some(started + 60_000), host_session: Some("local_c3d4-77".into()), ..Default::default() }
     }
 
     fn at(h: i64, m: i64, s: i64) -> i64 {
         local_ms(2026, 10, 27, h, m, s, 0).unwrap()
+    }
+
+    fn append(path: &Path) -> File {
+        std::fs::OpenOptions::new().append(true).open(path).unwrap()
     }
 
     #[test]
@@ -184,22 +238,17 @@ mod tests {
         std::fs::write(&path, format!("2026-10-27 07:19:58 [info] [git-worker] fetchWorkingTreeDiff timing: total=205ms\n{ASKED}")).unwrap();
         let mut log = Log::default();
         assert!(log.refresh(&path));
-        let ask = log.up_for(&reg("busy", at(7, 19, 50))).cloned().unwrap();
+        let ask = log.up_for(&reg("busy", at(7, 0, 0))).cloned().unwrap();
         assert_eq!(ask, Ask { id: "a1b2-01".into(), session: "local_c3d4-77".into(), tool: "browser:read_console_messages".into(), site: Some("https://app.northwind.dev".into()), at: at(7, 20, 4) });
         assert_eq!(ask.label(), "browser · read_console_messages · `app.northwind.dev`");
         // Nothing new: nothing read again.
         assert!(!log.refresh(&path));
-        // Asked in the second its turn began, a few hundred milliseconds before the registry's time.
-        assert!(log.up_for(&reg("busy", at(7, 20, 4) + 841)).is_some());
-        // Before this turn: an earlier turn's, ended some way the log didn't say.
-        assert!(log.up_for(&reg("busy", at(7, 20, 5))).is_none());
         // Only while it says busy: Claude Code's own prompts say waiting.
-        assert!(log.up_for(&reg("waiting", at(7, 19, 50))).is_none());
+        assert!(log.up_for(&reg("waiting", at(7, 0, 0))).is_none());
         assert!(log.up_for(&RegistryEntry { host_session: Some("local_other".into()), ..reg("busy", 0) }).is_none());
 
         // The rest of a line comes with the next write.
-        let mut f = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
-        use std::io::Write;
+        let mut f = append(&path);
         write!(f, "2026-10-27 07:21:10 [info] Received permission response for a1b2-01: once (tool: browser:read").unwrap();
         assert!(!log.refresh(&path));
         assert!(log.up_for(&reg("busy", 0)).is_some());
@@ -218,18 +267,52 @@ mod tests {
     }
 
     #[test]
-    fn reads_a_log_started_again_from_its_start() {
+    fn a_request_whose_end_went_unsaid_goes_with_its_turn() {
+        let dir = crate::fixtures::scratch("claude-applog-turns");
+        let path = dir.join("main.log");
+        std::fs::write(&path, ASKED).unwrap();
+        let mut log = Log::default();
+        log.refresh(&path);
+        // A prompt of Claude Code's own answered while the app's is up moves the time it last
+        // said busy, but not its turn.
+        let answered_since = RegistryEntry { status_updated_at: Some(at(7, 25, 0)), ..reg("busy", at(7, 0, 0)) };
+        assert!(log.up_for(&answered_since).is_some());
+        // Asked in the second its process started, a few hundred milliseconds before the
+        // registry's time.
+        assert!(log.up_for(&reg("busy", at(7, 20, 4) + 841)).is_some());
+        // A process started since: the app quit with it up.
+        assert!(log.up_for(&reg("busy", at(7, 20, 5))).is_none());
+        // Seen at rest since: its turn is over.
+        log.saw(&RegistryEntry { status_updated_at: Some(at(7, 21, 0)), ..reg("idle", at(7, 0, 0)) });
+        assert!(log.up_for(&reg("busy", at(7, 0, 0))).is_none());
+        // Its next turn's requests are up.
+        writeln!(append(&path), "2026-10-27 07:22:30 [info] Emitted tool permission request e5f6-02 for browser:screenshot in session local_c3d4-77").unwrap();
+        log.refresh(&path);
+        assert_eq!(log.up_for(&reg("busy", at(7, 0, 0))).map(|a| a.id.as_str()), Some("e5f6-02"));
+        // Waiting on a prompt isn't at rest.
+        log.saw(&RegistryEntry { status_updated_at: Some(at(7, 23, 0)), ..reg("waiting", at(7, 0, 0)) });
+        assert!(log.up_for(&reg("busy", at(7, 0, 0))).is_some());
+    }
+
+    #[test]
+    fn reads_a_log_moved_aside_to_its_end_then_the_new_one() {
         let dir = crate::fixtures::scratch("claude-applog-cut");
         let path = dir.join("main.log");
         let filler = "2026-10-27 07:00:00 [info] [process-memory] trigger=interval tree_rss_sum=2131MB\n".repeat(40);
         std::fs::write(&path, format!("{filler}{ASKED}")).unwrap();
         let mut log = Log::default();
         assert!(log.refresh(&path));
-        // The app moves the log aside and starts a new one, shorter than how far the old was read.
+        // The answer is written, then the app moves the log aside and starts a new one, all
+        // before the next read.
+        writeln!(append(&path), "2026-10-27 07:30:00 [info] Received permission response for a1b2-01: always (tool: browser:read_console_messages)").unwrap();
         std::fs::rename(&path, dir.join("main1.log")).unwrap();
-        std::fs::write(&path, "2026-10-27 07:30:00 [info] Received permission response for a1b2-01: always (tool: browser:read_console_messages)\n").unwrap();
-        assert!(log.refresh(&path), "the new log's first line was read");
-        assert!(log.up_for(&reg("busy", 0)).is_none());
+        std::fs::write(&path, "2026-10-27 07:30:01 [info] Emitted tool permission request e5f6-02 for browser:screenshot in session local_c3d4-77\n").unwrap();
+        assert!(log.refresh(&path));
+        assert_eq!(log.open.keys().collect::<Vec<_>>(), ["e5f6-02"], "the old log's answer and the new one's request");
+        // Cut short where it is, it's read from its start.
+        std::fs::write(&path, "2026-10-27 07:31:00 [info] Permission request e5f6-02 for browser:screenshot aborted\n").unwrap();
+        assert!(log.refresh(&path));
+        assert!(log.open.is_empty());
     }
 
     #[test]

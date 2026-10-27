@@ -396,7 +396,8 @@ pub fn claude_session(
         last_prompt: tr.and_then(|t| t.last_prompt.clone()),
         name: reg.and_then(|r| r.name.clone()),
         started_at: reg.and_then(|r| r.started_at).or_else(|| tr.and_then(|t| t.started_at)),
-        status_since: reg.and_then(|r| r.status_updated_at),
+        // Waiting on the app since it asked, however long the turn has run.
+        status_since: app_ask.map(|a| a.at).or_else(|| reg.and_then(|r| r.status_updated_at)),
         last_prompt_at: tr
             .and_then(|t| t.last_prompt_at)
             .or_else(|| reg.and_then(|r| r.started_at))
@@ -3582,6 +3583,7 @@ mod tests {
         let quiet = Quiet { app_ask: Some(&ask), ..Default::default() };
         let s = claude_session(&a, Some(&r), Some(&t), 0, NOW, &quiet).unwrap();
         assert_eq!((s.status, s.stalled_since), (Status::Needs, None), "waiting on you, not stuck");
+        assert_eq!(s.status_since, Some(NOW - 12 * 3_600_000), "since the app asked, not since the turn began");
         assert_eq!(s.excerpt.as_deref(), Some("browser · screenshot · `app.northwind.dev`"));
         // Asked right away, before the quiet that makes a session stuck.
         t.last_ts = NOW - 5_000;
