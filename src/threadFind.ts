@@ -53,8 +53,7 @@ export function plainOf(markdown: string): string {
 /** What an item shows, as plain text: your prompt (a command you ran with `!` as you typed it), a
  *  reply, another session's message, a note, a tool call's line. A call's output shows only once it's opened, so it isn't
  *  counted, nor is a result, which shows under its call, but for your answers to the questions a
- *  call asked, which show as a message of yours: each what you picked or wrote, as `answeredOf`
- *  (ui/QuestionList.tsx) puts it. */
+ *  call asked, which show as a message of yours (`answersShown`). */
 export function shownText(it: TranscriptItem): string {
   switch (it.kind) {
     case 'you':
@@ -72,18 +71,25 @@ export function shownText(it: TranscriptItem): string {
     case 'note':
       return it.text;
     case 'result':
-      return Object.values(it.answers ?? {})
-        .filter((a) => a.length)
-        .map((a) => plainOf(a.join(', ')))
-        .join('\n');
+      return answersShown(it).join('\n');
     default:
       return '';
   }
 }
 
-/** How many times a page's items say it. */
+/** Your answers to a call's questions as they show (ui/SessionThread.tsx `YourAnswers`): each
+ *  what you picked or wrote, as `answeredOf` (ui/QuestionList.tsx) puts it, with a code span's
+ *  marks left out as `Rich` draws it and nothing else. */
+function answersShown(it: TranscriptItem): string[] {
+  return Object.values(it.answers ?? {})
+    .filter((a) => a.length)
+    .map((a) => a.join(', ').replace(/`/g, ''));
+}
+
+/** How many times a page's items say it. Your answers to questions are each laid out apart, so a
+ *  match never runs from one into the next. */
 export function pageHits(pattern: RegExp, items: TranscriptItem[]): number {
-  return items.reduce((n, it) => n + countIn(pattern, shownText(it)), 0);
+  return items.reduce((n, it) => n + (it.kind === 'result' ? answersShown(it) : [shownText(it)]).reduce((m, text) => m + countIn(pattern, text), 0), 0);
 }
 
 /** Pages read back from the conversation's start in view, as a chain: from `before` (where what's

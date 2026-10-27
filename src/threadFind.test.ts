@@ -52,6 +52,8 @@ describe('shownText', () => {
     expect(shownText(item('result', '', { output: 'all passed' }))).toBe('');
     // Your answers to questions show as a message of yours.
     expect(shownText(item('result', '', { output: 'Your questions have been answered', answers: { 'Which limit?': ['`100` days'], 'Which days?': ['Mon', 'Tue'] } }))).toBe('100 days\nMon, Tue');
+    // Drawn as written but for a code span's marks: no emphasis is read in them.
+    expect(shownText(item('result', '', { answers: { 'Which files?': ['*.ts and __init__.py'] } }))).toBe('*.ts and __init__.py');
     const sent = { files: ['/tmp/shots/before.png', '/tmp/shots/after.png'], caption: 'Before and after' };
     expect(shownText(item('tool', 'SendUserFile · `before.png` and 1 more', { sent }))).toBe('SendUserFile · before.png and 1 more\nBefore and after\nbefore.png\nafter.png');
   });
@@ -66,6 +68,12 @@ describe('shownText', () => {
     const p = findPattern('passed')!;
     expect(pageHits(p, [item('tool', 'Bash · `npm test`', { output: 'all passed' }), item('result', '', { output: 'passed' })])).toBe(0);
     expect(pageHits(p, [item('agent', 'It passed, and passed again.'), item('you', 'passed?')])).toBe(3);
+  });
+
+  it('counts your answers to questions each apart, as they’re laid out', () => {
+    const answers = item('result', '', { answers: { 'Which colour?': ['Red'], 'Which size?': ['Large'] } });
+    expect(pageHits(findPattern('red')!, [answers])).toBe(1);
+    expect(pageHits(findPattern('red large')!, [answers])).toBe(0);
   });
 });
 
