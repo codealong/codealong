@@ -205,6 +205,10 @@ pub struct Session {
     /// it's listed in another checkout than its folder's, whose branch those name (board.rs
     /// `compose`): its lane's is the one.
     pub branch: Option<String>,
+    /// That branch where `branch` is None for it: its folder's, whose PR it may have worked on
+    /// before it moved (board.rs `pr_item`). The UI goes by its lane's.
+    #[serde(skip)]
+    pub folder_branch: Option<String>,
     /// Archived: from Codealong, in Codex, in OpenCode, or in the Claude app. Kept last in its
     /// lane and left out of the lane's status.
     pub archived: bool,
@@ -547,6 +551,7 @@ impl Session {
             headline: String::new(),
             detail: None,
             branch: None,
+            folder_branch: None,
             archived: false,
             attach_command: None,
             remote_control: None,

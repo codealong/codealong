@@ -1139,8 +1139,9 @@ fn pr_item(lanes: &[Lane], owners: &HashMap<&Path, &[String]>, slug: &str, (proj
     if by_branch {
         // Sessions in their own lanes first, then ones that came to a worktree on the branch.
         let own = here.iter().filter(|l| holds_head(l)).flat_map(|&l| {
-            // One that works here from another folder has no branch of its own (`compose`).
-            let on_branch = move |s: &Session| s.branch.as_deref().or(l.branch.as_deref()) == Some(head);
+            // One that works here from another folder goes by this worktree's branch, and by its
+            // folder's, where it may have worked on the PR before it came (`compose`).
+            let on_branch = move |s: &Session| s.branch.as_deref().or(l.branch.as_deref()) == Some(head) || s.folder_branch.as_deref() == Some(head);
             l.sessions.iter().filter(move |s| s.visitor.is_none() && on_branch(s) && during(s)).map(move |s| (l, s))
         });
         let guests = here.iter().filter(|l| l.branch.as_deref() == Some(head) && holds_head(l)).flat_map(|&l| {
@@ -2131,7 +2132,7 @@ pub fn compose(inp: Inputs) -> Board {
             // worktree with `cd`) records its folder's branch, not the one it works on, so it goes
             // by its lane's, as whatever reads a session's branch does when there's none.
             if index.best(Path::new(&s.cwd)) != Some(i) {
-                s.branch = None;
+                s.folder_branch = s.branch.take();
             }
             by_lane[i].push(s);
         }
@@ -3242,6 +3243,32 @@ mod tests {
         let branch = |key: &str| board.lanes.iter().flat_map(|l| &l.sessions).find(|x| x.key == key).unwrap().branch.clone();
         assert_eq!(branch(&s.key), None);
         assert_eq!(branch(&Session::key_for(Harness::Claude, "claude2", "e")).as_deref(), Some("photos"));
+    }
+
+    #[test]
+    fn a_session_that_moved_to_a_worktree_keeps_the_pr_of_its_folders_branch() {
+        let apps = AppNames::default();
+        let mut wt = seed("/r/spark-portal", "portal");
+        wt.repo_slug = Some("sprucehq/spark".into());
+        let mut checkout = seed("/r/spark", "photos");
+        checkout.repo_slug = Some("sprucehq/spark".into());
+        checkout.default_branch = Some("main".into());
+        let seeds = vec![checkout, wt];
+        // It worked on the photos PR in the checkout, then went on in the portal worktree.
+        let mut s = claude_session(&acct("claude2"), Some(&reg("idle", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
+        s.cwd = "/r/spark".into();
+        s.branch = Some("photos".into());
+        s.work = vec!["/r/spark-portal".into(); 5];
+        let mut photos = pr(PrState::Open, 0);
+        (photos.number, photos.url, photos.head_ref) = (1038, "https://github.com/sprucehq/spark/pull/1038".into(), "photos".into());
+        let prs = HashMap::from([("sprucehq/spark".to_string(), vec![pr(PrState::Open, 0), photos])]);
+        let (git, visitors) = (HashMap::new(), HashMap::new());
+        let order = vec!["Spruce".to_string()];
+        let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![s.clone()], visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new(), review_snoozes: &[], session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default() });
+        let linked = |number: u64| board.prs.iter().find(|p| p.number == number).unwrap().sessions.iter().map(|x| x.key.clone()).collect::<Vec<_>>();
+        assert_eq!((linked(1037), linked(1038)), (vec![s.key.clone()], vec![s.key.clone()]));
+        let listed = board.lanes.iter().find(|l| l.path == "/r/spark-portal").unwrap();
+        assert_eq!(listed.sessions[0].branch, None);
     }
 
     #[test]
