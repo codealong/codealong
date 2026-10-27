@@ -101,7 +101,7 @@ const SCRIPTS: &[(&str, u64)] = &[
     ("TERMINAL_CLOSE+TAB_ON", 0x395c0be9fa50e975),
     ("REX_LIST", 0x748adcebc363a3fa),
     ("REX_NEW", 0x88cef4d3b9428eb1),
-    ("REX_SHOW", 0x7927f5650b28826e),
+    ("REX_SHOW", 0x745acad78b776075),
     ("REX_WRITE", 0x1141908aae8d52fa),
     ("REX_CLOSE", 0x14410192a422cbfb),
 ];
@@ -1472,8 +1472,8 @@ mod tests {
     /// second session's has focus in its active window, and the last one's program ended.
     const REX_BLOCKS: &str = r#"[{"session":"session:s1","window":"window:w1","block":"block:b1","pid":700002,"cwd":"/r/app","title":"✳ Fix the login","focused":false},{"session":"session:s2","window":"window:w2","block":"block:b2","pid":700012,"cwd":"/r/other","title":"zsh","focused":true},{"session":"session:s2","window":"window:w3","block":"block:b3","pid":0,"cwd":"","title":"","focused":false}]"#;
     const REX_OPEN: &str = r#"/usr/bin/open ["-b", "com.superlogical.rex"] (10s)"#;
-    const REX_SHOWN: &str = r#"{"apps":1,"refused":""}"#;
-    const REX_REFUSED: &str = r#"{"apps":0,"refused":"stream response \"control-7\" failed: Rex.app is not accepting actions. Turn on Remote Control in its Settings under Rex Server. (status=403 code=refused)"}"#;
+    const REX_SHOWN: &str = r#"{"apps":1,"shown":1,"refused":"","failed":""}"#;
+    const REX_REFUSED: &str = r#"{"apps":1,"shown":0,"refused":"stream response \"control-7\" failed: Rex.app is not accepting actions. Turn on Remote Control in its Settings under Rex Server. (status=403 code=refused)","failed":""}"#;
 
     /// What a Lua script was run with, as the log has it.
     fn rex(script: &str, args: &str, start: bool) -> String {
@@ -1534,6 +1534,14 @@ mod tests {
         p.got.unwrap();
         assert!(p.log[1].contains(r#"\"session\":\"\""#));
 
+        // Rex takes labels of up to 128 characters: longer ones are cut.
+        let long = "x".repeat(200);
+        let place = Placement { new_terminal: NewTerminal::Window, near: &[], behind: true, label: Some(&long) };
+        let p = played(rex_answers(REX_SHOWN), move || terminal_run("rex", place, &Path::new("/r").join("y".repeat(200)), "ls\n", &[]));
+        p.got.unwrap();
+        let cut = |c: &str| format!("{}…", c.repeat(127));
+        assert!(p.log[0].contains(&format!(r#"\"label\":\"{}\""#, cut("x"))) && p.log[0].contains(&format!(r#"\"session_label\":\"{}\""#, cut("y"))), "{}", p.log[0]);
+
         // Its app not taking actions doesn't make the start a failure: it started.
         let p = played(rex_answers(REX_REFUSED), || terminal_run("rex", window(), Path::new("/r/app"), "ls\n", &[]));
         p.got.unwrap();
@@ -1564,13 +1572,20 @@ mod tests {
         let answer = move |s: &Sent| {
             if s.args.get(3).is_some_and(|a| a == "REX_SHOW") {
                 shows.set(shows.get() + 1);
-                return Ok(if shows.get() == 1 { r#"{"apps":0,"refused":""}"# } else { REX_SHOWN }.to_string());
+                return Ok(if shows.get() == 1 { r#"{"apps":0,"shown":0,"refused":"","failed":""}"# } else { REX_SHOWN }.to_string());
             }
             rex_answers(REX_SHOWN)(s)
         };
         let p = played(answer, || terminal_focus_session("ghostty", IN_REX, "Fix the login", Path::new("/r/app")));
         assert!(p.got.unwrap());
         assert_eq!(p.log[1..], [show("block:b1", "session:s1", "window:w1"), REX_OPEN.to_string(), show("block:b1", "session:s1", "window:w1")]);
+        // None connects in time, or its app fails some other way than refusing: said as it is.
+        let p = played(rex_answers(r#"{"apps":0,"shown":0,"refused":"","failed":""}"#), || terminal_focus_session("ghostty", IN_REX, "Fix the login", Path::new("/r/app")));
+        assert_eq!(err(p.got), "Rex opened, but it didn't connect to its server in time to show this session's tab.");
+        assert_eq!(p.log[1..4], [show("block:b1", "session:s1", "window:w1"), REX_OPEN.to_string(), show("block:b1", "session:s1", "window:w1")]);
+        let p = played(rex_answers(r#"{"apps":1,"shown":0,"refused":"","failed":"client.perform timed out after 10s"}"#), || terminal_focus_session("ghostty", IN_REX, "Fix the login", Path::new("/r/app")));
+        assert_eq!(err(p.got), "Rex is in front, but it didn't go to this session's tab: client.perform timed out after 10s");
+        assert_eq!(p.log.len(), 3, "a connected app isn't asked again");
 
         // No block on its TTY (an empty list comes back as `{}`), or the server not running.
         let p = played(|_| Ok("{}\n".into()), || terminal_focus_session("ghostty", IN_REX, "Fix the login", Path::new("/r/app")));

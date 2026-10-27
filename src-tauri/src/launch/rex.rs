@@ -23,7 +23,7 @@ use serde_json::{json, Value};
 use super::{app_active, app_installed, close_tty_terminals, focus_on_tty, launcher, pasted, placement, tty_of, type_on_tty, Closing, HostKind, Key, Placement, Submit, Tab, Terminal, TerminalHost, Typed};
 use crate::os::open::{self, App};
 use crate::procs;
-use crate::util::home;
+use crate::util::{home, truncate};
 
 const APP: &str = "Rex";
 const BUNDLE: &str = "com.superlogical.rex";
@@ -35,8 +35,12 @@ const APPS: [&str; 2] = ["Rex Beta.app", "Rex.app"];
 /// session waits up to 10 s for its answer.
 const TIMEOUT: Duration = Duration::from_secs(30);
 
-/// How long the app gets to connect to its server once Codealong opened it (`show`).
-const APP_WAIT: Duration = Duration::from_secs(10);
+/// How long the app gets to connect to its server once Codealong opened it (`show`); a moment
+/// on the test stage.
+const APP_WAIT: Duration = if cfg!(test) { Duration::from_secs(1) } else { Duration::from_secs(10) };
+
+/// The longest label Rex takes for a session or a window.
+const LABEL_CHARS: usize = 128;
 
 /// What Rex says when its app won't take an action, the way Codealong says it.
 const NO_REMOTE_CONTROL: &str = "Rex is in front, but it goes to this session's tab only with Remote Control on (Rex › Settings › Rex Server).";
@@ -176,22 +180,30 @@ return { session = a.session, window = made.window_id, block = made.block_ids[1]
 "#;
 
 /// `{session, window, block}`: focuses the block, which makes its window the session's active
-/// one, then asks each Rex app on this Mac to show that session. Returns `{apps, refused}`: how
-/// many showed it, and what one that wouldn't said.
+/// one, then asks each Rex app on this Mac to show that session. Returns `{apps, shown, refused,
+/// failed}`: how many apps there are and how many showed it, and what one said that refused
+/// (Remote Control off) or failed otherwise.
 const SHOW: &str = r#"
 local a = rex.args
 rex.session.attach{ session_id = a.session }
 local _, err = rex.session.focus_block{ session_id = a.session, block_id = a.block }
 if err then error(err, 0) end
-local apps, refused = 0, ""
+local apps, shown, refused, failed = 0, 0, "", ""
 local clients = rex.call("client.list") or {}
 for _, c in ipairs(clients.clients or {}) do
   if c.info and c.info.kind == "app" and c.principal and c.principal.transport == "unix" then
+    apps = apps + 1
     local _, e = rex.call("client.perform", { client_id = c.client_id, action = "session.select", args = { session_id = a.session, window_id = a.window } })
-    if e then refused = e else apps = apps + 1 end
+    if not e then
+      shown = shown + 1
+    elseif string.find(e, "code=refused", 1, true) then
+      refused = e
+    else
+      failed = e
+    end
   end
 end
-return { apps = apps, refused = refused }
+return { apps = apps, shown = shown, refused = refused, failed = failed }
 "#;
 
 /// `{session, block, text, after}`: types `text` into the block as if typed, then `after` a
@@ -307,9 +319,9 @@ fn open_in(place: Placement, dir: &Path, input: &str, env: &[(String, String)]) 
     });
     let session = beside.lines().find_map(|tty| listed.iter().find(|b| b.tty == tty)).map_or("", |b| b.session.as_str());
     let named = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| dir.to_string_lossy().into_owned());
-    let mut args = json!({ "cwd": dir.to_string_lossy(), "input": input, "session": session, "session_label": named, "focus": !place.behind });
+    let mut args = json!({ "cwd": dir.to_string_lossy(), "input": input, "session": session, "session_label": truncate(&named, LABEL_CHARS), "focus": !place.behind });
     if let Some(label) = place.label.filter(|l| !l.is_empty()) {
-        args["label"] = json!(label);
+        args["label"] = json!(truncate(label, LABEL_CHARS));
     }
     let script_path = if env.is_empty() { None } else { Some(launcher(dir, env)?) };
     if let Some(path) = &script_path {
@@ -336,30 +348,34 @@ fn open_in(place: Placement, dir: &Path, input: &str, env: &[(String, String)]) 
 /// forward, opening it when it isn't. The block gets focus in its session either way; the app goes
 /// to the session only with Remote Control on.
 fn show(ids: Value) -> Result<()> {
-    let mut shown = Shown::of(script(SHOW, ids.clone(), false)?);
+    let ask = || -> Result<Shown> { Ok(serde_json::from_value(script(SHOW, ids.clone(), false)?).unwrap_or_default()) };
+    let mut shown = ask()?;
     open::in_app(App::Id(BUNDLE), None, Duration::from_secs(10))?;
     // No app was connected: the one just opened is, once it has started.
     let started = std::time::Instant::now();
-    while shown.apps == 0 && shown.refused.is_empty() && started.elapsed() < APP_WAIT {
+    while shown.apps == 0 && started.elapsed() < APP_WAIT {
         std::thread::sleep(Duration::from_millis(500));
-        shown = Shown::of(script(SHOW, ids.clone(), false)?);
+        shown = ask()?;
     }
-    if shown.apps == 0 && !shown.refused.is_empty() {
-        bail!(NO_REMOTE_CONTROL);
+    if shown.shown > 0 {
+        Ok(())
+    } else if shown.apps == 0 {
+        bail!("Rex opened, but it didn't connect to its server in time to show this session's tab.")
+    } else if !shown.refused.is_empty() {
+        bail!(NO_REMOTE_CONTROL)
+    } else {
+        bail!("Rex is in front, but it didn't go to this session's tab: {}", shown.failed)
     }
-    Ok(())
 }
 
 /// What SHOW answered.
+#[derive(Default, Deserialize)]
+#[serde(default)]
 struct Shown {
     apps: u64,
+    shown: u64,
     refused: String,
-}
-
-impl Shown {
-    fn of(v: Value) -> Shown {
-        Shown { apps: v.get("apps").and_then(Value::as_u64).unwrap_or(0), refused: v.get("refused").and_then(Value::as_str).unwrap_or_default().to_string() }
-    }
+    failed: String,
 }
 
 /// Types `text` into the block on `tty` as a paste, then sends it with `submit`. `Ok(false)` when
