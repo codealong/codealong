@@ -63,8 +63,8 @@ export const SESSION_SORTS: { id: SessionSort; label: string; icon: string; titl
 export type StartedPlace = 'apart' | 'under';
 
 export const STARTED_PLACES: { id: StartedPlace; label: string; icon: string; title: string }[] = [
-  { id: 'apart', label: 'On their own', icon: 'layout-rows', title: 'Started sessions on their own: a session another session’s agent started is listed as any other' },
-  { id: 'under', label: 'Under their session', icon: 'subtask', title: 'Started sessions under their session: a session another session’s agent started (codealong start, a task the Claude app offered) is listed under that session, as its helpers are' },
+  { id: 'apart', label: 'On their own', icon: 'list', title: 'Started sessions on their own: a session another session’s agent started is listed as any other' },
+  { id: 'under', label: 'Under their session', icon: 'list-tree', title: 'Started sessions under their session: a session another session’s agent started (codealong start, a task the Claude app offered) is listed under that session, as its helpers are' },
 ];
 
 /** How much each session's row says: where it runs, its todo and its account on a second line,
