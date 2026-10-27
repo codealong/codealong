@@ -91,10 +91,12 @@ impl Log {
     /// changed.
     fn refresh(&mut self, path: &Path) -> bool {
         use std::os::unix::fs::MetadataExt;
-        let mut changed = self.read_on();
-        // Another file there is the log started again: the requests up stay up.
+        // Another file there is the log started again: the requests up stay up. Looked for
+        // before the one held is read on, so all the app wrote there before moving it aside is
+        // read; one moved aside after the look is read to its end at the next.
         let there = std::fs::metadata(path).ok().map(|m| m.ino());
         let held = self.file.as_ref().and_then(|(f, _)| f.metadata().ok()).map(|m| m.ino());
+        let mut changed = self.read_on();
         if there.is_some() && there != held {
             let Ok(f) = File::open(path) else { return changed };
             self.file = Some((f, 0));
