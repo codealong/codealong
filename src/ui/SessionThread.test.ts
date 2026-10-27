@@ -7,7 +7,7 @@ const step = (kind: TranscriptItem['kind'], more: Partial<TranscriptItem> = {}):
 const call = (id: string, text = 'Bash · `ls`') => step('tool', { id, text });
 
 /** Each row as a word: a line by its call's id (or its kind), a fold by how many calls it holds. */
-const shape = (items: TranscriptItem[]) => rowsOf(items).map((r) => (r.kind === 'tools' ? r.calls.length : (r.item.id ?? r.item.kind)));
+const shape = (items: TranscriptItem[]) => rowsOf(items).map((r) => (r.kind === 'tools' ? r.calls.length : r.kind === 'answers' ? r.result.id : (r.item.id ?? r.item.kind)));
 
 describe('rowsOf', () => {
   it('joins results to their calls and folds runs of three or more', () => {
@@ -33,6 +33,22 @@ describe('rowsOf', () => {
     expect(shape(items)).toEqual([3, 'send', 3]);
   });
 
+  it('keeps a call that asked you questions out of a fold, and shows your answers where you gave them', () => {
+    const questions = [{ question: 'Which limit?', header: 'Limit', options: [{ label: '100 days' }, { label: '45 days' }] }];
+    const ask = step('tool', { id: 'q', text: 'AskUserQuestion', questions });
+    const answers = { 'Which limit?': ['100 days'] };
+    const items = [call('a'), call('b'), call('c'), ask, step('result', { id: 'q', answers }), call('d'), call('e'), call('f')];
+    expect(shape(items)).toEqual([3, 'q', 'q', 3]);
+    const [, line, answered] = rowsOf(items);
+    expect(line.kind === 'item' && line.result?.answers).toEqual(answers);
+    expect(answered.kind === 'answers' && answered.questions).toEqual(questions);
+    // Declined, the result has no answers: nothing of yours shows, and the call says it failed.
+    expect(shape([ask, step('result', { id: 'q', failed: true, output: 'The user doesn’t want to proceed' }), step('agent')])).toEqual(['q', 'agent']);
+    // Answers whose call is on a page not read yet show all the same, by their questions' words.
+    const alone = rowsOf([step('result', { id: 'q', answers }), step('agent')])[0];
+    expect(alone.kind === 'answers' && alone.questions).toEqual([]);
+  });
+
   it('joins what a command you ran with ! printed to it, between the calls around it', () => {
     const ran = step('you', { id: 'b1', text: '! ls', input: 'ls', shell: true });
     const items = [call('a'), call('b'), call('c'), ran, step('result', { id: 'b1', output: 'a.txt' }), step('agent')];
@@ -53,6 +69,12 @@ describe('headingsOf', () => {
   it('heads the reply to a prompt once, the calls between its messages being its own', () => {
     const items = [step('you', { at: MIN }), step('agent', { at: 2 * MIN }), call('a'), step('result', { id: 'a', at: 3 * MIN }), step('agent', { at: 4 * MIN }), call('b'), step('agent', { at: 5 * MIN }), step('you', { at: 6 * MIN }), step('agent', { at: 7 * MIN })];
     expect(heads(items)).toEqual(['YOU', 'AGENT', 'agent', 'agent', 'YOU', 'AGENT']);
+  });
+
+  it('heads your answers to its questions as yours, and the reply after them as its', () => {
+    const items = [step('you', { at: MIN }), step('agent', { at: 2 * MIN }), call('q'), step('result', { id: 'q', at: 4 * MIN, answers: { 'Which limit?': ['100 days'] } }), step('agent', { at: 5 * MIN }), call('a'), step('result', { id: 'a', at: 6 * MIN }), step('agent', { at: 7 * MIN })];
+    const { headed } = headingsOf(items);
+    expect(items.map((it) => headed.get(`${it.cursor}:${it.n}`))).toEqual([MIN, 2 * MIN, undefined, 4 * MIN, 5 * MIN, undefined, undefined, undefined]);
   });
 
   it('heads each message from another session with whose it is, and the reply after it', () => {

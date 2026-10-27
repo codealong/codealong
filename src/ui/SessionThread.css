@@ -89,6 +89,26 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+/* Your answers to questions the agent asked you (SessionThread.tsx `YourAnswers`): a line each,
+   the questions' headers in a column of their own and what you answered beside them, wrapping
+   there. A question with no header says its words on a line of its own above its answer. */
+.ca-thread-answers {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: var(--space-1) var(--space-2);
+}
+.ca-thread-answered {
+  display: contents;
+}
+.ca-thread-asked.is-question {
+  grid-column: 1 / -1;
+  color: var(--ink-3);
+  font: var(--type-meta);
+}
+.ca-thread-asked.is-question + .ca-thread-answer {
+  grid-column: 1 / -1;
+}
 /* Your prompt behind what's in view, pinned over the top of it once it's gone off (SessionThread.tsx).
    The holder takes no room, the flex gap after it included, and sticks to the top edge itself
    rather than below the thread's padding. */

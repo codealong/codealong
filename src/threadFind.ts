@@ -52,7 +52,9 @@ export function plainOf(markdown: string): string {
 
 /** What an item shows, as plain text: your prompt (a command you ran with `!` as you typed it), a
  *  reply, another session's message, a note, a tool call's line. A call's output shows only once it's opened, so it isn't
- *  counted, nor is a result, which shows under its call. */
+ *  counted, nor is a result, which shows under its call, but for your answers to the questions a
+ *  call asked, which show as a message of yours: each what you picked or wrote, as `answeredOf`
+ *  (ui/QuestionList.tsx) puts it. */
 export function shownText(it: TranscriptItem): string {
   switch (it.kind) {
     case 'you':
@@ -69,6 +71,11 @@ export function shownText(it: TranscriptItem): string {
       return [it.text.replace(/`/g, ''), it.sent?.caption, ...(it.sent?.files ?? []).map((f) => f.slice(f.lastIndexOf('/') + 1) || f)].filter(Boolean).join('\n');
     case 'note':
       return it.text;
+    case 'result':
+      return Object.values(it.answers ?? {})
+        .filter((a) => a.length)
+        .map((a) => plainOf(a.join(', ')))
+        .join('\n');
     default:
       return '';
   }

@@ -15,8 +15,10 @@
 // A tool call is a line; click it for its input and output. A run of calls folds into one line
 // that keeps its latest call in view. Questions it asks you (Claude Code's AskUserQuestion) open
 // as questions with their choices rather than the call's input, marked with your picks once
-// they're answered. A call that made a page on the web (an artifact Claude Code published) says
-// so under its line, as a link to it, and stays out of a fold; web links in a tool's output open
+// they're answered, and stay out of a fold: what you answer steers the work as a prompt does, so
+// your answers show where you gave them as a message of yours, each by its question's header,
+// heading the agent's reply again after them. A call that made a page on the web (an artifact
+// Claude Code published) says so under its line, as a link to it, and stays out of a fold; web links in a tool's output open
 // too. A call that sent you files (Claude Code's SendUserFile) lists them under its line with what
 // it said of them, each opening on a click (Markdown.tsx `FileLink`), and stays out of a fold too.
 //
@@ -66,9 +68,9 @@ import { selectedForMenu, type MenuSpec } from '../contextMenu';
 import { CodeBlock } from './CopyButton';
 import { DescriptionView, ImagesFrom } from './DescriptionEditor';
 import { FileLink, FollowUpContext, Link, linked, Markdown } from './Markdown';
-import { cx, Icon, Rich, StatusGlyph } from './primitives';
+import { Chip, cx, Icon, Rich, StatusGlyph } from './primitives';
 import { waitsInBackground } from '../lanes';
-import { QuestionList } from './QuestionList';
+import { answeredOf, QuestionList } from './QuestionList';
 import { RunContext, type RunPlace } from './RunButton';
 import { useReloads } from '../reload';
 import { errorText } from '../report';
@@ -93,20 +95,27 @@ const PAUSE = 10 * 60_000;
 /** What ⌘F searches: your prompts, the replies (another session's message among them, which
  *  reads as one), notes, the calls' lines, a call's input and output once it's open, the commands
  *  you ran with what they printed, the page a call made, and the files a call sent you, by what
- *  it said of them and their names. */
-const FIND_IN = '.ca-thread-you, .ca-thread-agent, .ca-thread-note, .ca-thread-toollabel, .ca-thread-tooldetail, .ca-thread-ran, .ca-thread-madetitle, .ca-thread-sentcaption, .ca-thread-sent .ca-md-file-name';
+ *  it said of them and their names. Of your answers to questions, what you answered: a question's
+ *  header beside it would run into it. */
+const FIND_IN = '.ca-thread-you:not(.ca-thread-answers), .ca-thread-answer, .ca-thread-agent, .ca-thread-note, .ca-thread-toollabel, .ca-thread-tooldetail, .ca-thread-ran, .ca-thread-madetitle, .ca-thread-sentcaption, .ca-thread-sent .ca-md-file-name';
 
 type Row =
   | { kind: 'item'; item: TranscriptItem; result?: TranscriptItem }
-  | { kind: 'tools'; calls: { item: TranscriptItem; result?: TranscriptItem }[] };
+  | { kind: 'tools'; calls: { item: TranscriptItem; result?: TranscriptItem }[] }
+  /** Your answers to the questions a call asked you, on its result. */
+  | { kind: 'answers'; result: TranscriptItem; questions: Question[] };
 
 const keyOf = (it: TranscriptItem) => `${it.cursor}:${it.n}`;
 
+/** A call's result that has your answers to the questions it asked. */
+const hasAnswers = (it: TranscriptItem) => it.kind === 'result' && Object.keys(it.answers ?? {}).length > 0;
+
 /** The items as rows: results joined to their calls, and to commands you ran in the session's
- *  shell, runs of calls folded. */
+ *  shell, runs of calls folded, and your answers to questions where you gave them. */
 export function rowsOf(items: TranscriptItem[]): Row[] {
   const results = new Map<string, TranscriptItem>();
   for (const it of items) if (it.kind === 'result' && it.id) results.set(it.id, it);
+  const asked = new Map<string, Question[]>();
   const rows: Row[] = [];
   let run: { item: TranscriptItem; result?: TranscriptItem }[] = [];
   const flush = () => {
@@ -115,12 +124,19 @@ export function rowsOf(items: TranscriptItem[]): Row[] {
     run = [];
   };
   for (const it of items) {
-    if (it.kind === 'result') continue;
+    if (it.kind === 'result') {
+      if (hasAnswers(it)) {
+        flush();
+        rows.push({ kind: 'answers', result: it, questions: (it.id && asked.get(it.id)) || [] });
+      }
+      continue;
+    }
     if (it.kind === 'tool') {
       const call = { item: it, result: it.id ? results.get(it.id) : undefined };
-      // A call that made a page, or sent you files, is one to open: the calls around it fold, and
-      // it stays in view.
-      if (it.link || call.result?.link || it.sent) {
+      if (it.id && it.questions?.length) asked.set(it.id, it.questions);
+      // A call that made a page, or sent you files, is one to open, and questions it asked you
+      // are what your answers below them answer: the calls around it fold, and it stays in view.
+      if (it.link || call.result?.link || it.sent || it.questions?.length) {
         flush();
         rows.push({ kind: 'item', ...call });
       } else run.push(call);
@@ -166,7 +182,8 @@ export function editablePrompts(items: TranscriptItem[], fromStart: boolean): Se
  *  spoke last, for one streaming in after them. A note between two messages (a message held for
  *  you to allow, the conversation compacted) starts afresh, and a prompt the session took back
  *  always heads itself, to say so, as another session's message does, to say whose: the next may
- *  be another's. The agent's tool calls are its own, so they don't. A message its record gave no
+ *  be another's. The agent's tool calls are its own, so they don't; your answers to questions it
+ *  asked you are yours, as a prompt is. A message its record gave no
  *  time (the replies in Cursor's command line transcript, whose prompts alone say when) says the
  *  last time said before it, when its turn began, and none when nothing above it on the page
  *  said one. */
@@ -174,10 +191,11 @@ export function headingsOf(items: TranscriptItem[]): { headed: Map<string, numbe
   const headed = new Map<string, number>();
   const last: Speaker = { kind: null, at: 0 };
   for (const it of items) {
-    if (it.kind === 'you' || it.kind === 'agent' || it.kind === 'codealong' || it.kind === 'peer') {
-      if (heads(last, it.kind, it.at) || it.withdrawn || it.kind === 'peer') headed.set(keyOf(it), it.at > 0 ? it.at : last.at);
-      last.kind = it.kind;
-    } else if (it.kind === 'note') last.kind = null;
+    const kind = hasAnswers(it) ? 'you' : it.kind;
+    if (kind === 'you' || kind === 'agent' || kind === 'codealong' || kind === 'peer') {
+      if (heads(last, kind, it.at) || it.withdrawn || kind === 'peer') headed.set(keyOf(it), it.at > 0 ? it.at : last.at);
+      last.kind = kind;
+    } else if (kind === 'note') last.kind = null;
     if (it.at > 0) last.at = it.at;
   }
   return { headed, last };
@@ -373,9 +391,12 @@ function ToolRun({ calls, stateOf, onOpen }: { calls: { item: TranscriptItem; re
  *  again, and what it printed (`result`). A right-click gives `onMenu` Copy for what you'd
  *  selected and Copy message for the message as it was written, markdown and all, which marks
  *  the message for a moment once it's copied, and for a prompt of yours that can be gone back to,
- *  Edit from here… (`onEdit`). A command has its own Copy. */
-function Said({ item, result, now, label, head, onPutBack, onMenu, onEdit }: { item: TranscriptItem; result?: TranscriptItem; now: number; label: ReactNode; head?: number; onPutBack?: () => void; onMenu?: (items: MenuSpec) => void; onEdit?: () => void }) {
+ *  Edit from here… (`onEdit`). A command has its own Copy. Your answers to questions (`asked`,
+ *  with `item` the call's result) are a message of yours too. */
+function Said({ item, result, asked, now, label, head, onPutBack, onMenu, onEdit }: { item: TranscriptItem; result?: TranscriptItem; asked?: Question[]; now: number; label: ReactNode; head?: number; onPutBack?: () => void; onMenu?: (items: MenuSpec) => void; onEdit?: () => void }) {
   const ran = item.kind === 'you' && item.input != null;
+  const answers = item.kind === 'result' ? answeredOf(asked ?? [], item.answers ?? {}) : null;
+  const words = answers ? answers.map((a) => `${a.header ?? a.question}: ${a.answer}`).join('\n') : item.text;
   // Copying it went wrong: said under it for a moment, where it was asked for.
   const [unCopied, setUnCopied] = useState(false);
   useEffect(() => {
@@ -394,14 +415,14 @@ function Said({ item, result, now, label, head, onPutBack, onMenu, onEdit }: { i
     const selected = selectedForMenu();
     const items: MenuSpec = [];
     if (selected) items.push({ label: 'Copy', accelerator: 'Cmd+C', run: () => copy(selected, false) });
-    if (item.text.trim() && !ran) items.push({ label: 'Copy message', run: () => copy(item.text, true) });
+    if (words.trim() && !ran) items.push({ label: 'Copy message', run: () => copy(words, true) });
     if (onEdit) items.push('separator', { label: 'Edit from here…', run: onEdit });
     if (items.length === 0) return;
     e.preventDefault();
     onMenu(items);
   };
   return (
-    <div className={cx('ca-thread-said', `is-${item.kind}`, item.withdrawn && 'is-withdrawn')} data-prompt={item.kind === 'you' ? keyOf(item) : undefined} onContextMenu={menu}>
+    <div className={cx('ca-thread-said', answers ? 'is-you' : `is-${item.kind}`, item.withdrawn && 'is-withdrawn')} data-prompt={item.kind === 'you' ? keyOf(item) : undefined} onContextMenu={menu}>
       {head !== undefined && (
         <div className="ca-thread-meta">
           <span>{label}</span>
@@ -422,6 +443,8 @@ function Said({ item, result, now, label, head, onPutBack, onMenu, onEdit }: { i
             </CodeBlock>
           )}
         </div>
+      ) : answers ? (
+        <YourAnswers answers={answers} />
       ) : item.kind === 'you' ? (
         <>
           <YourText text={item.text} />
@@ -503,6 +526,31 @@ function YourText({ text }: { text: string }) {
   return (
     <div className="ca-thread-you">
       <DescriptionView text={text} />
+    </div>
+  );
+}
+
+/** Your answers to questions the agent asked you, as you'd have said them: a line each, its
+ *  question's header (the whole question on hover), else its words, then what you picked or wrote. */
+function YourAnswers({ answers }: { answers: ReturnType<typeof answeredOf> }) {
+  return (
+    <div className="ca-thread-you ca-thread-answers">
+      {answers.map((a) => (
+        <div key={a.question} className="ca-thread-answered">
+          {a.header ? (
+            <Chip className="ca-thread-asked" title={a.question}>
+              {a.header}
+            </Chip>
+          ) : (
+            <span className="ca-thread-asked is-question">
+              <Rich text={a.question} now={0} />
+            </span>
+          )}
+          <span className="ca-thread-answer">
+            <Rich text={a.answer} now={0} />
+          </span>
+        </div>
+      ))}
     </div>
   );
 }
@@ -1100,6 +1148,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
               {loaded && before != null && <div className="ca-thread-start">Loading earlier…</div>}
               {rows.map((r) => {
                 if (r.kind === 'tools') return <ToolRun key={keyOf(r.calls[0].item)} calls={r.calls} stateOf={stateOf} onOpen={askHere} />;
+                if (r.kind === 'answers') return <Said key={keyOf(r.result)} item={r.result} asked={r.questions} now={now} label="You" head={headings.headed.get(keyOf(r.result))} onMenu={onMenu} />;
                 const it = r.item;
                 if (it.kind === 'tool') return <ToolLine key={keyOf(it)} item={it} result={r.result} state={stateOf(it)} onOpen={askHere} />;
                 if (it.kind === 'note') {

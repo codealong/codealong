@@ -50,6 +50,8 @@ describe('shownText', () => {
     expect(shownText(item('codealong', 'On your PR #7: **ken** approved it.'))).toBe('On your PR #7: ken approved it.');
     expect(shownText(item('peer', 'Which test fails?\n\n- The **parser**’s'))).toBe('Which test fails?\n\n- The parser’s');
     expect(shownText(item('result', '', { output: 'all passed' }))).toBe('');
+    // Your answers to questions show as a message of yours.
+    expect(shownText(item('result', '', { output: 'Your questions have been answered', answers: { 'Which limit?': ['`100` days'], 'Which days?': ['Mon', 'Tue'] } }))).toBe('100 days\nMon, Tue');
     const sent = { files: ['/tmp/shots/before.png', '/tmp/shots/after.png'], caption: 'Before and after' };
     expect(shownText(item('tool', 'SendUserFile · `before.png` and 1 more', { sent }))).toBe('SendUserFile · before.png and 1 more\nBefore and after\nbefore.png\nafter.png');
   });

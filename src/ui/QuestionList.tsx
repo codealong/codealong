@@ -1,7 +1,8 @@
 // Questions a session asks you (Claude Code's AskUserQuestion), laid out to read: each with its
 // choices, numbered as Claude Code's own prompt numbers them, and, once answered, what you picked.
 // The conversation shows a question call this way in place of its input, and the reply area does
-// while the questions can only be answered where the session runs.
+// while the questions can only be answered where the session runs. Your answers also show in the
+// conversation as a message of yours (`answeredOf`).
 
 import type { Question } from '../types';
 import { Chip, cx, Icon, Rich } from './primitives';
@@ -28,6 +29,19 @@ export function picksOf(q: Question, given: string[] | undefined): { picked: Set
     if (rest) own.push(rest);
   }
   return { picked, own };
+}
+
+/** Your answers to a call's questions as the conversation shows them, a message of yours: in the
+ *  order it asked them, each by its header where it has one, with what you picked or wrote. An
+ *  answer to a question the call doesn't list (its call is on a page not read yet) comes last, by
+ *  its question's words; a question you left unanswered isn't there. */
+export function answeredOf(questions: Question[], answers: Record<string, string[]>): { question: string; header?: string; answer: string }[] {
+  const asked = new Set(questions.map((q) => q.question));
+  const listed = questions.filter((q) => answers[q.question]?.length).map((q) => ({ question: q.question, header: q.header, answer: answers[q.question].join(', ') }));
+  const rest = Object.entries(answers)
+    .filter(([q, a]) => !asked.has(q) && a.length)
+    .map(([question, a]) => ({ question, answer: a.join(', ') }));
+  return [...listed, ...rest];
 }
 
 /** Where the box that answers several questions, one at a time, goes on to from the one it

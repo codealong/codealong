@@ -453,7 +453,11 @@ place. A long one shows its first ten lines, fading out, until Show all (Show le
 and shows whole while ⌘F finds something in it. A device whose build is from before gets the note
 it showed, the message's first line under who it's from; so does the phone, as a note. An artifact Claude Code published shows under its call as its title, a link that opens it,
 with what the call did (Published · version 3), and stays out of a fold; web links in a tool's
-output open too. Files Claude Code sent you (its SendUserFile tool, which the Claude app and your
+output open too. Questions a Claude Code session asked you (its AskUserQuestion) stay out of a fold
+too, as a line that opens to each question with its choices, your picks marked; your answers show
+under it, where you gave them, as a message of yours: a line for each question, by its header (the
+whole question on hover), with what you picked or wrote. The agent's reply after them heads itself
+again, and ⌘F finds what you answered. Files Claude Code sent you (its SendUserFile tool, which the Claude app and your
 phone show as cards) are listed under their call, each by its name and folder, with what the agent
 said of them, and the call stays out of a fold. Click one to open it in the app that opens its
 kind, as a double-click in the Finder would; an app, a script or a program is shown in the Finder
