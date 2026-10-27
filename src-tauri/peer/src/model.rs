@@ -201,7 +201,9 @@ pub struct Session {
     /// This session's own one sentence, for rows in the agent bays.
     pub headline: String,
     pub detail: Option<String>,
-    /// The branch it worked on: Claude's latest `gitBranch`, Codex's thread metadata.
+    /// The branch it worked on: Claude's latest `gitBranch`, Codex's thread metadata. None where
+    /// it's listed in another checkout than its folder's, whose branch those name (board.rs
+    /// `compose`): its lane's is the one.
     pub branch: Option<String>,
     /// Archived: from Codealong, in Codex, in OpenCode, or in the Claude app. Kept last in its
     /// lane and left out of the lane's status.

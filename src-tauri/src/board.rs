@@ -1139,10 +1139,8 @@ fn pr_item(lanes: &[Lane], owners: &HashMap<&Path, &[String]>, slug: &str, (proj
     if by_branch {
         // Sessions in their own lanes first, then ones that came to a worktree on the branch.
         let own = here.iter().filter(|l| holds_head(l)).flat_map(|&l| {
-            // A session that works here from another folder records that folder's branch,
-            // so it goes by this worktree's.
-            let here_branch = move |s: &Session| s.branch.is_none() || !Path::new(&s.cwd).starts_with(&l.id);
-            let on_branch = move |s: &Session| s.branch.as_deref() == Some(head) || (here_branch(s) && l.branch.as_deref() == Some(head));
+            // One that works here from another folder has no branch of its own (`compose`).
+            let on_branch = move |s: &Session| s.branch.as_deref().or(l.branch.as_deref()) == Some(head);
             l.sessions.iter().filter(move |s| s.visitor.is_none() && on_branch(s) && during(s)).map(move |s| (l, s))
         });
         let guests = here.iter().filter(|l| l.branch.as_deref() == Some(head) && holds_head(l)).flat_map(|&l| {
@@ -2127,8 +2125,14 @@ pub fn compose(inp: Inputs) -> Board {
     let index = SeedIndex::new(seeds);
     // The processes of the sessions running now, whose locks on their worktrees hold.
     let live_pids: HashSet<u32> = sessions.iter().filter(|s| s.live).filter_map(|s| s.pid).collect();
-    for s in sessions {
+    for mut s in sessions {
         if let Some(i) = session_seed(seeds, &index, &s) {
+            // A session listed in another checkout than its folder's (an agent that went into a
+            // worktree with `cd`) records its folder's branch, not the one it works on, so it goes
+            // by its lane's, as whatever reads a session's branch does when there's none.
+            if index.best(Path::new(&s.cwd)) != Some(i) {
+                s.branch = None;
+            }
             by_lane[i].push(s);
         }
     }
@@ -3205,6 +3209,9 @@ mod tests {
         s.cwd = "/r/spark".into();
         s.branch = Some("main".into());
         s.work = vec!["/r/spark-portal".into(); 5];
+        // Started in the worktree itself, on the branch it had before.
+        let mut earlier = s.clone();
+        (earlier.id, earlier.key, earlier.cwd, earlier.branch) = ("e".into(), Session::key_for(Harness::Claude, "claude2", "e"), "/r/spark-portal".into(), Some("photos".into()));
         let prs = HashMap::from([("sprucehq/spark".to_string(), vec![pr(PrState::Open, 0)])]);
         let (git, visitors) = (HashMap::new(), HashMap::new());
         let order = vec!["Spruce".to_string()];
@@ -3212,7 +3219,7 @@ mod tests {
             now: NOW,
             apps: &apps,
             seeds: &seeds,
-            sessions: vec![s.clone()],
+            sessions: vec![s.clone(), earlier],
             visitors: &visitors,
             git: &git,
             prs: &prs,
@@ -3229,7 +3236,12 @@ mod tests {
             review_snoozes: &[],
             session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default(),
         });
-        assert_eq!(board.prs[0].sessions, vec![PrSession { key: s.key, lane: "/r/spark-portal".into(), pushes: 0 }]);
+        assert_eq!(board.prs[0].sessions, vec![PrSession { key: s.key.clone(), lane: "/r/spark-portal".into(), pushes: 0 }]);
+        // Main was the checkout's branch, not one it worked on: the windows show the worktree's,
+        // and its PR in the session's header.
+        let branch = |key: &str| board.lanes.iter().flat_map(|l| &l.sessions).find(|x| x.key == key).unwrap().branch.clone();
+        assert_eq!(branch(&s.key), None);
+        assert_eq!(branch(&Session::key_for(Harness::Claude, "claude2", "e")).as_deref(), Some("photos"));
     }
 
     #[test]
