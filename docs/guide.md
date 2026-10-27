@@ -3215,9 +3215,13 @@ Lists every Ghostty, iTerm2, Terminal and Rex tab (or split) that nothing was ty
 day or more (12 hours to a week, you choose), whatever runs in it, the longest unused first: a
 shell, a session, or another program. It goes by the tab's terminal device, which is touched as you
 type there and as anything prints, so a working agent or a server printing its log stays fresh and
-an agent at rest doesn't. A tab that sat that long opened at least that long ago; a terminal that
-reopens its tabs as it starts (Ghostty restoring its windows) starts their shells anew, so they
-count from then. tmux's own panes, and terminals Codealong doesn't script, aren't listed.
+an agent at rest doesn't. Opening the lid or changing screens redraws every tab at once, which
+touches every device too; Codealong looks at them as it runs, and a touch that many quiet tabs
+took within seconds of one another doesn't count as use, so a tab keeps the use it had before.
+A tab that sat that long opened at least that long ago, and one Codealong saw only redrawn since
+it opened counts from then; a terminal that reopens its tabs as it starts (Ghostty restoring its
+windows) starts their shells anew, so they count from then. tmux's own panes, and terminals
+Codealong doesn't script, aren't listed.
 
 The ones whose closing loses nothing start ticked: a shell at its prompt with nothing running, and
 a tab whose sessions Close idle sessions would close and that runs nothing else. A tab that runs

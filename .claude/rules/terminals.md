@@ -263,6 +263,11 @@ say the rest.
   (2026-10-15): the run is started once its wrapper has noted itself, whatever the script said,
   and keeps its folder, which the wrapper needs to note the end and to close the tab: `terminal.rs`
   (`start`). With the folder removed, that tab waited for Return for good.
+- A redraw touches every tab's terminal device at once: the lid opened at 09:10:00 (`pmset -g
+  log`), and twenty Ghostty tabs at their prompts had both their device's access and modification
+  times moved between 09:10:05 and 09:10:07 (2026-10-27), as each window was resized and its shell
+  redrew its prompt and read again. A device keeps only its last time, so what a tab was used for
+  before is gone from it; Close stale terminals keeps it itself (stale.rs `Uses`).
 - macOS's `/bin/sh` runs as the shell `/private/var/select/sh` names (`bash` here), and that's the
   name the kernel gives the process (`ps -o ucomm`), not `sh`.
 - An agent's sandbox may keep its command from looking at your processes or signalling them (a

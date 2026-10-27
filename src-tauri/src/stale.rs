@@ -13,9 +13,14 @@
 //! used last when its device was: the kernel moves a terminal device's access time as what's
 //! typed there is read, and its modification time as anything is printed, so a working agent or
 //! a server printing its log keeps its tab fresh, and an agent at rest or a shell at its prompt
-//! doesn't. A tab that's sat that long opened at least that long ago, so the wait is its age
-//! too; a terminal that reopens its tabs as it starts (Ghostty restoring its windows) starts
-//! their shells anew.
+//! doesn't. But a redraw touches every tab at once: opening the lid or changing screens resizes
+//! every window, and each shell redraws its prompt and reads again, so on a laptop every tab
+//! looked used each morning. The engine looks at the devices every tick (`Uses`), and a move
+//! that many tabs quiet a while made within seconds of one another is a redraw, not use: what
+//! it saw used before stands. A tab that's sat that long opened at least that long ago, so the
+//! wait is its age too, and one no look saw used since a redraw counts from its opening; a
+//! terminal that reopens its tabs as it starts (Ghostty restoring its windows) starts their
+//! shells anew.
 //!
 //! A stale tab is ticked to close when closing it loses nothing: its shell at its prompt with no
 //! jobs, or sessions Close idle sessions would close (`idle::verdict`) and nothing else. One that
@@ -52,7 +57,7 @@ pub struct Tab {
     pub procs: Vec<(u32, u32, String)>,
     pub cwd: String,
     pub opened: i64,
-    /// When something was last typed or printed in it.
+    /// When something was last typed or printed in it, a redraw of every tab not counted.
     pub used: i64,
 }
 
@@ -222,9 +227,132 @@ fn takes_tabs_of(t: &dyn crate::launch::Terminal) -> bool {
     t.closes_tabs() && t.profile().is_some()
 }
 
-/// The tabs on this Mac now: one `ps`, and the kernel asked about each tab's shell and device.
+/// Whether any terminal here has tabs to list, so the engine's looks (`Uses`) are worth taking.
+pub fn lists_tabs() -> bool {
+    crate::launch::terminals().iter().any(|t| takes_tabs_of(*t))
+}
+
+/// How many tabs moving together make a redraw, how close together, and how long each must
+/// have sat still before. A redraw moves every tab within a few seconds; you type in one tab at a
+/// time, and the working agents that print together printed a moment before too.
+const REDRAW_TABS: usize = 3;
+const REDRAW_WITHIN_MS: i64 = 10_000;
+const QUIET_MS: i64 = 10 * 60_000;
+/// How often the engine writes what it saw when nothing was redrawn: no more than a look
+/// might change, and no less than `QUIET_MS`, so what moved since the file was written and
+/// moves on after a restart counts as moving on, not as sitting still.
+const SAVE_EVERY_MS: i64 = 5 * 60_000;
+
+/// When each terminal device was last used, as the engine's looks saw it (`on_look`, each
+/// tick's process listing): its time but for a redraw, which leaves the use before it standing.
+/// Written to terminal-use.json, which outlives a restart, and read by the plan, which takes
+/// a look of its own over it. Only a cache: one that doesn't read starts over.
+#[derive(Serialize, Deserialize, Debug, Default)]
+pub struct Uses {
+    /// By device (`ttys004`). A device a new tab takes keeps its record, which its tab's
+    /// opening comes after.
+    seen: BTreeMap<String, Seen>,
+    #[serde(skip)]
+    saved_at: i64,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+struct Seen {
+    /// The device's time at the last look.
+    at: i64,
+    /// When it was used last; 0 when no look saw it used, only redrawn, so its tab counts
+    /// from its opening.
+    used: i64,
+}
+
+impl Uses {
+    fn path() -> std::path::PathBuf {
+        crate::config::support_dir().join("terminal-use.json")
+    }
+
+    pub fn load() -> Uses {
+        crate::store::read_or_default(&Self::path())
+    }
+
+    pub fn save(&mut self, now: i64) {
+        self.saved_at = now;
+        let _ = crate::store::save(&Self::path(), self);
+    }
+
+    /// A look at every device's time `now`: whether to write the file now, because a redraw
+    /// was seen, or because something moved and the file is older than `SAVE_EVERY_MS`.
+    ///
+    /// A device's move is a redraw when `REDRAW_TABS` or more devices that sat still for
+    /// `QUIET_MS` before it moved within `REDRAW_WITHIN_MS` of one another. A device no look saw
+    /// before (Codealong just started, or its tab is new) has only its time, which counts when
+    /// it's `QUIET_MS` old; when that's a redraw's, no look saw the device used.
+    pub fn on_look(&mut self, now: i64, devices: &[(String, i64)]) -> bool {
+        let quiet: Vec<(&str, i64)> = devices
+            .iter()
+            .filter(|(tty, at)| match self.seen.get(tty) {
+                Some(s) => *at > s.at && *at - s.at >= QUIET_MS,
+                None => now - *at >= QUIET_MS,
+            })
+            .map(|(tty, at)| (tty.as_str(), *at))
+            .collect();
+        // A look can come partway through a redraw: what's left of it joins what a look before saw.
+        let redrawn = moved_together(quiet, self.seen.values().filter(|s| s.used != s.at).map(|s| s.at));
+        let mut changed = devices.len() != self.seen.len();
+        let mut seen = BTreeMap::new();
+        for (tty, at) in devices {
+            let before = self.seen.get(tty);
+            let used = match before {
+                Some(s) if *at <= s.at => s.used,
+                Some(s) if redrawn.contains(tty.as_str()) => s.used,
+                None if redrawn.contains(tty.as_str()) => 0,
+                _ => *at,
+            };
+            let now_seen = Seen { at: *at, used };
+            changed |= before != Some(&now_seen);
+            seen.insert(tty.clone(), now_seen);
+        }
+        self.seen = seen;
+        !redrawn.is_empty() || (changed && now - self.saved_at >= SAVE_EVERY_MS)
+    }
+
+    /// When `tty` was used last, as the last look saw it; 0 when no look saw it used.
+    fn used(&self, tty: &str) -> i64 {
+        self.seen.get(tty).map_or(0, |s| s.used)
+    }
+}
+
+/// The devices of `moved` that moved together: `REDRAW_TABS` or more within `REDRAW_WITHIN_MS`
+/// of the first of them, counting the moves of a redraw seen before (`redrawn`).
+fn moved_together<'a>(moved: Vec<(&'a str, i64)>, redrawn: impl Iterator<Item = i64>) -> std::collections::HashSet<&'a str> {
+    let mut all: Vec<(Option<&str>, i64)> = moved.into_iter().map(|(tty, at)| (Some(tty), at)).chain(redrawn.map(|at| (None, at))).collect();
+    all.sort_by_key(|m| m.1);
+    let mut out = std::collections::HashSet::new();
+    let mut from = 0;
+    for to in 1..=all.len() {
+        if to == all.len() || all[to].1 - all[from].1 > REDRAW_WITHIN_MS {
+            if to - from >= REDRAW_TABS {
+                out.extend(all[from..to].iter().filter_map(|m| m.0));
+            }
+            from = to;
+        }
+    }
+    out
+}
+
+/// The time of each terminal device a process in `lines` is on: when it was last read from or
+/// written to.
+pub fn device_times(lines: &[PsLine]) -> Vec<(String, i64)> {
+    let ttys: std::collections::BTreeSet<&str> = lines.iter().map(|l| l.tty.as_str()).filter(|t| !matches!(*t, "??" | "?" | "-" | "")).collect();
+    ttys.into_iter().filter_map(|tty| Some((tty.to_string(), last_used(&Path::new("/dev").join(tty))?))).collect()
+}
+
+/// The tabs on this Mac now: one `ps`, and the kernel asked about each tab's shell and device,
+/// with what the engine's looks saw of them before (`Uses`).
 pub fn tabs_now() -> Vec<Tab> {
     let listed = crate::procs::list(Duration::from_secs(10));
+    // Not written: the engine keeps the file, and this look sees no more than its next will.
+    let mut uses = Uses::load();
+    uses.on_look(crate::util::now_ms(), &device_times(&listed.lines));
     let terminal = |pid: u32| crate::launch::terminal_kind(pid).filter(|t| takes_tabs_of(*t)).map(|t| t.name());
     let shells: Vec<String> = std::fs::read_to_string("/etc/shells")
         .unwrap_or_default()
@@ -237,11 +365,10 @@ pub fn tabs_now() -> Vec<Tab> {
         .collect();
     let mut out = Vec::new();
     for found in tabs_in(&listed.lines, terminal, |name| shells.iter().any(|s| s == name), crate::procs::foreground_group) {
-        let device = Path::new("/dev").join(&found.tty);
         let opened = crate::procs::proc_start_ms(found.shell).unwrap_or(listed.at);
         out.push(Tab {
             cwd: crate::procs::cwd_of(found.shell).map(|p| p.to_string_lossy().into_owned()).unwrap_or_default(),
-            used: last_used(&device).unwrap_or(opened).max(opened),
+            used: uses.used(&found.tty).max(opened),
             opened,
             ..found
         });
@@ -454,6 +581,77 @@ mod tests {
         assert_eq!(row("ttys008:82"), (Shows::Session, "Session beside", false, "/work/northwind · unused 3 days · also runs `vim notes.md`"));
         assert_eq!(row("ttys009:92"), (Shows::Program, "python3 -m http.server", false, "/work/northwind · unused 3 days · closing ends it and 1 more"));
         assert_eq!(row("ttys010:102"), (Shows::Session, "Session nested", false, "/work/northwind · unused 3 days · also runs `vim notes.md`"));
+    }
+
+    fn look(uses: &mut Uses, now: i64, devices: &[(&str, i64)]) -> bool {
+        uses.on_look(now, &devices.iter().map(|(tty, at)| (tty.to_string(), *at)).collect::<Vec<_>>())
+    }
+
+    #[test]
+    fn a_redraw_of_every_tab_is_not_use() {
+        let hour = 3_600_000;
+        let mut uses = Uses::default();
+        // Monday: shells used at their own times, an agent printing as the look comes.
+        let monday = [("ttys001", NOW - 50 * hour), ("ttys002", NOW - 40 * hour), ("ttys003", NOW - 30 * hour), ("ttys004", NOW - 20 * hour), ("ttys005", NOW - 12 * hour - 5_000)];
+        look(&mut uses, NOW - 12 * hour, &monday);
+        assert_eq!(uses.used("ttys001"), NOW - 50 * hour);
+        // The lid opens: every shell redraws within seconds, and so does the agent, which then
+        // works on, printing; one shell is typed in a minute later.
+        let wake = NOW - 2 * hour;
+        let opened = [("ttys001", wake + 100), ("ttys002", wake + 900), ("ttys003", wake + 2_500), ("ttys004", wake + 60_000), ("ttys005", wake + 1_200)];
+        assert!(look(&mut uses, wake + 70_000, &opened), "a redraw is written at once");
+        assert_eq!(uses.used("ttys001"), NOW - 50 * hour);
+        assert_eq!(uses.used("ttys003"), NOW - 30 * hour);
+        assert_eq!(uses.used("ttys004"), wake + 60_000, "a tab typed in alone is used");
+        let working = [("ttys001", wake + 100), ("ttys002", wake + 900), ("ttys003", wake + 2_500), ("ttys004", wake + 60_000), ("ttys005", wake + 75_000)];
+        look(&mut uses, wake + 80_000, &working);
+        assert_eq!(uses.used("ttys005"), wake + 75_000, "the agent printing on is used");
+        // Nothing moved: what was seen stands; a tab closed is forgotten.
+        look(&mut uses, NOW, &working[..4]);
+        assert_eq!((uses.used("ttys002"), uses.used("ttys005")), (NOW - 40 * hour, 0));
+    }
+
+    #[test]
+    fn agents_printing_together_are_used() {
+        let mut uses = Uses::default();
+        let before: Vec<(&str, i64)> = ["ttys001", "ttys002", "ttys003", "ttys004"].into_iter().map(|t| (t, NOW - 9_000)).collect();
+        assert!(look(&mut uses, NOW - 8_000, &before), "what's new is written");
+        uses.saved_at = NOW - 8_000;
+        let after: Vec<(&str, i64)> = ["ttys001", "ttys002", "ttys003", "ttys004"].into_iter().map(|t| (t, NOW - 500)).collect();
+        assert!(!look(&mut uses, NOW, &after), "written only every few minutes");
+        assert!(after.iter().all(|(t, at)| uses.used(t) == *at));
+    }
+
+    #[test]
+    fn a_redraw_two_looks_saw_is_one() {
+        let mut uses = Uses::default();
+        let old = NOW - DAY_MS;
+        let hour = 3_600_000;
+        look(&mut uses, NOW - 60_000, &[("ttys001", old), ("ttys002", old - hour), ("ttys003", old - 2 * hour), ("ttys004", old - 3 * hour)]);
+        assert_eq!(uses.used("ttys004"), old - 3 * hour);
+        look(&mut uses, NOW - 2_000, &[("ttys001", NOW - 4_000), ("ttys002", NOW - 3_500), ("ttys003", NOW - 3_000), ("ttys004", old - 3 * hour)]);
+        look(&mut uses, NOW, &[("ttys001", NOW - 4_000), ("ttys002", NOW - 3_500), ("ttys003", NOW - 3_000), ("ttys004", NOW - 1_000)]);
+        assert_eq!((uses.used("ttys001"), uses.used("ttys004")), (old, old - 3 * hour), "the last of the redraw, after a look");
+    }
+
+    #[test]
+    fn a_first_look_counts_a_redraw_left_from_before_from_the_tabs_opening() {
+        let mut uses = Uses::default();
+        let wake = NOW - 6 * 3_600_000;
+        look(&mut uses, NOW, &[("ttys001", wake + 100), ("ttys002", wake + 2_000), ("ttys003", wake + 3_000), ("ttys004", NOW - 2 * DAY_MS), ("ttys005", NOW - 500), ("ttys006", NOW - 400), ("ttys007", NOW - 300)]);
+        assert_eq!([uses.used("ttys001"), uses.used("ttys002"), uses.used("ttys003")], [0, 0, 0]);
+        assert_eq!(uses.used("ttys004"), NOW - 2 * DAY_MS, "a tab used alone");
+        assert_eq!(uses.used("ttys006"), NOW - 400, "agents printing now");
+    }
+
+    #[test]
+    fn writes_a_change_every_few_minutes() {
+        let mut uses = Uses::default();
+        assert!(look(&mut uses, NOW, &[("ttys001", NOW - 100)]));
+        uses.saved_at = NOW;
+        assert!(!look(&mut uses, NOW + 60_000, &[("ttys001", NOW + 59_000)]));
+        assert!(!look(&mut uses, NOW + SAVE_EVERY_MS, &[("ttys001", NOW + 59_000)]), "nothing changed");
+        assert!(look(&mut uses, NOW + SAVE_EVERY_MS, &[("ttys001", NOW + SAVE_EVERY_MS - 100)]));
     }
 
     #[test]

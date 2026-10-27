@@ -1263,6 +1263,9 @@ struct Engine {
     processes_inflight: bool,
     /// When to look for sessions that wait for a tab of your terminal (`launch::show_unlocked`).
     tab_looks: launch::TabLooks,
+    /// When each terminal tab was last used, a redraw of every tab not counted, for Close stale
+    /// terminals (`stale::Uses`).
+    terminal_use: crate::stale::Uses,
     /// Each repo's team settings, `.codealong/config.toml` on its branches (teamfile.rs).
     team_files: teamfile::TeamFiles,
     /// Whether each account's provider may train on it (training.rs).
@@ -1400,6 +1403,7 @@ impl Engine {
             processes: None,
             processes_inflight: false,
             tab_looks: launch::TabLooks::default(),
+            terminal_use: crate::stale::Uses::load(),
             team_files: teamfile::TeamFiles::default(),
             training: training::TrainingPoll::default(),
             mcp: crate::mcp::McpPoll::default(),
@@ -2906,12 +2910,19 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         });
     }
 
-    /// The processes are listed: the readers look at what came or went (`Reader::processes`).
+    /// The processes are listed: the readers look at what came or went (`Reader::processes`),
+    /// and Close stale terminals at when each tab was used (`stale::Uses`).
     /// One listing that fell over lists none, which says nothing: the readers are left as they
     /// are, and the looks go on with the last that worked.
     fn on_processes(&mut self, listed: Option<procs::Listed>) {
         self.processes_inflight = false;
         let Some(listed) = listed.filter(|l| !l.lines.is_empty()) else { return };
+        if crate::stale::lists_tabs() {
+            let now = crate::util::now_ms();
+            if self.terminal_use.on_look(now, &crate::stale::device_times(&listed.lines)) {
+                self.terminal_use.save(now);
+            }
+        }
         self.processes = Some(Arc::new(listed));
         self.read_with_readers("processes", |r, accounts, look| r.processes(accounts, look));
     }
