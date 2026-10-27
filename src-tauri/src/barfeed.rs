@@ -113,6 +113,9 @@ pub struct BarItem {
     /// The lane's own entry for `open_target`, when it lists one: lanes list their first few
     /// sessions' targets only.
     pub target: Option<BarTarget>,
+    /// The terminal app it runs in (`Session::terminal`), for its words where `target` is None.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub terminal: Option<String>,
     /// When it's back, while it's snoozed.
     pub snoozed_until: Option<i64>,
     /// Quieted: its turns don't wait on you (`board::apply_quiet`).
@@ -220,6 +223,7 @@ pub fn feed(shown: Shown) -> BarFeed {
                 since: at,
                 open_target: s.open_target.clone(),
                 target,
+                terminal: s.terminal.clone(),
                 snoozed_until: s.snoozed_until,
                 quiet: s.quiet,
                 stoppable: s.stoppable,

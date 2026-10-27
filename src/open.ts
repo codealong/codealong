@@ -60,9 +60,9 @@ function site(url: string): string {
 }
 
 /** How a session opens, in words: its worktree's label for it (Respond in Ghostty), else
- *  `openWords`. */
-export function openLabel(lane: Pick<Lane, 'targets'>, s: Pick<Session, 'openTarget'>, terminal: string): string {
-  return lane.targets.find((t) => t.id === s.openTarget)?.label ?? openWords(s.openTarget, terminal);
+ *  `openWords`, in the terminal it runs in, else the one config.toml names (`terminal`). */
+export function openLabel(lane: Pick<Lane, 'targets'>, s: Pick<Session, 'openTarget' | 'terminal'>, terminal: string): string {
+  return lane.targets.find((t) => t.id === s.openTarget)?.label ?? openWords(s.openTarget, s.terminal ?? terminal);
 }
 
 export interface Opener {

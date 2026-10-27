@@ -1580,7 +1580,7 @@ mod tests {
         // Rex's app takes actions only with Remote Control on: the block has focus in its session
         // and Rex comes forward, but it may be showing another session.
         let p = played(rex_answers(REX_REFUSED), || terminal_focus_session("ghostty", IN_REX, "Fix the login", Path::new("/r/app")));
-        assert_eq!(err(p.got), "Rex is in front, but it goes to this session's tab only with Remote Control on (Rex › Settings › Rex Server).");
+        assert_eq!(err(p.got), "Rex goes to this session's tab only with Remote Control on (Rex › Settings › Rex Server).");
         assert_eq!(p.log.len(), 3);
         // No app connected to the server: Rex is opened, and asked again once it has connected.
         let shows = Rc::new(Cell::new(0));
@@ -1599,7 +1599,7 @@ mod tests {
         assert_eq!(err(p.got), "Rex opened, but it didn't connect to its server in time to show this session's tab.");
         assert_eq!(p.log[1..4], [show("block:b1", "session:s1", "window:w1"), REX_OPEN.to_string(), show("block:b1", "session:s1", "window:w1")]);
         let p = played(rex_answers(r#"{"apps":1,"shown":0,"refused":"","failed":"client.perform timed out after 10s"}"#), || terminal_focus_session("ghostty", IN_REX, "Fix the login", Path::new("/r/app")));
-        assert_eq!(err(p.got), "Rex is in front, but it didn't go to this session's tab: client.perform timed out after 10s");
+        assert_eq!(err(p.got), "Rex didn't go to this session's tab: client.perform timed out after 10s");
         assert_eq!(p.log.len(), 3, "a connected app isn't asked again");
 
         // No block on its TTY (an empty list comes back as `{}`), or the server not running.

@@ -11,10 +11,11 @@ export const HARNESS_WORD: Record<Harness, string> = { claude: 'Claude Code', co
 /** The app a harness's sessions open in when they don't live in the terminal. */
 export const HARNESS_APP: Record<Harness, string> = { claude: 'Claude app', codex: 'Codex', opencode: 'OpenCode', antigravity: 'Antigravity', cursor: 'Cursor' };
 
-/** Where a session opens: the terminal by name, or the harness's app. */
+/** Where a session opens: the terminal by name (the one it runs in, else config.toml's), or the
+ *  harness's app. */
 export function sessionPlace(s: Session, terminal: string): string {
   if (s.hosted) return 'Codealong';
-  return s.surface === 'cli' ? terminal : HARNESS_APP[s.harness];
+  return s.surface === 'cli' ? (s.terminal ?? terminal) : HARNESS_APP[s.harness];
 }
 
 /** The harness a session key names: `<harness>:<account>:<id>`, or `@<device>:` and that for a

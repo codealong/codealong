@@ -45,7 +45,7 @@ const APP_WAIT: Duration = if cfg!(test) { Duration::from_secs(1) } else { Durat
 const LABEL_CHARS: usize = 128;
 
 /// What Rex says when its app won't take an action, the way Codealong says it.
-const NO_REMOTE_CONTROL: &str = "Rex is in front, but it goes to this session's tab only with Remote Control on (Rex › Settings › Rex Server).";
+const NO_REMOTE_CONTROL: &str = "Rex goes to this session's tab only with Remote Control on (Rex › Settings › Rex Server).";
 
 pub struct Rex;
 
@@ -388,7 +388,7 @@ fn show(ids: Value) -> Result<()> {
     } else if !shown.refused.is_empty() {
         bail!(NO_REMOTE_CONTROL)
     } else {
-        bail!("Rex is in front, but it didn't go to this session's tab: {}", shown.failed)
+        bail!("Rex didn't go to this session's tab: {}", shown.failed)
     }
 }
 

@@ -13,6 +13,9 @@ const lane = fx.lane({
 describe('open', () => {
   it('says how a session opens as the engine does', () => {
     expect(openLabel(lane, { openTarget: 's|claude:c:1|focus' }, 'Ghostty')).toBe('Respond in Ghostty');
+    // One the worktree doesn't list is said in the terminal it runs in, else config.toml's.
+    expect(openLabel(lane, { openTarget: 's|claude:c:9|focus', terminal: 'Rex' }, 'Ghostty')).toBe('Show in Rex');
+    expect(openLabel(lane, { openTarget: 's|claude:c:9|focus' }, 'Ghostty')).toBe('Show in Ghostty');
     expect(openWords('s|claude:c:2|resume', 'Ghostty')).toBe('Resume in Ghostty');
     expect(openWords('s|claude:c:2|hosted', 'Ghostty')).toBe('Show in Codealong');
     expect(openWords('s|x|unknown', 'Ghostty')).toBe('Open');

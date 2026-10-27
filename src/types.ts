@@ -228,6 +228,9 @@ export interface Session {
   appAccount: boolean;
   /** Opens this session where it lives: its terminal tab, the Claude app, Codex, or Antigravity. */
   openTarget: string;
+  /** The terminal app a live session runs in (Ghostty, Rex…), where Show in takes it whatever
+   *  terminal config.toml names; absent in none Codealong knows as an app, or from older engines. */
+  terminal?: string;
   /** Why a session from another lane shows here: "made this worktree" or "worked here". */
   visitor: string | null;
   /** This session's own sentence; backtick spans and time tokens as in lane headlines. */
@@ -2235,6 +2238,8 @@ export interface BarItem {
   openTarget: string;
   /** The lane's own entry for `openTarget`, when it lists one. */
   target: { label: string; detail: string | null; disabled: boolean } | null;
+  /** The terminal app it runs in (`Session.terminal`), for its words where `target` is null. */
+  terminal?: string;
   /** When it's back, while it's snoozed. */
   snoozedUntil: number | null;
   /** Quieted: its turns don't wait on you. Missing from a feed an older app sent. */

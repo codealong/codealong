@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { harnessOfKey, nameShown, renames, sessionName, usageNote } from './harness';
-import type { Usage } from './types';
+import { harnessOfKey, nameShown, renames, sessionName, sessionPlace, usageNote } from './harness';
+import type { Session, Usage } from './types';
 
 describe('usageNote', () => {
   const usage = (u: Partial<Usage>): Usage => ({ account: 'a', harness: 'antigravity', plan: null, meters: [], asOf: null, error: null, needsSignIn: false, loading: false, ...u });
@@ -43,5 +43,15 @@ describe('renames', () => {
     // Codex refuses an archived thread, and Antigravity's conversations aren't Codealong's to name.
     expect(renames({ key: 'codex:codex:0199', archived: true })).toBe(false);
     expect(renames({ key: 'antigravity:antigravity:c1' })).toBe(false);
+  });
+});
+
+describe('sessionPlace', () => {
+  const s = (o: Partial<Session>) => ({ hosted: false, surface: 'cli', harness: 'claude', ...o }) as Session;
+  it('says the terminal a session runs in, else the one config.toml names', () => {
+    expect(sessionPlace(s({ terminal: 'Rex' }), 'Ghostty')).toBe('Rex');
+    expect(sessionPlace(s({}), 'Ghostty')).toBe('Ghostty');
+    expect(sessionPlace(s({ surface: 'app' }), 'Ghostty')).toBe('Claude app');
+    expect(sessionPlace(s({ hosted: true, terminal: 'Rex' }), 'Ghostty')).toBe('Codealong');
   });
 });
