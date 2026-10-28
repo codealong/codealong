@@ -111,7 +111,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
 And [React](https://react.dev), React DOM and Scheduler (MIT,
-Copyright (c) Facebook, Inc. and its affiliates), and
+Copyright (c) Meta Platforms, Inc. and affiliates), and
 [@tauri-apps/api](https://github.com/tauri-apps/tauri) (MIT or Apache-2.0, Copyright (c) 2017 -
 Present Tauri Apps Contributors), under this license:
 
