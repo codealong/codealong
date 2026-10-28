@@ -940,13 +940,25 @@ pub fn unslug(root: &Path, name: &str) -> Option<PathBuf> {
     walk(root, name, 0)
 }
 
-/// Where a chat's transcript is, under the account's `projects`: of the folders that have one,
-/// the one written last, as a chat resumed in another folder writes a new one there
-/// (`cli_chat_dir`).
+/// Where a chat's transcript is, under the account's `projects`, whichever folder's it is.
 fn find_transcript(home: &Path, id: &str) -> Option<PathBuf> {
     let projects = std::fs::read_dir(home.join("projects")).ok()?;
-    let written = |p: PathBuf| Some((crate::util::mtime_ms(&p).filter(|_| p.is_file())?, p));
-    projects.flatten().filter_map(|p| written(p.path().join("agent-transcripts").join(id).join(format!("{id}.jsonl")))).max().map(|(_, p)| p)
+    projects.flatten().map(|p| p.path().join("agent-transcripts").join(id).join(format!("{id}.jsonl"))).find(|p| p.is_file())
+}
+
+/// A command line chat's transcript: under the folder its copy's `meta.json` says it works in,
+/// by Cursor's name for it (`slug`, its `workspace-paths.js`), and none until that's written,
+/// since another copy's (`cli_chat_dir`) is of another conversation. One without a folder (from
+/// before 2026.08.11) has whichever there is.
+fn cli_transcript(home: &Path, id: &str, side: &Sidecar) -> Option<PathBuf> {
+    match side.cwd.as_deref() {
+        Some(cwd) => Some(home.join("projects").join(slug(cwd)).join("agent-transcripts").join(id).join(format!("{id}.jsonl"))).filter(|p| p.is_file()),
+        None => find_transcript(home, id),
+    }
+}
+
+fn read_sidecar(dir: &Path) -> Sidecar {
+    std::fs::read_to_string(dir.join("meta.json")).map(|t| parse_sidecar(&t)).unwrap_or_default()
 }
 
 /// When a command line chat's database was last written, its write-ahead log included; None
@@ -966,6 +978,7 @@ pub fn read_cli_chats(home: &Path, since_ms: i64, keep: &HashSet<String>) -> Vec
     for dir in folders.flatten().filter_map(|f| std::fs::read_dir(f.path()).ok()).flatten().flatten().map(|c| c.path()) {
         let Some(at) = store_written(&dir) else { continue };
         let id = file_name(&dir);
+        // The copy `cli_chat_dir` takes: `max` on the pair.
         if latest.get(&id).map_or(true, |was| *was < (at, dir.clone())) {
             latest.insert(id, (at, dir));
         }
@@ -973,13 +986,13 @@ pub fn read_cli_chats(home: &Path, since_ms: i64, keep: &HashSet<String>) -> Vec
     let mut out = Vec::new();
     for (id, (_, dir)) in latest {
         let store = dir.join(STORE_DB);
-        let transcript = find_transcript(home, &id);
+        let side = read_sidecar(&dir);
+        let transcript = cli_transcript(home, &id, &side);
         let files = [Some(store.clone()), Some(PathBuf::from(format!("{}-wal", store.display()))), transcript.clone()];
         let written = files.into_iter().flatten().filter_map(|p| crate::util::mtime_ms(&p)).max().unwrap_or(0);
         if written < since_ms && !keep.contains(&id) {
             continue;
         }
-        let side = std::fs::read_to_string(dir.join("meta.json")).map(|t| parse_sidecar(&t)).unwrap_or_default();
         if side.subagent {
             continue;
         }
@@ -1754,7 +1767,8 @@ impl Cursor {
     }
 
     fn transcript(&self, account: &AccountCfg, s: &Session) -> anyhow::Result<PathBuf> {
-        find_transcript(&account.home_path(), &s.id).ok_or_else(|| anyhow::anyhow!("Cursor hasn't written this chat's transcript yet."))
+        let side = self.chat_dir(account, s).map(|d| read_sidecar(&d)).unwrap_or_default();
+        cli_transcript(&account.home_path(), &s.id, &side).ok_or_else(|| anyhow::anyhow!("Cursor hasn't written this chat's transcript yet."))
     }
 
     fn app_database(&self, account: &AccountCfg) -> anyhow::Result<Connection> {
@@ -2431,19 +2445,27 @@ mod tests {
             Connection::open(dir.join(STORE_DB)).unwrap().execute_batch(&format!("CREATE TABLE meta (key TEXT, value TEXT); INSERT INTO meta VALUES ('0', '{{\"name\":\"{name}\"}}');")).unwrap();
             std::fs::write(dir.join("meta.json"), json!({ "cwd": cwd }).to_string()).unwrap();
             aged(&dir.join(STORE_DB), secs);
-            let transcript = home.join("projects").join(slug(cwd)).join("agent-transcripts/c1/c1.jsonl");
-            std::fs::create_dir_all(transcript.parent().unwrap()).unwrap();
-            std::fs::write(&transcript, "").unwrap();
-            aged(&transcript, secs);
-            transcript
         };
+        let transcript = |cwd: &str, secs: u64| {
+            let path = home.join("projects").join(slug(cwd)).join("agent-transcripts/c1/c1.jsonl");
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, "").unwrap();
+            aged(&path, secs);
+            path
+        };
+        let read = || read_cli_chats(&home, 0, &HashSet::new()).into_iter().map(|c| (c.title, c.cwd, c.transcript)).collect::<Vec<_>>();
+        let row = |title: &str, cwd: &str, transcript: Option<&PathBuf>| (Some(title.to_string()), Some(cwd.to_string()), transcript.cloned());
         // Started in a worktree, then resumed in its main checkout once the worktree had gone.
-        copy("a1", "Review Atlas PR", "/Users/me/projects/atlas/wt/release", 100);
-        let resumed = copy("b2", "Review Request", "/Users/me/projects/atlas", 200);
-        let rows = read_cli_chats(&home, 0, &HashSet::new());
-        assert_eq!(rows.iter().map(|c| (c.title.as_deref(), c.cwd.as_deref(), c.transcript.as_ref())).collect::<Vec<_>>(), [(Some("Review Request"), Some("/Users/me/projects/atlas"), Some(&resumed))]);
+        let (worktree, checkout) = ("/Users/me/projects/atlas/wt/release", "/Users/me/projects/atlas");
+        copy("a1", "Review Atlas PR", worktree, 100);
+        transcript(worktree, 100);
+        copy("b2", "Review Request", checkout, 200);
+        // The new copy's database comes before its transcript, and the old copy's isn't its.
+        assert_eq!(read(), [row("Review Request", checkout, None)]);
+        let resumed = transcript(checkout, 200);
+        assert_eq!(read(), [row("Review Request", checkout, Some(&resumed))]);
         assert_eq!(cli_chat_dir(&home, "c1"), Some(home.join("chats/b2/c1")));
-        assert_eq!(find_transcript(&home, "c1"), Some(resumed));
+        assert_eq!(cli_transcript(&home, "c1", &read_sidecar(&home.join("chats/b2/c1"))), Some(resumed));
     }
 
     /// The command line asks about each folder it works in that it doesn't trust before it

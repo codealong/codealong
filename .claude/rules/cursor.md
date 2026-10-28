@@ -97,7 +97,9 @@ chunks) and this Mac's files (2026-10-09). Paths are under `src-tauri/src/`.
   worktree was removed (`start::to_fork` falls back to the lane's folder) did so (2026-10-27),
   and the reader listed both copies as two sessions under one key, the stale one quiet for days
   and holding the resumed process, which `codealong hygiene` then ended mid-review, each round.
-  The copy written last is the chat (`cli_chat_dir`, `find_transcript`). Its ACP sessions are in
+  The copy written last is the chat (`cli_chat_dir`), and its transcript the one under its own
+  folder's slug (`cli_transcript`), which every chat here with a `meta.json` had (75 of 75),
+  none until it's written. Its ACP sessions are in
   `acp-sessions/<id>/` (`store.db` and `meta.json {cwd, title}`); Codealong doesn't run it over
   ACP yet.
 - Two folders (2026.08.11's code): `chats` and `cli-config.json` are in
