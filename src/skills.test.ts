@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { completed, leftOutWords, matching, mentionAt, mentionsIn, namedBy, repoLanes, sessionSkills, skillLeftOutWords, skillNamed, skillOffers, skillRows, skillStart, skillWhere, writtenFor } from './skills';
+import { completed, leftOutWords, matching, mentionAt, mentionsIn, namedBy, repoLanes, sessionSkills, skillLeftOutWords, skillNamed, skillOffers, skillRows, skillStart, skillWhere, typedAt, writtenFor } from './skills';
 import * as fx from './testing/fixtures';
 import type { Skill, SkillsListed } from './types';
 
@@ -41,6 +41,32 @@ describe('mentionsIn and mentionAt', () => {
     expect(mentionAt(text, 0)).toBeNull();
     expect(mentionAt(text, 4)).toBeNull();
     expect(mentionAt(text, 11)).toBeNull();
+  });
+});
+
+describe('typedAt', () => {
+  it('gives the name at the caret after a space too, as a reply box lists them', () => {
+    expect(typedAt('Lets /sh', 8)).toEqual({ name: 'sh', start: 5, end: 8 });
+    expect(typedAt('Lets /ship this', 7)).toEqual({ name: 'ship', start: 5, end: 10 });
+    expect(typedAt('fix it\n/', 8)).toEqual({ name: '', start: 7, end: 8 });
+    expect(typedAt('/sh and /db', 3)?.name).toBe('sh');
+    expect(typedAt('/sh and /db', 11)).toEqual({ name: 'db', start: 8, end: 11 });
+    // Not where the caret isn't in it.
+    expect(typedAt('/sh and /db', 4)).toBeNull();
+    expect(typedAt('Lets /ship this', 5)).toBeNull();
+    expect(completed('Lets /sh this', typedAt('Lets /sh this', 8)!, skill('ship'))).toEqual({ text: 'Lets /ship this', caret: 11 });
+  });
+
+  it('passes over a slash inside a word or a path', () => {
+    expect(typedAt('see src/app', 11)).toBeNull();
+    expect(typedAt('open https://example.com/sh', 27)).toBeNull();
+    expect(typedAt('read /review/', 13)).toBeNull();
+    expect(typedAt('read /Users/me', 11)).toBeNull();
+  });
+
+  it('leaves what counts as a skill to the start alone', () => {
+    expect(mentionsIn('Lets /ship this')).toEqual([]);
+    expect(writtenFor('Lets /ship this', [skill('ship')], 'codex')).toBe('Lets /ship this');
   });
 });
 

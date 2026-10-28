@@ -2437,7 +2437,9 @@ repos have is a row for each. Only accounts whose agent reads that skill's folde
 the start row says which are left out. An account's own skill is one row, which names the accounts
 that have it; the session starts where the panel is set to, on one of them. In a session's reply box
 the list has Codealong's own commands, then the skills of the session's worktree and of its
-account: ↑ ↓ choose, ⇥ finishes the name, Escape puts the list away. The name goes as the agent
+account: ↑ ↓ choose, ⇥ finishes the name, Escape puts the list away. There a `/` after a space
+lists the skills too, without the commands: a skill named later on goes as typed, and the agent
+runs it itself (Claude Code and Codex do). One that starts it goes as the agent
 takes it: `/name` to Claude Code and Cursor, `$name` to Codex. Cursor reads its own skills folders
 and Claude Code's, Codex's and the shared `.agents/skills`, in the session's own folder (not the
 ones above it) and in your home, so their skills are offered on it too, each by the name of its

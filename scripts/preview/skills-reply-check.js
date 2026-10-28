@@ -2,7 +2,8 @@
 // bar's peek: a slash and the start of a name that start the text list the session's skills (its worktree's and its
 // account's, only the ones its agent reads) under Codealong's own commands; ↑ ↓ choose, ⇥
 // finishes the name, Escape puts the list away without stopping anything; and a skill is sent
-// as the session's agent takes it (`$name` to Codex, `/name` to Claude Code).
+// as the session's agent takes it (`$name` to Codex, `/name` to Claude Code). After other words
+// a slash lists the skills alone, and the name goes as typed.
 //   PREVIEW_WAIT=60000 PREVIEW_SKILLS=scripts/preview/skills-sample.json scripts/preview.sh peek '' scripts/preview/skills-reply-check.js
 // The sample has `ship` for both agents, `shape-up` for Claude Code only, `probe` for Codex
 // only and `notes:tidy` as the account's own. A Codex session is used when the board has one.
@@ -96,17 +97,27 @@
       await until(function () { return sent('send_to_session').length > sends; }, 5000, 'a whole name wasn’t sent');
       check('⏎ on a whole name sends it', last('send_to_session').text === (codex ? '$ship' : '/ship'), last('send_to_session').text);
 
-      // Only a name that starts the text is a skill: one after other words lists nothing, and
-      // goes as typed.
+      // A name after other words lists the skills too, without Codealong's commands, which run
+      // only at the start; it goes as typed, as only a name that starts the text is swapped (the
+      // agent runs one named later on itself).
       sends = sent('send_to_session').length;
+      type(box(), 'look at it, then /');
+      await until(function () { return rows().length > 0; }, 3000, 'no list for a slash after other words');
+      check('a slash after other words lists the skills', names().indexOf('/ship') >= 0, names().join(' '));
+      check('but not Codealong’s commands', names().indexOf('/fork') < 0 && names().indexOf('/side') < 0, names().join(' '));
       type(box(), 'look at it, then /shi');
-      await wait(300);
-      check('a name after other words lists nothing', rows().length === 0, names().join(' '));
+      await until(function () { return active() === '/ship'; }, 3000, 'no /ship for /shi after other words');
+      key(box(), { key: 'Tab' });
+      await until(function () { return box().value === 'look at it, then /ship '; }, 3000, 'the name after words wasn’t finished: ' + box().value);
+      check('⇥ finishes a name after other words', rows().length === 0);
       type(box(), 'look at it, then /ship');
       await wait(50);
       key(box(), { key: 'Enter' });
       await until(function () { return sent('send_to_session').length > sends; }, 5000, 'nothing sent with a name after words');
-      check('and goes as typed', last('send_to_session').text === 'look at it, then /ship', last('send_to_session').text);
+      check('and it goes as typed', last('send_to_session').text === 'look at it, then /ship', last('send_to_session').text);
+      type(box(), 'see /Users/me/sh');
+      await wait(300);
+      check('a path lists nothing', rows().length === 0, names().join(' '));
 
       sends = sent('send_to_session').length;
       type(box(), '/compact');

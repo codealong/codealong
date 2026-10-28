@@ -37,7 +37,10 @@ under `src-tauri/src/` unless they start with `plugin/`.
   and a synced skill comes there by its name alone (`pdf`, with `anthropic-skills:pdf` an alias),
   where `init`'s `skills` has it whole. `init` also has `terminal_slash_commands`, the commands a
   phone or remote front end should hide. Only a skill that starts a prompt is run as one (a
-  `/name` later on is a hint to the model at most), so the windows count only that one.
+  `/name` later on is a hint to the model at most), so the windows count only that one. The
+  model takes the hint: `claude -p 'Lets /zebra-check this'` (2.1.312, 2026-10-28) called the
+  Skill tool on it, and `codex exec` (0.162.1) read its `SKILL.md`, so a reply box lists skills
+  after a space too (skills.ts `typedAt`) and sends them as typed.
 - Where Codex finds skills, and `$name` in a prompt's text: `codex/mod.rs` (`worktree_skills`,
   `account_skills`, `skill_mention`), `skills.rs` (`walk_skills`, a skill reached through a
   link counted once). Not there (0.157.1): a name two skills share is named by file,

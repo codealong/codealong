@@ -22,6 +22,10 @@ const NAME = String.raw`[A-Za-z0-9_:.-]`;
  *  never at the slash or anything else a path goes on with. A name may hold a dot (`/v1.2`), so a
  *  full stop after one is in it here; which skill it names, if any, is `namedBy`'s to say. */
 const MENTION = new RegExp(String.raw`^(\s*)/(${NAME}*)(?=$|[\s,;!?)\]}"'’”])`);
+/** The same at the start or after a space, anywhere: a name a reply box finishes for you. The
+ *  model runs a skill named later on itself (Claude Code 2.1.312 and Codex 0.162.1, 2026-10-28),
+ *  though nothing swaps it for its harness's way of writing it. */
+const TYPED = new RegExp(String.raw`(^|\s)/(${NAME}*)(?=$|[\s,;!?)\]}"'’”])`, 'g');
 
 /** A `/name` in the text: where its slash is, where its name ends, and the name so far. */
 export interface Mention {
@@ -41,6 +45,17 @@ export function mentionsIn(text: string): Mention[] {
 /** The `/name` the caret is in or just after: the one being typed. */
 export function mentionAt(text: string, caret: number): Mention | null {
   return mentionsIn(text).find((m) => m.start < caret && caret <= m.end) ?? null;
+}
+
+/** The `/name` the caret is in or just after, at the start or after a space: the one a reply box
+ *  lists skills for (asked 2026-10-28). */
+export function typedAt(text: string, caret: number): Mention | null {
+  for (const m of text.matchAll(TYPED)) {
+    const start = m.index + m[1].length;
+    const end = start + 1 + m[2].length;
+    if (start < caret && caret <= end) return { name: m[2], start, end };
+  }
+  return null;
 }
 
 /** What's typed with a mention's name finished as `skill`'s, and a space after it unless one is

@@ -48,9 +48,10 @@
 // shows above the box (SideStrip.tsx) while the session carries on, unaware, and `/side` alone
 // shows the side conversations kept from before. Any other `/…` goes to the session as typed.
 // While a name is typed after a slash, at the start or after a space, wherever the caret is, a
-// list above the box has those commands and the session's skills (skills.ts: its worktree's,
-// then its account's): ↑ ↓ choose, ⇥ or ⏎ finishes the name, Escape puts the list away. Each
-// skill named goes as its harness takes it (`$name` for Codex).
+// list above the box has the session's skills (skills.ts: its worktree's, then its account's),
+// under those commands at the start, where they run: ↑ ↓ choose, ⇥ or ⏎ finishes the name,
+// Escape puts the list away. A skill that starts the text goes as its harness takes it (`$name`
+// for Codex); one named later on goes as typed, which the agent follows.
 //
 // While a side conversation shows above it (the open one, the list, one being read, or a question
 // whose copy is starting), the box is the side conversation's, as Codex's `/side` takes its box
@@ -94,7 +95,7 @@ import { sessionPlace } from '../harness';
 import { stoppable, stuckMidTurn, waitsOnYou } from '../lanes';
 import { beingRead, notAsked, showSides, startingSide, useAside, usePopped } from '../side';
 import { COMMANDS, slashCommand, slashMatches } from '../slash';
-import { completed, matching, mentionAt, mentionsIn, sessionSkills, skillNamed, writtenFor } from '../skills';
+import { completed, matching, mentionsIn, sessionSkills, skillNamed, typedAt, writtenFor } from '../skills';
 import { rememberResumed, resumeChoice, resumedIn, resumeIn, resumeWords, type ResumePicks } from '../start';
 import { accountOf, useDeviceStartAccounts } from '../startAccounts';
 import { useSessionSkills } from '../useSkills';
@@ -501,10 +502,10 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
   // Where the caret is, for the `/name` being typed there; moved as the text is typed, the
   // caret moved, or a name finished.
   const [caret, setCaret] = useState(0);
-  const mention = mentionAt(text, Math.min(caret, text.length));
+  const mention = typedAt(text, Math.min(caret, text.length));
   // The session's skills, read once a slash is typed (its worktree's and its account's, on the
   // device it runs on).
-  const slash = mentionsIn(text).length > 0;
+  const slash = !!mention || mentionsIn(text).length > 0;
   const skills = sessionSkills(useSessionSkills(s.key, slash), s.harness);
 
   /** Sends what's in the box, or a suggested reply that was `chosen` (the box keeping what's in
