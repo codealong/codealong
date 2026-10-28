@@ -94,14 +94,17 @@ export function selectedForMenu(): string {
   return '';
 }
 
-function options(items: MenuSpec, path: string): Items {
-  return items.map((it, i) => {
-    const id = `${path}-${i}`;
+/** The items of a native menu, as Tauri's `Menu.new` takes them. None is given an id: Tauri drops
+ *  an item's action by its id when its menu closes, from one list every window's menus share, so
+ *  an id two menus had in common let one menu's closing take away the actions of the next one,
+ *  opened before it had closed. Tauri gives each item one of its own. */
+export function menuItems(items: MenuSpec): Items {
+  return items.map((it) => {
     if (it === 'separator') return { item: 'Separator' as const };
-    if ('items' in it) return { id, text: it.label, enabled: it.enabled ?? it.items.length > 0, items: options(it.items, id) };
+    if ('items' in it) return { text: it.label, enabled: it.enabled ?? it.items.length > 0, items: menuItems(it.items) };
     // An accelerator is written as the app's chords are, in macOS's terms: the menu has it as this
     // platform's keys (platform.ts).
-    const item = { id, text: it.label, enabled: it.enabled ?? true, action: () => it.run(), ...(it.accelerator ? { accelerator: platformChord(it.accelerator) } : {}) };
+    const item = { text: it.label, enabled: it.enabled ?? true, action: () => it.run(), ...(it.accelerator ? { accelerator: platformChord(it.accelerator) } : {}) };
     if (it.checked !== undefined) return { ...item, checked: it.checked };
     // Tauri's types list icons it loads itself; raw RGBA goes through to the engine as it is.
     return it.icon ? { ...item, icon: it.icon as unknown as number[] } : item;
@@ -114,7 +117,7 @@ export async function showContextMenu(items: MenuSpec, at?: { x: number; y: numb
   const row = at ? null : pressed;
   row?.setAttribute('data-menu', '');
   try {
-    const menu = await Menu.new({ items: options(items, 'ctx') });
+    const menu = await Menu.new({ items: menuItems(items) });
     try {
       // Not menu.popup(): Tauri's keeps a lock the next right-click's Menu.new needs while the
       // menu is open, which hung the app (popup_menu in lib.rs).
