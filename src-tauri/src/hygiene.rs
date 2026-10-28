@@ -137,7 +137,9 @@ pub fn judge(scene: &Scene) -> Judged {
         if !s.live || s.surface != Surface::Cli || s.hosted || !old(s) {
             continue;
         }
-        if sessions.iter().any(|(o, _)| o.key != s.key && o.live && o.pid == Some(pid) && !old(o)) || found.iter().any(|f: &Found| f.pid == pid) {
+        // Another session by itself, not by its key: a harness that lists one under its key twice
+        // gives both the process, and only the stale one is old.
+        if sessions.iter().any(|(o, _)| !std::ptr::eq(*o, *s) && o.live && o.pid == Some(pid) && !old(o)) || found.iter().any(|f: &Found| f.pid == pid) {
             continue;
         }
         if let Some(at) = (scene.wakes)(s, by_pid[&pid].started, now) {
@@ -694,6 +696,16 @@ mod tests {
             None
         });
         assert_eq!(asked.into_inner(), vec!["northwind".to_string()]);
+    }
+
+    #[test]
+    fn a_process_a_session_at_work_shares_stays_though_another_under_its_key_is_old() {
+        // Two copies of one chat under one key, as Cursor's reader listed a chat resumed in
+        // another folder: the stale copy has been quiet for days, the other is at work.
+        let stale = Session { title: "Review Atlas PR".into(), ..quiet("cursor:c1", 10, 100, Status::Idle) };
+        let resumed = quiet("cursor:c1", 10, 0, Status::Working);
+        let board = Board { lanes: vec![lane("/r", vec![resumed, stale])], ..Board::default() };
+        assert_eq!(judged(&board, &[proc(10, 1, 1, "cursor-agent --resume c1")], &|_| None), vec![]);
     }
 
     #[test]

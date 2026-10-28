@@ -89,7 +89,15 @@ chunks) and this Mac's files (2026-10-09). Paths are under `src-tauri/src/`.
   leaves out subagents' and ones with no conversation yet. A subagent's chat is in the same
   `chats/<hash>` folder with no `meta.json` (2026.10.16), its `meta` row naming it a subagent's
   (`subagentInfo {parentAgentId, rootParentAgentId}`, name "New Agent"): a review's agent started
-  three (2026-10-18), which Codealong leaves out (`Meta::subagent`). Its ACP sessions are in
+  three (2026-10-18), which Codealong leaves out (`Meta::subagent`). The folder's hash is the
+  MD5 of its resolved path (`src/state/index.ts`), and the terminal UI takes `--resume <id>` as
+  given (2026.10.22): in another folder than the chat's it makes a new chat there under the
+  same id, with its own `createdAt`, encryption key and transcript (under that folder's slug),
+  and nothing of what was said before. A review resumed in its repo's main checkout after its
+  worktree was removed (`start::to_fork` falls back to the lane's folder) did so (2026-10-27),
+  and the reader listed both copies as two sessions under one key, the stale one quiet for days
+  and holding the resumed process, which `codealong hygiene` then ended mid-review, each round.
+  The copy written last is the chat (`cli_chat_dir`, `find_transcript`). Its ACP sessions are in
   `acp-sessions/<id>/` (`store.db` and `meta.json {cwd, title}`); Codealong doesn't run it over
   ACP yet.
 - Two folders (2026.08.11's code): `chats` and `cli-config.json` are in

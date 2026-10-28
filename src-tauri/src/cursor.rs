@@ -940,53 +940,68 @@ pub fn unslug(root: &Path, name: &str) -> Option<PathBuf> {
     walk(root, name, 0)
 }
 
-/// Where a chat's transcript is, under the account's `projects`, whichever folder's it is.
+/// Where a chat's transcript is, under the account's `projects`: of the folders that have one,
+/// the one written last, as a chat resumed in another folder writes a new one there
+/// (`cli_chat_dir`).
 fn find_transcript(home: &Path, id: &str) -> Option<PathBuf> {
     let projects = std::fs::read_dir(home.join("projects")).ok()?;
-    projects.flatten().map(|p| p.path().join("agent-transcripts").join(id).join(format!("{id}.jsonl"))).find(|p| p.is_file())
+    let written = |p: PathBuf| Some((crate::util::mtime_ms(&p).filter(|_| p.is_file())?, p));
+    projects.flatten().filter_map(|p| written(p.path().join("agent-transcripts").join(id).join(format!("{id}.jsonl")))).max().map(|(_, p)| p)
+}
+
+/// When a command line chat's database was last written, its write-ahead log included; None
+/// while it has none.
+fn store_written(dir: &Path) -> Option<i64> {
+    let store = dir.join(STORE_DB);
+    let wal = PathBuf::from(format!("{}-wal", store.display()));
+    store.is_file().then(|| [&store, &wal].into_iter().filter_map(|p| crate::util::mtime_ms(p)).max()).flatten()
 }
 
 /// The command line's chats under `home`, written to since `since_ms` or in `keep`, newest
 /// first, but not subagents': each in the folder its `meta.json` says, which an older one has
-/// none of (`cli_cwd`).
+/// none of (`cli_cwd`). One a chat, however many folders have a copy (`cli_chat_dir`).
 pub fn read_cli_chats(home: &Path, since_ms: i64, keep: &HashSet<String>) -> Vec<Chat> {
     let Ok(folders) = std::fs::read_dir(home.join("chats")) else { return Vec::new() };
-    let mut out = Vec::new();
-    for folder in folders.flatten() {
-        let Ok(chats) = std::fs::read_dir(folder.path()) else { continue };
-        for chat in chats.flatten() {
-            let dir = chat.path();
-            let store = dir.join(STORE_DB);
-            if !store.is_file() {
-                continue;
-            }
-            let id = file_name(&dir);
-            let transcript = find_transcript(home, &id);
-            let files = [Some(store.clone()), Some(PathBuf::from(format!("{}-wal", store.display()))), transcript.clone()];
-            let written = files.into_iter().flatten().filter_map(|p| crate::util::mtime_ms(&p)).max().unwrap_or(0);
-            if written < since_ms && !keep.contains(&id) {
-                continue;
-            }
-            let side = std::fs::read_to_string(dir.join("meta.json")).map(|t| parse_sidecar(&t)).unwrap_or_default();
-            if side.subagent {
-                continue;
-            }
-            let meta = read_meta(&store);
-            if meta.subagent {
-                continue;
-            }
-            let transcript_at = transcript.as_deref().and_then(crate::util::mtime_ms);
-            out.push(Chat { id, title: meta.name, cwd: side.cwd, created_at: meta.created_at.unwrap_or(written), last_updated: written, model: meta.model, mode: meta.mode, approval: meta.approval, cli: true, dir: Some(dir), transcript, transcript_at, ..Chat::default() });
+    let mut latest: HashMap<String, (i64, PathBuf)> = HashMap::new();
+    for dir in folders.flatten().filter_map(|f| std::fs::read_dir(f.path()).ok()).flatten().flatten().map(|c| c.path()) {
+        let Some(at) = store_written(&dir) else { continue };
+        let id = file_name(&dir);
+        if latest.get(&id).map_or(true, |was| *was < (at, dir.clone())) {
+            latest.insert(id, (at, dir));
         }
+    }
+    let mut out = Vec::new();
+    for (id, (_, dir)) in latest {
+        let store = dir.join(STORE_DB);
+        let transcript = find_transcript(home, &id);
+        let files = [Some(store.clone()), Some(PathBuf::from(format!("{}-wal", store.display()))), transcript.clone()];
+        let written = files.into_iter().flatten().filter_map(|p| crate::util::mtime_ms(&p)).max().unwrap_or(0);
+        if written < since_ms && !keep.contains(&id) {
+            continue;
+        }
+        let side = std::fs::read_to_string(dir.join("meta.json")).map(|t| parse_sidecar(&t)).unwrap_or_default();
+        if side.subagent {
+            continue;
+        }
+        let meta = read_meta(&store);
+        if meta.subagent {
+            continue;
+        }
+        let transcript_at = transcript.as_deref().and_then(crate::util::mtime_ms);
+        out.push(Chat { id, title: meta.name, cwd: side.cwd, created_at: meta.created_at.unwrap_or(written), last_updated: written, model: meta.model, mode: meta.mode, approval: meta.approval, cli: true, dir: Some(dir), transcript, transcript_at, ..Chat::default() });
     }
     out.sort_by(|a, b| b.last_updated.cmp(&a.last_updated));
     out
 }
 
 /// A command line chat's folder under `home`, `chats/<hash>/<id>`, once its database is there.
+/// The command line keeps a folder's chats under an MD5 of its path and takes `--resume <id>` in
+/// another folder for a new chat there under the same id, with nothing of what was said before:
+/// a review resumed after its worktree had gone left two (2026-10-27). Of those, the one written
+/// last is the chat that goes on, and the others are no longer read.
 fn cli_chat_dir(home: &Path, id: &str) -> Option<PathBuf> {
     let chats = std::fs::read_dir(home.join("chats")).ok()?;
-    chats.flatten().map(|f| f.path().join(id)).find(|d| d.join(STORE_DB).is_file())
+    chats.flatten().map(|f| f.path().join(id)).filter_map(|d| Some((store_written(&d)?, d))).max().map(|(_, d)| d)
 }
 
 /// The folder a command line chat works in, from where its transcript is kept: its database's
@@ -2400,6 +2415,35 @@ mod tests {
         assert_eq!(cli_chat_dir(&home, "c1"), Some(home.join("chats/d16e/c1")));
         assert_eq!(cli_chat_dir(&home, "unwritten"), None);
         assert_eq!(parse_sidecar("{}"), Sidecar::default());
+    }
+
+    /// `--resume <id>` in another folder than the chat's makes a new chat there under the same id,
+    /// with a database and a transcript of its own: it's one session, the copy written last.
+    #[test]
+    fn a_chat_resumed_in_another_folder_is_the_copy_written_last() {
+        let dir = crate::fixtures::scratch("cursor-copies");
+        let home = dir.join(".cursor");
+        let at = |secs: u64| std::time::UNIX_EPOCH + Duration::from_secs(1_790_000_000 + secs);
+        let aged = |p: &Path, secs: u64| std::fs::File::options().write(true).open(p).unwrap().set_modified(at(secs)).unwrap();
+        let copy = |hash: &str, name: &str, cwd: &str, secs: u64| {
+            let dir = home.join("chats").join(hash).join("c1");
+            std::fs::create_dir_all(&dir).unwrap();
+            Connection::open(dir.join(STORE_DB)).unwrap().execute_batch(&format!("CREATE TABLE meta (key TEXT, value TEXT); INSERT INTO meta VALUES ('0', '{{\"name\":\"{name}\"}}');")).unwrap();
+            std::fs::write(dir.join("meta.json"), json!({ "cwd": cwd }).to_string()).unwrap();
+            aged(&dir.join(STORE_DB), secs);
+            let transcript = home.join("projects").join(slug(cwd)).join("agent-transcripts/c1/c1.jsonl");
+            std::fs::create_dir_all(transcript.parent().unwrap()).unwrap();
+            std::fs::write(&transcript, "").unwrap();
+            aged(&transcript, secs);
+            transcript
+        };
+        // Started in a worktree, then resumed in its main checkout once the worktree had gone.
+        copy("a1", "Review Atlas PR", "/Users/me/projects/atlas/wt/release", 100);
+        let resumed = copy("b2", "Review Request", "/Users/me/projects/atlas", 200);
+        let rows = read_cli_chats(&home, 0, &HashSet::new());
+        assert_eq!(rows.iter().map(|c| (c.title.as_deref(), c.cwd.as_deref(), c.transcript.as_ref())).collect::<Vec<_>>(), [(Some("Review Request"), Some("/Users/me/projects/atlas"), Some(&resumed))]);
+        assert_eq!(cli_chat_dir(&home, "c1"), Some(home.join("chats/b2/c1")));
+        assert_eq!(find_transcript(&home, "c1"), Some(resumed));
     }
 
     /// The command line asks about each folder it works in that it doesn't trust before it
