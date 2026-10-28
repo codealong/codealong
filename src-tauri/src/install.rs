@@ -22,6 +22,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
+use data_encoding::HEXLOWER;
 use serde::Serialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -68,7 +69,7 @@ pub fn skill_hash(dir: &Path) -> Result<String> {
         h.update(std::fs::read(dir.join(rel))?);
         h.update([0]);
     }
-    Ok(format!("{:x}", h.finalize()))
+    Ok(HEXLOWER.encode(&h.finalize()))
 }
 
 fn collect(root: &Path, dir: &Path, out: &mut Vec<String>) -> Result<()> {
@@ -495,7 +496,7 @@ fn stamped_version(src: &Path, files: &[(String, PathBuf)], live: bool) -> Optio
     if live {
         h.update(LIVE_HOOK.as_bytes());
     }
-    let hash = format!("{:x}", h.finalize());
+    let hash = HEXLOWER.encode(&h.finalize());
     Some(format!("{}+{}", base.split('+').next().unwrap_or(&base), &hash[..8]))
 }
 

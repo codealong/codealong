@@ -1649,7 +1649,7 @@ pub fn with_account_order(text: &str, names: &[String]) -> Result<String> {
         let mut t = old[from].clone();
         // The file draws its tables by position, not by their place in the array.
         if let Some(at) = old[slot].position() {
-            t.set_position(at);
+            t.set_position(Some(at));
         }
         let (lead, _) = split_comment(prefix(&old[slot]));
         let (_, own) = split_comment(prefix(&old[from]));
@@ -1855,7 +1855,7 @@ fn ensure_appearance(doc: &mut toml_edit::DocumentMut) {
         // Tables made here have no place in the file, so they'd land at the end; this one goes
         // with [apps], the other setting you'd look for at the top.
         if let Some(at) = doc.get("apps").and_then(Item::as_table).and_then(|a| a.position()) {
-            t.set_position(at);
+            t.set_position(Some(at));
         }
         doc.insert("appearance", Item::Table(t));
         place_after(doc, "appearance", "apps");
@@ -1872,7 +1872,7 @@ fn set_shortcuts(doc: &mut toml_edit::DocumentMut, shortcuts: &ShortcutsCfg) {
         // Like [appearance], it goes with the settings at the top rather than at the end.
         let after = ["appearance", "apps"].into_iter().find_map(|name| Some((name, doc.get(name).and_then(Item::as_table).and_then(|t| t.position())?)));
         if let Some((_, at)) = after {
-            t.set_position(at);
+            t.set_position(Some(at));
         }
         doc.insert("shortcuts", Item::Table(t));
         if let Some((name, _)) = after {

@@ -8,6 +8,7 @@
 use std::path::Path;
 use std::time::Duration;
 
+use data_encoding::HEXLOWER;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
@@ -25,7 +26,7 @@ const KEYCHAIN_TIMEOUT: Duration = Duration::from_secs(10);
 /// default `~/.claude`, and suffixed with a hash of the folder when `CLAUDE_CONFIG_DIR` names it.
 pub fn keychain_services(config_dir: &Path) -> Vec<String> {
     let dir = config_dir.to_string_lossy();
-    let hashed = |p: &str| format!("Claude Code-credentials-{}", &format!("{:x}", Sha256::digest(p.as_bytes()))[..8]);
+    let hashed = |p: &str| format!("Claude Code-credentials-{}", &HEXLOWER.encode(&Sha256::digest(p.as_bytes()))[..8]);
     let mut out = Vec::new();
     if config_dir == home().join(".claude") {
         out.push("Claude Code-credentials".to_string());

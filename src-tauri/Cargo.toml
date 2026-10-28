@@ -36,23 +36,23 @@ serde_json = { version = "1", features = ["raw_value"] }
 toml = "1"
 notify = "8"
 ignore = "0.4"
-dirs = "6"
+dirs = "7"
 anyhow = "1"
 libc = "0.2"
 urlencoding = "2"
 # Another app's settings as `defaults export` prints them (launch/rex.rs); Tauri builds it already.
 plist = "1"
-sha2 = "0.10"
-toml_edit = "0.23"
+sha2 = "0.11"
+toml_edit = "0.25"
 # OpenCode and Antigravity keep their sessions in SQLite databases.
-rusqlite = { version = "0.37", features = ["bundled"] }
+rusqlite = { version = "0.41", features = ["bundled"] }
 # The `codealong` command (cli.rs): its --help is the reference the agent skill points at.
 clap = { version = "4", features = ["derive", "wrap_help"] }
 # The quick panel's shortcut, which works in every app (Carbon hot keys: no permission needed).
 tauri-plugin-global-shortcut = "2"
-# Automatic updates (updates.rs). 2.12 is the newest that runs on Tauri 2.11: 2.13 needs 2.12,
+# Automatic updates (updates.rs), on Tauri 2.12: a later updater can need a later Tauri,
 # which Cargo would otherwise upgrade Tauri to without asking.
-tauri-plugin-updater = "~2.12"
+tauri-plugin-updater = "~2.14"
 # Your other devices (peers.rs): what goes between them, iroh included, is codealong-peer; the
 # engine keeps device keys with iroh's types, and data-encoding writes them.
 codealong-peer = { path = "peer" }
