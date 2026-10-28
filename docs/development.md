@@ -49,7 +49,7 @@ your checkout, with its dependencies optimized (`scripts/engine.sh`).
 
 ```bash
 npm run typecheck                        # tsc
-npm run lint                             # eslint
+npm run lint                             # oxlint
 npm test                                 # vitest
 (cd src-tauri && cargo test)             # the engine and codealong-peer
 scripts/engine.sh                        # build this checkout's engine when it changed; print its path

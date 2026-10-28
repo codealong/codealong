@@ -21,7 +21,7 @@ file for that area when it's more than that code needs (see *Where facts live*).
 
 ```bash
 npm run typecheck                       # tsc
-npm run lint                            # eslint: only the rules of hooks and their dependency lists
+npm run lint                            # oxlint: only the rules of hooks and their dependency lists
 npm test                                # vitest
 (cd src-tauri && cargo test)            # engine rules, parsers, usage, config, launch scripts; codealong-peer's too
 scripts/engine.sh                       # builds this checkout's engine binary when src-tauri changed; prints its path
