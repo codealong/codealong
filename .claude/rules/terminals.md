@@ -183,6 +183,11 @@ say the rest.
   logs --all`, has each request), but Rex stayed behind the app that was clicked in: `open -b`,
   run by Codealong's engine from a click in its main window, didn't bring it forward, so the
   windows bring the terminal's app forward themselves (`lib.rs` `open_target`, `start_session`).
+- The app can run with every window closed, and then refuses every action, `session.select` and
+  its own `client.window.new` alike (400, "Rex Beta has no window to act in.", `code=not_supported`;
+  0.1.0 (1541), 2026-10-28). `open -b` makes it open a window, on the session it showed last,
+  within half a second, and `session.select` then works: `launch/rex.rs` (`show`). Before that,
+  Attach in Rex opened its block and brought Rex forward on another session.
 - The server makes a block's pty with no display to draw in, so it should start one while the
   screen is locked; unchecked with the screen locked. Starts go to Rex then rather than tmux
   (`Terminal::holds_sessions`, `launch.rs` `host_rule`).

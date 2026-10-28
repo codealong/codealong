@@ -101,7 +101,7 @@ const SCRIPTS: &[(&str, u64)] = &[
     ("TERMINAL_CLOSE+TAB_ON", 0x395c0be9fa50e975),
     ("REX_LIST", 0x748adcebc363a3fa),
     ("REX_NEW", 0x17a9ec125713ba14),
-    ("REX_SHOW", 0x745acad78b776075),
+    ("REX_SHOW", 0x034b4435ccb86df4),
     ("REX_WRITE", 0x1141908aae8d52fa),
     ("REX_CLOSE", 0x14410192a422cbfb),
 ];
@@ -1478,6 +1478,8 @@ mod tests {
     const REX_DEFAULTS: &str = r#"/usr/bin/defaults ["export", "com.superlogical.rex", "-"] (5s)"#;
     const REX_SHOWN: &str = r#"{"apps":1,"shown":1,"refused":"","failed":""}"#;
     const REX_REFUSED: &str = r#"{"apps":1,"shown":0,"refused":"stream response \"control-7\" failed: Rex.app is not accepting actions. Turn on Remote Control in its Settings under Rex Server. (status=403 code=refused)","failed":""}"#;
+    /// Rex's app with every window closed, as Rex Beta 0.1.0 (1541) answers then.
+    const REX_WINDOWLESS: &str = r#"{"apps":1,"shown":0,"refused":"","windowless":"stream response \"control-9\" failed: Rex Beta has no window to act in. (status=400 code=not_supported)","failed":""}"#;
 
     /// What a Lua script was run with, as the log has it.
     fn rex(script: &str, args: &str, start: bool) -> String {
@@ -1601,6 +1603,21 @@ mod tests {
         let p = played(rex_answers(r#"{"apps":1,"shown":0,"refused":"","failed":"client.perform timed out after 10s"}"#), || terminal_focus_session("ghostty", IN_REX, "Fix the login", Path::new("/r/app")));
         assert_eq!(err(p.got), "Rex didn't go to this session's tab: client.perform timed out after 10s");
         assert_eq!(p.log.len(), 3, "a connected app isn't asked again");
+        // Its app is running with every window closed: opened, it makes one, and is asked again.
+        let shows = Rc::new(Cell::new(0));
+        let answer = move |s: &Sent| {
+            if s.args.get(3).is_some_and(|a| a == "REX_SHOW") {
+                shows.set(shows.get() + 1);
+                return Ok(if shows.get() == 1 { REX_WINDOWLESS } else { REX_SHOWN }.to_string());
+            }
+            rex_answers(REX_SHOWN)(s)
+        };
+        let p = played(answer, || terminal_focus_session("ghostty", IN_REX, "Fix the login", Path::new("/r/app")));
+        assert!(p.got.unwrap());
+        assert_eq!(p.log[1..], [show("block:b1", "session:s1", "window:w1"), REX_OPEN.to_string(), show("block:b1", "session:s1", "window:w1")]);
+        let p = played(rex_answers(REX_WINDOWLESS), || terminal_focus_session("ghostty", IN_REX, "Fix the login", Path::new("/r/app")));
+        assert_eq!(err(p.got), "Rex opened no window to show this session's tab in.");
+        assert_eq!(p.log[1..4], [show("block:b1", "session:s1", "window:w1"), REX_OPEN.to_string(), show("block:b1", "session:s1", "window:w1")]);
 
         // No block on its TTY (an empty list comes back as `{}`), or the server not running.
         let p = played(|_| Ok("{}\n".into()), || terminal_focus_session("ghostty", IN_REX, "Fix the login", Path::new("/r/app")));

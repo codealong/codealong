@@ -191,14 +191,14 @@ return { session = a.session, window = made.window_id, block = made.block_ids[1]
 
 /// `{session, window, block}`: focuses the block, which makes its window the session's active
 /// one, then asks each Rex app on this Mac to show that session. Returns `{apps, shown, refused,
-/// failed}`: how many apps there are and how many showed it, and what one said that refused
-/// (Remote Control off) or failed otherwise.
+/// windowless, failed}`: how many apps there are and how many showed it, and what one said that
+/// refused (Remote Control off), had no window open to show it in, or failed otherwise.
 const SHOW: &str = r#"
 local a = rex.args
 rex.session.attach{ session_id = a.session }
 local _, err = rex.session.focus_block{ session_id = a.session, block_id = a.block }
 if err then error(err, 0) end
-local apps, shown, refused, failed = 0, 0, "", ""
+local apps, shown, refused, windowless, failed = 0, 0, "", "", ""
 local clients = rex.call("client.list") or {}
 for _, c in ipairs(clients.clients or {}) do
   if c.info and c.info.kind == "app" and c.principal and c.principal.transport == "unix" then
@@ -208,12 +208,14 @@ for _, c in ipairs(clients.clients or {}) do
       shown = shown + 1
     elseif string.find(e, "code=refused", 1, true) then
       refused = e
+    elseif string.find(e, "code=not_supported", 1, true) then
+      windowless = e
     else
       failed = e
     end
   end
 end
-return { apps = apps, shown = shown, refused = refused, failed = failed }
+return { apps = apps, shown = shown, refused = refused, windowless = windowless, failed = failed }
 "#;
 
 /// `{session, block, text, after}`: types `text` into the block as if typed, then `after` a
@@ -375,9 +377,11 @@ fn show(ids: Value) -> Result<()> {
     let ask = || -> Result<Shown> { Ok(serde_json::from_value(script(SHOW, ids.clone(), false)?).unwrap_or_default()) };
     let mut shown = ask()?;
     open::in_app(App::Id(BUNDLE), None, Duration::from_secs(10))?;
-    // No app was connected: the one just opened is, once it has started.
+    // No app was connected: the one just opened is, once it has started. Or the app had every
+    // window closed, and refuses any action until it has one: opened again, it makes one, on the
+    // session it showed last.
     let started = std::time::Instant::now();
-    while shown.apps == 0 && started.elapsed() < APP_WAIT {
+    while shown.shown == 0 && (shown.apps == 0 || !shown.windowless.is_empty()) && started.elapsed() < APP_WAIT {
         std::thread::sleep(Duration::from_millis(500));
         shown = ask()?;
     }
@@ -387,6 +391,8 @@ fn show(ids: Value) -> Result<()> {
         bail!("Rex opened, but it didn't connect to its server in time to show this session's tab.")
     } else if !shown.refused.is_empty() {
         bail!(NO_REMOTE_CONTROL)
+    } else if !shown.windowless.is_empty() {
+        bail!("Rex opened no window to show this session's tab in.")
     } else {
         bail!("Rex didn't go to this session's tab: {}", shown.failed)
     }
@@ -399,6 +405,7 @@ struct Shown {
     apps: u64,
     shown: u64,
     refused: String,
+    windowless: String,
     failed: String,
 }
 
