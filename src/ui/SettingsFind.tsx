@@ -182,7 +182,7 @@ export function useSettingsFind(root: RefObject<HTMLElement | null>, query: stri
 }
 
 interface SettingsFindFieldProps {
-  inputRef: RefObject<HTMLInputElement>;
+  inputRef: RefObject<HTMLInputElement | null>;
   value: string;
   onChange: (value: string) => void;
   /** Has the keyboard as Settings opens. */

@@ -55,7 +55,7 @@ export function ListSeg<T extends string>({ label, options, value, onPick }: { l
 }
 
 interface ListFindProps {
-  inputRef: RefObject<HTMLInputElement>;
+  inputRef: RefObject<HTMLInputElement | null>;
   value: string;
   onChange: (value: string) => void;
   /** What the view finds in: "Find in sessions". */

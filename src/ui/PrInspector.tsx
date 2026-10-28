@@ -247,7 +247,7 @@ export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpe
   const [open, toggleOpen] = useDetailsOpen(DETAILS_KEY);
   const icons = useEditorIcons(apps);
   const files = useRef<FilesFinder>(null);
-  const idBase = `prtab${useId().replace(/:/g, '')}`;
+  const idBase = `prtab${useId()}`;
 
   const { tab } = tabs;
   const bar = useRef<HTMLDivElement>(null);

@@ -99,7 +99,7 @@ export interface PrBox {
   setAskText: (text: string | ((was: string) => string)) => void;
   note: { text: string; error?: boolean } | null;
   setNote: (note: { text: string; error?: boolean } | null) => void;
-  box: RefObject<HTMLTextAreaElement>;
+  box: RefObject<HTMLTextAreaElement | null>;
   /** Your draft review on GitHub, which a verdict submits. */
   draft: Draft | null;
   /** Any open PR but your own takes a review; anything open takes a comment. */
