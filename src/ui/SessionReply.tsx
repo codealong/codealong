@@ -689,17 +689,20 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
   const command = slashCommand(text, s);
   const commands = slashMatches(text, s);
   // While a name is being typed at the caret, what it could be: Codealong's own commands (at
-  // the start of the box, where they run), then the session's skills, less any Codealong's
-  // commands take the name of. Escape puts the list away until the name changes. Not in a side
-  // conversation's box, which takes what's typed as words.
-  const taken = new Set(COMMANDS.flatMap((c) => [c.name, ...(c.aliases ?? [])]));
+  // the start of the box, where they run), then the session's skills, less any those commands
+  // take the name of there. Escape puts the list away until the name changes or another is
+  // typed. Not in a side conversation's box, which takes what's typed as words.
+  const atStart = !!mention && mention.start === text.length - text.trimStart().length;
+  const taken = new Set(atStart ? COMMANDS.flatMap((c) => [c.name, ...(c.aliases ?? [])]) : []);
   const options: SlashOption[] =
     !mention || aside
       ? []
-      : [...(mention.start === text.length - text.trimStart().length ? commands : []).map((c) => ({ name: c.name, hint: c.args, about: c.about, own: true })), ...matching(skills.filter((k) => !taken.has(k.name)), mention.name).map((k) => ({ name: k.name, hint: k.hint, about: k.description }))];
+      : [...(atStart ? commands : []).map((c) => ({ name: c.name, hint: c.args, about: c.about, own: true })), ...matching(skills.filter((k) => !taken.has(k.name)), mention.name).map((k) => ({ name: k.name, hint: k.hint, about: k.description }))];
+  // The name being typed and where, as Escape puts the list away for it.
+  const mentionKey = mention ? `${mention.start}:${mention.name}` : null;
   const [closedFor, setClosedFor] = useState<string | null>(null);
   const [picked, setPicked] = useState(0);
-  const listing = options.length > 0 && closedFor !== mention?.name;
+  const listing = options.length > 0 && closedFor !== mentionKey;
   const at = Math.min(picked, options.length - 1);
   /** Finishes the name at the caret as the option's, with the cursor after it. */
   const complete = (o: SlashOption) => {
@@ -876,7 +879,7 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
               if (e.key === 'Escape') {
                 e.preventDefault();
                 e.stopPropagation();
-                setClosedFor(mention?.name ?? null);
+                setClosedFor(mentionKey);
                 return;
               }
             }

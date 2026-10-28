@@ -26,8 +26,18 @@
   // Working, so Escape would stop its turn if the list didn't take it.
   var busy = { status: 'working', live: true, stoppable: true, stalledSince: null, asks: false };
   var real = window.__TAURI_INTERNALS__.invoke;
+  // A skill that has the name of one of Codealong's commands, which only the start keeps for the
+  // command.
+  var forkSkill = { name: 'fork', description: 'Split the work in two', typed: true, byModel: true, written: { claude: '/fork', codex: '$fork' }, uses: 0, lastUsed: 0 };
   window.__TAURI_INTERNALS__.invoke = function (cmd) {
     var got = real.apply(this, arguments);
+    if (cmd === 'session_skills') {
+      return got.then(function (listed) {
+        listed = listed || { folders: [], accounts: [] };
+        listed.folders = listed.folders.concat([{ folder: picked.cwd, skills: [forkSkill] }]);
+        return listed;
+      });
+    }
     if (cmd !== 'get_board') return got;
     return got.then(function (b) {
       b.lanes.forEach(function (l) { l.sessions.forEach(function (s) { if (s.key === sessionKey) Object.assign(s, busy); }); });
@@ -104,12 +114,13 @@
       type(box(), 'look at it, then /');
       await until(function () { return rows().length > 0; }, 3000, 'no list for a slash after other words');
       check('a slash after other words lists the skills', names().indexOf('/ship') >= 0, names().join(' '));
-      check('but not Codealong’s commands', names().indexOf('/fork') < 0 && names().indexOf('/side') < 0, names().join(' '));
+      check('but not Codealong’s commands', all('.ca-slash-about').every(function (a) { return a.textContent.indexOf('Codealong:') !== 0; }), names().join(' '));
       type(box(), 'look at it, then /shi');
       await until(function () { return active() === '/ship'; }, 3000, 'no /ship for /shi after other words');
       key(box(), { key: 'Tab' });
       await until(function () { return box().value === 'look at it, then /ship '; }, 3000, 'the name after words wasn’t finished: ' + box().value);
-      check('⇥ finishes a name after other words', rows().length === 0);
+      await until(function () { return rows().length === 0; }, 1000, 'the list stayed after ⇥ finished a name after other words');
+      check('⇥ finishes a name after other words', true);
       type(box(), 'look at it, then /ship');
       await wait(50);
       key(box(), { key: 'Enter' });
@@ -118,6 +129,25 @@
       type(box(), 'see /Users/me/sh');
       await wait(300);
       check('a path lists nothing', rows().length === 0, names().join(' '));
+
+      // Escape puts the list away for the name it was on, not for the same name typed again.
+      type(box(), 'compare /sh');
+      await until(function () { return rows().length > 0; }, 3000, 'no list for compare /sh');
+      key(box(), { key: 'Escape' });
+      await wait(100);
+      check('Escape puts the list away after other words', rows().length === 0);
+      type(box(), 'compare /sh with /sh');
+      await until(function () { return rows().length > 0; }, 3000, 'the list didn’t come back for another /sh');
+      check('and it comes back for the next name', names().indexOf('/ship') >= 0, names().join(' '));
+
+      // At the start a command keeps its name; after other words, where no command runs, a
+      // skill of that name is listed.
+      type(box(), '/fo');
+      await until(function () { return rows().length > 0; }, 3000, 'no list for /fo');
+      check('at the start /fork is Codealong’s', rows().filter(function (r) { return q('.ca-slash-name', r).textContent.trim().split(' ')[0] === '/fork'; }).length === 1 && q('.ca-slash-about', rows()[0]).textContent.indexOf('Codealong:') === 0, names().join(' '));
+      type(box(), 'then /fo');
+      await until(function () { return rows().length > 0; }, 3000, 'no list for a skill named as a command after other words');
+      check('after other words it’s the skill', names()[0] === '/fork' && q('.ca-slash-about', rows()[0]).textContent === 'Split the work in two', names().join(' '));
 
       sends = sent('send_to_session').length;
       type(box(), '/compact');
