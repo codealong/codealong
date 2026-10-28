@@ -219,6 +219,13 @@ html.is-quick body {
   font: var(--type-body-strong);
   color: var(--ink);
 }
+/* A session's emblem leads its title on the title's own line, so the title still shortens with
+   an ellipsis and the emblem is never what's cut. Set from the line's top, it sits in the middle
+   of the line without making it taller, as centering it on the text would by a pixel. */
+.ca-quick-row-title > .ca-emblem {
+  margin: 1px 6px 0 0;
+  vertical-align: top;
+}
 .ca-quick-row-title mark {
   background: transparent;
   color: inherit;

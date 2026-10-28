@@ -231,8 +231,8 @@ or archived keeps the one it had, and a run nobody is at (`claude -p`, `codex ex
 helper shows the emblem of the session it works for. What a session is given stays for its life,
 however its title changes; changing the prompt changes only the sessions drawn after. The emblem
 shows wherever the session's title does: its rows, its header, the floating bar's and the notch's
-pills, cards on the canvas and the desktop, and the list of what waits on you, with what it is as
-its tooltip. Emblems are kept in `emblems.json`, the pictures with the kept images, and your other
+pills, cards on the canvas and the desktop, the list of what waits on you, and the quick panel's
+rows and Jev's suggestions to send to it there, with what it is as its tooltip. Emblems are kept in `emblems.json`, the pictures with the kept images, and your other
 devices show the ones each Mac gave its sessions.
 
 #### Rename

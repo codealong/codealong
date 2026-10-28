@@ -103,7 +103,7 @@ import { Picker, type PickerOption, type PickerSection } from './Picker';
 import { addsTo, anotherFolderOption, chatOption, folderOptions, laneSections } from './pickerOptions';
 import { AgentFoot } from './AgentMenu';
 import { agentMenuSections, placeIcon } from './StartControls';
-import { Button, CheckBox, Chip, cx, Icon, Kbd, Mark, Marked, SaidText, STATUS_WORD, SessionGlyph, StatusGlyph } from './primitives';
+import { Button, CheckBox, Chip, cx, Icon, Kbd, Mark, Marked, SaidText, STATUS_WORD, SessionEmblem, SessionGlyph, StatusGlyph } from './primitives';
 import { SnoozeChip } from './LaneRow';
 import { ProjectPrefix, ProjectShown } from './ProjectSaid';
 import { projectForDigit, projectKey } from './ProjectSwitcher';
@@ -1856,7 +1856,11 @@ export function Quick() {
           <Icon name={said.icon} size={13} stroke={2} />
         </span>
         <span className="ca-quick-row-main">
-          <span className="ca-quick-row-title">{said.title}</span>
+          <span className="ca-quick-row-title">
+            {/* A suggestion to send to a session or open one names it, so it shows its emblem too. */}
+            {(sg.kind === 'send' || sg.kind === 'open') && <SessionEmblem emblem={sg.session.emblem} of={sg.session.key} />}
+            {said.title}
+          </span>
           <span className="ca-quick-row-why">{said.why}</span>
         </span>
         <span className="ca-quick-row-where">{said.where}</span>
@@ -2250,6 +2254,7 @@ export function Quick() {
                           <SessionGlyph s={s2} />
                           <span className="ca-quick-row-main">
                             <span className="ca-quick-row-title">
+                              <SessionEmblem emblem={s2.emblem} of={s2.key} />
                               <Marked text={s2.title} marks={r.marks} />
                             </span>
                             {r.said ? (
