@@ -2854,7 +2854,9 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
     /// isn't known; FSEvents says so for every folder of the stream at once. Git runs as often as
     /// `Drops` allows in the worktrees each holds and those of the checkout it is, whose index
     /// and HEAD are in its `.git`. What isn't a repo's folder (a harness's records, the support
-    /// folder) is handed back, to be taken as a change as it always was.
+    /// folder) is handed back, to be taken as a change as it always was, and so is a worktree
+    /// that's gone, deleted while its own events were dropped: a path of its in the batch reads
+    /// the repos again (`classify_repo_path`).
     fn on_dropped(&mut self, roots: Vec<PathBuf>) -> Vec<PathBuf> {
         if roots.is_empty() {
             return roots;
@@ -2869,6 +2871,8 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                 rest.push(root.clone());
             }
         }
+        let (lanes, gone): (BTreeSet<PathBuf>, BTreeSet<PathBuf>) = lanes.into_iter().partition(|p| p.exists());
+        rest.extend(gone);
         let run = self.drops.on_dropped(lanes.iter().cloned(), Instant::now());
         if perf::enabled() {
             perf::log(&format!("watcher dropped events in {} folders: git now in {} of their {} worktrees", roots.len(), run.len(), lanes.len()));
@@ -5078,7 +5082,7 @@ mod tests {
 
     /// Events the watcher dropped run git where the folder's worktrees are, the checkout's own
     /// outside it too, and no more often than `Drops` allows; a folder that's no repo's is taken
-    /// as it always was.
+    /// as it always was, and so is a worktree that's gone, which has the repos read again.
     #[test]
     fn dropped_events_run_git_in_the_folders_worktrees_now_and_then() {
         use super::*;
@@ -5087,25 +5091,45 @@ mod tests {
         // No worker takes the jobs: each run stays running, to be counted.
         let (jobs, _held) = channel::<GitJob>();
         engine.git_jobs = jobs;
-        let repo = |p: &str, origin: Origin| LaneSeed { origin, ..folder_seed(PathBuf::from(p), "P", "repo", false) };
-        let (root, nested, linked, other) = ("/work/app", "/work/app/.claude/worktrees/a", "/work/app-fix", "/work/other");
-        engine.seeds = vec![repo(root, Origin::Main), repo(nested, Origin::ClaudeApp), repo(linked, Origin::Main), repo(other, Origin::Main)];
-        for p in [root, nested, linked] {
-            engine.lane_checkout.insert(PathBuf::from(p), PathBuf::from(root));
+        let work = std::env::temp_dir().join(format!("codealong-dropped-{}", std::process::id()));
+        let at = |p: &str| work.join(p);
+        let (root, nested, linked, other, gone) = (at("app"), at("app/.claude/worktrees/a"), at("app-fix"), at("other"), at("app/.claude/worktrees/b"));
+        for p in [&nested, &linked, &other] {
+            std::fs::create_dir_all(p).unwrap();
         }
-        engine.lane_checkout.insert(PathBuf::from(other), PathBuf::from(other));
+        let repo = |p: &PathBuf, origin: Origin| LaneSeed { origin, ..folder_seed(p.clone(), "P", "repo", false) };
+        engine.seeds = vec![repo(&root, Origin::Main), repo(&nested, Origin::ClaudeApp), repo(&gone, Origin::ClaudeApp), repo(&linked, Origin::Main), repo(&other, Origin::Main)];
+        for p in [&root, &nested, &gone, &linked] {
+            engine.lane_checkout.insert(p.clone(), root.clone());
+        }
+        engine.lane_checkout.insert(other.clone(), other.clone());
 
-        let rest = engine.on_dropped(vec![PathBuf::from(root), PathBuf::from("/records"), PathBuf::from(root)]);
-        assert_eq!(rest, vec![PathBuf::from("/records")], "a harness's folder is handed back");
-        let mut running: Vec<&str> = [root, nested, linked, other].into_iter().filter(|p| engine.git_queue.request(PathBuf::from(*p), Instant::now()) == Verdict::Running).collect();
-        running.sort();
-        assert_eq!(running, vec![root, linked, nested], "not the other repo");
+        let rest = engine.on_dropped(vec![root.clone(), PathBuf::from("/records"), root.clone()]);
+        assert_eq!(rest, vec![PathBuf::from("/records"), gone.clone()], "a harness's folder and a worktree that's gone are handed back");
+        let running: BTreeSet<&PathBuf> = [&root, &nested, &gone, &linked, &other].into_iter().filter(|p| engine.git_queue.request((*p).clone(), Instant::now()) == Verdict::Running).collect();
+        assert_eq!(running, [&root, &nested, &linked].into(), "not the other repo, nor where nothing is");
 
         // A build overflows the watcher again: nothing more yet.
         engine.git_queue = GitQueue::default();
-        assert!(engine.on_dropped(vec![PathBuf::from(root)]).is_empty());
+        assert_eq!(engine.on_dropped(vec![root.clone()]), vec![gone]);
         assert_eq!(engine.git_queue.running(), 0);
         assert!(engine.drops.next_due().is_some(), "a run is owed");
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    /// A worktree deleted while the watcher dropped its events leaves the board: the drop hands it
+    /// to the batch, which reads the repos again for it.
+    #[test]
+    fn a_worktree_gone_while_events_were_dropped_has_the_repos_read_again() {
+        use super::*;
+        let (tx, _rx) = channel();
+        let mut engine = Engine::new(Box::new(|_, _| {}), tx, Arc::new(RwLock::new(Board::default())));
+        let gone = PathBuf::from("/nowhere/codealong-gone-worktree");
+        engine.seeds = vec![LaneSeed { origin: Origin::Main, ..folder_seed(gone.clone(), "P", "repo", false) }];
+        let rest = engine.on_dropped(vec![gone.clone()]);
+        assert_eq!(rest, vec![gone.clone()]);
+        let mut batch = FsBatch::new(&engine.seeds);
+        assert!(matches!(engine.classify_repo_path(&gone, &mut batch), RepoEvent::Worktrees));
     }
 
     /// A repo's team file read without a file changes nothing the windows get, but a review that
