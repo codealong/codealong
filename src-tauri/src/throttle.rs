@@ -84,6 +84,89 @@ impl<K: Eq + Hash + Clone> GitQueue<K> {
     }
 }
 
+/// A lane the watcher brought a change in this lately is busy when it drops events.
+pub const BUSY_FOR: Duration = Duration::from_secs(2 * 60);
+/// How often events the watcher dropped run git in a lane: soon in a busy one, whose own events
+/// are the ones likely lost, and now and then in a quiet one, where a drop has never yet meant
+/// a change.
+pub const DROPPED_BUSY_EVERY: Duration = Duration::from_secs(30);
+pub const DROPPED_QUIET_EVERY: Duration = Duration::from_secs(10 * 60);
+
+/// What git events the file watcher dropped call for. When builds write tens of thousands of
+/// files at once, macOS's queue for the watcher overflows, and FSEvents says so for every folder
+/// the stream watches, not only the one that overflowed. Taken as a change in each, that ran git
+/// in every worktree on the Mac every few seconds for as long as a build wrote: 12,600 of 23,000
+/// runs in 17 hours, in repos nobody had touched in months (perf.log, 2026-10-28). So a drop runs
+/// git in a lane at most every `DROPPED_BUSY_EVERY` while the watcher brings it changes, and
+/// every `DROPPED_QUIET_EVERY` otherwise; one held back is owed a run when its time comes, so a
+/// change whose every event was lost is still picked up.
+pub struct Drops<K> {
+    /// When the watcher last brought a change in each lane.
+    changed: HashMap<K, Instant>,
+    /// When a drop last ran git in each.
+    ran: HashMap<K, Instant>,
+    /// Runs held back, and when each is due.
+    owed: HashMap<K, Instant>,
+}
+
+impl<K> Default for Drops<K> {
+    fn default() -> Self {
+        Drops { changed: HashMap::new(), ran: HashMap::new(), owed: HashMap::new() }
+    }
+}
+
+impl<K: Eq + Hash + Clone> Drops<K> {
+    /// The watcher brought a change in the lane.
+    pub fn on_change(&mut self, key: K, now: Instant) {
+        self.changed.insert(key, now);
+    }
+
+    /// The watcher dropped events where these lanes are: the ones to run git in now. The rest
+    /// are owed a run, which `due` hands out.
+    pub fn on_dropped(&mut self, lanes: impl IntoIterator<Item = K>, now: Instant) -> Vec<K> {
+        let mut run = Vec::new();
+        for key in lanes {
+            let busy = self.changed.get(&key).is_some_and(|t| now.duration_since(*t) < BUSY_FOR);
+            let every = if busy { DROPPED_BUSY_EVERY } else { DROPPED_QUIET_EVERY };
+            match self.ran.get(&key) {
+                Some(last) if now.duration_since(*last) < every => {
+                    let at = *last + every;
+                    let owed = self.owed.entry(key).or_insert(at);
+                    *owed = (*owed).min(at);
+                }
+                _ => {
+                    self.owed.remove(&key);
+                    self.ran.insert(key.clone(), now);
+                    run.push(key);
+                }
+            }
+        }
+        run
+    }
+
+    /// Owed runs whose time has come.
+    pub fn due(&mut self, now: Instant) -> Vec<K> {
+        let due: Vec<K> = self.owed.iter().filter(|(_, at)| **at <= now).map(|(k, _)| k.clone()).collect();
+        for k in &due {
+            self.owed.remove(k);
+            self.ran.insert(k.clone(), now);
+        }
+        due
+    }
+
+    /// When the earliest owed run is due, for the loop's wait.
+    pub fn next_due(&self) -> Option<Instant> {
+        self.owed.values().min().copied()
+    }
+
+    /// Forgets the lanes `keep` doesn't, which are gone.
+    pub fn retain(&mut self, keep: impl Fn(&K) -> bool) {
+        self.changed.retain(|k, _| keep(k));
+        self.ran.retain(|k, _| keep(k));
+        self.owed.retain(|k, _| keep(k));
+    }
+}
+
 /// Whether to publish now. Changes to what the board shows go out after `publish_every`; git
 /// results alone wait `GIT_PUBLISH_EVERY`. The first publish goes at once either way.
 pub fn publish_now(dirty: bool, dirty_git: bool, since_last: Option<Duration>, publish_every: Duration) -> bool {
@@ -169,6 +252,62 @@ mod tests {
         q.done(&"a", t);
         assert_eq!(q.request("a", t + GIT_SPACING), Verdict::Run);
         assert_eq!(q.request("b", t), Verdict::Run, "other worktrees aren't held by this one");
+    }
+
+    #[test]
+    fn a_drop_runs_git_in_a_quiet_lane_now_and_then() {
+        let mut d = Drops::default();
+        let t = clock();
+        assert_eq!(d.on_dropped(["a", "b"], t), vec!["a", "b"], "the first drop runs git in each");
+        // A build overflows the watcher every few seconds: nothing more for a while.
+        for s in 1..60 {
+            assert!(d.on_dropped(["a", "b"], t + Duration::from_secs(s * 5)).is_empty());
+        }
+        assert_eq!(d.next_due(), Some(t + DROPPED_QUIET_EVERY), "one run owed, however many drops");
+        assert!(d.due(t + DROPPED_QUIET_EVERY - Duration::from_secs(1)).is_empty());
+        let mut due = d.due(t + DROPPED_QUIET_EVERY);
+        due.sort();
+        assert_eq!(due, vec!["a", "b"], "the drops have stopped by then, and the owed runs go");
+        assert_eq!(d.next_due(), None);
+        assert!(d.on_dropped(["a"], t + DROPPED_QUIET_EVERY + Duration::from_secs(1)).is_empty(), "the owed run counts");
+    }
+
+    #[test]
+    fn a_drop_runs_git_in_a_busy_lane_sooner() {
+        let mut d = Drops::default();
+        let t = clock();
+        d.on_change("busy", t);
+        assert_eq!(d.on_dropped(["busy", "quiet"], t), vec!["busy", "quiet"]);
+        let later = t + DROPPED_BUSY_EVERY;
+        assert_eq!(d.on_dropped(["busy", "quiet"], later), vec!["busy"]);
+        // Its last change is long gone: it's quiet now.
+        let long_after = t + BUSY_FOR + DROPPED_BUSY_EVERY;
+        assert!(d.on_dropped(["busy"], long_after).is_empty());
+        assert_eq!(d.next_due(), Some(t + DROPPED_QUIET_EVERY), "quiet's run is owed first, and busy's no sooner");
+    }
+
+    #[test]
+    fn an_owed_run_is_the_soonest_a_drop_asked_for() {
+        let mut d = Drops::default();
+        let t = clock();
+        assert_eq!(d.on_dropped(["a"], t), vec!["a"]);
+        assert!(d.on_dropped(["a"], t + Duration::from_secs(5)).is_empty());
+        assert_eq!(d.next_due(), Some(t + DROPPED_QUIET_EVERY));
+        // A change comes, and the next drop finds the lane busy.
+        d.on_change("a", t + Duration::from_secs(6));
+        assert!(d.on_dropped(["a"], t + Duration::from_secs(7)).is_empty());
+        assert_eq!(d.next_due(), Some(t + DROPPED_BUSY_EVERY));
+        assert_eq!(d.due(t + DROPPED_BUSY_EVERY), vec!["a"]);
+    }
+
+    #[test]
+    fn lanes_that_are_gone_are_forgotten() {
+        let mut d = Drops::default();
+        let t = clock();
+        d.on_dropped(["a", "b"], t);
+        d.on_dropped(["a", "b"], t + Duration::from_secs(1));
+        d.retain(|k| *k == "a");
+        assert_eq!(d.due(t + DROPPED_QUIET_EVERY), vec!["a"]);
     }
 
     #[test]

@@ -42,7 +42,7 @@ use crate::repos::{self, Checkout};
 use crate::search;
 use crate::setup;
 use crate::state::SeenState;
-use crate::throttle::{self, GitQueue, Verdict};
+use crate::throttle::{self, Drops, GitQueue, Verdict};
 use crate::todos::{self, TodoOp, TodoStore};
 use crate::attachments;
 use crate::usage;
@@ -75,6 +75,9 @@ const SHOWN_WAIT: Duration = Duration::from_secs(10);
 
 pub enum Msg {
     Fs(Vec<PathBuf>),
+    /// The watcher dropped events under these folders, the ones it watches: what changed there
+    /// isn't known (`Engine::on_dropped`).
+    Dropped(Vec<PathBuf>),
     /// Git's word on a worktree, or none when its run fell over: the run is over either way.
     GitDone(PathBuf, Option<GitInfo>),
     /// Something GitHub was asked in the background came back (ghpoll.rs).
@@ -858,7 +861,10 @@ pub fn link_opens_as(board: &Board, url: &str) -> Option<Lane> {
     board::app_of_link(&board.lanes, url).cloned()
 }
 
-pub fn start(emit: impl Fn(&Board) + Send + 'static) -> Handle {
+/// Starts the engine, which hands `emit` each board that changed, and whether anything the
+/// windows show did (`BoardHash`): a board where only how current GitHub's answers are changed
+/// isn't for them, but what acts on the board reads it.
+pub fn start(emit: impl Fn(&Board, bool) + Send + 'static) -> Handle {
     let (tx, rx) = channel();
     // The theme, zoom, shortcuts and experiments are on the board before the first scan
     // finishes, so windows open in them.
@@ -920,7 +926,7 @@ pub fn snapshot_pr_card(slug: &str, number: u64) -> Result<PrItem> {
 
 fn snapshot_engine(with_github: bool, with_usage: bool) -> Engine {
     let (tx, _rx) = channel();
-    let mut e = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
+    let mut e = Engine::new(Box::new(|_, _| {}), tx, Arc::new(RwLock::new(Board::default())));
     e.passing = true;
     let t = Instant::now();
     let lap = |label: &str, t: &Instant| eprintln!("  {label:<10} {:>6} ms", t.elapsed().as_millis());
@@ -974,7 +980,7 @@ fn snapshot_engine(with_github: bool, with_usage: bool) -> Engine {
 /// files say, in a couple of seconds. For the `codealong` command when the app isn't running.
 pub fn light_snapshot() -> Board {
     let (tx, _rx) = channel();
-    let mut e = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
+    let mut e = Engine::new(Box::new(|_, _| {}), tx, Arc::new(RwLock::new(Board::default())));
     e.passing = true;
     e.load_config();
     e.load_state();
@@ -1132,7 +1138,8 @@ impl RepoReads {
 }
 
 struct Engine {
-    emit: Box<dyn Fn(&Board) + Send>,
+    /// `start`'s.
+    emit: Box<dyn Fn(&Board, bool) + Send>,
     tx: Sender<Msg>,
     board: Arc<RwLock<Board>>,
     cfg: Config,
@@ -1172,7 +1179,10 @@ struct Engine {
     /// runs there once a scan has read them.
     held_worktrees: HashSet<PathBuf>,
     /// Hash of the last published board, to skip publishing when nothing changed.
-    last_hash: u64,
+    last_hash: BoardHash,
+    /// What asked for a publish since the last, for the perf log to say when one changed
+    /// nothing. Kept only while the log is on.
+    asked_by: BTreeSet<String>,
     /// Sessions from other lanes whose logs show they worked in a worktree.
     visitors: Visitors,
     /// What to look for in logs: (lane path, text that identifies it, when it was made).
@@ -1246,6 +1256,8 @@ struct Engine {
     git_jobs: Sender<GitJob>,
     /// Which worktrees git runs in, and which wait their turn (see throttle.rs).
     git_queue: GitQueue<PathBuf>,
+    /// What events the watcher dropped call for (throttle.rs `Drops`).
+    drops: Drops<PathBuf>,
     /// Checkout root → default branch ref (`origin/main`).
     default_branch: HashMap<PathBuf, Option<String>>,
     lane_base: HashMap<PathBuf, Option<String>>,
@@ -1325,7 +1337,7 @@ fn with_terminals(mut sessions: Vec<Session>) -> Vec<Session> {
 }
 
 impl Engine {
-    fn new(emit: Box<dyn Fn(&Board) + Send>, tx: Sender<Msg>, board: Arc<RwLock<Board>>) -> Engine {
+    fn new(emit: Box<dyn Fn(&Board, bool) + Send>, tx: Sender<Msg>, board: Arc<RwLock<Board>>) -> Engine {
         let git_jobs = spawn_git_workers(tx.clone());
         let reads = RepoReads::new(&tx);
         let back = tx.clone();
@@ -1365,7 +1377,8 @@ impl Engine {
             reads,
             landed_at: None,
             held_worktrees: HashSet::new(),
-            last_hash: 0,
+            last_hash: BoardHash::default(),
+            asked_by: BTreeSet::new(),
             visitors: Visitors::default(),
             needles: Vec::new(),
             pr_marks: HashMap::new(),
@@ -1402,6 +1415,7 @@ impl Engine {
             git: HashMap::new(),
             git_jobs,
             git_queue: GitQueue::default(),
+            drops: Drops::default(),
             default_branch: HashMap::new(),
             lane_base: HashMap::new(),
             lane_checkout: HashMap::new(),
@@ -2011,10 +2025,18 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
     fn glance_readers(&mut self) {
         let look = Self::look(&self.seen, &self.processes);
         let mut all = harness::Applied::default();
+        let mut asked = Vec::new();
         for r in &mut self.readers {
             let t = Instant::now();
-            all.and(r.glance(&harness::accounts_of(&self.cfg, r.harness()), &look));
+            let applied = r.glance(&harness::accounts_of(&self.cfg, r.harness()), &look);
             perf::took(|| format!("glance {}", r.harness().config()), t.elapsed());
+            if applied.dirty && perf::enabled() {
+                asked.push(format!("glance {}", r.harness().config()));
+            }
+            all.and(applied);
+        }
+        for a in asked {
+            self.asked(|| a);
         }
         if self.take(all) {
             self.place_sessions();
@@ -2185,6 +2207,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
 
     fn run(&mut self, rx: Receiver<Msg>) {
         let mut pending: Vec<PathBuf> = Vec::new();
+        let mut dropped: Vec<PathBuf> = Vec::new();
         let mut first_event: Option<Instant> = None;
         let mut last_event: Option<Instant> = None;
         let mut last_tick = Instant::now();
@@ -2192,13 +2215,13 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         let mut last_databases = Instant::now();
         loop {
             let now = Instant::now();
-            let mut wait = if !pending.is_empty() || self.dirty || self.landed_at.is_some() { Duration::from_millis(50) } else { Duration::from_secs(2) };
+            let mut wait = if !pending.is_empty() || !dropped.is_empty() || self.dirty || self.landed_at.is_some() { Duration::from_millis(50) } else { Duration::from_secs(2) };
             // Wake for a git batch that's due, or a held git run.
             if self.dirty_git {
                 let due = self.last_publish.map(|t| (t + throttle::GIT_PUBLISH_EVERY).saturating_duration_since(now)).unwrap_or_default();
                 wait = wait.min(due.max(Duration::from_millis(10)));
             }
-            if let Some(at) = self.git_queue.next_due() {
+            for at in [self.git_queue.next_due(), self.drops.next_due()].into_iter().flatten() {
                 wait = wait.min(at.saturating_duration_since(now).max(Duration::from_millis(10)));
             }
             match rx.recv_timeout(wait) {
@@ -2207,6 +2230,13 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                     first_event.get_or_insert(now);
                     last_event = Some(now);
                     pending.extend(paths);
+                }
+                // In the same batch as the events around them: a drop comes with a burst.
+                Ok(Msg::Dropped(paths)) => {
+                    let now = Instant::now();
+                    first_event.get_or_insert(now);
+                    last_event = Some(now);
+                    dropped.extend(paths);
                 }
                 Ok(Msg::GitDone(path, info)) => self.on_git(path, info),
                 Ok(Msg::Github(event)) => self.on_github(event),
@@ -2512,16 +2542,20 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                 Err(RecvTimeoutError::Timeout) => {}
                 Err(RecvTimeoutError::Disconnected) => break,
             }
-            if !pending.is_empty() {
+            if !pending.is_empty() || !dropped.is_empty() {
                 let quiet = last_event.map(|t| t.elapsed() >= Duration::from_millis(150)).unwrap_or(true);
                 let overdue = first_event.map(|t| t.elapsed() >= Duration::from_millis(600)).unwrap_or(false);
                 if quiet || overdue {
-                    let batch = std::mem::take(&mut pending);
+                    let mut batch = std::mem::take(&mut pending);
                     first_event = None;
-                    let (n, t) = (batch.len(), Instant::now());
-                    let busiest = perf::busiest(&batch);
-                    self.apply_fs(batch);
-                    self.perf.fs(n, t.elapsed(), busiest);
+                    let t = Instant::now();
+                    batch.extend(self.on_dropped(std::mem::take(&mut dropped)));
+                    if !batch.is_empty() {
+                        let n = batch.len();
+                        let busiest = perf::busiest(&batch);
+                        self.apply_fs(batch);
+                        self.perf.fs(n, t.elapsed(), busiest);
+                    }
                 }
             }
             if self.landed_at.is_some_and(|t| t.elapsed() >= LANDED_QUIET) {
@@ -2530,6 +2564,9 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             }
             for path in self.git_queue.due(Instant::now()) {
                 self.send_git(path);
+            }
+            for path in self.drops.due(Instant::now()) {
+                self.queue_git(path);
             }
             // What the watcher brought goes out before the readers look about: at a high load
             // their glance and tick take a while, and a session's new line would wait for them.
@@ -2548,6 +2585,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                 // Codex turns go stale with time alone; republishing picks that up.
                 last_heartbeat = Instant::now();
                 self.dirty = true;
+                self.asked(|| "heartbeat".into());
             }
             if throttle::publish_now(self.dirty, self.dirty_git, self.last_publish.map(|t| t.elapsed()), PUBLISH_EVERY) {
                 self.publish();
@@ -2740,6 +2778,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
 
         let live: HashSet<&PathBuf> = seeds.iter().map(|s| &s.path).collect();
         self.git.retain(|p, _| live.contains(p));
+        self.drops.retain(|p| live.contains(p));
         self.seeds = seeds;
         if let Some(w) = &self.servers {
             w.set_roots(self.server_roots());
@@ -2811,12 +2850,52 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         }
     }
 
+    /// The watcher dropped events under `roots`, the folders it watches, so what changed there
+    /// isn't known; FSEvents says so for every folder of the stream at once. Git runs as often as
+    /// `Drops` allows in the worktrees each holds and those of the checkout it is, whose index
+    /// and HEAD are in its `.git`. What isn't a repo's folder (a harness's records, the support
+    /// folder) is handed back, to be taken as a change as it always was.
+    fn on_dropped(&mut self, roots: Vec<PathBuf>) -> Vec<PathBuf> {
+        if roots.is_empty() {
+            return roots;
+        }
+        let roots: BTreeSet<PathBuf> = roots.into_iter().collect();
+        let targets = self.git_targets();
+        let mut lanes = BTreeSet::new();
+        let mut rest = Vec::new();
+        for root in &roots {
+            lanes.extend(targets.iter().filter(|p| p.starts_with(root) || self.lane_checkout.get(*p) == Some(root)).cloned());
+            if !targets.contains(root) && !self.checkouts.iter().any(|(_, c)| &c.root == root) {
+                rest.push(root.clone());
+            }
+        }
+        let run = self.drops.on_dropped(lanes.iter().cloned(), Instant::now());
+        if perf::enabled() {
+            perf::log(&format!("watcher dropped events in {} folders: git now in {} of their {} worktrees", roots.len(), run.len(), lanes.len()));
+        }
+        for p in run {
+            self.queue_git(p);
+        }
+        rest
+    }
+
+    /// Notes what asked for a publish, for the perf log's word on one that changed nothing.
+    fn asked(&mut self, what: impl FnOnce() -> String) {
+        if perf::enabled() {
+            self.asked_by.insert(what());
+        }
+    }
+
     fn on_git(&mut self, path: PathBuf, info: Option<GitInfo>) {
         self.perf.git_jobs += 1;
-        // A run that fell over leaves what was known of the worktree as it is.
+        // A run that fell over leaves what was known of the worktree as it is, and one that found
+        // it as it was changes nothing to publish: most runs, after a fetch or a build.
         if let Some(info) = info.filter(|_| self.seeds.iter().any(|s| s.path == path)) {
-            self.git.insert(path.clone(), info);
-            self.dirty_git = true;
+            if self.git.get(&path) != Some(&info) {
+                self.git.insert(path.clone(), info);
+                self.dirty_git = true;
+                self.asked(|| "git".into());
+            }
         }
         if self.git_queue.done(&path, Instant::now()) {
             self.queue_git(path);
@@ -2825,7 +2904,10 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
 
     /// Takes in what GitHub was asked in the background (ghpoll.rs).
     fn on_github(&mut self, event: ghpoll::Event) {
-        self.dirty |= self.github.on_event(event, &self.seeds, Now::real());
+        if self.github.on_event(event, &self.seeds, Now::real()) {
+            self.dirty = true;
+            self.asked(|| "github".into());
+        }
     }
 
     /// What isn't working in the background, as the windows say it: a few words for each, and
@@ -2951,10 +3033,18 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
     fn read_with_readers(&mut self, what: &str, mut read: impl FnMut(&mut Box<dyn harness::Reader>, &[AccountCfg], &harness::Look) -> harness::Applied) {
         let look = Self::look(&self.seen, &self.processes);
         let mut all = harness::Applied::default();
+        let mut asked = Vec::new();
         for r in &mut self.readers {
             let t = Instant::now();
-            all.and(read(r, &harness::accounts_of(&self.cfg, r.harness()), &look));
+            let applied = read(r, &harness::accounts_of(&self.cfg, r.harness()), &look);
             perf::took(|| format!("{what} {}", r.harness().config()), t.elapsed());
+            if applied.dirty && perf::enabled() {
+                asked.push(format!("{what} {}", r.harness().config()));
+            }
+            all.and(applied);
+        }
+        for a in asked {
+            self.asked(|| a);
         }
         if self.take(all) {
             self.place_sessions();
@@ -3090,6 +3180,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             }
             match self.classify_repo_path(&p, &mut batch) {
                 RepoEvent::Lane(l) => {
+                    self.drops.on_change(l.clone(), Instant::now());
                     lanes.insert(l);
                 }
                 // A fetch writes a file for each ref it moves: the checkout is looked at once.
@@ -3112,8 +3203,16 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         }
         let look = Self::look(&self.seen, &self.processes);
         let mut all = harness::Applied::default();
+        let mut asked = Vec::new();
         for ((i, j), paths) in owned {
-            all.and(self.readers[i].apply(&accounts[i][j], &paths, &look));
+            let applied = self.readers[i].apply(&accounts[i][j], &paths, &look);
+            if applied.dirty && perf::enabled() {
+                asked.push(format!("files {}", accounts[i][j].name));
+            }
+            all.and(applied);
+        }
+        for a in asked {
+            self.asked(|| a);
         }
         let added = self.take(all);
         if reload_repos {
@@ -3382,9 +3481,13 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                 if matches!(ev.kind, EventKind::Access(_)) {
                     return;
                 }
+                // notify says why FSEvents asks for a look again in the event's info: events
+                // dropped (`rescan: user dropped`, `rescan: kernel dropped`), which it says for
+                // every folder watched, or events folded into their folder, which say where.
+                let dropped = ev.need_rescan() && ev.info().is_some_and(|i| i.ends_with("dropped"));
                 let paths: Vec<PathBuf> = ev.paths.into_iter().filter(|p| !is_noise(p)).collect();
                 if !paths.is_empty() {
-                    let _ = tx.send(Msg::Fs(paths));
+                    let _ = tx.send(if dropped { Msg::Dropped(paths) } else { Msg::Fs(paths) });
                 }
             }
         };
@@ -3769,10 +3872,15 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         self.last_publish = Some(Instant::now());
         let hash = board_hash(&mut board);
         let hashed = t.elapsed() - composed;
+        let asked_by = std::mem::take(&mut self.asked_by);
         if hash == self.last_hash {
-            perf::log(&format!("publish skipped, nothing changed: compose {} ms, hash {} ms", composed.as_millis(), hashed.as_millis()));
+            if perf::enabled() {
+                let by = if asked_by.is_empty() { "something unnamed".to_string() } else { asked_by.into_iter().collect::<Vec<_>>().join(", ") };
+                perf::log(&format!("publish skipped, nothing changed: compose {} ms, hash {} ms; asked for by {by}", composed.as_millis(), hashed.as_millis()));
+            }
             return;
         }
+        let shown = hash.shown != self.last_hash.shown;
         self.last_hash = hash;
         // The board `get_board` reads is this one before any window hears of it: a window that
         // reads the board as this push comes gets this board or a later one, never the one
@@ -3785,10 +3893,10 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         }
         let board = self.board.read().unwrap_or_else(|poisoned| poisoned.into_inner());
         let t = Instant::now();
-        (self.emit)(&board);
+        (self.emit)(&board, shown);
         let emitted = t.elapsed();
         if perf::enabled() {
-            let line = self.perf.publish_line(&board, composed, hashed, emitted, since_last, self.git_queue.running());
+            let line = self.perf.publish_line(&board, composed, hashed, emitted, since_last, self.git_queue.running(), shown);
             perf::log(&line);
         }
     }
@@ -4053,10 +4161,43 @@ fn file_marks(path: &Path) -> (Vec<(String, i64)>, Vec<(String, i64)>, Vec<crate
     (marks, pushes, made, chrome)
 }
 
-/// A hash of everything the UI shows except the timestamp, so identical boards aren't resent.
-/// The board is hashed as it's written out, with its timestamp set aside meanwhile: it's some
-/// 450 KB, and neither a copy of it nor its text is made for this.
-pub(crate) fn board_hash(board: &mut Board) -> u64 {
+/// A board's hashes, so identical boards aren't published again: of what the windows are sent,
+/// and of the rest of what changes it, which only what acts on the board reads. A board whose
+/// windows' part is the same isn't sent to them, which a GitHub poll that found nothing new was:
+/// a quarter of the publishes, some 2 MB each (perf.log, 2026-10-28).
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+pub(crate) struct BoardHash {
+    /// Everything the windows are sent, its time aside, and how current GitHub's answers are
+    /// aside too: when GitHub last answered (`github_at`), which no window shows, and when each
+    /// repo's PRs were read (`github_current`), of which they only ask whether they have been.
+    pub shown: u64,
+    /// Those times, and what isn't sent but what acts on the board waits on.
+    pub rest: u64,
+}
+
+/// The board's `BoardHash`. It's hashed as it's written out, with what's left out set aside
+/// meanwhile: it's some 2 MB, and neither a copy of it nor its text is made for this.
+pub(crate) fn board_hash(board: &mut Board) -> BoardHash {
+    let at = std::mem::take(&mut board.generated_at);
+    let github_at = std::mem::take(&mut board.github_at);
+    let current = std::mem::take(&mut board.github_current);
+    board.github_current = current.iter().map(|(slug, read)| (slug.clone(), read.map(|_| 0))).collect();
+    let shown = hash_written(|out| serde_json::to_writer(out, &*board));
+    (board.generated_at, board.github_at, board.github_current) = (at, github_at, current);
+    // Neither what's read of the repos' team files, which limits have lifted long enough to be
+    // carried on, nor which PRs' unsaid fixes have settled long enough to ask their reviewer about
+    // is sent, but what acts on the board waits on them; the last two come with time alone, which
+    // the heartbeat's board then goes out for. Nor what this machine's reviews of each PR come to,
+    // which goes to your other machines in its feed (peerfeed.rs).
+    let lifted = crate::reconnect::lifted(board, board.generated_at);
+    let settled: Vec<String> = crate::rerequest::settled(board, board.generated_at).into_iter().map(String::from).collect();
+    let shared: Vec<&codealong_peer::pr::SharedReview> = board.prs.iter().map(|p| &p.shared_review).collect();
+    let rest = hash_written(|out| serde_json::to_writer(out, &(board.github_at, &board.github_current, board.repo_settings.readiness(), lifted, settled, shared)));
+    BoardHash { shown, rest }
+}
+
+/// A hash of what `write` writes.
+fn hash_written(write: impl FnOnce(&mut dyn std::io::Write) -> serde_json::Result<()>) -> u64 {
     use std::hash::Hasher;
     struct Hashed(std::collections::hash_map::DefaultHasher);
     impl std::io::Write for Hashed {
@@ -4070,18 +4211,8 @@ pub(crate) fn board_hash(board: &mut Board) -> u64 {
     }
     // Buffered, so the hasher is handed a few kilobytes at a time, not each comma and quote.
     let mut out = std::io::BufWriter::new(Hashed(std::collections::hash_map::DefaultHasher::new()));
-    // Neither what's read of the repos' team files, which limits have lifted long enough to be
-    // carried on, nor which PRs' unsaid fixes have settled long enough to ask their reviewer about
-    // is sent, but what acts on the board waits on them; the last two come with time alone, which
-    // the heartbeat's board then goes out for. Nor what this machine's reviews of each PR come to,
-    // which goes to your other machines in its feed (peerfeed.rs).
-    let lifted = crate::reconnect::lifted(board, board.generated_at);
-    let settled: Vec<String> = crate::rerequest::settled(board, board.generated_at).into_iter().map(String::from).collect();
-    let shared: Vec<&codealong_peer::pr::SharedReview> = board.prs.iter().map(|p| &p.shared_review).collect();
-    let at = std::mem::take(&mut board.generated_at);
-    let written = serde_json::to_writer(&mut out, &*board).and_then(|()| serde_json::to_writer(&mut out, &(board.repo_settings.readiness(), lifted, settled, shared)));
-    board.generated_at = at;
-    // A board that can't be written out hashes as nothing at all, as it did.
+    let written = write(&mut out);
+    // What can't be written out hashes as nothing at all, as it did.
     match (written, out.into_inner()) {
         (Ok(()), Ok(hashed)) => hashed.0.finish(),
         _ => std::collections::hash_map::DefaultHasher::new().finish(),
@@ -4473,7 +4604,7 @@ mod tests {
         std::fs::create_dir_all(&admin).unwrap();
         std::fs::create_dir_all(&wt).unwrap();
         let (tx, _rx) = channel();
-        let mut engine = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
+        let mut engine = Engine::new(Box::new(|_, _| {}), tx, Arc::new(RwLock::new(Board::default())));
         let checkout = repos::Checkout { root: root.clone(), git_dir: git_dir.clone(), name: "repo".into(), identity: None, github: None, github_owners: Vec::new() };
         engine.checkouts = vec![("P".into(), checkout)];
         engine.gitdir_to_lane.insert(admin.clone(), wt.clone());
@@ -4501,7 +4632,7 @@ mod tests {
         use super::*;
 
         let (tx, _rx) = channel();
-        let mut engine = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
+        let mut engine = Engine::new(Box::new(|_, _| {}), tx, Arc::new(RwLock::new(Board::default())));
         engine.config_warning = Some("config.toml doesn't read.".into());
         engine.watch_warning = Some("Couldn't watch 2 folders; their lanes update every 10 seconds.".into());
         let keys = |e: &Engine| e.notices().into_iter().map(|n| n.key).collect::<Vec<_>>();
@@ -4527,7 +4658,7 @@ mod tests {
         use super::*;
 
         let (tx, _rx) = channel();
-        let mut engine = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
+        let mut engine = Engine::new(Box::new(|_, _| {}), tx, Arc::new(RwLock::new(Board::default())));
         assert!(engine.notices().is_empty());
         engine.store_warnings = vec![("origins.json".into(), "origins.json doesn't read as a list of where sessions came from.".into())];
         let said = engine.notices();
@@ -4541,7 +4672,7 @@ mod tests {
         use super::*;
 
         let (tx, _rx) = channel();
-        let mut engine = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
+        let mut engine = Engine::new(Box::new(|_, _| {}), tx, Arc::new(RwLock::new(Board::default())));
         let seed = |path: &str, slug: &str| LaneSeed { repo_slug: Some(slug.into()), origin: Origin::Main, ..folder_seed(PathBuf::from(path), "P", "repo", false) };
         engine.seeds = vec![seed("/x/spark", "SparkHQ/spark"), seed("/x/spur", "spurhq/spur")];
         engine.on_github(ghpoll::Event::RepoNames(vec![("sparkhq/spark".into(), Some("sprucehq/spark".into())), ("spurhq/spur".into(), Some("spurhq/spur".into()))]));
@@ -4588,7 +4719,7 @@ mod tests {
         let on = config::render(&Config { devices: crate::config::DevicesCfg { enabled: true, ..Default::default() }, ..off });
         // The scan's first board goes out before the watcher starts: devices are turned on then.
         let edited = AtomicBool::new(false);
-        let emit = move |_: &Board| {
+        let emit = move |_: &Board, _: bool| {
             if !edited.swap(true, Ordering::SeqCst) {
                 std::fs::write(config::config_path(), &on).unwrap();
             }
@@ -4634,7 +4765,7 @@ mod tests {
         let said = |e: &Engine| e.notices().into_iter().find(|n| n.key == "state").map(|n| n.text);
         let engine = || {
             let (tx, _rx) = channel();
-            Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())))
+            Engine::new(Box::new(|_, _| {}), tx, Arc::new(RwLock::new(Board::default())))
         };
 
         // A snooze as a later build might write it.
@@ -4717,7 +4848,7 @@ mod tests {
 
         config::write(&Config { scan: vec![], ..Config::default() }).unwrap();
         let (tx, _rx) = channel();
-        let mut e = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
+        let mut e = Engine::new(Box::new(|_, _| {}), tx, Arc::new(RwLock::new(Board::default())));
         e.load_config();
         e.load_todos();
         let said = |e: &Engine| e.notices().into_iter().find(|n| n.key == "todos-lock").map(|n| n.text);
@@ -4801,7 +4932,7 @@ mod tests {
         let boards: Arc<Mutex<Vec<Board>>> = Arc::default();
         let emitted = boards.clone();
         let (tx, rx) = channel();
-        let mut engine = Engine::new(Box::new(move |b: &Board| emitted.lock().unwrap().push(b.clone())), tx.clone(), Arc::new(RwLock::new(Board::default())));
+        let mut engine = Engine::new(Box::new(move |b: &Board, _: bool| emitted.lock().unwrap().push(b.clone())), tx.clone(), Arc::new(RwLock::new(Board::default())));
         // The stuck worktree's files never read; the late one's read once it's let go.
         let (release, gate) = channel::<()>();
         let gate = Mutex::new(gate);
@@ -4909,6 +5040,74 @@ mod tests {
         assert_eq!(board_hash(&mut first), board_hash(&mut first.clone()));
     }
 
+    /// A GitHub poll that found nothing new moves only its times: a change to publish, for what
+    /// reads them (`codealong changes`, autoreview.rs's retries), but none for the windows, which
+    /// only ask whether a repo's PRs have been read.
+    #[test]
+    fn github_times_alone_are_no_change_for_the_windows() {
+        use super::*;
+        let board = |at: Option<i64>, read: Option<i64>| Board { github_at: at, github_current: [("o/r".to_string(), read)].into(), ..Board::default() };
+        let (mut unread, mut polled, mut later) = (board(Some(1_000), None), board(Some(1_000), Some(1_000)), board(Some(2_000), Some(2_000)));
+        let (polled_hash, later_hash) = (board_hash(&mut polled), board_hash(&mut later));
+        assert_ne!(polled_hash, later_hash, "published, for what acts on the board");
+        assert_eq!(polled_hash.shown, later_hash.shown, "but not sent to the windows");
+        assert_ne!(board_hash(&mut unread).shown, polled_hash.shown, "a repo's PRs read for the first time are shown");
+        assert_eq!((later.github_at, later.github_current["o/r"]), (Some(2_000), Some(2_000)), "the board keeps its times");
+    }
+
+    /// A git run that finds a worktree as it was changes nothing to publish.
+    #[test]
+    fn git_that_finds_nothing_new_asks_for_no_publish() {
+        use super::*;
+        let (tx, _rx) = channel();
+        let mut engine = Engine::new(Box::new(|_, _| {}), tx, Arc::new(RwLock::new(Board::default())));
+        let wt = PathBuf::from("/work/app");
+        engine.seeds = vec![folder_seed(wt.clone(), "p", "app", false)];
+        let info = GitInfo { ahead: 1, dirty: 2, ..GitInfo::default() };
+        engine.on_git(wt.clone(), Some(info.clone()));
+        assert!(engine.dirty_git, "the first word on it");
+        engine.dirty_git = false;
+        engine.on_git(wt.clone(), Some(info.clone()));
+        assert!(!engine.dirty_git, "the same again");
+        engine.on_git(wt.clone(), Some(GitInfo { dirty: 3, ..info }));
+        assert!(engine.dirty_git, "a file changed");
+        engine.dirty_git = false;
+        engine.on_git(wt, None);
+        assert!(!engine.dirty_git, "a run that fell over leaves it as it was");
+    }
+
+    /// Events the watcher dropped run git where the folder's worktrees are, the checkout's own
+    /// outside it too, and no more often than `Drops` allows; a folder that's no repo's is taken
+    /// as it always was.
+    #[test]
+    fn dropped_events_run_git_in_the_folders_worktrees_now_and_then() {
+        use super::*;
+        let (tx, _rx) = channel();
+        let mut engine = Engine::new(Box::new(|_, _| {}), tx, Arc::new(RwLock::new(Board::default())));
+        // No worker takes the jobs: each run stays running, to be counted.
+        let (jobs, _held) = channel::<GitJob>();
+        engine.git_jobs = jobs;
+        let repo = |p: &str, origin: Origin| LaneSeed { origin, ..folder_seed(PathBuf::from(p), "P", "repo", false) };
+        let (root, nested, linked, other) = ("/work/app", "/work/app/.claude/worktrees/a", "/work/app-fix", "/work/other");
+        engine.seeds = vec![repo(root, Origin::Main), repo(nested, Origin::ClaudeApp), repo(linked, Origin::Main), repo(other, Origin::Main)];
+        for p in [root, nested, linked] {
+            engine.lane_checkout.insert(PathBuf::from(p), PathBuf::from(root));
+        }
+        engine.lane_checkout.insert(PathBuf::from(other), PathBuf::from(other));
+
+        let rest = engine.on_dropped(vec![PathBuf::from(root), PathBuf::from("/records"), PathBuf::from(root)]);
+        assert_eq!(rest, vec![PathBuf::from("/records")], "a harness's folder is handed back");
+        let mut running: Vec<&str> = [root, nested, linked, other].into_iter().filter(|p| engine.git_queue.request(PathBuf::from(*p), Instant::now()) == Verdict::Running).collect();
+        running.sort();
+        assert_eq!(running, vec![root, linked, nested], "not the other repo");
+
+        // A build overflows the watcher again: nothing more yet.
+        engine.git_queue = GitQueue::default();
+        assert!(engine.on_dropped(vec![PathBuf::from(root)]).is_empty());
+        assert_eq!(engine.git_queue.running(), 0);
+        assert!(engine.drops.next_due().is_some(), "a run is owed");
+    }
+
     /// A repo's team file read without a file changes nothing the windows get, but a review that
     /// waited on it goes on only once the board with it is published (autoreview.rs reads the
     /// published board), so it counts as a change.
@@ -4976,7 +5175,7 @@ mod tests {
     fn a_usage_read_that_falls_over_is_over() {
         use super::*;
         let (tx, _rx) = channel();
-        let mut engine = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
+        let mut engine = Engine::new(Box::new(|_, _| {}), tx, Arc::new(RwLock::new(Board::default())));
         engine.usage.insert("claude".into(), usage(None, false, 47.0));
         (engine.usage_inflight, engine.usage_backoff) = (true, true);
         engine.on_usage(None);
@@ -5024,7 +5223,7 @@ mod tests {
             }
         }
         let (tx, rx) = channel();
-        let mut engine = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
+        let mut engine = Engine::new(Box::new(|_, _| {}), tx, Arc::new(RwLock::new(Board::default())));
         let noted = Arc::new(Mutex::new(Vec::new()));
         engine.readers = vec![Box::new(Noting(noted.clone()))];
         // Before anything has listed them, a look has none, and lists none itself.
@@ -5068,7 +5267,7 @@ mod tests {
 
         // The engine has the worktree's run as over either way, and keeps what it knew of it.
         let (tx, _rx) = channel();
-        let mut engine = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
+        let mut engine = Engine::new(Box::new(|_, _| {}), tx, Arc::new(RwLock::new(Board::default())));
         let wt = PathBuf::from("/x/wt");
         engine.seeds = vec![folder_seed(wt.clone(), "P", "repo", false)];
         assert_eq!(engine.git_queue.request(wt.clone(), Instant::now()), Verdict::Run);

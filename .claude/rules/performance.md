@@ -52,6 +52,13 @@ paths:
   (session changes still go out at once); `procs.rs` runs git at nice 10
   (`run_background`) and puts the git threads in the utility QoS class (`utility_thread`). At
   launch, worktrees with the latest activity go first.
+- The file watcher is one FSEvents stream for every folder it watches, and when a build's burst
+  overflows macOS's queue for it, FSEvents marks every one of them to be looked at again
+  ("rescan: user dropped"), idle repos too: 6,298 such events in five minutes on 47 folders
+  (2026-10-28, a watcher of notify 8.2's beside the app). Those run git only as throttle.rs
+  `Drops` allows, and the log says `watcher dropped events in N folders`. A git run that finds a
+  worktree as it was asks for no publish, a publish where only GitHub's times changed isn't sent
+  to the windows (`BoardHash`), and `publish skipped` says what asked for it.
 - The engine's own thread is user-initiated (`user_initiated_thread`), ahead of the agents'
   builds. In the utility class from 2026-09-24 it sat at priority 20 in `ps -M` and, at a load
   of 30 to 130 on ten cores, messages waited 15 to 40 s for it while it used ~4% of a core and
