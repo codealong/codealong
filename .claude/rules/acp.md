@@ -48,6 +48,18 @@ on 2026-09-27. Paths are under `src-tauri/src/`.
   (2026-10-14, Opus 5.5 reading three pasted images in `default` mode): each waits for its own
   answer (`Hosted::permissions`). The ACP SDK withdraws one whose call was aborted with a
   `$/cancel_request {requestId}` notification and still waits for its answer (`on_withdrawn`).
+- A turn the agent takes by itself once a prompt's turn has ended (a background command's or
+  `Monitor`'s `<task-notification>`, another session's message: the origins in claude-agent-acp
+  0.81.2's `AUTONOMOUS_RESULT_ORIGINS`) comes with no `session/prompt` to answer, but the adapter
+  goes on streaming it as out-of-turn `session/update`s, and asks its permissions out of turn
+  too. Its `claude`'s (2.1.280) `sessions/<pid>.json` says `busy` from the turn's start
+  (`statusUpdatedAt` then) to `idle` at its end, so the board takes the records' word for a turn
+  that began after Codealong's last ended (`acp.rs` `overlay`); before, such a session showed as
+  your turn while it worked (2026-10-29, a Haiku session woken by its `sleep 20` in the
+  background). That `claude` never says `shell`: between turns, while what it left running in
+  the background goes on, it says `idle`, so a hosted session shows nothing of what it waits on.
+  The adapter publishes background tasks (`dist/async-tasks.js`) only to a client that says it
+  takes AIR's async tasks, which Codealong doesn't yet.
 - claude-agent-acp's modes are its config option `mode` (category `mode`), each `{value, name,
   description}` (`dist/session-mode.js` `buildAvailableModes`: default "Manual", acceptEdits,
   plan, auto, and bypassPermissions when bypass is allowed, as Codealong's launch allows it). A

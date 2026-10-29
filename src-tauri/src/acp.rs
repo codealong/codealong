@@ -1409,12 +1409,19 @@ pub fn overlay(s: &mut Session, seen_at: i64) {
         s.status_since = Some(s.last_activity);
         s.stalled_since = None;
         s.asks = false;
+    } else if alive && (s.status == Status::Working || s.stalled_since.is_some()) && s.status_since.is_some_and(|t| t > h.since) {
+        // A turn its agent took by itself after Codealong's last one ended: a background
+        // command's or monitor's notification woke it, or another session's message. Its adapter
+        // streams that turn here too but answers no prompt for it, so only its records say it
+        // runs, and when it ends (claude-agent-acp 0.81.2's `claude` says `busy` from its start,
+        // 2026-10-29). Without this it showed as your turn while it worked.
     } else if let Some(e) = &h.error {
         s.status = Status::Error;
         s.excerpt = Some(e.clone());
     } else if matches!(s.status, Status::Stopped | Status::Working | Status::Needs) {
-        // Its records can't say whether a process holds it, and a hosted one has no turn
-        // running: read and quiet, or with something new since you looked.
+        // Its records can't say whether a process holds it, and a turn they say runs is the one
+        // Codealong ran, which has ended (or its process has): read and quiet, or with something
+        // new since you looked.
         let ended = h.since.max(s.last_activity);
         s.status = if ended > seen_at { Status::Unread } else { Status::Idle };
         s.status_since = Some(ended);
@@ -1644,6 +1651,33 @@ mod tests {
         begin(state().sessions.get_mut(&key).unwrap());
         assert_eq!(state().sessions[&key].since, later + 1);
         state().sessions.remove(&key);
+    }
+
+    /// A turn its agent takes by itself after Codealong's has ended (a background command's
+    /// notification woke it) is working while its records say so, and stuck once it's gone quiet,
+    /// as a terminal session's is. What they say of the turn Codealong ran, read after it ended,
+    /// isn't, nor is a turn no process holds.
+    #[test]
+    fn a_turn_the_agent_takes_by_itself_is_working() {
+        init(|_| {});
+        let dir = store::test_dir("acp-own-turn");
+        let account = "test-adapter-own-turn";
+        let key = key_of(Harness::Claude, account, "s1");
+        state().sessions.insert(key.clone(), Hosted { account: account.into(), id: "s1".into(), cwd: "/w".into(), loaded: true, since: 5_000, ..Default::default() });
+        let working = Session { status: Status::Working, status_since: Some(6_000), last_activity: 6_500, ..crate::fixtures::session(&key) };
+        let shown = |s: &Session| {
+            let mut s = s.clone();
+            overlay(&mut s, 0);
+            (s.status, s.status_since)
+        };
+        assert_eq!(shown(&working), (Status::Unread, Some(6_500)), "no process holds it");
+        stand_in(account, r#"while IFS= read -r line; do :; done"#, &dir);
+        assert_eq!(shown(&working), (Status::Working, Some(6_000)));
+        assert_eq!(shown(&Session { status: Status::Needs, stalled_since: Some(6_000), ..working.clone() }).0, Status::Needs);
+        assert_eq!(shown(&Session { status_since: Some(4_000), ..working.clone() }), (Status::Unread, Some(6_500)), "Codealong's own, which ended at 5,000");
+        state().sessions.remove(&key);
+        state().agents.remove(account);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A cut-off session sent something that can't be picked up again is as it was, still cut
