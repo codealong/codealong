@@ -40,6 +40,11 @@ describe('blocks with no language', () => {
     expect(runs('ls | grep x')).toBe(true);
     // A line carried on into the next, which needn't start with a command.
     expect(runs('git log \\\n  --oneline -5 |\n  grep fix')).toBe(true);
+    // A script by its path from where it runs, given arguments (2026-10-29).
+    expect(runs('cd ~/app/infra\n\n../scripts/plan.mjs plan -target=bucket.logs')).toBe(true);
+    expect(runs(`../scripts/apply.sh -target='member["user:me@example.com"]' --note "a's grant"`)).toBe(true);
+    expect(runs('./build.sh --release && ./scripts/check.sh')).toBe(true);
+    expect(runs('NODE_ENV=test ./run-tests | grep fail')).toBe(true);
   });
 
   it("don't for output, paths, settings, code, or a command shown with what it printed", () => {
@@ -47,6 +52,10 @@ describe('blocks with no language', () => {
     expect(runs('~/projects/app/src/main.ts')).toBe(false);
     expect(runs('src/ui/Markdown.tsx:153')).toBe(false);
     expect(runs('./scripts/relaunch.sh')).toBe(false);
+    expect(runs('./src/ui/App.tsx\n./src/ui/Card.tsx')).toBe(false);
+    expect(runs('./src/main.ts:12:5 - error TS2322: not assignable')).toBe(false);
+    expect(runs('/usr/local/bin/tool  →  0.3.1')).toBe(false);
+    expect(runs('~/bin/tool --help')).toBe(false);
     expect(runs('[server]\nport = 8080')).toBe(false);
     expect(runs('$ git status')).toBe(false);
     expect(runs('zsh: command not found: foo')).toBe(false);

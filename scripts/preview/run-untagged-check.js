@@ -1,14 +1,15 @@
 // Checks Run on a block with no language in a reply: one whose lines each start with a command on
 // this Mac (shell-commands.json, the engine's list) gets Run beside Copy and runs in a new
-// terminal where the session works, for the session; one of output or a path has Copy alone; and
-// every block in the window shares one ask for the list. The reply is made up here, on the first
+// terminal where the session works, for the session; so does one that runs a script by its path
+// from there; one of output or a path has Copy alone; and every block in the window shares one ask
+// for the list. The reply is made up here, on the first
 // session of this Mac's that the list shows:
 //   scripts/preview.sh sessions '' scripts/preview/run-untagged-check.js
 (function () {
   localStorage.setItem('codealong.project', 'All projects');
   var picked = null;
   var command = 'git -C ~/projects/app pull --ff-only';
-  var reply = 'To update it:\n\n```\n' + command + '\n```\n\nIt printed:\n\n```\nAlready up to date.\n```\n\nThe notes are in\n\n```\n~/projects/app/NOTES.md\n```';
+  var reply = 'To update it:\n\n```\n' + command + '\n```\n\nIt printed:\n\n```\nAlready up to date.\n```\n\nThe notes are in\n\n```\n~/projects/app/NOTES.md\n```\n\nThen plan it:\n\n```\ncd ~/projects/app/infra\n\n../scripts/plan.mjs plan -target=bucket.logs\n```';
   var real = window.__TAURI_INTERNALS__.invoke;
   window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
     if (cmd === 'run_command') {
@@ -51,7 +52,7 @@
     .then(function () {
       row().dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
       row().click();
-      return until(function () { return blocks().length === 3 && runOf(blocks()[0]); }, 10000, 'no Run on the command');
+      return until(function () { return blocks().length === 4 && runOf(blocks()[0]); }, 10000, 'no Run on the command');
     })
     .then(function () { return tick(300); })
     .then(function () {
@@ -60,6 +61,7 @@
       check('Run comes before Copy', b[0].querySelectorAll('.ca-codeblock-tools button').length === 2 && b[0].querySelectorAll('.ca-codeblock-tools button')[1].getAttribute('aria-label') === 'Copy');
       check('output has Copy alone', !runOf(b[1]) && b[1].querySelectorAll('.ca-codeblock-tools button').length === 1);
       check('a path has Copy alone', !runOf(b[2]) && b[2].querySelectorAll('.ca-codeblock-tools button').length === 1);
+      check('a script run by its path, given arguments, has Run', !!runOf(b[3]));
       check('the blocks ask for the list once', calls('shell_commands').length === 1, calls('shell_commands').length + ' asks');
       var want = picked.cwd && (picked.cwd === picked.path || picked.cwd.indexOf(picked.path.replace(/\/$/, '') + '/') === 0) ? picked.cwd : picked.path;
       runOf(b[0]).click();

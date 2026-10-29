@@ -589,7 +589,8 @@ printed, whatever its harness: an agent that writes a command for you to run wan
 (a sign-in, a script it can't run itself). They run as a command in your terminal does (*Commands
 in your terminal*): in your login shell, the tab closing by itself a while after they end unless
 you press Return there for a shell. A block with no language counts as shell when each of its lines
-starts with a command on your PATH (`git`, `npm`, `cd`…), or when it's led by `!` as Claude Code's
+starts with a command on your PATH (`git`, `npm`, `cd`…) or a script by its path from where it runs
+with arguments after it (`../scripts/deploy.mjs plan`), or when it's led by `!` as Claude Code's
 agents write one, so output, a path or a config file keeps Copy alone. A command you ran with `!`
 in Claude Code's own terminal shows as yours with its output, and Run runs it again the same way.
 

@@ -5,8 +5,8 @@
 // writes a command for you to run because it wants what it prints, whatever its harness. The tab
 // closes by itself a while after they end (`[apps] close_command_tabs_after`) unless you take a
 // shell there. A block with no language is a shell block when each of its lines starts with a
-// command this Mac has (`isCommandBlock`), as agents often write one for you to run, or when it's
-// led by `!`, as Claude Code's agents write one.
+// command this Mac has or a script by its path from where it runs (`isCommandBlock`), as agents
+// often write one for you to run, or when it's led by `!`, as Claude Code's agents write one.
 
 import { createContext, useEffect, useState } from 'react';
 import { shellCommands } from '../api';
@@ -45,16 +45,20 @@ export function bangCommand(text: string): boolean {
 
 /** A word that sets a variable for the command after it: `NODE_ENV=test npm test`. */
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=\S*\s+/;
-/** A command's name, ended by a space, the line's end or what joins it to the next command. A
- *  path isn't one: a block that starts with one is as often a file named as a program run. */
+/** A command's name, ended by a space, the line's end or what joins it to the next command. */
 const NAME = /^([A-Za-z0-9_][A-Za-z0-9._+-]*)(?=$|[\s;&|<>])/;
+/** A script named by its path from the folder it runs in, with what it's given after it:
+ *  `../scripts/deploy.mjs plan --note "…"`, as agents write one for you to run. Alone, a path is
+ *  as often a file named as a script run (as `find` prints them), and one led by `/` or `~` as
+ *  often output that names a file, so neither counts. */
+const SCRIPT = /^\.\.?\/[\w.+@/-]*[\w.+-](?=\s+\S|\s*[;&|<>])/;
 /** A line the next one carries on: an escaped newline, or a pipe or `&&` left open. */
 const CARRIES_ON = /(\\|\||&&)$/;
 
 /** Whether a block that doesn't say it's shell is commands all the same: each of its lines,
  *  past comments and blank ones and those a line before carries on into, starts with a command
- *  in `known` (runcode.rs `commands`). Output, a path or a config file doesn't, nor a command
- *  shown with what it printed. */
+ *  in `known` (runcode.rs `commands`) or a script given arguments (`SCRIPT`). Output, a path or
+ *  a config file doesn't, nor a command shown with what it printed. */
 export function isCommandBlock(text: string, known: ReadonlySet<string>): boolean {
   let commands = 0;
   let carried = false;
@@ -68,7 +72,7 @@ export function isCommandBlock(text: string, known: ReadonlySet<string>): boolea
     let rest = t;
     while (ASSIGNMENT.test(rest)) rest = rest.replace(ASSIGNMENT, '');
     const name = NAME.exec(rest)?.[1];
-    if (!name || !known.has(name)) return false;
+    if (!(name && known.has(name)) && !SCRIPT.test(rest)) return false;
     commands++;
     carried = CARRIES_ON.test(t);
   }
