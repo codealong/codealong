@@ -232,6 +232,17 @@ pub fn moved_registry(r: &RegistryEntry, from: &TranscriptInfo) -> RegistryEntry
     r
 }
 
+/// Whether a Claude session that says it's idle may have left a command running in the
+/// background, which wakes it as it ends. Claude Code says so (`shell`) only from its terminal
+/// UI: the Claude app's sessions, the ones Codealong runs over ACP and headless runs say `idle`
+/// (2.1.312's code maps their states to busy, waiting and idle alone). Theirs is a shell its
+/// transcript says it started since its process did and hasn't heard the end of
+/// (`TranscriptInfo::background`); whether one still runs is the process table's to say
+/// (`Quiet::running`).
+pub fn untold_shell(r: &RegistryEntry, t: &TranscriptInfo) -> bool {
+    r.status == "idle" && r.entrypoint.as_deref() != Some("cli") && t.background.iter().any(|(_, at)| r.started_at.map_or(true, |s| *at >= s))
+}
+
 /// How a session's excerpt starts while it holds another session's message for you to allow
 /// (`claude::held`): the sender follows.
 pub const HELD_MESSAGE: &str = "Held message from ";
@@ -253,6 +264,12 @@ pub fn claude_session(
 ) -> Option<Session> {
     let id = reg.map(|r| r.session_id.clone()).or_else(|| tr.map(|t| t.session_id.clone()))?;
     let cwd = reg.map(|r| r.cwd.clone()).or_else(|| tr.map(|t| t.cwd.clone()))?;
+    // One with a command still running in the background is as its terminal would say.
+    let untold = reg
+        .zip(tr)
+        .filter(|(r, t)| untold_shell(r, t) && quiet.running.is_some())
+        .map(|(r, _)| RegistryEntry { status: "shell".into(), ..r.clone() });
+    let reg = untold.as_ref().or(reg);
     // A process that came up after its transcript's last line and has been idle since has said
     // nothing new: Claude Code's background service restarting its jobs on a new version after
     // an update, or a `--resume` nobody has typed into yet. Its fresh registry times aren't a
@@ -4062,6 +4079,32 @@ mod tests {
         let mut poll = left.clone();
         apply_insight(&mut poll, &insight(|i| (i.background, i.background_p) = (Some("polling".into()), Some(0.9))));
         assert_eq!((poll.status, poll.excerpt), (Status::Unread, left.excerpt.clone()));
+    }
+
+    #[test]
+    fn a_session_without_a_terminal_waits_on_the_command_it_left_running() {
+        let a = acct("claude");
+        // Run over ACP: its registry says idle with the turn's Monitor still running.
+        let r = RegistryEntry { entrypoint: Some("sdk-ts".into()), ..reg("idle", NOW - 60_000) };
+        let t = TranscriptInfo { background: vec![("b7k2m9p4q".into(), NOW - 61_000)], ..tr() };
+        let watch = "until [ -f /tmp/atlas/ready ]; do sleep 3; done";
+        let running = Quiet { running: Some(watch), ..Quiet::default() };
+        let s = claude_session(&a, Some(&r), Some(&t), 0, NOW, &running).unwrap();
+        assert_eq!((s.status, s.background.as_deref()), (Status::Working, Some(watch)));
+        assert!(s.excerpt.as_deref().unwrap().starts_with("Waiting on `until [ -f"), "{:?}", s.excerpt);
+        assert!(s.waits_in_background());
+        // Jev is asked what the command does, not whether the reply asks you something.
+        assert_eq!(crate::insights::ask(&s, NOW).map(|(k, _)| k), Some(crate::insights::Kind::Background));
+        // Its turn is over when no shell of its runs one, whatever the transcript last heard.
+        let gone = claude_session(&a, Some(&r), Some(&t), 0, NOW, &Quiet::default()).unwrap();
+        assert_eq!((gone.status, gone.background), (Status::Unread, None));
+        // And when what it started went with an earlier process.
+        let restarted = RegistryEntry { started_at: Some(NOW - 30_000), ..r.clone() };
+        assert_eq!(claude_session(&a, Some(&restarted), Some(&t), 0, NOW, &running).unwrap().status, Status::Unread);
+        // A terminal says so itself, and its idle is idle.
+        let terminal = reg("idle", NOW - 60_000);
+        assert!(!untold_shell(&terminal, &t));
+        assert_eq!(claude_session(&a, Some(&terminal), Some(&t), 0, NOW, &running).unwrap().status, Status::Unread);
     }
 
     #[test]

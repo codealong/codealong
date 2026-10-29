@@ -143,6 +143,10 @@ pub struct TranscriptInfo {
     /// (`queue_step`). Only a running turn holds anything: a process gone with some left is read
     /// past (board.rs `claude_session`).
     pub queue: Vec<QueuedMessage>,
+    /// The shells it started in the background (`shell_task`) that it hasn't been told have
+    /// ended, with when each started, oldest first: each wakes it as it ends. Its registry says
+    /// so only from a terminal (board.rs `untold_shell`).
+    pub background: Vec<(String, i64)>,
 }
 
 impl TranscriptInfo {
@@ -477,6 +481,7 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
         if let Some(step) = turn_step(&v) {
             info.unfinished = step;
         }
+        background_step(&mut info.background, &v, ts);
         let typed = hold_line(&mut info.queue, &mut state.holding, &v);
         // A subagent's prompt, in transcripts from before their own logs, went in its mode.
         if matches!(kind, Some("permission-mode") | Some("user")) && v.get("isSidechain").and_then(Value::as_bool) != Some(true) {
@@ -793,6 +798,54 @@ fn own_worktree(v: &Value) -> Option<String> {
         return None;
     }
     str_of(w, "worktreePath").filter(|p| !p.is_empty())
+}
+
+/// Most background shells kept per session (`TranscriptInfo::background`): each one ends with a
+/// notification, so any past a few are ones whose end was never read.
+const BACKGROUND_MOST: usize = 16;
+
+/// Whether `id` names a shell Claude Code runs in the background (a Bash call's, one moved
+/// there past its timeout, a Monitor's): `b` and eight of `0-9a-z`, each kind of task having a
+/// letter of its own (2.1.312's code: `a` a subagent's; TaskUpdate's ids are numbers).
+fn shell_task(id: &str) -> bool {
+    id.len() == 9 && id.starts_with('b') && id[1..].bytes().all(|c| c.is_ascii_digit() || c.is_ascii_lowercase())
+}
+
+/// Follows the shells a session runs in the background through a line. A call's result starts
+/// one: a Bash call's `backgroundTaskId`, a Monitor's `taskId`. A notification with a `<status>`
+/// ends one (completed, failed, killed, or stopped as the session ended; a Monitor's events come
+/// without), as a line of its own or one held for the turn to take in (`queued_command`); so
+/// does TaskStop's result, which no notification follows.
+fn background_step(running: &mut Vec<(String, i64)>, v: &Value, at: Option<i64>) {
+    if v.get("isSidechain").and_then(Value::as_bool) == Some(true) {
+        return;
+    }
+    let result = v.get("toolUseResult");
+    let started = result.and_then(|r| r.get("backgroundTaskId").or_else(|| r.get("taskId"))).and_then(Value::as_str).filter(|id| shell_task(id));
+    if let (Some(id), Some(at)) = (started, at) {
+        if !running.iter().any(|(r, _)| r == id) {
+            running.push((id.to_string(), at));
+        }
+        if running.len() > BACKGROUND_MOST {
+            running.remove(0);
+        }
+    }
+    let stopped = result.and_then(|r| r.get("task_id")).and_then(Value::as_str);
+    // The text of a line, not a tool's result, which can quote a notification.
+    let told = match v.get("type").and_then(Value::as_str) {
+        Some("user") => v.pointer("/message/content"),
+        Some("attachment") if v.pointer("/attachment/type").and_then(Value::as_str) == Some("queued_command") => v.pointer("/attachment/prompt"),
+        _ => None,
+    };
+    let text = told.map(crate::transcript::text_of).unwrap_or_default();
+    let ended: Vec<&str> = text
+        .split("<task-notification>")
+        .skip(1)
+        .filter_map(|n| n.split("</task-notification>").next())
+        .filter(|n| n.contains("<status>"))
+        .filter_map(|n| n.split("<task-id>").nth(1)?.split("</task-id>").next())
+        .collect();
+    running.retain(|(id, _)| Some(id.as_str()) != stopped && !ended.contains(&id.as_str()));
 }
 
 fn str_of(v: &Value, key: &str) -> Option<String> {
@@ -2288,6 +2341,46 @@ pub(super) mod tests {
         std::fs::write(&path, format!("{HEAD}{ended}\n{compaction}\n{prompt}\n{big}\n{notice}\n")).unwrap();
         assert_eq!(parse_transcript(&path, 1, None).unwrap().1.compacted, None);
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn follows_the_shells_it_runs_in_the_background() {
+        use serde_json::json;
+        let at = |ts: &str| parse_rfc3339_ms(ts).unwrap();
+        let result = |ts: &str, r: Value| json!({"type": "user", "timestamp": ts, "message": {"content": [{"type": "tool_result", "tool_use_id": "t", "content": "ok"}]}, "toolUseResult": r}).to_string();
+        let notice = |id: &str, status: &str| format!("<task-notification>\n<task-id>{id}</task-id>\n<tool-use-id>t</tool-use-id>\n{status}<summary>Monitor event</summary>\n</task-notification>");
+        let told = |text: &str| json!({"type": "user", "timestamp": "2026-10-29T22:00:00.000Z", "origin": {"kind": "task-notification"}, "message": {"content": text}}).to_string();
+        let held = |text: &str| json!({"type": "attachment", "timestamp": "2026-10-29T22:00:00.000Z", "attachment": {"type": "queued_command", "prompt": text}}).to_string();
+        let started = [
+            result("2026-10-29T21:50:00.000Z", json!({"stdout": "", "backgroundTaskId": "b3x8c1v5n"})),
+            result("2026-10-29T21:57:57.000Z", json!({"taskId": "b7k2m9p4q", "timeoutMs": 900000, "persistent": false})),
+            // TaskUpdate's ids are its list's numbers, and a subagent's start with `a`.
+            result("2026-10-29T21:58:00.000Z", json!({"success": true, "taskId": "1"})),
+            result("2026-10-29T21:58:01.000Z", json!({"backgroundTaskId": "a1b2c3d4e"})),
+        ];
+        let mut info = parse_lines(HEAD, &started.join("\n"));
+        let both = vec![("b3x8c1v5n".to_string(), at("2026-10-29T21:50:00.000Z")), ("b7k2m9p4q".to_string(), at("2026-10-29T21:57:57.000Z"))];
+        assert_eq!(info.background, both);
+        let mut state = TailState::default();
+        // A Monitor's event isn't its end, nor is a command's output that quotes one, nor a
+        // subagent's.
+        let quoted = result("2026-10-29T21:59:00.000Z", json!({"stdout": notice("b7k2m9p4q", "<status>completed</status>\n")}));
+        let sidechain = json!({"type": "user", "isSidechain": true, "message": {"content": notice("b7k2m9p4q", "<status>completed</status>\n")}}).to_string();
+        apply_tail(&mut info, &mut state, &[told(&notice("b7k2m9p4q", "")), quoted, sidechain].join("\n"));
+        assert_eq!(info.background, both);
+        // A notification with a status is, held for the turn or a line of its own.
+        apply_tail(&mut info, &mut state, &held(&notice("b3x8c1v5n", "<status>completed</status>\n")));
+        assert_eq!(info.background, both[1..]);
+        apply_tail(&mut info, &mut state, &told(&notice("b7k2m9p4q", "<status>killed</status>\n")));
+        assert!(info.background.is_empty());
+        // TaskStop's result is, with no notification after it.
+        let stop = result("2026-10-29T22:01:00.000Z", json!({"message": "Successfully stopped task: b3x8c1v5n", "task_id": "b3x8c1v5n", "task_type": "local_bash"}));
+        let mut info = parse_lines(HEAD, &format!("{}\n{stop}", started[0]));
+        assert!(info.background.is_empty());
+        // Ends never read leave no more than a few behind.
+        let many: Vec<String> = (0..40).map(|i| result("2026-10-29T22:02:00.000Z", json!({"backgroundTaskId": format!("b{i:08}")}))).collect();
+        apply_tail(&mut info, &mut TailState::default(), &many.join("\n"));
+        assert_eq!((info.background.len(), info.background[0].0.as_str()), (BACKGROUND_MOST, "b00000024"));
     }
 
     #[test]

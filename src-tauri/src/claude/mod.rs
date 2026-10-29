@@ -1188,7 +1188,15 @@ impl Reader {
             return;
         }
         self.background_at = Some(Instant::now());
-        let shells: Vec<(u32, i64)> = self.registry.values().flatten().filter(|r| r.status == "shell").map(|r| (r.pid, r.status_updated_at.unwrap_or(0))).collect();
+        // A session moved to another account keeps its ID there.
+        let said = |acct: &str, r: &RegistryEntry| self.transcripts.values().filter(|(a, (_, t, _))| a == acct && t.session_id == r.session_id).map(|(_, (_, t, _))| t).max_by_key(|t| t.last_ts);
+        let shells: Vec<(u32, i64)> = self
+            .registry
+            .iter()
+            .flat_map(|(acct, entries)| entries.iter().map(move |r| (acct, r)))
+            .filter(|(acct, r)| r.status == "shell" || said(acct, r).is_some_and(|t| crate::board::untold_shell(r, t)))
+            .map(|(_, r)| (r.pid, r.status_updated_at.unwrap_or(0)))
+            .collect();
         self.background.retain(|pid, _| shells.iter().any(|(p, _)| p == pid));
         if shells.is_empty() {
             return;
@@ -1380,7 +1388,7 @@ impl crate::harness::Reader for Reader {
             // Only a busy session that's gone quiet costs a look outside its transcript,
             // and one whose turn left a command running in the background (read once
             // per status change).
-            let background = reg.filter(|r| r.status == "shell");
+            let background = reg.filter(|r| r.status == "shell" || info.is_some_and(|t| board::untold_shell(r, t)));
             let (subagent_at, running) = match board::claude_busy_since(reg, info) {
                 _ if background.is_some() => (None, background.and_then(|r| self.stuck_command(r))),
                 Some(since) if now - since > board::CLAUDE_STALL_MS => {

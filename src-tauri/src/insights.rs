@@ -2,10 +2,10 @@
 //! what that moment can answer, all at once (docs.typesafe.ai, speculative fan-out).
 //!
 //! - A turn that ended: how the reply leaves things with you (`ENDINGS`: it asks you something or
-//!   is blocked on you, or it offers more, hands you next steps or just reports), how far did the
-//!   work get (landed, pushed, committed…), and is what you asked for done. The work's landing
-//!   isn't asked when the reply's first line says it in the words CLAUDE.md's *Landing work* asks
-//!   agents for (`landing_said`): that's exact, and free.
+//!   is blocked on you, or it offers more, hands you next steps, waits on what it started or just
+//!   reports), how far did the work get (landed, pushed, committed…), and is what you asked for
+//!   done. The work's landing isn't asked when the reply's first line says it in the words
+//!   CLAUDE.md's *Landing work* asks agents for (`landing_said`): that's exact, and free.
 //! - A busy Claude session gone quiet on a command: is the command waiting for typing, or is it
 //!   long work.
 //! - A Claude session whose turn left a command running in the background: is it polling for
@@ -147,12 +147,19 @@ pub const LANDING: [(&str, &str); 6] = [
 /// yes or no whether the reply asks something: on 363 replies on one Mac (2026-10-16), at the
 /// board's `ASKS_YOU`, the yes or no question read 10 to 12 replies that only offered more,
 /// handed over next steps or reported as asking; this choice read 3, and both caught all 19 that
-/// asked.
-pub const ENDINGS: [(&str, &str); 5] = [
+/// asked. A reply that waits on something the agent started had no ending of its own, and was
+/// read as a question or as blocked: a one-line reply saying it waited on what a Monitor would
+/// report asked you 0.87, and 0.01 once `waiting` was offered (2026-10-29). Over 300 replies on
+/// one Mac (80 of them about waiting), it took 2 more that wait on the agent's own work out (one
+/// waiting on its specs before it committed, 0.92 to 0.53), read 3 that wait on the user's
+/// decision as asking, and 3 others just over the line (0.70 to 0.74) fell just under it (0.63
+/// to 0.68).
+pub const ENDINGS: [(&str, &str); 6] = [
     ("question", "It asks the user a question or for a decision, or says it still waits for their answer to one it asked before, and won't go on without it: 'Should I merge it?', 'Which of these do you want?', 'I'm still waiting on your answer about X.'"),
     ("blocked", "It can't go on until the user does something only they can do, such as signing in, connecting an account or granting access, and says to tell it when that's done."),
     ("offer", "Its work is done, and it offers more if the user wants it: 'Say if you want X', 'I can also do Y', 'If you want, I can…'."),
     ("handoff", "Its work is done, and it leaves next steps for the user to take themselves, needing no answer: merging, deploying, sending, reviewing, or telling it when something happened."),
+    ("waiting", "It isn't done, and goes on by itself without the user: it waits on something it started that will tell it when it's done (a build, tests, CI, a command or watch it left running in the background): 'Waiting on the build; the monitor will tell me when it finishes.'"),
     ("report", "It reports what was done or found, and asks nothing."),
 ];
 
@@ -162,7 +169,7 @@ const ASKING: [&str; 2] = ["question", "blocked"];
 
 /// What a turn is asked, by name, in its signature: a change to the questions makes each recent
 /// turn a moment to ask about again, so what the board shows follows the new questions.
-const TURN_QUESTIONS: &str = "endings";
+const TURN_QUESTIONS: &str = "endings with waiting";
 
 /// What a command left running in the background can be doing, by name, with what each means.
 pub const BACKGROUND: [(&str, &str); 4] = [
@@ -534,7 +541,7 @@ mod tests {
         assert_eq!(turn["state"]["first prompt"], "Fix the login bug");
         assert!(turn["state"].get("latest prompt").is_none(), "none without one, and not the first again");
         assert_eq!(turn["questions"]["asks_you"]["type"], "choice");
-        assert_eq!(turn["questions"]["asks_you"]["criteria"].as_object().unwrap().len(), 5);
+        assert_eq!(turn["questions"]["asks_you"]["criteria"].as_object().unwrap().len(), 6);
         assert_eq!(turn["questions"]["landing"]["criteria"].as_object().unwrap().len(), 6);
         assert_eq!(turn["questions"]["finished"]["instructions"], "Is the task the user asked for complete, with nothing left for the agent to do?");
         let approval = request(&session(Status::Needs), Kind::Approval, "m", None);
@@ -607,6 +614,8 @@ mod tests {
         assert_eq!(i.confidence, Some(0.6), "the least sure answer");
         let offer = read(Kind::Turn, &json!({ "answers": { "asks_you": { "probabilities": { "offer": 0.75, "question": 0.125, "report": 0.125 } } } }));
         assert_eq!(offer.asks_you, Some(0.125), "offering more isn't asking");
+        let waiting = read(Kind::Turn, &json!({ "answers": { "asks_you": { "probabilities": { "waiting": 0.99, "question": 0.01 } } } }));
+        assert_eq!(waiting.asks_you, Some(0.01), "waiting on what it started isn't asking");
         assert_eq!(read(Kind::Turn, &json!({ "answers": {} })).asks_you, None, "no answer, no read");
         let bg = read(Kind::Background, &json!({ "answers": { "background": { "probabilities": { "polling": 0.8, "job": 0.15, "stalled": 0.05 } } } }));
         assert_eq!((bg.background.as_deref(), bg.background_p, bg.confidence), (Some("polling"), Some(0.8), None));

@@ -60,9 +60,11 @@ on 2026-09-27. Paths are under `src-tauri/src/`.
   answers has ended); before, such a session showed as
   your turn while it worked (2026-10-29, a Haiku session woken by its `sleep 20` in the
   background). That `claude` never says `shell`: between turns, while what it left running in
-  the background goes on, it says `idle`, so a hosted session shows nothing of what it waits on.
-  The adapter publishes background tasks (`dist/async-tasks.js`) only to a client that says it
-  takes AIR's async tasks, which Codealong doesn't yet.
+  the background goes on, it says `idle`, so the transcript says which shells it started and
+  the process table whether one runs (board.rs `untold_shell`, `claude-code.md`), and `overlay`
+  leaves a session waiting on one waiting. The adapter publishes background tasks
+  (`dist/async-tasks.js`) only to a client that says it takes AIR's async tasks, which Codealong
+  doesn't yet.
 - claude-agent-acp's modes are its config option `mode` (category `mode`), each `{value, name,
   description}` (`dist/session-mode.js` `buildAvailableModes`: default "Manual", acceptEdits,
   plan, auto, and bypassPermissions when bypass is allowed, as Codealong's launch allows it). A

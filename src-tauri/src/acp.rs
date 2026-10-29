@@ -1422,10 +1422,12 @@ pub fn overlay(s: &mut Session, seen_at: i64) {
     } else if let Some(e) = &h.error {
         s.status = Status::Error;
         s.excerpt = Some(e.clone());
-    } else if matches!(s.status, Status::Stopped | Status::Working | Status::Needs) {
+    } else if matches!(s.status, Status::Stopped | Status::Working | Status::Needs) && !s.waits_in_background() {
         // Its records can't say whether a process holds it, and a turn they say runs is the one
         // Codealong ran, which has ended (or its process has): read and quiet, or with something
-        // new since you looked.
+        // new since you looked. One whose turn left a command running in the background waits on
+        // it, as its reader saw in the process table (board.rs `untold_shell`), and the command
+        // wakes it as it ends.
         let ended = h.since.max(s.last_activity);
         s.status = if ended > seen_at { Status::Unread } else { Status::Idle };
         s.status_since = Some(ended);

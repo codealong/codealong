@@ -26,6 +26,15 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   `BACKGROUND_STALLED`). While its command is active it's counted as working but drawn waiting,
   a clock and "Waiting on `<command>`" (`Session::waits_in_background`, `lanes.ts`
   `waitsInBackground`): a CI watch looked like a stuck turn behind the spinner (2026-10-07).
+  Only the terminal UI writes `shell` (2.1.312's code: idle while any `local_bash` task runs, a
+  Monitor's included); without one (the Claude app, Codealong's ACP sessions, headless runs) the
+  registry says only busy, waiting or idle, so the transcript says which background shells a
+  session started (a Bash result's `toolUseResult.backgroundTaskId`, a Monitor's `taskId`, ids
+  `b` and eight of `0-9a-z`) and which ended (a `<task-notification>` with a `<status>`; a
+  Monitor's events come without one; TaskStop's result `task_id`, which no notification follows),
+  and the process table whether one still runs: `claude/transcript.rs` (`background_step`),
+  `board.rs` (`untold_shell`). Read as a turn that ended, an ACP session's reply saying it waited
+  on what its Monitor would report was taken by Jev for asking you (2026-10-29).
 - Transcripts, `<home>/projects/<encoded cwd>/<session>.jsonl`, subagents' logs,
   `<session>/subagents/agent-*.jsonl` (the same format, every line `isSidechain: true`, with an
   `agent-*.meta.json` beside each: `description`, `requestShape: "background"` for one run in
