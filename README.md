@@ -483,9 +483,10 @@ session where it lives.**
 | **Cursor** (new) | ✓ | `cursor-agent` in a terminal; app chats open with the prompt on the clipboard | `cursor-agent` in its terminal; app chats in Cursor | `cursor-agent` | — | Monthly, Cursor's models and the others |
 | **In Codealong** (Claude Code, Codex or OpenCode) | ✓ | ✓ | ✓ | ✓ | ✓ | Per account |
 
-Terminals: Ghostty (the exact tab, keypresses, new tabs beside their worktree), iTerm2, Rex and
-tmux (typing and keypresses), and Terminal (typing). Approvals for Claude Code go through Codealong's
-plugin, which Settings › Agents installs into each account. *In Codealong* means the agent runs in
+Terminals: Ghostty (the exact tab, keypresses, new tabs beside their worktree), Rex (the same, with
+a Rex session for each project), iTerm2 and tmux (typing and keypresses), and Terminal (typing).
+Approvals for Claude Code go through Codealong's plugin, which Settings › Agents installs into each
+account. *In Codealong* means the agent runs in
 Codealong's own panel, over the [Agent Client Protocol](https://agentclientprotocol.com).
 
 ## Keyboard shortcuts
@@ -589,7 +590,7 @@ scan = ["~/projects"]          # where repos are found, three levels deep
 [apps]
 terminal = "ghostty"           # or "iterm2", "terminal", "rex"
 editor = "cursor"              # or "vscode", "zed", "xcode"… (Settings lists those installed), or an app's name
-new_terminal = "project"       # a tab beside the same worktree, repo or project; or "tab", "window"
+new_terminal = "project"       # a tab beside the same worktree, repo or project (in Rex, the project's own session); or "tab", "window"
 move_pointer = false           # move the pointer to a terminal brought forward on another screen
 close_command_tabs_after = 10   # minutes after a command Codealong runs in your terminal ends that its tab closes; 0 keeps it (Settings › General)
 tmux = "when-locked"           # sessions Codealong starts run in tmux, shown in your terminal: "always"; "when-locked", only while the screen is locked, when Ghostty can't start one; "never" (Settings › General). Either but never, Background starts of agents with no background service run in tmux with no window

@@ -89,6 +89,13 @@ pub trait Terminal: Sync {
         self.run(place, dir, input.unwrap_or(""), &[])
     }
 
+    /// Opens a new terminal at `dir` in the tab a session's process `pid` runs in, split from
+    /// it, and brings it forward. `Ok(false)` where there's no such tab, or no split Codealong
+    /// can make in this terminal (only Rex's are).
+    fn split(&self, _pid: u32, _dir: &Path) -> Result<bool> {
+        Ok(false)
+    }
+
     /// Its tabs, each with what it's addressed by, its folder and its title. One that doesn't
     /// say (Terminal lists no titles or folders of its tabs) has none.
     fn tabs(&self) -> Result<Vec<Tab>> {
@@ -339,14 +346,15 @@ fn sweep_launchers(tmp: &Path) {
 }
 
 /// Where a new terminal goes: `[apps] new_terminal`, the folders it belongs beside, nearest
-/// first (`board::terminal_neighbours`), whether it stays out of sight (a Background start of a
-/// harness with no background service of its own: in no tab at all where tmux can hold it,
-/// `out_of_sight_in_tmux`, else behind your windows) instead of coming forward, and the name its
-/// tab is given (`board::tab_label`), which a terminal that can't name a tab ignores.
+/// first, and its project (`board::terminal_neighbours`; `board::ALONE` for none), whether it
+/// stays out of sight (a Background start of a harness with no background service of its own: in
+/// no tab at all where tmux can hold it, `out_of_sight_in_tmux`, else behind your windows)
+/// instead of coming forward, and the name its tab is given (`board::tab_label`), which a
+/// terminal that can't name a tab ignores.
 #[derive(Debug, Clone, Copy)]
 pub struct Placement<'a> {
     pub new_terminal: NewTerminal,
-    pub near: &'a [Vec<String>],
+    pub near: &'a crate::board::Neighbours,
     pub behind: bool,
     pub label: Option<&'a str>,
 }
@@ -365,6 +373,18 @@ impl Placement<'_> {
 /// Opens a new terminal at `path`, optionally typing `input` (a command plus return).
 pub fn terminal_open(profile: &str, place: Placement, path: &Path, input: Option<&str>) -> Result<()> {
     opens_in(profile)?.open(place, path, input)
+}
+
+/// Opens a new terminal at `path` for a session whose process is `pid`: in its own tab, split
+/// from it, where the terminal can (`Terminal::split`), else where `place` says.
+pub fn terminal_open_beside(profile: &str, place: Placement, pid: Option<u32>, path: &Path) -> Result<()> {
+    let terminal = opens_in(profile)?;
+    if let Some(pid) = pid {
+        if terminal.split(pid, path)? {
+            return Ok(());
+        }
+    }
+    terminal.open(place, path, None)
 }
 
 /// Opens a new terminal at `path` with `env` set in its shell, and types `input` (a command
@@ -631,10 +651,10 @@ fn opens_in(profile: &str) -> Result<&'static dyn Terminal> {
 fn placement(place: Placement, tabs: impl FnOnce() -> Result<Vec<Tab>>) -> (&'static str, String) {
     match place.new_terminal {
         NewTerminal::Window => ("window", String::new()),
-        NewTerminal::Tab if place.near.is_empty() => ("front", String::new()),
-        NewTerminal::Tab => ("front", tabs().map(|ts| terminals_beside(&ts, place.near).join("\n")).unwrap_or_default()),
+        NewTerminal::Tab if place.near.folders.is_empty() => ("front", String::new()),
+        NewTerminal::Tab => ("front", tabs().map(|ts| terminals_beside(&ts, &place.near.folders).join("\n")).unwrap_or_default()),
         NewTerminal::Project => {
-            let beside = tabs().map(|ts| terminals_beside(&ts, place.near)).unwrap_or_default();
+            let beside = tabs().map(|ts| terminals_beside(&ts, &place.near.folders)).unwrap_or_default();
             if beside.is_empty() {
                 ("window", String::new())
             } else {
@@ -1473,7 +1493,7 @@ mod tests {
         let _ = std::fs::remove_file(&out);
         let prompt = "Fix the \"flaky\" test\n\tthen run `npm test` and $(say nope) 'quoted' -v";
         let input = format!("printenv CODEALONG_PROMPT > '{}'; exit\n", out.display());
-        terminal_run("ghostty", Placement { new_terminal: NewTerminal::Window, near: &[], behind: false, label: None }, &std::env::temp_dir(), &input, &[("CODEALONG_PROMPT".to_string(), prompt.to_string())]).unwrap();
+        terminal_run("ghostty", Placement { new_terminal: NewTerminal::Window, near: &crate::board::ALONE, behind: false, label: None }, &std::env::temp_dir(), &input, &[("CODEALONG_PROMPT".to_string(), prompt.to_string())]).unwrap();
         for _ in 0..100 {
             if std::fs::metadata(&out).map(|m| m.len() > 0).unwrap_or(false) {
                 break;
@@ -1501,14 +1521,14 @@ mod tests {
         std::fs::create_dir_all(&beta).unwrap();
         let ids = || ghostty_terminals().unwrap().into_iter().map(|t| t.id).collect::<Vec<_>>();
         let before = ids();
-        terminal_run("ghostty", Placement { new_terminal: NewTerminal::Window, near: &[], behind: false, label: Some("alpha") }, &alpha, "", &[]).unwrap();
+        terminal_run("ghostty", Placement { new_terminal: NewTerminal::Window, near: &crate::board::ALONE, behind: false, label: Some("alpha") }, &alpha, "", &[]).unwrap();
         let retitles = "printf '\\033]0;its own title\\007'\n";
-        terminal_run("ghostty", Placement { new_terminal: NewTerminal::Tab, near: &[], behind: false, label: Some("beta") }, &beta, retitles, &[]).unwrap();
+        terminal_run("ghostty", Placement { new_terminal: NewTerminal::Tab, near: &crate::board::ALONE, behind: false, label: Some("beta") }, &beta, retitles, &[]).unwrap();
         std::thread::sleep(Duration::from_secs(1));
-        let near = [vec![alpha.to_string_lossy().into_owned()]];
+        let near = crate::board::Neighbours { folders: vec![vec![alpha.to_string_lossy().into_owned()]], project: None };
         terminal_run("ghostty", Placement { new_terminal: NewTerminal::Project, near: &near, behind: false, label: Some("alpha · two") }, &alpha, "", &[]).unwrap();
         // The third is selected now, so Ghostty puts the fourth before the second's tab.
-        let near = [vec![beta.to_string_lossy().into_owned()]];
+        let near = crate::board::Neighbours { folders: vec![vec![beta.to_string_lossy().into_owned()]], project: None };
         terminal_run("ghostty", Placement { new_terminal: NewTerminal::Tab, near: &near, behind: false, label: Some("beta · two") }, &beta, "", &[]).unwrap();
         std::thread::sleep(Duration::from_millis(1500));
         let opened: Vec<String> = ids().into_iter().filter(|t| !before.contains(t)).collect();
@@ -1561,7 +1581,7 @@ end run
         for (profile, ttys, close) in apps {
             let out = dir.join(format!("{profile}.txt"));
             let input = format!("pwd > '{0}'; printenv CODEALONG_PROMPT >> '{0}'\n", out.display());
-            let place = Placement { new_terminal: NewTerminal::Window, near: &[], behind: false, label: None };
+            let place = Placement { new_terminal: NewTerminal::Window, near: &crate::board::ALONE, behind: false, label: None };
             let before = ttys().unwrap();
             terminal_run(profile, place, &dir, &input, &[("CODEALONG_PROMPT".to_string(), prompt.to_string())]).unwrap();
             let got = written(&out);
@@ -1587,7 +1607,7 @@ end run
             let _ = std::fs::remove_file(&ready);
             let want: &[u8] = if profile == "iterm2" { b"\x1b[200~ab\ncd\x1b[201~\r1\x1b" } else { b"\x1b[200~ab\ncd\x1b[201~\r" };
             let input = format!("stty raw -echo; printf '\\033[?2004h'; echo $$ > '{}'; dd bs=1 count={} of='{}' 2>/dev/null; stty sane\n", ready.display(), want.len(), out.display());
-            terminal_run(profile, Placement { new_terminal: NewTerminal::Window, near: &[], behind: false, label: None }, &dir, &input, &[]).unwrap();
+            terminal_run(profile, Placement { new_terminal: NewTerminal::Window, near: &crate::board::ALONE, behind: false, label: None }, &dir, &input, &[]).unwrap();
             let pid: u32 = written(&ready).and_then(|p| p.trim().parse().ok()).unwrap_or_else(|| panic!("{profile}'s shell never started"));
             let kind = terminal_kind(pid);
             let typed = terminal_type_session(pid, &dir, "ab\ncd", false, Submit::Return, false).unwrap();
@@ -1626,7 +1646,7 @@ end run
         let dir = std::env::temp_dir();
         let apps: [(&str, fn() -> Result<Vec<String>>, fn(&[&str]) -> Result<()>); 2] = [("iterm2", iterm::ttys, iterm::close), ("terminal", terminal_app::ttys, terminal_app::close)];
         for (profile, ttys, close) in apps {
-            let place = Placement { new_terminal: NewTerminal::Window, near: &[], behind: false, label: None };
+            let place = Placement { new_terminal: NewTerminal::Window, near: &crate::board::ALONE, behind: false, label: None };
             let secs = 7000 + std::process::id() % 1000 + if profile == "terminal" { 1 } else { 0 };
             terminal_open(profile, place, &dir, Some(&format!("sleep {secs}\n"))).unwrap();
             let mut pid = None;
@@ -1665,7 +1685,7 @@ end run
         let apps: [(&str, fn() -> Result<Vec<String>>, fn(&[&str]) -> Result<()>, fn(&str) -> Result<bool>, &str); 2] =
             [("iterm2", iterm::ttys, iterm::close, iterm::focus, ITERM_FRONT), ("terminal", terminal_app::ttys, terminal_app::close, terminal_app::focus, TERMINAL_FRONT)];
         for (profile, ttys, close, focus, front) in apps {
-            let place = Placement { new_terminal: NewTerminal::Window, near: &[], behind: false, label: None };
+            let place = Placement { new_terminal: NewTerminal::Window, near: &crate::board::ALONE, behind: false, label: None };
             let mut opened = Vec::new();
             for _ in 0..3 {
                 let before = ttys().unwrap();
@@ -1960,7 +1980,7 @@ end run
         // Terminal comes with macOS, so a config.toml always has a terminal that's here.
         assert!(terminal_app("terminal").unwrap().installed());
         assert!(terminal_app(default_terminal()).unwrap().installed());
-        assert!(terminal_open("kitty", Placement { new_terminal: NewTerminal::Window, near: &[], behind: false, label: None }, Path::new("/"), None).unwrap_err().to_string().contains("\"iterm2\""));
+        assert!(terminal_open("kitty", Placement { new_terminal: NewTerminal::Window, near: &crate::board::ALONE, behind: false, label: None }, Path::new("/"), None).unwrap_err().to_string().contains("\"iterm2\""));
     }
 
     #[test]

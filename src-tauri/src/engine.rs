@@ -653,7 +653,7 @@ impl Handle {
     pub fn sign_in(&self, name: &str) -> Result<()> {
         let cfg = config::current()?;
         let a = cfg.accounts.iter().find(|a| a.name == name).ok_or_else(|| anyhow!("There's no account named {name}."))?;
-        let place = launch::Placement { new_terminal: cfg.apps.new_terminal, near: &[], behind: false, label: None };
+        let place = launch::Placement { new_terminal: cfg.apps.new_terminal, near: &crate::board::ALONE, behind: false, label: None };
         launch::terminal_open(&cfg.apps.terminal, place, &home(), Some(&format!("{}\n", usage::sign_in_command(a))))
     }
 
@@ -798,11 +798,11 @@ fn open_with(board: &Board, cfg: &config::Config, lane_id: &str, target_id: &str
                         bail!(ran.note(&apps.terminal).unwrap_or_default());
                     }
                 }
-                // A new terminal in the folder it works in, beside the terminals already there
-                // (`place`). Nothing about the session itself was looked at.
+                // A new terminal in the folder it works in: split from its own tab where the
+                // terminal can (Rex), else beside the terminals already there (`place`).
                 "terminal" => {
                     let folder = PathBuf::from(board::session_folder(&lane.path, &s.cwd));
-                    launch::terminal_open(&apps.terminal_id, place, if folder.is_dir() { &folder } else { &path }, None)?;
+                    launch::terminal_open_beside(&apps.terminal_id, place, s.pid, if folder.is_dir() { &folder } else { &path })?;
                     return Ok(None);
                 }
                 "chrome" => chrometabs::show(s.chrome.as_ref().ok_or_else(|| anyhow!("That session hasn't used Chrome."))?)?,

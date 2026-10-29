@@ -99,9 +99,10 @@ const SCRIPTS: &[(&str, u64)] = &[
     ("TERMINAL_FOCUS+TAB_ON", 0x7ae29d2776b9d20b),
     ("TERMINAL_TYPE+TAB_ON", 0xa7c5c56b1a8acc66),
     ("TERMINAL_CLOSE+TAB_ON", 0x395c0be9fa50e975),
-    ("REX_LIST", 0x748adcebc363a3fa),
-    ("REX_NEW", 0x17a9ec125713ba14),
-    ("REX_SHOW", 0x034b4435ccb86df4),
+    ("REX_LIST", 0x72e73a8f753f9812),
+    ("REX_NEW", 0xc96778bc839e4968),
+    ("REX_SPLIT", 0x64195a51e964fb5d),
+    ("REX_SHOW", 0x925f451a2d1d06b4),
     ("REX_WRITE", 0x1141908aae8d52fa),
     ("REX_CLOSE", 0x14410192a422cbfb),
 ];
@@ -369,7 +370,7 @@ mod tests {
     const ITERM_TABS: &str = "/dev/ttys201\t/r/app\t✳ Fix the login\n/dev/ttys202\t/r/other\tcodex\n";
 
     fn window() -> Placement<'static> {
-        Placement { new_terminal: NewTerminal::Window, near: &[], behind: false, label: None }
+        Placement { new_terminal: NewTerminal::Window, near: &crate::board::ALONE, behind: false, label: None }
     }
 
     fn err<T>(r: anyhow::Result<T>) -> String {
@@ -388,7 +389,7 @@ mod tests {
         assert_eq!(p.log, [r#"GHOSTTY_NEW ["window", "", "/r/my app", "claude2 --session-id x \"$CODEALONG_PROMPT\"\n", "front", "", "CODEALONG_PROMPT=Fix the 'flaky' test", "CODEALONG_FILES=/tmp/files"]"#]);
         assert!(p.launchers.is_empty(), "Ghostty takes the folder and environment itself");
 
-        let tab = Placement { new_terminal: NewTerminal::Tab, near: &[], behind: false, label: None };
+        let tab = Placement { new_terminal: NewTerminal::Tab, near: &crate::board::ALONE, behind: false, label: None };
         let p = played(|_| Ok("ok\n".into()), move || terminal_run("ghostty", tab, Path::new("/r/app"), "ls\n", &[]));
         p.got.unwrap();
         assert_eq!(p.log, [r#"GHOSTTY_NEW ["front", "", "/r/app", "ls\n", "front", ""]"#]);
@@ -400,7 +401,7 @@ mod tests {
 
         // Beside the tabs of the nearest folders that have any: Ghostty is asked what it has. The
         // tab's name goes as it is, for the script to give the tab.
-        let near = [vec!["/r/app-pins".to_string()], vec!["/r/app".to_string(), "/r/else".to_string()]];
+        let near = crate::board::Neighbours { folders: vec![vec!["/r/app-pins".to_string()], vec!["/r/app".to_string(), "/r/else".to_string()]], project: None };
         let answer = |s: &Sent| Ok(if s.what == "GHOSTTY_LIST" { GHOSTTY_TABS.to_string() } else { "ok\n".into() });
         let named = Placement { new_terminal: NewTerminal::Project, near: &near, behind: false, label: Some("app · Fix the \"login\": now") };
         let p = played(answer, || terminal_run("ghostty", named, Path::new("/r/app"), "ls\n", &[]));
@@ -411,13 +412,13 @@ mod tests {
         let p = played(answer, || terminal_run("ghostty", Placement { new_terminal: NewTerminal::Tab, ..named }, Path::new("/r/app"), "ls\n", &[]));
         p.got.unwrap();
         assert_eq!(p.log, ["GHOSTTY_LIST []", r#"GHOSTTY_NEW ["front", "T1\nT3", "/r/app", "ls\n", "front", "app · Fix the \"login\": now"]"#]);
-        let far = [vec!["/r/none".to_string()]];
+        let far = crate::board::Neighbours { folders: vec![vec!["/r/none".to_string()]], project: None };
         let p = played(|_| Err("boom".into()), || terminal_run("ghostty", Placement { new_terminal: NewTerminal::Tab, near: &far, behind: false, label: None }, Path::new("/r/app"), "ls\n", &[]));
         assert_eq!(p.log[0], "GHOSTTY_LIST []");
         assert_eq!(p.log[1], r#"GHOSTTY_NEW ["front", "", "/r/app", "ls\n", "front", ""]"#);
 
         // No tab near, or Ghostty not saying: a window.
-        let far = [vec!["/r/none".to_string()]];
+        let far = crate::board::Neighbours { folders: vec![vec!["/r/none".to_string()]], project: None };
         let p = played(answer, || terminal_run("ghostty", Placement { new_terminal: NewTerminal::Project, near: &far, behind: false, label: None }, Path::new("/r/app"), "ls\n", &[]));
         p.got.unwrap();
         assert_eq!(p.log, ["GHOSTTY_LIST []", r#"GHOSTTY_NEW ["window", "", "/r/app", "ls\n", "front", ""]"#]);
@@ -454,7 +455,7 @@ mod tests {
         let p = played(|_| Err("boom".into()), || terminal_open("ghostty", window(), Path::new("/r/app"), Some("claude --resume x\n")));
         assert_eq!(err(p.got), "Ghostty didn't respond: boom");
         assert_eq!(p.log, [r#"GHOSTTY_NEW ["window", "", "/r/app", "claude --resume x\n", "front", ""]"#]);
-        let p = played(|_| Ok("ok\n".into()), || terminal_open("ghostty", Placement { new_terminal: NewTerminal::Tab, near: &[], behind: false, label: None }, Path::new("/r/app"), Some("claude --resume x\n")));
+        let p = played(|_| Ok("ok\n".into()), || terminal_open("ghostty", Placement { new_terminal: NewTerminal::Tab, near: &crate::board::ALONE, behind: false, label: None }, Path::new("/r/app"), Some("claude --resume x\n")));
         p.got.unwrap();
         assert_eq!(p.log, [r#"GHOSTTY_NEW ["front", "", "/r/app", "claude --resume x\n", "front", ""]"#]);
     }
@@ -462,7 +463,7 @@ mod tests {
     #[test]
     fn iterm_is_sent_a_launcher_then_the_line_once_its_shell_is_ready() {
         let env = [("CODEALONG_PROMPT".to_string(), "Fix the 'flaky' test".to_string())];
-        let near = [vec!["/r/other".to_string()]];
+        let near = crate::board::Neighbours { folders: vec![vec!["/r/other".to_string()]], project: None };
         let answer = |s: &Sent| {
             Ok(match s.what.as_str() {
                 "ITERM_LIST" => ITERM_TABS.to_string(),
@@ -487,7 +488,7 @@ mod tests {
         p.got.unwrap();
         assert_eq!(p.log[0], r#"ITERM_NEW ["window", "", "/bin/sh 'LAUNCHER'", "front"]"#);
         assert_eq!(p.log.len(), 3);
-        let p = played(answer, || terminal_open("iterm2", Placement { new_terminal: NewTerminal::Tab, near: &[], behind: false, label: None }, Path::new("/r/app"), Some("ls\n")));
+        let p = played(answer, || terminal_open("iterm2", Placement { new_terminal: NewTerminal::Tab, near: &crate::board::ALONE, behind: false, label: None }, Path::new("/r/app"), Some("ls\n")));
         p.got.unwrap();
         assert_eq!(p.log, [r#"ITERM_NEW ["front", "", "/bin/sh 'LAUNCHER'", "front"]"#, "wait for shell /dev/ttys210 after LAUNCHER", r#"ITERM_TYPE_LINE+SESSION_ON ["/dev/ttys210", "\u{15}ls"]"#]);
         let p = played(answer, || terminal_open("iterm2", window(), Path::new("/r/app"), None));
@@ -513,7 +514,7 @@ mod tests {
     #[test]
     fn terminal_is_sent_a_window_then_the_launcher_and_the_line_as_typing() {
         let env = [("CODEALONG_PROMPT".to_string(), "Fix it".to_string())];
-        let near = [vec!["/r/app".to_string()]];
+        let near = crate::board::Neighbours { folders: vec![vec!["/r/app".to_string()]], project: None };
         let answer = |_: &Sent| Ok("/dev/ttys310\n".to_string());
         // Terminal can't open a tab from a script: wherever it's meant to go, a window.
         let p = played(answer, || terminal_run("terminal", Placement { new_terminal: NewTerminal::Project, near: &near, behind: false, label: None }, Path::new("/r/my app"), "codex -- \"$CODEALONG_PROMPT\"\n", &env));
@@ -536,7 +537,7 @@ mod tests {
         let p = played(answer, || terminal_open("terminal", window(), Path::new("/r/app"), None));
         p.got.unwrap();
         assert_eq!(p.log, [r#"TERMINAL_NEW ["front"]"#, "wait for shell /dev/ttys310", r#"TERMINAL_TYPE+TAB_ON ["/dev/ttys310", "\u{15} exec /bin/sh 'LAUNCHER'"]"#, "wait for shell /dev/ttys310 after LAUNCHER"]);
-        let p = played(answer, || terminal_open("terminal", Placement { new_terminal: NewTerminal::Tab, near: &[], behind: false, label: None }, Path::new("/r/app"), Some("ls\n")));
+        let p = played(answer, || terminal_open("terminal", Placement { new_terminal: NewTerminal::Tab, near: &crate::board::ALONE, behind: false, label: None }, Path::new("/r/app"), Some("ls\n")));
         p.got.unwrap();
         assert_eq!(p.log.len(), 5);
         assert_eq!(p.log[4], r#"TERMINAL_TYPE+TAB_ON ["/dev/ttys310", "\u{15}ls"]"#);
@@ -1468,9 +1469,10 @@ mod tests {
         assert_eq!(err(p.got.0), "Couldn't open http://localhost:3000 in Chrome's Work profile: /usr/bin/open no such app");
         assert_eq!(err(p.got.1), "Couldn't open An Editor. Is it installed?");
     }
-    /// Rex's blocks as REX_LIST answers: the first session's is the one a session runs in, the
-    /// second session's has focus in its active window, and the last one's program ended.
-    const REX_BLOCKS: &str = r#"[{"session":"session:s1","window":"window:w1","block":"block:b1","pid":700002,"cwd":"/r/app","title":"✳ Fix the login","focused":false},{"session":"session:s2","window":"window:w2","block":"block:b2","pid":700012,"cwd":"/r/other","title":"zsh","focused":true},{"session":"session:s2","window":"window:w3","block":"block:b3","pid":0,"cwd":"","title":"","focused":false}]"#;
+    /// Rex's sessions and blocks as REX_LIST answers: the first session (a project's, named in
+    /// its own case) has the block a session runs in, the second's has focus in its active
+    /// window and another whose program ended, and the third has none.
+    const REX_BLOCKS: &str = r#"{"sessions":[{"session":"session:s1","label":"spruce"},{"session":"session:s2","label":"other"},{"session":"session:s3","label":"Elsewhere"}],"blocks":[{"session":"session:s1","window":"window:w1","block":"block:b1","pid":700002,"cwd":"/r/app","title":"✳ Fix the login","focused":false},{"session":"session:s2","window":"window:w2","block":"block:b2","pid":700012,"cwd":"/r/other","title":"zsh","focused":true},{"session":"session:s2","window":"window:w3","block":"block:b3","pid":0,"cwd":"","title":"","focused":false}]}"#;
     const REX_OPEN: &str = r#"/usr/bin/open ["-b", "com.superlogical.rex"] (10s)"#;
     /// Rex's settings as `defaults export` prints them, noting the first session as the one its
     /// app shows (`{"sessionID":"session:s1"}`).
@@ -1493,6 +1495,7 @@ mod tests {
             Ok(match (s.what.as_str(), s.args.get(3).map(String::as_str)) {
                 ("/rex/rex", Some("REX_LIST")) => REX_BLOCKS.to_string(),
                 ("/rex/rex", Some("REX_NEW")) => r#"{"session":"session:s2","window":"window:w9","block":"block:b9"}"#.to_string(),
+                ("/rex/rex", Some("REX_SPLIT")) => r#"{"session":"session:s1","window":"window:w1","block":"block:b8"}"#.to_string(),
                 ("/rex/rex", Some("REX_SHOW")) => shows.to_string(),
                 ("/rex/rex", Some("REX_WRITE" | "REX_CLOSE")) => "\"ok\"\n".to_string(),
                 ("/usr/bin/open", _) => String::new(),
@@ -1503,10 +1506,11 @@ mod tests {
     }
 
     #[test]
-    fn rex_is_sent_a_window_in_the_session_beside_its_folder_or_a_session_of_its_own() {
-        // Beside the nearest folders that have a terminal, in that terminal's session, with the
-        // launcher as its program for the environment, and then shown.
-        let near = [vec!["/r/elsewhere".to_string()], vec!["/r/other".to_string()]];
+    fn rex_is_sent_a_window_in_its_projects_session_beside_its_folder_or_a_session_of_its_own() {
+        // In the session named for its project, whatever its case, after the tabs there of the
+        // nearest folders that have one, with the launcher as its program for the environment,
+        // and then shown.
+        let near = crate::board::Neighbours { folders: vec![vec!["/r/app-pins".to_string()], vec!["/r/app".to_string(), "/r/other".to_string()]], project: Some("Spruce".to_string()) };
         let env = [("CODEALONG_PROMPT".to_string(), "Fix the 'flaky' test".to_string())];
         let place = Placement { new_terminal: NewTerminal::Project, near: &near, behind: false, label: Some("app · Fix it") };
         let p = played(rex_answers(REX_SHOWN), || terminal_run("rex", place, Path::new("/r/my app"), "claude2 --session-id x \"$CODEALONG_PROMPT\"\n", &env));
@@ -1515,35 +1519,57 @@ mod tests {
             p.log,
             [
                 rex("REX_LIST", "{}", false),
-                rex("REX_NEW", r#"{"command":["/bin/sh","LAUNCHER"],"cwd":"/r/my app","focus":true,"input":"claude2 --session-id x \"$CODEALONG_PROMPT\"\n","label":"app · Fix it","session":"session:s2","session_label":"my app"}"#, true),
+                rex("REX_NEW", r#"{"after":["window:w1"],"command":["/bin/sh","LAUNCHER"],"cwd":"/r/my app","focus":true,"input":"claude2 --session-id x \"$CODEALONG_PROMPT\"\n","label":"app · Fix it","session":"session:s1","session_label":"Spruce"}"#, true),
                 rex("REX_SHOW", r#"{"block":"block:b9","session":"session:s2","window":"window:w9"}"#, false),
                 REX_OPEN.to_string(),
             ]
         );
         assert_eq!(p.launchers, ["rm -f 'LAUNCHER'\ncd '/r/my app' 2>/dev/null\nexport CODEALONG_PROMPT='Fix the '\\''flaky'\\'' test'\nexec SHELL -l"]);
-        // A tab in the front window goes into the session the app shows, as its settings note it.
-        let tab = Placement { new_terminal: NewTerminal::Tab, ..place };
+        // A project's session with no terminal in it is found by its name too; with none, one is
+        // made with it, as when the server doesn't say. Terminals of the project in other sessions
+        // are left where they are.
+        let new_of = |project: &str, server: bool| {
+            let near = crate::board::Neighbours { folders: vec![vec!["/r/other".to_string()]], project: Some(project.to_string()) };
+            let place = Placement { new_terminal: NewTerminal::Project, near: &near, behind: false, label: None };
+            let p = played(move |s| if !server && s.args.get(3).is_some_and(|a| a == "REX_LIST") { Err("/rex/rex Error: rex server is not running".into()) } else { rex_answers(REX_SHOWN)(s) }, move || terminal_run("rex", place, Path::new("/r/app"), "ls\n", &[]));
+            p.got.unwrap();
+            p.log[1].clone()
+        };
+        assert_eq!(new_of("Elsewhere", true), rex("REX_NEW", r#"{"after":[],"cwd":"/r/app","focus":true,"input":"ls\n","session":"session:s3","session_label":"Elsewhere"}"#, true));
+        assert_eq!(new_of("Atlas", true), rex("REX_NEW", r#"{"after":[],"cwd":"/r/app","focus":true,"input":"ls\n","session":"","session_label":"Atlas"}"#, true));
+        assert_eq!(new_of("Spruce", false), rex("REX_NEW", r#"{"after":[],"cwd":"/r/app","focus":true,"input":"ls\n","session":"","session_label":"Spruce"}"#, true));
+
+        // In no project, beside the nearest folders that have a terminal, in that terminal's
+        // session.
+        let elsewhere = crate::board::Neighbours { folders: vec![vec!["/r/elsewhere".to_string()], vec!["/r/other".to_string()]], project: None };
+        let place = Placement { new_terminal: NewTerminal::Project, near: &elsewhere, behind: false, label: Some("app · Fix it") };
+        let p = played(rex_answers(REX_SHOWN), || terminal_run("rex", place, Path::new("/r/my app"), "ls\n", &[]));
+        p.got.unwrap();
+        assert_eq!(p.log[1], rex("REX_NEW", r#"{"after":["window:w2"],"cwd":"/r/my app","focus":true,"input":"ls\n","label":"app · Fix it","session":"session:s2","session_label":"my app"}"#, true));
+        // A tab in the front window goes into the session the app shows, as its settings note it,
+        // whatever its project, after the tabs there of the nearest folders that have one in it.
+        let tab = Placement { new_terminal: NewTerminal::Tab, near: &near, ..place };
         let p = played(rex_answers(REX_SHOWN), || terminal_run("rex", tab, Path::new("/r/my app"), "ls\n", &[]));
         p.got.unwrap();
-        assert_eq!(p.log[1..3], [REX_DEFAULTS.to_string(), rex("REX_NEW", r#"{"cwd":"/r/my app","focus":true,"input":"ls\n","label":"app · Fix it","session":"session:s1","session_label":"my app"}"#, true)]);
+        assert_eq!(p.log[1..3], [REX_DEFAULTS.to_string(), rex("REX_NEW", r#"{"after":["window:w1"],"cwd":"/r/my app","focus":true,"input":"ls\n","label":"app · Fix it","session":"session:s1","session_label":"my app"}"#, true)]);
         assert!(p.launchers.is_empty(), "with no environment Rex starts the login shell itself");
         // With none noted, beside the nearest folders' terminals, as a project's; with none of
         // those either, a session of its own.
         let unnoted = |s: &Sent| if s.what == "/usr/bin/defaults" { Ok("<plist version=\"1.0\"><dict/></plist>".to_string()) } else { rex_answers(REX_SHOWN)(s) };
         let p = played(unnoted, || terminal_run("rex", tab, Path::new("/r/my app"), "ls\n", &[]));
         p.got.unwrap();
-        assert!(p.log[2].contains(r#"\"session\":\"session:s2\""#), "{}", p.log[2]);
-        let p = played(move |s| if s.what == "/usr/bin/defaults" { Err("no such domain".into()) } else { rex_answers(REX_SHOWN)(s) }, || terminal_run("rex", Placement { new_terminal: NewTerminal::Tab, near: &[], behind: false, label: None }, Path::new("/r/app"), "ls\n", &[]));
+        assert!(p.log[2].contains(r#"\"session\":\"session:s1\""#), "{}", p.log[2]);
+        let p = played(move |s| if s.what == "/usr/bin/defaults" { Err("no such domain".into()) } else { rex_answers(REX_SHOWN)(s) }, || terminal_run("rex", Placement { new_terminal: NewTerminal::Tab, near: &crate::board::ALONE, behind: false, label: None }, Path::new("/r/app"), "ls\n", &[]));
         p.got.unwrap();
-        assert_eq!(p.log[1], rex("REX_NEW", r#"{"cwd":"/r/app","focus":true,"input":"ls\n","session":"","session_label":"app"}"#, true));
+        assert_eq!(p.log[1], rex("REX_NEW", r#"{"after":[],"cwd":"/r/app","focus":true,"input":"ls\n","session":"","session_label":"app"}"#, true));
 
         // A window, a project with no terminal near, or the server not saying: a session of its
         // own, named for its folder. A Background start is neither focused nor shown.
-        let far = [vec!["/r/none".to_string()]];
+        let far = crate::board::Neighbours { folders: vec![vec!["/r/none".to_string()]], project: None };
         for place in [window(), Placement { new_terminal: NewTerminal::Project, near: &far, behind: false, label: None }, Placement { new_terminal: NewTerminal::Project, near: &far, behind: true, label: None }] {
             let p = played(rex_answers(REX_SHOWN), move || terminal_run("rex", place, Path::new("/r/app"), "ls\n", &[]));
             p.got.unwrap();
-            let new = rex("REX_NEW", &format!(r#"{{"cwd":"/r/app","focus":{},"input":"ls\n","session":"","session_label":"app"}}"#, !place.behind), true);
+            let new = rex("REX_NEW", &format!(r#"{{"after":[],"cwd":"/r/app","focus":{},"input":"ls\n","session":"","session_label":"app"}}"#, !place.behind), true);
             assert_eq!(p.log.iter().find(|l| l.contains("REX_NEW")), Some(&new));
             assert_eq!(p.log.iter().any(|l| l.contains("REX_SHOW")), !place.behind);
         }
@@ -1553,7 +1579,7 @@ mod tests {
 
         // Rex takes labels of up to 128 characters: longer ones are cut.
         let long = "x".repeat(200);
-        let place = Placement { new_terminal: NewTerminal::Window, near: &[], behind: true, label: Some(&long) };
+        let place = Placement { new_terminal: NewTerminal::Window, near: &crate::board::ALONE, behind: true, label: Some(&long) };
         let p = played(rex_answers(REX_SHOWN), move || terminal_run("rex", place, &Path::new("/r").join("y".repeat(200)), "ls\n", &[]));
         p.got.unwrap();
         let cut = |c: &str| format!("{}…", c.repeat(127));
@@ -1628,6 +1654,28 @@ mod tests {
         // Raised again by its TTY.
         let p = played(rex_answers(REX_SHOWN), || TerminalHost { terminal: terminal_app("rex").unwrap(), at: "/dev/ttys702".into() }.again());
         assert_eq!(p.log[1], show("block:b2", "session:s2", "window:w2"));
+    }
+
+    #[test]
+    fn a_new_terminal_beside_a_session_in_rex_splits_its_tab() {
+        let split = rex("REX_SPLIT", r#"{"block":"block:b1","cwd":"/r/app/src","session":"session:s1","window":"window:w1"}"#, false);
+        let p = played(rex_answers(REX_SHOWN), || terminal_open_beside("rex", window(), Some(IN_REX), Path::new("/r/app/src")));
+        p.got.unwrap();
+        assert_eq!(p.log, [rex("REX_LIST", "{}", false), split, rex("REX_SHOW", r#"{"block":"block:b8","session":"session:s1","window":"window:w1"}"#, false), REX_OPEN.to_string()]);
+        // A session that isn't in Rex, or isn't running: a terminal where the placement says.
+        let p = played(rex_answers(REX_SHOWN), || terminal_open_beside("rex", window(), Some(IN_GHOSTTY), Path::new("/r/app")));
+        p.got.unwrap();
+        assert_eq!(p.log[..2], [rex("REX_LIST", "{}", false), rex("REX_NEW", r#"{"after":[],"cwd":"/r/app","focus":true,"input":"","session":"","session_label":"app"}"#, true)]);
+        let p = played(rex_answers(REX_SHOWN), || terminal_open_beside("rex", window(), None, Path::new("/r/app")));
+        p.got.unwrap();
+        assert!(p.log[0].contains("REX_NEW"), "{:?}", p.log);
+        // A terminal that can't split its tabs opens one as it would.
+        let p = played(|_| Ok(String::new()), || terminal_open_beside("ghostty", window(), Some(IN_GHOSTTY), Path::new("/r/app")));
+        p.got.unwrap();
+        assert!(p.log[0].starts_with("GHOSTTY_NEW"), "{:?}", p.log);
+        // The server refusing the split is said.
+        let p = played(|s| if s.args.get(3).is_some_and(|a| a == "REX_SPLIT") { Err("/rex/rex Error: block not found".into()) } else { rex_answers(REX_SHOWN)(s) }, || terminal_open_beside("rex", window(), Some(IN_REX), Path::new("/r/app")));
+        assert_eq!(err(p.got), "Rex didn't do it: block not found");
     }
 
     #[test]

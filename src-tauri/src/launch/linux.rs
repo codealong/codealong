@@ -185,7 +185,7 @@ mod tests {
         use crate::config::NewTerminal;
         let answer = |s: &Sent| Ok(if s.args.contains(&"new-session".to_string()) { "$4 %9 /dev/pts/7\n".to_string() } else { String::new() });
         let env = [("CODEALONG_PROMPT".to_string(), "Fix it".to_string())];
-        let place = |behind| Placement { new_terminal: NewTerminal::Window, near: &[], behind, label: Some("app · fix") };
+        let place = |behind| Placement { new_terminal: NewTerminal::Window, near: &crate::board::ALONE, behind, label: Some("app · fix") };
         let linux = || Setup { os: crate::os::Os::Linux, ..Setup::default() };
         let p = play(linux(), answer, || terminal_run("terminal", place(false), Path::new("/r/my app"), "claude --session-id x\n", &env));
         p.got.unwrap();

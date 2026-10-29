@@ -2802,9 +2802,14 @@ Without Remote Control the app can't take it while it runs, so the entry says so
 running continues in the app (Continue in Claude app). A new terminal opens in the terminal app config.toml names, as a tab
 in the window already showing that worktree, repo or project (`new_terminal` in config.toml;
 Terminal can't open tabs for another app, so there it's a window). In Rex a window is a Rex
-session: a new terminal is a tab in the Rex session already working in that worktree, repo or
-project, or with Tab in front window in the session Rex shows, and otherwise in a session of its
-own named for its folder. Rex goes to a session's tab only with Remote Control on in its settings
+session, and a project has one of its own: a new terminal is a tab in the Rex session named for
+its project (Elsewhere for a folder in none of yours), made when there's none, so Rex's ⌘K goes
+between your projects; with Tab in front window it's in the session Rex shows, and with Window, or
+for a folder in no worktree, in a session of its own named for its folder. Rename a Rex session to
+a project's name to have its tabs join it. In a Rex session a new tab goes just after the tabs of
+its worktree, else of its repo or project, so a worktree's tabs sit together, and ⌃` on a session
+running in Rex splits its own tab, a shell under the agent, rather than opening another. Rex goes
+to a session's tab only with Remote Control on in its settings
 (Rex › Settings › Rex Server), and says so when it's off; typing, keypresses, starting and closing
 go to its server and need nothing. A worktree opens in your editor
 (`editor` in config.toml, ⌘2) or, from Open in in its right-click menu and its Open button, any

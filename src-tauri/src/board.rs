@@ -2392,25 +2392,39 @@ pub fn session_folder(lane_path: &str, cwd: &str) -> String {
     if inside { cwd } else { lane_path }.to_string()
 }
 
-/// The folders a new terminal at `path` belongs beside, nearest first: its worktree, the other
-/// worktrees of its repo, then the rest of its project. `[apps] new_terminal = "project"` opens
-/// it as a tab in a window already showing the nearest of them. A folder elsewhere (a project of
-/// its own that isn't one, or an app's chats) has only itself for company.
-pub fn terminal_neighbours(lanes: &[Lane], path: &Path) -> Vec<Vec<String>> {
+/// Where a new terminal belongs (`terminal_neighbours`), for `[apps] new_terminal = "project"`.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Neighbours {
+    /// The folders it belongs beside, nearest first: its worktree, the other worktrees of its
+    /// repo, then the rest of its project. A tab goes in a window already showing the nearest
+    /// of them. A folder elsewhere (a project of its own that isn't one, or an app's chats) has
+    /// only itself for company.
+    pub folders: Vec<Vec<String>>,
+    /// The project its worktree is listed in (Elsewhere for one in none of yours), for a
+    /// terminal that keeps each project's tabs together on their own (Rex, in a session named
+    /// for it). None for a folder in no worktree.
+    pub project: Option<String>,
+}
+
+/// A new terminal with nothing to go beside: a window of its own, or the front one.
+pub static ALONE: Neighbours = Neighbours { folders: Vec::new(), project: None };
+
+/// Where a new terminal at `path` belongs: beside which folders, and in which project.
+pub fn terminal_neighbours(lanes: &[Lane], path: &Path) -> Neighbours {
     let Some(home) = home_lane(lanes, path) else {
-        return vec![vec![path.to_string_lossy().into_owned()]];
+        return Neighbours { folders: vec![vec![path.to_string_lossy().into_owned()]], project: None };
     };
-    let mut groups = vec![vec![home.path.clone()]];
+    let mut near = Neighbours { folders: vec![vec![home.path.clone()]], project: Some(home.project.clone()) };
     if home.origin == Origin::Other || home.project == ELSEWHERE {
-        return groups;
+        return near;
     }
     let others = |same: &dyn Fn(&Lane) -> bool| -> Vec<String> {
         lanes.iter().filter(|l| l.path != home.path && l.origin != Origin::Other && same(l)).map(|l| l.path.clone()).collect()
     };
     let repo = others(&|l| l.project == home.project && l.repo == home.repo);
     let project = others(&|l| l.project == home.project && l.repo != home.repo);
-    groups.extend([repo, project].into_iter().filter(|g| !g.is_empty()));
-    groups
+    near.folders.extend([repo, project].into_iter().filter(|g| !g.is_empty()));
+    near
 }
 
 /// The worktree a folder is in: the deepest lane holding it.
@@ -5491,10 +5505,14 @@ mod tests {
         let order = vec!["Spruce".to_string()];
         let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![], visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new(), review_snoozes: &[], session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default() });
         let near = |p: &str| terminal_neighbours(&board.lanes, Path::new(p));
-        assert_eq!(near("/r/spark-pins/src"), vec![vec!["/r/spark-pins".to_string()], vec!["/r/spark".to_string()], vec!["/r/spur".to_string()]]);
-        assert_eq!(near("/tmp/scratch"), vec![vec!["/tmp/scratch".to_string()]]);
-        assert_eq!(near("/Users/me/Documents/Codex/2026-09-27/can-you"), vec![vec!["/Users/me/Documents/Codex".to_string()]], "other folders elsewhere aren't company");
-        assert_eq!(near("/Users/me"), vec![vec!["/Users/me".to_string()]]);
+        let at = |p: &str| (near(p).folders, near(p).project);
+        let strings = |groups: &[&[&str]]| groups.iter().map(|g| g.iter().map(|f| f.to_string()).collect()).collect::<Vec<Vec<String>>>();
+        assert_eq!(at("/r/spark-pins/src"), (strings(&[&["/r/spark-pins"], &["/r/spark"], &["/r/spur"]]), Some("Spruce".to_string())));
+        assert_eq!(at("/tmp/scratch"), (strings(&[&["/tmp/scratch"]]), Some(ELSEWHERE.to_string())));
+        // Other folders elsewhere aren't company, but they're the same project's.
+        assert_eq!(at("/Users/me/Documents/Codex/2026-09-27/can-you"), (strings(&[&["/Users/me/Documents/Codex"]]), Some(ELSEWHERE.to_string())));
+        assert_eq!(at("/Users/me/notes"), (strings(&[&["/Users/me/notes"]]), Some(ELSEWHERE.to_string())));
+        assert_eq!(at("/Users/me"), (strings(&[&["/Users/me"]]), None), "a folder in no worktree is in no project");
     }
 
     #[test]

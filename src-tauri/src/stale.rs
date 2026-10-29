@@ -761,7 +761,7 @@ mod tests {
             None
         };
         let secs = 7000 + std::process::id() % 1000;
-        let place = Placement { new_terminal: crate::config::NewTerminal::Window, near: &[], behind: true, label: None };
+        let place = Placement { new_terminal: crate::config::NewTerminal::Window, near: &crate::board::ALONE, behind: true, label: None };
         terminal_open("ghostty", place, &behind, Some(&format!("sleep {secs}\n"))).unwrap();
         let tab = find(&behind_at, &|t| t.runs.first().is_some_and(|r| r.1 == format!("sleep {secs}")));
         terminal_open("ghostty", place, &front, None).unwrap();

@@ -159,7 +159,7 @@ say the rest.
 - `rex do -e <lua> --args <json> --json` runs a script against the server and prints what it
   returned (an empty table as `{}`); `error(msg, 0)` exits 1 with `Error: msg`. A script hears a
   session only after `rex.session.attach`, else "stream is not attached" (409). What Codealong
-  asks, each in one call: `launch/rex.rs` (`LIST`, `NEW`, `SHOW`, `WRITE`, `CLOSE`). Not said
+  asks, each in one call: `launch/rex.rs` (`LIST`, `NEW`, `SPLIT`, `SHOW`, `WRITE`, `CLOSE`). Not said
   there: the terminal's `pwd` method is a `file://` URL when the shell reported OSC 7 and absent
   until it does, so the folder is `process`'s `foreground.cwd`.
 - A terminal block takes `cwd`, `command`, `shell`, `initial_input` (typed once its program

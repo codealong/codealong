@@ -6,11 +6,14 @@
 //! process's TTY, as iTerm2's and Terminal's tabs are, and is then addressed by its session and
 //! block ids. Codealong asks the server through Lua scripts run with `rex do`, one call each.
 //!
-//! A Codealong window is a Rex session, and a tab a window in one: `tab` goes into the session
-//! the app shows (`shown_session`), `project` into the one with terminals in the nearest folders,
-//! and otherwise a session of its own, named for its folder. The server holds a session nobody
-//! looks at and starts one while the screen is locked, so tmux has nothing to add
-//! (`holds_sessions`). Bringing a tab forward asks the app to show its session
+//! A Codealong window is a Rex session, and a tab a window in one: `project` goes into the
+//! session named for its project (made when there's none, so Rex's sessions are Codealong's
+//! projects and ⌘K goes between them), `tab` into the session the app shows (`shown_session`),
+//! and `window`, or a folder in no project, into a session of its own, named for its folder. In
+//! a session, a tab goes after the tabs of the nearest folders, so a worktree's sit together. A
+//! new terminal beside a session's agent (⌃`) is a split of its tab (`split`). The server holds
+//! a session nobody looks at and starts one while the screen is locked, so tmux has nothing to
+//! add (`holds_sessions`). Bringing a tab forward asks the app to show its session
 //! (`session.select`), which the app does only with Remote Control on in its settings; typing,
 //! keys, starting and closing go to the server and need nothing.
 //! See .claude/rules/terminals.md.
@@ -22,7 +25,8 @@ use anyhow::{anyhow, bail, Result};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use super::{app_active, app_installed, close_tty_terminals, focus_on_tty, launcher, pasted, placement, tty_of, type_on_tty, Closing, HostKind, Key, Placement, Submit, Tab, Terminal, TerminalHost, Typed};
+use super::{app_active, app_installed, close_tty_terminals, focus_on_tty, launcher, pasted, terminals_beside, tty_of, type_on_tty, Closing, HostKind, Key, Placement, Submit, Tab, Terminal, TerminalHost, Typed};
+use crate::config::NewTerminal;
 use crate::os::open::{self, App};
 use crate::procs;
 use crate::util::{home, truncate};
@@ -104,6 +108,15 @@ impl Terminal for Rex {
         focus_on_tty(&Rex, tty)
     }
 
+    fn split(&self, pid: u32, dir: &Path) -> Result<bool> {
+        let Some(tty) = tty_of(pid) else { return Ok(false) };
+        let Some(b) = block_on(&tty.to_string_lossy())? else { return Ok(false) };
+        let made = script(SPLIT, json!({ "session": b.session, "window": b.window, "block": b.block, "cwd": dir.to_string_lossy() }), false)?;
+        // It opened either way; the app not following is only where you look.
+        let _ = show(made);
+        Ok(true)
+    }
+
     fn type_session(&self, pid: u32, _cwd: &Path, text: &str, clear: bool, submit: Submit, _passes: bool) -> Result<Typed> {
         type_on_tty(APP, pid, text, clear.then_some(press), |tty, text| type_text(tty, text, submit))
     }
@@ -129,15 +142,17 @@ impl Terminal for Rex {
     }
 }
 
-/// Every terminal block in every session: its ids, its program's pid (`login`, or the command
-/// it runs), the folder its foreground process is in, its title, and whether it's the one with
-/// focus in its session's active window. A script hears a session only once attached to it.
+/// Every session, by its id and label, and every terminal block in them: its ids, its program's
+/// pid (`login`, or the command it runs), the folder its foreground process is in, its title, and
+/// whether it's the one with focus in its session's active window. A script hears a session only
+/// once attached to it.
 const LIST: &str = r#"
 local terminal = "com.superlogical.terminal"
-local out = {}
+local sessions, out = {}, {}
 local listed = rex.call("session.list") or {}
 for _, s in ipairs(listed.sessions or {}) do
   local sid = s.session_id
+  table.insert(sessions, { session = sid, label = s.label or "" })
   rex.session.attach{ session_id = sid }
   local view = rex.session.view{ session_id = sid } or {}
   local focused = ""
@@ -160,13 +175,15 @@ for _, s in ipairs(listed.sessions or {}) do
     end
   end
 end
-return out
+return { sessions = sessions, blocks = out }
 "#;
 
-/// `{cwd, input, command?, session, session_label?, label?, focus}`: a window holding a terminal
-/// in `cwd` that types `input` once its program starts, in `session`, or with "" or a session
-/// that's gone since it was seen, in a new session named `session_label`. `command` runs in place
-/// of the login shell, with no shell around it. Returns its `{session, window, block}`.
+/// `{cwd, input, command?, session, session_label?, label?, focus, after}`: a window holding a
+/// terminal in `cwd` that types `input` once its program starts, in `session`, or with "" or a
+/// session that's gone since it was seen, in a new session named `session_label`. `command` runs
+/// in place of the login shell, with no shell around it. In a session it goes just after the last
+/// of the windows `after` names, where it has any. Returns its `{session, window, block}`. The
+/// window is made whether or not it moves, so a move that fails is let go.
 const NEW: &str = r#"
 local a = rex.args
 local options = { cwd = a.cwd, initial_input = a.input }
@@ -186,13 +203,45 @@ if a.session == "" then
 end
 local made, err = rex.session.new_window{ session_id = a.session, layout = layout, window_label = a.label, focus = a.focus }
 if not made then error(err, 0) end
+local windows = (rex.session.view{ session_id = a.session } or {}).windows or {}
+local last
+for i, w in ipairs(windows) do
+  for _, id in ipairs(a.after or {}) do
+    if w.window_id == id then last = i end
+  end
+end
+if last then
+  local before
+  for i, w in ipairs(windows) do
+    if i > last and w.window_id ~= made.window_id then
+      before = w.window_id
+      break
+    end
+  end
+  rex.session.move_window{ session_id = a.session, window_id = made.window_id, before_window_id = before }
+end
 return { session = a.session, window = made.window_id, block = made.block_ids[1] }
+"#;
+
+/// `{session, window, block, cwd}`: a terminal in `cwd` under the block, in its window, taking
+/// the bottom third of the block's space, with focus. Returns its `{session, window, block}`.
+const SPLIT: &str = r#"
+local a = rex.args
+rex.session.attach{ session_id = a.session }
+local made, err = rex.session.new_split{
+  session_id = a.session, anchor_id = a.block, direction = "vertical", side = "after", ratio = 0.65, focus = true,
+  layout = { block = { flavor = "com.superlogical.terminal.shell", options = { cwd = a.cwd } } },
+}
+if not made then error(err, 0) end
+return { session = a.session, window = a.window, block = made.block_ids[1] }
 "#;
 
 /// `{session, window, block}`: focuses the block, which makes its window the session's active
 /// one, then asks each Rex app on this Mac to show that session. Returns `{apps, shown, refused,
 /// windowless, failed}`: how many apps there are and how many showed it, and what one said that
-/// refused (Remote Control off), had no window open to show it in, or failed otherwise.
+/// refused (Remote Control off), had no window open to show it in, or failed otherwise. An app
+/// that doesn't know the session yet (a busy one, of a session just made) is asked again once
+/// it has refreshed its list.
 const SHOW: &str = r#"
 local a = rex.args
 rex.session.attach{ session_id = a.session }
@@ -203,7 +252,12 @@ local clients = rex.call("client.list") or {}
 for _, c in ipairs(clients.clients or {}) do
   if c.info and c.info.kind == "app" and c.principal and c.principal.transport == "unix" then
     apps = apps + 1
-    local _, e = rex.call("client.perform", { client_id = c.client_id, action = "session.select", args = { session_id = a.session, window_id = a.window } })
+    local select = { client_id = c.client_id, action = "session.select", args = { session_id = a.session, window_id = a.window } }
+    local _, e = rex.call("client.perform", select)
+    if e and string.find(e, "SessionNotFound", 1, true) then
+      rex.call("client.perform", { client_id = c.client_id, action = "session.refresh" })
+      _, e = rex.call("client.perform", select)
+    end
     if not e then
       shown = shown + 1
     elseif string.find(e, "code=refused", 1, true) then
@@ -246,6 +300,36 @@ end
 if #failed > 0 then error(table.concat(failed, "; "), 0) end
 return "ok"
 "#;
+
+/// What LIST answers: every session, and every terminal block with its TTY.
+#[derive(Default, Deserialize)]
+struct Listed {
+    #[serde(default, deserialize_with = "lua_list")]
+    sessions: Vec<RexSession>,
+    #[serde(default, deserialize_with = "lua_list")]
+    blocks: Vec<Block>,
+}
+
+/// A session as LIST has it.
+#[derive(Deserialize)]
+struct RexSession {
+    session: String,
+    label: String,
+}
+
+/// A Lua list as `rex` prints it, where an empty one comes back as `{}`.
+fn lua_list<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(d: D) -> std::result::Result<Vec<T>, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum List<T> {
+        Items(Vec<T>),
+        Empty {},
+    }
+    Ok(match List::deserialize(d)? {
+        List::Items(items) => items,
+        List::Empty {} => Vec::new(),
+    })
+}
 
 /// A terminal block as LIST has it, with the TTY its program runs on.
 #[derive(Debug, Clone, Deserialize)]
@@ -301,40 +385,70 @@ fn said(bin: &str, error: &str) -> anyhow::Error {
     anyhow!("Rex didn't do it: {first}")
 }
 
-/// Every terminal block, each with its TTY. Ones whose program ended (kept open to show how it
-/// ended) have none, and aren't listed.
-fn blocks() -> Result<Vec<Block>> {
+/// Every session, and every terminal block with its TTY. Blocks whose program ended (kept open
+/// to show how it ended) have none, and aren't listed.
+fn listing() -> Result<Listed> {
     let listed = script(LIST, json!({}), false)?;
-    // An empty Lua table comes back as `{}`.
-    let listed: Vec<Block> = if listed.is_array() { serde_json::from_value(listed)? } else { Vec::new() };
-    Ok(listed
-        .into_iter()
-        .filter_map(|mut b| {
-            b.tty = tty_of(b.pid).filter(|_| b.pid > 0)?.to_string_lossy().into_owned();
-            Some(b)
-        })
-        .collect())
+    let mut listed: Listed = if listed.is_object() { serde_json::from_value(listed)? } else { Listed::default() };
+    listed.blocks.retain_mut(|b| match tty_of(b.pid).filter(|_| b.pid > 0) {
+        Some(tty) => {
+            b.tty = tty.to_string_lossy().into_owned();
+            true
+        }
+        None => false,
+    });
+    Ok(listed)
+}
+
+fn blocks() -> Result<Vec<Block>> {
+    Ok(listing()?.blocks)
 }
 
 fn block_on(tty: &str) -> Result<Option<Block>> {
     Ok(blocks()?.into_iter().find(|b| b.tty == tty))
 }
 
+/// Where a new terminal goes (see the module header): the session, or "" for a new one named
+/// `named`, and the windows there it goes after.
+#[derive(Debug, PartialEq)]
+struct Destination {
+    session: String,
+    named: String,
+    after: Vec<String>,
+}
+
+fn destination(place: Placement, dir: &Path) -> Destination {
+    let folder = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| dir.to_string_lossy().into_owned());
+    let near = &place.near.folders;
+    let listed = match place.new_terminal {
+        NewTerminal::Window => Listed::default(),
+        NewTerminal::Tab if near.is_empty() => Listed::default(),
+        // The server not saying is a session of its own.
+        _ => listing().unwrap_or_default(),
+    };
+    // The tabs of the nearest folders that have any, of every session or one.
+    let beside = |session: Option<&str>| -> Vec<&Block> {
+        let tabs: Vec<Tab> = listed.blocks.iter().filter(|b| session.is_none_or(|s| b.session == s)).map(Block::tab).collect();
+        terminals_beside(&tabs, near).iter().filter_map(|tty| listed.blocks.iter().find(|b| &b.tty == tty)).collect()
+    };
+    let nearest = beside(None).first().map(|b| b.session.clone());
+    let (session, named) = match (place.new_terminal, &place.near.project) {
+        (NewTerminal::Window, _) => (None, folder),
+        (NewTerminal::Tab, _) => (shown_session().or(nearest), folder),
+        (NewTerminal::Project, Some(project)) => (listed.sessions.iter().find(|s| s.label.trim().to_lowercase() == project.to_lowercase()).map(|s| s.session.clone()), project.clone()),
+        (NewTerminal::Project, None) => (nearest, folder),
+    };
+    let session = session.unwrap_or_default();
+    let after = if session.is_empty() { Vec::new() } else { beside(Some(&session)).iter().map(|b| b.window.clone()).collect() };
+    Destination { session, named, after }
+}
+
 /// Opens a terminal in `dir` and types `input` there once its program starts. With `env`, its
 /// program is the launcher, which sets it and becomes the login shell; Rex's terminals take no
 /// environment of their own. See the module header for which session it goes in.
 fn open_in(place: Placement, dir: &Path, input: &str, env: &[(String, String)]) -> Result<()> {
-    let mut listed = Vec::new();
-    let (at, beside) = placement(place, || {
-        listed = blocks()?;
-        Ok(listed.iter().map(Block::tab).collect())
-    });
-    let near = beside.lines().find_map(|tty| listed.iter().find(|b| b.tty == tty)).map(|b| b.session.clone());
-    // Rex has no order of tabs to put one beside its folder's in, so the front window's tab is
-    // simply in the session it shows.
-    let session = if at == "front" { shown_session().or(near) } else { near }.unwrap_or_default();
-    let named = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| dir.to_string_lossy().into_owned());
-    let mut args = json!({ "cwd": dir.to_string_lossy(), "input": input, "session": session, "session_label": truncate(&named, LABEL_CHARS), "focus": !place.behind });
+    let to = destination(place, dir);
+    let mut args = json!({ "cwd": dir.to_string_lossy(), "input": input, "session": to.session, "session_label": truncate(&to.named, LABEL_CHARS), "focus": !place.behind, "after": to.after });
     if let Some(label) = place.label.filter(|l| !l.is_empty()) {
         args["label"] = json!(truncate(label, LABEL_CHARS));
     }
@@ -460,8 +574,9 @@ mod tests {
     }
 
     /// Against this Mac's Rex: a terminal in a session of its own, with an environment and a line
-    /// typed as it starts, found again by its TTY, typed into, a key pressed there, and closed,
-    /// with nothing brought forward. Every script runs on the server as written. Opt in, with Rex
+    /// typed as it starts, found again by its TTY, typed into, a key pressed there, its session
+    /// found by its name as a project's with a tab put after it, its tab split, and closed, with
+    /// nothing brought forward. Every script runs on the server as written. Opt in, with Rex
     /// installed: `cargo test rex_round_trip -- --ignored`.
     #[test]
     #[ignore]
@@ -471,7 +586,7 @@ mod tests {
         // As its processes have it: /var is /private/var.
         let dir = dir.canonicalize().unwrap();
         let out = dir.join("out");
-        let place = Placement { new_terminal: NewTerminal::Window, near: &[], behind: true, label: Some("codealong check") };
+        let place = Placement { new_terminal: NewTerminal::Window, near: &crate::board::ALONE, behind: true, label: Some("codealong check") };
         let env = [("CODEALONG_CHECK".to_string(), "it's here".to_string())];
         open_in(place, &dir, "echo \"$CODEALONG_CHECK\" > out\n", &env).unwrap();
         assert!(holds(&out, "it's here\n"), "the environment and the line reached its shell");
@@ -481,6 +596,25 @@ mod tests {
         assert!(type_text(&block.tty, "echo typed >> out", Submit::Return).unwrap());
         assert!(holds(&out, "typed\n"), "a paste and Return ran there");
         press(&block.tty, Key::CtrlC).unwrap();
+
+        // Named for its folder, its session is found by that name as a project's, whatever the
+        // case, and a tab there goes after the first, before one made in between elsewhere.
+        let other = std::env::temp_dir().join(format!("codealong-rex-check-{}-other", std::process::id()));
+        std::fs::create_dir_all(&other).unwrap();
+        let second = script(NEW, json!({ "cwd": other.to_string_lossy(), "input": "", "session": block.session, "focus": false, "after": [] }), false).unwrap();
+        let named = dir.file_name().unwrap().to_string_lossy().to_uppercase();
+        let near = crate::board::Neighbours { folders: vec![vec![dir.to_string_lossy().into_owned()]], project: Some(named) };
+        let to = destination(Placement { new_terminal: NewTerminal::Project, near: &near, behind: true, label: None }, &dir);
+        assert_eq!((to.session.as_str(), to.after.as_slice()), (block.session.as_str(), std::slice::from_ref(&block.window)));
+        let third = script(NEW, json!({ "cwd": dir.to_string_lossy(), "input": "", "session": to.session, "focus": false, "after": to.after }), false).unwrap();
+        let order = "rex.session.attach{ session_id = rex.args.s }; local out = {}; for _, w in ipairs(rex.session.view{ session_id = rex.args.s }.windows) do table.insert(out, w.window_id) end; return out";
+        let order = script(order, json!({ "s": block.session }), false).unwrap();
+        assert_eq!(order, json!([block.window, third["window"], second["window"]]));
+        // Split, its tab holds a second terminal.
+        let split = script(SPLIT, json!({ "session": block.session, "window": block.window, "block": block.block, "cwd": dir.to_string_lossy() }), false).unwrap();
+        let window_of = "rex.session.attach{ session_id = rex.args.s }; for _, b in ipairs(rex.session.list_blocks{ session_id = rex.args.s }.blocks) do if b.block_id == rex.args.b then return b.window_id end end; return ''";
+        assert_eq!(script(window_of, json!({ "s": block.session, "b": split["block"] }), false).unwrap(), json!(block.window));
+        assert_ne!(split["block"], json!(block.block));
 
         close(&[&block.tty]).unwrap();
         assert!(block_on(&block.tty).unwrap().is_none(), "its block closed");
@@ -494,6 +628,7 @@ mod tests {
             let _ = procs::run(&bin.to_string_lossy(), &["--autostart=false", "session", "kill", session], None, TIMEOUT);
         }
         let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&other);
     }
 
     /// The session this Mac's Rex app notes as the one it shows is one of its server's. Opt in,
