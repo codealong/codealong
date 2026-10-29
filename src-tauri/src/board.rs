@@ -1176,6 +1176,12 @@ fn pr_item(lanes: &[Lane], owners: &HashMap<&Path, &[String]>, slug: &str, (proj
     let by_hand = links.nudged.contains(&key);
     let by_default = links.nudge_by_default_in.get(slug).copied().unwrap_or(links.nudge_by_default);
     let nudge = p.state.is_open() && !links.not_nudged.contains(&key) && (by_hand || (by_default && mine));
+    // Assigned to you since your last review: it waits on your review as a request does, asked
+    // by whoever assigned you, since then, whichever move its turn says.
+    let assigned = p.assigned_review(login).filter(|_| !p.review_requested);
+    let requested_by = p.requested_by.clone().filter(|_| p.review_requested).or_else(|| assigned.map(|a| a.by.clone()));
+    let requested_at = p.requested_at.filter(|_| p.review_requested).or_else(|| assigned.map(|a| a.at));
+    let review_requested = p.review_requested || assigned.is_some();
     PrItem {
         key: format!("{slug}#{}", p.number),
         repo_slug: slug.to_string(),
@@ -1187,9 +1193,9 @@ fn pr_item(lanes: &[Lane], owners: &HashMap<&Path, &[String]>, slug: &str, (proj
         state: p.state,
         author: p.author.clone(),
         mine,
-        review_requested: p.review_requested,
-        requested_by: p.requested_by.clone().filter(|_| p.review_requested),
-        requested_at: p.requested_at.filter(|_| p.review_requested),
+        review_requested,
+        requested_by,
+        requested_at,
         reviewers_asked: p.reviewers_asked.clone(),
         snoozed_until: None,
         nudge,
@@ -1230,7 +1236,9 @@ fn pr_item(lanes: &[Lane], owners: &HashMap<&Path, &[String]>, slug: &str, (proj
 /// reviews too) and nothing of yours answered them since: a review you submitted, or words of your
 /// own, not your agent's post, which leaves the sign-off to you as a request on GitHub would; and
 /// not once your latest review approves the commit it's at, when what they say is theirs to act
-/// on. A review just submitted here counts at once (`last_review`, ghpoll.rs `on_approved`), before
+/// on. It's yours too where someone assigned you to it after your last review and GitHub doesn't
+/// ask for your review (`Assigned`, `PrRaw::assigned_review`); of the two, the later says it. A
+/// review just submitted here counts at once (`last_review`, ghpoll.rs `on_approved`), before
 /// GitHub is read again. `agent_posts` are your agent's posts (`PrLinks::agent_posts`). A push is taken to be when its
 /// head commit was made, the nearest GitHub says: one made long before it's pushed reads as earlier
 /// than it was. Nobody said so only where what was said reaches back to the push
@@ -1244,13 +1252,17 @@ pub fn turn_of(p: &PrRaw, mine: bool, login: Option<&str>, agent_posts: &HashSet
     let author = p.author.as_deref()?;
     let turn = |kind, who: &str, since| Some(Turn { kind, who: who.to_string(), also: Vec::new(), since });
     if !mine {
-        let (me, theirs) = (login?, wrote(author)?);
-        let mine_said = || p.said.iter().filter(|s| s.asked.is_none() && same(&s.who, me));
-        let on_it = mine_said().any(|s| s.at < theirs);
-        let agents = |s: &&crate::github::Said| s.url.as_ref().is_some_and(|u| agent_posts.contains(u));
-        let answered = mine_said().filter(|s| !agents(s)).map(|s| s.at).max().max(p.last_review.as_ref().and_then(|l| l.at));
-        let approved = p.last_review.as_ref().is_some_and(|l| l.state == LastReviewState::Approved && l.commit.is_some() && l.commit == p.head_oid);
-        return if on_it && answered.is_none_or(|a| theirs > a) && !approved { turn(TurnKind::AuthorReplied, author, Some(theirs)) } else { None };
+        let assigned = p.assigned_review(login).filter(|_| !p.review_requested).and_then(|a| turn(TurnKind::Assigned, &a.by, Some(a.at)));
+        let replied = || -> Option<Turn> {
+            let (me, theirs) = (login?, wrote(author)?);
+            let mine_said = || p.said.iter().filter(|s| s.asked.is_none() && same(&s.who, me));
+            let on_it = mine_said().any(|s| s.at < theirs);
+            let agents = |s: &&crate::github::Said| s.url.as_ref().is_some_and(|u| agent_posts.contains(u));
+            let answered = mine_said().filter(|s| !agents(s)).map(|s| s.at).max().max(p.last_review.as_ref().and_then(|l| l.at));
+            let approved = p.last_review.as_ref().is_some_and(|l| l.state == LastReviewState::Approved && l.commit.is_some() && l.commit == p.head_oid);
+            if on_it && answered.is_none_or(|a| theirs > a) && !approved { turn(TurnKind::AuthorReplied, author, Some(theirs)) } else { None }
+        };
+        return assigned.into_iter().chain(replied()).max_by_key(|t| t.since);
     }
     let of = |c: &crate::github::ChangesAsked| -> Option<Turn> {
         let asked = p.said.iter().filter(|s| s.asked.as_deref().is_some_and(|r| same(r, &c.who))).map(|s| s.at).max();
@@ -2510,6 +2522,7 @@ mod tests {
             requested_by: None,
             requested_at: None,
             reviewers_asked: Vec::new(),
+            assigned: None,
             authored_by: None,
             labels: Vec::new(),
             last_review: None,
@@ -2651,6 +2664,42 @@ mod tests {
         let submitted = |state| PrRaw { last_review: Some(LastReview { state, commit: Some("a11ce55".into()), at: Some(120) }), ..p(vec![wrote("me", 100), wrote("gwen", 110)]) };
         assert_eq!(kind(&submitted(LastReviewState::Commented), false), None);
         assert_eq!(kind(&submitted(LastReviewState::Changes), false), None);
+    }
+
+    #[test]
+    fn someone_elses_pr_assigned_to_you_since_your_last_review_waits_on_it() {
+        let p = |said, at| PrRaw { said, author: Some("gwen".into()), assigned: Some(crate::github::Assigned { by: "ken".into(), at }), ..pr(PrState::Open, 0) };
+        // Assigned, with no review of yours since: your move, from whoever assigned you.
+        assert_eq!(kind(&p(vec![], 100), false), Some((TurnKind::Assigned, "ken".into(), Some(100))));
+        // A review of yours after it answers it, as soon as it's submitted here; one before doesn't.
+        let reviewed = |at| PrRaw { last_review: Some(LastReview { state: LastReviewState::Commented, commit: None, at: Some(at) }), ..p(vec![], 100) };
+        assert_eq!(kind(&reviewed(120), false), None);
+        assert_eq!(kind(&reviewed(90), false).map(|t| t.0), Some(TurnKind::Assigned));
+        // GitHub asking for your review says it itself, and a PR of yours is never yours to review.
+        assert_eq!(kind(&PrRaw { review_requested: true, ..p(vec![], 100) }, false), None);
+        assert_eq!(kind(&p(vec![], 100), true), None);
+        // Of an assignment and the author's words after yours, the later says it.
+        assert_eq!(kind(&p(vec![wrote("me", 90), wrote("gwen", 110)], 100), false).map(|t| t.0), Some(TurnKind::AuthorReplied));
+        assert_eq!(kind(&p(vec![wrote("me", 90), wrote("gwen", 95)], 100), false).map(|t| t.0), Some(TurnKind::Assigned));
+
+        // On the board it waits on your review, asked by whoever assigned you, since then; a repo
+        // whose PRs aren't read has only the search's word on it.
+        let seeds = [seed("/r/spark-portal", "portal")];
+        let items = |prs: &HashMap<String, Vec<PrRaw>>, requested: &HashMap<String, Vec<PrRaw>>, seeds: &[LaneSeed]| pr_items(seeds, &[], prs, requested, Some("me"), &PrLinks::default());
+        let prs = HashMap::from([("sprucehq/spark".to_string(), vec![p(vec![], 100)])]);
+        let got = items(&prs, &HashMap::new(), &seeds).remove(0);
+        assert_eq!((got.review_requested, got.requested_by.as_deref(), got.requested_at), (true, Some("ken"), Some(100)));
+        let gone = [seed("/r/spark-portal", "main")];
+        assert!(!items(&prs, &HashMap::new(), &gone)[0].review_requested);
+        assert!(items(&HashMap::new(), &prs, &gone)[0].review_requested);
+        let reviewed = HashMap::from([("sprucehq/spark".to_string(), vec![reviewed(120)])]);
+        assert_eq!(items(&reviewed, &HashMap::new(), &seeds)[0].requested_by, None);
+        // Its author writing after the assignment says the move, and it still waits on you, from
+        // the search too, where Author replied alone wouldn't bring it back (autoreview.rs
+        // `asked_again`).
+        let replied = HashMap::from([("sprucehq/spark".to_string(), vec![p(vec![wrote("me", 90), wrote("gwen", 110)], 100)])]);
+        let got = items(&HashMap::new(), &replied, &gone).remove(0);
+        assert_eq!((got.review_requested, got.requested_by.as_deref(), got.turn.map(|t| t.kind)), (true, Some("ken"), Some(TurnKind::AuthorReplied)));
     }
 
     #[test]

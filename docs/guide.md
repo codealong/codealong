@@ -879,7 +879,8 @@ says why instead.
 
 Sorted by status, as it starts, the PRs that aren't pinned are under Review requested (which has
 a PR your review is back with once commits come after the agent's review submitted for you, see
-`[reviews] submit`, or once its author wrote after you did, see Author replied), Yours, Others and
+`[reviews] submit`, once its author wrote after you did, see Author replied, or once someone
+assigned you to it after your last review, see Assigned), Yours, Others and
 Snoozed; sorted by when they were opened, the open ones are under the day each was
 opened, the newest first, snoozed ones too. Merged & closed is folded at the end either way.
 
@@ -975,7 +976,7 @@ a harness's own automation.
 #### Automatic reviews
 
 With `[reviews] auto = true` (Settings › Automation), an agent reviews each open PR that asks for your
-review, isn't yours and isn't a draft, in a session of its own on `[reviews] account` (an account or
+review (or was assigned to you since your last review, see Assigned), isn't yours and isn't a draft, in a session of its own on `[reviews] account` (an account or
 routing group) and `model` (else the account Auto would start, on its own model), apart from the
 account new sessions start on. With `[reviews] other_harness = true` (the default), Auto or a
 routing group prefers a harness other than the one that wrote the PR (read from a session on this
@@ -1320,7 +1321,15 @@ words of your own; your agent's review posted as you after their reply doesn't, 
 approves still waits on your sign-off, as one GitHub asks you of does. Only the Mac that posted
 it knows it for your agent's, though: another of yours takes it for your answer. Not once your own
 latest review approves the commit it's at, when what they say is theirs to act on, and only in a
-repo whose PRs are read. The
+repo whose PRs are read. Someone else's PR that someone assigned you to after your last review of
+it reads Assigned (amber) and waits on your review as a request for it does (Review requested,
+Needs you, the floating bar, and the agent's review with `[reviews] auto`), whoever assigned you
+named as the one who asked: some authors ask for a review that way rather than asking GitHub,
+which ends a request for your review at any review you submit but keeps an assignment. So a review
+you submit after the assignment answers it, at once; your comments don't, and an assignment you
+made yourself asks nothing. Where GitHub asks for your review too, the request says it. It holds
+in every repo: GitHub's search for the PRs that wait on your review finds the ones assigned to you
+as well. The
 tooltip says who and since when, naming each reviewer it holds for. Codealong reads it from each
 open PR's last twenty comments and reviews and its last review requests, a bot's comments and
 requests for changes left out; a push is taken to be when its latest commit was made, so one made

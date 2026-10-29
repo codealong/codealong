@@ -1696,9 +1696,11 @@ export interface PrItem {
  *  stands until its reviewer approves or dismisses it, whatever comes after (model.rs `Turn`).
  *  `replyNeeded`: a PR of yours with commits after the reviewer's last word and nothing said of
  *  them; `rereviewAsked`: asked again or written to since, their move; `reviewerReplied`: they
- *  wrote again since; `authorReplied`: someone else's PR, whose author wrote after you. */
+ *  wrote again since; `authorReplied`: someone else's PR, whose author wrote after you;
+ *  `assigned`: someone else's PR that `who` assigned you to after your last review, which waits on
+ *  your review as a request would. */
 export interface Turn {
-  kind: 'replyNeeded' | 'rereviewAsked' | 'reviewerReplied' | 'authorReplied';
+  kind: 'replyNeeded' | 'rereviewAsked' | 'reviewerReplied' | 'authorReplied' | 'assigned';
   /** The reviewer or author it's about. */
   who: string;
   /** The other reviewers it holds for alike. */

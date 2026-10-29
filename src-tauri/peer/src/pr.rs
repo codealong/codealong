@@ -222,6 +222,9 @@ pub enum TurnKind {
     /// Someone else's PR you reviewed or wrote on: its author wrote since you (or your agent's
     /// review, posted as you) last did. Your move.
     AuthorReplied,
+    /// Someone else's PR that `who` assigned you to after your last review of it, where GitHub
+    /// doesn't ask for your review: it waits on it as a request would. Your move.
+    Assigned,
     /// One a later version names.
     #[serde(other)]
     Other,

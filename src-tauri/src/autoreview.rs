@@ -1,6 +1,7 @@
 //! Reviewing the pull requests that wait on your review without being asked, when config.toml
 //! says to (`[reviews] auto`, Settings › Automation). Every board the engine publishes is looked
-//! at for open PRs that ask for your review, aren't yours and aren't drafts. Each is reviewed in a
+//! at for open PRs that ask for your review (someone assigning you since your last review asks it
+//! too: board.rs `pr_item`), aren't yours and aren't drafts. Each is reviewed in a
 //! session of its own for that PR, on `[reviews] account` and `model` (else the account Auto would
 //! start, on its own model), where `[reviews] start` says (`review_places`: by default never in a
 //! terminal, under the harness's background service, else in Codealong), started in the worktree
@@ -1670,7 +1671,8 @@ fn asked_to_review(board: &Board, store: &Store, global: &ReviewsCfg, review: &S
 /// (`back_with_you`, `back_there`), or its author wrote after you did, you or your agent's review
 /// having written on it first (`TurnKind::AuthorReplied`, board.rs `turn_of`), which waits on you
 /// since then. An answer to you left where only its badge said so was lost among the PRs nobody
-/// asked you of (2026-10-22). Before the snoozes and `apply`, which go by whether a PR waits on
+/// asked you of (2026-10-22). One assigned to you since your last review says so already, in every
+/// repo (board.rs `pr_item`, `TurnKind::Assigned`). Before the snoozes and `apply`, which go by whether a PR waits on
 /// you, so it's reviewed as any PR that does, once for each commit: an author's words alone start
 /// nothing the agent hasn't done. Only in the repos whose PRs are read (`board::polled_slugs`):
 /// another's are kept as last read, and GitHub's search has the last word on them

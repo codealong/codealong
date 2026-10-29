@@ -325,6 +325,7 @@ mod tests {
             requested_by: None,
             requested_at: None,
             reviewers_asked: Vec::new(),
+            assigned: None,
             authored_by: None,
             labels: Vec::new(),
             last_review: None,

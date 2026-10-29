@@ -189,6 +189,8 @@ function turnPill(pr: PrFacts): PrPill | null {
       return reviewPillOf('attn', 'Reviewer replied', `${who} asked for changes, then wrote again${since}: your move. ${stands}`);
     case 'authorReplied':
       return reviewPillOf('attn', 'Author replied', `${who} wrote${since} after your last review or comment: your move.`);
+    case 'assigned':
+      return reviewPillOf('attn', 'Assigned', `${who} assigned you${since} after your last review: your move. It waits on your review until you give one, as a request for it would.`);
   }
 }
 
@@ -253,8 +255,10 @@ export function reviewMark(pr: Pick<PrItem, 'state'> & Partial<Pick<PrItem, 'rev
     return { key: 'agent', tone: 'pending', icon: 'hourglass', title: before ? `${rereviewWords(before)}: it waits on your sign-off once the agent approves them` : 'Codealong’s agent is reviewing it: it waits on your review once that’s done' };
   }
   if (pr.reviewRequested && !pr.snoozedUntil) {
-    // Back with you because its author wrote after you did, though GitHub asks nobody.
+    // Back with you because its author wrote after you did, or someone assigned you to it, though
+    // GitHub asks nobody.
     if (pr.turn?.kind === 'authorReplied') return { key: 'asked', tone: 'attn', icon: 'eye', title: `${pr.turn.who} wrote after your last review or comment: your move` };
+    if (pr.turn?.kind === 'assigned') return { key: 'asked', tone: 'attn', icon: 'eye', title: `${pr.turn.who} assigned you after your last review: your move` };
     const by = pr.requestedBy ? `, by ${pr.requestedBy}` : '';
     const yours = yourReviewNote(pr);
     const again = yours ? ' again' : '';

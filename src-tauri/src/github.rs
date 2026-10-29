@@ -44,6 +44,8 @@ pub struct PrRaw {
     pub requested_at: Option<i64>,
     /// Whose reviews it still waits on (`asked_of_whom`). Asked only of open PRs.
     pub reviewers_asked: Vec<String>,
+    /// You're assigned to it by someone else (`assigned_of`). Asked only of open PRs.
+    pub assigned: Option<Assigned>,
     /// Which harness wrote the PR when its head commit or description says so (`Co-Authored-By:`
     /// or `Generated with …`).
     pub authored_by: Option<Harness>,
@@ -90,6 +92,27 @@ pub struct ChangesAsked {
     pub commit: Option<String>,
 }
 
+/// Who assigned you to a PR, and when.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Assigned {
+    pub by: String,
+    pub at: i64,
+}
+
+impl PrRaw {
+    /// Your assignment to it, while that asks for your review: an open PR that isn't a draft or
+    /// yours, which someone else assigned you to after your latest review. An author who asks for
+    /// your review by assigning you, as some do, rather than asking GitHub for it, left a PR
+    /// waiting on nobody (specset-website#63, 2026-10-28). GitHub ends a request for your review at
+    /// any review you submit, but an assignment stays, so only a review after it answers it.
+    pub fn assigned_review(&self, login: Option<&str>) -> Option<&Assigned> {
+        let mine = login.is_some() && self.author.as_deref() == login;
+        let reviewed = self.last_review.as_ref().and_then(|l| l.at);
+        let asks = self.state.is_open() && self.state != PrState::Draft && !mine;
+        self.assigned.as_ref().filter(|a| asks && reviewed.is_none_or(|r| r < a.at))
+    }
+}
+
 /// One repo's PRs, and who `gh` is signed in as.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct RepoPrs {
@@ -116,13 +139,18 @@ query($owner: String!, $name: String!, $requested: String!) {
 }
 "#;
 
-/// PRs that ask for your review, in every repo: the board reads a repo's PRs only while one of
-/// its worktrees is on a branch of its own, so a request in a repo checked out only on its
-/// default branch is found here.
+/// PRs that ask for your review, in every repo, and those someone else assigned you to
+/// (`ASSIGNED_SEARCH`): the board reads a repo's PRs only while one of its worktrees is on a branch
+/// of its own, so a request in a repo checked out only on its default branch is found here. The
+/// assignments are a search of their own, so they never take the requests' places among the fifty,
+/// and being found by the first still says a team you're on was asked (`asked_of`): one advanced
+/// search for either (`review-requested:@me OR assignee:@me`, which the plain search answered
+/// with no PRs) cost 4 points to these two's 7 (2026-10-28).
 const REQUESTED_QUERY: &str = r#"
-query($requested: String!) {
+query($requested: String!, $assigned: String!) {
   viewer { login }
   search(query: $requested, type: ISSUE, first: 50) { nodes { ... on PullRequest { ...pr mergeStateStatus ...asked repository { nameWithOwner } } } }
+  assigned: search(query: $assigned, type: ISSUE, first: 50) { nodes { ... on PullRequest { ...pr mergeStateStatus ...asked repository { nameWithOwner } } } }
 }
 "#;
 
@@ -133,11 +161,13 @@ query($requested: String!) {
 /// connection is, however many each brings (a repo's `QUERY` went from 6 to 7 at 20 a PR and at 100
 /// alike, 2026-10-20), so they're asked for a hundred, as many as GitHub gives a page: one from each
 /// reviewer, which is all of them but on a PR with more. Its last comments and reviews (`said`),
-/// with the review requests, say who spoke last (`said_of`).
+/// with the review requests, say who spoke last (`said_of`). The assignments come in the review
+/// requests' connection (`assigned_of`), which costs what it did alone however many it gives
+/// (a repo's `QUERY` stayed at 8, 2026-10-28).
 const ASKED_FIELDS: &str = r#"
 fragment asked on PullRequest {
   reviewRequests(first: 20) { nodes { requestedReviewer { __typename ... on User { login } ... on Team { name } } } }
-  timelineItems(itemTypes: [REVIEW_REQUESTED_EVENT], last: 10) { nodes { ... on ReviewRequestedEvent { createdAt actor { login } requestedReviewer { __typename ... on User { login } } } } }
+  timelineItems(itemTypes: [REVIEW_REQUESTED_EVENT, ASSIGNED_EVENT, UNASSIGNED_EVENT], last: 20) { nodes { __typename ... on ReviewRequestedEvent { createdAt actor { login } requestedReviewer { __typename ... on User { login } } } ... on AssignedEvent { createdAt actor { login } assignee { __typename ... on User { login } } } ... on UnassignedEvent { createdAt assignee { __typename ... on User { login } } } } }
   said: timelineItems(itemTypes: [ISSUE_COMMENT, PULL_REQUEST_REVIEW], last: 20) { pageInfo { hasPreviousPage } nodes { __typename ... on IssueComment { createdAt url author { __typename login } } ... on PullRequestReview { submittedAt author { __typename login } } } }
   latestOpinionatedReviews(first: 100, writersOnly: true) { pageInfo { hasNextPage } nodes { state submittedAt author { __typename login } commit { oid } } }
 }
@@ -208,11 +238,15 @@ fn fetch_text(owner: &str, name: &str) -> std::result::Result<String, Failure> {
 fn fetch_requested_text() -> std::result::Result<String, Failure> {
     let query_arg = format!("query={REQUESTED_QUERY}{PR_FIELDS}{ASKED_FIELDS}");
     let requested_arg = format!("requested={REQUESTED_SEARCH}");
-    procs::run("gh", &["api", "graphql", "-f", &query_arg, "-f", &requested_arg], None, Duration::from_secs(30))
+    let assigned_arg = format!("assigned={ASSIGNED_SEARCH}");
+    procs::run("gh", &["api", "graphql", "-f", &query_arg, "-f", &requested_arg, "-f", &assigned_arg], None, Duration::from_secs(30))
         .map_err(|e| failed(&e, "the PRs that wait on your review"))
 }
 
 const REQUESTED_SEARCH: &str = "is:pr is:open archived:false review-requested:@me sort:updated-desc";
+/// Others' PRs you're assigned to, of which those assigned since your latest review wait on it
+/// (`PrRaw::assigned_review`); your own, which people often assign themselves, never do.
+const ASSIGNED_SEARCH: &str = "is:pr is:open archived:false assignee:@me -author:@me sort:updated-desc";
 
 /// What went wrong asking `gh`. The board says it in `Display`'s words, and the engine goes by
 /// which it is: an account out of requests is left alone until its hour ends.
@@ -319,6 +353,7 @@ pub fn parse_one(json: &str) -> Result<(PrRaw, Option<String>)> {
         pr.requested_by = pr.review_requested.then(|| asker_of(n, login)).flatten();
         pr.requested_at = pr.review_requested.then(|| asked_at(n, login)).flatten();
         pr.reviewers_asked = asked_of_whom(n, login);
+        pr.assigned = assigned_of(n, login);
         ((pr.said, pr.said_from), pr.changes_asked) = (said_of(n), changes_asked_of(n));
     } else {
         pr.merge = Merge::Unknown;
@@ -347,6 +382,7 @@ pub fn parse(json: &str) -> Result<RepoPrs> {
                 pr.requested_at = pr.review_requested.then(|| asked_at(n, login)).flatten();
                 if pr.state.is_open() {
                     pr.reviewers_asked = asked_of_whom(n, login);
+                    pr.assigned = assigned_of(n, login);
                     ((pr.said, pr.said_from), pr.changes_asked) = (said_of(n), changes_asked_of(n));
                 }
                 prs.push(pr);
@@ -356,25 +392,33 @@ pub fn parse(json: &str) -> Result<RepoPrs> {
     Ok(RepoPrs { login: login.map(String::from), prs })
 }
 
-/// The search's PRs that still wait on your review: the search can go on listing one you've
-/// reviewed, which the PR's own requests settle (`asked_of`).
+/// The searches' PRs that still wait on your review: the requests' search can go on listing one
+/// you've reviewed, which the PR's own requests settle (`asked_of`), and the assignments' lists
+/// every PR of someone else's you're assigned to, of which only those assigned since your latest
+/// review wait on it (`assigned_review`). One that both list is the requests'.
 pub fn parse_requested(json: &str) -> Result<Requested> {
     let v: Value = serde_json::from_str(json)?;
     let nodes = v.pointer("/data/search/nodes").and_then(Value::as_array).ok_or_else(|| anyhow!("no search in response"))?;
+    let assigned = v.pointer("/data/assigned/nodes").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
     let login = v.pointer("/data/viewer/login").and_then(Value::as_str);
-    let prs = nodes
-        .iter()
-        .filter_map(|n| {
-            let slug = n.pointer("/repository/nameWithOwner").and_then(Value::as_str)?;
-            let mut pr = parse_pr(n)?;
-            pr.review_requested = pr.state.is_open() && asked_of(n, login, true);
-            pr.requested_by = asker_of(n, login);
-            pr.requested_at = asked_at(n, login);
-            pr.reviewers_asked = asked_of_whom(n, login);
-            ((pr.said, pr.said_from), pr.changes_asked) = (said_of(n), changes_asked_of(n));
-            pr.review_requested.then(|| (slug.to_string(), pr))
-        })
-        .collect();
+    // `found`: the requests' search lists it, which says a team you're on was asked.
+    let read = |n: &Value, found: bool| -> Option<(String, PrRaw)> {
+        let slug = n.pointer("/repository/nameWithOwner").and_then(Value::as_str)?;
+        let mut pr = parse_pr(n)?;
+        pr.review_requested = pr.state.is_open() && asked_of(n, login, found);
+        pr.requested_by = asker_of(n, login);
+        pr.requested_at = asked_at(n, login);
+        pr.reviewers_asked = asked_of_whom(n, login);
+        pr.assigned = assigned_of(n, login);
+        ((pr.said, pr.said_from), pr.changes_asked) = (said_of(n), changes_asked_of(n));
+        (pr.review_requested || pr.assigned_review(login).is_some()).then(|| (slug.to_string(), pr))
+    };
+    let mut prs: Vec<(String, PrRaw)> = nodes.iter().filter_map(|n| read(n, true)).collect();
+    for (slug, pr) in assigned.iter().filter_map(|n| read(n, false)) {
+        if !prs.iter().any(|(s, p)| *s == slug && p.number == pr.number) {
+            prs.push((slug, pr));
+        }
+    }
     Ok(Requested { login: login.map(String::from), prs })
 }
 
@@ -429,7 +473,7 @@ fn asked_at(n: &Value, login: Option<&str>) -> Option<i64> {
 /// The latest request to you among the PR's last review requests, else the latest to a team or
 /// to a reviewer you can't see, which is how a request through a team you're on reads.
 fn latest_request<'a>(n: &'a Value, login: Option<&str>) -> Option<&'a Value> {
-    let events = n.pointer("/timelineItems/nodes").and_then(Value::as_array)?;
+    let events: Vec<&Value> = events_of(n, &["ReviewRequestedEvent"]).collect();
     fn reviewer(e: &Value) -> Option<&Value> {
         e.get("requestedReviewer").filter(|w| !w.is_null())
     }
@@ -438,7 +482,25 @@ fn latest_request<'a>(n: &'a Value, login: Option<&str>) -> Option<&'a Value> {
         login.is_some_and(|me| asked.is_some_and(|l| l.eq_ignore_ascii_case(me)))
     });
     let team = || events.iter().rev().find(|e| reviewer(e).and_then(|w| w.get("__typename")).and_then(Value::as_str) != Some("User"));
-    you.or_else(team)
+    you.or_else(team).copied()
+}
+
+/// The PR's last review requests and assignments (`timelineItems` in `ASKED_FIELDS`) of the
+/// kinds named, oldest first.
+fn events_of<'a>(n: &'a Value, kinds: &'a [&str]) -> impl Iterator<Item = &'a Value> {
+    let events = n.pointer("/timelineItems/nodes").and_then(Value::as_array).into_iter().flatten();
+    events.filter(|e| e.get("__typename").and_then(Value::as_str).is_some_and(|k| kinds.contains(&k)))
+}
+
+/// Who assigned you to a PR and when, as its last assignments say, while you're still assigned
+/// to it. One you made yourself isn't anyone asking.
+fn assigned_of(n: &Value, login: Option<&str>) -> Option<Assigned> {
+    let me = login?;
+    let yours = |e: &&Value| e.pointer("/assignee/login").and_then(Value::as_str).is_some_and(|l| l.eq_ignore_ascii_case(me));
+    let last = events_of(n, &["AssignedEvent", "UnassignedEvent"]).filter(yours).last()?;
+    let by = last.pointer("/actor/login").and_then(Value::as_str).filter(|by| !by.eq_ignore_ascii_case(me))?;
+    let at = last.get("createdAt").and_then(Value::as_str).and_then(parse_rfc3339_ms)?;
+    (last.get("__typename").and_then(Value::as_str) == Some("AssignedEvent")).then(|| Assigned { by: by.to_string(), at })
 }
 
 fn parse_pr(n: &Value) -> Option<PrRaw> {
@@ -482,6 +544,7 @@ fn parse_pr(n: &Value) -> Option<PrRaw> {
         requested_by: None,
         requested_at: None,
         reviewers_asked: Vec::new(),
+        assigned: None,
         authored_by,
         labels: labels_of(n),
         last_review: last_review_of(n),
@@ -508,7 +571,7 @@ fn said_of(n: &Value) -> (Vec<Said>, Option<i64>) {
         let url = w.get("url").and_then(Value::as_str).map(String::from);
         Some(Said { who: author.get("login").and_then(Value::as_str)?.to_string(), at: when(w)?, asked: None, url })
     });
-    let asks = n.pointer("/timelineItems/nodes").and_then(Value::as_array).into_iter().flatten().filter_map(|e| {
+    let asks = events_of(n, &["ReviewRequestedEvent"]).filter_map(|e| {
         let asked = e.pointer("/requestedReviewer/login").and_then(Value::as_str)?;
         let at = e.get("createdAt").and_then(Value::as_str).and_then(parse_rfc3339_ms)?;
         Some(Said { who: e.pointer("/actor/login").and_then(Value::as_str).unwrap_or_default().to_string(), at, asked: Some(asked.to_string()), url: None })
@@ -724,8 +787,8 @@ pub struct Points {
 }
 
 /// What tells that a repo's PRs changed: an open PR's `updatedAt` moves with its commits,
-/// comments, reviews and review requests, its checks' state and merge state move by themselves,
-/// and anything that happens to a closed PR makes it the latest updated one.
+/// comments, reviews, review requests and assignments, its checks' state and merge state move by
+/// themselves, and anything that happens to a closed PR makes it the latest updated one.
 const GLANCE_FIELDS: &str = r#"
 fragment glance on Repository {
   open: pullRequests(states: OPEN, first: 100, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes { number updatedAt headRefOid isDraft reviewDecision mergeStateStatus statusCheckRollup { state } } }
@@ -739,7 +802,7 @@ fn glance_query(repos: usize) -> String {
     // GitHub refuses a query with a fragment it doesn't use.
     let fragment = if repos > 0 { GLANCE_FIELDS } else { "" };
     format!(
-        "query($requested: String!{vars}) {{\n  viewer {{ login }}\n{fields}  search(query: $requested, type: ISSUE, first: 50) {{ nodes {{ ... on PullRequest {{ number updatedAt repository {{ nameWithOwner }} }} }} }}\n}}\n{fragment}"
+        "query($requested: String!, $assigned: String!{vars}) {{\n  viewer {{ login }}\n{fields}  search(query: $requested, type: ISSUE, first: 50) {{ nodes {{ ... on PullRequest {{ number updatedAt repository {{ nameWithOwner }} }} }} }}\n  assigned: search(query: $assigned, type: ISSUE, first: 50) {{ nodes {{ ... on PullRequest {{ number updatedAt }} }} }}\n}}\n{fragment}"
     )
 }
 
@@ -768,7 +831,7 @@ pub fn glance(slugs: &[String]) -> std::result::Result<Glance, Failure> {
 }
 
 fn glance_some(slugs: &[String]) -> std::result::Result<Glance, Failure> {
-    let mut fields = vec![format!("query={}", glance_query(slugs.len())), format!("requested={REQUESTED_SEARCH}")];
+    let mut fields = vec![format!("query={}", glance_query(slugs.len())), format!("requested={REQUESTED_SEARCH}"), format!("assigned={ASSIGNED_SEARCH}")];
     for (i, slug) in slugs.iter().enumerate() {
         let (owner, name) = slug.split_once('/').unwrap_or((slug, ""));
         fields.push(format!("o{i}={owner}"));
@@ -815,6 +878,9 @@ pub fn parse_glance(json: &str, slugs: &[String]) -> Result<Glance> {
     let v: Value = serde_json::from_str(json)?;
     let data = v.get("data").filter(|d| d.is_object()).ok_or_else(|| anyhow!("no data in response"))?;
     let search = data.get("search").filter(|s| !s.is_null()).ok_or_else(|| anyhow!("no search in response"))?;
+    // The assignments go into the searches' mark alone: an assignment moves its PR's `updatedAt`,
+    // which its repo's own glance sees, as a request to a team doesn't.
+    let assigned = data.get("assigned").map(Value::to_string).unwrap_or_default();
     let login = data.pointer("/viewer/login").and_then(Value::as_str);
     // Whose glance it is counts: another sign-in sees other requests.
     let who = login.unwrap_or("");
@@ -842,7 +908,7 @@ pub fn parse_glance(json: &str, slugs: &[String]) -> Result<Glance> {
     Ok(Glance {
         login: login.map(String::from),
         repos,
-        requested: mark(&[who, &search.to_string()]),
+        requested: mark(&[who, &search.to_string(), &assigned]),
         points: None,
     })
 }
@@ -1928,7 +1994,7 @@ mod tests {
         // by someone GitHub no longer knows.
         let node = r#"{"number":7,"title":"t","url":"u","state":"OPEN","isDraft":false,"reviewDecision":"CHANGES_REQUESTED","headRefName":"b","headRefOid":"b4908ef","author":{"login":"whather"},
             "commits":{"nodes":[{"commit":{"message":"m","committedDate":"2026-10-22T07:04:12Z"}}]},
-            "timelineItems":{"nodes":[{"createdAt":"2026-10-22T07:07:43Z","actor":{"login":"whather"},"requestedReviewer":{"__typename":"User","login":"ghempton"}}]},
+            "timelineItems":{"nodes":[{"__typename":"ReviewRequestedEvent","createdAt":"2026-10-22T07:07:43Z","actor":{"login":"whather"},"requestedReviewer":{"__typename":"User","login":"ghempton"}}]},
             "said":{"pageInfo":{"hasPreviousPage":false},"nodes":[
                 {"__typename":"IssueComment","createdAt":"2026-10-22T06:59:13Z","author":{"__typename":"User","login":"ghempton"}},
                 {"__typename":"PullRequestReview","submittedAt":"2026-10-22T06:59:15Z","author":{"__typename":"User","login":"ghempton"}},
@@ -2194,6 +2260,12 @@ mod tests {
         assert_ne!(mark(&asked, "spurhq/spur"), mark(&seen, "spurhq/spur"));
         assert_eq!(mark(&asked, "sprucehq/spark"), mark(&seen, "sprucehq/spark"));
 
+        // You're assigned to another PR: the searches' mark moves, and no repo's, whose own
+        // glance sees the assignment move its PR.
+        let assigned = parse_glance(&GLANCE.replace(r#""search":{"#, r#""assigned":{"nodes":[{"number":9,"updatedAt":"2026-09-23T19:30:00Z"}]},"search":{"#), &slugs()).unwrap();
+        assert_ne!(assigned.requested, seen.requested);
+        assert_eq!((mark(&assigned, "spurhq/spur"), mark(&assigned, "sprucehq/spark")), (mark(&seen, "spurhq/spur"), mark(&seen, "sprucehq/spark")));
+
         // Another sign-in sees other requests.
         let other = parse_glance(&GLANCE.replace("gwen", "someone"), &slugs()).unwrap();
         assert_ne!(mark(&other, "spurhq/spur"), mark(&seen, "spurhq/spur"));
@@ -2281,7 +2353,7 @@ mod tests {
     #[test]
     fn a_glance_query_names_each_repo() {
         let none = glance_query(0);
-        assert!(!none.contains("fragment") && none.contains("search(") && none.contains("query($requested: String!)"), "{none}");
+        assert!(!none.contains("fragment") && none.contains("search(") && none.contains("query($requested: String!, $assigned: String!)"), "{none}");
         let two = glance_query(2);
         assert!(two.contains("$o1: String!, $n1: String!") && two.contains("r1: repository(owner: $o1, name: $n1) { ...glance }") && two.contains("fragment glance"), "{two}");
     }
@@ -2484,7 +2556,7 @@ mod tests {
 
     #[test]
     fn reads_who_asked_for_your_review() {
-        let event = |actor: &str, reviewer: &str| format!(r#"{{"actor":{{"login":"{actor}"}},"requestedReviewer":{reviewer}}}"#);
+        let event = |actor: &str, reviewer: &str| format!(r#"{{"__typename":"ReviewRequestedEvent","actor":{{"login":"{actor}"}},"requestedReviewer":{reviewer}}}"#);
         let (me, other, team) = (r#"{"__typename":"User","login":"GWen"}"#, r#"{"__typename":"User","login":"ana"}"#, r#"{"__typename":"Team"}"#);
         let asker = |events: &[String]| {
             let n: Value = serde_json::from_str(&format!(r#"{{"timelineItems":{{"nodes":[{}]}}}}"#, events.join(","))).unwrap();
@@ -2501,8 +2573,74 @@ mod tests {
     }
 
     #[test]
+    fn reads_who_assigned_you() {
+        let event = |kind: &str, at: &str, actor: &str, assignee: &str| format!(r#"{{"__typename":"{kind}","createdAt":"{at}","actor":{{"login":"{actor}"}},"assignee":{{"__typename":"User","login":"{assignee}"}}}}"#);
+        let assigned = |at: &str, actor: &str, assignee: &str| event("AssignedEvent", at, actor, assignee);
+        let unassigned = |at: &str, assignee: &str| event("UnassignedEvent", at, "ana", assignee);
+        let asked = r#"{"__typename":"ReviewRequestedEvent","createdAt":"2026-10-21T02:05:24Z","actor":{"login":"ken"},"requestedReviewer":{"__typename":"User","login":"gwen"}}"#.to_string();
+        let n = |events: &[String]| serde_json::from_str::<Value>(&format!(r#"{{"timelineItems":{{"nodes":[{}]}}}}"#, events.join(","))).unwrap();
+        let of = |events: &[String]| assigned_of(&n(events), Some("gwen"));
+        let at = |s: &str| parse_rfc3339_ms(s).unwrap();
+        // The latest assignment of you, whoever else was assigned since (as GitHub answered for
+        // specset-website#63, 2026-10-28).
+        let both = [asked.clone(), assigned("2026-10-28T07:07:04Z", "SpecedOut", "ghempton"), assigned("2026-10-28T07:07:05Z", "SpecedOut", "GWen")];
+        assert_eq!(of(&both), Some(Assigned { by: "SpecedOut".into(), at: at("2026-10-28T07:07:05Z") }));
+        // Not once you're unassigned, nor one you made yourself, nor someone else's.
+        assert_eq!(of(&[assigned("2026-10-28T07:00:00Z", "ken", "gwen"), unassigned("2026-10-28T08:00:00Z", "gwen")]), None);
+        assert_eq!(of(&[unassigned("2026-10-28T07:00:00Z", "gwen"), assigned("2026-10-28T08:00:00Z", "ken", "gwen")]).map(|a| a.at), Some(at("2026-10-28T08:00:00Z")));
+        assert_eq!(of(&[assigned("2026-10-28T07:00:00Z", "gwen", "gwen")]), None);
+        assert_eq!(of(&[assigned("2026-10-28T07:00:00Z", "ken", "ana"), asked.clone()]), None);
+        assert_eq!(assigned_of(&n(&both), None), None);
+        // The assignments beside them are no review request: the request to you is still the
+        // latest, and they're no team's.
+        assert_eq!((asker_of(&n(&both), Some("gwen")).as_deref(), asked_at(&n(&both), Some("gwen"))), (Some("ken"), Some(at("2026-10-21T02:05:24Z"))));
+        assert_eq!(asker_of(&n(&both[1..]), Some("gwen")), None);
+        assert!(ASKED_FIELDS.contains("timelineItems(itemTypes: [REVIEW_REQUESTED_EVENT, ASSIGNED_EVENT, UNASSIGNED_EVENT], last: 20) { nodes { __typename"), "{ASKED_FIELDS}");
+    }
+
+    #[test]
+    fn an_assignment_asks_for_your_review_until_you_review_after_it() {
+        let node = r#"{"number":63,"title":"t","url":"u","state":"OPEN","isDraft":false,"reviewDecision":null,"updatedAt":"2026-10-28T07:07:05Z","headRefName":"b","commits":{"nodes":[]},"author":{"login":"SpecedOut"},
+            "viewerLatestReview":{"state":"COMMENTED","submittedAt":"2026-10-27T19:25:16Z","commit":{"oid":"1b39b00"}},
+            "reviewRequests":{"nodes":[]},
+            "timelineItems":{"nodes":[{"__typename":"AssignedEvent","createdAt":"2026-10-28T07:07:05Z","actor":{"login":"SpecedOut"},"assignee":{"__typename":"User","login":"whather"}}]},
+            "repository":{"nameWithOwner":"specsetai/specset-website"}}"#;
+        let answer = |asked: &[&str], assigned: &[&str]| parse_requested(&format!(r#"{{"data":{{"viewer":{{"login":"whather"}},"search":{{"nodes":[{}]}},"assigned":{{"nodes":[{}]}}}}}}"#, asked.join(","), assigned.join(","))).unwrap().prs;
+        let found = |node: &str| answer(&[], &[node]);
+        // Assigned after your last review: the assignments' search keeps it, though GitHub asks
+        // nobody.
+        let prs = found(node);
+        assert_eq!(prs.len(), 1);
+        let pr = &prs[0].1;
+        assert!(!pr.review_requested);
+        assert_eq!(pr.assigned_review(Some("whather")).map(|a| a.by.as_str()), Some("SpecedOut"));
+        // A review of yours after it answers it; one before doesn't, nor did none.
+        let reviewed = node.replace("2026-10-27T19:25:16Z", "2026-10-28T09:00:00Z");
+        assert!(found(&reviewed).is_empty());
+        assert!(found(&node.replace(r#""viewerLatestReview":{"state":"COMMENTED","submittedAt":"2026-10-27T19:25:16Z","commit":{"oid":"1b39b00"}},"#, "")).len() == 1);
+        // Never a draft, a PR of yours, or one that's ended.
+        assert!(found(&node.replace(r#""isDraft":false"#, r#""isDraft":true"#)).is_empty());
+        assert!(found(&node.replace(r#""author":{"login":"SpecedOut"}"#, r#""author":{"login":"whather"}"#)).is_empty());
+        let merged = PrRaw { state: PrState::Merged, ..pr.clone() };
+        assert_eq!(merged.assigned_review(Some("whather")), None);
+        // Found only by the assignments' search, a team's request isn't yours: reviewed since, it
+        // waits on that team, not on you. The requests' search finding it says it's yours.
+        let team = reviewed.replace(r#""reviewRequests":{"nodes":[]}"#, r#""reviewRequests":{"nodes":[{"requestedReviewer":{"__typename":"Team","name":"web"}}]}"#);
+        assert!(found(&team).is_empty());
+        assert!(answer(&[&team], &[]).iter().all(|(_, p)| p.review_requested));
+        // One both list is read once, as the requests' search has it.
+        let both = answer(&[&team], &[&team]);
+        assert_eq!(both.len(), 1);
+        assert!(both[0].1.review_requested);
+        // A kept answer from before the assignments were searched still reads.
+        assert_eq!(parse_requested(r#"{"data":{"viewer":{"login":"whather"},"search":{"nodes":[]}}}"#).unwrap().prs.len(), 0);
+        assert!(REQUESTED_QUERY.contains("assigned: search(query: $assigned, type: ISSUE, first: 50)") && ASSIGNED_SEARCH.contains("assignee:@me -author:@me"));
+        assert!(glance_query(0).contains("assigned: search(query: $assigned, type: ISSUE, first: 50)"));
+    }
+
+    #[test]
     fn reads_when_your_review_was_asked_for() {
-        let event = |at: &str, reviewer: &str| format!(r#"{{"createdAt":"{at}","actor":{{"login":"ken"}},"requestedReviewer":{reviewer}}}"#);
+        let event = |at: &str, reviewer: &str| format!(r#"{{"__typename":"ReviewRequestedEvent","createdAt":"{at}","actor":{{"login":"ken"}},"requestedReviewer":{reviewer}}}"#);
         let (me, other) = (r#"{"__typename":"User","login":"gwen"}"#, r#"{"__typename":"User","login":"ana"}"#);
         let at = |events: &[String]| {
             let n: Value = serde_json::from_str(&format!(r#"{{"timelineItems":{{"nodes":[{}]}}}}"#, events.join(","))).unwrap();
@@ -2555,7 +2693,7 @@ mod tests {
         // An open one says whose reviews it waits on, yours among them, as the board's PRs do.
         let open = r#"{"data":{"viewer":{"login":"me"},"repository":{"pullRequest":{"number":89,"title":"New work","url":"u","state":"OPEN","isDraft":false,"reviewDecision":null,"mergeStateStatus":"BLOCKED","updatedAt":"2026-08-01T10:00:00Z","headRefName":"new-work","commits":{"nodes":[]},
           "reviewRequests":{"nodes":[{"requestedReviewer":{"__typename":"User","login":"me"}},{"requestedReviewer":{"__typename":"User","login":"ana"}},{"requestedReviewer":{"__typename":"Team","name":"platform"}}]},
-          "timelineItems":{"nodes":[{"createdAt":"2026-08-01T09:00:00Z","actor":{"login":"ken"},"requestedReviewer":{"__typename":"User","login":"me"}}]}}}}}"#;
+          "timelineItems":{"nodes":[{"__typename":"ReviewRequestedEvent","createdAt":"2026-08-01T09:00:00Z","actor":{"login":"ken"},"requestedReviewer":{"__typename":"User","login":"me"}}]}}}}}"#;
         let (pr, _) = parse_one(open).unwrap();
         assert_eq!((pr.review_requested, pr.requested_by.as_deref()), (true, Some("ken")));
         assert_eq!(pr.reviewers_asked, ["ana", "platform"]);

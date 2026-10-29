@@ -55,6 +55,13 @@ describe('prPills', () => {
     expect(prPills(facts({ state: 'approved', merge: 'clean', mine: false, turn: { kind: 'authorReplied', who: 'gwen' } })).map((p) => p.text)).toEqual(['Author replied', 'Ready to merge']);
     // Back with you for it (autoreview.rs `asked_again`), the chip's mark says why.
     expect(reviewMark({ state: 'open', reviewRequested: true, turn: { kind: 'authorReplied', who: 'gwen' } })).toMatchObject({ key: 'asked', tone: 'attn', title: 'gwen wrote after your last review or comment: your move' });
+    // Assigned to you since your last review (board.rs `pr_item`): the pill and the mark say who
+    // assigned you, in place of Review requested.
+    const assigned = turn('assigned', { state: 'open', mine: false, reviewRequested: true });
+    expect(assigned).toMatchObject({ text: 'Assigned', tone: 'attn' });
+    expect(assigned.title).toMatch(/^ken assigned you \(.+\) after your last review: your move\./);
+    expect(chipWord(facts({ state: 'open', mine: false, reviewRequested: true, turn: { kind: 'assigned', who: 'ken' } }))).toBe('Assigned');
+    expect(reviewMark({ state: 'open', reviewRequested: true, requestedBy: 'ken', turn: { kind: 'assigned', who: 'ken' } })).toMatchObject({ key: 'asked', tone: 'attn', title: 'ken assigned you after your last review: your move' });
     // The chip says it too, and no longer Changes requested.
     expect(chipWord(facts({ state: 'changes', mine: true, turn: { kind: 'rereviewAsked', who: 'ken' } }))).toBe('Re-review asked');
     // A draft says so whatever was said; the agent's approval, which is what you sign off on, wins.

@@ -114,6 +114,19 @@ Harness facts (from GitHub's answers on this Mac, 2026-10-01). A bare file name 
   with made-up ids (`NOT_FOUND` after the document's checked; a made-up field is refused first),
   not run for real: submitting would reach the PR's people. Codealong's hidden mark is kept through
   an edit of the draft's text (`unmarked`), since the next round looks for it.
+- Who's assigned to a PR and by whom: `ASSIGNED_EVENT` and `UNASSIGNED_EVENT` beside
+  `REVIEW_REQUESTED_EVENT` in `ASKED_FIELDS`'s `timelineItems` (`assigned_of`, `events_of`), each
+  node's `__typename` telling them apart, `assignee` a union whose `... on User { login }` names
+  you; one connection, so a repo's `QUERY` stayed at 8 points with them and `last: 20`
+  (2026-10-28). Assigning moves the PR's `updatedAt` (specset-website#63's was its assignment's
+  second), so a glance sees it, and a review leaves the assignment standing, unlike a review
+  request (`PrRaw::assigned_review`). The PRs assigned to you anywhere are a search of their own
+  beside the requests' (`ASSIGNED_SEARCH`, `assignee:@me -author:@me`; `REQUESTED_QUERY` and the
+  glance), so they never crowd requests out of its fifty and being found by the requests' search
+  still says a team you're on was asked (`asked_of`). With the board's fragments the two cost 7
+  points to the requests' 4 alone, the glance's two searches 1 (2026-10-28). One search for
+  either, `(review-requested:@me OR assignee:@me)`, takes `type: ISSUE_ADVANCED` (the plain
+  `ISSUE` search answered it with no PRs and no error) and cost 4, but can't tell which matched.
 - The review you last submitted on a PR, on every PR the board reads: `viewerLatestReview { state
   submittedAt commit { oid } }` in `PR_FIELDS` (`last_review_of`), one object, so no points (a
   60-PR search with it cost 1, 2026-10-20). It leaves out a draft: with a pending review made on a
