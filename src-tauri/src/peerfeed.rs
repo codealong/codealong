@@ -8,7 +8,8 @@
 //!
 //! The receiving device keeps a `Replica` of each linked device's feed, and hands its windows the
 //! worktrees with `@<short>:` in front of every lane id and session key (`for_windows`), so a
-//! click on one goes back to the device it's on and no id from there is taken for one here.
+//! click on one goes back to the device it's on and no id from there is taken for one here, and
+//! the sessions its PR list says worked on each PR, the same way (`pr_sessions_for_windows`).
 //!
 //! The feed's messages and the replica are in codealong-peer (peer/src/feed.rs), which apps that
 //! only watch share; this file has the sending side.
@@ -22,7 +23,7 @@ pub use codealong_peer::feed::{remote_key, split_remote, DeviceInfo, FeedMsg, Re
 use codealong_peer::pr::PrCard;
 use codealong_peer::schedules::Shared;
 
-use crate::model::{Board, DeviceTag, Harness, Lane, Usage};
+use crate::model::{Board, DeviceTag, Harness, Lane, PrSession, Usage};
 
 /// What a device shares, cut from one board, with each part's hash worked out once for every
 /// connection it goes to.
@@ -368,6 +369,16 @@ pub fn for_windows(short: &str, tag: &DeviceTag, replica: &Replica) -> Vec<Lane>
         .collect()
 }
 
+/// The sessions a linked device says worked on each PR it lists (`PrCard::sessions`), as this
+/// device's windows get them: each with the device's short id in front of its key and of the
+/// worktree it's listed under there (its own, else one it visited: `board::home`), by the PR's key
+/// in lowercase, since two checkouts can spell a repo differently. A PR of this device's shows
+/// them beside its own (src/boardLists.ts `prRowOf`). One its worktrees no longer list is left out.
+pub fn pr_sessions_for_windows(short: &str, replica: &Replica) -> Vec<(String, PrSession)> {
+    let listed = |p: &PrCard, k: &String| crate::board::home(&replica.lanes, k).map(|(lane, _)| (p.key.to_lowercase(), PrSession { key: remote_key(short, k), lane: remote_key(short, &lane.id), pushes: 0 }));
+    replica.prs.iter().flat_map(|p| p.sessions.iter().filter_map(move |k| listed(p, k))).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -704,5 +715,24 @@ mod tests {
         assert_eq!(split_remote("claude:claude:9f"), None);
         // The windows split row keys on `::` and target ids on `|`; neither may appear.
         assert!(!lanes[0].id.contains("::") && !lanes[0].sessions[0].key.contains('|'));
+    }
+
+    #[test]
+    fn windows_get_the_sessions_another_mac_says_worked_on_its_prs() {
+        // s1 opened o/R#1 from /a; v worked on it in /a too, as a visitor there, from /b, its own;
+        // gone is listed on the PR but no longer in any worktree.
+        let visitor = Session { visitor: Some("came to work here".into()), ..session("claude:claude:v", Status::Idle) };
+        let lanes = vec![lane("/a", vec![session("claude:claude:s1", Status::Idle), visitor]), lane("/b", vec![session("claude:claude:v", Status::Idle)])];
+        let mut p = pr(1, crate::model::PrState::Open, false, None);
+        p.key = "o/R#1".into();
+        for k in ["claude:claude:v", "claude:claude:gone"] {
+            p.sessions.push(PrSession { key: k.into(), lane: "/a".into(), pushes: 0 });
+        }
+        let b = Board { generated_at: 10, prs: vec![p], ..board(lanes.clone()) };
+        let mut replica = Replica::default();
+        replica.apply(FeedMsg { rev: 1, full: true, lanes, prs: Some(pr_cards(&b)), ..Default::default() });
+        let got = pr_sessions_for_windows("a1b2c3d4e5", &replica);
+        let at = |key: &str, lane: &str| ("o/r#1".to_string(), PrSession { key: format!("@a1b2c3d4e5:{key}"), lane: format!("@a1b2c3d4e5:{lane}"), pushes: 0 });
+        assert_eq!(got, [at("claude:claude:s1", "/a"), at("claude:claude:v", "/b")], "each under its own worktree there; the gone one left out");
     }
 }

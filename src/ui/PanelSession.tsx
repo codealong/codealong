@@ -3,14 +3,16 @@
 // primary session's worktree and that session leading (`primaryFirst`); and
 // with the panel's details open, drawn like the sidebar's tree (`PanelPlace`), each session under
 // its worktree (`PanelSession`) with its title, then who runs it and what it's doing, as the
-// Sessions view says it. A click on a session, chip or row, shows it in the panel (with a way
-// back); on a row, double-click or the arrow opens it where it runs, as double-click does in every
-// list. A click on a worktree shows it in Worktrees; a right-click on either gives its menu.
+// Sessions view says it. A worktree on another of your Macs wears that Mac's badge in both. A
+// click on a session, chip or row, shows it in the panel (with a way back); on a row, double-click
+// or the arrow opens it where it runs, as double-click does in every list. A click on a worktree
+// shows it in Worktrees; a right-click on either gives its menu.
 
 import { absolute, ago } from '../format';
 import { sessionWhy } from '../lanes';
 import { flag, useStored } from '../stored';
 import type { Lane, Session } from '../types';
+import { DeviceBadge } from './DeviceBadge';
 import { Button, cx, HarnessChip, Icon, LaneGlyph, SessionEmblem, SessionGlyph, WorktreeChip } from './primitives';
 import { ProjectSaidHere } from './ProjectSaid';
 
@@ -95,9 +97,10 @@ export function PanelPlace({ lane, sessions, note, now, onShowLane, onLaneMenu, 
           onLaneMenu(lane);
         }}
       >
-        <button type="button" className="ca-tree-label" title={`${lane.path}. Click to show it in Worktrees.`} onClick={() => onShowLane(lane)}>
+        <button type="button" className="ca-tree-label" title={`${lane.device ? `On ${lane.device.name}: ` : ''}${lane.path}. Click to show it in Worktrees.`} onClick={() => onShowLane(lane)}>
           <LaneGlyph lane={lane} />
           <span className="ca-nav-label">{lane.callsign}</span>
+          {lane.device && <DeviceBadge device={lane.device} now={now} />}
           {note && <span className="ca-tree-note">{note}</span>}
         </button>
       </div>

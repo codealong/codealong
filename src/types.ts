@@ -1023,6 +1023,9 @@ export interface DevicesView {
   asks: DeviceAsk[];
   /** Every linked device's worktrees; each lane id and session key starts `@<short>:`. */
   lanes: Lane[];
+  /** The sessions on your other Macs that worked on each PR they list, by the PR's key in
+   *  lowercase, each key and lane id starting `@<short>:` (peerfeed.rs `pr_sessions_for_windows`). */
+  prSessions: Record<string, PrSession[]>;
 }
 
 export interface DevicesMe {

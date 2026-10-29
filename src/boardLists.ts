@@ -16,7 +16,7 @@ import { columnOf, memberTest, sessionStage, subjectsOf, todoStage, type Subject
 import { ALL_PROJECTS, hasWords, inProject, queryWords, saidLine, type SaidLine } from './quick';
 import { isOpen, itemSection, todoIndex, todoInFilter, todoItem, todoSections, type TodoItem, type TodoSectionId, type TodoSort } from './todos';
 import { scheduleProject } from './schedules';
-import type { Board, DevicesView, Label, Lane, PrItem, ProjectSummary, ScheduleItem, Session, TextHit, Todo } from './types';
+import type { Board, DevicesView, Label, Lane, PrItem, PrSession, ProjectSummary, ScheduleItem, Session, TextHit, Todo } from './types';
 import type { ActionCounts } from './ui/ProjectSwitcher';
 import { prIsOpen, prPlace, prPlaces, prSections, waitsOnReview, type PrRowItem, type PrSort } from './ui/PrsView';
 import { groupedRows, groupSessions, helpersUnder, sessionSections, waitingQueue, type SessionItem, type SessionSort, type StartedPlace } from './ui/SessionsView';
@@ -621,13 +621,21 @@ export function sessionIndexOf(lanes: Lane[]): Map<string, { lane: Lane; session
 }
 
 /** A PR as the PRs view lists it: with the worktrees that hold it and the sessions that worked on
- *  it. A session is looked up in the worktree it's listed under, which for one that made or
- *  worked in a worktree isn't its own. */
-export function prRowOf(pr: PrItem, laneById: Map<string, Lane>, sessionIndex: Map<string, { lane: Lane; session: Session }>): PrRowItem {
+ *  it, this Mac's and then those your other Macs say worked on it there (`elsewhere`, the devices
+ *  view's `prSessions`), since what this Mac reads in the records it has can't see them. A session is
+ *  looked up in the worktree it's listed under, which for one that made or worked in a worktree
+ *  isn't its own; one in a worktree the views leave out (another Mac's, while the sidebar's
+ *  Devices narrow them to this one) isn't listed. */
+export function prRowOf(pr: PrItem, laneById: Map<string, Lane>, sessionIndex: Map<string, { lane: Lane; session: Session }>, elsewhere: PrSessionsElsewhere = NO_PR_SESSIONS): PrRowItem {
   const holding = pr.lanes.flatMap((id) => laneById.get(id) ?? []);
-  const sessions = pr.sessions.flatMap((x) => sessionIndex.get(`${x.lane}::${x.key}`) ?? []);
+  const listed = [...pr.sessions, ...(elsewhere[pr.key.toLowerCase()] ?? [])];
+  const sessions = listed.flatMap((x) => sessionIndex.get(`${x.lane}::${x.key}`) ?? []);
   return { kind: 'pr', key: `pr:${pr.key}`, pr, lane: holding[0] ?? null, sessions, places: prPlaces(holding, sessions) };
 }
+
+/** The sessions your other Macs say worked on each PR, by its key in lowercase (DevicesView `prSessions`). */
+export type PrSessionsElsewhere = Readonly<Record<string, readonly PrSession[]>>;
+export const NO_PR_SESSIONS: PrSessionsElsewhere = {};
 
 /** A PR as a card in another window shows it (PrCard.tsx: the notch, the waiting window), from
  *  the worktrees that window has, as the PRs view lists it. */
@@ -636,10 +644,10 @@ export function prCardItem(pr: PrItem, lanes: Lane[]): PrRowItem {
 }
 
 /** The PRs the PRs view shows: updated since the cutoff or pinned, matching the search and the filters. */
-export function prRowsOf(prs: PrItem[], cutoff: number, pinned: Set<string>, query: string, filter: readonly Filter[], laneById: Map<string, Lane>, sessionIndex: Map<string, { lane: Lane; session: Session }>, said: Said = NO_HITS): PrRowItem[] {
+export function prRowsOf(prs: PrItem[], cutoff: number, pinned: Set<string>, query: string, filter: readonly Filter[], laneById: Map<string, Lane>, sessionIndex: Map<string, { lane: Lane; session: Session }>, said: Said = NO_HITS, elsewhere: PrSessionsElsewhere = NO_PR_SESSIONS): PrRowItem[] {
   return prs
     .filter((p) => p.updatedAt >= cutoff || pinned.has(p.key))
-    .map((p) => prRowOf(p, laneById, sessionIndex))
+    .map((p) => prRowOf(p, laneById, sessionIndex, elsewhere))
     .filter((r) => prInQuery(r, query, said) && prInFilter(r, filter));
 }
 
@@ -1050,9 +1058,10 @@ export function useBoardLists(input: ListsInput) {
   // worked on them.
   const sessionIndex = useMemo(() => sessionIndexOf(lanes), [lanes]);
   const laneById = useMemo(() => new Map(lanes.map((l) => [l.id, l])), [lanes]);
-  const prRow = useCallback((pr: PrItem): PrRowItem => prRowOf(pr, laneById, sessionIndex), [laneById, sessionIndex]);
+  const elsewhere = devices?.enabled ? devices.prSessions : NO_PR_SESSIONS;
+  const prRow = useCallback((pr: PrItem): PrRowItem => prRowOf(pr, laneById, sessionIndex, elsewhere), [laneById, sessionIndex, elsewhere]);
   const projectPrs = useMemo(() => (board?.prs ?? []).filter((p) => current === ALL_PROJECTS || p.project === current), [board?.prs, current]);
-  const listedPrs = useMemo(() => prRowsOf(projectPrs, cutoff, prPins.set, query, filter, laneById, sessionIndex, said), [projectPrs, cutoff, query, filter, laneById, sessionIndex, prPins.set, said]);
+  const listedPrs = useMemo(() => prRowsOf(projectPrs, cutoff, prPins.set, query, filter, laneById, sessionIndex, said, elsewhere), [projectPrs, cutoff, query, filter, laneById, sessionIndex, prPins.set, said, elsewhere]);
   const prRows = useMemo(() => listedPrs.filter((r) => prInFacets(r, facets)), [listedPrs, facets]);
   const prFacets = useMemo(() => prFacetOptions(listedPrs, facets), [listedPrs, facets]);
   // Pinned PRs lead the PRs view in your order, whatever their age, and leave its sections.

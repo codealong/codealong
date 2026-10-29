@@ -1003,6 +1003,21 @@ describe('the PRs view’s lists', () => {
     expect(row.places.map((p) => [p.lane.id, p.holds])).toEqual([['/r/feature', true]]);
   });
 
+  it('lists the sessions another Mac says worked on a PR after this Mac’s, under their worktrees there', () => {
+    const there = session('@9f8e7d6c5b:claude:claude:t');
+    const mini = lane('@9f8e7d6c5b:/r/fix', [there]);
+    const lanes = [holder, mini];
+    const pr = fx.prItem({ key: 'Acme/App#7', lanes: ['/r/feature'], sessions: [{ lane: '/r/feature', key: 'claude:claude:s' }] });
+    // Keyed in lowercase, since its checkout may spell the repo otherwise; one whose worktree the
+    // views leave out (that Mac narrowed away) isn't listed.
+    const elsewhere = { 'acme/app#7': [{ lane: mini.id, key: there.key, pushes: 0 }, { lane: '@0000000000:/r/x', key: '@0000000000:claude:claude:y', pushes: 0 }] };
+    const row = prRowOf(pr, new Map(lanes.map((l) => [l.id, l])), sessionIndexOf(lanes), elsewhere);
+    expect(row.sessions).toEqual([{ lane: holder, session: s }, { lane: mini, session: there }]);
+    expect(row.places.map((p) => [p.lane.id, p.holds, p.sessions.map((x) => x.key)])).toEqual([['/r/feature', true, ['claude:claude:s']], [mini.id, false, [there.key]]]);
+    expect(prRowOf(pr, laneById, index, elsewhere).sessions).toEqual([{ lane: holder, session: s }]);
+    expect(prRowsOf([pr], 0, new Set(), '', [], new Map(lanes.map((l) => [l.id, l])), sessionIndexOf(lanes), undefined, elsewhere)[0].sessions).toHaveLength(2);
+  });
+
   it('shows PRs updated since the cutoff and pinned ones, then the search and the filters', () => {
     const fresh = fx.prItem({ number: 1, title: 'Fresh', updatedAt: NOW });
     const stale = fx.prItem({ number: 2, title: 'Stale', updatedAt: NOW - 5 * DAY, state: 'merged' });

@@ -18,7 +18,7 @@
 //! one writing, and a feeder that turns board changes into feeds at most once a second and
 //! hands the windows what they show of other devices (`DevicesView`).
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::{BufReader, Write};
 use std::net::{IpAddr, TcpStream};
 use std::path::{Path, PathBuf};
@@ -34,7 +34,7 @@ use serde_json::Value;
 
 use crate::config::{DevicesCfg, ProjectCfg};
 use crate::irohnet::{Iroh, Ticket};
-use crate::model::{Board, DeviceTag, Lane, Usage};
+use crate::model::{Board, DeviceTag, Lane, PrSession, Usage};
 use codealong_peer::api::Side;
 use crate::peerfeed::{self, DeviceInfo, Outbox, Replica, Snapshot};
 use crate::peerproto::{self, Msg, VERSION};
@@ -171,6 +171,9 @@ pub struct DevicesView {
     pub asks: Vec<AskView>,
     /// Every linked device's worktrees, each lane id and session key with `@<short>:` in front.
     pub lanes: Vec<Lane>,
+    /// The sessions on your other Macs that worked on each PR they list, by the PR's key in
+    /// lowercase, each key and lane id with `@<short>:` in front (`peerfeed::pr_sessions_for_windows`).
+    pub pr_sessions: BTreeMap<String, Vec<PrSession>>,
     /// This machine and your others that share automations, for the engine (shared.rs): not
     /// the windows'.
     #[serde(skip)]
@@ -1068,7 +1071,14 @@ impl Inner {
         } else {
             Vec::new()
         };
-        DevicesView { enabled: st.cfg.enabled, me, devices, phones, found, asks, lanes, machines: self.machines(st) }
+        let mut pr_sessions: BTreeMap<String, Vec<PrSession>> = BTreeMap::new();
+        for l in st.linked.iter().filter(|l| st.cfg.enabled && !l.watches()) {
+            let Some(c) = st.replicas.get(&l.key) else { continue };
+            for (pr, s) in peerfeed::pr_sessions_for_windows(short_of(&l.key), &c.replica) {
+                pr_sessions.entry(pr).or_default().push(s);
+            }
+        }
+        DevicesView { enabled: st.cfg.enabled, me, devices, phones, found, asks, lanes, pr_sessions, machines: self.machines(st) }
     }
 
     /// This machine and your others that share automations, as their feeds last said, a machine

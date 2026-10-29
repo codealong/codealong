@@ -105,7 +105,7 @@ describe('schedules', () => {
 
   it('offers this machine and your others to prefer, not phones', () => {
     const device = (key: string, name: string, kind: 'mac' | 'phone') => ({ key, short: key, name, color: 'blue', online: true, via: null, since: null, lastSeen: null, remoteControl: false, app: '', linkedBack: true, loading: false, usage: [], kind }) as DevicesView['devices'][number];
-    const devices = { enabled: true, me: { key: 'aa', short: 'aa', name: 'Studio', tailscale: 'running', tailnet: null, address: null, iroh: 'online', remoteControl: false, error: null }, devices: [device('bb', 'Mini', 'mac'), device('cc', 'Phone', 'phone')], phones: [], found: [], asks: [], lanes: [] } as DevicesView;
+    const devices = { enabled: true, me: { key: 'aa', short: 'aa', name: 'Studio', tailscale: 'running', tailnet: null, address: null, iroh: 'online', remoteControl: false, error: null }, devices: [device('bb', 'Mini', 'mac'), device('cc', 'Phone', 'phone')], phones: [], found: [], asks: [], lanes: [], prSessions: {} } as DevicesView;
     expect(preferOptions(devices, '').map((o) => o.label)).toEqual(['No machine in particular', 'This machine, Studio', 'Mini']);
     expect(preferOptions(devices, 'dd').at(-1)).toEqual({ id: 'dd', label: 'A machine that’s no longer linked' });
     expect(asksRunsOn(devices, undefined)).toBe(true);

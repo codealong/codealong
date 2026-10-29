@@ -582,8 +582,9 @@ window.__TAURI_INTERNALS__ = {
     if (cmd === 'devices') {
       return Promise.all([optionalJson('./devices-fixture.json'), fetch('./board.json').then(function (r) { return r.json(); })]).then(function (all) {
         var fx = all[0];
-        if (!fx) return { enabled: false, me: { key: '', short: '', name: 'This Mac', tailscale: 'off', tailnet: null, address: null, iroh: 'off', remoteControl: false, error: null }, devices: [], phones: [], found: [], asks: [], lanes: [] };
+        if (!fx) return { enabled: false, me: { key: '', short: '', name: 'This Mac', tailscale: 'off', tailnet: null, address: null, iroh: 'off', remoteControl: false, error: null }, devices: [], phones: [], found: [], asks: [], lanes: [], prSessions: {} };
         var view = JSON.parse(JSON.stringify(fx.view));
+        view.prSessions = view.prSessions || {};
         view.devices.concat(view.phones || []).forEach(function (d) { if (d.lastSeenAgo) d.lastSeen = Date.now() - d.lastSeenAgo; });
         view.phones = view.phones || [];
         var skip = 1;
@@ -599,6 +600,14 @@ window.__TAURI_INTERNALS__ = {
             copy.defaultTarget = null;
             copy.sessions.forEach(function (x) { x.key = '@' + short + ':' + x.key; x.openTarget = ''; x.pid = null; x.resumeCommand = null; });
             view.lanes.push(copy);
+            // That device says its copies worked on the PRs the board's sessions there did, as
+            // peerfeed.rs `pr_sessions_for_windows` has them.
+            (all[1].prs || []).forEach(function (p) {
+              p.sessions.filter(function (x) { return x.lane === l.id; }).forEach(function (x) {
+                var key = p.key.toLowerCase();
+                (view.prSessions[key] = view.prSessions[key] || []).push({ key: '@' + short + ':' + x.key, lane: copy.id, pushes: 0 });
+              });
+            });
           });
         });
         return view;

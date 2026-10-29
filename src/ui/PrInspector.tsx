@@ -1,7 +1,7 @@
 // A PR in the right sidebar: a short header first, as a session's is (SessionHeader.tsx): its
 // number and title with the panel's buttons, one line of where it comes from, its pills and size,
-// its labels (PrLabels.tsx), and where it lives on this Mac as chips (the worktrees and the sessions that worked on it,
-// PanelSession.tsx `PanelPlaces`). Its details, open for every PR once you open them, add the
+// its labels (PrLabels.tsx), and where it lives as chips (the worktrees and the sessions that worked on it, on this
+// Mac and your others, PanelSession.tsx `PanelPlaces`). Its details, open for every PR once you open them, add the
 // whole title, its times and commits, and the chips as a tree, under the merge box. Then its
 // parts as tabs, one shown at a time, by whose words they are: Description (the author's, as
 // GitHub renders it), Changes (its changed files with their diffs, PrFiles.tsx, which the file
@@ -366,7 +366,7 @@ export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpe
 
   // Where it lives on this Mac: chips under the header, the tree with its details.
   const places = item.places.map((p) => ({ lane: p.lane, sessions: p.sessions, note: placeNote(p, pr.number, pr.head) }));
-  const placesProps = { places, label: 'On this Mac', project: pr.project, now, onShowLane, onLaneMenu, onShowSession, onOpenSession, onSessionMenu, primary: pr.primary ? { key: pr.primary, means: primaryWords(pr) } : null };
+  const placesProps = { places, label: 'Worktrees and sessions', project: pr.project, now, onShowLane, onLaneMenu, onShowSession, onOpenSession, onSessionMenu, primary: pr.primary ? { key: pr.primary, means: primaryWords(pr) } : null };
 
   // Links in the description open in the browser rather than inside the app, but for a link to a
   // PR, which shows here as one in a conversation does (PrLink.tsx `followPrLink`).
@@ -487,7 +487,7 @@ export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpe
 
       {open && places.length > 0 && (
         <section className="ca-insp-sec">
-          <h4 className="ca-label">On this Mac</h4>
+          <h4 className="ca-label">Worktrees and sessions</h4>
           <PanelPlaces {...placesProps} open />
         </section>
       )}

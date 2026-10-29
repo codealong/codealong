@@ -307,6 +307,7 @@ export function devicesView(over: Partial<DevicesView> = {}): DevicesView {
     found: [],
     asks: [],
     lanes: [],
+    prSessions: {},
     ...over,
   };
 }

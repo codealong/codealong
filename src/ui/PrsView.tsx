@@ -41,7 +41,8 @@ export interface PrRowItem {
   places: PrPlace[];
 }
 
-/** A worktree on this Mac that holds a PR or that the PR's sessions worked in. */
+/** A worktree on this Mac that holds a PR, or one on any of your Macs that the PR's sessions
+ *  worked in. */
 export interface PrPlace {
   lane: Lane;
   /** The worktree holds the PR: the Worktrees view shows the PR on it. */

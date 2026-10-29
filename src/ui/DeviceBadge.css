@@ -38,3 +38,11 @@
 .ca-lane-sub .ca-devbadge {
   margin-right: 6px;
 }
+/* Right after a worktree's name in a PR's or a todo's tree (PanelSession.tsx `PanelPlace`), what
+   the panel says of the worktree still at the row's end. */
+.ca-tree-label .ca-nav-label:has(+ .ca-devbadge) {
+  flex: 0 1 auto;
+}
+.ca-tree-label .ca-devbadge {
+  margin-right: auto;
+}
