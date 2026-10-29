@@ -1,7 +1,7 @@
 //! A device that only watches: it links with devices by their link codes, keeps each one's feed,
 //! and asks them things (a page of a conversation, what a session waits on you for, and, where
-//! remote control is on, to send a prompt or answer an approval), but has no board to share and
-//! answers nothing. The phone app (codealong-ios) runs one, and the engine's tests run one against
+//! remote control is on, to send a prompt, answer an approval or ask on the side), but has no
+//! board to share and answers nothing. The phone app (codealong-ios) runs one, and the engine's tests run one against
 //! its peers.rs.
 //!
 //! It keeps what it knows in a folder of its own, in the shapes the Mac app uses for the same
@@ -126,7 +126,64 @@ struct State {
     linking: HashMap<String, Sender<std::result::Result<String, String>>>,
     /// Replies being written in sessions this device watches, by device key, then session key.
     streams: HashMap<String, HashMap<String, api::Stream>>,
+    /// Side conversations of the sessions this device asked about, as each device last said, by
+    /// device key.
+    sides: HashMap<String, Sides>,
     cache_dirty: bool,
+}
+
+/// One device's side conversations, as it last said (`Msg::Side`) or was read: each session's
+/// open one, and the ones closed while their copies answer. What it says comes from more than one
+/// thread there (a copy's, a close), so what says less than it said before came late, and is
+/// dropped, as the Mac's windows drop it (src/side.ts).
+#[derive(Default)]
+struct Sides {
+    /// By session key.
+    open: HashMap<String, api::Side>,
+    /// By id.
+    closing: HashMap<String, api::Side>,
+    /// How many questions each one had as it closed, and each closed one as it stopped answering,
+    /// by id: one is open again only once it's asked again, and answers again never.
+    closed_at: HashMap<String, usize>,
+    stopped_at: HashMap<String, usize>,
+    /// How often each session's were told of, so a read that answers after one was is dropped:
+    /// what was told is newer.
+    told: HashMap<String, u64>,
+}
+
+impl Sides {
+    fn take(&mut self, side: api::Side) {
+        let turns = side.turns.len();
+        if side.closed {
+            if self.stopped_at.get(&side.id).is_some_and(|n| turns <= *n) {
+                return;
+            }
+            // Open again with a question more since.
+            let open = self.open.get(&side.key).filter(|o| o.id == side.id);
+            if open.is_some_and(|o| o.turns.len() > turns) {
+                return;
+            }
+            if open.is_some() {
+                self.open.remove(&side.key);
+            }
+            let at = self.closed_at.entry(side.id.clone()).or_default();
+            *at = (*at).max(turns);
+            if !side.running {
+                self.stopped_at.insert(side.id.clone(), turns);
+            }
+            self.closing.insert(side.id.clone(), side);
+        } else if side.turns.is_empty() {
+            self.open.remove(&side.key);
+        } else if !self.closed_at.get(&side.id).is_some_and(|n| turns <= *n) {
+            // Asked again as it was read, one closed is the open one.
+            self.closing.remove(&side.id);
+            self.open.insert(side.key.clone(), side);
+        }
+    }
+
+    fn told(&self, key: &str) -> u64 {
+        self.told.get(key).copied().unwrap_or(0)
+    }
 }
 
 struct Inner {
@@ -544,6 +601,98 @@ impl Client {
         read(self.ask(device, api::SESSION_CANCEL, of(params::Session { key: key.into() }), ACT_WAIT)?)
     }
 
+    /// Asks a session's side conversation on `device` (`key` there) `text`: a throwaway copy of
+    /// its conversation answers there, and the session carries on, unaware. `from` goes on in one
+    /// kept from before (`api::SideKept::id`), which only a Mac that says `proto::SIDE_FROM` is
+    /// asked: one from before would ask a new copy that knows none of it. The side conversation
+    /// with the question in it is `side`'s from then on, and the answer comes there as it's
+    /// written. Macs before 2026-10-23 refuse it as a request they don't know.
+    pub fn side_ask(&self, device: &str, key: &str, text: &str, from: Option<&str>) -> std::result::Result<api::Side, String> {
+        let hex = self.key_of(device).ok_or("That device isn't linked.")?;
+        if from.is_some() {
+            let checks = self.0.lock().conns.get(&hex).map(|c| (c.name.clone(), c.knows.iter().any(|k| k == proto::SIDE_FROM)));
+            if let Some((name, false)) = checks {
+                return Err(format!("Update Codealong on {name} to go on with a side conversation from before from here: its version would ask a new copy that knows none of it."));
+            }
+        }
+        let told = self.side_told(&hex, key);
+        let side: api::Side = read(self.ask(&hex, api::SIDE_ASK, of(params::Side { key: key.into(), text: text.into(), from: from.map(String::from) }), ACT_WAIT)?)?;
+        self.side_read(&hex, key, told, Some(side.clone()));
+        Ok(side)
+    }
+
+    /// A session's open side conversation on `device`, read from it now, as `side` has it from
+    /// then on: one begun before, or gone on, or closed, while the two weren't connected.
+    pub fn side_get(&self, device: &str, key: &str) -> std::result::Result<Option<api::Side>, String> {
+        let hex = self.key_of(device).ok_or("That device isn't linked.")?;
+        let told = self.side_told(&hex, key);
+        let side: Option<api::Side> = read(self.ask(&hex, api::SIDE_GET, of(params::Session { key: key.into() }), READ_WAIT)?)?;
+        self.side_read(&hex, key, told, side.clone());
+        Ok(side)
+    }
+
+    /// The side conversations kept for a session on `device`, the latest first: the open one too,
+    /// as far as it's been answered.
+    pub fn side_past(&self, device: &str, key: &str) -> std::result::Result<Vec<api::SideKept>, String> {
+        read(self.ask(device, api::SIDE_PAST, of(params::Session { key: key.into() }), READ_WAIT)?)
+    }
+
+    /// Closes a session's side conversation on `device`: a copy that's answering answers what it
+    /// was asked before it ends, as `side_closing` has it, and what was said is kept.
+    pub fn side_close(&self, device: &str, key: &str) -> std::result::Result<(), String> {
+        let hex = self.key_of(device).ok_or("That device isn't linked.")?;
+        let told = self.side_told(&hex, key);
+        self.ask(&hex, api::SIDE_CLOSE, of(params::Session { key: key.into() }), ACT_WAIT)?;
+        let mut st = self.0.lock();
+        if let Some(sides) = st.sides.get_mut(&hex).filter(|s| s.told(key) == told) {
+            // It's open again only once it's asked again: what said it was open came before.
+            if let Some(open) = sides.open.remove(key) {
+                let at = sides.closed_at.entry(open.id).or_default();
+                *at = (*at).max(open.turns.len());
+            }
+        }
+        drop(st);
+        self.0.changed();
+        Ok(())
+    }
+
+    /// Forgets one of a session's kept side conversations on `device`, stopping it if it was
+    /// closed and is still answering.
+    pub fn side_forget(&self, device: &str, key: &str, id: &str) -> std::result::Result<(), String> {
+        self.ask(device, api::SIDE_FORGET, of(params::SideForget { key: key.into(), id: id.into() }), ACT_WAIT).map(|_| ())
+    }
+
+    /// A session's open side conversation on `device`, as that device last said, once it's been
+    /// asked about here (`side_ask`, `side_get`, `side_close`); none when it has none.
+    pub fn side(&self, device: &str, key: &str) -> Option<api::Side> {
+        let hex = self.key_of(device)?;
+        self.0.lock().sides.get(&hex).and_then(|s| s.open.get(key)).cloned()
+    }
+
+    /// A side conversation on `device` closed while its copy answered, by id, as that device last
+    /// said: `running` until it has answered.
+    pub fn side_closing(&self, device: &str, id: &str) -> Option<api::Side> {
+        let hex = self.key_of(device)?;
+        self.0.lock().sides.get(&hex).and_then(|s| s.closing.get(id)).cloned()
+    }
+
+    fn side_told(&self, hex: &str, key: &str) -> u64 {
+        self.0.lock().sides.get(hex).map_or(0, |s| s.told(key))
+    }
+
+    /// Takes what a read said of a session's open side conversation (none: it has none), unless
+    /// the device told of it since `told`, which is newer.
+    fn side_read(&self, hex: &str, key: &str, told: u64, side: Option<api::Side>) {
+        let mut st = self.0.lock();
+        let sides = st.sides.entry(hex.to_string()).or_default();
+        if sides.told(key) != told {
+            return;
+        }
+        sides.take(side.unwrap_or_else(|| api::Side { key: key.into(), ..Default::default() }));
+        drop(st);
+        self.0.changed();
+    }
+
     /// A linked device's whole key, from it or its short id.
     fn key_of(&self, device: &str) -> Option<String> {
         self.0.lock().linked.iter().find(|l| l.key == device || short_of(&l.key) == device).map(|l| l.key.clone())
@@ -627,6 +776,7 @@ impl Inner {
     fn forget(&self, st: &mut State, key: &str) {
         st.linked.retain(|l| l.key != key);
         st.replicas.remove(key);
+        st.sides.remove(key);
         save_linked(&self.dir, &st.linked);
         st.cache_dirty = true;
     }
@@ -722,9 +872,8 @@ fn run(inner: Arc<Inner>, wire: Wire, expect: PublicKey, secret: Option<String>,
     let mut reader = BufReader::with_capacity(64 * 1024, reader);
     set_timeout(Some(HANDSHAKE_TIMEOUT));
     let my_nonce = proto::nonce();
-    // A device that only watches runs no schedules, so it isn't sent the ones your machines share,
-    // and doesn't show side conversations yet.
-    let knows = proto::KNOWS.into_iter().filter(|k| *k != proto::SCHEDULES && *k != proto::SIDES).map(String::from).collect();
+    // A device that only watches runs no schedules, so it isn't sent the ones your machines share.
+    let knows = proto::KNOWS.into_iter().filter(|k| *k != proto::SCHEDULES).map(String::from).collect();
     let _ = tx.send(Msg::Hello { v: VERSION, key: inner.hex.clone(), name: inner.name.clone(), app: inner.app.clone(), nonce: my_nonce.clone(), kind: Some(inner.kind.clone()), knows });
     let shook = (|| -> std::result::Result<(String, String, Vec<String>), String> {
         let Ok(Some(Msg::Hello { v, key, name, app, nonce, knows, .. })) = proto::read_msg(&mut reader) else { return Err("The other device didn't say hello.".into()) };
@@ -899,8 +1048,13 @@ fn handle(inner: &Arc<Inner>, key: &str, serial: u64, tx: &Sender<Msg>, msg: Msg
                 replies.insert(s.key.clone(), s);
             }
         }
-        // This device has no feed to pick up, and doesn't say it knows side conversations.
-        Msg::Have { .. } | Msg::Side(_) => return,
+        Msg::Side(side) => {
+            let sides = st.sides.entry(key.to_string()).or_default();
+            *sides.told.entry(side.key.clone()).or_default() += 1;
+            sides.take(side);
+        }
+        // This device has no feed to pick up.
+        Msg::Have { .. } => return,
         Msg::Pong | Msg::Hello { .. } | Msg::Proof { .. } | Msg::Unknown => return,
     }
     drop(st);
@@ -954,5 +1108,30 @@ mod tests {
         assert!(c.ask(&hex[..10], "session-page", Value::Null, Duration::from_millis(10)).unwrap_err().contains("isn't connected"));
         c.unlink(&hex).unwrap();
         assert!(Client::new(dir.clone(), SecretKey::generate(), "iPhone".into(), "0.1.0".into(), proto::PHONE, Box::new(|| {})).devices().is_empty());
+    }
+
+    #[test]
+    fn a_side_conversation_told_of_late_is_left_as_it_is_now() {
+        let side = |answers: &[&str]| api::Side { id: "7-1".into(), key: "k".into(), turns: answers.iter().map(|a| api::SideTurn { question: "Why?".into(), answer: (*a).into(), ..Default::default() }).collect(), running: true, ..Default::default() };
+        let mut sides = Sides::default();
+        sides.take(side(&["Be"]));
+        // Closed while it answers: none open, and the closed one answering.
+        sides.take(api::Side { closed: true, ..side(&["Because"]) });
+        assert!(sides.open.is_empty() && sides.closing["7-1"].running);
+        // What said it was open before it closed, come late.
+        sides.take(side(&["Because"]));
+        assert!(sides.open.is_empty());
+        // It answered, and then what said it was answering came late.
+        sides.take(api::Side { closed: true, running: false, ..side(&["Because it is."]) });
+        sides.take(api::Side { closed: true, ..side(&["Because it"]) });
+        assert!(!sides.closing["7-1"].running);
+        assert_eq!(sides.closing["7-1"].turns[0].answer, "Because it is.");
+        // Asked again as it was read, it's the open one.
+        sides.take(side(&["Because it is.", ""]));
+        assert_eq!(sides.open["k"].turns.len(), 2);
+        assert!(sides.closing.is_empty());
+        // None open.
+        sides.take(api::Side { key: "k".into(), ..Default::default() });
+        assert!(sides.open.is_empty());
     }
 }

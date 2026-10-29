@@ -2160,6 +2160,39 @@ mod tests {
     }
 
     #[test]
+    fn a_watching_device_follows_the_side_conversations_it_asks_about() {
+        use codealong_peer::api::SideTurn;
+        let mac = device("Mini", vec![lane("/Users/sam/app", vec![session("claude:claude:s2", Status::Needs)])]);
+        let secret = "00112233445566778899".to_string();
+        mac.peers.0.lock().codes.push((secret.clone(), now_ms() + LINK_CODE_FOR_MS));
+        let code = Ticket { key: mac.peers.0.me.get().unwrap().key, secret }.encode();
+        let dir = mac.dir.with_extension("phone");
+        let phone = codealong_peer::client::Client::new(dir.clone(), SecretKey::generate(), "iPhone".into(), "0.1.0".into(), peerproto::PHONE, Box::new(|| {}));
+        assert_eq!(phone.link_wire(&code, reconnect(&mac)).unwrap(), "Mini");
+        let d = phone.devices().remove(0);
+        let side = |answer: &str| Side { id: "7-1".into(), key: "claude:claude:s2".into(), turns: vec![SideTurn { question: "Why?".into(), answer: answer.into(), ..Default::default() }], running: true, ..Default::default() };
+
+        // Nothing goes to it before it asks about them; read, it has none open.
+        mac.peers.side(&side("Not yet"));
+        assert_eq!(phone.side_get(&d.short, "claude:claude:s2").unwrap(), None);
+        assert_eq!(phone.side(&d.short, "claude:claude:s2"), None);
+        // From then on each change goes, as the Mac's windows are told.
+        mac.peers.side(&side("Because"));
+        until("the answer as it's written", || phone.side(&d.short, "claude:claude:s2").is_some_and(|s| s.turns[0].answer == "Because"));
+        // Closed while its copy answers, it's read by its id until it has answered.
+        mac.peers.side(&Side { key: "claude:claude:s2".into(), ..Side::default() });
+        mac.peers.side(&Side { closed: true, ..side("Because it") });
+        until("the close", || phone.side_closing(&d.short, "7-1").is_some_and(|s| s.running));
+        assert_eq!(phone.side(&d.short, "claude:claude:s2"), None);
+        mac.peers.side(&Side { closed: true, running: false, ..side("Because it is.") });
+        until("the answer", || phone.side_closing(&d.short, "7-1").is_some_and(|s| !s.running));
+        // Asking acts as the session may, so it needs remote control there.
+        assert!(phone.side_ask(&d.short, "claude:claude:s2", "And then?", None).unwrap_err().contains("Remote control is off on Mini"));
+        phone.unlink(&d.key).unwrap();
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn linked_macs_share_their_boards_and_answer_each_other() {
         let a = device("Book", vec![lane("/a", vec![session("claude:claude:s1", Status::Working)])]);
         let b = device("Mini", vec![lane("/Users/sam/app", vec![session("claude:claude:s2", Status::Needs)])]);
