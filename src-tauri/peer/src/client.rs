@@ -181,6 +181,12 @@ impl Sides {
         }
     }
 
+    /// Gone for good: what it says as it stops is dropped.
+    fn forget(&mut self, id: &str) {
+        self.closing.remove(id);
+        self.stopped_at.insert(id.to_string(), usize::MAX);
+    }
+
     fn told(&self, key: &str) -> u64 {
         self.told.get(key).copied().unwrap_or(0)
     }
@@ -677,13 +683,8 @@ impl Client {
     pub fn side_forget(&self, device: &str, key: &str, id: &str) -> std::result::Result<(), String> {
         let hex = self.key_of(device).ok_or("That device isn't linked.")?;
         self.ask(&hex, api::SIDE_FORGET, of(params::SideForget { key: key.into(), id: id.into() }), ACT_WAIT)?;
-        let mut st = self.0.lock();
-        if let Some(sides) = st.sides.get_mut(&hex) {
-            // Gone for good: what it says as it stops is dropped.
-            sides.closing.remove(id);
-            sides.stopped_at.insert(id.to_string(), usize::MAX);
-        }
-        drop(st);
+        // Before anything was told of it too: what it says as it stops comes after.
+        self.0.lock().sides.entry(hex).or_default().forget(id);
         self.0.changed();
         Ok(())
     }
@@ -1159,5 +1160,10 @@ mod tests {
         // None open.
         sides.take(api::Side { key: "k".into(), ..Default::default() });
         assert!(sides.open.is_empty());
+        // Deleted, before anything was told of it, it stays gone as it stops.
+        let mut sides = Sides::default();
+        sides.forget("7-1");
+        sides.take(api::Side { closed: true, running: false, ..side(&["Because it is."]) });
+        assert!(sides.closing.is_empty());
     }
 }
