@@ -54,7 +54,10 @@ on 2026-09-27. Paths are under `src-tauri/src/`.
   goes on streaming it as out-of-turn `session/update`s, and asks its permissions out of turn
   too. Its `claude`'s (2.1.280) `sessions/<pid>.json` says `busy` from the turn's start
   (`statusUpdatedAt` then) to `idle` at its end, so the board takes the records' word for a turn
-  that began after Codealong's last ended (`acp.rs` `overlay`); before, such a session showed as
+  that began, or wrote something, after Codealong's last ended (`acp.rs` `overlay`: a
+  notification that comes as a prompt's turn ends may follow it without an `idle` between, by the
+  adapter's notes on 2.1.270, and Codealong hears the prompt's answer only after the turn it
+  answers has ended); before, such a session showed as
   your turn while it worked (2026-10-29, a Haiku session woken by its `sleep 20` in the
   background). That `claude` never says `shell`: between turns, while what it left running in
   the background goes on, it says `idle`, so a hosted session shows nothing of what it waits on.
