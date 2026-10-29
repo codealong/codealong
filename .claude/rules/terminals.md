@@ -191,6 +191,27 @@ say the rest.
 - The server makes a block's pty with no display to draw in, so it should start one while the
   screen is locked; unchecked with the screen locked. Starts go to Rex then rather than tmux
   (`Terminal::holds_sessions`, `launch.rs` `host_rule`).
+- Each of the app's windows shows one session, and two can show the same one. Checked on 0.1.0
+  (1541), 2026-10-29: `client.window.new` (⌘N) makes a session for its new window, named as Rex
+  names one (two words, a shell in `~`), and its request timed out at 10 s though the window
+  opened. `session.select` acts on the app's current window, the one last in front while Rex was
+  the active app: with Rex behind, a window opened since didn't take it, and it never went to the
+  window already showing the session. So a window per session can't be reached through Rex;
+  raising one takes Accessibility (its title ends ` - <session label>`). Right after a busy spell
+  (5 s answers), `session.select` of a session made a minute before failed with
+  `SessionNotFoundOnServerError` (500) until `session.refresh`; on 2026-10-27 one made a moment
+  before worked at once.
+- Keys, by its menus read through Accessibility (the docs list none, and `rex keymap` shows only
+  the config file's): ⌘K Change Session…, ⌃⇥ and ⌃⇧⇥ the tabs, ⌘N a window, ⇧⌘N a session;
+  Next Session and Previous Session have none. With no config file, ⌘` goes through the app's
+  windows as macOS does it. `rex.bind("cmd+[Backquote]", "session.next")` in
+  `~/.config/rex/init.lua`, then `rex config reload`, takes it from macOS (a press posted to the
+  HID stream stepped the sessions in the front window and left the windows as they were), and
+  `shift+cmd+[Backquote]` with `session.previous` goes back. Next Session follows `session.list`'s
+  order, which `session.move` (`before_session_id`) sets once the script is attached to the
+  session moved (else 409).
+- `session.new_split` with a block as `anchor_id` puts a new terminal beside it in the same tab
+  (`direction` `vertical` is one above the other), from the server, with Rex behind.
 - `cargo test rex_round_trip -- --ignored` opens a terminal in a session of its own behind your
   windows, checks its environment and typing, presses a key and closes it;
   `rex_notes_the_session_it_shows` checks the app's note names one of the server's sessions.
