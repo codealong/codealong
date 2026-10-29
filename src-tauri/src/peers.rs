@@ -1229,6 +1229,10 @@ fn send_feeds(st: &mut State, snap: &Snapshot, to: &[String], boards: u64, now: 
         let Some(conn) = st.conns.get_mut(key).filter(|c| c.heard && linked.contains(key)) else { continue };
         conn.fed_board = boards;
         if let Some(msg) = conn.outbox.next(snap) {
+            // By its name and short id, as devices.log names it: two devices can share a name.
+            if crate::perf::enabled() {
+                crate::perf::log(&peerfeed::perf_line(&format!("{} ({})", conn.name, short_of(key)), &msg));
+            }
             let _ = conn.tx.send(Msg::Feed(msg));
             conn.fed_at = Some(now);
         }

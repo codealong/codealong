@@ -75,6 +75,15 @@ for (let run of runs) {
   const whole = sent.filter((l) => l.includes(' KB, whole'));
   const kb = (ls) => ls.map((l) => num(/windows sent ([\d.]+) KB/, l));
   if (sent.length) console.log(`    sent the windows: ${sent.length - whole.length} times what changed, ${dist(kb(sent.filter((l) => !whole.includes(l))), 'KB')}; ${whole.length} times whole`);
+  // What each linked device was fed (peerfeed.rs `perf_line`), by its short id: a name can be
+  // another device's too, and have a colon in it.
+  const feedRe = / feed to (.*) \(([0-9a-f]+)\): ([\d.]+) KB, [^:]*: (\d+) lanes, (\d+) of them/;
+  const feeds = run.map((l) => feedRe.exec(l)).filter((m) => m !== null);
+  for (const short of [...new Set(feeds.map((m) => m[2]))]) {
+    const its = feeds.filter((m) => m[2] === short);
+    const partial = its.filter((m) => Number(m[5]) > 0).length;
+    console.log(`    fed ${its[0][1]} (${short}): ${its.length} feeds, ${dist(its.map((m) => Number(m[3])), 'KB')}; ${partial} with lanes of only their changed sessions`);
+  }
 
   const lag = (who) => run.filter((l) => l.includes(` ${who} lag `)).map((l) => num(/lag (\d+) ms/, l));
   console.log(`\n  engine lag (a message waiting for the engine, 50 ms and up): ${lag('engine').length} times, ${dist(lag('engine'))}`);

@@ -333,6 +333,16 @@ impl Outbox {
     }
 }
 
+/// A feed as the perf log says it: its size, and its lanes, those with only the sessions that
+/// changed in them (`FeedMsg::keys`) apart.
+pub fn perf_line(to: &str, msg: &FeedMsg) -> String {
+    let kb = serde_json::to_string(msg).map(|s| s.len()).unwrap_or(0) as f64 / 1024.0;
+    let partial = msg.lanes.iter().filter(|l| msg.keys.contains_key(&l.id)).count();
+    let sessions: usize = msg.lanes.iter().map(|l| l.sessions.len()).sum();
+    let what = if msg.full { "whole" } else { "what changed" };
+    format!("feed to {to}: {kb:.1} KB, {what}: {} lanes, {partial} of them with only their sessions that changed, {sessions} sessions", msg.lanes.len())
+}
+
 /// A linked device's worktrees as this device's windows get them: every lane id and session key with
 /// the device's short id in front, and each lane tagged with the device.
 pub fn for_windows(short: &str, tag: &DeviceTag, replica: &Replica) -> Vec<Lane> {
@@ -538,10 +548,12 @@ mod tests {
         let delta = out.next(&snapshot(&b2, info("Mini"))).unwrap();
         assert_eq!(delta.lanes.iter().map(|l| (l.id.as_str(), l.sessions.iter().map(|s| s.key.as_str()).collect::<Vec<_>>())).collect::<Vec<_>>(), [("/a", vec!["s2"])]);
         assert_eq!(delta.keys["/a"], ["s1", "s2", "s3"]);
+        assert!(perf_line("Mini", &delta).ends_with(": 1 lanes, 1 of them with only their sessions that changed, 1 sessions"));
         replica.apply(delta);
         assert_eq!(json(&replica.lanes), json(&snapshot(&b2, info("Mini")).lanes));
         let whole = older.next(&snapshot(&b2, info("Mini"))).unwrap();
         assert!(whole.keys.is_empty() && whole.lanes[0].sessions.len() == 3, "a device from before gets the lane whole");
+        assert!(perf_line("Mini", &whole).ends_with(": 1 lanes, 0 of them with only their sessions that changed, 3 sessions"));
 
         // Reordered, one gone and one moved in from another lane, which leaves that one empty.
         let mut b3 = board(lanes(Status::Working));

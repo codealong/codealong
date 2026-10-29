@@ -25,7 +25,8 @@ paths:
   window that can't be seen holds pushes and renders the latest when it's shown, so its push
   times are for boards someone saw.
 - The windows are sent what changed in each board, a session at a time (windowfeed.rs), and the
-  log's `windows sent` lines say how much; only the first push, and a read after a window missed
+  log's `windows sent` lines say how much, and its `feed to <device>` lines what each linked
+  device was fed (peerfeed.rs `perf_line`); only the first push, and a read after a window missed
   one, carry the whole board. A whole board's cost in a window is
   `scripts/preview/push-bench.js` (forty pushes of the real board
   with one worktree changed, as most publishes are), the quick panel's open, keys and pushes
