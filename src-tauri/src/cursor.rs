@@ -1139,6 +1139,37 @@ fn transcript_items(v: &Value, at: i64) -> Vec<Item> {
     }
 }
 
+/// When a command line chat's items (`transcript_items`) happened, as near as its record says: it
+/// keeps a time only for each prompt, the minute it was written in (`prompt_time`). What came
+/// after a prompt takes that prompt's time, so a reply from a minute that also had a later prompt
+/// isn't taken for that prompt's (`session wait`), and one dated so is known by it as dated by its
+/// prompt (`autoreview::reply_after`). What came before the page's first prompt takes that
+/// prompt's time; with no prompt in the page, the session's last prompt's where the page ends the
+/// record (`to_end`), as what came after that prompt, else the session's start. In a page that
+/// ends the record, its last item takes the time the record was last written (`written`) where
+/// that's later: a turn can end on an error hours after anything else in it was written (a review
+/// whose turn gave up after five hours of resuming, 2026-10-28).
+fn timed(mut page: Page, s: &Session, to_end: bool, written: Option<i64>) -> Page {
+    let mut known = match page.items.iter().map(|i| i.at).find(|t| *t > 0) {
+        Some(t) => t,
+        None if to_end => s.last_prompt_at,
+        None => s.started_at.unwrap_or(s.last_prompt_at),
+    };
+    let mut last_untimed = false;
+    for it in page.items.iter_mut() {
+        last_untimed = it.at <= 0;
+        if last_untimed {
+            it.at = known;
+        } else {
+            known = it.at;
+        }
+    }
+    if let (true, true, Some(at), Some(last)) = (to_end, last_untimed, written, page.items.last_mut()) {
+        last.at = last.at.max(at);
+    }
+    page
+}
+
 /// What the end of a transcript says, in the chat's folder `own`.
 fn transcript_tail(path: &Path, own: Option<&str>) -> Tail {
     let Ok(end) = crate::util::read_last(path, TAIL_BYTES) else { return Tail::default() };
@@ -2038,14 +2069,21 @@ impl crate::harness::Adapter for Cursor {
     fn conversation(&self, ctx: &Ctx, s: &Session, before: Option<u64>, limit: usize) -> anyhow::Result<Page> {
         match s.surface {
             Surface::App => Ok(app_page(&self.app_database(ctx.account)?, &s.id, under_way(s), before, limit)),
-            Surface::Cli => crate::transcript::file_page(&self.transcript(ctx.account, s)?, transcript_items, before, limit),
+            Surface::Cli => {
+                let path = self.transcript(ctx.account, s)?;
+                let page = crate::transcript::file_page(&path, transcript_items, before, limit)?;
+                Ok(timed(page, s, before.is_none(), crate::util::mtime_ms(&path)))
+            }
         }
     }
 
     fn conversation_after(&self, ctx: &Ctx, s: &Session, after: u64) -> anyhow::Result<Page> {
         match s.surface {
             Surface::App => Ok(app_newer(&self.app_database(ctx.account)?, &s.id, under_way(s), after)),
-            Surface::Cli => crate::transcript::file_newer(&self.transcript(ctx.account, s)?, transcript_items, after),
+            Surface::Cli => {
+                let path = self.transcript(ctx.account, s)?;
+                Ok(timed(crate::transcript::file_newer(&path, transcript_items, after)?, s, true, crate::util::mtime_ms(&path)))
+            }
         }
     }
 
@@ -2360,6 +2398,52 @@ mod tests {
         assert!(page.items[2].shell);
         assert_eq!(Cursor.prose(lines[0].to_string().as_bytes()).map(|(_, you, t)| (you, t)), Some((true, "Fix the build".to_string())));
         assert_eq!(Cursor.prose(lines[2].to_string().as_bytes()), None);
+    }
+
+    /// The command line's transcript keeps a time only for each prompt, the minute it was written
+    /// in: what came after it is dated by its prompt, never 0, so a review is read as written after
+    /// it was asked for whatever second that was, and the turn before's reply isn't taken for an
+    /// answer to a prompt sent later in its minute (`session wait`); the record's last line, when
+    /// it was last written, as a turn that gave up hours later ended.
+    #[test]
+    fn dates_what_the_transcript_keeps_no_time_for() {
+        let dir = crate::fixtures::scratch("cursor-times");
+        let path = dir.join("c.jsonl");
+        let minute = parse_rfc3339_ms("2026-10-28T19:26:00-07:00").unwrap();
+        let prompt = json!({ "role": "user", "message": { "content": [{ "type": "text", "text": "<timestamp>Wednesday, Oct 28, 2026, 7:26 PM (UTC-7)</timestamp>\n<user_query>\nReview pull request #7 in kestrel/atlas\n</user_query>" }] } });
+        let calls = json!({ "role": "assistant", "message": { "content": [{ "type": "text", "text": "Reading the diff." }, { "type": "tool_use", "name": "Read", "input": { "path": "/Users/me/atlas/pr-7.diff" } }] } });
+        let said = |text: &str| json!({ "role": "assistant", "message": { "content": [{ "type": "text", "text": text }] } });
+        let write = |lines: &[&Value]| std::fs::write(&path, lines.iter().map(|l| format!("{l}\n")).collect::<String>()).unwrap();
+        let s = Session { last_prompt_at: minute, started_at: Some(minute - 3_600_000), ..crate::fixtures::session("cursor:cursor:atlas") };
+        let times = |page: &Page| page.items.iter().map(|i| (i.kind, i.at)).collect::<Vec<_>>();
+        let read = || crate::transcript::file_page(&path, transcript_items, None, 50).unwrap();
+        let reply_after = crate::autoreview::reply_after;
+
+        write(&[&prompt, &calls, &said("Two problems."), &said("Both in `a.rs`."), &json!({ "type": "turn_ended", "status": "success" })]);
+        let page = timed(read(), &s, true, Some(minute + 50_000));
+        assert_eq!(times(&page), [("you", minute), ("agent", minute), ("tool", minute), ("agent", minute), ("agent", minute + 50_000)]);
+        let asked = minute + 36_166;
+        assert_eq!(reply_after(&page.items, asked, s.last_prompt_at).as_deref(), Some("Two problems.\n\nBoth in `a.rs`."));
+        assert_eq!(reply_after(&page.items, minute + 60_005, s.last_prompt_at), None, "an earlier turn's");
+        // The turn before's, written at 19:26:20, while a prompt sent at 19:26:30 hasn't reached
+        // the record: nothing of it is dated after that prompt, as `session wait` asks of a reply.
+        let before = timed(read(), &s, true, Some(minute + 20_000));
+        assert!(before.items.iter().all(|i| i.at < minute + 30_000), "{:?}", times(&before));
+        assert_eq!(reply_after(&before.items, minute + 30_000, s.last_prompt_at), None);
+
+        // An error hours after anything else was written.
+        let five_hours = minute + 5 * 3_600_000;
+        write(&[&prompt, &calls, &json!({ "type": "turn_ended", "status": "error", "error": "Agent turn stopped after repeated resume attempts made no progress" })]);
+        assert_eq!(times(&timed(read(), &s, true, Some(five_hours))), [("you", minute), ("agent", minute), ("tool", minute), ("note", five_hours)]);
+        assert_eq!(times(&timed(read(), &s, false, Some(five_hours))).last(), Some(&("note", minute)), "a page that doesn't end the record");
+
+        // A page without the prompt: the session's last, where the page ends the record; else what
+        // the page before its first prompt can only say, the session's start.
+        let tail = crate::transcript::file_page(&path, transcript_items, None, 1).unwrap();
+        assert_eq!(times(&timed(tail, &s, true, Some(five_hours))), [("note", five_hours)]);
+        let calls_only = crate::transcript::file_page(&path, transcript_items, None, 3).unwrap();
+        assert_eq!(times(&timed(calls_only.clone(), &s, true, Some(five_hours)))[..2], [("agent", minute), ("tool", minute)]);
+        assert_eq!(times(&timed(calls_only, &s, false, None))[..2], [("agent", minute - 3_600_000), ("tool", minute - 3_600_000)]);
     }
 
     #[test]

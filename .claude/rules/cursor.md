@@ -63,7 +63,11 @@ chunks) and this Mac's files (2026-10-09). Paths are under `src-tauri/src/`.
   (`line`, `prompt_of`, `prompt_time`, `transcript_tail`). That time is the minute the prompt
   was written in (`1:12 PM` for 13:12:47), so a review's reply is dated by its prompt, from the
   minute it was asked for in (`autoreview::reply_after`; a review read none until 2026-10-20).
-  `session wait` takes such a reply only once the session has held still a minute. Its tools are named as Claude Code's
+  `session wait` takes such a reply only once the session has held still a minute. What came
+  after a prompt is dated by it, and the last line the transcript's last write (`timed`), never 0. `store.db`'s protobuf blobs do carry millisecond times, a start and an end
+  for each step (a review's, 2026-10-28), but they aren't read: tying them to the transcript's
+  lines wasn't worked out, and that review's store stopped at its last checkpoint, a minute into
+  a turn whose error came five hours later. Its tools are named as Claude Code's
   (`Shell`, `Read`, `StrReplace`…). The app writes it at checkpoints. The slug is the folder's
   path with each run of other characters one `-`, so the folder is found by walking the disk
   (`slug`, `unslug`).
@@ -79,7 +83,10 @@ chunks) and this Mac's files (2026-10-09). Paths are under `src-tauri/src/`.
   to continue from the last saved state" and `isRetryable: true`. Two reviews ended so in one night
   (2026-10-23), each hours into its turn and straight after a `GetDynamicTools` call for Cursor's
   `WebSearch`, the session showing as working all that while. A review whose turn ends on an error
-  is tried once more by itself (`autoreview.rs` `Part::errored_in`, `Tracked::retries`).
+  is tried once more by itself (`autoreview.rs` `Part::errored_in`, `Tracked::retries`). A third
+  (2026-10-28, 2026.10.22) ended so five hours in, its PR given new commits meanwhile; the next
+  round's prompt, typed into its terminal (Rex) after the error, never reached the transcript, so
+  no round goes to a session that shows such an error (`autoreview.rs` `past_error`).
 - A command line chat is `chats/<md5 of its folder>/<id>/store.db` (`blobs`, sha256-addressed
   protobufs, and `meta`, one row `"0"` whose value is hex for JSON: `name`, `createdAt`,
   `lastUsedModel`, `mode`…, no folder): `cursor.rs` (`read_cli_chats`, `parse_meta`). Beside it

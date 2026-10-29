@@ -42,7 +42,10 @@
 //! that kept dropping, not a usage limit or a lost connection) ends its round saying why, and the
 //! commit is reviewed once more in a new session, on another account than that one's where Auto or
 //! the routing group has one that can start (`Tracked::retries`, `past_error`), its card saying
-//! why meanwhile (`after_error`) and the session that stopped marked done (reviewdone.rs). A round nothing else moves that has had nothing at work on it for
+//! why meanwhile (`after_error`) and the session that stopped marked done (reviewdone.rs). One
+//! whose PR moved on while it worked says so too as it makes way, and the next commit's round
+//! starts afresh the same way: an agent that gave up may take nothing typed into it, so no round
+//! is handed to a session that shows such an error (`past_error`). A round nothing else moves that has had nothing at work on it for
 //! hours is given up on (`Round::stuck`), a PR's no longer listed too, so a turn's end nothing read
 //! can't hold a place for good; and a turn whose session still runs is waited on for the review
 //! it didn't write only a while (`without_review`).
@@ -303,11 +306,11 @@ impl Part {
         !s.live && s.cut_off.is_some_and(|at| at >= self.last_asked())
     }
 
-    /// Its session `s`'s turn stopped on an error its harness recorded, since it was asked or last
-    /// told to carry on: not a usage limit, a lost connection or a cut, which go their own ways.
-    /// The error shows until you look at the session, which the next look here comes before.
+    /// Its session `s`'s turn stopped on an error its harness recorded (`stopped_on_error`), since
+    /// it was asked or last told to carry on. The error shows until you look at the session, which
+    /// the next look here comes before.
     fn errored_in(&self, s: &Session) -> bool {
-        s.status == Status::Error && s.limit.is_none() && s.connection_lost.is_none() && s.cut_off.is_none() && s.last_activity >= self.last_asked()
+        stopped_on_error(s) && s.last_activity >= self.last_asked()
     }
 
     /// Nothing has been at work on it for `STUCK_MS`: its session is gone, or hasn't been at work
@@ -331,6 +334,12 @@ impl Part {
 fn fail(p: &mut Part, why: &str) {
     p.state = PartState::Failed;
     p.note = Some(why.to_string());
+}
+
+/// Session `s`'s last turn stopped on an error its harness recorded: not a usage limit, a lost
+/// connection or a cut, which go their own ways.
+fn stopped_on_error(s: &Session) -> bool {
+    s.status == Status::Error && s.limit.is_none() && s.connection_lost.is_none() && s.cut_off.is_none()
 }
 
 /// Why a part whose start named no session failed when its session didn't show in time
@@ -620,7 +629,7 @@ fn account_at_limit(board: &Board, accounts: &[AccountCfg], account: &str, model
 }
 
 /// `seat_for`, starting afresh when the PR's kept session is on an account at its usage limit, or
-/// stopped with an error on the commit the PR is at (`past_error`).
+/// stopped with an error (`past_error`).
 fn seat_in(cfg: &ReviewsCfg, t: Option<&Tracked>, board: &Board, pr: &PrItem, now: i64) -> Seat {
     let mut s = seat_for(cfg, t, &board.lanes, pr);
     if let Some(key) = s.session.as_deref() {
@@ -628,16 +637,25 @@ fn seat_in(cfg: &ReviewsCfg, t: Option<&Tracked>, board: &Board, pr: &PrItem, no
             s.session = None;
         }
     }
-    past_error(s, t, board, pr)
+    past_error(s, t, board)
 }
 
-/// `seat` for the commit PR `pr` is at, once its latest round there ended because its reviewer's
-/// turn stopped with an error (`Round::errored`): a new session rather than the one that stopped,
-/// on another account than that one's where one can start it (`instead_of`).
-fn past_error(mut seat: Seat, t: Option<&Tracked>, board: &Board, pr: &PrItem) -> Seat {
-    let Some(r) = t.and_then(|t| t.rounds.last()).filter(|r| pr.head_oid.as_deref() == Some(r.head.as_str()) && r.errored()) else { return seat };
+/// `seat` past a reviewer's turn that stopped with an error: a new session rather than the one
+/// that stopped, on another account than that one's where one can start it (`instead_of`). That's
+/// once the PR's latest round ended so (`Round::errored`), whether the next is of the same commit
+/// (`Tracked::retries`) or of newer ones, and while the session kept for the next round shows such
+/// an error however its round ended: an agent that gave up may take nothing typed into it (a Cursor
+/// review's command line, handed the next round's commits after its turn stopped so, never took
+/// them, and the round waited six hours on it, 2026-10-29).
+fn past_error(mut seat: Seat, t: Option<&Tracked>, board: &Board) -> Seat {
+    let last = t.and_then(|t| t.rounds.last()).filter(|r| r.errored());
+    let kept = seat.session.as_deref().and_then(|k| board.session(k)).map(|(_, s)| s).filter(|s| stopped_on_error(s));
+    if last.is_none() && kept.is_none() {
+        return seat;
+    }
+    let stopped = last.and_then(|r| r.parts.iter().find_map(|p| board.session(p.session.as_deref()?))).map(|(_, s)| s).or(kept);
     seat.session = None;
-    seat.instead_of = r.parts.iter().find_map(|p| board.session(p.session.as_deref()?)).map(|(_, s)| s.account.clone());
+    seat.instead_of = stopped.map(|s| s.account.clone());
     seat
 }
 
@@ -1098,6 +1116,14 @@ fn found(board: &Board, p: &Pending, pr: &PrItem, asked: &HashSet<String>) -> Op
 fn next(r: &mut Round, board: &Board, pr: &PrItem, head: &str, wanted: bool, now: i64) -> Next {
     let working = |k: &str| board.session(k).is_some_and(|(_, s)| s.status == Status::Working);
     if head != r.head && wanted && !r.parts.iter().filter(|p| p.reviewing()).any(|p| p.pending.is_some() || p.session.as_deref().is_some_and(working)) {
+        // A turn that stopped with an error says so all the same, as the turn of a review whose
+        // commits came in while it worked often does once it's over: the next round then starts
+        // afresh, not in the session that stopped (`past_error`).
+        for p in r.parts.iter_mut().filter(|p| p.reviewing()) {
+            if let Some((_, s)) = p.session.as_deref().and_then(|k| board.session(k)).filter(|(_, s)| p.errored_in(s)) {
+                fail(p, &errored_note(s));
+            }
+        }
         end(r, ReviewStage::Failed, Some("New commits came in before it was done, so it's left for the next round.".into()), now);
         return Next::Changed;
     }
@@ -2051,14 +2077,15 @@ pub fn again_prompt(pr: &PrItem, head: &str, since: Option<&str>, login: &str, g
 
 /// The review a session's turn ended on: its last run of replies, once that run came after `at`.
 /// None while the turn hasn't written one, or ended on something else (a call, a prompt). A reply
-/// its record keeps no time for is as new as the prompt it answers, the session's last
-/// (`prompted`): Cursor's command line keeps a time only for each prompt, the minute it was written
-/// in, so a prompt from the minute of `at` on will do.
+/// its record keeps no time of its own for (none, or the prompt's it answers: Cursor's command
+/// line dates what came after a prompt by it, cursor.rs `timed`) is as new as that prompt, the
+/// session's last (`prompted`); and as that record keeps a prompt's time only to the minute, a
+/// prompt from the minute of `at` on will do.
 pub fn reply_after(items: &[Item], at: i64, prompted: i64) -> Option<String> {
     let end = items.iter().rposition(|i| i.kind != "note")?;
     let start = items[..=end].iter().rposition(|i| i.kind != "agent").map_or(0, |i| i + 1);
     let run = &items[start..=end];
-    let since = |i: &Item| if i.at > 0 { i.at >= at } else { prompted >= at - at.rem_euclid(60_000) };
+    let since = |i: &Item| if i.at > 0 && i.at != prompted { i.at >= at } else { prompted >= at - at.rem_euclid(60_000) };
     if run.is_empty() || run.iter().any(|i| i.kind != "agent" || !since(i)) {
         return None;
     }
@@ -2669,7 +2696,7 @@ pub fn plan(board: &Board, cfg: &Config, key: &str) -> anyhow::Result<Plan> {
         let on = if pr.mine { reviews.own.auto } else { reviews.auto };
         return Ok(Plan { wanted: false, on, stands: pr.auto_review.clone(), start: PlannedStart { who: seat.who, spec: None, start: None, problem: Some(FLAGGED_REVIEW.into()) } });
     }
-    let seat = past_error(seat, t, board, pr);
+    let seat = past_error(seat, t, board);
     let (md, diff, _) = crate::github::for_reading(pr)?;
     let stands = pr.auto_review.clone();
     let since = stands.as_ref().filter(|a| a.head != head && a.stage != ReviewStage::Queued).map(|a| a.head.clone());
@@ -2873,7 +2900,7 @@ pub fn review_now(engine: &Handle, reviewer: &Mutex<Reviewer>, key: &str, accoun
         let t = r.store.prs.get(&k);
         let seat = match account.map(str::trim).filter(|a| !a.is_empty()) {
             Some(a) => named_seat(a, "", "", t),
-            None => past_error(seat_for(&reviews, t, &board.lanes, pr), t, &board, pr),
+            None => past_error(seat_for(&reviews, t, &board.lanes, pr), t, &board),
         };
         let since = t.and_then(|t| t.done_head()).filter(|h| *h != head).map(String::from);
         let job = Job::Review { pr: pr.clone(), head, since, seat, by_hand: true };
@@ -4360,7 +4387,7 @@ mod tests {
         let mut r = Reviewer::default();
         let jobs = r.due(&board(vec![pr(7, HEAD)], vec![]), &on(), NOW);
         r.told(&jobs[0], Went::Started(vec![started(AUTO, S, NOW)]), NOW).unwrap();
-        let stuck = board(vec![pr(7, NEXT)], vec![session(Status::Error, NOW + 1)]);
+        let stuck = board(vec![pr(7, NEXT)], vec![session(Status::Idle, NOW + 1)]);
         r.due(&stuck, &on(), NOW + 2);
         assert_eq!(r.store.prs["o/r#7"].rounds[0].stage, ReviewStage::Failed);
         assert_eq!(kinds(&r.due(&stuck, &on(), NOW + 3 + QUIET_MS)), [format!("review 7 2222222 since None by auto in {S}")]);
@@ -4443,8 +4470,46 @@ mod tests {
         assert_eq!(stage(&r), ReviewStage::Failed);
         assert!(r.due(&failed, &on(), NOW + QUIET_MS + 2).is_empty(), "asked for by hand: Try again's to do");
         let t = r.store.prs.get("o/r#7");
-        let seat = past_error(seat_for(&on(), t, &failed.lanes, &failed.prs[0]), t, &failed, &failed.prs[0]);
+        let seat = past_error(seat_for(&on(), t, &failed.lanes, &failed.prs[0]), t, &failed);
         assert_eq!((seat.session, seat.instead_of.as_deref()), (None, Some("claude")), "Try again starts afresh");
+    }
+
+    /// A reviewer whose turn stopped with an error after new commits came in (a Cursor review's,
+    /// hours into its turn) says so as its round makes way, and the next commit's round starts
+    /// afresh on another account rather than being typed into the session that stopped, which
+    /// took nothing in. Nor is a round handed to a kept session that shows such an error, however
+    /// its own round ended.
+    #[test]
+    fn a_round_after_an_error_isnt_handed_to_the_session_that_stopped() {
+        const GAVE_UP: &str = "The turn stopped with an error: Agent turn stopped after repeated resume attempts made no progress";
+        let cursor = |status: Status, when: i64| Session { account: "cursor".into(), excerpt: Some(GAVE_UP.into()), ..at(S, status, when) };
+        let asked = || {
+            let mut r = Reviewer::default();
+            let jobs = r.due(&board(vec![pr(7, HEAD)], vec![]), &on(), NOW);
+            r.told(&jobs[0], Went::Started(vec![started(AUTO, S, NOW)]), NOW).unwrap();
+            r
+        };
+        let mut r = asked();
+        assert!(r.due(&board(vec![pr(7, NEXT)], vec![cursor(Status::Working, NOW + 1)]), &on(), NOW + 2).is_empty(), "waited on while it works");
+        let late = NOW + 5 * 60 * 60_000;
+        let failed = board(vec![pr(7, NEXT)], vec![cursor(Status::Error, late)]);
+        assert!(r.due(&failed, &on(), late + 1).is_empty());
+        let round = &r.store.prs["o/r#7"].rounds[0];
+        let said = "Its turn stopped with an error: Agent turn stopped after repeated resume attempts made no progress.";
+        assert_eq!((round.stage, round.parts[0].state, round.parts[0].note.as_deref()), (ReviewStage::Failed, PartState::Failed, Some(said)));
+        assert!(round.errored());
+        assert_eq!(kinds(&r.due(&failed, &on(), late + 2)), ["review 7 2222222 since None by auto instead of cursor"]);
+
+        // Its round made way while it waited on nothing, and its turn stopped so after.
+        let mut r = asked();
+        r.due(&board(vec![pr(7, NEXT)], vec![cursor(Status::Idle, NOW + 1)]), &on(), NOW + 2);
+        assert!(!r.store.prs["o/r#7"].rounds[0].errored());
+        let now = NOW + 3 + QUIET_MS;
+        assert_eq!(kinds(&r.due(&board(vec![pr(7, NEXT)], vec![cursor(Status::Error, NOW + 3)]), &on(), now)), ["review 7 2222222 since None by auto instead of cursor"]);
+        let mut r = asked();
+        r.due(&board(vec![pr(7, NEXT)], vec![cursor(Status::Idle, NOW + 1)]), &on(), NOW + 2);
+        let limited = Session { limit: Some(crate::model::SessionLimit { at: NOW + 3, resets_at: None, ..Default::default() }), ..cursor(Status::Error, NOW + 3) };
+        assert_eq!(kinds(&r.due(&board(vec![pr(7, NEXT)], vec![limited]), &on(), now)), ["review 7 2222222 since None by auto"], "a usage limit goes its own way");
     }
 
     #[test]
