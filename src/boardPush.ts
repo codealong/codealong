@@ -156,10 +156,17 @@ export class Pushes {
         }
         if (this.board) this.handOn(this.board);
       },
-      // Nothing to hand on; the next push tries again.
+      // What came meanwhile that fits the board here still goes on (a whole board always does),
+      // without reading again; the next push that doesn't fit tries again.
       () => {
         this.reading = false;
+        const held = this.held;
         this.held = [];
+        for (const p of held) {
+          if (this.board && p.rev <= (this.board.rev ?? 0)) continue;
+          this.board = applyPush(this.board, p) ?? this.board;
+        }
+        if (this.board) this.handOn(this.board);
       },
     );
   }

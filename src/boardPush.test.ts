@@ -84,6 +84,23 @@ describe('Pushes', () => {
     expect(handed).toEqual([board(3).rev, board(4).rev, board(5).rev]);
   });
 
+  it('takes a whole board that came while a read failed', async () => {
+    let fail: (e: Error) => void = () => {};
+    const read = vi.fn(() => new Promise<Board>((_, reject) => (fail = reject)));
+    const { p, handed } = pushes(read);
+    p.saw(board(0));
+    p.take(run[2].push);
+    // The engine starts over, as at a launch: its first push is whole.
+    const whole = { ...board(4), rev: 9 };
+    p.take({ rev: 9, full: whole });
+    p.take({ rev: 10, base: 9, fields: { loading: false } });
+    fail(new Error('no answer'));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(handed).toEqual([10]);
+    expect(read).toHaveBeenCalledTimes(1);
+  });
+
   it('hands on a board once, however many times its push is heard', () => {
     const { p, handed } = pushes(() => Promise.reject(new Error('not asked')));
     p.take(run[0].push);
