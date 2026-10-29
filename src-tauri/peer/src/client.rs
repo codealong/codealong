@@ -632,9 +632,25 @@ impl Client {
     }
 
     /// The side conversations kept for a session on `device`, the latest first: the open one too,
-    /// as far as it's been answered.
+    /// as far as it's been answered. One closed while its copy answered that what's kept says has
+    /// answered, or has no more, did so while the two weren't connected, with nothing told of it
+    /// here: it's let go of (`side_closing`), unless the device told of the session's since.
     pub fn side_past(&self, device: &str, key: &str) -> std::result::Result<Vec<api::SideKept>, String> {
-        read(self.ask(device, api::SIDE_PAST, of(params::Session { key: key.into() }), READ_WAIT)?)
+        let hex = self.key_of(device).ok_or("That device isn't linked.")?;
+        let told = self.side_told(&hex, key);
+        let kept: Vec<api::SideKept> = read(self.ask(&hex, api::SIDE_PAST, of(params::Session { key: key.into() }), READ_WAIT)?)?;
+        let mut st = self.0.lock();
+        if let Some(sides) = st.sides.get_mut(&hex).filter(|s| s.told(key) == told) {
+            let done: Vec<String> = sides.closing.values().filter(|c| c.key == key && !kept.iter().any(|k| k.id == c.id && k.answering)).map(|c| c.id.clone()).collect();
+            for id in done {
+                if let Some(c) = sides.closing.remove(&id) {
+                    sides.stopped_at.insert(id, c.turns.len());
+                }
+            }
+        }
+        drop(st);
+        self.0.changed();
+        Ok(kept)
     }
 
     /// Closes a session's side conversation on `device`: a copy that's answering answers what it
@@ -659,7 +675,17 @@ impl Client {
     /// Forgets one of a session's kept side conversations on `device`, stopping it if it was
     /// closed and is still answering.
     pub fn side_forget(&self, device: &str, key: &str, id: &str) -> std::result::Result<(), String> {
-        self.ask(device, api::SIDE_FORGET, of(params::SideForget { key: key.into(), id: id.into() }), ACT_WAIT).map(|_| ())
+        let hex = self.key_of(device).ok_or("That device isn't linked.")?;
+        self.ask(&hex, api::SIDE_FORGET, of(params::SideForget { key: key.into(), id: id.into() }), ACT_WAIT)?;
+        let mut st = self.0.lock();
+        if let Some(sides) = st.sides.get_mut(&hex) {
+            // Gone for good: what it says as it stops is dropped.
+            sides.closing.remove(id);
+            sides.stopped_at.insert(id.to_string(), usize::MAX);
+        }
+        drop(st);
+        self.0.changed();
+        Ok(())
     }
 
     /// A session's open side conversation on `device`, as that device last said, once it's been

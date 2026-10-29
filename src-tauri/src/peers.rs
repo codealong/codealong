@@ -1976,7 +1976,9 @@ mod tests {
                     "session-page" => Ok(json!({ "items": [], "before": null, "after": 0, "key": params["key"] })),
                     "search" => Ok(json!({ "hits": [{ "key": "claude:claude:s1", "snippet": "the webhook", "you": true, "at": 5 }], "building": false, "off": false })),
                     "session-send" => Ok(json!({ "message": "Sent.", "opened": false })),
-                    "session-stream" | "side-get" => Ok(Value::Null),
+                    "session-stream" | "side-get" | "side-close" | "side-forget" => Ok(Value::Null),
+                    "side-ask" => Ok(json!({ "id": "9-1", "key": params["key"], "turns": [{ "question": params["text"], "at": 3 }], "running": true })),
+                    "side-past" => Ok(json!([{ "id": "7-1", "key": params["key"], "title": "s2", "startedAt": 1, "lastAt": 2, "turns": [{ "question": "Why?", "answer": "Because it is.", "done": true, "at": 1 }] }])),
                     "session-rename" | "mark-seen" | "session-archive" => Ok(Value::Null),
                     // As a Mac does that knows it, asked to end work under way; else as one from
                     // before it does.
@@ -2184,10 +2186,32 @@ mod tests {
         mac.peers.side(&Side { closed: true, ..side("Because it") });
         until("the close", || phone.side_closing(&d.short, "7-1").is_some_and(|s| s.running));
         assert_eq!(phone.side(&d.short, "claude:claude:s2"), None);
-        mac.peers.side(&Side { closed: true, running: false, ..side("Because it is.") });
-        until("the answer", || phone.side_closing(&d.short, "7-1").is_some_and(|s| !s.running));
+        // It answered while the two were apart, so nothing told of it: what's kept says so.
+        assert_eq!(phone.side_past(&d.short, "claude:claude:s2").unwrap()[0].turns[0].answer, "Because it is.");
+        assert_eq!(phone.side_closing(&d.short, "7-1"), None);
         // Asking acts as the session may, so it needs remote control there.
         assert!(phone.side_ask(&d.short, "claude:claude:s2", "And then?", None).unwrap_err().contains("Remote control is off on Mini"));
+        let on = DevicesCfg { remote_control: true, ..mac.peers.0.lock().cfg.clone() };
+        mac.board.lock().unwrap().devices = on.clone();
+        mac.peers.configure(&on);
+        let asked = phone.side_ask(&d.short, "claude:claude:s2", "And then?", None).unwrap();
+        assert_eq!(phone.side(&d.short, "claude:claude:s2"), Some(asked));
+        // Closed, it's gone at once, and what said it was open, come late, is dropped.
+        phone.side_close(&d.short, "claude:claude:s2").unwrap();
+        assert_eq!(phone.side(&d.short, "claude:claude:s2"), None);
+        mac.peers.side(&Side { id: "9-1".into(), ..side("Late") });
+        mac.peers.side(&Side { id: "11-1".into(), closed: true, ..side("After it") });
+        until("what came after", || phone.side_closing(&d.short, "11-1").is_some());
+        assert_eq!(phone.side(&d.short, "claude:claude:s2"), None);
+        // Deleted while it answers, it's gone, and what it says as it stops is dropped.
+        mac.peers.side(&Side { id: "8-1".into(), closed: true, ..side("Because it") });
+        until("the close", || phone.side_closing(&d.short, "8-1").is_some());
+        phone.side_forget(&d.short, "claude:claude:s2", "8-1").unwrap();
+        assert_eq!(phone.side_closing(&d.short, "8-1"), None);
+        mac.peers.side(&Side { id: "8-1".into(), closed: true, running: false, ..side("Because it is.") });
+        mac.peers.side(&Side { id: "10-1".into(), ..side("Then this.") });
+        until("what came after", || phone.side(&d.short, "claude:claude:s2").is_some_and(|s| s.turns[0].answer == "Then this."));
+        assert_eq!(phone.side_closing(&d.short, "8-1"), None);
         phone.unlink(&d.key).unwrap();
         let _ = std::fs::remove_dir_all(dir);
     }
