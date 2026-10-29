@@ -272,7 +272,7 @@ pub fn parse_transcript(path: &Path, mtime: i64, prev: Option<Parsed>) -> Option
             let (said_at, ended_at, compacted) = said_before(path, tail.start);
             info.compacted = said_at.filter(|_| compacted);
             info.ended_at = ended_at;
-            info.queue = queue_before(path, tail.start);
+            (info.queue, info.background) = held_before(path, tail.start);
             (head, info, TailState { said_at, ..TailState::default() }, tail)
         }
     };
@@ -1037,7 +1037,7 @@ fn queued_as_within(path: &Path, text: &str, since: i64, wait: std::time::Durati
 }
 
 /// How far back the queue's lines are looked for: by a send, for the one it made (`queued_as`),
-/// and by a first read, before its tail (`queue_before`).
+/// and by a first read, before its tail (`held_before`).
 const QUEUE_SCAN: u64 = 1024 * 1024;
 
 /// What Claude Code held as the tail read from `end` starts (`queue_step`): a message can be held
@@ -1045,12 +1045,16 @@ const QUEUE_SCAN: u64 = 1024 * 1024;
 /// command for as long as the turn another command took (`turn_took`). A first read replays the
 /// queue's lines, the turns' prompts and the command lines before them from `QUEUE_SCAN` before
 /// its tail, once (`hold_line`); later reads carry what's held forward. A prompt's line is known
-/// for a turn's by its `turnPosition` (2.1.30x).
-fn queue_before(path: &Path, end: u64) -> Vec<QueuedMessage> {
-    let mut lines: Vec<Value> = Vec::new();
+/// for a turn's by its `turnPosition` (2.1.30x). The same look back finds the shells it runs in
+/// the background (`background_step`), which a long turn's output can push out of the tail too.
+fn held_before(path: &Path, end: u64) -> (Vec<QueuedMessage>, Vec<(String, i64)>) {
+    let (mut lines, mut tasks): (Vec<Value>, Vec<Value>) = (Vec::new(), Vec::new());
     scan_lines_back(path, end.saturating_sub(QUEUE_SCAN), end, |line| {
         if line.contains("\"queue-operation\"") || line.contains("\"turnPosition\"") || line.contains("<command-name>") {
             lines.extend(serde_json::from_str::<Value>(line).ok());
+        }
+        if ["\"backgroundTaskId\"", "\"taskId\"", "\"task_id\"", "<task-notification>"].iter().any(|s| line.contains(s)) {
+            tasks.extend(serde_json::from_str::<Value>(line).ok());
         }
         false
     });
@@ -1058,7 +1062,11 @@ fn queue_before(path: &Path, end: u64) -> Vec<QueuedMessage> {
     for v in lines.iter().rev() {
         hold_line(&mut queue, &mut holding, v);
     }
-    queue
+    let mut background = Vec::new();
+    for v in tasks.iter().rev() {
+        background_step(&mut background, v, str_of(v, "timestamp").as_deref().and_then(parse_rfc3339_ms));
+    }
+    (queue, background)
 }
 
 /// What a turn that started at `at` on a prompt of yours, typed as `typed`, took in of what Claude
@@ -2381,6 +2389,16 @@ pub(super) mod tests {
         let many: Vec<String> = (0..40).map(|i| result("2026-10-29T22:02:00.000Z", json!({"backgroundTaskId": format!("b{i:08}")}))).collect();
         apply_tail(&mut info, &mut TailState::default(), &many.join("\n"));
         assert_eq!((info.background.len(), info.background[0].0.as_str()), (BACKGROUND_MOST, "b00000024"));
+        // A first read finds one started before its tail, past a long command's output, and
+        // not one that ended there.
+        let dir = crate::fixtures::scratch("background-before-tail");
+        let path = dir.join("s.jsonl");
+        let output = result("2026-10-29T21:58:30.000Z", json!({"stdout": "x".repeat(300_000)}));
+        let ended = held(&notice("b3x8c1v5n", "<status>completed</status>\n"));
+        std::fs::write(&path, format!("{HEAD}{}\n{ended}\n{output}\n{}\n", started.join("\n"), told(&notice("b7k2m9p4q", "")))).unwrap();
+        let fresh = parse_transcript(&path, 1, None).unwrap().1;
+        assert_eq!(fresh.background, both[1..]);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

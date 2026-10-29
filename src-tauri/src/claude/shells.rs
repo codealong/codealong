@@ -13,6 +13,13 @@ pub(super) fn running_command(pid: u32) -> Option<String> {
     procs::find_child(pid, eval_command)
 }
 
+/// The command a session's Bash tool is running, from a listing of the processes this tick
+/// (`procs::Listing`): for whether one still runs, which a reading kept from an earlier look
+/// can't say.
+pub(super) fn running_in(listed: &[procs::PsLine], pid: u32) -> Option<String> {
+    listed.iter().filter(|p| p.ppid == pid).find_map(|p| eval_command(&p.command))
+}
+
 /// What the commands several sessions' Bash tools run are made of right now (`procs::CommandTree`),
 /// from one look at the process table: every process under their shells.
 pub(super) fn command_trees(listed: &[procs::PsLine], pids: &[u32]) -> HashMap<u32, procs::CommandTree> {
@@ -50,6 +57,9 @@ mod tests {
         let trees = command_trees(&listed, &[100, 999]);
         assert_eq!(trees[&100].cpu, vec![(300, 1), (301, 88), (302, 0), (303, 372345)]);
         assert!(trees[&999].cpu.is_empty());
+        // What its shell runs, and nothing for a session whose children run none.
+        assert_eq!(running_in(&listed, 100).as_deref(), Some("spruce login --host x | tail -5"));
+        assert_eq!((running_in(&listed, 300), running_in(&listed, 999)), (None, None));
     }
 
     /// `CODEALONG_TEST_PIDS=<pid,…> cargo test command_trees_here -- --ignored --nocapture`
