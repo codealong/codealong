@@ -13,7 +13,7 @@ use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
-use crate::model::{Lane, Usage};
+use crate::model::{Lane, Session, Usage};
 use crate::pr::PrCard;
 use crate::schedules::Shared;
 
@@ -59,6 +59,11 @@ pub struct FeedMsg {
     pub device: Option<DeviceInfo>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub lanes: Vec<Lane>,
+    /// Every session's key, in order, for each lane in `lanes` that comes with only the sessions
+    /// that changed in it: the rest are the receiver's own copies. Only to a device that says
+    /// `proto::SESSIONS`.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub keys: HashMap<String, Vec<String>>,
     /// Lanes that left, by id.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub gone: Vec<String>,
@@ -167,7 +172,18 @@ impl Replica {
             self.lanes.retain(|l| !gone.contains(&l.id));
         }
         let mut at: HashMap<String, usize> = self.lanes.iter().enumerate().map(|(i, l)| (l.id.clone(), i)).collect();
-        for l in msg.lanes {
+        for mut l in msg.lanes {
+            if let Some(keys) = msg.keys.get(&l.id) {
+                let had = at.get(&l.id).map(|&i| std::mem::take(&mut self.lanes[i].sessions)).unwrap_or_default();
+                let mut had: HashMap<String, Session> = had.into_iter().map(|s| (s.key.clone(), s)).collect();
+                let mut changed: HashMap<String, Session> = std::mem::take(&mut l.sessions).into_iter().map(|s| (s.key.clone(), s)).collect();
+                l.sessions = keys.iter().filter_map(|k| changed.remove(k).or_else(|| had.remove(k))).collect();
+                // A session this copy doesn't have: it isn't what the sender takes it for, so the
+                // lane comes whole when the feed resumes.
+                if l.sessions.len() != keys.len() {
+                    self.hashes.remove(&l.id);
+                }
+            }
             match at.get(&l.id) {
                 Some(&i) => self.lanes[i] = l,
                 None => {
@@ -227,6 +243,27 @@ mod tests {
         replica.apply(FeedMsg { rev: 2, lanes: vec![changed, lane("/c")], gone: vec!["/b".into()], ..Default::default() });
         assert_eq!(replica.lanes.iter().map(|l| (l.id.as_str(), l.headline.as_str())).collect::<Vec<_>>(), [("/a", "new"), ("/c", "")]);
         assert_eq!(replica.rev, 2);
+    }
+
+    #[test]
+    fn a_lane_with_only_its_changed_sessions_keeps_the_rest() {
+        let session = |key: &str, title: &str| Session { title: title.into(), ..crate::fixtures::session(key) };
+        let mut replica = Replica::default();
+        let first = crate::fixtures::lane("/a", vec![session("k1", "one"), session("k2", "two"), session("k3", "three")]);
+        replica.apply(FeedMsg { rev: 1, full: true, lanes: vec![first], hashes: HashMap::from([("/a".to_string(), 1)]), ..Default::default() });
+        // k2 changed and moved first, k3 left, k4 came; k1 is this copy's own.
+        let changed = crate::fixtures::lane("/a", vec![session("k2", "two again"), session("k4", "four")]);
+        let keys = HashMap::from([("/a".to_string(), vec!["k2".to_string(), "k1".into(), "k4".into()])]);
+        replica.apply(FeedMsg { rev: 2, lanes: vec![changed], keys, hashes: HashMap::from([("/a".to_string(), 2)]), ..Default::default() });
+        let titles: Vec<(&str, &str)> = replica.lanes[0].sessions.iter().map(|s| (s.key.as_str(), s.title.as_str())).collect();
+        assert_eq!(titles, [("k2", "two again"), ("k1", "one"), ("k4", "four")]);
+        assert_eq!(replica.have(), HashMap::from([("/a".to_string(), 2)]));
+
+        // One it doesn't have: the lane is kept as far as it goes, and comes whole on resuming.
+        let keys = HashMap::from([("/a".to_string(), vec!["k1".to_string(), "k9".into()])]);
+        replica.apply(FeedMsg { rev: 3, lanes: vec![crate::fixtures::lane("/a", vec![])], keys, hashes: HashMap::from([("/a".to_string(), 3)]), ..Default::default() });
+        assert_eq!(replica.lanes[0].sessions.iter().map(|s| s.key.as_str()).collect::<Vec<_>>(), ["k1"]);
+        assert!(replica.have().is_empty());
     }
 
     #[test]

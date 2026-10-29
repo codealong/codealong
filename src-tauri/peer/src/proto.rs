@@ -120,7 +120,10 @@ pub const TABLET: &str = "tablet";
 /// session's side conversations as they change (`Msg::Side`) once it has asked about them.
 /// `SIDE_FROM` is a Mac's word that a side question naming the one a window reads
 /// (`params::Side::from`) goes on in that one; a device asks one with `from` only when it says
-/// so, since one from before asks the open one or a new copy that knows none of it.
+/// so, since one from before asks the open one or a new copy that knows none of it. `SESSIONS`
+/// says its copy of a feed takes a changed lane with only the sessions that changed in it and
+/// every session's key in order (`FeedMsg::keys`); a device that doesn't say it gets the whole
+/// lane, as the builds before read it.
 pub const HAVE: &str = "have";
 pub const WATCH: &str = "watch";
 pub const CURSOR: &str = "cursor";
@@ -131,7 +134,8 @@ pub const PEER_ITEMS: &str = "peer-items";
 pub const SCHEDULES: &str = "schedules";
 pub const SIDES: &str = "sides";
 pub const SIDE_FROM: &str = "side-from";
-pub const KNOWS: [&str; 10] = [HAVE, WATCH, CURSOR, PRS, PR_DRAFTS, EMBLEM_PICTURES, PEER_ITEMS, SCHEDULES, SIDES, SIDE_FROM];
+pub const SESSIONS: &str = "sessions";
+pub const KNOWS: [&str; 11] = [HAVE, WATCH, CURSOR, PRS, PR_DRAFTS, EMBLEM_PICTURES, PEER_ITEMS, SCHEDULES, SIDES, SIDE_FROM, SESSIONS];
 
 /// Whether a device of this kind only watches.
 pub fn watches(kind: Option<&str>) -> bool {

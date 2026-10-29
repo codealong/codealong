@@ -35,6 +35,9 @@ pub struct Snapshot {
     pub prs: Vec<PrCard>,
     pub schedules: Shared,
     lane_hashes: Vec<u64>,
+    /// Each lane's sessions' hashes, in order, for a device that takes only the ones that changed
+    /// (`proto::SESSIONS`).
+    session_hashes: Vec<Vec<u64>>,
     device_hash: u64,
     usage_hash: u64,
     prs_hash: u64,
@@ -59,9 +62,10 @@ pub fn snapshot(board: &Board, device: DeviceInfo) -> Snapshot {
     let older = (lanes.iter().any(|l| l.sessions.iter().any(|s| newer(s.harness))) || usage.iter().any(|u| newer(u.harness))).then(|| {
         let lanes: Vec<Lane> = lanes.iter().map(|l| Lane { sessions: l.sessions.iter().filter(|s| reads_everywhere(s.harness)).cloned().collect(), ..l.clone() }).collect();
         let usage: Vec<Usage> = usage.iter().filter(|u| reads_everywhere(u.harness)).cloned().collect();
-        Box::new(Snapshot { generated_at: board.generated_at, lane_hashes: lanes.iter().map(hash_of).collect(), device_hash: hash_of(&device), usage_hash: hash_of(&usage), device: device.clone(), lanes, usage, prs: prs.clone(), prs_hash, schedules: schedules.clone(), schedules_hash, older: None })
+        Box::new(Snapshot { generated_at: board.generated_at, lane_hashes: lanes.iter().map(hash_of).collect(), session_hashes: Vec::new(), device_hash: hash_of(&device), usage_hash: hash_of(&usage), device: device.clone(), lanes, usage, prs: prs.clone(), prs_hash, schedules: schedules.clone(), schedules_hash, older: None })
     });
-    Snapshot { generated_at: board.generated_at, lane_hashes: lanes.iter().map(hash_of).collect(), device_hash: hash_of(&device), usage_hash: hash_of(&usage), device, lanes, usage, prs, prs_hash, schedules, schedules_hash, older }
+    let session_hashes = lanes.iter().map(|l| l.sessions.iter().map(hash_of).collect()).collect();
+    Snapshot { generated_at: board.generated_at, lane_hashes: lanes.iter().map(hash_of).collect(), session_hashes, device_hash: hash_of(&device), usage_hash: hash_of(&usage), device, lanes, usage, prs, prs_hash, schedules, schedules_hash, older }
 }
 
 /// The PRs another device is told of: the open ones, and ones merged or closed in the last day,
@@ -211,18 +215,31 @@ pub struct Outbox {
     /// The other device draws emblems as emoji and pictures (`proto::EMBLEM_PICTURES`); one from
     /// before gets none.
     knows_emblems: bool,
+    /// The other device takes a lane with only its sessions that changed (`proto::SESSIONS`).
+    knows_sessions: bool,
+    /// Each session's hash in the lanes whose sessions the other device's copy has as they were
+    /// sent, by lane and key: the lanes it was sent whole on this connection, or has as they are
+    /// now. A lane it has some other way is sent whole once.
+    sessions: HashMap<String, HashMap<String, u64>>,
 }
 
 impl Outbox {
     /// The outbox for a device whose hello said `knows`.
     pub fn for_device(knows: &[String]) -> Outbox {
         let says = |word: &str| knows.iter().any(|k| k == word);
-        Outbox { older: !knows_every_harness(knows), knows_prs: says(codealong_peer::proto::PRS), knows_schedules: says(codealong_peer::proto::SCHEDULES), knows_emblems: says(codealong_peer::proto::EMBLEM_PICTURES), ..Outbox::default() }
+        Outbox {
+            older: !knows_every_harness(knows),
+            knows_prs: says(codealong_peer::proto::PRS),
+            knows_schedules: says(codealong_peer::proto::SCHEDULES),
+            knows_emblems: says(codealong_peer::proto::EMBLEM_PICTURES),
+            knows_sessions: says(codealong_peer::proto::SESSIONS),
+            ..Outbox::default()
+        }
     }
 
     /// Starts over, so the next feed carries everything, for the same device.
     pub fn restart(&mut self) {
-        *self = Outbox { older: self.older, knows_prs: self.knows_prs, knows_schedules: self.knows_schedules, knows_emblems: self.knows_emblems, ..Outbox::default() };
+        *self = Outbox { older: self.older, knows_prs: self.knows_prs, knows_schedules: self.knows_schedules, knows_emblems: self.knows_emblems, knows_sessions: self.knows_sessions, ..Outbox::default() };
     }
 
     /// Picks up where the other device's copy leaves off (`Msg::Have`): the lanes it has, by the
@@ -263,21 +280,46 @@ impl Outbox {
             self.schedules = Some(snap.schedules_hash);
         }
         let mut here: HashSet<&str> = HashSet::new();
-        for (lane, h) in snap.lanes.iter().zip(&snap.lane_hashes) {
+        for (i, (lane, h)) in snap.lanes.iter().zip(&snap.lane_hashes).enumerate() {
             here.insert(&lane.id);
-            if self.lanes.get(&lane.id) != Some(h) {
+            // Each session's hash by its key, where the other device can be sent only the ones that
+            // changed: two sessions with one key couldn't be told apart.
+            let hashes: Option<HashMap<String, u64>> = snap
+                .session_hashes
+                .get(i)
+                .filter(|_| self.knows_sessions && self.knows_emblems)
+                .map(|hashes| lane.sessions.iter().map(|s| s.key.clone()).zip(hashes.iter().copied()).collect::<HashMap<_, _>>())
+                .filter(|by_key| by_key.len() == lane.sessions.len());
+            let unchanged = self.lanes.get(&lane.id) == Some(h);
+            if !unchanged {
                 let mut sent = lane.clone();
                 if !self.knows_emblems {
                     sent.sessions.iter_mut().for_each(|s| s.emblem = None);
+                }
+                if let (Some(now), Some(had)) = (&hashes, self.sessions.get(&lane.id)) {
+                    msg.keys.insert(lane.id.clone(), lane.sessions.iter().map(|s| s.key.clone()).collect());
+                    sent.sessions.retain(|s| had.get(&s.key) != now.get(&s.key));
                 }
                 msg.lanes.push(sent);
                 msg.hashes.insert(lane.id.clone(), *h);
                 self.lanes.insert(lane.id.clone(), *h);
             }
+            // A lane it was just sent, or has as it is now (a resumed feed's), it has session by
+            // session.
+            match hashes {
+                Some(now) if !unchanged || !self.sessions.contains_key(&lane.id) => {
+                    self.sessions.insert(lane.id.clone(), now);
+                }
+                Some(_) => {}
+                None => {
+                    self.sessions.remove(&lane.id);
+                }
+            }
         }
         let gone: Vec<String> = self.lanes.keys().filter(|id| !here.contains(id.as_str())).cloned().collect();
         for id in &gone {
             self.lanes.remove(id);
+            self.sessions.remove(id);
         }
         if !full {
             msg.gone = gone;
@@ -477,6 +519,59 @@ mod tests {
         replica.apply(rename);
         assert_eq!(replica.device.name, "Studio");
         assert_eq!(replica.rev, 3);
+    }
+
+    /// A device that says `proto::SESSIONS` gets a changed lane with only its sessions that
+    /// changed, which its copy puts back together; one that doesn't still gets it whole.
+    #[test]
+    fn a_device_that_knows_sessions_gets_only_the_ones_that_changed() {
+        let knows = codealong_peer::proto::KNOWS.map(String::from);
+        let lanes = |s2: Status| vec![lane("/a", vec![session("s1", Status::Idle), session("s2", s2), session("s3", Status::Idle)]), lane("/b", vec![session("s4", Status::Idle)])];
+        let json = |l: &Vec<Lane>| serde_json::to_value(l).unwrap();
+        let (mut out, mut older) = (Outbox::for_device(&knows), Outbox::for_device(&knows[..knows.len() - 1]));
+        let mut replica = Replica::default();
+        let b = board(lanes(Status::Idle));
+        replica.apply(out.next(&snapshot(&b, info("Mini"))).unwrap());
+        older.next(&snapshot(&b, info("Mini")));
+
+        let b2 = board(lanes(Status::Working));
+        let delta = out.next(&snapshot(&b2, info("Mini"))).unwrap();
+        assert_eq!(delta.lanes.iter().map(|l| (l.id.as_str(), l.sessions.iter().map(|s| s.key.as_str()).collect::<Vec<_>>())).collect::<Vec<_>>(), [("/a", vec!["s2"])]);
+        assert_eq!(delta.keys["/a"], ["s1", "s2", "s3"]);
+        replica.apply(delta);
+        assert_eq!(json(&replica.lanes), json(&snapshot(&b2, info("Mini")).lanes));
+        let whole = older.next(&snapshot(&b2, info("Mini"))).unwrap();
+        assert!(whole.keys.is_empty() && whole.lanes[0].sessions.len() == 3, "a device from before gets the lane whole");
+
+        // Reordered, one gone and one moved in from another lane, which leaves that one empty.
+        let mut b3 = board(lanes(Status::Working));
+        let moved = b3.lanes[1].sessions.remove(0);
+        b3.lanes[0].sessions.remove(0);
+        b3.lanes[0].sessions.insert(0, moved);
+        b3.lanes[0].sessions.swap(1, 2);
+        let delta = out.next(&snapshot(&b3, info("Mini"))).unwrap();
+        assert_eq!(delta.keys["/a"], ["s4", "s3", "s2"]);
+        assert_eq!(delta.lanes[0].sessions.iter().map(|s| s.key.as_str()).collect::<Vec<_>>(), ["s4"], "a session new to the lane goes with it");
+        replica.apply(delta);
+        assert_eq!(json(&replica.lanes), json(&snapshot(&b3, info("Mini")).lanes));
+
+        // On resuming, a lane its copy has as it is now is known session by session; one that
+        // changed while apart comes whole, since what the copy has of it isn't known.
+        let b4 = board(vec![lane("/a", vec![session("s4", Status::Unread), session("s3", Status::Idle), session("s2", Status::Working)]), lane("/b", vec![])]);
+        let mut again = Outbox::for_device(&knows);
+        again.resume(replica.have());
+        let resumed = again.next(&snapshot(&b3, info("Mini"))).unwrap();
+        assert!(resumed.lanes.is_empty(), "the device and usage, as any resumed feed starts, and no lane");
+        replica.apply(resumed);
+        let after = again.next(&snapshot(&b4, info("Mini"))).unwrap();
+        assert_eq!(after.lanes[0].sessions.iter().map(|s| s.key.as_str()).collect::<Vec<_>>(), ["s4"]);
+        replica.apply(after);
+        assert_eq!(json(&replica.lanes), json(&snapshot(&b4, info("Mini")).lanes));
+        let mut apart = Outbox::for_device(&knows);
+        apart.resume(replica.have());
+        let b5 = board(vec![lane("/a", vec![session("s4", Status::Idle), session("s3", Status::Idle), session("s2", Status::Working)]), lane("/b", vec![])]);
+        let resumed = apart.next(&snapshot(&b5, info("Mini"))).unwrap();
+        assert!(resumed.keys.is_empty() && resumed.lanes[0].sessions.len() == 3);
     }
 
     #[test]
