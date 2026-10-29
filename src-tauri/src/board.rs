@@ -243,6 +243,13 @@ pub fn untold_shell(r: &RegistryEntry, t: &TranscriptInfo) -> bool {
     r.status == "idle" && r.entrypoint.as_deref() != Some("cli") && t.background.iter().any(|(_, at)| r.started_at.map_or(true, |s| *at >= s))
 }
 
+/// Whether processes listed at `listed_at` can say a session's background shells have gone
+/// (`untold_shell`): the engine lists them every few seconds off its thread, and one listed
+/// before a shell started doesn't have it yet.
+pub fn listed_after_shells(listed_at: Option<i64>, t: &TranscriptInfo) -> bool {
+    listed_at.is_some_and(|at| t.background.iter().all(|(_, started)| *started <= at))
+}
+
 /// How a session's excerpt starts while it holds another session's message for you to allow
 /// (`claude::held`): the sender follows.
 pub const HELD_MESSAGE: &str = "Held message from ";
@@ -4095,9 +4102,12 @@ mod tests {
         assert!(s.waits_in_background());
         // Jev is asked what the command does, not whether the reply asks you something.
         assert_eq!(crate::insights::ask(&s, NOW).map(|(k, _)| k), Some(crate::insights::Kind::Background));
-        // Its turn is over when no shell of its runs one, whatever the transcript last heard.
+        // Its turn is over when no shell of its runs one, whatever the transcript last heard;
+        // but processes listed before the shell started can't say so.
         let gone = claude_session(&a, Some(&r), Some(&t), 0, NOW, &Quiet::default()).unwrap();
         assert_eq!((gone.status, gone.background), (Status::Unread, None));
+        assert!(listed_after_shells(Some(NOW - 61_000), &t) && listed_after_shells(Some(NOW), &t));
+        assert!(!listed_after_shells(Some(NOW - 65_000), &t) && !listed_after_shells(None, &t));
         // And when what it started went with an earlier process.
         let restarted = RegistryEntry { started_at: Some(NOW - 30_000), ..r.clone() };
         assert_eq!(claude_session(&a, Some(&restarted), Some(&t), 0, NOW, &running).unwrap().status, Status::Unread);

@@ -1388,11 +1388,13 @@ impl crate::harness::Reader for Reader {
             // Only a busy session that's gone quiet costs a look outside its transcript,
             // and one whose turn left a command running in the background (read once
             // per status change). One whose registry doesn't say so is looked for in each
-            // tick's processes, since whether the command still runs is what decides it;
-            // with none listed (`ps` failed), as the others are.
+            // tick's processes, since whether the command still runs is what decides it,
+            // once they were listed after its shells started (`ps` hasn't failed); until
+            // then, as the others are.
             let background = reg.filter(|r| r.status == "shell" || info.is_some_and(|t| board::untold_shell(r, t)));
+            let listed = |t: &TranscriptInfo| !look.ps.all().is_empty() && board::listed_after_shells(look.ps.at(), t);
             let (subagent_at, running) = match board::claude_busy_since(reg, info) {
-                _ if background.is_some_and(|r| r.status != "shell") && !look.ps.all().is_empty() => (None, background.and_then(|r| shells::running_in(look.ps.all(), r.pid))),
+                _ if background.is_some_and(|r| r.status != "shell") && info.is_some_and(listed) => (None, background.and_then(|r| shells::running_in(look.ps.all(), r.pid))),
                 _ if background.is_some() => (None, background.and_then(|r| self.stuck_command(r))),
                 Some(since) if now - since > board::CLAUDE_STALL_MS => {
                     let sub = tr.and_then(|(p, _)| subagent_activity(p, id));

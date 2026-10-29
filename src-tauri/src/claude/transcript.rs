@@ -251,6 +251,8 @@ pub fn parse_transcript(path: &Path, mtime: i64, prev: Option<Parsed>) -> Option
     let len = std::fs::metadata(path).ok()?.len();
     // A large append rebuilds the tail's status, but flags in the already-read prefix are known.
     let (was_flagged, flag_from) = prev.as_ref().filter(|(_, _, st)| st.offset <= len).map(|(_, info, st)| (info.flagged, st.offset)).unwrap_or_default();
+    // So are the shells it runs in the background, which the lines since only add to or end.
+    let ran = prev.as_ref().filter(|(_, _, st)| st.offset <= len).map(|(_, info, st)| (info.background.clone(), st.offset));
     let resume = prev.filter(|(_, _, st)| st.offset <= len && len - st.offset <= 4 * FRESH_TAIL);
     let fresh = resume.is_none();
     let (head, mut info, mut state, tail) = match resume {
@@ -273,6 +275,9 @@ pub fn parse_transcript(path: &Path, mtime: i64, prev: Option<Parsed>) -> Option
             info.compacted = said_at.filter(|_| compacted);
             info.ended_at = ended_at;
             (info.queue, info.background) = held_before(path, tail.start);
+            if let Some((background, from)) = ran {
+                info.background = background_since(path, background, from, tail.start);
+            }
             (head, info, TailState { said_at, ..TailState::default() }, tail)
         }
     };
@@ -1046,14 +1051,16 @@ const QUEUE_SCAN: u64 = 1024 * 1024;
 /// queue's lines, the turns' prompts and the command lines before them from `QUEUE_SCAN` before
 /// its tail, once (`hold_line`); later reads carry what's held forward. A prompt's line is known
 /// for a turn's by its `turnPosition` (2.1.30x). The same look back finds the shells it runs in
-/// the background (`background_step`), which a long turn's output can push out of the tail too.
+/// the background (`background_step`), which a long turn's output can push out of the tail too;
+/// one started further back than that before Codealong first read the transcript is read as its
+/// registry says, since reading back to every session's start would cost each launch far more.
 fn held_before(path: &Path, end: u64) -> (Vec<QueuedMessage>, Vec<(String, i64)>) {
     let (mut lines, mut tasks): (Vec<Value>, Vec<Value>) = (Vec::new(), Vec::new());
     scan_lines_back(path, end.saturating_sub(QUEUE_SCAN), end, |line| {
         if line.contains("\"queue-operation\"") || line.contains("\"turnPosition\"") || line.contains("<command-name>") {
             lines.extend(serde_json::from_str::<Value>(line).ok());
         }
-        if ["\"backgroundTaskId\"", "\"taskId\"", "\"task_id\"", "<task-notification>"].iter().any(|s| line.contains(s)) {
+        if names_a_task(line) {
             tasks.extend(serde_json::from_str::<Value>(line).ok());
         }
         false
@@ -1063,10 +1070,34 @@ fn held_before(path: &Path, end: u64) -> (Vec<QueuedMessage>, Vec<(String, i64)>
         hold_line(&mut queue, &mut holding, v);
     }
     let mut background = Vec::new();
-    for v in tasks.iter().rev() {
-        background_step(&mut background, v, str_of(v, "timestamp").as_deref().and_then(parse_rfc3339_ms));
-    }
+    replay_background(&mut background, &tasks);
     (queue, background)
+}
+
+/// The shells it runs in the background after the lines from `from` to `end`, when those it ran
+/// at `from` are known: a large append is read afresh, but only its lines can start or end one.
+fn background_since(path: &Path, mut running: Vec<(String, i64)>, from: u64, end: u64) -> Vec<(String, i64)> {
+    let mut tasks = Vec::new();
+    scan_lines_back(path, from, end, |line| {
+        if names_a_task(line) {
+            tasks.extend(serde_json::from_str::<Value>(line).ok());
+        }
+        false
+    });
+    replay_background(&mut running, &tasks);
+    running
+}
+
+/// Whether a line can start or end a background shell (`background_step`), before it's parsed.
+fn names_a_task(line: &str) -> bool {
+    ["\"backgroundTaskId\"", "\"taskId\"", "\"task_id\"", "<task-notification>"].iter().any(|s| line.contains(s))
+}
+
+/// `background_step` over lines a look back gathered, last first.
+fn replay_background(running: &mut Vec<(String, i64)>, last_first: &[Value]) {
+    for v in last_first.iter().rev() {
+        background_step(running, v, str_of(v, "timestamp").as_deref().and_then(parse_rfc3339_ms));
+    }
 }
 
 /// What a turn that started at `at` on a prompt of yours, typed as `typed`, took in of what Claude
@@ -2398,6 +2429,14 @@ pub(super) mod tests {
         std::fs::write(&path, format!("{HEAD}{}\n{ended}\n{output}\n{}\n", started.join("\n"), told(&notice("b7k2m9p4q", "")))).unwrap();
         let fresh = parse_transcript(&path, 1, None).unwrap().1;
         assert_eq!(fresh.background, both[1..]);
+        // A large append is read afresh, but what ran before it runs on, however far back it
+        // started, unless the append ends it.
+        std::fs::write(&path, format!("{HEAD}{}\n", started.join("\n"))).unwrap();
+        let first = parse_transcript(&path, 1, None).unwrap();
+        assert_eq!(first.1.background, both);
+        let long = result("2026-10-29T21:59:00.000Z", json!({"stdout": "x".repeat(2_000_000)}));
+        std::fs::write(&path, format!("{HEAD}{}\n{ended}\n{long}\n{}\n", started.join("\n"), told(&notice("b7k2m9p4q", "")))).unwrap();
+        assert_eq!(parse_transcript(&path, 2, Some(first)).unwrap().1.background, both[1..]);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
