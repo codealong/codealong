@@ -1048,7 +1048,9 @@ on a connection that kept dropping, say), rather than a usage limit or a lost co
 round saying why, and the commit is reviewed once more by itself in a new session: on another
 account than that one's where Auto, or the routing group Settings names, has one that can start
 it, else on the same account. While that one runs, the PR's card says why the first stopped, and
-the session that stopped is marked done, so it no longer waits on you. One that stops so after
+the session that stopped is marked done, so it no longer waits on you; so it is once its round is
+over even when no other review starts, as none does once you've answered the PR's request yourself.
+One that stops so after
 new commits came in says why as it leaves them to the next round, and no round is handed to a
 session whose turn stopped on such an error: the next commit's starts afresh the same way, as an
 agent that gave up may take nothing typed into it. A

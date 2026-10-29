@@ -338,7 +338,7 @@ fn fail(p: &mut Part, why: &str) {
 
 /// Session `s`'s last turn stopped on an error its harness recorded: not a usage limit, a lost
 /// connection or a cut, which go their own ways.
-fn stopped_on_error(s: &Session) -> bool {
+pub(crate) fn stopped_on_error(s: &Session) -> bool {
     s.status == Status::Error && s.limit.is_none() && s.connection_lost.is_none() && s.cut_off.is_none()
 }
 

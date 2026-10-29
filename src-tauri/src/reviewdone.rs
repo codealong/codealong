@@ -15,6 +15,10 @@
 //! - once another review of its PR has started on this Mac since its turn stopped on an error
 //!   (autoreview.rs reviews the commit again in a new session, `past_error`), it's marked done the
 //!   same way, whatever its PR: nothing in it waits on you, and its PR's card says what went wrong.
+//!   One whose turn stopped on an error its harness recorded (`autoreview::stopped_on_error`) is
+//!   marked done once no round of its PR is under way or due, without waiting for another to
+//!   start: no round goes to it again, and none may start (a PR whose request you answered asks
+//!   for no more).
 //!
 //! None touches one you've taken up (`Helper::yours`; one made your own is no helper), one at
 //! work or with a command left running, or one waiting on you, and each is judged again on the
@@ -58,6 +62,9 @@ pub enum Why {
     Idle,
     /// Its turn stopped on an error, and its review went on in another session: marked done.
     Replaced,
+    /// Its turn stopped on an error its harness recorded, and no round of its PR is under way or
+    /// due: no round goes to it again (autoreview.rs `past_error`), so it's marked done.
+    Errored,
 }
 
 impl Why {
@@ -123,9 +130,14 @@ impl Finisher {
 fn why(board: &Board, s: &Session, pr: Option<PrNow>, read: bool, now: i64) -> Option<Why> {
     let h = s.helper.as_ref()?;
     let replaced = s.status == Status::Error && replaced(board, s);
+    // A round under way may be the one its turn stopped in, which autoreview.rs fails, or retries
+    // elsewhere, on its next look. One due may be kept from it only by the error it shows
+    // (`past_error`, after a round that made way for new commits before its turn stopped), which
+    // marking it done, and so seen, would clear: it's done once that round starts elsewhere.
+    let errored = crate::autoreview::stopped_on_error(s) && pr.map_or(read, |p| !p.round);
     // What's past for one that no longer runs (an error its last turn ended on) doesn't hold it,
-    // nor an error whose review went on elsewhere.
-    let busy = s.live && (matches!(s.status, Status::Working | Status::Needs) || (s.status == Status::Error && !replaced) || s.background.is_some());
+    // nor an error whose review went on elsewhere or whose round is over.
+    let busy = s.live && (matches!(s.status, Status::Working | Status::Needs) || (s.status == Status::Error && !replaced && !errored) || s.background.is_some());
     if h.yours || s.visitor.is_some() || busy {
         return None;
     }
@@ -137,6 +149,7 @@ fn why(board: &Board, s: &Session, pr: Option<PrNow>, read: bool, now: i64) -> O
     match pr {
         Some(p) if p.ended => done.then_some(Why::PrEnded),
         _ if replaced => done.then_some(Why::Replaced),
+        _ if errored => done.then_some(Why::Errored),
         None if read => (done && unused).then_some(Why::Unlisted),
         p => (ends && unused && !p.is_some_and(|p| p.round)).then_some(Why::Idle),
     }
@@ -303,7 +316,7 @@ mod tests {
 
     /// One whose turn stopped on an error is marked done once another review of its PR started
     /// after it, which its round went on in, whether it still runs or not and whatever its PR:
-    /// nothing in it waits on you. Not while nothing took it over, nor for a review of another PR,
+    /// nothing in it waits on you. Not while nothing took over a round under way or due, nor for a review of another PR,
     /// nor once you've taken it up or with a command it left running.
     #[test]
     fn an_errored_review_is_done_once_another_took_its_round() {
@@ -324,6 +337,33 @@ mod tests {
         assert!(replaced(yours).is_empty(), "taken up");
         assert!(replaced(Session { background: Some("npm test".into()), ..errored.clone() }).is_empty(), "a command left running");
         assert!(replaced(Session { status: Status::Idle, ..errored }).is_empty(), "no error: the usual rules");
+    }
+
+    /// One whose turn stopped on an error its harness recorded is marked done once no round of its
+    /// PR is under way or due, though none took it over: a PR whose request was answered starts
+    /// none. Not while a round is under way, which may be the one its turn stopped in, or due, which
+    /// only the error it shows may keep from it; nor before GitHub's first poll for a PR the board
+    /// doesn't list, nor for a usage limit, a lost connection or a cut, which go their own ways.
+    #[test]
+    fn an_errored_review_is_done_once_its_round_is_over() {
+        let errored = Session { status: Status::Error, ..review("rev-a", 60_000) };
+        let b = board(vec![errored.clone()]);
+        assert_eq!(due(&b, &prs(false, false)), keys(&[("rev-a", Why::Errored)]));
+        assert!(due(&b, &prs(false, true)).is_empty(), "a round under way or due");
+        assert_eq!(due(&b, &prs(true, false)), keys(&[("rev-a", Why::PrEnded)]), "its PR ended, though it still runs");
+        assert_eq!(due(&b, &HashMap::new()), keys(&[("rev-a", Why::Errored)]), "its PR no longer listed");
+        assert!(Finisher::default().due_among(&b, &HashMap::new(), false, NOW).is_empty(), "before GitHub's first poll");
+
+        let limited = Session { limit: Some(crate::model::SessionLimit { at: NOW, ..Default::default() }), ..errored.clone() };
+        let lost = Session { connection_lost: Some(crate::model::ConnectionLost { at: NOW, continues: false }), ..errored.clone() };
+        let cut = Session { cut_off: Some(NOW), ..errored.clone() };
+        for (s, what) in [(limited, "a usage limit"), (lost, "a lost connection"), (cut, "a cut")] {
+            assert!(due(&board(vec![s]), &prs(false, false)).is_empty(), "{what}");
+        }
+        let mut yours = errored.clone();
+        yours.helper.as_mut().unwrap().yours = true;
+        assert!(due(&board(vec![yours]), &prs(false, false)).is_empty(), "taken up");
+        assert!(due(&board(vec![Session { background: Some("npm test".into()), ..errored }]), &prs(false, false)).is_empty(), "a command left running");
     }
 
     /// One asked to end is asked once, and again only once `AGAIN_MS` is up while it's still due;
