@@ -489,6 +489,12 @@ impl Client {
         self.ask(device, api::SESSION_QUIET, of(params::Quiet { keys: keys.to_vec(), quiet }), ACT_WAIT).map(|_| ())
     }
 
+    /// Moves sessions on `device` to the top of what waits on you, or back to their places: every
+    /// queue there and everywhere else goes to them first, until you take them up.
+    pub fn raise(&self, device: &str, keys: &[String], raised: bool) -> std::result::Result<(), String> {
+        self.ask(device, api::SESSION_RAISE, of(params::Raise { keys: keys.to_vec(), raised, ..Default::default() }), ACT_WAIT).map(|_| ())
+    }
+
     /// Pins sessions on `device` at the top of its pinned ones, or unpins them: the Sessions view
     /// there lists them first, and the devices it tells list them as pinned.
     pub fn pin(&self, device: &str, keys: &[String], pinned: bool) -> std::result::Result<(), String> {

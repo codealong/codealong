@@ -133,6 +133,15 @@ Go over each session in `waiting` that `changed` this tick or has neither `sugge
 - A session your user has plainly left (a test prompt such as "Reply with just ok", or days
   unread): tag it once (`--asks-you no`, with a note saying so) so it stops coming up, and
   suggest nothing.
+- Move one to the top of what waits on your user (`codealong session raise <key> --note "<why>"`)
+  only when something else waits on it or it can't wait: a deploy held up on its answer, a PR
+  others are blocked behind, a session about to lose its context or its limit. Every queue then
+  goes to it first, after any your user moved there, until they send it something or see its
+  finished turn; one that's running is first once its turn ends. Keep it to two or three at a
+  time, and say in the note the one fact that makes it urgent, which shows on it. `waiting`'s
+  `raised` says which are there and who moved them. Refused (your user snoozed it, or moved it
+  back to its place): leave it, and don't move it up again until it's moved on. `--lower` puts
+  back one you moved once what made it urgent has passed.
 
 ## Overlaps
 

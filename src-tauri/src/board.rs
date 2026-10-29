@@ -12,7 +12,7 @@ use crate::opencode::{Live, SessionRow};
 use crate::config::AccountCfg;
 use crate::github::PrRaw;
 use crate::model::*;
-use crate::state::{Snooze, UnreadMark};
+use crate::state::{Raise, Snooze, UnreadMark};
 use crate::util::{code, one_line, tilde, truncate, DAY_MS};
 
 /// A Codex turn with no events for this long is treated as interrupted.
@@ -931,15 +931,17 @@ pub fn waiting_since(s: &Session) -> Option<i64> {
     matches!(s.status, Status::Needs | Status::Error).then(|| s.status_since.unwrap_or(s.last_activity))
 }
 
-/// Most urgent first; those that need you by how long they've waited, the rest by the one you
-/// last sent a prompt. Activity would reorder working sessions with every tool call; your
-/// prompts only move one when you do something. The key settles a tie: the readers hand their
-/// sessions over in their maps' order, which differs every time, and a lane whose order moved
-/// would make every board a new one to publish.
+/// Most urgent first, the ones moved to the top first among their kind (`raised_order`); those
+/// that need you by how long they've waited, the rest by the one you last sent a prompt. Activity
+/// would reorder working sessions with every tool call; your prompts only move one when you do
+/// something. The key settles a tie: the readers hand their sessions over in their maps' order,
+/// which differs every time, and a lane whose order moved would make every board a new one to
+/// publish.
 fn sort_sessions(sessions: &mut [Session]) {
     sessions.sort_by(|a, b| {
         urgency(a.status)
             .cmp(&urgency(b.status))
+            .then(raised_order(a.raised.as_ref(), b.raised.as_ref()))
             .then(waiting_since(a).cmp(&waiting_since(b)))
             .then(b.last_prompt_at.cmp(&a.last_prompt_at))
             .then(b.last_activity.cmp(&a.last_activity))
@@ -961,12 +963,19 @@ fn lane_waiting_since(sessions: &[Session]) -> Option<i64> {
     sessions.iter().filter(|s| s.visitor.is_none() && !s.archived && s.snoozed_until.is_none()).filter_map(waiting_since).min()
 }
 
-/// Lanes by bay; in Needs you the longest wait first, then those with no agent waiting; within
-/// that, and in the other bays, the one you last sent a prompt first.
+/// The first of a lane's own agents moved to the top (`Session::raised`), in the queues' order.
+fn lane_raised(sessions: &[Session]) -> Option<&Raised> {
+    sessions.iter().filter(|s| s.visitor.is_none() && !s.archived).filter_map(|s| s.raised.as_ref()).min_by(|a, b| raised_order(Some(a), Some(b)))
+}
+
+/// Lanes by bay, those with an agent moved to the top first (`raised_order`); in Needs you the
+/// longest wait first, then those with no agent waiting; within that, and in the other bays, the
+/// one you last sent a prompt first.
 fn lane_order(a: &Lane, b: &Lane) -> std::cmp::Ordering {
     let waited = |l: &Lane| if l.bay == Bay::Needs { lane_waiting_since(&l.sessions).map_or((1, 0), |t| (0, t)) } else { (0, 0) };
     a.bay
         .cmp(&b.bay)
+        .then(raised_order(lane_raised(&a.sessions), lane_raised(&b.sessions)))
         .then(waited(a).cmp(&waited(b)))
         .then(lane_prompt_at(&b.sessions, b.last_activity).cmp(&lane_prompt_at(&a.sessions, a.last_activity)))
         .then(b.last_activity.cmp(&a.last_activity))
@@ -1649,6 +1658,59 @@ pub fn apply_snooze(s: &mut Session, snooze: Option<&Snooze>, seen_at: i64, now:
         s.status = Status::Unread;
         s.status_since = Some(z.until);
     }
+}
+
+/// Applies a move to the top from Codealong to a session (`Session::raised`), after its snooze,
+/// before bays and headlines are worked out: every queue goes to it first (`raised_order`). It
+/// holds until you take it up: a prompt sent to it after it was moved puts it back in its place,
+/// and so does its finished turn marked seen, which takes the move away for good
+/// (`seen_takes_up`). One moved while its turn was over and seen (idle or stopped) waits on you
+/// as Your turn from then, as a mark of unread does, since it was moved to the top of what waits;
+/// one that's running keeps it, and is first once its turn ends. One moved back to its place
+/// (`Raise::lowered`) and an archived one show nothing.
+pub fn apply_raise(s: &mut Session, raise: Option<&Raise>) {
+    let Some(r) = raise.filter(|r| r.lowered.is_none()) else { return };
+    if s.archived || s.last_prompt_at > r.raised.at {
+        return;
+    }
+    if matches!(s.status, Status::Idle | Status::Stopped) {
+        s.status = Status::Unread;
+        s.status_since = Some(r.raised.at);
+    }
+    s.raised = Some(r.raised.clone());
+}
+
+/// Whether marking a session seen takes it up, ending a move to the top: its turn is over (Your
+/// turn, a reply that asks you something, or one already seen). Opening one that's running marks
+/// it seen too, which mustn't take away a move meant for when its turn ends; nor does looking at a
+/// call to allow, which waits on an answer.
+pub fn seen_takes_up(s: &Session) -> bool {
+    s.asks || matches!(s.status, Status::Unread | Status::Idle | Status::Stopped)
+}
+
+/// The order of sessions moved to the top (`Session::raised`), ahead of the rest: the ones you
+/// moved, then the ones agents did, so an agent's never goes over yours, each the latest first.
+/// Two that weren't moved are equal, and go by their status and wait.
+pub fn raised_order(a: Option<&Raised>, b: Option<&Raised>) -> std::cmp::Ordering {
+    let rank = |r: &Raised| (r.agent, Reverse(r.at));
+    match (a, b) {
+        (Some(a), Some(b)) => rank(a).cmp(&rank(b)),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => std::cmp::Ordering::Equal,
+    }
+}
+
+/// Why an agent may not move a session to the top, or none when it may: you snoozed it, or you
+/// moved it back to its place from where an agent had put it and it hasn't moved on since (no
+/// prompt sent to it, and its status hasn't changed).
+pub fn raise_refused(s: &Session, raise: Option<&Raise>, snoozed: bool) -> Option<String> {
+    if snoozed {
+        return Some("Your user snoozed it. Leave it until it's back.".to_string());
+    }
+    let lowered = raise.and_then(|r| r.lowered)?;
+    let moved_on = s.last_prompt_at > lowered || s.status_since.is_some_and(|t| t > lowered);
+    (!moved_on).then(|| "Your user moved it back to its place after it was moved to the top. Leave it there until it moves on.".to_string())
 }
 
 /// Applies a mark of unread from Codealong to a session: one whose turn is over (idle or
@@ -3801,6 +3863,70 @@ mod tests {
         let mut untouched = idle.clone();
         apply_snooze(&mut untouched, None, 0, NOW);
         assert_eq!((untouched.status, untouched.snoozed_until), (Status::Idle, None));
+    }
+
+    #[test]
+    fn a_move_to_the_top_holds_until_its_session_is_taken_up() {
+        const MIN: i64 = 60_000;
+        let at = NOW - 10 * MIN;
+        let raise = |agent: bool| Raise { key: "k".into(), raised: Raised { at, agent, ..Default::default() }, lowered: None };
+        let unread = Session { status: Status::Unread, status_since: Some(NOW - 30 * MIN), last_prompt_at: NOW - 40 * MIN, ..crate::fixtures::session("k") };
+        let raised = |s: &Session, r: Option<&Raise>| {
+            let mut s = s.clone();
+            apply_raise(&mut s, r);
+            (s.status, s.status_since, s.raised.map(|r| r.at))
+        };
+        // Waiting on you, it keeps its status and its wait, and says it's first.
+        assert_eq!(raised(&unread, Some(&raise(false))), (Status::Unread, unread.status_since, Some(at)));
+        let needs = Session { status: Status::Needs, ..unread.clone() };
+        assert_eq!(raised(&needs, Some(&raise(true))).2, Some(at));
+        // One that's running keeps it, for when its turn ends.
+        let working = Session { status: Status::Working, ..unread.clone() };
+        assert_eq!(raised(&working, Some(&raise(false))), (Status::Working, unread.status_since, Some(at)));
+        // One whose turn is over and seen waits on you again, from when it was moved.
+        let idle = Session { status: Status::Idle, ..unread.clone() };
+        assert_eq!(raised(&idle, Some(&raise(false))), (Status::Unread, Some(at), Some(at)));
+        let stopped = Session { status: Status::Stopped, live: false, ..unread.clone() };
+        assert_eq!(raised(&stopped, Some(&raise(false))).0, Status::Unread);
+        // A prompt sent to it since takes it up.
+        let prompted = Session { status: Status::Idle, last_prompt_at: at + MIN, ..unread.clone() };
+        assert_eq!(raised(&prompted, Some(&raise(false))), (Status::Idle, unread.status_since, None));
+        // Moved back to its place, archived, or never moved, it shows nothing.
+        let lowered = Raise { lowered: Some(NOW), ..raise(true) };
+        assert_eq!(raised(&unread, Some(&lowered)).2, None);
+        assert_eq!(raised(&Session { archived: true, ..idle.clone() }, Some(&raise(false))), (Status::Idle, unread.status_since, None));
+        assert_eq!(raised(&idle, None), (Status::Idle, unread.status_since, None));
+        // Seeing it takes it up once its turn is over, not while it runs or waits on a call.
+        assert!(seen_takes_up(&unread) && seen_takes_up(&idle) && seen_takes_up(&Session { asks: true, ..needs.clone() }));
+        assert!(!seen_takes_up(&working) && !seen_takes_up(&needs));
+    }
+
+    #[test]
+    fn moved_to_the_top_goes_first_yours_before_agents_the_latest_first() {
+        use std::cmp::Ordering::{Greater, Less};
+        let r = |at: i64, agent: bool| Raised { at, agent, ..Default::default() };
+        assert_eq!(raised_order(Some(&r(1, true)), None), Less);
+        assert_eq!(raised_order(None, Some(&r(1, false))), Greater);
+        assert_eq!(raised_order(Some(&r(2, false)), Some(&r(1, false))), Less, "the latest first");
+        assert_eq!(raised_order(Some(&r(1, false)), Some(&r(9, true))), Less, "yours before an agent's");
+        assert!(raised_order(None, None).is_eq());
+        // In a lane, first among its kind: never ahead of a more urgent status.
+        let s = |key: &str, status: Status, raised: Option<Raised>| Session { status, status_since: Some(NOW), raised, ..crate::fixtures::session(key) };
+        let mut sessions = vec![s("a", Status::Unread, None), s("b", Status::Unread, Some(r(NOW, true))), s("c", Status::Needs, None)];
+        sort_sessions(&mut sessions);
+        assert_eq!(sessions.iter().map(|s| s.key.as_str()).collect::<Vec<_>>(), ["c", "b", "a"]);
+    }
+
+    #[test]
+    fn an_agent_may_not_move_up_what_you_snoozed_or_moved_back() {
+        let s = Session { status: Status::Unread, status_since: Some(NOW - 1_000), last_prompt_at: NOW - 2_000, ..crate::fixtures::session("k") };
+        let lowered = |at: i64| Raise { key: "k".into(), raised: Raised { at: NOW - 5_000, agent: true, ..Default::default() }, lowered: Some(at) };
+        assert_eq!(raise_refused(&s, None, false), None);
+        assert!(raise_refused(&s, None, true).is_some_and(|w| w.contains("snoozed")));
+        assert!(raise_refused(&s, Some(&lowered(NOW)), false).is_some_and(|w| w.contains("back to its place")));
+        // Once it's moved on since, it may.
+        assert_eq!(raise_refused(&s, Some(&lowered(NOW - 1_500)), false), None, "its status changed since");
+        assert_eq!(raise_refused(&Session { last_prompt_at: NOW + 1, ..s.clone() }, Some(&lowered(NOW)), false), None, "sent a prompt since");
     }
 
     #[test]

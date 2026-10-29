@@ -105,6 +105,10 @@ pub enum Msg {
     /// Sessions quieted, or made heard again. The reply is the time of the board that shows it,
     /// published at once.
     Quiet(Vec<String>, bool, Sender<i64>),
+    /// Sessions moved to the top, or back to their places with false, and who by and why (its
+    /// time is the engine's). The reply is the time of the board that shows it, published at
+    /// once, or why an agent's move was turned down.
+    Raise(Vec<String>, bool, Raised, Sender<Result<i64, String>>),
     Pin(Vec<String>, bool, Sender<i64>),
     /// Helpers made sessions of your own. The reply is the time of the board that shows it,
     /// published at once.
@@ -353,6 +357,17 @@ impl Handle {
         let (tx, rx) = channel();
         self.tx.send(Msg::Quiet(keys, quiet, tx)).ok()?;
         rx.recv_timeout(SHOWN_WAIT).ok()
+    }
+
+    /// Moves sessions to the top of what waits on you, or back to their places with `raised`
+    /// false (`board::apply_raise`), as `by` says who and why. Returns the time of the board that
+    /// shows it, as `quiet` does, or why an agent may not (`board::raise_refused`).
+    pub fn raise(&self, keys: Vec<String>, raised: bool, by: Raised) -> Result<Option<i64>, String> {
+        let (tx, rx) = channel();
+        if self.tx.send(Msg::Raise(keys, raised, by, tx)).is_err() {
+            return Ok(None);
+        }
+        rx.recv_timeout(SHOWN_WAIT).ok().transpose()
     }
 
     /// Pins sessions at the top of the pinned ones, or unpins them (`SeenState::pin`). Returns the
@@ -1927,13 +1942,39 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         sessions
     }
 
-    /// Sessions with quiet, helpers' and headless runs' rules, their marks of unread and their
-    /// snoozes applied (board::apply_quiet, board::apply_helper, board::apply_headless,
-    /// board::apply_unread, board::apply_snooze). A snooze's time coming changes nothing on disk:
-    /// the 30-second heartbeat's publish brings it back.
+    /// Moves sessions to the top, as `raise` asks (`Msg::Raise`), or back to their places. An
+    /// agent's move is turned down, before any is made, where `board::raise_refused` says, and one
+    /// of yours wakes a snooze. True when anything changed.
+    fn on_raise(&mut self, keys: &[String], raised: bool, by: Raised, now: i64) -> Result<bool, String> {
+        if !raised {
+            return Ok(keys.iter().fold(false, |changed, k| self.seen.lower(k, now, !by.agent) | changed));
+        }
+        if by.agent {
+            let b = self.board.read().map_err(|_| "Codealong couldn't read its board.".to_string())?;
+            for k in keys {
+                let Some((_, s)) = b.session(k) else { return Err("Codealong doesn't list that session.".to_string()) };
+                if let Some(why) = board::raise_refused(s, self.seen.raise_of(k), s.snoozed_until.is_some()) {
+                    return Err(why);
+                }
+            }
+        }
+        for k in keys {
+            if !by.agent {
+                self.seen.wake(k, now);
+            }
+            self.seen.raise(k, Raised { at: now, ..by.clone() });
+        }
+        Ok(!keys.is_empty())
+    }
+
+    /// Sessions with quiet, helpers' and headless runs' rules, their marks of unread, their
+    /// snoozes and their moves to the top applied (board::apply_quiet, board::apply_helper,
+    /// board::apply_headless, board::apply_unread, board::apply_snooze, board::apply_raise). A
+    /// snooze's time coming changes nothing on disk: the 30-second heartbeat's publish brings it
+    /// back.
     fn with_snoozes(&self, mut sessions: Vec<Session>, now: i64) -> Vec<Session> {
         let unattended = sessions.iter().any(|s| s.helper.is_some() || s.headless);
-        if self.seen.snoozed.is_empty() && self.seen.unread.is_empty() && self.seen.quiet.is_empty() && !unattended {
+        if self.seen.snoozed.is_empty() && self.seen.unread.is_empty() && self.seen.quiet.is_empty() && self.seen.raised.is_empty() && !unattended {
             return sessions;
         }
         for s in &mut sessions {
@@ -1945,6 +1986,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             // A mark of unread next: a snooze keeps a session marked unread off the bar too.
             board::apply_unread(s, self.seen.unread_of(&s.key), self.seen.seen_at(&s.key));
             board::apply_snooze(s, self.seen.snooze_of(&s.key), self.seen.seen_at(&s.key), now);
+            board::apply_raise(s, self.seen.raise_of(&s.key));
         }
         sessions
     }
@@ -2439,8 +2481,12 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                 Ok(Msg::EmblemDrawn(key, drawn)) => self.on_emblem_drawn(&key, drawn),
                 Ok(Msg::MarkSeen(keys, reply)) => {
                     let now = now_ms();
+                    let taken_up: Vec<String> = self.board.read().map(|b| keys.iter().filter(|k| b.session(k).is_some_and(|(_, s)| board::seen_takes_up(s))).cloned().collect()).unwrap_or_default();
                     for k in keys {
                         self.seen.mark(&k, now);
+                    }
+                    for k in taken_up {
+                        self.seen.take_up(&k);
                     }
                     self.save_state();
                     self.publish();
@@ -2463,7 +2509,11 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                     let now = now_ms();
                     for k in keys {
                         match until {
-                            Some(until) if until > now => self.seen.snooze(&k, now, until),
+                            // Snoozed, it's no longer first: the two are opposites.
+                            Some(until) if until > now => {
+                                self.seen.snooze(&k, now, until);
+                                self.seen.lower(&k, now, true);
+                            }
                             _ => self.seen.wake(&k, now),
                         }
                     }
@@ -2498,6 +2548,14 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                         self.publish();
                     }
                     let _ = reply.send(self.board.read().map(|b| b.generated_at).unwrap_or(0));
+                }
+                Ok(Msg::Raise(keys, raised, by, reply)) => {
+                    let answer = self.on_raise(&keys, raised, by, now_ms());
+                    if answer == Ok(true) {
+                        self.save_state();
+                        self.publish();
+                    }
+                    let _ = reply.send(answer.map(|_| self.board.read().map(|b| b.generated_at).unwrap_or(0)));
                 }
                 Ok(Msg::Pin(keys, pinned, reply)) => {
                     let keys: Vec<String> = self.board.read().map(|b| board::pinnable(&b.lanes, &keys, pinned).into_iter().cloned().collect()).unwrap_or_default();

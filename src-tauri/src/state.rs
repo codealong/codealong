@@ -6,7 +6,8 @@
 //! and a PR whose review you snoozed stays out of Review requested, the bar's reviews and the
 //! mark until its time (`board::apply_review_snoozes`). A quiet session's turns don't wait on you
 //! until you make it heard again: it waits on you only when it needs you (`board::apply_quiet`).
-//! Stored in `state.json` next to the config.
+//! A session moved to the top of what waits on you is first in every queue until you take it up
+//! (`board::apply_raise`). Stored in `state.json` next to the config.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -15,6 +16,7 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 use crate::config::support_dir;
+use crate::model::Raised;
 use crate::store;
 use crate::util::{now_ms, DAY_MS};
 
@@ -58,6 +60,10 @@ pub struct SeenState {
     /// latest snooze of each.
     #[serde(default)]
     pub review_snoozes: Vec<Snooze>,
+    /// Sessions moved to the top of what waits on you, by you or an agent: the latest move of
+    /// each, until a prompt or a seen takes it up.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub raised: Vec<Raise>,
     /// Sessions you marked unread, and when: the latest mark of each.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub unread: Vec<UnreadMark>,
@@ -87,6 +93,18 @@ fn set_up_before() -> bool {
 pub struct UnreadMark {
     pub key: String,
     pub at: i64,
+}
+
+/// A session moved to the top of what waits on you (`board::apply_raise`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Raise {
+    pub key: String,
+    pub raised: Raised,
+    /// When you moved it back to its place from where an agent had moved it: kept so the agent
+    /// doesn't move it up again before it moves on (`board::raise_refused`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lowered: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -140,6 +158,7 @@ impl SeenState {
         self.snoozed.retain(|z| z.until >= cutoff);
         self.review_snoozes.retain(|z| z.until >= cutoff);
         self.unread.retain(|u| u.at >= cutoff);
+        self.raised.retain(|r| r.lowered.unwrap_or(r.raised.at) >= cutoff);
         // Through a temporary file: Settings reads this while the engine writes it.
         store::save(path, self)
     }
@@ -165,6 +184,34 @@ impl SeenState {
 
     pub fn snooze_of(&self, key: &str) -> Option<&Snooze> {
         self.snoozed.iter().find(|z| z.key == key)
+    }
+
+    /// Moves a session to the top, in place of any move it had.
+    pub fn raise(&mut self, key: &str, raised: Raised) {
+        self.raised.retain(|r| r.key != key);
+        self.raised.push(Raise { key: key.to_string(), raised, lowered: None });
+    }
+
+    /// Moves a session back to its place. One an agent moved that you move back (`yours`) is
+    /// kept as moved back now, for `board::raise_refused`. True when it had been moved.
+    pub fn lower(&mut self, key: &str, now: i64, yours: bool) -> bool {
+        let Some(i) = self.raised.iter().position(|r| r.key == key && r.lowered.is_none()) else { return false };
+        if yours && self.raised[i].raised.agent {
+            self.raised[i].lowered = Some(now);
+        } else {
+            self.raised.remove(i);
+        }
+        true
+    }
+
+    /// Takes a session up: its move to the top, if it has one, is spent (`board::seen_takes_up`).
+    /// One you moved back to its place stays, for `board::raise_refused`.
+    pub fn take_up(&mut self, key: &str) {
+        self.raised.retain(|r| r.key != key || r.lowered.is_some());
+    }
+
+    pub fn raise_of(&self, key: &str) -> Option<&Raise> {
+        self.raised.iter().find(|r| r.key == key)
     }
 
     /// Marks a session unread at `at`, in place of any mark it had: it's Your turn again until
@@ -459,6 +506,30 @@ mod tests {
         assert_eq!(s.snooze_of("claude:claude:a").map(|z| z.until), Some(50));
         let old: SeenState = serde_json::from_str(r#"{"firstRun":5,"seen":{}}"#).unwrap();
         assert!(old.snoozed.is_empty());
+    }
+
+    #[test]
+    fn a_move_to_the_top_you_take_back_from_an_agent_is_kept_as_moved_back() {
+        let mut s = SeenState::default();
+        let by = |agent: bool| Raised { at: 10, agent, ..Default::default() };
+        s.raise("mine", by(false));
+        s.raise("its", by(true));
+        assert!(s.lower("mine", 20, true));
+        assert!(s.raise_of("mine").is_none(), "yours goes");
+        assert!(s.lower("its", 20, true));
+        assert_eq!(s.raise_of("its").and_then(|r| r.lowered), Some(20));
+        assert!(!s.lower("its", 30, true), "already back in its place");
+        // An agent's taken back by an agent goes, as one taken up does; a lowered one stays.
+        s.raise("other", by(true));
+        assert!(s.lower("other", 20, false));
+        assert!(s.raise_of("other").is_none());
+        s.take_up("its");
+        assert!(s.raise_of("its").is_some());
+        // Moved again, it's first again.
+        s.raise("its", by(false));
+        assert_eq!(s.raise_of("its").map(|r| (r.lowered, r.raised.agent)), Some((None, false)));
+        s.take_up("its");
+        assert!(s.raised.is_empty());
     }
 
     #[test]

@@ -6,9 +6,10 @@
 // `left`). `useWaitingQueue` (useWaitingQueue.ts) runs them for a window; they're kept apart from
 // it so the rules have tests.
 
+import { byRaise } from './lanes';
 import type { Left } from './menus';
 import { chordPressed } from './platform';
-import type { Status } from './types';
+import type { Raised, Status } from './types';
 
 /** Sessions you answered, marked seen, closed or archived from the queue, with the time of the
  *  status each had then: one is left out until it waits on you anew. The board can take seconds
@@ -33,32 +34,41 @@ export interface Reads<T> {
   /** When its status began. */
   sinceOf: (row: T) => number;
   waitsOf: (row: T) => Waits;
+  /** Moved to the top of what waits on you (`Session.raised`), for a row that was. */
+  raisedOf: (row: T) => Raised | undefined;
   titleOf: (row: T) => string;
 }
 
-/** Where a row stands in the queue: what it waits as, since when, and its key, for a tie. */
+/** Where a row stands in the queue: whether it was moved to the top, what it waits as, since
+ *  when, and its key, for a tie. */
 export interface Place {
   key: string;
   waits: Waits;
   since: number;
+  raised?: Raised;
 }
 
-export function placeOf<T>(row: T, reads: Pick<Reads<T>, 'keyOf' | 'sinceOf' | 'waitsOf'>): Place {
-  return { key: reads.keyOf(row), waits: reads.waitsOf(row), since: reads.sinceOf(row) };
+/** What the queue reads of a row to place it. */
+export type PlaceReads<T> = Pick<Reads<T>, 'keyOf' | 'sinceOf' | 'waitsOf' | 'raisedOf'>;
+
+export function placeOf<T>(row: T, reads: PlaceReads<T>): Place {
+  return { key: reads.keyOf(row), waits: reads.waitsOf(row), since: reads.sinceOf(row), raised: reads.raisedOf(row) };
 }
 
 /**
- * The order every window works through what waits on you in: the most urgent kind first
- * (`WAITS`), each first come, first served, the longest wait first. One that comes to wait, or
- * comes back after you answered it, joins the end of its kind and never goes ahead of the ones
- * that have waited longer.
+ * The order every window works through what waits on you in: the ones moved to the top first,
+ * whatever they wait as (lanes.ts `byRaise`); then the most urgent kind first (`WAITS`), each
+ * first come, first served, the longest wait first. One that comes to wait, or comes back after
+ * you answered it, joins the end of its kind and never goes ahead of the ones that have waited
+ * longer, unless it's moved to the top. Its wait isn't moved for that: what's been dealt with is
+ * kept by it (`Handled`), and the windows say how long it's waited.
  */
 export function byPlace(a: Place, b: Place): number {
-  return WAITS.indexOf(a.waits) - WAITS.indexOf(b.waits) || a.since - b.since || a.key.localeCompare(b.key);
+  return byRaise(a.raised, b.raised) || WAITS.indexOf(a.waits) - WAITS.indexOf(b.waits) || a.since - b.since || a.key.localeCompare(b.key);
 }
 
 /** A window's rows in the queue's order (`byPlace`), whatever order it lists them in. */
-export function inQueueOrder<T>(rows: T[], reads: Pick<Reads<T>, 'keyOf' | 'sinceOf' | 'waitsOf'>): T[] {
+export function inQueueOrder<T>(rows: T[], reads: PlaceReads<T>): T[] {
   return rows
     .map((row) => ({ row, at: placeOf(row, reads) }))
     .sort((a, b) => byPlace(a.at, b.at))
@@ -70,13 +80,18 @@ export function inQueueOrder<T>(rows: T[], reads: Pick<Reads<T>, 'keyOf' | 'sinc
  * before it (the ones you skipped, and any that came to wait ahead of where you are), without it
  * and the ones you've dealt with. The first is the one a window shows next. One the queue no
  * longer lists goes on from where it stood (`was`, while that's its own: answered, the board can
- * show it working before the answer's in); one that never waited goes from the top.
+ * show it working before the answer's in); one that never waited goes from the top. One moved to
+ * the top since the window came to `key` (`came`) goes first, though it's ahead of where you are:
+ * you haven't passed it. One moved there before, which you went past, comes round as a skipped
+ * one does, so skipping from one moved to the top to another never comes back round to the first.
  */
-export function leftAfter<T>(queue: T[], key: string, handled: Handled, reads: Pick<Reads<T>, 'keyOf' | 'sinceOf' | 'waitsOf'>, was?: Place | null): T[] {
+export function leftAfter<T>(queue: T[], key: string, handled: Handled, reads: PlaceReads<T>, was?: Place | null, came?: number): T[] {
   const rows = inQueueOrder(queue, reads).map((row) => ({ row, at: placeOf(row, reads) }));
   const from = rows.find((r) => r.at.key === key)?.at ?? (was?.key === key ? was : null);
   const i = from ? rows.findIndex((r) => byPlace(r.at, from) > 0) : 0;
-  const order = i < 0 ? rows : [...rows.slice(i), ...rows.slice(0, i)];
+  const round = i < 0 ? rows : [...rows.slice(i), ...rows.slice(0, i)];
+  const fresh = (r: { at: Place }) => came != null && r.at.raised != null && r.at.raised.at > came;
+  const order = [...rows.filter(fresh), ...round.filter((r) => !fresh(r))];
   return order
     .filter(({ at }) => {
       const dealt = handled.get(at.key);
@@ -130,8 +145,8 @@ export function waits<T>(waiting: T[], key: string, keyOf: (row: T) => string): 
 /** Where `next` and `back` go from the session `key`: the first of what's left after it, or the
  *  last, which is the one before it. None with nothing else waiting. From a session that doesn't
  *  wait itself, `next` is the first that does. */
-export function stepTo<T>(action: 'next' | 'back', view: Pick<QueueView<T>, 'waiting' | 'reads' | 'was'>, key: string, handled: Handled): T | null {
-  const left = leftAfter(view.waiting, key, handled, view.reads, view.was);
+export function stepTo<T>(action: 'next' | 'back', view: Pick<QueueView<T>, 'waiting' | 'reads' | 'was' | 'came'>, key: string, handled: Handled): T | null {
+  const left = leftAfter(view.waiting, key, handled, view.reads, view.was, view.came);
   return (action === 'next' ? left[0] : left[left.length - 1]) ?? null;
 }
 
@@ -200,6 +215,9 @@ export interface QueueView<T> {
   /** Where the session shown stood the last time `waiting` listed it. Answered, it can leave the
    *  list before the answer's in, and the window goes on from there rather than from the top. */
   was?: Place | null;
+  /** When the window came to the session shown: one moved to the top since then goes next
+   *  (`leftAfter`). */
+  came?: number;
   /** Everything ⌥↑ ⌥↓ step along, the running ones too. Without it those keys are the window's
    *  own: the main window's arrows move along its list in every view, not only in Sessions. */
   along?: T[];
@@ -313,5 +331,5 @@ export function firstLeft<T>(view: Pick<QueueView<T>, 'waiting' | 'reads'>, hand
  *  and whether it's one of those waiting itself. */
 export function standing<T>(view: QueueView<T>, handled: Handled): { left: T[]; waiting: boolean } | null {
   const s = view.shown;
-  return s ? { left: leftAfter(view.waiting, s.key, handled, view.reads, view.was), waiting: waits(view.waiting, s.key, view.reads.keyOf) } : null;
+  return s ? { left: leftAfter(view.waiting, s.key, handled, view.reads, view.was, view.came), waiting: waits(view.waiting, s.key, view.reads.keyOf) } : null;
 }

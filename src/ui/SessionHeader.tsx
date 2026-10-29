@@ -38,7 +38,7 @@ import { below } from '../contextMenu';
 import { folderTargets, opensInEditor, useEditorIcons } from '../editors';
 import { absolute, ago, agoPhrase, duration, middleTruncate, tildePath } from '../format';
 import { MOVES_ACCOUNTS, sessionName, sessionPlace } from '../harness';
-import { cutOffWords, limitWords, seenable, sideTitle } from '../lanes';
+import { cutOffWords, limitWords, raisedBy, seenable, sideTitle } from '../lanes';
 import { cameLines, cameLineWords, cameWord, originWord, type CameLine, type Kin, type Lineage } from '../lineage';
 import { CHORDS, chordKeys, type SessionActions } from '../menus';
 import { showSide } from '../side';
@@ -359,7 +359,8 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
   const since = s.statusSince ? (s.status === 'working' ? `for ${duration(s.statusSince, now)}` : agoPhrase(s.statusSince, now)) : agoPhrase(s.lastActivity, now);
   const snoozed = s.snoozedUntil ? ` · snoozed until ${untilWords(s.snoozedUntil, now)}` : '';
   const quiet = s.quiet ? ' · quiet' : '';
-  const status = (s.stalledSince ? `Silent since ${agoPhrase(s.stalledSince, now)}` : `${s.asks ? 'Asks you' : STATUS_WORD[s.status]} · ${since}`) + snoozed + quiet;
+  const raised = s.raised ? ` · moved to the top${raisedBy(s.raised)}` : '';
+  const status = (s.stalledSince ? `Silent since ${agoPhrase(s.stalledSince, now)}` : `${s.asks ? 'Asks you' : STATUS_WORD[s.status]} · ${since}`) + raised + snoozed + quiet;
   const naming = !!renaming && !!onRename;
   // Seen where the window says how, else by the session's own action, when it has a turn to see.
   const seen = seenAbove ? undefined : onSeen ? (seenable(s) ? onSeen : undefined) : actions?.seen?.run;

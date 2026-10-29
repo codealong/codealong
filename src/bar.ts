@@ -244,6 +244,7 @@ export const ROW_READS: Reads<NotchRow> = {
   keyOf: (r) => r.key,
   sinceOf: (r) => (r.kind === 'session' ? r.item.since : r.review.since),
   waitsOf: (r) => (r.kind === 'session' ? statusWaits(r.item.status) : 'reviews'),
+  raisedOf: (r) => (r.kind === 'session' ? r.item.raised : undefined),
   titleOf: (r) => (r.kind === 'session' ? r.item.title : reviewTitle(r.review)),
 };
 

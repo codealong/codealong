@@ -610,6 +610,8 @@ enum SessionCmd {
         #[command(flatten)]
         when: SnoozeWhen,
     },
+    /// Move a session to the top of what waits on your user, as Move to top in its menu in Codealong does: the notch, the waiting window, the floating bar and the next key in every window go to it first, after any your user moved there themselves, until they send it something or mark its finished turn seen. One that's running is first once its turn ends; one whose turn they already saw waits on them again. Keep it for what other work waits on or what can't wait (a deploy held up, a PR others are blocked behind), a few at a time, and say why in --note, which shows on it with your session's name. Turned down while it's snoozed, and after your user moves it back to its place, until it's sent something or its status changes. --lower moves it back. A session on another device is moved on its Mac. Needs the app running.
+    Raise(RaiseArgs),
     /// Name a session where its harness keeps names (Claude Code's /rename, a Codex thread's name, an OpenCode session's title), so the harness shows the name as Codealong does.
     Rename {
         /// The session: its key, its id, a unique start of its id, or `me`.
@@ -738,6 +740,18 @@ struct TagArgs {
     /// Take the session's tag away.
     #[arg(long, conflicts_with_all = ["asks_you", "landing", "finished", "risk", "background", "note", "prompt_at"])]
     clear: bool,
+}
+
+#[derive(Args, Debug)]
+struct RaiseArgs {
+    /// The session: its key, its id, a unique start of its id, or `me`.
+    key: String,
+    /// Why it should come first, in a sentence; shown on it.
+    #[arg(long, allow_hyphen_values = true)]
+    note: Option<String>,
+    /// Move it back to its place.
+    #[arg(long, conflicts_with = "note")]
+    lower: bool,
 }
 
 /// `yes` or `no`, as a flag's value.
@@ -1834,6 +1848,7 @@ fn run(cmd: Cmd, c: &mut Client, json: bool) -> Result<()> {
         Cmd::Session { cmd: SessionCmd::Wait(a) } => session_wait(c, &a, json),
         Cmd::Session { cmd: SessionCmd::Suggest(a) } => session_suggest(c, a, json),
         Cmd::Session { cmd: SessionCmd::Tag(a) } => session_tag(c, a, json),
+        Cmd::Session { cmd: SessionCmd::Raise(a) } => session_raise(c, a, json),
         Cmd::Session { cmd: SessionCmd::Snooze { key, when } } => session_snooze(c, &key, &when, json),
         Cmd::Session { cmd: SessionCmd::Rename { key, name } } => session_act(c, &key, api::SESSION_RENAME, params::Rename { name, ..Default::default() }, json),
         Cmd::Session { cmd: SessionCmd::Fork { key, prompt, from: Some(cursor) } } => session_act(c, &key, api::SESSION_EDIT, params::Edit { cursor, prompt: prompt.unwrap_or_default(), ..Default::default() }, json),
@@ -3633,6 +3648,28 @@ fn session_snooze(c: &mut Client, key: &str, when: &SnoozeWhen, json: bool) -> R
     let own = crate::peerfeed::split_remote(&key).map_or(key.as_str(), |(_, own)| own).to_string();
     c.act(api::SESSION_SNOOZE, &key, params::Snooze { keys: vec![own], until }, None)?;
     SnoozeOut { key, until, said: snooze_said(until) }.print(json)
+}
+
+/// `session raise`: asked as the session running the command, which is named with it, through
+/// the app, which keeps the move (as it keeps a snooze) on the session's Mac.
+fn session_raise(c: &mut Client, a: RaiseArgs, json: bool) -> Result<()> {
+    if c.app.is_none() {
+        bail!("Moving a session to the top needs the Codealong app running: it keeps the move, and its windows go by it.");
+    }
+    let key = resolve_session(c, &a.key)?;
+    let me = find_me(c)?.0;
+    let by_title = me.as_deref().and_then(|k| all_sessions(c.board().ok()?).into_iter().find(|(s, _)| s.key == k).map(|(s, _)| s.title.clone())).filter(|t| !t.is_empty());
+    // Another device's session is moved there, by the key its Mac knows it by.
+    let own = crate::peerfeed::split_remote(&key).map_or(key.as_str(), |(_, own)| own).to_string();
+    let params = params::Raise { keys: vec![own], raised: !a.lower, agent: true, by: me.clone(), by_title, note: a.note };
+    c.act(api::SESSION_RAISE, &key, params, me)?;
+    let said = if a.lower { "Moved back to its place." } else { "Moved to the top of what waits on your user, after any they moved there themselves, until they send it something or see its finished turn." };
+    let out = ActOut { session: key, said: Some(said.to_string()), copy: None };
+    if json {
+        return print_json(&out);
+    }
+    println!("{said}");
+    Ok(())
 }
 
 /// `pr snooze`: your review of a PR that asks for it, as its menu offers Snooze review only then.
@@ -6949,6 +6986,10 @@ mod tests {
         let cli = Cli::try_parse_from(["codealong", "session", "snooze", "abc", "tomorrow", "2pm"]).unwrap();
         assert!(matches!(cli.cmd, Cmd::Session { cmd: SessionCmd::Snooze { ref key, ref when } } if key == "abc" && when.when == ["tomorrow", "2pm"] && !when.wake));
         assert!(matches!(Cli::try_parse_from(["codealong", "session", "snooze", "abc", "--wake"]).unwrap().cmd, Cmd::Session { cmd: SessionCmd::Snooze { ref when, .. } } if when.wake && when.until().unwrap().is_none()));
+        let raise = |args: &[&str]| Cli::try_parse_from([&["codealong", "session", "raise"], args].concat()).map(|c| c.cmd);
+        assert!(matches!(raise(&["abc", "--note", "the deploy waits on it"]), Ok(Cmd::Session { cmd: SessionCmd::Raise(RaiseArgs { ref key, ref note, lower: false }) }) if key == "abc" && note.as_deref() == Some("the deploy waits on it")));
+        assert!(matches!(raise(&["abc", "--lower"]), Ok(Cmd::Session { cmd: SessionCmd::Raise(RaiseArgs { lower: true, note: None, .. }) })));
+        assert!(raise(&["abc", "--lower", "--note", "x"]).is_err());
         assert!(Cli::try_parse_from(["codealong", "session", "snooze", "abc"]).is_err());
         assert!(Cli::try_parse_from(["codealong", "session", "snooze", "abc", "5pm", "--wake"]).is_err());
         let cli = Cli::try_parse_from(["codealong", "pr", "snooze", "northwind/app#12", "30m"]).unwrap();

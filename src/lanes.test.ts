@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ageFiltered, bayOf, branchLabel, bySession, closable, connectionLostWords, cutOffWords, exitsItsOwnWay, filterByAge, foldsOf, foldWords, helperLine, helperName, helperStands, homeOf, inboxCounts, laneWaits, limitWords, liveOrLatest, narrowed, relaned, runsShownKey, seenable, sessionFlag, sessionHeadline, sessionPrs, sidesListed, sidesShownKey, stoppable, unattended, waitsInBackground, withoutAccount, workingFor, workingSince } from './lanes';
+import { ageFiltered, bayOf, branchLabel, bySession, raisedBy, closable, connectionLostWords, cutOffWords, exitsItsOwnWay, filterByAge, foldsOf, foldWords, helperLine, helperName, helperStands, homeOf, inboxCounts, laneWaits, limitWords, liveOrLatest, narrowed, relaned, runsShownKey, seenable, sessionFlag, sessionHeadline, sessionPrs, sidesListed, sidesShownKey, stoppable, unattended, waitsInBackground, withoutAccount, workingFor, workingSince } from './lanes';
 import * as fx from './testing/fixtures';
 import type { Lane, Pr, PrItem, Session, SideGlance } from './types';
 
@@ -119,6 +119,19 @@ describe('bySession', () => {
     const twins = [session('b', 'idle', NOW, NOW), session('a', 'idle', NOW, NOW)];
     expect([...twins].sort(bySession).map((s) => s.key)).toEqual(['a', 'b']);
     expect([...twins].reverse().sort(bySession).map((s) => s.key)).toEqual(['a', 'b']);
+  });
+
+  it('says who moved one to the top: an agent by its session’s title, you by nothing', () => {
+    expect(raisedBy({ at: 1 })).toBe('');
+    expect(raisedBy({ at: 1, agent: true, byTitle: 'Orchestrator' })).toBe(' by Orchestrator');
+    expect(raisedBy({ at: 1, agent: true })).toBe(' by an agent');
+  });
+
+  it('puts one moved to the top first among its own status, as the engine does', () => {
+    const top = { ...session('top', 'unread', NOW, NOW), raised: { at: NOW, agent: true } };
+    const needs = session('needs', 'needs', NOW - 60_000, NOW - 60_000);
+    const done = session('done', 'unread', NOW - 60_000, NOW - 60_000);
+    expect([done, top, needs].sort(bySession).map((s) => s.key)).toEqual(['needs', 'top', 'done']);
   });
 
   it('lists Needs you as a queue, the longest wait first, as the engine does', () => {

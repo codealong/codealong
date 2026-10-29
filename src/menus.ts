@@ -11,7 +11,7 @@
 
 import { useEffect, useState } from 'react';
 import { closeSession, desktopPins, expandAttachments, forkSession, getAccounts, inPreview, moveSession, moveSessionTo, onDesktopPins, openUrl, ownSessions, pinToDesktop, resumeSession, sessionCancel, setPrNudge, setPrPrimary, setReusable, showQuick, unpinFromDesktop, type MergeDone } from './api';
-import { archiveAhead, doneAhead, quietAhead, seenAhead, unreadAhead } from './ahead';
+import { archiveAhead, doneAhead, quietAhead, raiseAhead, seenAhead, unreadAhead } from './ahead';
 import type { MenuAction, MenuGroup, MenuImage, MenuSpec } from './contextMenu';
 import { shortOf } from './devices';
 import { dueChoices } from './due';
@@ -236,6 +236,9 @@ export interface SessionActions {
   unread?: MenuAction;
   pin?: MenuAction;
   desktop?: MenuAction;
+  /** Move to top, or Back in line once it's there: every queue goes to it first until you take
+   *  it up (board.rs `apply_raise`). */
+  raise?: MenuAction;
   snooze?: MenuGroup;
   /** Quiet, checked while it is: its turns don't wait on you, only what needs you does, until
    *  it's unchecked (board.rs `apply_quiet`). */
@@ -404,6 +407,9 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
     unread: unreadable(s) ? { label: 'Mark as unread', run: () => void unreadAhead([s.key]).catch((e: unknown) => report.error(errorText(e))) } : undefined,
     pin: s.archived ? undefined : can.pin,
     desktop: !s.archived && can.desktop ? desktopItem('session', s.key, can.desktop, report) : undefined,
+    // Kept on the Mac it runs on, so it's first on every device. It joins the top of what waits
+    // on you rather than leaving it, so a window working through that stays.
+    raise: s.archived ? undefined : { label: s.raised ? 'Back in line' : 'Move to top', run: () => void raiseAhead([s.key], !s.raised).catch((e: unknown) => report.error(errorText(e))) },
     // On the Mac it runs on, which keeps it, so it's snoozed on every device.
     snooze: s.archived ? undefined : snoozeMenu([s.key], Date.now(), { until: s.snoozedUntil, onDone: settle('snoozed'), chords: !!can.keys }),
     // Kept on the Mac it runs on too. Quieted, a turn that ended leaves what waits on you, and a
@@ -540,7 +546,7 @@ const SESSION_MENU = [
   ['heading'],
   ['open', 'resume', 'folder', 'pr', 'chrome', 'reveal', 'reply', 'newSession', 'fork', 'move', 'moveFolder'],
   ['todos', 'boards'],
-  ['stop', 'rename', 'seen', 'unread', 'pin', 'desktop', 'snooze', 'quiet', 'own', 'close', 'done', 'mergeDone', 'archive'],
+  ['stop', 'rename', 'seen', 'unread', 'pin', 'desktop', 'raise', 'snooze', 'quiet', 'own', 'close', 'done', 'mergeDone', 'archive'],
   ['copyId', 'copyResume'],
 ] as const;
 
@@ -581,6 +587,9 @@ export interface SessionsActions {
   seen?: MenuAction;
   unread?: MenuAction;
   pin?: MenuAction;
+  /** Moves them to the top, in the order they're listed; puts them back in line while every one
+   *  of them is there already. */
+  raise?: MenuAction;
   snooze?: MenuGroup;
   /** Checked while every one of them is quiet, which it makes heard again; else it quiets them. */
   quiet?: MenuAction;
@@ -628,8 +637,9 @@ export function sessionsActions(picked: { lane: Lane; session: Session }[], can:
   const those = (name: keyof SessionActions) => own.filter((x) => x.a[name]).map((x) => x.s);
   const keysOf = (list: Session[]) => list.map((s) => s.key);
   const all = own.map((x) => x.s);
-  const [stop, seen, unread, snooze, quiet, close, done] = (['stop', 'seen', 'unread', 'snooze', 'quiet', 'close', 'done'] as const).map(those);
+  const [stop, seen, unread, raise, snooze, quiet, close, done] = (['stop', 'seen', 'unread', 'raise', 'snooze', 'quiet', 'close', 'done'] as const).map(those);
   const allQuiet = quiet.length > 0 && quiet.every((s) => s.quiet);
+  const allRaised = raise.length > 0 && raise.every((s) => s.raised);
   const carryOn = all.flatMap((s) => {
     const to = carriesOnIn(s);
     return to ? [{ s, to }] : [];
@@ -725,6 +735,18 @@ export function sessionsActions(picked: { lane: Lane; session: Session }[], can:
             chords: !!can.keys,
           })
         : undefined,
+    // Moved together, they keep the order they're listed in: the latest moved is first (lanes.ts
+    // `byRaise`), so they're moved last to first.
+    raise:
+      raise.length > 0
+        ? {
+            label: allRaised ? `Put ${count(raise.length, 'session')} back in line` : `Move ${count(raise.length, 'session')} to top`,
+            run: () => {
+              const keys = keysOf(allRaised ? raise : raise.filter((s) => !s.raised)).reverse();
+              void keys.reduce((done, key) => done.then(() => raiseAhead([key], !allRaised)), Promise.resolve()).catch((e: unknown) => report.error(errorText(e)));
+            },
+          }
+        : undefined,
     quiet:
       quiet.length > 0
         ? {
@@ -775,7 +797,7 @@ export function sessionsActions(picked: { lane: Lane; session: Session }[], can:
 const SESSIONS_MENU = [
   ['carryOn'],
   ['boards'],
-  ['stop', 'seen', 'unread', 'pin', 'snooze', 'quiet', 'close', 'done', 'archive'],
+  ['stop', 'seen', 'unread', 'pin', 'raise', 'snooze', 'quiet', 'close', 'done', 'archive'],
   ['copyId'],
 ] as const;
 
@@ -1044,10 +1066,11 @@ export const KEYS: Partial<Record<keyof SessionActions | keyof LaneActions, stri
 /** The same actions' chords, which work in every view and from Sessions' box, where letters alone
  *  do nothing: ⌘E marks seen (and goes on, where a window works through what waits on you: it's
  *  the queue's key, queue.ts), ⇧⌘E marks done, beside it, ⇧⌘M asks to merge the PR and mark it
- *  done (Merge and done…), and ⌃⌘ and the letter runs the rest. Closing a session's terminal,
+ *  done (Merge and done…), ⌃⌘0 moves a session to the top, beside ⌃⌘1 to ⌃⌘7's snoozes, and ⌃⌘
+ *  and the letter runs the rest. Closing a session's terminal,
  *  marking it done, which closes it too, and merging have a chord and no letter of their own:
  *  they're not ones to press by mistake. */
-export const CHORDS: typeof KEYS = { seen: QUEUE_CHORDS.seen[0], done: 'Shift+Cmd+E', mergeDone: 'Shift+Cmd+M', unread: 'Ctrl+Cmd+U', pin: 'Ctrl+Cmd+P', archive: 'Ctrl+Cmd+A', rename: 'Ctrl+Cmd+R', close: 'Ctrl+Cmd+W', terminal: TERMINAL_CHORD };
+export const CHORDS: typeof KEYS = { seen: QUEUE_CHORDS.seen[0], done: 'Shift+Cmd+E', mergeDone: 'Shift+Cmd+M', unread: 'Ctrl+Cmd+U', pin: 'Ctrl+Cmd+P', raise: 'Ctrl+Cmd+0', archive: 'Ctrl+Cmd+A', rename: 'Ctrl+Cmd+R', close: 'Ctrl+Cmd+W', terminal: TERMINAL_CHORD };
 /** The keys that send the replies suggested for a session (SuggestedReplies.tsx), the first to
  *  the sixth, as the quick panel's ⌘1 to ⌘9 do its rows: from the session's box or the list of
  *  them, and from anywhere in a window whose keyboard works through what waits on you (the notch,

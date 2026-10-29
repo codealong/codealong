@@ -1766,6 +1766,18 @@ Commands:
               17:30: the next one), a day (tomorrow, fri, next week, 2026-11-03: at 9
               AM) or a day and a time (tomorrow 2pm, fri 17:00, 2026-11-03 15:00). A
               session on another device is snoozed on its Mac. Needs the app running
+  raise       Move a session to the top of what waits on your user, as Move to top in
+              its menu in Codealong does: the notch, the waiting window, the floating
+              bar and the next key in every window go to it first, after any your user
+              moved there themselves, until they send it something or mark its finished
+              turn seen. One that's running is first once its turn ends; one whose turn
+              they already saw waits on them again. Keep it for what other work waits on
+              or what can't wait (a deploy held up, a PR others are blocked behind), a
+              few at a time, and say why in --note, which shows on it with your
+              session's name. Turned down while it's snoozed, and after your user moves
+              it back to its place, until it's sent something or its status changes.
+              --lower moves it back. A session on another device is moved on its Mac.
+              Needs the app running
   rename      Name a session where its harness keeps names (Claude Code's /rename, a
               Codex thread's name, an OpenCode session's title), so the harness shows
               the name as Codealong does
@@ -2299,6 +2311,46 @@ Options:
 
       --wake
           Wake it now, ending its snooze
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong session raise
+
+```
+Move a session to the top of what waits on your user, as Move to top in its menu in
+Codealong does: the notch, the waiting window, the floating bar and the next key in
+every window go to it first, after any your user moved there themselves, until they send
+it something or mark its finished turn seen. One that's running is first once its turn
+ends; one whose turn they already saw waits on them again. Keep it for what other work
+waits on or what can't wait (a deploy held up, a PR others are blocked behind), a few at
+a time, and say why in --note, which shows on it with your session's name. Turned down
+while it's snoozed, and after your user moves it back to its place, until it's sent
+something or its status changes. --lower moves it back. A session on another device is
+moved on its Mac. Needs the app running
+
+Usage: codealong session raise [OPTIONS] <KEY>
+
+Arguments:
+  <KEY>
+          The session: its key, its id, a unique start of its id, or `me`
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --note <NOTE>
+          Why it should come first, in a sentence; shown on it
+
+      --lower
+          Move it back to its place
 
       --table
           Tables, even when piped

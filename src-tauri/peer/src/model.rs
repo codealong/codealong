@@ -287,6 +287,11 @@ pub struct Session {
     /// still leave its turns out.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub quiet: bool,
+    /// Moved to the top of what waits on you from Codealong (Move to top, `codealong session
+    /// raise`; `board::apply_raise`): every queue goes to it first, until you take it up. None
+    /// from Macs before 2026-10-29, whose queues go by status and wait alone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raised: Option<Raised>,
     /// Replies another session suggested you send it (`codealong session suggest`), shown above
     /// its box to send with a click, while they still answer where it stands
     /// (`board::suggestions_hold`). None from Macs before 2026-10-09.
@@ -552,6 +557,7 @@ impl Session {
             steerable: false,
             snoozed_until: None,
             quiet: false,
+            raised: None,
             suggestions: None,
             pin: None,
             earlier: false,
@@ -726,6 +732,29 @@ pub struct Suggestions {
     /// Macs before 2026-10-09, whose suggestions go by `at`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt_at: Option<i64>,
+}
+
+/// A session moved to the top of what waits on you (`Session::raised`): when, and by whom. The
+/// queues go to the ones you moved first, then the ones agents did, each the latest first
+/// (`board::raised_order`).
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Raised {
+    /// When it was moved, by the clock of the session's Mac: a prompt sent to it after this, or
+    /// its finished turn seen, takes it back to its place.
+    pub at: i64,
+    /// An agent moved it (`codealong session raise`), not you at a window.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub agent: bool,
+    /// The agent's session, by its key on its own device, when the command found one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by: Option<String>,
+    /// That session's title when it moved it, to name it by on any device.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by_title: Option<String>,
+    /// Why, in a sentence, when the agent said.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
 }
 
 /// Where a session came from: the session it was forked from or started by.
@@ -1231,6 +1260,7 @@ mod tests {
                 "branch": "login", "archived": true, "attachCommand": "claude attach j1", "continues": "claude:claude2:from",
                 "origin": { "key": "claude:claude2:from", "how": "fork" }, "stalledSince": 5,
                 "insight": { "asksYou": 0.75, "landing": "pushed" }, "asks": true, "hosted": true, "stoppable": true, "snoozedUntil": 6, "quiet": true,
+                "raised": { "at": 11, "agent": true, "by": "claude:claude:sup", "byTitle": "Supervisor", "note": "The deploy waits on it" },
                 "suggestions": { "replies": ["Yes, push it", "Run the tests first"], "picks": { "Push it?": ["Yes"] }, "why": { "Push it?": "Its checks pass" }, "note": "It asks whether to push", "by": "claude:claude:sup", "byTitle": "Supervisor", "at": 10, "promptAt": 4 },
                 "earlier": true,
                 "chrome": { "tabs": [7, 8], "url": "https://example.com/", "title": "Example", "profile": "Work", "profileDir": "Profile 1", "at": 9 },

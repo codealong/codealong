@@ -153,6 +153,21 @@ describe('lanesAhead', () => {
     expect(lanesAhead(quiet, [change({ kind: 'quiet', keys: ['q'], quiet: true })])).toBe(quiet);
   });
 
+  it('moves a session to the top at once, bringing back one whose turn you saw, until it’s seen', () => {
+    const lanes = [lane([session('u', 'unread'), session('i', 'idle'), session('z', 'needs', { snoozedUntil: NOW + 60_000 })])];
+    const [l] = lanesAhead(lanes, [change({ kind: 'raise', keys: ['u', 'i', 'z'], raised: true })]);
+    expect(l.sessions.map((s) => [s.key, s.status, !!s.raised, s.snoozedUntil ?? null])).toEqual([
+      ['u', 'unread', true, null],
+      ['i', 'unread', true, null],
+      ['z', 'needs', true, null],
+    ]);
+    // Seen, or snoozed, it's no longer first.
+    const top = [lane([session('u', 'unread', { raised: { at: NOW } })])];
+    expect(lanesAhead(top, [change({ kind: 'seen', keys: ['u'] })])[0].sessions[0].raised).toBeUndefined();
+    expect(lanesAhead(top, [change({ kind: 'snooze', keys: ['u'], until: NOW + 60_000 })])[0].sessions[0].raised).toBeUndefined();
+    expect(lanesAhead(top, [change({ kind: 'raise', keys: ['u'], raised: false })])[0].sessions[0].raised).toBeUndefined();
+  });
+
   it('names a renamed session, in its headline and its lane’s', () => {
     const lanes = [lane([session('a', 'working'), session('b', 'idle')])];
     const [l] = lanesAhead(lanes, [change({ kind: 'rename', key: 'a', title: 'Fix the login redirect' })]);
@@ -462,6 +477,15 @@ describe('barAhead', () => {
     // Quieted and then made heard again, it stays until the engine's feed says.
     const back = barAhead(feed([item('u', 'unread', NOW)]), [change({ kind: 'quiet', keys: ['u'], quiet: true }), change({ kind: 'quiet', keys: ['u'], quiet: false })]);
     expect(back.items.map((i) => i.key)).toEqual(['u']);
+  });
+
+  it('puts a pill moved to the top first in its group on the bar', () => {
+    const f = barAhead(feed([item('n', 'needs', NOW - 50), item('a', 'unread', NOW - 40), item('b', 'unread', NOW)]), [change({ kind: 'raise', keys: ['b'], raised: true })]);
+    expect(f.items.map((i) => [i.key, !!i.raised])).toEqual([
+      ['n', false],
+      ['b', true],
+      ['a', false],
+    ]);
   });
 
   it('names a renamed session’s pill wherever it is on the bar', () => {

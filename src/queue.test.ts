@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { Raised } from './types';
 import { answered, chordPressed, firstLeft, inQueueOrder, keyStep, left, leftAfter, leftGoesOn, placeOf, QUEUE_CHORDS, queueKey, seenStep, standing, statusWaits, stepAlong, stepTo, waits, type Handled, type QueueView, type Reads, type Shown, type Waits } from './queue';
 
 // A window's rows, as the bar's pills are: a session's key, when its status began, what it waits
@@ -10,11 +11,13 @@ interface Row {
   waits?: Waits;
   /** A finished turn, or a reply that asks you something. */
   seenable?: boolean;
+  raised?: Raised;
 }
 const READS: Reads<Row> = {
   keyOf: (r) => r.key,
   sinceOf: (r) => r.since,
   waitsOf: (r) => r.waits ?? 'unread',
+  raisedOf: (r) => r.raised,
   titleOf: (r) => `Queue ${r.key}`,
 };
 const NOW = 1_000;
@@ -110,6 +113,35 @@ describe('the queue’s order', () => {
     const again = WAITING.map((r) => (r.key === 'C' ? { ...r, since: 50 } : r));
     expect(keys(inQueueOrder(again, READS))).toEqual(['A', 'B', 'D', 'C']);
     expect(keys(leftAfter(again, 'B', new Map([['C', 30]]), READS))).toEqual(['D', 'C', 'A']);
+  });
+
+  it('goes to the ones moved to the top first, whatever they wait as, yours before an agent’s, the latest first', () => {
+    const top = (r: Row, at: number, agent = false): Row => ({ ...r, raised: { at, agent } });
+    // D, a finished turn you moved up, goes ahead of A and B, which need you.
+    expect(keys(inQueueOrder([A, B, C, top(D, 100)], READS))).toEqual(['D', 'A', 'B', 'C']);
+    // The latest you moved first, and an agent's after every one of yours.
+    expect(keys(inQueueOrder([top(A, 100), top(B, 300, true), C, top(D, 200)], READS))).toEqual(['D', 'A', 'B', 'C']);
+    // Dealt with, it's on to the rest as they were, from the top.
+    const raised = [A, B, C, top(D, 100)];
+    expect(keys(leftAfter(raised, 'D', none, READS))).toEqual(['A', 'B', 'C']);
+    // Its wait stays its own, so what you've dealt with stays dealt with.
+    expect(placeOf(top(D, 100), READS).since).toBe(D.since);
+    expect(keys(leftAfter(raised, 'A', new Map([['D', D.since]]), READS))).toEqual(['B', 'C']);
+  });
+
+  it('goes next to one moved to the top while you were on another, but not back to one you went past', () => {
+    const top = (r: Row, at: number): Row => ({ ...r, raised: { at } });
+    // On B since 100, D was moved up at 150: next is D, then on from B.
+    expect(keys(leftAfter([A, B, C, top(D, 150)], 'B', none, READS, null, 100))).toEqual(['D', 'C', 'A']);
+    // Moved up before you came to B (you went past it), it comes round as a skipped one does.
+    expect(keys(leftAfter([A, B, C, top(D, 50)], 'B', none, READS, null, 100))).toEqual(['C', 'D', 'A']);
+    // Skipping from one moved up to the other, and on, never goes back round to the first.
+    const both = [top(A, 60), top(B, 50), C, D];
+    expect(keys(leftAfter(both, 'A', none, READS, null, 70))).toEqual(['B', 'C', 'D']);
+    expect(keys(leftAfter(both, 'B', none, READS, null, 80))).toEqual(['C', 'D', 'A']);
+    expect(keys(leftAfter(both, 'C', none, READS, null, 90))).toEqual(['D', 'A', 'B']);
+    // And a window that shows the one moved up says it's next.
+    expect(stepTo('next', { ...card(B, [A, B, C, top(D, 150)]), came: 100 }, 'B', none)?.key).toBe('D');
   });
 
   it('names what a session waits as by its status', () => {

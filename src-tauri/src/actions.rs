@@ -204,6 +204,9 @@ const REQUESTS: &[Request] = &[
     Request { name: api::SESSION_SNOOZE, here: snooze, ..ANY },
     // So is quiet, which is the session's for as long as it lasts, and a helper made your own.
     Request { name: api::SESSION_QUIET, here: quiet, ..ANY },
+    // A move to the top is kept there too. An agent may ask for one through the command, since it
+    // only changes the order you're shown what waits on you in, and says it was the agent's.
+    Request { name: api::SESSION_RAISE, here: raise, ..ANY },
     Request { name: api::SESSION_OWN, here: make_own, ..ANY },
     // A pin is this Mac's, as it lists its sessions; another device asks for one here.
     Request { name: api::SESSION_PIN, here: pin, ..ANY },
@@ -1736,6 +1739,21 @@ fn kept_image(file: &std::path::Path, most: usize) -> Result<Vec<u8>, String> {
         return Err(format!("That image is over {} MB, too big to send.", most / (1024 * 1024)));
     }
     Ok(bytes)
+}
+
+/// Moves sessions (`keys`) to the top of what waits on you, or back to their places with `raised`
+/// false (`board::apply_raise`). One the command asks for, here or through another device, is an
+/// agent's: it goes after the ones you moved, says who and why, and is turned down where you've
+/// said otherwise (`board::raise_refused`).
+fn raise(engine: &Handle, c: &Call) -> Result<Value, String> {
+    let p: params::Raise = c.read()?;
+    let agent = p.agent || matches!(c.from, From::Command(_));
+    let note = p.note.map(|n| n.trim().to_string()).filter(|n| !n.is_empty());
+    if note.as_ref().is_some_and(|n| n.chars().count() > crate::tags::NOTE_LONGEST) {
+        return Err(format!("The note is at most {} characters: a sentence on why.", crate::tags::NOTE_LONGEST));
+    }
+    let by = crate::model::Raised { at: 0, agent, by: p.by.filter(|_| agent), by_title: p.by_title.filter(|_| agent), note };
+    Ok(shown_at(c, engine.raise(p.keys, p.raised, by)?))
 }
 
 /// Quiets sessions (`keys`), or makes them heard again with `quiet` false.

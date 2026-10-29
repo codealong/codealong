@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { doneAhead, quietAhead } from './ahead';
+import { doneAhead, quietAhead, raiseAhead } from './ahead';
 import { getAccounts, moveSession, moveSessionTo, resumeSession, setPrPrimary, type Done, type MergeDone } from './api';
 import type { MenuAction, MenuGroup, MenuSpec } from './contextMenu';
 import { carryOnIn, chordLetter, chordSigns, chorded, CHORDS, DONE_HOLD_MS, SUGGESTION_CHORDS, suggestionChord, doneTitle, fileMenu, keyed, laneActions, laneMenu, lanesActions, lanesMenu, mergesWith, prMenu, prsActions, prsMenu, repoMenu, sessionActions, sessionMenu, sessionsActions, sessionsMenu, todoMenu, todoPanelMenu, todosMenu, toggleWaiting, type MergeDoneAsk, type SessionCan, type SessionsCan, type TodoEdit } from './menus';
@@ -12,7 +12,7 @@ import type { TodoOp } from './todos';
 import type { Label, Lane, PrItem, Session, Todo } from './types';
 
 // What the engine says to Mark as done: done, unless a test says otherwise.
-vi.mock('./ahead', async (original) => ({ ...(await original<typeof import('./ahead')>()), doneAhead: vi.fn(), quietAhead: vi.fn(() => Promise.resolve()) }));
+vi.mock('./ahead', async (original) => ({ ...(await original<typeof import('./ahead')>()), doneAhead: vi.fn(), quietAhead: vi.fn(() => Promise.resolve()), raiseAhead: vi.fn(() => Promise.resolve()) }));
 // No accounts to move to, unless a test says otherwise; what a move gives back, as a test says.
 vi.mock('./api', async (original) => ({ ...(await original<typeof import('./api')>()), getAccounts: vi.fn(() => Promise.resolve([])), moveSession: vi.fn(), moveSessionTo: vi.fn(), resumeSession: vi.fn(), setPrPrimary: vi.fn(() => Promise.resolve()) }));
 // No accounts to resume in, unless a test says otherwise.
@@ -81,6 +81,7 @@ describe('sessionMenu', () => {
       'Fork in terminal',
       '-',
       'Mark as seen',
+      'Move to top',
       'Snooze ›',
       'Quiet',
       'Close terminal',
@@ -297,6 +298,21 @@ describe('sessionMenu', () => {
     expect(l.join('|')).not.toContain('-|-');
   });
 
+  it('moves a session to the top on ⌃⌘0, and puts one there back in line', () => {
+    const raise = vi.mocked(raiseAhead);
+    raise.mockClear();
+    const acts = sessionActions(lane(), session(), base);
+    expect(acts.raise?.label).toBe('Move to top');
+    expect(keyed(acts, '0', true)?.action).toBe(acts.raise);
+    acts.raise?.run();
+    expect(raise).toHaveBeenLastCalledWith(['claude:c:1'], true);
+    const top = sessionActions(lane(), session({ raised: { at: 1, agent: true, byTitle: 'Orchestrator' } }), base).raise;
+    expect(top?.label).toBe('Back in line');
+    top?.run();
+    expect(raise).toHaveBeenLastCalledWith(['claude:c:1'], false);
+    expect(sessionActions(lane(), session({ archived: true }), base).raise).toBeUndefined();
+  });
+
   it('checks Quiet while it’s quiet, and goes on from a turn it takes out of what waits on you', () => {
     const quiet = vi.mocked(quietAhead);
     quiet.mockClear();
@@ -339,6 +355,7 @@ describe('several sessions picked together', () => {
       // The one whose turn you've seen; an archived one stays as it is.
       'Mark 1 session as unread',
       'Pin 2 sessions',
+      'Move 2 sessions to top',
       'Snooze 2 sessions ›',
       'Quiet 2 sessions',
       'Close 1 session',
@@ -366,7 +383,7 @@ describe('several sessions picked together', () => {
     // Rename is one at a time.
     expect(keyed(acts, 'r', true)).toBeNull();
     const chords = sessionsMenu([a, b], { report, keys: 'chords' }).flatMap((i) => (i !== 'separator' && !('items' in i) && i.accelerator ? [i.accelerator] : []));
-    expect(chords).toEqual(['Cmd+E', 'Ctrl+Cmd+U', 'Ctrl+Cmd+W', 'Shift+Cmd+E', 'Ctrl+Cmd+A']);
+    expect(chords).toEqual(['Cmd+E', 'Ctrl+Cmd+U', 'Ctrl+Cmd+0', 'Ctrl+Cmd+W', 'Shift+Cmd+E', 'Ctrl+Cmd+A']);
     expect(keyed(acts, 'u', true)?.action).toBe(acts.unread);
   });
 
@@ -971,7 +988,7 @@ describe('actions by name', () => {
     expect(keys).toEqual(['Rename…=R', 'Mark as seen=E', 'Pin session=P', 'Archive=A']);
     // Sessions takes chords.
     const chords = sessionMenu(lane(), session(), { ...can, keys: 'chords' }).flatMap((i) => (i !== 'separator' && !('items' in i) && i.accelerator ? [i.accelerator] : []));
-    expect(chords).toEqual(['Ctrl+Cmd+R', 'Cmd+E', 'Ctrl+Cmd+P', 'Ctrl+Cmd+W', 'Shift+Cmd+E', 'Ctrl+Cmd+A']);
+    expect(chords).toEqual(['Ctrl+Cmd+R', 'Cmd+E', 'Ctrl+Cmd+P', 'Ctrl+Cmd+0', 'Ctrl+Cmd+W', 'Shift+Cmd+E', 'Ctrl+Cmd+A']);
     // Elsewhere no window takes those keys, so none show.
     expect(sessionMenu(lane(), session(), { ...can, keys: false }).some((i) => i !== 'separator' && 'accelerator' in i && i.accelerator)).toBe(false);
     const acts = sessionActions(lane(), session(), can);

@@ -816,8 +816,8 @@ and one whose turn ended on a command left running, such as a sign-in, as its ne
 #### Working through what waits on you
 
 To work through what waits on you, ⌘⏎ in the box sends and goes on to the next session listed that
-waits on you (Needs you, then Your turn, each the longest wait first, so one that comes back after
-you answered it waits behind the rest), or, while the session waits on a call that can be allowed
+waits on you (any moved to the top first, then Needs you, then Your turn, each the longest wait
+first, so one that comes back after you answered it waits behind the rest: *Move to top*), or, while the session waits on a call that can be allowed
 here, allows it and goes on; ⏎ sends and stays. ⌘⏎ on an answer you typed to a session's questions
 answers and goes on too. ⌘E (or the check at the top of the panel) marks a finished turn seen and
 goes on, and the keys stay where they were, so ⌘E works down the list or from box to box; from a
@@ -2632,6 +2632,26 @@ Quiet, whatever it does meanwhile; Mark as unread, or a snooze that ends, still 
 row has a Quiet chip and its header says quiet. A session on another device is quieted on its Mac,
 as a snooze is.
 
+#### Move to top
+
+**Move to top** (beside Snooze, in a session's menu anywhere, ⌃⌘0, or for several picked in
+Sessions, which keep the order they're listed in) puts a session first in every queue: the notch
+and the waiting window go to it first and ⌘] there and in Sessions' panel, ahead of what needs you;
+it leads its own group on the bar, its heading in Sessions and the quick panel's list, and its
+worktree in Worktrees. Its wait isn't changed, so the times beside it still say how long it waited.
+It's first until you take it up: send it something, or mark its finished turn seen. One that's
+running is first once its turn ends, and one whose turn you'd already seen waits on you again as
+Your turn. Several moved go the latest first. **Back in line**, where Move to top was, puts it back
+in its place, and so does snoozing it (moving a snoozed one up wakes it). Its row has a Top chip and
+its header says it was moved to the top.
+
+An agent can move one up too, with `codealong session raise <session> --note "<why>"`, as an
+orchestrator does for what other work waits on (`--lower` puts it back). Its chip's tooltip and the
+header name the agent's session, with why. Every one you moved goes ahead of the ones agents did, an
+agent can't move up a session you snoozed, and once you put one an agent moved back in line, it
+can't move it up again until the session is sent something or its status changes. A session on
+another device is moved on its Mac, as a snooze is.
+
 #### Suggested replies
 
 An agent that reads your sessions for you can suggest what you might answer each one: start a
@@ -2661,7 +2681,8 @@ session on another device keeps them on its Mac.
 #### Queues, pills and the mark
 
 Needs you, Your turn and Working are queues, the longest first, so a new one joins the end instead
-of pushing an old one down, and the notch works through them first come, first served. Pills that
+of pushing an old one down, and the notch works through them first come, first served; only a
+session moved to the top goes ahead (*Move to top*). Pills that
 don't fit fold into one per group that lists them, and a session picked from that list, or from the
 recent pill's, shows in Codealong's window. The mark brings Codealong forward; drag the bar by it or
 by its gaps. Its node, the part that carries the status color, moves as things happen: it breathes

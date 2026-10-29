@@ -72,6 +72,20 @@ export interface SessionLimit {
   continues?: boolean;
 }
 
+/** A session moved to the top of what waits on you (`Session.raised`): when, and by whom. The
+ *  ones you moved go first, then the ones agents did, each the latest first (queue.ts
+ *  `byRaise`). */
+export interface Raised {
+  at: number;
+  /** An agent moved it (`codealong session raise`), not you. */
+  agent?: boolean;
+  by?: string;
+  /** The agent's session's title when it moved it. */
+  byTitle?: string;
+  /** Why, when the agent said. */
+  note?: string;
+}
+
 /** Replies suggested for a session by another session that read it (peer/src/model.rs
  *  `Suggestions`): each goes as it is, as yours, once you pick it. */
 export interface Suggestions {
@@ -165,6 +179,10 @@ export interface Session {
    *  only when it needs you (board::apply_quiet), until you make it heard again. Missing from
    *  older Macs, whose statuses say nothing of it. */
   quiet?: boolean;
+  /** Moved to the top of what waits on you (Move to top, `codealong session raise`): every queue
+   *  goes to it first until you take it up (board.rs `apply_raise`, queue.ts `byPlace`). Missing
+   *  from older Macs. */
+  raised?: Raised;
   /** Replies another session suggested you send it (`codealong session suggest`), shown above its
    *  box to send with a click, while they still answer where it stands: nothing sent to it since,
    *  no turn of its started since (board::suggestions_hold). Missing from older Macs. */
@@ -2261,6 +2279,9 @@ export interface BarItem {
   snoozedUntil: number | null;
   /** Quieted: its turns don't wait on you. Missing from a feed an older app sent. */
   quiet?: boolean;
+  /** Moved to the top of what waits on you (`Session.raised`): first in its group and the
+   *  notch's queue. */
+  raised?: Raised;
   /** Its turn is running and Codealong can stop it. Missing from a feed an older app sent. */
   stoppable?: boolean;
   /** The device it's on, when that's another of yours: its key starts `@<short>:`. */

@@ -10,7 +10,7 @@ import { MOVES_ACCOUNTS } from './harness';
 import { agoPhrase, duration, withTimes } from './format';
 import type { InsightLabel } from './insights';
 import { resetsPhrase } from './format';
-import type { Bay, ConnectionLost, Lane, Pr, PrItem, Session, SessionLimit, SideGlance, Status } from './types';
+import type { Bay, ConnectionLost, Lane, Pr, PrItem, Raised, Session, SessionLimit, SideGlance, Status } from './types';
 
 /** The status filter an agent falls under, for the statuses that have one. */
 export const AGENT_BAY: Partial<Record<Status, Bay>> = { needs: 'needs', error: 'needs', working: 'working', unread: 'unread' };
@@ -173,23 +173,39 @@ export function sideTitle(g: Pick<SideGlance, 'question'>): string {
 }
 
 /**
- * Two sessions of one of the floating bar's groups, in its order (barfeed.rs): each is a queue,
- * the longest first, so a new one joins the end, and what waits on you is worked through first
- * come, first served (queue.ts `byPlace`). A status's time doesn't move while it lasts, so rows
- * hold their places.
+ * Sessions moved to the top of what waits on you (`Session.raised`) ahead of the rest: the ones
+ * you moved, then the ones agents did, so an agent's never goes over yours, each the latest
+ * first. Two that weren't moved are equal. As the engine has it (board.rs `raised_order`).
  */
-export function byStatusTime(a: Session, b: Session): number {
-  return statusAt(a) - statusAt(b);
+export function byRaise(a: Raised | undefined, b: Raised | undefined): number {
+  if (a && b) return Number(!!a.agent) - Number(!!b.agent) || b.at - a.at;
+  return a ? -1 : b ? 1 : 0;
+}
+
+/** Who moved a session to the top, as its words say it: ` by Orchestrator` for an agent's, by
+ *  its session's title, and nothing for yours. */
+export function raisedBy(r: Raised): string {
+  return r.agent ? ` by ${r.byTitle || 'an agent'}` : '';
 }
 
 /**
- * Most urgent first, as the engine sorts a lane's sessions; those that need you by how long
- * they've waited, the rest by the one you last sent a prompt. Activity would reorder working
- * agents with every tool call; your prompts only move one when you do something. The key
- * settles a tie, as it does there.
+ * Two sessions of one of the floating bar's groups, in its order (barfeed.rs): one moved to the
+ * top first (`byRaise`), then each is a queue, the longest first, so a new one joins the end, and
+ * what waits on you is worked through first come, first served (queue.ts `byPlace`). A status's
+ * time doesn't move while it lasts, so rows hold their places.
+ */
+export function byStatusTime(a: Session, b: Session): number {
+  return byRaise(a.raised, b.raised) || statusAt(a) - statusAt(b);
+}
+
+/**
+ * Most urgent first, the ones moved to the top first among their kind (`byRaise`), as the engine
+ * sorts a lane's sessions; those that need you by how long they've waited, the rest by the one
+ * you last sent a prompt. Activity would reorder working agents with every tool call; your
+ * prompts only move one when you do something. The key settles a tie, as it does there.
  */
 export function bySession(a: Session, b: Session): number {
-  return URGENCY[a.status] - URGENCY[b.status] || (waitingSince(a) ?? 0) - (waitingSince(b) ?? 0) || b.lastPromptAt - a.lastPromptAt || b.lastActivity - a.lastActivity || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
+  return URGENCY[a.status] - URGENCY[b.status] || byRaise(a.raised, b.raised) || (waitingSince(a) ?? 0) - (waitingSince(b) ?? 0) || b.lastPromptAt - a.lastPromptAt || b.lastActivity - a.lastActivity || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
 }
 
 /** When a session started, or when you last prompted it where its record doesn't say. */

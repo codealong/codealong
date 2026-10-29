@@ -275,6 +275,9 @@ pub struct WaitingRow {
     pub untagged: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unsuggested: Option<String>,
+    /// It's moved to the top of what waits on its user (`session raise`), by them or an agent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raised: Option<crate::model::Raised>,
     /// It's among this look's changed sessions, with what it said there.
     pub changed: bool,
     /// It works for another agent (`start --helper`, an automatic review), not for its user: it
@@ -444,6 +447,7 @@ pub fn compare(sight: &Sight, earlier: Option<&Look>, since: i64, now: i64) -> (
             tagged: s.insight.as_ref().is_some_and(|i| i.by.is_some()),
             untagged: None,
             unsuggested: None,
+            raised: s.raised.clone(),
             changed: changed.contains(s.key.as_str()),
             helper: s.helper.is_some(),
         })

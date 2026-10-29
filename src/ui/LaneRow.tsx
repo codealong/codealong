@@ -11,13 +11,13 @@ import { DeviceBadge } from './DeviceBadge';
 import { memoRow } from './memoRow';
 import type { ReactNode } from 'react';
 import { absolute, ago, agoPhrase, middleTruncate, untilShort } from '../format';
-import { branchLabel, foldWords, helperLine, sideTitle, startedOf, worktreeName, type Fold } from '../lanes';
+import { branchLabel, foldWords, helperLine, raisedBy, sideTitle, startedOf, worktreeName, type Fold } from '../lanes';
 import { selectHow, type SelectHow } from '../picks';
 import { untilWords } from '../snooze';
 import type { HelperCount, RunCount, SideCount } from '../boardLists';
 import type { RepoName } from '../groups';
 import type { SaidLine } from '../quick';
-import type { GitInfo, Lane, Session, SideGlance, Suggestions, Todo } from '../types';
+import type { GitInfo, Lane, Raised, Session, SideGlance, Suggestions, Todo } from '../types';
 import { Chip, cx, Drift, HarnessChip, Icon, PrChip, Rich, Row, SaidText, STATUS_WORD, SessionEmblem, SessionGlyph, WorktreeChip } from './primitives';
 import type { DragProps } from './useRowDrag';
 import { FlagChip, InsightChips, LooksFinished } from './InsightBits';
@@ -261,8 +261,8 @@ interface SessionLinesProps {
 
 /**
  * A session on two lines, wherever a list gives it two: what it's about first (its title, what it
- * waits on you for, and what it's doing or said last), then where and why (`where`, its snooze,
- * quiet, todo and Jev's read, then its account), with `end` at the second line's end. A search
+ * waits on you for, and what it's doing or said last), then where and why (`where`, its move to
+ * the top, snooze, quiet, todo and Jev's read, then its account), with `end` at the second line's end. A search
  * that found it by what was said puts the line that has the words between them.
  */
 function SessionLines({ s, now, where, end, todos, onShowTodo, onOpen, helpers, helpersShown, onToggleHelpers, helperActions, runs, runsShown, onToggleRuns, sides, sidesShown, onToggleSides, sideActions, said }: SessionLinesProps) {
@@ -279,6 +279,7 @@ function SessionLines({ s, now, where, end, todos, onShowTodo, onOpen, helpers, 
           <HelpersChip helpers={helpers} now={now} shown={helpersShown} onToggle={onToggleHelpers} actions={helperActions} />
           <RunsChip runs={runs} shown={runsShown} onToggle={onToggleRuns} actions={helperActions} now={now} />
           <SidesChip sides={sides} shown={sidesShown} onToggle={onToggleSides} actions={sideActions} now={now} />
+          <RaisedChip raised={s.raised} />
           <SnoozeChip until={s.snoozedUntil} now={now} />
           <QuietChip quiet={s.quiet} />
           <SuggestedChip suggestions={s.suggestions} />
@@ -359,6 +360,19 @@ export function SnoozeChip({ until, now, away = 'off the floating bar' }: { unti
     <Chip className="ca-snoozechip" title={`Snoozed until ${untilWords(until, now)}: ${away} until then, then back`}>
       <Icon name="zzz" size={12} />
       {untilShort(until, now)}
+    </Chip>
+  );
+}
+
+/** A move to the top's chip: every queue goes to the session first, and its tooltip says who
+ *  moved it there, why, and until when. */
+export function RaisedChip({ raised }: { raised: Raised | undefined }) {
+  if (!raised) return null;
+  const why = raised.note ? `: ${raised.note.replace(/\.$/, '')}` : '';
+  return (
+    <Chip className="ca-raisedchip" title={`Moved to the top${raisedBy(raised)}${why}. It’s first in every queue until you send it something or see its finished turn`}>
+      <Icon name="arrow-up" size={12} />
+      Top
     </Chip>
   );
 }
@@ -550,6 +564,7 @@ function AgentRowView({ lane, session: s, domId, now, age, slim = false, selecte
               <HelpersChip helpers={helpers} now={now} shown={helpersShown} onToggle={onToggleHelpers} actions={helperActions} />
               <RunsChip runs={runs} shown={runsShown} onToggle={onToggleRuns} actions={helperActions} now={now} />
               <SidesChip sides={sides} shown={sidesShown} onToggle={onToggleSides} actions={sideActions} now={now} />
+              <RaisedChip raised={s.raised} />
               <SnoozeChip until={s.snoozedUntil} now={now} />
               <QuietChip quiet={s.quiet} />
               <SuggestedChip suggestions={s.suggestions} />

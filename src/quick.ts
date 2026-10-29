@@ -140,6 +140,7 @@ export const QUEUE_READS: Reads<QueueRow> = {
   keyOf: (r) => (r.kind === 'session' ? r.session.key : r.pr.key),
   sinceOf: (r) => (r.kind === 'session' ? statusTime(r.session) : reviewSince(r.pr)),
   waitsOf: (r) => (r.kind === 'session' ? statusWaits(r.session.status) : 'reviews'),
+  raisedOf: (r) => (r.kind === 'session' ? r.session.raised : undefined),
   titleOf: (r) => (r.kind === 'session' ? r.session.title : `#${r.pr.number} ${r.pr.title}`),
 };
 

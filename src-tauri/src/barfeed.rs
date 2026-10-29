@@ -121,6 +121,10 @@ pub struct BarItem {
     /// Quieted: its turns don't wait on you (`board::apply_quiet`).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub quiet: bool,
+    /// Moved to the top of what waits on you (`Session::raised`): first in its group, and in the
+    /// notch's queue.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub raised: Option<crate::model::Raised>,
     /// Its turn is running and Codealong can stop it: its menu offers Stop.
     pub stoppable: bool,
     /// Its emblem (`Session::emblem`), drawn on its pill beside its title.
@@ -226,6 +230,7 @@ pub fn feed(shown: Shown) -> BarFeed {
                 terminal: s.terminal.clone(),
                 snoozed_until: s.snoozed_until,
                 quiet: s.quiet,
+                raised: s.raised.clone(),
                 stoppable: s.stoppable,
                 emblem: s.emblem.clone(),
                 device: lane.device.clone(),
@@ -240,8 +245,8 @@ pub fn feed(shown: Shown) -> BarFeed {
     // Each group is a queue, the longest first: a new one joins the end, where the group folds,
     // and can't push an old one down or out of sight. A turn that ended again after you answered
     // it goes behind the ones that waited longer, so working through them is first come, first
-    // served.
-    items.sort_by(|(a_at, a), (b_at, b)| a.group.cmp(&b.group).then(a_at.cmp(b_at)).then_with(|| a.key.cmp(&b.key)));
+    // served. Only one moved to the top goes ahead (`board::raised_order`).
+    items.sort_by(|(a_at, a), (b_at, b)| a.group.cmp(&b.group).then(crate::board::raised_order(a.raised.as_ref(), b.raised.as_ref())).then(a_at.cmp(b_at)).then_with(|| a.key.cmp(&b.key)));
     recent.sort_by(|(a_at, a), (b_at, b)| b_at.cmp(a_at).then_with(|| a.key.cmp(&b.key)));
     recent.truncate(RECENT_MAX);
     snoozed.sort_by(|(a_at, a), (b_at, b)| a_at.cmp(b_at).then_with(|| a.key.cmp(&b.key)));
@@ -360,6 +365,14 @@ mod tests {
         assert_eq!(got, vec![("asks".to_string(), Group::Needs), ("failed".to_string(), Group::Needs), ("parent".to_string(), Group::Working)]);
         // Nor among the last day's sessions.
         assert!(f.recent.iter().all(|i| i.key != "done"));
+    }
+
+    #[test]
+    fn one_moved_to_the_top_goes_first_in_its_group() {
+        let raised = Session { raised: Some(crate::model::Raised { at: NOW, ..Default::default() }), ..session("late", Status::Unread, NOW - 10) };
+        let b = board(vec![lane("/a", vec![session("early", Status::Unread, NOW - 50), raised, session("needs", Status::Needs, NOW - 5)], false)], vec![]);
+        let got: Vec<(String, Group)> = feed(Shown::here(&b)).items.into_iter().map(|i| (i.key, i.group)).collect();
+        assert_eq!(got, vec![("needs".to_string(), Group::Needs), ("late".to_string(), Group::Unread), ("early".to_string(), Group::Unread)]);
     }
 
     #[test]

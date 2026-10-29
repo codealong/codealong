@@ -26,6 +26,10 @@ pub const SESSION_SNOOZE: &str = "session-snooze";
 /// don't wait on you, there and everywhere, and it waits on you only when it needs you. Macs
 /// before 2026-10-09 refuse it as a request they don't know.
 pub const SESSION_QUIET: &str = "session-quiet";
+/// Moves sessions (`keys`) to the top of what waits on you, or back to their places with `raised`
+/// false: every queue goes to them first, there and everywhere, until you take them up. Macs
+/// before 2026-10-29 refuse it as a request they don't know.
+pub const SESSION_RAISE: &str = "session-raise";
 /// Makes helpers (`keys`, `Session::helper`) sessions of your own: listed, waiting on you and
 /// counted as any of yours, there and everywhere, for good. Macs before 2026-10-10 refuse it as a
 /// request they don't know.
@@ -477,6 +481,23 @@ pub mod params {
         pub quiet: bool,
     }
 
+    /// `session-raise`: moved to the top, or back to their places. An agent's (`agent`, or one
+    /// asked through the command) says who it was and why, and goes after the ones you moved.
+    #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+    #[serde(default, rename_all = "camelCase")]
+    pub struct Raise {
+        pub keys: Vec<String>,
+        pub raised: bool,
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        pub agent: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub by: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub by_title: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub note: Option<String>,
+    }
+
     /// `session-pin`: pinned, or unpinned.
     #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
     #[serde(default)]
@@ -574,7 +595,7 @@ pub enum Reach {
 }
 
 /// Every request, with who may make it. A request missing here is one a device doesn't know.
-pub const REQUESTS: [(&str, Reach); 46] = [
+pub const REQUESTS: [(&str, Reach); 47] = [
     (SESSION_PAGE, Reach::Read),
     (SESSION_NEWER, Reach::Read),
     (SESSION_PENDING, Reach::Read),
@@ -595,6 +616,7 @@ pub const REQUESTS: [(&str, Reach); 46] = [
     (MARK_UNREAD, Reach::Organize),
     (SESSION_SNOOZE, Reach::Organize),
     (SESSION_QUIET, Reach::Organize),
+    (SESSION_RAISE, Reach::Organize),
     (SESSION_PIN, Reach::Organize),
     (SESSION_OWN, Reach::Organize),
     (SESSION_ARCHIVE, Reach::Organize),

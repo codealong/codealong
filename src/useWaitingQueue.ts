@@ -29,12 +29,13 @@ export const SESSION_READS: Reads<{ session: Session; lane?: Lane }> = {
   keyOf: (r) => r.session.key,
   sinceOf: (r) => statusTime(r.session),
   waitsOf: (r) => rules.statusWaits(r.session.status),
+  raisedOf: (r) => r.session.raised,
   titleOf: (r) => r.session.title,
 };
 
 /** What a window says of itself: its lists and the session shown (queue.ts `QueueView`), and how
  *  it does what the rules ask of it. What it leaves out stays its own. */
-export interface WaitingQueueOptions<T, H = undefined> extends Omit<QueueView<T>, 'travels' | 'marksSeen' | 'was'> {
+export interface WaitingQueueOptions<T, H = undefined> extends Omit<QueueView<T>, 'travels' | 'marksSeen' | 'was' | 'came'> {
   /** Shows a row's session in place of the one shown. `how` is whatever the window's own caller
    *  said about the step (the main window: whether the next one's box takes the cursor). */
   show: (row: T, how?: H) => void;
@@ -98,8 +99,11 @@ export function useWaitingQueue<T, H = undefined>(options: WaitingQueueOptions<T
   const was = useRef<Place | null>(null);
   const listed = options.shown && options.waiting.find((r) => options.reads.keyOf(r) === options.shown?.key);
   if (listed) was.current = rules.placeOf(listed, options.reads);
+  // When the window came to the session shown (queue.ts `QueueView.came`).
+  const came = useRef<{ key: string | null; at: number }>({ key: null, at: 0 });
+  if (came.current.key !== shownKey) came.current = { key: shownKey, at: Date.now() };
   // The window as of its last render, for a key pressed or an answer that comes in later.
-  const view: QueueView<T> = { ...options, was: was.current, travels: !!options.travel, marksSeen: !!options.markSeen };
+  const view: QueueView<T> = { ...options, was: was.current, came: came.current.at, travels: !!options.travel, marksSeen: !!options.markSeen };
   const now = useRef({ options, view });
   now.current = { options, view };
 

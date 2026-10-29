@@ -136,6 +136,15 @@ export async function quietSessions(keys: string[], quiet: boolean): Promise<num
   return (await invoke<number | null>('quiet_sessions', { keys, quiet })) ?? null;
 }
 
+/** Moves sessions to the top of what waits on you, or back to their places with false, each on
+ *  the device it's on: every queue goes to them first until you take them up. Returns the time of
+ *  the board that shows it, as `markSeen` does, and rejects with why when a device didn't; windows
+ *  move them through ahead.ts. */
+export async function raiseSessions(keys: string[], raised: boolean): Promise<number | null> {
+  if (!inTauri || keys.length === 0) return null;
+  return (await invoke<number | null>('raise_sessions', { keys, raised })) ?? null;
+}
+
 /** Makes helpers sessions of your own, for good, each on the device it's on (Session.helper).
  *  Returns the time of the board that shows it, and rejects with why when a device didn't. */
 export async function ownSessions(keys: string[]): Promise<number | null> {
