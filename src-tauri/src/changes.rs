@@ -517,7 +517,8 @@ pub fn compare(sight: &Sight, earlier: Option<&Look>, since: i64, now: i64) -> (
         let part = earlier.and_then(|l| l.shared.as_ref());
         let mut marks = BTreeMap::new();
         for lane in board.lanes.iter().filter(|l| !l.chats) {
-            let here: Vec<&Session> = lane.sessions.iter().filter(|s| working_here(s, now)).collect();
+            // The session asking is left out here too: to itself it's no second agent anywhere.
+            let here: Vec<&Session> = lane.sessions.iter().filter(|s| working_here(s, now) && sight.me != Some(s.key.as_str())).collect();
             if here.is_empty() {
                 continue;
             }
@@ -1188,6 +1189,22 @@ mod tests {
         assert_eq!(out.shared[0].joined, vec!["b".to_string()]);
         let (out, _) = compare(&sight(&both), Some(&second), second.at, NOW + MIN);
         assert!(out.shared.is_empty());
+    }
+
+    #[test]
+    fn the_asking_session_shares_no_worktree() {
+        let b = board(vec![s("a", Status::Working, NOW - MIN), s("me", Status::Working, NOW - MIN)], vec![]);
+        let sight = |me| Sight { board: &b, sessions: true, prs: false, todos: true, me, project: None };
+        let (out, look) = compare(&sight(Some("me")), None, NOW - 15 * MIN, NOW);
+        assert!(out.shared.is_empty());
+        assert_eq!(look.shared.unwrap().marks["/r"], vec!["a".to_string()]);
+        // With a third agent there, it's shared, and named without the one asking.
+        let three = board(vec![s("a", Status::Working, NOW - MIN), s("me", Status::Working, NOW - MIN), s("b", Status::Working, NOW - MIN)], vec![]);
+        let (out, _) = compare(&Sight { board: &three, ..sight(Some("me")) }, None, NOW - 15 * MIN, NOW);
+        let named: Vec<(Vec<&str>, Vec<&str>)> = out.shared.iter().map(|r| (r.sessions.iter().map(|s| s.key.as_str()).collect(), r.joined.iter().map(String::as_str).collect())).collect();
+        assert_eq!(named, vec![(vec!["a", "b"], vec!["a", "b"])]);
+        // Anyone else asking is told the two of them.
+        assert_eq!(compare(&sight(None), None, NOW - 15 * MIN, NOW).0.shared.len(), 1);
     }
 
     #[test]
