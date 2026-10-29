@@ -1109,7 +1109,11 @@ window.__pushSides = function () {
   return window.__TAURI_INTERNALS__.invoke('get_board').then(function (b) { window.__emit('board', b); });
 };
 // Pushes an event to the page's listeners, as the engine's emit would: `window.__emit('board', b)`.
+// A whole board goes as the engine's first push does (windowfeed.rs), each with a rev past the
+// last and past any a snapshot's board has.
+var boardRev = 1e9;
 window.__emit = function (event, payload) {
+  if (event === 'board' && payload && !('full' in payload) && !('base' in payload)) payload = { rev: ++boardRev, full: Object.assign({}, payload, { rev: boardRev }) };
   window.__calls.forEach(function (c, i) {
     if (c[0] === 'plugin:event|listen' && c[1].event === event && !unlistened[i + 1]) window['_' + c[1].handler]({ event: event, id: 0, payload: payload });
   });

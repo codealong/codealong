@@ -1261,6 +1261,9 @@ export interface Notice {
 
 export interface Board {
   generatedAt: number;
+  /** Which of the engine's published boards it is, counted from 1 at launch: what a push
+   *  changes (boardPush.ts). 0, or missing from a snapshot's, for one never published. */
+  rev?: number;
   /** App-wide status from the engine; view and project filters do not change the logo. */
   logoStatus: LogoStatus;
   /** `editors`: the editors installed here, in menu order (editors.ts). */

@@ -70,6 +70,11 @@ for (let run of runs) {
   console.log(`    emit    ${dist(pubs.map((l) => num(/emit (\d+) ms/, l)))}`);
   const changed = pubs.map((l) => num(/changed (\d+) of \d+ lanes/, l));
   console.log(`    lanes changed per publish: ${dist(changed, '')}`);
+  // What the windows were sent of each (windowfeed.rs): what changed, or the whole board.
+  const sent = run.filter((l) => l.includes(' windows sent '));
+  const whole = sent.filter((l) => l.includes(' KB, whole'));
+  const kb = (ls) => ls.map((l) => num(/windows sent ([\d.]+) KB/, l));
+  if (sent.length) console.log(`    sent the windows: ${sent.length - whole.length} times what changed, ${dist(kb(sent.filter((l) => !whole.includes(l))), 'KB')}; ${whole.length} times whole`);
 
   const lag = (who) => run.filter((l) => l.includes(` ${who} lag `)).map((l) => num(/lag (\d+) ms/, l));
   console.log(`\n  engine lag (a message waiting for the engine, 50 ms and up): ${lag('engine').length} times, ${dist(lag('engine'))}`);

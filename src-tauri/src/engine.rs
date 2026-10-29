@@ -861,10 +861,7 @@ pub fn link_opens_as(board: &Board, url: &str) -> Option<Lane> {
     board::app_of_link(&board.lanes, url).cloned()
 }
 
-/// Starts the engine, which hands `emit` each board that changed, and whether anything the
-/// windows show did (`BoardHash`): a board where only how current GitHub's answers are changed
-/// isn't for them, but what acts on the board reads it.
-pub fn start(emit: impl Fn(&Board, bool) + Send + 'static) -> Handle {
+pub fn start(emit: impl Fn(&Board) + Send + 'static) -> Handle {
     let (tx, rx) = channel();
     // The theme, zoom, shortcuts and experiments are on the board before the first scan
     // finishes, so windows open in them.
@@ -926,7 +923,7 @@ pub fn snapshot_pr_card(slug: &str, number: u64) -> Result<PrItem> {
 
 fn snapshot_engine(with_github: bool, with_usage: bool) -> Engine {
     let (tx, _rx) = channel();
-    let mut e = Engine::new(Box::new(|_, _| {}), tx, Arc::new(RwLock::new(Board::default())));
+    let mut e = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
     e.passing = true;
     let t = Instant::now();
     let lap = |label: &str, t: &Instant| eprintln!("  {label:<10} {:>6} ms", t.elapsed().as_millis());
@@ -980,7 +977,7 @@ fn snapshot_engine(with_github: bool, with_usage: bool) -> Engine {
 /// files say, in a couple of seconds. For the `codealong` command when the app isn't running.
 pub fn light_snapshot() -> Board {
     let (tx, _rx) = channel();
-    let mut e = Engine::new(Box::new(|_, _| {}), tx, Arc::new(RwLock::new(Board::default())));
+    let mut e = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
     e.passing = true;
     e.load_config();
     e.load_state();
@@ -1138,8 +1135,7 @@ impl RepoReads {
 }
 
 struct Engine {
-    /// `start`'s.
-    emit: Box<dyn Fn(&Board, bool) + Send>,
+    emit: Box<dyn Fn(&Board) + Send>,
     tx: Sender<Msg>,
     board: Arc<RwLock<Board>>,
     cfg: Config,
@@ -1179,7 +1175,9 @@ struct Engine {
     /// runs there once a scan has read them.
     held_worktrees: HashSet<PathBuf>,
     /// Hash of the last published board, to skip publishing when nothing changed.
-    last_hash: BoardHash,
+    last_hash: u64,
+    /// The last published board's number (`Board::rev`).
+    rev: u64,
     /// What asked for a publish since the last, for the perf log to say when one changed
     /// nothing. Kept only while the log is on.
     asked_by: BTreeSet<String>,
@@ -1337,7 +1335,7 @@ fn with_terminals(mut sessions: Vec<Session>) -> Vec<Session> {
 }
 
 impl Engine {
-    fn new(emit: Box<dyn Fn(&Board, bool) + Send>, tx: Sender<Msg>, board: Arc<RwLock<Board>>) -> Engine {
+    fn new(emit: Box<dyn Fn(&Board) + Send>, tx: Sender<Msg>, board: Arc<RwLock<Board>>) -> Engine {
         let git_jobs = spawn_git_workers(tx.clone());
         let reads = RepoReads::new(&tx);
         let back = tx.clone();
@@ -1377,7 +1375,8 @@ impl Engine {
             reads,
             landed_at: None,
             held_worktrees: HashSet::new(),
-            last_hash: BoardHash::default(),
+            last_hash: 0,
+            rev: 0,
             asked_by: BTreeSet::new(),
             visitors: Visitors::default(),
             needles: Vec::new(),
@@ -3884,8 +3883,11 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             }
             return;
         }
-        let shown = hash.shown != self.last_hash.shown;
         self.last_hash = hash;
+        // Numbered after the hash, which leaves the number out: what the windows are sent of it
+        // says which board it changes (windowfeed.rs).
+        self.rev += 1;
+        board.rev = self.rev;
         // The board `get_board` reads is this one before any window hears of it: a window that
         // reads the board as this push comes gets this board or a later one, never the one
         // before it, which nothing would correct while the board stays the same. It goes out
@@ -3897,10 +3899,10 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         }
         let board = self.board.read().unwrap_or_else(|poisoned| poisoned.into_inner());
         let t = Instant::now();
-        (self.emit)(&board, shown);
+        (self.emit)(&board);
         let emitted = t.elapsed();
         if perf::enabled() {
-            let line = self.perf.publish_line(&board, composed, hashed, emitted, since_last, self.git_queue.running(), shown);
+            let line = self.perf.publish_line(&board, composed, hashed, emitted, since_last, self.git_queue.running());
             perf::log(&line);
         }
     }
@@ -4165,43 +4167,10 @@ fn file_marks(path: &Path) -> (Vec<(String, i64)>, Vec<(String, i64)>, Vec<crate
     (marks, pushes, made, chrome)
 }
 
-/// A board's hashes, so identical boards aren't published again: of what the windows are sent,
-/// and of the rest of what changes it, which only what acts on the board reads. A board whose
-/// windows' part is the same isn't sent to them, which a GitHub poll that found nothing new was:
-/// a quarter of the publishes, some 2 MB each (perf.log, 2026-10-28).
-#[derive(Debug, Default, Clone, Copy, PartialEq)]
-pub(crate) struct BoardHash {
-    /// Everything the windows are sent, its time aside, and how current GitHub's answers are
-    /// aside too: when GitHub last answered (`github_at`), which no window shows, and when each
-    /// repo's PRs were read (`github_current`), of which they only ask whether they have been.
-    pub shown: u64,
-    /// Those times, and what isn't sent but what acts on the board waits on.
-    pub rest: u64,
-}
-
-/// The board's `BoardHash`. It's hashed as it's written out, with what's left out set aside
-/// meanwhile: it's some 2 MB, and neither a copy of it nor its text is made for this.
-pub(crate) fn board_hash(board: &mut Board) -> BoardHash {
-    let at = std::mem::take(&mut board.generated_at);
-    let github_at = std::mem::take(&mut board.github_at);
-    let current = std::mem::take(&mut board.github_current);
-    board.github_current = current.iter().map(|(slug, read)| (slug.clone(), read.map(|_| 0))).collect();
-    let shown = hash_written(|out| serde_json::to_writer(out, &*board));
-    (board.generated_at, board.github_at, board.github_current) = (at, github_at, current);
-    // Neither what's read of the repos' team files, which limits have lifted long enough to be
-    // carried on, nor which PRs' unsaid fixes have settled long enough to ask their reviewer about
-    // is sent, but what acts on the board waits on them; the last two come with time alone, which
-    // the heartbeat's board then goes out for. Nor what this machine's reviews of each PR come to,
-    // which goes to your other machines in its feed (peerfeed.rs).
-    let lifted = crate::reconnect::lifted(board, board.generated_at);
-    let settled: Vec<String> = crate::rerequest::settled(board, board.generated_at).into_iter().map(String::from).collect();
-    let shared: Vec<&codealong_peer::pr::SharedReview> = board.prs.iter().map(|p| &p.shared_review).collect();
-    let rest = hash_written(|out| serde_json::to_writer(out, &(board.github_at, &board.github_current, board.repo_settings.readiness(), lifted, settled, shared)));
-    BoardHash { shown, rest }
-}
-
-/// A hash of what `write` writes.
-fn hash_written(write: impl FnOnce(&mut dyn std::io::Write) -> serde_json::Result<()>) -> u64 {
+/// A hash of everything the UI shows except the timestamp, so identical boards aren't resent.
+/// The board is hashed as it's written out, with its timestamp set aside meanwhile: it's some
+/// 2 MB, and neither a copy of it nor its text is made for this.
+pub(crate) fn board_hash(board: &mut Board) -> u64 {
     use std::hash::Hasher;
     struct Hashed(std::collections::hash_map::DefaultHasher);
     impl std::io::Write for Hashed {
@@ -4215,8 +4184,18 @@ fn hash_written(write: impl FnOnce(&mut dyn std::io::Write) -> serde_json::Resul
     }
     // Buffered, so the hasher is handed a few kilobytes at a time, not each comma and quote.
     let mut out = std::io::BufWriter::new(Hashed(std::collections::hash_map::DefaultHasher::new()));
-    let written = write(&mut out);
-    // What can't be written out hashes as nothing at all, as it did.
+    // Neither what's read of the repos' team files, which limits have lifted long enough to be
+    // carried on, nor which PRs' unsaid fixes have settled long enough to ask their reviewer about
+    // is sent, but what acts on the board waits on them; the last two come with time alone, which
+    // the heartbeat's board then goes out for. Nor what this machine's reviews of each PR come to,
+    // which goes to your other machines in its feed (peerfeed.rs).
+    let lifted = crate::reconnect::lifted(board, board.generated_at);
+    let settled: Vec<String> = crate::rerequest::settled(board, board.generated_at).into_iter().map(String::from).collect();
+    let shared: Vec<&codealong_peer::pr::SharedReview> = board.prs.iter().map(|p| &p.shared_review).collect();
+    let at = std::mem::take(&mut board.generated_at);
+    let written = serde_json::to_writer(&mut out, &*board).and_then(|()| serde_json::to_writer(&mut out, &(board.repo_settings.readiness(), lifted, settled, shared)));
+    board.generated_at = at;
+    // A board that can't be written out hashes as nothing at all, as it did.
     match (written, out.into_inner()) {
         (Ok(()), Ok(hashed)) => hashed.0.finish(),
         _ => std::collections::hash_map::DefaultHasher::new().finish(),
@@ -4608,7 +4587,7 @@ mod tests {
         std::fs::create_dir_all(&admin).unwrap();
         std::fs::create_dir_all(&wt).unwrap();
         let (tx, _rx) = channel();
-        let mut engine = Engine::new(Box::new(|_, _| {}), tx, Arc::new(RwLock::new(Board::default())));
+        let mut engine = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
         let checkout = repos::Checkout { root: root.clone(), git_dir: git_dir.clone(), name: "repo".into(), identity: None, github: None, github_owners: Vec::new() };
         engine.checkouts = vec![("P".into(), checkout)];
         engine.gitdir_to_lane.insert(admin.clone(), wt.clone());
@@ -4636,7 +4615,7 @@ mod tests {
         use super::*;
 
         let (tx, _rx) = channel();
-        let mut engine = Engine::new(Box::new(|_, _| {}), tx, Arc::new(RwLock::new(Board::default())));
+        let mut engine = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
         engine.config_warning = Some("config.toml doesn't read.".into());
         engine.watch_warning = Some("Couldn't watch 2 folders; their lanes update every 10 seconds.".into());
         let keys = |e: &Engine| e.notices().into_iter().map(|n| n.key).collect::<Vec<_>>();
@@ -4662,7 +4641,7 @@ mod tests {
         use super::*;
 
         let (tx, _rx) = channel();
-        let mut engine = Engine::new(Box::new(|_, _| {}), tx, Arc::new(RwLock::new(Board::default())));
+        let mut engine = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
         assert!(engine.notices().is_empty());
         engine.store_warnings = vec![("origins.json".into(), "origins.json doesn't read as a list of where sessions came from.".into())];
         let said = engine.notices();
@@ -4676,7 +4655,7 @@ mod tests {
         use super::*;
 
         let (tx, _rx) = channel();
-        let mut engine = Engine::new(Box::new(|_, _| {}), tx, Arc::new(RwLock::new(Board::default())));
+        let mut engine = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
         let seed = |path: &str, slug: &str| LaneSeed { repo_slug: Some(slug.into()), origin: Origin::Main, ..folder_seed(PathBuf::from(path), "P", "repo", false) };
         engine.seeds = vec![seed("/x/spark", "SparkHQ/spark"), seed("/x/spur", "spurhq/spur")];
         engine.on_github(ghpoll::Event::RepoNames(vec![("sparkhq/spark".into(), Some("sprucehq/spark".into())), ("spurhq/spur".into(), Some("spurhq/spur".into()))]));
@@ -4723,7 +4702,7 @@ mod tests {
         let on = config::render(&Config { devices: crate::config::DevicesCfg { enabled: true, ..Default::default() }, ..off });
         // The scan's first board goes out before the watcher starts: devices are turned on then.
         let edited = AtomicBool::new(false);
-        let emit = move |_: &Board, _: bool| {
+        let emit = move |_: &Board| {
             if !edited.swap(true, Ordering::SeqCst) {
                 std::fs::write(config::config_path(), &on).unwrap();
             }
@@ -4769,7 +4748,7 @@ mod tests {
         let said = |e: &Engine| e.notices().into_iter().find(|n| n.key == "state").map(|n| n.text);
         let engine = || {
             let (tx, _rx) = channel();
-            Engine::new(Box::new(|_, _| {}), tx, Arc::new(RwLock::new(Board::default())))
+            Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())))
         };
 
         // A snooze as a later build might write it.
@@ -4852,7 +4831,7 @@ mod tests {
 
         config::write(&Config { scan: vec![], ..Config::default() }).unwrap();
         let (tx, _rx) = channel();
-        let mut e = Engine::new(Box::new(|_, _| {}), tx, Arc::new(RwLock::new(Board::default())));
+        let mut e = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
         e.load_config();
         e.load_todos();
         let said = |e: &Engine| e.notices().into_iter().find(|n| n.key == "todos-lock").map(|n| n.text);
@@ -4936,7 +4915,7 @@ mod tests {
         let boards: Arc<Mutex<Vec<Board>>> = Arc::default();
         let emitted = boards.clone();
         let (tx, rx) = channel();
-        let mut engine = Engine::new(Box::new(move |b: &Board, _: bool| emitted.lock().unwrap().push(b.clone())), tx.clone(), Arc::new(RwLock::new(Board::default())));
+        let mut engine = Engine::new(Box::new(move |b: &Board| emitted.lock().unwrap().push(b.clone())), tx.clone(), Arc::new(RwLock::new(Board::default())));
         // The stuck worktree's files never read; the late one's read once it's let go.
         let (release, gate) = channel::<()>();
         let gate = Mutex::new(gate);
@@ -5044,27 +5023,12 @@ mod tests {
         assert_eq!(board_hash(&mut first), board_hash(&mut first.clone()));
     }
 
-    /// A GitHub poll that found nothing new moves only its times: a change to publish, for what
-    /// reads them (`codealong changes`, autoreview.rs's retries), but none for the windows, which
-    /// only ask whether a repo's PRs have been read.
-    #[test]
-    fn github_times_alone_are_no_change_for_the_windows() {
-        use super::*;
-        let board = |at: Option<i64>, read: Option<i64>| Board { github_at: at, github_current: [("o/r".to_string(), read)].into(), ..Board::default() };
-        let (mut unread, mut polled, mut later) = (board(Some(1_000), None), board(Some(1_000), Some(1_000)), board(Some(2_000), Some(2_000)));
-        let (polled_hash, later_hash) = (board_hash(&mut polled), board_hash(&mut later));
-        assert_ne!(polled_hash, later_hash, "published, for what acts on the board");
-        assert_eq!(polled_hash.shown, later_hash.shown, "but not sent to the windows");
-        assert_ne!(board_hash(&mut unread).shown, polled_hash.shown, "a repo's PRs read for the first time are shown");
-        assert_eq!((later.github_at, later.github_current["o/r"]), (Some(2_000), Some(2_000)), "the board keeps its times");
-    }
-
     /// A git run that finds a worktree as it was changes nothing to publish.
     #[test]
     fn git_that_finds_nothing_new_asks_for_no_publish() {
         use super::*;
         let (tx, _rx) = channel();
-        let mut engine = Engine::new(Box::new(|_, _| {}), tx, Arc::new(RwLock::new(Board::default())));
+        let mut engine = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
         let wt = PathBuf::from("/work/app");
         engine.seeds = vec![folder_seed(wt.clone(), "p", "app", false)];
         let info = GitInfo { ahead: 1, dirty: 2, ..GitInfo::default() };
@@ -5087,7 +5051,7 @@ mod tests {
     fn dropped_events_run_git_in_the_folders_worktrees_now_and_then() {
         use super::*;
         let (tx, _rx) = channel();
-        let mut engine = Engine::new(Box::new(|_, _| {}), tx, Arc::new(RwLock::new(Board::default())));
+        let mut engine = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
         // No worker takes the jobs: each run stays running, to be counted.
         let (jobs, _held) = channel::<GitJob>();
         engine.git_jobs = jobs;
@@ -5123,7 +5087,7 @@ mod tests {
     fn a_worktree_gone_while_events_were_dropped_has_the_repos_read_again() {
         use super::*;
         let (tx, _rx) = channel();
-        let mut engine = Engine::new(Box::new(|_, _| {}), tx, Arc::new(RwLock::new(Board::default())));
+        let mut engine = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
         let gone = PathBuf::from("/nowhere/codealong-gone-worktree");
         engine.seeds = vec![LaneSeed { origin: Origin::Main, ..folder_seed(gone.clone(), "P", "repo", false) }];
         let rest = engine.on_dropped(vec![gone.clone()]);
@@ -5199,7 +5163,7 @@ mod tests {
     fn a_usage_read_that_falls_over_is_over() {
         use super::*;
         let (tx, _rx) = channel();
-        let mut engine = Engine::new(Box::new(|_, _| {}), tx, Arc::new(RwLock::new(Board::default())));
+        let mut engine = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
         engine.usage.insert("claude".into(), usage(None, false, 47.0));
         (engine.usage_inflight, engine.usage_backoff) = (true, true);
         engine.on_usage(None);
@@ -5247,7 +5211,7 @@ mod tests {
             }
         }
         let (tx, rx) = channel();
-        let mut engine = Engine::new(Box::new(|_, _| {}), tx, Arc::new(RwLock::new(Board::default())));
+        let mut engine = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
         let noted = Arc::new(Mutex::new(Vec::new()));
         engine.readers = vec![Box::new(Noting(noted.clone()))];
         // Before anything has listed them, a look has none, and lists none itself.
@@ -5291,7 +5255,7 @@ mod tests {
 
         // The engine has the worktree's run as over either way, and keeps what it knew of it.
         let (tx, _rx) = channel();
-        let mut engine = Engine::new(Box::new(|_, _| {}), tx, Arc::new(RwLock::new(Board::default())));
+        let mut engine = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
         let wt = PathBuf::from("/x/wt");
         engine.seeds = vec![folder_seed(wt.clone(), "P", "repo", false)];
         assert_eq!(engine.git_queue.request(wt.clone(), Instant::now()), Verdict::Run);

@@ -2309,6 +2309,8 @@ pub fn compose(inp: Inputs) -> Board {
     }
     Board {
         generated_at: now,
+        // The engine numbers it once it's published.
+        rev: 0,
         logo_status: logo_status(&lanes, &pr_list),
         apps: apps.clone(),
         projects,

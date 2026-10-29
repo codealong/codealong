@@ -31,6 +31,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import {
   addFolder,
+  boardSeen,
   deviceStartOptions,
   getBoard,
   getDevices,
@@ -470,8 +471,10 @@ export function Quick() {
       }
       refresh(b);
     };
-    // Opened by Codealong's script: laid out and measured before it returns.
+    // Opened by Codealong's script: laid out and measured before it returns. Its board is the one
+    // the next push changes, so the panel doesn't read it again for that.
     window.__quickOpen = (ctx, b) => {
+      if (b) boardSeen(b);
       openNow('script', ctx ?? {}, b);
       return reported.current;
     };

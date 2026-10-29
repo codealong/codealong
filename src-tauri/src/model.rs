@@ -112,6 +112,11 @@ pub struct Notice {
 #[serde(rename_all = "camelCase")]
 pub struct Board {
     pub generated_at: i64,
+    /// Which of the engine's published boards it is, counted from 1 at launch; 0 for one never
+    /// published (a `--snapshot`). What the windows are sent of a board changes the one before it
+    /// by this number (windowfeed.rs).
+    #[serde(default)]
+    pub rev: u64,
     /// Shared by every window and the Dock, independent of view and project filters.
     #[serde(default)]
     pub logo_status: LogoStatus,

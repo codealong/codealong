@@ -24,7 +24,10 @@ paths:
 - `node scripts/perf-summary.mjs` sums up the app's latest run (its header has the options). A
   window that can't be seen holds pushes and renders the latest when it's shown, so its push
   times are for boards someone saw.
-- A push's cost in a window is `scripts/preview/push-bench.js` (forty pushes of the real board
+- The windows are sent what changed in each board, a session at a time (windowfeed.rs), and the
+  log's `windows sent` lines say how much; only the first push, and a read after a window missed
+  one, carry the whole board. A whole board's cost in a window is
+  `scripts/preview/push-bench.js` (forty pushes of the real board
   with one worktree changed, as most publishes are), the quick panel's open, keys and pushes
   `quick-bench.js`, and its keys after a prompt of up to 12,000 characters `quick-long-bench.js`
   (a key cost 48 ms there until the session search stopped marking titles it didn't match);
@@ -57,8 +60,7 @@ paths:
   ("rescan: user dropped"), idle repos too: 6,298 such events in five minutes on 47 folders
   (2026-10-28, a watcher of notify 8.2's beside the app). Those run git only as throttle.rs
   `Drops` allows, and the log says `watcher dropped events in N folders`. A git run that finds a
-  worktree as it was asks for no publish, a publish where only GitHub's times changed isn't sent
-  to the windows (`BoardHash`), and `publish skipped` says what asked for it.
+  worktree as it was asks for no publish, and `publish skipped` says what asked for it.
 - The engine's own thread is user-initiated (`user_initiated_thread`), ahead of the agents'
   builds. In the utility class from 2026-09-24 it sat at priority 20 in `ps -M` and, at a load
   of 30 to 130 on ten cores, messages waited 15 to 40 s for it while it used ~4% of a core and

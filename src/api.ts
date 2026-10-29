@@ -9,12 +9,17 @@ import type { PrTab } from './agentReview';
 import type { AgentTask } from './agentTasks';
 import type { BoardDoc, BoardOp } from './boards/model';
 import type { TodoOp } from './todos';
+import { Pushes, type BoardPush } from './boardPush';
 import { pageZoom, type ZoomStep } from './zoom';
 
 export const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
 export async function getBoard(): Promise<Board> {
-  if (inTauri) return invoke<Board>('get_board');
+  if (inTauri) {
+    const board = await invoke<Board>('get_board');
+    boardPushes.saw(board);
+    return board;
+  }
   const res = await fetch('./board.json');
   if (!res.ok) throw new Error('No board.json next to the page. Run the app with `npm run tauri dev`.');
   return (await res.json()) as Board;
@@ -44,6 +49,20 @@ export async function popupMenu(rid: number, at?: { x: number; y: number }): Pro
   await invoke('popup_menu', { rid, at: at ? { Logical: { x: at.x * z, y: at.y * z } } : null });
 }
 
+/** Who in this window hears of each board, and the pushes put together into boards for them
+ *  (boardPush.ts): one listener for every `onBoard` here, so each push is put together once. */
+const boardTakers = new Set<(board: Board) => void>();
+const boardPushes = new Pushes(
+  () => invoke<Board>('get_board'),
+  (board) => boardTakers.forEach((take) => take(board)),
+);
+let boardListener: Promise<(() => void) | null> | null = null;
+
+/** A board this window was handed whole (the quick panel's open): what the next push changes. */
+export function boardSeen(board: Board): void {
+  boardPushes.saw(board);
+}
+
 /** Calls `cb` with every board the engine publishes. Returns an unsubscribe function. Tauri
  *  takes a moment to start listening; `listening` is called once it has, so a board read then
  *  can't miss a push that came before the listening began (followBoard.ts). */
@@ -53,21 +72,20 @@ export function onBoard(cb: (board: Board) => void, listening?: () => void): () 
     return () => {};
   }
   let cancelled = false;
-  let unlisten: (() => void) | undefined;
-  void listen<Board>('board', (e) => cb(e.payload)).then(
-    (u) => {
-      if (cancelled) return u();
-      unlisten = u;
-      listening?.();
-    },
-    // No pushes, but the window still reads the board once.
-    () => {
-      if (!cancelled) listening?.();
-    },
-  );
+  boardTakers.add(cb);
+  // Failing, it hears no pushes, but the window still reads the board once.
+  const started = (boardListener ??= listen<BoardPush>('board', (e) => boardPushes.take(e.payload)).catch(() => null));
+  void started.then(() => {
+    if (!cancelled) listening?.();
+  });
   return () => {
     cancelled = true;
-    unlisten?.();
+    boardTakers.delete(cb);
+    // The last one here stops listening, so a window that isn't following isn't sent the pushes.
+    if (boardTakers.size === 0 && boardListener === started) {
+      boardListener = null;
+      void started.then((unlisten) => unlisten?.());
+    }
   };
 }
 

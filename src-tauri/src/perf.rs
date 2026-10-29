@@ -270,9 +270,8 @@ impl Counters {
         }
     }
 
-    /// One line for a publish, and the counters start over. `shown`: whether the windows were sent
-    /// it (engine.rs `BoardHash`).
-    pub fn publish_line(&mut self, board: &Board, compose: Duration, hash: Duration, emit: Duration, since_last: Option<Duration>, git_running: usize, shown: bool) -> String {
+    /// One line for a publish, and the counters start over.
+    pub fn publish_line(&mut self, board: &Board, compose: Duration, hash: Duration, emit: Duration, since_last: Option<Duration>, git_running: usize) -> String {
         let bytes = serde_json::to_string(board).map(|s| s.len()).unwrap_or(0);
         let lanes = diff(&mut self.lanes, board.lanes.iter().map(|l| (l.id.clone(), hash_of(&l))));
         let sessions = diff(&mut self.sessions, board.lanes.iter().flat_map(|l| l.sessions.iter()).map(|s| (s.key.clone(), hash_of(&s))));
@@ -297,9 +296,8 @@ impl Counters {
             rest.push("nothing else");
         }
         let since = since_last.map(|d| format!("{} ms", d.as_millis())).unwrap_or_else(|| "first".into());
-        let windows = if shown { "" } else { "; not sent to the windows, only GitHub's times changed" };
         let line = format!(
-            "publish {} KB after {since}: changed {lanes} of {} lanes, {sessions} of {} sessions, {prs} of {} prs, {}; compose {} ms, hash {} ms, emit {} ms; since last: {} fs batches ({} paths, {} ms), {} git runs, {git_running} running{windows}",
+            "publish {} KB after {since}: changed {lanes} of {} lanes, {sessions} of {} sessions, {prs} of {} prs, {}; compose {} ms, hash {} ms, emit {} ms; since last: {} fs batches ({} paths, {} ms), {} git runs, {git_running} running",
             bytes / 1024,
             board.lanes.len(),
             self.sessions.len(),

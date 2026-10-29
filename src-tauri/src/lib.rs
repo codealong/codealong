@@ -9,6 +9,7 @@ mod attachments;
 mod autoreview;
 mod bar;
 mod barfeed;
+mod windowfeed;
 mod board;
 mod boards;
 mod changes;
@@ -2279,7 +2280,8 @@ pub fn run() {
             let (reporter, reports_with) = (std::sync::Arc::new(std::sync::Mutex::new(helpers::Reporter::default())), engine_slot.clone());
             let (reviewer, reviews_with) = (std::sync::Arc::new(std::sync::Mutex::new(autoreview::Reviewer::load())), engine_slot.clone());
             app.manage(Reviews(reviewer.clone()));
-            let engine = engine::start(move |board, for_windows| {
+            let windows = std::sync::Mutex::new(windowfeed::Feed::default());
+            let engine = engine::start(move |board| {
                 if let Ok(mut shown) = shown_logo.lock() {
                     if *shown != board.logo_status {
                         match logo::update(&emitter, board.logo_status) {
@@ -2307,10 +2309,20 @@ pub fn run() {
                         }
                     }
                 }
-                // Each window that follows the board parses all of it, so one where nothing they
-                // show changed isn't sent; they read it with the next that does, or from the slot.
-                if for_windows {
-                    let _ = emitter.emit("board", board);
+                // What changed since the board before, which each window puts back together
+                // (windowfeed.rs); a window that misses one reads the board whole.
+                if let Ok(mut feed) = windows.lock() {
+                    let t = std::time::Instant::now();
+                    match feed.push(board) {
+                        Ok(push) => {
+                            let _ = emitter.emit("board", &*push.json);
+                            if perf::enabled() {
+                                let what = if push.whole { "whole" } else { "what changed" };
+                                perf::log(&format!("windows sent {:.1} KB, {what}: {} sessions in {} lanes, in {} ms", push.json.get().len() as f64 / 1024.0, push.sessions, push.lanes, t.elapsed().as_millis()));
+                            }
+                        }
+                        Err(e) => eprintln!("Couldn't write the board out for the windows: {e}"),
+                    }
                 }
                 // The bar with a sound for what came to wait on you (sounds.rs), the desktop cards
                 // and the lines between them.
