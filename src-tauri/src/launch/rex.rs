@@ -25,7 +25,7 @@ use anyhow::{anyhow, bail, Result};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use super::{app_active, app_installed, close_tty_terminals, focus_on_tty, launcher, pasted, terminals_beside, tty_of, type_on_tty, Closing, HostKind, Key, Placement, Submit, Tab, Terminal, TerminalHost, Typed};
+use super::{app_active, app_installed, close_tty_terminals, focus_on_tty, launcher, pasted, terminal_kind, terminals_beside, tty_of, type_on_tty, Closing, HostKind, Key, Placement, Submit, Tab, Terminal, TerminalHost, Typed};
 use crate::config::NewTerminal;
 use crate::os::open::{self, App};
 use crate::procs;
@@ -109,6 +109,11 @@ impl Terminal for Rex {
     }
 
     fn split(&self, pid: u32, dir: &Path) -> Result<bool> {
+        // Only a session running under Rex has a tab to split, and then its server is running: one
+        // in another terminal is no question for a server that may not be.
+        if terminal_kind(pid).map(|t| t.kind()) != Some(HostKind::Rex) {
+            return Ok(false);
+        }
         let Some(tty) = tty_of(pid) else { return Ok(false) };
         let Some(b) = block_on(&tty.to_string_lossy())? else { return Ok(false) };
         let made = script(SPLIT, json!({ "session": b.session, "window": b.window, "block": b.block, "cwd": dir.to_string_lossy() }), false)?;
@@ -435,7 +440,11 @@ fn destination(place: Placement, dir: &Path) -> Destination {
     let (session, named) = match (place.new_terminal, &place.near.project) {
         (NewTerminal::Window, _) => (None, folder),
         (NewTerminal::Tab, _) => (shown_session().or(nearest), folder),
-        (NewTerminal::Project, Some(project)) => (listed.sessions.iter().find(|s| s.label.trim().to_lowercase() == project.to_lowercase()).map(|s| s.session.clone()), project.clone()),
+        // Named as it's made, so a long name or one with spaces at its ends finds it again.
+        (NewTerminal::Project, Some(project)) => {
+            let name = truncate(project.trim(), LABEL_CHARS);
+            (listed.sessions.iter().find(|s| s.label.trim().to_lowercase() == name.to_lowercase()).map(|s| s.session.clone()), name)
+        }
         (NewTerminal::Project, None) => (nearest, folder),
     };
     let session = session.unwrap_or_default();

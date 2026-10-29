@@ -1538,6 +1538,16 @@ mod tests {
         assert_eq!(new_of("Elsewhere", true), rex("REX_NEW", r#"{"after":[],"cwd":"/r/app","focus":true,"input":"ls\n","session":"session:s3","session_label":"Elsewhere"}"#, true));
         assert_eq!(new_of("Atlas", true), rex("REX_NEW", r#"{"after":[],"cwd":"/r/app","focus":true,"input":"ls\n","session":"","session_label":"Atlas"}"#, true));
         assert_eq!(new_of("Spruce", false), rex("REX_NEW", r#"{"after":[],"cwd":"/r/app","focus":true,"input":"ls\n","session":"","session_label":"Spruce"}"#, true));
+        // A name with spaces at its ends, or longer than Rex takes, finds the session made with
+        // it, as the next open does.
+        assert_eq!(new_of(" Spruce ", true), rex("REX_NEW", r#"{"after":[],"cwd":"/r/app","focus":true,"input":"ls\n","session":"session:s1","session_label":"Spruce"}"#, true));
+        let made = format!("{}…", "y".repeat(127));
+        let listing = REX_BLOCKS.replace(r#""label":"Elsewhere""#, &format!(r#""label":"{made}""#));
+        let long = crate::board::Neighbours { folders: vec![vec!["/r/other".to_string()]], project: Some("y".repeat(200)) };
+        let place = Placement { new_terminal: NewTerminal::Project, near: &long, behind: false, label: None };
+        let p = played(move |s| if s.args.get(3).is_some_and(|a| a == "REX_LIST") { Ok(listing.clone()) } else { rex_answers(REX_SHOWN)(s) }, move || terminal_run("rex", place, Path::new("/r/app"), "ls\n", &[]));
+        p.got.unwrap();
+        assert!(p.log[1].contains(r#"\"session\":\"session:s3\""#) && p.log[1].contains(&made), "{}", p.log[1]);
 
         // In no project, beside the nearest folders that have a terminal, in that terminal's
         // session.
@@ -1662,10 +1672,14 @@ mod tests {
         let p = played(rex_answers(REX_SHOWN), || terminal_open_beside("rex", window(), Some(IN_REX), Path::new("/r/app/src")));
         p.got.unwrap();
         assert_eq!(p.log, [rex("REX_LIST", "{}", false), split, rex("REX_SHOW", r#"{"block":"block:b8","session":"session:s1","window":"window:w1"}"#, false), REX_OPEN.to_string()]);
-        // A session that isn't in Rex, or isn't running: a terminal where the placement says.
+        // A session that isn't in Rex, or isn't running: a terminal where the placement says,
+        // without asking Rex's server, which a new terminal starts when it isn't running.
         let p = played(rex_answers(REX_SHOWN), || terminal_open_beside("rex", window(), Some(IN_GHOSTTY), Path::new("/r/app")));
         p.got.unwrap();
-        assert_eq!(p.log[..2], [rex("REX_LIST", "{}", false), rex("REX_NEW", r#"{"after":[],"cwd":"/r/app","focus":true,"input":"","session":"","session_label":"app"}"#, true)]);
+        assert_eq!(p.log[0], rex("REX_NEW", r#"{"after":[],"cwd":"/r/app","focus":true,"input":"","session":"","session_label":"app"}"#, true));
+        let p = played(|s| if s.args.get(3).is_some_and(|a| a == "REX_LIST") { Err("/rex/rex Error: rex server is not running".into()) } else { rex_answers(REX_SHOWN)(s) }, || terminal_open_beside("rex", window(), Some(IN_GHOSTTY), Path::new("/r/app")));
+        p.got.unwrap();
+        assert!(p.log[0].contains("REX_NEW"), "{:?}", p.log);
         let p = played(rex_answers(REX_SHOWN), || terminal_open_beside("rex", window(), None, Path::new("/r/app")));
         p.got.unwrap();
         assert!(p.log[0].contains("REX_NEW"), "{:?}", p.log);
