@@ -250,8 +250,9 @@ function PrRow({ item, domId, now, slim, opened, onShowRepo, selected, onSelect,
               </span>
               {shown.length > 0 && (
                 <span className="ca-prrow-agents">
+                  {/* One on another of your Macs opens nowhere from here: its row shows it in the panel. */}
                   {shown.map(({ lane, session }) => (
-                    <HarnessChip key={session.key} session={session} named onOpen={() => onOpenSession(lane, session)} inRow />
+                    <HarnessChip key={session.key} session={session} named onOpen={session.openTarget ? () => onOpenSession(lane, session) : undefined} inRow />
                   ))}
                   <MoreChip names={sessions.slice(shown.length).map(({ session }) => `${session.title} · ${session.account}`)} />
                 </span>

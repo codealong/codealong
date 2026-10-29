@@ -74,6 +74,11 @@ pub struct PrCard {
     /// The sessions that worked on it, by their keys on the sending device.
     #[serde(default)]
     pub sessions: Vec<String>,
+    /// The worktree each of `sessions` is listed under on the sending device, in their order: its
+    /// own, or the one on the PR's branch it made or worked in, where it's a visitor, which lends
+    /// the PR none of its status. Missing from Macs before 2026-10-29.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub session_lanes: Vec<String>,
     /// Its labels on GitHub, in the order of their names. Missing from Macs before 2026-10-17.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub labels: Vec<PrLabel>,

@@ -5,8 +5,9 @@
 // its worktree (`PanelSession`) with its title, then who runs it and what it's doing, as the
 // Sessions view says it. A worktree on another of your Macs wears that Mac's badge in both. A
 // click on a session, chip or row, shows it in the panel (with a way back); on a row, double-click
-// or the arrow opens it where it runs, as double-click does in every list. A click on a worktree
-// shows it in Worktrees; a right-click on either gives its menu.
+// or the arrow opens it where it runs, as double-click does in every list, but for one on another
+// Mac, which has nowhere here to open. A click on a worktree shows it in Worktrees; a right-click
+// on either gives its menu.
 
 import { absolute, ago } from '../format';
 import { sessionWhy } from '../lanes';
@@ -31,6 +32,8 @@ interface PanelSessionProps {
 }
 
 export function PanelSession({ lane, session: s, now, onShow, onOpen, onMenu, primary }: PanelSessionProps) {
+  // One on another of your Macs has nowhere here to open it: a click shows it in the panel.
+  const opens = !!s.openTarget;
   return (
     <div
       role="treeitem"
@@ -40,7 +43,7 @@ export function PanelSession({ lane, session: s, now, onShow, onOpen, onMenu, pr
         onMenu(lane, s);
       }}
     >
-      <button type="button" className="ca-psess-main" title={`${s.title}\nClick to show it here · double-click to open it where it runs`} onClick={() => onShow(lane, s)} onDoubleClick={() => onOpen(lane, s)}>
+      <button type="button" className="ca-psess-main" title={`${s.title}\nClick to show it here${opens ? ' · double-click to open it where it runs' : ''}`} onClick={() => onShow(lane, s)} onDoubleClick={opens ? () => onOpen(lane, s) : undefined}>
         <SessionGlyph s={s} size={10} />
         <span className="ca-psess-text">
           <span className="ca-psess-line1">
@@ -61,7 +64,7 @@ export function PanelSession({ lane, session: s, now, onShow, onOpen, onMenu, pr
           </span>
         </span>
       </button>
-      <button type="button" className="ca-psess-open" aria-label="Open where it runs" title="Open it where it runs" onClick={() => onOpen(lane, s)}>
+      <button type="button" className="ca-psess-open" aria-label="Open where it runs" title="Open it where it runs" disabled={!opens} onClick={() => onOpen(lane, s)}>
         <Icon name="arrow-up-right" size={12} />
       </button>
     </div>

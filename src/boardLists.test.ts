@@ -1016,6 +1016,16 @@ describe('the PRs view’s lists', () => {
     expect(row.places.map((p) => [p.lane.id, p.holds, p.sessions.map((x) => x.key)])).toEqual([['/r/feature', true, ['claude:claude:s']], [mini.id, false, [there.key]]]);
     expect(prRowOf(pr, laneById, index, elsewhere).sessions).toEqual([{ lane: holder, session: s }]);
     expect(prRowsOf([pr], 0, new Set(), '', [], new Map(lanes.map((l) => [l.id, l])), sessionIndexOf(lanes), undefined, elsewhere)[0].sessions).toHaveLength(2);
+    // One that Mac lists as a visitor in the PR's worktree there, working in its own, is found as
+    // that visitor, which lends the PR none of its status.
+    const visiting = { ...session('@9f8e7d6c5b:claude:claude:w'), status: 'working' as const, visitor: 'made this worktree' };
+    const made = lane('@9f8e7d6c5b:/r/made', [visiting]);
+    const own = lane('@9f8e7d6c5b:/r/own', [{ ...visiting, visitor: null }]);
+    const all = [holder, made, own];
+    const fromThere = { 'acme/app#7': [{ lane: made.id, key: visiting.key, pushes: 0 }] };
+    const r = prRowOf({ ...pr, sessions: [] }, new Map(all.map((l) => [l.id, l])), sessionIndexOf(all), fromThere);
+    expect(r.sessions).toEqual([{ lane: made, session: visiting }]);
+    expect(prIn(r, 'working')).toBe(false);
   });
 
   it('shows PRs updated since the cutoff and pinned ones, then the search and the filters', () => {

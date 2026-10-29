@@ -124,6 +124,11 @@
   color: var(--ink);
   background: var(--surface-selected);
 }
+/* A session with nowhere here to open it (another Mac's) keeps the arrow's room, so the ages line
+   up, and never shows it. */
+.ca-psess-open:disabled {
+  visibility: hidden;
+}
 .ca-psess-main:focus-visible,
 .ca-psess-open:focus-visible {
   outline: none;

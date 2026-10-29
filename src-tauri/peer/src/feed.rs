@@ -310,6 +310,7 @@ mod tests {
             merged_at: None,
             closed_at: None,
             sessions: Vec::new(),
+            session_lanes: Vec::new(),
             labels: Vec::new(),
             auto_review: None,
             shared_review: None,

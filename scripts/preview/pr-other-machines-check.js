@@ -46,6 +46,18 @@
           check('and under it the sessions that machine says worked on it', chips === there.length, chips + ' chips, ' + there.length + ' sessions');
           var heading = q('.ca-prinsp .ca-places');
           check('the chips are named for what they are, wherever they are', heading && heading.getAttribute('aria-label') === 'Worktrees and sessions', heading ? heading.getAttribute('aria-label') : 'none');
+          press(q('.ca-prinsp-head .ca-detailsbtn'));
+          return until(function () { return q('.ca-prinsp .ca-tree'); }, 3000, 'the tree, with the details open');
+        })
+        .then(function (tree) {
+          // In the tree, the worktree there says its Mac too, and its sessions, which open nowhere
+          // from here, have no arrow to open them, though they keep its room.
+          var places = all('[role="treeitem"][aria-expanded]', tree).filter(function (p) { var b = q('.ca-tree-label .ca-devbadge', p); return b && b.textContent.indexOf(lane.device.name) >= 0; });
+          check('its tree marks the worktree there with ' + lane.device.name + '’s badge', places.length > 0, all('.ca-tree-label', tree).map(function (l) { return l.textContent; }).join(' | '));
+          var arrows = places.flatMap(function (p) { return all('.ca-psess-open', p); });
+          check('and offers no open arrow on its sessions', arrows.length === there.length && arrows.every(function (a) { return a.disabled && getComputedStyle(a).visibility === 'hidden' && a.getBoundingClientRect().width > 0; }), arrows.length + ' arrows');
+          var here = all('.ca-psess-open', tree).filter(function (a) { return arrows.indexOf(a) < 0; });
+          check('as this Mac’s sessions keep theirs', here.length === 0 || here.every(function (a) { return !a.disabled; }), here.length + ' here');
         });
     })
     .then(done)
