@@ -4198,6 +4198,9 @@ fn primary_why(by: crate::model::PrimaryBy) -> &'static str {
         Pushed => "pushed to its branch most",
         Opened => "opened it",
         Started => "started first",
+        // Only another machine's PR card says one this build doesn't know, and `pr show` lists
+        // this machine's sessions.
+        Other => "for a reason this build doesn't know",
     }
 }
 

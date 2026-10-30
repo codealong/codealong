@@ -3,7 +3,7 @@
 // they fold into a single "Ready to merge". The PRs view also flags the rows that are your move.
 
 import { absolute, count } from './format';
-import type { AutoReview, Checks, LastReview, Merge, NudgeAbout, PrComment, PrItem, PrState, PrStopped, StaleApproval, Turn } from './types';
+import type { AutoReview, Checks, LastReview, Merge, NudgeAbout, PrComment, PrItem, PrimaryBy, PrState, PrStopped, StaleApproval, Turn } from './types';
 
 /** A pill's color: green for approved and passing, amber for what needs you, red for failing. */
 export type PrTone = 'ready' | 'pass' | 'attn' | 'alert' | 'plain' | 'quiet' | 'merged';
@@ -415,17 +415,36 @@ export function nudgeWords(pr: Pick<PrItem, 'state' | 'nudgeByDefault'>, on: boo
     : `Off for this PR. Turned on, ${who} is told of ${said.of}.`;
 }
 
-/** What a PR's Primary tag says (board.rs `pr_primary`): what being its primary session means,
- *  why this one is (`primaryBy`), and where to pick another. */
-export function primaryWords(pr: Pick<PrItem, 'primary' | 'primaryBy' | 'sessions'>): string {
-  const pushes = pr.sessions.find((s) => s.key === pr.primary)?.pushes ?? 0;
-  const why = {
+/** A PR's primary session, the one a nudge tells, as its Primary tag says it: its key, why it's
+ *  the one, how often it pushed to the PR's branch, and the machine it's on when that's another of
+ *  yours, whose nudges tell it (boardLists.ts `prRowOf`). */
+export interface PrPrimary {
+  key: string;
+  by?: PrimaryBy;
+  pushes: number;
+  /** Another of your machines, by name: the PR's primary session there. */
+  machine?: string;
+}
+
+/** This machine's primary session of a PR (board.rs `pr_primary`), if it has one. */
+export function primaryHere(pr: Pick<PrItem, 'primary' | 'primaryBy' | 'sessions'>): PrPrimary | null {
+  const key = pr.primary;
+  return key ? { key, by: pr.primaryBy, pushes: pr.sessions.find((s) => s.key === key)?.pushes ?? 0 } : null;
+}
+
+/** What a PR's Primary tag says: what being its primary session means, why this one is (`by`),
+ *  and where to pick another. Another machine's is that machine's to nudge and to pick. */
+export function primaryWords({ by, pushes, machine }: Pick<PrPrimary, 'by' | 'pushes' | 'machine'>): string {
+  const why = by && {
     picked: 'It was picked as the primary one.',
-    pushed: `It pushed to the PR’s branch most, ${count(pushes, 'time')}.`,
+    // Another machine doesn't say how often.
+    pushed: pushes ? `It pushed to the PR’s branch most, ${count(pushes, 'time')}.` : 'It pushed to the PR’s branch most.',
     opened: 'It opened the PR, and no other session pushed to it more.',
     started: 'No session’s records show it opened the PR or pushed to it, so it’s the one that started first.',
-  }[pr.primaryBy ?? 'started'];
-  return `The PR’s primary session: when the PR is nudged, only this one is told what happens on it. ${pr.primaryBy ? `${why} ` : ''}The PR’s menu picks another (Primary session).`;
+    other: null,
+  }[by];
+  const lead = machine ? `The PR’s primary session on ${machine}: when that machine nudges the PR, only this one is told what happens on it.` : 'The PR’s primary session: when the PR is nudged, only this one is told what happens on it.';
+  return `${lead} ${why ? `${why} ` : ''}The PR’s menu${machine ? ' there' : ''} picks another (Primary session).`;
 }
 
 /* ---- Review comments ---- */

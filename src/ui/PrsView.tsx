@@ -16,7 +16,7 @@ import { byDay, newestFirst, type DayId } from '../days';
 import { absolute, ago, count } from '../format';
 import { groupOptions, groupsOf, placeIn, type GroupBy, type Grouped, type Place } from '../groups';
 import { selectHow, type SelectHow } from '../picks';
-import { heldForAgent, prFlag } from '../prStatus';
+import { heldForAgent, prFlag, type PrPrimary } from '../prStatus';
 import type { GitInfo, Lane, PrItem, Session } from '../types';
 import { rowsOptions, type RowLines } from './ListBar';
 import { PinnedSection } from './PinnedSection';
@@ -39,6 +39,9 @@ export interface PrRowItem {
   sessions: { lane: Lane; session: Session }[];
   /** The same, as the PR panel shows them: each worktree with its sessions. */
   places: PrPlace[];
+  /** Its primary session, the one a nudge tells: this Mac's, else another machine's
+   *  (boardLists.ts `prRowOf`). */
+  primary: PrPrimary | null;
 }
 
 /** A worktree on this Mac that holds a PR, or one on any of your Macs that the PR's sessions
@@ -186,7 +189,8 @@ function PrRow({ item, domId, now, slim, opened, onShowRepo, selected, onSelect,
   const flag = prFlag(pr);
   // One session, named by its title: the PR's primary one, else the first. Two titles side by side
   // leave neither readable on a row's line; the +n names the rest, and the PR panel lists them all.
-  const sessions = [...item.sessions].sort((a, b) => Number(b.session.key === pr.primary) - Number(a.session.key === pr.primary));
+  const primary = item.primary?.key;
+  const sessions = [...item.sessions].sort((a, b) => Number(b.session.key === primary) - Number(a.session.key === primary));
   const shown = sessions.slice(0, 1);
   const repo = under !== 'repo' && <RepoChip repo={pr.repo} slug={pr.repoSlug} project={pr.project} onShowOnly={onShowRepo && (() => onShowRepo(pr.repoSlug))} />;
   const snooze = reviewSnoozed(pr) && <SnoozeChip until={pr.snoozedUntil} now={now} away="out of Review requested and off the floating bar" />;

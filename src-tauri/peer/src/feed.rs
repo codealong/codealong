@@ -312,6 +312,8 @@ mod tests {
             closed_at: None,
             sessions: Vec::new(),
             session_lanes: Vec::new(),
+            primary: None,
+            primary_by: None,
             labels: Vec::new(),
             auto_review: None,
             shared_review: None,

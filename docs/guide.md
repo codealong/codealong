@@ -871,7 +871,10 @@ devices*), after this machine's, each under its worktree there with that machine
 Codealong there lists them: each machine reads only its own sessions' records, so a PR opened from
 one shows the session that opened it on the others this way. They're listed while that machine
 tells the others of the PR, which it does while it's open and for a day after it's merged or
-closed. The PR's primary session, and the one its nudges reach, is each machine's own.
+closed. The PR's primary session, and the one its nudges reach, is each machine's own: where this
+machine has no primary of the PR (none of its sessions, or only an automatic review), its row and
+panel tag the one another machine says is its primary there. That tag names the machine, which is
+the one that nudges it, and whose PR menu picks another.
 
 An automatic review of the PR is never its primary session unless you pick it: it runs in the PR's
 worktree on its branch, but it reads the work rather than doing it. A conversation moved to

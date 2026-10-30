@@ -79,6 +79,13 @@ pub struct PrCard {
     /// the PR none of its status. Missing from Macs before 2026-10-29.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub session_lanes: Vec<String>,
+    /// Its primary session on the sending device, of `sessions`: the one that device's nudges tell
+    /// (the engine's board.rs `pr_primary`). Missing from machines before 2026-10-29.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub primary: Option<String>,
+    /// Why `primary` is the one it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub primary_by: Option<PrimaryBy>,
     /// Its labels on GitHub, in the order of their names. Missing from Macs before 2026-10-17.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub labels: Vec<PrLabel>,
@@ -191,6 +198,25 @@ pub enum ReviewStage {
     Skipped,
     /// It didn't get done.
     Failed,
+    /// One a later version names.
+    #[serde(other)]
+    Other,
+}
+
+/// Why a PR's primary session is the one it is (the engine's board.rs `pr_primary`, which makes
+/// these).
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum PrimaryBy {
+    /// It was picked (`codealong pr nudge --session`, the PR's menu).
+    Picked,
+    /// It pushed to the PR's branch more often than the session that opened it, or, with no
+    /// session known to have opened it, more often than the rest.
+    Pushed,
+    /// It opened the PR, and no other session pushed to it more.
+    Opened,
+    /// No session's records show it opened the PR or pushed to it: it started first.
+    Started,
     /// One a later version names.
     #[serde(other)]
     Other,

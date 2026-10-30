@@ -25,7 +25,7 @@ import { openUrl, prCard, setPrNudge } from '../api';
 import { absolute, agoPhrase, count } from '../format';
 import { cmd } from '../platform';
 import { prIndex, prRefOf, prTabOf, type PrRef } from '../prLinks';
-import { nudgeWords, primaryWords, reviewersWords } from '../prStatus';
+import { nudgeWords, primaryHere, primaryWords, reviewersWords } from '../prStatus';
 import { errorText } from '../report';
 import { nudgeAboutFor } from '../repoSettings';
 import type { Board, Lane, Pr, PrItem, Session } from '../types';
@@ -275,7 +275,8 @@ function PrCard({ card, prRef: ref, url, onBrowse, clickShows }: CardProps) {
 
   const laneById = new Map(lanes.map((l) => [l.id, l]));
   // Its primary session first, the one a nudge tells.
-  const isPrimary = (s: Session) => s.key === pr?.primary;
+  const primaryTag = pr ? primaryHere(pr) : null;
+  const isPrimary = (s: Session) => s.key === primaryTag?.key;
   const sessions = (pr?.sessions ?? [])
     .flatMap((x) => {
       const lane = laneById.get(x.lane);
@@ -386,7 +387,7 @@ function PrCard({ card, prRef: ref, url, onBrowse, clickShows }: CardProps) {
                 onShow={(l, s) => act((a) => a.showSession(l, s))}
                 onOpen={(l, s) => act((a) => a.openSession(l, s))}
                 onMenu={(l, s) => host.actions?.sessionMenu(l, s)}
-                primary={pr && isPrimary(session) && sessions.length > 1 ? primaryWords(pr) : undefined}
+                primary={primaryTag && isPrimary(session) && sessions.length > 1 ? primaryWords(primaryTag) : undefined}
               />
             ))}
           </div>

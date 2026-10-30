@@ -600,12 +600,14 @@ window.__TAURI_INTERNALS__ = {
             copy.defaultTarget = null;
             copy.sessions.forEach(function (x) { x.key = '@' + short + ':' + x.key; x.openTarget = ''; x.pid = null; x.resumeCommand = null; });
             view.lanes.push(copy);
-            // That device says its copies worked on the PRs the board's sessions there did, as
-            // peerfeed.rs `pr_sessions_for_windows` has them.
+            // That device says its copies worked on the PRs the board's sessions there did, and
+            // which is each PR's primary there, as peerfeed.rs `pr_sessions_for_windows` has them.
             (all[1].prs || []).forEach(function (p) {
               p.sessions.filter(function (x) { return x.lane === l.id; }).forEach(function (x) {
                 var key = p.key.toLowerCase();
-                (view.prSessions[key] = view.prSessions[key] || []).push({ key: '@' + short + ':' + x.key, lane: copy.id, pushes: 0 });
+                var said = { key: '@' + short + ':' + x.key, lane: copy.id, pushes: 0 };
+                if (p.primary === x.key && p.primaryBy) said.primary = p.primaryBy;
+                (view.prSessions[key] = view.prSessions[key] || []).push(said);
               });
             });
           });

@@ -544,19 +544,13 @@ pub struct PrSession {
     /// How often its records show it pushed to the PR's branch before the PR ended.
     #[serde(default)]
     pub pushes: u32,
+    /// One on another of your machines is the PR's primary session there, which that machine's
+    /// nudges tell, and this is why (peerfeed.rs `pr_sessions_for_windows`). This machine's own is
+    /// the PR's `primary`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub primary: Option<PrimaryBy>,
 }
 
-/// Why a PR's primary session is the one it is (board.rs `pr_primary`).
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub enum PrimaryBy {
-    /// It was picked (`codealong pr nudge --session`, the PR's menu).
-    Picked,
-    /// It pushed to the PR's branch more often than the session that opened it, or, with no
-    /// session known to have opened it, more often than the rest.
-    Pushed,
-    /// It opened the PR, and no other session pushed to it more.
-    Opened,
-    /// No session's records show it opened the PR or pushed to it: it started first.
-    Started,
-}
+/// Why a PR's primary session is the one it is (board.rs `pr_primary`). A PR's card tells your
+/// other machines of it in this shape, so it's codealong-peer's.
+pub use codealong_peer::pr::PrimaryBy;

@@ -107,6 +107,8 @@ pub fn pr_cards(board: &Board) -> Vec<PrCard> {
             closed_at: p.closed_at,
             sessions: p.sessions.iter().map(|s| s.key.clone()).collect(),
             session_lanes: p.sessions.iter().map(|s| s.lane.clone()).collect(),
+            primary: p.primary.clone(),
+            primary_by: p.primary_by,
             labels: p.labels.clone(),
             // Only this machine's own review: another's shows here as that one's (autoreview.rs
             // `reviewer_of`), and each machine goes by what the others did themselves.
@@ -375,14 +377,17 @@ pub fn for_windows(short: &str, tag: &DeviceTag, replica: &Replica) -> Vec<Lane>
 /// worktree it's listed under there (`PrCard::session_lanes`; from a Mac that doesn't say, its own
 /// else one it visited: `board::home`), by the PR's key in lowercase, since two checkouts can spell
 /// a repo differently. A PR of this device's shows them beside its own (src/boardLists.ts
-/// `prRowOf`). One its worktrees no longer list is left out.
+/// `prRowOf`), and the device's primary session of it where this one has none. One its worktrees
+/// no longer list is left out.
 pub fn pr_sessions_for_windows(short: &str, replica: &Replica) -> Vec<(String, PrSession)> {
     let lists = |l: &&Lane, k: &str| l.sessions.iter().any(|s| s.key == k);
     let lane_of = |p: &PrCard, i: usize, k: &str| {
         let said = p.session_lanes.get(i).and_then(|id| replica.lanes.iter().find(|l| &l.id == id && lists(l, k)));
         said.or_else(|| crate::board::home(&replica.lanes, k).map(|(l, _)| l))
     };
-    let listed = move |p: &PrCard, i: usize, k: &String| lane_of(p, i, k).map(|lane| (p.key.to_lowercase(), PrSession { key: remote_key(short, k), lane: remote_key(short, &lane.id), pushes: 0 }));
+    // The engine says the two together (board.rs `pr_primary`); a Mac from before says neither.
+    let primary = |p: &PrCard, k: &str| p.primary_by.filter(|_| p.primary.as_deref() == Some(k));
+    let listed = move |p: &PrCard, i: usize, k: &String| lane_of(p, i, k).map(|lane| (p.key.to_lowercase(), PrSession { key: remote_key(short, k), lane: remote_key(short, &lane.id), pushes: 0, primary: primary(p, k) }));
     replica.prs.iter().flat_map(|p| p.sessions.iter().enumerate().filter_map(move |(i, k)| listed(p, i, k))).collect()
 }
 
@@ -726,24 +731,33 @@ mod tests {
 
     #[test]
     fn windows_get_the_sessions_another_mac_says_worked_on_its_prs() {
-        // s1 opened o/R#1 from /a; v made /a on the PR's branch, and is a visitor there, from /b,
-        // its own; gone is listed on the PR but no longer in any worktree.
+        // s1 opened o/R#1 from /a, and is its primary session there; v made /a on the PR's branch,
+        // and is a visitor there, from /b, its own; gone is listed on the PR but no longer in any
+        // worktree.
         let visitor = Session { visitor: Some("made this worktree".into()), ..session("claude:claude:v", Status::Working) };
         let lanes = vec![lane("/a", vec![session("claude:claude:s1", Status::Idle), visitor]), lane("/b", vec![session("claude:claude:v", Status::Working)])];
         let mut p = pr(1, crate::model::PrState::Open, false, None);
         p.key = "o/R#1".into();
+        p.primary = Some("claude:claude:s1".into());
+        p.primary_by = Some(crate::model::PrimaryBy::Opened);
         for k in ["claude:claude:v", "claude:claude:gone"] {
-            p.sessions.push(PrSession { key: k.into(), lane: "/a".into(), pushes: 0 });
+            p.sessions.push(PrSession { key: k.into(), lane: "/a".into(), pushes: 0, primary: None });
         }
         let b = Board { generated_at: 10, prs: vec![p], ..board(lanes.clone()) };
         let mut replica = Replica::default();
         replica.apply(FeedMsg { rev: 1, full: true, lanes, prs: Some(pr_cards(&b)), ..Default::default() });
-        let at = |key: &str, lane: &str| ("o/r#1".to_string(), PrSession { key: format!("@a1b2c3d4e5:{key}"), lane: format!("@a1b2c3d4e5:{lane}"), pushes: 0 });
+        let at = |key: &str, lane: &str| ("o/r#1".to_string(), PrSession { key: format!("@a1b2c3d4e5:{key}"), lane: format!("@a1b2c3d4e5:{lane}"), pushes: 0, primary: None });
+        let primary = |key: &str, lane: &str| {
+            let (pr, s) = at(key, lane);
+            (pr, PrSession { primary: Some(crate::model::PrimaryBy::Opened), ..s })
+        };
         // Each under the worktree that Mac lists it in on the PR: v as the visitor it is in /a,
-        // which lends the PR none of its status.
-        assert_eq!(pr_sessions_for_windows("a1b2c3d4e5", &replica), [at("claude:claude:s1", "/a"), at("claude:claude:v", "/a")], "the gone one left out");
-        // A Mac from before says no worktrees: each goes under its own.
+        // which lends the PR none of its status. s1 is the PR's primary there, and says why.
+        assert_eq!(pr_sessions_for_windows("a1b2c3d4e5", &replica), [primary("claude:claude:s1", "/a"), at("claude:claude:v", "/a")], "the gone one left out");
+        // A Mac from before says no worktrees: each goes under its own; nor which is the primary.
         replica.prs[0].session_lanes.clear();
+        replica.prs[0].primary = None;
+        replica.prs[0].primary_by = None;
         assert_eq!(pr_sessions_for_windows("a1b2c3d4e5", &replica), [at("claude:claude:s1", "/a"), at("claude:claude:v", "/b")]);
     }
 }

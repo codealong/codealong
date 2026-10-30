@@ -223,7 +223,7 @@ mod tests {
             merged_at: None,
             closed_at: None,
             lanes: vec!["/work".into()],
-            sessions: vec![PrSession { key: A.into(), lane: "/work".into(), pushes: 1 }],
+            sessions: vec![PrSession { key: A.into(), lane: "/work".into(), pushes: 1, primary: None }],
             head_oid: Some("bbb".into()),
             authored_by: None,
             labels: Vec::new(),

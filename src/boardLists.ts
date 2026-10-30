@@ -15,6 +15,7 @@ import { columnsOf, stageOfColumn, type BoardColumn, type BoardDoc, type Stage }
 import { columnOf, memberTest, sessionStage, subjectsOf, todoStage, type Subject } from './boards/rules';
 import { ALL_PROJECTS, hasWords, inProject, queryWords, saidLine, type SaidLine } from './quick';
 import { isOpen, itemSection, todoIndex, todoInFilter, todoItem, todoSections, type TodoItem, type TodoSectionId, type TodoSort } from './todos';
+import { primaryHere } from './prStatus';
 import { scheduleProject } from './schedules';
 import type { Board, DevicesView, Label, Lane, PrItem, PrSession, ProjectSummary, ScheduleItem, Session, TextHit, Todo } from './types';
 import type { ActionCounts } from './ui/ProjectSwitcher';
@@ -625,12 +626,20 @@ export function sessionIndexOf(lanes: Lane[]): Map<string, { lane: Lane; session
  *  view's `prSessions`), since what this Mac reads in the records it has can't see them. A session is
  *  looked up in the worktree it's listed under, which for one that made or worked in a worktree
  *  isn't its own; one in a worktree the views leave out (another Mac's, while the sidebar's
- *  Devices narrow them to this one) isn't listed. */
+ *  Devices narrow them to this one) isn't listed. Its primary session is this Mac's, else the
+ *  first listed that another machine says is its primary there: nudges are each machine's own, so
+ *  that one is told by that machine. */
 export function prRowOf(pr: PrItem, laneById: Map<string, Lane>, sessionIndex: Map<string, { lane: Lane; session: Session }>, elsewhere: PrSessionsElsewhere = NO_PR_SESSIONS): PrRowItem {
   const holding = pr.lanes.flatMap((id) => laneById.get(id) ?? []);
   const listed = [...pr.sessions, ...(elsewhere[pr.key.toLowerCase()] ?? [])];
-  const sessions = listed.flatMap((x) => sessionIndex.get(`${x.lane}::${x.key}`) ?? []);
-  return { kind: 'pr', key: `pr:${pr.key}`, pr, lane: holding[0] ?? null, sessions, places: prPlaces(holding, sessions) };
+  const found = listed.flatMap((x) => {
+    const at = sessionIndex.get(`${x.lane}::${x.key}`);
+    return at ? [{ ...at, x }] : [];
+  });
+  const sessions = found.map(({ lane, session }) => ({ lane, session }));
+  const there = found.find(({ x }) => x.primary);
+  const primary = primaryHere(pr) ?? (there ? { key: there.x.key, by: there.x.primary, pushes: 0, machine: there.lane.device?.name } : null);
+  return { kind: 'pr', key: `pr:${pr.key}`, pr, lane: holding[0] ?? null, sessions, places: prPlaces(holding, sessions), primary };
 }
 
 /** The sessions your other Macs say worked on each PR, by its key in lowercase (DevicesView `prSessions`). */

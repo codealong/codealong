@@ -1872,12 +1872,17 @@ export interface PrSession {
   lane: string;
   /** How often its records show it pushed to the PR's branch in the PR's time. */
   pushes?: number;
+  /** One on another of your machines is the PR's primary session there, which that machine's
+   *  nudges tell, and this is why (peerfeed.rs `pr_sessions_for_windows`). This machine's own is
+   *  the PR's `primary`. */
+  primary?: PrimaryBy;
 }
 
-/** Why a PR's primary session is the one it is (model.rs `PrimaryBy`): it was picked; it pushed
- *  to the branch more often than the session that opened it; it opened it; or no session's
- *  records show either, and it started first. */
-export type PrimaryBy = 'picked' | 'pushed' | 'opened' | 'started';
+/** Why a PR's primary session is the one it is (codealong-peer's `PrimaryBy`): it was picked; it
+ *  pushed to the branch more often than the session that opened it; it opened it; or no session's
+ *  records show either, and it started first. `other` is one a later version names, which only
+ *  another machine says. */
+export type PrimaryBy = 'picked' | 'pushed' | 'opened' | 'started' | 'other';
 
 export interface PrReview {
   author: string;

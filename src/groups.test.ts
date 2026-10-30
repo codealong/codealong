@@ -86,7 +86,7 @@ describe('groupRows', () => {
 
 describe('prPlace', () => {
   const pr = fx.prItem({ repo: 'web', repoSlug: 'acme/web' });
-  const row = (l: Lane | null): PrRowItem => ({ kind: 'pr', key: `pr:${pr.key}`, pr, lane: l, sessions: [], places: [] });
+  const row = (l: Lane | null): PrRowItem => ({ kind: 'pr', key: `pr:${pr.key}`, pr, lane: l, sessions: [], places: [], primary: null });
 
   it('puts a PR under the worktree that holds it, or none here; under its repo by its slug either way', () => {
     const held = lane('/r/web-fix', { repo: 'web', repoSlug: 'acme/web' });

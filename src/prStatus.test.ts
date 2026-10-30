@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { agentApproves, approvedBefore, asksFor, chipWord, commentPreview, commentText, commentsToAsk, heldForAgent, mayApprove, nudgeKind, nudgeMerges, nudgeWords, prFlag, prPills, prReady, primaryWords, reviewedBefore, reviewMark, reviewersWords, staleWords, withMerges, yourReview, yourVerdictStands, type PrFacts } from './prStatus';
+import { agentApproves, approvedBefore, asksFor, chipWord, commentPreview, commentText, commentsToAsk, heldForAgent, mayApprove, nudgeKind, nudgeMerges, nudgeWords, prFlag, prPills, prReady, primaryHere, primaryWords, reviewedBefore, reviewMark, reviewersWords, staleWords, withMerges, yourReview, yourVerdictStands, type PrFacts } from './prStatus';
 import * as fx from './testing/fixtures';
 import type { LastReview, PrComment, PrItem, Turn } from './types';
 
@@ -148,17 +148,30 @@ describe('mayApprove', () => {
 });
 
 describe('primaryWords', () => {
-  const sessions = [
-    { key: 'a', lane: '/r', pushes: 11 },
-    { key: 'b', lane: '/r' },
-  ];
   it('says why the primary session is the one, and where to pick another', () => {
-    expect(primaryWords({ primary: 'a', primaryBy: 'pushed', sessions })).toBe('The PR’s primary session: when the PR is nudged, only this one is told what happens on it. It pushed to the PR’s branch most, 11 times. The PR’s menu picks another (Primary session).');
-    expect(primaryWords({ primary: 'b', primaryBy: 'opened', sessions })).toMatch(/ It opened the PR, and no other session pushed to it more\. /);
-    expect(primaryWords({ primary: 'b', primaryBy: 'picked', sessions })).toMatch(/ It was picked as the primary one\. /);
-    expect(primaryWords({ primary: 'b', primaryBy: 'started', sessions })).toMatch(/ so it’s the one that started first\. /);
-    // An engine from before says no why.
-    expect(primaryWords({ primary: 'b', sessions })).toBe('The PR’s primary session: when the PR is nudged, only this one is told what happens on it. The PR’s menu picks another (Primary session).');
+    expect(primaryWords({ by: 'pushed', pushes: 11 })).toBe('The PR’s primary session: when the PR is nudged, only this one is told what happens on it. It pushed to the PR’s branch most, 11 times. The PR’s menu picks another (Primary session).');
+    expect(primaryWords({ by: 'opened', pushes: 0 })).toMatch(/ It opened the PR, and no other session pushed to it more\. /);
+    expect(primaryWords({ by: 'picked', pushes: 0 })).toMatch(/ It was picked as the primary one\. /);
+    expect(primaryWords({ by: 'started', pushes: 0 })).toMatch(/ so it’s the one that started first\. /);
+    // An engine from before says no why, and a later one may give one this build doesn't know.
+    expect(primaryWords({ pushes: 0 })).toBe('The PR’s primary session: when the PR is nudged, only this one is told what happens on it. The PR’s menu picks another (Primary session).');
+    expect(primaryWords({ by: 'other', pushes: 0 })).toBe(primaryWords({ pushes: 0 }));
+  });
+
+  it('says another machine’s is that machine’s to nudge and to pick, without a count it doesn’t send', () => {
+    expect(primaryWords({ by: 'pushed', pushes: 0, machine: 'Mac mini' })).toBe('The PR’s primary session on Mac mini: when that machine nudges the PR, only this one is told what happens on it. It pushed to the PR’s branch most. The PR’s menu there picks another (Primary session).');
+  });
+});
+
+describe('primaryHere', () => {
+  it('is this machine’s primary session of a PR, with how often it pushed', () => {
+    const sessions = [
+      { key: 'a', lane: '/r', pushes: 11 },
+      { key: 'b', lane: '/r' },
+    ];
+    expect(primaryHere({ primary: 'a', primaryBy: 'pushed', sessions })).toEqual({ key: 'a', by: 'pushed', pushes: 11 });
+    expect(primaryHere({ primary: 'b', primaryBy: 'opened', sessions })).toEqual({ key: 'b', by: 'opened', pushes: 0 });
+    expect(primaryHere({ sessions })).toBeNull();
   });
 });
 

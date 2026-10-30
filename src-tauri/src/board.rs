@@ -1188,7 +1188,7 @@ fn pr_item(lanes: &[Lane], owners: &HashMap<&Path, &[String]>, slug: &str, (proj
         let pushers = here.iter().flat_map(|&l| l.sessions.iter().filter(move |s| s.visitor.is_none() && during(s) && pushes(l, &s.key) > 0).map(move |s| (l, s)));
         for (l, s) in own.chain(guests).chain(pushers) {
             if !s.archived && !sessions.iter().any(|x| x.key == s.key) {
-                sessions.push(PrSession { key: s.key.clone(), lane: l.id.clone(), pushes: pushes(l, &s.key) });
+                sessions.push(PrSession { key: s.key.clone(), lane: l.id.clone(), pushes: pushes(l, &s.key), primary: None });
             }
         }
     }
@@ -1200,7 +1200,7 @@ fn pr_item(lanes: &[Lane], owners: &HashMap<&Path, &[String]>, slug: &str, (proj
         // The lane it's in, else one it visited.
         let found = home(lanes, k);
         if let Some((l, s)) = found.filter(|(_, s)| !s.archived) {
-            sessions.push(PrSession { key: s.key.clone(), lane: l.id.clone(), pushes: pushes(l, &s.key) });
+            sessions.push(PrSession { key: s.key.clone(), lane: l.id.clone(), pushes: pushes(l, &s.key), primary: None });
         }
     }
     sessions.retain(|x| !links.unlinked.contains(&(key.clone(), x.key.clone())));
@@ -3023,7 +3023,7 @@ mod tests {
         assert_eq!(p.key, "sprucehq/spark#1037");
         assert!(p.mine);
         assert_eq!(p.lanes, vec!["/r/spark-portal".to_string()]);
-        assert_eq!(p.sessions, vec![PrSession { key: on_branch.key, lane: "/r/spark-portal".into(), pushes: 0 }]);
+        assert_eq!(p.sessions, vec![PrSession { key: on_branch.key, lane: "/r/spark-portal".into(), pushes: 0, primary: None }]);
         assert_eq!(board.github_login.as_deref(), Some("gwen"));
     }
 
@@ -3087,7 +3087,7 @@ mod tests {
         // An automatic review of the PR, in its worktree on its branch, started first of all.
         let review = Session { helper: Some(Helper { pr: Some("o/r#1".into()), ..Default::default() }), ..s("review", 5) };
         let lanes = vec![crate::fixtures::lane("/w", vec![s("a", 30), s("b", 10), s("c", 20), s("copy", 40), review])];
-        let listed = |keys: &[&str]| keys.iter().map(|k| PrSession { key: (*k).into(), lane: "/w".into(), pushes: 0 }).collect::<Vec<_>>();
+        let listed = |keys: &[&str]| keys.iter().map(|k| PrSession { key: (*k).into(), lane: "/w".into(), pushes: 0, primary: None }).collect::<Vec<_>>();
         let primary = |keys: &[&str], links: &PrLinks| pr_primary(&lanes, &listed(keys), "o/r#1", links).map(|(k, _)| k);
         let mut links = PrLinks::default();
         // Nothing in the records: the one that started first.
@@ -3396,7 +3396,7 @@ mod tests {
             review_snoozes: &[],
             session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default(),
         });
-        assert_eq!(board.prs[0].sessions, vec![PrSession { key: s.key.clone(), lane: "/r/spark-portal".into(), pushes: 0 }]);
+        assert_eq!(board.prs[0].sessions, vec![PrSession { key: s.key.clone(), lane: "/r/spark-portal".into(), pushes: 0, primary: None }]);
         // Main was the checkout's branch, not one it worked on: the windows show the worktree's,
         // and its PR in the session's header.
         let branch = |key: &str| board.lanes.iter().flat_map(|l| &l.sessions).find(|x| x.key == key).unwrap().branch.clone();
@@ -3475,7 +3475,7 @@ mod tests {
             session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default(),
         });
         let get = |n: u64| board.prs.iter().find(|p| p.number == n).unwrap();
-        let listed = |key: &str| PrSession { key: key.into(), lane: "/r/spark-portal".into(), pushes: 0 };
+        let listed = |key: &str| PrSession { key: key.into(), lane: "/r/spark-portal".into(), pushes: 0, primary: None };
         assert_eq!(get(1037).lanes, vec!["/r/spark-portal".to_string()]);
         assert_eq!(get(1037).sessions, vec![listed(&latest.key)]);
         assert!(get(1015).lanes.is_empty(), "the worktree holds the newer PR, as its heading in Sessions shows");
@@ -3528,7 +3528,7 @@ mod tests {
                 session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default(),
             })
         };
-        let listed = |key: &str| PrSession { key: key.into(), lane: scratch.into(), pushes: 0 };
+        let listed = |key: &str| PrSession { key: key.into(), lane: scratch.into(), pushes: 0, primary: None };
         let board = board_with(pr(PrState::Open, 0));
         assert_eq!(board.prs[0].lanes, vec![scratch.to_string()]);
         // The maker, and the session that worked there while the PR was open, listed under the

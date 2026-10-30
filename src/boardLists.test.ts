@@ -228,7 +228,7 @@ describe('the status filters on a PR', () => {
   const row = (statuses: [Session['status'], boolean][], over: Parameters<typeof fx.prItem>[0] = {}) => {
     const l = lane('/r/a');
     const sessions = statuses.map(([status, visitor], i) => ({ lane: l, session: session(`claude:claude:s${i}`, { status, visitor: visitor ? 'claude:claude:x' : null }) }));
-    return { kind: 'pr' as const, key: 'pr:x', pr: fx.prItem(over), lane: null, sessions, places: [] };
+    return { kind: 'pr' as const, key: 'pr:x', pr: fx.prItem(over), lane: null, sessions, places: [], primary: null };
   };
 
   it('goes by the sessions that worked on it, leaving out visitors from other worktrees', () => {
@@ -1026,6 +1026,24 @@ describe('the PRs view’s lists', () => {
     const r = prRowOf({ ...pr, sessions: [] }, new Map(all.map((l) => [l.id, l])), sessionIndexOf(all), fromThere);
     expect(r.sessions).toEqual([{ lane: made, session: visiting }]);
     expect(prIn(r, 'working')).toBe(false);
+  });
+
+  it('takes this Mac’s primary session of a PR, else the one another machine says is its primary there', () => {
+    const device = { name: 'Mac mini', short: '9f8e7d6c5b', color: 'blue' as const, online: true, lastSeen: null };
+    const opener = session('@9f8e7d6c5b:claude:claude:o');
+    const helper = session('@9f8e7d6c5b:claude:claude:h');
+    const mini = lane('@9f8e7d6c5b:/r/fix', [opener, helper], { device });
+    const lanes = [holder, mini];
+    const byId = new Map(lanes.map((l) => [l.id, l]));
+    const elsewhere = { 'acme/app#7': [{ lane: mini.id, key: helper.key, pushes: 0 }, { lane: mini.id, key: opener.key, pushes: 0, primary: 'opened' as const }] };
+    // None here: the mini's, which the mini's nudges tell.
+    const theirs = prRowOf(fx.prItem({ lanes: [], sessions: [] }), byId, sessionIndexOf(lanes), elsewhere);
+    expect(theirs.primary).toEqual({ key: opener.key, by: 'opened', pushes: 0, machine: 'Mac mini' });
+    // One here: this Mac's, the one its own nudges tell and its menu picks.
+    const ours = prRowOf(fx.prItem({ lanes: ['/r/feature'], sessions: [{ lane: '/r/feature', key: s.key, pushes: 2 }], primary: s.key, primaryBy: 'pushed' }), byId, sessionIndexOf(lanes), elsewhere);
+    expect(ours.primary).toEqual({ key: s.key, by: 'pushed', pushes: 2 });
+    // The mini's isn't taken while the views leave that machine out.
+    expect(prRowOf(fx.prItem({ lanes: [], sessions: [] }), laneById, index, elsewhere).primary).toBeNull();
   });
 
   it('shows PRs updated since the cutoff and pinned ones, then the search and the filters', () => {

@@ -44,7 +44,7 @@ describe('syncWords', () => {
 describe('prSections', () => {
   const row = (number: number, over: Partial<PrItem> = {}): PrRowItem => {
     const pr = fx.prItem({ number, ...over });
-    return { kind: 'pr', key: pr.key, pr, lane: null, sessions: [], places: [] };
+    return { kind: 'pr', key: pr.key, pr, lane: null, sessions: [], places: [], primary: null };
   };
 
   it('puts snoozed reviews apart, the soonest back first, until they wait on you again', () => {

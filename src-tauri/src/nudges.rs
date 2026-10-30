@@ -750,7 +750,7 @@ mod tests {
             merged_at: None,
             closed_at: None,
             lanes: vec!["/work".into()],
-            sessions: sessions.iter().map(|k| PrSession { key: (*k).into(), lane: "/work".into(), pushes: 0 }).collect(),
+            sessions: sessions.iter().map(|k| PrSession { key: (*k).into(), lane: "/work".into(), pushes: 0, primary: None }).collect(),
             head_oid: None,
             authored_by: None,
             labels: Vec::new(),

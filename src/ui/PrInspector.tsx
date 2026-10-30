@@ -366,7 +366,7 @@ export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpe
 
   // Where it lives on this Mac: chips under the header, the tree with its details.
   const places = item.places.map((p) => ({ lane: p.lane, sessions: p.sessions, note: placeNote(p, pr.number, pr.head) }));
-  const placesProps = { places, label: 'Worktrees and sessions', project: pr.project, now, onShowLane, onLaneMenu, onShowSession, onOpenSession, onSessionMenu, primary: pr.primary ? { key: pr.primary, means: primaryWords(pr) } : null };
+  const placesProps = { places, label: 'Worktrees and sessions', project: pr.project, now, onShowLane, onLaneMenu, onShowSession, onOpenSession, onSessionMenu, primary: item.primary && { key: item.primary.key, means: primaryWords(item.primary) } };
 
   // Links in the description open in the browser rather than inside the app, but for a link to a
   // PR, which shows here as one in a conversation does (PrLink.tsx `followPrLink`).
