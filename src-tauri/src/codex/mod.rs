@@ -393,6 +393,20 @@ impl crate::harness::Adapter for Codex {
         ipc::steer_queued(&ctx.account.home_path(), s, id)
     }
 
+    /// Only the app keeps a queue a thread's session lists (queue.rs); its trash, through an
+    /// app-server of Codealong's own, as Send now's delete goes (`appserver::Queue::take_out`).
+    /// The app's windows list the queue again as it changes.
+    fn remove_queued(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, id: &str) -> anyhow::Result<crate::harness::Unqueued> {
+        if s.surface == crate::model::Surface::Cli {
+            anyhow::bail!("Codex's terminal holds nothing Codealong can take back.");
+        }
+        let title = crate::send::quoted(&s.title);
+        if !appserver::Queue::open(&ctx.account.home_path())?.take_out(&s.id, id)? {
+            anyhow::bail!("Codex doesn't hold that message for {title} any more: it went, or was taken out.");
+        }
+        Ok(crate::harness::Unqueued { message: format!("Took it out of what Codex holds for {title}: it won't be sent."), requeued: Vec::new() })
+    }
+
     /// The app's own Stop, through its windows' socket; Escape in a terminal, the key its
     /// terminal UI stops a turn with.
     fn interrupts(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> bool {

@@ -1556,6 +1556,14 @@ export interface Sent {
   queued?: string;
 }
 
+/** What taking a held message out of what a session's harness holds did (`session-unqueue`). */
+export interface Unqueued {
+  message: string;
+  /** The others it held that went back in after it, where its harness gives back everything it
+   *  holds at once (Claude Code): the id each was held under before, and the one it has now. */
+  requeued?: { was: string; now: string }[];
+}
+
 export type TodoStatus = 'todo' | 'in-progress' | 'done';
 
 /** A kept attachment (src-tauri/src/attachments.rs): an image shown in place, or any other file. */

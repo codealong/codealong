@@ -413,8 +413,9 @@
 .ca-thread-meta > .ca-meta {
   margin-left: auto;
 }
-/* Send now on a message its harness holds, after what it says it is. */
-.ca-thread-sendnow {
+/* Send now and Remove on a message its harness holds, after what it says it is. */
+.ca-thread-sendnow,
+.ca-thread-unqueue {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);

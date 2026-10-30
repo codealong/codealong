@@ -59,6 +59,11 @@ pub const SESSION_CANCEL: &str = "session-cancel";
 /// beside a queued message in the Codex app does; answering what happened in a sentence. Macs
 /// before 2026-10-20 refuse it as a request they don't know.
 pub const SESSION_STEER: &str = "session-steer";
+/// Takes a message its harness holds until the session's turn ends (`id`, one of
+/// `Session::queued`) out of what's held, so it never goes, as the trash beside a queued message
+/// in the Codex app does; answering `Unqueued`. Macs before 2026-10-29 refuse it as a request
+/// they don't know.
+pub const SESSION_UNQUEUE: &str = "session-unqueue";
 /// Where what you typed goes, as the quick panel suggests it: Jev's answer about this device's
 /// board (`Route`). Macs before 2026-09-29 refuse it as a request they don't know.
 pub const ROUTE: &str = "route";
@@ -239,7 +244,8 @@ pub mod params {
         pub now: bool,
     }
 
-    /// `session-steer`: the queued message, by its id in `Session::queued`.
+    /// `session-steer` and `session-unqueue`: the queued message, by its id in
+    /// `Session::queued`.
     #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
     #[serde(default)]
     pub struct Steer {
@@ -595,7 +601,7 @@ pub enum Reach {
 }
 
 /// Every request, with who may make it. A request missing here is one a device doesn't know.
-pub const REQUESTS: [(&str, Reach); 47] = [
+pub const REQUESTS: [(&str, Reach); 48] = [
     (SESSION_PAGE, Reach::Read),
     (SESSION_NEWER, Reach::Read),
     (SESSION_PENDING, Reach::Read),
@@ -628,6 +634,7 @@ pub const REQUESTS: [(&str, Reach); 47] = [
     (SESSION_ANSWER, Reach::Control),
     (SESSION_CANCEL, Reach::Control),
     (SESSION_STEER, Reach::Control),
+    (SESSION_UNQUEUE, Reach::Control),
     (START, Reach::Control),
     (SESSION_FORK, Reach::Control),
     (SESSION_EDIT, Reach::Control),
@@ -881,6 +888,28 @@ pub struct Sent {
     /// app's queue), as `Session::queued` lists it: it waits there while that has the id.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub queued: Option<String>,
+}
+
+/// What taking a message out of what a session's harness holds did (`session-unqueue`).
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Unqueued {
+    /// One sentence for the thread: what was taken out, and what went back in.
+    pub message: String,
+    /// The others it held that went back in after it, where its harness gives back everything
+    /// it holds at once (Claude Code): each under the id it has now, where that was found, for a
+    /// window to go on showing one it sent as held (`Sent::queued`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub requeued: Vec<Requeued>,
+}
+
+/// A held message that went back in after another was taken out (`Unqueued::requeued`).
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct Requeued {
+    /// Its id in `Session::queued` before.
+    pub was: String,
+    /// Its id there now.
+    pub now: String,
 }
 
 /// An image kept for a prompt (`image-keep`).

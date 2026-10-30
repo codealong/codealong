@@ -1041,6 +1041,48 @@ fn queued_as_within(path: &Path, text: &str, since: i64, wait: std::time::Durati
     }
 }
 
+/// What it holds of yours now (`TranscriptInfo::held`), each in the words written to its queue,
+/// which are what ↑ gives back into its box (`given_back`): a placeholder for a long paste or an
+/// image, a command as typed.
+pub fn holding(path: &Path) -> Vec<QueuedMessage> {
+    let len = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+    held_before(path, len).0.into_iter().filter(|m| prompt_words(&m.text).is_some()).collect()
+}
+
+/// What ↑ gave back into its box since `since` (ms), in the order it held them: the words of the
+/// `popAll` lines written since, which come together, read again for a moment until they're
+/// there. Empty when nothing came back.
+pub fn given_back(path: &Path, since: i64) -> Vec<String> {
+    given_back_within(path, since, HOLD_WAIT)
+}
+
+fn given_back_within(path: &Path, since: i64, wait: std::time::Duration) -> Vec<String> {
+    let until = std::time::Instant::now() + wait;
+    loop {
+        let Ok(len) = std::fs::metadata(path).map(|m| m.len()) else { return Vec::new() };
+        let mut back = Vec::new();
+        scan_lines_back(path, len.saturating_sub(QUEUE_SCAN), len, |line| {
+            if !line.contains("\"queue-operation\"") {
+                return false;
+            }
+            let Ok(v) = serde_json::from_str::<Value>(line) else { return false };
+            let Some(at) = str_of(&v, "timestamp").as_deref().and_then(parse_rfc3339_ms) else { return false };
+            if at < since {
+                return true;
+            }
+            if v.get("operation").and_then(Value::as_str) == Some("popAll") {
+                back.push(str_of(&v, "content").unwrap_or_default());
+            }
+            false
+        });
+        back.reverse();
+        if !back.is_empty() || std::time::Instant::now() >= until {
+            return back;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+}
+
 /// How far back the queue's lines are looked for: by a send, for the one it made (`queued_as`),
 /// and by a first read, before its tail (`held_before`).
 const QUEUE_SCAN: u64 = 1024 * 1024;
@@ -2045,6 +2087,33 @@ pub(super) mod tests {
         // The send after it, its own not written yet, doesn't take that one's.
         let next = parse_rfc3339_ms("2026-10-21T10:00:00.900Z").unwrap();
         assert_eq!(queued_as_within(&path, "And the docs", next, quick), None);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// What's held of yours is in the words its queue has, a paste's placeholder too; what ↑
+    /// gave back is the `popAll` lines since then, in the order they were held.
+    #[test]
+    fn up_gives_back_what_it_held_in_its_words() {
+        let dir = crate::fixtures::scratch("claude-given-back");
+        let path = dir.join("s.jsonl");
+        let mut lines = vec![
+            queue_line("2026-10-21T10:00:01.000Z", "enqueue", Some("Also the docs")),
+            queue_line("2026-10-21T10:00:02.000Z", "enqueue", Some("<task-notification>\n</task-notification>")),
+            queue_line("2026-10-21T10:00:03.000Z", "enqueue", Some("[Pasted text #1 +40 lines]")),
+        ];
+        std::fs::write(&path, lines.join("\n") + "\n").unwrap();
+        let texts = |held: Vec<QueuedMessage>| held.into_iter().map(|m| (m.id, m.text)).collect::<Vec<_>>();
+        assert_eq!(texts(holding(&path)), [("2026-10-21T10:00:01.000Z".to_string(), "Also the docs".to_string()), ("2026-10-21T10:00:03.000Z".into(), "[Pasted text #1 +40 lines]".into())]);
+        let quick = std::time::Duration::from_millis(50);
+        let since = parse_rfc3339_ms("2026-10-21T10:00:04.000Z").unwrap();
+        assert!(given_back_within(&path, since, quick).is_empty());
+        lines.push(queue_line("2026-10-21T10:00:05.000Z", "popAll", Some("Also the docs")));
+        lines.push(queue_line("2026-10-21T10:00:05.000Z", "popAll", Some("[Pasted text #1 +40 lines]")));
+        std::fs::write(&path, lines.join("\n") + "\n").unwrap();
+        assert_eq!(given_back_within(&path, since, quick), ["Also the docs", "[Pasted text #1 +40 lines]"]);
+        assert!(holding(&path).is_empty());
+        // An earlier ↑ isn't this one's.
+        assert!(given_back_within(&path, parse_rfc3339_ms("2026-10-21T10:00:06.000Z").unwrap(), quick).is_empty());
         std::fs::remove_dir_all(dir).unwrap();
     }
 

@@ -70,6 +70,17 @@ export function sendsHeldNow(harness: Harness | null): string {
   return (harness && SENDS_HELD_NOW[harness]) || `Send it into the turn it’s taking now, rather than once ${heldUntil(harness)}`;
 }
 
+/** What Remove on a message its harness holds does, where it takes more than that one out
+ *  (harness.rs `remove_queued`): Claude Code gives back everything it holds at once. */
+const REMOVES_HELD: Partial<Record<Harness, string>> = {
+  claude: 'Take it out, so it’s never sent: Claude Code gives back everything it holds at once, so the others go back in after it, and anything typed in its terminal’s box goes with them',
+};
+
+/** What Remove on a message the session's harness holds does, for its tooltip. */
+export function removesHeld(harness: Harness | null): string {
+  return (harness && REMOVES_HELD[harness]) || 'Take it out of what’s held, so it’s never sent';
+}
+
 /** The harnesses whose sessions move to another folder as themselves (harness.rs
  *  `move_folder`): Claude Code, which goes on with a session wherever `--resume` runs. */
 export const MOVES_FOLDERS: readonly Harness[] = ['claude'];

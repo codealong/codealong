@@ -4,7 +4,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { emit, emitTo, listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import type { AccountCfg, AccountInfo, AgentsStatus, Answers, AtLogin, Attachment, BarFeed, BarNote, Board, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, DevicesView, EditorIcon, FolderLook, FoundAccount, HostedStream, IdlePlan, JevReport, LabelColor, Lane, LineageFeed, MergeBox, MergeOp, ModeSwitched, Notice, PathKind, PeekOpen, PeekShown, Pending, Profile, PointerProbe, PrAt, PrDetail, PrItem, ResumeIn, Reviewed, Route, RouteNote, ScheduleOp, ScheduleTimes, Sent, Session, SessionSpent, Since, SetupView, ShortcutStatus, Side, SideKept, SkillsListed, StalePlan, StaleOutcome, Started, StartOptions, StartPlace, StartSpec, TextFound, Theme, TodoSuggested, TokenReport, Training, TranscriptPage, UpdateView, Verdict, Way, WrittenReview, YourReview } from './types';
+import type { AccountCfg, AccountInfo, AgentsStatus, Answers, AtLogin, Attachment, BarFeed, BarNote, Board, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, DevicesView, EditorIcon, FolderLook, FoundAccount, HostedStream, IdlePlan, JevReport, LabelColor, Lane, LineageFeed, MergeBox, MergeOp, ModeSwitched, Notice, PathKind, PeekOpen, PeekShown, Pending, Profile, PointerProbe, PrAt, PrDetail, PrItem, ResumeIn, Reviewed, Route, RouteNote, ScheduleOp, ScheduleTimes, Sent, Session, SessionSpent, Since, SetupView, ShortcutStatus, Side, SideKept, SkillsListed, StalePlan, StaleOutcome, Started, StartOptions, StartPlace, StartSpec, TextFound, Theme, TodoSuggested, TokenReport, Training, TranscriptPage, Unqueued, UpdateView, Verdict, Way, WrittenReview, YourReview } from './types';
 import type { PrTab } from './agentReview';
 import type { AgentTask } from './agentTasks';
 import type { BoardDoc, BoardOp } from './boards/model';
@@ -1982,6 +1982,14 @@ export async function sessionCancel(key: string): Promise<string> {
 export async function sessionSteer(key: string, id: string): Promise<string> {
   if (!inTauri) throw new Error('Sending now needs the app.');
   return invoke<string>('session_steer', { key, id });
+}
+
+/** Takes a message a session's harness holds until its turn ends (`id`, one of `Session.queued`)
+ *  out of what it holds, so it never goes, as the trash beside a queued message in the Codex app
+ *  does. */
+export async function sessionUnqueue(key: string, id: string): Promise<Unqueued> {
+  if (!inTauri) throw new Error('Removing a queued message needs the app.');
+  return invoke<Unqueued>('session_unqueue', { key, id });
 }
 
 /** Replies as sessions write them, ahead of their records: from sessions Codealong runs, and

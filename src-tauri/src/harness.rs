@@ -32,7 +32,7 @@ use crate::transcript::Page;
 
 /// What a session waits on you for, and your answer: they go between devices too, so they're in
 /// codealong-peer.
-pub use codealong_peer::api::{Answer, Link, Pending, Question, SentFiles};
+pub use codealong_peer::api::{Answer, Link, Pending, Question, Requeued, SentFiles, Unqueued};
 use codealong_peer::api::{ModelOption, Started};
 
 /// What an adapter gets to work with besides the session: the account it's on.
@@ -150,6 +150,14 @@ pub trait Adapter: Sync {
     /// already sent. Says what happened. Only a harness that lists what it holds has any.
     fn steer_queued(&self, _ctx: &Ctx, session: &Session, _id: &str) -> Result<String> {
         bail!("{} can't send what it holds for {} any sooner.", self.harness().word(), crate::send::quoted(&session.title))
+    }
+
+    /// Takes a message it holds until the session's turn ends (`id`, one of `Session::queued`)
+    /// out of what's held, so it never goes: Remove beside a message already sent. Says what
+    /// happened, with the others it held that went back in where taking one out took them all.
+    /// Only a harness that lists what it holds has any.
+    fn remove_queued(&self, _ctx: &Ctx, session: &Session, _id: &str) -> Result<Unqueued> {
+        bail!("{} can't take back what it holds for {}.", self.harness().word(), crate::send::quoted(&session.title))
     }
 
     /// Whether `steer_queued` stops the step the turn is on, a running command cut short, as a

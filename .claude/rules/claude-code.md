@@ -492,6 +492,18 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   `queue-operation` lines, and how a send finds the one it made: `claude/transcript.rs`
   (`queue_step`, `queued_as`). 128 of 9,493 `enqueue`s here had no `content`, and three held a
   long paste as `[Pasted text #1 …]` (the latest 800 transcripts, 2026-10-21).
+- Taking a held message out (Remove): ↑ in an empty box gives back everything of yours it holds,
+  a `popAll` line each, Ctrl+C clears the box but stops a running turn as it does (a background
+  job's command was "rejected"), and Ctrl+U and Ctrl+K edit the box without touching the turn
+  (2.1.312's code, and through a job's `attach` on 2026-10-29): `claude/unqueue.rs` (module
+  header, `UP`, `KILLS_BACK`), `claude/transcript.rs` (`holding`, `given_back`). Not there: what
+  ↑ gives back is the queue's commands that are "editable" (`popAllEditable`: not a notification,
+  not `isMeta`, a human origin, so not another session's message), and with `!` ones among
+  prompts only the prompts; with a draft in the box they come first, the draft after them on a
+  line of its own and the cursor in it; ↑ with the cursor past the box's first line break moves
+  the cursor instead; `popEditableAt` (↑ to pick one, Enter to edit it) is used only with
+  `CLAUDE_CODE_KB_COHESION_FIXES` set. A clear (Ctrl+C) is kept for the next ↑ even after a
+  `reply` sends a prompt (`holdCleared`, `restoreCleared`).
 - The socket's `priority` takes `now`, `next` (the default) and `later`, but `now` is no send now
   (2.1.287): in a terminal session a `now` message sent during a command waited for it to end and
   then started a turn of its own, and a headless `-p --input-format stream-json` run, as the

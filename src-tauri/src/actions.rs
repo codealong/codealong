@@ -196,6 +196,7 @@ const REQUESTS: &[Request] = &[
     Request { name: api::SESSION_SEND, here: send_prompt, prompt: Some("/text"), ..ANY },
     Request { name: api::SESSION_CANCEL, here: cancel, ..ANY },
     Request { name: api::SESSION_STEER, here: steer, ..ANY },
+    Request { name: api::SESSION_UNQUEUE, here: unqueue, ..ANY },
     Request { name: api::SESSION_ARCHIVE, here: archive, ..ANY },
     Request { name: api::SESSION_RENAME, here: rename, ..ANY },
     Request { name: api::MARK_SEEN, here: mark_seen, ..ANY },
@@ -1031,6 +1032,17 @@ fn steer(engine: &Handle, c: &Call) -> Result<Value, String> {
     let steer = || adapter.steer_queued(&harness::Ctx { account }, s, &p.id);
     let said = if adapter.steer_queued_stops() { stops::noted(Stop::SendNow, &s.key, &s.title, &stops::who(&board, c.from), steer) } else { steer() };
     said.map(Value::String).map_err(words)
+}
+
+/// Takes a message its harness holds until the turn ends out of what it holds
+/// (`Adapter::remove_queued`), so it never goes. Says what happened, and where the others it held
+/// went back in after it, the ids they went under (`api::Unqueued`).
+fn unqueue(engine: &Handle, c: &Call) -> Result<Value, String> {
+    let p: params::Steer = c.read()?;
+    let (cfg, board) = (cfg()?, engine.board());
+    let (s, account) = harness::find(&board, &cfg, c.session()?).map_err(words)?;
+    let removed = harness::adapter(s.harness).remove_queued(&harness::Ctx { account }, s, &p.id).map_err(words)?;
+    serde_json::to_value(removed).map_err(words)
 }
 
 /// The time of this device's board that shows a change, for a window here to know when the

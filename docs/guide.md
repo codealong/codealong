@@ -632,6 +632,14 @@ through the background service for a background job: Claude Code stops the step 
 Escape would, cutting a running command short, and goes on with everything it holds. To keep a
 long command running, send the message with the box's own Send now (⌃⏎) instead, which moves the
 command to the background.
+Beside Send now, Remove takes a queued message out so it's never sent, and it leaves the
+conversation at once. In the Codex app it's the trash beside the message there. Claude Code gives
+back everything it holds at once (↑ in its terminal), so Codealong presses ↑ there or through the
+background service, empties the box without stopping the turn, and types the others back in after
+it, in their order; they stay queued and stay yours. A draft typed into that terminal's box and not
+sent goes with them. When one of the others holds a long paste or an image, which can't be typed
+back in, Remove says to take it out in the terminal instead, and touches nothing. One that couldn't
+be taken out comes back, with why under it.
 One the session shows no sign of having taken, once it's been quiet a while, says Not in the
 session yet, with Open to check. One that may have gone in without Codealong being able to tell (its
 terminal didn't confirm the typing, say) counts as sent rather than going back in the box, where it

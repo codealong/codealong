@@ -8,6 +8,7 @@ const api = vi.hoisted(() => ({
   mergePr: vi.fn(),
   sessionAnswer: vi.fn(),
   sessionSteer: vi.fn(),
+  sessionUnqueue: vi.fn(),
   reviewPr: vi.fn(),
   snoozeSessions: vi.fn(() => Promise.resolve(null)),
   snoozeReviews: vi.fn(() => Promise.resolve(null)),
@@ -19,7 +20,7 @@ vi.mock('./api', () => ({
   windowLabel: () => 'test',
 }));
 
-import { answerAhead, barAhead, boardAhead, boardView, CONFIRM_MS, inRecord, lanesAhead, logoOf, mergeAhead, mergeDoneAhead, renameAhead, reviewAhead, sendAhead, sentWorthSaying, settled, snoozeAhead, snoozedFrom, snoozeReviewsAhead, steerAhead, type Ahead, type View } from './ahead';
+import { answerAhead, barAhead, boardAhead, boardView, CONFIRM_MS, inRecord, lanesAhead, logoOf, mergeAhead, mergeDoneAhead, renameAhead, reviewAhead, sendAhead, sentWorthSaying, settled, snoozeAhead, snoozedFrom, snoozeReviewsAhead, steerAhead, unqueueAhead, type Ahead, type View } from './ahead';
 import { readDraft, writeDraft } from './drafts';
 import { bayOf, stuckMidTurn } from './lanes';
 import * as fx from './testing/fixtures';
@@ -598,6 +599,27 @@ describe('steerAhead', () => {
     expect(api.sessionSteer).toHaveBeenCalledWith('a', 'u2');
     api.sessionSteer.mockRejectedValueOnce(new Error('Codex didn’t take it into the turn.'));
     await expect(steerAhead(session('b', 'working'), m)).rejects.toThrow('Codex didn’t take it into the turn.');
+  });
+});
+
+describe('unqueueAhead', () => {
+  beforeEach(() => api.sessionUnqueue.mockReset());
+
+  it('asks the engine to take out the held message by its id, and says why it wasn’t', async () => {
+    const m = { id: 'u2', at: NOW - 60_000, text: 'And the docs' };
+    api.sessionUnqueue.mockResolvedValueOnce({ message: 'Took it out of what “Task a” holds: it won’t be sent.' });
+    await expect(unqueueAhead(session('a', 'working'), m)).resolves.toBe('Took it out of what “Task a” holds: it won’t be sent.');
+    expect(api.sessionUnqueue).toHaveBeenCalledWith('a', 'u2');
+    api.sessionUnqueue.mockRejectedValueOnce(new Error('Claude Code doesn’t hold that message any more.'));
+    await expect(unqueueAhead(session('b', 'working'), m)).rejects.toThrow('Claude Code doesn’t hold that message any more.');
+  });
+
+  it('goes once the board no longer lists it as held', () => {
+    const a: Ahead = { id: 'x', change: { kind: 'unqueue', key: 'a', id: 'u2' }, at: NOW, doneAt: NOW + 500, shownAt: null };
+    const view = (queued: string[]): View => ({ boardAt: NOW + 1000, find: (k) => (k === 'a' ? { title: 'Task a', status: 'working', statusSince: NOW, lastPromptAt: null, archived: false, asks: false, snoozedUntil: null, quiet: false, queuedAt: NOW, queued } : undefined) });
+    expect(settled(a, view(['u1', 'u2']), NOW + 1000)).toBe(a);
+    expect(settled(a, view(['u1', 'new-u3']), NOW + 1000)).toBeNull();
+    expect(settled({ ...a, doneAt: null }, view(['u1']), NOW + 1000)).not.toBeNull();
   });
 });
 

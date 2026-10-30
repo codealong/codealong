@@ -7,7 +7,10 @@
 // after it; one queued elsewhere shows too, after the turn; and they go as the queue empties. While
 // the turn can take what's held sooner (`steerable`), each held message has Send now, which asks
 // for it by its id and shows it once, as sent, in its place; one that doesn't go stays held, saying
-// why. It ends with two messages queued, for the screenshot.
+// why. Beside it, Remove takes one out: gone from the thread at once and asked for by its id, back
+// with why when it's still held, and one of yours that went back in after it under a new id (Claude
+// Code gives back everything it holds) still showing once, as held. It ends with two messages
+// queued, for the screenshot.
 //   PREVIEW_WAIT=40000 scripts/preview.sh sessions '' scripts/preview/queued-send-check.js
 //   PREVIEW_SCHEME=dark PREVIEW_WAIT=40000 scripts/preview.sh sessions '' scripts/preview/queued-send-check.js
 (function () {
@@ -33,7 +36,13 @@
   };
   // Why Send now on a held message fails, or null for it to go.
   var steerFails = null;
+  // How the Remove under way ends: `res` with what the engine answers, `rej` with why.
+  var unqueued = null;
   window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
+    if (cmd === 'session_unqueue') {
+      window.__calls.push([cmd, args, options]);
+      return new Promise(function (res, rej) { unqueued = { res: res, rej: rej }; });
+    }
     if (cmd === 'session_steer') {
       window.__calls.push([cmd, args, options]);
       return steerFails ? Promise.reject(steerFails) : Promise.resolve('Sent to “Queued A” now: it takes it into the turn it’s taking.');
@@ -88,6 +97,7 @@
   var saying = function (words) { return sayingAll(words)[0]; };
   // Send now on a held message, by its words.
   var sendNow = function (words) { var u = saying(words); return u && q('.ca-thread-sendnow', u.el); };
+  var remove = function (words) { var u = saying(words); return u && q('.ca-thread-unqueue', u.el); };
   var send = function (words) {
     type(box(), words);
     key(box(), { key: 'Enter' });
@@ -233,6 +243,64 @@
       steerFails = null;
       var at = Date.now();
       push({ queuedAt: at, queued: [{ id: 'app-4', at: at - 1000, text: 'Then the release notes' }, { id: 'app-5', at: at, text: 'And a line in the changelog' }] });
+      return until(function () { return !!saying('And a line in the changelog'); }, 5000, 'two queued');
+    })
+    .then(function () {
+      check('Remove beside Send now on each held message', !!remove('Then the release notes') && !!remove('And a line in the changelog'));
+      remove('And a line in the changelog').click();
+      return until(function () { return !saying('And a line in the changelog'); }, 5000, 'the removed one gone');
+    })
+    .then(function () {
+      var asked = sent('session_unqueue');
+      check('Remove asks for the held message by its id', asked.length === 1 && asked[0].key === picked.key && asked[0].id === 'app-5', JSON.stringify(asked));
+      check('and it’s gone from the thread at once, the other still held', !saying('And a line in the changelog') && saying('Then the release notes').says === QUEUED);
+      unqueued.res({ message: 'Took it out of what “Queued A” holds: it won’t be sent.' });
+      return wait(1500);
+    })
+    .then(function () {
+      check('it stays gone while the board still lists it', !saying('And a line in the changelog'));
+      var at = Date.now();
+      push({ queuedAt: at, queued: [{ id: 'app-4', at: at - 1000, text: 'Then the release notes' }] });
+      return wait(1500);
+    })
+    .then(function () {
+      check('and once the board doesn’t', !saying('And a line in the changelog'));
+      remove('Then the release notes').click();
+      return until(function () { return !saying('Then the release notes'); }, 5000, 'the second taken out');
+    })
+    .then(function () {
+      unqueued.rej('Claude Code didn’t give back what it holds for “Queued A”, so it’s still held.');
+      return until(function () { var u = saying('Then the release notes'); return u && !!q('.ca-thread-askrow', u.el); }, 5000, 'why it wasn’t taken out');
+    })
+    .then(function () {
+      var u = saying('Then the release notes');
+      check('one that wasn’t taken out is back, held, saying why', u.says === QUEUED && q('.ca-thread-askrow', u.el).textContent.indexOf('still held') >= 0, u.says);
+      queueing = true;
+      return send('Fix the tests too');
+    })
+    .then(function () {
+      queueing = false;
+      var at = Date.now();
+      push({ queuedAt: at, queued: [{ id: 'app-4', at: at - 1000, text: 'Then the release notes' }, { id: 'q:Fix the tests too', at: at, text: 'Fix the tests too' }] });
+      return until(function () { var u = saying('Fix the tests too'); return u && u.says === QUEUED; }, 5000, 'yours held after it');
+    })
+    .then(function () {
+      remove('Then the release notes').click();
+      return until(function () { return !saying('Then the release notes'); }, 5000, 'taken out again');
+    })
+    .then(function () {
+      // Claude Code gave back both; yours went in again under another id.
+      unqueued.res({ message: 'Took it out of what “Queued A” holds.', requeued: [{ was: 'q:Fix the tests too', now: 'n:Fix the tests too' }] });
+      var at = Date.now();
+      push({ queuedAt: at, queued: [{ id: 'n:Fix the tests too', at: at, text: 'Fix the tests too' }] });
+      return wait(1500);
+    })
+    .then(function () {
+      var shown = sayingAll('Fix the tests too');
+      check('one of yours that went back in under a new id shows once, as held', shown.length === 1 && shown[0].says === QUEUED, shown.map(function (u) { return u.says; }).join(', '));
+      check('and the one taken out is gone', !saying('Then the release notes'));
+      var at = Date.now();
+      push({ queuedAt: at, queued: [{ id: 'app-6', at: at - 1000, text: 'Then the release notes' }, { id: 'app-7', at: at, text: 'And a line in the changelog' }] });
       return until(function () { return !!saying('And a line in the changelog'); }, 5000, 'two queued for the screenshot');
     })
     .then(function () { return wait(300); })

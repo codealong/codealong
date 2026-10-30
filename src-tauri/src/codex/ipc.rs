@@ -979,6 +979,24 @@ mod tests {
         let _ = std::fs::remove_dir_all(&home);
     }
 
+    /// Remove finds a queued message by either id and deletes it by Codex's; one gone from the
+    /// list isn't deleted, and one Codex says it no longer had counts as gone.
+    #[test]
+    fn a_queued_message_is_taken_out_by_either_id() {
+        let home = scratch("codex-take-out");
+        let heard = home.join("heard");
+        let deleted = r#"printf '{"id":%s,"result":{"deleted":true}}\n' "$id""#;
+        assert!(queue_of_two(&heard, deleted).take_out("t1", "u2").unwrap());
+        let asked: Vec<_> = std::fs::read_to_string(&heard).unwrap().lines().skip(2).map(String::from).collect();
+        assert_eq!(asked, [r#"{"id":2,"method":"thread/queue/list","params":{"cursor":null,"threadId":"t1"}}"#, r#"{"id":3,"method":"thread/queue/delete","params":{"queuedSubmissionId":"q2","threadId":"t1"}}"#]);
+        assert!(queue_of_two(&heard, deleted).take_out("t1", "q1").unwrap());
+        let _ = std::fs::remove_file(&heard);
+        assert!(!queue_of_two(&heard, deleted).take_out("t1", "u9").unwrap());
+        assert!(!std::fs::read_to_string(&heard).unwrap().contains("thread/queue/delete"));
+        assert!(!queue_of_two(&heard, r#"printf '{"id":%s,"result":{"deleted":false}}\n' "$id""#).take_out("t1", "u1").unwrap());
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
     /// One that's gone from the queue isn't sent; one the window turns down stays queued, for the
     /// next turn; and one the queue keeps after the turn took it is said, since it would go twice.
     #[test]

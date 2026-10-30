@@ -36,6 +36,7 @@ mod teardown;
 mod training;
 mod transcript;
 mod trust;
+mod unqueue;
 mod usage;
 mod wakeups;
 
@@ -645,6 +646,36 @@ impl crate::harness::Adapter for ClaudeCode {
     /// It stops the step the turn is on, as Escape does (`steer_queued`).
     fn steer_queued_stops(&self) -> bool {
         true
+    }
+
+    /// ↑ in its box, which gives back everything of yours it holds, emptied with keys that don't
+    /// stop the turn, and the others typed in again (unqueue.rs): in the terminal it runs in, or a
+    /// background job's through its account's service. Only while its turn runs and asks you
+    /// nothing, since a question or a prompt to allow takes ↑ as its own. A draft typed into a
+    /// terminal's box and not sent is emptied with them.
+    fn remove_queued(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, id: &str) -> anyhow::Result<crate::harness::Unqueued> {
+        if !s.queued.iter().any(|m| m.id == id) {
+            anyhow::bail!("Claude Code doesn't hold that message any more: its turn has taken it in.");
+        }
+        let home = ctx.account.home_path();
+        let registry = session_entry(&home, s).ok_or_else(|| anyhow::anyhow!("It isn't running any more."))?;
+        match registry.status.as_str() {
+            "busy" => {}
+            "waiting" => anyhow::bail!("{} waits on you in its terminal, which would take ↑ as an answer: answer it first.", crate::send::quoted(&s.title)),
+            _ => anyhow::bail!("Its turn has ended, so it has taken in what it held."),
+        }
+        let way = if s.attach_command.is_some() {
+            let job = registry.job_id.ok_or_else(|| anyhow::anyhow!("Claude Code didn't record which job it is."))?;
+            let socket = daemon_socket(&home).ok_or_else(|| anyhow::anyhow!("Its account's background service isn't running."))?;
+            unqueue::Way::Job { socket, key_file: home.join("daemon/control.key"), job }
+        } else {
+            let pid = s.pid.ok_or_else(|| anyhow::anyhow!("It isn't running any more."))?;
+            let Some(host) = crate::launch::terminal_host(pid, Path::new(&s.cwd))? else {
+                anyhow::bail!("It isn't in a terminal Codealong can press keys in ({}). Take it out there: ↑ brings back what it holds.", crate::launch::presses_keys_in());
+            };
+            unqueue::Way::Tab { host, pid, cwd: PathBuf::from(&s.cwd) }
+        };
+        unqueue::remove(&mut unqueue::Live { path: record(self, ctx, s)?, way }, &s.title, id)
     }
 
     /// Presses Escape only while its own record says a turn is running: busy, or waiting on a

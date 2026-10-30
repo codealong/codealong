@@ -34,7 +34,7 @@
 // the thread.
 
 import { useSyncExternalStore } from 'react';
-import { archiveSession, emitAhead, markSeen, markUnread, mergePr, onAhead, quietSessions, raiseSessions, renameSession, resumeSession, reviewPr, sendToSession, sessionAnswer, sessionDone, sessionSteer, snoozeReviews, snoozeSessions, windowLabel, type Done, type MergeDone } from './api';
+import { archiveSession, emitAhead, markSeen, markUnread, mergePr, onAhead, quietSessions, raiseSessions, renameSession, resumeSession, reviewPr, sendToSession, sessionAnswer, sessionDone, sessionSteer, sessionUnqueue, snoozeReviews, snoozeSessions, windowLabel, type Done, type MergeDone } from './api';
 import { readDraft, writeDraft } from './drafts';
 import { nameShown } from './harness';
 import { heldForAgent } from './prStatus';
@@ -87,6 +87,9 @@ export type Change =
   /** The call it waited on answered so that it goes on: working from when it was answered.
    *  `since` is when it began waiting on that call, as the board had it. */
   | { kind: 'answer'; key: string; since: number | null }
+  /** A message its harness held, by its id in `Session.queued`, taken out so it never goes
+   *  (`unqueueAhead`): its thread stops showing it until the board does. */
+  | { kind: 'unqueue'; key: string; id: string }
   | {
       kind: 'send';
       key: string;
@@ -541,11 +544,12 @@ export function settled(a: Ahead, v: View, now: number): Ahead | null {
     // A window's view finds sessions, not PRs: a review's snooze, a review and a merge go by the
     // board's time alone.
     if (c.kind === 'review-snooze' || c.kind === 'pr-merge' || c.kind === 'pr-review') return a;
-    const keys = c.kind === 'archive' || c.kind === 'rename' || c.kind === 'answer' ? [c.key] : c.keys;
+    const keys = c.kind === 'archive' || c.kind === 'rename' || c.kind === 'answer' || c.kind === 'unqueue' ? [c.key] : c.keys;
     const shows = keys.every((k) => {
       const s = v.find(k);
       if (s === undefined) return false;
       if (c.kind === 'answer') return !stillAsked(s, s.statusSince, c);
+      if (c.kind === 'unqueue') return !s.queued?.includes(c.id);
       if (c.kind === 'seen') return !settledBySeen(s);
       if (c.kind === 'unread') return !unreadable(s);
       if (c.kind === 'snooze') return s.snoozedUntil === c.until;
@@ -1053,6 +1057,36 @@ export function steerAhead(s: Session, m: QueuedMessage): Promise<string> {
     (said) => {
       answered(a.id, null);
       return said;
+    },
+    (e: unknown) => {
+      drop(a.id, true);
+      if (was) put(was, true);
+      throw e;
+    },
+  );
+}
+
+/**
+ * Takes a message the session's harness holds until its turn ends out of what it holds
+ * (`sessionUnqueue`), so it never goes: its thread stops showing it at once, and one of yours
+ * with it, and shows them again if it's still held after all. Where the harness gave back the
+ * others it held with it, which went back in under new ids, one of yours among them goes on
+ * showing as held. Resolves with what happened; rejects with why it wasn't taken out.
+ */
+export function unqueueAhead(s: Session, m: QueuedMessage): Promise<string> {
+  const yours = (id: string) => all.find((x) => x.change.kind === 'send' && x.change.key === s.key && x.queuedAs === id);
+  const was = yours(m.id);
+  const a = made({ kind: 'unqueue', key: s.key, id: m.id });
+  if (was) drop(was.id, true);
+  put(a, true);
+  return sessionUnqueue(s.key, m.id).then(
+    (done) => {
+      answered(a.id, null);
+      for (const r of done.requeued ?? []) {
+        const sent = yours(r.was);
+        if (sent) put({ ...sent, queuedAs: r.now }, true);
+      }
+      return done.message;
     },
     (e: unknown) => {
       drop(a.id, true);

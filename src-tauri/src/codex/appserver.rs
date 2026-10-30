@@ -259,9 +259,21 @@ impl Queue {
         }
     }
 
-    /// Takes the message Codex knows as `id` out of `thread`'s queue.
-    pub fn delete(&self, thread: &str, id: &str) -> Result<()> {
-        self.0.request("thread/queue/delete", json!({ "threadId": thread, "queuedSubmissionId": id })).map(|_| ())
+    /// Takes the message Codex knows as `id` out of `thread`'s queue: false when it was gone
+    /// already (`{deleted}`, 0.160.1's schema).
+    pub fn delete(&self, thread: &str, id: &str) -> Result<bool> {
+        let answer = self.0.request("thread/queue/delete", json!({ "threadId": thread, "queuedSubmissionId": id }))?;
+        Ok(answer["deleted"].as_bool() != Some(false))
+    }
+
+    /// Takes the message `thread` holds as `id` (either id `find` knows it by) out of its queue,
+    /// so it never goes, as the trash beside a queued message in the app does: false when it was
+    /// gone already, sent or taken out.
+    pub fn take_out(&self, thread: &str, id: &str) -> Result<bool> {
+        match self.find(thread, id)? {
+            Some(q) => self.delete(thread, &q.id),
+            None => Ok(false),
+        }
     }
 }
 
@@ -426,7 +438,7 @@ mod tests {
     /// Against the Codex app's CLI, in a CODEX_HOME of its own (no sign-in, no turn):
     /// `cargo test queues_a_follow_up_through_codex -- --ignored`. A thread made there takes a
     /// queued follow-up from a server that never loaded it, which another server finds by the id
-    /// it went under and takes out, as Send now on it does.
+    /// it went under and takes out, as Send now and Remove on it do.
     #[test]
     #[ignore]
     fn queues_a_follow_up_through_codex() {
@@ -439,8 +451,10 @@ mod tests {
         let found = q.find(&t.id, "u1").unwrap().expect("queued as u1");
         assert_eq!((found.message_id.as_str(), found.prose().as_str()), ("u1", "and the docs"));
         assert_eq!(q.find(&t.id, &found.id).unwrap().as_ref(), Some(&found));
-        q.delete(&t.id, &found.id).unwrap();
+        assert!(q.take_out(&t.id, "u1").unwrap());
         assert_eq!(q.find(&t.id, "u1").unwrap(), None);
+        assert!(!q.take_out(&t.id, "u1").unwrap(), "gone already");
+        assert!(!q.delete(&t.id, &found.id).unwrap(), "gone already");
         let _ = std::fs::remove_dir_all(&home);
     }
 
