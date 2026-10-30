@@ -48,7 +48,7 @@
 //! that sends it: Claude Code doesn't hold it for you. Conversations show it as Codealong's
 //! (transcript.rs `shown_in`, claude/conversation.rs `peer_item`).
 
-use std::borrow::Cow;
+use std::borrow::{Borrow, Cow};
 use std::path::Path;
 use std::collections::BTreeMap;
 use std::sync::{Arc, Condvar, Mutex};
@@ -137,7 +137,7 @@ pub fn tell_waking(engine: &crate::engine::Handle, key: &str, text: &str) -> Res
     ensure_not_flagged(&cfg, session, &Sender::Codealong)?;
     let routes = || crate::harness::adapter(session.harness).routes(account, session);
     match waking(session, account, routes, || crate::start::resume_out_of_sight(account, &crate::util::home())) {
-        Waking::Send => send(&board, &cfg, key, text, Sender::Codealong, false).map(|sent| Some(crate::start::Resumed { key: Some(key.to_string()), sent })),
+        Waking::Send => send_from(|| engine.board(), &cfg, key, text, Sender::Codealong, false).map(|sent| Some(crate::start::Resumed { key: Some(key.to_string()), sent })),
         Waking::Nowhere => Ok(None),
         Waking::Resume(place) => {
             let prompt = by_codealong(&format!("{RESUMED_TO_TELL}\n\n{}", text.trim()));
@@ -466,7 +466,15 @@ pub fn opened(message: String) -> Sent {
 /// opened again, and you sent what it still showed, or another window sent it too) joins that
 /// send and gets its outcome, rather than going twice.
 pub fn send(board: &Board, cfg: &Config, session_key: &str, text: &str, sender: Sender, now: bool) -> Result<Sent> {
-    if let Some((_, s)) = board.session(session_key) {
+    send_from(|| board, cfg, session_key, text, sender, now)
+}
+
+/// `send` on the board `board` reads, which is read again once the session's input box is held
+/// (`at_the_box`): a send that waited there behind a Remove goes by the session as it is then,
+/// which may wait on you by now, not as it was when it was asked.
+fn send_from<B: Borrow<Board>>(board: impl Fn() -> B, cfg: &Config, session_key: &str, text: &str, sender: Sender, now: bool) -> Result<Sent> {
+    let b = board();
+    if let Some((_, s)) = b.borrow().session(session_key) {
         ensure_not_flagged(cfg, s, &sender)?;
     }
     send_allowed(board, cfg, session_key, text, sender, now)
@@ -474,9 +482,9 @@ pub fn send(board: &Board, cfg: &Config, session_key: &str, text: &str, sender: 
 
 /// After the automation check, or a deliberate Send review click. The click changes only
 /// whether a flagged session may receive it, never its author or its delivery routes.
-fn send_allowed(board: &Board, cfg: &Config, key: &str, text: &str, sender: Sender, now: bool) -> Result<Sent> {
-    ensure_not_moved(&crate::origins::current(), board, key)?;
-    join(key, text.trim(), || at_the_box(key, || deliver(board, cfg, key, text, &sender, now)))
+fn send_allowed<B: Borrow<Board>>(board: impl Fn() -> B, cfg: &Config, key: &str, text: &str, sender: Sender, now: bool) -> Result<Sent> {
+    ensure_not_moved(&crate::origins::current(), board().borrow(), key)?;
+    join(key, text.trim(), || at_the_box(key, || deliver(board().borrow(), cfg, key, text, &sender, now)))
 }
 
 /// Each session's input box, held by whatever types into it or presses keys there for a while:
@@ -500,7 +508,7 @@ pub(crate) fn at_the_box<T>(key: &str, f: impl FnOnce() -> T) -> T {
 /// routes. It can reach a flagged session, but can't open an app with text left to paste.
 pub fn tell_by_hand(engine: &crate::engine::Handle, key: &str, text: &str) -> Result<Sent> {
     let cfg = crate::config::current()?;
-    send_allowed(&engine.board(), &cfg, key, text, Sender::Codealong, false)
+    send_allowed(|| engine.board(), &cfg, key, text, Sender::Codealong, false)
 }
 
 /// A flag stops messages from Codealong and other agents before any delivery path, including
@@ -535,7 +543,7 @@ pub fn moved_words(board: &Board, key: &str, copy: &str) -> String {
 /// through the app all come to.
 pub fn send_here(engine: &crate::engine::Handle, key: &str, text: &str, sender: Sender, now: bool) -> Result<Sent> {
     let cfg = crate::config::current()?;
-    send(&engine.board(), &cfg, key, text, sender, now)
+    send_from(|| engine.board(), &cfg, key, text, sender, now)
 }
 
 /// How a message from you would reach the session with this key, for its box to say before you
@@ -1211,6 +1219,33 @@ mod tests {
         assert_eq!(heard.iter().collect::<Vec<_>>(), ["another session's send", "removed", "this session's send"]);
     }
 
+    /// A send that waited for a session's box (behind a Remove) goes by the session as it is once
+    /// it has it: one that began waiting on you meanwhile isn't typed into, as what's typed would
+    /// answer its prompt.
+    #[test]
+    fn a_send_that_waited_for_the_box_reads_the_session_again() {
+        let cfg: Config = serde_json::from_value(json!({ "accounts": [{ "name": "claude", "harness": "claude", "home": "/h" }] })).unwrap();
+        let working = session(Harness::Claude, Surface::Cli, Status::Working, true, Some(7));
+        let asks = std::sync::atomic::AtomicBool::new(false);
+        let (holding, held) = std::sync::mpsc::channel();
+        let (go, wait) = std::sync::mpsc::channel::<()>();
+        let err = std::thread::scope(|scope| {
+            let (key, turns) = (&working.key, &asks);
+            scope.spawn(move || {
+                at_the_box(key, || {
+                    holding.send(()).unwrap();
+                    wait.recv().unwrap();
+                    turns.store(true, std::sync::atomic::Ordering::SeqCst);
+                })
+            });
+            held.recv().unwrap();
+            go.send(()).unwrap();
+            let now = || Session { status: if asks.load(std::sync::atomic::Ordering::SeqCst) { Status::Needs } else { Status::Working }, ..working.clone() };
+            send_allowed(|| board_with(now()), &cfg, &working.key, "And the docs", Sender::You, false).unwrap_err()
+        });
+        assert_eq!(err.to_string(), "“Fix the build” is waiting on you; open it to answer.");
+    }
+
     #[test]
     fn provider_flags_stop_automated_delivery_before_any_route() {
         let mut cfg = Config::default();
@@ -1227,7 +1262,7 @@ mod tests {
         }
         // The explicit review action gets past the flag, then reaches the normal account
         // check; no real route is run. Its author and routes stay Codealong's.
-        assert!(send_allowed(&b, &cfg, &s.key, "Review findings", Sender::Codealong, false).unwrap_err().to_string().contains("no account named"));
+        assert!(send_allowed(|| &b, &cfg, &s.key, "Review findings", Sender::Codealong, false).unwrap_err().to_string().contains("no account named"));
         let message = Message::new(&b, &cfg, "Review findings", &Sender::Codealong, false);
         assert!(message.text.starts_with(FROM_CODEALONG_ITSELF));
         assert_eq!(message.byline.as_ref().map(|b| b.name.as_str()), Some("Codealong"));

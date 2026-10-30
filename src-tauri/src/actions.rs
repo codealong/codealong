@@ -1024,15 +1024,19 @@ fn cancel(engine: &Handle, c: &Call) -> Result<Value, String> {
 /// (stops.rs). Says what happened.
 fn steer(engine: &Handle, c: &Call) -> Result<Value, String> {
     let p: params::Steer = c.read()?;
-    let (cfg, board) = (cfg()?, engine.board());
-    let (s, account) = harness::find(&board, &cfg, c.session()?).map_err(words)?;
-    if !harness::turn_running(s) {
-        return Err("Its turn has already ended, so it takes what's held next.".into());
-    }
-    let adapter = harness::adapter(s.harness);
-    let steer = || crate::send::at_the_box(&s.key, || adapter.steer_queued(&harness::Ctx { account }, s, &p.id));
-    let said = if adapter.steer_queued_stops() { stops::noted(Stop::SendNow, &s.key, &s.title, &stops::who(&board, c.from), steer) } else { steer() };
-    said.map(Value::String).map_err(words)
+    let key = c.session()?;
+    // The session as it is once the box is held: a Remove before it may have taken the message out.
+    crate::send::at_the_box(key, || {
+        let (cfg, board) = (cfg()?, engine.board());
+        let (s, account) = harness::find(&board, &cfg, key).map_err(words)?;
+        if !harness::turn_running(s) {
+            return Err("Its turn has already ended, so it takes what's held next.".into());
+        }
+        let adapter = harness::adapter(s.harness);
+        let steer = || adapter.steer_queued(&harness::Ctx { account }, s, &p.id);
+        let said = if adapter.steer_queued_stops() { stops::noted(Stop::SendNow, &s.key, &s.title, &stops::who(&board, c.from), steer) } else { steer() };
+        said.map(Value::String).map_err(words)
+    })
 }
 
 /// Takes a message its harness holds until the turn ends out of what it holds
@@ -1041,10 +1045,13 @@ fn steer(engine: &Handle, c: &Call) -> Result<Value, String> {
 /// after it, the ids they went under (`api::Unqueued`).
 fn unqueue(engine: &Handle, c: &Call) -> Result<Value, String> {
     let p: params::Steer = c.read()?;
-    let (cfg, board) = (cfg()?, engine.board());
-    let (s, account) = harness::find(&board, &cfg, c.session()?).map_err(words)?;
-    let removed = crate::send::at_the_box(&s.key, || harness::adapter(s.harness).remove_queued(&harness::Ctx { account }, s, &p.id)).map_err(words)?;
-    serde_json::to_value(removed).map_err(words)
+    let key = c.session()?;
+    crate::send::at_the_box(key, || {
+        let (cfg, board) = (cfg()?, engine.board());
+        let (s, account) = harness::find(&board, &cfg, key).map_err(words)?;
+        let removed = harness::adapter(s.harness).remove_queued(&harness::Ctx { account }, s, &p.id).map_err(words)?;
+        serde_json::to_value(removed).map_err(words)
+    })
 }
 
 /// The time of this device's board that shows a change, for a window here to know when the
