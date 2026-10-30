@@ -4,7 +4,10 @@
 // and the box goes to it; put away, it doesn't come back in that window, until another answer; an
 // answer that comes in while the session shows doesn't take the box from whoever may be typing,
 // until the window comes forward; once the session's seen, one that came up by itself goes, and
-// the box is the session's again; and one you picked yourself stays.
+// the box is the session's again; one you picked yourself stays; a window that has just come
+// forward takes an answer its board catches up with as there when it came; opening a session
+// Codealong runs leaves the answer to read, where it would mark another seen; and one out in a
+// window of its own has that window come forward, whatever this window has heard of it.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/side-answer-check.js
 (function () {
   var xhr = new XMLHttpRequest();
@@ -27,6 +30,8 @@
   window.__past = [{ id: 'closed-1', key: key, title: '', startedAt: t, lastAt: t, turns: [turn] }];
   window.__answer = { id: 'closed-1', at: t };
   var calm = { status: 'idle', live: true, stoppable: false, stalledSince: null, asks: false, snoozedUntil: null, background: undefined };
+  // Its row opens where it lives: a session Codealong runs, once a check asks for one.
+  var hosted = function (s) { if (window.__hosted) Object.assign(s, { hosted: true, pid: null, openTarget: 's|' + s.key + '|hosted' }); };
   var real = window.__TAURI_INTERNALS__.invoke;
   window.__TAURI_INTERNALS__.invoke = function (cmd) {
     var got = real.apply(this, arguments);
@@ -37,6 +42,7 @@
           if (s.key === b.session.key) Object.assign(s, calm);
           if (s.key !== key) return;
           Object.assign(s, calm);
+          hosted(s);
           if (window.__answer) Object.assign(s, { status: 'unread', statusSince: window.__answer.at, excerpt: 'Answered on the side · Why a queue?', sideAnswer: window.__answer });
         });
       });
@@ -71,7 +77,8 @@
       await go(a);
       check('and it doesn’t come back up in this window', !strip() && !aside());
 
-      // Another answer, while the session shows.
+      // Another answer, while the session shows, long enough after the window came to it.
+      await wait(2200);
       window.__answer = { id: 'closed-1', at: t + 1000 };
       await window.__pushSides();
       await wait(200);
@@ -123,6 +130,52 @@
       await go(a);
       await until(function () { return strip() && /And the lock file\?/.test(strip().textContent); }, 3000, 'the open one, not the list');
       check('coming to the session shows the open one that answered, whatever showed there', /Gone\./.test(strip().textContent) && aside());
+
+      // A window put away comes forward on the board it had, and hears of the answer just after.
+      delete window.__sides[key];
+      window.__answer = null;
+      window.__emit('side', { id: 'open-1', key: key, turns: [], running: false, ended: true });
+      await window.__pushSides();
+      await until(function () { return !strip(); }, 3000, 'nothing above the box');
+      window.dispatchEvent(new Event('focus'));
+      window.__answer = { id: 'closed-1', at: t + 3000 };
+      await window.__pushSides();
+      await until(strip, 3000, 'the side conversation its board caught up with');
+      check('a window that has just come forward takes an answer its board catches up with', aside());
+      acts('Close').click();
+      await until(function () { return !strip(); }, 3000, 'it put away');
+
+      // A session Codealong runs: Enter on its row opens it, in its panel.
+      var enter = function () {
+        if (document.activeElement) document.activeElement.blur();
+        document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true, cancelable: true }));
+      };
+      window.__hosted = true;
+      window.__answer = { id: 'closed-1', at: t + 4000 };
+      await window.__pushSides();
+      await go(b);
+      await go(a);
+      var seenBefore = calls('mark_seen').length;
+      enter();
+      await wait(300);
+      check('opening a session Codealong runs leaves the answer to read', !!strip() && calls('mark_seen').length === seenBefore, calls('mark_seen').length + ' marked seen');
+      window.__answer = null;
+      await window.__pushSides();
+      await until(function () { return !strip(); }, 3000, 'it gone once it’s seen');
+      enter();
+      await until(function () { return calls('mark_seen').length > seenBefore; }, 3000, 'one with nothing to read marked seen as it opens');
+      check('with nothing to read, opening it marks it seen as ever', true);
+      window.__hosted = false;
+
+      // Out in a window of its own, though this window hasn't heard so yet.
+      window.__sideWindows = [key];
+      window.__answer = { id: 'closed-1', at: t + 5000 };
+      await window.__pushSides();
+      await go(b);
+      await go(a);
+      await until(function () { return calls('side_window').length > 0; }, 3000, 'its window asked to come forward');
+      var raised = calls('side_window')[0][1];
+      check('one out in a window of its own has that window come forward, leaving the keyboard', raised.key === key && raised.keys === false, JSON.stringify(raised));
       done();
     } catch (e) {
       stopped(String(e));

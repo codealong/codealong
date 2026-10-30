@@ -673,11 +673,12 @@ fn forget_at(path: &Path, id: &str) -> Result<()> {
 /// Writes a side conversation in place of what was kept of it, the latest last, and lets the
 /// oldest go past `KEPT`. A conversation only grows, so one with fewer turns than what's kept of
 /// it was made before that and written late (a close's, behind the answers of a copy that went
-/// on from it): it's left out. A file that doesn't parse is an error and is left as it is: every
-/// conversation kept so far is in it.
+/// on from it), and so was one with as many made earlier (a turn's end, behind the close that came
+/// just after it and said it was read): it's left out. A file that doesn't parse is an error and
+/// is left as it is: every conversation kept so far is in it.
 fn keep_in(path: &Path, kept: Kept) -> Result<()> {
     store::change(path, WHAT, |all: &mut Vec<Kept>| {
-        if all.iter().any(|k| k.id == kept.id && k.turns.len() > kept.turns.len()) {
+        if all.iter().any(|k| k.id == kept.id && (k.turns.len(), k.last_at) > (kept.turns.len(), kept.last_at)) {
             return false;
         }
         all.retain(|k| k.id != kept.id);
@@ -1515,6 +1516,11 @@ mod tests {
         keep_in(&path, kept(vec![turn("one"), turn("two")])).unwrap();
         keep_in(&path, kept(vec![turn("one")])).unwrap();
         assert_eq!(past_in(&path, "claude:c:1").iter().map(|k| k.turns.len()).collect::<Vec<_>>(), [2]);
+        // Closed as its last turn ended, what the turn's end made comes late: it's still read.
+        let closed = Kept { last_at: 9, answered_at: None, ..kept(vec![turn("one"), turn("two")]) };
+        keep_in(&path, closed.clone()).unwrap();
+        keep_in(&path, Kept { last_at: 8, answered_at: Some(8), ..closed }).unwrap();
+        assert_eq!(past_in(&path, "claude:c:1").iter().map(|k| k.answered_at).collect::<Vec<_>>(), [None]);
     }
 
     /// sides.json holds every conversation kept: one that doesn't read (another build's shape, a

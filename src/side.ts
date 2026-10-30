@@ -22,7 +22,7 @@
 // what would show above the box and has a box that only ever asks it. While it's out, nothing
 // shows above the session's boxes, which are the session's again (`usePopped`).
 
-import { useEffect, useLayoutEffect, useSyncExternalStore } from 'react';
+import { useEffect, useLayoutEffect, useRef, useSyncExternalStore } from 'react';
 import { onSide, onSideWindows, sideForget, sideGet, sidePast, sideWindow, sideWindows } from './api';
 import { useLatest } from './latest';
 import { errorText } from './report';
@@ -230,24 +230,39 @@ export function showAnswer(key: string, answer: SideAnswer): void {
   if ((broughtUp.get(key) ?? 0) >= answer.at) return;
   broughtUp.set(key, answer.at);
   showSides(key, answer.open ? null : { kind: 'past', id: answer.id, brought: true });
-  if (popped.has(key)) void sideWindow(key, false).catch(() => {});
+  // Asked, not read from `popped`, which a window just opened hasn't heard yet. Unanswered, it stays
+  // where it is, and what shows there is the view just set.
+  void sideWindows()
+    .then((out) => (out.includes(key) ? sideWindow(key, false) : undefined))
+    .catch(() => {});
 }
 
+/** How long after a window comes forward what it hears is taken for what was there as it came: one
+ *  put away stops following the board (Waiting.tsx), which catches up just after. */
+const CATCHING_UP_MS = 2000;
+
 /** Brings up what a session's side conversations answered as a window comes to the session: as it
- *  shows it, and as the window comes forward showing it. Not as the answer comes in while it's
- *  shown: what's above the box is the same in every window, and you may be typing to the session
- *  in one. One closed that came up by itself goes once you've seen it, with `Session.sideAnswer`:
- *  left there, it would hold the box for good, and what you next typed would go to it. */
+ *  shows it, and as the window comes forward showing it, its board catching up or not. Not as the
+ *  answer comes in while it's shown: what's above the box is the same in every window, and you may
+ *  be typing to the session in one. One closed that came up by itself goes once you've seen it,
+ *  with `Session.sideAnswer`: left there, it would hold the box for good, and what you next typed
+ *  would go to it. */
 export function useSideAnswer(key: string, answer: SideAnswer | undefined): void {
   const latest = useLatest(answer);
+  const came = useRef(0);
   useEffect(() => {
     const come = () => {
+      came.current = Date.now();
       if (latest.current) showAnswer(key, latest.current);
     };
     come();
     window.addEventListener('focus', come);
     return () => window.removeEventListener('focus', come);
   }, [key, latest]);
+  const at = answer?.at;
+  useEffect(() => {
+    if (latest.current && Date.now() - came.current < CATCHING_UP_MS) showAnswer(key, latest.current);
+  }, [key, at, latest]);
   const seen = !answer;
   // Before it's drawn: seen while the session was elsewhere, it'd show for a moment and be gone.
   useLayoutEffect(() => {

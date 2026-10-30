@@ -1139,7 +1139,8 @@ export function App() {
       const key = targetId.slice(2, -'|hosted'.length);
       reveal.current({ kind: 'session', laneId: lane.id, key });
       setView('sessions');
-      markSeen([key]);
+      // What a side conversation answered goes with being seen, and its panel has yet to show it.
+      if (!lane.sessions.some((s) => s.key === key && s.sideAnswer)) markSeen([key]);
       return;
     }
     openWhere(where(lane, targetId), { report, from: 'main' });
