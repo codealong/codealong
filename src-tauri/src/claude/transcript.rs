@@ -274,7 +274,7 @@ pub fn parse_transcript(path: &Path, mtime: i64, prev: Option<Parsed>) -> Option
             let (said_at, ended_at, compacted) = said_before(path, tail.start);
             info.compacted = said_at.filter(|_| compacted);
             info.ended_at = ended_at;
-            (info.queue, info.background) = held_before(path, tail.start);
+            (info.queue, info.background) = held_before(path, tail.start.saturating_sub(QUEUE_SCAN), tail.start);
             if let Some((background, from)) = ran {
                 info.background = background_since(path, background, from, tail.start);
             }
@@ -1043,10 +1043,11 @@ fn queued_as_within(path: &Path, text: &str, since: i64, wait: std::time::Durati
 
 /// What it holds of yours now (`TranscriptInfo::held`), each in the words written to its queue,
 /// which are what ↑ gives back into its box (`given_back`): a placeholder for a long paste or an
-/// image, a command as typed.
+/// image, a command as typed. Replayed from the transcript's start, not `QUEUE_SCAN` before its
+/// end as the board's read is, since ↑ gives back whatever's held however long ago it came.
 pub fn holding(path: &Path) -> Vec<QueuedMessage> {
     let len = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
-    held_before(path, len).0.into_iter().filter(|m| prompt_words(&m.text).is_some()).collect()
+    held_before(path, 0, len).0.into_iter().filter(|m| prompt_words(&m.text).is_some()).collect()
 }
 
 /// What ↑ gave back into its box since `since` (ms), in the order it held them: the words of the
@@ -1087,18 +1088,18 @@ fn given_back_within(path: &Path, since: i64, wait: std::time::Duration) -> Vec<
 /// and by a first read, before its tail (`held_before`).
 const QUEUE_SCAN: u64 = 1024 * 1024;
 
-/// What Claude Code held as the tail read from `end` starts (`queue_step`): a message can be held
-/// while more than the tail holds is written (a long step's output, a subagent's), and a held
-/// command for as long as the turn another command took (`turn_took`). A first read replays the
-/// queue's lines, the turns' prompts and the command lines before them from `QUEUE_SCAN` before
-/// its tail, once (`hold_line`); later reads carry what's held forward. A prompt's line is known
+/// What Claude Code held as the tail read from `end` starts (`queue_step`), replayed from `from`:
+/// a message can be held while more than the tail holds is written (a long step's output, a
+/// subagent's), and a held command for as long as the turn another command took (`turn_took`). A
+/// first read replays the queue's lines, the turns' prompts and the command lines before them from
+/// `QUEUE_SCAN` before its tail, once (`hold_line`); later reads carry what's held forward. A prompt's line is known
 /// for a turn's by its `turnPosition` (2.1.30x). The same look back finds the shells it runs in
 /// the background (`background_step`), which a long turn's output can push out of the tail too;
 /// one started further back than that before Codealong first read the transcript is read as its
 /// registry says, since reading back to every session's start would cost each launch far more.
-fn held_before(path: &Path, end: u64) -> (Vec<QueuedMessage>, Vec<(String, i64)>) {
+fn held_before(path: &Path, from: u64, end: u64) -> (Vec<QueuedMessage>, Vec<(String, i64)>) {
     let (mut lines, mut tasks): (Vec<Value>, Vec<Value>) = (Vec::new(), Vec::new());
-    scan_lines_back(path, end.saturating_sub(QUEUE_SCAN), end, |line| {
+    scan_lines_back(path, from, end, |line| {
         if line.contains("\"queue-operation\"") || line.contains("\"turnPosition\"") || line.contains("<command-name>") {
             lines.extend(serde_json::from_str::<Value>(line).ok());
         }
@@ -2114,6 +2115,14 @@ pub(super) mod tests {
         assert!(holding(&path).is_empty());
         // An earlier ↑ isn't this one's.
         assert!(given_back_within(&path, parse_rfc3339_ms("2026-10-21T10:00:06.000Z").unwrap(), quick).is_empty());
+
+        // Held while more than the board's look back was written since, which ↑ gives back too.
+        let step = r#"{"type":"user","timestamp":"2026-10-21T10:00:08.000Z","message":{"content":[{"type":"tool_result","content":"PAD"}]}}"#.replace("PAD", &"x".repeat(4096));
+        let mut long = vec![queue_line("2026-10-21T10:00:07.000Z", "enqueue", Some("From long ago"))];
+        long.extend(std::iter::repeat_n(step, (QUEUE_SCAN / 4096 + 2) as usize));
+        long.push(queue_line("2026-10-21T10:00:09.000Z", "enqueue", Some("Just now")));
+        std::fs::write(&path, long.join("\n") + "\n").unwrap();
+        assert_eq!(holding(&path).into_iter().map(|m| m.text).collect::<Vec<_>>(), ["From long ago", "Just now"]);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

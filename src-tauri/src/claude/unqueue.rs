@@ -19,7 +19,7 @@ use super::transcript;
 use crate::harness::{Requeued, Unqueued};
 use crate::launch::{Key, Submit, TerminalHost, Typed};
 use crate::model::QueuedMessage;
-use crate::send::quoted;
+use crate::send::{quoted, MayHaveArrived};
 
 /// ↑. In an empty box Claude Code puts back what was last cleared from it, once, if anything was
 /// (`restoreCleared`, which comes first: a clear's text came back on 2026-10-29), and otherwise
@@ -51,6 +51,9 @@ const NARROWEST: usize = 20;
 
 const GONE: &str = "Claude Code doesn't hold that message any more: its turn has taken it in.";
 
+/// One removal at a time, from every window and device.
+static ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// A session's queue as `remove` works it.
 pub(super) trait Queue {
     /// What it holds of yours now, in order, as its words were written to the queue
@@ -74,6 +77,9 @@ pub(super) trait Queue {
 /// pressed again when nothing came back. Says what happened, with the ids the others are held
 /// under now.
 pub(super) fn remove(q: &mut dyn Queue, title: &str, id: &str) -> Result<Unqueued> {
+    // Two at once would each read the queue before the other's ↑ and type back what the other
+    // took out.
+    let _alone = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
     let title = quoted(title);
     let held = q.held();
     let Some(at) = held.iter().position(|m| m.id == id) else { bail!(GONE) };
@@ -90,23 +96,49 @@ pub(super) fn remove(q: &mut dyn Queue, title: &str, id: &str) -> Result<Unqueue
             break;
         }
     }
-    // Each by the id it was held under, in the order it was held.
-    let mut ids = held.iter();
-    let back: Vec<(Option<&QueuedMessage>, String)> = back.into_iter().map(|text| (ids.find(|m| m.text == text), text)).collect();
+    // Each by the id it was held under, in the order it was held. One that came since keeps its
+    // place without one, and doesn't take the place of the ones after it.
+    let mut from = 0;
+    let back: Vec<(Option<&QueuedMessage>, String)> = back
+        .into_iter()
+        .map(|text| {
+            let found = held[from..].iter().position(|m| m.text == text).map(|i| from + i);
+            from = found.map_or(from, |i| i + 1);
+            (found.map(|i| &held[i]), text)
+        })
+        .collect();
     let took = back.iter().any(|(m, _)| m.is_some_and(|m| m.id == id));
     let others: Vec<_> = back.iter().filter(|(m, _)| !m.is_some_and(|m| m.id == id)).collect();
     let mut requeued = Vec::new();
-    for (i, (m, text)) in others.iter().enumerate() {
+    // Typing stops at the first that doesn't go in, or may have: what's after it is said, to send
+    // again. One held by a placeholder that came since isn't typed, which would send its words.
+    let (mut failed, mut unsure, mut lost) = (None, None, Vec::new());
+    for (m, text) in &others {
+        if failed.is_some() || unsure.is_some() || by_placeholder(text) {
+            lost.push(clipped(text));
+            continue;
+        }
         let since = crate::util::now_ms();
-        if let Err(e) = q.type_in(text) {
-            let lost: Vec<_> = others[i..].iter().map(|(_, t)| clipped(t)).collect();
-            let (them, it) = if lost.len() > 1 { ("them", "these") } else { ("it", "this") };
-            let done = if took { "Took it out" } else { "It wasn't taken out" };
-            bail!("{done}, but Claude Code gave back what else it held with it, and Codealong couldn't type {it} in again ({e}): {}. Send {them} again.", lost.join(", "));
+        match q.type_in(text) {
+            Ok(()) => requeued.extend(m.zip(q.held_as(text, since)).map(|(m, now)| Requeued { was: m.id.clone(), now })),
+            Err(e) if e.is::<MayHaveArrived>() => unsure = Some(clipped(text)),
+            Err(e) => {
+                failed = Some(e);
+                lost.push(clipped(text));
+            }
         }
-        if let (Some(m), Some(now)) = (m, q.held_as(text, since)) {
-            requeued.push(Requeued { was: m.id.clone(), now });
+    }
+    if unsure.is_some() || !lost.is_empty() {
+        let done = if took { "Took it out" } else { "It wasn't taken out" };
+        let why = failed.map(|e| format!(" ({e})")).unwrap_or_default();
+        let mut said = format!("{done}, but Claude Code gave back what else it held with it, and not all of that went back in{why}.");
+        if let Some(it) = unsure {
+            said.push_str(&format!(" Codealong couldn't tell whether {it} did: look in its terminal before sending it again."));
         }
+        if !lost.is_empty() {
+            said.push_str(&format!(" Send {} again.", lost.join(", ")));
+        }
+        bail!(said);
     }
     if !took {
         if q.held().iter().any(|m| m.id == id) {
@@ -178,9 +210,11 @@ impl Queue for Live {
         let typed = crate::send::boxed(text);
         match &self.way {
             Way::Job { socket, key_file, job } => daemon_say(socket, key_file, job, &typed),
-            Way::Tab { pid, cwd, .. } => match crate::launch::terminal_type_session(*pid, cwd, &typed, false, Submit::Return, false)? {
-                Typed::Into(_) => Ok(()),
-                Typed::Nowhere(why) => bail!("{why}"),
+            // An error once typing has started may have left it in the box, or sent it.
+            Way::Tab { pid, cwd, .. } => match crate::launch::terminal_type_session(*pid, cwd, &typed, false, Submit::Return, false) {
+                Ok(Typed::Into(_)) => Ok(()),
+                Ok(Typed::Nowhere(why)) => bail!("{why}"),
+                Err(e) => Err(MayHaveArrived(format!("its terminal didn't confirm the typing: {e}")).into()),
             },
         }
     }
@@ -205,11 +239,15 @@ mod tests {
         pressed: usize,
         typed: Vec<String>,
         fails_at: Option<usize>,
+        /// Typing this one may have gone in.
+        unsure_at: Option<usize>,
+        /// Held from before what `held` reads, which ↑ gives back first.
+        older: Vec<String>,
     }
 
     fn held(texts: &[&str]) -> Fake {
         let held = texts.iter().enumerate().map(|(i, t)| QueuedMessage { id: format!("q{i}"), at: i as i64, text: t.to_string() }).collect();
-        Fake { held, cleared: false, taken: false, back: Vec::new(), pressed: 0, typed: Vec::new(), fails_at: None }
+        Fake { held, cleared: false, taken: false, back: Vec::new(), pressed: 0, typed: Vec::new(), fails_at: None, unsure_at: None, older: Vec::new() }
     }
 
     impl Queue for Fake {
@@ -225,13 +263,16 @@ mod tests {
             if self.taken {
                 self.held.clear();
             } else if !std::mem::take(&mut self.cleared) {
-                self.back = self.held.drain(..).map(|m| m.text).collect();
+                self.back = self.older.drain(..).chain(self.held.drain(..).map(|m| m.text)).collect();
             }
             Ok(())
         }
         fn type_in(&mut self, text: &str) -> Result<()> {
             if self.fails_at == Some(self.typed.len()) {
                 bail!("its tab is gone");
+            }
+            if self.unsure_at == Some(self.typed.len()) {
+                return Err(MayHaveArrived("its terminal didn't confirm the typing".into()).into());
             }
             self.typed.push(text.to_string());
             let n = self.held.len();
@@ -282,12 +323,32 @@ mod tests {
         assert!(remove(&mut q, "Fix it", "q1").is_ok());
     }
 
-    /// One that can't be typed in again is said, with what's left to send again.
+    /// One that can't be typed in again is said, with what's left to send again; one that may
+    /// have gone in is said to look for first.
     #[test]
     fn what_couldnt_go_back_in_is_said() {
         let mut q = Fake { fails_at: Some(1), ..held(&["drop this", "one", "two", "three"]) };
         let err = remove(&mut q, "Fix it", "q0").unwrap_err().to_string();
-        assert_eq!(err, "Took it out, but Claude Code gave back what else it held with it, and Codealong couldn't type these in again (its tab is gone): \u{201c}two\u{201d}, \u{201c}three\u{201d}. Send them again.");
+        assert_eq!(err, "Took it out, but Claude Code gave back what else it held with it, and not all of that went back in (its tab is gone). Send \u{201c}two\u{201d}, \u{201c}three\u{201d} again.");
+        let mut q = Fake { unsure_at: Some(1), ..held(&["drop this", "one", "two", "three"]) };
+        let err = remove(&mut q, "Fix it", "q0").unwrap_err().to_string();
+        assert_eq!(err, "Took it out, but Claude Code gave back what else it held with it, and not all of that went back in. Codealong couldn't tell whether \u{201c}two\u{201d} did: look in its terminal before sending it again. Send \u{201c}three\u{201d} again.");
+        assert_eq!(q.typed, ["one"]);
+    }
+
+    /// One given back that the transcript's queue didn't have (held from further back, or come
+    /// since) goes back in too, and doesn't keep the one taken out from being known; one of them
+    /// held by a placeholder isn't typed.
+    #[test]
+    fn one_given_back_that_wasnt_read_keeps_its_place() {
+        let mut q = Fake { older: vec!["from long ago".into()], ..held(&["keep", "drop this", "last"]) };
+        let said = remove(&mut q, "Fix it", "q1").unwrap();
+        assert_eq!(q.typed, ["from long ago", "keep", "last"]);
+        assert_eq!(said.requeued.iter().map(|r| r.was.as_str()).collect::<Vec<_>>(), ["q0", "q2"]);
+        let mut q = Fake { older: vec!["[Pasted text #1 +9 lines]".into()], ..held(&["drop this", "keep"]) };
+        let err = remove(&mut q, "Fix it", "q0").unwrap_err().to_string();
+        assert_eq!(err, "Took it out, but Claude Code gave back what else it held with it, and not all of that went back in. Send \u{201c}[Pasted text #1 +9 lines]\u{201d} again.");
+        assert_eq!(q.typed, ["keep"]);
     }
 
     /// Enough Ctrl+U for every row and line break held, a burst more, and as many Ctrl+K.

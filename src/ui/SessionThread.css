@@ -413,10 +413,16 @@
 .ca-thread-meta > .ca-meta {
   margin-left: auto;
 }
-/* Send now and Remove on a message its harness holds, after what it says it is. */
+/* Send now and Remove on a message its harness holds, after what it says it is; faint while a
+   Remove is under way. */
 .ca-thread-sendnow,
 .ca-thread-unqueue {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
+}
+.ca-thread-sendnow:disabled,
+.ca-thread-unqueue:disabled {
+  opacity: 0.5;
+  cursor: default;
 }

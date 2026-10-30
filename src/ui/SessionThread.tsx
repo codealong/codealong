@@ -1063,13 +1063,14 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
     setUnheld(null);
     unqueueAhead(s, m).catch((e: unknown) => setUnheld({ id: m.id, why: errorText(e), removing: true }));
   };
+  // While one is being taken out, yours that were held stay out of sight too, since Claude Code
+  // gives them all back and they go in again under new ids (`unqueueAhead`), and nothing else is
+  // done to what's held until it's over.
+  const removing = removals.some((r) => r.going);
   const showing = useMemo(() => {
     const held = new Set(queued.map((m) => m.id));
-    // While one is being taken out, yours that were held stay out of sight too: Claude Code gives
-    // them all back, and they go in again under new ids (`unqueueAhead`).
-    const removing = removals.some((r) => r.going);
     return sent.filter((a) => a.queuedAs == null || (!held.has(a.queuedAs) && !removing));
-  }, [sent, queued, removals]);
+  }, [sent, queued, removing]);
   // Your prompts' words by key, for the pin: those read, the one before them, and yours on the way.
   const promptText = useMemo(() => {
     const words = new Map<string, string>();
@@ -1227,11 +1228,11 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
                   action={
                     s.steerable && (
                       <>
-                        <button type="button" className="ca-linkbtn ca-thread-sendnow" title={sendsHeldNow(s.harness)} onClick={() => steer(m)}>
+                        <button type="button" className="ca-linkbtn ca-thread-sendnow" title={sendsHeldNow(s.harness)} disabled={removing} onClick={() => steer(m)}>
                           <Icon name="bolt" size={12} stroke={2} />
                           <span>Send now</span>
                         </button>
-                        <button type="button" className="ca-linkbtn ca-thread-unqueue" title={removesHeld(s.harness)} onClick={() => unqueue(m)}>
+                        <button type="button" className="ca-linkbtn ca-thread-unqueue" title={removesHeld(s.harness)} disabled={removing} onClick={() => unqueue(m)}>
                           <Icon name="trash" size={12} stroke={2} />
                           <span>Remove</span>
                         </button>

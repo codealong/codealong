@@ -7,8 +7,8 @@
 // after it; one queued elsewhere shows too, after the turn; and they go as the queue empties. While
 // the turn can take what's held sooner (`steerable`), each held message has Send now, which asks
 // for it by its id and shows it once, as sent, in its place; one that doesn't go stays held, saying
-// why. Beside it, Remove takes one out: gone from the thread at once and asked for by its id, back
-// with why when it's still held, and one of yours that went back in after it under a new id (Claude
+// why. Beside it, Remove takes one out: gone from the thread at once and asked for by its id, the
+// others' buttons waiting until it's done, back with why when it's still held, and one of yours that went back in after it under a new id (Claude
 // Code gives back everything it holds) still showing once, as held. It ends with two messages
 // queued, for the screenshot.
 //   PREVIEW_WAIT=40000 scripts/preview.sh sessions '' scripts/preview/queued-send-check.js
@@ -254,11 +254,13 @@
       var asked = sent('session_unqueue');
       check('Remove asks for the held message by its id', asked.length === 1 && asked[0].key === picked.key && asked[0].id === 'app-5', JSON.stringify(asked));
       check('and it’s gone from the thread at once, the other still held', !saying('And a line in the changelog') && saying('Then the release notes').says === QUEUED);
+      check('nothing else is done to what’s held while it’s taken out', remove('Then the release notes').disabled && sendNow('Then the release notes').disabled);
       unqueued.res({ message: 'Took it out of what “Queued A” holds: it won’t be sent.' });
       return wait(1500);
     })
     .then(function () {
       check('it stays gone while the board still lists it', !saying('And a line in the changelog'));
+      check('and what’s held can be acted on again', !remove('Then the release notes').disabled && !sendNow('Then the release notes').disabled);
       var at = Date.now();
       push({ queuedAt: at, queued: [{ id: 'app-4', at: at - 1000, text: 'Then the release notes' }] });
       return wait(1500);
