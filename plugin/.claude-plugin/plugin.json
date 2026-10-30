@@ -1,6 +1,6 @@
 {
   "name": "codealong",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "Codealong todos, sessions and accounts from Claude Code: record and update todo items, find what other agents did, check which account has room. Needs the Codealong Mac app.",
   "author": {
     "name": "Codealong"
