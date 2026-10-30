@@ -51,8 +51,6 @@ const NARROWEST: usize = 20;
 
 const GONE: &str = "Claude Code doesn't hold that message any more: its turn has taken it in.";
 
-/// One removal at a time, from every window and device.
-static ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// A session's queue as `remove` works it.
 pub(super) trait Queue {
@@ -74,12 +72,11 @@ pub(super) trait Queue {
 /// back into its box, which is emptied, and the others are typed in again. Not where one of the
 /// others holds a paste or an image by a placeholder (`[Pasted text #1 +40 lines]`), which typed
 /// in again would be those words alone. ↑ puts back a box cleared before instead, once, so it's
-/// pressed again when nothing came back. Says what happened, with the ids the others are held
+/// pressed again when nothing came back. Its caller holds the session's input box meanwhile
+/// (`send::at_the_box`): a send or another Remove between ↑ and the clearing would lose what it
+/// typed or type back what this took out. Says what happened, with the ids the others are held
 /// under now.
 pub(super) fn remove(q: &mut dyn Queue, title: &str, id: &str) -> Result<Unqueued> {
-    // Two at once would each read the queue before the other's ↑ and type back what the other
-    // took out.
-    let _alone = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
     let title = quoted(title);
     let held = q.held();
     let Some(at) = held.iter().position(|m| m.id == id) else { bail!(GONE) };

@@ -40,7 +40,8 @@ pub fn daemon_request(key: &str, job: &str, text: &str) -> String {
 
 /// Hands the prompt to a background job through Claude Code's daemon, which pastes it into the
 /// job's terminal. A job that's starting up or restarting says so; it's asked again for a
-/// couple of seconds, as Claude Code's own agent view does.
+/// couple of seconds, as Claude Code's own agent view does. Once asked, an answer that doesn't
+/// come or can't be read may mean it went (`MayHaveArrived`); a refusal says it didn't.
 fn daemon_reply(socket: &Path, key: &str, job: &str, text: &str) -> Result<()> {
     let request = daemon_request(key, job, text);
     let mut last = String::new();
@@ -49,9 +50,11 @@ fn daemon_reply(socket: &Path, key: &str, job: &str, text: &str) -> Result<()> {
         stream.set_read_timeout(Some(Duration::from_secs(10)))?;
         stream.set_write_timeout(Some(Duration::from_secs(5)))?;
         stream.write_all(request.as_bytes())?;
+        // Asked, the job may have it, whatever comes back short of a refusal.
+        let unheard = |why: &str| MayHaveArrived(format!("Claude Code's background service took the message and {why}: look in the job before sending it again."));
         let mut line = String::new();
-        BufReader::new(&stream).read_line(&mut line)?;
-        let answer: Value = serde_json::from_str(line.trim()).map_err(|_| anyhow!("Claude Code's daemon gave an answer Codealong can't read."))?;
+        BufReader::new(&stream).read_line(&mut line).map_err(|e| unheard(&format!("didn't say how it went ({e})")))?;
+        let answer: Value = serde_json::from_str(line.trim()).map_err(|_| unheard("gave an answer Codealong can't read"))?;
         if answer.get("ok").and_then(Value::as_bool) == Some(true) {
             return Ok(());
         }
@@ -269,6 +272,30 @@ mod tests {
         let err = daemon_reply(&socket, "k", "6e07c149", "hi").unwrap_err();
         assert_eq!(daemon.join().unwrap(), daemon_request("k", "6e07c149", "hi"));
         assert_eq!(err.to_string(), "Claude Code's daemon didn't take it: job not found");
+        assert!(!err.is::<MayHaveArrived>(), "a refusal is sure");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// One the daemon was asked and didn't answer, or answered in words Codealong can't read, may
+    /// have gone to the job.
+    #[test]
+    fn a_daemon_that_doesnt_answer_may_have_taken_it() {
+        let dir = scratch("reply-unheard");
+        let socket = dir.join("c.sock");
+        let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+        let daemon = std::thread::spawn(move || {
+            for answer in [&b""[..], b"garbled\n"] {
+                let (mut conn, _) = listener.accept().unwrap();
+                let mut line = String::new();
+                BufReader::new(conn.try_clone().unwrap()).read_line(&mut line).unwrap();
+                conn.write_all(answer).unwrap();
+            }
+        });
+        for _ in 0..2 {
+            let err = daemon_reply(&socket, "k", "6e07c149", "hi").unwrap_err();
+            assert!(err.is::<MayHaveArrived>(), "{err}");
+        }
+        daemon.join().unwrap();
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

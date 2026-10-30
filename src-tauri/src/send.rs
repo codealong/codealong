@@ -476,7 +476,24 @@ pub fn send(board: &Board, cfg: &Config, session_key: &str, text: &str, sender: 
 /// whether a flagged session may receive it, never its author or its delivery routes.
 fn send_allowed(board: &Board, cfg: &Config, key: &str, text: &str, sender: Sender, now: bool) -> Result<Sent> {
     ensure_not_moved(&crate::origins::current(), board, key)?;
-    join(key, text.trim(), || deliver(board, cfg, key, text, &sender, now))
+    join(key, text.trim(), || at_the_box(key, || deliver(board, cfg, key, text, &sender, now)))
+}
+
+/// Each session's input box, held by whatever types into it or presses keys there for a while:
+/// a send, Send now on what it holds, and Remove (`Adapter::remove_queued`), whose ↑ and
+/// clearing would take a send's text with them, or a send take what ↑ gave back.
+static BOXES: Mutex<BTreeMap<String, Arc<Mutex<()>>>> = Mutex::new(BTreeMap::new());
+
+/// Runs `f` holding the input box of the session `key`, after anything else that holds it.
+pub(crate) fn at_the_box<T>(key: &str, f: impl FnOnce() -> T) -> T {
+    let held = {
+        let mut boxes = BOXES.lock().unwrap_or_else(|e| e.into_inner());
+        // The ones nothing holds or waits on go, so the map stays as small as what's under way.
+        boxes.retain(|_, b| Arc::strong_count(b) > 1);
+        boxes.entry(key.to_string()).or_default().clone()
+    };
+    let _alone = held.lock().unwrap_or_else(|e| e.into_inner());
+    f()
 }
 
 /// A review you explicitly asked to send is still Codealong's message, with its byline and
@@ -1164,6 +1181,35 @@ mod tests {
     use crate::model::{Harness, Session, Status, Surface};
     use serde_json::json;
     use std::time::Instant;
+
+    /// What types into a session's box waits for what's typing there already (a send behind a
+    /// Remove), and what types into another session's doesn't.
+    #[test]
+    fn one_thing_at_a_time_types_into_a_box() {
+        let (said, heard) = std::sync::mpsc::channel();
+        let (go, wait) = std::sync::mpsc::channel::<()>();
+        let first = std::thread::spawn({
+            let said = said.clone();
+            move || {
+                at_the_box("claude:claude:box-a", || {
+                    said.send("removing").unwrap();
+                    wait.recv().unwrap();
+                    said.send("removed").unwrap();
+                })
+            }
+        });
+        assert_eq!(heard.recv().unwrap(), "removing");
+        at_the_box("claude:claude:box-b", || said.send("another session's send").unwrap());
+        let second = std::thread::spawn({
+            let said = said.clone();
+            move || at_the_box("claude:claude:box-a", || said.send("this session's send").unwrap())
+        });
+        go.send(()).unwrap();
+        first.join().unwrap();
+        second.join().unwrap();
+        drop(said);
+        assert_eq!(heard.iter().collect::<Vec<_>>(), ["another session's send", "removed", "this session's send"]);
+    }
 
     #[test]
     fn provider_flags_stop_automated_delivery_before_any_route() {
