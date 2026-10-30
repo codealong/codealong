@@ -27,7 +27,7 @@
 import { reuse } from '../reuse';
 import type { PrTab } from '../agentReview';
 import { aimAfter, aimAfterChange, aimedAt, aimedAtNothing, aimedByScroll, clickDoes, type Aim } from '../aim';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { flushSync } from 'react-dom';
 import {
   addFolder,
@@ -35,6 +35,7 @@ import {
   deviceStartOptions,
   getBoard,
   getDevices,
+  foldQuick,
   hideQuick,
   inPreview,
   getConfig,
@@ -70,7 +71,7 @@ import { ago, tildePath } from '../format';
 import { useLogo } from '../logo';
 import { useRowDrag } from './useRowDrag';
 import { prPills } from '../prStatus';
-import { ALL_PROJECTS, NO_PROJECT, attachmentsNote, attentionRows, draftCodec, findPrs, findSessions, findTodos, folderChoices, folderStart, FOUND_SESSIONS, inProject, isFolderPath, laneGroups, macUnavailable, MAX_ROWS, nextDraft, primaryRunningWords, projectCounts, QUICK_PLACEHOLDER, queryWords, readyTodos, recallList, recentRows, SEND_TO_PLACEHOLDER, sendTargets, shortcutLabel, startTitle, todosStayNote, worktreeCount, type PrRow, type QuickDraft, type ReviewRow, type RowGroup, type SessionRow, type TodoRow, withPrompt as historyWith } from '../quick';
+import { ALL_PROJECTS, NO_PROJECT, attachmentsNote, attentionRows, draftCodec, findPrs, foldedWords, findSessions, findTodos, folderChoices, folderStart, FOUND_SESSIONS, inProject, isFolderPath, laneGroups, macUnavailable, MAX_ROWS, nextDraft, primaryRunningWords, projectCounts, QUICK_PLACEHOLDER, queryWords, readyTodos, recallList, recentRows, SEND_TO_PLACEHOLDER, sendTargets, shortcutLabel, startTitle, todosStayNote, worktreeCount, type PrRow, type QuickDraft, type ReviewRow, type RowGroup, type SessionRow, type TodoRow, withPrompt as historyWith } from '../quick';
 import {
   agentChipWords,
   isAuto,
@@ -122,7 +123,7 @@ import { useViewKeys } from '../mainKeys';
 import { useStartChoice, useStartPicks } from '../useStartChoice';
 import { findFor } from '../threadFind';
 import { useTextSearch } from '../useTextSearch';
-import { cardHeight, useQuickSize } from './useQuickSize';
+import { cardHeight, MARGIN, useQuickSize } from './useQuickSize';
 import { bare, chordPressed, cmd, emacsCtrl, held as modsHeld, keysIn } from '../platform';
 
 declare global {
@@ -132,6 +133,9 @@ declare global {
     __quickOpen?: (context: QuickOpen | null, board: Board | null) => number;
     /** An open that came before the page was up, for the page to do once it is. */
     __quickPending?: [QuickOpen | null, Board | null];
+    /** Folds the panel to the chip that holds your prompt, and returns the size its window is to
+     *  be, or null when there's no prompt to hold (quick.rs `put_aside` calls it). */
+    __quickFold?: () => [number, number] | null;
   }
 }
 
@@ -261,6 +265,13 @@ export function Quick() {
   const [options, setOptions] = useState<StartOptions | null>(null);
   // Up (or about to be): the page follows the board only then.
   const [shown, setShown] = useState(false);
+  // Folded to the chip that holds your prompt while another window has the keyboard
+  // (`__quickFold`); the open that unfolds it brings the board, so it isn't followed meanwhile.
+  const [folded, setFolded] = useState(false);
+  const foldedNow = useLatest(folded);
+  const foldChip = useRef<HTMLDivElement>(null);
+  // An open that unfolds the panel leaves the caret where it was (useQuickSize.ts).
+  const caretKept = useRef(false);
   // Counts opens; each one is answered with the page's height once it's laid out.
   const [opens, setOpens] = useState(0);
   // How tall the window can be on its screen; the card keeps within it (useQuickSize.ts).
@@ -330,6 +341,10 @@ export function Quick() {
   const attachedNow = useLatest(attached);
   const fullPrompt = withAttachments(text, attached);
   const fullPromptNow = useLatest(fullPrompt);
+  // A prompt you've written and not sent, not a word or two of a search: losing the keyboard
+  // folds the panel to a chip that holds it, where it would otherwise hide (quick.rs `put_aside`).
+  const holdsPrompt = worthRouting(text) || attached.length > 0;
+  const holdsPromptNow = useLatest(holdsPrompt);
   const loadPrompt = (raw: string): string => {
     const next = splitAttachments(raw);
     setText(next.text);
@@ -396,6 +411,8 @@ export function Quick() {
         });
     };
     const apply = (ctx: QuickOpen, b: Board | null) => {
+      caretKept.current = !!ctx.keep && foldedNow.current;
+      setFolded(false);
       setPicker(null);
       setRoom(ctx.room ?? null);
       if (!ctx.keep) {
@@ -478,6 +495,17 @@ export function Quick() {
       openNow('script', ctx ?? {}, b);
       return reported.current;
     };
+    // Folded by Codealong as another window takes the keyboard: the chip is drawn before this
+    // returns, where the card's top was, and the window shrinks round it after.
+    window.__quickFold = () => {
+      if (!holdsPromptNow.current) return null;
+      flushSync(() => {
+        setFolded(true);
+        setPicker(null);
+      });
+      const r = foldChip.current?.getBoundingClientRect();
+      return r ? [Math.ceil(r.width) + 2 * MARGIN, Math.ceil(r.height) + 2 * MARGIN] : null;
+    };
     // Opened some other way (the preview, or a script that came before the page was up): the
     // page reads the board itself if it has to, and sends its height once it's laid out.
     const openLater = (ctx: QuickOpen, b: Board | null) => {
@@ -494,6 +522,7 @@ export function Quick() {
     const offHidden = onQuickHidden(() =>
       flushSync(() => {
         setShown(false);
+        setFolded(false);
         setPicker(null);
       }),
     );
@@ -504,20 +533,21 @@ export function Quick() {
     else if (inPreview) openLater({}, null);
     return () => {
       delete window.__quickOpen;
+      delete window.__quickFold;
       offHidden();
     };
     // Once: the refs and setters are the same objects on every render.
-  }, [fullPromptNow, todoIdsNow, improveNow, setAgent, setEffort, setPlace, setNewWorktree]);
+  }, [fullPromptNow, todoIdsNow, improveNow, foldedNow, holdsPromptNow, setAgent, setEffort, setPlace, setNewWorktree]);
 
   useEffect(
     () =>
-      shown
+      shown && !folded
         ? onBoard((b) => {
             arrived.current = performance.now();
             setBoard((prev) => (prev ? reuse(prev, b) : b));
           })
         : undefined,
-    [shown],
+    [shown, folded],
   );
   useEffect(() => (shown ? onDevices(setDevices) : undefined), [shown]);
   usePerf(engineBoard, arrived);
@@ -948,7 +978,7 @@ export function Quick() {
   });
 
   // The panel's height, one whatever it lists, told to quick.rs as it opens (useQuickSize.ts).
-  useQuickSize({ list, scroller, input, asking: askingDevNow, opens, room, opening, reported });
+  useQuickSize({ list, scroller, input, asking: askingDevNow, opens, room, opening, reported, caretKept });
 
   // The last answer orders the sessions found too while the next is worked out, so the ones it
   // put first don't drop back at every key.
@@ -1058,7 +1088,10 @@ export function Quick() {
     void hideQuick();
     void showMain({ kind: 'session', laneId: lane.id, key: session.key, find });
   };
-  useViewKeys(() => void hideQuick());
+  // Holding a prompt, the panel folds as the main window takes the keyboard, rather than hiding.
+  useViewKeys(() => {
+    if (!holdsPromptNow.current) void hideQuick();
+  });
 
   /** What picking a session does: Codealong shows it, with its conversation, rather than the
    *  terminal or app it runs in. The search that found it is done with, as when it opens there;
@@ -1613,6 +1646,12 @@ export function Quick() {
     const onKey = (e: KeyboardEvent) => {
       // Switch to Codealong Dev? has the keys while it's up, Escape closing it (useEscape).
       if (e.defaultPrevented || e.isComposing || askingDev) return;
+      // Folded (a click on the chip gives it the keyboard), only Escape does anything: it puts
+      // the panel away.
+      if (folded) {
+        if (e.key === 'Escape') void hideQuick();
+        return;
+      }
       if (e.key === 'Escape') {
         e.preventDefault();
         if (picker) {
@@ -1949,13 +1988,18 @@ export function Quick() {
   // Its rows say a worktree's or a PR's project where it isn't the one picked (ProjectSaid.tsx).
   const page = (
     <div
-      className="ca-quick-root"
+      className={cx('ca-quick-root', folded && 'is-folded')}
       onMouseDown={(e) => {
-        // The shadow around the card is part of the window; a click there is a click outside.
-        if (e.target === e.currentTarget) void hideQuick();
+        // The shadow around the card is part of the window; a click there is a click outside, which
+        // folds a panel holding a prompt as a click in another app does. Round the chip it opens
+        // the panel again, as the chip does.
+        if (e.target !== e.currentTarget) return;
+        if (folded) void showQuick({ keep: true });
+        else void (holdsPrompt ? foldQuick() : hideQuick());
       }}
     >
       {drag.ghost}
+      {folded && <QuickFold chip={foldChip} words={foldedWords(text, attached.length)} shortcut={shortcut} />}
       <div className="ca-quick" role="dialog" aria-label="Codealong" style={{ height: cardHeight(room) }}>
         <div ref={inputBox} className="ca-quick-head">
         <div className="ca-quick-input">
@@ -2477,6 +2521,23 @@ function RowPlace({ lead, project, place }: { lead?: string; project: string; pl
       <ProjectPrefix project={project} beside={[place]} />
       <span className="ca-quick-row-place">{place}</span>
     </span>
+  );
+}
+
+/** The panel folded while it holds a prompt you haven't sent and another window has the keyboard
+ *  (quick.rs `put_aside`): the prompt's first line, where the card's top was, over every app. A
+ *  click opens the panel again as you left it, as its shortcut does; × puts it away, and ↑ in the
+ *  box brings the prompt back later, as any draft. */
+function QuickFold({ chip, words, shortcut }: { chip: RefObject<HTMLDivElement | null>; words: string; shortcut: string | null }) {
+  return (
+    <div ref={chip} className="ca-quick-fold">
+      <button type="button" className="ca-quick-fold-open" title="Go on with your prompt" onClick={() => void showQuick({ keep: true })}>
+        <Icon name="pencil" size={14} />
+        <span className="ca-quick-fold-words">{words}</span>
+        {shortcut && <span className="ca-quick-hotkey">{shortcut}</span>}
+      </button>
+      <Button variant="ghost" size="sm" icon="x" aria-label="Put away" title="Put away: ↑ in the panel brings it back (esc)" onClick={() => void hideQuick()} />
+    </div>
   );
 }
 

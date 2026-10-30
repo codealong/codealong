@@ -91,6 +91,54 @@ html.is-quick body {
 .ca-quick-attached {
   padding: 0 14px 10px 14px;
 }
+/* Folded (quick.rs `put_aside`): the card goes and a chip holds the prompt, centered where the
+   card's top was; the window shrinks round it, keeping the room for its shadow. */
+.ca-quick-root.is-folded > .ca-quick {
+  display: none;
+}
+.ca-quick-fold {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  width: fit-content;
+  max-width: 420px;
+  margin: 0 auto;
+  padding: var(--space-1);
+  background: var(--surface-raised);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-popover);
+  color: var(--ink);
+}
+.ca-quick-fold-open {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-1) var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  font: var(--type-body);
+  text-align: left;
+  cursor: pointer;
+}
+.ca-quick-fold-open:hover {
+  background: var(--surface-hover);
+}
+.ca-quick-fold-open > .ca-icon {
+  flex: none;
+  color: var(--ink-3);
+}
+.ca-quick-fold-words {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ca-quick-fold .ca-quick-hotkey {
+  margin-top: 0;
+}
 /* Send to: the prompt it sends, under the box that finds the session it goes to, cut to a line.
    A click puts it back in the box, as Escape does. */
 .ca-quick-sending {

@@ -11,7 +11,10 @@
 //! Like the floating bar it's a non-activating panel: macOS shows only those on another app's
 //! full-screen Space, and opening one leaves the app you're in active, with Codealong's windows
 //! where they were. Unlike the bar it takes the keyboard. It hides when it loses the keyboard,
-//! as Spotlight does.
+//! as Spotlight does, unless it holds a prompt you've written and not sent: then it folds to a
+//! chip where its top was, which stays up over every app while you copy from them, until a click
+//! on it or the shortcut opens it again as it was, or you send it, press Escape or put it away
+//! (`put_aside`, Quick.tsx `__quickFold`).
 //!
 //! Opening is one script. Codealong runs `window.__quickOpen` in the page with what it opens for
 //! and the board; the page lays itself out and returns its height before the script ends
@@ -59,6 +62,8 @@ struct Quick {
     opens: Mutex<u64>,
     /// The open the page hasn't answered yet.
     waiting: Mutex<Option<u64>>,
+    /// Folded to the chip that holds what you wrote (`put_aside`), with the height it had open.
+    folded: Mutex<Option<f64>>,
     shortcut: Mutex<ShortcutState>,
     chat_shortcut: Mutex<ShortcutState>,
     waiting_shortcut: Mutex<ShortcutState>,
@@ -160,6 +165,23 @@ pub fn open(app: &AppHandle, context: Value) {
         *opens
     };
     let t = Instant::now();
+    // Folded, it opens again as you left it, unless the open brings a prompt of its own (a todo's,
+    // one Codealong writes for you), which then takes the box, what you'd written going to ↑ as
+    // any draft does. It takes its size back first: the chip stays where it is in the wider
+    // window, and the card the open draws has its width.
+    let context = match unfold(&state) {
+        Some(height) => {
+            if let Some(frame) = frame_for(&state, height) {
+                panel::set_frame(&window, frame);
+            }
+            if brings_a_prompt(&context) {
+                context
+            } else {
+                serde_json::json!({ "keep": true })
+            }
+        }
+        None => context,
+    };
     // It opens where you are: on the screen with the pointer, centered, near the top.
     if !panel::is_visible(&window) {
         if let Some(s) = pointer_screen() {
@@ -307,7 +329,7 @@ fn frame_for(state: &Quick, height: f64) -> Option<Rect> {
 /// was. On the main thread.
 fn fit(app: &AppHandle, height: f64) {
     let (Some(state), Some(window)) = (app.try_state::<Quick>(), app.get_webview_window(LABEL)) else { return };
-    if !panel::is_visible(&window) {
+    if !panel::is_visible(&window) || is_folded(&state) {
         return;
     }
     if let Some(frame) = frame_for(&state, height.ceil()) {
@@ -317,12 +339,13 @@ fn fit(app: &AppHandle, height: f64) {
     }
 }
 
-/// Hides the panel. What you typed stays for next time. On the main thread.
+/// Hides the panel, folded or not. What you typed stays for next time. On the main thread.
 pub fn hide(app: &AppHandle) {
     if let Some(state) = app.try_state::<Quick>() {
         if let Ok(mut w) = state.waiting.lock() {
             *w = None;
         }
+        unfold(&state);
     }
     if let Some(window) = app.get_webview_window(LABEL) {
         if panel::is_visible(&window) {
@@ -343,13 +366,86 @@ pub fn toggle_chat(app: &AppHandle) {
     toggle_for(app, serde_json::json!({ "chat": true }));
 }
 
-/// Opens the panel for `context`, or hides it if it's up.
+/// Opens the panel for `context`, or hides it if it's up. Folded, it opens again as it was.
 fn toggle_for(app: &AppHandle, context: Value) {
     match app.get_webview_window(LABEL) {
-        Some(w) if panel::is_visible(&w) => hide(app),
+        Some(w) if panel::is_visible(&w) && !app.try_state::<Quick>().is_some_and(|s| is_folded(&s)) => hide(app),
         Some(_) => open(app, context),
         None => {}
     }
+}
+
+/// What folding asks the page (Quick.tsx `__quickFold`): to show only the chip that holds what
+/// you wrote, and to say how big its window is to be, or nothing when it holds no prompt.
+const FOLD_SCRIPT: &str = "(function () { try { return (window.__quickFold && window.__quickFold()) || null; } catch (e) { return null; } })()";
+
+/// The panel lost the keyboard to another window or app, or a click landed in the shadow round
+/// it. Holding a prompt, it folds to a chip that keeps it, where the panel's top was, over every
+/// app; otherwise it hides. The page draws the chip first and the window shrinks round it after,
+/// so it doesn't move. On the main thread.
+pub fn put_aside(app: &AppHandle) {
+    let (Some(state), Some(window)) = (app.try_state::<Quick>(), app.get_webview_window(LABEL)) else { return };
+    // Hidden already (it lost the keyboard by being put away), or folded already.
+    if !panel::is_visible(&window) || is_folded(&state) {
+        return;
+    }
+    // Still opening: nothing is written in this open yet.
+    if state.waiting.lock().ok().is_some_and(|w| w.is_some()) {
+        hide(app);
+        return;
+    }
+    let open_height = panel::frame(&window).map_or(START_HEIGHT, |f| f.h);
+    if let Ok(mut f) = state.folded.lock() {
+        *f = Some(open_height);
+    }
+    let handle = app.clone();
+    let asked = window.eval_with_callback(FOLD_SCRIPT, move |answer| {
+        let size = serde_json::from_str::<(f64, f64)>(answer.trim()).ok().filter(|&(w, h)| w.is_finite() && h.is_finite() && w > 0.0 && h > 0.0);
+        let app = handle.clone();
+        on_main(&handle, move || folded_to(&app, size));
+    });
+    if let Err(e) = asked {
+        eprintln!("Couldn't ask the quick panel's page to fold: {e}");
+        hide(app);
+    }
+}
+
+/// The page drew the chip, `size` with room for its shadow, or holds nothing worth keeping up
+/// for. On the main thread.
+fn folded_to(app: &AppHandle, size: Option<(f64, f64)>) {
+    let (Some(state), Some(window)) = (app.try_state::<Quick>(), app.get_webview_window(LABEL)) else { return };
+    // Opened again or put away before the page answered.
+    if !is_folded(&state) || !panel::is_visible(&window) {
+        return;
+    }
+    let anchor = state.anchor.lock().ok().and_then(|a| *a);
+    match (size, anchor) {
+        (Some(size), Some(anchor)) => panel::set_frame(&window, folded_frame(anchor, size)),
+        _ => hide(app),
+    }
+}
+
+/// The folded panel's frame: the chip's window, centered under where the open panel's top edge
+/// is, as the page draws the chip centered at the card's top.
+fn folded_frame((x, top): (f64, f64), (w, h): (f64, f64)) -> Rect {
+    let (w, h) = (w.ceil().min(WIDTH), h.ceil());
+    Rect { x: x + ((WIDTH - w) / 2.0).round(), y: top - h, w, h }
+}
+
+fn is_folded(state: &Quick) -> bool {
+    state.folded.lock().ok().is_some_and(|f| f.is_some())
+}
+
+/// It's no longer folded; the height it had open, when it was.
+fn unfold(state: &Quick) -> Option<f64> {
+    state.folded.lock().ok().and_then(|mut f| f.take())
+}
+
+/// Whether an open brings a prompt of its own, which takes the box from what the folded panel
+/// holds: a todo's, Improve Codealong's, one Codealong writes for you. The shortcuts, ⌘N and New
+/// session bring none.
+fn brings_a_prompt(context: &Value) -> bool {
+    ["prompt", "todo", "todos", "improve"].iter().any(|k| context.get(k).is_some_and(|v| !v.is_null()))
 }
 
 /// The shortcut that goes through what waits on you. Docked in the notch, the bar's page opens
@@ -382,19 +478,19 @@ pub fn pressed(app: &AppHandle, shortcut: &Shortcut) {
     }
 }
 
-/// Whether the panel is up.
+/// Whether the panel is up, and not folded.
 pub fn is_up(app: &AppHandle) -> bool {
-    app.get_webview_window(LABEL).is_some_and(|w| panel::is_visible(&w))
+    app.get_webview_window(LABEL).is_some_and(|w| panel::is_visible(&w)) && !app.try_state::<Quick>().is_some_and(|s| is_folded(&s))
 }
 
-/// Window events for the panel: it hides when another window or app takes the keyboard, and
-/// closing it (⌘W) only hides it. On the main thread.
+/// Window events for the panel: it hides or folds when another window or app takes the keyboard,
+/// and closing it (⌘W) only hides it. On the main thread.
 pub fn on_window_event(window: &Window, event: &WindowEvent) {
     if window.label() != LABEL {
         return;
     }
     match event {
-        WindowEvent::Focused(false) => hide(window.app_handle()),
+        WindowEvent::Focused(false) => put_aside(window.app_handle()),
         WindowEvent::CloseRequested { api, .. } => {
             api.prevent_close();
             hide(window.app_handle());
@@ -579,6 +675,24 @@ mod tests {
         // The page returns its height; a page that isn't up keeps the open for when it is.
         assert!(script.contains("return typeof h === 'number' && isFinite(h) ? h : null;"));
         assert!(script.contains("window.__quickPending = [context, board]; return null;"));
+    }
+
+    #[test]
+    fn folds_to_a_chip_where_its_top_was() {
+        // Centered under the open panel's top edge, which it keeps.
+        assert_eq!(folded_frame((376.0, 775.0), (379.4, 84.0)), Rect { x: 376.0 + 190.0, y: 775.0 - 84.0, w: 380.0, h: 84.0 });
+        // Never wider than the panel.
+        assert_eq!(folded_frame((0.0, 500.0), (900.0, 84.0)).w, WIDTH);
+    }
+
+    #[test]
+    fn only_an_open_with_a_prompt_of_its_own_replaces_what_the_folded_panel_holds() {
+        for plain in [Value::Null, serde_json::json!({ "chat": true }), serde_json::json!({ "laneId": "l1", "project": "atlas", "opener": "main" }), serde_json::json!({ "prompt": null })] {
+            assert!(!brings_a_prompt(&plain), "{plain}");
+        }
+        for own in [serde_json::json!({ "prompt": "Set up the iPhone app" }), serde_json::json!({ "todo": "t-1" }), serde_json::json!({ "todos": ["t-1", "t-2"] }), serde_json::json!({ "improve": { "shots": [] } })] {
+            assert!(brings_a_prompt(&own), "{own}");
+        }
     }
 
     #[test]

@@ -821,6 +821,14 @@ function isShot(v: unknown): v is Attachment {
   return kind === 'image' && typeof path === 'string' && path.startsWith('images/') && typeof name === 'string';
 }
 
+/** What the folded panel's chip says of the prompt it holds (Quick.tsx `QuickFold`): its first
+ *  line, or what's attached when nothing's written. */
+export function foldedWords(text: string, attachments: number): string {
+  const line = text.trim().split('\n')[0].trim();
+  if (line) return line;
+  return attachments === 1 ? 'An attachment' : `${attachments} attachments`;
+}
+
 /** The start row's title: where it starts, as Jev's start suggestions say theirs (start.ts
  *  `startTitleWords`, null before there's a worktree), and the todos it's for. */
 export function startTitle(todos: number, where: string | null): string {

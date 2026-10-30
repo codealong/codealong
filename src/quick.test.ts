@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { agoPhrase } from './format';
-import { ALL_PROJECTS, attachmentsNote, attentionRows, draftCodec, folderChoices, folderStart, isFolderPath, macUnavailable, nextDraft, primaryRunningWords, queueRows, recallList, startTitle, todosStayNote, withPrompt, findPrs, findSessions, findTodos, heldSaid, laneGroups, projectCounts, readyTodos, recentRows, sendTargets, shortcutFromKey, shortcutKeys, shortcutLabel, stillSaid, TAKEN, takenFor, titleMarks, worktreeCount, deviceHits } from './quick';
+import { ALL_PROJECTS, attachmentsNote, attentionRows, draftCodec, folderChoices, foldedWords, folderStart, isFolderPath, macUnavailable, nextDraft, primaryRunningWords, queueRows, recallList, startTitle, todosStayNote, withPrompt, findPrs, findSessions, findTodos, heldSaid, laneGroups, projectCounts, readyTodos, recentRows, sendTargets, shortcutFromKey, shortcutKeys, shortcutLabel, stillSaid, TAKEN, takenFor, titleMarks, worktreeCount, deviceHits } from './quick';
 import { setPlatform } from './platform';
 import * as fx from './testing/fixtures';
 import type { Board, FolderLook, Label, Lane, PrItem, Session, Todo } from './types';
@@ -568,6 +568,11 @@ describe('prompt history', () => {
     expect(nextDraft('half a thought', [], kept)).toEqual({ text: 'half a thought', todos: [] });
     expect(nextDraft('', [], kept)).toBe(kept);
     expect(nextDraft('  ', ['t2'], null)).toBeNull();
+  });
+  it('says the first line of the prompt the folded panel holds, or what is attached', () => {
+    expect(foldedWords('  Fix the pangolin pen\nso the gate shuts\n', 0)).toBe('Fix the pangolin pen');
+    expect(foldedWords('', 1)).toBe('An attachment');
+    expect(foldedWords(' \n ', 3)).toBe('3 attachments');
   });
   it('keeps the draft across restarts, and nothing for no draft', () => {
     const d = { text: 'fix the bar', todos: ['t1'] };

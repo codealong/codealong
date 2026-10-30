@@ -2075,7 +2075,14 @@ starts a new session with what you typed as its prompt. ⏎ does the selected ro
 open starts empty, so ⏎ goes to what needs you; ↑ brings back what you'd typed before closing, with
 the images attached to it and Improve Codealong's pictures of the windows when you wrote it there
 (kept as you type, so a relaunch doesn't lose them), then earlier prompts you sent, started or
-saved, and ↓ goes forward again. The panel keeps one size whatever it lists (smaller only on a screen too short
+saved, and ↓ goes forward again. With a prompt written in it (a few words, not a word or two of
+a search, or something attached), the panel doesn't go when another app or window takes the
+keyboard, or a click lands just outside it: it folds to a chip where its top was, with the prompt's
+first line, and the chip stays over every app while you copy from them. A click on it, or the
+panel's shortcut, opens the panel again as you left it, the caret where it was; sending it, Escape
+or the chip's × puts it away, and ↑ brings it back later as any draft. An open that brings a prompt
+of its own (a todo's, one Codealong writes for you) takes the box, what you'd written going to ↑;
+⌘N and New session open it again as it was. The panel keeps one size whatever it lists (smaller only on a screen too short
 for it): the list scrolls within it, the row that starts a new session stays above the bar, and the
 bar's menus open over the list. A click does a row
 only when you moved the pointer onto it: one the list moved under a pointer that stayed put (as

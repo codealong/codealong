@@ -33,9 +33,11 @@ export interface QuickSize {
   opening: MutableRefObject<'script' | 'page' | null>;
   /** The height last reported, which the opening script returns. */
   reported: MutableRefObject<number>;
+  /** Set by the open that unfolds the panel (quick.rs `put_aside`): the caret stays where it was. */
+  caretKept: MutableRefObject<boolean>;
 }
 
-export function useQuickSize({ list, scroller, input, asking, opens, room, opening, reported }: QuickSize): void {
+export function useQuickSize({ list, scroller, input, asking, opens, room, opening, reported, caretKept }: QuickSize): void {
   // A scrollbar, where macOS shows one, narrows the rows while the list scrolls; the new-session
   // row below it keeps in line with them.
   useLayoutEffect(() => {
@@ -48,13 +50,14 @@ export function useQuickSize({ list, scroller, input, asking, opens, room, openi
     const h = cardHeight(room) + 2 * MARGIN;
     reported.current = h;
     // The cursor goes at the end of whatever the panel opens with: nothing, a todo's prompt, or
-    // what a failed start left.
+    // what a failed start left; unfolded, where you left it.
     const el = input.current;
     if (el && !asking.current) {
       el.focus();
-      el.setSelectionRange(el.value.length, el.value.length);
+      if (!caretKept.current) el.setSelectionRange(el.value.length, el.value.length);
     }
+    caretKept.current = false;
     if (opening.current !== 'script') void quickReady(h);
     // The room comes with each open. The refs are the same objects on every render.
-  }, [opens, room, input, asking, opening, reported]);
+  }, [opens, room, input, asking, opening, reported, caretKept]);
 }
