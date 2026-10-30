@@ -201,6 +201,12 @@ ones your harness's own tools don't list: another Claude Code account, Codex, Op
   its result and its work has landed (`session done <key>`); it closes and leaves your user's
   lists. Any other session, and one that's working or waiting on its user, is your user's to
   mark done, in Codealong.
+- `codealong session seen me --note "<what it came to>"`, run as a turn's last step, says that
+  turn needs nothing from your user: a loop's tick or a check that found nothing new, a watch
+  with nothing to report. Once the turn ends it's idle rather than Your turn, shown with your
+  note as your call. Never for a turn that changed code, finished what your user asked for, or
+  says anything they'd want to read: those are theirs to see. A question in your reply still
+  reaches them, and so does anything sent to you after it.
 
 ## Suggesting replies
 

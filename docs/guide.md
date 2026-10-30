@@ -2670,6 +2670,19 @@ Quiet, whatever it does meanwhile; Mark as unread, or a snooze that ends, still 
 row has a Quiet chip and its header says quiet. A session on another device is quieted on its Mac,
 as a snooze is.
 
+#### Seen by its agent
+
+A session's own agent can say that the turn it's taking needs nothing from you, with `codealong
+session seen me --note "<what it came to>"` as the turn's last step: a loop's tick or a check that
+found nothing new, a watch with nothing to report. Once that turn ends it's idle rather than Your
+turn, so it's in no queue, on no pill and off the mark, as a quiet session's is, but for that turn
+alone. Its row has a Seen by agent chip, whose tooltip has the agent's note, and its header says
+seen by its agent, until you look at it. It holds only for a turn that ends as Your turn: a reply
+Jev reads as asking you something, a call to allow, a question and an error still wait on you, and
+a prompt sent after the mark, by you or anyone, makes it void. Mark as unread, a side
+conversation's answer and a snooze that ends still bring it back. An agent can mark only its own
+session's turn, and the orchestrator does it on its quiet ticks.
+
 #### Move to top
 
 **Move to top** (beside Snooze, in a session's menu anywhere, ⌃⌘0, or for several picked in

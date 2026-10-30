@@ -595,6 +595,14 @@ enum SessionCmd {
         /// The session: `me`, or one this session started (its key, its id, or a unique start of its id).
         key: String,
     },
+    /// Mark the turn this session is taking seen, from inside it, when its user needs to do nothing about it: a loop's tick or a check that found nothing new, a watch with nothing to report. Once the turn ends it's idle rather than Your turn: in no queue, off the floating bar and the mark, and shown as its agent's call (Seen by agent, with --note). Run it as the turn's last step, just before the final reply. It holds only for a turn that ends as Your turn: one whose reply Jev reads as asking its user something, a call to allow, a question or an error still wait on them. A prompt sent after it, from its user or anyone, makes it void, and its user's Mark as unread brings it back. Never for a turn that changed code, finished what its user asked for, or says anything they'd want to read. Only `me`: another session's turn is its user's to see. Needs the app running.
+    Seen {
+        /// The session: `me`.
+        key: String,
+        /// What the turn came to, in a sentence ("Nothing new on the deploy"); shown with it.
+        #[arg(long, allow_hyphen_values = true)]
+        note: Option<String>,
+    },
     /// A session's conversation as its own record has it, for reading what another agent did and where it stands: the newest part (about 60 items), or the part before `--before`. Each item is a prompt (`you`), a reply (`agent`), a tool call (`tool`: `text` is the call in a line, with its input and output when the record has them there), a call's output (`result`), another session's message (`peer`, with the sending session's name in `from` where its record says), Codealong's own message (`codealong`) or a note (compaction, a message held for its user to allow). Oldest first; `before` is the cursor for the part before, null at the start; `lastPromptAt` is the session's as it was read, for `session suggest --prompt-at`. Inputs and outputs are cut short unless --full. Any harness, and sessions on your other devices.
     Transcript(TranscriptArgs),
     /// Wait for a session's turn to end, and print its reply: for a helper you started (`codealong start --helper`), or a session you sent a message. It also comes back when the session waits on your user (a call to allow, a question, an error: `waitsOnUser`, with what it waits on in `excerpt`), since they answer it in Codealong and you may want to tell them; then wait again with --until-done. A session Codealong runs (a Codex helper, say) whose turn is cut off by Codealong restarting is waited on through the restart, since Codealong tells it to carry on as it comes back (`[sessions] continue_after_restart`). `ended` says the turn is over, `reply` is its last reply, and `lastPromptAt` the session's as read, for `--since` next time. Fails once --timeout passes with it still working, or if the session is gone. A Claude Code agent can run it in the background and be told when it's done.
@@ -1844,6 +1852,7 @@ fn run(cmd: Cmd, c: &mut Client, json: bool) -> Result<()> {
         }
         Cmd::Session { cmd: SessionCmd::Stop { key } } => session_act(c, &key, api::SESSION_CANCEL, params::Session::default(), json),
         Cmd::Session { cmd: SessionCmd::Done { key } } => session_done(c, &key, json),
+        Cmd::Session { cmd: SessionCmd::Seen { key, note } } => session_seen(c, &key, note, json),
         Cmd::Session { cmd: SessionCmd::Transcript(a) } => session_transcript(c, &a, json),
         Cmd::Session { cmd: SessionCmd::Wait(a) } => session_wait(c, &a, json),
         Cmd::Session { cmd: SessionCmd::Suggest(a) } => session_suggest(c, a, json),
@@ -3707,6 +3716,24 @@ fn session_done(c: &mut Client, key: &str, json: bool) -> Result<()> {
     if let Some(said) = &out.said {
         println!("{said}");
     }
+    Ok(())
+}
+
+/// `session seen`: asked as the session running the command, which may mark only its own turn
+/// (actions.rs `agent_seen`), through the app, which keeps the mark as it keeps a snooze.
+fn session_seen(c: &mut Client, key: &str, note: Option<String>, json: bool) -> Result<()> {
+    if c.app.is_none() {
+        bail!("Marking a turn seen needs the Codealong app running: it keeps the mark, and its windows go by it.");
+    }
+    let key = resolve_session(c, key)?;
+    let me = find_me(c)?.0;
+    c.act(actions::AGENT_SEEN, &key, params::AgentSeen { note }, me)?;
+    let said = "Marked seen: once this turn ends it's idle rather than Your turn, unless its reply asks your user something or a prompt comes first.";
+    let out = ActOut { session: key, said: Some(said.to_string()), copy: None };
+    if json {
+        return print_json(&out);
+    }
+    println!("{said}");
     Ok(())
 }
 
@@ -6984,6 +7011,8 @@ mod tests {
         assert!(Cli::try_parse_from(["codealong", "session", "answer", "abc", "toolu_1", "allow"]).is_err());
         assert!(matches!(Cli::try_parse_from(["codealong", "session", "stop", "me"]).unwrap().cmd, Cmd::Session { cmd: SessionCmd::Stop { ref key } } if key == "me"));
         assert!(matches!(Cli::try_parse_from(["codealong", "session", "done", "me"]).unwrap().cmd, Cmd::Session { cmd: SessionCmd::Done { ref key } } if key == "me"));
+        assert!(matches!(Cli::try_parse_from(["codealong", "session", "seen", "me", "--note", "Nothing new on the deploy"]).unwrap().cmd, Cmd::Session { cmd: SessionCmd::Seen { ref key, ref note } } if key == "me" && note.as_deref() == Some("Nothing new on the deploy")));
+        assert!(matches!(Cli::try_parse_from(["codealong", "session", "seen", "me"]).unwrap().cmd, Cmd::Session { cmd: SessionCmd::Seen { note: None, .. } }));
         assert!(matches!(Cli::try_parse_from(["codealong", "session", "pending", "abc"]).unwrap().cmd, Cmd::Session { cmd: SessionCmd::Pending { .. } }));
         // A snooze's time is the words after the session, quoted or not; --wake takes none.
         let cli = Cli::try_parse_from(["codealong", "session", "snooze", "abc", "tomorrow", "2pm"]).unwrap();

@@ -1481,6 +1481,32 @@ pub fn apply_quiet(s: &mut Session, quiet: bool) {
     }
 }
 
+/// Applies a mark of seen from a session's own agent (`codealong session seen me`), after quiet
+/// and before what you do to it yourself: a turn whose agent said it needs nothing from you is
+/// idle rather than Your turn, and says so (`Session::agent_seen`). Only a turn that ended as
+/// Your turn: a reply Jev reads as asking you something is Needs you by then, and a call to
+/// allow, a question or an error still wait on you. The agent marks the turn it's taking, so a
+/// prompt sent to the session after the mark, by you or anyone, makes it void. Your Mark as
+/// unread, a side conversation's answer and a snooze that ends still bring it back, as they come
+/// after (`settle_agent_seen`).
+pub fn apply_agent_seen(s: &mut Session, mark: Option<&AgentSeen>) {
+    let Some(m) = mark else { return };
+    if s.status != Status::Unread || s.last_prompt_at > m.at {
+        return;
+    }
+    s.status = Status::Idle;
+    s.agent_seen = Some(m.clone());
+}
+
+/// Once the rest is applied: a turn its agent marked seen that something after brought back (a
+/// mark of unread, a side conversation's answer, a snooze that ended, a move to the top) waits on
+/// you as any does, and no longer says its agent saw it.
+pub fn settle_agent_seen(s: &mut Session) {
+    if s.status != Status::Idle {
+        s.agent_seen = None;
+    }
+}
+
 /// What a session helps (`Session::helper`): the session whose agent started it as a helper
 /// (origins.json, with whether that session is told what it does), while the board has that
 /// session, or the PR whose automatic review it is (reviews.json). A helper whose session is gone
@@ -4114,6 +4140,53 @@ mod tests {
         let working = Session { status: Status::Working, status_since: Some(NOW - MIN), ..ended.clone() };
         assert!(suggestion_refused(&working, NOW - 30 * MIN).unwrap().contains("taking a turn"));
         assert_eq!(suggestion_refused(&Session { background: Some("npm run dev".into()), ..working }, NOW - 30 * MIN), None);
+    }
+
+    #[test]
+    fn a_turn_its_agent_marked_seen_is_idle_until_it_needs_you() {
+        const MIN: i64 = 60_000;
+        let a = acct("claude2");
+        let session = claude_session(&a, Some(&reg("idle", NOW - 20 * MIN)), Some(&tr()), NOW - 30 * MIN, NOW, &Quiet::default()).unwrap();
+        let ended = Session { last_prompt_at: NOW - 25 * MIN, ..session };
+        assert_eq!(ended.status, Status::Unread);
+        let mark = AgentSeen { at: NOW - 21 * MIN, note: Some("Nothing new on the deploy".into()) };
+        let marked = |s: &Session| {
+            let mut s = s.clone();
+            apply_agent_seen(&mut s, Some(&mark));
+            s
+        };
+        // The turn it was marked in ended: idle, not its lane's bay, saying its agent saw it.
+        let m = marked(&ended);
+        assert_eq!((m.status, m.agent_seen.as_ref(), m.status_since), (Status::Idle, Some(&mark), ended.status_since));
+        assert_eq!(bay_of(std::slice::from_ref(&m), None).0, Bay::Idle);
+        // A prompt sent after the mark: the turn answering it is Your turn.
+        let prompted = Session { last_prompt_at: NOW - 20 * MIN, ..ended.clone() };
+        assert_eq!((marked(&prompted).status, marked(&prompted).agent_seen), (Status::Unread, None));
+        // A reply that asks you something is Needs you by then, and stays so.
+        let mut asks = ended.clone();
+        apply_insight(&mut asks, &insight(|i| i.asks_you = Some(0.9)));
+        assert_eq!(marked(&asks).status, Status::Needs);
+        // A call to allow, an error, work under way and a turn you'd seen show as they are.
+        for st in [Status::Needs, Status::Error, Status::Working, Status::Stopped, Status::Idle] {
+            let s = marked(&Session { status: st, ..ended.clone() });
+            assert_eq!((s.status, s.agent_seen), (st, None));
+        }
+        let mut untouched = ended.clone();
+        apply_agent_seen(&mut untouched, None);
+        assert_eq!(untouched.status, Status::Unread);
+        // Quiet already has it idle: nothing more to say.
+        let mut quiet = ended.clone();
+        apply_quiet(&mut quiet, true);
+        apply_agent_seen(&mut quiet, Some(&mark));
+        assert_eq!((quiet.status, quiet.agent_seen), (Status::Idle, None));
+        // Your own mark of unread comes after and brings it back, no longer saying its agent saw it.
+        let mut brought = marked(&ended);
+        apply_unread(&mut brought, Some(&UnreadMark { key: ended.key.clone(), at: NOW - 5 * MIN }), NOW - 30 * MIN);
+        settle_agent_seen(&mut brought);
+        assert_eq!((brought.status, brought.agent_seen), (Status::Unread, None));
+        let mut kept = marked(&ended);
+        settle_agent_seen(&mut kept);
+        assert_eq!(kept.agent_seen, Some(mark.clone()));
     }
 
     #[test]

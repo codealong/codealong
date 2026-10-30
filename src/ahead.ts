@@ -243,6 +243,9 @@ export function sessionAhead(s: Session, changes: Ahead[] | undefined): Session 
       if (startsNow(a) && out.status !== 'working') out = { ...out, status: 'working', statusSince: a.at, stalledSince: null, asks: false, snoozedUntil: undefined, raised: undefined, lastPromptAt: Math.max(out.lastPromptAt, a.at) };
     }
   }
+  // Brought back, or taken up, a turn its agent marked seen waits on you as any does (board.rs
+  // `settle_agent_seen`).
+  if (out.agentSeen && out.status !== 'idle') out = { ...out, agentSeen: undefined };
   if (out === s) return s;
   // The headline names the session, after what it's doing.
   if (out.status === s.status && out.title === s.title) return out;

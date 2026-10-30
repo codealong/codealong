@@ -17,7 +17,7 @@ import { untilWords } from '../snooze';
 import type { HelperCount, RunCount, SideCount } from '../boardLists';
 import type { RepoName } from '../groups';
 import type { SaidLine } from '../quick';
-import type { GitInfo, Lane, Raised, Session, SideGlance, Suggestions, Todo } from '../types';
+import type { AgentSeen, GitInfo, Lane, Raised, Session, SideGlance, Suggestions, Todo } from '../types';
 import { Chip, cx, Drift, HarnessChip, Icon, PrChip, Rich, Row, SaidText, STATUS_WORD, SessionEmblem, SessionGlyph, WorktreeChip } from './primitives';
 import type { DragProps } from './useRowDrag';
 import { FlagChip, InsightChips, LooksFinished } from './InsightBits';
@@ -262,7 +262,7 @@ interface SessionLinesProps {
 /**
  * A session on two lines, wherever a list gives it two: what it's about first (its title, what it
  * waits on you for, and what it's doing or said last), then where and why (`where`, its move to
- * the top, snooze, quiet, todo and Jev's read, then its account), with `end` at the second line's end. A search
+ * the top, snooze, quiet, its agent's seen, todo and Jev's read, then its account), with `end` at the second line's end. A search
  * that found it by what was said puts the line that has the words between them.
  */
 function SessionLines({ s, now, where, end, todos, onShowTodo, onOpen, helpers, helpersShown, onToggleHelpers, helperActions, runs, runsShown, onToggleRuns, sides, sidesShown, onToggleSides, sideActions, said }: SessionLinesProps) {
@@ -282,6 +282,7 @@ function SessionLines({ s, now, where, end, todos, onShowTodo, onOpen, helpers, 
           <RaisedChip raised={s.raised} />
           <SnoozeChip until={s.snoozedUntil} now={now} />
           <QuietChip quiet={s.quiet} />
+          <AgentSeenChip seen={s.agentSeen} />
           <SuggestedChip suggestions={s.suggestions} />
           <TodoChips todos={todos} onShow={onShowTodo} inRow />
           <InsightChips session={s} />
@@ -384,6 +385,19 @@ export function QuietChip({ quiet }: { quiet: boolean | undefined }) {
     <Chip className="ca-quietchip" title="Quiet: its turns don’t wait on you. It does when it needs you: a question, a call to allow, an error">
       <Icon name="bell-off" size={12} />
       Quiet
+    </Chip>
+  );
+}
+
+/** A turn its own agent marked seen: why it isn't Your turn though you haven't looked, and in its
+ *  tooltip what the agent said the turn came to. */
+export function AgentSeenChip({ seen }: { seen: AgentSeen | undefined }) {
+  if (!seen) return null;
+  const why = seen.note ? `: ${seen.note.replace(/\.$/, '')}` : '';
+  return (
+    <Chip className="ca-agentseenchip" title={`Seen by its agent, which said this turn needs nothing from you${why}. Mark as unread makes it Your turn again`}>
+      <Icon name="eye-check" size={12} />
+      Seen by agent
     </Chip>
   );
 }
@@ -567,6 +581,7 @@ function AgentRowView({ lane, session: s, domId, now, age, slim = false, selecte
               <RaisedChip raised={s.raised} />
               <SnoozeChip until={s.snoozedUntil} now={now} />
               <QuietChip quiet={s.quiet} />
+              <AgentSeenChip seen={s.agentSeen} />
               <SuggestedChip suggestions={s.suggestions} />
               <InsightChips session={s} />
               {where && <WorktreeChip lane={lane} short />}

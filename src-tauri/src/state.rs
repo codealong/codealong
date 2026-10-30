@@ -7,7 +7,8 @@
 //! mark until its time (`board::apply_review_snoozes`). A quiet session's turns don't wait on you
 //! until you make it heard again: it waits on you only when it needs you (`board::apply_quiet`).
 //! A session moved to the top of what waits on you is first in every queue until you take it up
-//! (`board::apply_raise`). Stored in `state.json` next to the config.
+//! (`board::apply_raise`), and a turn a session's own agent marked seen is idle rather than Your
+//! turn (`board::apply_agent_seen`). Stored in `state.json` next to the config.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -16,7 +17,7 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 use crate::config::support_dir;
-use crate::model::Raised;
+use crate::model::{AgentSeen, Raised};
 use crate::store;
 use crate::util::{now_ms, DAY_MS};
 
@@ -67,6 +68,10 @@ pub struct SeenState {
     /// Sessions you marked unread, and when: the latest mark of each.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub unread: Vec<UnreadMark>,
+    /// Sessions whose own agent marked a turn seen (`codealong session seen me`): the latest mark
+    /// of each, which a prompt sent after it makes void.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub agent_seen: Vec<AgentSeenMark>,
     /// Sessions you quieted, by key, in the order you quieted them. One stays quiet until you make
     /// it heard again, whatever it does meanwhile: answering it, or archiving it, doesn't end it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -93,6 +98,14 @@ fn set_up_before() -> bool {
 pub struct UnreadMark {
     pub key: String,
     pub at: i64,
+}
+
+/// A turn a session's own agent marked seen (`board::apply_agent_seen`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentSeenMark {
+    pub key: String,
+    pub seen: AgentSeen,
 }
 
 /// A session moved to the top of what waits on you (`board::apply_raise`).
@@ -158,6 +171,7 @@ impl SeenState {
         self.snoozed.retain(|z| z.until >= cutoff);
         self.review_snoozes.retain(|z| z.until >= cutoff);
         self.unread.retain(|u| u.at >= cutoff);
+        self.agent_seen.retain(|m| m.seen.at >= cutoff);
         self.raised.retain(|r| r.lowered.unwrap_or(r.raised.at) >= cutoff);
         // Through a temporary file: Settings reads this while the engine writes it.
         store::save(path, self)
@@ -223,6 +237,17 @@ impl SeenState {
 
     pub fn unread_of(&self, key: &str) -> Option<&UnreadMark> {
         self.unread.iter().find(|u| u.key == key)
+    }
+
+    /// Notes that a session's own agent marked the turn it's taking seen, in place of any mark it
+    /// had.
+    pub fn mark_agent_seen(&mut self, key: &str, seen: AgentSeen) {
+        self.agent_seen.retain(|m| m.key != key);
+        self.agent_seen.push(AgentSeenMark { key: key.to_string(), seen });
+    }
+
+    pub fn agent_seen_of(&self, key: &str) -> Option<&AgentSeen> {
+        self.agent_seen.iter().find(|m| m.key == key).map(|m| &m.seen)
     }
 
     /// Quiets a session, or makes it heard again. True when that changed anything.
@@ -530,6 +555,21 @@ mod tests {
         assert_eq!(s.raise_of("its").map(|r| (r.lowered, r.raised.agent)), Some((None, false)));
         s.take_up("its");
         assert!(s.raised.is_empty());
+    }
+
+    #[test]
+    fn an_agents_mark_of_seen_replaces_its_last() {
+        let mut s = SeenState::default();
+        let seen = |at: i64| AgentSeen { at, note: Some("Nothing new".into()) };
+        s.mark_agent_seen("claude:claude:a", seen(10));
+        s.mark_agent_seen("claude:claude:a", seen(20));
+        s.mark_agent_seen("codex:codex:b", seen(15));
+        assert_eq!(s.agent_seen_of("claude:claude:a").map(|m| m.at), Some(20));
+        assert_eq!(s.agent_seen.len(), 2);
+        assert!(serde_json::to_string(&s).unwrap().contains(r#""agentSeen":[{"key":"claude:claude:a","seen":{"at":20,"note":"Nothing new"}}"#));
+        let old: SeenState = serde_json::from_str(r#"{"firstRun":5,"seen":{}}"#).unwrap();
+        assert!(old.agent_seen.is_empty());
+        assert!(!serde_json::to_string(&old).unwrap().contains("agentSeen"));
     }
 
     #[test]

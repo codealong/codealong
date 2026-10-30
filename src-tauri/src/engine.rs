@@ -96,6 +96,9 @@ pub enum Msg {
     MarkSeen(Vec<String>, Option<Sender<i64>>),
     /// Sessions to mark unread, and where to say when the board shows it.
     MarkUnread(Vec<String>, Option<Sender<i64>>),
+    /// A session whose own agent marked the turn it's taking seen, with why (its time is the
+    /// engine's). The reply is the time of the board that shows it, published at once.
+    AgentSeen(String, AgentSeen, Sender<i64>),
     /// Sessions snoozed until then, or woken now with none. The reply is the time of the board
     /// that shows it, published at once.
     Snooze(Vec<String>, Option<i64>, Sender<i64>),
@@ -332,6 +335,14 @@ impl Handle {
     pub fn mark_unread_shown(&self, keys: Vec<String>) -> Option<i64> {
         let (tx, rx) = channel();
         self.tx.send(Msg::MarkUnread(keys, Some(tx))).ok()?;
+        rx.recv_timeout(SHOWN_WAIT).ok()
+    }
+
+    /// Marks the turn a session is taking seen, as its own agent asked (`board::apply_agent_seen`).
+    /// Returns the time of the board that shows it, as `mark_seen_shown` does.
+    pub fn agent_seen(&self, key: &str, note: Option<String>) -> Option<i64> {
+        let (tx, rx) = channel();
+        self.tx.send(Msg::AgentSeen(key.to_string(), AgentSeen { at: 0, note }, tx)).ok()?;
         rx.recv_timeout(SHOWN_WAIT).ok()
     }
 
@@ -1971,14 +1982,15 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         Ok(!keys.is_empty())
     }
 
-    /// Sessions with quiet, helpers' and headless runs' rules, what their side conversations
-    /// answered, their marks of unread, their snoozes and their moves to the top applied
-    /// (board::apply_quiet, board::apply_helper, board::apply_headless, board::apply_side_answer,
-    /// board::apply_unread, board::apply_snooze, board::apply_raise). A snooze's time coming
-    /// changes nothing on disk: the 30-second heartbeat's publish brings it back.
+    /// Sessions with quiet, helpers' and headless runs' rules, their agents' marks of seen, what
+    /// their side conversations answered, their marks of unread, their snoozes and their moves to
+    /// the top applied (board::apply_quiet, board::apply_helper, board::apply_headless,
+    /// board::apply_agent_seen, board::apply_side_answer, board::apply_unread, board::apply_snooze,
+    /// board::apply_raise). A snooze's time coming changes nothing on disk: the 30-second
+    /// heartbeat's publish brings it back.
     fn with_snoozes(&self, mut sessions: Vec<Session>, sides: &std::collections::BTreeMap<String, Vec<crate::side::Glance>>, now: i64) -> Vec<Session> {
         let unattended = sessions.iter().any(|s| s.helper.is_some() || s.headless);
-        if self.seen.snoozed.is_empty() && self.seen.unread.is_empty() && self.seen.quiet.is_empty() && self.seen.raised.is_empty() && sides.is_empty() && !unattended {
+        if self.seen.snoozed.is_empty() && self.seen.unread.is_empty() && self.seen.quiet.is_empty() && self.seen.raised.is_empty() && self.seen.agent_seen.is_empty() && sides.is_empty() && !unattended {
             return sessions;
         }
         for s in &mut sessions {
@@ -1988,11 +2000,13 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             board::apply_quiet(s, self.seen.is_quiet(&s.key));
             board::apply_helper(s);
             board::apply_headless(s);
+            board::apply_agent_seen(s, self.seen.agent_seen_of(&s.key));
             board::apply_side_answer(s, sides.get(&s.key).map_or(&[], Vec::as_slice), self.seen.seen_at(&s.key));
             // A mark of unread next: a snooze keeps a session marked unread off the bar too.
             board::apply_unread(s, self.seen.unread_of(&s.key), self.seen.seen_at(&s.key));
             board::apply_snooze(s, self.seen.snooze_of(&s.key), self.seen.seen_at(&s.key), now);
             board::apply_raise(s, self.seen.raise_of(&s.key));
+            board::settle_agent_seen(s);
         }
         sessions
     }
@@ -2510,6 +2524,12 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                     if let Some(reply) = reply {
                         let _ = reply.send(self.board.read().map(|b| b.generated_at).unwrap_or(0));
                     }
+                }
+                Ok(Msg::AgentSeen(key, seen, reply)) => {
+                    self.seen.mark_agent_seen(&key, AgentSeen { at: now_ms(), ..seen });
+                    self.save_state();
+                    self.publish();
+                    let _ = reply.send(self.board.read().map(|b| b.generated_at).unwrap_or(0));
                 }
                 Ok(Msg::Snooze(keys, until, reply)) => {
                     let now = now_ms();

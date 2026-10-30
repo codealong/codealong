@@ -32,6 +32,9 @@ pub const OPEN: &str = "open-target";
 pub const PREVIEW: &str = "worktree-preview";
 pub const REUSABLE: &str = "worktree-reusable";
 pub const RUN_COMMAND: &str = "session-run-command";
+/// A session's own agent marking the turn it's taking seen (`codealong session seen me`), which
+/// no other device runs.
+pub const AGENT_SEEN: &str = "session-agent-seen";
 
 /// What each request carries: those another device can make, as codealong-peer has them, and
 /// those that stay on their Mac, as a window writes them.
@@ -55,6 +58,14 @@ pub mod params {
     #[serde(default)]
     pub struct Open {
         pub target: String,
+    }
+
+    /// `session-agent-seen`: what the turn came to, in a sentence, for the user who didn't see it.
+    #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+    #[serde(default)]
+    pub struct AgentSeen {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub note: Option<String>,
     }
 
     /// `worktree-preview`: what changes in its preview, and what stays.
@@ -201,6 +212,8 @@ const REQUESTS: &[Request] = &[
     Request { name: api::SESSION_RENAME, here: rename, ..ANY },
     Request { name: api::MARK_SEEN, here: mark_seen, ..ANY },
     Request { name: api::MARK_UNREAD, here: mark_unread, ..ANY },
+    // A session's agent says its own turn needs nothing from you, from the command on its Mac.
+    Request { name: AGENT_SEEN, only_here: Some("A session marks its own turn seen, on the Mac it runs on."), here: agent_seen, ..ANY },
     // A snooze is kept on the session's Mac, so it's snoozed there and everywhere it shows.
     Request { name: api::SESSION_SNOOZE, here: snooze, ..ANY },
     // So is quiet, which is the session's for as long as it lasts, and a helper made your own.
@@ -1097,6 +1110,28 @@ fn mark_unread(engine: &Handle, c: &Call) -> Result<Value, String> {
             Value::Null
         }
     })
+}
+
+/// Marks the turn a session is taking seen, for its own agent alone (`board::apply_agent_seen`):
+/// whether a turn holds anything for you is the agent's to say only of its own, so neither
+/// another session nor a window asks it (yours is Mark as seen).
+fn agent_seen(engine: &Handle, c: &Call) -> Result<Value, String> {
+    let p: params::AgentSeen = c.read()?;
+    let key = c.session()?;
+    let From::Command(Some(by)) = c.from else {
+        return Err("Only a session's own agent marks its turn seen, with `codealong session seen me` run in the session.".into());
+    };
+    if by != key {
+        return Err("A session marks only its own turn seen (`codealong session seen me`): whether another's needs its user is theirs to see.".into());
+    }
+    let note = p.note.map(|n| n.trim().to_string()).filter(|n| !n.is_empty());
+    if note.as_ref().is_some_and(|n| n.chars().count() > crate::tags::NOTE_LONGEST) {
+        return Err(format!("The note is at most {} characters: a sentence on what the turn came to.", crate::tags::NOTE_LONGEST));
+    }
+    if !engine.read(|b| b.session(key).is_some()) {
+        return Err("Codealong doesn't list that session.".into());
+    }
+    Ok(shown_at(c, engine.agent_seen(key, note)))
 }
 
 /// What was said in this device's sessions.

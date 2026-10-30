@@ -28,8 +28,8 @@ tick*. Otherwise start at *Starting*.
 - `codealong changes` leaves your own session out; leave it out everywhere else too. One
   orchestrator at a time: if `codealong sessions find orchestrator --live` shows another
   running, ask your user before going on.
-- A quiet tick is one command, and one for each module that's on, and a one-line reply. Read
-  further only where a change asks for it.
+- A quiet tick is one command, and one for each module that's on, `session seen me` and a
+  one-line reply. Read further only where a change asks for it.
 
 ## Starting
 
@@ -84,7 +84,9 @@ tick*. Otherwise start at *Starting*.
 2. Run the modules that are on and due (*Modules*): with hygiene on, `codealong hygiene --kill
    --log <state>/kills.log`; email, the deploy watch, and once a day the Codealong review.
 3. Nothing changed, no module has anything to say, every waiting session has suggestions or a
-   tag, and nothing in Codealong got in your way: reply "No coordination changes." and stop.
+   tag, and nothing in Codealong got in your way: run `codealong session seen me --note "No
+   coordination changes"`, so the tick doesn't wait on your user, then reply "No coordination
+   changes." and stop.
 4. Read, tag and suggest for what waits (*Reading, tagging and suggesting*).
 5. Look for overlaps among what changed (*Overlaps*).
 6. Update the narrative where something changed.

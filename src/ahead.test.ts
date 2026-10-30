@@ -67,6 +67,15 @@ describe('lanesAhead', () => {
     expect(l.sessions[0].statusSince).toBe(NOW);
   });
 
+  it('brings back a turn its agent marked seen as yours, no longer saying its agent saw it', () => {
+    const seen = { at: NOW - 90_000, note: 'Nothing new on the deploy' };
+    const [l] = lanesAhead([lane([session('a', 'idle', { agentSeen: seen }), session('b', 'idle', { agentSeen: seen })])], [change({ kind: 'unread', keys: ['a'] })]);
+    expect(l.sessions.map((s) => [s.status, s.agentSeen])).toEqual([
+      ['unread', undefined],
+      ['idle', seen],
+    ]);
+  });
+
   it('settles a reply that asks you something, but not a permission prompt', () => {
     const asks = session('a', 'needs', { asks: true });
     const prompt = session('b', 'needs');

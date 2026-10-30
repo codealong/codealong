@@ -292,6 +292,11 @@ pub struct Session {
     /// from Macs before 2026-10-29, whose queues go by status and wait alone.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub raised: Option<Raised>,
+    /// Its own agent said the turn it just ended needs nothing from you (`codealong session seen
+    /// me`; `board::apply_agent_seen`): idle rather than Your turn, until you look at it or send it
+    /// something. None from Macs before 2026-10-30, which show such a turn as Your turn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_seen: Option<AgentSeen>,
     /// What a side conversation answered that you haven't seen (`board::apply_side_answer`): a
     /// session whose turn you'd seen is Your turn for it, and a window shows it above the box as
     /// it comes to the session. None from Macs before 2026-10-30.
@@ -563,6 +568,7 @@ impl Session {
             snoozed_until: None,
             quiet: false,
             raised: None,
+            agent_seen: None,
             side_answer: None,
             suggestions: None,
             pin: None,
@@ -772,6 +778,17 @@ pub struct Raised {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub by_title: Option<String>,
     /// Why, in a sentence, when the agent said.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+
+/// A finished turn its own agent marked seen (`Session::agent_seen`): when it said so, and why.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentSeen {
+    /// When the agent marked it, by the clock of the session's Mac, during the turn it marked.
+    pub at: i64,
+    /// What the turn came to, in a sentence, when the agent said.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
 }
@@ -1280,6 +1297,7 @@ mod tests {
                 "origin": { "key": "claude:claude2:from", "how": "fork" }, "stalledSince": 5,
                 "insight": { "asksYou": 0.75, "landing": "pushed" }, "asks": true, "hosted": true, "stoppable": true, "snoozedUntil": 6, "quiet": true,
                 "raised": { "at": 11, "agent": true, "by": "claude:claude:sup", "byTitle": "Supervisor", "note": "The deploy waits on it" },
+                "agentSeen": { "at": 12, "note": "Nothing new on the deploy" },
                 "suggestions": { "replies": ["Yes, push it", "Run the tests first"], "picks": { "Push it?": ["Yes"] }, "why": { "Push it?": "Its checks pass" }, "note": "It asks whether to push", "by": "claude:claude:sup", "byTitle": "Supervisor", "at": 10, "promptAt": 4 },
                 "earlier": true,
                 "chrome": { "tabs": [7, 8], "url": "https://example.com/", "title": "Example", "profile": "Work", "profileDir": "Profile 1", "at": 9 },

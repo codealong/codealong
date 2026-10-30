@@ -86,6 +86,13 @@ export interface Raised {
   note?: string;
 }
 
+/** A finished turn its own agent marked seen (`Session.agentSeen`): when it said so, and why. */
+export interface AgentSeen {
+  at: number;
+  /** What the turn came to, when the agent said. */
+  note?: string;
+}
+
 /** Replies suggested for a session by another session that read it (peer/src/model.rs
  *  `Suggestions`): each goes as it is, as yours, once you pick it. */
 export interface Suggestions {
@@ -183,6 +190,10 @@ export interface Session {
    *  goes to it first until you take it up (board.rs `apply_raise`, queue.ts `byPlace`). Missing
    *  from older Macs. */
   raised?: Raised;
+  /** Its own agent said the turn it just ended needs nothing from you (`codealong session seen
+   *  me`): idle rather than Your turn until you look at it or send it something (board.rs
+   *  `apply_agent_seen`). Missing from older Macs, which show such a turn as Your turn. */
+  agentSeen?: AgentSeen;
   /** What a side conversation answered that you haven't seen (board.rs `apply_side_answer`): a
    *  session whose turn you'd seen is Your turn for it, and a window shows it above the box as it
    *  comes to the session (side.ts `useSideAnswer`). Missing from older Macs. */

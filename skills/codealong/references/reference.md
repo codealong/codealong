@@ -1698,6 +1698,18 @@ Commands:
               Undo. Never a session that's working, waiting on its user, or on another
               Mac; any other session is its user's to mark done, in Codealong. Needs the
               app running
+  seen        Mark the turn this session is taking seen, from inside it, when its user
+              needs to do nothing about it: a loop's tick or a check that found nothing
+              new, a watch with nothing to report. Once the turn ends it's idle rather
+              than Your turn: in no queue, off the floating bar and the mark, and shown
+              as its agent's call (Seen by agent, with --note). Run it as the turn's
+              last step, just before the final reply. It holds only for a turn that ends
+              as Your turn: one whose reply Jev reads as asking its user something, a
+              call to allow, a question or an error still wait on them. A prompt sent
+              after it, from its user or anyone, makes it void, and its user's Mark as
+              unread brings it back. Never for a turn that changed code, finished what
+              its user asked for, or says anything they'd want to read. Only `me`:
+              another session's turn is its user's to see. Needs the app running
   transcript  A session's conversation as its own record has it, for reading what
               another agent did and where it stands: the newest part (about 60 items),
               or the part before `--before`. Each item is a prompt (`you`), a reply
@@ -2031,6 +2043,44 @@ Arguments:
 Options:
       --json
           JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong session seen
+
+```
+Mark the turn this session is taking seen, from inside it, when its user needs to do
+nothing about it: a loop's tick or a check that found nothing new, a watch with nothing
+to report. Once the turn ends it's idle rather than Your turn: in no queue, off the
+floating bar and the mark, and shown as its agent's call (Seen by agent, with --note).
+Run it as the turn's last step, just before the final reply. It holds only for a turn
+that ends as Your turn: one whose reply Jev reads as asking its user something, a call
+to allow, a question or an error still wait on them. A prompt sent after it, from its
+user or anyone, makes it void, and its user's Mark as unread brings it back. Never for a
+turn that changed code, finished what its user asked for, or says anything they'd want
+to read. Only `me`: another session's turn is its user's to see. Needs the app running
+
+Usage: codealong session seen [OPTIONS] <KEY>
+
+Arguments:
+  <KEY>
+          The session: `me`
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --note <NOTE>
+          What the turn came to, in a sentence ("Nothing new on the deploy"); shown with
+          it
 
       --table
           Tables, even when piped
