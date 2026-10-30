@@ -35,7 +35,6 @@ import {
   deviceStartOptions,
   getBoard,
   getDevices,
-  foldQuick,
   hideQuick,
   inPreview,
   getConfig,
@@ -71,7 +70,7 @@ import { ago, tildePath } from '../format';
 import { useLogo } from '../logo';
 import { useRowDrag } from './useRowDrag';
 import { prPills } from '../prStatus';
-import { ALL_PROJECTS, NO_PROJECT, attachmentsNote, attentionRows, draftCodec, findPrs, foldedWords, findSessions, findTodos, folderChoices, folderStart, FOUND_SESSIONS, inProject, isFolderPath, laneGroups, macUnavailable, MAX_ROWS, nextDraft, primaryRunningWords, projectCounts, QUICK_PLACEHOLDER, queryWords, readyTodos, recallList, recentRows, SEND_TO_PLACEHOLDER, sendTargets, shortcutLabel, startTitle, todosStayNote, worktreeCount, type PrRow, type QuickDraft, type ReviewRow, type RowGroup, type SessionRow, type TodoRow, withPrompt as historyWith } from '../quick';
+import { ALL_PROJECTS, NO_PROJECT, attachmentsNote, attentionRows, draftCodec, findPrs, foldedWords, holdsPrompt as holdsAPrompt, findSessions, findTodos, folderChoices, folderStart, FOUND_SESSIONS, inProject, isFolderPath, laneGroups, macUnavailable, MAX_ROWS, nextDraft, primaryRunningWords, projectCounts, QUICK_PLACEHOLDER, queryWords, readyTodos, recallList, recentRows, SEND_TO_PLACEHOLDER, sendTargets, shortcutLabel, startTitle, todosStayNote, worktreeCount, type PrRow, type QuickDraft, type ReviewRow, type RowGroup, type SessionRow, type TodoRow, withPrompt as historyWith } from '../quick';
 import {
   agentChipWords,
   isAuto,
@@ -343,7 +342,7 @@ export function Quick() {
   const fullPromptNow = useLatest(fullPrompt);
   // A prompt you've written and not sent, not a word or two of a search: losing the keyboard
   // folds the panel to a chip that holds it, where it would otherwise hide (quick.rs `put_aside`).
-  const holdsPrompt = worthRouting(text) || attached.length > 0;
+  const holdsPrompt = holdsAPrompt(text, attached.length);
   const holdsPromptNow = useLatest(holdsPrompt);
   const loadPrompt = (raw: string): string => {
     const next = splitAttachments(raw);
@@ -1646,10 +1645,13 @@ export function Quick() {
     const onKey = (e: KeyboardEvent) => {
       // Switch to Codealong Dev? has the keys while it's up, Escape closing it (useEscape).
       if (e.defaultPrevented || e.isComposing || askingDev) return;
-      // Folded (a click on the chip gives it the keyboard), only Escape does anything: it puts
-      // the panel away.
+      // Folded, the panel has the keyboard only for the moment a click on the chip takes to open
+      // it again. Escape puts it away, and so do ⌘Q and ⌘H, which mean the app in front (below).
       if (folded) {
-        if (e.key === 'Escape') void hideQuick();
+        if (e.key === 'Escape' || (modsHeld(e, 'Cmd') && (e.key.toLowerCase() === 'q' || e.key.toLowerCase() === 'h'))) {
+          e.preventDefault();
+          void hideQuick();
+        }
         return;
       }
       if (e.key === 'Escape') {
@@ -1991,11 +1993,12 @@ export function Quick() {
       className={cx('ca-quick-root', folded && 'is-folded')}
       onMouseDown={(e) => {
         // The shadow around the card is part of the window; a click there is a click outside, which
-        // folds a panel holding a prompt as a click in another app does. Round the chip it opens
-        // the panel again, as the chip does.
+        // hides it, but for a panel holding a prompt: that one folds once another app has the
+        // keyboard, and folded here it would keep it. Round the chip it opens the panel again, as
+        // the chip does.
         if (e.target !== e.currentTarget) return;
         if (folded) void showQuick({ keep: true });
-        else void (holdsPrompt ? foldQuick() : hideQuick());
+        else if (!holdsPrompt) void hideQuick();
       }}
     >
       {drag.ghost}

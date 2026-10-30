@@ -1760,13 +1760,6 @@ export async function hideQuick(): Promise<void> {
   await invoke('hide_quick');
 }
 
-/** Folds the quick panel to the chip that holds your prompt, as a click in another app does, or
- *  hides it when it holds none (quick.rs `put_aside`). */
-export async function foldQuick(): Promise<void> {
-  if (!inTauri) return;
-  await invoke('fold_quick');
-}
-
 /** The quick panel's page is laid out for the latest open, at this height: time to show it. An
  *  open from Codealong's own script gets its height as the script's result instead (Quick.tsx);
  *  this is for the page that opened itself. */

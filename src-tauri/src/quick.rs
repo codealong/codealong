@@ -379,20 +379,19 @@ fn toggle_for(app: &AppHandle, context: Value) {
 /// you wrote, and to say how big its window is to be, or nothing when it holds no prompt.
 const FOLD_SCRIPT: &str = "(function () { try { return (window.__quickFold && window.__quickFold()) || null; } catch (e) { return null; } })()";
 
-/// The panel lost the keyboard to another window or app, or a click landed in the shadow round
-/// it. Holding a prompt, it folds to a chip that keeps it, where the panel's top was, over every
-/// app; otherwise it hides. The page draws the chip first and the window shrinks round it after,
-/// so it doesn't move. On the main thread.
-pub fn put_aside(app: &AppHandle) {
+/// The panel lost the keyboard to another window or app. Holding a prompt, it folds to a chip
+/// that keeps it, where the panel's top was, over every app; otherwise it hides. The page draws
+/// the chip first and the window shrinks round it after, so it doesn't move. On the main thread.
+fn put_aside(app: &AppHandle) {
     let (Some(state), Some(window)) = (app.try_state::<Quick>(), app.get_webview_window(LABEL)) else { return };
     // Hidden already (it lost the keyboard by being put away), or folded already.
     if !panel::is_visible(&window) || is_folded(&state) {
         return;
     }
-    // Still opening: nothing is written in this open yet.
-    if state.waiting.lock().ok().is_some_and(|w| w.is_some()) {
-        hide(app);
-        return;
+    // An open of the panel while it's up (the one that unfolds it, say) is done with: the page
+    // runs it before it's asked to fold, and what it answers mustn't bring the panel back up.
+    if let Ok(mut w) = state.waiting.lock() {
+        *w = None;
     }
     let open_height = panel::frame(&window).map_or(START_HEIGHT, |f| f.h);
     if let Ok(mut f) = state.folded.lock() {

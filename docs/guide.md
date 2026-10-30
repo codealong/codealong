@@ -2075,10 +2075,10 @@ starts a new session with what you typed as its prompt. ⏎ does the selected ro
 open starts empty, so ⏎ goes to what needs you; ↑ brings back what you'd typed before closing, with
 the images attached to it and Improve Codealong's pictures of the windows when you wrote it there
 (kept as you type, so a relaunch doesn't lose them), then earlier prompts you sent, started or
-saved, and ↓ goes forward again. With a prompt written in it (a few words, not a word or two of
-a search, or something attached), the panel doesn't go when another app or window takes the
-keyboard, or a click lands just outside it: it folds to a chip where its top was, with the prompt's
-first line, and the chip stays over every app while you copy from them. A click on it, or the
+saved, and ↓ goes forward again. With a prompt written in it (three words or more, since a word
+or two is as often a search, or something attached), a click just outside the panel leaves it be,
+and when another app or window takes the keyboard it folds to a chip where its top was, with the
+prompt's first line, which stays over every app while you copy from them. A click on it, or the
 panel's shortcut, opens the panel again as you left it, the caret where it was; sending it, Escape
 or the chip's × puts it away, and ↑ brings it back later as any draft. An open that brings a prompt
 of its own (a todo's, one Codealong writes for you) takes the box, what you'd written going to ↑;

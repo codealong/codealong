@@ -2,8 +2,8 @@
 // the keyboard (quick.rs `put_aside`, Quick.tsx `__quickFold`, `QuickFold`): a word or two of a
 // search doesn't fold it; a prompt folds it to a chip that says its first line and is measured
 // for its window; a click on the chip opens the panel again as it was, the caret where it was; a
-// click in the shadow round the card folds it as a click elsewhere does; and × on the chip puts
-// it away.
+// click in the shadow round the card leaves a panel holding a prompt be; folded, ⌘Q puts it away
+// rather than reaching Codealong's menu; and × on the chip puts it away.
 //
 //   scripts/preview.sh quick '' scripts/preview/quick-fold-check.js
 (function () {
@@ -17,11 +17,11 @@
     .then(function () { return wait(200); })
     .then(function () {
       check('with nothing typed there is nothing to hold', window.__quickFold() === null, 'folded');
-      type(input(), 'pangolin');
+      type(input(), 'pangolin pen');
       return wait(100);
     })
     .then(function () {
-      check('a word of a search is nothing to hold', window.__quickFold() === null, 'folded');
+      check('a search of a word or two is nothing to hold', window.__quickFold() === null, 'folded');
       check('so no chip shows', !chip(), 'a chip');
       type(input(), PROMPT);
       return wait(100);
@@ -50,14 +50,18 @@
       check('the card is back', !chip() && getComputedStyle(card()).display !== 'none', 'folded still');
       check('with the prompt as written', input().value === PROMPT, input().value);
       check('the caret where it was', input().selectionStart === 8, String(input().selectionStart));
-      var before = calls('fold_quick').length;
       q('.ca-quick-root').dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
-      return wait(100).then(function () { return before; });
+      return wait(100);
     })
-    .then(function (before) {
-      check('a click in the shadow folds a panel holding a prompt', calls('fold_quick').length === before + 1, String(calls('fold_quick').length));
-      check('rather than hiding it', calls('hide_quick').length === 0, String(calls('hide_quick').length));
+    .then(function () {
+      check('a click in the shadow leaves a panel holding a prompt be', calls('hide_quick').length === 0 && !chip(), String(calls('hide_quick').length));
       window.__quickFold();
+      return wait(100);
+    })
+    .then(function () {
+      var quit = new KeyboardEvent('keydown', { key: 'q', code: 'KeyQ', metaKey: true, bubbles: true, cancelable: true });
+      window.dispatchEvent(quit);
+      check('folded, ⌘Q is the panel’s, not Codealong’s menu', quit.defaultPrevented && calls('hide_quick').length === 1, String(calls('hide_quick').length));
       return wait(100);
     })
     .then(function () {
@@ -65,7 +69,7 @@
       return wait(100);
     })
     .then(function () {
-      check('× on the chip puts the panel away', calls('hide_quick').length === 1, String(calls('hide_quick').length));
+      check('× on the chip puts the panel away', calls('hide_quick').length === 2, String(calls('hide_quick').length));
       done();
     })
     .catch(stopped);
