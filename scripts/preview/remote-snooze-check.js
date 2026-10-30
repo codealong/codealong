@@ -17,6 +17,7 @@
   var quiet = function (s) {
     if (s.status === 'needs' || s.status === 'error' || s.status === 'unread') s.status = 'idle';
     s.snoozedUntil = undefined;
+    s.raised = undefined;
   };
   window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
     if (cmd === 'snooze_sessions') {

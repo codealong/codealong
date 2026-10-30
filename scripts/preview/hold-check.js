@@ -28,6 +28,7 @@
         l.sessions.forEach(function (s) {
           if (s.status === 'needs' || s.status === 'error' || s.status === 'unread' || s.status === 'working') s.status = 'idle';
           s.snoozedUntil = undefined;
+          s.raised = undefined;
           if (l.hidden || l.device || s.visitor || s.archived || lanes[l.id] || picked.length >= plan.length) return;
           lanes[l.id] = true;
           var p = plan[picked.length];

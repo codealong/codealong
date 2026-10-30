@@ -45,6 +45,7 @@
           // Nothing waits on you, so the strip has nothing of the queue's to say.
           if (s.status === 'needs' || s.status === 'error' || s.status === 'unread') s.status = 'idle';
           s.snoozedUntil = undefined;
+          s.raised = undefined;
           if (picked && s.key === picked.key) running(s);
           if (picked || l.hidden || l.device || s.visitor || s.archived || s.harness !== 'claude') return;
           running(s);

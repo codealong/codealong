@@ -497,6 +497,12 @@ describe('barAhead', () => {
       ['a', 'unread', false],
     ]);
     expect([out.recent.length, out.snoozed.length]).toEqual([0, 0]);
+    // Seen after it was moved up, it's taken up: back where it was.
+    const taken = barAhead(feed([], [recent]), [change({ kind: 'raise', keys: ['r'], raised: true }), change({ kind: 'seen', keys: ['r'] })]);
+    expect([taken.items.length, taken.recent.map((i) => i.key)]).toEqual([0, ['r']]);
+    // Moved up after it was seen, a pill is still there.
+    const again = barAhead(feed([item('a', 'unread', NOW - 40)]), [change({ kind: 'seen', keys: ['a'] }), change({ kind: 'raise', keys: ['a'], raised: true })]);
+    expect(again.items.map((i) => [i.key, !!i.raised])).toEqual([['a', true]]);
   });
 
   it('names a renamed session’s pill wherever it is on the bar', () => {

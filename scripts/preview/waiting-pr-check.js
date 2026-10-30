@@ -41,6 +41,7 @@
         l.sessions.forEach(function (s) {
           if (s.status === 'needs' || s.status === 'error' || s.status === 'unread') s.status = 'idle';
           s.snoozedUntil = undefined;
+          s.raised = undefined;
           if (s.visitor) return;
           if (s.key === picked.a) Object.assign(s, { status: 'needs', statusSince: now - 3600e3, asks: true, archived: false, title: 'Queue A' });
           if (s.key === picked.b) Object.assign(s, { status: 'unread', statusSince: now - 10 * 60e3, archived: false, title: 'Queue B' });

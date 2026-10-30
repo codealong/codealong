@@ -413,11 +413,14 @@ function barMoved(feed: BarFeed, changes: Ahead[]): BarFeed {
     const last = (by.get(key) ?? []).filter((a) => a.change.kind === 'raise').pop();
     return last?.change.kind === 'raise' ? (last.change.raised ? last.at : null) : undefined;
   };
+  /** The last seen or move to the top for a session: a seen takes up a move made before it, and a
+   *  move brings back one seen before it (board.rs `seen_takes_up`, `apply_raise`). */
+  const upLast = (key: string) => (by.get(key) ?? []).filter((a) => a.change.kind === 'seen' || (a.change.kind === 'raise' && a.change.raised)).pop();
   const snoozing: BarSnoozed[] = [];
   let changed = false;
   const items: BarItem[] = [];
   for (const i of feed.items) {
-    const seen = (by.get(i.key) ?? []).some((a) => a.change.kind === 'seen') && settledBySeen(i);
+    const seen = upLast(i.key)?.change.kind === 'seen' && settledBySeen(i);
     if (archived(i.key) || seen || (i.status === 'unread' && quieted(i.key))) {
       changed = true;
       continue;
@@ -443,6 +446,7 @@ function barMoved(feed: BarFeed, changes: Ahead[]): BarFeed {
       const m = moved(r.key);
       const answer = goesOn(r);
       const until = snooze(r.key);
+      const up = upLast(r.key);
       const pill = { ...r, snoozedUntil: null } as unknown as BarItem;
       let gone = archived(r.key);
       if (!gone && m) {
@@ -455,12 +459,11 @@ function barMoved(feed: BarFeed, changes: Ahead[]): BarFeed {
       } else if (!gone && until != null && (r.group === 'recent' || r.snoozedUntil !== until)) {
         snoozing.push({ ...r, group: 'snoozed', snoozedUntil: until } as BarSnoozed);
         gone = true;
-      } else if (!gone && raised(r.key) != null) {
+      } else if (!gone && up?.change.kind === 'raise') {
         // Moved to the top, it waits on you, woken from a snooze, and one whose turn you'd seen
-        // is Your turn again (board.rs `apply_raise`).
+        // is Your turn again (board.rs `apply_raise`), until a seen after it.
         const needs = r.status === 'needs' || r.status === 'error';
-        const at = raised(r.key) ?? r.since;
-        items.push({ ...pill, group: needs ? 'needs' : 'unread', status: needs ? r.status : 'unread', since: r.group === 'recent' ? at : r.since, raised: { at } });
+        items.push({ ...pill, group: needs ? 'needs' : 'unread', status: needs ? r.status : 'unread', since: r.group === 'recent' ? up.at : r.since, raised: { at: up.at } });
         gone = true;
       } else if (!gone && until === null && r.group === 'snoozed') {
         // Woken, it's back where its status puts it; one with nothing to show for itself is Your turn.

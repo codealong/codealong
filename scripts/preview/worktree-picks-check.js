@@ -44,6 +44,7 @@
           s.statusSince = now - 600e3;
           s.lastActivity = now - (name ? 'ABC'.indexOf(name) : 9) * 60e3;
           s.snoozedUntil = undefined;
+          s.raised = undefined;
           s.asks = false;
           s.archived = false;
           if (name) s.title = 'Pick ' + name;

@@ -50,6 +50,7 @@
       l.sessions.forEach(function (s) {
         if (s.status === 'needs' || s.status === 'error' || s.status === 'unread') s.status = 'idle';
         s.snoozedUntil = undefined;
+        s.raised = undefined;
         if (l.hidden || l.device || s.visitor || s.archived) return;
         var m = movers.filter(function (x) { return x.key === s.key; })[0];
         if (m) {

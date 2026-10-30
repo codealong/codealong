@@ -29,6 +29,7 @@
         l.sessions.forEach(function (s) {
           if (s.status === 'needs' || s.status === 'error' || s.status === 'unread') s.status = 'idle';
           s.snoozedUntil = undefined;
+          s.raised = undefined;
           s.suggestions = undefined;
           if (l.hidden || l.device || s.visitor || s.archived || s.hosted || !s.live || (picked && picked.key !== s.key)) return;
           picked = picked || { key: s.key, lane: l.id };

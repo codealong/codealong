@@ -23,6 +23,7 @@
         l.sessions.forEach(function (s) {
           if (s.status === 'needs' || s.status === 'error') s.status = 'idle';
           s.snoozedUntil = undefined;
+          s.raised = undefined;
           if (picked || l.hidden || l.device || s.visitor || s.archived || s.harness !== 'claude') return;
           // As the engine has it (board.rs `claude_session`): waiting on you, not stuck.
           s.status = 'needs';

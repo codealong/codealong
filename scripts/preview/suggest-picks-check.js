@@ -44,6 +44,7 @@
         l.sessions.forEach(function (s) {
           if (s.status === 'needs' || s.status === 'error') s.status = 'idle';
           s.snoozedUntil = undefined;
+          s.raised = undefined;
           s.suggestions = undefined;
           if (picked ? s.key !== picked.key : l.hidden || s.visitor || s.archived) return;
           s.status = 'needs';

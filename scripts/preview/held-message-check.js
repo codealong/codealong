@@ -35,6 +35,7 @@
         l.sessions.forEach(function (s) {
           if (s.status === 'needs' || s.status === 'error') s.status = 'idle';
           s.snoozedUntil = undefined;
+          s.raised = undefined;
           if (several || l.hidden || l.device || s.visitor || s.archived || s.harness !== 'claude') return;
           s.status = 'needs';
           s.statusSince = Date.now() - 60e3;

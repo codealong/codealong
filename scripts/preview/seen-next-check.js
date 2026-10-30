@@ -37,6 +37,7 @@
         l.sessions.forEach(function (s) {
           if (s.status === 'needs' || s.status === 'error' || s.status === 'unread') s.status = 'idle';
           s.snoozedUntil = undefined;
+          s.raised = undefined;
           if (l.hidden || s.visitor || s.archived || seen[s.key] || picked.length >= plan.length) return;
           seen[s.key] = true;
           var p = plan[picked.length];
@@ -254,6 +255,7 @@
           item('Rename…', chords.session.rename) + ', ' +
           item('Mark as unread', chords.session.unread) + ', ' +
           item('(Pin|Unpin) session', chords.session.pin) + ', ' +
+          item('(Move to top|Back in line)', chords.session.raise) + ', ' +
           '(' + snoozes + ')?' +
           '(' + item('(Close terminal|End background job)', chords.session.close) + ', )?' +
           item('Mark as done', chords.session.done) + ', ' +

@@ -50,6 +50,7 @@
           s.surface = 'cli';
           s.pid = p.live ? 4242 + picked.length : null;
           s.snoozedUntil = undefined;
+          s.raised = undefined;
           s.title = 'Pick ' + 'ABCDE'[picked.length];
           s.ownWorktree = undefined;
           s.background = undefined;

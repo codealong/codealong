@@ -14,6 +14,7 @@
     lanes.forEach(function (l) {
       l.sessions.forEach(function (s) {
         s.snoozedUntil = undefined;
+        s.raised = undefined;
         if (!chosen && ok(l) && !l.hidden && !s.visitor && !s.archived) chosen = s.key;
         if (s.key === (pick() || chosen)) {
           s.status = l.device ? 'needs' : 'unread';

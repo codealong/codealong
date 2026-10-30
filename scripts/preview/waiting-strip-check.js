@@ -22,6 +22,7 @@
           // Only the one made here waits on you.
           if (s.status === 'needs' || s.status === 'error' || s.status === 'unread') s.status = 'idle';
           s.snoozedUntil = undefined;
+          s.raised = undefined;
           if (picked && s.key !== picked) return;
           if (!picked && (l.hidden || l.device || s.visitor || s.archived || s.harness !== 'claude')) return;
           picked = s.key;

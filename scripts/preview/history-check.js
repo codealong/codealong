@@ -23,6 +23,7 @@
           seen[s.key] = true;
           s.status = 'idle';
           s.snoozedUntil = undefined;
+          s.raised = undefined;
           s.lastActivity = Date.now() - 60e3 * (picked.length + 1);
           s.hosted = false;
           s.stoppable = false;

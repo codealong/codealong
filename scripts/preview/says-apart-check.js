@@ -27,6 +27,7 @@
           // Only the two made here wait on you.
           if (s.status === 'needs' || s.status === 'error' || s.status === 'unread') s.status = 'idle';
           s.snoozedUntil = undefined;
+          s.raised = undefined;
           if (l.hidden || l.device || s.visitor || s.archived || s.harness !== 'claude') return;
           var at = picked.map(function (x) { return x.key; }).indexOf(s.key);
           if (at < 0 && picked.length < 2) {

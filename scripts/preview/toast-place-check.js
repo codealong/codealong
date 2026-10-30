@@ -30,6 +30,7 @@
         l.sessions.forEach(function (s) {
           if (s.status === 'needs' || s.status === 'error' || s.status === 'unread') s.status = 'idle';
           s.snoozedUntil = undefined;
+          s.raised = undefined;
           if (l.hidden || l.device || s.visitor || s.archived || seen[s.key] || picked.length >= 2) return;
           seen[s.key] = true;
           s.status = 'unread';

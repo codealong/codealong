@@ -51,6 +51,7 @@
           s.status = 'idle';
           s.live = false;
           s.snoozedUntil = undefined;
+          s.raised = undefined;
           s.helper = undefined;
           s.headless = undefined;
           s.origin = undefined;

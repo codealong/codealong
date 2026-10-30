@@ -49,6 +49,7 @@
           s.archived = false;
           s.asks = false;
           s.snoozedUntil = undefined;
+          s.raised = undefined;
           s.title = 'Far A';
           picked = { key: s.key, lane: l.id };
         });

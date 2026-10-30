@@ -31,6 +31,7 @@
         l.sessions.forEach(function (s) {
           if (s.status === 'needs' || s.status === 'error' || s.status === 'unread') s.status = 'idle';
           s.snoozedUntil = undefined;
+          s.raised = undefined;
           var other = accounts.some(function (a) { return a.name !== s.account; });
           if (picked && s.key !== picked) return;
           if (l.hidden || l.device || s.visitor || s.archived || s.harness !== 'claude' || !s.resumeCommand || !other) return;

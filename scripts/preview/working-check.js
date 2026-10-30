@@ -40,6 +40,7 @@
         s.stalledSince = own.stalledSince || null;
         s.background = own.background;
         s.snoozedUntil = undefined;
+        s.raised = undefined;
         s.queued = undefined;
         s.asks = false;
         s.lastActivity = Date.now();

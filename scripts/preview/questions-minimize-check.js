@@ -41,6 +41,7 @@
         l.sessions.forEach(function (s) {
           if (s.status === 'needs' || s.status === 'error') s.status = 'idle';
           s.snoozedUntil = undefined;
+          s.raised = undefined;
           if (l.hidden || s.visitor || s.archived) return;
           if (picked && picked.key !== s.key) {
             if (!other) other = { key: s.key, lane: l.id };

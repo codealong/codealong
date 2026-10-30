@@ -25,6 +25,7 @@
         l.sessions.forEach(function (s) {
           if (s.status === 'needs' || s.status === 'error' || s.status === 'unread') s.status = 'idle';
           s.snoozedUntil = undefined;
+          s.raised = undefined;
           if (calm) return;
           // The same ones on every read of the board.
           var n = picked.indexOf(s.key);

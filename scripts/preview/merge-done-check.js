@@ -84,6 +84,7 @@
         l.sessions.forEach(function (s) {
           if (s.status === 'needs' || s.status === 'error' || s.status === 'unread') s.status = 'idle';
           s.snoozedUntil = undefined;
+          s.raised = undefined;
           if (s.key !== key) return;
           // The one that waits on you, at work on a command it left running.
           Object.assign(s, { status: 'unread', statusSince: Date.now() - 60e3, lastActivity: Date.now() - 60e3, asks: false, live: true, surface: 'cli', hosted: false, pid: 4242, attachCommand: null, background: 'gh pr checks --watch' });
