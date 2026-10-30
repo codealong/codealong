@@ -5,7 +5,7 @@
 // answer that comes in while the session shows doesn't take the box from whoever may be typing,
 // until the window comes forward; once the session's seen, one that came up by itself goes, and
 // the box is the session's again; one you picked yourself stays; a window that has just come
-// forward takes an answer its board catches up with as there when it came; opening a session
+// forward takes an answer from before then that its board catches up with; opening a session
 // Codealong runs leaves the answer to read, where it would mark another seen; and one out in a
 // window of its own has that window come forward, whatever this window has heard of it.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/side-answer-check.js
@@ -77,9 +77,8 @@
       await go(a);
       check('and it doesn’t come back up in this window', !strip() && !aside());
 
-      // Another answer, while the session shows, long enough after the window came to it.
-      await wait(2200);
-      window.__answer = { id: 'closed-1', at: t + 1000 };
+      // Another answer, while the session shows.
+      window.__answer = { id: 'closed-1', at: Date.now() };
       await window.__pushSides();
       await wait(200);
       check('one that comes in while the session shows takes nothing from the box', !strip() && !aside());
@@ -95,7 +94,7 @@
       check('nothing of it stays in the view', localStorage.getItem('codealong.sideview.' + key) === null);
 
       // Seen while the window shows another session: it hears nothing until it's back.
-      window.__answer = { id: 'closed-1', at: t + 1500 };
+      window.__answer = { id: 'closed-1', at: Date.now() };
       await window.__pushSides();
       await wait(200);
       window.dispatchEvent(new Event('focus'));
@@ -125,7 +124,7 @@
       await go(b);
       localStorage.setItem('codealong.sideview.' + key, JSON.stringify({ kind: 'list' }));
       window.dispatchEvent(new StorageEvent('storage', { key: 'codealong.sideview.' + key }));
-      window.__answer = { id: 'open-1', open: true, at: t + 2000 };
+      window.__answer = { id: 'open-1', open: true, at: Date.now() };
       await window.__pushSides();
       await go(a);
       await until(function () { return strip() && /And the lock file\?/.test(strip().textContent); }, 3000, 'the open one, not the list');
@@ -137,11 +136,15 @@
       window.__emit('side', { id: 'open-1', key: key, turns: [], running: false, ended: true });
       await window.__pushSides();
       await until(function () { return !strip(); }, 3000, 'nothing above the box');
+      var before = Date.now();
+      await wait(50);
       window.dispatchEvent(new Event('focus'));
-      window.__answer = { id: 'closed-1', at: t + 3000 };
+      // Later than any time would allow for: what counts is that it's from before the window came.
+      await wait(2500);
+      window.__answer = { id: 'closed-1', at: before };
       await window.__pushSides();
       await until(strip, 3000, 'the side conversation its board caught up with');
-      check('a window that has just come forward takes an answer its board catches up with', aside());
+      check('a window that has come forward takes an answer from before then, however late it hears', aside());
       acts('Close').click();
       await until(function () { return !strip(); }, 3000, 'it put away');
 
@@ -151,7 +154,7 @@
         document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true, cancelable: true }));
       };
       window.__hosted = true;
-      window.__answer = { id: 'closed-1', at: t + 4000 };
+      window.__answer = { id: 'closed-1', at: Date.now() };
       await window.__pushSides();
       await go(b);
       await go(a);
@@ -169,7 +172,7 @@
 
       // Out in a window of its own, though this window hasn't heard so yet.
       window.__sideWindows = [key];
-      window.__answer = { id: 'closed-1', at: t + 5000 };
+      window.__answer = { id: 'closed-1', at: Date.now() };
       await window.__pushSides();
       await go(b);
       await go(a);

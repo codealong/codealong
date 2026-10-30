@@ -237,16 +237,13 @@ export function showAnswer(key: string, answer: SideAnswer): void {
     .catch(() => {});
 }
 
-/** How long after a window comes forward what it hears is taken for what was there as it came: one
- *  put away stops following the board (Waiting.tsx), which catches up just after. */
-const CATCHING_UP_MS = 2000;
-
 /** Brings up what a session's side conversations answered as a window comes to the session: as it
- *  shows it, and as the window comes forward showing it, its board catching up or not. Not as the
- *  answer comes in while it's shown: what's above the box is the same in every window, and you may
- *  be typing to the session in one. One closed that came up by itself goes once you've seen it,
- *  with `Session.sideAnswer`: left there, it would hold the box for good, and what you next typed
- *  would go to it. */
+ *  shows it, and as the window comes forward showing it. An answer from before then it hears of
+ *  later counts too, however much later: a window put away stops following the board (Waiting.tsx),
+ *  which catches up once it's back. Not one that comes in after: what's above the box is the same
+ *  in every window, and you may be typing to the session in one. One closed that came up by itself
+ *  goes once you've seen it, with `Session.sideAnswer`: left there, it would hold the box for good,
+ *  and what you next typed would go to it. */
 export function useSideAnswer(key: string, answer: SideAnswer | undefined): void {
   const latest = useLatest(answer);
   const came = useRef(0);
@@ -261,7 +258,7 @@ export function useSideAnswer(key: string, answer: SideAnswer | undefined): void
   }, [key, latest]);
   const at = answer?.at;
   useEffect(() => {
-    if (latest.current && Date.now() - came.current < CATCHING_UP_MS) showAnswer(key, latest.current);
+    if (latest.current && latest.current.at <= came.current) showAnswer(key, latest.current);
   }, [key, at, latest]);
   const seen = !answer;
   // Before it's drawn: seen while the session was elsewhere, it'd show for a moment and be gone.
