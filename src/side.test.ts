@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { endSide, keptLine, noteSide, STARTING_MS, takesBox, turnState, viewCodec } from './side';
+import { beingRead, endSide, keptLine, noteSide, showAnswer, showSides, STARTING_MS, takesBox, turnState, viewCodec } from './side';
 import type { Side, SideKept, SideTurn } from './types';
 
 const turn = (t: Partial<SideTurn>): SideTurn => ({ question: 'why?', answer: '', done: false, ...t });
@@ -43,7 +43,7 @@ describe('takesBox', () => {
 
 describe('viewCodec', () => {
   it('keeps each view as every window reads it back', () => {
-    for (const view of [{ kind: 'list' }, { kind: 'past', id: 'a' }, { kind: 'starting', at: 5 }] as const) {
+    for (const view of [{ kind: 'list' }, { kind: 'past', id: 'a' }, { kind: 'past', id: 'a', brought: true }, { kind: 'starting', at: 5 }] as const) {
       expect(viewCodec.parse(viewCodec.format(view) ?? '')).toEqual(view);
     }
     // None is no item at all.
@@ -54,6 +54,30 @@ describe('viewCodec', () => {
     expect(viewCodec.parse('{"kind":"past"}')).toBeUndefined();
     expect(viewCodec.parse('{"kind":"open"}')).toBeUndefined();
     expect(viewCodec.parse('"list"')).toBeUndefined();
+  });
+
+  it('reads a view kept before ones could come up by themselves as one you picked', () => {
+    expect(viewCodec.parse('{"kind":"past","id":"a"}')).toEqual({ kind: 'past', id: 'a' });
+  });
+});
+
+describe('showAnswer', () => {
+  const key = 'claude:c:answered';
+  const shows = (at: number, open = false) => {
+    showSides(key, null);
+    showAnswer(key, { id: 'a', open, at });
+    return beingRead(key);
+  };
+
+  it('shows the one that answered once in a window, put away or not', () => {
+    expect(shows(10)).toBe('a');
+    expect(shows(10)).toBeNull();
+    // Another answer comes up again.
+    expect(shows(20)).toBe('a');
+  });
+
+  it('leaves an open one above the box, where it shows by itself', () => {
+    expect(shows(30, true)).toBeNull();
   });
 });
 

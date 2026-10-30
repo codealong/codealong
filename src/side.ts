@@ -9,6 +9,10 @@
 // it answers (`useClosing`). A question asked while one is read goes on in it (`beingRead`): it's
 // the open one again, the copy told what was said in it, and the one open before is closed.
 //
+// Once one has answered all it was asked, its session waits on you for it, as for a turn that
+// ended (board.rs `apply_side_answer`), and a window that comes to the session brings it up above
+// the box (`useSideAnswer`), closed or not.
+//
 // What shows above a session's box is the same in every window (`SideView`, kept in local
 // storage, which they share), and so is whether the box is the side conversation's: a box in
 // one window that sent to the session while another window's asked the copy once sent the
@@ -18,11 +22,12 @@
 // what would show above the box and has a box that only ever asks it. While it's out, nothing
 // shows above the session's boxes, which are the session's again (`usePopped`).
 
-import { useEffect, useSyncExternalStore } from 'react';
+import { useEffect, useLayoutEffect, useSyncExternalStore } from 'react';
 import { onSide, onSideWindows, sideForget, sideGet, sidePast, sideWindow, sideWindows } from './api';
+import { useLatest } from './latest';
 import { errorText } from './report';
 import { readStored, writeStored, type Codec } from './stored';
-import type { Side, SideGlance, SideKept, SideTurn } from './types';
+import type { Side, SideAnswer, SideGlance, SideKept, SideTurn } from './types';
 
 const sides = new Map<string, Side>();
 /** The side conversations closed while their copies answered, by id, as the engine last said, until
@@ -149,7 +154,7 @@ export function useClosing(): ReadonlyMap<string, Side> {
  *  kept, or one of them to read, or the question just asked (`starting`, at `at`), until the
  *  engine says its copy has started, which takes seconds on a busy Mac. Null shows the open one,
  *  if there is one. Every window shows the same. */
-export type SideView = { kind: 'list' } | { kind: 'past'; id: string } | { kind: 'starting'; at: number } | null;
+export type SideView = { kind: 'list' } | { kind: 'past'; id: string; brought?: boolean } | { kind: 'starting'; at: number } | null;
 
 /** Each session's view is an item of its own in local storage. */
 const VIEW = 'codealong.sideview.';
@@ -165,7 +170,7 @@ export const viewCodec: Codec<SideView> = {
     if (typeof v !== 'object' || v === null) return undefined;
     const o = v as Record<string, unknown>;
     if (o.kind === 'list') return { kind: 'list' };
-    if (o.kind === 'past' && typeof o.id === 'string') return { kind: 'past', id: o.id };
+    if (o.kind === 'past' && typeof o.id === 'string') return o.brought === true ? { kind: 'past', id: o.id, brought: true } : { kind: 'past', id: o.id };
     if (o.kind === 'starting' && typeof o.at === 'number') return { kind: 'starting', at: o.at };
     return undefined;
   },
@@ -211,6 +216,44 @@ export function showSide(key: string, side: Pick<SideGlance, 'id' | 'open'>): vo
   // Up already, so it can't fail but for a window that's gone meanwhile, which the next
   // `side-windows` takes out of `popped`.
   if (popped.has(key)) void sideWindow(key, true).catch(() => {});
+}
+
+/** The answer each session's side conversation last brought up in this window, by when it came:
+ *  put away, it doesn't come back up here. */
+const broughtUp = new Map<string, number>();
+
+/** Shows what a session waits on you for from its side conversations (`Session.sideAnswer`), once
+ *  in each window: the open one above its box, or the one that answered, closed since, to read
+ *  there (`brought`). Out in a window of its own, that window shows it and comes forward, leaving
+ *  the keyboard where it is. */
+export function showAnswer(key: string, answer: SideAnswer): void {
+  if ((broughtUp.get(key) ?? 0) >= answer.at) return;
+  broughtUp.set(key, answer.at);
+  showSides(key, answer.open ? null : { kind: 'past', id: answer.id, brought: true });
+  if (popped.has(key)) void sideWindow(key, false).catch(() => {});
+}
+
+/** Brings up what a session's side conversations answered as a window comes to the session: as it
+ *  shows it, and as the window comes forward showing it. Not as the answer comes in while it's
+ *  shown: what's above the box is the same in every window, and you may be typing to the session
+ *  in one. One closed that came up by itself goes once you've seen it, with `Session.sideAnswer`:
+ *  left there, it would hold the box for good, and what you next typed would go to it. */
+export function useSideAnswer(key: string, answer: SideAnswer | undefined): void {
+  const latest = useLatest(answer);
+  useEffect(() => {
+    const come = () => {
+      if (latest.current) showAnswer(key, latest.current);
+    };
+    come();
+    window.addEventListener('focus', come);
+    return () => window.removeEventListener('focus', come);
+  }, [key, latest]);
+  const seen = !answer;
+  // Before it's drawn: seen while the session was elsewhere, it'd show for a moment and be gone.
+  useLayoutEffect(() => {
+    const view = viewOf(key);
+    if (seen && view?.kind === 'past' && view.brought) showSides(key, null);
+  }, [key, seen]);
 }
 
 /** The side conversation a question asked now goes on in rather than the open one: the one being

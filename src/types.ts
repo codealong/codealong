@@ -183,6 +183,10 @@ export interface Session {
    *  goes to it first until you take it up (board.rs `apply_raise`, queue.ts `byPlace`). Missing
    *  from older Macs. */
   raised?: Raised;
+  /** What a side conversation answered that you haven't seen (board.rs `apply_side_answer`): a
+   *  session whose turn you'd seen is Your turn for it, and a window shows it above the box as it
+   *  comes to the session (side.ts `useSideAnswer`). Missing from older Macs. */
+  sideAnswer?: SideAnswer;
   /** Replies another session suggested you send it (`codealong session suggest`), shown above its
    *  box to send with a click, while they still answer where it stands: nothing sent to it since,
    *  no turn of its started since (board::suggestions_hold). Missing from older Macs. */
@@ -2771,6 +2775,18 @@ export interface SideGlance {
   startedAt: number;
   /** When it was last asked, or what was kept of it was written. */
   lastAt: number;
+  /** When it finished what it was asked, until it's read (side.rs `Open::answered_at`). */
+  answeredAt?: number;
+}
+
+/** The side conversation that answered last since you saw a session (`Session.sideAnswer`). */
+export interface SideAnswer {
+  /** Its record's id (`Side.id`, `SideKept.id`). */
+  id: string;
+  /** It's the session's open one; closed, it's read where the kept ones are. */
+  open?: boolean;
+  /** When it finished answering. */
+  at: number;
 }
 
 /** A side conversation as Codealong keeps it (`sides.json`), to read once its copy is gone: the

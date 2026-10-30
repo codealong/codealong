@@ -1069,6 +1069,11 @@ pub struct SideKept {
     /// (`SIDE_PAST`), never kept so.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub answering: bool,
+    /// When it finished answering, until it was asked again or closed with nothing left to
+    /// answer: what its session waits on you for (`model::Session::side_answer`). None in what
+    /// was kept before 2026-10-30, none of which waits on you.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub answered_at: Option<i64>,
 }
 
 // ---- starting a session (`start-options`, `start`) ----

@@ -292,6 +292,11 @@ pub struct Session {
     /// from Macs before 2026-10-29, whose queues go by status and wait alone.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub raised: Option<Raised>,
+    /// What a side conversation answered that you haven't seen (`board::apply_side_answer`): a
+    /// session whose turn you'd seen is Your turn for it, and a window shows it above the box as
+    /// it comes to the session. None from Macs before 2026-10-30.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub side_answer: Option<SideAnswer>,
     /// Replies another session suggested you send it (`codealong session suggest`), shown above
     /// its box to send with a click, while they still answer where it stands
     /// (`board::suggestions_hold`). None from Macs before 2026-10-09.
@@ -558,6 +563,7 @@ impl Session {
             snoozed_until: None,
             quiet: false,
             raised: None,
+            side_answer: None,
             suggestions: None,
             pin: None,
             earlier: false,
@@ -737,6 +743,19 @@ pub struct Suggestions {
 /// A session moved to the top of what waits on you (`Session::raised`): when, and by whom. The
 /// queues go to the ones you moved first, then the ones agents did, each the latest first
 /// (`board::raised_order`).
+/// The side conversation that answered last since you saw a session (`Session::side_answer`).
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SideAnswer {
+    /// Its record's id (`api::Side::id`).
+    pub id: String,
+    /// It's the session's open one; closed, it's read where the kept ones are.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub open: bool,
+    /// When it finished answering, by the clock of the session's Mac.
+    pub at: i64,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Raised {

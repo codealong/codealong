@@ -272,7 +272,8 @@ elsewhere), the check at the top of its panel or its right-click menu. Only that
 Code turn you haven't seen stays Your turn for three days after its terminal closes or the Mac
 restarts, and a Codex thread's until you see it. Mark as unread (⌃⌘U, `u` elsewhere, or its
 right-click menu, for several picked sessions too, and from a linked phone) makes a turn you've seen
-Your turn again, until you see it or send it a prompt.
+Your turn again, until you see it or send it a prompt. A side conversation that answered waits on you
+the same way ([Side conversations](#side-conversations)).
 
 #### Fork
 
@@ -436,6 +437,22 @@ side conversation, and brings its window forward). Its top line drags it and its
 back closes the window and shows the conversation above the box again, and its × or ⌘W close it,
 as Close does, and the window. It comes back at launch where it was left, empty until you ask it something. Other
 `/…` commands go to the session as typed.
+
+Once a side conversation has answered all it was asked (or its copy stopped before it could), its
+session waits on you as it does for a finished turn. One whose turn you'd seen is Your turn from
+then, saying *Answered on the side* and what was asked; one that's running or waits on you shows
+that as ever. Whichever window comes to the session next (Sessions, the notch, the waiting window,
+the peek, a session kept on the desktop) shows the side conversation above the box, and the box is
+its, as it is whenever one shows: the open one, or the one that answered if it was closed
+meanwhile. Out in a window of its own, that window comes forward instead, leaving the keyboard
+where it is. It comes up once in a window, so × puts it away for good there until there's another
+answer. An answer that comes in while the session shows leaves the box alone, as you may be typing
+in it, until the window next comes forward. The session stops waiting for it when you mark it seen,
+which also takes away one closed that came up by itself and gives the box back to the session; when
+you send the session a message; when you ask the side conversation something else; or when you
+Close the open one with nothing left to answer. Opening the session where it lives can't show what
+was answered, so that leaves the session waiting, and doesn't mark it seen as it otherwise would. A
+PR's questions have no session to wait on you.
 
 A session on another machine is asked on the side the same way: its copy runs on that machine,
 beside the session, and the answer shows here as it's written. Asking needs remote control on that

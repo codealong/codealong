@@ -1736,6 +1736,23 @@ pub fn apply_unread(s: &mut Session, mark: Option<&UnreadMark>, seen_at: i64) {
     }
 }
 
+/// Applies what a session's side conversations answered to it, before a mark of unread and a
+/// snooze: finishing what it was asked is a turn ending, so the latest one to answer since you saw
+/// the session is `Session::side_answer`, and one whose turn is over (idle or stopped) is Your turn
+/// from then, saying so, until you see it or send it a prompt after that. One that's running or
+/// waits on you shows that instead and keeps the answer for when you come to it, and an archived
+/// one stays as it is.
+pub fn apply_side_answer(s: &mut Session, sides: &[crate::side::Glance], seen_at: i64) {
+    let unseen = sides.iter().filter_map(|g| g.answered_at.filter(|at| *at > seen_at && *at >= s.last_prompt_at).map(|at| (at, g))).max_by_key(|(at, _)| *at);
+    let Some((at, g)) = unseen.filter(|_| !s.archived) else { return };
+    if matches!(s.status, Status::Idle | Status::Stopped) {
+        s.status = Status::Unread;
+        s.status_since = Some(at);
+        s.excerpt = Some(format!("Answered on the side · {}", g.question));
+    }
+    s.side_answer = Some(SideAnswer { id: g.id.clone(), open: g.open, at });
+}
+
 /// Applies Jev's read of a session to what the board shows, before bays and headlines are
 /// worked out, so they follow it:
 /// - a finished turn whose reply asks you something is Needs you, with the question;
@@ -4129,6 +4146,55 @@ mod tests {
         let mut untouched = idle.clone();
         apply_unread(&mut untouched, None, 0);
         assert_eq!(untouched.status, Status::Idle);
+    }
+
+    #[test]
+    fn a_side_conversations_answer_is_your_turn_until_seen_or_prompted() {
+        const MIN: i64 = 60_000;
+        let a = acct("claude2");
+        let seen = claude_session(&a, Some(&reg("idle", NOW - 20 * MIN)), Some(&tr()), NOW - 30 * MIN, NOW, &Quiet::default()).unwrap();
+        let idle = Session { status: Status::Idle, last_prompt_at: NOW - 40 * MIN, ..seen };
+        let side = |id: &str, open: bool, answered_at: Option<i64>| crate::side::Glance { id: id.into(), question: "Why a queue?".into(), open, answered_at, ..Default::default() };
+        let answered = NOW - 5 * MIN;
+        let applied = |s: &Session, sides: &[crate::side::Glance], seen_at: i64| {
+            let mut s = s.clone();
+            apply_side_answer(&mut s, sides, seen_at);
+            s
+        };
+        let one = [side("a", true, Some(answered))];
+
+        // Its turn over and seen before the answer: Your turn, from the answer, saying what for.
+        let s = applied(&idle, &one, NOW - 10 * MIN);
+        assert_eq!((s.status, s.status_since, s.excerpt.as_deref()), (Status::Unread, Some(answered), Some("Answered on the side · Why a queue?")));
+        assert_eq!(s.side_answer, Some(SideAnswer { id: "a".into(), open: true, at: answered }));
+        let stopped = Session { status: Status::Stopped, live: false, ..idle.clone() };
+        assert_eq!(applied(&stopped, &one, NOW - 10 * MIN).status, Status::Unread);
+
+        // Seen since, or prompted since, it's as it was, and nothing's left to show.
+        let s = applied(&idle, &one, NOW - MIN);
+        assert_eq!((s.status, s.side_answer), (Status::Idle, None));
+        let prompted = Session { last_prompt_at: NOW - MIN, ..idle.clone() };
+        assert_eq!(applied(&prompted, &one, NOW - 10 * MIN).status, Status::Idle);
+
+        // Running or waiting on you, it shows that, and has the answer for when you come to it.
+        for status in [Status::Working, Status::Needs, Status::Error] {
+            let s = applied(&Session { status, excerpt: Some("Reading".into()), ..idle.clone() }, &one, NOW - 10 * MIN);
+            assert_eq!((s.status, s.excerpt.as_deref(), s.side_answer.is_some()), (status, Some("Reading"), true));
+        }
+        // A turn of its own that ended stays what it waits for, since when it did.
+        let turn = Session { status: Status::Unread, status_since: Some(NOW - 20 * MIN), excerpt: Some("Done.".into()), ..idle.clone() };
+        let s = applied(&turn, &one, NOW - 30 * MIN);
+        assert_eq!((s.status_since, s.excerpt.as_deref(), s.side_answer.is_some()), (Some(NOW - 20 * MIN), Some("Done."), true));
+
+        // Archived, it stays as it is.
+        let s = applied(&Session { archived: true, ..idle.clone() }, &one, NOW - 10 * MIN);
+        assert_eq!((s.status, s.side_answer), (Status::Idle, None));
+        // What's kept from before answers have times, or one still answering, waits on nothing.
+        let s = applied(&idle, &[side("old", false, None)], NOW - 10 * MIN);
+        assert_eq!((s.status, s.side_answer), (Status::Idle, None));
+        // Of several, the latest shows.
+        let s = applied(&idle, &[side("first", false, Some(answered - MIN)), side("last", false, Some(answered)), side("seen", false, Some(NOW - 20 * MIN))], NOW - 10 * MIN);
+        assert_eq!(s.side_answer, Some(SideAnswer { id: "last".into(), open: false, at: answered }));
     }
 
     #[test]

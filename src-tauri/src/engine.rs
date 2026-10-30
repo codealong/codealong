@@ -740,7 +740,11 @@ impl Handle {
     pub fn open(&self, lane_id: &str, target_id: &str) -> Result<()> {
         let board = self.board.read().map(|b| b.clone()).map_err(|_| anyhow!("board unavailable"))?;
         if let Some(key) = open_on(&board, lane_id, target_id)? {
-            self.mark_seen(vec![key]);
+            // Where it lives shows nothing of what a side conversation answered, which goes on
+            // waiting for a window of Codealong's to show it.
+            if !board.session(&key).is_some_and(|(_, s)| s.side_answer.is_some()) {
+                self.mark_seen(vec![key]);
+            }
         }
         // Another editor picked from an Open in menu is the one Open in <editor> uses from then
         // on, as Codex's Open button remembers its last. The watcher publishes the change.
@@ -1967,22 +1971,24 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         Ok(!keys.is_empty())
     }
 
-    /// Sessions with quiet, helpers' and headless runs' rules, their marks of unread, their
-    /// snoozes and their moves to the top applied (board::apply_quiet, board::apply_helper,
-    /// board::apply_headless, board::apply_unread, board::apply_snooze, board::apply_raise). A
-    /// snooze's time coming changes nothing on disk: the 30-second heartbeat's publish brings it
-    /// back.
-    fn with_snoozes(&self, mut sessions: Vec<Session>, now: i64) -> Vec<Session> {
+    /// Sessions with quiet, helpers' and headless runs' rules, what their side conversations
+    /// answered, their marks of unread, their snoozes and their moves to the top applied
+    /// (board::apply_quiet, board::apply_helper, board::apply_headless, board::apply_side_answer,
+    /// board::apply_unread, board::apply_snooze, board::apply_raise). A snooze's time coming
+    /// changes nothing on disk: the 30-second heartbeat's publish brings it back.
+    fn with_snoozes(&self, mut sessions: Vec<Session>, sides: &std::collections::BTreeMap<String, Vec<crate::side::Glance>>, now: i64) -> Vec<Session> {
         let unattended = sessions.iter().any(|s| s.helper.is_some() || s.headless);
-        if self.seen.snoozed.is_empty() && self.seen.unread.is_empty() && self.seen.quiet.is_empty() && self.seen.raised.is_empty() && !unattended {
+        if self.seen.snoozed.is_empty() && self.seen.unread.is_empty() && self.seen.quiet.is_empty() && self.seen.raised.is_empty() && sides.is_empty() && !unattended {
             return sessions;
         }
         for s in &mut sessions {
             // Quiet and a helper's or headless run's rule first, so that what you do to it
-            // yourself after (a mark of unread, a snooze that ends) still brings it back.
+            // yourself after (a side conversation you asked, a mark of unread, a snooze that
+            // ends) still brings it back.
             board::apply_quiet(s, self.seen.is_quiet(&s.key));
             board::apply_helper(s);
             board::apply_headless(s);
+            board::apply_side_answer(s, sides.get(&s.key).map_or(&[], Vec::as_slice), self.seen.seen_at(&s.key));
             // A mark of unread next: a snooze keeps a session marked unread off the bar too.
             board::apply_unread(s, self.seen.unread_of(&s.key), self.seen.seen_at(&s.key));
             board::apply_snooze(s, self.seen.snooze_of(&s.key), self.seen.seen_at(&s.key), now);
@@ -3808,11 +3814,12 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         let usage = self.compose_usage(now);
         let pr_links = self.pr_links();
         let repo_settings = self.team_files.settings(&self.cfg.repos);
+        let sides = crate::side::glances();
         let mut board = board::compose(board::Inputs {
             now,
             apps: &apps,
             seeds: &self.seeds,
-            sessions: self.with_connections(self.with_limits(self.with_snoozes(self.with_suggestions(self.with_insights(self.with_emblems(self.with_artifacts(self.with_chrome(self.with_run_origins(self.with_origins(with_terminals(self.build_sessions(now))))))), now)), now), &usage, now)),
+            sessions: self.with_connections(self.with_limits(self.with_snoozes(self.with_suggestions(self.with_insights(self.with_emblems(self.with_artifacts(self.with_chrome(self.with_run_origins(self.with_origins(with_terminals(self.build_sessions(now))))))), now)), &sides, now), &usage, now)),
             git: &self.git,
             prs: self.github.prs(),
             requested: self.github.requested(),
@@ -3838,7 +3845,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         board.usage = usage;
         board.training = self.training.list(&self.cfg.accounts);
         board.mcp = self.mcp.list(&self.cfg.accounts);
-        board.sides = crate::side::glances();
+        board.sides = sides;
         board.github_polled = self.github.polled();
         board.github_current = self.github.current();
         board.when_limited = self.cfg.limits.when_hit;

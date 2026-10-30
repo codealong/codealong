@@ -93,7 +93,7 @@ import { filesToAttach, keepFiles, useFileDrop } from '../attachInput';
 import { onDraftChange, readDraft, sideDraft, writeDraft } from '../drafts';
 import { sessionPlace } from '../harness';
 import { stoppable, stuckMidTurn, waitsOnYou } from '../lanes';
-import { beingRead, notAsked, showSides, startingSide, useAside, usePopped } from '../side';
+import { beingRead, notAsked, showSides, startingSide, useAside, usePopped, useSideAnswer } from '../side';
 import { COMMANDS, slashCommand, slashMatches } from '../slash';
 import { completed, matching, mentionsIn, sessionSkills, skillNamed, typedAt, writtenFor } from '../skills';
 import { rememberResumed, resumeChoice, resumedIn, resumeIn, resumeWords, type ResumePicks } from '../start';
@@ -1649,6 +1649,7 @@ export function Reply({ session, terminal, runIn, onOpen, autoFocus, keys, onSen
   const [call, setCall] = useState<CallKeys | null>(null);
   const takeKeys = useCallback((keys: CallKeys | null) => setCall(keys), []);
   const callKeys = waiting ? call : null;
+  useSideAnswer(session.key, session.sideAnswer);
   return (
     <>
       {waiting && <Approval key={`wait:${session.key}`} session={session} terminal={terminal} onOpen={onOpen} onAnswered={onAnswered} keys={keys} onKeys={takeKeys} onNext={onNext} />}
