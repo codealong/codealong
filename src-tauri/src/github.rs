@@ -103,7 +103,7 @@ impl PrRaw {
     /// Your assignment to it, while that asks for your review: an open PR that isn't a draft or
     /// yours, which someone else assigned you to after your latest review. An author who asks for
     /// your review by assigning you, as some do, rather than asking GitHub for it, left a PR
-    /// waiting on nobody (specset-website#63, 2026-10-28). GitHub ends a request for your review at
+    /// waiting on nobody (2026-10-28). GitHub ends a request for your review at
     /// any review you submit, but an assignment stays, so only a review after it answers it.
     pub fn assigned_review(&self, login: Option<&str>) -> Option<&Assigned> {
         let mine = login.is_some() && self.author.as_deref() == login;
@@ -1990,19 +1990,19 @@ mod tests {
     #[test]
     fn reads_who_said_what_when_on_an_open_pr() {
         // As GitHub answered for a PR whose reviewer asked for changes, was asked again after the
-        // fixes and found them fixed (specbook#1293, 2026-10-22), with a bot's comment and a review
+        // fixes and found them fixed (2026-10-22), with a bot's comment and a review
         // by someone GitHub no longer knows.
-        let node = r#"{"number":7,"title":"t","url":"u","state":"OPEN","isDraft":false,"reviewDecision":"CHANGES_REQUESTED","headRefName":"b","headRefOid":"b4908ef","author":{"login":"whather"},
+        let node = r#"{"number":7,"title":"t","url":"u","state":"OPEN","isDraft":false,"reviewDecision":"CHANGES_REQUESTED","headRefName":"b","headRefOid":"b4908ef","author":{"login":"wren"},
             "commits":{"nodes":[{"commit":{"message":"m","committedDate":"2026-10-22T07:04:12Z"}}]},
-            "timelineItems":{"nodes":[{"__typename":"ReviewRequestedEvent","createdAt":"2026-10-22T07:07:43Z","actor":{"login":"whather"},"requestedReviewer":{"__typename":"User","login":"ghempton"}}]},
+            "timelineItems":{"nodes":[{"__typename":"ReviewRequestedEvent","createdAt":"2026-10-22T07:07:43Z","actor":{"login":"wren"},"requestedReviewer":{"__typename":"User","login":"otto"}}]},
             "said":{"pageInfo":{"hasPreviousPage":false},"nodes":[
-                {"__typename":"IssueComment","createdAt":"2026-10-22T06:59:13Z","author":{"__typename":"User","login":"ghempton"}},
-                {"__typename":"PullRequestReview","submittedAt":"2026-10-22T06:59:15Z","author":{"__typename":"User","login":"ghempton"}},
+                {"__typename":"IssueComment","createdAt":"2026-10-22T06:59:13Z","author":{"__typename":"User","login":"otto"}},
+                {"__typename":"PullRequestReview","submittedAt":"2026-10-22T06:59:15Z","author":{"__typename":"User","login":"otto"}},
                 {"__typename":"IssueComment","createdAt":"2026-10-22T07:05:00Z","author":{"__typename":"Bot","login":"vercel"}},
                 {"__typename":"PullRequestReview","submittedAt":"2026-10-22T07:06:00Z","author":null},
-                {"__typename":"IssueComment","createdAt":"2026-10-22T07:11:37Z","author":{"__typename":"User","login":"ghempton"}}]},
-            "latestOpinionatedReviews":{"pageInfo":{"hasNextPage":false},"nodes":[{"state":"CHANGES_REQUESTED","submittedAt":"2026-10-22T06:59:15Z","author":{"__typename":"User","login":"ghempton"},"commit":{"oid":"c2a5d6b"}},{"state":"APPROVED","submittedAt":"2026-10-22T05:00:00Z","author":{"__typename":"User","login":"ana"},"commit":{"oid":"9edc816"}},{"state":"CHANGES_REQUESTED","submittedAt":"2026-10-22T05:01:00Z","author":{"__typename":"Bot","login":"ci-app"},"commit":{"oid":"9edc816"}}]}}"#;
-        let answer = format!(r#"{{"data":{{"viewer":{{"login":"whather"}},"repository":{{"open":{{"nodes":[{node}]}},"done":{{"nodes":[]}}}},"requested":{{"nodes":[]}}}}}}"#);
+                {"__typename":"IssueComment","createdAt":"2026-10-22T07:11:37Z","author":{"__typename":"User","login":"otto"}}]},
+            "latestOpinionatedReviews":{"pageInfo":{"hasNextPage":false},"nodes":[{"state":"CHANGES_REQUESTED","submittedAt":"2026-10-22T06:59:15Z","author":{"__typename":"User","login":"otto"},"commit":{"oid":"c2a5d6b"}},{"state":"APPROVED","submittedAt":"2026-10-22T05:00:00Z","author":{"__typename":"User","login":"ana"},"commit":{"oid":"9edc816"}},{"state":"CHANGES_REQUESTED","submittedAt":"2026-10-22T05:01:00Z","author":{"__typename":"Bot","login":"ci-app"},"commit":{"oid":"9edc816"}}]}}"#;
+        let answer = format!(r#"{{"data":{{"viewer":{{"login":"wren"}},"repository":{{"open":{{"nodes":[{node}]}},"done":{{"nodes":[]}}}},"requested":{{"nodes":[]}}}}}}"#);
         let pr = parse(&answer).unwrap().prs.remove(0);
         let at = |s: &str| parse_rfc3339_ms(s).unwrap();
         assert_eq!(pr.head_at, Some(at("2026-10-22T07:04:12Z")));
@@ -2010,14 +2010,14 @@ mod tests {
         assert_eq!(
             said,
             vec![
-                ("ghempton", at("2026-10-22T06:59:13Z"), None),
-                ("ghempton", at("2026-10-22T06:59:15Z"), None),
-                ("whather", at("2026-10-22T07:07:43Z"), Some("ghempton")),
-                ("ghempton", at("2026-10-22T07:11:37Z"), None),
+                ("otto", at("2026-10-22T06:59:13Z"), None),
+                ("otto", at("2026-10-22T06:59:15Z"), None),
+                ("wren", at("2026-10-22T07:07:43Z"), Some("otto")),
+                ("otto", at("2026-10-22T07:11:37Z"), None),
             ]
         );
         // A bot's request for changes is no one to ask again.
-        assert_eq!(pr.changes_asked, vec![ChangesAsked { who: "ghempton".into(), at: at("2026-10-22T06:59:15Z"), commit: Some("c2a5d6b".into()) }]);
+        assert_eq!(pr.changes_asked, vec![ChangesAsked { who: "otto".into(), at: at("2026-10-22T06:59:15Z"), commit: Some("c2a5d6b".into()) }]);
         // GitHub gave all of it; with more before, it's known from the earliest it gave, a bot's too.
         assert_eq!(pr.said_from, None);
         let more = parse(&answer.replace(r#""hasPreviousPage":false"#, r#""hasPreviousPage":true"#)).unwrap().prs.remove(0);
@@ -2581,10 +2581,10 @@ mod tests {
         let n = |events: &[String]| serde_json::from_str::<Value>(&format!(r#"{{"timelineItems":{{"nodes":[{}]}}}}"#, events.join(","))).unwrap();
         let of = |events: &[String]| assigned_of(&n(events), Some("gwen"));
         let at = |s: &str| parse_rfc3339_ms(s).unwrap();
-        // The latest assignment of you, whoever else was assigned since (as GitHub answered for
-        // specset-website#63, 2026-10-28).
-        let both = [asked.clone(), assigned("2026-10-28T07:07:04Z", "SpecedOut", "ghempton"), assigned("2026-10-28T07:07:05Z", "SpecedOut", "GWen")];
-        assert_eq!(of(&both), Some(Assigned { by: "SpecedOut".into(), at: at("2026-10-28T07:07:05Z") }));
+        // The latest assignment of you, whoever else was assigned since (as GitHub answered on
+        // 2026-10-28).
+        let both = [asked.clone(), assigned("2026-10-28T07:07:04Z", "kestrel", "ana"), assigned("2026-10-28T07:07:05Z", "kestrel", "GWen")];
+        assert_eq!(of(&both), Some(Assigned { by: "kestrel".into(), at: at("2026-10-28T07:07:05Z") }));
         // Not once you're unassigned, nor one you made yourself, nor someone else's.
         assert_eq!(of(&[assigned("2026-10-28T07:00:00Z", "ken", "gwen"), unassigned("2026-10-28T08:00:00Z", "gwen")]), None);
         assert_eq!(of(&[unassigned("2026-10-28T07:00:00Z", "gwen"), assigned("2026-10-28T08:00:00Z", "ken", "gwen")]).map(|a| a.at), Some(at("2026-10-28T08:00:00Z")));
@@ -2600,12 +2600,12 @@ mod tests {
 
     #[test]
     fn an_assignment_asks_for_your_review_until_you_review_after_it() {
-        let node = r#"{"number":63,"title":"t","url":"u","state":"OPEN","isDraft":false,"reviewDecision":null,"updatedAt":"2026-10-28T07:07:05Z","headRefName":"b","commits":{"nodes":[]},"author":{"login":"SpecedOut"},
+        let node = r#"{"number":63,"title":"t","url":"u","state":"OPEN","isDraft":false,"reviewDecision":null,"updatedAt":"2026-10-28T07:07:05Z","headRefName":"b","commits":{"nodes":[]},"author":{"login":"kestrel"},
             "viewerLatestReview":{"state":"COMMENTED","submittedAt":"2026-10-27T19:25:16Z","commit":{"oid":"1b39b00"}},
             "reviewRequests":{"nodes":[]},
-            "timelineItems":{"nodes":[{"__typename":"AssignedEvent","createdAt":"2026-10-28T07:07:05Z","actor":{"login":"SpecedOut"},"assignee":{"__typename":"User","login":"whather"}}]},
-            "repository":{"nameWithOwner":"specsetai/specset-website"}}"#;
-        let answer = |asked: &[&str], assigned: &[&str]| parse_requested(&format!(r#"{{"data":{{"viewer":{{"login":"whather"}},"search":{{"nodes":[{}]}},"assigned":{{"nodes":[{}]}}}}}}"#, asked.join(","), assigned.join(","))).unwrap().prs;
+            "timelineItems":{"nodes":[{"__typename":"AssignedEvent","createdAt":"2026-10-28T07:07:05Z","actor":{"login":"kestrel"},"assignee":{"__typename":"User","login":"wren"}}]},
+            "repository":{"nameWithOwner":"northwind/web"}}"#;
+        let answer = |asked: &[&str], assigned: &[&str]| parse_requested(&format!(r#"{{"data":{{"viewer":{{"login":"wren"}},"search":{{"nodes":[{}]}},"assigned":{{"nodes":[{}]}}}}}}"#, asked.join(","), assigned.join(","))).unwrap().prs;
         let found = |node: &str| answer(&[], &[node]);
         // Assigned after your last review: the assignments' search keeps it, though GitHub asks
         // nobody.
@@ -2613,16 +2613,16 @@ mod tests {
         assert_eq!(prs.len(), 1);
         let pr = &prs[0].1;
         assert!(!pr.review_requested);
-        assert_eq!(pr.assigned_review(Some("whather")).map(|a| a.by.as_str()), Some("SpecedOut"));
+        assert_eq!(pr.assigned_review(Some("wren")).map(|a| a.by.as_str()), Some("kestrel"));
         // A review of yours after it answers it; one before doesn't, nor did none.
         let reviewed = node.replace("2026-10-27T19:25:16Z", "2026-10-28T09:00:00Z");
         assert!(found(&reviewed).is_empty());
         assert!(found(&node.replace(r#""viewerLatestReview":{"state":"COMMENTED","submittedAt":"2026-10-27T19:25:16Z","commit":{"oid":"1b39b00"}},"#, "")).len() == 1);
         // Never a draft, a PR of yours, or one that's ended.
         assert!(found(&node.replace(r#""isDraft":false"#, r#""isDraft":true"#)).is_empty());
-        assert!(found(&node.replace(r#""author":{"login":"SpecedOut"}"#, r#""author":{"login":"whather"}"#)).is_empty());
+        assert!(found(&node.replace(r#""author":{"login":"kestrel"}"#, r#""author":{"login":"wren"}"#)).is_empty());
         let merged = PrRaw { state: PrState::Merged, ..pr.clone() };
-        assert_eq!(merged.assigned_review(Some("whather")), None);
+        assert_eq!(merged.assigned_review(Some("wren")), None);
         // Found only by the assignments' search, a team's request isn't yours: reviewed since, it
         // waits on that team, not on you. The requests' search finding it says it's yours.
         let team = reviewed.replace(r#""reviewRequests":{"nodes":[]}"#, r#""reviewRequests":{"nodes":[{"requestedReviewer":{"__typename":"Team","name":"web"}}]}"#);
@@ -2633,7 +2633,7 @@ mod tests {
         assert_eq!(both.len(), 1);
         assert!(both[0].1.review_requested);
         // A kept answer from before the assignments were searched still reads.
-        assert_eq!(parse_requested(r#"{"data":{"viewer":{"login":"whather"},"search":{"nodes":[]}}}"#).unwrap().prs.len(), 0);
+        assert_eq!(parse_requested(r#"{"data":{"viewer":{"login":"wren"},"search":{"nodes":[]}}}"#).unwrap().prs.len(), 0);
         assert!(REQUESTED_QUERY.contains("assigned: search(query: $assigned, type: ISSUE, first: 50)") && ASSIGNED_SEARCH.contains("assignee:@me -author:@me"));
         assert!(glance_query(0).contains("assigned: search(query: $assigned, type: ISSUE, first: 50)"));
     }

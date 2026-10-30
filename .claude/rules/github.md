@@ -118,8 +118,8 @@ Harness facts (from GitHub's answers on this Mac, 2026-10-01). A bare file name 
   `REVIEW_REQUESTED_EVENT` in `ASKED_FIELDS`'s `timelineItems` (`assigned_of`, `events_of`), each
   node's `__typename` telling them apart, `assignee` a union whose `... on User { login }` names
   you; one connection, so a repo's `QUERY` stayed at 8 points with them and `last: 20`
-  (2026-10-28). Assigning moves the PR's `updatedAt` (specset-website#63's was its assignment's
-  second), so a glance sees it, and a review leaves the assignment standing, unlike a review
+  (2026-10-28). Assigning moves the PR's `updatedAt` (to the assignment's second), so a glance
+  sees it, and a review leaves the assignment standing, unlike a review
   request (`PrRaw::assigned_review`). The PRs assigned to you anywhere are a search of their own
   beside the requests' (`ASSIGNED_SEARCH`, `assignee:@me -author:@me`; `REQUESTED_QUERY` and the
   glance), so they never crowd requests out of its fifty and being found by the requests' search

@@ -3,7 +3,7 @@
 //! came after their last word, and nobody has said so on it (`TurnKind::ReplyNeeded`, board.rs
 //! `turn_of`). GitHub tells a reviewer of a review request, which their Codealong reviews again by
 //! itself, but not of a push, so a PR whose agent pushed the fixes and said nothing waited on
-//! nobody (specbook#1293 and #1290, 2026-10-22, where each request made by hand was answered by
+//! nobody (two PRs on 2026-10-22, where each request made by hand was answered by
 //! the reviewer's agent within minutes).
 //!
 //! It's asked once the PR has been quiet for `SETTLE_MS` (its last update, which a push is, and its

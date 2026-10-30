@@ -173,7 +173,7 @@ function agentPill(pr: PrFacts): PrPill | null {
 /** Whose move it is where the review state doesn't say (`PrItem.turn`, board.rs `turn_of`), in
  *  place of what it would say: GitHub keeps a request for changes until its reviewer approves or
  *  dismisses it, so on a PR of yours whose fixes are in, Changes requested read as yours to do long
- *  after it was theirs (specbook#1293, 2026-10-22). Amber is your move, grey theirs. */
+ *  after it was theirs (2026-10-22). Amber is your move, grey theirs. */
 function turnPill(pr: PrFacts): PrPill | null {
   const t = pr.turn;
   if (!t || !isOpen(pr.state) || pr.state === 'draft') return null;

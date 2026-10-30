@@ -2691,7 +2691,7 @@ mod tests {
         let p = changes_asked();
         // Nothing since the request: it says itself.
         assert_eq!(kind(&p, true), None);
-        // The fixes pushed and nothing said: specbook#1293 between 07:04 and 07:07.
+        // The fixes pushed and nothing said, as on a PR between 07:04 and 07:07 on 2026-10-22.
         let pushed = PrRaw { head_oid: Some("bbb".into()), head_at: Some(110), ..p.clone() };
         assert_eq!(kind(&pushed, true), Some((ReplyNeeded, "ken".into(), Some(110))));
         // Said before the push, not after it: still yours.
