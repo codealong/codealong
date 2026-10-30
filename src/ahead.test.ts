@@ -486,6 +486,17 @@ describe('barAhead', () => {
       ['b', true],
       ['a', false],
     ]);
+    // A recent one, its turn seen, is Your turn again, and a snoozed one is woken, both first.
+    const recent = { ...item('r', 'working', NOW - 99, { status: 'idle' }), group: 'recent' as const };
+    const snoozed = { ...item('z', 'needs', NOW - 9), group: 'snoozed' as const, snoozedUntil: NOW + 3_600_000 };
+    const out = barAhead(feed([item('n', 'needs', NOW - 50), item('a', 'unread', NOW - 40)], [recent], [snoozed]), [change({ kind: 'raise', keys: ['r', 'z'], raised: true })]);
+    expect(out.items.map((i) => [i.key, i.group, !!i.raised])).toEqual([
+      ['z', 'needs', true],
+      ['n', 'needs', false],
+      ['r', 'unread', true],
+      ['a', 'unread', false],
+    ]);
+    expect([out.recent.length, out.snoozed.length]).toEqual([0, 0]);
   });
 
   it('names a renamed session’s pill wherever it is on the bar', () => {

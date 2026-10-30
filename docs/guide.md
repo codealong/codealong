@@ -2648,8 +2648,9 @@ its header says it was moved to the top.
 An agent can move one up too, with `codealong session raise <session> --note "<why>"`, as an
 orchestrator does for what other work waits on (`--lower` puts it back). Its chip's tooltip and the
 header name the agent's session, with why. Every one you moved goes ahead of the ones agents did, an
-agent can't move up a session you snoozed, and once you put one an agent moved back in line, it
-can't move it up again until the session is sent something or its status changes. A session on
+agent can neither move nor put back one you moved there, it can't move up a session you snoozed,
+and once you put one an agent moved back in line, it can't move it up again until the session is
+sent something or its status changes. A session on
 another device is moved on its Mac, as a snooze is.
 
 #### Suggested replies

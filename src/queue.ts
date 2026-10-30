@@ -89,9 +89,13 @@ export function leftAfter<T>(queue: T[], key: string, handled: Handled, reads: P
   const rows = inQueueOrder(queue, reads).map((row) => ({ row, at: placeOf(row, reads) }));
   const from = rows.find((r) => r.at.key === key)?.at ?? (was?.key === key ? was : null);
   const i = from ? rows.findIndex((r) => byPlace(r.at, from) > 0) : 0;
-  const round = i < 0 ? rows : [...rows.slice(i), ...rows.slice(0, i)];
+  const at = i < 0 ? rows.length : i;
   const fresh = (r: { at: Place }) => came != null && r.at.raised != null && r.at.raised.at > came;
-  const order = [...rows.filter(fresh), ...round.filter((r) => !fresh(r))];
+  // Those ahead of where you are that are fresh go in among the ones after it, in the queue's
+  // order: one moved up by an agent still waits behind one you moved there yourself.
+  const before = rows.slice(0, at);
+  const ahead = [...before.filter(fresh), ...rows.slice(at)].sort((a, b) => byPlace(a.at, b.at));
+  const order = [...ahead, ...before.filter((r) => !fresh(r))];
   return order
     .filter(({ at }) => {
       const dealt = handled.get(at.key);

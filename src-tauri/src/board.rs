@@ -1681,11 +1681,12 @@ pub fn apply_raise(s: &mut Session, raise: Option<&Raise>) {
 }
 
 /// Whether marking a session seen takes it up, ending a move to the top: its turn is over (Your
-/// turn, a reply that asks you something, or one already seen). Opening one that's running marks
-/// it seen too, which mustn't take away a move meant for when its turn ends; nor does looking at a
-/// call to allow, which waits on an answer.
+/// turn, a reply that asks you something, a turn that was cut off, or one already seen), as the
+/// windows' Mark as seen has it (lanes.ts `seenable`). Opening one that's running marks it seen
+/// too, which mustn't take away a move meant for when its turn ends; nor does looking at a call to
+/// allow, which waits on an answer.
 pub fn seen_takes_up(s: &Session) -> bool {
-    s.asks || matches!(s.status, Status::Unread | Status::Idle | Status::Stopped)
+    s.asks || (s.status == Status::Error && s.cut_off.is_some()) || matches!(s.status, Status::Unread | Status::Idle | Status::Stopped)
 }
 
 /// The order of sessions moved to the top (`Session::raised`), ahead of the rest: the ones you
@@ -1701,11 +1702,18 @@ pub fn raised_order(a: Option<&Raised>, b: Option<&Raised>) -> std::cmp::Orderin
     }
 }
 
-/// Why an agent may not move a session to the top, or none when it may: you snoozed it, or you
-/// moved it back to its place from where an agent had put it and it hasn't moved on since (no
-/// prompt sent to it, and its status hasn't changed).
-pub fn raise_refused(s: &Session, raise: Option<&Raise>, snoozed: bool) -> Option<String> {
-    if snoozed {
+/// Why an agent may not move a session to the top, or back to its place (`raised` false), or none
+/// when it may: you moved it to the top yourself, which is yours to undo and goes ahead of any
+/// agent's; you snoozed it; or you moved it back to its place from where an agent had put it and
+/// it hasn't moved on since (no prompt sent to it, and its status hasn't changed).
+pub fn raise_refused(s: &Session, raise: Option<&Raise>, raised: bool) -> Option<String> {
+    if s.raised.as_ref().is_some_and(|r| !r.agent) {
+        return Some("Your user moved it to the top themselves, which is theirs to undo.".to_string());
+    }
+    if !raised {
+        return None;
+    }
+    if s.snoozed_until.is_some() {
         return Some("Your user snoozed it. Leave it until it's back.".to_string());
     }
     let lowered = raise.and_then(|r| r.lowered)?;
@@ -3898,7 +3906,8 @@ mod tests {
         assert_eq!(raised(&idle, None), (Status::Idle, unread.status_since, None));
         // Seeing it takes it up once its turn is over, not while it runs or waits on a call.
         assert!(seen_takes_up(&unread) && seen_takes_up(&idle) && seen_takes_up(&Session { asks: true, ..needs.clone() }));
-        assert!(!seen_takes_up(&working) && !seen_takes_up(&needs));
+        assert!(seen_takes_up(&Session { status: Status::Error, cut_off: Some(NOW), ..unread.clone() }), "a turn cut off");
+        assert!(!seen_takes_up(&working) && !seen_takes_up(&needs) && !seen_takes_up(&Session { status: Status::Error, ..unread.clone() }));
     }
 
     #[test]
@@ -3921,12 +3930,19 @@ mod tests {
     fn an_agent_may_not_move_up_what_you_snoozed_or_moved_back() {
         let s = Session { status: Status::Unread, status_since: Some(NOW - 1_000), last_prompt_at: NOW - 2_000, ..crate::fixtures::session("k") };
         let lowered = |at: i64| Raise { key: "k".into(), raised: Raised { at: NOW - 5_000, agent: true, ..Default::default() }, lowered: Some(at) };
-        assert_eq!(raise_refused(&s, None, false), None);
-        assert!(raise_refused(&s, None, true).is_some_and(|w| w.contains("snoozed")));
-        assert!(raise_refused(&s, Some(&lowered(NOW)), false).is_some_and(|w| w.contains("back to its place")));
+        assert_eq!(raise_refused(&s, None, true), None);
+        assert!(raise_refused(&Session { snoozed_until: Some(NOW + 1), ..s.clone() }, None, true).is_some_and(|w| w.contains("snoozed")));
+        assert!(raise_refused(&s, Some(&lowered(NOW)), true).is_some_and(|w| w.contains("back to its place")));
         // Once it's moved on since, it may.
-        assert_eq!(raise_refused(&s, Some(&lowered(NOW - 1_500)), false), None, "its status changed since");
-        assert_eq!(raise_refused(&Session { last_prompt_at: NOW + 1, ..s.clone() }, Some(&lowered(NOW)), false), None, "sent a prompt since");
+        assert_eq!(raise_refused(&s, Some(&lowered(NOW - 1_500)), true), None, "its status changed since");
+        assert_eq!(raise_refused(&Session { last_prompt_at: NOW + 1, ..s.clone() }, Some(&lowered(NOW)), true), None, "sent a prompt since");
+        // What you moved up is yours: an agent neither moves it again nor puts it back, though it
+        // may put back its own.
+        let yours = Session { raised: Some(Raised { at: NOW, ..Default::default() }), ..s.clone() };
+        assert!(raise_refused(&yours, None, true).is_some_and(|w| w.contains("theirs to undo")));
+        assert!(raise_refused(&yours, None, false).is_some_and(|w| w.contains("theirs to undo")));
+        let its = Session { raised: Some(Raised { at: NOW, agent: true, ..Default::default() }), ..s.clone() };
+        assert_eq!(raise_refused(&its, None, false), None);
     }
 
     #[test]

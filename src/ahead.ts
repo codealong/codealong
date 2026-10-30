@@ -455,6 +455,13 @@ function barMoved(feed: BarFeed, changes: Ahead[]): BarFeed {
       } else if (!gone && until != null && (r.group === 'recent' || r.snoozedUntil !== until)) {
         snoozing.push({ ...r, group: 'snoozed', snoozedUntil: until } as BarSnoozed);
         gone = true;
+      } else if (!gone && raised(r.key) != null) {
+        // Moved to the top, it waits on you, woken from a snooze, and one whose turn you'd seen
+        // is Your turn again (board.rs `apply_raise`).
+        const needs = r.status === 'needs' || r.status === 'error';
+        const at = raised(r.key) ?? r.since;
+        items.push({ ...pill, group: needs ? 'needs' : 'unread', status: needs ? r.status : 'unread', since: r.group === 'recent' ? at : r.since, raised: { at } });
+        gone = true;
       } else if (!gone && until === null && r.group === 'snoozed') {
         // Woken, it's back where its status puts it; one with nothing to show for itself is Your turn.
         const needs = r.status === 'needs' || r.status === 'error';

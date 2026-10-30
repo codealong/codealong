@@ -140,6 +140,9 @@ describe('the queue’s order', () => {
     expect(keys(leftAfter(both, 'A', none, READS, null, 70))).toEqual(['B', 'C', 'D']);
     expect(keys(leftAfter(both, 'B', none, READS, null, 80))).toEqual(['C', 'D', 'A']);
     expect(keys(leftAfter(both, 'C', none, READS, null, 90))).toEqual(['D', 'A', 'B']);
+    // One an agent moved up while you were on one you moved there waits behind the rest of yours.
+    const yours = [top(A, 60), top(B, 50), { ...C, raised: { at: 150, agent: true } }, D];
+    expect(keys(leftAfter(yours, 'A', none, READS, null, 100))).toEqual(['B', 'C', 'D']);
     // And a window that shows the one moved up says it's next.
     expect(stepTo('next', { ...card(B, [A, B, C, top(D, 150)]), came: 100 }, 'B', none)?.key).toBe('D');
   });

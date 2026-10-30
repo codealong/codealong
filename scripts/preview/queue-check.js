@@ -58,6 +58,9 @@
           s.status = p.status;
           s.statusSince = p.since;
           s.asks = p.status === 'needs';
+          // A helper's ended turn doesn't wait on you (board.rs `apply_helper`): a real one picked
+          // here would leave the queue a session short.
+          s.helper = undefined;
           s.title = 'Queue ' + 'ABCD'[picked.length];
           s.live = true;
           made[s.key] = s;

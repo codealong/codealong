@@ -1774,9 +1774,10 @@ Commands:
               they already saw waits on them again. Keep it for what other work waits on
               or what can't wait (a deploy held up, a PR others are blocked behind), a
               few at a time, and say why in --note, which shows on it with your
-              session's name. Turned down while it's snoozed, and after your user moves
-              it back to its place, until it's sent something or its status changes.
-              --lower moves it back. A session on another device is moved on its Mac.
+              session's name. Turned down for one your user moved there themselves
+              (theirs to undo), while it's snoozed, and after your user moves it back to
+              its place, until it's sent something or its status changes. --lower moves
+              back one an agent moved. A session on another device is moved on its Mac.
               Needs the app running
   rename      Name a session where its harness keeps names (Claude Code's /rename, a
               Codex thread's name, an OpenCode session's title), so the harness shows
@@ -2332,9 +2333,10 @@ it something or mark its finished turn seen. One that's running is first once it
 ends; one whose turn they already saw waits on them again. Keep it for what other work
 waits on or what can't wait (a deploy held up, a PR others are blocked behind), a few at
 a time, and say why in --note, which shows on it with your session's name. Turned down
-while it's snoozed, and after your user moves it back to its place, until it's sent
-something or its status changes. --lower moves it back. A session on another device is
-moved on its Mac. Needs the app running
+for one your user moved there themselves (theirs to undo), while it's snoozed, and after
+your user moves it back to its place, until it's sent something or its status changes.
+--lower moves back one an agent moved. A session on another device is moved on its Mac.
+Needs the app running
 
 Usage: codealong session raise [OPTIONS] <KEY>
 

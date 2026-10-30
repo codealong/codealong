@@ -1943,20 +1943,20 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
     }
 
     /// Moves sessions to the top, as `raise` asks (`Msg::Raise`), or back to their places. An
-    /// agent's move is turned down, before any is made, where `board::raise_refused` says, and one
-    /// of yours wakes a snooze. True when anything changed.
+    /// agent's move either way is turned down, before any is made, where `board::raise_refused`
+    /// says, and one of yours wakes a snooze. True when anything changed.
     fn on_raise(&mut self, keys: &[String], raised: bool, by: Raised, now: i64) -> Result<bool, String> {
-        if !raised {
-            return Ok(keys.iter().fold(false, |changed, k| self.seen.lower(k, now, !by.agent) | changed));
-        }
         if by.agent {
             let b = self.board.read().map_err(|_| "Codealong couldn't read its board.".to_string())?;
             for k in keys {
                 let Some((_, s)) = b.session(k) else { return Err("Codealong doesn't list that session.".to_string()) };
-                if let Some(why) = board::raise_refused(s, self.seen.raise_of(k), s.snoozed_until.is_some()) {
+                if let Some(why) = board::raise_refused(s, self.seen.raise_of(k), raised) {
                     return Err(why);
                 }
             }
+        }
+        if !raised {
+            return Ok(keys.iter().fold(false, |changed, k| self.seen.lower(k, now, !by.agent) | changed));
         }
         for k in keys {
             if !by.agent {
