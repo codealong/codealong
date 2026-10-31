@@ -45,6 +45,13 @@ describe('blocks with no language', () => {
     expect(runs(`../scripts/apply.sh -target='member["user:me@example.com"]' --note "a's grant"`)).toBe(true);
     expect(runs('./build.sh --release && ./scripts/check.sh')).toBe(true);
     expect(runs('NODE_ENV=test ./run-tests | grep fail')).toBe(true);
+    // One named from a folder without `./`, when its name is a script's (2026-10-31).
+    expect(runs('cd /Users/me/projects/northwind-infra\ngit pull -q        # now 5d47dc9\nscripts/elevate.mjs ops "Rotate the leaked keys (change c1c5)"\nscripts/rotate.sh check')).toBe(true);
+    expect(runs('scripts/rotate.sh check\nscripts/rotate.sh locate')).toBe(true);
+    expect(runs('tools/migrate.py --dry-run && make')).toBe(true);
+    expect(runs('bin/rails server -p 3001')).toBe(true);
+    expect(runs('node_modules/.bin/vitest run src/ui')).toBe(true);
+    expect(runs('CI=1 .venv/bin/pytest -q')).toBe(true);
   });
 
   it("don't for output, paths, settings, code, or a command shown with what it printed", () => {
@@ -56,6 +63,14 @@ describe('blocks with no language', () => {
     expect(runs('./src/main.ts:12:5 - error TS2322: not assignable')).toBe(false);
     expect(runs('/usr/local/bin/tool  →  0.3.1')).toBe(false);
     expect(runs('~/bin/tool --help')).toBe(false);
+    // A file or package led by a folder, as what something printed names one (2026-10-31).
+    expect(runs('libs/web/vitest.config.ts was not found by the project service.')).toBe(false);
+    expect(runs('acme-actions/get-credentials failed with: connection timeout')).toBe(false);
+    expect(runs('@atlas/cli@0.3.1 -> ../../projects/atlas/apps/cli')).toBe(false);
+    expect(runs('acme/web has team settings in .codealong/config.toml')).toBe(false);
+    expect(runs('src/robin/notes.md and more')).toBe(false);
+    expect(runs('scripts/relaunch.sh')).toBe(false);
+    expect(runs('src/ui/config.json is read first')).toBe(false);
     expect(runs('[server]\nport = 8080')).toBe(false);
     expect(runs('$ git status')).toBe(false);
     expect(runs('zsh: command not found: foo')).toBe(false);

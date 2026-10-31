@@ -5,8 +5,9 @@
 // writes a command for you to run because it wants what it prints, whatever its harness. The tab
 // closes by itself a while after they end (`[apps] close_command_tabs_after`) unless you take a
 // shell there. A block with no language is a shell block when each of its lines starts with a
-// command this Mac has or a script by its path from where it runs (`isCommandBlock`), as agents
-// often write one for you to run, or when it's led by `!`, as Claude Code's agents write one.
+// command this Mac has or a script by its path from where it runs, `./` or not (`isCommandBlock`),
+// as agents often write one for you to run, or when it's led by `!`, as Claude Code's agents
+// write one.
 
 import { createContext, useEffect, useState } from 'react';
 import { shellCommands } from '../api';
@@ -52,13 +53,20 @@ const NAME = /^([A-Za-z0-9_][A-Za-z0-9._+-]*)(?=$|[\s;&|<>])/;
  *  as often a file named as a script run (as `find` prints them), and one led by `/` or `~` as
  *  often output that names a file, so neither counts. */
 const SCRIPT = /^\.\.?\/[\w.+@/-]*[\w.+-](?=\s+\S|\s*[;&|<>])/;
+/** A script named from a folder in the one it runs in without `./` (`scripts/rotate.sh check`),
+ *  which a shell runs all the same since its name has a `/`. A path led by a folder is as often
+ *  a file or a package named in what something printed, with words after it
+ *  (`libs/web/vitest.config.ts was not found`, `actions/deploy failed with`), so only a script's
+ *  name counts here: a language a script's `#!` line runs, or a program in a `bin` folder
+ *  (`node_modules/.bin/vitest run`). */
+const FOLDER_SCRIPT = /^(?:(?:[\w.-]+\/)+[\w.+@-]+\.(?:sh|bash|zsh|mjs|cjs|js|py|rb|pl)|(?:[\w.-]+\/)*\.?bin\/[\w.+@-]+)(?=\s+\S|\s*[;&|<>])/;
 /** A line the next one carries on: an escaped newline, or a pipe or `&&` left open. */
 const CARRIES_ON = /(\\|\||&&)$/;
 
 /** Whether a block that doesn't say it's shell is commands all the same: each of its lines,
  *  past comments and blank ones and those a line before carries on into, starts with a command
- *  in `known` (runcode.rs `commands`) or a script given arguments (`SCRIPT`). Output, a path or
- *  a config file doesn't, nor a command shown with what it printed. */
+ *  in `known` (runcode.rs `commands`) or a script given arguments (`SCRIPT`, `FOLDER_SCRIPT`).
+ *  Output, a path or a config file doesn't, nor a command shown with what it printed. */
 export function isCommandBlock(text: string, known: ReadonlySet<string>): boolean {
   let commands = 0;
   let carried = false;
@@ -72,7 +80,7 @@ export function isCommandBlock(text: string, known: ReadonlySet<string>): boolea
     let rest = t;
     while (ASSIGNMENT.test(rest)) rest = rest.replace(ASSIGNMENT, '');
     const name = NAME.exec(rest)?.[1];
-    if (!(name && known.has(name)) && !SCRIPT.test(rest)) return false;
+    if (!(name && known.has(name)) && !SCRIPT.test(rest) && !FOLDER_SCRIPT.test(rest)) return false;
     commands++;
     carried = CARRIES_ON.test(t);
   }
