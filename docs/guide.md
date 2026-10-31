@@ -21,6 +21,10 @@ it is, how to install it and how to get going. The settings file is annotated in
 
 ## The main window
 
+It opens where you left it, at the size you left it, however Codealong last ended; if that screen
+is gone, on the screen with the pointer. A window left in full screen comes back at the frame it
+had before. On Linux the window manager places it.
+
 **Five views** of the current project, each in a window of its own if you like (⌘⇧N): Sessions
 (grouped by worktree or by repo if you like), PRs, Todo, Schedules (every project's), and its
 boards, each shown as Kanban or as Canvas (an experiment, off until Settings › Experimental turns
@@ -3562,7 +3566,8 @@ caches in `~/.cache/codealong/`.
 
 What you've seen (for Your turn), what you've pinned, snoozed and archived in Codealong are kept in
 `state.json` next to it; whether the bar is on, floating or in the notch, where you left it
-floating and the screen you dragged the notch to, in `bar.json`; what's pinned to the desktop, and where each card was left, in
+floating and the screen you dragged the notch to, in `bar.json`; where the main window was left in
+`window.json` and the waiting window in `waiting.json`; what's pinned to the desktop, and where each card was left, in
 `desktop.json`; the sessions kept there from the peek, and their windows' frames, in `kept.json`;
 the boards, with each one's canvas, in `boards.json` (until there was a change to them, each
 project's canvas came from `canvas.json`, which is left as it was); which session started or was forked into which (and which

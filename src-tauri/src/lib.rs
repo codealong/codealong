@@ -41,6 +41,7 @@ mod engine;
 mod fixtures;
 mod geometry;
 mod flash;
+mod frames;
 mod front;
 mod ghpoll;
 mod git;
@@ -2249,6 +2250,8 @@ pub fn run() {
             app.set_theme(native_theme(theme));
             // And at its zoom: the main window is made before this runs.
             zoom::follow(app.handle(), config::zoom());
+            // And where it was left, which brings it up.
+            frames::setup(app.handle());
             let shown = std::sync::Mutex::new(theme);
             let shown_logo = std::sync::Mutex::new(model::LogoStatus::Idle);
             let floating = Floating::default();
@@ -2529,6 +2532,7 @@ pub fn run() {
         }).build())
         .on_window_event(|window, event| {
             front::on_window_event(window, event);
+            frames::on_window_event(window, event);
             bar::on_window_event(window, event);
             quick::on_window_event(window, event);
             waiting::on_window_event(window, event);
@@ -2546,9 +2550,11 @@ pub fn run() {
                 ref reopen if os::windows::reopened(reopen) => {
                     let _ = front::show_main(app, None);
                 }
-                // Where the waiting window is, written when it's put away, for one that's up as
-                // Codealong quits.
-                tauri::RunEvent::Exit => waiting::save(app),
+                // Where the windows are, for a move too recent to have been written (frames.rs).
+                tauri::RunEvent::Exit => {
+                    frames::save(app);
+                    waiting::save(app);
+                }
                 _ => {}
             }
         });

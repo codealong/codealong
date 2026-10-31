@@ -67,7 +67,9 @@ What Linux, its desktops and the harnesses there turned out to need, found in th
 - 2026-10-16: Wayland (XWayland apps keep X11's ways; native Wayland gets no window places), a
   real desktop's Secret Service for `os/secrets.rs`, the global shortcuts (Tauri maps `Cmd` to Super
   there), a signed-in Claude Code's own sessions and usage, and every emulator but xterm.
-- The waiting window's place (2026-10-16, openbox in the VM): its size is kept when it's put away
+- The main window isn't put back there: as the first window up its border isn't known, so it
+  would grow by its title bar at each launch (`frames.rs`). The waiting window's place
+  (2026-10-16, openbox in the VM): its size is kept when it's put away
   and opened again, its frame read with the title bar and the border taken off as it's put back
   (os/windows/linux.rs `border`), but openbox places it as it's shown, wherever it was put before, and
   after a relaunch it opened where Tauri first put it. Putting the frame back once it's shown

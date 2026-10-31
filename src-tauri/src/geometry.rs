@@ -39,6 +39,11 @@ impl Rect {
         x >= self.x && x <= self.right() && y >= self.y && y <= self.top()
     }
 
+    /// Whether all of another rectangle is inside this one, touching its edges or not.
+    pub(crate) fn holds(&self, r: Rect) -> bool {
+        r.x >= self.x && r.right() <= self.right() && r.y >= self.y && r.top() <= self.top()
+    }
+
     /// The rectangle of this size whose top left corner is at `x`, `top`: how a window that
     /// keeps its top edge is placed, since AppKit places it by its bottom.
     pub(crate) fn from_top_left(x: f64, top: f64, w: f64, h: f64) -> Rect {
