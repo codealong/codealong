@@ -655,6 +655,8 @@ export interface Usage {
   loading: boolean;
   /** Its harness keeps no limits Codealong can read, and `error` says why. */
   noLimits?: boolean;
+  /** The usage endpoint turned the last read away, and `error` says when it's tried again. */
+  rateLimited?: boolean;
 }
 
 /** Where an account stands on its provider training on what it sends (training.rs). */

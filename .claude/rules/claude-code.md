@@ -672,7 +672,14 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   `{amount_minor, currency, exponent}` with `balance` and `auto_reload`, and
   `seven_day_breakdown`, the week's share by surface (Claude Code, Chats, Cowork; read
   2026-10-12). Nothing in a transcript says which calls extra usage paid for: overage fields
-  (`quotaLimits.isUsingOverage`) are only on refused turns.
+  (`quotaLimits.isUsingOverage`) are only on refused turns. Claude took away its 5-hour limits
+  on 2026-10-31: `five_hour` answers null and `limits` has no `session` row, on both accounts
+  here. That day both were answered 429 at once right after a relaunch, and both read again 10
+  minutes later; what set it off isn't known. Claude Code 2.1.316's own read (`fetchUtilization`) asks with `/api/oauth/usage` alone, keeps a
+  429 for its `Retry-After`, or 5 minutes without one, an hour at most, and sends
+  `cedar_ember=1`, `at_wall=1` or `starry_waterfall=<surface>` only for its limit-reached offers.
+  Codealong's numbers outlast a relaunch in `usage.json` (`usage.rs` `keep`, `kept`), so a read
+  turned away at launch keeps them too.
 - What each call used, for the token ledger: `claude/transcript.rs` (`token_use`). A reply's
   usage is written again on each line of it as it streams, the first ones short of the final
   count, and copied by forks, moves and side questions, so the ledger keeps one row per message

@@ -3225,9 +3225,12 @@ Antigravity and Cursor don't say, so their print runs are sessions like any othe
 
 ### Usage
 
-**Usage** for every account in a bar across the top: 5-hour and weekly limits, per-model limits such
-as Fable, and time to reset. When they don't all fit, each account shows the limit it's closest to
-running out of and the rest on hover, and the bar scrolls sideways. Antigravity's are its weekly
+**Usage** for every account in a bar across the top: weekly limits, 5-hour limits where the plan has
+them, per-model limits such as Fable, and time to reset. When they don't all fit, each account shows
+the limit it's closest to running out of and the rest on hover, and the bar scrolls sideways. A read
+that fails keeps the last numbers, dimmed, with why on hover, and they outlast a relaunch (those of
+the last hour). With no numbers to keep the chip says why it has none: *Rate limited* when Claude
+turned the read away, which clears when it's read again a few minutes later. Antigravity's are its weekly
 limits for each group of models (Gemini; Claude and GPT), read through its command line, `agy`,
 every couple of minutes; with only the app installed it has none to show. Cursor's are its monthly
 limits, asked of Cursor with the app's sign-in every couple of minutes: on a plan that spills over

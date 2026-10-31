@@ -1246,8 +1246,9 @@ pub struct Usage {
     /// Its `preferred` setting: Auto starts it over accounts without one while it has room.
     #[serde(default)]
     pub preferred: bool,
-    /// The usage endpoint asked us to slow down.
-    #[serde(skip)]
+    /// The usage endpoint asked us to slow down, so the bar says that rather than that it has
+    /// no numbers. Absent from machines of older builds.
+    #[serde(default)]
     pub rate_limited: bool,
 }
 

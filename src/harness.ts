@@ -127,5 +127,6 @@ export function usageNote(u: Usage | undefined): string {
   if (u.loading) return 'Reading…';
   if (u.harness === 'codex') return 'No turns yet';
   if (u.noLimits) return 'No limits to show';
+  if (u.rateLimited) return 'Rate limited';
   return 'Usage unavailable';
 }

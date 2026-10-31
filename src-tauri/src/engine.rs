@@ -2028,6 +2028,8 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
     fn full_scan(&mut self) {
         self.load_config();
         self.load_state();
+        // From the first board on, and for `keep_last_good` should the first read be turned away.
+        self.usage = usage::kept(now_ms());
         self.remember_accounts();
         self.save_state();
         self.load_todos();
@@ -2230,6 +2232,10 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         for u in list {
             let u = keep_last_good(self.usage.get(&u.account), u);
             self.usage.insert(u.account.clone(), u);
+        }
+        // This engine's tests make their numbers up.
+        if !cfg!(test) {
+            usage::keep(&self.usage);
         }
         self.dirty = true;
     }

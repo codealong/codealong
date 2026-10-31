@@ -1,0 +1,30 @@
+{
+  "usage": [
+    {
+      "account": "claude",
+      "harness": "claude",
+      "plan": "Max 20x",
+      "rateLimited": true,
+      "error": "Couldn't read usage: rate limited, trying again in a few minutes",
+      "meters": []
+    },
+    {
+      "account": "claude-work",
+      "harness": "claude",
+      "plan": "Max 20x",
+      "readAgo": 6,
+      "rateLimited": true,
+      "error": "Couldn't read usage: rate limited, trying again in a few minutes",
+      "meters": [
+        { "key": "week", "label": "Week", "window": "Weekly, all models", "percent": 16, "resetsIn": 4300 },
+        { "key": "model:Fable", "label": "Fable", "window": "Weekly, Fable only", "percent": 3, "resetsIn": 4300, "model": "Fable" }
+      ]
+    },
+    {
+      "account": "antigravity",
+      "harness": "antigravity",
+      "error": "Couldn't read usage: `agy` didn't answer in 30 seconds",
+      "meters": []
+    }
+  ]
+}

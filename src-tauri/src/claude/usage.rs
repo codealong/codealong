@@ -291,6 +291,22 @@ mod tests {
         assert_eq!(m[0].resets_at, parse_rfc3339_ms("2026-09-24T01:39:59.762Z"));
     }
 
+    /// As the endpoint has answered since Claude took away its 5-hour limits (2026-10-31): the
+    /// old field is still there, null, and `limits` has no `session` row.
+    #[test]
+    fn a_plan_without_a_session_limit_has_its_weeks() {
+        let v: Value = serde_json::from_str(
+            r#"{"five_hour":null,"seven_day":{"utilization":16.0,"resets_at":"2026-11-03T20:59:59.783738+00:00"},"limits":[
+              {"kind":"weekly_all","group":"weekly","percent":16,"severity":"normal","resets_at":"2026-11-03T20:59:59.783738+00:00","scope":null,"is_active":true},
+              {"kind":"weekly_scoped","group":"weekly","percent":0,"severity":"normal","resets_at":"2026-11-03T21:00:00+00:00",
+               "scope":{"model":{"id":null,"display_name":"Fable"},"surface":null},"is_active":false}]}"#,
+        )
+        .unwrap();
+        let m = claude_meters(&v);
+        assert_eq!(m.iter().map(|m| m.key.as_str()).collect::<Vec<_>>(), ["week", "model:Fable"]);
+        assert_eq!(m[0].percent, 16.0);
+    }
+
     #[test]
     fn falls_back_to_fixed_windows() {
         let v: Value = serde_json::from_str(r#"{"five_hour":{"utilization":95.0,"resets_at":null},"seven_day":{"utilization":10.0},"seven_day_opus":null}"#).unwrap();

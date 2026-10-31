@@ -61,8 +61,9 @@ and no server.
   command you give it prints something new (a deploy went out), when a PR merges or a todo is
   ready, or when a script fires it. Nothing is spent watching: an agent runs only when something
   happens.
-- **Know where your plan limits stand.** Each account's limits (5-hour and weekly, or monthly
-  where the plan counts by the month), always in view, and new work goes to the account with room.
+- **Know where your plan limits stand.** Each account's limits (weekly, 5-hour where the plan has
+  them, or monthly where it counts by the month), always in view, and new work goes to the account
+  with room.
 - **All your machines on one board.** Link them and see, and if you allow it act on, the sessions
   running on any of them. An [iPhone app](https://github.com/codealong/codealong-ios) is on the way.
 
@@ -473,8 +474,8 @@ session where it lives.**
 
 | Agent | Sees it | Sends prompts | Answers approvals | Starts sessions | Several accounts | Usage limits |
 | --- | :-: | --- | --- | --- | :-: | --- |
-| **Claude Code** in a terminal | ✓ | Types into its tab | ✓ | ✓ | ✓ | 5-hour, weekly, per model |
-| **Claude Code** background jobs | ✓ | Its background service | ✓ | ✓ | ✓ | 5-hour, weekly, per model |
+| **Claude Code** in a terminal | ✓ | Types into its tab | ✓ | ✓ | ✓ | Weekly, per model |
+| **Claude Code** background jobs | ✓ | Its background service | ✓ | ✓ | ✓ | Weekly, per model |
 | **Claude app** | ✓ | As a message from another session | ✓ (with the plugin) | Opens it with the prompt | Its signed-in account | Shared with Claude Code |
 | **Codex CLI** | ✓ | Types into its tab | In its terminal | ✓ | ✓ | 5-hour, weekly |
 | **Codex app** | ✓ | Starts a new turn | In the app | ✓ | Its signed-in account | 5-hour, weekly |

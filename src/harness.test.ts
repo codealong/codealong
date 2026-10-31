@@ -25,6 +25,7 @@ describe('usageNote', () => {
     expect(usageNote(usage({ harness: 'opencode', noLimits: true, error: 'OpenCode bills the provider you bring.' }))).toBe('No limits to show');
     // Antigravity's quotas are read through its command line, so a read that failed says so.
     expect(usageNote(usage({ error: "Couldn't read usage: `agy` didn't answer in 30 seconds" }))).toBe('Usage unavailable');
+    expect(usageNote(usage({ harness: 'claude', rateLimited: true, error: "Couldn't read usage: rate limited, trying again in a few minutes" }))).toBe('Rate limited');
     expect(usageNote(usage({ loading: true }))).toBe('Reading…');
     expect(usageNote(usage({ needsSignIn: true }))).toBe('Not signed in');
     expect(usageNote(usage({ harness: 'codex' }))).toBe('No turns yet');
