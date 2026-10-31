@@ -1233,6 +1233,8 @@ enum ScheduleCmd {
     Show { schedule: String },
     /// A new schedule. Say when it runs (--at, --watch, --on or --when-fired) and what it's told (--prompt). Made by an agent, what it sends goes as Codealong's, not as your user's, and its sessions are the agent's own (`Started by`). Prints it.
     Add(ScheduleAddArgs),
+    /// Change a schedule in place: it keeps its id, its runs and its notes, which removing it and adding it again would lose. It takes what `schedule add` does, and only what's given changes: --at, --watch, --on or --when-fired says anew when it runs, --every or --value changes its watch, and --repo, --mine or --label its event; told to run at other times or on something else, it goes on as a new one would, from now. A yes-or-no option is turned off with `=no` (`--quiet=no`), a text one taken off with an empty value (`--only-if ""`). Prints it.
+    Edit(ScheduleEditArgs),
     /// Remove a schedule, and what's noted of its runs.
     Remove { schedule: String },
     /// Pause a schedule: nothing runs it until it's resumed, and its times that pass meanwhile aren't run then.
@@ -1249,31 +1251,52 @@ enum ScheduleCmd {
 
 #[derive(Args, Debug)]
 struct ScheduleAddArgs {
-    /// Its name, which `schedule show`, `run` and `fire` take as well as its id.
+    /// Its name, which `schedule show`, `edit`, `run` and `fire` take as well as its id.
     name: String,
+    #[command(flatten)]
+    options: ScheduleOptions,
+}
+
+#[derive(Args, Debug)]
+struct ScheduleEditArgs {
+    /// The schedule: its id, or its name.
+    schedule: String,
+    /// A new name for it.
+    #[arg(long, allow_hyphen_values = true)]
+    name: Option<String>,
+    #[command(flatten)]
+    options: ScheduleOptions,
+}
+
+/// What `schedule add` says of a new schedule and `schedule edit` changes of one (`with_options`):
+/// to `edit`, each given changes what it names and the rest stay as they are. A yes-or-no one is
+/// turned off with `=no` (`--quiet=no`), and a text one taken off with an empty value
+/// (`--only-if ""`).
+#[derive(Args, Debug, Default)]
+struct ScheduleOptions {
     /// At these times (see `schedule times`): `weekdays 9:00`, `every 2h`, `cron 0 9 * * 1-5`.
     #[arg(long, conflicts_with_all = ["watch", "on", "when_fired"])]
     at: Option<String>,
     /// When this command, run every --every through your login shell in the schedule's worktree, prints a line it hasn't printed before (each line is one thing, by its words, or a JSON object with an `id`, and `title`, `url`, `text`). Its first run only notes what's there. It's told `CODEALONG_SINCE` (its last good look, ISO 8601) and `CODEALONG_STATE_DIR` (a folder of its own). A command that fails looks less often until it works.
     #[arg(long, allow_hyphen_values = true, conflicts_with_all = ["on", "when_fired"])]
     watch: Option<String>,
-    /// How often the watch looks: `5m`, `1h`; at most once a minute.
-    #[arg(long, default_value = "5m", requires = "watch")]
-    every: String,
-    /// The watch's whole output is one value (the latest deploy's id), run for whenever it changes, rather than each line.
-    #[arg(long, requires = "watch")]
-    value: bool,
-    /// When this happens on the board, after the schedule is made.
+    /// How often its watch looks: `5m` (a new watch's), `1h`; at most once a minute.
+    #[arg(long, conflicts_with_all = ["at", "on", "when_fired"])]
+    every: Option<String>,
+    /// Its watch's whole output is one value (the latest deploy's id), run for whenever it changes, rather than each line.
+    #[arg(long, value_name = "YES|NO", num_args = 0..=1, require_equals = true, default_missing_value = "yes", value_parser = yes_no, conflicts_with_all = ["at", "on", "when_fired"])]
+    value: Option<bool>,
+    /// When this happens on the board, from when it's said to.
     #[arg(long, value_enum, conflicts_with = "when_fired")]
     on: Option<ScheduleEventArg>,
     /// With --on pr-merged or checks-failed: only in this repo (owner/name).
-    #[arg(long, requires = "on")]
+    #[arg(long, conflicts_with_all = ["at", "watch", "when_fired"])]
     repo: Option<String>,
     /// With --on pr-merged or checks-failed: only your own PRs.
-    #[arg(long, requires = "on")]
-    mine: bool,
+    #[arg(long, value_name = "YES|NO", num_args = 0..=1, require_equals = true, default_missing_value = "yes", value_parser = yes_no, conflicts_with_all = ["at", "watch", "when_fired"])]
+    mine: Option<bool>,
     /// With --on todo-ready: only a todo with this label. A new session is linked to the todo and told it.
-    #[arg(long, requires = "on")]
+    #[arg(long, conflicts_with_all = ["at", "watch", "when_fired"])]
     label: Option<String>,
     /// Only when it's fired (`schedule fire`, or Run now in the app).
     #[arg(long)]
@@ -1284,27 +1307,27 @@ struct ScheduleAddArgs {
     /// The prompt from a file, or from stdin with `-`.
     #[arg(long, conflicts_with = "prompt")]
     prompt_file: Option<String>,
-    /// Keep one session going: the first run starts it, and each later one is sent to it (once its turn ends, if it's at work), going on out of sight with it if it stopped.
-    #[arg(long, conflicts_with = "to")]
-    thread: bool,
+    /// Keep one session going: the first run starts it, and each later one is sent to it (once its turn ends, if it's at work), going on out of sight with it if it stopped. `--thread=no` starts a new session each run.
+    #[arg(long, value_name = "YES|NO", num_args = 0..=1, require_equals = true, default_missing_value = "yes", value_parser = yes_no, conflicts_with = "to")]
+    thread: Option<bool>,
     /// With --thread: start a new session once its session started this long ago (`1d`, `12h`), so it doesn't carry weeks of runs.
-    #[arg(long, requires = "thread")]
+    #[arg(long)]
     fresh_after: Option<String>,
     /// Send each run to this session instead of starting one: its key, or `me` for the session running this command.
     #[arg(long)]
     to: Option<String>,
-    /// The worktree its sessions start in: a path, or `.` (the default).
-    #[arg(long, default_value = ".")]
-    worktree: String,
-    /// Have Claude Code make a fresh worktree for each session (`claude --worktree`).
+    /// The worktree its sessions start in: a path, or `.` (a new schedule's).
     #[arg(long)]
-    new_worktree: bool,
+    worktree: Option<String>,
+    /// Have Claude Code make a fresh worktree for each session (`claude --worktree`).
+    #[arg(long, value_name = "YES|NO", num_args = 0..=1, require_equals = true, default_missing_value = "yes", value_parser = yes_no)]
+    new_worktree: Option<bool>,
     /// Start its sessions in no project, each in a folder of its own among Codealong's chats.
-    #[arg(long, conflicts_with_all = ["new_worktree"])]
+    #[arg(long, conflicts_with_all = ["new_worktree", "worktree"])]
     chat: bool,
-    /// The account or routing group its sessions start on, picked again at each run; `auto` (the default) picks as the quick panel does.
-    #[arg(long, default_value = "auto")]
-    account: String,
+    /// The account or routing group its sessions start on, picked again at each run; `auto` (a new schedule's) picks as the quick panel does.
+    #[arg(long)]
+    account: Option<String>,
     /// A model to start on.
     #[arg(long)]
     model: Option<String>,
@@ -1318,26 +1341,26 @@ struct ScheduleAddArgs {
     #[arg(long, allow_hyphen_values = true)]
     only_if: Option<String>,
     /// Its sessions are quiet: a turn they end isn't Your turn, and they wait on your user only when they need them.
-    #[arg(long)]
-    quiet: bool,
+    #[arg(long, value_name = "YES|NO", num_args = 0..=1, require_equals = true, default_missing_value = "yes", value_parser = yes_no)]
+    quiet: Option<bool>,
     /// Tell each run of a notes file in the schedule's own folder, to read first and add to, so a new session each time still knows what the last ones found.
-    #[arg(long)]
-    notes: bool,
+    #[arg(long, value_name = "YES|NO", num_args = 0..=1, require_equals = true, default_missing_value = "yes", value_parser = yes_no)]
+    notes: Option<bool>,
     /// Start another session while the last one is still at work or waiting on your user, rather than skip the run.
-    #[arg(long)]
-    allow_overlap: bool,
+    #[arg(long, value_name = "YES|NO", num_args = 0..=1, require_equals = true, default_missing_value = "yes", value_parser = yes_no)]
+    allow_overlap: Option<bool>,
     /// Skip a time missed while the Mac slept or the app was closed, rather than run the latest one once it's back.
-    #[arg(long)]
-    skip_missed: bool,
+    #[arg(long, value_name = "YES|NO", num_args = 0..=1, require_equals = true, default_missing_value = "yes", value_parser = yes_no)]
+    skip_missed: Option<bool>,
     /// The most runs a day.
-    #[arg(long)]
-    per_day: Option<u32>,
-    /// Add it paused.
-    #[arg(long)]
-    paused: bool,
-    /// Which of your machines run it (`codealong devices`): this one alone; one of them each time (the one --prefer names while it's around and can run it, else the next that can, first choices before backups); or every one, each on its own. Those they share, each keeps a copy of, so one that's asleep or off misses nothing.
-    #[arg(long, value_enum, default_value = "this")]
-    runs_on: RunsOnArg,
+    #[arg(long, value_name = "N")]
+    per_day: Option<String>,
+    /// Paused: nothing runs it until it's resumed, and its times that pass meanwhile aren't run then.
+    #[arg(long, value_name = "YES|NO", num_args = 0..=1, require_equals = true, default_missing_value = "yes", value_parser = yes_no)]
+    paused: Option<bool>,
+    /// Which of your machines run it (`codealong devices`): this one alone (a new schedule's); one of them each time (the one --prefer names while it's around and can run it, else the next that can, first choices before backups); or every one, each on its own. Those they share, each keeps a copy of, so one that's asleep or off misses nothing.
+    #[arg(long, value_enum)]
+    runs_on: Option<RunsOnArg>,
     /// With --runs-on one: the machine it prefers, by name or short id (`codealong devices`), or `this` for this one.
     #[arg(long)]
     prefer: Option<String>,
@@ -5350,7 +5373,32 @@ fn schedule(cmd: ScheduleCmd, c: &mut Client, json: bool) -> Result<()> {
             }
             return Ok(());
         }
-        ScheduleCmd::Add(a) => Op::Save { schedule: schedule_from(c, a)? },
+        ScheduleCmd::Add(a) => {
+            let mut o = a.options;
+            if o.at.is_none() && o.watch.is_none() && o.on.is_none() && !o.when_fired {
+                bail!("Say when it runs: --at <time>, --watch <command>, --on <event> or --when-fired.");
+            }
+            if !o.chat && o.worktree.is_none() {
+                o.worktree = Some(".".into());
+            }
+            Op::Save { schedule: with_options(c, schedules::Schedule { name: a.name, ..schedules::Schedule::default() }, o)? }
+        }
+        ScheduleCmd::Edit(e) => {
+            let was = schedules::load()?.find(&e.schedule).cloned().ok_or_else(|| anyhow!("There's no schedule named {}. `codealong schedule list` lists them.", e.schedule.trim()))?;
+            let mut s = with_options(c, was.clone(), e.options)?;
+            if let Some(name) = e.name {
+                s.name = name;
+            }
+            // Saved as it was, it would only look changed to your other machines.
+            if s == was {
+                if json {
+                    return print_json(&was);
+                }
+                println!("{} Nothing changed.", saved_line(c, &was.name, was.paused)?);
+                return Ok(());
+            }
+            Op::Save { schedule: s }
+        }
         ScheduleCmd::Remove { schedule } => Op::Remove { id: schedule },
         ScheduleCmd::Pause { schedule } => Op::Pause { id: schedule, paused: true },
         ScheduleCmd::Resume { schedule } => Op::Pause { id: schedule, paused: false },
@@ -5380,10 +5428,7 @@ fn schedule(cmd: ScheduleCmd, c: &mut Client, json: bool) -> Result<()> {
         _ if asks_to_run => println!("Asked: it runs within a few seconds. `codealong schedule show` has how it went."),
         _ if done.get("removed").is_some() => println!("Removed."),
         _ => {
-            let item = schedule_items(c)?.into_iter().find(|i| i.schedule.name == name);
-            let next = item.as_ref().and_then(|i| i.next_at).map(|at| format!(" Next: {}.", schedules::clock_text(at, &Local))).unwrap_or_default();
-            let paused = if done.get("paused").and_then(Value::as_bool) == Some(true) { " It's paused." } else { "" };
-            println!("{name}: {}.{next}{paused}", item.map(|i| i.when_words).unwrap_or_default());
+            println!("{}", saved_line(c, &name, done.get("paused").and_then(Value::as_bool) == Some(true))?);
             if c.app.is_none() {
                 println!("Codealong isn't running: schedules run in the app.");
             }
@@ -5411,84 +5456,170 @@ fn schedule_items(c: &mut Client) -> Result<Vec<crate::schedules::Item>> {
     Ok(items)
 }
 
-/// A schedule from `schedule add`'s arguments.
-fn schedule_from(c: &mut Client, a: ScheduleAddArgs) -> Result<crate::schedules::Schedule> {
-    use crate::schedules::{CatchUp, Event, Overlap, Run, RunsOn, Schedule, To, WatchMode, When};
-    let runs_on = match (a.runs_on, a.prefer.as_deref()) {
-        (RunsOnArg::One, prefer) => RunsOn::One { prefer: prefer.map(preferred_machine).transpose()?.unwrap_or_default() },
-        (_, Some(_)) => bail!("--prefer is for --runs-on one."),
-        (RunsOnArg::This, None) => RunsOn::This,
-        (RunsOnArg::Every, None) => RunsOn::Every,
-    };
-    let when = match (a.at, a.watch, a.on, a.when_fired) {
-        (Some(rule), _, _, _) => When::Time { rule },
-        (_, Some(command), _, _) => When::Watch { command, every: a.every, mode: if a.value { WatchMode::Value } else { WatchMode::Lines } },
-        (_, _, Some(on), _) => When::Event {
-            event: match on {
-                ScheduleEventArg::PrMerged => Event::PrMerged,
-                ScheduleEventArg::ChecksFailed => Event::ChecksFailed,
-                ScheduleEventArg::TodoReady => Event::TodoReady,
-            },
-            repo: a.repo.unwrap_or_default(),
-            label: a.label.unwrap_or_default(),
-            mine: a.mine,
-        },
-        (_, _, _, true) => When::Fired,
-        _ => bail!("Say when it runs: --at <time>, --watch <command>, --on <event> or --when-fired."),
-    };
-    let prompt = read_text(a.prompt, a.prompt_file)?.unwrap_or_default();
-    let (to, session) = match a.to.as_deref().map(str::trim) {
-        Some("me") => match find_me(c)?.0 {
-            Some(me) => (To::Session, me),
+/// A schedule just saved, in a line: when it runs, when next, and whether it's paused.
+fn saved_line(c: &mut Client, name: &str, paused: bool) -> Result<String> {
+    use crate::schedules::{clock_text, rule::Local};
+    let item = schedule_items(c)?.into_iter().find(|i| i.schedule.name == name);
+    let next = item.as_ref().and_then(|i| i.next_at).map(|at| format!(" Next: {}.", clock_text(at, &Local))).unwrap_or_default();
+    let paused = if paused { " It's paused." } else { "" };
+    Ok(format!("{name}: {}.{next}{paused}", item.map(|i| i.when_words).unwrap_or_default()))
+}
+
+/// A schedule with what `schedule add` or `schedule edit` said of it: each option given changes
+/// what it names, and the rest stay as `s` has them (a new schedule's, for add).
+fn with_options(c: &mut Client, mut s: crate::schedules::Schedule, o: ScheduleOptions) -> Result<crate::schedules::Schedule> {
+    use crate::schedules::{CatchUp, Event, Overlap, RunsOn, To, WatchMode, When};
+    // When it runs: what it's said to run at or on takes the place of what it ran at or on, a
+    // watch keeping how often it looks and an event its filters while it's still that event.
+    if let Some(rule) = o.at {
+        s.when = When::Time { rule };
+    }
+    if let Some(command) = o.watch {
+        s.when = match std::mem::take(&mut s.when) {
+            When::Watch { every, mode, .. } => When::Watch { command, every, mode },
+            _ => When::Watch { command, every: "5m".into(), mode: WatchMode::Lines },
+        };
+    }
+    if let Some(on) = o.on {
+        let event = match on {
+            ScheduleEventArg::PrMerged => Event::PrMerged,
+            ScheduleEventArg::ChecksFailed => Event::ChecksFailed,
+            ScheduleEventArg::TodoReady => Event::TodoReady,
+        };
+        s.when = match std::mem::take(&mut s.when) {
+            When::Event { event: was, repo, label, mine } if was == event => When::Event { event, repo, label, mine },
+            _ => When::Event { event, repo: String::new(), label: String::new(), mine: false },
+        };
+    }
+    if o.when_fired {
+        s.when = When::Fired;
+    }
+    match &mut s.when {
+        When::Watch { every, mode, .. } => {
+            if let Some(e) = o.every {
+                *every = e;
+            }
+            if let Some(v) = o.value {
+                *mode = if v { WatchMode::Value } else { WatchMode::Lines };
+            }
+        }
+        _ if o.every.is_some() || o.value.is_some() => bail!("--every and --value are for a schedule that runs on a watch (--watch)."),
+        _ => {}
+    }
+    match &mut s.when {
+        When::Event { repo, label, mine, .. } => {
+            if let Some(r) = o.repo {
+                *repo = r.trim().to_string();
+            }
+            if let Some(l) = o.label {
+                *label = l.trim().to_string();
+            }
+            if let Some(m) = o.mine {
+                *mine = m;
+            }
+        }
+        _ if o.repo.is_some() || o.label.is_some() || o.mine.is_some() => bail!("--repo, --mine and --label are for a schedule that runs on an event (--on)."),
+        _ => {}
+    }
+    if let Some(prompt) = read_text(o.prompt, o.prompt_file)? {
+        s.run.prompt = prompt;
+    }
+    let was_to = s.run.to;
+    match (o.to.as_deref().map(str::trim), o.thread) {
+        (Some("me"), _) => match find_me(c)?.0 {
+            Some(me) => (s.run.to, s.run.session) = (To::Session, me),
             None => bail!("No session runs this command, so there's no `me` to send to. Give a session's key."),
         },
-        Some(key) => {
+        (Some(key), _) => {
             let board = c.loaded_board()?;
-            if !all_sessions(board).iter().any(|(s, _)| s.key == key) {
+            if !all_sessions(board).iter().any(|(x, _)| x.key == key) {
                 return Err(no_session(board, key));
             }
-            (To::Session, key.to_string())
+            (s.run.to, s.run.session) = (To::Session, key.to_string());
         }
-        None if a.thread => (To::Thread, String::new()),
-        None => (To::New, String::new()),
-    };
+        (None, Some(thread)) => (s.run.to, s.run.session) = (if thread { To::Thread } else { To::New }, String::new()),
+        (None, None) => {}
+    }
+    if let Some(after) = o.fresh_after {
+        if s.run.to != To::Thread {
+            bail!("--fresh-after is for a schedule that keeps one session going (--thread).");
+        }
+        s.run.fresh_after = after.trim().to_string();
+    }
     // Where its sessions start, and where its watch and its check run: a schedule that sends to a
     // session keeps its worktree for those, and does without one outside any.
-    let folder = if a.chat {
-        String::new()
-    } else {
-        let dir = std::fs::canonicalize(expand(&a.worktree)).unwrap_or_else(|_| expand(&a.worktree));
-        match lane_for_path(c.board()?, &dir) {
+    if o.chat {
+        (s.run.folder, s.run.worktree) = (String::new(), false);
+    } else if let Some(worktree) = o.worktree {
+        let dir = std::fs::canonicalize(expand(&worktree)).unwrap_or_else(|_| expand(&worktree));
+        s.run.folder = match lane_for_path(c.board()?, &dir) {
             Some(lane) => lane.path.clone(),
-            None if to == To::Session => String::new(),
+            None if s.run.to == To::Session => String::new(),
             None => bail!("{} isn't in a worktree Codealong knows. Give one with --worktree, or --chat for no project.", tilde(&dir)),
-        }
-    };
-    Ok(Schedule {
-        name: a.name,
-        paused: a.paused,
-        when,
-        only_if: a.only_if.unwrap_or_default(),
-        run: Run {
-            to,
-            session,
-            folder,
-            worktree: a.new_worktree,
-            account: if a.account == "auto" { String::new() } else { a.account },
-            model: a.model,
-            effort: a.effort,
-            place: a.place.map(place_of),
-            prompt,
-            fresh_after: a.fresh_after.unwrap_or_default(),
+        };
+    } else if was_to == To::Session && s.run.to != To::Session && s.run.folder.is_empty() {
+        // One that sent to a session outside any worktree would start chats from now on.
+        bail!("Say where its sessions start: --worktree <path>, or --chat for no project.");
+    }
+    if let Some(fresh) = o.new_worktree {
+        s.run.worktree = fresh;
+    }
+    if s.run.worktree && s.run.folder.is_empty() && s.run.to != To::Session {
+        bail!("A chat has no repo to make a worktree of: give --worktree too.");
+    }
+    if let Some(account) = o.account {
+        s.run.account = if account == "auto" { String::new() } else { account };
+    }
+    if let Some(model) = o.model {
+        s.run.model = Some(model).filter(|m| !m.trim().is_empty());
+    }
+    if let Some(effort) = o.effort {
+        s.run.effort = Some(effort);
+    }
+    if let Some(place) = o.place {
+        s.run.place = Some(place_of(place));
+    }
+    if let Some(only_if) = o.only_if {
+        s.only_if = only_if;
+    }
+    if let Some(quiet) = o.quiet {
+        s.quiet = quiet;
+    }
+    if let Some(notes) = o.notes {
+        s.notes = notes;
+    }
+    if let Some(allow) = o.allow_overlap {
+        s.overlap = if allow { Overlap::Allow } else { Overlap::Skip };
+    }
+    if let Some(skip) = o.skip_missed {
+        s.catch_up = if skip { CatchUp::Skip } else { CatchUp::Once };
+    }
+    if let Some(n) = o.per_day {
+        s.per_day = match n.trim() {
+            "" => None,
+            n => Some(n.parse().map_err(|_| anyhow!("Couldn't read “{n}” as how many runs a day: give a number, or \"\" for no limit."))?),
+        };
+    }
+    if let Some(paused) = o.paused {
+        s.paused = paused;
+    }
+    // Which machines run it: --prefer names one for it to go to, while it runs on one of them.
+    let one = o.runs_on.map_or(matches!(s.runs_on, RunsOn::One { .. }), |r| r == RunsOnArg::One);
+    if o.prefer.is_some() && !one {
+        bail!("--prefer is for --runs-on one.");
+    }
+    s.runs_on = match (o.runs_on, o.prefer) {
+        (Some(RunsOnArg::This), _) => RunsOn::This,
+        (Some(RunsOnArg::Every), _) => RunsOn::Every,
+        (_, Some(p)) if p.trim().is_empty() => RunsOn::One { prefer: String::new() },
+        (_, Some(p)) => RunsOn::One { prefer: preferred_machine(&p)? },
+        (Some(RunsOnArg::One), None) => match std::mem::take(&mut s.runs_on) {
+            RunsOn::One { prefer } => RunsOn::One { prefer },
+            _ => RunsOn::One { prefer: String::new() },
         },
-        quiet: a.quiet,
-        overlap: if a.allow_overlap { Overlap::Allow } else { Overlap::Skip },
-        catch_up: if a.skip_missed { CatchUp::Skip } else { CatchUp::Once },
-        per_day: a.per_day,
-        notes: a.notes,
-        runs_on,
-        ..Schedule::default()
-    })
+        (None, None) => std::mem::take(&mut s.runs_on),
+    };
+    Ok(s)
 }
 
 /// The device key of the machine `--prefer` names: one of your linked machines, or this one.
@@ -7772,6 +7903,70 @@ mod tests {
         let back = serde_json::to_value(&view).unwrap();
         assert_eq!((back["devices"][0]["name"].as_str(), back["devices"][0]["worktrees"].as_u64()), (Some("Mac mini"), Some(3)));
         assert!(back.get("lanes").is_none());
+    }
+
+    /// An agent asked to move a daily schedule's time removed it and added it again, twice,
+    /// which gave it a new id and lost its runs and notes (2026-10-31): `schedule edit` changes
+    /// what it's given and keeps the rest.
+    #[test]
+    fn a_schedule_is_edited_in_place() {
+        use crate::schedules::{CatchUp, Event, Run, Schedule, To, WatchMode, When};
+        let parse = |a: &[&str]| Cli::try_parse_from(["codealong", "schedule"].into_iter().chain(a.iter().copied())).map(|c| c.cmd);
+        let edit = |a: &[&str]| match parse(&[&["edit", "standup"], a].concat()) {
+            Ok(Cmd::Schedule { cmd: ScheduleCmd::Edit(e) }) => e,
+            other => panic!("{other:?}"),
+        };
+        let board = Board { lanes: vec![lane("/work/atlas", vec![crate::fixtures::session("claude:claude:kestrel")]), lane("/work/northwind", vec![])], ..Board::default() };
+        let mut c = Client { app: None, verbose: false, cfg: None, board: Some(board), from_app: false, said: false, me: Some((Some("claude:claude:kestrel".into()), Some("environment"))) };
+        let daily = Schedule {
+            id: "s-1".into(),
+            name: "standup".into(),
+            when: When::Time { rule: "daily 15:00".into() },
+            run: Run { to: To::Thread, folder: "/work/atlas".into(), account: "work".into(), model: Some("opus".into()), prompt: "Sum up the day".into(), ..Run::default() },
+            quiet: true,
+            per_day: Some(2),
+            created_at: 5,
+            ..Schedule::default()
+        };
+        let mut with = |s: &Schedule, a: &[&str]| with_options(&mut c, s.clone(), edit(a).options);
+
+        // Its time alone changes.
+        let moved = with(&daily, &["--at", "daily 14:00"]).unwrap();
+        assert_eq!(moved, Schedule { when: When::Time { rule: "daily 14:00".into() }, ..daily.clone() });
+        // Nothing given changes nothing.
+        assert_eq!(with(&daily, &[]).unwrap(), daily);
+        // A yes-or-no one goes off with `=no`, and a text one comes off when it's empty.
+        let off = with(&daily, &["--quiet=no", "--model", "", "--per-day", "", "--thread=no", "--skip-missed"]).unwrap();
+        assert_eq!((off.quiet, off.run.model, off.per_day, off.run.to, off.catch_up), (false, None, None, To::New, CatchUp::Skip));
+        assert!(parse(&["edit", "standup", "--quiet", "no"]).is_err(), "`no` isn't taken for the schedule's name");
+        assert!(with(&daily, &["--per-day", "twice"]).unwrap_err().to_string().contains("how many runs a day"));
+        // Sent to its session from now on, then on to another worktree.
+        let mine = with(&daily, &["--to", "me"]).unwrap();
+        assert_eq!((mine.run.to, mine.run.session.as_str(), mine.run.folder.as_str()), (To::Session, "claude:claude:kestrel", "/work/atlas"));
+        assert_eq!(with(&daily, &["--worktree", "/work/northwind/src"]).unwrap().run.folder, "/work/northwind");
+        assert!(with(&daily, &["--to", "claude:claude:nobody"]).is_err());
+        // One that sends to a session outside any worktree is told where new ones start.
+        let outside = Schedule { run: Run { to: To::Session, session: "claude:claude:kestrel".into(), folder: String::new(), ..daily.run.clone() }, ..daily.clone() };
+        assert!(with(&outside, &["--thread"]).unwrap_err().to_string().contains("--worktree"));
+        assert_eq!(with(&outside, &["--thread", "--chat"]).unwrap().run.to, To::Thread);
+
+        // A watch keeps how often it looks through a new command, and changes it alone.
+        let watch = Schedule { when: When::Watch { command: "./deploys".into(), every: "10m".into(), mode: WatchMode::Lines }, ..daily.clone() };
+        assert_eq!(with(&watch, &["--watch", "./releases"]).unwrap().when, When::Watch { command: "./releases".into(), every: "10m".into(), mode: WatchMode::Lines });
+        assert_eq!(with(&watch, &["--every", "1h", "--value"]).unwrap().when, When::Watch { command: "./deploys".into(), every: "1h".into(), mode: WatchMode::Value });
+        assert!(with(&daily, &["--every", "1h"]).unwrap_err().to_string().contains("--watch"));
+        // An event keeps its filters while it's that event, and starts without them as another.
+        let merged = with(&daily, &["--on", "pr-merged", "--repo", "northwind/web"]).unwrap();
+        assert_eq!(merged.when, When::Event { event: Event::PrMerged, repo: "northwind/web".into(), label: String::new(), mine: false });
+        assert_eq!(with(&merged, &["--mine"]).unwrap().when, When::Event { event: Event::PrMerged, repo: "northwind/web".into(), label: String::new(), mine: true });
+        assert_eq!(with(&merged, &["--on", "todo-ready"]).unwrap().when, When::Event { event: Event::TodoReady, repo: String::new(), label: String::new(), mine: false });
+        assert!(with(&daily, &["--label", "bug"]).unwrap_err().to_string().contains("--on"));
+        assert!(with(&daily, &["--fresh-after", "1d", "--thread=no"]).is_err());
+        assert!(parse(&["edit", "standup", "--at", "daily 9:00", "--when-fired"]).is_err());
+
+        // Add's options read as they did, before its name too.
+        let Ok(Cmd::Schedule { cmd: ScheduleCmd::Add(a) }) = parse(&["add", "--quiet", "triage", "--at", "weekdays 9:00", "--thread", "--prompt", "-x"]) else { panic!() };
+        assert_eq!((a.name.as_str(), a.options.quiet, a.options.thread, a.options.prompt.as_deref()), ("triage", Some(true), Some(true), Some("-x")));
     }
 
     #[test]

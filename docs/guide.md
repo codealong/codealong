@@ -1629,7 +1629,10 @@ once when it's back (the latest of them, within a week), noted as late, unless *
 when back* is off; the others are noted as missed. A new session's run is skipped while the last
 one's session still works or waits on you, unless *Start another while the last one still works*
 is ticked, and *At most … runs a day* caps them; Run now goes past the cap. Paused, nothing runs it,
-and times that pass meanwhile aren't run when it's resumed; Run now still runs it. *Quiet* makes
+and times that pass meanwhile aren't run when it's resumed; Run now still runs it. Edited to run at
+other times or on something else, it goes on from then as a new one would, keeping its runs: a time
+that passed under the old one isn't run late (9:00 moved to 8:00 at 8:30 next runs tomorrow at 8:00),
+and what's on the board or in its watch's output already isn't new. *Quiet* makes
 its sessions quiet (*Quiet*). Schedules run while Codealong does: with it closed, nothing runs
 (Settings › General › Open at login).
 
@@ -1663,10 +1666,12 @@ other time zones run a time as their clocks have it. Link each of them with each
 machine linked to the rest only through one of them hears the schedule but not what they ran, and
 runs it too. Machines on builds from before 2026-10-23 take no part.
 
-`codealong schedule list|show|add|remove|pause|resume|run|fire|times` does the same from a
+`codealong schedule list|show|add|edit|remove|pause|resume|run|fire|times` does the same from a
 terminal or an agent, an agent adding one for itself with `--to me` (a check back on its own work
-every hour, say), and `schedule add --runs-on one --prefer <machine>` sharing one with your other
-machines, and `codealong --snapshot --schedule-plan <schedule>` says what a run would do
+every hour, say), `schedule edit <name>` changing one in place with what `add` takes (`--at
+"daily 8:00"`, `--prompt-file`, `--quiet=no`), only what it's given, so it keeps its id, its runs
+and its notes, which removing it and adding it again would lose, and `schedule add --runs-on one
+--prefer <machine>` sharing one with your other machines, and `codealong --snapshot --schedule-plan <schedule>` says what a run would do
 now without doing it. The schedules are kept in `schedules.json` and what happened to them in
 `schedule-runs.json` (*Files Codealong keeps*).
 

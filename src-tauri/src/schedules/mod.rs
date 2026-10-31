@@ -124,8 +124,9 @@ pub struct Schedule {
     /// Which of your machines run it.
     #[serde(skip_serializing_if = "RunsOn::is_this")]
     pub runs_on: RunsOn,
-    /// When it was last resumed, kept through later changes: what passed before then isn't run,
-    /// on every machine that has a copy (machines.rs `merged`), however late it hears.
+    /// When it was last resumed, or changed to run at other times or on something else
+    /// (`starts_afresh`), kept through later changes: what passed before then isn't run, on every
+    /// machine that has a copy (machines.rs `merged`), however late it hears.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resumed_at: Option<i64>,
     /// The repo its folder is a checkout of, for your other machines, which run it in a checkout of
@@ -756,8 +757,11 @@ pub fn next_due(s: &Schedule, track: Option<&Track>, now: i64, zone: &dyn Zone) 
     let parsed = rule::parse(rule).ok()?;
     // From the last it ran, else from when it was made: one added while Codealong was closed, its
     // time passing before the scheduler first had it, still runs then (or is noted as missed).
+    // Never from before it was last resumed or said to run at other times, which its record goes
+    // from once the scheduler next looks (`resumed`), and the Schedules view and `schedule edit`
+    // say at once.
     let made = Some(s.created_at).filter(|&c| c > 0).or_else(|| track.map(|t| t.armed_at).filter(|&a| a > 0));
-    let since = track.and_then(|t| t.last_due).or(made).unwrap_or(now);
+    let since = track.and_then(|t| t.last_due).or(made).unwrap_or(now).max(s.resumed_at.unwrap_or(0));
     rule::next_after(&parsed, since, s.created_at, zone)
 }
 
@@ -1010,7 +1014,8 @@ pub fn apply_op(op: Op, by: Option<&str>, board: Option<&Board>, cfg: &Config, n
                     Some(was) => {
                         schedule.created_at = was.created_at;
                         schedule.created_by = was.created_by.clone();
-                        schedule.resumed_at = if was.paused && !schedule.paused { Some(now) } else { was.resumed_at };
+                        let resumed = was.paused && !schedule.paused;
+                        schedule.resumed_at = if resumed || starts_afresh(&was.when, &schedule.when) { Some(now) } else { was.resumed_at };
                         // Made this machine's alone: the other machines drop their copies.
                         if was.runs_on.shared() && !schedule.runs_on.shared() {
                             file.gone.push(codealong_peer::schedules::Gone { id: schedule.id.clone(), at: now });
@@ -1102,6 +1107,19 @@ pub fn apply_op(op: Op, by: Option<&str>, board: Option<&Board>, cfg: &Config, n
     };
     runner::poke();
     Ok(out)
+}
+
+/// Whether a schedule saved with `now` where it had `was` goes on as one just made would, as it
+/// does once resumed (`resumed`): another time from now, not one that passed under the old (8:00
+/// changed to 7:00 at 7:30 isn't a 7:00 missed), and only what happens on the board or what a
+/// watch prints from now on, not what's there already, which the old event or command didn't
+/// cover. How often a watch looks changes nothing of what it saw.
+pub fn starts_afresh(was: &When, now: &When) -> bool {
+    match (was, now) {
+        (When::Watch { command: a, mode: ma, .. }, When::Watch { command: b, mode: mb, .. }) => a.trim() != b.trim() || ma != mb,
+        (When::Time { rule: a }, When::Time { rule: b }) => a.trim() != b.trim(),
+        (a, b) => a != b,
+    }
 }
 
 /// A schedule resumed: what passed while it was paused isn't run, though Codealong was closed
@@ -1281,6 +1299,30 @@ mod tests {
         let mut passed = Track { last_due: Some(900), took: Some(600), armed_at: 5, ..Track::default() };
         resumed(&mut passed, 845);
         assert_eq!(passed.last_due, Some(845));
+    }
+
+    /// A daily schedule moved from 15:00 to 14:00 at 14:40 ran a 14:00 it took as missed: its
+    /// times went on from its last run, yesterday's 15:00 (2026-10-31).
+    #[test]
+    fn a_schedule_said_to_run_otherwise_starts_afresh() {
+        let at = |rule: &str| When::Time { rule: rule.into() };
+        let watch = |command: &str, every: &str, mode| When::Watch { command: command.into(), every: every.into(), mode };
+        let merged = |repo: &str| When::Event { event: Event::PrMerged, repo: repo.into(), label: String::new(), mine: false };
+        assert!(starts_afresh(&at("daily 15:00"), &at("daily 14:00")));
+        assert!(!starts_afresh(&at("daily 15:00"), &at(" daily 15:00")));
+        assert!(starts_afresh(&watch("./deploys", "5m", WatchMode::Lines), &watch("./releases", "5m", WatchMode::Lines)));
+        assert!(starts_afresh(&watch("./deploys", "5m", WatchMode::Lines), &watch("./deploys", "5m", WatchMode::Value)));
+        assert!(!starts_afresh(&watch("./deploys", "5m", WatchMode::Lines), &watch("./deploys", "1h", WatchMode::Lines)), "what it saw still stands");
+        // Any repo now: the PRs merged in the others already aren't new.
+        assert!(starts_afresh(&merged("northwind/web"), &merged("")));
+        assert!(starts_afresh(&at("daily 9:00"), &When::Fired));
+        assert!(!starts_afresh(&When::Fired, &When::Fired));
+        // Its next time is tomorrow's 14:00 from the moment it's saved, before the scheduler notes it.
+        let z = rule::tests::Fake::utc();
+        let ran = Track { armed_at: 1, last_due: Some(rule::tests::ms(&z, 2026, 10, 30, 15, 0)), ..Track::default() };
+        let saved = rule::tests::ms(&z, 2026, 10, 31, 14, 40);
+        let s = Schedule { created_at: 1, resumed_at: Some(saved), when: at("daily 14:00"), ..Schedule::default() };
+        assert_eq!(next_due(&s, Some(&ran), saved, &z), Some(rule::tests::ms(&z, 2026, 11, 1, 14, 0)));
     }
 
     #[test]

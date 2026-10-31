@@ -1022,6 +1022,14 @@ Commands:
           what it's told (--prompt). Made by an agent, what it sends goes as
           Codealong's, not as your user's, and its sessions are the agent's own
           (`Started by`). Prints it
+  edit    Change a schedule in place: it keeps its id, its runs and its notes, which
+          removing it and adding it again would lose. It takes what `schedule add` does,
+          and only what's given changes: --at, --watch, --on or --when-fired says anew
+          when it runs, --every or --value changes its watch, and --repo, --mine or
+          --label its event; told to run at other times or on something else, it goes on
+          as a new one would, from now. A yes-or-no option is turned off with `=no`
+          (`--quiet=no`), a text one taken off with an empty value (`--only-if ""`).
+          Prints it
   remove  Remove a schedule, and what's noted of its runs
   pause   Pause a schedule: nothing runs it until it's resumed, and its times that pass
           meanwhile aren't run then
@@ -1111,7 +1119,8 @@ Usage: codealong schedule add [OPTIONS] <NAME>
 
 Arguments:
   <NAME>
-          Its name, which `schedule show`, `run` and `fire` take as well as its id
+          Its name, which `schedule show`, `edit`, `run` and `fire` take as well as its
+          id
 
 Options:
       --at <AT>
@@ -1133,19 +1142,17 @@ Options:
           own). A command that fails looks less often until it works
 
       --every <EVERY>
-          How often the watch looks: `5m`, `1h`; at most once a minute
-          
-          [default: 5m]
+          How often its watch looks: `5m` (a new watch's), `1h`; at most once a minute
 
       --verbose
           Say on stderr whether the app or the files answered
 
-      --value
-          The watch's whole output is one value (the latest deploy's id), run for
+      --value[=<YES|NO>]
+          Its watch's whole output is one value (the latest deploy's id), run for
           whenever it changes, rather than each line
 
       --on <ON>
-          When this happens on the board, after the schedule is made
+          When this happens on the board, from when it's said to
 
           Possible values:
           - pr-merged:     A PR the board lists merges
@@ -1155,7 +1162,7 @@ Options:
       --repo <REPO>
           With --on pr-merged or checks-failed: only in this repo (owner/name)
 
-      --mine
+      --mine[=<YES|NO>]
           With --on pr-merged or checks-failed: only your own PRs
 
       --label <LABEL>
@@ -1171,10 +1178,10 @@ Options:
       --prompt-file <PROMPT_FILE>
           The prompt from a file, or from stdin with `-`
 
-      --thread
+      --thread[=<YES|NO>]
           Keep one session going: the first run starts it, and each later one is sent to
           it (once its turn ends, if it's at work), going on out of sight with it if it
-          stopped
+          stopped. `--thread=no` starts a new session each run
 
       --fresh-after <FRESH_AFTER>
           With --thread: start a new session once its session started this long ago
@@ -1185,11 +1192,9 @@ Options:
           the session running this command
 
       --worktree <WORKTREE>
-          The worktree its sessions start in: a path, or `.` (the default)
-          
-          [default: .]
+          The worktree its sessions start in: a path, or `.` (a new schedule's)
 
-      --new-worktree
+      --new-worktree[=<YES|NO>]
           Have Claude Code make a fresh worktree for each session (`claude --worktree`)
 
       --chat
@@ -1198,9 +1203,7 @@ Options:
 
       --account <ACCOUNT>
           The account or routing group its sessions start on, picked again at each run;
-          `auto` (the default) picks as the quick panel does
-          
-          [default: auto]
+          `auto` (a new schedule's) picks as the quick panel does
 
       --model <MODEL>
           A model to start on
@@ -1230,41 +1233,214 @@ Options:
           Only when this command, run first in its worktree, succeeds and prints
           something; what it printed goes to the session with the rest
 
-      --quiet
+      --quiet[=<YES|NO>]
           Its sessions are quiet: a turn they end isn't Your turn, and they wait on your
           user only when they need them
 
-      --notes
+      --notes[=<YES|NO>]
           Tell each run of a notes file in the schedule's own folder, to read first and
           add to, so a new session each time still knows what the last ones found
 
-      --allow-overlap
+      --allow-overlap[=<YES|NO>]
           Start another session while the last one is still at work or waiting on your
           user, rather than skip the run
 
-      --skip-missed
+      --skip-missed[=<YES|NO>]
           Skip a time missed while the Mac slept or the app was closed, rather than run
           the latest one once it's back
 
-      --per-day <PER_DAY>
+      --per-day <N>
           The most runs a day
 
-      --paused
-          Add it paused
+      --paused[=<YES|NO>]
+          Paused: nothing runs it until it's resumed, and its times that pass meanwhile
+          aren't run then
 
       --runs-on <RUNS_ON>
-          Which of your machines run it (`codealong devices`): this one alone; one of
-          them each time (the one --prefer names while it's around and can run it, else
-          the next that can, first choices before backups); or every one, each on its
-          own. Those they share, each keeps a copy of, so one that's asleep or off
-          misses nothing
+          Which of your machines run it (`codealong devices`): this one alone (a new
+          schedule's); one of them each time (the one --prefer names while it's around
+          and can run it, else the next that can, first choices before backups); or
+          every one, each on its own. Those they share, each keeps a copy of, so one
+          that's asleep or off misses nothing
 
           Possible values:
           - this:  This machine alone
           - one:   One of your machines each time
           - every: Every one of your machines, each on its own
+
+      --prefer <PREFER>
+          With --runs-on one: the machine it prefers, by name or short id (`codealong
+          devices`), or `this` for this one
+
+  -h, --help
+          Print help (see a summary with '-h')
+```
+
+## codealong schedule edit
+
+```
+Change a schedule in place: it keeps its id, its runs and its notes, which removing it
+and adding it again would lose. It takes what `schedule add` does, and only what's given
+changes: --at, --watch, --on or --when-fired says anew when it runs, --every or --value
+changes its watch, and --repo, --mine or --label its event; told to run at other times
+or on something else, it goes on as a new one would, from now. A yes-or-no option is
+turned off with `=no` (`--quiet=no`), a text one taken off with an empty value
+(`--only-if ""`). Prints it
+
+Usage: codealong schedule edit [OPTIONS] <SCHEDULE>
+
+Arguments:
+  <SCHEDULE>
+          The schedule: its id, or its name
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --name <NAME>
+          A new name for it
+
+      --at <AT>
+          At these times (see `schedule times`): `weekdays 9:00`, `every 2h`, `cron 0 9
+          * * 1-5`
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+      --watch <WATCH>
+          When this command, run every --every through your login shell in the
+          schedule's worktree, prints a line it hasn't printed before (each line is one
+          thing, by its words, or a JSON object with an `id`, and `title`, `url`,
+          `text`). Its first run only notes what's there. It's told `CODEALONG_SINCE`
+          (its last good look, ISO 8601) and `CODEALONG_STATE_DIR` (a folder of its
+          own). A command that fails looks less often until it works
+
+      --every <EVERY>
+          How often its watch looks: `5m` (a new watch's), `1h`; at most once a minute
+
+      --value[=<YES|NO>]
+          Its watch's whole output is one value (the latest deploy's id), run for
+          whenever it changes, rather than each line
+
+      --on <ON>
+          When this happens on the board, from when it's said to
+
+          Possible values:
+          - pr-merged:     A PR the board lists merges
+          - checks-failed: An open PR's checks fail at a commit
+          - todo-ready:    A todo is ready to start: not started, and waiting on nothing
+
+      --repo <REPO>
+          With --on pr-merged or checks-failed: only in this repo (owner/name)
+
+      --mine[=<YES|NO>]
+          With --on pr-merged or checks-failed: only your own PRs
+
+      --label <LABEL>
+          With --on todo-ready: only a todo with this label. A new session is linked to
+          the todo and told it
+
+      --when-fired
+          Only when it's fired (`schedule fire`, or Run now in the app)
+
+      --prompt <PROMPT>
+          What it's told each run
+
+      --prompt-file <PROMPT_FILE>
+          The prompt from a file, or from stdin with `-`
+
+      --thread[=<YES|NO>]
+          Keep one session going: the first run starts it, and each later one is sent to
+          it (once its turn ends, if it's at work), going on out of sight with it if it
+          stopped. `--thread=no` starts a new session each run
+
+      --fresh-after <FRESH_AFTER>
+          With --thread: start a new session once its session started this long ago
+          (`1d`, `12h`), so it doesn't carry weeks of runs
+
+      --to <TO>
+          Send each run to this session instead of starting one: its key, or `me` for
+          the session running this command
+
+      --worktree <WORKTREE>
+          The worktree its sessions start in: a path, or `.` (a new schedule's)
+
+      --new-worktree[=<YES|NO>]
+          Have Claude Code make a fresh worktree for each session (`claude --worktree`)
+
+      --chat
+          Start its sessions in no project, each in a folder of its own among
+          Codealong's chats
+
+      --account <ACCOUNT>
+          The account or routing group its sessions start on, picked again at each run;
+          `auto` (a new schedule's) picks as the quick panel does
+
+      --model <MODEL>
+          A model to start on
+
+      --effort <EFFORT>
+          How hard Claude Code thinks
           
-          [default: this]
+          [possible values: low, medium, high, xhigh, max, ultra]
+
+      --in <PLACE>
+          Where its sessions run. Without it, out of sight: Claude Code's background
+          service, else in Codealong, else in Codealong's tmux with no window (a
+          terminal behind your windows without tmux)
+
+          Possible values:
+          - terminal
+          - background: Nothing comes forward: Claude Code's background service, with no
+            terminal until you attach one; any other agent in Codealong's tmux with no
+            window until Show in opens one (a terminal opened behind your windows
+            without tmux, or with `[apps] tmux = "never"`)
+          - claude-app
+          - codex-app
+          - codealong:  In Codealong itself, over the account's Agent Client Protocol
+            adapter. Needs the app running
+
+      --only-if <ONLY_IF>
+          Only when this command, run first in its worktree, succeeds and prints
+          something; what it printed goes to the session with the rest
+
+      --quiet[=<YES|NO>]
+          Its sessions are quiet: a turn they end isn't Your turn, and they wait on your
+          user only when they need them
+
+      --notes[=<YES|NO>]
+          Tell each run of a notes file in the schedule's own folder, to read first and
+          add to, so a new session each time still knows what the last ones found
+
+      --allow-overlap[=<YES|NO>]
+          Start another session while the last one is still at work or waiting on your
+          user, rather than skip the run
+
+      --skip-missed[=<YES|NO>]
+          Skip a time missed while the Mac slept or the app was closed, rather than run
+          the latest one once it's back
+
+      --per-day <N>
+          The most runs a day
+
+      --paused[=<YES|NO>]
+          Paused: nothing runs it until it's resumed, and its times that pass meanwhile
+          aren't run then
+
+      --runs-on <RUNS_ON>
+          Which of your machines run it (`codealong devices`): this one alone (a new
+          schedule's); one of them each time (the one --prefer names while it's around
+          and can run it, else the next that can, first choices before backups); or
+          every one, each on its own. Those they share, each keeps a copy of, so one
+          that's asleep or off misses nothing
+
+          Possible values:
+          - this:  This machine alone
+          - one:   One of your machines each time
+          - every: Every one of your machines, each on its own
 
       --prefer <PREFER>
           With --runs-on one: the machine it prefers, by name or short id (`codealong

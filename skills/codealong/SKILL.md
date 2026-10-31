@@ -295,6 +295,9 @@ starts a new session each time; `--thread` keeps one going; `--to me` sends each
 its first look only notes what's there), `--on pr-merged|checks-failed|todo-ready` when that
 happens on the board, and `--when-fired` only when a script runs `codealong schedule fire
 "<name>" --key <id>`. `codealong schedule times "<when>"` reads a time back before you add it.
+To change one (its time, prompt, account, anything `add` takes), `codealong schedule edit
+"<name>" --at "daily 8:00"` changes only what you give it: never remove one and add it again,
+which gives it a new id and loses its runs and notes.
 What one you add sends goes as Codealong's, not as your user's, and the sessions it starts are
 yours (`Started by`). Watching costs no usage: prefer a command that prints what's new to a
 schedule that asks an agent every few minutes whether anything changed.
