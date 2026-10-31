@@ -187,6 +187,12 @@ pub struct Session {
     /// (`board::moved_on`). None where its harness doesn't say.
     #[serde(skip)]
     pub turn_ended: Option<i64>,
+    /// When anything last came into it from outside its agent: a prompt, another session's
+    /// message, a background task's report, a scheduled wakeup, as a turn starts or while one
+    /// runs. Later than `last_prompt_at` when one of the others came last. For the engine's rules
+    /// (`board::agent_seen_spent`). None where its harness doesn't say more than `last_prompt_at`.
+    #[serde(skip)]
+    pub input_at: Option<i64>,
     /// What the session is doing or asking. Backtick spans render as code.
     pub excerpt: Option<String>,
     pub resume_command: Option<String>,
@@ -541,6 +547,7 @@ impl Session {
             last_activity: 0,
             last_prompt_at: 0,
             turn_ended: None,
+            input_at: None,
             excerpt: None,
             resume_command: None,
             app_account: false,

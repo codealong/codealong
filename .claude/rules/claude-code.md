@@ -376,7 +376,11 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   `/loop` cron isn't cancelled by `ScheduleWakeup({stop: true})`. On this Mac's transcripts
   (2026-10-24) `scheduled_task_fire` lines name the wakeup's `taskId`, `cron` and `prompt`
   ("Claude resuming /loop wakeup (Oct 20 10:04am)"), and `session_cron_carry` attachments follow
-  an orchestrator's compactions with its recurring job.
+  an orchestrator's compactions with its recurring job. A wakeup's turn starts with that
+  `system` line, then its prompt as a `user` line with no `origin` (an orchestrator's ticks,
+  2026-10-22). When anything last came in from outside the agent, wakeups, other sessions'
+  messages and background tasks' reports too, read from the record after its turn has ended:
+  `claude/transcript.rs` (`brings_input`, `TranscriptInfo::input_at`).
 - Removing a worktree from outside Claude Code (2.1.296, a scratch repo, 2026-10-12):
   `cleanup.rs`, `claude/teardown.rs`. A `WorktreeCreate` hook's stdin is `{session_id,
   transcript_path, cwd, scratchpad_dir, hook_event_name, name}`, with no base ref; a

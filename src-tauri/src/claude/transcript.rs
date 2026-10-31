@@ -83,6 +83,8 @@ pub struct TranscriptInfo {
     /// while idle"), and the registry goes busy and idle again around it, though no turn was
     /// taken. The lines it writes, and the links it stamps again as it starts, are timed then.
     pub compacted: Option<i64>,
+    /// When anything last came into the conversation from outside its agent (`brings_input`).
+    pub input_at: Option<i64>,
     /// When its last turn ended, while nothing has been said since (`said`, `ends_turn`). A turn
     /// starts by saying something, its prompt, another session's message or a background task's
     /// report (all but 2 of 4,026 turns that came after one ended here, 2026-10-22), so a session
@@ -468,6 +470,9 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
             state.said_at = state.said_at.max(ts);
             info.ended_at = ts.filter(|_| ends_turn(&v));
         }
+        if brings_input(&v) {
+            info.input_at = info.input_at.max(ts);
+        }
         // Moving the conversation to the background isn't something it did.
         if let Some(ts) = ts.filter(|_| kind != Some("continued-in")) {
             info.last_ts = info.last_ts.max(ts);
@@ -778,6 +783,24 @@ fn turn_step(v: &Value) -> Option<Option<i64>> {
             }
         }
         _ => None,
+    }
+}
+
+/// Whether a line brings something into the conversation from outside its agent: a prompt,
+/// another session's message, a background task's report or a scheduled wakeup (a `system` /
+/// `scheduled_task_fire` line, then its prompt as a `user` line), as a turn's first line or
+/// taken in while it runs (a `queued_command` attachment). A call's result is the agent's own
+/// doing, and a compaction's summary Claude Code's.
+fn brings_input(v: &Value) -> bool {
+    let flag = |k: &str| v.get(k).and_then(Value::as_bool) == Some(true);
+    if flag("isSidechain") || flag("isCompactSummary") {
+        return false;
+    }
+    match v.get("type").and_then(Value::as_str) {
+        Some("user") => !v.pointer("/message/content").and_then(Value::as_array).is_some_and(|items| items.iter().any(|i| i.get("type").and_then(Value::as_str) == Some("tool_result"))),
+        Some("attachment") => v.pointer("/attachment/type").and_then(Value::as_str) == Some("queued_command"),
+        Some("system") => str_of(v, "subtype").as_deref() == Some("scheduled_task_fire"),
+        _ => false,
     }
 }
 
@@ -2173,6 +2196,27 @@ pub(super) mod tests {
         .join("\n");
         let info = parse_lines(HEAD, &(tail + "\n"));
         assert_eq!(info.last_prompt_at, parse_rfc3339_ms("2026-09-23T15:05:00.000Z"));
+    }
+
+    #[test]
+    fn whatever_comes_into_the_conversation_is_its_latest_input() {
+        let line = |v: Value| v.to_string();
+        let prompt = line(serde_json::json!({ "type": "user", "timestamp": "2026-10-30T10:00:00.000Z", "origin": { "kind": "human" }, "message": { "content": "Watch the deploy" } }));
+        let call = line(serde_json::json!({ "type": "assistant", "timestamp": "2026-10-30T10:00:05.000Z", "message": { "stop_reason": "tool_use", "content": [{ "type": "tool_use", "id": "t1", "name": "Bash", "input": { "command": "codealong session seen me" } }] } }));
+        let result = line(serde_json::json!({ "type": "user", "timestamp": "2026-10-30T10:00:06.000Z", "message": { "content": [{ "type": "tool_result", "tool_use_id": "t1", "content": "Marked seen" }] } }));
+        let sidechain = line(serde_json::json!({ "type": "user", "timestamp": "2026-10-30T10:00:07.000Z", "isSidechain": true, "message": { "content": "Look at the logs" } }));
+        let turn = [prompt.clone(), call.clone(), result.clone(), sidechain].join("\n") + "\n";
+        // A call's result and a subagent's prompt are the agent's own doing.
+        assert_eq!(parse_lines(HEAD, &turn).input_at, parse_rfc3339_ms("2026-10-30T10:00:00.000Z"));
+        // Another session's message taken in while it ran, timed when it came, moves no
+        // last_prompt_at but is input.
+        let peer = line(serde_json::json!({ "type": "attachment", "timestamp": "2026-10-30T10:00:08.000Z", "attachment": { "type": "queued_command", "prompt": "hi", "origin": { "kind": "peer", "from": "unknown", "name": "review", "body": "hi" } } }));
+        let info = parse_lines(HEAD, &([prompt.clone(), call.clone(), result.clone(), peer].join("\n") + "\n"));
+        assert_eq!((info.input_at, info.last_prompt_at), (parse_rfc3339_ms("2026-10-30T10:00:08.000Z"), parse_rfc3339_ms("2026-10-30T10:00:00.000Z")));
+        // As is a scheduled wakeup, which starts a turn of its own.
+        let fire = line(serde_json::json!({ "type": "system", "subtype": "scheduled_task_fire", "timestamp": "2026-10-30T10:15:00.000Z" }));
+        let woke = line(serde_json::json!({ "type": "user", "timestamp": "2026-10-30T10:15:00.050Z", "message": { "content": "<command-name>/loop</command-name>" } }));
+        assert_eq!(parse_lines(HEAD, &([prompt, call, result, fire, woke].join("\n") + "\n")).input_at, parse_rfc3339_ms("2026-10-30T10:15:00.050Z"));
     }
 
     #[test]

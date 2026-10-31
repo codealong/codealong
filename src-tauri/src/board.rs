@@ -429,6 +429,7 @@ pub fn claude_session(
             .unwrap_or(last_activity),
         last_activity,
         turn_ended: tr.and_then(|t| t.ended_at),
+        input_at: tr.and_then(|t| t.input_at),
         excerpt,
         branch: tr.and_then(|t| t.git_branch.clone()),
         attach_command,
@@ -1487,19 +1488,27 @@ pub fn apply_quiet(s: &mut Session, quiet: bool) {
 /// Your turn: a reply Jev reads as asking you something is Needs you by then, and a call to
 /// allow, a question or an error still wait on you, as does a turn its harness ended (the
 /// connection lost, a usage limit, cut off), which isn't the reply its agent spoke for. The agent
-/// marks the turn it's taking, so a prompt sent after the mark, or a turn started after it (a
-/// scheduled wakeup, another session's message, a background command's report), makes it void
-/// (`moved_on`), and the engine forgets it once it sees one (`Engine::forget_spent_agent_seen`).
-/// Your Mark as unread, a side conversation's answer and a snooze that ends still bring it back,
-/// as they come after (`settle_agent_seen`).
+/// marks the turn it's taking, and what came after the mark is past what it spoke for
+/// (`agent_seen_spent`). Your Mark as unread, a side conversation's answer and a snooze that ends
+/// still bring it back, as they come after (`settle_agent_seen`).
 pub fn apply_agent_seen(s: &mut Session, mark: Option<&AgentSeen>) {
     let Some(m) = mark else { return };
     let cut_short = s.connection_lost.is_some() || s.limit.is_some() || s.cut_off.is_some();
-    if s.status != Status::Unread || cut_short || moved_on(s, m.at, m.at).is_some() {
+    if s.status != Status::Unread || cut_short || agent_seen_spent(s, m.at) {
         return;
     }
     s.status = Status::Idle;
     s.agent_seen = Some(m.clone());
+}
+
+/// Whether a session has moved on from the turn its agent marked seen at `at`: something came
+/// into it since, a prompt or, where its harness says (`Session::input_at`), another session's
+/// message, a background task's report or a scheduled wakeup, which the record keeps after the
+/// turn they brought has ended, though Codealong wasn't running to see it; or a turn of its
+/// started since, seen as it runs (`moved_on`), where its harness says no more. Spent, the mark
+/// is void, and the engine forgets it (`Engine::forget_spent_agent_seen`).
+pub fn agent_seen_spent(s: &Session, at: i64) -> bool {
+    s.input_at.is_some_and(|t| t > at) || moved_on(s, at, at).is_some()
 }
 
 /// Once the rest is applied: a turn its agent marked seen that something after brought back (a
@@ -4183,12 +4192,20 @@ mod tests {
         assert_eq!(marked(&lost).status, Status::Unread);
         let cut = Session { cut_off: Some(NOW - 19 * MIN), ..ended.clone() };
         assert_eq!(marked(&cut).status, Status::Unread);
-        // A turn started after the mark without a prompt (a scheduled wakeup, another session's
-        // message) has moved on from it: the engine forgets the mark as it sees that turn.
+        // Another session's message or a background task's report taken in after the mark, or a
+        // later turn a scheduled wakeup started and ended while Codealong was closed: its record
+        // says something came in after it, though no prompt did.
+        let came = Session { input_at: Some(NOW - 20 * MIN), ..ended.clone() };
+        assert!(agent_seen_spent(&came, mark.at));
+        assert_eq!((marked(&came).status, marked(&came).agent_seen), (Status::Unread, None));
+        let before = Session { input_at: Some(NOW - 25 * MIN), ..ended.clone() };
+        assert_eq!(marked(&before).status, Status::Idle, "what started the turn it was marked in");
+        // Where its harness says no more than its prompts, a turn started after the mark is seen
+        // as it runs, and the engine forgets the mark then.
         let woke = Session { status: Status::Working, status_since: Some(NOW - 10 * MIN), ..ended.clone() };
-        assert!(moved_on(&woke, mark.at, mark.at).is_some());
+        assert!(agent_seen_spent(&woke, mark.at));
         let taking = Session { status: Status::Working, status_since: Some(NOW - 24 * MIN), ..ended.clone() };
-        assert!(moved_on(&taking, mark.at, mark.at).is_none(), "the turn it was marked in");
+        assert!(!agent_seen_spent(&taking, mark.at), "the turn it was marked in");
         // Quiet already has it idle: nothing more to say.
         let mut quiet = ended.clone();
         apply_quiet(&mut quiet, true);

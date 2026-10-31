@@ -1796,11 +1796,10 @@ impl Engine {
     }
 
     /// Forgets the marks of seen from sessions' agents whose sessions have moved on since
-    /// (`board::moved_on`): a turn started after a mark, by a scheduled wakeup or another
-    /// session's message, moves no `last_prompt_at`, so the turn it ends with would otherwise be
-    /// taken for the one its agent marked. Seen as it runs, the mark goes.
+    /// (`board::agent_seen_spent`), so the turn a later one ends with is never taken for the one
+    /// its agent marked, whatever its record keeps of how it started.
     fn forget_spent_agent_seen(&mut self, board: &Board) {
-        let spent: Vec<String> = self.seen.agent_seen.iter().filter(|m| board.session(&m.key).is_some_and(|(_, s)| board::moved_on(s, m.seen.at, m.seen.at).is_some())).map(|m| m.key.clone()).collect();
+        let spent: Vec<String> = self.seen.agent_seen.iter().filter(|m| board.session(&m.key).is_some_and(|(_, s)| board::agent_seen_spent(s, m.seen.at))).map(|m| m.key.clone()).collect();
         if spent.is_empty() {
             return;
         }
