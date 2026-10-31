@@ -1,8 +1,8 @@
 // Checks Stop in the reply box (SessionReply.tsx), in the bar's peek: a session whose turn can be
 // stopped shows Stop in the box's corner while the box is empty, Send once something's typed,
 // and its placeholder says Escape twice and ⌘. stop it; one Escape in the box stops nothing,
-// leaves the peek open and says in amber that another stops it, which typing or a couple of
-// seconds take back; a second asks for session_cancel once, the button says Stopping and the box
+// leaves the peek open and says in amber that another stops it, nor does holding it down (its
+// repeats), and typing or a couple of seconds take that back; a second asks for session_cancel once, the button says Stopping and the box
 // says what happened; Escape then closes the peek as usual, and ⌘. asks nothing more; the button
 // goes once the session's turn has ended, and Escape leaves; and on the next turn the button
 // stops it.
@@ -40,7 +40,7 @@
   var cancels = function () { return window.__calls.filter(function (c) { return c[0] === 'session_cancel'; }); };
   var hides = function () { return window.__calls.filter(function (c) { return c[0] === 'peek_hide'; }).length; };
   var cmdDot = function () { window.dispatchEvent(new KeyboardEvent('keydown', { key: '.', metaKey: true, bubbles: true, cancelable: true })); };
-  var escape = function () { box().dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); };
+  var escape = function (repeat) { box().dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', repeat: !!repeat, bubbles: true, cancelable: true })); };
 
   (async function () {
     try {
@@ -60,6 +60,10 @@
       check('one Escape in the box stops nothing', cancels().length === 0, JSON.stringify(cancels().map(function (c) { return c[1]; })));
       check('and leaves the peek open', hides() === hidden, String(hides() - hidden));
       check('says in amber that another stops it', again(), noteText());
+      escape(true);
+      escape(true);
+      await wait(50);
+      check('holding it down stops nothing either', cancels().length === 0 && again() && hides() === hidden, String(cancels().length) + ' ' + String(hides() - hidden));
       type(box(), 'x');
       type(box(), '');
       await wait(50);

@@ -908,9 +908,11 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
               }
             }
             // While its turn can be stopped, a second Escape stops it, and the first keeps the
-            // keyboard here (the window's Escape skips a key taken), saying so.
+            // keyboard here (the window's Escape skips a key taken), saying so. One held down
+            // repeats, which is still one press.
             if (e.key === 'Escape' && canStop && !aside && !stopping && !e.nativeEvent.isComposing) {
               e.preventDefault();
+              if (e.repeat) return;
               if (stopsAgain) {
                 setEscaped(false);
                 stop();
