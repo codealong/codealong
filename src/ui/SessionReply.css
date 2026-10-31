@@ -222,6 +222,12 @@
   flex: 1 1 0;
   margin: 0 var(--space-2) 5px 0;
 }
+/* What the next Escape does, in amber as the conversation's stop note says a stop, in the room of
+   who the box sends to (SessionReply.tsx), from where that starts. */
+.ca-composer-footrow > .ca-composer-note.is-attn {
+  margin-left: 10px;
+  color: var(--attn);
+}
 .ca-composer-footrow > .ca-composer-note[data-whole]::after {
   left: 4px;
   right: 4px;

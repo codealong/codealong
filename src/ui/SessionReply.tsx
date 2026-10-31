@@ -66,11 +66,14 @@
 // still asks it, and brings its window forward.
 //
 // While its turn runs, the button stops it while the box is empty, where Codealong can reach the
-// session (the engine's `stoppable`), and so does ⌘. from anywhere in the window; the placeholder
-// says so. It sends what the harness's own Stop sends, or presses Escape in its terminal, and the
-// session carries on, waiting for you. Escape in the box only leaves it, as in the window's other
-// boxes (it closes the peek, gives Sessions' list its keys back): when it stopped the turn too, an
-// Escape meant to leave cut a running command short (asked 2026-10-26).
+// session (the engine's `stoppable`), and so does ⌘. from anywhere in the window, and Escape twice
+// in the box; the placeholder says so. It sends what the harness's own Stop sends, or presses
+// Escape in its terminal, and the session carries on, waiting for you. One Escape never stops it:
+// when it did, an Escape meant to leave the box (closing the peek, giving Sessions' list its keys
+// back) cut a running command short (asked 2026-10-26). So while it runs, the first keeps the
+// keyboard in the box, which says, in amber, that another stops it, and a second within
+// `STOP_AGAIN_MS` does (asked 2026-10-30); typing or leaving the box in between takes that back.
+// With no turn to stop, Escape leaves the box as in the window's other boxes.
 //
 // Replies another session suggested for this one (`codealong session suggest`) show above the box
 // (SuggestedReplies.tsx), the box's own: a click sends one as ⏎ sends what's typed, leaving what's
@@ -127,6 +130,8 @@ const NO_PICKS: ResumePicks = { agent: null, effort: null, place: null };
 const LINES = 8;
 /** How long a Stop waits for the turn to end before saying it hasn't. */
 const STOP_WAIT_MS = 8000;
+/** How long after an Escape in the box a second one stops its turn. */
+const STOP_AGAIN_MS = 2000;
 
 /** Whether typing reaches the session now: anything but one waiting on you to answer a prompt
  *  (a permission, a question through its harness). One that's stuck takes it as its own
@@ -242,11 +247,12 @@ type Note = { text: string; error: boolean };
 
 /** What the box has to say: how something done in it went, or what what's typed will do; or, with
  *  `keys`, only the keys that aren't a chat box's usual ones, which only a window that says its
- *  keys on a strip shows (`ComposerProps.sayKeys`). */
+ *  keys on a strip shows (`ComposerProps.sayKeys`). With `attn`, what the next key does, in amber. */
 interface BoxSays {
   text: string;
   error: boolean;
   keys: boolean;
+  attn?: boolean;
 }
 
 /** How a message to each session would go, as the engine last said, so a box that shows again
@@ -487,6 +493,20 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
   };
   const stopNow = useRef(stop);
   stopNow.current = stop;
+  // An Escape while it can be stopped, waiting on a second to stop it.
+  const [escaped, setEscaped] = useState(false);
+  const stopsAgain = escaped && canStop && !stopping && !aside;
+  // It's taken back once that's long ago, or the turn has ended, so the next turn's first Escape
+  // doesn't stop it.
+  useEffect(() => {
+    if (!escaped) return;
+    if (!canStop) {
+      setEscaped(false);
+      return;
+    }
+    const t = window.setTimeout(() => setEscaped(false), STOP_AGAIN_MS);
+    return () => window.clearTimeout(t);
+  }, [escaped, canStop]);
   // ⌘. stops it too, as it stops things in the Mac's own apps, wherever the focus is in the window.
   useEffect(() => {
     if (!canStop) return;
@@ -789,7 +809,9 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
   const canSendNow = !!s.steerable && !waiting && !aside;
   const said = (text: string, keys = false): BoxSays => ({ text, error: false, keys });
   const keys = hint(waiting, !!onNext, !!onAllow, canSendNow, denies, !empty, !!suggested && !text);
-  const says: BoxSays | null = note?.error
+  const says: BoxSays | null = stopsAgain
+    ? { text: 'Esc again stops its turn', error: false, keys: false, attn: true }
+    : note?.error
     ? { ...note, keys: false }
     : going
       ? said('Sending…')
@@ -852,14 +874,16 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
           ref={box}
           value={text}
           lines={LINES}
-          hint={aside ? 'Ask on the side' : denies === 'question' ? `Or decline it, and write to ${s.account} instead` : denies ? `Or deny it, and tell ${s.account} what to do instead` : replyPlaceholder(s, terminal, way, resumeWhere) + (canStop ? keysIn(' · ⌘. stops its turn') : '')}
+          hint={aside ? 'Ask on the side' : denies === 'question' ? `Or decline it, and write to ${s.account} instead` : denies ? `Or deny it, and tell ${s.account} what to do instead` : replyPlaceholder(s, terminal, way, resumeWhere) + (canStop ? keysIn(' · esc twice or ⌘. stops its turn') : '')}
           onChange={(e) => {
             setText(e.target.value);
             setCaret(e.target.selectionStart);
             setPicked(0);
+            setEscaped(false);
             if (note && !note.error) setNote(null);
           }}
           onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
+          onBlur={() => setEscaped(false)}
           onKeyDown={(e) => {
             // The list's keys come first while it's up: the arrows choose, ⇥ finishes the name,
             // and so does ⏎ unless the name is already whole, which sends it as ⏎ does. Escape
@@ -882,6 +906,16 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
                 setClosedFor(mentionKey);
                 return;
               }
+            }
+            // While its turn can be stopped, a second Escape stops it, and the first keeps the
+            // keyboard here (the window's Escape skips a key taken), saying so.
+            if (e.key === 'Escape' && canStop && !aside && !stopping && !e.nativeEvent.isComposing) {
+              e.preventDefault();
+              if (stopsAgain) {
+                setEscaped(false);
+                stop();
+              } else setEscaped(true);
+              return;
             }
             // ⇧⇥ steps to its next mode, where it offers its modes here.
             if (e.key === 'Tab' && held(e, 'Shift') && switchesMode && !aside && !e.nativeEvent.isComposing) {
@@ -945,12 +979,16 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
           aria-label={aside ? `Question on the side about ${s.title}` : `Message to ${s.title}`}
         />
         <div className="ca-composer-footrow">
-          <div className="ca-composer-tools ca-composer-who">
-            {/* The mode it runs in now; a side conversation's copy has a mode of its own. */}
-            {switchesMode && !aside ? <ModeMenu mode={mode} modes={modes} disabled={switching} onPick={switchMode} onDone={() => box.current?.focus()} /> : s.live && s.mode && !aside && <ModeLabel mode={s.mode} small />}
-            {!aside && <BoxPlace {...place} />}
-          </div>
-          {saying && <OneLine className={cx('ca-composer-note', saying.error && 'is-error')} role="status" text={saying.text} />}
+          {/* What the next Escape does takes this room for the moment it shows, so it reads whole
+              in a narrow box, where the note gets only what's left between. */}
+          {!saying?.attn && (
+            <div className="ca-composer-tools ca-composer-who">
+              {/* The mode it runs in now; a side conversation's copy has a mode of its own. */}
+              {switchesMode && !aside ? <ModeMenu mode={mode} modes={modes} disabled={switching} onPick={switchMode} onDone={() => box.current?.focus()} /> : s.live && s.mode && !aside && <ModeLabel mode={s.mode} small />}
+              {!aside && <BoxPlace {...place} />}
+            </div>
+          )}
+          {saying && <OneLine className={cx('ca-composer-note', saying.error && 'is-error', saying.attn && 'is-attn')} role="status" text={saying.text} />}
           <div className="ca-composer-buttons">
             {!aside && <ContextMeter session={s} />}
             {/* A side conversation's copy runs on the session's account, model and effort: said, not picked. */}
@@ -985,7 +1023,7 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
               </button>
             )}
             {stopButton ? (
-              <button type="button" className="ca-composer-send is-stop" aria-label={stopping ? 'Stopping' : 'Stop'} title={keysIn('Stop its turn (⌘.)')} disabled={stopping} onClick={stop}>
+              <button type="button" className="ca-composer-send is-stop" aria-label={stopping ? 'Stopping' : 'Stop'} title={keysIn('Stop its turn (⌘., or esc twice)')} disabled={stopping} onClick={stop}>
                 <Icon name="player-stop" size={12} stroke={2} />
               </button>
             ) : (
@@ -1008,8 +1046,8 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
 }
 
 /** What the box has to say when nothing's happened: only the keys that aren't a chat box's usual
- *  ones. ⏎ sends and ⇧⏎ starts a new line, as everywhere, and the placeholder says ⌘. stops a
- *  turn while it can. */
+ *  ones. ⏎ sends and ⇧⏎ starts a new line, as everywhere, and the placeholder says Escape twice
+ *  and ⌘. stop a turn while it can. */
 function hint(waiting: boolean | undefined, next: boolean, allow: boolean, sendNow = false, denies?: Denies, written = false, suggested = false): string {
   const keys = hintKeys(waiting, next, allow, sendNow, denies, written);
   return suggested ? [keys, '↑ suggested replies'].filter(Boolean).join(' · ') : keys;

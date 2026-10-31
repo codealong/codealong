@@ -824,10 +824,13 @@ buttons' tooltips have them.
 The box's send button sits inside it, at its corner, and its placeholder says how a message gets
 there: typed into its Ghostty, iTerm2, Terminal, Rex or tmux tab, pasted into its background job, as a
 message from Codealong, or through its app. While a turn runs that Codealong can stop, the button
-stops it while the box is empty, and so does ⌘. anywhere in the window, as the placeholder says; it
-says Stopping until the turn has ended. Escape in the box never stops a turn: it only leaves the box,
-as it does everywhere else (closing the peek, giving Sessions' list its keys back), since an Escape
-meant for that used to cut a running command short. While a turn runs, ⏎ sends
+stops it while the box is empty, and so do Escape twice in the box and ⌘. anywhere in the window, as
+the placeholder says; it says Stopping until the turn has ended. One Escape never stops a turn, since
+an Escape meant to leave the box (closing the peek, giving Sessions' list its keys back) used to cut
+a running command short: while a turn runs, the first keeps the keyboard in the box, which says in
+amber "Esc again stops its turn", and only a second within two seconds stops it. Typing in between
+or leaving the box takes that back, and with no turn to stop, Escape leaves the box as it does
+everywhere else. While a turn runs, ⏎ sends
 as the session's own box would (Claude Code takes it in once its current step ends, the Codex app
 into the turn, or queued to start once it ends when Codex is set to queue follow-ups, and OpenCode
 after the turn), and Send now (the bolt beside Send, or ⌃⏎ as in Claude Code) sends it
