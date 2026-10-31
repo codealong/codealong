@@ -1703,13 +1703,15 @@ Commands:
               new, a watch with nothing to report. Once the turn ends it's idle rather
               than Your turn: in no queue, off the floating bar and the mark, and shown
               as its agent's call (Seen by agent, with --note). Run it as the turn's
-              last step, just before the final reply. It holds only for a turn that ends
-              as Your turn: one whose reply Jev reads as asking its user something, a
-              call to allow, a question or an error still wait on them. A prompt sent
-              after it, from its user or anyone, makes it void, and its user's Mark as
-              unread brings it back. Never for a turn that changed code, finished what
-              its user asked for, or says anything they'd want to read. Only `me`:
-              another session's turn is its user's to see. Needs the app running
+              last step, just before the final reply. It holds only for the turn it's
+              run in, and only if that turn ends as Your turn: one whose reply Jev reads
+              as asking its user something, a call to allow, a question, an error or a
+              turn cut short (a lost connection, a usage limit) still wait on them. A
+              prompt sent after it, or a turn that starts after it (a scheduled wakeup,
+              another session's message), makes it void, and its user's Mark as unread
+              brings it back. Never for a turn that changed code, finished what its user
+              asked for, or says anything they'd want to read. Only `me`: another
+              session's turn is its user's to see. Needs the app running
   transcript  A session's conversation as its own record has it, for reading what
               another agent did and where it stands: the newest part (about 60 items),
               or the part before `--before`. Each item is a prompt (`you`), a reply
@@ -2061,12 +2063,14 @@ Mark the turn this session is taking seen, from inside it, when its user needs t
 nothing about it: a loop's tick or a check that found nothing new, a watch with nothing
 to report. Once the turn ends it's idle rather than Your turn: in no queue, off the
 floating bar and the mark, and shown as its agent's call (Seen by agent, with --note).
-Run it as the turn's last step, just before the final reply. It holds only for a turn
-that ends as Your turn: one whose reply Jev reads as asking its user something, a call
-to allow, a question or an error still wait on them. A prompt sent after it, from its
-user or anyone, makes it void, and its user's Mark as unread brings it back. Never for a
-turn that changed code, finished what its user asked for, or says anything they'd want
-to read. Only `me`: another session's turn is its user's to see. Needs the app running
+Run it as the turn's last step, just before the final reply. It holds only for the turn
+it's run in, and only if that turn ends as Your turn: one whose reply Jev reads as
+asking its user something, a call to allow, a question, an error or a turn cut short (a
+lost connection, a usage limit) still wait on them. A prompt sent after it, or a turn
+that starts after it (a scheduled wakeup, another session's message), makes it void, and
+its user's Mark as unread brings it back. Never for a turn that changed code, finished
+what its user asked for, or says anything they'd want to read. Only `me`: another
+session's turn is its user's to see. Needs the app running
 
 Usage: codealong session seen [OPTIONS] <KEY>
 

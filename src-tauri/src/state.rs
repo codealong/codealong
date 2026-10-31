@@ -250,6 +250,11 @@ impl SeenState {
         self.agent_seen.iter().find(|m| m.key == key).map(|m| &m.seen)
     }
 
+    /// Forgets a session's mark of seen from its agent, once its session has moved on from it.
+    pub fn forget_agent_seen(&mut self, key: &str) {
+        self.agent_seen.retain(|m| m.key != key);
+    }
+
     /// Quiets a session, or makes it heard again. True when that changed anything.
     pub fn set_quiet(&mut self, key: &str, quiet: bool) -> bool {
         let was = self.is_quiet(key);
@@ -566,6 +571,8 @@ mod tests {
         s.mark_agent_seen("codex:codex:b", seen(15));
         assert_eq!(s.agent_seen_of("claude:claude:a").map(|m| m.at), Some(20));
         assert_eq!(s.agent_seen.len(), 2);
+        s.forget_agent_seen("codex:codex:b");
+        assert!(s.agent_seen_of("codex:codex:b").is_none());
         assert!(serde_json::to_string(&s).unwrap().contains(r#""agentSeen":[{"key":"claude:claude:a","seen":{"at":20,"note":"Nothing new"}}"#));
         let old: SeenState = serde_json::from_str(r#"{"firstRun":5,"seen":{}}"#).unwrap();
         assert!(old.agent_seen.is_empty());

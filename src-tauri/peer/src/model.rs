@@ -293,8 +293,8 @@ pub struct Session {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub raised: Option<Raised>,
     /// Its own agent said the turn it just ended needs nothing from you (`codealong session seen
-    /// me`; `board::apply_agent_seen`): idle rather than Your turn, until you look at it or send it
-    /// something. None from Macs before 2026-10-30, which show such a turn as Your turn.
+    /// me`; `board::apply_agent_seen`): idle rather than Your turn, until you look at it or another
+    /// turn of its starts. None from Macs before 2026-10-30, which show such a turn as Your turn.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_seen: Option<AgentSeen>,
     /// What a side conversation answered that you haven't seen (`board::apply_side_answer`): a

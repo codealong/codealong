@@ -191,7 +191,7 @@ export interface Session {
    *  from older Macs. */
   raised?: Raised;
   /** Its own agent said the turn it just ended needs nothing from you (`codealong session seen
-   *  me`): idle rather than Your turn until you look at it or send it something (board.rs
+   *  me`): idle rather than Your turn until you look at it or another turn of its starts (board.rs
    *  `apply_agent_seen`). Missing from older Macs, which show such a turn as Your turn. */
   agentSeen?: AgentSeen;
   /** What a side conversation answered that you haven't seen (board.rs `apply_side_answer`): a

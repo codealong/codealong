@@ -1795,6 +1795,21 @@ impl Engine {
         }
     }
 
+    /// Forgets the marks of seen from sessions' agents whose sessions have moved on since
+    /// (`board::moved_on`): a turn started after a mark, by a scheduled wakeup or another
+    /// session's message, moves no `last_prompt_at`, so the turn it ends with would otherwise be
+    /// taken for the one its agent marked. Seen as it runs, the mark goes.
+    fn forget_spent_agent_seen(&mut self, board: &Board) {
+        let spent: Vec<String> = self.seen.agent_seen.iter().filter(|m| board.session(&m.key).is_some_and(|(_, s)| board::moved_on(s, m.seen.at, m.seen.at).is_some())).map(|m| m.key.clone()).collect();
+        if spent.is_empty() {
+            return;
+        }
+        for k in &spent {
+            self.seen.forget_agent_seen(k);
+        }
+        self.save_state();
+    }
+
     /// The replies suggested for each session, while they still answer where it stands
     /// (suggestions.rs, `board::apply_suggestions`). After Jev's read of it, before a snooze or a
     /// mark of unread moves when its status began.
@@ -3951,6 +3966,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         // The board already leaves them out.
         self.forget_stale_suggestions(&board);
         self.forget_stale_tags(&board);
+        self.forget_spent_agent_seen(&board);
         self.jev_look(&board);
         self.look_emblems(&board);
         let composed = t.elapsed();
