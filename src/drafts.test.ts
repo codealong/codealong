@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { draftChange, pruneDrafts, putBack, readDraft, sideDraft, writeDraft, type DraftStorage } from './drafts';
+import { addToDraft, draftChange, pruneDrafts, putBack, readDraft, sideDraft, writeDraft, type DraftStorage } from './drafts';
 
 /** Local storage as the app's windows share it, in memory. */
 function memoryStorage(): DraftStorage & { items: Map<string, string> } {
@@ -71,6 +71,16 @@ describe('drafts', () => {
     store.setItem('codealong.bar.project', 'Acme');
     pruneDrafts(store, now);
     expect([...store.items.keys()].sort()).toEqual(['codealong.bar.project', 'codealong.draft.claude:claude:new']);
+  });
+
+  it('adds words that are nowhere else, even ones what’s written has in it', () => {
+    const store = memoryStorage();
+    const key = 'claude:claude:b';
+    addToDraft(key, 'Run tests', true, store);
+    expect(readDraft(key, store)).toBe('Run tests');
+    writeDraft(key, 'Do not run tests yet  \n', store);
+    addToDraft(key, 'run tests', true, store);
+    expect(readDraft(key, store)).toBe('Do not run tests yet\n\nrun tests');
   });
 
   it('puts a prompt the session took back in an empty box, once', () => {

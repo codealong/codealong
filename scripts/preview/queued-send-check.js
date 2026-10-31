@@ -11,9 +11,10 @@
 // others' buttons waiting until it's done, back with why when it's still held, and one of yours that went back in after it under a new id (Claude
 // Code gives back everything it holds) still showing once, as held. Between them, Edit takes one
 // out the same way and its words come to the box, after what's written there and with the cursor,
-// once it's out: yours as you wrote them, not as listed; none where it's still held, saying why;
-// Put in the box where it wasn't held after all; no Edit where it only names a paste. It ends with
-// two messages queued, for the screenshot.
+// once it's out, whatever's written has in it already: yours as you wrote them, not as listed; none
+// where it's still held, saying why; Put in the box where it wasn't held after all; no Edit where
+// it only names a paste, or while a side conversation has the box. It ends with two messages
+// queued, for the screenshot.
 //   PREVIEW_WAIT=40000 scripts/preview.sh sessions '' scripts/preview/queued-send-check.js
 //   PREVIEW_SCHEME=dark PREVIEW_WAIT=40000 scripts/preview.sh sessions '' scripts/preview/queued-send-check.js
 (function () {
@@ -330,7 +331,44 @@
     .then(function () {
       check('its words come after what was written', box().value === 'Already written\n\nWord this better', box().value);
       check('with the cursor at their end', document.activeElement === box() && box().selectionStart === box().value.length, box().selectionStart);
+      // Words the box has in it already come all the same: they're nowhere else now.
+      type(box(), 'Do not run tests yet');
+      var at = Date.now();
+      push({ queuedAt: at, queued: [{ id: 'app-11', at: at, text: 'run tests' }] });
+      return until(function () { return !!saying('run tests'); }, 5000, 'one the box has in it');
+    })
+    .then(function () {
+      edit('run tests').click();
+      return until(function () { return !saying('run tests'); }, 5000, 'that one out of the queue');
+    })
+    .then(function () {
+      unqueued.res({ message: 'Took it out.' });
+      return until(function () { return box().value === 'Do not run tests yet\n\nrun tests'; }, 5000, 'its words after what has them in it');
+    })
+    .then(function () {
+      check('one the box has in it already still comes', box().value === 'Do not run tests yet\n\nrun tests', box().value);
       type(box(), '');
+      // While a side conversation has the box, as another window would show one.
+      var at = Date.now();
+      push({ queuedAt: at, queued: [{ id: 'app-12', at: at, text: 'Not while it’s aside' }] });
+      return until(function () { return !!saying('Not while it’s aside'); }, 5000, 'one with a side conversation up');
+    })
+    .then(function () {
+      var view = 'codealong.sideview.' + picked.key;
+      localStorage.setItem(view, JSON.stringify({ kind: 'list' }));
+      window.dispatchEvent(new StorageEvent('storage', { key: view }));
+      return until(function () { return edit('Not while it’s aside').disabled; }, 5000, 'Edit off while the box is aside');
+    })
+    .then(function () {
+      var off = edit('Not while it’s aside');
+      check('a side conversation that has the box turns Edit off, saying why', off.disabled && off.title.indexOf('side conversation') >= 0, off.title);
+      check('and leaves Send now and Remove', !sendNow('Not while it’s aside').disabled && !remove('Not while it’s aside').disabled);
+      var view = 'codealong.sideview.' + picked.key;
+      localStorage.removeItem(view);
+      window.dispatchEvent(new StorageEvent('storage', { key: view }));
+      return until(function () { return !edit('Not while it’s aside').disabled; }, 5000, 'Edit back with the box');
+    })
+    .then(function () {
       // One of yours comes back as you wrote it, not as its harness lists it.
       queueing = true;
       return send('Yours, whole');

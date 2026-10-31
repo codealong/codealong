@@ -59,7 +59,7 @@ import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, u
 import { delivered, dismiss, heldWords, inRecord, steerAhead, unqueueAhead, useAhead, type Ahead } from '../ahead';
 import { onHostedStream, sessionNewer, sessionPage, sessionStream } from '../api';
 import { shortOf } from '../devices';
-import { putBack } from '../drafts';
+import { addToDraft, putBack } from '../drafts';
 import { snippet } from '../todos';
 import { absolute, agoPhrase } from '../format';
 import { editsHeld, harnessOfKey, heldUntil, removesHeld, sendsHeldNow } from '../harness';
@@ -69,6 +69,7 @@ import { CodeBlock } from './CopyButton';
 import { DescriptionView, ImagesFrom } from './DescriptionEditor';
 import { FileLink, FollowUpContext, Link, linked, Markdown } from './Markdown';
 import { Button, Chip, cx, Icon, Rich, StatusGlyph } from './primitives';
+import { useAside } from '../side';
 import { waitsInBackground } from '../lanes';
 import { answeredOf, QuestionList } from './QuestionList';
 import { RunContext, type RunPlace } from './RunButton';
@@ -560,10 +561,11 @@ function YourAnswers({ answers }: { answers: ReturnType<typeof answeredOf> }) {
 const queuedState = (harness: Harness | null) => `Queued until ${heldUntil(harness)}`;
 
 /** A queued message's key among the prompts. */
-const queuedKey = (m: Pick<QueuedMessage, 'id'>) => `queued:${m.id}`;
+const queuedKey = (m: QueuedMessage) => `queued:${m.id}`;
 
-/** Why a held message can't be edited here (`heldWords`). */
-const HELD_ELSEWHERE = 'Edit it where it was written: it has a paste or an image Codealong can’t bring back';
+/** Why a held message can't be edited here: its words can't be had (`heldWords`), or the box below
+ *  is a side conversation's, which they'd only reach once it's put away. */
+const uneditable = (words: string | null, aside: boolean) => (words == null ? 'Edit it where it was written: it has a paste or an image Codealong can’t bring back' : aside ? 'Edit once the side conversation is put away: the box below is its' : null);
 
 /** A message of yours the session's record doesn't have yet, faint, saying where it is, and
  *  `action` after that. */
@@ -1073,10 +1075,13 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
   const edit = (m: QueuedMessage, words: string) => {
     setUnheld(null);
     unqueueAhead(s, m).then(
-      () => void putBack(s.key, queuedKey(m), words, true),
+      () => addToDraft(s.key, words),
       (e: unknown) => setUnheld({ id: m.id, why: errorText(e), removing: true, words }),
     );
   };
+  // The box below is its side conversation's while one shows, and what's written for the session
+  // waits behind it.
+  const aside = useAside(s.key);
   // While one is being taken out, yours that were held stay out of sight too, since Claude Code
   // gives them all back and they go in again under new ids (`unqueueAhead`), and nothing else is
   // done to what's held until it's over.
@@ -1232,6 +1237,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
               {/* After the turn that's running, which they wait on. */}
               {queued.map((m) => {
                 const words = heldWords(sends, m);
+                const noEdit = uneditable(words, aside);
                 return (
                   <NotYetSaid
                     key={queuedKey(m)}
@@ -1246,7 +1252,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
                       s.steerable && (
                         <span className="ca-thread-heldacts">
                           <Button variant="ghost" size="sm" icon="bolt" className="ca-thread-sendnow" title={sendsHeldNow(s.harness)} aria-label="Send now" disabled={removing} onClick={() => steer(m)} />
-                          {answeredBelow && <Button variant="ghost" size="sm" icon="pencil" className="ca-thread-editheld" title={words == null ? HELD_ELSEWHERE : editsHeld(s.harness)} aria-label="Edit" disabled={removing || words == null} onClick={() => words != null && edit(m, words)} />}
+                          {answeredBelow && <Button variant="ghost" size="sm" icon="pencil" className="ca-thread-editheld" title={noEdit ?? editsHeld(s.harness)} aria-label="Edit" disabled={removing || noEdit != null} onClick={() => words != null && edit(m, words)} />}
                           <Button variant="ghost" size="sm" icon="trash" className="ca-thread-unqueue" title={removesHeld(s.harness)} aria-label="Remove" disabled={removing} onClick={() => unqueue(m)} />
                         </span>
                       )
@@ -1265,12 +1271,12 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
               {unheld?.removing && !queued.some((m) => m.id === unheld.id) && (
                 <div className="ca-thread-askrow" role="alert">
                   <span>{unheld.why}</span>
-                  {unheld.words != null && (
+                  {unheld.words != null && !aside && (
                     <Button
                       size="sm"
                       icon="pencil"
                       onClick={() => {
-                        putBack(s.key, queuedKey(unheld), unheld.words ?? '', true);
+                        addToDraft(s.key, unheld.words ?? '');
                         setUnheld(null);
                       }}
                     >

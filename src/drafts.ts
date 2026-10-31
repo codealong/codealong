@@ -89,6 +89,21 @@ export function sideDraft(key: string): string {
   return `side:${key}`;
 }
 
+/** Tells the windows' boxes what's written to a session now; the one in this window takes the
+ *  cursor with `focus`. */
+function tell(key: string, text: string, focus: boolean): void {
+  if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(HERE, { detail: { key, text, focus } }));
+}
+
+/** Adds `text` after what's written to a session, and to its box. For words that are nowhere else
+ *  now (a held message taken back to edit), so unlike `putBack` it goes in whatever's written. */
+export function addToDraft(key: string, text: string, focus = true, store: DraftStorage | null = storage(), now = Date.now()): void {
+  const draft = readDraft(key, store);
+  const next = draft.trim() ? `${draft.trimEnd()}\n\n${text}` : text;
+  writeDraft(key, next, store, now);
+  tell(key, next, focus);
+}
+
 /** A prompt the session took back before its agent saw it, put back in its box as Claude Code
  *  puts it back in its own (claude/conversation.rs): once for each prompt (`id` names it), and only when the
  *  box is empty, unless you asked for it (`asked`), which adds it after what's there. Says
@@ -103,16 +118,13 @@ export function putBack(key: string, id: string, text: string, asked = false, st
     }
   }
   const draft = readDraft(key, store);
-  const tell = (t: string) => typeof window !== 'undefined' && window.dispatchEvent(new CustomEvent(HERE, { detail: { key, text: t, focus: asked } }));
   if (draft.includes(text)) {
     // Asked for when it's there already, the box takes the cursor.
-    if (asked) tell(draft);
+    if (asked) tell(key, draft, true);
     return false;
   }
   if (draft.trim() && !asked) return false;
-  const next = draft.trim() ? `${draft.trimEnd()}\n\n${text}` : text;
-  writeDraft(key, next, store, now);
-  tell(next);
+  addToDraft(key, text, asked, store, now);
   return true;
 }
 

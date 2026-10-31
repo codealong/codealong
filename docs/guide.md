@@ -664,7 +664,7 @@ turn ends meanwhile it just waits in the box. Send it from there and it goes as 
 queued after what's still held if the turn is running. One the turn took first stays sent, with
 Put in the box to write it again. A message with a paste or an image you sent from somewhere else
 can't be edited here, since Codealong has only their names: its pencil is faint, and the terminal or
-the Codex app has it.
+the Codex app has it. The pencil is faint too while a side conversation has the box.
 One the session shows no sign of having taken, once it's been quiet a while, says Not in the
 session yet, with Open to check. One that may have gone in without Codealong being able to tell (its
 terminal didn't confirm the typing, say) counts as sent rather than going back in the box, where it
