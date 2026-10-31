@@ -333,7 +333,7 @@ const DELETED: &str = "That side conversation has been deleted. Ask again to sta
 /// that has ended: what was asked and answered, then the question. The copy is of the session as
 /// it is now, which may have gone on since.
 fn goes_on_from(turns: &[Turn], text: &str) -> String {
-    format!("This side conversation began with an earlier copy of the conversation, which has ended, so the conversation above may have gone on since. What you were asked there, and what you answered, oldest first:\n{}\nGo on from there. What you're asked now:\n\n{text}", said(turns))
+    format!("This side conversation began with an earlier copy of the conversation, which has ended, so the conversation above may have gone on since. What you were asked there, and what you answered, oldest first:\n{}\nGo on from there. What you're asked now:\n\n{text}", said(turns, true))
 }
 
 /// What a fork of the session is asked first when it's forked from side conversation `id`
@@ -351,7 +351,7 @@ pub fn fork_prompt(key: &str, id: &str, text: &str) -> Result<String> {
 }
 
 fn forked_with(key: &str, turns: &[Turn], text: &str) -> String {
-    format!("Before this copy of the conversation was made, I asked another copy of it some questions on the side, which the original conversation never saw. What I asked there, and what it answered, oldest first:\n{}\nThe original conversation carries on without you, as Codealong session {key}. What I want from you now:\n\n{text}", said(turns))
+    format!("Before this copy of the conversation was made, I asked another copy of it some questions on the side, which the original conversation never saw. What I asked there, and what it answered, oldest first:\n{}\nThe original conversation carries on without you, as Codealong session {key}. What I want from you now:\n\n{text}", said(turns, false))
 }
 
 /// Side conversation `id` of `key`'s questions and answers, as far as they've gone: the open one,
@@ -367,7 +367,10 @@ fn said_in(key: &str, id: &str, kept_in: &Path) -> Option<Vec<Turn>> {
 }
 
 /// What was asked and answered in a side conversation, oldest first, each in tags of its own.
-fn said(turns: &[Turn]) -> String {
+/// What was pasted with a question goes as its path to a copy (`paths`), as it did then
+/// (`ask_with`), and as it was typed to a fork, whose start makes of it what it makes of any
+/// prompt's (Claude Code's `background_args`, which knows only the folder and name).
+fn said(turns: &[Turn], paths: bool) -> String {
     let mut said = String::new();
     for t in turns {
         let answer = t.answer.trim();
@@ -379,8 +382,8 @@ fn said(turns: &[Turn]) -> String {
             Some(why) => format!("(No answer: {why})"),
             None => "(No answer.)".to_string(),
         };
-        // What was pasted with it goes as its path, as it did then (`ask_with`).
-        let question = crate::attachments::expand(t.question.trim(), crate::attachments::Style::Path);
+        let question = t.question.trim();
+        let question = if paths { crate::attachments::expand(question, crate::attachments::Style::Path) } else { question.to_string() };
         said.push_str(&format!("\n<question>\n{question}\n</question>\n<answer>\n{answer}\n</answer>\n"));
     }
     said
@@ -1351,8 +1354,14 @@ mod tests {
         assert!(said_in(key, "k0", &kept_in).is_none());
         // A question still being answered says so.
         let answering = [Turn { question: "and the docs?".into(), answer: "The guide needs".into(), ..Default::default() }, Turn { question: "and then?".into(), ..Default::default() }];
-        assert!(said(&answering).contains("<answer>\nThe guide needs\n(Still being answered.)\n</answer>"), "{}", said(&answering));
-        assert!(said(&answering).contains("<answer>\n(Not answered yet.)\n</answer>"), "{}", said(&answering));
+        assert!(said(&answering, false).contains("<answer>\nThe guide needs\n(Still being answered.)\n</answer>"), "{}", said(&answering, false));
+        assert!(said(&answering, false).contains("<answer>\n(Not answered yet.)\n</answer>"), "{}", said(&answering, false));
+        // What was pasted with a question goes as it was typed, for the fork's start to attach as
+        // it attaches a prompt's (`background_args`), which a full path would get past.
+        let pasted = [Turn { question: "what's wrong here? images/0123456789abcdef.png".into(), answer: "The gate.".into(), done: true, ..Default::default() }];
+        let prompt = forked_with(key, &pasted, "Fix it.");
+        assert!(prompt.contains("<question>\nwhat's wrong here? images/0123456789abcdef.png\n</question>"), "{prompt}");
+        assert_eq!(crate::attachments::kinds(&prompt), (true, false));
         // It's asked to do something.
         assert_eq!(fork_prompt(key, &open.id, "  ").unwrap_err().to_string(), "Say what the copy should do: /fork, then what to do.");
         close(key);
