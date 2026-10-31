@@ -41,6 +41,9 @@ pub struct Place {
     frame: Mutex<Option<Rect>>,
     /// Whether a write is waiting out `SETTLE`.
     writing: AtomicBool,
+    /// Held through a write. Apart from `frame`, so a slow disk never holds up the main thread
+    /// noting a move.
+    writes: Mutex<()>,
 }
 
 impl Place {
@@ -52,7 +55,7 @@ impl Place {
     /// one that doesn't read puts the window in its first place and is saved over.
     fn at(path: PathBuf) -> Arc<Place> {
         let frame = crate::store::read_or_default::<Saved>(&path).frame;
-        Arc::new(Place { path, frame: Mutex::new(frame), writing: AtomicBool::new(false) })
+        Arc::new(Place { path, frame: Mutex::new(frame), writing: AtomicBool::new(false), writes: Mutex::new(()) })
     }
 
     /// Puts a window that hasn't shown yet where it was. On the main thread.
@@ -94,8 +97,11 @@ impl Place {
         }
     }
 
-    /// Writes where the window is, for the next launch.
+    /// Writes where the window is, for the next launch. One at a time, each reading the frame once
+    /// it's its turn: one that read it sooner could land after a later one, as Codealong quits
+    /// say, with nothing left to put that right.
     pub fn save(&self) {
+        let Ok(_turn) = self.writes.lock() else { return };
         let frame = self.frame.lock().ok().and_then(|f| *f);
         if frame.is_some() {
             let _ = crate::store::save(&self.path, &Saved { frame });
@@ -215,6 +221,24 @@ mod tests {
             std::thread::sleep(SETTLE / 10);
         }
         assert_eq!(*Place::at(path).frame.lock().unwrap(), Some(last), "the next launch reads where it stopped");
+    }
+
+    #[test]
+    fn a_write_held_up_behind_another_writes_the_latest_frame() {
+        let path = crate::store::test_dir("frames-turns").join("window.json");
+        let (older, latest) = (Rect { x: 1.0, y: 2.0, w: 1100.0, h: 760.0 }, Rect { x: 3.0, y: 4.0, w: 1100.0, h: 760.0 });
+        let place = Place::at(path.clone());
+        *place.frame.lock().unwrap() = Some(older);
+        let turn = place.writes.lock().unwrap();
+        let saving = std::thread::spawn({
+            let place = place.clone();
+            move || place.save()
+        });
+        std::thread::sleep(Duration::from_millis(50));
+        *place.frame.lock().unwrap() = Some(latest);
+        drop(turn);
+        saving.join().unwrap();
+        assert_eq!(*Place::at(path).frame.lock().unwrap(), Some(latest));
     }
 
     #[test]
