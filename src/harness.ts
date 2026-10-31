@@ -62,23 +62,31 @@ export function heldUntil(harness: Harness | null): string {
 /** What Send now on a message its harness holds does, where that isn't steering it into the turn
  *  (harness.rs `steer_queued`): Claude Code's own send-now, which stops the step it's on. */
 const SENDS_HELD_NOW: Partial<Record<Harness, string>> = {
-  claude: 'Send what it holds now: Claude Code stops the step it’s on, a running command too, and goes on with it, as its own send-now does',
+  claude: 'Send now: Claude Code stops the step it’s on, a running command too, and goes on with what it holds, as its own send-now does',
 };
 
-/** What Send now on a message the session's harness holds does, for its tooltip. */
+/** What Send now on a message the session's harness holds does: its tooltip, which is all the
+ *  icon has to name it, as Edit's and Remove's are. */
 export function sendsHeldNow(harness: Harness | null): string {
-  return (harness && SENDS_HELD_NOW[harness]) || `Send it into the turn it’s taking now, rather than once ${heldUntil(harness)}`;
+  return (harness && SENDS_HELD_NOW[harness]) || `Send now: into the turn it’s taking, rather than once ${heldUntil(harness)}`;
 }
 
-/** What Remove on a message its harness holds does, where it takes more than that one out
+/** What taking a message out of what its harness holds does to the rest, where it does anything
  *  (harness.rs `remove_queued`): Claude Code gives back everything it holds at once. */
-const REMOVES_HELD: Partial<Record<Harness, string>> = {
-  claude: 'Take it out, so it’s never sent: Claude Code gives back everything it holds at once, so the others go back in after it, and anything typed in its terminal’s box goes with them',
+const TAKES_ALL_OUT: Partial<Record<Harness, string>> = {
+  claude: 'Claude Code gives back everything it holds at once, so the others go back in after it, and anything typed in its terminal’s box goes with them',
 };
+
+const andTheRest = (harness: Harness | null, said: string) => (harness && TAKES_ALL_OUT[harness] ? `${said}. ${TAKES_ALL_OUT[harness]}` : said);
 
 /** What Remove on a message the session's harness holds does, for its tooltip. */
 export function removesHeld(harness: Harness | null): string {
-  return (harness && REMOVES_HELD[harness]) || 'Take it out of what’s held, so it’s never sent';
+  return andTheRest(harness, 'Remove, so it’s never sent');
+}
+
+/** What Edit on a message the session's harness holds does, for its tooltip. */
+export function editsHeld(harness: Harness | null): string {
+  return andTheRest(harness, 'Edit: it comes out of the queue into the box below, so it can’t go while you change it, and you send it from there');
 }
 
 /** The harnesses whose sessions move to another folder as themselves (harness.rs

@@ -56,19 +56,19 @@
 // pinned prompt makes way for its bar while it's open.
 
 import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { delivered, dismiss, inRecord, steerAhead, unqueueAhead, useAhead, type Ahead } from '../ahead';
+import { delivered, dismiss, heldWords, inRecord, steerAhead, unqueueAhead, useAhead, type Ahead } from '../ahead';
 import { onHostedStream, sessionNewer, sessionPage, sessionStream } from '../api';
 import { shortOf } from '../devices';
 import { putBack } from '../drafts';
 import { snippet } from '../todos';
 import { absolute, agoPhrase } from '../format';
-import { harnessOfKey, heldUntil, removesHeld, sendsHeldNow } from '../harness';
+import { editsHeld, harnessOfKey, heldUntil, removesHeld, sendsHeldNow } from '../harness';
 import type { DeviceTag, Harness, HostedStream, Question, QueuedMessage, Session, Status, TranscriptItem, TranscriptPage } from '../types';
 import { selectedForMenu, type MenuSpec } from '../contextMenu';
 import { CodeBlock } from './CopyButton';
 import { DescriptionView, ImagesFrom } from './DescriptionEditor';
 import { FileLink, FollowUpContext, Link, linked, Markdown } from './Markdown';
-import { Chip, cx, Icon, Rich, StatusGlyph } from './primitives';
+import { Button, Chip, cx, Icon, Rich, StatusGlyph } from './primitives';
 import { waitsInBackground } from '../lanes';
 import { answeredOf, QuestionList } from './QuestionList';
 import { RunContext, type RunPlace } from './RunButton';
@@ -560,7 +560,10 @@ function YourAnswers({ answers }: { answers: ReturnType<typeof answeredOf> }) {
 const queuedState = (harness: Harness | null) => `Queued until ${heldUntil(harness)}`;
 
 /** A queued message's key among the prompts. */
-const queuedKey = (m: QueuedMessage) => `queued:${m.id}`;
+const queuedKey = (m: Pick<QueuedMessage, 'id'>) => `queued:${m.id}`;
+
+/** Why a held message can't be edited here (`heldWords`). */
+const HELD_ELSEWHERE = 'Edit it where it was written: it has a paste or an image Codealong can’t bring back';
 
 /** A message of yours the session's record doesn't have yet, faint, saying where it is, and
  *  `action` after that. */
@@ -1046,15 +1049,16 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
   // What its harness holds until the turn ends, as the board lists it (the Codex app's queue),
   // which has it after a relaunch, and one sent from elsewhere too: one of yours it holds, by the
   // id its send went under, shows there rather than twice. One you sent into the turn from there
-  // (Send now) shows as a message sent instead, and one you took out (Remove) not at all.
+  // (Send now) shows as a message sent instead, and one you took out (Remove, Edit) not at all.
   const removals = useMemo(() => ahead.flatMap((a) => (a.change.kind === 'unqueue' && a.change.key === s.key ? [{ id: a.change.id, going: a.doneAt == null }] : [])), [ahead, s.key]);
   const queued = useMemo(() => {
     const steered = new Set(sends.flatMap((a) => (a.change.kind === 'send' && a.change.steers ? [a.change.steers] : [])));
     const removed = new Set(removals.map((r) => r.id));
     return (s.queued ?? []).filter((m) => !steered.has(m.id) && !removed.has(m.id));
   }, [s.queued, sends, removals]);
-  // Why the last Send now or Remove on a held message didn't go through, by its id.
-  const [unheld, setUnheld] = useState<{ id: string; why: string; removing: boolean } | null>(null);
+  // Why the last Send now, Edit or Remove on a held message didn't go through, by its id, with
+  // the words an Edit was taking back.
+  const [unheld, setUnheld] = useState<{ id: string; why: string; removing: boolean; words?: string } | null>(null);
   const steer = (m: QueuedMessage) => {
     setUnheld(null);
     steerAhead(s, m).catch((e: unknown) => setUnheld({ id: m.id, why: errorText(e), removing: false }));
@@ -1062,6 +1066,16 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
   const unqueue = (m: QueuedMessage) => {
     setUnheld(null);
     unqueueAhead(s, m).catch((e: unknown) => setUnheld({ id: m.id, why: errorText(e), removing: true }));
+  };
+  // It comes out as you start rather than changing where it's held once you're done: a turn takes
+  // in what it holds as a step ends, which is often sooner than you'd finish. Its words go in the
+  // box once it's out, so one the turn took first isn't there to send twice.
+  const edit = (m: QueuedMessage, words: string) => {
+    setUnheld(null);
+    unqueueAhead(s, m).then(
+      () => void putBack(s.key, queuedKey(m), words, true),
+      (e: unknown) => setUnheld({ id: m.id, why: errorText(e), removing: true, words }),
+    );
   };
   // While one is being taken out, yours that were held stay out of sight too, since Claude Code
   // gives them all back and they go in again under new ids (`unqueueAhead`), and nothing else is
@@ -1216,41 +1230,53 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
                 </div>
               )}
               {/* After the turn that's running, which they wait on. */}
-              {queued.map((m) => (
-                <NotYetSaid
-                  key={queuedKey(m)}
-                  prompt={queuedKey(m)}
-                  text={m.text}
-                  state={queuedState(s.harness)}
-                  // While the turn would take it sooner, as Steer beside it in the Codex app does,
-                  // and Claude Code's send-now key under it in its terminal; and Remove, as the
-                  // trash beside it in the Codex app, while keys reach Claude Code's box.
-                  action={
-                    s.steerable && (
-                      <>
-                        <button type="button" className="ca-linkbtn ca-thread-sendnow" title={sendsHeldNow(s.harness)} disabled={removing} onClick={() => steer(m)}>
-                          <Icon name="bolt" size={12} stroke={2} />
-                          <span>Send now</span>
-                        </button>
-                        <button type="button" className="ca-linkbtn ca-thread-unqueue" title={removesHeld(s.harness)} disabled={removing} onClick={() => unqueue(m)}>
-                          <Icon name="trash" size={12} stroke={2} />
-                          <span>Remove</span>
-                        </button>
-                      </>
-                    )
-                  }
-                >
-                  {unheld?.id === m.id && (
-                    <div className="ca-thread-askrow" role="alert">
-                      <span>{unheld.why}</span>
-                    </div>
-                  )}
-                </NotYetSaid>
-              ))}
-              {/* Why one taken out didn't come out cleanly, where it's no longer held to say it under. */}
+              {queued.map((m) => {
+                const words = heldWords(sends, m);
+                return (
+                  <NotYetSaid
+                    key={queuedKey(m)}
+                    prompt={queuedKey(m)}
+                    text={m.text}
+                    state={queuedState(s.harness)}
+                    // While the turn would take it sooner, as Steer beside it in the Codex app does,
+                    // and Claude Code's send-now key under it in its terminal; Remove, as the trash
+                    // beside it in the Codex app, while keys reach Claude Code's box; and Edit, as ↑
+                    // there, where there's a box below for it to go to.
+                    action={
+                      s.steerable && (
+                        <span className="ca-thread-heldacts">
+                          <Button variant="ghost" size="sm" icon="bolt" className="ca-thread-sendnow" title={sendsHeldNow(s.harness)} aria-label="Send now" disabled={removing} onClick={() => steer(m)} />
+                          {answeredBelow && <Button variant="ghost" size="sm" icon="pencil" className="ca-thread-editheld" title={words == null ? HELD_ELSEWHERE : editsHeld(s.harness)} aria-label="Edit" disabled={removing || words == null} onClick={() => words != null && edit(m, words)} />}
+                          <Button variant="ghost" size="sm" icon="trash" className="ca-thread-unqueue" title={removesHeld(s.harness)} aria-label="Remove" disabled={removing} onClick={() => unqueue(m)} />
+                        </span>
+                      )
+                    }
+                  >
+                    {unheld?.id === m.id && (
+                      <div className="ca-thread-askrow" role="alert">
+                        <span>{unheld.why}</span>
+                      </div>
+                    )}
+                  </NotYetSaid>
+                );
+              })}
+              {/* Why one taken out didn't come out cleanly, where it's no longer held to say it
+                  under; the words of one you were editing are still yours to write again. */}
               {unheld?.removing && !queued.some((m) => m.id === unheld.id) && (
                 <div className="ca-thread-askrow" role="alert">
                   <span>{unheld.why}</span>
+                  {unheld.words != null && (
+                    <Button
+                      size="sm"
+                      icon="pencil"
+                      onClick={() => {
+                        putBack(s.key, queuedKey(unheld), unheld.words ?? '', true);
+                        setUnheld(null);
+                      }}
+                    >
+                      Put in the box
+                    </Button>
+                  )}
                   <button type="button" className="ca-btn ca-btn--ghost ca-btn--sm" title="Stop showing this" onClick={() => setUnheld(null)}>
                     <Icon name="x" size={13} />
                   </button>

@@ -20,7 +20,7 @@ vi.mock('./api', () => ({
   windowLabel: () => 'test',
 }));
 
-import { answerAhead, barAhead, boardAhead, boardView, CONFIRM_MS, inRecord, lanesAhead, logoOf, mergeAhead, mergeDoneAhead, renameAhead, reviewAhead, sendAhead, sentWorthSaying, settled, snoozeAhead, snoozedFrom, snoozeReviewsAhead, steerAhead, unqueueAhead, type Ahead, type View } from './ahead';
+import { answerAhead, barAhead, boardAhead, boardView, CONFIRM_MS, heldWords, inRecord, lanesAhead, logoOf, mergeAhead, mergeDoneAhead, renameAhead, reviewAhead, sendAhead, sentWorthSaying, settled, snoozeAhead, snoozedFrom, snoozeReviewsAhead, steerAhead, unqueueAhead, type Ahead, type View } from './ahead';
 import { readDraft, writeDraft } from './drafts';
 import { bayOf, stuckMidTurn } from './lanes';
 import * as fx from './testing/fixtures';
@@ -629,6 +629,23 @@ describe('unqueueAhead', () => {
     expect(settled(a, view(['u1', 'u2']), NOW + 1000)).toBe(a);
     expect(settled(a, view(['u1', 'new-u3']), NOW + 1000)).toBeNull();
     expect(settled({ ...a, doneAt: null }, view(['u1']), NOW + 1000)).not.toBeNull();
+  });
+});
+
+describe('heldWords', () => {
+  const m = (text: string) => ({ id: 'u2', at: NOW, text });
+
+  it('takes yours as you wrote it, what it came with too, and another’s as listed', () => {
+    const yours: Ahead = { id: 'x', change: { kind: 'send', key: 'a', text: 'See this\n\n![shot](images/a.png)', working: true, starts: false }, at: NOW, doneAt: NOW, shownAt: null, queuedAs: 'u2' };
+    expect(heldWords([yours], m('See this'))).toBe('See this\n\n![shot](images/a.png)');
+    expect(heldWords([yours], m('[Pasted text #1 +40 lines]'))).toBe('See this\n\n![shot](images/a.png)');
+    expect(heldWords([{ ...yours, queuedAs: 'u1' }], m('And the docs'))).toBe('And the docs');
+    expect(heldWords([], m('And the docs'))).toBe('And the docs');
+  });
+
+  it('has none where what’s listed only names part of it', () => {
+    for (const text of ['keep [Pasted text #1 +40 lines]', 'see [Image #1]', 'long [...Truncated text #2 +9 lines]']) expect(heldWords([], m(text))).toBeNull();
+    expect(heldWords([], m('a list like [1] stays'))).toBe('a list like [1] stays');
   });
 });
 

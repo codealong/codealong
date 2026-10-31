@@ -413,16 +413,14 @@
 .ca-thread-meta > .ca-meta {
   margin-left: auto;
 }
-/* Send now and Remove on a message its harness holds, after what it says it is; faint while a
-   Remove is under way. */
-.ca-thread-sendnow,
-.ca-thread-unqueue {
+/* Send now, Edit and Remove on a message its harness holds, after what it says it is, as icons
+   whose tooltips name them. They're taller than the line they're on and leave it as tall as it
+   was; faint while a Remove is under way, and an Edit with nothing to bring back. */
+.ca-thread-heldacts {
   display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
+  margin: -4px -6px -4px 0;
 }
-.ca-thread-sendnow:disabled,
-.ca-thread-unqueue:disabled {
+.ca-thread-heldacts .ca-btn:disabled {
+  background: transparent;
   opacity: 0.5;
-  cursor: default;
 }

@@ -1,5 +1,5 @@
 // A Claude Code session whose running turn holds two messages, open in Sessions, for a screenshot
-// of them queued at the end of its conversation with Send now and Remove (SessionThread.tsx).
+// of them queued at the end of its conversation with Send now, Edit and Remove (SessionThread.tsx).
 //   PREVIEW_INIT=scripts/preview/claude-queued-init.js PREVIEW_NAME=claude-queued scripts/preview.sh sessions
 //   PREVIEW_SCHEME=dark PREVIEW_INIT=scripts/preview/claude-queued-init.js PREVIEW_NAME=claude-queued scripts/preview.sh sessions
 (function () {

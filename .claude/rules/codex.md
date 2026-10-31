@@ -231,7 +231,9 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
   on a queued message does the same, through its own app-server and the window that runs the
   thread: `codex/ipc.rs` (`steer_queued`), `codex/appserver.rs` (`Queue`); Remove deletes it alone
   (`Queue::take_out`; the real CLI's delete of one already gone answered `deleted: false`,
-  2026-10-29). Not there:
+  2026-10-29), which is Edit's way too (`SessionThread.tsx` `edit`). Not there: 0.162.1 also
+  lists `thread/queue/update`, `thread/queue/reorder` and `thread/queue/start`, unused and not
+  tried: an update wouldn't keep a message from going while you changed it.
   `thread/queue/list` (0.160.1's schema) answers `{data: [{id, clientUserMessageId, input}],
   nextCursor}`, `input` in `turn/start`'s items (a pasted image an `image` item with a data URL),
   and `thread/queue/delete {threadId, queuedSubmissionId}` answers `{deleted}`. The app-server that

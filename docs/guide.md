@@ -638,7 +638,7 @@ this turn ends for as long as it waits: Antigravity's command line queues what's
 is over. The Codex app's queue (when Codex is set to queue follow-ups) shows whole at the end of the
 thread, after the turn that's running, whoever queued it: from Codealong, from the Codex app's own
 box, or from another device, and still there after Codealong restarts. While the turn could take it
-sooner, each queued message has Send now beside Queued until this turn ends, as Steer beside one in
+sooner, each queued message has Send now (the bolt) beside Queued until this turn ends, as Steer beside one in
 the Codex app: it goes into the turn that's running and out of the queue, and shows as Sent until
 the turn takes it in at its next step; one Codex didn't take stays queued, with why under it.
 Claude Code holds a message sent while its turn runs until the step it's on ends (a long command
@@ -649,7 +649,7 @@ through the background service for a background job: Claude Code stops the step 
 Escape would, cutting a running command short, and goes on with everything it holds. To keep a
 long command running, send the message with the box's own Send now (⌃⏎) instead, which moves the
 command to the background.
-Beside Send now, Remove takes a queued message out so it's never sent, and it leaves the
+Beside Send now, Remove (the trash) takes a queued message out so it's never sent, and it leaves the
 conversation at once. In the Codex app it's the trash beside the message there. Claude Code gives
 back everything it holds at once (↑ in its terminal), so Codealong presses ↑ there or through the
 background service, empties the box without stopping the turn, and types the others back in after
@@ -657,6 +657,14 @@ it, in their order; they stay queued and stay yours. A draft typed into that ter
 sent goes with them. When one of the others holds a long paste or an image, which can't be typed
 back in, Remove says to take it out in the terminal instead, and touches nothing. One that couldn't
 be taken out comes back, with why under it.
+Between them, Edit (the pencil) takes a queued message out as Remove does and puts its words in the
+box below, after anything written there, with whatever it was sent with. It comes out as you start,
+since the turn could take it in before you'd finished: it can't go while you change it, and if the
+turn ends meanwhile it just waits in the box. Send it from there and it goes as any message does,
+queued after what's still held if the turn is running. One the turn took first stays sent, with
+Put in the box to write it again. A message with a paste or an image you sent from somewhere else
+can't be edited here, since Codealong has only their names: its pencil is faint, and the terminal or
+the Codex app has it.
 One the session shows no sign of having taken, once it's been quiet a while, says Not in the
 session yet, with Open to check. One that may have gone in without Codealong being able to tell (its
 terminal didn't confirm the typing, say) counts as sent rather than going back in the box, where it

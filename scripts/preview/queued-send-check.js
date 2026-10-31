@@ -9,8 +9,11 @@
 // for it by its id and shows it once, as sent, in its place; one that doesn't go stays held, saying
 // why. Beside it, Remove takes one out: gone from the thread at once and asked for by its id, the
 // others' buttons waiting until it's done, back with why when it's still held, and one of yours that went back in after it under a new id (Claude
-// Code gives back everything it holds) still showing once, as held. It ends with two messages
-// queued, for the screenshot.
+// Code gives back everything it holds) still showing once, as held. Between them, Edit takes one
+// out the same way and its words come to the box, after what's written there and with the cursor,
+// once it's out: yours as you wrote them, not as listed; none where it's still held, saying why;
+// Put in the box where it wasn't held after all; no Edit where it only names a paste. It ends with
+// two messages queued, for the screenshot.
 //   PREVIEW_WAIT=40000 scripts/preview.sh sessions '' scripts/preview/queued-send-check.js
 //   PREVIEW_SCHEME=dark PREVIEW_WAIT=40000 scripts/preview.sh sessions '' scripts/preview/queued-send-check.js
 (function () {
@@ -98,6 +101,7 @@
   // Send now on a held message, by its words.
   var sendNow = function (words) { var u = saying(words); return u && q('.ca-thread-sendnow', u.el); };
   var remove = function (words) { var u = saying(words); return u && q('.ca-thread-unqueue', u.el); };
+  var edit = function (words) { var u = saying(words); return u && q('.ca-thread-editheld', u.el); };
   var send = function (words) {
     type(box(), words);
     key(box(), { key: 'Enter' });
@@ -301,6 +305,87 @@
       var shown = sayingAll('Fix the tests too');
       check('one of yours that went back in under a new id shows once, as held', shown.length === 1 && shown[0].says === QUEUED, shown.map(function (u) { return u.says; }).join(', '));
       check('and the one taken out is gone', !saying('Then the release notes'));
+      // Edit: buttons as icons, each named by its tooltip.
+      var at = Date.now();
+      push({ queuedAt: at, queued: [{ id: 'app-6', at: at - 1000, text: 'Word this better' }, { id: 'n:Fix the tests too', at: at, text: 'Fix the tests too' }] });
+      return until(function () { return !!saying('Word this better'); }, 5000, 'one to edit');
+    })
+    .then(function () {
+      var acts = q('.ca-thread-heldacts', saying('Word this better').el);
+      var buttons = [].slice.call(acts.querySelectorAll('button'));
+      check('Send now, Edit and Remove, in that order', buttons.map(function (b) { return b.getAttribute('aria-label'); }).join() === 'Send now,Edit,Remove', buttons.length);
+      check('as icons alone, with tooltips that name them', buttons.every(function (b) { return !b.textContent.trim() && !!q('svg', b) && b.title.indexOf(b.getAttribute('aria-label')) === 0; }), buttons.map(function (b) { return b.title; }).join(' | '));
+      type(box(), 'Already written');
+      edit('Word this better').click();
+      return until(function () { return !saying('Word this better'); }, 5000, 'the edited one out of the queue');
+    })
+    .then(function () {
+      var asked = sent('session_unqueue');
+      check('Edit takes it out by its id', asked[asked.length - 1].id === 'app-6', JSON.stringify(asked[asked.length - 1]));
+      check('and the box waits until it’s out', box().value === 'Already written', box().value);
+      unqueued.res({ message: 'Took it out of what “Queued A” holds: it won’t be sent.' });
+      return until(function () { return box().value.indexOf('Word this better') >= 0; }, 5000, 'its words in the box');
+    })
+    .then(function () { return wait(100); })
+    .then(function () {
+      check('its words come after what was written', box().value === 'Already written\n\nWord this better', box().value);
+      check('with the cursor at their end', document.activeElement === box() && box().selectionStart === box().value.length, box().selectionStart);
+      type(box(), '');
+      // One of yours comes back as you wrote it, not as its harness lists it.
+      queueing = true;
+      return send('Yours, whole');
+    })
+    .then(function () {
+      queueing = false;
+      var at = Date.now();
+      push({ queuedAt: at, queued: [{ id: 'q:Yours, whole', at: at, text: '[Pasted text #1 +40 lines]' }, { id: 'app-8', at: at, text: 'Terminal paste: [Pasted text #2 +9 lines]' }] });
+      return until(function () { return !!saying('[Pasted text #1 +40 lines]') && !!saying('Terminal paste: [Pasted text #2 +9 lines]'); }, 5000, 'held by placeholders');
+    })
+    .then(function () {
+      var whole = edit('Terminal paste: [Pasted text #2 +9 lines]');
+      check('Edit is off where it only names a paste, saying why', whole.disabled && whole.title.indexOf('can’t bring back') >= 0, whole.title);
+      check('and on for one of yours that it lists by a placeholder', !edit('[Pasted text #1 +40 lines]').disabled);
+      edit('[Pasted text #1 +40 lines]').click();
+      return until(function () { return !saying('[Pasted text #1 +40 lines]'); }, 5000, 'yours out of the queue');
+    })
+    .then(function () {
+      unqueued.res({ message: 'Took it out.' });
+      return until(function () { return box().value === 'Yours, whole'; }, 5000, 'your words in the box');
+    })
+    .then(function () {
+      check('yours comes back as you wrote it', box().value === 'Yours, whole', box().value);
+      type(box(), '');
+      var at = Date.now();
+      push({ queuedAt: at, queued: [{ id: 'app-9', at: at, text: 'Still held' }, { id: 'app-10', at: at, text: 'The turn takes this' }] });
+      return until(function () { return !!saying('The turn takes this'); }, 5000, 'two more');
+    })
+    .then(function () {
+      edit('Still held').click();
+      return until(function () { return !saying('Still held'); }, 5000, 'out of sight');
+    })
+    .then(function () {
+      unqueued.rej('Claude Code didn’t give back what it holds for “Queued A”, so it’s still held.');
+      return until(function () { var u = saying('Still held'); return u && !!q('.ca-thread-askrow', u.el); }, 5000, 'why it wasn’t taken out');
+    })
+    .then(function () {
+      check('one still held stays, saying why, the box left alone', q('.ca-thread-askrow', saying('Still held').el).textContent.indexOf('still held') >= 0 && box().value === '', box().value);
+      edit('The turn takes this').click();
+      return until(function () { return !saying('The turn takes this'); }, 5000, 'out of sight again');
+    })
+    .then(function () {
+      unqueued.rej('Claude Code doesn’t hold that message any more: its turn has taken it in.');
+      var at = Date.now();
+      push({ queuedAt: at, queued: [{ id: 'app-9', at: at, text: 'Still held' }] });
+      return until(function () { return !!q('.ca-sessinsp .ca-thread > .ca-thread-askrow .ca-btn--secondary'); }, 5000, 'Put in the box');
+    })
+    .then(function () {
+      check('one the turn took first leaves the box alone', box().value === '', box().value);
+      q('.ca-sessinsp .ca-thread > .ca-thread-askrow .ca-btn--secondary').click();
+      return until(function () { return box().value === 'The turn takes this'; }, 5000, 'its words in the box');
+    })
+    .then(function () {
+      check('Put in the box brings its words, and it’s said no more', !q('.ca-sessinsp .ca-thread > .ca-thread-askrow'));
+      type(box(), '');
       var at = Date.now();
       push({ queuedAt: at, queued: [{ id: 'app-6', at: at - 1000, text: 'Then the release notes' }, { id: 'app-7', at: at, text: 'And a line in the changelog' }] });
       return until(function () { return !!saying('And a line in the changelog'); }, 5000, 'two queued for the screenshot');

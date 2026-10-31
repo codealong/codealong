@@ -1,6 +1,23 @@
 import { describe, expect, it } from 'vitest';
-import { harnessOfKey, nameShown, renames, sessionName, sessionPlace, usageNote } from './harness';
+import { editsHeld, harnessOfKey, nameShown, removesHeld, renames, sendsHeldNow, sessionName, sessionPlace, usageNote } from './harness';
 import type { Session, Usage } from './types';
+
+describe('what a held message’s buttons say', () => {
+  it('names each, since a tooltip is all its icon has', () => {
+    for (const harness of ['claude', 'codex', null] as const) {
+      expect(sendsHeldNow(harness)).toMatch(/^Send now/);
+      expect(editsHeld(harness)).toMatch(/^Edit/);
+      expect(removesHeld(harness)).toMatch(/^Remove/);
+    }
+  });
+
+  it('says what Claude Code does to the rest, as it gives back all it holds', () => {
+    expect(removesHeld('claude')).toContain('the others go back in after it');
+    expect(editsHeld('claude')).toContain('the others go back in after it');
+    expect(removesHeld('codex')).toBe('Remove, so it’s never sent');
+    expect(editsHeld('codex')).not.toContain('others');
+  });
+});
 
 describe('usageNote', () => {
   const usage = (u: Partial<Usage>): Usage => ({ account: 'a', harness: 'antigravity', plan: null, meters: [], asOf: null, error: null, needsSignIn: false, loading: false, ...u });

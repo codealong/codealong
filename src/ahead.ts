@@ -1099,6 +1099,21 @@ export function unqueueAhead(s: Session, m: QueuedMessage): Promise<string> {
   );
 }
 
+/** A long paste or an image in what a harness lists as held, which only names it
+ *  (claude/unqueue.rs `by_placeholder`, codex/queue.rs `words`). */
+const NAMES_WHAT_IT_HOLDS = /\[(?:Pasted text|Image|\.\.\.Truncated text) #/;
+
+/**
+ * A held message's words to write again (Edit), from `sends`, the session's: one of yours as you
+ * wrote it, what it came with too, else as its harness lists it, or null where that only names
+ * part of it, which would be lost as it came out.
+ */
+export function heldWords(sends: Ahead[], m: QueuedMessage): string | null {
+  const yours = sends.find((a) => a.queuedAs === m.id)?.change;
+  if (yours?.kind === 'send') return yours.text;
+  return NAMES_WHAT_IT_HOLDS.test(m.text) ? null : m.text;
+}
+
 /** Whether a message to the session is on its way from this window or another. */
 export function sending(changes: Ahead[], key: string): boolean {
   return changes.some((a) => a.change.kind === 'send' && a.change.key === key && a.doneAt == null);
