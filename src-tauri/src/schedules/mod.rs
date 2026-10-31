@@ -1015,7 +1015,7 @@ pub fn apply_op(op: Op, by: Option<&str>, board: Option<&Board>, cfg: &Config, n
                         schedule.created_at = was.created_at;
                         schedule.created_by = was.created_by.clone();
                         let resumed = was.paused && !schedule.paused;
-                        schedule.resumed_at = if resumed || starts_afresh(&was.when, &schedule.when) { Some(now) } else { was.resumed_at };
+                        schedule.resumed_at = if resumed || starts_afresh(was, &schedule) { Some(now) } else { was.resumed_at };
                         // Made this machine's alone: the other machines drop their copies.
                         if was.runs_on.shared() && !schedule.runs_on.shared() {
                             file.gone.push(codealong_peer::schedules::Gone { id: schedule.id.clone(), at: now });
@@ -1109,28 +1109,32 @@ pub fn apply_op(op: Op, by: Option<&str>, board: Option<&Board>, cfg: &Config, n
     Ok(out)
 }
 
-/// Whether a schedule saved with `now` where it had `was` goes on as one just made would, as it
+/// Whether a schedule saved as `now` where it was `was` goes on as one just made would, as it
 /// does once resumed (`resumed`): another time from now, not one that passed under the old (8:00
 /// changed to 7:00 at 7:30 isn't a 7:00 missed), and only what happens on the board or what a
 /// watch prints from now on, not what's there already, which the old event or command didn't
-/// cover. How often a watch looks changes nothing of what it saw.
-pub fn starts_afresh(was: &When, now: &When) -> bool {
-    match (was, now) {
-        (When::Watch { command: a, mode: ma, .. }, When::Watch { command: b, mode: mb, .. }) => a.trim() != b.trim() || ma != mb,
+/// cover, nor the old worktree, where a command such as `gh issue list` looked at another repo.
+/// How often a watch looks changes nothing of what it saw.
+pub fn starts_afresh(was: &Schedule, now: &Schedule) -> bool {
+    match (&was.when, &now.when) {
+        (When::Watch { command: a, mode: ma, .. }, When::Watch { command: b, mode: mb, .. }) => a.trim() != b.trim() || ma != mb || was.run.folder.trim() != now.run.folder.trim(),
         (When::Time { rule: a }, When::Time { rule: b }) => a.trim() != b.trim(),
         (a, b) => a != b,
     }
 }
 
-/// A schedule resumed: what passed while it was paused isn't run, though Codealong was closed
-/// meanwhile and never saw it pass. Its times go on from now, it's armed again (what's on the
-/// board now isn't new), and its watch's next look only notes what's there. A time it took a run
-/// of since (a resume on another machine heard late) stays run; one it let pass, on a copy still
-/// paused here, runs.
+/// A schedule resumed, or said to run otherwise (`starts_afresh`): what passed while it was paused
+/// isn't run, though Codealong was closed meanwhile and never saw it pass. Its times go on from
+/// now, it's armed again (what's on the board now isn't new), and its watch looks as soon as it's
+/// armed, a look that only notes what's there: the last check was the old one's, whose time to
+/// look again and failures would put that look off and take what came meanwhile for what was
+/// there. A time it took a run of since (a resume on another machine heard late) stays run; one
+/// it let pass, on a copy still paused here, runs.
 pub fn resumed(t: &mut Track, now: i64) {
     t.last_due = Some(t.took.map_or(now, |d| d.max(now)));
     t.armed_at = 0;
     t.seeded = false;
+    t.check = None;
     t.reset_at = Some(now);
 }
 
@@ -1288,9 +1292,11 @@ mod tests {
 
     #[test]
     fn resuming_skips_what_passed_while_paused() {
-        let mut t = Track { armed_at: 5, last_due: Some(10), seeded: true, ..Track::default() };
+        let mut t = Track { armed_at: 5, last_due: Some(10), seeded: true, check: Some(Check { at: 400, ok: false, failures: 3, ..Check::default() }), ..Track::default() };
         resumed(&mut t, 500);
-        assert_eq!((t.last_due, t.armed_at, t.seeded, t.reset_at), (Some(500), 0, false, Some(500)));
+        assert_eq!((t.last_due, t.armed_at, t.seeded, t.reset_at, t.check.is_none()), (Some(500), 0, false, Some(500), true));
+        // Its watch looks as soon as it's armed again, not an hour after the old one's last look.
+        assert_eq!(next_check("1h", Some(&Track { armed_at: 520, ..t.clone() })), Some(520));
         // Heard late, after it ran a later time: that time stays run.
         let mut ran = Track { last_due: Some(900), took: Some(900), armed_at: 5, ..Track::default() };
         resumed(&mut ran, 845);
@@ -1305,18 +1311,24 @@ mod tests {
     /// times went on from its last run, yesterday's 15:00 (2026-10-31).
     #[test]
     fn a_schedule_said_to_run_otherwise_starts_afresh() {
+        let on = |when: When| Schedule { when, run: Run { folder: "/work/atlas".into(), ..Run::default() }, ..Schedule::default() };
+        let afresh = |a: When, b: When| starts_afresh(&on(a), &on(b));
         let at = |rule: &str| When::Time { rule: rule.into() };
         let watch = |command: &str, every: &str, mode| When::Watch { command: command.into(), every: every.into(), mode };
         let merged = |repo: &str| When::Event { event: Event::PrMerged, repo: repo.into(), label: String::new(), mine: false };
-        assert!(starts_afresh(&at("daily 15:00"), &at("daily 14:00")));
-        assert!(!starts_afresh(&at("daily 15:00"), &at(" daily 15:00")));
-        assert!(starts_afresh(&watch("./deploys", "5m", WatchMode::Lines), &watch("./releases", "5m", WatchMode::Lines)));
-        assert!(starts_afresh(&watch("./deploys", "5m", WatchMode::Lines), &watch("./deploys", "5m", WatchMode::Value)));
-        assert!(!starts_afresh(&watch("./deploys", "5m", WatchMode::Lines), &watch("./deploys", "1h", WatchMode::Lines)), "what it saw still stands");
+        assert!(afresh(at("daily 15:00"), at("daily 14:00")));
+        assert!(!afresh(at("daily 15:00"), at(" daily 15:00")));
+        assert!(afresh(watch("./deploys", "5m", WatchMode::Lines), watch("./releases", "5m", WatchMode::Lines)));
+        assert!(afresh(watch("./deploys", "5m", WatchMode::Lines), watch("./deploys", "5m", WatchMode::Value)));
+        assert!(!afresh(watch("./deploys", "5m", WatchMode::Lines), watch("./deploys", "1h", WatchMode::Lines)), "what it saw still stands");
+        // Its command looks at another repo from another worktree; a time doesn't care where.
+        let moved = |s: Schedule| Schedule { run: Run { folder: "/work/northwind".into(), ..s.run.clone() }, ..s };
+        assert!(starts_afresh(&on(watch("gh issue list", "5m", WatchMode::Lines)), &moved(on(watch("gh issue list", "5m", WatchMode::Lines)))));
+        assert!(!starts_afresh(&on(at("daily 9:00")), &moved(on(at("daily 9:00")))));
         // Any repo now: the PRs merged in the others already aren't new.
-        assert!(starts_afresh(&merged("northwind/web"), &merged("")));
-        assert!(starts_afresh(&at("daily 9:00"), &When::Fired));
-        assert!(!starts_afresh(&When::Fired, &When::Fired));
+        assert!(afresh(merged("northwind/web"), merged("")));
+        assert!(afresh(at("daily 9:00"), When::Fired));
+        assert!(!afresh(When::Fired, When::Fired));
         // Its next time is tomorrow's 14:00 from the moment it's saved, before the scheduler notes it.
         let z = rule::tests::Fake::utc();
         let ran = Track { armed_at: 1, last_due: Some(rule::tests::ms(&z, 2026, 10, 30, 15, 0)), ..Track::default() };

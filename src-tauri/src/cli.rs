@@ -1331,12 +1331,12 @@ struct ScheduleOptions {
     /// A model to start on.
     #[arg(long)]
     model: Option<String>,
-    /// How hard Claude Code thinks.
-    #[arg(long, value_parser = clap::builder::PossibleValuesParser::new(start::effort_levels()))]
+    /// How hard Claude Code thinks; an empty one for the account's own.
+    #[arg(long, value_parser = OrNone(clap::builder::PossibleValuesParser::new(start::effort_levels())))]
     effort: Option<String>,
-    /// Where its sessions run. Without it, out of sight: Claude Code's background service, else in Codealong, else in Codealong's tmux with no window (a terminal behind your windows without tmux).
-    #[arg(long = "in", value_enum)]
-    place: Option<PlaceArg>,
+    /// Where its sessions run. Without it, or empty, out of sight: Claude Code's background service, else in Codealong, else in Codealong's tmux with no window (a terminal behind your windows without tmux).
+    #[arg(long = "in", value_parser = OrNone(clap::builder::PossibleValuesParser::new(PlaceArg::value_variants().iter().filter_map(ValueEnum::to_possible_value))))]
+    place: Option<String>,
     /// Only when this command, run first in its worktree, succeeds and prints something; what it printed goes to the session with the rest.
     #[arg(long, allow_hyphen_values = true)]
     only_if: Option<String>,
@@ -1364,6 +1364,26 @@ struct ScheduleOptions {
     /// With --runs-on one: the machine it prefers, by name or short id (`codealong devices`), or `this` for this one.
     #[arg(long)]
     prefer: Option<String>,
+}
+
+/// One of a choice's values, or an empty one for none: how `schedule edit` takes an --effort or an
+/// --in off, with the values listed in its help as they'd be without it.
+#[derive(Clone)]
+struct OrNone(clap::builder::PossibleValuesParser);
+
+impl clap::builder::TypedValueParser for OrNone {
+    type Value = String;
+
+    fn parse_ref(&self, cmd: &clap::Command, arg: Option<&clap::Arg>, value: &std::ffi::OsStr) -> std::result::Result<String, clap::Error> {
+        if value.is_empty() {
+            return Ok(String::new());
+        }
+        self.0.parse_ref(cmd, arg, value)
+    }
+
+    fn possible_values(&self) -> Option<Box<dyn Iterator<Item = clap::builder::PossibleValue> + '_>> {
+        self.0.possible_values()
+    }
 }
 
 #[derive(ValueEnum, Clone, Copy, Debug, PartialEq)]
@@ -5574,10 +5594,13 @@ fn with_options(c: &mut Client, mut s: crate::schedules::Schedule, o: ScheduleOp
         s.run.model = Some(model).filter(|m| !m.trim().is_empty());
     }
     if let Some(effort) = o.effort {
-        s.run.effort = Some(effort);
+        s.run.effort = Some(effort).filter(|e| !e.is_empty());
     }
     if let Some(place) = o.place {
-        s.run.place = Some(place_of(place));
+        s.run.place = match place.as_str() {
+            "" => None,
+            p => Some(place_of(PlaceArg::from_str(p, false).map_err(|e| anyhow!(e))?)),
+        };
     }
     if let Some(only_if) = o.only_if {
         s.only_if = only_if;
@@ -7938,6 +7961,11 @@ mod tests {
         // A yes-or-no one goes off with `=no`, and a text one comes off when it's empty.
         let off = with(&daily, &["--quiet=no", "--model", "", "--per-day", "", "--thread=no", "--skip-missed"]).unwrap();
         assert_eq!((off.quiet, off.run.model, off.per_day, off.run.to, off.catch_up), (false, None, None, To::New, CatchUp::Skip));
+        let placed = with(&daily, &["--effort", "high", "--in", "terminal"]).unwrap();
+        assert_eq!((placed.run.effort.as_deref(), placed.run.place), (Some("high"), Some(Place::Terminal)));
+        let unplaced = with(&placed, &["--effort", "", "--in", ""]).unwrap();
+        assert_eq!((unplaced.run.effort, unplaced.run.place), (None, None));
+        assert!(parse(&["edit", "standup", "--in", "somewhere"]).is_err());
         assert!(parse(&["edit", "standup", "--quiet", "no"]).is_err(), "`no` isn't taken for the schedule's name");
         assert!(with(&daily, &["--per-day", "twice"]).unwrap_err().to_string().contains("how many runs a day"));
         // Sent to its session from now on, then on to another worktree.

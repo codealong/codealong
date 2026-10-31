@@ -1630,9 +1630,10 @@ when back* is off; the others are noted as missed. A new session's run is skippe
 one's session still works or waits on you, unless *Start another while the last one still works*
 is ticked, and *At most … runs a day* caps them; Run now goes past the cap. Paused, nothing runs it,
 and times that pass meanwhile aren't run when it's resumed; Run now still runs it. Edited to run at
-other times or on something else, it goes on from then as a new one would, keeping its runs: a time
-that passed under the old one isn't run late (9:00 moved to 8:00 at 8:30 next runs tomorrow at 8:00),
-and what's on the board or in its watch's output already isn't new. *Quiet* makes
+other times or on something else, or a watch moved to another worktree, it goes on from then as a
+new one would, keeping its runs: a time that passed under the old one isn't run late (9:00 moved to
+8:00 at 8:30 next runs tomorrow at 8:00), and what's on the board or in its watch's output already
+isn't new, its watch looking at once to note it. *Quiet* makes
 its sessions quiet (*Quiet*). Schedules run while Codealong does: with it closed, nothing runs
 (Settings › General › Open at login).
 

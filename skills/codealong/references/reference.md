@@ -1209,14 +1209,14 @@ Options:
           A model to start on
 
       --effort <EFFORT>
-          How hard Claude Code thinks
+          How hard Claude Code thinks; an empty one for the account's own
           
           [possible values: low, medium, high, xhigh, max, ultra]
 
       --in <PLACE>
-          Where its sessions run. Without it, out of sight: Claude Code's background
-          service, else in Codealong, else in Codealong's tmux with no window (a
-          terminal behind your windows without tmux)
+          Where its sessions run. Without it, or empty, out of sight: Claude Code's
+          background service, else in Codealong, else in Codealong's tmux with no window
+          (a terminal behind your windows without tmux)
 
           Possible values:
           - terminal
@@ -1383,14 +1383,14 @@ Options:
           A model to start on
 
       --effort <EFFORT>
-          How hard Claude Code thinks
+          How hard Claude Code thinks; an empty one for the account's own
           
           [possible values: low, medium, high, xhigh, max, ultra]
 
       --in <PLACE>
-          Where its sessions run. Without it, out of sight: Claude Code's background
-          service, else in Codealong, else in Codealong's tmux with no window (a
-          terminal behind your windows without tmux)
+          Where its sessions run. Without it, or empty, out of sight: Claude Code's
+          background service, else in Codealong, else in Codealong's tmux with no window
+          (a terminal behind your windows without tmux)
 
           Possible values:
           - terminal
