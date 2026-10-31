@@ -10,6 +10,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use crate::accountpoll::identity;
 use crate::config::AccountCfg;
 use crate::model::{AccountInfo, Harness, Severity, Usage};
 use crate::util::now_ms;
@@ -25,25 +26,27 @@ fn kept_file() -> PathBuf {
     crate::config::support_dir().join("usage.json")
 }
 
-pub fn keep(usage: &HashMap<String, Usage>) {
-    keep_in(&kept_file(), usage);
+/// Kept by what each account is, not by its name: a name config.toml gave to another folder
+/// while the app was closed is another account, whose limits these aren't.
+pub fn keep(accounts: &[AccountCfg], usage: &HashMap<String, Usage>) {
+    keep_in(&kept_file(), accounts, usage);
 }
 
-fn keep_in(path: &Path, usage: &HashMap<String, Usage>) {
-    let numbers: HashMap<&String, &Usage> = usage.iter().filter(|(_, u)| !u.meters.is_empty()).collect();
+fn keep_in(path: &Path, accounts: &[AccountCfg], usage: &HashMap<String, Usage>) {
+    let numbers: HashMap<String, &Usage> = accounts.iter().filter_map(|a| Some((identity(a), usage.get(&a.name).filter(|u| !u.meters.is_empty())?))).collect();
     // All a failure costs is a launch that starts without numbers, as one always did.
     let _ = crate::store::save(path, &numbers);
 }
 
-/// The numbers `keep` left that are recent enough to show.
-pub fn kept(now: i64) -> HashMap<String, Usage> {
-    kept_in(&kept_file(), now)
+/// The numbers `keep` left for these accounts that are recent enough to show, by account name.
+pub fn kept(accounts: &[AccountCfg], now: i64) -> HashMap<String, Usage> {
+    kept_in(&kept_file(), accounts, now)
 }
 
-fn kept_in(path: &Path, now: i64) -> HashMap<String, Usage> {
-    let mut usage: HashMap<String, Usage> = crate::store::read_or_default(path);
-    usage.retain(|_, u| u.as_of.is_some_and(|at| now - at < KEPT_FOR_MS));
-    usage
+fn kept_in(path: &Path, accounts: &[AccountCfg], now: i64) -> HashMap<String, Usage> {
+    let mut numbers: HashMap<String, Usage> = crate::store::read_or_default(path);
+    let recent = |u: &Usage| u.as_of.is_some_and(|at| now - at < KEPT_FOR_MS);
+    accounts.iter().filter_map(|a| Some((a.name.clone(), Usage { account: a.name.clone(), ..numbers.remove(&identity(a)).filter(recent)? }))).collect()
 }
 
 pub fn loading(account: &AccountCfg) -> Usage {
@@ -138,10 +141,15 @@ mod tests {
         Usage { account: account.into(), harness: Harness::Claude, plan: None, meters: vec![meter], as_of: Some(as_of), error: None, needs_sign_in: false, loading: false, no_limits: false, preferred: false, rate_limited: false }
     }
 
+    fn account(name: &str) -> AccountCfg {
+        AccountCfg { name: name.into(), harness: "claude".into(), home: format!("~/.{name}"), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false }
+    }
+
     #[test]
     fn a_relaunch_gets_the_numbers_of_the_last_hour_and_no_older() {
         let file = crate::store::test_dir("usage-kept").join("usage.json");
-        assert!(kept_in(&file, NOW).is_empty(), "a first launch has none");
+        let accounts = ["recent", "old", "unread", "signed-out"].map(account);
+        assert!(kept_in(&file, &accounts, NOW).is_empty(), "a first launch has none");
 
         let mut usage = HashMap::new();
         usage.insert("recent".to_string(), read("recent", NOW - 5 * 60_000, 16.0));
@@ -149,13 +157,29 @@ mod tests {
         usage.insert("unread".to_string(), Usage { as_of: None, ..read("unread", 0, 1.0) });
         // One with no numbers has nothing to keep: signed out, say.
         usage.insert("signed-out".to_string(), Usage { meters: Vec::new(), needs_sign_in: true, ..read("signed-out", NOW, 0.0) });
-        keep_in(&file, &usage);
+        keep_in(&file, &accounts, &usage);
 
-        let back = kept_in(&file, NOW);
+        let back = kept_in(&file, &accounts, NOW);
         assert_eq!(back.keys().collect::<Vec<_>>(), ["recent"]);
         assert_eq!(back["recent"], usage["recent"]);
 
         std::fs::write(&file, "not what this build wrote").unwrap();
-        assert!(kept_in(&file, NOW).is_empty(), "only a cache: it starts over");
+        assert!(kept_in(&file, &accounts, NOW).is_empty(), "only a cache: it starts over");
+    }
+
+    #[test]
+    fn numbers_stay_with_the_account_they_were_read_for() {
+        let file = crate::store::test_dir("usage-kept-identity").join("usage.json");
+        let usage = HashMap::from([("claude".to_string(), read("claude", NOW, 16.0)), ("gone".to_string(), read("gone", NOW, 3.0))]);
+        keep_in(&file, &[account("claude")], &usage);
+
+        let renamed = AccountCfg { name: "work".into(), ..account("claude") };
+        let back = kept_in(&file, &[renamed], NOW);
+        assert_eq!(back["work"].account, "work", "the same folder under another name is the same account");
+        assert_eq!(back["work"].meters, usage["claude"].meters);
+
+        let moved = AccountCfg { home: "~/.elsewhere".into(), ..account("claude") };
+        assert!(kept_in(&file, &[moved], NOW).is_empty(), "the same name on another folder isn't");
+        assert!(kept_in(&file, &[account("gone")], NOW).is_empty(), "one config.toml no longer lists isn't kept");
     }
 }

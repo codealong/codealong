@@ -2029,7 +2029,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         self.load_config();
         self.load_state();
         // From the first board on, and for `keep_last_good` should the first read be turned away.
-        self.usage = usage::kept(now_ms());
+        self.usage = usage::kept(&self.cfg.accounts, now_ms());
         self.remember_accounts();
         self.save_state();
         self.load_todos();
@@ -2235,7 +2235,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         }
         // This engine's tests make their numbers up.
         if !cfg!(test) {
-            usage::keep(&self.usage);
+            usage::keep(&self.cfg.accounts, &self.usage);
         }
         self.dirty = true;
     }
