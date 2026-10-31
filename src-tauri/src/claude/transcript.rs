@@ -295,6 +295,10 @@ pub fn parse_transcript(path: &Path, mtime: i64, prev: Option<Parsed>) -> Option
             }
         }
     }
+    // So can whatever else started it (another session's message, a wakeup).
+    if fresh && info.input_at.is_none() {
+        info.input_at = input_before(path, tail.start);
+    }
     // A `/model` switch to a context size can be further back too, while replies name the model
     // without it. Looked for only where the size would change the window: a model whose own
     // window is under a million.
@@ -369,6 +373,22 @@ fn prompt_before(path: &Path, end: u64) -> Option<(i64, Option<String>)> {
             return false;
         }
         at = str_of(&v, "timestamp").as_deref().and_then(parse_rfc3339_ms).map(|t| (t, str_of(&v, "cwd").filter(|c| !c.is_empty())));
+        at.is_some()
+    });
+    at
+}
+
+/// When the latest input before `end` (a line start) came (`brings_input`), reading backwards.
+fn input_before(path: &Path, end: u64) -> Option<i64> {
+    let mut at = None;
+    scan_lines_back(path, 0, end, |line| {
+        // Most lines are tool calls and their results, which can't pass these checks.
+        let user = line.contains("\"type\":\"user\"") && !line.contains("\"tool_use_id\"");
+        if !user && !line.contains("\"queued_command\"") && !line.contains("\"scheduled_task_fire\"") {
+            return false;
+        }
+        let Ok(v) = serde_json::from_str::<Value>(line) else { return false };
+        at = str_of(&v, "timestamp").as_deref().and_then(parse_rfc3339_ms).filter(|_| brings_input(&v));
         at.is_some()
     });
     at
@@ -2266,6 +2286,14 @@ pub(super) mod tests {
         std::fs::write(&path, lines.join("\n") + "\n").unwrap();
         let (_, info, _) = parse_transcript(&path, 1, None).unwrap();
         assert_eq!(info.last_prompt_at, parse_rfc3339_ms("2026-09-23T15:02:00.000Z"));
+        // A later turn another session's message started, as far back: no prompt of yours, but
+        // input, which a first read finds too.
+        let peer = r#"{"type":"user","isMeta":true,"timestamp":"2026-09-23T15:20:00.000Z","origin":{"kind":"peer","from":"unknown","name":"review","body":"Look again"},"message":{"content":"Look again"}}"#;
+        let mut lines = vec![HEAD.trim_end().to_string(), prompt.to_string(), output(0), peer.to_string()];
+        lines.extend((1..12).map(output));
+        std::fs::write(&path, lines.join("\n") + "\n").unwrap();
+        let (_, info, _) = parse_transcript(&path, 1, None).unwrap();
+        assert_eq!((info.last_prompt_at, info.input_at), (parse_rfc3339_ms("2026-09-23T15:00:00.000Z"), parse_rfc3339_ms("2026-09-23T15:20:00.000Z")));
     }
 
     #[test]
