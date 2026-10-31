@@ -703,22 +703,71 @@ impl Turns {
     }
 
     /// Waits for the ticket's turn. None when a newer ticket was taken meanwhile.
-    fn wait(&self, ticket: u64) -> Option<MutexGuard<'_, ()>> {
-        let turn = self.lock.lock().unwrap_or_else(|e| e.into_inner());
-        (self.newest.load(Ordering::SeqCst) == ticket).then_some(turn)
+    fn wait(&self, ticket: u64) -> Option<Turn<'_>> {
+        let here = self.lock.lock().unwrap_or_else(|e| e.into_inner());
+        if self.newest.load(Ordering::SeqCst) != ticket {
+            return None;
+        }
+        let shared = shared_turn(None)?;
+        // A newer click came while this one waited for the other process's turn.
+        (self.newest.load(Ordering::SeqCst) == ticket).then_some(Turn { _here: here, _shared: shared })
     }
 
     /// The turn without a ticket, as a send or a key press takes it, so a click waiting before
     /// it doesn't lose its own. Waited for until `deadline` when there is one: None after it.
-    fn lock_by(&self, deadline: Option<Instant>) -> Option<MutexGuard<'_, ()>> {
-        let Some(deadline) = deadline else { return Some(self.lock.lock().unwrap_or_else(|e| e.into_inner())) };
-        loop {
-            match self.lock.try_lock() {
-                Ok(turn) => return Some(turn),
-                Err(TryLockError::Poisoned(e)) => return Some(e.into_inner()),
-                Err(TryLockError::WouldBlock) if Instant::now() >= deadline => return None,
-                Err(TryLockError::WouldBlock) => std::thread::sleep(Duration::from_millis(20)),
-            }
+    fn lock_by(&self, deadline: Option<Instant>) -> Option<Turn<'_>> {
+        let here = match deadline {
+            None => self.lock.lock().unwrap_or_else(|e| e.into_inner()),
+            Some(deadline) => loop {
+                match self.lock.try_lock() {
+                    Ok(turn) => break turn,
+                    Err(TryLockError::Poisoned(e)) => break e.into_inner(),
+                    Err(TryLockError::WouldBlock) if Instant::now() >= deadline => return None,
+                    Err(TryLockError::WouldBlock) => std::thread::sleep(Duration::from_millis(20)),
+                }
+            },
+        };
+        Some(Turn { _here: here, _shared: shared_turn(deadline)? })
+    }
+
+    /// The turn, waited for however long it takes.
+    fn hold(&self) -> Turn<'_> {
+        let here = self.lock.lock().unwrap_or_else(|e| e.into_inner());
+        Turn { _here: here, _shared: shared_turn(None).flatten() }
+    }
+}
+
+/// A turn held: this process's, and the one Codealong's processes share, since the app focuses
+/// a session's tab (a click) where the server types into it (a send), and both mark its TTY's
+/// folder while they look for it. Given back when dropped.
+struct Turn<'a> {
+    _here: MutexGuard<'a, ()>,
+    _shared: Option<std::fs::File>,
+}
+
+/// The lock beside Codealong's files that its processes take turns on before marking a TTY, held
+/// for as long as the file stays open: waited for until `deadline` when there is one, None after
+/// it. Without the file (a folder that can't be written, the tests) each process goes by its
+/// own turns alone.
+fn shared_turn(deadline: Option<Instant>) -> Option<Option<std::fs::File>> {
+    use std::os::fd::AsRawFd;
+    if cfg!(test) {
+        return Some(None);
+    }
+    let path = crate::config::support_dir().join("terminal-marks.lock");
+    let Ok(file) = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(&path) else { return Some(None) };
+    let how = if deadline.is_some() { libc::LOCK_EX | libc::LOCK_NB } else { libc::LOCK_EX };
+    loop {
+        // SAFETY: flock on a descriptor this process owns; it's released as the file closes.
+        if unsafe { libc::flock(file.as_raw_fd(), how) } == 0 {
+            return Some(Some(file));
+        }
+        let e = std::io::Error::last_os_error();
+        match e.kind() {
+            std::io::ErrorKind::Interrupted => {}
+            std::io::ErrorKind::WouldBlock if deadline.is_some_and(|d| Instant::now() < d) => std::thread::sleep(Duration::from_millis(20)),
+            std::io::ErrorKind::WouldBlock => return None,
+            _ => return Some(None),
         }
     }
 }

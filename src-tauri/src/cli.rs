@@ -1631,7 +1631,7 @@ enum ServerCmd {
 fn server_cmd(cmd: ServerCmd, json: bool) -> Result<()> {
     match cmd {
         ServerCmd::Start => {
-            let s = crate::serve::ensure(None).map_err(|e| anyhow!(e))?;
+            let s = crate::serve::ensure(false).map_err(|e| anyhow!(e))?;
             if json {
                 return print_json(&s);
             }
@@ -1664,9 +1664,12 @@ fn running_words(s: &server::Status) -> String {
 
 /// Whether a command starts the server when it isn't running: every one that reads or changes
 /// what it holds, but not those that say how things stand or set up the files, nor a session's
-/// start hook, which goes on without.
+/// start hook, which goes on without. On a Mac only an installed app's binary starts one by
+/// itself: a server goes on running the binary that started it, and a debug build in a worktree
+/// goes when the worktree does (`codealong server start` still starts one from it).
 fn starts_server(cmd: &Cmd) -> bool {
-    !matches!(cmd, Cmd::Status | Cmd::Server { .. } | Cmd::Config { .. } | Cmd::Install(_) | Cmd::Whoami { context: true }) && std::env::var_os(NO_SERVER).is_none()
+    let installed = !crate::os::is_macos() || crate::serve::this_binary().is_some_and(|exe| crate::install::in_a_bundle(&exe));
+    installed && !matches!(cmd, Cmd::Status | Cmd::Server { .. } | Cmd::Config { .. } | Cmd::Install(_) | Cmd::Whoami { context: true }) && std::env::var_os(NO_SERVER).is_none()
 }
 
 /// Set, a command never starts the server: it reads the files when none answers.
@@ -1680,6 +1683,9 @@ struct Client {
     board: Option<Board>,
     /// The board is the app's, not a light one read from the files.
     from_app: bool,
+    /// This command started the server, whose first scan the first board read waits for: until
+    /// then its board has none of the sessions and worktrees a light one from the files would.
+    started: bool,
     said: bool,
     /// The session running this command and how it was found, once `find_me` has looked.
     me: Option<(Option<String>, Option<&'static str>)>,
@@ -1693,19 +1699,21 @@ impl Client {
             Some(Ok(v)) => serde_json::from_value(v).ok(),
             _ => None,
         };
+        let mut started = false;
         if app.is_none() && start {
-            match crate::serve::ensure(None) {
+            match crate::serve::ensure(false) {
                 Ok(s) => {
                     if say || verbose {
                         eprintln!("Started Codealong's server (pid {}).", s.pid);
                     }
                     app = Some(s);
+                    started = true;
                 }
                 Err(e) if verbose => eprintln!("{e}"),
                 Err(_) => {}
             }
         }
-        Client { app, verbose, cfg: None, board: None, from_app: false, said: false, me: None }
+        Client { app, verbose, cfg: None, board: None, from_app: false, started, said: false, me: None }
     }
 
     fn note(&mut self) {
@@ -1730,6 +1738,9 @@ impl Client {
     /// The board: the app's, or a light one from the files (no git, PRs or visitors).
     fn board(&mut self) -> Result<&Board> {
         self.note();
+        if std::mem::take(&mut self.started) {
+            self.wait_loaded(LOADING_WAIT);
+        }
         if self.board.is_none() {
             // An app that answered before and doesn't now is restarting: the board is a light one
             // until it's back.
@@ -8012,7 +8023,7 @@ mod tests {
             other => panic!("{other:?}"),
         };
         let board = Board { lanes: vec![lane("/work/atlas", vec![crate::fixtures::session("claude:claude:kestrel")]), lane("/work/northwind", vec![])], ..Board::default() };
-        let mut c = Client { app: None, verbose: false, cfg: None, board: Some(board), from_app: false, said: false, me: Some((Some("claude:claude:kestrel".into()), Some("environment"))) };
+        let mut c = Client { app: None, verbose: false, cfg: None, board: Some(board), from_app: false, started: false, said: false, me: Some((Some("claude:claude:kestrel".into()), Some("environment"))) };
         let daily = Schedule {
             id: "s-1".into(),
             name: "standup".into(),
@@ -8082,7 +8093,7 @@ mod tests {
     #[test]
     fn a_lookup_tells_the_app_still_reading_from_no_such_session() {
         let listed = Board { lanes: vec![lane("/work/atlas", vec![crate::fixtures::session("claude:claude:abc123")])], ..Board::default() };
-        let client = |board: Board| Client { app: None, verbose: false, cfg: None, board: Some(board), from_app: false, said: false, me: Some((None, None)) };
+        let client = |board: Board| Client { app: None, verbose: false, cfg: None, board: Some(board), from_app: false, started: false, said: false, me: Some((None, None)) };
         let mut c = client(listed.clone());
         assert_eq!(resolve_session(&mut c, "claude:claude:abc").unwrap(), "claude:claude:abc123");
         assert_eq!(resolve_session(&mut c, "claude:claude:nope").unwrap_err().to_string(), "There's no session claude:claude:nope. `codealong sessions` lists them.");
@@ -8104,6 +8115,20 @@ mod tests {
         let mut c = Client { cfg: Some(Config::default()), me: Some((Some("claude:claude:kestrel".into()), Some("environment"))), ..client(Board { loading: true, ..Board::default() }) };
         let said = session_show(&mut c, "me", true).unwrap_err().to_string();
         assert!(said.starts_with("Codealong is still reading its sessions") && said.contains("claude:claude:kestrel"), "{said}");
+    }
+
+    /// A command starts the server only when it reads or changes what it holds, and on a Mac only
+    /// from an installed app's binary, which a test's isn't.
+    #[test]
+    fn only_an_installed_apps_command_starts_the_server_by_itself_on_a_mac() {
+        use crate::os::{as_if, Os};
+        let tokens = Cmd::Tokens { days: 30, account: None, by: TokensBy::Account };
+        as_if(Os::MacOs, || assert!(!starts_server(&tokens)));
+        as_if(Os::Linux, || {
+            assert!(starts_server(&tokens));
+            assert!(!starts_server(&Cmd::Status) && !starts_server(&Cmd::Whoami { context: true }));
+            assert!(starts_server(&Cmd::Whoami { context: false }));
+        });
     }
 
     /// The wait for the app to finish reading after a start keeps to its time, however slowly the
@@ -8140,7 +8165,7 @@ mod tests {
         let mut b = Board::default();
         b.lanes = vec![lane("/work/a", vec![crate::fixtures::session("claude:claude:abc123")])];
         b.todos = vec![todo("t-abc", TodoStatus::Todo, &[], &[])];
-        let mut c = Client { app: None, verbose: false, cfg: None, board: Some(b), from_app: false, said: false, me: None };
+        let mut c = Client { app: None, verbose: false, cfg: None, board: Some(b), from_app: false, started: false, said: false, me: None };
         let plan = |v: Value| serde_json::from_value::<CanvasPlan>(v);
         let card = |kind, key: &str| boards::Card { kind, key: key.into() };
         let good = plan(json!({ "frames": [{ "title": " Billing ", "color": "teal", "note": "Invoices", "prs": ["https://github.com/acme/app/pull/7"], "todos": ["t-a"], "sessions": ["claude:claude:abc"], "worktrees": ["/work/a"] }] })).unwrap();

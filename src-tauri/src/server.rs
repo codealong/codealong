@@ -207,21 +207,39 @@ pub struct Status {
     /// The engine it was built with (serve.rs `ENGINE`).
     #[serde(default)]
     pub engine: Option<String>,
+    /// The binary it runs, which an app keeps only when it's its own (serve.rs `ensure`).
+    #[serde(default)]
+    pub exe: Option<String>,
     /// The apps connected to it, the latest last.
     #[serde(default)]
     pub views: Vec<crate::views::Info>,
 }
 
-/// Listens on the socket for as long as the server runs. A server that can't is no server: the
-/// error says why.
-pub fn serve(ctx: Ctx) -> Result<(), String> {
+/// The socket, bound for a server about to start: taken before it starts anything, so a server
+/// that can't have it starts nothing and leaves (`serve` then serves it).
+pub struct Bound {
+    path: PathBuf,
+    listener: (UnixListener, Option<(u64, u64)>),
+}
+
+/// Binds the socket, unless another server answers on it. A socket file left by a server that
+/// didn't exit cleanly is taken over.
+pub fn bind() -> Result<Bound, String> {
     let p = path();
     let _ = std::fs::create_dir_all(support_dir());
-    // A socket file left by a server that didn't exit cleanly; a live one would have answered.
-    if p.exists() && UnixStream::connect(&p).is_err() {
+    if p.exists() {
+        if UnixStream::connect(&p).is_ok() {
+            return Err(format!("Another Codealong answers on {} already.", p.display()));
+        }
         let _ = std::fs::remove_file(&p);
     }
     let listener = listen(&p).map_err(|e| format!("Couldn't open {}: {e}", p.display()))?;
+    Ok(Bound { path: p, listener })
+}
+
+/// Serves the socket `bind` took for as long as the server runs.
+pub fn serve(bound: Bound, ctx: Ctx) -> Result<(), String> {
+    let Bound { path: p, listener } = bound;
     std::thread::Builder::new()
         .name("socket".into())
         .spawn(move || {
@@ -375,6 +393,7 @@ fn handle_request(ctx: &Ctx, req: serde_json::Result<Request>) -> Reply {
                 loading: b.loading,
                 role: Some(crate::serve::ROLE.into()),
                 engine: Some(crate::serve::ENGINE.into()),
+                exe: crate::serve::this_binary().map(|p| p.to_string_lossy().into_owned()),
                 views: crate::views::list(),
             })
         }
@@ -635,6 +654,20 @@ pub fn ask(req: &Request) -> Option<Result<Value, String>> {
 /// `ask`, waiting `wait` for the answer, or for as long as it takes with zero.
 pub fn ask_within(req: &Request, wait: Duration) -> Option<Result<Value, String>> {
     ask_on(UnixStream::connect(path()).ok()?, req, wait)
+}
+
+/// `ask_within`, waiting up to `up_within` for a server to take the connection first, as one
+/// that's starting or being replaced does in a moment. A request that reached one is never sent
+/// again: it may have changed something before the connection went.
+pub fn ask_once_up(req: &Request, wait: Duration, up_within: Duration) -> Option<Result<Value, String>> {
+    let until = std::time::Instant::now() + up_within;
+    loop {
+        match UnixStream::connect(path()) {
+            Ok(stream) => return ask_on(stream, req, wait),
+            Err(_) if std::time::Instant::now() < until => std::thread::sleep(Duration::from_millis(100)),
+            Err(_) => return None,
+        }
+    }
 }
 
 fn ask_on(mut stream: UnixStream, req: &Request, wait: Duration) -> Option<Result<Value, String>> {

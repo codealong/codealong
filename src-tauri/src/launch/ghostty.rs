@@ -577,7 +577,7 @@ pub(super) fn terminal_of(pid: u32, cwd: &Path, within: Option<Duration>) -> Res
 /// (`wait-after-command`).
 fn close_tabs(tabs: &[&Closing]) -> Result<Vec<Result<()>>> {
     // Marks take over TTYs' folder reports, as focusing's do, so the two never run at once.
-    let _turn = FOCUS_TURNS.lock.lock().unwrap_or_else(|e| e.into_inner());
+    let _turn = FOCUS_TURNS.hold();
     let before = terminals()?;
     let stamp = crate::util::now_ms();
     let mut out: Vec<Result<()>> = Vec::new();

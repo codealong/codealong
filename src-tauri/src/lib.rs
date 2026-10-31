@@ -1314,12 +1314,14 @@ pub fn run() {
         }
     }
     perf::arm();
+    // When this app opened: of two, the one opened last stays (views.rs `serve`).
+    let opened = util::now_ms();
     if let Err(e) = view::take_over(plainly) {
         eprintln!("{e}");
         std::process::exit(2);
     }
     tauri::Builder::default()
-        .setup(|app| {
+        .setup(move |app| {
             crate::os::system::no_app_nap();
             // Set before the page loads, so a window never opens in the wrong theme.
             let theme = config::theme();
@@ -1429,7 +1431,7 @@ pub fn run() {
             };
             // A bare binary isn't what its bundle ID opens: that's whichever bundle has it.
             let bundle = std::env::current_exe().ok().and_then(|exe| updates::bundle_of(&exe)).map(|_| app.config().identifier.clone());
-            view::follow(mirror, view::info(bundle), hooks);
+            view::follow(mirror, view::info(bundle, opened), hooks);
             std::thread::spawn(|| {
                 install::follow_command_link();
                 install::refresh_installed();

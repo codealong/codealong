@@ -32,6 +32,9 @@ pub struct Info {
     /// Its app's bundle id, which the `codealong` command brings it forward by.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bundle: Option<String>,
+    /// When its app opened, in ms since the epoch: of two apps connected, the one opened last
+    /// stays (`serve`).
+    pub since: i64,
 }
 
 /// How many events wait for a view before it's taken to have fallen behind and let go: a board is
@@ -124,6 +127,20 @@ pub fn serve(mut stream: UnixStream, info: Info, first: impl FnOnce() -> Vec<Arc
         let Ok(mut v) = views().lock() else { return };
         for line in first() {
             let _ = tx.try_send(line);
+        }
+        // One app at a time, the one opened last, as an app opening asks the others to quit
+        // (view.rs `take_over`): two opened at once both found none to ask. The same app
+        // connecting again (its server restarted) is neither.
+        let other = |view: &&View| view.info.pid != info.pid;
+        if v.views.iter().filter(other).any(|view| view.info.since > info.since) {
+            if let Some(line) = line("quit", &Value::Null) {
+                let _ = tx.try_send(line);
+            }
+        } else if let Some(quit) = line("quit", &Value::Null) {
+            for view in v.views.iter().filter(other).filter(|view| view.info.since < info.since) {
+                eprintln!("An app opened after it: telling the one before (pid {}) to quit.", view.info.pid);
+                let _ = view.tx.try_send(quit.clone());
+            }
         }
         if let Some((_, reveal)) = v.show.take().filter(|(at, _)| at.elapsed() < SHOW_WAIT) {
             if let Some(line) = line("show", &reveal) {
@@ -235,14 +252,21 @@ mod tests {
         TURN.lock().unwrap_or_else(|e| e.into_inner())
     }
 
+    /// A view connected, once the server holds it: another of the same app's may be held already.
     fn connect(info: Info, first: Vec<&'static str>) -> BufReader<UnixStream> {
         let (server, client) = UnixStream::pair().unwrap();
+        let (pid, before) = (info.pid, holding(info.pid));
         std::thread::spawn(move || serve(server, info, move || first.into_iter().map(|s| Arc::from(format!("{s}\n"))).collect()));
         let until = Instant::now() + Duration::from_secs(5);
-        while !any() && Instant::now() < until {
+        while holding(pid) == before && Instant::now() < until {
             std::thread::sleep(Duration::from_millis(5));
         }
         BufReader::new(client)
+    }
+
+    /// How many of an app's connections the server holds.
+    fn holding(pid: u32) -> usize {
+        views().lock().unwrap().views.iter().filter(|v| v.info.pid == pid).count()
     }
 
     fn next(r: &mut BufReader<UnixStream>) -> Value {
@@ -256,14 +280,9 @@ mod tests {
         }
     }
 
-    /// Whether a view is still held, alive or not (`list` leaves out the dead).
-    fn held(pid: u32) -> bool {
-        views().lock().unwrap().views.iter().any(|v| v.info.pid == pid)
-    }
-
     fn gone(pid: u32) {
         let until = Instant::now() + Duration::from_secs(5);
-        while held(pid) && Instant::now() < until {
+        while holding(pid) > 0 && Instant::now() < until {
             std::thread::sleep(Duration::from_millis(5));
         }
     }
@@ -280,7 +299,30 @@ mod tests {
         // Its end closed, it's let go at the next write.
         emit("ping", &Value::Null);
         gone(4_000_001);
-        assert!(!held(4_000_001));
+        assert_eq!(holding(4_000_001), 0, "held, alive or not: list leaves out the dead");
+    }
+
+    /// Two apps that both found none open to ask: the one opened last stays, whichever connects
+    /// first, and the same app connecting again is told nothing.
+    #[test]
+    fn of_two_apps_the_one_opened_last_stays() {
+        let _t = turn();
+        let mut older = connect(Info { pid: 4_000_011, since: 1_000, ..Default::default() }, vec![]);
+        let mut newer = connect(Info { pid: 4_000_012, since: 2_000, ..Default::default() }, vec![]);
+        assert_eq!(next(&mut older)["event"], "quit");
+        // The older one connecting after the newer is told to quit at once.
+        let mut late = connect(Info { pid: 4_000_013, since: 500, ..Default::default() }, vec![]);
+        assert_eq!(next(&mut late)["event"], "quit");
+        // The newer one, connecting again as itself (its server restarted), is told nothing.
+        let mut again = connect(Info { pid: 4_000_012, since: 2_000, ..Default::default() }, vec![]);
+        emit("hosted-stream", &json!({ "key": "k" }));
+        assert_eq!(next(&mut again)["event"], "hosted-stream");
+        assert_eq!(next(&mut newer)["event"], "hosted-stream");
+        drop((older, newer, late, again));
+        emit("ping", &Value::Null);
+        for pid in [4_000_011, 4_000_012, 4_000_013] {
+            gone(pid);
+        }
     }
 
     #[test]

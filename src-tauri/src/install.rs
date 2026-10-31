@@ -300,7 +300,7 @@ fn follow_links_in(dirs: &[PathBuf], exe: &Path) {
 }
 
 /// `…/<name>.app/Contents/MacOS/codealong`.
-fn in_a_bundle(exe: &Path) -> bool {
+pub fn in_a_bundle(exe: &Path) -> bool {
     exe.ends_with("Contents/MacOS/codealong") && exe.ancestors().nth(3).and_then(Path::extension).is_some_and(|e| e == "app")
 }
 

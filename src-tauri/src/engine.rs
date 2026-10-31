@@ -714,6 +714,11 @@ impl Handle {
     }
 }
 
+/// The notice for a file of Codealong's whose last change couldn't be made (`store::problems`).
+pub fn store_notice(file: &str, why: &str) -> Notice {
+    Notice { key: file.to_string(), title: format!("{file} has a problem"), text: why.to_string(), ..Default::default() }
+}
+
 /// Your editor (`[apps] editor`), as the board names it: Cursor, `config.rs`'s default, until
 /// the board has one.
 pub fn your_editor(b: &Board) -> config::Profile {
@@ -3060,7 +3065,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         ]
         .into_iter()
         .flatten()
-        .chain(self.store_warnings.iter().map(|(file, why)| Notice { key: file.clone(), title: format!("{file} has a problem"), text: why.clone(), ..Default::default() }))
+        .chain(self.store_warnings.iter().map(|(file, why)| store_notice(file, why)))
         .collect()
     }
 

@@ -82,9 +82,9 @@ struct Event<'a> {
 }
 
 /// What this app says of itself as it connects. `bundle` is its bundle's id when it runs from one,
-/// which the `codealong` command brings it forward by.
-pub fn info(bundle: Option<String>) -> views::Info {
-    views::Info { pid: std::process::id(), version: env!("CARGO_PKG_VERSION").to_string(), engine: serve::ENGINE.to_string(), bundle }
+/// which the `codealong` command brings it forward by; `since` when it opened.
+pub fn info(bundle: Option<String>, since: i64) -> views::Info {
+    views::Info { pid: std::process::id(), version: env!("CARGO_PKG_VERSION").to_string(), engine: serve::ENGINE.to_string(), bundle, since }
 }
 
 /// The last app opened wins, as it always has: one connected to the server is asked to quit, and
@@ -121,14 +121,33 @@ pub fn follow(mirror: Mirror, me: views::Info, hooks: Hooks) {
         let mut failed = 0u32;
         let mut here = false;
         loop {
-            if let Err(e) = serve::ensure(Some(serve::ENGINE)) {
+            // An app opened after this one, of another build, may have replaced the server: this
+            // one, the older, gives way rather than replacing it back.
+            if serve::running().is_some_and(|s| serve::is_server(&s) && s.views.iter().any(|v| v.pid != me.pid && v.since > me.since)) {
+                (hooks.quit)();
+                return;
+            }
+            let found = serve::ensure(true);
+            // An app from before there were servers, opened after this one, quits this one as it
+            // takes the socket; one that answers here anyway (it opened as this one did) runs its
+            // own engine and takes no views, so this one, the last opened, takes over from it.
+            if let Some(s) = found.as_ref().ok().filter(|s| !serve::is_server(s)) {
+                eprintln!("An older Codealong (pid {}) answers on the socket; taking over from it.", s.pid);
+                if let Err(e) = server::take_over(true) {
+                    eprintln!("Couldn't take over from it: {e}");
+                }
+                std::thread::sleep(Duration::from_millis(500));
+                continue;
+            }
+            if let Err(e) = found {
                 failed += 1;
                 eprintln!("Couldn't start Codealong's server ({failed}): {e}");
+                // Tried once: a start that failed partway may have left some of it running.
                 if failed >= STARTS && !here {
+                    here = true;
                     eprintln!("Running Codealong's server in the app instead: it goes when the app does.");
-                    match serve::start() {
-                        Ok(_) => here = true,
-                        Err(e) => eprintln!("Couldn't run Codealong's server in the app either: {e}"),
+                    if let Err(e) = serve::start() {
+                        eprintln!("Couldn't run Codealong's server in the app either: {e}");
                     }
                 }
                 std::thread::sleep(Duration::from_secs(2));
@@ -179,6 +198,13 @@ fn take(mirror: &Mirror, hooks: &Hooks, rev: &mut u64, event: &str, payload: &Ra
             };
             *rev += 1;
             board.rev = *rev;
+            // What the app couldn't write of its own files (its windows' places, the desktop's
+            // cards) is said beside the server's, which it can't see.
+            for (file, why) in crate::store::problems(&crate::config::support_dir()) {
+                if !board.notices.iter().any(|n| n.key == file) {
+                    board.notices.push(crate::engine::store_notice(&file, &why));
+                }
+            }
             if let Ok(mut held) = mirror.0.write() {
                 *held = board;
             }
@@ -229,9 +255,14 @@ fn take(mirror: &Mirror, hooks: &Hooks, rev: &mut u64, event: &str, payload: &Ra
     }
 }
 
-/// A window's command, answered by the server (calls.rs).
+/// How long a window's command waits for a server to come up: one starting as the app opens, or
+/// being replaced, answers within seconds.
+const UP_WAIT: Duration = Duration::from_secs(30);
+
+/// A window's command, answered by the server (calls.rs). One asked while the server is starting
+/// or being replaced waits for it, as the windows ask theirs as they open.
 pub fn call(name: &str, args: Value) -> Result<Value, String> {
-    match server::ask_within(&Request::Call { name: name.to_string(), args }, CALL_WAIT) {
+    match server::ask_once_up(&Request::Call { name: name.to_string(), args }, CALL_WAIT, UP_WAIT) {
         Some(answer) => answer,
         None => Err("Codealong's server isn't answering; it's being started again. Try again in a moment.".into()),
     }

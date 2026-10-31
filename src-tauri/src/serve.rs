@@ -13,6 +13,7 @@
 //! An app keeps the server it finds when both were built from the same engine (`ENGINE`), so a
 //! build that changed only the windows leaves the agents running, and replaces it otherwise.
 
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -76,6 +77,8 @@ fn trim_log() {
 /// Starts everything the server runs, and the socket last, once there's an engine to answer
 /// with. What's started here runs for the life of the process.
 pub fn start() -> Result<Ctx, String> {
+    // The socket first: a server that can't have it starts nothing, so no second engine runs.
+    let bound = server::bind()?;
     // Your other devices (peers.rs). They come before the engine, which publishes to them, and ask
     // it for the board and for answers once it's there.
     let engine_slot: Arc<OnceLock<Handle>> = Default::default();
@@ -214,7 +217,7 @@ pub fn start() -> Result<Ctx, String> {
         );
     }
     let ctx = Ctx { engine: engine.clone(), peers: peers.clone(), reviews };
-    server::serve(ctx.clone())?;
+    server::serve(bound, ctx.clone())?;
     // What a command you ran for a session printed goes to that session once it ends, as your
     // message: the `!` you ran it with is for the session to read it.
     {
@@ -266,16 +269,29 @@ pub fn is_server(s: &Status) -> bool {
     s.role.as_deref() == Some(ROLE)
 }
 
-/// The server, started when none answers. With `engine`, one built with another engine is
-/// replaced, as an app wants (view.rs); without, whichever answers will do, as the command takes
-/// it. Starts are one at a time for the folder of files, so a command and an app starting
+/// This process's binary, as its path reads once links are followed.
+pub fn this_binary() -> Option<PathBuf> {
+    std::env::current_exe().and_then(std::fs::canonicalize).ok()
+}
+
+/// Whether a server is this build's own: the same binary, built with the same engine. Codealong
+/// Dev relaunched with only its windows changed is: its bundle is replaced where it was. A server
+/// another binary runs isn't, even of the same engine (Codealong beside Codealong Dev, a debug
+/// build in a worktree), since what it installs and starts comes from where it runs.
+pub fn ours(s: &Status) -> bool {
+    is_server(s) && s.engine.as_deref() == Some(ENGINE) && s.exe.as_deref().map(PathBuf::from) == this_binary()
+}
+
+/// The server, started when none answers. With `own`, a server that isn't this build's (`ours`)
+/// is replaced, as an app wants (view.rs); without, whichever answers will do, as the command
+/// takes it. Starts are one at a time for the folder of files, so a command and an app starting
 /// together start one between them.
-pub fn ensure(engine: Option<&str>) -> Result<Status, String> {
+pub fn ensure(own: bool) -> Result<Status, String> {
     let _one = store::lock(&config::support_dir().join("server")).map_err(words)?;
     match running() {
-        Some(s) if !is_server(&s) || engine.is_none_or(|e| s.engine.as_deref() == Some(e)) => return Ok(s),
+        Some(s) if !is_server(&s) || !own || ours(&s) => return Ok(s),
         Some(s) => {
-            eprintln!("Replacing Codealong's server (pid {}, engine {}) with one of engine {}.", s.pid, s.engine.as_deref().unwrap_or("?"), engine.unwrap_or_default());
+            eprintln!("Replacing Codealong's server (pid {}, engine {}, {}) with this build's.", s.pid, s.engine.as_deref().unwrap_or("?"), s.exe.as_deref().unwrap_or("?"));
             stop_it(&s);
         }
         None => {}
@@ -293,7 +309,7 @@ pub fn ensure(engine: Option<&str>) -> Result<Status, String> {
 
 /// Starts a server of this binary's, as a job of its own.
 fn launch() -> Result<(), String> {
-    let exe = std::env::current_exe().and_then(std::fs::canonicalize).map_err(|e| format!("Couldn't find this program: {e}"))?;
+    let exe = this_binary().ok_or("Couldn't find this program.")?;
     let env = crate::install::server_environment();
     let log = os::background::log_path();
     if let Some(dir) = log.parent() {
@@ -333,5 +349,22 @@ fn stop_it(s: &Status) {
     if unsafe { libc::kill(s.pid as libc::pid_t, 0) } == 0 {
         // Not launchd's (one started by hand, or on Linux): ended outright.
         unsafe { libc::kill(s.pid as libc::pid_t, libc::SIGKILL) };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// An app keeps a server only when it's this build's: its binary and its engine.
+    #[test]
+    fn a_server_is_ours_only_with_our_binary_and_engine() {
+        let exe = this_binary().map(|p| p.to_string_lossy().into_owned());
+        let ours_now = Status { role: Some(ROLE.into()), engine: Some(ENGINE.into()), exe: exe.clone(), ..Default::default() };
+        assert!(ours(&ours_now));
+        assert!(!ours(&Status { engine: Some("0000000000000000".into()), ..ours_now.clone() }), "another engine");
+        assert!(!ours(&Status { exe: Some("/Applications/Codealong.app/Contents/MacOS/codealong".into()), ..ours_now.clone() }), "another binary");
+        assert!(!ours(&Status { role: None, ..ours_now.clone() }), "an app from before there were servers");
+        assert!(!ours(&Status { exe: None, ..ours_now }), "a server that doesn't say");
     }
 }
