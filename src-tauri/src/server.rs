@@ -1,8 +1,10 @@
-//! The app's socket for the `codealong` command (cli.rs): JSON lines over a Unix socket next to
-//! the config, one request per line and one reply per line. A request is what a window's Tauri
-//! command does, through the same engine handle, so the engine stays the one writer of
-//! todos.json and a reply is the board the windows have. The socket is mode 0600: it answers
-//! the user running the app, and only them.
+//! The server's socket (serve.rs), for the `codealong` command (cli.rs) and the app (view.rs):
+//! JSON lines over a Unix socket next to the config, one request per line and one reply per line.
+//! A request is what a window's command does, through the same engine handle, so the engine stays
+//! the one writer of todos.json and a reply is the board the windows have. An app also holds a
+//! connection open that the server writes events to (`Subscribe`, views.rs), and hands it the
+//! windows' commands to answer (`Call`, calls.rs). The socket is mode 0600: it answers the user
+//! running the server, and only them.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::fs::PermissionsExt;
@@ -12,11 +14,10 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tauri::Manager;
-
 use crate::config::support_dir;
+use crate::calls::Ctx;
 use crate::engine::Handle;
-use crate::peers::{AskView, DeviceView, DevicesView, FoundView, MeView, Peers};
+use crate::peers::{AskView, DeviceView, DevicesView, FoundView, MeView};
 use crate::start::StartSpec;
 use crate::todos::TodoOp;
 
@@ -30,9 +31,31 @@ pub fn path() -> PathBuf {
 pub enum Request {
     /// Is the app up, and which one.
     Status,
-    /// Quits, for another copy of Codealong that's opening: the last one opened wins
-    /// (`take_over`). The reply is this app's pid.
+    /// Quits, telling the apps connected to it to quit too: for an app that wants a server of its
+    /// own engine, `codealong server stop`, or an app from before there were servers, which runs
+    /// its own engine (`take_over`). The reply is the pid that quits.
     Quit,
+    /// Tells the apps connected to the server to quit, and answers once they have: for an app
+    /// that's opening, which takes their place (the last one opened wins, view.rs `take_over`).
+    TakeViews,
+    /// What a window asks the engine (calls.rs), by its command's name, with its arguments as the
+    /// window sent them.
+    Call {
+        name: String,
+        #[serde(default)]
+        args: Value,
+    },
+    /// An app connecting as a view (views.rs): the connection is kept, and the server writes the
+    /// board and everything else the windows hear to it, one event a line, for as long as it's open.
+    Subscribe { view: crate::views::Info },
+    /// A view's answer to what the server asked it (`views::ask`).
+    ViewAnswer {
+        id: u64,
+        #[serde(default)]
+        result: Value,
+        #[serde(default)]
+        error: Option<String>,
+    },
     /// The board as the windows have it.
     Board,
     /// A change to a todo or the labels; the reply is the time of the board that shows it.
@@ -168,8 +191,8 @@ impl Reply {
     }
 }
 
-/// What `status` says about the app.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+/// What `status` says about the server.
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Status {
     pub version: String,
@@ -177,33 +200,38 @@ pub struct Status {
     /// The board's time, and whether the first scan is still running.
     pub generated_at: i64,
     pub loading: bool,
+    /// `server` (serve.rs `ROLE`); none from an app from before there were servers, which ran the
+    /// engine itself.
+    #[serde(default)]
+    pub role: Option<String>,
+    /// The engine it was built with (serve.rs `ENGINE`).
+    #[serde(default)]
+    pub engine: Option<String>,
+    /// The apps connected to it, the latest last.
+    #[serde(default)]
+    pub views: Vec<crate::views::Info>,
 }
 
-/// Listens on the socket for as long as the app runs. Errors are printed, not fatal: the
-/// command falls back to the files when there's no socket.
-pub fn serve(engine: Handle, peers: Peers, app: tauri::AppHandle) {
+/// Listens on the socket for as long as the server runs. A server that can't is no server: the
+/// error says why.
+pub fn serve(ctx: Ctx) -> Result<(), String> {
     let p = path();
     let _ = std::fs::create_dir_all(support_dir());
-    // A socket file left by an app that didn't exit cleanly; a live one would have answered.
+    // A socket file left by a server that didn't exit cleanly; a live one would have answered.
     if p.exists() && UnixStream::connect(&p).is_err() {
         let _ = std::fs::remove_file(&p);
     }
-    let listener = match listen(&p) {
-        Ok(l) => l,
-        Err(e) => {
-            eprintln!("Couldn't open {}: {e}. The codealong command will read the files instead.", p.display());
-            return;
-        }
-    };
+    let listener = listen(&p).map_err(|e| format!("Couldn't open {}: {e}", p.display()))?;
     std::thread::Builder::new()
         .name("socket".into())
         .spawn(move || {
             accept_on(&p, listener, |stream| {
-                let (engine, peers, app) = (engine.clone(), peers.clone(), app.clone());
-                let _ = std::thread::Builder::new().name("socket-client".into()).spawn(move || connection(stream, &engine, &peers, &app));
+                let ctx = ctx.clone();
+                let _ = std::thread::Builder::new().name("socket-client".into()).spawn(move || connection(stream, &ctx));
             })
         })
-        .ok();
+        .map(drop)
+        .map_err(|e| format!("Couldn't start the socket's thread: {e}"))
 }
 
 /// The socket at `p`, mode 0600, and which socket it is (`socket_id`), told as it's bound, before
@@ -284,18 +312,27 @@ fn socket_id(fd: std::os::fd::RawFd) -> Option<(u64, u64)> {
     (unsafe { libc::fstat(fd, &mut st) } == 0).then_some((st.st_dev as u64, st.st_ino as u64))
 }
 
-fn connection(stream: UnixStream, engine: &Handle, peers: &Peers, app: &tauri::AppHandle) {
+fn connection(stream: UnixStream, ctx: &Ctx) {
     let result = connection_on(stream, |req, out| {
         match req {
             Ok(Request::PermissionAsk { hook, pid, home, at, from }) => {
-                hold_permission_ask(engine, &hook, pid, home.as_deref(), at, from, out);
+                hold_permission_ask(&ctx.engine, &hook, pid, home.as_deref(), at, from, out);
                 None
             }
             Ok(Request::TerminalAsk { ask }) => {
-                hold_terminal_ask(engine, ask, out);
+                hold_terminal_ask(&ctx.engine, ask, out);
                 None
             }
-            req => Some(handle_request(engine, peers, app, req)),
+            Ok(Request::Subscribe { view }) => {
+                if let Ok(stream) = out.try_clone() {
+                    let (engine, peers) = (ctx.engine.clone(), ctx.peers.clone());
+                    // The board as it is and your other devices' worktrees: what a view starts from.
+                    let first = move || [crate::views::line("board", &engine.board()), crate::views::line("devices", &peers.view())].into_iter().flatten().collect();
+                    crate::views::serve(stream, view, first);
+                }
+                None
+            }
+            req => Some(handle_request(ctx, req)),
         }
     });
     if let Err(e) = result {
@@ -322,7 +359,8 @@ fn connection_on(stream: UnixStream, mut answer: impl FnMut(serde_json::Result<R
     Ok(())
 }
 
-fn handle_request(engine: &Handle, peers: &Peers, app: &tauri::AppHandle, req: serde_json::Result<Request>) -> Reply {
+fn handle_request(ctx: &Ctx, req: serde_json::Result<Request>) -> Reply {
+    let (engine, peers) = (&ctx.engine, &ctx.peers);
     let req = match req {
         Ok(r) => r,
         Err(e) => return Reply::err(format!("{UNKNOWN_REQUEST}: {e}")),
@@ -330,17 +368,42 @@ fn handle_request(engine: &Handle, peers: &Peers, app: &tauri::AppHandle, req: s
     match req {
         Request::Status => {
             let b = engine.board();
-            Reply::ok(Status { version: env!("CARGO_PKG_VERSION").to_string(), pid: std::process::id(), generated_at: b.generated_at, loading: b.loading })
+            Reply::ok(Status {
+                version: env!("CARGO_PKG_VERSION").to_string(),
+                pid: std::process::id(),
+                generated_at: b.generated_at,
+                loading: b.loading,
+                role: Some(crate::serve::ROLE.into()),
+                engine: Some(crate::serve::ENGINE.into()),
+                views: crate::views::list(),
+            })
         }
         Request::Board => Reply::ok(engine.board()),
         Request::Quit => {
-            // After the reply is on its way.
+            // After the reply is on its way. The apps go first: one left without its server would
+            // start another.
             std::thread::spawn(|| {
                 std::thread::sleep(Duration::from_millis(200));
+                eprintln!("Codealong's server quitting, as asked.");
+                crate::views::quit_all(Duration::from_secs(5));
                 std::process::exit(0);
             });
             Reply::ok(std::process::id())
         }
+        Request::TakeViews => {
+            crate::views::quit_all(Duration::from_secs(8));
+            Reply::ok(Value::Null)
+        }
+        Request::Call { name, args } => match crate::calls::call(ctx, &name, args) {
+            Some(answer) => answered(answer),
+            None => Reply::err(format!("{UNKNOWN_REQUEST}: no call {name}")),
+        },
+        Request::ViewAnswer { id, result, error } => {
+            crate::views::answer(id, error.map_or(Ok(result), Err));
+            Reply::ok(Value::Null)
+        }
+        // Held on their connection instead (`connection`).
+        Request::Subscribe { .. } => Reply::ok(Value::Null),
         Request::TodoApply { op } => match engine.todo_within(op, Duration::from_secs(90)) {
             Ok(at) => Reply::ok(at),
             Err(e) => Reply::err(e),
@@ -349,13 +412,7 @@ fn handle_request(engine: &Handle, peers: &Peers, app: &tauri::AppHandle, req: s
         Request::IdleSessions { after_ms, archive } => Reply::ok(crate::idle::plan_now(&engine.board(), after_ms, archive)),
         Request::CloseIdle { keys, after_ms, archive } => answered(crate::idle::close_on(engine, &keys, after_ms, archive)),
         Request::Start { spec } => answered(crate::start::start_here(engine, &spec).map_err(crate::util::words)),
-        Request::PrReview { pr, account } => match app.try_state::<crate::Reviews>() {
-            Some(reviews) => {
-                let reviewer = reviews.0.clone();
-                answered(crate::autoreview::review_now(engine, &reviewer, &pr, account.as_deref()).map(|()| crate::autoreview::begun(&reviewer, &pr)))
-            }
-            None => Reply::err("Codealong is still starting: try again in a moment."),
-        },
+        Request::PrReview { pr, account } => answered(crate::autoreview::review_now(engine, &ctx.reviews, &pr, account.as_deref()).map(|()| crate::autoreview::begun(&ctx.reviews, &pr))),
         Request::Devices => Reply::ok(DevicesSummary::of(peers.view())),
         Request::DeviceLink { key } => answered(peers.link(&key)),
         Request::DeviceAnswer { key, accept } => answered(peers.answer_link(&key, accept)),
@@ -369,29 +426,29 @@ fn handle_request(engine: &Handle, peers: &Peers, app: &tauri::AppHandle, req: s
             // it: the main window says which session did, with its Undo (Toasts.tsx).
             if let Ok(answer) = &ran {
                 if name == codealong_peer::api::SESSION_DONE && answer.get("done").and_then(Value::as_bool) == Some(true) {
-                    use tauri::Emitter;
                     let message = answer.get("message").and_then(Value::as_str).unwrap_or_default();
                     let title = engine.read(|b| b.session(&key).map(|(_, s)| s.title.clone())).unwrap_or_default();
-                    let _ = app.emit("agent-done", serde_json::json!({ "key": key, "title": title, "message": message }));
+                    crate::views::emit("agent-done", &serde_json::json!({ "key": key, "title": title, "message": message }));
                 }
             }
             answered(ran)
         }
-        Request::Show { reveal } => match crate::front::show_main(app, Some(reveal)) {
-            // A bare binary isn't what its ID opens: that's whichever bundle has it.
-            Ok(()) => Reply::ok(std::env::current_exe().ok().and_then(|exe| crate::updates::bundle_of(&exe)).map(|_| app.config().identifier.clone())),
-            Err(e) => Reply::err(crate::util::words(e)),
+        // The app that's connected shows it, and says which it is; with none, the one the command
+        // opens shows it as it connects.
+        Request::Show { reveal } => match crate::views::show(reveal) {
+            Some(bundle) => Reply::ok(bundle),
+            None => Reply::ok(own_bundle()),
         },
         Request::BoardApply { op } => {
             let applied = crate::boards::apply(op, crate::util::now_ms());
             if let Ok(a) = &applied {
-                crate::boards::changed(app, a, None);
+                crate::boards::changed(a, None);
             }
             answered(applied.map_err(crate::util::words))
         }
-        Request::BoardAsk { board, project, ask } => answered(crate::boards::ask(app, board, project, ask)),
+        Request::BoardAsk { board, project, ask } => answered(crate::views::ask("board-ask", serde_json::json!({ "board": board, "project": project, "ask": ask }), crate::boards::WAIT + Duration::from_secs(5))),
         Request::MessageShown { hook, home } => {
-            message_shown(app, &hook, &home);
+            message_shown(&hook, &home);
             Reply::ok(Value::Null)
         }
         // Held on their connection instead (`connection`).
@@ -430,15 +487,23 @@ fn hold_permission_ask(engine: &Handle, hook: &Value, pid: Option<u32>, home: Op
 /// Takes a batch of a reply from the plugin's `MessageDisplay` hook for a session of an account
 /// config.toml lists, and tells this Mac's windows what it's writing when that changed
 /// (claude/live.rs); a linked device asks for it as it reads the session.
-fn message_shown(app: &tauri::AppHandle, hook: &Value, home: &str) {
-    use tauri::Emitter;
+fn message_shown(hook: &Value, home: &str) {
     let Ok(cfg) = crate::config::current() else { return };
     let Some(account) = crate::claude::asks::account_for(&cfg, std::path::Path::new(home)) else { return };
     let Some(id) = hook.get("session_id").and_then(Value::as_str) else { return };
     let key = crate::model::Session::key_for(crate::model::Harness::Claude, &account.name, id);
     crate::claude::live::take(&key, hook, crate::util::now_ms(), &|text| {
-        let _ = app.emit("hosted-stream", crate::acp::Stream { key: key.clone(), text, tool: None });
+        crate::views::emit("hosted-stream", &crate::acp::Stream { key: key.clone(), text, tool: None });
     });
+}
+
+/// The bundle id of the app this server's binary is in, for the command to open it by when no app
+/// is connected; none for a binary outside a bundle (cargo run).
+fn own_bundle() -> Option<String> {
+    let exe = std::env::current_exe().ok()?;
+    let contents = exe.parent()?.parent()?;
+    let info: plist::Value = plist::from_file(contents.join("Info.plist")).ok()?;
+    info.as_dictionary()?.get("CFBundleIdentifier")?.as_string().map(String::from)
 }
 
 /// Holds a command's request to run in your terminal until you answer it (terminal.rs). One that
@@ -454,6 +519,16 @@ fn hold_terminal_ask(engine: &Handle, ask: crate::terminal::Ask, out: &mut UnixS
         line.push('\n');
         let _ = out.write_all(line.as_bytes()).and_then(|_| out.flush());
         return;
+    }
+    // Only a window of Codealong's asks you: with the app closed it opens to ask.
+    if !crate::views::any() {
+        if let Some(bundle) = own_bundle() {
+            std::thread::spawn(move || {
+                if let Err(e) = crate::os::open::in_app(crate::os::open::App::Id(&bundle), None, Duration::from_secs(10)) {
+                    eprintln!("Couldn't open Codealong to ask about a command: {e:#}");
+                }
+            });
+        }
     }
     let (id, at) = crate::terminal::new_id();
     let asked = crate::terminal::Asked { id, ask, at };

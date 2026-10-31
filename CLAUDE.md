@@ -3,7 +3,9 @@
 A Mac app (Tauri 2: Rust engine, React UI) that tracks every coding agent running on this Mac,
 across Claude Code accounts, Codex, OpenCode, Antigravity and Cursor, organized by project → repo →
 worktree → branch → PR. It shows what each agent is doing, opens any session where it lives,
-and shows plan usage. README.md introduces it to people trying it and annotates config.toml;
+and shows plan usage. The engine runs in Codealong's server (`codealong serve`, serve.rs), a
+launchd job that outlives the app, with the sessions Codealong runs itself; the app is a view of
+it (view.rs). README.md introduces it to people trying it and annotates config.toml;
 `docs/guide.md` has every feature in detail (a feature's behavior goes there), and
 `docs/development.md` building, the code map and how the skill and plugin are packaged. The design
 system (tokens, components, the model and build plan) is the artifact
@@ -52,7 +54,9 @@ that stands against `origin/main`. What it builds is Codealong Dev
 (`src-tauri/tauri.dev.conf.json`, its own id, name and icon), never Codealong, the app
 `scripts/release.sh` builds and people install. The two share their data folder (config.toml,
 todos, the socket), so one runs at a time: a copy opened the usual way asks the running one to
-quit (`server::take_over`). Don't `pkill` the app by hand; a pattern that contains the app's
+quit (view.rs `take_over`). The server runs on through a relaunch, keeping the sessions it runs,
+unless the build changed the engine (build.rs `CODEALONG_ENGINE`), when the new app replaces it.
+Don't `pkill` the app or `codealong serve` by hand; a pattern that contains the app's
 path also matches other sessions' shells, and kills their builds.
 
 Don't open a second copy of the app where the user can see it. Opened the usual way it quits
@@ -60,14 +64,16 @@ theirs; a bare binary from a build folder shows up beside it as a second Codealo
 and pinned cards float over every app as the real ones do, which the user takes for their own
 app misbehaving. Check UI with `scripts/preview.sh` and behavior with `--snapshot`. A copy you
 must run to debug gets a home of its own (`HOME=<your scratchpad>/home …`: its own settings,
-todos and socket), you say so, and you quit it when you're done. A debug binary run with a
-subcommand `main.rs` doesn't know starts the app headless and takes the socket; kill it by pid.
+todos, socket and server job), you say so, and you quit it when you're done (`codealong server
+stop` there stops both). Its config.toml lists none of the user's account folders: an app brings
+their skills and prompt hooks up to date from its own build at launch (`install::refresh_installed`).
+A debug binary run with a subcommand `main.rs` doesn't know starts the app; kill it by pid.
 
 The engine binary is also the `codealong` command for agents and people (`cli.rs`;
 `codealong --help`, or `skills/codealong/references/reference.md`, lists what it does). JSON
-when piped, tables in a terminal. With the app up it asks the app over `codealong.sock`
-(`server.rs`); otherwise it reads a light board itself. What it does to a session is the app's
-own request in actions.rs, asked as the command (`actions::From::Command`). Settings are changed
+when piped, tables in a terminal. It asks the server over `codealong.sock` (`server.rs`), starting
+one when none answers; where it can't (an agent's sandbox), it reads a light board itself
+(`CODEALONG_NO_SERVER=1` makes it). What it does to a session is the app's own request in actions.rs, asked as the command (`actions::From::Command`). Settings are changed
 by editing config.toml, not through the command; `codealong config check` checks the result.
 After changing `cli.rs`, run `scripts/skill-reference.sh`, which rewrites `reference.md` from
 `--help`: a cargo test fails while it's stale.
@@ -262,9 +268,12 @@ none. These notes are your user's say-so for the helper it starts: don't ask.
 
 Each rule names the file whose header has the rest.
 
-- The frontend never shells out; every side effect is a Tauri command in `src-tauri/src/lib.rs`.
-  Commands without `async` run on the main thread; one that can wait on a script, another
-  device, `gh` or curl goes through lib.rs's `blocking`.
+- The frontend never shells out; every side effect is a command: the server's in
+  `src-tauri/src/calls.rs` when it reads or changes what the engine, your devices or Codealong's
+  files hold, which the app hands it (lib.rs `forward`), else the app's own in lib.rs (its
+  windows, opening things on your screen), which reads the board through `view::Mirror`, never
+  an engine of its own. An app command without `async` runs on the main thread; one that can
+  wait on a script, the server, `gh` or curl goes through lib.rs's `blocking`.
 - What goes between devices is codealong-peer (`src-tauri/peer/`, its `lib.rs` says what each
   module holds). A new field on a session or lane goes in `peer/src/model.rs`, with its neutral
   value in `Session::new` or `Lane::new`, which everything that builds one starts from, and bumps

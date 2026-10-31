@@ -310,7 +310,7 @@ const CARRIED: [&str; 2] = ["CODEALONG_DEVICE_KEY", "CODEALONG_UPDATE_URL"];
 
 /// Typing `codealong` with nothing after it, in a terminal or an agent's shell, opens the app as
 /// the Dock does: this copy hands its bundle to macOS with the Dock's environment and leaves, and
-/// the copy macOS opens takes over from any that's running (server::take_over). Run as the
+/// the copy macOS opens takes over from any that's running (view.rs `take_over`). Run as the
 /// shell's child, the app had that shell's environment (an agent's session ID, message socket and
 /// token, its editor's variables, a PATH of its own) and passed it to every process it started,
 /// long after the session had ended; everything it ran had that session above it, which the
@@ -390,6 +390,25 @@ fn dock_environment(caller: impl Fn(&str) -> Option<String>, shell: &str, temp: 
     env.extend(temp.map(|t| ("TMPDIR".to_string(), t.to_string())));
     env.extend(ssh_agent.map(|s| ("SSH_AUTH_SOCK".to_string(), s.to_string())));
     env
+}
+
+/// The environment Codealong's server is started with (serve.rs), whoever starts it: on macOS
+/// the one the Dock gives an app, as an app opened by hand is given (`open_as_the_dock_does`), so
+/// nothing of the shell or the agent session that ran the command reaches the server or what it
+/// starts. On Linux, where the desktop's own (the display, the session bus) comes only from the
+/// starter, this process's, less what's an agent session's or a terminal's of its own.
+pub fn server_environment() -> Vec<(String, String)> {
+    match crate::os::current() {
+        crate::os::Os::MacOs => dock_environment(|name| std::env::var(name).ok(), &crate::launch::login_shell(), crate::os::dirs::user_temp_dir().as_deref(), launchd_ssh_agent().as_deref()),
+        crate::os::Os::Linux => std::env::vars().filter(|(name, _)| !of_a_session(name)).collect(),
+    }
+}
+
+/// A variable that belongs to the session or terminal it was set in: an agent's (its session's ID,
+/// its message socket), Codealong's own but those carried on purpose, tmux's.
+fn of_a_session(name: &str) -> bool {
+    const PREFIXES: [&str; 8] = ["CLAUDE", "CODEX", "OPENCODE", "CURSOR", "ANTIGRAVITY", "AGY_", "TMUX", "CODEALONG_"];
+    PREFIXES.iter().any(|p| name.starts_with(p)) && !CARRIED.contains(&name)
 }
 
 /// The SSH agent launchd gives apps, where a shell may point SSH_AUTH_SOCK at another.

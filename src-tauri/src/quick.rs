@@ -36,7 +36,7 @@ use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut}
 
 use crate::geometry::{screen_holding, Rect, Screen};
 use crate::start::Place;
-use crate::{engine, panel, perf};
+use crate::{panel, perf};
 
 pub const LABEL: &str = "quick";
 /// The window's width: the page's card and the room its shadow needs on each side.
@@ -194,7 +194,7 @@ pub fn open(app: &AppHandle, context: Value) {
     if let Ok(mut w) = state.waiting.lock() {
         *w = Some(id);
     }
-    let board = app.try_state::<engine::Handle>().and_then(|e| e.read(|b| serde_json::to_string(b).ok())).unwrap_or_else(|| "null".into());
+    let board = app.try_state::<crate::view::Mirror>().and_then(|m| m.read(|b| serde_json::to_string(b).ok())).unwrap_or_else(|| "null".into());
     if perf::enabled() {
         perf::log(&format!("quick: open {id}, the board's {} KB written in {} ms", board.len() / 1024, t.elapsed().as_millis()));
     }

@@ -20,7 +20,7 @@
 
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager};
 
 /// Actual size, in percent.
@@ -31,7 +31,7 @@ pub const MIN: u32 = ZOOMS[0];
 pub const MAX: u32 = ZOOMS[ZOOMS.len() - 1];
 
 /// Which way a key or the menu zooms.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Step {
     In,
@@ -112,12 +112,12 @@ pub fn add_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
         if let Some(w) = crate::front_window(app) {
             // `emit_to`, not a window's `emit`: that one reaches every window.
             let _ = app.emit_to(w.label(), "zoom", name);
-        } else if let Some(engine) = app.try_state::<crate::engine::Handle>() {
-            // Off the main thread: it reads and writes config.toml.
-            let engine = engine.inner().clone();
+        } else {
+            // The server saves it to config.toml, and every window follows through the board; off
+            // the main thread, as it's asked over the socket.
             std::thread::spawn(move || {
-                if let Err(e) = engine.zoom(step) {
-                    eprintln!("Couldn't zoom: {e:#}");
+                if let Err(e) = crate::view::call("zoom", serde_json::json!({ "step": step })) {
+                    eprintln!("Couldn't zoom: {e}");
                 }
             });
         }

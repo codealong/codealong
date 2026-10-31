@@ -3,6 +3,10 @@ fn main() {
     if args.iter().any(|a| a == "--snapshot") {
         std::process::exit(codealong_lib::snapshot_cli(&args));
     }
+    // The server, which launchd runs (serve.rs).
+    if args.get(1).map(String::as_str) == Some("serve") && args.len() == 2 {
+        std::process::exit(codealong_lib::serve_main());
+    }
     // A subcommand of the `codealong` command, or one of its global flags, runs it. Anything else
     // starts the app: Finder and `open` pass arguments of their own, which must not turn into a
     // command line.

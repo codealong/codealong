@@ -8,8 +8,11 @@ Generated from `codealong --help` by `scripts/skill-reference.sh`. Don't edit by
 Codealong from the command line: the todo list, every agent session on this Mac, the
 worktrees they run in, and the accounts they run on.
 
-With the Codealong app running, answers come from it and todo changes go through it.
-Without it, the files are read directly and sessions show without git status or PRs.
+Answers come from Codealong's server, which runs the engine whether or not the app is
+open, and todo changes go through it. A command starts the server when it isn't running
+(`codealong server`). Where it can't be started (an agent's sandbox may not let a
+command start it), the files are read directly and sessions show without git status or
+PRs.
 
 Output is JSON when stdout isn't a terminal (so always, from an agent) or with --json.
 Times are epoch milliseconds. Ids take a unique prefix. A session is named by its key
@@ -19,7 +22,14 @@ whoami). A worktree is named by its path; `.` means the one the current folder i
 Usage: codealong [OPTIONS] <COMMAND>
 
 Commands:
-  status     Whether the app is running, and where the data lives
+  status     Whether Codealong's server is running and the app open, and where the data
+             lives
+  server     Codealong's server: the process that runs the engine, the sessions
+             Codealong runs itself, your other devices, the schedules and the automatic
+             reviews, whether or not the app is open, so quitting the app leaves them
+             going. The app is a view of it. launchd runs it (`codealong serve`, with
+             its output in Codealong's logs folder as server.log); a command starts it
+             when it isn't running, and so does the app as it opens
   accounts   The configured accounts: harness, sign-in, and with --usage how much of
              each plan limit is used
   tokens     What sessions on this Mac used and cost, from the app's token ledger:
@@ -41,9 +51,9 @@ Commands:
              times (`weekdays 9:00`, `every 2h`), when a command it runs every so often
              prints something new (a watch), when something happens on the board (a PR
              merges, a PR's checks fail, a todo is ready), or when fired from a script
-             (`schedule fire`). They run in the app, which lists them in its Schedules
-             view with each one's runs. What's watched costs no usage: an agent runs
-             only once something happens
+             (`schedule fire`). Codealong's server runs them, and the app lists them in
+             its Schedules view with each one's runs. What's watched costs no usage: an
+             agent runs only once something happens
   sessions   Sessions on the board: every agent, live or not, with its status and where
              it works. Lists by default; `find` searches
   session    One session: in full (`show`: status, excerpt, folder, branch, PR, how to
@@ -89,8 +99,7 @@ Commands:
              through
   devices    Your other devices (Settings › Devices): this device, the devices it's
              linked with, your devices on your tailnet that could be, and devices asking
-             to link. Linking is how devices see each other's sessions; needs the app
-             running and Devices on
+             to link. Linking is how devices see each other's sessions; needs Devices on
   terminal   Run a command in a terminal of your user's, as them, once they allow it: a
              new tab of their terminal beside your session's, in their own shell (its
              settings, PATH and sign-ins, outside any sandbox), where they can watch it
@@ -99,7 +108,8 @@ Commands:
              password (gcloud auth login, aws sso login, gh auth refresh), a command
              that needs their identity rather than yours, a dev server or watcher they
              should see. They're asked in Codealong every time, exactly the command you
-             give. Needs the app running, and a session Codealong lists running this
+             give, and the app opens to ask them when it isn't open. Needs a session
+             Codealong lists running this
   changes    What changed since an earlier look, for an agent that keeps watch over
              every session on a loop (an orchestrator: the skill's
              references/orchestrate.md). Sessions that started (`new`), began a turn
@@ -162,11 +172,11 @@ Commands:
              <board> --session me`). Name a board by its id or its name: a name in the
              project of the folder you're in or --project, or one only one project has.
              `list`, `new`, `add`, `remove`, `rule`, `set`, `rename` and `delete` work
-             with or without the app; `show`, `move`, `arrange` and `open` need it
-             running, since its main window works boards out. Boards are an experiment,
-             off until your user turns them on in Settings › Experimental
-             (`[experimental] boards = true` in config.toml); until then every board
-             command says so and does nothing
+             with or without the app; `show`, `move`, `arrange` and `open` need the app
+             open, since its main window works boards out. Boards are an experiment, off
+             until your user turns them on in Settings › Experimental (`[experimental]
+             boards = true` in config.toml); until then every board command says so and
+             does nothing
   help       Print this message or the help of the given subcommand(s)
 
 Options:
@@ -189,9 +199,83 @@ Options:
 ## codealong status
 
 ```
-Whether the app is running, and where the data lives
+Whether Codealong's server is running and the app open, and where the data lives
 
 Usage: codealong status [OPTIONS]
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong server
+
+```
+Codealong's server: the process that runs the engine, the sessions Codealong runs
+itself, your other devices, the schedules and the automatic reviews, whether or not the
+app is open, so quitting the app leaves them going. The app is a view of it. launchd
+runs it (`codealong serve`, with its output in Codealong's logs folder as server.log); a
+command starts it when it isn't running, and so does the app as it opens
+
+Usage: codealong server [OPTIONS] <COMMAND>
+
+Commands:
+  start  Start it, unless it's running, and say how it stands
+  stop   Stop it, and quit the app with it. The sessions Codealong runs itself are cut
+         off, and carry on once it starts again (`[sessions] continue_after_restart`)
+  help   Print this message or the help of the given subcommand(s)
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong server start
+
+```
+Start it, unless it's running, and say how it stands
+
+Usage: codealong server start [OPTIONS]
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong server stop
+
+```
+Stop it, and quit the app with it. The sessions Codealong runs itself are cut off, and
+carry on once it starts again (`[sessions] continue_after_restart`)
+
+Usage: codealong server stop [OPTIONS]
 
 Options:
       --json
@@ -1007,9 +1091,9 @@ Options:
 Schedules: a session Codealong starts, or a message it sends a session, at times
 (`weekdays 9:00`, `every 2h`), when a command it runs every so often prints something
 new (a watch), when something happens on the board (a PR merges, a PR's checks fail, a
-todo is ready), or when fired from a script (`schedule fire`). They run in the app,
-which lists them in its Schedules view with each one's runs. What's watched costs no
-usage: an agent runs only once something happens
+todo is ready), or when fired from a script (`schedule fire`). Codealong's server runs
+them, and the app lists them in its Schedules view with each one's runs. What's watched
+costs no usage: an agent runs only once something happens
 
 Usage: codealong schedule [OPTIONS] <COMMAND>
 
@@ -1034,13 +1118,13 @@ Commands:
   pause   Pause a schedule: nothing runs it until it's resumed, and its times that pass
           meanwhile aren't run then
   resume  Resume a paused schedule
-  run     Run a schedule now, as its time coming would, paused or not. It runs in the
-          app, within a few seconds, or once the app opens
+  run     Run a schedule now, as its time coming would, paused or not. Codealong's
+          server runs it within a few seconds
   fire    Ask a schedule to run because something happened: the last step of a deploy
           script, a git hook, another program. --key says what it's for (a deploy's id),
           so it runs once for each, however often it's fired; --title and --text go to
-          the session as what happened, as data. It runs in the app, within a few
-          seconds, or once the app opens
+          the session as what happened, as data. Codealong's server runs it within a few
+          seconds
   times   What a time like `weekdays 9:00` reads as, and when it comes next. Times are
           written `weekdays 9:00`, `mon,thu 10:30`, `daily 6pm`, `every 2h`, `every 30m
           weekdays 09:00-18:00`, `monthly 1 9:00`, `monthly last 17:00`, `once
@@ -1227,7 +1311,7 @@ Options:
           - claude-app
           - codex-app
           - codealong:  In Codealong itself, over the account's Agent Client Protocol
-            adapter. Needs the app running
+            adapter
 
       --only-if <ONLY_IF>
           Only when this command, run first in its worktree, succeeds and prints
@@ -1401,7 +1485,7 @@ Options:
           - claude-app
           - codex-app
           - codealong:  In Codealong itself, over the account's Agent Client Protocol
-            adapter. Needs the app running
+            adapter
 
       --only-if <ONLY_IF>
           Only when this command, run first in its worktree, succeeds and prints
@@ -1529,8 +1613,8 @@ Options:
 ## codealong schedule run
 
 ```
-Run a schedule now, as its time coming would, paused or not. It runs in the app, within
-a few seconds, or once the app opens
+Run a schedule now, as its time coming would, paused or not. Codealong's server runs it
+within a few seconds
 
 Usage: codealong schedule run [OPTIONS] <SCHEDULE>
 
@@ -1558,7 +1642,7 @@ Options:
 Ask a schedule to run because something happened: the last step of a deploy script, a
 git hook, another program. --key says what it's for (a deploy's id), so it runs once for
 each, however often it's fired; --title and --text go to the session as what happened,
-as data. It runs in the app, within a few seconds, or once the app opens
+as data. Codealong's server runs it within a few seconds
 
 Usage: codealong schedule fire [OPTIONS] <SCHEDULE>
 
@@ -1790,8 +1874,7 @@ Options:
           JSON output. The default when stdout isn't a terminal
 
       --archive
-          Archive them too, and archive the ones that can't be closed. Needs the app
-          running
+          Archive them too, and archive the ones that can't be closed
 
       --table
           Tables, even when piped
@@ -1823,8 +1906,8 @@ Commands:
   open        Show a session in the Codealong app: its window comes forward on the
               session's row in Sessions, with its conversation in the panel beside it,
               as Show in Codealong does in the floating bar. Nothing is opened where the
-              session runs (its terminal, the Claude or Codex app). Needs the app
-              running
+              session runs (its terminal, the Claude or Codex app). The app opens on it
+              when it isn't open
   send        Send a message to another session where it runs, on any account or
               harness. It's never your user's word: the message starts by saying it's
               from another agent and not the user, which session sent it, and how to
@@ -1872,8 +1955,7 @@ Commands:
               started with `codealong start`: it ends now and is marked seen and
               archived, and Codealong's main window says which session did it, with an
               Undo. Never a session that's working, waiting on its user, or on another
-              Mac; any other session is its user's to mark done, in Codealong. Needs the
-              app running
+              Mac; any other session is its user's to mark done, in Codealong
   seen        Mark the turn this session is taking seen, from inside it, when its user
               needs to do nothing about it: a loop's tick or a check that found nothing
               new, a watch with nothing to report. Once the turn ends it's idle rather
@@ -1887,7 +1969,7 @@ Commands:
               another session's message), makes it void, and its user's Mark as unread
               brings it back. Never for a turn that changed code, finished what its user
               asked for, or says anything they'd want to read. Only `me`: another
-              session's turn is its user's to see. Needs the app running
+              session's turn is its user's to see
   transcript  A session's conversation as its own record has it, for reading what
               another agent did and where it stands: the newest part (about 60 items),
               or the part before `--before`. Each item is a prompt (`you`), a reply
@@ -1955,7 +2037,7 @@ Commands:
               WHEN is on this Mac's clock: a span from now (30m, 2h, 3d), a time (5pm,
               17:30: the next one), a day (tomorrow, fri, next week, 2026-11-03: at 9
               AM) or a day and a time (tomorrow 2pm, fri 17:00, 2026-11-03 15:00). A
-              session on another device is snoozed on its Mac. Needs the app running
+              session on another device is snoozed on its Mac
   raise       Move a session to the top of what waits on your user, as Move to top in
               its menu in Codealong does: the notch, the waiting window, the floating
               bar and the next key in every window go to it first, after any your user
@@ -1967,20 +2049,18 @@ Commands:
               session's name. Turned down for one your user moved there themselves
               (theirs to undo), while it's snoozed, and after your user moves it back to
               its place, until it's sent something or its status changes. --lower moves
-              back one an agent moved. A session on another device is moved on its Mac.
-              Needs the app running
+              back one an agent moved. A session on another device is moved on its Mac
   rename      Name a session where its harness keeps names (Claude Code's /rename, a
               Codex thread's name, an OpenCode session's title), so the harness shows
               the name as Codealong does
   fork        Fork a session into a copy that goes on in the background, as /fork in its
               box in Codealong does: a Claude Code background job, an OpenCode session,
-              or a Codex thread Codealong runs (that one needs the app running). The
-              session carries on unaware. Given a prompt, the copy starts on it; without
-              one it waits for its first message. With --from, the copy goes only up to
-              just before a prompt of the session's and starts on PROMPT in its place,
-              as Edit from here on a message in Codealong does (Claude Code and Codex
-              copies then run in Codealong, which needs the app). Prints the copy's key
-              when its harness says it at once
+              or a Codex thread Codealong runs. The session carries on unaware. Given a
+              prompt, the copy starts on it; without one it waits for its first message.
+              With --from, the copy goes only up to just before a prompt of the
+              session's and starts on PROMPT in its place, as Edit from here on a
+              message in Codealong does (Claude Code and Codex copies then run in
+              Codealong). Prints the copy's key when its harness says it at once
   help        Print this message or the help of the given subcommand(s)
 
 Options:
@@ -2028,7 +2108,7 @@ Options:
 Show a session in the Codealong app: its window comes forward on the session's row in
 Sessions, with its conversation in the panel beside it, as Show in Codealong does in the
 floating bar. Nothing is opened where the session runs (its terminal, the Claude or
-Codex app). Needs the app running
+Codex app). The app opens on it when it isn't open
 
 Usage: codealong session open [OPTIONS] <KEY>
 
@@ -2209,7 +2289,7 @@ and its last reply stays in Your turn for its user to read and mark done. A sess
 one started with `codealong start`: it ends now and is marked seen and archived, and
 Codealong's main window says which session did it, with an Undo. Never a session that's
 working, waiting on its user, or on another Mac; any other session is its user's to mark
-done, in Codealong. Needs the app running
+done, in Codealong
 
 Usage: codealong session done [OPTIONS] <KEY>
 
@@ -2246,7 +2326,7 @@ lost connection, a usage limit) still wait on them. A prompt sent after it, or a
 that starts after it (a scheduled wakeup, another session's message), makes it void, and
 its user's Mark as unread brings it back. Never for a turn that changed code, finished
 what its user asked for, or says anything they'd want to read. Only `me`: another
-session's turn is its user's to see. Needs the app running
+session's turn is its user's to see
 
 Usage: codealong session seen [OPTIONS] <KEY>
 
@@ -2524,7 +2604,7 @@ is then (as Your turn when nothing else would bring it). A prompt sent to it end
 snooze, and --wake ends it now. WHEN is on this Mac's clock: a span from now (30m, 2h,
 3d), a time (5pm, 17:30: the next one), a day (tomorrow, fri, next week, 2026-11-03: at
 9 AM) or a day and a time (tomorrow 2pm, fri 17:00, 2026-11-03 15:00). A session on
-another device is snoozed on its Mac. Needs the app running
+another device is snoozed on its Mac
 
 Usage: codealong session snooze [OPTIONS] <KEY> [WHEN]...
 
@@ -2565,8 +2645,7 @@ waits on or what can't wait (a deploy held up, a PR others are blocked behind), 
 a time, and say why in --note, which shows on it with your session's name. Turned down
 for one your user moved there themselves (theirs to undo), while it's snoozed, and after
 your user moves it back to its place, until it's sent something or its status changes.
---lower moves back one an agent moved. A session on another device is moved on its Mac.
-Needs the app running
+--lower moves back one an agent moved. A session on another device is moved on its Mac
 
 Usage: codealong session raise [OPTIONS] <KEY>
 
@@ -2628,12 +2707,11 @@ Options:
 ```
 Fork a session into a copy that goes on in the background, as /fork in its box in
 Codealong does: a Claude Code background job, an OpenCode session, or a Codex thread
-Codealong runs (that one needs the app running). The session carries on unaware. Given a
-prompt, the copy starts on it; without one it waits for its first message. With --from,
-the copy goes only up to just before a prompt of the session's and starts on PROMPT in
-its place, as Edit from here on a message in Codealong does (Claude Code and Codex
-copies then run in Codealong, which needs the app). Prints the copy's key when its
-harness says it at once
+Codealong runs. The session carries on unaware. Given a prompt, the copy starts on it;
+without one it waits for its first message. With --from, the copy goes only up to just
+before a prompt of the session's and starts on PROMPT in its place, as Edit from here on
+a message in Codealong does (Claude Code and Codex copies then run in Codealong). Prints
+the copy's key when its harness says it at once
 
 Usage: codealong session fork [OPTIONS] <KEY> [PROMPT]
 
@@ -2787,8 +2865,7 @@ Commands:
   show    One PR: its state, branches, the worktrees on its branch, the sessions that
           worked on it (each with how often its records show it pushed to the PR's
           branch, `pushes`), which is its primary one (`primary`) and why (`primaryBy`:
-          picked, pushed, opened or started), and whether that one is nudged (`nudge`).
-          Needs the app, which reads GitHub
+          picked, pushed, opened or started), and whether that one is nudged (`nudge`)
   link    Link a session to a PR it worked on that Codealong can't see by itself: a PR
           opened another way (the website, an API tool), or one worked on from a
           worktree that isn't on its branch
@@ -2822,12 +2899,12 @@ Commands:
           session for the PR is asked again when it has one. Not while a round of it is
           under way. The answer names the round's session: `codealong session wait
           <key>` waits for its turn, and `codealong pr show <pr>` says where the review
-          stands. Needs the app
+          stands
   snooze  Snooze your review of a PR that asks for it, as Snooze review in its menu in
           Codealong does: it leaves Review requested, the floating bar's reviews and the
           mark until WHEN, waiting under Snoozed, and is back then if it still asks for
           your review. --wake ends it now. WHEN as `session snooze` takes it: 30m, 5pm,
-          tomorrow, fri 17:00. Needs the app running
+          tomorrow, fri 17:00
   help    Print this message or the help of the given subcommand(s)
 
 Options:
@@ -2850,7 +2927,7 @@ Options:
 One PR: its state, branches, the worktrees on its branch, the sessions that worked on it
 (each with how often its records show it pushed to the PR's branch, `pushes`), which is
 its primary one (`primary`) and why (`primaryBy`: picked, pushed, opened or started),
-and whether that one is nudged (`nudge`). Needs the app, which reads GitHub
+and whether that one is nudged (`nudge`)
 
 Usage: codealong pr show [OPTIONS] <PR>
 
@@ -3001,7 +3078,7 @@ review posted where `[reviews] post` says (one of a PR of yours is kept and hand
 to its primary session). That reviewer's session for the PR is asked again when it has
 one. Not while a round of it is under way. The answer names the round's session:
 `codealong session wait <key>` waits for its turn, and `codealong pr show <pr>` says
-where the review stands. Needs the app
+where the review stands
 
 Usage: codealong pr review [OPTIONS] <PR>
 
@@ -3035,8 +3112,7 @@ Options:
 Snooze your review of a PR that asks for it, as Snooze review in its menu in Codealong
 does: it leaves Review requested, the floating bar's reviews and the mark until WHEN,
 waiting under Snoozed, and is back then if it still asks for your review. --wake ends it
-now. WHEN as `session snooze` takes it: 30m, 5pm, tomorrow, fri 17:00. Needs the app
-running
+now. WHEN as `session snooze` takes it: 30m, 5pm, tomorrow, fri 17:00
 
 Usage: codealong pr snooze [OPTIONS] <PR> [WHEN]...
 
@@ -3379,10 +3455,10 @@ Options:
 
       --device <DEVICE>
           Start it on another of your Macs, by name or short id (`codealong devices`
-          lists them), which needs remote control on there and the app running here.
-          That Mac picks the worktree, account, model and place as `codealong start` run
-          there would, from its own folders, accounts and settings; the session it
-          starts is listed here as one of that device's
+          lists them), which needs remote control on there. That Mac picks the worktree,
+          account, model and place as `codealong start` run there would, from its own
+          folders, accounts and settings; the session it starts is listed here as one of
+          that device's
 
       --new-worktree
           Have Claude Code make a fresh worktree for it (`claude --worktree`)
@@ -3406,7 +3482,7 @@ Options:
           - claude-app
           - codex-app
           - codealong:  In Codealong itself, over the account's Agent Client Protocol
-            adapter. Needs the app running
+            adapter
 
       --model <MODEL>
           A model for a terminal or background start: fable, opus, sonnet, haiku, or a
@@ -3578,7 +3654,7 @@ Options:
 ```
 Your other devices (Settings › Devices): this device, the devices it's linked with, your
 devices on your tailnet that could be, and devices asking to link. Linking is how
-devices see each other's sessions; needs the app running and Devices on
+devices see each other's sessions; needs Devices on
 
 Usage: codealong devices [OPTIONS] [COMMAND]
 
@@ -3745,8 +3821,9 @@ sign-ins, outside any sandbox), where they can watch it and type into it, and wh
 prints comes back to you. For what your own shell can't or shouldn't do: a sign-in that
 opens a browser or asks for a password (gcloud auth login, aws sso login, gh auth
 refresh), a command that needs their identity rather than yours, a dev server or watcher
-they should see. They're asked in Codealong every time, exactly the command you give.
-Needs the app running, and a session Codealong lists running this
+they should see. They're asked in Codealong every time, exactly the command you give,
+and the app opens to ask them when it isn't open. Needs a session Codealong lists
+running this
 
 Usage: codealong terminal [OPTIONS] <COMMAND>
 
@@ -4118,8 +4195,8 @@ session you're in to your user's board for the work you're on (`board add <board
 --session me`). Name a board by its id or its name: a name in the project of the folder
 you're in or --project, or one only one project has. `list`, `new`, `add`, `remove`,
 `rule`, `set`, `rename` and `delete` work with or without the app; `show`, `move`,
-`arrange` and `open` need it running, since its main window works boards out. Boards are
-an experiment, off until your user turns them on in Settings › Experimental
+`arrange` and `open` need the app open, since its main window works boards out. Boards
+are an experiment, off until your user turns them on in Settings › Experimental
 (`[experimental] boards = true` in config.toml); until then every board command says so
 and does nothing
 

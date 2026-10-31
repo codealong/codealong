@@ -158,7 +158,7 @@ fn built_commit() -> Option<&'static str> {
 /// does. Nothing's said while the board has no source here, or git can't tell (the commit isn't
 /// in that checkout: a fork's build).
 fn dev_check(app: &AppHandle, built: &str) {
-    let improve = app.try_state::<crate::engine::Handle>().map(|e| e.read(|b| b.improve.clone())).unwrap_or_default();
+    let improve = app.try_state::<crate::view::Mirror>().map(|m| m.read(|b| b.improve.clone())).unwrap_or_default();
     let lane_id = improve.lane_id.filter(|id| !id.starts_with('@'));
     let source = lane_id.clone().or(improve.source.map(|s| s.root));
     let behind = source.and_then(|source| {

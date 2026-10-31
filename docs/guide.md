@@ -16,6 +16,7 @@ it is, how to install it and how to get going. The settings file is annotated in
 - [Tidying up](#tidying-up)
 - [Your other devices](#your-other-devices)
 - [For agents](#for-agents)
+- [Codealong's server](#codealongs-server)
 - [Files Codealong keeps](#files-codealong-keeps)
 - [What's next](#whats-next)
 
@@ -380,9 +381,10 @@ itself whose turn was under way when Codealong quit or its agent's process ended
 agent's own record ends as stopped (Codealong notes each such turn while it runs, in
 hosted.json).
 
-A session Codealong runs itself is its agent's, and its agent is a process of Codealong's, so
-Codealong quitting (an update, or a new build relaunched) ends the turns it was taking. Once
-Codealong is back it tells each such session to carry on, at once and without waiting on you: the
+A session Codealong runs itself is its agent's, and its agent is a process of Codealong's server
+(*Codealong's server*), so quitting the app leaves it working, and the server stopping (`codealong
+server stop`, an update, or a new build that changed the engine) ends the turns it was taking. Once
+the server is back it tells each such session to carry on, at once and without waiting on you: the
 message picks it up again in a new process of its agent, says it was cut off, and that a call the
 cut ended may read as one you rejected, which you didn't. A session that last did something more
 than an hour before is left for you, since Codealong was gone a while. Each cut is told once; a
@@ -1634,8 +1636,8 @@ other times or on something else, or a watch moved to another worktree, it goes 
 new one would, keeping its runs: a time that passed under the old one isn't run late (9:00 moved to
 8:00 at 8:30 next runs tomorrow at 8:00), and what's on the board or in its watch's output already
 isn't new, its watch looking at once to note it. *Quiet* makes
-its sessions quiet (*Quiet*). Schedules run while Codealong does: with it closed, nothing runs
-(Settings › General › Open at login).
+its sessions quiet (*Quiet*). Schedules run while Codealong's server does, which quitting the app leaves
+running (*Codealong's server*); with it stopped, nothing runs (Settings › General › Open at login).
 
 **Which of your machines run it.** With another of your machines linked (*Your other devices*),
 the dialog asks which of them run it. *This machine*, the default, runs it here alone. *One of my
@@ -3506,9 +3508,10 @@ session wait <key>` waits for, or which `--report` has Codealong tell the sessio
 start --device <name> --prompt …` one on another of your Macs (see *Your other devices*); `codealong
 board add|remove|show|move|arrange|new` put work on your boards and lay them out (see *Boards*);
 `codealong config
-show|check` prints the settings and checks an edited config.toml. With the app running, answers come
-from it over a socket and todo changes go through its engine; with it closed, the command reads the
-files (sessions then show without git or PRs). For the few seconds after the app starts, while it's
+show|check` prints the settings and checks an edited config.toml. Answers come from Codealong's server
+over a socket and todo changes go through its engine; a command starts the server when it isn't
+running, and where it can't, reads the files (sessions then show without git or PRs). For the few
+seconds after the server starts, while it's
 still reading its sessions and worktrees, a command that names one waits for it (half a minute at
 most) and, if it's still reading then, says so and to try again: "There's no session" means the key
 names none once the list is whole. Output is JSON when piped, tables in a terminal.
@@ -3567,6 +3570,29 @@ or a check asked for in two days) keeps its process until then, since only that 
 it; `hygiene` lists it as kept, with when it wakes. `--kill` ends them with their child processes, each checked again first and logged, a
 background job stopped the way Close stops it; it judges nothing when the app doesn't answer.
 
+## Codealong's server
+
+Codealong runs in two parts. Its server keeps watch: it reads what every agent records, watches git
+and GitHub, runs the sessions Codealong runs itself and their side conversations, your schedules
+and automatic reviews, keeps your other devices linked, and answers the `codealong` command. The
+app's windows are a view of it. Quitting the app leaves the server running, and with it every
+session Codealong runs, the schedules and the reviews, and your phone and other Macs still see this
+one; opened again, the app shows everything as it is.
+
+The app starts the server as it opens, and a `codealong` command starts it when it isn't running,
+so it's there whenever something needs it. On a Mac it's a launchd job of yours,
+`app.codealong.server.…`, which launchd starts again if it ever crashes. `codealong status` says
+whether it's running and whether the app is open on it; `codealong server stop` stops it and quits
+the app with it, cutting off the turns of the sessions Codealong runs, which carry on once it starts
+again (*Cut off*); `codealong server start` starts it. What it prints goes to `server.log` beside
+Codealong's other logs (`~/Library/Logs/Codealong`, on Linux `~/.local/state/codealong`).
+
+An update replaces the server with the app. A build of Codealong opened over another keeps the
+server that's running when both were built from the same engine, so the sessions Codealong runs
+carry on through it, and replaces it otherwise. Where a command can't start the server (an agent's
+sandbox may not let it), it reads Codealong's files itself, as it did with the app closed: sessions
+show without git status or PRs, and what needs the server says so.
+
 ## Files Codealong keeps
 
 Everything lives in `~/Library/Application Support/Codealong/`, beside `config.toml`; on Linux
@@ -3598,6 +3624,8 @@ Attachments are kept by their content: images in `images/`, other files in `file
 ones no todo uses are cleared after 30 days. The devices this one is linked with are in
 `devices.json`, and what each last said in `device-feeds.json`; this device's key is in the login
 keychain (on Linux, the desktop's Secret Service).
+The server answers on `codealong.sock`; its launchd job is described by `server.plist`, and what
+it prints goes to `server.log` in the logs folder (*Codealong's server*).
 
 ## What's next
 

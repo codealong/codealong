@@ -3,7 +3,7 @@
 //! a call to allow or deny, or the questions of an `AskUserQuestion`, answered with your picks.
 //!
 //! The hook (`codealong session hook permission-request`, cli.rs) sends the request over the
-//! app's socket (server.rs) and waits there; the connection's thread holds it here until you
+//! server's socket (server.rs) and waits there; the connection's thread holds it here until you
 //! answer, then writes the decision back for the hook to print. Claude Code shows its own prompt
 //! meanwhile and takes whichever answer comes first (checked in 2.1.284's code), so a request is
 //! let go, with no answer, once it's answered or gone elsewhere: the call has a result in the

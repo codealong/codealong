@@ -108,7 +108,7 @@ on 2026-09-27. Paths are under `src-tauri/src/`.
   turn starts a new turn rather than steering.
 - `opencode acp` (built in) is a client of OpenCode's service; its ids are the `ses_…` rows.
   Where it's installed and the PATH it gets: `acp.rs` (`adapter_path`).
-- The adapter processes, one per account and children of the app, their stderr logs and
+- The adapter processes, one per account and children of Codealong's server (serve.rs), their stderr logs and
   `hosted.json`: `acp.rs` (header, `agent`, `log_path`, `remembered_path`).
 - When the app quits, each adapter's input closes and codex-acp 1.13.1 interrupts the turns it
   runs: the rollout ends the turn with `turn_aborted`, `reason: "interrupted"`, as a Stop does, and

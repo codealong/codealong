@@ -6,7 +6,7 @@
 //! (`!` in its box, Run on a block: actions.rs `run_command`, runcode.rs) run the same way, so
 //! every tab Codealong opens for a command is one it can tell the state of, and close.
 //!
-//! Asking. The command hands the app the request over its socket and waits there (server.rs), as
+//! Asking. The command hands the server the request over its socket and waits there (server.rs), as
 //! Claude Code's permission hook does (claude/asks.rs): the connection's thread holds it here until
 //! you answer. Meanwhile the session that asked waits on you for it (`overlay`), and the request is
 //! what `session-pending` gives for it and `session-answer` answers (actions.rs), so the panel, the

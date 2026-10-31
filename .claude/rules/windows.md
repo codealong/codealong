@@ -66,8 +66,8 @@ under `src-tauri/src/`.
   killed process stuck in the kernel is reaped on a thread of its own: `procs.rs` (`listed`,
   `run`). KERN_PROCARGS2 gives your own processes' environments, but not those of Apple's own
   programs, which only root sees: `procs.rs` (`environment`).
-- Only a plain Quit reaches `RunEvent::Exit`: a copy taking over ends the process itself
-  (`server::Request::Quit`), relaunch.sh sends SIGTERM, and `AppHandle::restart` on the main
+- Only a plain Quit reaches `RunEvent::Exit`: a copy taking over ends the process itself (the
+  server tells it to quit, view.rs `take_over`), relaunch.sh sends SIGTERM, and `AppHandle::restart` on the main
   thread skips the exit events (tauri 2.12.5), so what must survive a relaunch is written as it
   changes: `frames.rs` (module header). tao marks a window full screen in
   `windowWillEnterFullScreen`, before its animation, and clears that before the last resize on

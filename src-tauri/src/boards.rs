@@ -661,7 +661,7 @@ pub enum Rest {
 }
 
 /// How long a request waits for the main window's answer.
-const WAIT: Duration = Duration::from_secs(30);
+pub const WAIT: Duration = Duration::from_secs(30);
 
 /// The requests the main window hasn't answered yet, by id.
 #[derive(Default)]
@@ -712,10 +712,10 @@ pub fn answer(id: u64, answer: Result<Value, String>) {
 
 /// Tells every window a board changed, so each reads its project's boards again
 /// (src/boards/useBoards.ts). `from` is the window that changed it, which has it already.
-pub fn changed(app: &AppHandle, applied: &Applied, from: Option<&str>) {
+pub fn changed(applied: &Applied, from: Option<&str>) {
     // A board that moved is told to the windows of the project it left too, which list it no more.
     for project in std::iter::once(&applied.project).chain(applied.left.as_ref()) {
-        let _ = app.emit("boards-changed", serde_json::json!({ "project": project, "id": applied.id, "from": from }));
+        crate::views::emit("boards-changed", &serde_json::json!({ "project": project, "id": applied.id, "from": from }));
     }
 }
 

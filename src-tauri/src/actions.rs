@@ -4,8 +4,8 @@
 //! or worktree is on, why another device can't ask for it. A window's command goes through
 //! `run`, which does it here or asks the device that the session, the worktree or the command
 //! names (`On`); a linked device's request goes through `answer`, which does it here; and the
-//! `codealong` command's goes through `run_as` (the app's socket, server.rs) or, with the app
-//! closed, `local`. So a request does the same whether a window here, another Mac, a phone or
+//! `codealong` command's goes through `run_as` (the server's socket, server.rs) or, with no
+//! server, `local`. So a request does the same whether a window here, another Mac, a phone or
 //! the command asks. Who may ask for it from elsewhere is `api::REQUESTS`'s to say, once, and
 //! what the command may not ask for is each request's `command` here.
 

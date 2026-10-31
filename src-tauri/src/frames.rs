@@ -3,7 +3,7 @@
 //!
 //! A frame is noted as its window moves and sizes, and written within moments of that, not as
 //! Codealong quits: only a plain Quit gets as far as `RunEvent::Exit`. A copy taking over ends the
-//! process itself (`server::Request::Quit`), relaunch.sh sends SIGTERM, and `AppHandle::restart`
+//! process itself (the server tells it to quit, view.rs), relaunch.sh sends SIGTERM, and `AppHandle::restart`
 //! on the main thread, as an update's restart is, skips the exit events.
 //!
 //! What's kept is a frame: a window in full screen isn't noted, so it comes back at the frame it

@@ -7,7 +7,9 @@ does, feature by feature, is in the [guide](guide.md).
 
 Codealong is a [Tauri 2](https://tauri.app) app: an engine in Rust (`src-tauri/`) that reads what
 every harness records, watches git and GitHub, and publishes a board, and a React UI (`src/`) that
-draws it in the main window, the floating bar, the quick panel and the rest. What goes between
+draws it in the main window, the floating bar, the quick panel and the rest. The engine runs in
+Codealong's server, a process of its own that the app is a view of (*The server and the app*,
+below). What goes between
 devices is its own crate, codealong-peer (`src-tauri/peer/`), which the
 [iPhone app](https://github.com/codealong/codealong-ios) builds on too.
 
@@ -164,16 +166,16 @@ whenever that string changes, so at launch the app updates the plugin it install
 files, the skill included, changed. An account whose plugin comes from another marketplace (the
 repo's, added by hand) keeps it until you pick Use Codealong's copy. A Claude Code account with
 the plugin gets no skill copy, and one Codealong made there before is taken away, so sessions
-don't see the skill twice. The permission hook hands the request to the app over its socket
-and waits; the app holds it (`claude/asks.rs`) until it's answered in one of Codealong's windows or on
+don't see the skill twice. The permission hook hands the request to the server over its socket
+and waits; the server holds it (`claude/asks.rs`) until it's answered in one of Codealong's windows or on
 another device, or answered or gone where the session runs, and the hook prints the decision,
-or nothing. It prints nothing and exits 0 when the app isn't running, and an app older than the
+or nothing. It prints nothing and exits 0 when no server answers, and one older than the
 hook fails its unknown subcommand the same quiet way, so Claude Code's own prompt is always
 there to answer. A question (`AskUserQuestion`) is answered with the allow's `updatedInput`,
 its questions with your answers beside them; a plan (`ExitPlanMode`) is left to the prompt,
 since Claude Code drops a plain allow for it. With `[sessions] live_replies` on, the staged copy's
 hooks.json also has an async `MessageDisplay` hook (`install.rs` `LIVE_HOOK`, which the version's
-hash takes in), running the hidden `codealong session hook message-display`: it hands the app
+hash takes in), running the hidden `codealong session hook message-display`: it hands the server
 each batch of a reply as the terminal shows it, which `claude/live.rs` keeps until the record has
 the message. Changing the setting brings the plugin up to date in every account that has
 Codealong's copy (`install::follow_live_replies`).
@@ -188,11 +190,47 @@ is open and its call has no result (`codex/asks.rs`). Codex runs only hooks you'
 the hook is trusted as it goes in, through Codex's own app-server as its terminal UI's review
 does it (`appserver::trust_hook`), and taken out again where that fails.
 
-The command talks to the running app over `codealong.sock` next to the config (JSON lines, one
-request and reply per line, mode 0600), and the app answers with the board its windows have and
-applies todo changes through its engine, so nothing writes over anything. Without the app, todo
-changes go to `todos.json` under an advisory lock the app takes too, and sessions come from a
-light scan (no git, PRs or visitors).
+The command talks to the server over `codealong.sock` next to the config (JSON lines, one
+request and reply per line, mode 0600), and the server answers with the board the windows have
+and applies todo changes through its engine, so nothing writes over anything. A command that
+needs it starts it when none answers. Where it can't (an agent's sandbox may not let a command
+reach launchd) or `CODEALONG_NO_SERVER` is set, todo changes go to `todos.json` under an advisory
+lock the server takes too, and sessions come from a light scan (no git, PRs or visitors).
+
+## The server and the app
+
+Codealong is two processes of one binary. The server, `codealong serve` (`serve.rs`), runs the
+engine and everything that goes on whether a window is open or not: your other devices, the
+sessions Codealong runs itself over ACP and their side conversations, the schedules, the
+automatic reviews and the rest of what acts on a published board, the token ledger, and the
+socket. The app is a view of it (`view.rs`): it keeps a copy of each board the server publishes
+(`view::Mirror`), hands it to its windows as they've always heard it (`windowfeed.rs`), and cuts
+the floating bar's feed, the desktop cards and the Dock icon from it. A window's command that
+reads or changes what the server holds is a call of the server's (`calls.rs`), which the app's
+invoke handler hands it over the socket (lib.rs `forward`), its arguments and answer as a Tauri
+command's; the windows' code is the same either way. What only a window can do (the panels, menus,
+opening a file or a link on your screen) is the app's own, in lib.rs. The server keeps a
+connection open to each app it has (`Request::Subscribe`, `views.rs`) and writes it every board,
+a reply as it streams, your devices and the rest, one JSON line an event, a ping every few
+seconds; it asks the latest app to show a session (`codealong session open`) or to work a board
+out, which the main window does.
+
+The server is a launchd job (`os/background.rs`, Linux: a process in a session of its own), so
+it's nobody's child: not the app's, nor that of a command run in an agent's sandbox. Its label
+is named for the folder of Codealong's files, so a copy tried with a home of its own has a server
+of its own; its output goes to `server.log` in Codealong's logs folder, and launchd starts it
+again if it crashes. The app starts it as it opens, and connects again whenever it goes; the
+command starts it when none answers; `codealong server stop` stops it and the app with it.
+Quitting the app leaves it, and the agents it runs, going.
+
+A build's engine is a hash of the Rust it's built from (build.rs `CODEALONG_ENGINE`), not of the
+windows' pages it carries too. An app keeps the server it finds when their engines match, and
+replaces it otherwise, so a relaunch that changed only the windows leaves the sessions Codealong
+runs going; one that changed the engine cuts their turns off as quitting the app did, and they
+carry on once the new server is up (`[sessions] continue_after_restart`). The app counts each
+board's `rev` itself, so a new server, whose count starts again, is never taken for older than
+what the windows have. When launchd won't take the job, the app runs the server in itself, as the
+engine always was.
 
 ## Code map
 
@@ -250,7 +288,9 @@ light scan (no git, PRs or visitors).
 | `src/notices.ts`, `src/ui/Notices.tsx` | Notices: what isn't working in the background, the engine's and a window's own, as a chip that can be dismissed |
 | `src/tips.ts`, `src/ui/Tip.tsx` | Tips on using Codealong: the one list, each tip with the places it shows and its keys from the chord tables, and the box that shows them where a window waits on what it reads |
 | `src/ui/Sidebar.tsx`, `src/savedViews.ts` | The sidebar: the view and what narrows it, open or folded to a rail, and saved views |
-| `src-tauri/src/cli.rs`, `server.rs`, `install.rs` | The `codealong` command (clap; JSON or tables; the app over its socket, else the files), the app's socket, and putting the skill and the command where agents find them |
+| `src-tauri/src/cli.rs`, `server.rs`, `install.rs` | The `codealong` command (clap; JSON or tables; the server over its socket, started when none answers, else the files), the server's socket, and putting the skill and the command where agents find them |
+| `src-tauri/src/serve.rs`, `views.rs`, `os/background.rs`, `build.rs` | Codealong's server (`codealong serve`): what it runs, starting, replacing and stopping it as a launchd job, the apps connected to it and what it tells and asks them, and the engine's build id an app keeps a server by |
+| `src-tauri/src/calls.rs`, `view.rs` | What the windows ask the server, as their commands (`calls!`); and the app's side of it: taking over from an app that's open, starting and following the server, the board's copy (`Mirror`), and handing a call to it |
 | `src-tauri/src/changes.rs`, `hygiene.rs` | For an orchestrator's loop: what changed on the board since an earlier look, told by difference from what that look saw (`codealong changes`, `changes.json`); and what's left running of old sessions, with the Mac's load, memory and swap, and ending it (`codealong hygiene`) |
 | `src-tauri/src/actions.rs` | What Codealong does to a session or a worktree, or asks of a device, one table of requests: done here, or asked of the device it's on, for a window, another device and the `codealong` command alike, with what each may ask for and what each carries |
 | `src-tauri/src/snapshot.rs` | `codealong --snapshot`: the engine without a window, its modes in one table, for checking what it shows and does |

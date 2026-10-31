@@ -693,21 +693,6 @@ impl Handle {
         Ok(after)
     }
 
-    /// Your editor (`[apps] editor`), as the board names it: Cursor, `config.rs`'s default, until
-    /// the board has one.
-    pub fn your_editor(&self) -> config::Profile {
-        let (id, name) = self.board.read().map(|b| (b.apps.editor_id.clone(), b.apps.editor.clone())).unwrap_or_default();
-        if id.is_empty() {
-            return config::Profile { id: "cursor".into(), name: editors::name("cursor") };
-        }
-        config::Profile { id, name }
-    }
-
-    /// Opens config.toml in the configured editor.
-    pub fn open_config(&self) -> Result<()> {
-        editors::open(&self.your_editor().id, &config::config_path())
-    }
-
     /// Takes what repo `slug`'s team suggests in its file on `branch` and you don't have yet (the
     /// file's `offers` on the board), writing it into your table for that repo in config.toml.
     pub fn take_team_settings(&self, slug: &str, branch: &str) -> Result<()> {
@@ -719,53 +704,70 @@ impl Handle {
         config::take_suggestions(slug, &offers)
     }
 
-    /// Opens repo `slug`'s team file as its main checkout here has it, in the editor.
-    pub fn open_team_file(&self, slug: &str) -> Result<()> {
-        let root = self.read(|b| {
-            let lanes = b.lanes.iter().filter(|l| l.device.is_none() && l.repo_slug.as_deref() == Some(slug));
-            lanes.clone().find(|l| l.origin == Origin::Main).or_else(|| lanes.clone().next()).map(|l| PathBuf::from(&l.path))
-        });
-        let root = root.ok_or_else(|| anyhow!("There's no checkout of {slug} on this Mac."))?;
-        let file = root.join(teamfile::FILE);
-        if !file.is_file() {
-            bail!("{} has no {}.", tilde(&root), teamfile::FILE);
-        }
-        editors::open(&self.your_editor().id, &file)
-    }
-
-    /// Opens a web link: one into a worktree's app where its preview opens, so the app has that
-    /// Chrome profile's sign-in (`board::app_of_link`), any other in the default browser. A
-    /// profile Chrome no longer has opens the link in the default browser rather than not at
-    /// all: a link's click has nowhere to say why, and the preview's own Open says it.
-    pub fn open_link(&self, url: &str) -> Result<()> {
-        match self.read(|b| link_opens_as(b, url)) {
-            Some(lane) => open_as_preview(url, &lane).or_else(|e| {
-                eprintln!("Opening {url} in the default browser: {e:#}");
-                launch::open_url(url)
-            }),
-            None => launch::open_url(url),
-        }
-    }
-
-    /// Opens a lane's target where it lives. See *Surfaces*, Open where it lives.
+    /// Opens a lane's target where it lives (`open_here`), marking its session seen.
     pub fn open(&self, lane_id: &str, target_id: &str) -> Result<()> {
         let board = self.board.read().map(|b| b.clone()).map_err(|_| anyhow!("board unavailable"))?;
-        if let Some(key) = open_on(&board, lane_id, target_id)? {
-            // Where it lives shows nothing of what a side conversation answered, which goes on
-            // waiting for a window of Codealong's to show it.
-            if !board.session(&key).is_some_and(|(_, s)| s.side_answer.is_some()) {
-                self.mark_seen(vec![key]);
-            }
-        }
-        // Another editor picked from an Open in menu is the one Open in <editor> uses from then
-        // on, as Codex's Open button remembers its last. The watcher publishes the change.
-        if let Some(id) = target_id.strip_prefix("l|editor|").filter(|id| *id != board.apps.editor_id) {
-            if let Err(e) = config::save_editor(id) {
-                eprintln!("Couldn't save the editor: {e:#}");
-            }
+        if let Some(key) = open_here(&board, lane_id, target_id)? {
+            self.mark_seen(vec![key]);
         }
         Ok(())
     }
+}
+
+/// Your editor (`[apps] editor`), as the board names it: Cursor, `config.rs`'s default, until
+/// the board has one.
+pub fn your_editor(b: &Board) -> config::Profile {
+    if b.apps.editor_id.is_empty() {
+        return config::Profile { id: "cursor".into(), name: editors::name("cursor") };
+    }
+    config::Profile { id: b.apps.editor_id.clone(), name: b.apps.editor.clone() }
+}
+
+/// Opens config.toml in your editor.
+pub fn open_config(b: &Board) -> Result<()> {
+    editors::open(&your_editor(b).id, &config::config_path())
+}
+
+/// Opens repo `slug`'s team file as its main checkout here has it, in your editor.
+pub fn open_team_file(b: &Board, slug: &str) -> Result<()> {
+    let lanes = b.lanes.iter().filter(|l| l.device.is_none() && l.repo_slug.as_deref() == Some(slug));
+    let root = lanes.clone().find(|l| l.origin == Origin::Main).or_else(|| lanes.clone().next()).map(|l| PathBuf::from(&l.path));
+    let root = root.ok_or_else(|| anyhow!("There's no checkout of {slug} on this Mac."))?;
+    let file = root.join(teamfile::FILE);
+    if !file.is_file() {
+        bail!("{} has no {}.", tilde(&root), teamfile::FILE);
+    }
+    editors::open(&your_editor(b).id, &file)
+}
+
+/// Opens a web link: one into a worktree's app where its preview opens, so the app has that
+/// Chrome profile's sign-in (`board::app_of_link`), any other in the default browser. A profile
+/// Chrome no longer has opens the link in the default browser rather than not at all: a link's
+/// click has nowhere to say why, and the preview's own Open says it.
+pub fn open_link(b: &Board, url: &str) -> Result<()> {
+    match link_opens_as(b, url) {
+        Some(lane) => open_as_preview(url, &lane).or_else(|e| {
+            eprintln!("Opening {url} in the default browser: {e:#}");
+            launch::open_url(url)
+        }),
+        None => launch::open_url(url),
+    }
+}
+
+/// Opens a lane's target where it lives (`open_on`), and keeps an editor picked from an Open in
+/// menu as yours. The session it opened, when it opened one that's now seen: where it lives shows
+/// nothing of what a side conversation answered, which goes on waiting for a window of
+/// Codealong's to show it. See *Surfaces*, Open where it lives.
+pub fn open_here(board: &Board, lane_id: &str, target_id: &str) -> Result<Option<String>> {
+    let opened = open_on(board, lane_id, target_id)?;
+    // Another editor picked from an Open in menu is the one Open in <editor> uses from then on, as
+    // Codex's Open button remembers its last. The watcher publishes the change.
+    if let Some(id) = target_id.strip_prefix("l|editor|").filter(|id| *id != board.apps.editor_id) {
+        if let Err(e) = config::save_editor(id) {
+            eprintln!("Couldn't save the editor: {e:#}");
+        }
+    }
+    Ok(opened.filter(|key| !board.session(key).is_some_and(|(_, s)| s.side_answer.is_some())))
 }
 
 /// Archives a session in its harness, or takes it out of its archive, where the harness has one
@@ -891,12 +893,12 @@ pub fn link_opens_as(board: &Board, url: &str) -> Option<Lane> {
     board::app_of_link(&board.lanes, url).cloned()
 }
 
-pub fn start(emit: impl Fn(&Board) + Send + 'static) -> Handle {
-    let (tx, rx) = channel();
-    // The theme, zoom, shortcuts and experiments are on the board before the first scan
-    // finishes, so windows open in them.
+/// The board before the first scan has finished: loading, with the theme, zoom, shortcuts and
+/// experiments config.toml has, so windows open in them. The app's copy starts from it too, until
+/// the server's first board comes (view.rs).
+pub fn starting_board() -> Board {
     let shortcuts = config::shortcuts();
-    let board = Arc::new(RwLock::new(Board {
+    Board {
         loading: true,
         theme: config::theme(),
         zoom: config::zoom(),
@@ -907,7 +909,12 @@ pub fn start(emit: impl Fn(&Board) + Send + 'static) -> Handle {
         improve_shortcut: shortcuts.improve,
         main_window_shortcut: shortcuts.main_window,
         ..Default::default()
-    }));
+    }
+}
+
+pub fn start(emit: impl Fn(&Board) + Send + 'static) -> Handle {
+    let (tx, rx) = channel();
+    let board = Arc::new(RwLock::new(starting_board()));
     let terminal_use = crate::stale::lists_tabs().then(|| Arc::new(Mutex::new(crate::stale::Uses::load())));
     let handle = Handle { tx: tx.clone(), board: board.clone(), terminal_use: terminal_use.clone() };
     let ping = tx.clone();
@@ -1004,7 +1011,7 @@ fn snapshot_engine(with_github: bool, with_usage: bool) -> Engine {
 }
 
 /// The board without git, GitHub, visitors or usage: sessions, worktrees and todos as the
-/// files say, in a couple of seconds. For the `codealong` command when the app isn't running.
+/// files say, in a couple of seconds. For the `codealong` command when no server answers.
 pub fn light_snapshot() -> Board {
     let (tx, _rx) = channel();
     let mut e = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));

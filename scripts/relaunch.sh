@@ -3,7 +3,8 @@
 # Applications and opens it there, so Spotlight or any launcher opens the latest build.
 # Codealong Dev (src-tauri/tauri.dev.conf.json) is this repo's build: an id, name and light icon of
 # its own beside the Codealong installed in Applications, the same settings and todos, and the
-# last of the two opened wins (server::take_over). One bundle build at a time on this Mac; a build
+# last of the two opened wins (view.rs take_over). Codealong's server, which runs the agents
+# Codealong runs itself, carries on through a relaunch unless the build changed its engine. One bundle build at a time on this Mac; a build
 # started from another worktree waits. The running app is matched by its own path, anchored, so a
 # shell whose command line mentions that path (another session's build, say) is never killed. The
 # app stays up during the build. One whose commit the running app already has (another session's
@@ -126,23 +127,37 @@ done
 # Opened as typing `codealong` opens it: the binary hands its bundle to macOS, which opens a new
 # copy with the environment the Dock gives an app, not this shell's (install::open_as_the_dock_does).
 "$installed/Contents/MacOS/codealong"
-# Opened, the new copy asks whichever copy answers on the socket to quit and takes the socket from
-# it (server::take_over): a copy the pkill above didn't match, too, one an earlier build started
-# from a terminal, whose command line is the word `codealong` alone. It's relaunched once the new
-# copy holds the socket, and not before.
+# Opened, the new copy asks whichever copy is open to quit and takes its place (view.rs
+# `take_over`): a copy the pkill above didn't match, too, one an earlier build started from a
+# terminal, whose command line is the word `codealong` alone. It connects to Codealong's server,
+# which runs on through a relaunch and is replaced only when the new copy was built with another
+# engine (serve.rs), so the agents it runs keep going when only the windows changed. It's
+# relaunched once the server says the new copy is the app connected to it, and not before; a
+# build from before there were servers holds the socket itself instead.
 sock="$HOME/Library/Application Support/Codealong/codealong.sock"
 new_copy="^$(re "$installed")/Contents/MacOS/codeal[o]ng$"
+# The app the server has connected last, by its pid, or what holds the socket when that's an app
+# from before there were servers. Nothing here may stop the script.
+viewing() {
+  local out n
+  out="$(CODEALONG_NO_SERVER=1 "$installed/Contents/MacOS/codealong" status --json 2>/dev/null)" || return 0
+  n="$(printf '%s' "$out" | plutil -extract app.views raw -o - - 2>/dev/null || echo 0)"
+  case "$n" in
+  '' | *[!0-9]* | 0) lsof -t "$sock" 2>/dev/null | head -1 || true ;;
+  *) printf '%s' "$out" | plutil -extract "app.views.$((n - 1)).pid" raw -o - - 2>/dev/null || true ;;
+  esac
+}
 took=""
 holder=""
-for _ in $(seq 1 300); do
-  holder="$(lsof -t "$sock" 2>/dev/null | head -1 || true)"
+for _ in $(seq 1 150); do
+  holder="$(viewing)"
   case " $(pgrep -f "$new_copy" | tr '\n' ' ' || true) " in
   *" ${holder:-none} "*)
     took=1
     break
     ;;
   esac
-  sleep 0.2
+  sleep 0.4
 done
 # A Dock pin made while builds ran from the bundle folder points at nothing once they're moved to
 # Applications, and the Dock shows the running app under a question mark. It's pointed at

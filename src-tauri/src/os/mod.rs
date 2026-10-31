@@ -21,6 +21,7 @@
 compile_error!("Codealong runs on macOS and Linux.");
 
 pub mod apps;
+pub mod background;
 pub mod dirs;
 pub mod exits;
 pub mod files;

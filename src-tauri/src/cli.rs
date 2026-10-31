@@ -36,7 +36,7 @@ use crate::util::{self, expand, now_ms, one_line, tilde, truncate};
 const ABOUT: &str = "Codealong from the command line: the todo list, every agent session on this Mac, the worktrees they run in, and the accounts they run on.";
 const LONG_ABOUT: &str = "Codealong from the command line: the todo list, every agent session on this Mac, the worktrees they run in, and the accounts they run on.
 
-With the Codealong app running, answers come from it and todo changes go through it. Without it, the files are read directly and sessions show without git status or PRs.
+Answers come from Codealong's server, which runs the engine whether or not the app is open, and todo changes go through it. A command starts the server when it isn't running (`codealong server`). Where it can't be started (an agent's sandbox may not let a command start it), the files are read directly and sessions show without git status or PRs.
 
 Output is JSON when stdout isn't a terminal (so always, from an agent) or with --json. Times are epoch milliseconds. Ids take a unique prefix. A session is named by its key (claude:claude2:<uuid>) or its id; `me` means the session running this command (see whoami). A worktree is named by its path; `.` means the one the current folder is in.";
 
@@ -58,8 +58,13 @@ pub struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Cmd {
-    /// Whether the app is running, and where the data lives.
+    /// Whether Codealong's server is running and the app open, and where the data lives.
     Status,
+    /// Codealong's server: the process that runs the engine, the sessions Codealong runs itself, your other devices, the schedules and the automatic reviews, whether or not the app is open, so quitting the app leaves them going. The app is a view of it. launchd runs it (`codealong serve`, with its output in Codealong's logs folder as server.log); a command starts it when it isn't running, and so does the app as it opens.
+    Server {
+        #[command(subcommand)]
+        cmd: ServerCmd,
+    },
     /// The configured accounts: harness, sign-in, and with --usage how much of each plan limit is used.
     Accounts {
         /// Read plan usage: from the app when it runs, else one call per Claude account. Don't loop it; the usage endpoint rate-limits.
@@ -89,7 +94,7 @@ enum Cmd {
         #[command(subcommand)]
         cmd: TodoCmd,
     },
-    /// Schedules: a session Codealong starts, or a message it sends a session, at times (`weekdays 9:00`, `every 2h`), when a command it runs every so often prints something new (a watch), when something happens on the board (a PR merges, a PR's checks fail, a todo is ready), or when fired from a script (`schedule fire`). They run in the app, which lists them in its Schedules view with each one's runs. What's watched costs no usage: an agent runs only once something happens.
+    /// Schedules: a session Codealong starts, or a message it sends a session, at times (`weekdays 9:00`, `every 2h`), when a command it runs every so often prints something new (a watch), when something happens on the board (a PR merges, a PR's checks fail, a todo is ready), or when fired from a script (`schedule fire`). Codealong's server runs them, and the app lists them in its Schedules view with each one's runs. What's watched costs no usage: an agent runs only once something happens.
     Schedule {
         #[command(subcommand)]
         cmd: ScheduleCmd,
@@ -132,12 +137,12 @@ enum Cmd {
     },
     /// Put the command on PATH, Codealong's plugin in each Claude Code account (the skill, the command for its Bash tool, and the hooks that let Codealong answer its permission prompts and questions) and the skill in each other account's skills folder (with a hook in a Codex account that hands Codealong its approval prompts), and the adapters Codealong runs sessions through.
     Install(InstallArgs),
-    /// Your other devices (Settings › Devices): this device, the devices it's linked with, your devices on your tailnet that could be, and devices asking to link. Linking is how devices see each other's sessions; needs the app running and Devices on.
+    /// Your other devices (Settings › Devices): this device, the devices it's linked with, your devices on your tailnet that could be, and devices asking to link. Linking is how devices see each other's sessions; needs Devices on.
     Devices {
         #[command(subcommand)]
         cmd: Option<DevicesCmd>,
     },
-    /// Run a command in a terminal of your user's, as them, once they allow it: a new tab of their terminal beside your session's, in their own shell (its settings, PATH and sign-ins, outside any sandbox), where they can watch it and type into it, and what it prints comes back to you. For what your own shell can't or shouldn't do: a sign-in that opens a browser or asks for a password (gcloud auth login, aws sso login, gh auth refresh), a command that needs their identity rather than yours, a dev server or watcher they should see. They're asked in Codealong every time, exactly the command you give. Needs the app running, and a session Codealong lists running this.
+    /// Run a command in a terminal of your user's, as them, once they allow it: a new tab of their terminal beside your session's, in their own shell (its settings, PATH and sign-ins, outside any sandbox), where they can watch it and type into it, and what it prints comes back to you. For what your own shell can't or shouldn't do: a sign-in that opens a browser or asks for a password (gcloud auth login, aws sso login, gh auth refresh), a command that needs their identity rather than yours, a dev server or watcher they should see. They're asked in Codealong every time, exactly the command you give, and the app opens to ask them when it isn't open. Needs a session Codealong lists running this.
     Terminal {
         #[command(subcommand)]
         cmd: TerminalCmd,
@@ -146,7 +151,7 @@ enum Cmd {
     Changes(ChangesArgs),
     /// Processes left over from old sessions, and this Mac's load, memory and swap, for keeping a Mac with many agents usable. It lists: the processes of sessions quiet for --after (an agent's own process and what it runs; not one working or waiting on you, unless it's archived), older copies of a background job's attach client (`claude attach <job>` in a second tab), a harness's background processes left with no parent, and dev servers and watchers in a linked worktree no session has been active in for --after (never a repo's main checkout). A quiet session's process is kept while it waits on a wakeup it scheduled itself that its process alone would fire (Claude Code's `ScheduleWakeup` or `CronCreate`: a loop's next tick, a check in two days), and listed under `kept` with when (`wakesAt`). With --kill it ends those, each with its child processes: it checks again that each process runs the same command first, stops a background job through its harness as Close does and asks the rest to end (SIGTERM), kills what's left after a while (SIGKILL), sweeps once more for dev processes that came back in the worktrees it cleared, and logs each to --log. A session whose process ended keeps its conversation and resumes as usual. It judges nothing, and kills nothing, when the app doesn't answer or is still reading after a start: without its board, every session would look old.
     Hygiene(HygieneArgs),
-    /// Boards, the app's Kanban and Canvas: named sets of work in a project, each shown as Kanban (todos and sessions in columns) or as Canvas (the work laid out in space, in frames). A project has the boards made in it and no others: none until one's made, for a release, a fix, an investigation, or with --everything one that holds everything in the project. A board holds what its rule takes in (labels, stages, statuses, repos, accounts, how recent, words) and what's added by hand, less what's taken off, so add the session you're in to your user's board for the work you're on (`board add <board> --session me`). Name a board by its id or its name: a name in the project of the folder you're in or --project, or one only one project has. `list`, `new`, `add`, `remove`, `rule`, `set`, `rename` and `delete` work with or without the app; `show`, `move`, `arrange` and `open` need it running, since its main window works boards out. Boards are an experiment, off until your user turns them on in Settings › Experimental (`[experimental] boards = true` in config.toml); until then every board command says so and does nothing.
+    /// Boards, the app's Kanban and Canvas: named sets of work in a project, each shown as Kanban (todos and sessions in columns) or as Canvas (the work laid out in space, in frames). A project has the boards made in it and no others: none until one's made, for a release, a fix, an investigation, or with --everything one that holds everything in the project. A board holds what its rule takes in (labels, stages, statuses, repos, accounts, how recent, words) and what's added by hand, less what's taken off, so add the session you're in to your user's board for the work you're on (`board add <board> --session me`). Name a board by its id or its name: a name in the project of the folder you're in or --project, or one only one project has. `list`, `new`, `add`, `remove`, `rule`, `set`, `rename` and `delete` work with or without the app; `show`, `move`, `arrange` and `open` need the app open, since its main window works boards out. Boards are an experiment, off until your user turns them on in Settings › Experimental (`[experimental] boards = true` in config.toml); until then every board command says so and does nothing.
     Board {
         #[command(subcommand)]
         cmd: BoardCmd,
@@ -558,7 +563,7 @@ enum SessionsCmd {
         /// How long a session has been quiet: 90m, 24h, 3d, 1w.
         #[arg(long, default_value = "24h")]
         after: String,
-        /// Archive them too, and archive the ones that can't be closed. Needs the app running.
+        /// Archive them too, and archive the ones that can't be closed.
         #[arg(long)]
         archive: bool,
         /// Only say what would close and what stays open, and why.
@@ -571,7 +576,7 @@ enum SessionsCmd {
 enum SessionCmd {
     /// One session in full.
     Show { key: String },
-    /// Show a session in the Codealong app: its window comes forward on the session's row in Sessions, with its conversation in the panel beside it, as Show in Codealong does in the floating bar. Nothing is opened where the session runs (its terminal, the Claude or Codex app). Needs the app running.
+    /// Show a session in the Codealong app: its window comes forward on the session's row in Sessions, with its conversation in the panel beside it, as Show in Codealong does in the floating bar. Nothing is opened where the session runs (its terminal, the Claude or Codex app). The app opens on it when it isn't open.
     Open {
         /// The session: its key, its id, a unique start of its id, or `me`.
         key: String,
@@ -590,12 +595,12 @@ enum SessionCmd {
         /// The session: its key, its id, a unique start of its id, or `me`.
         key: String,
     },
-    /// Mark a session done, as Mark as done in Codealong does, from inside a session, which may mark only its own and the ones it started. `me`: this session ends once its current turn does (its terminal closes, or its harness exits it and cleans up a worktree it made), and its last reply stays in Your turn for its user to read and mark done. A session this one started with `codealong start`: it ends now and is marked seen and archived, and Codealong's main window says which session did it, with an Undo. Never a session that's working, waiting on its user, or on another Mac; any other session is its user's to mark done, in Codealong. Needs the app running.
+    /// Mark a session done, as Mark as done in Codealong does, from inside a session, which may mark only its own and the ones it started. `me`: this session ends once its current turn does (its terminal closes, or its harness exits it and cleans up a worktree it made), and its last reply stays in Your turn for its user to read and mark done. A session this one started with `codealong start`: it ends now and is marked seen and archived, and Codealong's main window says which session did it, with an Undo. Never a session that's working, waiting on its user, or on another Mac; any other session is its user's to mark done, in Codealong.
     Done {
         /// The session: `me`, or one this session started (its key, its id, or a unique start of its id).
         key: String,
     },
-    /// Mark the turn this session is taking seen, from inside it, when its user needs to do nothing about it: a loop's tick or a check that found nothing new, a watch with nothing to report. Once the turn ends it's idle rather than Your turn: in no queue, off the floating bar and the mark, and shown as its agent's call (Seen by agent, with --note). Run it as the turn's last step, just before the final reply. It holds only for the turn it's run in, and only if that turn ends as Your turn: one whose reply Jev reads as asking its user something, a call to allow, a question, an error or a turn cut short (a lost connection, a usage limit) still wait on them. A prompt sent after it, or a turn that starts after it (a scheduled wakeup, another session's message), makes it void, and its user's Mark as unread brings it back. Never for a turn that changed code, finished what its user asked for, or says anything they'd want to read. Only `me`: another session's turn is its user's to see. Needs the app running.
+    /// Mark the turn this session is taking seen, from inside it, when its user needs to do nothing about it: a loop's tick or a check that found nothing new, a watch with nothing to report. Once the turn ends it's idle rather than Your turn: in no queue, off the floating bar and the mark, and shown as its agent's call (Seen by agent, with --note). Run it as the turn's last step, just before the final reply. It holds only for the turn it's run in, and only if that turn ends as Your turn: one whose reply Jev reads as asking its user something, a call to allow, a question, an error or a turn cut short (a lost connection, a usage limit) still wait on them. A prompt sent after it, or a turn that starts after it (a scheduled wakeup, another session's message), makes it void, and its user's Mark as unread brings it back. Never for a turn that changed code, finished what its user asked for, or says anything they'd want to read. Only `me`: another session's turn is its user's to see.
     Seen {
         /// The session: `me`.
         key: String,
@@ -611,14 +616,14 @@ enum SessionCmd {
     Suggest(SuggestArgs),
     /// Tag a session with your read of where it stands, in the words Codealong's rows use, after reading its conversation (`session transcript`): whether its last reply asks its user something, how far its code change got, whether what was asked for is done, how risky the call it waits on looks, and what a command it left running in the background does. Each shows on the session in Codealong as Jev's read does (Asks you, Landed, Pushed, Destructive, Looks finished…), over Jev's for the same moment, with who tagged it and the note; an orchestrator going over its sessions tags them so the user sees at a glance where each stands, with `[jev] sessions` on or off. Say only what you read: a field left out stays Jev's. Give --prompt-at the session's `lastPromptAt` as you read it: the tag is turned down if the user replied since, or while it takes a turn, and goes once anything is sent to it or a turn of its starts (`changes` says which, as `untagged`); tagging again replaces it, and --clear takes it away. The session's `insight` in `session show` and `sessions` is the read it shows now, Jev's, yours (`by`) or both.
     Tag(TagArgs),
-    /// Snooze a session, as Snooze in its menu in Codealong does: it leaves Needs you and Your turn on every device, and the mark stops counting it, until WHEN, when it's back as it is then (as Your turn when nothing else would bring it). A prompt sent to it ends the snooze, and --wake ends it now. WHEN is on this Mac's clock: a span from now (30m, 2h, 3d), a time (5pm, 17:30: the next one), a day (tomorrow, fri, next week, 2026-11-03: at 9 AM) or a day and a time (tomorrow 2pm, fri 17:00, 2026-11-03 15:00). A session on another device is snoozed on its Mac. Needs the app running.
+    /// Snooze a session, as Snooze in its menu in Codealong does: it leaves Needs you and Your turn on every device, and the mark stops counting it, until WHEN, when it's back as it is then (as Your turn when nothing else would bring it). A prompt sent to it ends the snooze, and --wake ends it now. WHEN is on this Mac's clock: a span from now (30m, 2h, 3d), a time (5pm, 17:30: the next one), a day (tomorrow, fri, next week, 2026-11-03: at 9 AM) or a day and a time (tomorrow 2pm, fri 17:00, 2026-11-03 15:00). A session on another device is snoozed on its Mac.
     Snooze {
         /// The session: its key, its id, a unique start of its id, or `me`.
         key: String,
         #[command(flatten)]
         when: SnoozeWhen,
     },
-    /// Move a session to the top of what waits on your user, as Move to top in its menu in Codealong does: the notch, the waiting window, the floating bar and the next key in every window go to it first, after any your user moved there themselves, until they send it something or mark its finished turn seen. One that's running is first once its turn ends; one whose turn they already saw waits on them again. Keep it for what other work waits on or what can't wait (a deploy held up, a PR others are blocked behind), a few at a time, and say why in --note, which shows on it with your session's name. Turned down for one your user moved there themselves (theirs to undo), while it's snoozed, and after your user moves it back to its place, until it's sent something or its status changes. --lower moves back one an agent moved. A session on another device is moved on its Mac. Needs the app running.
+    /// Move a session to the top of what waits on your user, as Move to top in its menu in Codealong does: the notch, the waiting window, the floating bar and the next key in every window go to it first, after any your user moved there themselves, until they send it something or mark its finished turn seen. One that's running is first once its turn ends; one whose turn they already saw waits on them again. Keep it for what other work waits on or what can't wait (a deploy held up, a PR others are blocked behind), a few at a time, and say why in --note, which shows on it with your session's name. Turned down for one your user moved there themselves (theirs to undo), while it's snoozed, and after your user moves it back to its place, until it's sent something or its status changes. --lower moves back one an agent moved. A session on another device is moved on its Mac.
     Raise(RaiseArgs),
     /// Name a session where its harness keeps names (Claude Code's /rename, a Codex thread's name, an OpenCode session's title), so the harness shows the name as Codealong does.
     Rename {
@@ -627,7 +632,7 @@ enum SessionCmd {
         #[arg(allow_hyphen_values = true)]
         name: String,
     },
-    /// Fork a session into a copy that goes on in the background, as /fork in its box in Codealong does: a Claude Code background job, an OpenCode session, or a Codex thread Codealong runs (that one needs the app running). The session carries on unaware. Given a prompt, the copy starts on it; without one it waits for its first message. With --from, the copy goes only up to just before a prompt of the session's and starts on PROMPT in its place, as Edit from here on a message in Codealong does (Claude Code and Codex copies then run in Codealong, which needs the app). Prints the copy's key when its harness says it at once.
+    /// Fork a session into a copy that goes on in the background, as /fork in its box in Codealong does: a Claude Code background job, an OpenCode session, or a Codex thread Codealong runs. The session carries on unaware. Given a prompt, the copy starts on it; without one it waits for its first message. With --from, the copy goes only up to just before a prompt of the session's and starts on PROMPT in its place, as Edit from here on a message in Codealong does (Claude Code and Codex copies then run in Codealong). Prints the copy's key when its harness says it at once.
     Fork {
         /// The session: its key, its id, a unique start of its id, or `me`.
         key: String,
@@ -797,7 +802,7 @@ enum TokensBy {
 
 #[derive(Subcommand, Debug)]
 enum PrCmd {
-    /// One PR: its state, branches, the worktrees on its branch, the sessions that worked on it (each with how often its records show it pushed to the PR's branch, `pushes`), which is its primary one (`primary`) and why (`primaryBy`: picked, pushed, opened or started), and whether that one is nudged (`nudge`). Needs the app, which reads GitHub.
+    /// One PR: its state, branches, the worktrees on its branch, the sessions that worked on it (each with how often its records show it pushed to the PR's branch, `pushes`), which is its primary one (`primary`) and why (`primaryBy`: picked, pushed, opened or started), and whether that one is nudged (`nudge`).
     Show {
         /// The PR: its URL, owner/name#number, or a number (#123) in the repo of the current folder's worktree.
         pr: String,
@@ -808,9 +813,9 @@ enum PrCmd {
     Unlink(PrLinkArgs),
     /// Have a PR's primary session told of what happens on it: while it runs, it gets a message when someone else reviews the PR, asks for changes or comments (with what they wrote), when it's approved, merged or closed, and when its checks fail or its branch comes to conflict with its base, with where the PR stands. One on this Mac that has stopped is resumed out of sight with what asks for work (comments, changes asked for, failing checks, conflicts), unless another of the PR's sessions runs (`[sessions] resume_for_pr_news`). Its primary session is the one that pushed to its branch most, the one that opened it counting as once at least and winning a tie, never an automatic review of it, unless another was made it here or from the PR's menu in the app (Primary session); the PR's other sessions aren't told. What the signed-in user did, which is what its own agent did through gh, isn't told. Run from a session, that session becomes the one told, unless another running session is the PR's primary (--take). Off for a PR until turned on for it, here or from its card in the app, unless `[pull_requests] nudge_by_default` in config.toml turns it on for every PR of yours; one turned on approved already tells its session that now. `[pull_requests] nudge_about` can keep what it tells to comments and requests for changes ("feedback"), and failing checks and conflicts ("feedback-and-checks"), each with a merge too ("feedback-and-merges", "feedback-checks-and-merges").
     Nudge(PrNudgeArgs),
-    /// Start an agent's review of a PR now, as Review with… does in the app: a round of Codealong's own reviews (Settings › Automation), whatever `[reviews] auto` says and of a commit reviewed already too, in a session of its own where `[reviews] start` says, its review posted where `[reviews] post` says (one of a PR of yours is kept and handed back to its primary session). That reviewer's session for the PR is asked again when it has one. Not while a round of it is under way. The answer names the round's session: `codealong session wait <key>` waits for its turn, and `codealong pr show <pr>` says where the review stands. Needs the app.
+    /// Start an agent's review of a PR now, as Review with… does in the app: a round of Codealong's own reviews (Settings › Automation), whatever `[reviews] auto` says and of a commit reviewed already too, in a session of its own where `[reviews] start` says, its review posted where `[reviews] post` says (one of a PR of yours is kept and handed back to its primary session). That reviewer's session for the PR is asked again when it has one. Not while a round of it is under way. The answer names the round's session: `codealong session wait <key>` waits for its turn, and `codealong pr show <pr>` says where the review stands.
     Review(PrReviewArgs),
-    /// Snooze your review of a PR that asks for it, as Snooze review in its menu in Codealong does: it leaves Review requested, the floating bar's reviews and the mark until WHEN, waiting under Snoozed, and is back then if it still asks for your review. --wake ends it now. WHEN as `session snooze` takes it: 30m, 5pm, tomorrow, fri 17:00. Needs the app running.
+    /// Snooze your review of a PR that asks for it, as Snooze review in its menu in Codealong does: it leaves Review requested, the floating bar's reviews and the mark until WHEN, waiting under Snoozed, and is back then if it still asks for your review. --wake ends it now. WHEN as `session snooze` takes it: 30m, 5pm, tomorrow, fri 17:00.
     Snooze {
         /// The PR: its URL, owner/name#number, or a number (#123) in the repo of the current folder's worktree.
         pr: String,
@@ -1196,7 +1201,7 @@ struct StartArgs {
     /// The worktree to run in: a path, or `.` (the default). With --device, a folder on that device, where a path under your home here is the same path under its home, and `.` is this repo's main checkout there.
     #[arg(long, default_value = ".")]
     worktree: String,
-    /// Start it on another of your Macs, by name or short id (`codealong devices` lists them), which needs remote control on there and the app running here. That Mac picks the worktree, account, model and place as `codealong start` run there would, from its own folders, accounts and settings; the session it starts is listed here as one of that device's.
+    /// Start it on another of your Macs, by name or short id (`codealong devices` lists them), which needs remote control on there. That Mac picks the worktree, account, model and place as `codealong start` run there would, from its own folders, accounts and settings; the session it starts is listed here as one of that device's.
     #[arg(long, conflicts_with_all = ["todo", "take", "helper"])]
     device: Option<String>,
     /// Have Claude Code make a fresh worktree for it (`claude --worktree`).
@@ -1241,9 +1246,9 @@ enum ScheduleCmd {
     Pause { schedule: String },
     /// Resume a paused schedule.
     Resume { schedule: String },
-    /// Run a schedule now, as its time coming would, paused or not. It runs in the app, within a few seconds, or once the app opens.
+    /// Run a schedule now, as its time coming would, paused or not. Codealong's server runs it within a few seconds.
     Run { schedule: String },
-    /// Ask a schedule to run because something happened: the last step of a deploy script, a git hook, another program. --key says what it's for (a deploy's id), so it runs once for each, however often it's fired; --title and --text go to the session as what happened, as data. It runs in the app, within a few seconds, or once the app opens.
+    /// Ask a schedule to run because something happened: the last step of a deploy script, a git hook, another program. --key says what it's for (a deploy's id), so it runs once for each, however often it's fired; --title and --text go to the session as what happened, as data. Codealong's server runs it within a few seconds.
     Fire(ScheduleFireArgs),
     /// What a time like `weekdays 9:00` reads as, and when it comes next. Times are written `weekdays 9:00`, `mon,thu 10:30`, `daily 6pm`, `every 2h`, `every 30m weekdays 09:00-18:00`, `monthly 1 9:00`, `monthly last 17:00`, `once 2026-10-21 15:00`, or `cron 0 9 * * 1-5`.
     Times { rule: Vec<String> },
@@ -1427,7 +1432,7 @@ enum PlaceArg {
     Background,
     ClaudeApp,
     CodexApp,
-    /// In Codealong itself, over the account's Agent Client Protocol adapter. Needs the app running.
+    /// In Codealong itself, over the account's Agent Client Protocol adapter.
     Codealong,
 }
 
@@ -1575,7 +1580,7 @@ pub fn main(args: &[String]) -> i32 {
     }
     // SAFETY: isatty reads a descriptor's kind and touches nothing.
     let json = !cli.table && (cli.json || unsafe { libc::isatty(1) } == 0);
-    let mut client = Client::new(cli.verbose);
+    let mut client = Client::new(cli.verbose, starts_server(&cli.cmd), !json);
     match run(cli.cmd, &mut client, json) {
         Ok(()) => 0,
         Err(e) => {
@@ -1615,7 +1620,59 @@ fn loaded_within(within: std::time::Duration, mut ask: impl FnMut(std::time::Dur
     }
 }
 
-/// Where answers come from: the app over its socket, or the files.
+#[derive(Subcommand, Debug)]
+enum ServerCmd {
+    /// Start it, unless it's running, and say how it stands.
+    Start,
+    /// Stop it, and quit the app with it. The sessions Codealong runs itself are cut off, and carry on once it starts again (`[sessions] continue_after_restart`).
+    Stop,
+}
+
+fn server_cmd(cmd: ServerCmd, json: bool) -> Result<()> {
+    match cmd {
+        ServerCmd::Start => {
+            let s = crate::serve::ensure(None).map_err(|e| anyhow!(e))?;
+            if json {
+                return print_json(&s);
+            }
+            println!("{}", running_words(&s));
+        }
+        ServerCmd::Stop => {
+            let stopped = crate::serve::stop();
+            if json {
+                return print_json(&serde_json::json!({ "stopped": stopped }));
+            }
+            println!("{}", if stopped { "Stopped Codealong's server, and the app with it." } else { "Codealong's server wasn't running." });
+        }
+    }
+    Ok(())
+}
+
+/// How the server that answered stands, in a sentence: its version and pid, whether its first
+/// scan is done, and whether the app is open on it.
+fn running_words(s: &server::Status) -> String {
+    let scanning = if s.loading { ", still scanning" } else { "" };
+    if !crate::serve::is_server(s) {
+        return format!("Codealong {} is running (pid {}){scanning}.", s.version, s.pid);
+    }
+    let app = match s.views.last() {
+        Some(v) => format!("the app is open (pid {})", v.pid),
+        None => "the app isn't open".into(),
+    };
+    format!("Codealong's server {} is running (pid {}){scanning}; {app}.", s.version, s.pid)
+}
+
+/// Whether a command starts the server when it isn't running: every one that reads or changes
+/// what it holds, but not those that say how things stand or set up the files, nor a session's
+/// start hook, which goes on without.
+fn starts_server(cmd: &Cmd) -> bool {
+    !matches!(cmd, Cmd::Status | Cmd::Server { .. } | Cmd::Config { .. } | Cmd::Install(_) | Cmd::Whoami { context: true }) && std::env::var_os(NO_SERVER).is_none()
+}
+
+/// Set, a command never starts the server: it reads the files when none answers.
+const NO_SERVER: &str = "CODEALONG_NO_SERVER";
+
+/// Where answers come from: Codealong's server over its socket, or the files.
 struct Client {
     app: Option<server::Status>,
     verbose: bool,
@@ -1629,11 +1686,25 @@ struct Client {
 }
 
 impl Client {
-    fn new(verbose: bool) -> Client {
-        let app = match server::ask(&Request::Status) {
+    /// With `start`, a server is started when none answers (serve.rs `ensure`), which is said
+    /// on stderr with `say`; one that can't be started leaves the files to answer.
+    fn new(verbose: bool, start: bool, say: bool) -> Client {
+        let mut app = match server::ask(&Request::Status) {
             Some(Ok(v)) => serde_json::from_value(v).ok(),
             _ => None,
         };
+        if app.is_none() && start {
+            match crate::serve::ensure(None) {
+                Ok(s) => {
+                    if say || verbose {
+                        eprintln!("Started Codealong's server (pid {}).", s.pid);
+                    }
+                    app = Some(s);
+                }
+                Err(e) if verbose => eprintln!("{e}"),
+                Err(_) => {}
+            }
+        }
         Client { app, verbose, cfg: None, board: None, from_app: false, said: false, me: None }
     }
 
@@ -1641,8 +1712,8 @@ impl Client {
         if self.verbose && !self.said {
             self.said = true;
             match &self.app {
-                Some(s) => eprintln!("via the app (pid {}, version {})", s.pid, s.version),
-                None => eprintln!("via the files (the app isn't running)"),
+                Some(s) => eprintln!("via Codealong's server (pid {}, version {})", s.pid, s.version),
+                None => eprintln!("via the files (Codealong's server isn't running)"),
             }
         }
     }
@@ -1785,7 +1856,7 @@ impl Client {
         }
         if spec.place == Place::Codealong {
             // The session would run in this command's process and end with it.
-            bail!("Starting a session in Codealong needs the app running.");
+            bail!("Starting a session in Codealong needs its server, which couldn't be started here (`codealong server start` says why).");
         }
         let cfg = self.cfg()?.clone();
         let board = self.board()?;
@@ -1873,6 +1944,7 @@ impl Client {
 fn run(cmd: Cmd, c: &mut Client, json: bool) -> Result<()> {
     match cmd {
         Cmd::Status => status(c, json),
+        Cmd::Server { cmd } => server_cmd(cmd, json),
         Cmd::Accounts { usage } => accounts(c, usage, json),
         Cmd::Tokens { days, account, by } => tokens(c, days, account.as_deref(), by, json),
         Cmd::Whoami { context } => whoami(c, context, json),
@@ -2760,7 +2832,7 @@ fn ask_app(req: &Request) -> Result<Value> {
     match server::ask(req) {
         Some(Ok(v)) => Ok(v),
         Some(Err(e)) => Err(anyhow!("{e}")),
-        None => bail!("Devices need the Codealong app running on this device."),
+        None => bail!("Devices need Codealong's server, which couldn't be started here (`codealong server start` says why)."),
     }
 }
 
@@ -2803,7 +2875,7 @@ fn which_device(view: &server::DevicesSummary, named: &str, lists: &[Listed]) ->
 
 fn devices_cmd(c: &mut Client, cmd: Option<DevicesCmd>, json: bool) -> Result<()> {
     if c.app.is_none() {
-        bail!("Devices need the Codealong app running on this device.");
+        bail!("Devices need Codealong's server, which couldn't be started here (`codealong server start` says why).");
     }
     let view: server::DevicesSummary = serde_json::from_value(ask_app(&Request::Devices)?).context("reading the app's devices")?;
     let said = |text: String, v: Value| -> Result<()> {
@@ -2965,8 +3037,8 @@ fn status(c: &mut Client, json: bool) -> Result<()> {
         return print_json(&out);
     }
     match &out.app {
-        Some(a) => println!("Codealong {} is running (pid {}){}.", a.version, a.pid, if a.loading { ", still scanning" } else { "" }),
-        None => println!("Codealong isn't running; the files are read directly."),
+        Some(a) => println!("{}", running_words(a)),
+        None => println!("Codealong's server isn't running; the files are read directly, and a command that needs it starts it."),
     }
     println!("Data: {}", tilde(Path::new(&out.data_dir)));
     if let Some(e) = &out.config_error {
@@ -3355,7 +3427,7 @@ fn close_idle(c: &mut Client, after: &str, archive: bool, dry_run: bool, json: b
     let via_app = c.app.is_some();
     // What's archived is the app's to keep.
     if archive && !via_app {
-        bail!("--archive needs the Codealong app running.");
+        bail!("--archive needs Codealong's server, which couldn't be started here (`codealong server start` says why).");
     }
     let plan: idle::Plan = match via_app {
         true => match server::ask(&Request::IdleSessions { after_ms, archive }) {
@@ -3693,7 +3765,7 @@ fn snooze_said(until: Option<i64>) -> String {
 fn session_snooze(c: &mut Client, key: &str, when: &SnoozeWhen, json: bool) -> Result<()> {
     let until = when.until()?;
     if c.app.is_none() {
-        bail!("Snoozing needs the Codealong app running: it keeps the snooze, and brings the session back when it ends.");
+        bail!("Snoozing needs Codealong's server, which couldn't be started here (`codealong server start` says why): it keeps the snooze, and brings the session back when it ends.");
     }
     let key = resolve_session(c, key)?;
     // Another device's session is snoozed there, by the key its Mac knows it by.
@@ -3706,7 +3778,7 @@ fn session_snooze(c: &mut Client, key: &str, when: &SnoozeWhen, json: bool) -> R
 /// the app, which keeps the move (as it keeps a snooze) on the session's Mac.
 fn session_raise(c: &mut Client, a: RaiseArgs, json: bool) -> Result<()> {
     if c.app.is_none() {
-        bail!("Moving a session to the top needs the Codealong app running: it keeps the move, and its windows go by it.");
+        bail!("Moving a session to the top needs Codealong's server, which couldn't be started here (`codealong server start` says why): it keeps the move, and its windows go by it.");
     }
     let key = resolve_session(c, &a.key)?;
     let me = find_me(c)?.0;
@@ -3730,7 +3802,7 @@ fn pr_snooze(c: &mut Client, pr: &str, when: &SnoozeWhen, json: bool) -> Result<
     let until = when.until()?;
     let key = resolve_pr(c, pr)?;
     if c.app.is_none() {
-        bail!("Snoozing needs the Codealong app running: it keeps the snooze, and PRs come through it.");
+        bail!("Snoozing needs Codealong's server, which couldn't be started here (`codealong server start` says why): it keeps the snooze, and PRs come through it.");
     }
     let board = c.board()?;
     let p = find_pr(board, &key).ok_or_else(|| anyhow!("Codealong doesn't read {key}: its repo isn't in a project, or it's closed and older than GitHub's recent list."))?;
@@ -3746,7 +3818,7 @@ fn pr_snooze(c: &mut Client, pr: &str, when: &SnoozeWhen, json: bool) -> Result<
 /// agent may mark done (agentdone.rs). The app keeps watch for the turn to end, so it must be up.
 fn session_done(c: &mut Client, key: &str, json: bool) -> Result<()> {
     if c.app.is_none() {
-        bail!("Marking a session done needs the Codealong app running: it ends the session, and waits for this one's turn to end.");
+        bail!("Marking a session done needs Codealong's server, which couldn't be started here (`codealong server start` says why): it ends the session, and waits for this one's turn to end.");
     }
     let key = resolve_session(c, key)?;
     let me = find_me(c)?.0;
@@ -3766,7 +3838,7 @@ fn session_done(c: &mut Client, key: &str, json: bool) -> Result<()> {
 /// (actions.rs `agent_seen`), through the app, which keeps the mark as it keeps a snooze.
 fn session_seen(c: &mut Client, key: &str, note: Option<String>, json: bool) -> Result<()> {
     if c.app.is_none() {
-        bail!("Marking a turn seen needs the Codealong app running: it keeps the mark, and its windows go by it.");
+        bail!("Marking a turn seen needs Codealong's server, which couldn't be started here (`codealong server start` says why): it keeps the mark, and its windows go by it.");
     }
     let key = resolve_session(c, key)?;
     let me = find_me(c)?.0;
@@ -5444,13 +5516,13 @@ fn schedule(cmd: ScheduleCmd, c: &mut Client, json: bool) -> Result<()> {
     }
     let name = done.get("name").and_then(Value::as_str).unwrap_or_default().to_string();
     match () {
-        _ if asks_to_run && c.app.is_none() => println!("Asked. Codealong isn't running: it runs once the app opens."),
+        _ if asks_to_run && c.app.is_none() => println!("Asked. Codealong's server isn't running: it runs once the server starts."),
         _ if asks_to_run => println!("Asked: it runs within a few seconds. `codealong schedule show` has how it went."),
         _ if done.get("removed").is_some() => println!("Removed."),
         _ => {
             println!("{}", saved_line(c, &name, done.get("paused").and_then(Value::as_bool) == Some(true))?);
             if c.app.is_none() {
-                println!("Codealong isn't running: schedules run in the app.");
+                println!("Codealong's server isn't running: schedules run in it.");
             }
         }
     }
@@ -6221,7 +6293,7 @@ fn start_cmd(c: &mut Client, a: &StartArgs, json: bool) -> Result<()> {
 fn start_on_device(c: &mut Client, a: &StartArgs, prompt: Option<String>, device: &str, json: bool) -> Result<()> {
     let prompt = prompt.ok_or_else(|| anyhow!("Give --prompt or --prompt-file."))?;
     if c.app.is_none() {
-        bail!("Starting a session on another device needs the Codealong app running here.");
+        bail!("Starting a session on another device needs Codealong's server, which couldn't be started here (`codealong server start` says why).");
     }
     let view: server::DevicesSummary = serde_json::from_value(ask_app(&Request::Devices)?).context("reading the app's devices")?;
     if !view.enabled {
@@ -6479,7 +6551,7 @@ fn changes(c: &mut Client, a: &ChangesArgs, json: bool) -> Result<()> {
     let github = board.notices.iter().find(|n| n.key == "github").map(|n| n.title.clone());
     match (from_app, board.github_polled, github) {
         (false, _, _) if app_up => notes.push("PRs: the app didn't answer, so they're told next time.".into()),
-        (false, _, _) => notes.push("PRs: the app isn't running, so they're told once it is.".into()),
+        (false, _, _) => notes.push("PRs: Codealong's server isn't running, so they're told once it is.".into()),
         (true, false, _) => notes.push("PRs: GitHub hasn't answered since the app started, so they're told once it has.".into()),
         (true, true, Some(title)) => notes.push(format!("PRs may be behind: {title}.")),
         _ => {}
@@ -8039,7 +8111,7 @@ mod tests {
     #[test]
     fn a_wait_for_the_app_to_finish_reading_keeps_to_its_time() {
         use std::time::{Duration, Instant};
-        let status = |loading| server::Status { version: "0.4.0".into(), pid: 1, generated_at: 0, loading };
+        let status = |loading| server::Status { version: "0.4.0".into(), pid: 1, generated_at: 0, loading, ..Default::default() };
         let mut looks = 0;
         let read = loaded_within(Duration::from_secs(10), |_| {
             looks += 1;

@@ -11,9 +11,11 @@
 //! it streams, and the way to send it a prompt. The engine lays that over the board
 //! (`overlay`), and the panel sends and answers through here.
 //!
-//! The processes are children of the app, so they end with it. The sessions Codealong started
-//! are remembered (`hosted.json`); sending to one after a restart resumes it in a new process.
-//! A turn running as the app or its process ends is cut off partway, its agent's own record
+//! The processes are children of Codealong's server (serve.rs), so they end with it, and not with
+//! the app, which is only a view of it: quitting the app, or a relaunch that changed only the
+//! windows, leaves them running. The sessions Codealong started are remembered (`hosted.json`);
+//! sending to one after the server restarts resumes it in a new process. A turn running as the
+//! server or its process ends is cut off partway, its agent's own record
 //! ending it as stopped: hosted.json notes each turn while it runs (`note_turn`), so a session
 //! whose turn is still noted at launch, or whose process ended under it, shows as cut off
 //! (`Session::cut_off`) rather than as one stopped on purpose, and is told to carry on
@@ -214,11 +216,11 @@ pub fn init(notify: impl Fn(Change) + Send + Sync + 'static) {
     let _ = NOTIFY.set(Box::new(notify));
 }
 
-/// The processes are the app's children: a `codealong` command run without the app would take
-/// them with it when it exits.
+/// The processes are the server's children: a `codealong` command reading the files, with no
+/// server, would take them with it when it exits.
 fn in_app() -> Result<()> {
     if NOTIFY.get().is_none() {
-        bail!("Sessions Codealong runs need the app running.");
+        bail!("Sessions Codealong runs need its server, which isn't running: `codealong server start` starts it.");
     }
     Ok(())
 }
