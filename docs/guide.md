@@ -282,7 +282,9 @@ its conversation in a new terminal while it carries on (OpenCode's copy is made 
 it needs OpenCode running). `/fork` in the box at the bottom of its panel forks it without a window
 coming forward, and you stay on the session: a Claude Code copy is a background job, an OpenCode
 copy runs in its service, and a Codex copy runs In Codealong (over its ACP adapter). Whatever
-follows `/fork` is the copy's first prompt; with nothing, the copy waits for one.
+follows `/fork` is the copy's first prompt; with nothing, the copy waits for one. Typed in a side
+conversation's box, `/fork` and what to do hands the copy what was said on the side too
+([Side conversations](#side-conversations)).
 
 #### Edit from here
 
@@ -437,6 +439,18 @@ side conversation, and brings its window forward). Its top line drags it and its
 back closes the window and shows the conversation above the box again, and its × or ⌘W close it,
 as Close does, and the window. It comes back at launch where it was left, empty until you ask it something. Other
 `/…` commands go to the session as typed.
+
+To have what you worked out on the side done, type `/fork` and what to do in the side
+conversation's box (the one command it lists as you type a `/`): the session is forked in the
+background, as `/fork` in its own box does ([Fork](#fork)), and the copy's first prompt is the
+questions and answers of the side conversation that shows (the open one, or one from before you're
+reading) and then what you typed. The copy is told which session it was forked from, so what you
+ask can include telling that session when it's done; nothing tells it otherwise. A side
+conversation's copy asked for more than a small change says to do this rather than starting on it.
+Neither harness's own `/fork` can be used there: Claude Code's isn't available to a copy run
+without a terminal, and Codex's own `/side` won't fork while it's open. For a session on another
+machine, that machine needs a build of Codealong from 2026-10-30 or later; an earlier one isn't
+asked, and says to update Codealong on it.
 
 Once a side conversation has answered all it was asked (or its copy stopped before it could), its
 session waits on you as it does for a finished turn. One whose turn you'd seen is Your turn from

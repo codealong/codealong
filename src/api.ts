@@ -879,10 +879,11 @@ export async function startSession(spec: StartSpec): Promise<Started | null> {
  *  folder, or, `background`, where no window comes forward (a background job, or a session a
  *  service or Codealong runs), on `prompt` when there's one. With `from`, a prompt of yours'
  *  cursor, the copy goes only up to just before that prompt and starts on `prompt` in its place
- *  (start.rs `fork_from`). */
-export async function forkSession(key: string, { background = false, prompt = '', from }: { background?: boolean; prompt?: string; from?: number } = {}): Promise<Started | null> {
+ *  (start.rs `fork_from`). With `side`, one of its side conversations' id, the background copy is
+ *  told what was said there first (side.rs `fork_prompt`). */
+export async function forkSession(key: string, { background = false, prompt = '', from, side }: { background?: boolean; prompt?: string; from?: number; side?: string } = {}): Promise<Started | null> {
   if (!inTauri) throw new Error('Forking a session needs the app.');
-  return invoke<Started | null>('fork_session', { key, background, prompt, from });
+  return invoke<Started | null>('fork_session', { key, background, prompt, from, side });
 }
 
 /** Moves a session to `account`, another account of its harness (start.rs `move_to`): a copy goes

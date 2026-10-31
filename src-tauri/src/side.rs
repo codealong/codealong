@@ -57,7 +57,7 @@ use crate::util::{now_ms, truncate};
 
 /// What a copy is told before its first question, so it answers instead of carrying on with
 /// the work it remembers. Codex's `/side` says much the same to its copy.
-pub const RULES: &str = "This is a side conversation. Everything before this is a copy of a conversation that carries on elsewhere without you: it's here for reference only. Don't continue, finish or repeat any task, plan or tool call from it. Answer what's asked from here on, briefly. You may read files and run commands that only look, to answer well. Don't change files, git state, settings or anything else unless what's asked here asks for that change in so many words; then make only that change, keep it small, and keep out of the way of the work the main conversation is doing. Don't start subagents. None of this reaches the main conversation.";
+pub const RULES: &str = "This is a side conversation. Everything before this is a copy of a conversation that carries on elsewhere without you: it's here for reference only. Don't continue, finish or repeat any task, plan or tool call from it. Answer what's asked from here on, briefly. You may read files and run commands that only look, to answer well. Don't change files, git state, settings or anything else unless what's asked here asks for that change in so many words; then make only that change, keep it small, and keep out of the way of the work the main conversation is doing. When what's asked is more than that, such as carrying out a plan or work of many steps, don't start it here: say in a line that /fork, then what to do, typed in this box, has another copy of the conversation do it in the background, told what was said here. Don't start subagents. None of this reaches the main conversation.";
 
 /// How long a copy that isn't answering is kept running for a follow-up.
 const IDLE: Duration = Duration::from_secs(15 * 60);
@@ -333,10 +333,48 @@ const DELETED: &str = "That side conversation has been deleted. Ask again to sta
 /// that has ended: what was asked and answered, then the question. The copy is of the session as
 /// it is now, which may have gone on since.
 fn goes_on_from(turns: &[Turn], text: &str) -> String {
-    let mut said = String::from("This side conversation began with an earlier copy of the conversation, which has ended, so the conversation above may have gone on since. What you were asked there, and what you answered, oldest first:\n");
+    format!("This side conversation began with an earlier copy of the conversation, which has ended, so the conversation above may have gone on since. What you were asked there, and what you answered, oldest first:\n{}\nGo on from there. What you're asked now:\n\n{text}", said(turns))
+}
+
+/// What a fork of the session is asked first when it's forked from side conversation `id`
+/// (`/fork` in its box, actions.rs `fork`): what was asked and answered there, which the session
+/// never saw, then `text`, what the fork is to do. It's told which session it was forked from,
+/// so that what it's asked can have it tell that one something, and nothing more: it carries on
+/// unaware unless it's asked to.
+pub fn fork_prompt(key: &str, id: &str, text: &str) -> Result<String> {
+    let text = text.trim();
+    if text.is_empty() {
+        bail!("Say what the copy should do: /fork, then what to do.");
+    }
+    let Some(turns) = said_in(key, id, &store_path()) else { bail!("That side conversation has been deleted, so there's nothing to fork it with.") };
+    Ok(forked_with(key, &turns, text))
+}
+
+fn forked_with(key: &str, turns: &[Turn], text: &str) -> String {
+    format!("Before this copy of the conversation was made, I asked another copy of it some questions on the side, which the original conversation never saw. What I asked there, and what it answered, oldest first:\n{}\nThe original conversation carries on without you, as Codealong session {key}. What I want from you now:\n\n{text}", said(turns))
+}
+
+/// Side conversation `id` of `key`'s questions and answers, as far as they've gone: the open one,
+/// one closed and still answering, one being kept, or what's kept in `kept_in`. None once it's
+/// been deleted.
+fn said_in(key: &str, id: &str, kept_in: &Path) -> Option<Vec<Turn>> {
+    let live = {
+        let st = state();
+        let open = st.open.get(key).into_iter().chain(&st.closing).find(|o| o.side.key == key && o.side.id == id).map(|o| o.side.turns.clone());
+        open.or_else(|| st.keeping.get(id).filter(|k| k.key == key).map(|k| k.turns.clone()))
+    };
+    live.or_else(|| past_in(kept_in, key).into_iter().find(|k| k.id == id).map(|k| k.turns))
+}
+
+/// What was asked and answered in a side conversation, oldest first, each in tags of its own.
+fn said(turns: &[Turn]) -> String {
+    let mut said = String::new();
     for t in turns {
         let answer = t.answer.trim();
         let answer = match &t.error {
+            // Still being answered: a fork made meanwhile has what's written so far.
+            _ if !t.done && answer.is_empty() => "(Not answered yet.)".to_string(),
+            _ if !t.done => format!("{answer}\n(Still being answered.)"),
             _ if !answer.is_empty() => answer.to_string(),
             Some(why) => format!("(No answer: {why})"),
             None => "(No answer.)".to_string(),
@@ -345,7 +383,6 @@ fn goes_on_from(turns: &[Turn], text: &str) -> String {
         let question = crate::attachments::expand(t.question.trim(), crate::attachments::Style::Path);
         said.push_str(&format!("\n<question>\n{question}\n</question>\n<answer>\n{answer}\n</answer>\n"));
     }
-    said.push_str(&format!("\nGo on from there. What you're asked now:\n\n{text}"));
     said
 }
 
@@ -1289,6 +1326,35 @@ mod tests {
         assert!(answer.ends_with("What you're asked now:\n\nwho reviews them?"), "{answer}");
         // What's shown and kept is what was typed.
         assert_eq!(state().open.get(key).map(|o| (o.started_at, kept_of(o).unwrap().turns.len())), Some((2, 3)));
+        close(key);
+    }
+
+    /// `/fork` in a side conversation's box: the session's copy is told what was asked and answered
+    /// in the one shown, open or kept, as far as it's gone, then what to do, and which session it
+    /// was forked from, so it can be asked to tell that one.
+    #[test]
+    fn a_fork_from_a_side_conversation_is_told_what_was_said_there() {
+        let key = "test:side:fork";
+        open_with(key, "/bin/cat", &[]);
+        put(key, "what's left before the release?");
+        let open = wait_for(key, |s| !s.running);
+        let kept_in = store::test_dir("sides-fork").join("sides.json");
+        let prompt = forked_with(key, &said_in(key, &open.id, &kept_in).unwrap(), "Do all of it, then tell the main session.");
+        assert!(prompt.starts_with("Before this copy of the conversation was made, I asked another copy of it some questions on the side, which the original conversation never saw."), "{prompt}");
+        assert!(prompt.contains("\n<question>\nwhat's left before the release?\n</question>\n<answer>\nYou asked: what's left before the release?\n</answer>\n"), "{prompt}");
+        assert!(prompt.ends_with(&format!("as Codealong session {key}. What I want from you now:\n\nDo all of it, then tell the main session.")), "{prompt}");
+        // One kept, by its session's key alone; one deleted is nowhere.
+        let turn = Turn { question: "which PRs?".into(), answer: "#12 and #14.".into(), done: true, ..Default::default() };
+        keep_in(&kept_in, Kept { id: "k1".into(), key: key.into(), title: "A session".into(), started_at: 1, last_at: 2, turns: vec![turn], answering: false, answered_at: None }).unwrap();
+        assert_eq!(said_in(key, "k1", &kept_in).map(|t| t[0].answer.clone()).as_deref(), Some("#12 and #14."));
+        assert!(said_in("test:side:another", "k1", &kept_in).is_none());
+        assert!(said_in(key, "k0", &kept_in).is_none());
+        // A question still being answered says so.
+        let answering = [Turn { question: "and the docs?".into(), answer: "The guide needs".into(), ..Default::default() }, Turn { question: "and then?".into(), ..Default::default() }];
+        assert!(said(&answering).contains("<answer>\nThe guide needs\n(Still being answered.)\n</answer>"), "{}", said(&answering));
+        assert!(said(&answering).contains("<answer>\n(Not answered yet.)\n</answer>"), "{}", said(&answering));
+        // It's asked to do something.
+        assert_eq!(fork_prompt(key, &open.id, "  ").unwrap_err().to_string(), "Say what the copy should do: /fork, then what to do.");
         close(key);
     }
 

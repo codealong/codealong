@@ -2,7 +2,10 @@
 // from here instead of going to it. Only these names are Codealong's; any other `/…` (Claude
 // Code's /compact, say) goes to the session as typed, which runs it where it can. That takes
 // `/btw` and `/side` away from the harnesses' own, on purpose: typed into a session from here,
-// theirs would answer in a terminal you aren't looking at.
+// theirs would answer in a terminal you aren't looking at. In a side conversation's box, where
+// what's typed goes to the copy, they run too, and those with words for it there are offered
+// (`aside`): `/fork` has a copy of the session take on what was worked out on the side, which
+// neither harness's own `/fork` does from a side conversation (a headless copy has none).
 
 import type { Session } from './types';
 
@@ -18,6 +21,9 @@ export interface SlashCommand {
   icon: string;
   /** Whether the session's harness can do it. */
   takes: (s: Session) => boolean;
+  /** What it takes and does typed in a side conversation's box, where it's offered only with
+   *  these. */
+  aside?: { args: string; about: string };
 }
 
 export const COMMANDS: SlashCommand[] = [
@@ -25,6 +31,8 @@ export const COMMANDS: SlashCommand[] = [
     name: 'fork',
     args: '[prompt]',
     about: 'a copy of it goes on in the background, starting on the prompt if you give one',
+    // The copy is told what was said in the side conversation shown (side.rs `fork_prompt`).
+    aside: { args: 'what to do', about: 'a copy of the session does it in the background, told what was said here' },
     icon: 'git-fork',
     // Claude Code forks into a background job, OpenCode in its service, Codex in Codealong.
     takes: (s) => s.harness === 'claude' || s.harness === 'codex' || s.harness === 'opencode',
@@ -52,10 +60,18 @@ export function slashCommand(text: string, s: Session): { command: SlashCommand;
 }
 
 /** The commands what's typed so far could be becoming, for what the box says of them: a `/` and the
- *  start of a name, or a whole name and what follows it. */
-export function slashMatches(text: string, s: Session): SlashCommand[] {
+ *  start of a name, or a whole name and what follows it. In a side conversation's box (`aside`),
+ *  only those with words for it there. */
+export function slashMatches(text: string, s: Session, aside = false): SlashCommand[] {
+  const offered = (c: SlashCommand) => !aside || !!c.aside;
   const whole = slashCommand(text, s);
-  if (whole) return [whole.command];
+  if (whole) return offered(whole.command) ? [whole.command] : [];
   const m = /^\/([a-z-]*)$/.exec(text.trimStart());
-  return m ? COMMANDS.filter((c) => [c.name, ...(c.aliases ?? [])].some((n) => n.startsWith(m[1])) && c.takes(s)) : [];
+  return m ? COMMANDS.filter((c) => [c.name, ...(c.aliases ?? [])].some((n) => n.startsWith(m[1])) && c.takes(s) && offered(c)) : [];
+}
+
+/** What the box says a command takes and does: in a side conversation's box (`aside`), what it
+ *  does there. */
+export function commandWords(c: SlashCommand, aside: boolean): { args: string; about: string } {
+  return aside && c.aside ? c.aside : { args: c.args, about: c.about };
 }

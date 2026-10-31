@@ -247,7 +247,7 @@ const REQUESTS: &[Request] = &[
     Request { name: api::START_PICK, here: start_pick, ..ANY },
     Request { name: api::START, here: start, there: start_there, back: started_back, prompt: Some("/spec/prompt"), ..ANY },
     // A fork answers as a start does, with the copy by the key it has on its device.
-    Request { name: api::SESSION_FORK, here: fork, back: started_back, prompt: Some("/prompt"), ..ANY },
+    Request { name: api::SESSION_FORK, here: fork, back: started_back, prompt: Some("/prompt"), knows: fork_with_side, ..ANY },
     Request { name: api::SESSION_EDIT, here: fork_from, back: started_back, prompt: Some("/prompt"), ..ANY },
     Request { name: api::SESSION_RESUME, here: resume, command: resume_is_its_users, prompt: Some("/prompt"), ..ANY },
     Request { name: api::SESSION_MODEL, here: switch_model, ..ANY },
@@ -1211,12 +1211,19 @@ fn ensure_fork_not_blocked(board: &crate::model::Board, key: &str, from: &From) 
 }
 
 /// Forks it into a copy that goes on without a window, on `prompt` when there's one
-/// (`start::fork_background`).
+/// (`start::fork_background`). Forked from one of its side conversations, the copy is told what
+/// was said there first (`side::fork_prompt`): the side conversation runs on this device, as the
+/// session does, so what it said is here.
 fn fork(engine: &Handle, c: &Call) -> Result<Value, String> {
     let p: params::Fork = c.read()?;
     let board = engine.board();
-    ensure_fork_not_blocked(&board, c.session()?, c.from)?;
-    to_value(crate::start::fork_background(&board, &cfg()?, c.session()?, &p.prompt).map_err(words)?)
+    let key = c.session()?;
+    ensure_fork_not_blocked(&board, key, c.from)?;
+    let prompt = match p.side.as_deref().map(str::trim).filter(|id| !id.is_empty()) {
+        Some(id) => crate::side::fork_prompt(key, id, &p.prompt).map_err(words)?,
+        None => p.prompt,
+    };
+    to_value(crate::start::fork_background(&board, &cfg()?, key, &prompt).map_err(words)?)
 }
 
 /// Forks it from before a prompt of yours, your edit of it in its place (`start::fork_from`).
@@ -1580,6 +1587,12 @@ fn side_ask(engine: &Handle, c: &Call) -> Result<Value, String> {
     let side = crate::side::ask(&engine.board(), &cfg()?, key, &p.text, p.from.as_deref()).map_err(words)?;
     note_talking(engine, c, key);
     to_value(side)
+}
+
+/// A fork told what was said in a side conversation needs a Mac that knows to: one from before
+/// would fork without it, and the copy would start on what to do with none of what it was about.
+fn fork_with_side(params: &Value) -> Option<(&'static str, &'static str)> {
+    params.get("side").is_some_and(|s| !s.is_null()).then_some((codealong_peer::proto::SIDE_FORK, "to fork from a side conversation from here: its version would fork without what was said there."))
 }
 
 /// A question that goes on in the side conversation a window reads needs a Mac that knows to: one
@@ -2092,6 +2105,9 @@ mod tests {
         assert_eq!(back, json!({ "key": "@a1b2c3d4e5:claude:claude:copy", "message": "Forked in the background." }));
         assert_eq!(peerfeed::split_remote(back["key"].as_str().unwrap()), Some(("a1b2c3d4e5", "claude:claude:copy")));
         assert_eq!((fork.back)(json!({ "key": null, "message": null }), "a1b2c3d4e5").unwrap(), json!({ "key": null, "message": null }));
+        // Only a Mac that knows to tell the copy what was said on the side is asked to fork from there.
+        assert_eq!((fork.knows)(&json!({ "prompt": "Do it", "side": "7-1" })).map(|(word, _)| word), Some(codealong_peer::proto::SIDE_FORK));
+        assert_eq!((fork.knows)(&json!({ "prompt": "Do it" })), None);
         // What a search found there is named by the keys its sessions have here, and a device
         // slow to answer is left out after a few seconds.
         let search = find(api::SEARCH).unwrap();

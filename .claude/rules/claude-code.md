@@ -295,7 +295,12 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   would hand a `-p` run's prompts to whoever runs it; side.rs doesn't use it yet. The recorded
   system prompt is sent by `--system-prompt-snapshot`, on by default. While it runs the copy has
   a messaging socket and a derived name in the registry, and its `SessionStart` (matcher `fork`)
-  hooks run too.
+  hooks run too. Claude Code's own `/fork [prompt]` ("Copy this conversation into a new
+  background session and keep working here"), `/branch` and `/btw` aren't in such a run's
+  commands: a `/fork` sent to the copy as a follow-up is answered at once, with no call to the
+  model, "/fork isn't available in this environment.", and nothing is started (2.1.314, Haiku,
+  2026-10-30). So `/fork` in a side conversation's box is Codealong's, forking the session told
+  what was said on the side (`side::fork_prompt`).
 - A conversation of its own about a PR (`claude/mod.rs` `fresh_side`, `side.rs` `ask_pr`): the
   same headless run without `--resume`, which works and writes no transcript. In `default` mode
   with nobody to ask, `gh pr diff` and `gh pr view` were refused as needing approval while

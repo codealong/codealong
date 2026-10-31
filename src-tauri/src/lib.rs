@@ -1731,15 +1731,16 @@ async fn move_session(app: tauri::AppHandle, engine: State<'_, engine::Handle>, 
 /// Forks a session: into a new terminal in its folder (`start::fork`), or, `background`, into a
 /// copy that goes on without a window, on `prompt` when there's one (`start::fork_background`).
 /// With `from`, a prompt's cursor, the copy goes up to just before that prompt and starts on
-/// `prompt` in its place (`start::fork_from`).
+/// `prompt` in its place (`start::fork_from`). With `side`, the id of one of its side
+/// conversations, the background copy is told what was said there first (`side::fork_prompt`).
 #[tauri::command]
-async fn fork_session(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, background: Option<bool>, prompt: Option<String>, from: Option<u64>) -> Result<start::Started, String> {
+async fn fork_session(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, background: Option<bool>, prompt: Option<String>, from: Option<u64>, side: Option<String>) -> Result<start::Started, String> {
     let (engine, peers) = (engine.inner().clone(), peers.inner().clone());
     blocking(move || {
         let got = if let Some(cursor) = from {
             actions::run(&engine, &peers, api::SESSION_EDIT, &key, actions::params::Edit { cursor, prompt: prompt.unwrap_or_default(), ..Default::default() })?
         } else if background == Some(true) {
-            actions::run(&engine, &peers, api::SESSION_FORK, &key, actions::params::Fork { prompt: prompt.unwrap_or_default(), ..Default::default() })?
+            actions::run(&engine, &peers, api::SESSION_FORK, &key, actions::params::Fork { prompt: prompt.unwrap_or_default(), side, ..Default::default() })?
         } else {
             actions::run(&engine, &peers, actions::FORK_TERMINAL, &key, serde_json::json!({}))?
         };

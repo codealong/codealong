@@ -276,6 +276,15 @@ export function beingRead(key: string): string | null {
   return view?.kind === 'past' ? view.id : null;
 }
 
+/** The side conversation above a session's box, whose questions and answers `/fork` typed there
+ *  hands the copy (side.rs `fork_prompt`): the one being read, else the open one; none while the
+ *  list of them shows. */
+export function shownSide(key: string): string | null {
+  const view = viewOf(key);
+  if (view?.kind === 'list') return null;
+  return beingRead(key) ?? sides.get(key)?.id ?? null;
+}
+
 /** A question goes to a session's side conversation: its box stays the side conversation's
  *  while the engine starts the copy, in every window. */
 export function startingSide(key: string): void {

@@ -567,7 +567,7 @@ impl Client {
     /// Forks a session on `device` into a copy that goes on without a window there, on `prompt`
     /// when it isn't empty.
     pub fn fork(&self, device: &str, key: &str, prompt: &str) -> std::result::Result<api::Started, String> {
-        read(self.ask(device, api::SESSION_FORK, of(params::Fork { key: key.into(), prompt: prompt.into() }), ACT_WAIT)?)
+        read(self.ask(device, api::SESSION_FORK, of(params::Fork { key: key.into(), prompt: prompt.into(), side: None }), ACT_WAIT)?)
     }
 
     /// Done with a session on `device`: it ends as far as that Mac can end it, and is marked seen

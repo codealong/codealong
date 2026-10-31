@@ -57,7 +57,9 @@
 // whose copy is starting), the box is the side conversation's, as Codex's `/side` takes its box
 // until you go back: ⏎ asks the copy (a new one when none is open, and while one from before is
 // read, a copy that goes on in that one, told what was said there), Escape leaves the session's
-// turn alone, and the placeholder and what the box says (`BoxSays`) say where it goes. Closing what
+// turn alone, and the placeholder and what the box says (`BoxSays`) say where it goes. `/fork
+// <what to do>` there, the one command it lists, forks the session as above, the copy told first
+// what was asked and answered in the side conversation shown (side.ts `shownSide`). Closing what
 // shows gives the box back to the session. What shows is the same in every window showing the
 // session (side.ts), and the box holds a draft of its own while it's the side conversation's
 // (drafts.ts `sideDraft`), so what's typed for the copy never reaches the session from any of them.
@@ -96,8 +98,8 @@ import { filesToAttach, keepFiles, useFileDrop } from '../attachInput';
 import { onDraftChange, readDraft, sideDraft, writeDraft } from '../drafts';
 import { sessionPlace } from '../harness';
 import { stoppable, stuckMidTurn, waitsOnYou } from '../lanes';
-import { beingRead, notAsked, showSides, startingSide, useAside, usePopped, useSideAnswer } from '../side';
-import { COMMANDS, slashCommand, slashMatches } from '../slash';
+import { beingRead, notAsked, shownSide, showSides, startingSide, useAside, usePopped, useSideAnswer } from '../side';
+import { COMMANDS, commandWords, slashCommand, slashMatches } from '../slash';
 import { completed, matching, mentionsIn, sessionSkills, skillNamed, typedAt, writtenFor } from '../skills';
 import { rememberResumed, resumeChoice, resumedIn, resumeIn, resumeWords, type ResumePicks } from '../start';
 import { accountOf, useDeviceStartAccounts } from '../startAccounts';
@@ -584,7 +586,8 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
   };
 
   // `/fork`, and what follows it for the copy. The box clears at once, as a send does, and has it
-  // back, with why, if the fork doesn't go.
+  // back, with why, if the fork doesn't go. Typed in a side conversation's box, the copy is told
+  // what was asked and answered in the one shown, which the session never saw.
   const [forking, setForking] = useState(false);
   const fork = (prompt: string) => {
     if (forking) return;
@@ -593,10 +596,11 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
     const typed = withAttachments(text, attached);
     // It goes back where it was typed: the session's draft or its side conversation's.
     const from = draft;
+    const side = (aside && shownSide(key)) || undefined;
     setForking(true);
     setNote(null);
     clearBox();
-    forkSession(key, { background: true, prompt: full })
+    forkSession(key, { background: true, prompt: full, side })
       .then(
         (started) => void land(key, { text: started?.message ?? 'Forked in the background.', error: false }),
         (e: unknown) => {
@@ -707,17 +711,16 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
   const empty = !text.trim() && attached.length === 0;
   // A command goes even while the session waits on you: it doesn't reach the session.
   const command = slashCommand(text, s);
-  const commands = slashMatches(text, s);
+  const commands = slashMatches(text, s, aside);
   // While a name is being typed at the caret, what it could be: Codealong's own commands (at
   // the start of the box, where they run), then the session's skills, less any those commands
   // take the name of there. Escape puts the list away until the name changes or another is
-  // typed. Not in a side conversation's box, which takes what's typed as words.
+  // typed. A side conversation's box, which takes what's typed as words, lists only the commands
+  // with words for it there.
   const atStart = !!mention && mention.start === text.length - text.trimStart().length;
   const taken = new Set(atStart ? COMMANDS.flatMap((c) => [c.name, ...(c.aliases ?? [])]) : []);
-  const options: SlashOption[] =
-    !mention || aside
-      ? []
-      : [...(atStart ? commands : []).map((c) => ({ name: c.name, hint: c.args, about: c.about, own: true })), ...matching(skills.filter((k) => !taken.has(k.name)), mention.name).map((k) => ({ name: k.name, hint: k.hint, about: k.description }))];
+  const ownOptions: SlashOption[] = (mention && atStart ? commands : []).map((c) => ({ name: c.name, hint: commandWords(c, aside).args, about: commandWords(c, aside).about, own: true }));
+  const options: SlashOption[] = !mention ? [] : aside ? ownOptions : [...ownOptions, ...matching(skills.filter((k) => !taken.has(k.name)), mention.name).map((k) => ({ name: k.name, hint: k.hint, about: k.description }))];
   // The name being typed and where, as Escape puts the list away for it.
   const mentionKey = mention ? `${mention.start}:${mention.name}` : null;
   const [closedFor, setClosedFor] = useState<string | null>(null);
@@ -828,7 +831,7 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
           : listing
           ? said(keysIn('↑ ↓ choose · ⇥ finishes the name · esc puts the list away'), true)
           : commands.length > 0
-          ? said(commands.map((c) => `/${c.name} ${c.args}: ${c.about}`).join(' · '))
+          ? said(commands.map((c) => `/${c.name} ${commandWords(c, aside).args}: ${commandWords(c, aside).about}`).join(' · '))
           : skill
           ? said(`/${skill.name}${skill.hint ? ` ${skill.hint}` : ''}: ${skill.description}`)
           : note

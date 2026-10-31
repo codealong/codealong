@@ -388,13 +388,18 @@ pub mod params {
         pub prompt_at: Option<i64>,
     }
 
-    /// `session-fork`: the copy starts on `prompt`, or waits for one when it's empty.
+    /// `session-fork`: the copy starts on `prompt`, or waits for one when it's empty. Forked from
+    /// one of the session's side conversations (`/fork` in its box), `side` is that one's id
+    /// (`Side::id`), and the copy is told what was said there first, which the session never
+    /// saw: only by a Mac that says `proto::SIDE_FORK`.
     #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
     #[serde(default)]
     pub struct Fork {
         #[serde(skip_serializing_if = "String::is_empty")]
         pub key: String,
         pub prompt: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub side: Option<String>,
     }
 
     /// `session-edit`: the copy goes up to just before the prompt whose conversation item has
@@ -1370,7 +1375,8 @@ mod tests {
         assert_eq!(v(&params::Send { key: String::new(), text: "hi".into(), now: false }), json!({ "text": "hi", "now": false }));
         assert_eq!(v(&params::Archive { key: key(), archived: false }), json!({ "key": "claude:claude:abc", "archived": false }));
         assert_eq!(v(&params::Rename { key: String::new(), name: "Fix it".into() }), json!({ "name": "Fix it" }));
-        assert_eq!(v(&params::Fork { key: String::new(), prompt: String::new() }), json!({ "prompt": "" }));
+        assert_eq!(v(&params::Fork { key: String::new(), prompt: String::new(), side: None }), json!({ "prompt": "" }));
+        assert_eq!(v(&params::Fork { key: String::new(), prompt: "Do it".into(), side: Some("1793-4".into()) }), json!({ "prompt": "Do it", "side": "1793-4" }));
         assert_eq!(v(&params::Edit { key: key(), cursor: 18342, prompt: "Test it".into() }), json!({ "key": "claude:claude:abc", "cursor": 18342, "prompt": "Test it" }));
         let background = ResumeIn { place: Place::Background, model: Some("opus".into()), effort: None };
         assert_eq!(v(&params::Resume { key: key(), resume: background, prompt: String::new() }), json!({ "key": "claude:claude:abc", "resume": { "place": "background", "model": "opus", "effort": null }, "prompt": "" }));

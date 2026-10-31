@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { slashCommand, slashMatches } from './slash';
+import { commandWords, COMMANDS, slashCommand, slashMatches } from './slash';
 import * as fx from './testing/fixtures';
 import type { Session } from './types';
 
@@ -52,5 +52,24 @@ describe('slashMatches', () => {
     expect(slashMatches('/co', claude)).toEqual([]);
     expect(slashMatches('/fo', session('antigravity'))).toEqual([]);
     expect(slashMatches('hello', claude)).toEqual([]);
+  });
+
+  it('offers only /fork in a side conversation’s box, which takes words for the copy', () => {
+    expect(slashMatches('/', claude, true).map((c) => c.name)).toEqual(['fork']);
+    expect(slashMatches('/fork do all of it', claude, true).map((c) => c.name)).toEqual(['fork']);
+    // /side there still asks the copy (SessionReply.tsx), but isn't offered.
+    expect(slashMatches('/s', claude, true)).toEqual([]);
+    expect(slashMatches('/side why?', claude, true)).toEqual([]);
+  });
+});
+
+describe('commandWords', () => {
+  const fork = COMMANDS.find((c) => c.name === 'fork')!;
+  const side = COMMANDS.find((c) => c.name === 'side')!;
+
+  it('says what /fork does in a side conversation’s box there', () => {
+    expect(commandWords(fork, false)).toEqual({ args: '[prompt]', about: fork.about });
+    expect(commandWords(fork, true)).toEqual({ args: 'what to do', about: 'a copy of the session does it in the background, told what was said here' });
+    expect(commandWords(side, true)).toEqual({ args: side.args, about: side.about });
   });
 });
