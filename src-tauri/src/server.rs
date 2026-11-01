@@ -48,6 +48,12 @@ pub enum Request {
         name: String,
         #[serde(default)]
         args: Value,
+        /// The build of the app that asks, which a server of another build turns away unrun
+        /// (`FOREIGN_CALL`): the app sends it again once it's connected to its own.
+        #[serde(default)]
+        engine: Option<String>,
+        #[serde(default)]
+        exe: Option<String>,
     },
     /// An app connecting as a view (views.rs): the connection is kept, and the server writes the
     /// board and everything else the windows hear to it, one event a line, for as long as it's open.
@@ -173,6 +179,9 @@ pub enum Request {
 
 /// How a reply starts when the app doesn't know the request: it's older than the command.
 pub const UNKNOWN_REQUEST: &str = "That isn't a request the app knows";
+
+/// What a server answers a call from an app of another build, which it didn't run.
+pub const FOREIGN_CALL: &str = "That app is another build's than this server's.";
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Reply {
@@ -417,7 +426,8 @@ fn handle_request(ctx: &Ctx, req: serde_json::Result<Request>) -> Reply {
             crate::views::quit_all(Duration::from_secs(8), since);
             Reply::ok(Value::Null)
         }
-        Request::Call { name, args } => match crate::calls::call(ctx, &name, args) {
+        Request::Call { engine: Some(engine), exe, .. } if !crate::serve::same_build(Some(&engine), exe.as_deref()) => Reply::err(FOREIGN_CALL),
+        Request::Call { name, args, .. } => match crate::calls::call(ctx, &name, args) {
             Some(answer) => answered(answer),
             None => Reply::err(format!("{UNKNOWN_REQUEST}: no call {name}")),
         },
@@ -660,7 +670,7 @@ pub fn ask_within(req: &Request, wait: Duration) -> Option<Result<Value, String>
     ask_on(UnixStream::connect(path()).ok()?, req, wait)
 }
 
-fn ask_on(mut stream: UnixStream, req: &Request, wait: Duration) -> Option<Result<Value, String>> {
+pub(crate) fn ask_on(mut stream: UnixStream, req: &Request, wait: Duration) -> Option<Result<Value, String>> {
     let _ = stream.set_read_timeout((!wait.is_zero()).then_some(wait));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
     let mut text = serde_json::to_string(req).ok()?;
@@ -897,6 +907,22 @@ mod tests {
             assert_eq!(reply, Some(Err(format!("The app closed the connection before finishing its reply ({length} bytes received)."))));
             server.join().unwrap();
         }
+    }
+
+    /// A call from an app of another build is turned away without being run, which that app
+    /// takes for leave to send it again to its own server; its own build's, or a caller that
+    /// doesn't say, is answered.
+    #[test]
+    fn a_call_from_another_build_is_turned_away_unrun() {
+        let dir = crate::fixtures::scratch("server-call");
+        let hooks = crate::peers::Hooks { board: Box::new(crate::model::Board::default), answer: Box::new(|_, _, _| Err("no".into())), emit: Box::new(|_| {}), side: Box::new(|_| {}) };
+        let ctx = Ctx { engine: Handle::over(crate::model::Board::default()), peers: crate::peers::Peers::new(dir.to_path_buf(), hooks), reviews: Default::default() };
+        let call = |engine: Option<&str>, exe: Option<String>| Request::Call { name: "setup_needed".into(), args: serde_json::json!({}), engine: engine.map(String::from), exe };
+        let other = handle_request(&ctx, Ok(call(Some("0000000000000000"), None)));
+        assert_eq!(other.error.as_deref(), Some(FOREIGN_CALL));
+        let exe = crate::serve::this_binary().map(|p| p.to_string_lossy().into_owned());
+        assert!(handle_request(&ctx, Ok(call(Some(crate::serve::ENGINE), exe))).ok);
+        assert!(handle_request(&ctx, Ok(call(None, None))).ok);
     }
 
     #[test]

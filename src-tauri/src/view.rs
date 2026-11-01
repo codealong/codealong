@@ -123,7 +123,7 @@ pub fn follow(mirror: Mirror, me: views::Info, hooks: Hooks) {
         let mut failed = 0u32;
         let mut here = false;
         loop {
-            let found = serve::ensure(true, Some(me.since));
+            let found = serve::ensure_held(true, Some(me.since));
             // An app opened after this one, of another build, replaced the server: this one, the
             // older, gives way rather than replacing it back.
             if found.as_ref().is_err_and(|e| e == serve::GIVE_WAY) {
@@ -133,7 +133,7 @@ pub fn follow(mirror: Mirror, me: views::Info, hooks: Hooks) {
             // An app from before there were servers, opened after this one, quits this one as it
             // takes the socket; one that answers here anyway (it opened as this one did) runs its
             // own engine and takes no views, so this one, the last opened, takes over from it.
-            if let Some(s) = found.as_ref().ok().filter(|s| !serve::is_server(s)) {
+            if let Some((s, _)) = found.as_ref().ok().filter(|(s, _)| !serve::is_server(s)) {
                 eprintln!("An older Codealong (pid {}) answers on the socket; taking over from it.", s.pid);
                 if let Err(e) = server::take_over(true) {
                     eprintln!("Couldn't take over from it: {e}");
@@ -141,7 +141,9 @@ pub fn follow(mirror: Mirror, me: views::Info, hooks: Hooks) {
                 std::thread::sleep(Duration::from_millis(500));
                 continue;
             }
-            if let Err(e) = found {
+            let one = match found {
+                Ok((_, one)) => one,
+                Err(e) => {
                 failed += 1;
                 eprintln!("Couldn't start Codealong's server ({failed}): {e}");
                 // Tried once: a start that failed partway may have left some of it running.
@@ -152,11 +154,12 @@ pub fn follow(mirror: Mirror, me: views::Info, hooks: Hooks) {
                         eprintln!("Couldn't run Codealong's server in the app either: {e}");
                     }
                 }
-                std::thread::sleep(Duration::from_secs(2));
-                continue;
-            }
+                    std::thread::sleep(Duration::from_secs(2));
+                    continue;
+                }
+            };
             failed = 0;
-            let listened = listen(&mirror, &me, &hooks, &mut taken);
+            let listened = listen(&mirror, &me, &hooks, &mut taken, one);
             set_connected(false);
             match listened {
                 Ok(()) => eprintln!("Codealong's server closed the connection; connecting again."),
@@ -189,8 +192,11 @@ fn wait_connected(within: Duration) -> bool {
 }
 
 /// Connects as a view and takes what the server sends until it stops. The server's first board
-/// says it took this app as its view; one of another build says so instead (`views::serve`).
-fn listen(mirror: &Mirror, me: &views::Info, hooks: &Hooks, taken: &mut Taken) -> std::io::Result<()> {
+/// says it took this app as its view; one of another build says so instead (`views::serve`). The
+/// start lock (`one`) is let go once it has, so this app is on the server before any other app
+/// starting decides whether to replace it.
+fn listen(mirror: &Mirror, me: &views::Info, hooks: &Hooks, taken: &mut Taken, one: crate::store::Lock) -> std::io::Result<()> {
+    let mut one = Some(one);
     let mut stream = UnixStream::connect(server::path())?;
     stream.set_read_timeout(Some(SILENT))?;
     stream.set_write_timeout(Some(Duration::from_secs(5)))?;
@@ -211,7 +217,10 @@ fn listen(mirror: &Mirror, me: &views::Info, hooks: &Hooks, taken: &mut Taken) -
         };
         match e.event.as_str() {
             "foreign" => return Err(std::io::Error::other("the server is another build's")),
-            "board" => set_connected(true),
+            "board" => {
+                set_connected(true);
+                one.take();
+            }
             _ => {}
         }
         take(mirror, hooks, taken, &e.event, e.payload);
@@ -330,12 +339,32 @@ const UP_WAIT: Duration = Duration::from_secs(90);
 /// waits until it is, as the windows ask theirs as they open; one that reached a server is never
 /// sent again.
 pub fn call(name: &str, args: Value) -> Result<Value, String> {
-    if !wait_connected(UP_WAIT) {
-        return Err("Codealong's server isn't answering; it's being started again. Try again in a moment.".into());
+    let until = std::time::Instant::now() + UP_WAIT;
+    let req = Request::Call { name: name.to_string(), args, engine: Some(serve::ENGINE.to_string()), exe: serve::this_binary().map(|p| p.to_string_lossy().into_owned()) };
+    loop {
+        let left = until.saturating_duration_since(std::time::Instant::now());
+        if left.is_zero() || !wait_connected(left) {
+            return Err("Codealong's server isn't answering; it's being started again. Try again in a moment.".into());
+        }
+        // Not connected after all (it went since), or another build's, which didn't run it: nothing
+        // happened, so it's sent again once this app is on its own server.
+        let Ok(stream) = UnixStream::connect(server::path()) else {
+            std::thread::sleep(Duration::from_millis(100));
+            continue;
+        };
+        match server::ask_on(stream, &req, CALL_WAIT) {
+            Some(Err(e)) if e == server::FOREIGN_CALL => std::thread::sleep(Duration::from_millis(200)),
+            answer => return finish(answer),
+        }
     }
-    match server::ask_within(&Request::Call { name: name.to_string(), args }, CALL_WAIT) {
+}
+
+/// What a call that reached the server came to. One whose connection went before an answer may
+/// have done something, so it's never sent again.
+fn finish(answer: Option<Result<Value, String>>) -> Result<Value, String> {
+    match answer {
         Some(answer) => answer,
-        None => Err("Codealong's server isn't answering; it's being started again. Try again in a moment.".into()),
+        None => Err("Codealong's server went before it answered: what you asked may or may not have been done.".into()),
     }
 }
 

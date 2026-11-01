@@ -78,9 +78,11 @@ fn trim_log() {
 /// with. What's started here runs for the life of the process.
 pub fn start() -> Result<Ctx, String> {
     // The files' one server first, then the socket: a server that can't have both starts nothing,
-    // so no second engine runs.
-    hold_run_lock()?;
+    // so no second engine runs. The lock is kept only once the socket is: a start that couldn't
+    // bind (in the app, say) leaves it for the next.
+    let run = run_lock(&config::support_dir())?;
     let bound = server::bind()?;
+    keep_run_lock(run);
     // Your other devices (peers.rs). They come before the engine, which publishes to them, and ask
     // it for the board and for answers once it's there.
     let engine_slot: Arc<OnceLock<Handle>> = Default::default();
@@ -238,15 +240,13 @@ pub fn start() -> Result<Ctx, String> {
     Ok(ctx)
 }
 
-/// Takes, for the life of the process, the lock one server for a folder of Codealong's files holds
+/// Keeps, for the life of the process, the lock one server for a folder of Codealong's files holds
 /// beside them, however it was started (launchd, by hand, or in the app): two starting together,
 /// with a socket left by a crash, would each take the other's new socket for that one and remove
 /// it. The system lets it go as the process ends, crashed or not.
-fn hold_run_lock() -> Result<(), String> {
+fn keep_run_lock(file: std::fs::File) {
     static HELD: OnceLock<std::fs::File> = OnceLock::new();
-    let file = run_lock(&config::support_dir())?;
     let _ = HELD.set(file);
-    Ok(())
 }
 
 /// The run lock for the files in `dir`, held for as long as the file is open.
@@ -306,7 +306,12 @@ pub fn this_binary() -> Option<PathBuf> {
 /// another binary runs isn't, even of the same engine (Codealong beside Codealong Dev, a debug
 /// build in a worktree), since what it installs and starts comes from where it runs.
 pub fn ours(s: &Status) -> bool {
-    is_server(s) && s.engine.as_deref() == Some(ENGINE) && s.exe.as_deref().map(PathBuf::from) == this_binary()
+    is_server(s) && same_build(s.engine.as_deref(), s.exe.as_deref())
+}
+
+/// Whether a process that says it runs `exe`, built with `engine`, is this build.
+pub fn same_build(engine: Option<&str>, exe: Option<&str>) -> bool {
+    engine == Some(ENGINE) && exe.map(PathBuf::from) == this_binary()
 }
 
 /// What `ensure` says to an app when the server that isn't its build's has an app on it opened
@@ -319,7 +324,19 @@ pub const GIVE_WAY: &str = "A Codealong opened after this one runs on that serve
 /// time for the folder of files, so a command and an app starting together start one between
 /// them, and two apps opening together decide here which of them stays.
 pub fn ensure(own: bool, since: Option<i64>) -> Result<Status, String> {
-    let _one = store::lock(&config::support_dir().join("server")).map_err(words)?;
+    ensure_held(own, since).map(|(s, _)| s)
+}
+
+/// `ensure`, with the start lock still held, for an app to connect to the server under it: an
+/// older app's start, waiting on the lock, then finds the newer one connected and gives way, where
+/// in between the two it would have found none and replaced the newer one's server.
+pub fn ensure_held(own: bool, since: Option<i64>) -> Result<(Status, store::Lock), String> {
+    let one = store::lock(&config::support_dir().join("server")).map_err(words)?;
+    let found = ensure_under(own, since)?;
+    Ok((found, one))
+}
+
+fn ensure_under(own: bool, since: Option<i64>) -> Result<Status, String> {
     match running() {
         Some(s) if !is_server(&s) || !own || ours(&s) => return Ok(s),
         Some(s) if since.is_some_and(|me| s.views.iter().any(|v| v.since > me)) => return Err(GIVE_WAY.into()),

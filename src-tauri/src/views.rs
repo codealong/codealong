@@ -43,7 +43,7 @@ pub struct Info {
 /// Whether a view is of another build than this server's: another app replaced its server with
 /// this one meanwhile. One that doesn't say its engine (the tests') is taken as it comes.
 fn foreign(info: &Info) -> bool {
-    !info.engine.is_empty() && (info.engine != crate::serve::ENGINE || info.exe.as_deref().map(std::path::PathBuf::from) != crate::serve::this_binary())
+    !info.engine.is_empty() && !crate::serve::same_build(Some(&info.engine), info.exe.as_deref())
 }
 
 /// How many events wait for a view before it's taken to have fallen behind and let go: a board is
@@ -365,18 +365,25 @@ mod tests {
     #[test]
     fn taking_over_leaves_an_app_opened_later() {
         let _t = turn();
-        let mut before = connect(Info { pid: 4_000_031, since: 1_000, ..Default::default() }, vec![]);
-        let mut after = connect(Info { pid: 4_000_032, since: 3_000, ..Default::default() }, vec![]);
-        // The second's connecting told the first to quit already; that's what this one does too.
-        assert_eq!(next(&mut before)["event"], "quit");
-        quit_all(Duration::from_millis(50), Some(2_000));
+        // Live processes stand in for the apps, as `quit_all` asks of each whether it's there, and
+        // ends one that doesn't quit; both opened at once, so neither connecting quits the other.
+        let mut stand_ins: Vec<std::process::Child> = (0..2).map(|_| std::process::Command::new("sleep").arg("30").spawn().unwrap()).collect();
+        let (a, b) = (stand_ins[0].id(), stand_ins[1].id());
+        let mut first = connect(Info { pid: a, since: 2_000, ..Default::default() }, vec![]);
+        let mut second = connect(Info { pid: b, since: 2_000, ..Default::default() }, vec![]);
+        // An app opened before them takes over: neither is told to quit.
+        quit_all(Duration::from_millis(50), Some(1_000));
         emit("hosted-stream", &json!({ "key": "k" }));
-        assert_eq!(next(&mut after)["event"], "hosted-stream", "the later app wasn't told to quit");
-        drop((before, after));
-        emit("ping", &Value::Null);
-        for pid in [4_000_031, 4_000_032] {
-            gone(pid);
+        assert_eq!(next(&mut first)["event"], "hosted-stream");
+        assert_eq!(next(&mut second)["event"], "hosted-stream");
+        // One opened after them: both are, and ended when they don't go.
+        quit_all(Duration::from_millis(50), Some(3_000));
+        assert_eq!(next(&mut first)["event"], "quit");
+        assert_eq!(next(&mut second)["event"], "quit");
+        for child in &mut stand_ins {
+            assert!(child.wait().is_ok_and(|s| !s.success()), "ended");
         }
+        assert_eq!((holding(a), holding(b)), (0, 0));
     }
 
     #[test]
