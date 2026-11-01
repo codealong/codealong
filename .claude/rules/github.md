@@ -14,8 +14,8 @@ How Codealong asks GitHub through `gh` and what GitHub's answers mean, moved fro
 Harness facts (from GitHub's answers on this Mac, 2026-10-01). A bare file name is under
 `src-tauri/src/`.
 
-- What's asked of `gh`, and how: `github.rs` (module header, `QUERY`, `REQUESTED_QUERY`,
-  `asker_of`, `detail`, `approve`) and `board.rs` (`polled_slugs`).
+- What's asked of `gh`, and how: `github.rs` (module header, `OPEN_QUERY`, `DONE_QUERY`,
+  `REQUESTED_QUERY`, `PAGE`, `asker_of`, `detail`, `approve`) and `board.rs` (`polled_slugs`).
 - GraphQL points (5,000 an hour, charged for the connections a query could return) and how a
   poll glances first and reads in full only what changed, keeping answers in
   `~/Library/Caches/Codealong/github`: `github.rs` ("Asking only for what changed",
@@ -124,7 +124,7 @@ Harness facts (from GitHub's answers on this Mac, 2026-10-01). A bare file name 
 - Who's assigned to a PR and by whom: `ASSIGNED_EVENT` and `UNASSIGNED_EVENT` beside
   `REVIEW_REQUESTED_EVENT` in `ASKED_FIELDS`'s `timelineItems` (`assigned_of`, `events_of`), each
   node's `__typename` telling them apart, `assignee` a union whose `... on User { login }` names
-  you; one connection, so a repo's `QUERY` stayed at 8 points with them and `last: 20`
+  you; one connection, so a repo's query stayed at 8 points with them and `last: 20`
   (2026-10-28). Assigning moves the PR's `updatedAt` (to the assignment's second), so a glance
   sees it, and a review leaves the assignment standing, unlike a review
   request (`PrRaw::assigned_review`). The PRs assigned to you anywhere are a search of their own
@@ -151,14 +151,14 @@ Harness facts (from GitHub's answers on this Mac, 2026-10-01). A bare file name 
   repo. Where the repo doesn't dismiss approvals when commits come, `reviewDecision` stays
   `APPROVED` after a push and a rebase, and the approval's commit can be one the branch no longer
   has (a private repo's PR approved at one commit, then rebased and pushed twice: `mergeStateStatus`
-  `CLEAN`, 2026-10-20). It's a connection: a repo's `QUERY` went from 6 points to 7, at 20 a PR
+  `CLEAN`, 2026-10-20). It's a connection: a repo's query went from 6 points to 7, at 20 a PR
   and at 100 alike.
 - Who spoke last on an open PR, for whose move it is (`board.rs` `turn_of`): `said:
   timelineItems(itemTypes: [ISSUE_COMMENT, PULL_REQUEST_REVIEW], last: 20)` in `ASKED_FIELDS`
   (`said_of`), beside the review requests' timeline and `latestOpinionatedReviews`, and the head
   commit's `committedDate` in `PR_FIELDS`. A reply on a thread is a `PullRequestReview` of its
   own; a bot's author has `__typename: Bot`; a commit's `pushedDate` is null (GitHub retired it), so
-  a push is dated by its commit. A repo's `QUERY` went from 7 points to 8 with it
+  a push is dated by its commit. A repo's query went from 7 points to 8 with it
   (2026-10-22). Asking a reviewer again, as Re-request review does, is REST `POST
   repos/<owner>/<name>/pulls/<n>/requested_reviewers` with `{"reviewers": [login]}` on stdin
   (`request_review`, `rerequest.rs`), no GraphQL points; checked only against a PR number that

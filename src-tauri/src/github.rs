@@ -1,6 +1,6 @@
-//! Pull requests and checks through `gh api graphql`, one query per repo, and one search for the
-//! PRs that wait on your review wherever they are. Uses your existing `gh` sign-in; Codealong
-//! never handles a GitHub token itself.
+//! Pull requests and checks through `gh api graphql`, a page of a repo's PRs at a time, and a
+//! search for the PRs that wait on your review wherever they are. Uses your existing `gh`
+//! sign-in; Codealong never handles a GitHub token itself.
 
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -139,16 +139,79 @@ pub struct Made {
     pub asked: Vec<String>,
 }
 
-const QUERY: &str = r#"
-query($owner: String!, $name: String!, $requested: String!) {
+/// A repo's open PRs, `OPEN_PRS` of them a `PAGE` at a time (`paged`).
+const OPEN_QUERY: &str = r#"
+query($owner: String!, $name: String!, $first: Int!, $after: String) {
+  repository(owner: $owner, name: $name) {
+    open: pullRequests(states: OPEN, first: $first, after: $after, orderBy: {field: UPDATED_AT, direction: DESC}) { pageInfo { hasNextPage endCursor } nodes { ...pr mergeStateStatus ...asked } }
+  }
+}
+"#;
+
+/// A repo's latest merged and closed PRs, `DONE_PRS` of them a `PAGE` at a time, and which of
+/// its PRs the search says wait on your review, asked beside them while `OPEN_QUERY`'s pages
+/// are read.
+const DONE_QUERY: &str = r#"
+query($owner: String!, $name: String!, $requested: String!, $first: Int!, $after: String) {
   viewer { login }
   repository(owner: $owner, name: $name) {
-    open: pullRequests(states: OPEN, first: 100, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes { ...pr mergeStateStatus ...asked } }
-    done: pullRequests(states: [MERGED, CLOSED], first: 40, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes { ...pr } }
+    done: pullRequests(states: [MERGED, CLOSED], first: $first, after: $after, orderBy: {field: UPDATED_AT, direction: DESC}) { pageInfo { hasNextPage endCursor } nodes { ...pr } }
   }
   requested: search(query: $requested, type: ISSUE, first: 50) { nodes { ... on PullRequest { number } } }
 }
 "#;
+
+const OPEN_PRS: u64 = 100;
+const DONE_PRS: u64 = 40;
+/// The PRs each search for those that wait on your review lists.
+const SEARCHED_PRS: u64 = 50;
+
+/// How many PRs a query asks for. GitHub gives a query about ten seconds, and a PR with all the
+/// board reads of it takes a quarter of a second in a busy repo: one with 173 open PRs answered
+/// 20 of them in 5.6 s, and 30 or more with a 504 after 11 s, as it did the fifty of the
+/// searches (2026-11-01). Its merged and closed ones took half as long.
+const PAGE: u64 = 20;
+
+/// A query's answer with the list at `at` (its connection's path, `/data/…`) read whole, up to
+/// `most` of it, `page` at a time: the query takes `$first: Int!` and `$after: String` for the
+/// list and asks its `pageInfo { hasNextPage endCursor }`. The rest of the answer is the first
+/// page's. `ask` runs `gh` with its arguments.
+fn paged(ask: &dyn Fn(&[&str]) -> Result<String>, query: &str, fields: &[String], at: &str, most: u64, page: u64) -> Result<Value> {
+    let mut answer: Option<Value> = None;
+    let mut nodes: Vec<Value> = Vec::new();
+    let mut after: Option<String> = None;
+    loop {
+        let first = format!("first={}", page.min(most - nodes.len() as u64));
+        let query = format!("query={query}");
+        let after_arg = after.as_ref().map(|cursor| format!("after={cursor}"));
+        let mut args = vec!["api", "graphql", "-f", &query, "-F", &first];
+        if let Some(after) = &after_arg {
+            args.extend(["-f", after]);
+        }
+        for field in fields {
+            args.extend(["-f", field]);
+        }
+        let answered: Value = serde_json::from_str(&ask(&args)?)?;
+        let list = answered.pointer(at).ok_or_else(|| anyhow!("no {at} in response"))?;
+        nodes.extend(list.get("nodes").and_then(Value::as_array).into_iter().flatten().cloned());
+        let more = list.pointer("/pageInfo/hasNextPage").and_then(Value::as_bool) == Some(true);
+        after = list.pointer("/pageInfo/endCursor").and_then(Value::as_str).filter(|_| more).map(String::from);
+        answer.get_or_insert(answered);
+        if after.is_none() || nodes.len() as u64 >= most {
+            break;
+        }
+    }
+    let mut answer = answer.unwrap_or_default();
+    if let Some(list) = answer.pointer_mut(at) {
+        *list = serde_json::json!({ "nodes": nodes });
+    }
+    Ok(answer)
+}
+
+/// `paged` through `gh`.
+fn gh_paged(query: &str, fields: &[String], at: &str, most: u64) -> Result<Value> {
+    paged(&|args| procs::run("gh", args, None, Duration::from_secs(30)), query, fields, at, most, PAGE)
+}
 
 /// PRs that ask for your review, in every repo, and those someone else assigned you to
 /// (`ASSIGNED_SEARCH`): the board reads a repo's PRs only while one of its worktrees is on a branch
@@ -156,12 +219,18 @@ query($owner: String!, $name: String!, $requested: String!) {
 /// assignments are a search of their own, so they never take the requests' places among the fifty,
 /// and being found by the first still says a team you're on was asked (`asked_of`): one advanced
 /// search for either (`review-requested:@me OR assignee:@me`, which the plain search answered
-/// with no PRs) cost 4 points to these two's 7 (2026-10-28).
+/// with no PRs) cost 4 points to these two's 7 (2026-10-28). Each is read a `PAGE` at a time
+/// (`paged`), the assignments' in `ASSIGNED_QUERY`.
 const REQUESTED_QUERY: &str = r#"
-query($requested: String!, $assigned: String!) {
+query($requested: String!, $first: Int!, $after: String) {
   viewer { login }
-  search(query: $requested, type: ISSUE, first: 50) { nodes { ... on PullRequest { ...pr mergeStateStatus ...asked repository { nameWithOwner } } } }
-  assigned: search(query: $assigned, type: ISSUE, first: 50) { nodes { ... on PullRequest { ...pr mergeStateStatus ...asked repository { nameWithOwner } } } }
+  search(query: $requested, type: ISSUE, first: $first, after: $after) { pageInfo { hasNextPage endCursor } nodes { ... on PullRequest { ...pr mergeStateStatus ...asked repository { nameWithOwner } } } }
+}
+"#;
+
+const ASSIGNED_QUERY: &str = r#"
+query($assigned: String!, $first: Int!, $after: String) {
+  assigned: search(query: $assigned, type: ISSUE, first: $first, after: $after) { pageInfo { hasNextPage endCursor } nodes { ... on PullRequest { ...pr mergeStateStatus ...asked repository { nameWithOwner } } } }
 }
 "#;
 
@@ -169,12 +238,12 @@ query($requested: String!, $assigned: String!) {
 /// latest of them (`asker_of`), and the reviews that stand on it, which say whether its approvals
 /// are of the commit it's at (`stale_approval_of`). A team's name costs no points: GitHub charges
 /// for connections, not fields. The standing reviews are a point for a hundred PRs, as any
-/// connection is, however many each brings (a repo's `QUERY` went from 6 to 7 at 20 a PR and at 100
+/// connection is, however many each brings (a repo's query went from 6 to 7 at 20 a PR and at 100
 /// alike, 2026-10-20), so they're asked for a hundred, as many as GitHub gives a page: one from each
 /// reviewer, which is all of them but on a PR with more. Its last comments and reviews (`said`),
 /// with the review requests, say who spoke last (`said_of`). The assignments come in the review
 /// requests' connection (`assigned_of`), which costs what it did alone however many it gives
-/// (a repo's `QUERY` stayed at 8, 2026-10-28).
+/// (a repo's query stayed at 8, 2026-10-28).
 const ASKED_FIELDS: &str = r#"
 fragment asked on PullRequest {
   reviewRequests(first: 20) { nodes { requestedReviewer { __typename ... on User { login } ... on Team { name } } } }
@@ -185,7 +254,7 @@ fragment asked on PullRequest {
 "#;
 
 /// What's read of each PR, for the board and for a link to one. Its labels cost a point for a
-/// hundred PRs, as any connection does, however many each may bring (a repo's `QUERY` went from 5
+/// hundred PRs, as any connection does, however many each may bring (a repo's query went from 5
 /// to 6 at 20 a PR and at 100 alike, 2026-10-17), so they're asked for a hundred, which is as many
 /// as GitHub lets a PR have: one page always holds them all. They come in the order of their
 /// names, as GitHub lists them.
@@ -229,29 +298,34 @@ fn slug_of(out: &str) -> Option<String> {
     (part(owner) && part(repo)).then(|| name.to_string())
 }
 
-/// A repo's PRs as GitHub answers (`QUERY`), for `parse`.
+/// A repo's PRs as GitHub answers (`OPEN_QUERY` and `DONE_QUERY`, as one answer), for `parse`.
 fn fetch_text(owner: &str, name: &str) -> std::result::Result<String, Failure> {
-    let owner_arg = format!("owner={owner}");
-    let name_arg = format!("name={name}");
-    let query_arg = format!("query={QUERY}{PR_FIELDS}{ASKED_FIELDS}");
-    let requested_arg = format!("requested=repo:{owner}/{name} is:pr is:open review-requested:@me");
-    procs::run(
-        "gh",
-        &["api", "graphql", "-f", &query_arg, "-f", &owner_arg, "-f", &name_arg, "-f", &requested_arg],
-        None,
-        Duration::from_secs(30),
-    )
-    .map_err(|e| failed(&e, &format!("PRs for {owner}/{name}")))
+    let repo = [format!("owner={owner}"), format!("name={name}")];
+    let done = [repo.clone().as_slice(), &[format!("requested=repo:{owner}/{name} is:pr is:open review-requested:@me")]].concat();
+    let open = || gh_paged(&format!("{OPEN_QUERY}{PR_FIELDS}{ASKED_FIELDS}"), &repo, "/data/repository/open", OPEN_PRS);
+    let done = || gh_paged(&format!("{DONE_QUERY}{PR_FIELDS}"), &done, "/data/repository/done", DONE_PRS);
+    joined(done, open, "/data/repository", "open").map_err(|e| failed(&e, &format!("PRs for {owner}/{name}")))
 }
 
-/// The open PRs that wait on your review, wherever they are (`REQUESTED_QUERY`), as GitHub
-/// answers, for `parse_requested`.
+/// The open PRs that wait on your review, wherever they are (`REQUESTED_QUERY` and
+/// `ASSIGNED_QUERY`, as one answer), as GitHub answers, for `parse_requested`.
 fn fetch_requested_text() -> std::result::Result<String, Failure> {
-    let query_arg = format!("query={REQUESTED_QUERY}{PR_FIELDS}{ASKED_FIELDS}");
-    let requested_arg = format!("requested={REQUESTED_SEARCH}");
-    let assigned_arg = format!("assigned={ASSIGNED_SEARCH}");
-    procs::run("gh", &["api", "graphql", "-f", &query_arg, "-f", &requested_arg, "-f", &assigned_arg], None, Duration::from_secs(30))
-        .map_err(|e| failed(&e, "the PRs that wait on your review"))
+    let requested = || gh_paged(&format!("{REQUESTED_QUERY}{PR_FIELDS}{ASKED_FIELDS}"), &[format!("requested={REQUESTED_SEARCH}")], "/data/search", SEARCHED_PRS);
+    let assigned = || gh_paged(&format!("{ASSIGNED_QUERY}{PR_FIELDS}{ASKED_FIELDS}"), &[format!("assigned={ASSIGNED_SEARCH}")], "/data/assigned", SEARCHED_PRS);
+    joined(requested, assigned, "/data", "assigned").map_err(|e| failed(&e, "the PRs that wait on your review"))
+}
+
+/// Two answers read at once, as one: `first`'s, with the list `key` of `second`'s under `at`
+/// in both.
+fn joined(first: impl FnOnce() -> Result<Value> + Send, second: impl FnOnce() -> Result<Value> + Send, at: &str, key: &str) -> Result<String> {
+    let (first, second) = std::thread::scope(|scope| {
+        let second = scope.spawn(second);
+        (first(), second.join().unwrap_or_else(|_| Err(anyhow!("a read of PRs panicked"))))
+    });
+    let (mut answer, second) = (first?, second?);
+    let list = second.pointer(&format!("{at}/{key}")).cloned().ok_or_else(|| anyhow!("no {at}/{key} in response"))?;
+    answer.pointer_mut(at).and_then(Value::as_object_mut).ok_or_else(|| anyhow!("no {at} in response"))?.insert(key.into(), list);
+    Ok(answer.to_string())
 }
 
 const REQUESTED_SEARCH: &str = "is:pr is:open archived:false review-requested:@me sort:updated-desc";
@@ -815,7 +889,7 @@ pub fn authored_by(text: &str) -> Option<Harness> {
 // ---- Asking only for what changed ----
 //
 // GitHub gives an account 5,000 GraphQL points an hour, and charges a query for the connections
-// it could return, not for what comes back: a repo's PRs (`QUERY`) are 6 points whether it has a
+// it could return, not for what comes back: a repo's PRs (then one query) were 6 points whether it has a
 // hundred open PRs or none (5 before they carried their labels). Asked of seven repos every
 // minute, at 5, that was 2,200 points an hour from the app alone, and 37 more for every
 // `--snapshot` (each preview takes one), which left none for `gh` itself (2026-10-01). So a
@@ -2652,6 +2726,54 @@ mod tests {
     }
 
     #[test]
+    fn reads_a_list_a_page_at_a_time() {
+        // GitHub as it pages a list of five, by number, each page saying where the next starts.
+        let asked = std::cell::RefCell::new(Vec::<Vec<String>>::new());
+        let github = |args: &[&str]| -> Result<String> {
+            asked.borrow_mut().push(args.iter().map(|a| a.to_string()).collect());
+            let first: usize = args.iter().find_map(|a| a.strip_prefix("first=")).unwrap().parse().unwrap();
+            let from: usize = args.iter().find_map(|a| a.strip_prefix("after=")).map_or(0, |c| c.parse().unwrap());
+            let to = (from + first).min(5);
+            let nodes: Vec<Value> = (from..to).map(|n| serde_json::json!({ "number": n })).collect();
+            Ok(serde_json::json!({ "data": { "viewer": { "login": "gwen" }, "repository": { "open": { "pageInfo": { "hasNextPage": to < 5, "endCursor": to.to_string() }, "nodes": nodes } } } }).to_string())
+        };
+        let numbers = |answer: &Value| -> Vec<u64> { answer.pointer("/data/repository/open/nodes").unwrap().as_array().unwrap().iter().map(|n| n["number"].as_u64().unwrap()).collect() };
+        let read = |most: u64| paged(&github, "q", &["owner=o".into()], "/data/repository/open", most, 2).unwrap();
+
+        // Whole, two to a page, the rest of the answer from the first page and no page's cursor.
+        let answer = read(10);
+        assert_eq!(numbers(&answer), [0, 1, 2, 3, 4]);
+        assert_eq!(answer.pointer("/data/viewer/login").and_then(Value::as_str), Some("gwen"));
+        assert!(answer.pointer("/data/repository/open/pageInfo").is_none());
+        let cursors: Vec<Option<String>> = asked.borrow().iter().map(|a| a.iter().find_map(|a| a.strip_prefix("after=").map(String::from))).collect();
+        assert_eq!(cursors, [None, Some("2".into()), Some("4".into())]);
+        assert!(asked.borrow().iter().all(|a| a.contains(&"owner=o".to_string()) && a.contains(&"query=q".to_string())));
+
+        // No more than asked for, the last page asking only for what's left.
+        asked.borrow_mut().clear();
+        assert_eq!(numbers(&read(3)), [0, 1, 2]);
+        assert_eq!(asked.borrow().iter().map(|a| a.iter().find(|a| a.starts_with("first=")).unwrap().clone()).collect::<Vec<_>>(), ["first=2", "first=1"]);
+
+        // A page that fails fails the read: a list cut short would pass for the whole of it.
+        let failing = |args: &[&str]| if args.iter().any(|a| a.starts_with("after=")) { Err(anyhow!("HTTP 504")) } else { github(args) };
+        assert!(paged(&failing, "q", &[], "/data/repository/open", 10, 2).is_err());
+    }
+
+    #[test]
+    fn joins_two_reads_into_one_answer() {
+        let done = || Ok(serde_json::json!({ "data": { "viewer": { "login": "gwen" }, "repository": { "done": { "nodes": [{ "number": 2 }] } }, "requested": { "nodes": [] } } }));
+        let open = || Ok(serde_json::json!({ "data": { "repository": { "open": { "nodes": [{ "number": 1 }] } } } }));
+        let text = joined(done, open, "/data/repository", "open").unwrap();
+        let answer: Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(answer.pointer("/data/repository/open/nodes/0/number"), Some(&serde_json::json!(1)));
+        assert_eq!(answer.pointer("/data/repository/done/nodes/0/number"), Some(&serde_json::json!(2)));
+        assert_eq!(answer.pointer("/data/viewer/login").and_then(Value::as_str), Some("gwen"));
+        // Either failing fails both.
+        assert!(joined(done, || Err(anyhow!("HTTP 504")), "/data/repository", "open").is_err());
+        assert!(joined(|| Err(anyhow!("HTTP 504")), open, "/data/repository", "open").is_err());
+    }
+
+    #[test]
     fn parses_prs_and_checks() {
         let repo = parse(PRS).unwrap();
         let prs = repo.prs;
@@ -2780,7 +2902,7 @@ mod tests {
         assert!(both[0].1.review_requested);
         // A kept answer from before the assignments were searched still reads.
         assert_eq!(parse_requested(r#"{"data":{"viewer":{"login":"wren"},"search":{"nodes":[]}}}"#).unwrap().prs.len(), 0);
-        assert!(REQUESTED_QUERY.contains("assigned: search(query: $assigned, type: ISSUE, first: 50)") && ASSIGNED_SEARCH.contains("assignee:@me -author:@me"));
+        assert!(ASSIGNED_QUERY.contains("assigned: search(query: $assigned, type: ISSUE, first: $first, after: $after)") && ASSIGNED_SEARCH.contains("assignee:@me -author:@me"));
         assert!(glance_query(0).contains("assigned: search(query: $assigned, type: ISSUE, first: 50)"));
     }
 
