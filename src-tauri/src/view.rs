@@ -98,9 +98,14 @@ pub fn take_over(opened_plainly: bool, since: i64) -> Result<(), String> {
     if !serve::is_server(&status) {
         return server::take_over(opened_plainly);
     }
-    let Some(open) = status.views.last() else { return Ok(()) };
+    // A copy started with arguments that aren't a command (a typo, a debug build run by hand)
+    // leaves the server be, app or none: it would otherwise replace it with its own build.
     if !opened_plainly {
-        return Err(format!("Codealong is already running (pid {}), and that isn't a codealong command: see codealong --help.", open.pid));
+        let pid = status.views.last().map_or(status.pid, |v| v.pid);
+        return Err(format!("Codealong is already running (pid {pid}), and that isn't a codealong command: see codealong --help."));
+    }
+    if status.views.is_empty() {
+        return Ok(());
     }
     match server::ask_within(&Request::TakeViews { since: Some(since) }, Duration::from_secs(15)) {
         Some(Ok(_)) => Ok(()),
@@ -278,6 +283,8 @@ fn take(mirror: &Mirror, hooks: &Hooks, taken: &mut Taken, event: &str, payload:
             }
         }
         "board" => {
+            // A board follows a change to config.toml within moments: the app reads it then too.
+            crate::config::follow_file();
             let board: Board = match serde_json::from_str(payload.get()) {
                 Ok(b) => b,
                 Err(e) => return eprintln!("The server's board didn't read: {e}"),

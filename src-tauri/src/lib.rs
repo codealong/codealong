@@ -800,19 +800,73 @@ async fn open_pr_file(mirror: State<'_, view::Mirror>, ask: prdiff::Ask) -> Resu
 /// what it printed once it ends (actions.rs `run_command`, run by the server). Says how it went,
 /// in a sentence.
 #[tauri::command]
-async fn run_command(app: tauri::AppHandle, window: tauri::WebviewWindow, mirror: State<'_, view::Mirror>, key: String, folder: String, text: String, block: bool) -> Result<String, String> {
+async fn run_command(app: tauri::AppHandle, mirror: State<'_, view::Mirror>, key: String, folder: String, text: String, block: bool) -> Result<String, String> {
     let mirror = mirror.inner().clone();
     blocking(move || {
         let said: String = view::call_as("run_command", serde_json::json!({ "key": key, "folder": folder, "text": text, "block": block }))?;
-        // A click in the bar's peek, the quick panel, a card on the desktop or a session kept there
-        // leaves Codealong inactive, and macOS may not bring the terminal forward for an app that isn't.
-        let label = window.label();
-        if [bar::LABEL, quick::LABEL, peek::LABEL].contains(&label) || label.starts_with(desktop::PREFIX) || label.starts_with(kept::PREFIX) {
-            if let Some(bundle) = launch::bundle_id(&mirror.read(|b| b.apps.terminal_id.clone())) {
+        bring_terminal_forward(&app, &mirror, &key);
+        Ok(said)
+    })
+    .await?
+}
+
+/// Brings your terminal forward after the server opened a tab in it for session `key`: a program in
+/// the background, the server can't bring an app forward, where the app you clicked in can
+/// (front.rs `bring_forward`). Not for a session on another device, which opens there.
+fn bring_terminal_forward(app: &tauri::AppHandle, mirror: &view::Mirror, key: &str) {
+    if peerfeed::split_remote(key).is_some() {
+        return;
+    }
+    if let Some(bundle) = launch::bundle_id(&mirror.read(|b| b.apps.terminal_id.clone())) {
+        front::bring_forward(app, bundle);
+    }
+}
+
+/// Goes on with a session that isn't running where `resume` says, as the server does it
+/// (calls.rs `resume_session`), then brings forward the app it went on in.
+#[tauri::command]
+async fn resume_session(app: tauri::AppHandle, mirror: State<'_, view::Mirror>, key: String, resume: start::ResumeIn, prompt: Option<String>) -> Result<serde_json::Value, String> {
+    let mirror = mirror.inner().clone();
+    blocking(move || {
+        let place = resume.place;
+        let said = view::call("resume_session", serde_json::json!({ "key": key, "resume": resume, "prompt": prompt }))?;
+        if peerfeed::split_remote(&key).is_none() {
+            if let Some(bundle) = quick::start_app(place, &mirror.read(|b| b.apps.terminal_id.clone())) {
                 front::bring_forward(&app, bundle);
             }
         }
         Ok(said)
+    })
+    .await?
+}
+
+/// Forks a session as the server does it (calls.rs `fork_session`), then brings your terminal
+/// forward for a copy that went on in one: neither `background` nor from a prompt's cursor, whose
+/// copies run out of sight or in Codealong.
+#[tauri::command]
+async fn fork_session(app: tauri::AppHandle, mirror: State<'_, view::Mirror>, key: String, background: Option<bool>, prompt: Option<String>, from: Option<u64>, side: Option<String>) -> Result<start::Started, String> {
+    let mirror = mirror.inner().clone();
+    blocking(move || {
+        let in_a_terminal = from.is_none() && background != Some(true);
+        let started: start::Started = view::call_as("fork_session", serde_json::json!({ "key": key, "background": background, "prompt": prompt, "from": from, "side": side }))?;
+        if in_a_terminal {
+            bring_terminal_forward(&app, &mirror, &key);
+        }
+        Ok(started)
+    })
+    .await?
+}
+
+/// Signs an account in, in a new terminal the server opens, then brings that terminal forward.
+#[tauri::command]
+async fn sign_in(app: tauri::AppHandle, mirror: State<'_, view::Mirror>, name: String) -> Result<(), String> {
+    let mirror = mirror.inner().clone();
+    blocking(move || {
+        view::call("sign_in", serde_json::json!({ "name": name }))?;
+        if let Some(bundle) = launch::bundle_id(&mirror.read(|b| b.apps.terminal_id.clone())) {
+            front::bring_forward(&app, bundle);
+        }
+        Ok(())
     })
     .await?
 }
@@ -896,6 +950,8 @@ async fn move_session(app: tauri::AppHandle, mirror: State<'_, view::Mirror>, ke
     let mirror = mirror.inner().clone();
     blocking(move || {
         let started: start::Started = view::call_as("move_session", serde_json::json!({ "key": key, "account": account, "lane": lane }))?;
+        // It goes on in a new terminal.
+        bring_terminal_forward(&app, &mirror, &key);
         if let Some(copy) = started.key.clone().filter(|c| *c != key) {
             std::thread::spawn(move || {
                 // Its terminal takes a moment to start Claude Code, which then says it's there.
@@ -1273,7 +1329,7 @@ fn watch_main_thread(app: tauri::AppHandle) {
 /// it's one of its calls (`forward`).
 macro_rules! app_commands {
     ($($then:tt)*) => {
-        $($then)*![get_board, open_target, open_config, editor_icons, open_from_bar, peek_open, pr_at, session_at, perf_mark, page_unfocused, pointer_probe, popup_menu, fit_bar, show_main, peek_ready, peek_fit, peek_focus, peek_hide, peek_resize, peek_drag, keep_session, kept_session, kept_ready, kept_focus, kept_resize, kept_close, side_window, side_windows, bar_feed, desktop_pins, pin_to_desktop, drag_to_desktop, unpin_from_desktop, desktop_feed, fit_desktop, desktop_hover, lineage_feed, show_quick, hide_quick, quick_ready, show_waiting, waiting_asked, start_from_quick, quick_shortcut, pause_quick_shortcut, bar_on, set_bar_on, bar_mode, notch_shape, notch_drag, set_bar_mode, set_notch_open, notch_keys, keep_notch_session, review_in_codex, open_url, open_pr_file, run_command, play_sound, update_status, check_for_updates, restart_to_update, open_at_login, set_open_at_login, open_team_file, link_code_qr, start_session, move_session, board_answer, schedule_times, save_attachment, import_attachment, expand_attachments, open_attachment, open_file, reveal_file, edit_file, your_editor, path_kinds, open_project_window]
+        $($then)*![get_board, open_target, open_config, editor_icons, open_from_bar, peek_open, pr_at, session_at, perf_mark, page_unfocused, pointer_probe, popup_menu, fit_bar, show_main, peek_ready, peek_fit, peek_focus, peek_hide, peek_resize, peek_drag, keep_session, kept_session, kept_ready, kept_focus, kept_resize, kept_close, side_window, side_windows, bar_feed, desktop_pins, pin_to_desktop, drag_to_desktop, unpin_from_desktop, desktop_feed, fit_desktop, desktop_hover, lineage_feed, show_quick, hide_quick, quick_ready, show_waiting, waiting_asked, start_from_quick, quick_shortcut, pause_quick_shortcut, bar_on, set_bar_on, bar_mode, notch_shape, notch_drag, set_bar_mode, set_notch_open, notch_keys, keep_notch_session, review_in_codex, open_url, open_pr_file, run_command, play_sound, update_status, check_for_updates, restart_to_update, open_at_login, set_open_at_login, open_team_file, link_code_qr, start_session, move_session, resume_session, fork_session, sign_in, board_answer, schedule_times, save_attachment, import_attachment, expand_attachments, open_attachment, open_file, reveal_file, edit_file, your_editor, path_kinds, open_project_window]
     };
 }
 
@@ -1314,6 +1370,8 @@ pub fn run() {
         }
     }
     perf::arm();
+    // The settings the app runs on, before anything reads them (config.rs `follow_file`).
+    config::follow_file();
     // When this app opened: of two, the one opened last stays (views.rs `serve`).
     let opened = util::now_ms();
     if let Err(e) = view::take_over(plainly, opened) {
@@ -1689,7 +1747,7 @@ mod tests {
     fn the_app_and_the_server_share_only_the_commands_the_app_does_more_with() {
         let mut both: Vec<&str> = APP_COMMANDS.iter().copied().filter(|n| calls::NAMES.contains(n)).collect();
         both.sort();
-        assert_eq!(both, ["move_session", "run_command", "start_from_quick", "start_session"]);
+        assert_eq!(both, ["fork_session", "move_session", "resume_session", "run_command", "sign_in", "start_from_quick", "start_session"]);
     }
 
     /// The app has no engine: a command of its own reads the board the server publishes

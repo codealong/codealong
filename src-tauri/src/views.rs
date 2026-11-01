@@ -46,9 +46,10 @@ fn foreign(info: &Info) -> bool {
     !info.engine.is_empty() && !crate::serve::same_build(Some(&info.engine), info.exe.as_deref())
 }
 
-/// How many events wait for a view before it's taken to have fallen behind and let go: a board is
-/// a couple of megabytes, so few.
-const QUEUE: usize = 24;
+/// How many events wait for a view before it's taken to have fallen behind and let go. A reply
+/// streams a chunk at a time, many to a board, while the app puts a board of a couple of
+/// megabytes together; boards themselves wait one at a time (`View::board`).
+const QUEUE: usize = 512;
 
 /// How often a view with nothing else to hear is sent a ping.
 pub const PING: Duration = Duration::from_secs(5);
@@ -62,10 +63,37 @@ const SHOW_WAIT: Duration = Duration::from_secs(60);
 /// What a request that needs a window says when no app is connected.
 pub const NO_VIEW: &str = "Codealong's app isn't open";
 
+/// What waits for a view: a line, or the board, which waits apart (`View::board`).
+enum Item {
+    Line(Arc<str>),
+    Board,
+}
+
 struct View {
     id: u64,
     info: Info,
-    tx: SyncSender<Arc<str>>,
+    tx: SyncSender<Item>,
+    /// The latest board not yet written to it. A board that comes while one waits takes its
+    /// place, so an app busy with one is sent the latest next, not every one it missed.
+    board: Arc<Mutex<Option<Arc<str>>>>,
+}
+
+impl View {
+    fn send(&self, line: Arc<str>) -> Result<(), mpsc::TrySendError<Item>> {
+        self.tx.try_send(Item::Line(line))
+    }
+
+    /// A board, in place of one that waits, else queued.
+    fn send_board(&self, line: Arc<str>) -> Result<(), mpsc::TrySendError<Item>> {
+        let mut waiting = self.board.lock().unwrap_or_else(|e| e.into_inner());
+        let queued = waiting.is_some();
+        *waiting = Some(line);
+        if queued {
+            Ok(())
+        } else {
+            self.tx.try_send(Item::Board)
+        }
+    }
 }
 
 #[derive(Default)]
@@ -105,7 +133,8 @@ pub fn emit(event: &str, payload: &impl Serialize) {
     let Some(line) = line(event, payload) else { return };
     // A view whose queue is full has fallen behind: it's let go, and reads the board whole as it
     // connects again.
-    v.views.retain(|view| match view.tx.try_send(line.clone()) {
+    let board = event == "board";
+    v.views.retain(|view| match if board { view.send_board(line.clone()) } else { view.send(line.clone()) } {
         Ok(()) => true,
         Err(e) => {
             eprintln!("Let a view go (pid {}): {}", view.info.pid, if matches!(e, mpsc::TrySendError::Full(_)) { "it fell behind" } else { "it's gone" });
@@ -140,10 +169,11 @@ pub fn serve(mut stream: UnixStream, info: Info, first: impl FnOnce() -> Vec<Arc
         return;
     }
     let (tx, rx) = mpsc::sync_channel(QUEUE);
+    let board: Arc<Mutex<Option<Arc<str>>>> = Default::default();
     let id = {
         let Ok(mut v) = views().lock() else { return };
         for line in first() {
-            let _ = tx.try_send(line);
+            let _ = tx.try_send(Item::Line(line));
         }
         // One app at a time, the one opened last, as an app opening asks the others to quit
         // (view.rs `take_over`): two opened at once both found none to ask. The same app
@@ -151,30 +181,35 @@ pub fn serve(mut stream: UnixStream, info: Info, first: impl FnOnce() -> Vec<Arc
         let other = |view: &&View| view.info.pid != info.pid;
         if v.views.iter().filter(other).any(|view| view.info.since > info.since) {
             if let Some(line) = line("quit", &Value::Null) {
-                let _ = tx.try_send(line);
+                let _ = tx.try_send(Item::Line(line));
             }
         } else if let Some(quit) = line("quit", &Value::Null) {
             for view in v.views.iter().filter(other).filter(|view| view.info.since < info.since) {
                 eprintln!("An app opened after it: telling the one before (pid {}) to quit.", view.info.pid);
-                let _ = view.tx.try_send(quit.clone());
+                let _ = view.send(quit.clone());
             }
         }
         if let Some((_, reveal)) = v.show.take().filter(|(at, _)| at.elapsed() < SHOW_WAIT) {
             if let Some(line) = line("show", &reveal) {
-                let _ = tx.try_send(line);
+                let _ = tx.try_send(Item::Line(line));
             }
         }
         let id = v.next;
         v.next += 1;
         eprintln!("A view connected: pid {}, {} ({})", info.pid, info.version, info.engine);
-        v.views.push(View { id, info, tx });
+        v.views.push(View { id, info, tx, board: board.clone() });
         id
     };
     let ping = line("ping", &Value::Null).unwrap_or_else(|| "\n".into());
     let _ = stream.set_write_timeout(Some(WRITE_WAIT));
     loop {
         let line = match rx.recv_timeout(PING) {
-            Ok(line) => line,
+            Ok(Item::Line(line)) => line,
+            // The latest board, whichever came last before it's written.
+            Ok(Item::Board) => match board.lock().unwrap_or_else(|e| e.into_inner()).take() {
+                Some(line) => line,
+                None => continue,
+            },
             Err(RecvTimeoutError::Timeout) => ping.clone(),
             Err(RecvTimeoutError::Disconnected) => break,
         };
@@ -196,7 +231,7 @@ pub fn show(reveal: Value) -> Option<Option<String>> {
     match v.views.last() {
         Some(view) => {
             let bundle = view.info.bundle.clone();
-            let _ = view.tx.try_send(line);
+            let _ = view.send(line);
             Some(bundle)
         }
         None => {
@@ -215,7 +250,7 @@ pub fn ask(what: &str, payload: Value, wait: Duration) -> Result<Value, String> 
         v.next += 1;
         let line = line("ask", &json!({ "id": id, "ask": what, "payload": payload })).ok_or("Couldn't write the question out.")?;
         let view = v.views.last().ok_or_else(|| format!("{NO_VIEW}, and its main window works that out."))?;
-        view.tx.try_send(line).map_err(|_| "Codealong's app isn't keeping up; ask again in a moment.".to_string())?;
+        view.send(line).map_err(|_| "Codealong's app isn't keeping up; ask again in a moment.".to_string())?;
         v.asks.insert(id, tx);
         id
     };
@@ -244,7 +279,7 @@ pub fn quit_all(wait: Duration, before: Option<i64>) {
     }
     if let (Ok(v), Some(quit)) = (views().lock(), line("quit", &Value::Null)) {
         for view in v.views.iter().filter(|view| pids.contains(&view.info.pid)) {
-            let _ = view.tx.try_send(quit.clone());
+            let _ = view.send(quit.clone());
         }
     }
     // SAFETY: kill with no signal only asks whether the process is there.
@@ -384,6 +419,36 @@ mod tests {
             assert!(child.wait().is_ok_and(|s| !s.success()), "ended");
         }
         assert_eq!((holding(a), holding(b)), (0, 0));
+    }
+
+    /// Boards that come faster than an app takes them wait one at a time: the app isn't let go,
+    /// the last board is the latest, and what was said beside them comes whole.
+    #[test]
+    fn boards_an_app_is_slow_to_take_wait_as_the_latest() {
+        let _t = turn();
+        let mut r = connect(Info { pid: 4_000_041, ..Default::default() }, vec![]);
+        for rev in 0..300 {
+            emit("board", &json!({ "rev": rev, "pad": "x".repeat(4096) }));
+            if rev % 50 == 0 {
+                emit("hosted-stream", &json!({ "key": "k", "text": rev }));
+            }
+        }
+        emit("side", &json!({ "done": true }));
+        let (mut last_board, mut streams) = (-1, 0);
+        loop {
+            let e = next(&mut r);
+            match e["event"].as_str() {
+                Some("board") => last_board = e["payload"]["rev"].as_i64().unwrap(),
+                Some("hosted-stream") => streams += 1,
+                Some("side") => break,
+                other => panic!("{other:?}"),
+            }
+        }
+        assert_eq!((last_board, streams), (299, 6));
+        assert_eq!(holding(4_000_041), 1, "still held");
+        drop(r);
+        emit("ping", &Value::Null);
+        gone(4_000_041);
     }
 
     #[test]

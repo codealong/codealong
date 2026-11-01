@@ -1374,6 +1374,23 @@ pub fn running_on(cfg: &Config) {
     *RUNNING.write().unwrap_or_else(|e| e.into_inner()) = Some(cfg.clone());
 }
 
+/// For the app, which has no engine to read config.toml for it (view.rs): reads it again when it
+/// changed since the last look, and runs on what it reads when it parses, so a mistake in it
+/// leaves the last good settings, as the engine does. Each look is a `stat`.
+pub fn follow_file() {
+    static SEEN: std::sync::Mutex<Option<Option<std::time::SystemTime>>> = std::sync::Mutex::new(None);
+    let stamp = std::fs::metadata(config_path()).and_then(|m| m.modified()).ok();
+    let mut seen = SEEN.lock().unwrap_or_else(|e| e.into_inner());
+    if *seen == Some(stamp) {
+        return;
+    }
+    *seen = Some(stamp);
+    match from_file(load()) {
+        Ok(cfg) => running_on(&cfg),
+        Err(e) => eprintln!("{e:#} The app goes on with the last good settings."),
+    }
+}
+
 /// The settings to act on. In the app, the ones it runs on, so a mistake in config.toml never
 /// leaves it half working: everything goes on with the last good settings and the notice says
 /// what's wrong. Elsewhere config.toml itself (the defaults when there's none yet), and when it

@@ -389,7 +389,11 @@ pub fn stop() -> bool {
 /// Asks `s` to quit, and once it's gone or the time is up, takes its job out of launchd, which
 /// ends it if it's still there.
 fn stop_it(s: &Status) {
-    let _ = server::ask_within(&Request::Quit, Duration::from_secs(3));
+    // One too stuck to answer is ended at once rather than waited on.
+    if !matches!(server::ask_within(&Request::Quit, Duration::from_secs(3)), Some(Ok(_))) {
+        // SAFETY: kill only signals a process; one gone by now is refused.
+        unsafe { libc::kill(s.pid as libc::pid_t, libc::SIGTERM) };
+    }
     let until = Instant::now() + QUIT_WAIT;
     // SAFETY: kill with no signal only asks whether the process is there.
     while unsafe { libc::kill(s.pid as libc::pid_t, 0) } == 0 && Instant::now() < until {

@@ -159,9 +159,9 @@ pub fn copy_state(src: &Path, dst: &Path) -> CopyState {
 /// the plugin carries the skill. Then every skill copy Codealong made is brought up to date,
 /// unless someone edited it. Accounts and folders without either are left as they are.
 pub fn refresh_installed() {
-    // At launch and as `live_replies` changes: one at a time, since each stages the marketplace.
-    static ONE: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    let _one = ONE.lock().unwrap_or_else(|e| e.into_inner());
+    // At the app's launch and as `live_replies` changes in the server: one at a time, in either
+    // process, since each stages the marketplace.
+    let Ok(_one) = crate::store::lock(&marketplace_dir()) else { return };
     // Run as the app starts, which always has settings; the command with a config.toml that
     // doesn't parse has no accounts to bring up to date.
     let Ok(cfg) = config::current() else { return };
