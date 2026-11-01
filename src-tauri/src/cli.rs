@@ -1631,7 +1631,7 @@ enum ServerCmd {
 fn server_cmd(cmd: ServerCmd, json: bool) -> Result<()> {
     match cmd {
         ServerCmd::Start => {
-            let s = crate::serve::ensure(false).map_err(|e| anyhow!(e))?;
+            let s = crate::serve::ensure(false, None).map_err(|e| anyhow!(e))?;
             if json {
                 return print_json(&s);
             }
@@ -1683,8 +1683,9 @@ struct Client {
     board: Option<Board>,
     /// The board is the app's, not a light one read from the files.
     from_app: bool,
-    /// This command started the server, whose first scan the first board read waits for: until
-    /// then its board has none of the sessions and worktrees a light one from the files would.
+    /// The server was still reading when this command found it, or this command started it: the
+    /// first board read waits for its first scan, until when its board has none of the sessions
+    /// and worktrees a light one from the files would.
     started: bool,
     said: bool,
     /// The session running this command and how it was found, once `find_me` has looked.
@@ -1695,13 +1696,13 @@ impl Client {
     /// With `start`, a server is started when none answers (serve.rs `ensure`), which is said
     /// on stderr with `say`; one that can't be started leaves the files to answer.
     fn new(verbose: bool, start: bool, say: bool) -> Client {
-        let mut app = match server::ask(&Request::Status) {
+        let mut app: Option<server::Status> = match server::ask(&Request::Status) {
             Some(Ok(v)) => serde_json::from_value(v).ok(),
             _ => None,
         };
-        let mut started = false;
+        let mut started = app.as_ref().is_some_and(|s| s.loading);
         if app.is_none() && start {
-            match crate::serve::ensure(false) {
+            match crate::serve::ensure(false, None) {
                 Ok(s) => {
                     if say || verbose {
                         eprintln!("Started Codealong's server (pid {}).", s.pid);

@@ -35,6 +35,15 @@ pub struct Info {
     /// When its app opened, in ms since the epoch: of two apps connected, the one opened last
     /// stays (`serve`).
     pub since: i64,
+    /// The binary it runs, which with `engine` says whether it's this server's build.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exe: Option<String>,
+}
+
+/// Whether a view is of another build than this server's: another app replaced its server with
+/// this one meanwhile. One that doesn't say its engine (the tests') is taken as it comes.
+fn foreign(info: &Info) -> bool {
+    !info.engine.is_empty() && (info.engine != crate::serve::ENGINE || info.exe.as_deref().map(std::path::PathBuf::from) != crate::serve::this_binary())
 }
 
 /// How many events wait for a view before it's taken to have fallen behind and let go: a board is
@@ -122,6 +131,14 @@ pub fn list() -> Vec<Info> {
 /// what a view starts from), then whatever is emitted. `first` is worked out as the view is taken
 /// on, so nothing emitted meanwhile comes before it.
 pub fn serve(mut stream: UnixStream, info: Info, first: impl FnOnce() -> Vec<Arc<str>>) {
+    // An app of another build is told so, and starts its own server, or gives way to the newer
+    // app this one is (view.rs `follow`), rather than showing what it doesn't know.
+    if foreign(&info) {
+        if let Some(line) = line("foreign", &Value::Null) {
+            let _ = stream.write_all(line.as_bytes());
+        }
+        return;
+    }
     let (tx, rx) = mpsc::sync_channel(QUEUE);
     let id = {
         let Ok(mut v) = views().lock() else { return };
@@ -216,14 +233,20 @@ pub fn answer(id: u64, answer: Result<Value, String>) {
     }
 }
 
-/// Tells every view to quit, as another app takes their place, and waits, at most `wait`, for them
-/// to go; one still there then is ended.
-pub fn quit_all(wait: Duration) {
-    let pids: Vec<u32> = list().iter().map(|i| i.pid).collect();
+/// Tells every view whose app opened before `before` (every one, with none) to quit, as another app
+/// takes their place or the server stops, and waits, at most `wait`, for them to go; one still
+/// there then is ended.
+pub fn quit_all(wait: Duration, before: Option<i64>) {
+    let older = |i: &Info| before.is_none_or(|b| i.since < b);
+    let pids: Vec<u32> = list().iter().filter(|i| older(i)).map(|i| i.pid).collect();
     if pids.is_empty() {
         return;
     }
-    emit("quit", &Value::Null);
+    if let (Ok(v), Some(quit)) = (views().lock(), line("quit", &Value::Null)) {
+        for view in v.views.iter().filter(|view| pids.contains(&view.info.pid)) {
+            let _ = view.tx.try_send(quit.clone());
+        }
+    }
     // SAFETY: kill with no signal only asks whether the process is there.
     let alive = |pid: u32| pid != std::process::id() && unsafe { libc::kill(pid as libc::pid_t, 0) } == 0;
     let until = Instant::now() + wait;
@@ -321,6 +344,37 @@ mod tests {
         drop((older, newer, late, again));
         emit("ping", &Value::Null);
         for pid in [4_000_011, 4_000_012, 4_000_013] {
+            gone(pid);
+        }
+    }
+
+    /// An app of another build is told so, and isn't taken on.
+    #[test]
+    fn an_app_of_another_build_is_told_so() {
+        let _t = turn();
+        let (server, client) = UnixStream::pair().unwrap();
+        let info = Info { pid: 4_000_021, engine: "0000000000000000".into(), ..Default::default() };
+        serve(server, info, Vec::new);
+        let mut r = BufReader::new(client);
+        assert_eq!(next(&mut r)["event"], "foreign");
+        assert_eq!(holding(4_000_021), 0);
+    }
+
+    /// An app opening asks those opened before it to quit, not one opened after it, which a slow
+    /// start let in first.
+    #[test]
+    fn taking_over_leaves_an_app_opened_later() {
+        let _t = turn();
+        let mut before = connect(Info { pid: 4_000_031, since: 1_000, ..Default::default() }, vec![]);
+        let mut after = connect(Info { pid: 4_000_032, since: 3_000, ..Default::default() }, vec![]);
+        // The second's connecting told the first to quit already; that's what this one does too.
+        assert_eq!(next(&mut before)["event"], "quit");
+        quit_all(Duration::from_millis(50), Some(2_000));
+        emit("hosted-stream", &json!({ "key": "k" }));
+        assert_eq!(next(&mut after)["event"], "hosted-stream", "the later app wasn't told to quit");
+        drop((before, after));
+        emit("ping", &Value::Null);
+        for pid in [4_000_031, 4_000_032] {
             gone(pid);
         }
     }

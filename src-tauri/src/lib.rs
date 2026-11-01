@@ -1316,7 +1316,7 @@ pub fn run() {
     perf::arm();
     // When this app opened: of two, the one opened last stays (views.rs `serve`).
     let opened = util::now_ms();
-    if let Err(e) = view::take_over(plainly) {
+    if let Err(e) = view::take_over(plainly, opened) {
         eprintln!("{e}");
         std::process::exit(2);
     }

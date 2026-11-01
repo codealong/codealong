@@ -77,7 +77,9 @@ fn trim_log() {
 /// Starts everything the server runs, and the socket last, once there's an engine to answer
 /// with. What's started here runs for the life of the process.
 pub fn start() -> Result<Ctx, String> {
-    // The socket first: a server that can't have it starts nothing, so no second engine runs.
+    // The files' one server first, then the socket: a server that can't have both starts nothing,
+    // so no second engine runs.
+    hold_run_lock()?;
     let bound = server::bind()?;
     // Your other devices (peers.rs). They come before the engine, which publishes to them, and ask
     // it for the board and for answers once it's there.
@@ -236,6 +238,31 @@ pub fn start() -> Result<Ctx, String> {
     Ok(ctx)
 }
 
+/// Takes, for the life of the process, the lock one server for a folder of Codealong's files holds
+/// beside them, however it was started (launchd, by hand, or in the app): two starting together,
+/// with a socket left by a crash, would each take the other's new socket for that one and remove
+/// it. The system lets it go as the process ends, crashed or not.
+fn hold_run_lock() -> Result<(), String> {
+    static HELD: OnceLock<std::fs::File> = OnceLock::new();
+    let file = run_lock(&config::support_dir())?;
+    let _ = HELD.set(file);
+    Ok(())
+}
+
+/// The run lock for the files in `dir`, held for as long as the file is open.
+fn run_lock(dir: &std::path::Path) -> Result<std::fs::File, String> {
+    use std::os::fd::AsRawFd;
+    let _ = std::fs::create_dir_all(dir);
+    let path = dir.join("server.run.lock");
+    let file = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(&path).map_err(|e| format!("Couldn't open {}: {e}", path.display()))?;
+    // SAFETY: flock on a descriptor this process owns. Each open is a lock of its own, so a second
+    // start in this process is refused as another's is.
+    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+        return Err("Another of Codealong's servers is running for these files.".into());
+    }
+    Ok(file)
+}
+
 /// Sends a session what a command you ran for it printed, as yours (terminal.rs `report_ended`):
 /// not to one that takes a message only pasted into its app, which would come forward from the
 /// background with it on the clipboard and nobody there to paste it.
@@ -282,14 +309,20 @@ pub fn ours(s: &Status) -> bool {
     is_server(s) && s.engine.as_deref() == Some(ENGINE) && s.exe.as_deref().map(PathBuf::from) == this_binary()
 }
 
+/// What `ensure` says to an app when the server that isn't its build's has an app on it opened
+/// after this one: that one stays, and this one gives way rather than replacing its server.
+pub const GIVE_WAY: &str = "A Codealong opened after this one runs on that server.";
+
 /// The server, started when none answers. With `own`, a server that isn't this build's (`ours`)
-/// is replaced, as an app wants (view.rs); without, whichever answers will do, as the command
-/// takes it. Starts are one at a time for the folder of files, so a command and an app starting
-/// together start one between them.
-pub fn ensure(own: bool) -> Result<Status, String> {
+/// is replaced, as an app wants (view.rs), unless an app opened after `since` is on it
+/// (`GIVE_WAY`); without, whichever answers will do, as the command takes it. Starts are one at a
+/// time for the folder of files, so a command and an app starting together start one between
+/// them, and two apps opening together decide here which of them stays.
+pub fn ensure(own: bool, since: Option<i64>) -> Result<Status, String> {
     let _one = store::lock(&config::support_dir().join("server")).map_err(words)?;
     match running() {
         Some(s) if !is_server(&s) || !own || ours(&s) => return Ok(s),
+        Some(s) if since.is_some_and(|me| s.views.iter().any(|v| v.since > me)) => return Err(GIVE_WAY.into()),
         Some(s) => {
             eprintln!("Replacing Codealong's server (pid {}, engine {}, {}) with this build's.", s.pid, s.engine.as_deref().unwrap_or("?"), s.exe.as_deref().unwrap_or("?"));
             stop_it(&s);
@@ -366,5 +399,16 @@ mod tests {
         assert!(!ours(&Status { exe: Some("/Applications/Codealong.app/Contents/MacOS/codealong".into()), ..ours_now.clone() }), "another binary");
         assert!(!ours(&Status { role: None, ..ours_now.clone() }), "an app from before there were servers");
         assert!(!ours(&Status { exe: None, ..ours_now }), "a server that doesn't say");
+    }
+
+    /// One server for a folder of files: a second start is refused while the first holds the
+    /// lock, in this process or another, and takes it once the first has gone.
+    #[test]
+    fn one_server_holds_a_folders_run_lock() {
+        let dir = crate::fixtures::scratch("run-lock");
+        let first = run_lock(&dir).unwrap();
+        assert!(run_lock(&dir).unwrap_err().contains("Another of Codealong's servers"));
+        drop(first);
+        assert!(run_lock(&dir).is_ok());
     }
 }

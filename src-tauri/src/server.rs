@@ -35,9 +35,13 @@ pub enum Request {
     /// own engine, `codealong server stop`, or an app from before there were servers, which runs
     /// its own engine (`take_over`). The reply is the pid that quits.
     Quit,
-    /// Tells the apps connected to the server to quit, and answers once they have: for an app
-    /// that's opening, which takes their place (the last one opened wins, view.rs `take_over`).
-    TakeViews,
+    /// Tells the apps connected to the server that opened before `since` to quit, and answers once
+    /// they have: for an app that's opening, which takes their place (the last one opened wins,
+    /// view.rs `take_over`); with none, every app.
+    TakeViews {
+        #[serde(default)]
+        since: Option<i64>,
+    },
     /// What a window asks the engine (calls.rs), by its command's name, with its arguments as the
     /// window sent them.
     Call {
@@ -404,13 +408,13 @@ fn handle_request(ctx: &Ctx, req: serde_json::Result<Request>) -> Reply {
             std::thread::spawn(|| {
                 std::thread::sleep(Duration::from_millis(200));
                 eprintln!("Codealong's server quitting, as asked.");
-                crate::views::quit_all(Duration::from_secs(5));
+                crate::views::quit_all(Duration::from_secs(5), None);
                 std::process::exit(0);
             });
             Reply::ok(std::process::id())
         }
-        Request::TakeViews => {
-            crate::views::quit_all(Duration::from_secs(8));
+        Request::TakeViews { since } => {
+            crate::views::quit_all(Duration::from_secs(8), since);
             Reply::ok(Value::Null)
         }
         Request::Call { name, args } => match crate::calls::call(ctx, &name, args) {
@@ -654,20 +658,6 @@ pub fn ask(req: &Request) -> Option<Result<Value, String>> {
 /// `ask`, waiting `wait` for the answer, or for as long as it takes with zero.
 pub fn ask_within(req: &Request, wait: Duration) -> Option<Result<Value, String>> {
     ask_on(UnixStream::connect(path()).ok()?, req, wait)
-}
-
-/// `ask_within`, waiting up to `up_within` for a server to take the connection first, as one
-/// that's starting or being replaced does in a moment. A request that reached one is never sent
-/// again: it may have changed something before the connection went.
-pub fn ask_once_up(req: &Request, wait: Duration, up_within: Duration) -> Option<Result<Value, String>> {
-    let until = std::time::Instant::now() + up_within;
-    loop {
-        match UnixStream::connect(path()) {
-            Ok(stream) => return ask_on(stream, req, wait),
-            Err(_) if std::time::Instant::now() < until => std::thread::sleep(Duration::from_millis(100)),
-            Err(_) => return None,
-        }
-    }
 }
 
 fn ask_on(mut stream: UnixStream, req: &Request, wait: Duration) -> Option<Result<Value, String>> {

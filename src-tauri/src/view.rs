@@ -15,14 +15,14 @@
 
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Condvar, Mutex, RwLock};
 use std::time::Duration;
 
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use serde_json::Value;
 
-use crate::model::{Board, Lane};
+use crate::model::{Board, Lane, Notice};
 use crate::server::{self, Request};
 use crate::{serve, views};
 
@@ -84,14 +84,16 @@ struct Event<'a> {
 /// What this app says of itself as it connects. `bundle` is its bundle's id when it runs from one,
 /// which the `codealong` command brings it forward by; `since` when it opened.
 pub fn info(bundle: Option<String>, since: i64) -> views::Info {
-    views::Info { pid: std::process::id(), version: env!("CARGO_PKG_VERSION").to_string(), engine: serve::ENGINE.to_string(), bundle, since }
+    let exe = serve::this_binary().map(|p| p.to_string_lossy().into_owned());
+    views::Info { pid: std::process::id(), version: env!("CARGO_PKG_VERSION").to_string(), engine: serve::ENGINE.to_string(), bundle, since, exe }
 }
 
 /// The last app opened wins, as it always has: one connected to the server is asked to quit, and
 /// one from before there were servers, which runs its own engine, quits as it did
-/// (`server::take_over`). An app opened with arguments that aren't a command leaves the one open
-/// be and says why.
-pub fn take_over(opened_plainly: bool) -> Result<(), String> {
+/// (`server::take_over`). One opened after this one (`since`), which a slow start can let in
+/// first, is left be: it's this one that goes (`follow`). An app opened with arguments that aren't
+/// a command leaves the one open be and says why.
+pub fn take_over(opened_plainly: bool, since: i64) -> Result<(), String> {
     let Some(status) = serve::running() else { return Ok(()) };
     if !serve::is_server(&status) {
         return server::take_over(opened_plainly);
@@ -100,11 +102,11 @@ pub fn take_over(opened_plainly: bool) -> Result<(), String> {
     if !opened_plainly {
         return Err(format!("Codealong is already running (pid {}), and that isn't a codealong command: see codealong --help.", open.pid));
     }
-    match server::ask_within(&Request::TakeViews, Duration::from_secs(15)) {
+    match server::ask_within(&Request::TakeViews { since: Some(since) }, Duration::from_secs(15)) {
         Some(Ok(_)) => Ok(()),
         // A server too busy to answer: the apps it has are ended here instead.
         _ => {
-            for view in &status.views {
+            for view in status.views.iter().filter(|v| v.since < since) {
                 // SAFETY: kill only signals a process; one gone by now is refused.
                 unsafe { libc::kill(view.pid as libc::pid_t, libc::SIGTERM) };
             }
@@ -117,17 +119,17 @@ pub fn take_over(opened_plainly: bool) -> Result<(), String> {
 /// answers, and connecting again whenever it goes.
 pub fn follow(mirror: Mirror, me: views::Info, hooks: Hooks) {
     let _ = std::thread::Builder::new().name("server".into()).spawn(move || {
-        let mut rev = 0u64;
+        let mut taken = Taken::default();
         let mut failed = 0u32;
         let mut here = false;
         loop {
-            // An app opened after this one, of another build, may have replaced the server: this
-            // one, the older, gives way rather than replacing it back.
-            if serve::running().is_some_and(|s| serve::is_server(&s) && s.views.iter().any(|v| v.pid != me.pid && v.since > me.since)) {
+            let found = serve::ensure(true, Some(me.since));
+            // An app opened after this one, of another build, replaced the server: this one, the
+            // older, gives way rather than replacing it back.
+            if found.as_ref().is_err_and(|e| e == serve::GIVE_WAY) {
                 (hooks.quit)();
                 return;
             }
-            let found = serve::ensure(true);
             // An app from before there were servers, opened after this one, quits this one as it
             // takes the socket; one that answers here anyway (it opened as this one did) runs its
             // own engine and takes no views, so this one, the last opened, takes over from it.
@@ -154,7 +156,9 @@ pub fn follow(mirror: Mirror, me: views::Info, hooks: Hooks) {
                 continue;
             }
             failed = 0;
-            match listen(&mirror, &me, &hooks, &mut rev) {
+            let listened = listen(&mirror, &me, &hooks, &mut taken);
+            set_connected(false);
+            match listened {
                 Ok(()) => eprintln!("Codealong's server closed the connection; connecting again."),
                 Err(e) => eprintln!("Lost Codealong's server ({e}); connecting again."),
             }
@@ -163,8 +167,30 @@ pub fn follow(mirror: Mirror, me: views::Info, hooks: Hooks) {
     });
 }
 
-/// Connects as a view and takes what the server sends until it stops.
-fn listen(mirror: &Mirror, me: &views::Info, hooks: &Hooks, rev: &mut u64) -> std::io::Result<()> {
+/// Whether the app is connected to its own server, which a window's command waits for (`call`).
+fn connection() -> &'static (Mutex<bool>, Condvar) {
+    static CONNECTED: (Mutex<bool>, Condvar) = (Mutex::new(false), Condvar::new());
+    &CONNECTED
+}
+
+fn set_connected(on: bool) {
+    let (held, changed) = connection();
+    if let Ok(mut c) = held.lock() {
+        *c = on;
+        changed.notify_all();
+    }
+}
+
+/// Waits, at most `within`, for the app to be connected to its own server.
+fn wait_connected(within: Duration) -> bool {
+    let (held, changed) = connection();
+    let Ok(c) = held.lock() else { return false };
+    changed.wait_timeout_while(c, within, |on| !*on).is_ok_and(|(on, _)| *on)
+}
+
+/// Connects as a view and takes what the server sends until it stops. The server's first board
+/// says it took this app as its view; one of another build says so instead (`views::serve`).
+fn listen(mirror: &Mirror, me: &views::Info, hooks: &Hooks, taken: &mut Taken) -> std::io::Result<()> {
     let mut stream = UnixStream::connect(server::path())?;
     stream.set_read_timeout(Some(SILENT))?;
     stream.set_write_timeout(Some(Duration::from_secs(5)))?;
@@ -183,34 +209,73 @@ fn listen(mirror: &Mirror, me: &views::Info, hooks: &Hooks, rev: &mut u64) -> st
             eprintln!("A line from Codealong's server didn't read: {}", crate::util::truncate(&line, 120));
             continue;
         };
-        take(mirror, hooks, rev, &e.event, e.payload);
+        match e.event.as_str() {
+            "foreign" => return Err(std::io::Error::other("the server is another build's")),
+            "board" => set_connected(true),
+            _ => {}
+        }
+        take(mirror, hooks, taken, &e.event, e.payload);
     }
 }
 
+/// What the app keeps of what it took: the count it gives each board (`rev`), the server's own
+/// notices on the last one, and its own files' problems it said beside them.
+#[derive(Default)]
+struct Taken {
+    rev: u64,
+    notices: Vec<Notice>,
+    local: Vec<(String, String)>,
+}
+
+impl Taken {
+    /// The server's notices, and what the app couldn't write of its own files (its windows'
+    /// places, the desktop's cards), which the server can't see.
+    fn notices(&self) -> Vec<Notice> {
+        let mine = self.local.iter().filter(|(file, _)| !self.notices.iter().any(|n| n.key == *file)).map(|(file, why)| crate::engine::store_notice(file, why));
+        self.notices.iter().cloned().chain(mine).collect()
+    }
+
+    /// Puts `board` in the mirror, counted on from the last, and hands it on.
+    fn hand_on(&mut self, mirror: &Mirror, hooks: &Hooks, mut board: Board) {
+        self.rev += 1;
+        board.rev = self.rev;
+        board.notices = self.notices();
+        if let Ok(mut held) = mirror.0.write() {
+            *held = board;
+        }
+        if let Ok(held) = mirror.0.read() {
+            (hooks.board)(&held);
+        }
+    }
+}
+
+/// The app's own files' problems now (`store::problems`).
+fn local_problems() -> Vec<(String, String)> {
+    let mut found = crate::store::problems(&crate::config::support_dir());
+    found.sort();
+    found
+}
+
 /// What the app does with one event.
-fn take(mirror: &Mirror, hooks: &Hooks, rev: &mut u64, event: &str, payload: &RawValue) {
+fn take(mirror: &Mirror, hooks: &Hooks, taken: &mut Taken, event: &str, payload: &RawValue) {
     match event {
-        "ping" => {}
+        // A ping comes every few seconds: one of the app's own files going wrong, or right again,
+        // is said then, where an idle server publishes no board to say it with.
+        "ping" => {
+            let now = local_problems();
+            if now != taken.local {
+                taken.local = now;
+                taken.hand_on(mirror, hooks, mirror.board());
+            }
+        }
         "board" => {
-            let mut board: Board = match serde_json::from_str(payload.get()) {
+            let board: Board = match serde_json::from_str(payload.get()) {
                 Ok(b) => b,
                 Err(e) => return eprintln!("The server's board didn't read: {e}"),
             };
-            *rev += 1;
-            board.rev = *rev;
-            // What the app couldn't write of its own files (its windows' places, the desktop's
-            // cards) is said beside the server's, which it can't see.
-            for (file, why) in crate::store::problems(&crate::config::support_dir()) {
-                if !board.notices.iter().any(|n| n.key == file) {
-                    board.notices.push(crate::engine::store_notice(&file, &why));
-                }
-            }
-            if let Ok(mut held) = mirror.0.write() {
-                *held = board;
-            }
-            if let Ok(held) = mirror.0.read() {
-                (hooks.board)(&held);
-            }
+            taken.notices = board.notices.clone();
+            taken.local = local_problems();
+            taken.hand_on(mirror, hooks, board);
         }
         "devices" => {
             #[derive(Deserialize, Default)]
@@ -255,14 +320,20 @@ fn take(mirror: &Mirror, hooks: &Hooks, rev: &mut u64, event: &str, payload: &Ra
     }
 }
 
-/// How long a window's command waits for a server to come up: one starting as the app opens, or
-/// being replaced, answers within seconds.
-const UP_WAIT: Duration = Duration::from_secs(30);
+/// How long a window's command waits for the app to be connected to its own server: one starting
+/// as the app opens, or being replaced, is there within seconds, and three starts that fail
+/// before the app runs one itself take a minute.
+const UP_WAIT: Duration = Duration::from_secs(90);
 
-/// A window's command, answered by the server (calls.rs). One asked while the server is starting
-/// or being replaced waits for it, as the windows ask theirs as they open.
+/// A window's command, answered by the server (calls.rs). One asked while the app isn't connected
+/// to its own server (it's starting, being replaced, or another build's that this app replaces)
+/// waits until it is, as the windows ask theirs as they open; one that reached a server is never
+/// sent again.
 pub fn call(name: &str, args: Value) -> Result<Value, String> {
-    match server::ask_once_up(&Request::Call { name: name.to_string(), args }, CALL_WAIT, UP_WAIT) {
+    if !wait_connected(UP_WAIT) {
+        return Err("Codealong's server isn't answering; it's being started again. Try again in a moment.".into());
+    }
+    match server::ask_within(&Request::Call { name: name.to_string(), args }, CALL_WAIT) {
         Some(answer) => answer,
         None => Err("Codealong's server isn't answering; it's being started again. Try again in a moment.".into()),
     }
@@ -297,11 +368,11 @@ mod tests {
     #[test]
     fn each_board_taken_counts_on_from_the_last_whatever_the_server_counts() {
         let heard = Arc::new(Mutex::new(Vec::new()));
-        let (mirror, h, mut rev) = (Mirror::new(), hooks(heard.clone()), 0);
+        let (mirror, h, mut taken) = (Mirror::new(), hooks(heard.clone()), Taken::default());
         // The server's count, and a new server's starting again, are the app's own count up.
         for server_rev in [40, 41, 1] {
             let board = Board { rev: server_rev, loading: false, ..Default::default() };
-            take(&mirror, &h, &mut rev, "board", &raw(&serde_json::to_string(&board).unwrap()));
+            take(&mirror, &h, &mut taken, "board", &raw(&serde_json::to_string(&board).unwrap()));
         }
         assert_eq!(*heard.lock().unwrap(), ["board 1 false", "board 2 false", "board 3 false"]);
         assert_eq!(mirror.board().rev, 3);
@@ -310,12 +381,35 @@ mod tests {
     #[test]
     fn what_the_windows_hear_goes_to_them_as_it_came() {
         let heard = Arc::new(Mutex::new(Vec::new()));
-        let (mirror, h, mut rev) = (Mirror::new(), hooks(heard.clone()), 0);
-        take(&mirror, &h, &mut rev, "devices", &raw(r#"{"enabled":true,"lanes":[]}"#));
-        take(&mirror, &h, &mut rev, "show", &raw(r#"{"kind":"session","key":"k"}"#));
-        take(&mirror, &h, &mut rev, "hosted-stream", &raw(r#"{"key":"k","text":"hi"}"#));
-        take(&mirror, &h, &mut rev, "ping", &raw("null"));
+        let (mirror, h, mut taken) = (Mirror::new(), hooks(heard.clone()), Taken::default());
+        take(&mirror, &h, &mut taken, "devices", &raw(r#"{"enabled":true,"lanes":[]}"#));
+        take(&mirror, &h, &mut taken, "show", &raw(r#"{"kind":"session","key":"k"}"#));
+        take(&mirror, &h, &mut taken, "hosted-stream", &raw(r#"{"key":"k","text":"hi"}"#));
+        take(&mirror, &h, &mut taken, "ping", &raw("null"));
         assert_eq!(*heard.lock().unwrap(), ["devices 0", r#"show "k""#, r#"hosted-stream {"key":"k","text":"hi"}"#]);
+    }
+
+    /// A window's command waits for the app to be connected to its server, and goes once it is.
+    #[test]
+    fn a_call_waits_for_the_app_to_be_connected() {
+        set_connected(false);
+        assert!(!wait_connected(Duration::from_millis(20)));
+        let connecting = std::thread::spawn(|| {
+            std::thread::sleep(Duration::from_millis(50));
+            set_connected(true);
+        });
+        assert!(wait_connected(Duration::from_secs(5)));
+        connecting.join().unwrap();
+        set_connected(false);
+    }
+
+    /// The app's own files' problems go beside the server's notices, but not twice for one file.
+    #[test]
+    fn the_apps_own_problems_go_beside_the_servers_notices() {
+        let server = crate::engine::store_notice("todos.json", "todos.json doesn't read.");
+        let taken = Taken { rev: 0, notices: vec![server.clone()], local: vec![("desktop.json".into(), "Couldn't write desktop.json.".into()), ("todos.json".into(), "here too".into())] };
+        let keys: Vec<String> = taken.notices().into_iter().map(|n| n.key).collect();
+        assert_eq!(keys, ["todos.json", "desktop.json"]);
     }
 
     #[test]

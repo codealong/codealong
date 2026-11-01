@@ -224,13 +224,23 @@ command starts it when none answers; `codealong server stop` stops it and the ap
 Quitting the app leaves it, and the agents it runs, going.
 
 A build's engine is a hash of the Rust it's built from (build.rs `CODEALONG_ENGINE`), not of the
-windows' pages it carries too. An app keeps the server it finds when their engines match, and
-replaces it otherwise, so a relaunch that changed only the windows leaves the sessions Codealong
-runs going; one that changed the engine cuts their turns off as quitting the app did, and they
-carry on once the new server is up (`[sessions] continue_after_restart`). The app counts each
-board's `rev` itself, so a new server, whose count starts again, is never taken for older than
-what the windows have. When launchd won't take the job, the app runs the server in itself, as the
-engine always was.
+windows' pages it carries too. An app keeps the server it finds when it's its own build, the same
+binary and engine (serve.rs `ours`), and replaces it otherwise, so a relaunch that changed only the
+windows leaves the sessions Codealong runs going (relaunch.sh replaces the bundle where it was);
+one that changed the engine cuts their turns off as quitting the app did, and they carry on once
+the new server is up (`[sessions] continue_after_restart`). Codealong beside Codealong Dev, or a
+debug build in a worktree, is another binary, so what the server installs and starts always
+comes from the app you opened; on a Mac only an installed app's command starts a server by
+itself. One server runs for a folder of files, holding a lock beside them for its life
+(`server.run.lock`), however it was started. Of two apps, the one opened last stays: one opening
+asks those opened before it to quit, the server tells an older one that connects after a newer to
+quit, and an older one finding a newer one's server of another build gives way rather than
+replacing it (`views::Info::since`, `serve::GIVE_WAY`). The server tells an app of another build
+that connects that it's another's, and that app starts its own. A window's command waits for the
+app to be connected to its own server before it's sent, and is never sent twice. The app counts
+each board's `rev` itself, so a new server, whose count starts again, is never taken for older
+than what the windows have. When launchd won't take the job, the app runs the server in itself,
+as the engine always was.
 
 ## Code map
 
