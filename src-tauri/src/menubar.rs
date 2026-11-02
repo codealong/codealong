@@ -14,8 +14,12 @@
 //!
 //! On a Mac its mark is a template, which macOS draws in the menu bar's own colors. On Linux it's
 //! a StatusNotifierItem (libayatana-appindicator) with the app's icon, which opens its menu
-//! however it's clicked; a desktop without a tray (GNOME without its AppIndicator extension)
-//! doesn't show it at all.
+//! however it's clicked. A desktop that shows no tray items (GNOME without its AppIndicator
+//! extension) would show neither it nor the bar, so the bar floats there instead
+//! (`os::windows::tray_shown`), as it does where the tray's library is missing.
+//!
+//! A server the app runs in itself, its starts as a job of its own having failed, goes when the
+//! app does, so the menu says so and offers no Restart server there.
 
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -75,6 +79,18 @@ pub enum Line {
     Separator,
 }
 
+/// How the app's server is, as the menu says it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Server {
+    /// The app isn't connected to one: it's starting, or being started again.
+    Starting,
+    /// A job of its own, which Restart server starts again.
+    Running,
+    /// In the app, its starts as a job of its own having failed (view.rs `server_in_app`): it
+    /// goes when the app does, and isn't restarted without it.
+    InApp,
+}
+
 /// The item itself: the number beside its mark, its tooltip, and whether the mark is dimmed.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Face {
@@ -125,9 +141,8 @@ fn note(label: impl Into<String>) -> Line {
 }
 
 /// The item's menu: what the bar lists, each group under its heading, then the windows, the
-/// server and quitting. `hosted` is how many sessions the server runs; `connected`, whether the
-/// app is connected to it.
-pub fn lines(listed: &Listed, hosted: usize, connected: bool) -> Vec<Line> {
+/// server and quitting. `hosted` is how many sessions the server runs.
+pub fn lines(listed: &Listed, hosted: usize, server: Server) -> Vec<Line> {
     let mut out = Vec::new();
     let groups = [("Needs you", &listed.needs), ("Review requested", &listed.reviews), ("Your turn", &listed.unread), ("Working", &listed.working)];
     for (heading, rows) in groups.into_iter().filter(|(_, rows)| !rows.is_empty()) {
@@ -148,13 +163,14 @@ pub fn lines(listed: &Listed, hosted: usize, connected: bool) -> Vec<Line> {
     out.push(item(MAIN, "Open Codealong"));
     out.push(Line::Item { id: waits.then(|| WAITING.to_string()), label: "Waiting on you…".into() });
     out.push(Line::Separator);
-    out.push(note(match (connected, hosted) {
-        (false, _) => "Server starting…".to_string(),
-        (true, 0) => "Server running".to_string(),
-        (true, 1) => "Server running 1 session".to_string(),
-        (true, n) => format!("Server running {n} sessions"),
+    out.push(note(match (server, hosted) {
+        (Server::Starting, _) => "Server starting…".to_string(),
+        (Server::InApp, _) => "Server running in the app".to_string(),
+        (Server::Running, 0) => "Server running".to_string(),
+        (Server::Running, 1) => "Server running 1 session".to_string(),
+        (Server::Running, n) => format!("Server running {n} sessions"),
     }));
-    out.push(Line::Item { id: connected.then(|| RESTART.to_string()), label: "Restart server".into() });
+    out.push(Line::Item { id: (server == Server::Running).then(|| RESTART.to_string()), label: "Restart server".into() });
     out.push(Line::Separator);
     out.push(item(SETTINGS, "Settings…"));
     out.push(item(QUIT, "Quit Codealong"));
@@ -204,6 +220,15 @@ pub fn show(app: &AppHandle, on: bool) -> bool {
     let Some(state) = app.try_state::<MenuBar>() else { return false };
     let Ok(mut tray) = state.tray.lock() else { return false };
     if !on {
+        state.up.store(false, Ordering::Relaxed);
+        if let Some(t) = tray.as_ref() {
+            let _ = t.set_visible(false);
+        }
+        return false;
+    }
+    // A desktop that shows no tray items would leave the bar nowhere: it floats instead (bar.rs).
+    if !crate::os::windows::tray_shown() {
+        eprintln!("This desktop shows no tray items, so the bar floats rather than going to the menu bar.");
         state.up.store(false, Ordering::Relaxed);
         if let Some(t) = tray.as_ref() {
             let _ = t.set_visible(false);
@@ -288,7 +313,12 @@ fn apply(app: &AppHandle) {
     let Some(tray) = state.tray.lock().ok().and_then(|t| t.clone()) else { return };
     let Some((listed, hosted)) = state.latest.lock().ok().map(|l| l.clone()) else { return };
     let connected = crate::view::connected();
-    let (lines, face) = (lines(&listed, hosted, connected), face(&listed, connected, &app.package_info().name));
+    let server = match (connected, crate::view::server_in_app()) {
+        (false, _) => Server::Starting,
+        (true, true) => Server::InApp,
+        (true, false) => Server::Running,
+    };
+    let (lines, face) = (lines(&listed, hosted, server), face(&listed, connected, &app.package_info().name));
     let Ok(mut put) = state.put.lock() else { return };
     if put.0 != lines {
         match menu(app, &lines) {
@@ -415,7 +445,7 @@ mod tests {
             unread: vec![],
             working: (0..7).map(|n| row(&format!("codex:{n}"), &format!("Working {n} · kestrel"))).collect(),
         };
-        let lines = lines(&listed, 2, true);
+        let lines = lines(&listed, 2, Server::Running);
         assert_eq!(
             ids(&lines),
             [
@@ -449,14 +479,17 @@ mod tests {
 
     #[test]
     fn with_nothing_listed_or_no_server_it_says_so() {
-        let lines = lines(&Listed::default(), 0, false);
+        let lines = lines(&Listed::default(), 0, Server::Starting);
         let said = ids(&lines);
         assert_eq!(said[0], "Nothing waits on you or is working");
         // Nothing waits, so there's nothing to go through; with no server yet, nothing to restart.
         assert!(said.contains(&"Waiting on you…".to_string()));
         assert!(said.contains(&"Server starting…".to_string()));
         assert!(said.contains(&"Restart server".to_string()));
-        assert_eq!(ids(&super::lines(&Listed::default(), 1, true))[5], "Server running 1 session");
+        assert_eq!(ids(&super::lines(&Listed::default(), 1, Server::Running))[5], "Server running 1 session");
+        // A server the app runs in itself goes with it: there's no restarting it from here.
+        let in_app = ids(&super::lines(&Listed::default(), 1, Server::InApp));
+        assert_eq!(in_app[5..7], ["Server running in the app", "Restart server"]);
     }
 
     #[test]

@@ -389,10 +389,12 @@ pub fn stop() -> bool {
 /// Starts the server again, for the app's Restart server (menubar.rs): it quits without its apps,
 /// which find it gone and start one of their own build as they do when it ends any other way
 /// (view.rs `follow`). The start lock is held until the one that quit is gone and its job taken
-/// out, so the start waits for that. Whether one was running.
+/// out, so the start waits for that. Whether one was running and quit; one that runs in this
+/// process (the app's, after its starts failed) is left be, since it would take the app with it.
 pub fn restart() -> bool {
     let _one = store::lock(&config::support_dir().join("server"));
     match running() {
+        Some(s) if s.pid == std::process::id() => false,
         Some(s) => {
             stop_it(&s, Request::Restart);
             true

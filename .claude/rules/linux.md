@@ -64,6 +64,9 @@ What Linux, its desktops and the harnesses there turned out to need, found in th
 
 ## Unchecked
 
+- 2026-11-02: the bar in the menu bar there (`menubar.rs`): the tray icon and its menu on a
+  desktop that shows them, and `gdbus`'s NameHasOwner answer with and without a
+  StatusNotifierWatcher (`os::windows::tray_shown`). CI only builds and tests it.
 - 2026-10-16: Wayland (XWayland apps keep X11's ways; native Wayland gets no window places), a
   real desktop's Secret Service for `os/secrets.rs`, the global shortcuts (Tauri maps `Cmd` to Super
   there), a signed-in Claude Code's own sessions and usage, and every emulator but xterm.

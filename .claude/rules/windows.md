@@ -133,7 +133,9 @@ under `src-tauri/src/`.
   18 points tall whatever its size, and its `set_icon` turns the template off, so a template
   goes on with `set_icon_with_as_template`. Its menu's events reach every `on_menu_event`
   handler, the app's menus' too, so ids carry a prefix. On Linux the first item made loads
-  libayatana-appindicator3, and a missing library panics there (`make`).
+  libayatana-appindicator3, and a missing library panics there (`make`); with the library but
+  nothing on the session bus to show items, it's made and never seen
+  (`os::windows::tray_shown`).
 - The quick panel takes the keyboard without activating Codealong: `orderFrontRegardless`,
   `makeKeyWindow`, then the WKWebView made first responder, which a window made with
   `focused(false)` doesn't do by itself. It follows the board only while it's up, and an open

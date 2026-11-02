@@ -80,6 +80,15 @@ pub struct Hooks {
 /// to one or start one again.
 static LEAVING: AtomicBool = AtomicBool::new(false);
 
+/// The app runs the server in itself, its starts as a job of its own having failed (`follow`).
+static IN_APP: AtomicBool = AtomicBool::new(false);
+
+/// Whether the app runs the server in itself, where it goes when the app does and can't be
+/// started again without it (the menu bar's Restart server).
+pub fn server_in_app() -> bool {
+    IN_APP.load(Ordering::Relaxed)
+}
+
 /// Stops the app following its server: once that's gone, the app quits rather than starting
 /// another. The server's stop tells the app to quit as well.
 pub fn leave() {
@@ -172,8 +181,9 @@ pub fn follow(mirror: Mirror, me: views::Info, hooks: Hooks) {
                 if failed >= STARTS && !here {
                     here = true;
                     eprintln!("Running Codealong's server in the app instead: it goes when the app does.");
-                    if let Err(e) = serve::start() {
-                        eprintln!("Couldn't run Codealong's server in the app either: {e}");
+                    match serve::start() {
+                        Ok(_) => IN_APP.store(true, Ordering::Relaxed),
+                        Err(e) => eprintln!("Couldn't run Codealong's server in the app either: {e}"),
                     }
                 }
                     std::thread::sleep(Duration::from_secs(2));
