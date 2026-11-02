@@ -342,7 +342,7 @@ fn ensure_under(own: bool, since: Option<i64>) -> Result<Status, String> {
         Some(s) if since.is_some_and(|me| s.views.iter().any(|v| v.since > me)) => return Err(GIVE_WAY.into()),
         Some(s) => {
             eprintln!("Replacing Codealong's server (pid {}, engine {}, {}) with this build's.", s.pid, s.engine.as_deref().unwrap_or("?"), s.exe.as_deref().unwrap_or("?"));
-            stop_it(&s);
+            stop_it(&s, Request::Quit);
         }
         None => {}
     }
@@ -375,7 +375,7 @@ pub fn stop() -> bool {
     let _one = store::lock(&config::support_dir().join("server"));
     match running() {
         Some(s) => {
-            stop_it(&s);
+            stop_it(&s, Request::Quit);
             true
         }
         None => {
@@ -386,11 +386,26 @@ pub fn stop() -> bool {
     }
 }
 
-/// Asks `s` to quit, and once it's gone or the time is up, takes its job out of launchd, which
-/// ends it if it's still there.
-fn stop_it(s: &Status) {
+/// Starts the server again, for the app's Restart server (menubar.rs): it quits without its apps,
+/// which find it gone and start one of their own build as they do when it ends any other way
+/// (view.rs `follow`). The start lock is held until the one that quit is gone and its job taken
+/// out, so the start waits for that. Whether one was running.
+pub fn restart() -> bool {
+    let _one = store::lock(&config::support_dir().join("server"));
+    match running() {
+        Some(s) => {
+            stop_it(&s, Request::Restart);
+            true
+        }
+        None => false,
+    }
+}
+
+/// Asks `s` to quit (`asked`: with its apps, or for them to start it again), and once it's gone
+/// or the time is up, takes its job out of launchd, which ends it if it's still there.
+fn stop_it(s: &Status, asked: Request) {
     // One too stuck to answer is ended at once rather than waited on.
-    if !matches!(server::ask_within(&Request::Quit, Duration::from_secs(3)), Some(Ok(_))) {
+    if !matches!(server::ask_within(&asked, Duration::from_secs(3)), Some(Ok(_))) {
         // SAFETY: kill only signals a process; one gone by now is refused.
         unsafe { libc::kill(s.pid as libc::pid_t, libc::SIGTERM) };
     }

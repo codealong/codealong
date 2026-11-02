@@ -70,6 +70,7 @@ mod newfolder;
 mod nudges;
 mod lineage;
 mod logo;
+mod menubar;
 mod mcp;
 mod model;
 mod peerfeed;
@@ -566,6 +567,8 @@ impl Floating {
                 });
             }
         }
+        let hosted = board.lanes.iter().flat_map(|l| &l.sessions).filter(|s| s.hosted && s.live).count();
+        menubar::publish(app, &feed, hosted);
         bar::publish(app, feed);
         desktop::publish(app, shown);
         lineage::publish(app, shown);
@@ -1454,7 +1457,7 @@ pub fn run() {
                 devices_mirror.read(|board| devices_floating.publish(&devices_app, Some(board), util::now_ms(), |e| e.on_devices(lanes)));
                 let _ = devices_app.emit("devices", view);
             };
-            let (showing, asking, events) = (app.handle().clone(), app.handle().clone(), app.handle().clone());
+            let (showing, asking, events, connecting) = (app.handle().clone(), app.handle().clone(), app.handle().clone(), app.handle().clone());
             let hooks = view::Hooks {
                 board: Box::new(on_board),
                 devices: Box::new(on_devices),
@@ -1486,6 +1489,7 @@ pub fn run() {
                     eprintln!("Another Codealong opened, or its server was stopped: quitting.");
                     std::process::exit(0);
                 }),
+                connected: Box::new(move |_| menubar::connected(&connecting)),
             };
             // A bare binary isn't what its bundle ID opens: that's whichever bundle has it.
             let bundle = std::env::current_exe().ok().and_then(|exe| updates::bundle_of(&exe)).map(|_| app.config().identifier.clone());
@@ -1494,6 +1498,8 @@ pub fn run() {
                 install::follow_command_link();
                 install::refresh_installed();
             });
+            // Before the bar, which may be in the menu bar.
+            menubar::setup(app.handle());
             if let Err(e) = bar::setup(app.handle()) {
                 eprintln!("Couldn't make the floating bar: {e:#}");
             }

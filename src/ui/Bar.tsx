@@ -821,6 +821,7 @@ export function Bar() {
       'separator',
       ...(docked ? [{ label: 'Keep the notch open', checked: keepOpen, run: () => pinOpen(!keepOpen) }] : []),
       docked ? { label: 'Float the bar instead', run: () => void setBarMode('floating') } : { label: 'Put the bar in the notch', run: () => void setBarMode('notch') },
+      { label: 'Move it to the menu bar', run: () => void setBarMode('menubar') },
       { label: docked ? 'Hide the bar' : 'Hide floating bar', run: () => void setBarMode('off') },
     ]);
   };

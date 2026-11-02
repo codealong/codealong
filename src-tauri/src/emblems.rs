@@ -438,8 +438,8 @@ pub fn shrink(png_bytes: &[u8]) -> Result<Vec<u8>> {
     encode(&scale_down(&px, w, h, (x0, y0, side), PICTURE_PX), PICTURE_PX)
 }
 
-/// A PNG's pixels as RGBA, 8 bits a channel.
-fn decode(bytes: &[u8]) -> Result<(usize, usize, Vec<u8>)> {
+/// A PNG's pixels as RGBA, 8 bits a channel: its width, height and pixels.
+pub(crate) fn decode(bytes: &[u8]) -> Result<(usize, usize, Vec<u8>)> {
     let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
     decoder.set_transformations(png::Transformations::normalize_to_color8());
     let mut reader = decoder.read_info().context("The drawing isn't a PNG Codealong can read")?;

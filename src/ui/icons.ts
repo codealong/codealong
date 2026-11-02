@@ -1,6 +1,7 @@
 // Tabler Icons (MIT) outline paths, 24px grid, copied from the Codealong design system (@tabler/icons 3.44.0).
 // Their license is in THIRD_PARTY_NOTICES.md.
-// `notch` is drawn in their style: a screen with the notch at its top, for the bar docked there.
+// `notch` and `menu-bar` are drawn in their style: a screen with the notch at its top, for the bar
+// docked there, and one with an item in its menu bar, for the bar in the menu bar.
 export const ICONS: Record<string, string[]> = {
  "slash": [
   "M17 5l-10 14"
@@ -193,6 +194,11 @@ export const ICONS: Record<string, string[]> = {
  "notch": [
   "M3 6a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2z",
   "M9 4v1.5a1.5 1.5 0 0 0 1.5 1.5h3a1.5 1.5 0 0 0 1.5 -1.5v-1.5"
+ ],
+ "menu-bar": [
+  "M3 6a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2z",
+  "M3 9h18",
+  "M16 6.5h2"
  ],
  "info-circle": [
   "M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0",

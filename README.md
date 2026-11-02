@@ -229,6 +229,9 @@ You can answer from wherever suits you:
   apps, with pills for the agents that need you, have just finished or are working, one for PRs
   waiting on your review and one for todos ready to start. Hover a pill to read the conversation
   and reply. It never takes your keyboard until you click.
+- **The menu bar.** Or keep the bar as an icon in the menu bar, with the count of agents that need
+  you beside it and a menu that lists them, says whether Codealong's server is running, restarts
+  it, and quits the app with the server or without it.
 - **Waiting on you** (⌥⌘. from any app) lists every agent that needs you, then the PRs waiting on
   your review, then finished turns, oldest first. Answer one and the next slides in: inbox zero,
   for agents.

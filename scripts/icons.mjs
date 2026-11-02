@@ -1,5 +1,6 @@
 // Generates every use of the mark from design/brand/mark.svg, then renders the app
-// icon with headless Chrome and runs `tauri icon` for the native bundle sizes.
+// icon with headless Chrome and runs `tauri icon` for the native bundle sizes. With
+// --menu-bar it renders only the menu bar item's mark.
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -50,19 +51,34 @@ writeFileSync(join(root, 'design/brand/preview.html'), `<!doctype html><html lan
 
 const dir = mkdtempSync(join(tmpdir(), 'codealong-icon-'));
 const html = join(dir, 'icon.html');
-function render(svg, png) {
-  writeFileSync(html, `<!doctype html><html><body style="margin:0;background:transparent">${svg.replace('<svg ', '<svg style="display:block;width:1024px;height:1024px" ')}</body></html>`);
+function render(svg, png, size = 1024) {
+  writeFileSync(html, `<!doctype html><html><body style="margin:0;background:transparent">${svg.replace('<svg ', `<svg style="display:block;width:${size}px;height:${size}px" `)}</body></html>`);
   // MacAppCodeSignClone is off for the reason scripts/preview.sh gives.
   execFileSync('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', [
     '--headless=new', '--disable-features=MacAppCodeSignClone', '--disable-gpu','--hide-scrollbars', '--force-device-scale-factor=1',
-    '--default-background-color=00000000', '--window-size=1024,1024', `--screenshot=${png}`, `file://${html}`,
+    '--default-background-color=00000000', `--window-size=${size},${size}`, `--screenshot=${png}`, `file://${html}`,
   ], { stdio: 'ignore' });
+}
+
+// The menu bar item's mark (src-tauri/src/menubar.rs): black on clear, which macOS takes as a
+// template and draws in the menu bar's own color, 16 points tall at twice that with a point of
+// room around it in the 18 the item gives it.
+const menuBarIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36"><svg x="2" y="2" width="32" height="32" viewBox="${viewBox}" fill="#000">${shapes('#000')}</svg></svg>\n`;
+const menuBarPng = join(root, 'src-tauri/icons/menubar.png');
+if (process.argv.includes('--menu-bar')) {
+  try {
+    render(menuBarIcon, menuBarPng, 36);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  process.exit(0);
 }
 const png = join(root, 'src-tauri/app-icon.png');
 const devPng = join(root, 'src-tauri/app-icon-dev.png');
 try {
   render(svg, png);
   render(appIcon('idle', 'dev'), devPng);
+  render(menuBarIcon, menuBarPng, 36);
   mkdirSync(join(root, 'src-tauri/icons/status'), { recursive: true });
   mkdirSync(join(root, 'src-tauri/icons/dev/status'), { recursive: true });
   for (const status of Object.keys(states).filter((s) => s !== 'idle')) {

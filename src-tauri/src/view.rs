@@ -15,6 +15,7 @@
 
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, RwLock};
 use std::time::Duration;
 
@@ -71,6 +72,18 @@ pub struct Hooks {
     pub event: Box<dyn Fn(&str, Value) + Send>,
     /// Another app opened, or the server was stopped: this one quits.
     pub quit: Box<dyn Fn() + Send>,
+    /// The app connected to its server, or lost it, which the menu bar item shows (menubar.rs).
+    pub connected: Box<dyn Fn(bool) + Send>,
+}
+
+/// The app is quitting with its server (the menu bar's Quit and stop server): it doesn't connect
+/// to one or start one again.
+static LEAVING: AtomicBool = AtomicBool::new(false);
+
+/// Stops the app following its server: once that's gone, the app quits rather than starting
+/// another. The server's stop tells the app to quit as well.
+pub fn leave() {
+    LEAVING.store(true, Ordering::Relaxed);
 }
 
 /// One line from the server.
@@ -128,6 +141,10 @@ pub fn follow(mirror: Mirror, me: views::Info, hooks: Hooks) {
         let mut failed = 0u32;
         let mut here = false;
         loop {
+            if LEAVING.load(Ordering::Relaxed) {
+                (hooks.quit)();
+                return;
+            }
             let found = serve::ensure_held(true, Some(me.since));
             // An app opened after this one, of another build, replaced the server: this one, the
             // older, gives way rather than replacing it back.
@@ -165,7 +182,9 @@ pub fn follow(mirror: Mirror, me: views::Info, hooks: Hooks) {
             };
             failed = 0;
             let listened = listen(&mirror, &me, &hooks, &mut taken, one);
-            set_connected(false);
+            if set_connected(false) {
+                (hooks.connected)(false);
+            }
             match listened {
                 Ok(()) => eprintln!("Codealong's server closed the connection; connecting again."),
                 Err(e) => eprintln!("Lost Codealong's server ({e}); connecting again."),
@@ -181,12 +200,18 @@ fn connection() -> &'static (Mutex<bool>, Condvar) {
     &CONNECTED
 }
 
-fn set_connected(on: bool) {
+/// Says whether the app is connected, and whether that changed.
+fn set_connected(on: bool) -> bool {
     let (held, changed) = connection();
-    if let Ok(mut c) = held.lock() {
-        *c = on;
-        changed.notify_all();
-    }
+    let Ok(mut c) = held.lock() else { return false };
+    let was = std::mem::replace(&mut *c, on);
+    changed.notify_all();
+    was != on
+}
+
+/// Whether the app is connected to its own server now.
+pub fn connected() -> bool {
+    connection().0.lock().is_ok_and(|c| *c)
 }
 
 /// Waits, at most `within`, for the app to be connected to its own server.
@@ -223,7 +248,9 @@ fn listen(mirror: &Mirror, me: &views::Info, hooks: &Hooks, taken: &mut Taken, o
         match e.event.as_str() {
             "foreign" => return Err(std::io::Error::other("the server is another build's")),
             "board" => {
-                set_connected(true);
+                if set_connected(true) {
+                    (hooks.connected)(true);
+                }
                 one.take();
             }
             _ => {}
@@ -394,6 +421,7 @@ mod tests {
             ask: Arc::new(|_, _| Ok(Value::Null)),
             event: Box::new(move |name, v| e.lock().unwrap().push(format!("{name} {v}"))),
             quit: Box::new(|| {}),
+            connected: Box::new(|_| {}),
         }
     }
 

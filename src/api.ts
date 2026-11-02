@@ -1456,8 +1456,9 @@ export async function setBarOn(on: boolean): Promise<void> {
   await invoke('set_bar_on', { on });
 }
 
-/** Where the bar shows: floating where you put it, docked in the notch, or not at all. */
-export type BarMode = 'off' | 'floating' | 'notch';
+/** Where the bar shows: floating where you put it, docked in the notch, as an item in the menu
+ *  bar in place of its window (menubar.rs), or not at all. */
+export type BarMode = 'off' | 'floating' | 'notch' | 'menubar';
 
 /** The notch the bar docks into, in screen points (bar.rs); `real` is false where the screen has
  *  none and the bar draws one. */
@@ -1489,14 +1490,14 @@ export async function setNotchOpen(keep: boolean): Promise<void> {
   await invoke('set_notch_open', { keep });
 }
 
-/** Floats the bar, docks it in the notch, or turns it off. */
+/** Floats the bar, docks it in the notch, puts it in the menu bar, or turns it off. */
 export async function setBarMode(mode: BarMode): Promise<void> {
   if (!inTauri) return;
   await invoke('set_bar_mode', { mode });
 }
 
-/** Calls `cb` whenever the bar moves between floating, the notch and off, or the notch it docks
- *  into changes (a display plugged in or out). */
+/** Calls `cb` whenever the bar moves between floating, the notch, the menu bar and off, or the
+ *  notch it docks into changes (a display plugged in or out). */
 export function onBarMode(cb: (view: BarModeView) => void): () => void {
   if (!inTauri) return () => {};
   let cancelled = false;

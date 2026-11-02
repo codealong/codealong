@@ -1700,8 +1700,8 @@ export function App() {
     setSelectedKey(lane.id);
   };
 
-  // Where the bar shows: floating, docked in the notch, or off; changed here, from its own menu or
-  // from the Window menu. Picking the place it's in turns it off.
+  // Where the bar shows: floating, docked in the notch, in the menu bar, or off; changed here, from
+  // its own menu or from the Window menu. Picking the place it's in turns it off.
   const [barPlace, setBarPlace] = useState<BarMode>('floating');
   useEffect(() => {
     void barMode().then((v) => setBarPlace(v.mode));
@@ -2185,6 +2185,7 @@ export function App() {
             options={[
               { id: 'floating', label: 'Floating bar', icon: 'capsule-horizontal', title: barPlace === 'floating' ? 'Hide the floating bar' : 'Floating bar: the agents that need you, on top of every window, where you put it' },
               { id: 'notch', label: 'Bar in the notch', icon: 'notch', title: barPlace === 'notch' ? 'Hide the bar in the notch' : 'In the notch: the agents that need you, around the notch at the top of the screen, opening when you point at it' },
+              { id: 'menubar', label: 'Menu bar icon', icon: 'menu-bar', title: barPlace === 'menubar' ? 'Take Codealong out of the menu bar' : 'In the menu bar: an icon with the agents that need you in its menu, the server, and quitting with it or without it' },
             ]}
             value={barPlace === 'off' ? null : barPlace}
             onPick={pickBarPlace}

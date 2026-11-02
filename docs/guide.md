@@ -2846,10 +2846,31 @@ its pills, buttons and session keep their own drags and clicks. It closes and sl
 of whichever screen the pointer is on, and docks there when you let go. It stays on that screen
 across launches; while the screen isn't connected the notch is where it would be by itself (on the
 MacBook's own screen, else the one with the menu bar) and goes back once it is. Dragged back to the
-screen it picks by itself, it follows that again. The pair of buttons at the top
-right of the window floats the bar or puts it in the notch, and picking the one that's on turns it
-off, as do Window › Floating bar and Bar in the notch and the bar's own right-click menu. Wherever
-you leave it is where it is at the next launch; on Linux, which has no notch, it starts floating.
+screen it picks by itself, it follows that again. The three buttons at the top
+right of the window float the bar, put it in the notch or put it in the menu bar (*Menu bar icon*),
+and picking the one that's on turns it off, as do Window › Floating bar, Bar in the notch and Menu
+bar icon and the bar's own right-click menu. Wherever you leave it is where it is at the next
+launch; on Linux, which has no notch, it starts floating.
+
+### Menu bar icon
+
+*The third of the buttons at the top right of the window, Window › Menu bar icon, or Move it to the
+menu bar in the floating bar's right-click menu*
+
+The bar can be an icon in the menu bar instead of a window: Codealong's mark, with the number of
+sessions that need you beside it. The mark is dimmed while the app isn't connected to Codealong's
+server (it's starting, or being started again). Its menu lists what the bar shows, under Needs
+you, Review requested, Your turn and Working, five of each with the rest a click away in the main
+window; picking a session or a PR opens the waiting window on it, to read and answer it there.
+Below them are Open Codealong, Waiting on you…, and the server: whether it's running and how many
+sessions it runs, and Restart server, which cuts off the turns of the sessions Codealong runs and
+lets them carry on once it's back (*Cut off*), as an update does. Last come Settings… and the two
+ways to quit: Quit Codealong leaves the server running, with every session Codealong runs, your
+schedules and your reviews, and Quit Codealong and stop its server does what `codealong server
+stop` does. The icon is there for as long as the app is: quitting takes it away with the app,
+whatever the server does (*Codealong's server*). On Linux it's a tray icon whose menu opens however
+it's clicked, which a desktop without a tray (GNOME without its AppIndicator extension) doesn't
+show; there the bar floats instead.
 
 ### Pin to desktop
 
@@ -3584,7 +3605,9 @@ so it's there whenever something needs it. On a Mac it's a launchd job of yours,
 `app.codealong.server.…`, which launchd starts again if it ever crashes. `codealong status` says
 whether it's running and whether the app is open on it; `codealong server stop` stops it and quits
 the app with it, cutting off the turns of the sessions Codealong runs, which carry on once it starts
-again (*Cut off*); `codealong server start` starts it. What it prints goes to `server.log` beside
+again (*Cut off*); `codealong server start` starts it. With the bar in the menu bar (*Menu bar
+icon*), its menu says whether the server is running and restarts it, and quits the app with the
+server or without it. What it prints goes to `server.log` beside
 Codealong's other logs (`~/Library/Logs/Codealong`, on Linux `~/.local/state/codealong`).
 
 An update replaces the server with the app. A build of Codealong opened over another keeps the

@@ -35,6 +35,9 @@ pub enum Request {
     /// own engine, `codealong server stop`, or an app from before there were servers, which runs
     /// its own engine (`take_over`). The reply is the pid that quits.
     Quit,
+    /// Quits without telling the apps, which start a server again as they find it gone: the menu
+    /// bar's Restart server (serve.rs `restart`). The reply is the pid that quits.
+    Restart,
     /// Tells the apps connected to the server that opened before `since` to quit, and answers once
     /// they have: for an app that's opening, which takes their place (the last one opened wins,
     /// view.rs `take_over`); with none, every app.
@@ -418,6 +421,14 @@ fn handle_request(ctx: &Ctx, req: serde_json::Result<Request>) -> Reply {
                 std::thread::sleep(Duration::from_millis(200));
                 eprintln!("Codealong's server quitting, as asked.");
                 crate::views::quit_all(Duration::from_secs(5), None);
+                std::process::exit(0);
+            });
+            Reply::ok(std::process::id())
+        }
+        Request::Restart => {
+            std::thread::spawn(|| {
+                std::thread::sleep(Duration::from_millis(200));
+                eprintln!("Codealong's server quitting to be started again, as asked.");
                 std::process::exit(0);
             });
             Reply::ok(std::process::id())

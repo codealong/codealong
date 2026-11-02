@@ -128,6 +128,12 @@ under `src-tauri/src/`.
   disagree.
 - The bar listens for `bar-feed`, never `board`, so Tauri doesn't send it the board:
   `barfeed.rs` (module header).
+- The menu bar item is Tauri's tray (tauri 2.12.5, tray-icon 0.25.1): `menubar.rs` (module
+  header). Its calls wait for the main thread when made from another. tray-icon draws the image
+  18 points tall whatever its size, and its `set_icon` turns the template off, so a template
+  goes on with `set_icon_with_as_template`. Its menu's events reach every `on_menu_event`
+  handler, the app's menus' too, so ids carry a prefix. On Linux the first item made loads
+  libayatana-appindicator3, and a missing library panics there (`make`).
 - The quick panel takes the keyboard without activating Codealong: `orderFrontRegardless`,
   `makeKeyWindow`, then the WKWebView made first responder, which a window made with
   `focused(false)` doesn't do by itself. It follows the board only while it's up, and an open

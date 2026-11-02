@@ -27,6 +27,9 @@
 //! it docks there (`drag`). That screen is kept, and while it isn't connected the bar docks where
 //! it would without it, going back once it is (`notch_on`).
 //!
+//! It can go to the menu bar instead, as an item with a menu in place of its window (menubar.rs),
+//! the third of the places the toggle at the top right offers.
+//!
 //! Closing the main window hides it and the app keeps running with the bar; the Dock icon and the
 //! bar's mark bring it back. Whether the bar is on, where you left it, the screen its notch is on
 //! and whether it stays open there are kept in `bar.json` next to the config.
@@ -47,6 +50,7 @@ use crate::panel::{self, Level};
 pub const LABEL: &str = "bar";
 const MENU_ID: &str = "floating-bar";
 const NOTCH_MENU_ID: &str = "notch-bar";
+const MENU_BAR_MENU_ID: &str = "menu-bar-bar";
 /// How often the pointer is looked at while the bar is docked, to take clicks on the shape only.
 const POINTER_EVERY: Duration = Duration::from_millis(40);
 /// The bar's size before its page has measured itself.
@@ -62,13 +66,22 @@ const DRAWN_NOTCH_HEIGHT: f64 = 24.0;
 /// place. It starts at the floating bar's level, and `place_for` moves it when it docks.
 const PANEL: panel::Config = panel::Config { keys: panel::Keys::WhenAsked, level: Level::FloatingBar, spaces: panel::Spaces::Stationary, unconstrained: true, tooltips: true, steps: panel::Steps::Two };
 
-/// Where the bar shows: floating where you put it, docked in the notch, or not at all.
+/// Where the bar shows: floating where you put it, docked in the notch, as an item in the menu
+/// bar in place of its window (menubar.rs), or not at all.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Mode {
     Off,
     Floating,
     Notch,
+    MenuBar,
+}
+
+impl Mode {
+    /// Whether the bar's own window is up: floating or docked, not off or in the menu bar.
+    pub fn has_window(self) -> bool {
+        matches!(self, Mode::Floating | Mode::Notch)
+    }
 }
 
 /// The notch the bar docks into, in screen points: its center, the top of its screen, its size,
@@ -171,9 +184,13 @@ struct Saved {
     /// Turned off from the bar's menu or the Window menu.
     #[serde(default)]
     off: bool,
-    /// Docked in the notch rather than floating; kept while it's off, for when it's back on.
+    /// Docked in the notch rather than floating; kept while it's off or in the menu bar, for
+    /// when its window is back.
     #[serde(default = "docked_at_first")]
     notch: bool,
+    /// An item in the menu bar in place of the window; kept while it's off.
+    #[serde(default)]
+    menu_bar: bool,
     /// Docked, it stays open rather than opening under the pointer.
     #[serde(default)]
     keep_open: bool,
@@ -187,7 +204,7 @@ struct Saved {
 
 impl Default for Saved {
     fn default() -> Saved {
-        Saved { off: false, notch: docked_at_first(), keep_open: false, frame: None, screen: None }
+        Saved { off: false, notch: docked_at_first(), menu_bar: false, keep_open: false, frame: None, screen: None }
     }
 }
 
@@ -199,11 +216,30 @@ fn docked_at_first() -> bool {
 
 impl Saved {
     fn mode(&self) -> Mode {
-        match (self.off, self.notch) {
-            (true, _) => Mode::Off,
-            (false, true) => Mode::Notch,
-            (false, false) => Mode::Floating,
+        match (self.off, self.menu_bar, self.notch) {
+            (true, _, _) => Mode::Off,
+            (false, true, _) => Mode::MenuBar,
+            (false, false, true) => Mode::Notch,
+            (false, false, false) => Mode::Floating,
         }
+    }
+
+    /// Shows the bar `mode`'s way, keeping where it showed last while it's off.
+    fn set(&mut self, mode: Mode) {
+        self.off = mode == Mode::Off;
+        match mode {
+            Mode::Off => {}
+            Mode::MenuBar => self.menu_bar = true,
+            Mode::Floating | Mode::Notch => {
+                self.menu_bar = false;
+                self.notch = mode == Mode::Notch;
+            }
+        }
+    }
+
+    /// Where the bar shows once it's turned on again.
+    fn on(&self) -> Mode {
+        Saved { off: false, ..self.clone() }.mode()
     }
 
     /// Read leniently: bar.json is only where the bar was and how you left it (on or off, in the
@@ -224,9 +260,10 @@ struct Bar {
     sent: Mutex<String>,
     /// The bar moved since `bar.json` was written.
     moved: AtomicBool,
-    /// Window › Floating bar and Window › Bar in the notch.
+    /// Window › Floating bar, Window › Bar in the notch and Window › Menu bar icon.
     item: Mutex<Option<CheckMenuItem<Wry>>>,
     notch_item: Mutex<Option<CheckMenuItem<Wry>>>,
+    menu_bar_item: Mutex<Option<CheckMenuItem<Wry>>>,
     /// The notch the page was last told of, while docked.
     notch: Mutex<Option<Notch>>,
     /// The shape the docked bar shows, in its window's points from the top left (`notch_shape`),
@@ -258,6 +295,7 @@ pub fn setup(app: &AppHandle) -> Result<()> {
         moved: AtomicBool::new(false),
         item: Mutex::new(None),
         notch_item: Mutex::new(None),
+        menu_bar_item: Mutex::new(None),
         notch: Mutex::new(None),
         shape: Mutex::new(None),
         // A new window takes clicks everywhere: the first look lets them through off the shape.
@@ -274,29 +312,42 @@ pub fn setup(app: &AppHandle) -> Result<()> {
     if let Some(r) = start_frame(frame, &panel::screens()) {
         panel::set_frame(&window, r);
     }
-    if mode != Mode::Off {
+    // A desktop with no tray to put the item in: the bar floats instead.
+    let mode = if mode == Mode::MenuBar && !crate::menubar::show(app, true) {
+        if let Ok(mut saved) = app.state::<Bar>().saved.lock() {
+            saved.set(Mode::Floating);
+            saved.save();
+        }
+        Mode::Floating
+    } else {
+        mode
+    };
+    if mode.has_window() {
         place_for(app, &window, mode);
         panel::show(&window);
     }
 
     let item = CheckMenuItem::with_id(app, MENU_ID, "Floating bar", true, mode == Mode::Floating, None::<&str>)?;
     let notch_item = CheckMenuItem::with_id(app, NOTCH_MENU_ID, "Bar in the notch", true, mode == Mode::Notch, None::<&str>)?;
+    let menu_bar_item = CheckMenuItem::with_id(app, MENU_BAR_MENU_ID, "Menu bar icon", true, mode == Mode::MenuBar, None::<&str>)?;
     if let Some(MenuItemKind::Submenu(menu)) = app.menu().and_then(|m| m.get(WINDOW_SUBMENU_ID)) {
         menu.append(&PredefinedMenuItem::separator(app)?)?;
         menu.append(&item)?;
         menu.append(&notch_item)?;
+        menu.append(&menu_bar_item)?;
     }
-    if let Ok(mut slot) = app.state::<Bar>().item.lock() {
-        *slot = Some(item);
-    }
-    if let Ok(mut slot) = app.state::<Bar>().notch_item.lock() {
-        *slot = Some(notch_item);
+    let state = app.state::<Bar>();
+    for (slot, item) in [(&state.item, item), (&state.notch_item, notch_item), (&state.menu_bar_item, menu_bar_item)] {
+        if let Ok(mut slot) = slot.lock() {
+            *slot = Some(item);
+        }
     }
     app.on_menu_event(|app, event| {
-        // Picking the checked place turns the bar off; picking the other moves it there.
+        // Picking the checked place turns the bar off; picking another moves it there.
         let picked = match event.id().as_ref() {
             MENU_ID => Mode::Floating,
             NOTCH_MENU_ID => Mode::Notch,
+            MENU_BAR_MENU_ID => Mode::MenuBar,
             _ => return,
         };
         set_mode(app, if mode_of(app) == picked { Mode::Off } else { picked });
@@ -400,7 +451,7 @@ fn keep_up(app: &AppHandle) {
         return;
     };
     let mode = state.saved.lock().map(|s| s.mode()).unwrap_or(Mode::Off);
-    if mode != Mode::Off && !panel::on_screen(&bar) {
+    if mode.has_window() && !panel::on_screen(&bar) {
         panel::show(&bar);
     }
     // Docked, the bar follows the notch: a display plugged in or out, the lid closed, the menu
@@ -507,7 +558,7 @@ pub fn peek_frame(app: &AppHandle) -> Option<Rect> {
 /// Whether a point on the screen is on the bar: the floating bar's card, or the docked shape.
 /// On the main thread.
 pub fn covers(app: &AppHandle, p: (f64, f64)) -> bool {
-    is_on(app) && peek_frame(app).is_some_and(|f| f.inset(CARD_MARGIN).contains(p))
+    mode_of(app).has_window() && peek_frame(app).is_some_and(|f| f.inset(CARD_MARGIN).contains(p))
 }
 
 /// A docked shape, given in its window's points from the top left, on the screen with the
@@ -550,12 +601,8 @@ pub fn set_keep_open(app: &AppHandle, keep: bool) {
 
 /// Turns the bar on or off; on, it shows where it last did.
 pub fn set_on(app: &AppHandle, on: bool) {
-    let notch = app.try_state::<Bar>().and_then(|s| s.saved.lock().ok().map(|s| s.notch)).unwrap_or(false);
-    set_mode(app, match (on, notch) {
-        (false, _) => Mode::Off,
-        (true, true) => Mode::Notch,
-        (true, false) => Mode::Floating,
-    });
+    let last = app.try_state::<Bar>().and_then(|s| s.saved.lock().ok().map(|s| s.on())).unwrap_or(Mode::Floating);
+    set_mode(app, if on { last } else { Mode::Off });
 }
 
 /// Moves the bar to the notch or back to where it floated, or turns it off, and tells every
@@ -565,14 +612,11 @@ pub fn set_mode(app: &AppHandle, mode: Mode) {
     let Some(state) = app.try_state::<Bar>() else { return };
     let floating_frame = {
         let Ok(mut saved) = state.saved.lock() else { return };
-        saved.off = mode == Mode::Off;
-        if mode != Mode::Off {
-            saved.notch = mode == Mode::Notch;
-        }
+        saved.set(mode);
         saved.save();
         saved.frame
     };
-    for (item, checked) in [(&state.item, mode == Mode::Floating), (&state.notch_item, mode == Mode::Notch)] {
+    for (item, checked) in [(&state.item, mode == Mode::Floating), (&state.notch_item, mode == Mode::Notch), (&state.menu_bar_item, mode == Mode::MenuBar)] {
         if let Some(item) = item.lock().ok().and_then(|i| i.clone()) {
             let _ = item.set_checked(checked);
         }
@@ -595,8 +639,14 @@ pub fn set_mode(app: &AppHandle, mode: Mode) {
             }
         }
         panel::set_clickable(&bar, true);
+        let in_menu_bar = crate::menubar::show(&handle, mode == Mode::MenuBar);
+        // A desktop with no tray to put the item in: the bar floats instead.
+        if mode == Mode::MenuBar && !in_menu_bar {
+            set_mode(&handle, Mode::Floating);
+            return;
+        }
         match mode {
-            Mode::Off => {
+            Mode::Off | Mode::MenuBar => {
                 let _ = bar.hide();
             }
             Mode::Floating => {
@@ -776,6 +826,30 @@ mod tests {
         let s: Saved = serde_json::from_str(r#"{"notch":true,"screen":"9C4B2D1E-0000-4000-8000-000000000001"}"#).unwrap();
         assert_eq!(s.screen.as_deref(), Some("9C4B2D1E-0000-4000-8000-000000000001"));
         assert_eq!(serde_json::to_value(Mode::Notch).unwrap(), "notch");
+        assert_eq!(serde_json::to_value(Mode::MenuBar).unwrap(), "menubar");
+        let s: Saved = serde_json::from_str(r#"{"notch":true,"menuBar":true}"#).unwrap();
+        assert_eq!(s.mode(), Mode::MenuBar);
+    }
+
+    #[test]
+    fn the_menu_bar_is_a_place_of_its_own_and_the_window_keeps_its_own() {
+        let _mac = crate::os::AsIf::new(crate::os::Os::MacOs);
+        let mut s = Saved::default();
+        s.set(Mode::MenuBar);
+        assert_eq!(s.mode(), Mode::MenuBar);
+        // Turned off and on again, it's back in the menu bar.
+        s.set(Mode::Off);
+        assert_eq!((s.mode(), s.on()), (Mode::Off, Mode::MenuBar));
+        // Leaving the menu bar for the window: where the window was is kept throughout.
+        s.set(Mode::Floating);
+        assert_eq!(s.mode(), Mode::Floating);
+        s.set(Mode::MenuBar);
+        s.set(Mode::Off);
+        s.set(Mode::Notch);
+        assert_eq!((s.mode(), s.on()), (Mode::Notch, Mode::Notch));
+        assert!(!s.menu_bar);
+        assert!(Mode::Floating.has_window() && Mode::Notch.has_window());
+        assert!(!Mode::MenuBar.has_window() && !Mode::Off.has_window());
     }
 
     #[test]
