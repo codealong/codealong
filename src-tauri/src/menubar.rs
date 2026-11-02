@@ -15,8 +15,9 @@
 //! On a Mac its mark is a template, which macOS draws in the menu bar's own colors. On Linux it's
 //! a StatusNotifierItem (libayatana-appindicator) with the app's icon, which opens its menu
 //! however it's clicked. A desktop that shows no tray items (GNOME without its AppIndicator
-//! extension) would show neither it nor the bar, so the bar floats there instead
-//! (`os::windows::tray_shown`), as it does where the tray's library is missing.
+//! extension) would show neither it nor the bar, so the bar floats there for now instead
+//! (`os::windows::tray_shown`, bar.rs `to_menu_bar`), as it does where the tray's library is
+//! missing.
 //!
 //! A server the app runs in itself, its starts as a job of its own having failed, goes when the
 //! app does, so the menu says so and offers no Restart server there.
@@ -215,20 +216,12 @@ pub fn setup(app: &AppHandle) {
 }
 
 /// Puts the item in the menu bar or takes it out, as the bar goes there or leaves. Whether it's
-/// there. On the main thread.
+/// there. Whether the desktop shows tray items at all is asked before, off the main thread
+/// (bar.rs `to_menu_bar`). On the main thread.
 pub fn show(app: &AppHandle, on: bool) -> bool {
     let Some(state) = app.try_state::<MenuBar>() else { return false };
     let Ok(mut tray) = state.tray.lock() else { return false };
     if !on {
-        state.up.store(false, Ordering::Relaxed);
-        if let Some(t) = tray.as_ref() {
-            let _ = t.set_visible(false);
-        }
-        return false;
-    }
-    // A desktop that shows no tray items would leave the bar nowhere: it floats instead (bar.rs).
-    if !crate::os::windows::tray_shown() {
-        eprintln!("This desktop shows no tray items, so the bar floats rather than going to the menu bar.");
         state.up.store(false, Ordering::Relaxed);
         if let Some(t) = tray.as_ref() {
             let _ = t.set_visible(false);

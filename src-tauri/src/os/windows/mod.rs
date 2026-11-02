@@ -18,23 +18,36 @@ mod linux;
 pub use linux::*;
 
 /// Whether the desktop shows the items apps put in its menu bar or tray (menubar.rs). A Mac's
-/// menu bar always does. On Linux an item is a StatusNotifierItem, which only shows while
-/// something on the session bus takes them (KDE's panel, GNOME's with its AppIndicator
-/// extension, most others), asked of D-Bus with `gdbus`, which GLib has wherever GTK is. A
-/// desktop with only an old XEmbed tray is taken for one without.
+/// menu bar always does. On Linux an item is a StatusNotifierItem, shown by a host (KDE's panel,
+/// GNOME's with its AppIndicator extension, most others) that has told the session bus's
+/// StatusNotifierWatcher it's there; a watcher can run with no host, which shows nothing. Asked of
+/// the watcher with `gdbus`, which GLib has wherever GTK is, so it waits on a program: off the
+/// main thread. A desktop with only an old XEmbed tray is taken for one without.
 pub fn tray_shown() -> bool {
     match super::current() {
         Os::MacOs => true,
         Os::Linux => {
-            let asked = ["call", "--session", "--dest", "org.freedesktop.DBus", "--object-path", "/org/freedesktop/DBus", "--method", "org.freedesktop.DBus.NameHasOwner", "org.kde.StatusNotifierWatcher"];
-            crate::procs::run("gdbus", &asked, None, Duration::from_secs(1)).is_ok_and(|answer| has_owner(&answer))
+            let asked = [
+                "call",
+                "--session",
+                "--dest",
+                "org.kde.StatusNotifierWatcher",
+                "--object-path",
+                "/StatusNotifierWatcher",
+                "--method",
+                "org.freedesktop.DBus.Properties.Get",
+                "org.kde.StatusNotifierWatcher",
+                "IsStatusNotifierHostRegistered",
+            ];
+            crate::procs::run("gdbus", &asked, None, Duration::from_secs(2)).is_ok_and(|answer| host_registered(&answer))
         }
     }
 }
 
-/// `gdbus`'s answer to NameHasOwner: `(true,)` or `(false,)`.
-fn has_owner(answer: &str) -> bool {
-    answer.trim() == "(true,)"
+/// `gdbus`'s answer for the watcher's IsStatusNotifierHostRegistered: `(<true>,)` or
+/// `(<false>,)`. With no watcher the call fails, and there's no answer to read.
+fn host_registered(answer: &str) -> bool {
+    answer.trim() == "(<true>,)"
 }
 
 /// What the OS and its webview's drawing side say of a page, as the pointer probe compares them
@@ -54,10 +67,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_tray_is_there_when_its_watcher_has_an_owner() {
-        assert!(has_owner("(true,)\n"));
-        assert!(!has_owner("(false,)\n"));
-        assert!(!has_owner(""));
+    fn a_tray_is_there_when_a_host_is_registered_with_its_watcher() {
+        assert!(host_registered("(<true>,)\n"));
+        assert!(!host_registered("(<false>,)\n"));
+        assert!(!host_registered(""));
         let _mac = crate::os::AsIf::new(Os::MacOs);
         assert!(tray_shown());
     }

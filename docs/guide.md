@@ -2870,7 +2870,8 @@ schedules and your reviews, and Quit Codealong and stop its server does what `co
 stop` does. The icon is there for as long as the app is: quitting takes it away with the app,
 whatever the server does (*Codealong's server*). On Linux it's a tray icon whose menu opens however
 it's clicked, which a desktop without a tray (GNOME without its AppIndicator extension) doesn't
-show; there the bar floats instead.
+show; there the bar floats instead, and goes to the menu bar once a tray shows up within two
+minutes of the app opening or at the next launch.
 
 ### Pin to desktop
 

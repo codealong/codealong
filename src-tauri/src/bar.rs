@@ -53,6 +53,10 @@ const NOTCH_MENU_ID: &str = "notch-bar";
 const MENU_BAR_MENU_ID: &str = "menu-bar-bar";
 /// How often the pointer is looked at while the bar is docked, to take clicks on the shape only.
 const POINTER_EVERY: Duration = Duration::from_millis(40);
+/// How often, and how many times after launch, a desktop that shows no tray items is asked again
+/// while the bar floats in the menu bar's place: a panel can come up after Codealong as you log in.
+const TRAY_EVERY: Duration = Duration::from_secs(10);
+const TRAY_TRIES: u32 = 12;
 /// The bar's size before its page has measured itself.
 const START: (f64, f64) = (240.0, 48.0);
 /// The width of the notch drawn on a screen without one: about the hardware's on a 14-inch
@@ -272,6 +276,9 @@ struct Bar {
     on_shape: AtomicBool,
     /// Docked, it has the keyboard, for the session it shows under its pills.
     keys: AtomicBool,
+    /// In the menu bar by choice, but floating for now: the desktop shows no tray items (yet), or
+    /// the item couldn't be made. `bar.json` keeps the choice for the next launch.
+    instead: AtomicBool,
     /// The notch is being dragged to another screen: how far right of its middle the pointer
     /// went down, and which drag it is, so the look left from an earlier one stops (`drag`).
     moving: Mutex<Option<(f64, u64)>>,
@@ -301,6 +308,7 @@ pub fn setup(app: &AppHandle) -> Result<()> {
         // A new window takes clicks everywhere: the first look lets them through off the shape.
         on_shape: AtomicBool::new(true),
         keys: AtomicBool::new(false),
+        instead: AtomicBool::new(false),
         moving: Mutex::new(None),
         drags: AtomicU64::new(0),
     });
@@ -312,19 +320,12 @@ pub fn setup(app: &AppHandle) -> Result<()> {
     if let Some(r) = start_frame(frame, &panel::screens()) {
         panel::set_frame(&window, r);
     }
-    // A desktop with no tray to put the item in: the bar floats instead.
-    let mode = if mode == Mode::MenuBar && !crate::menubar::show(app, true) {
-        if let Ok(mut saved) = app.state::<Bar>().saved.lock() {
-            saved.set(Mode::Floating);
-            saved.save();
-        }
-        Mode::Floating
-    } else {
-        mode
-    };
     if mode.has_window() {
         place_for(app, &window, mode);
         panel::show(&window);
+    }
+    if mode == Mode::MenuBar {
+        to_menu_bar(app, TRAY_TRIES);
     }
 
     let item = CheckMenuItem::with_id(app, MENU_ID, "Floating bar", true, mode == Mode::Floating, None::<&str>)?;
@@ -450,7 +451,7 @@ fn keep_up(app: &AppHandle) {
     let (Some(bar), Some(state)) = (app.get_webview_window(LABEL), app.try_state::<Bar>()) else {
         return;
     };
-    let mode = state.saved.lock().map(|s| s.mode()).unwrap_or(Mode::Off);
+    let mode = mode_of(app);
     if mode.has_window() && !panel::on_screen(&bar) {
         panel::show(&bar);
     }
@@ -485,7 +486,7 @@ pub fn on_window_event(window: &Window, event: &WindowEvent) {
                 return;
             };
             // Where it floats is what's remembered; docked, it's where the notch is.
-            if state.saved.lock().map(|s| s.mode() != Mode::Floating).unwrap_or(true) {
+            if mode_of(window.app_handle()) != Mode::Floating {
                 return;
             }
             let Some(frame) = panel::frame(&bar) else { return };
@@ -572,9 +573,13 @@ pub fn is_on(app: &AppHandle) -> bool {
     mode_of(app) != Mode::Off
 }
 
-/// Where the bar shows.
+/// Where the bar shows: floating, while it does for now in the menu bar's place.
 pub fn mode_of(app: &AppHandle) -> Mode {
-    app.try_state::<Bar>().and_then(|s| s.saved.lock().ok().map(|s| s.mode())).unwrap_or(Mode::Off)
+    let Some(state) = app.try_state::<Bar>() else { return Mode::Off };
+    match state.saved.lock().map(|s| s.mode()).unwrap_or(Mode::Off) {
+        Mode::MenuBar if state.instead.load(Ordering::Relaxed) => Mode::Floating,
+        mode => mode,
+    }
 }
 
 /// Where the bar shows, with the notch it docks into when it does. On the main thread.
@@ -610,12 +615,64 @@ pub fn set_on(app: &AppHandle, on: bool) {
 /// changed.
 pub fn set_mode(app: &AppHandle, mode: Mode) {
     let Some(state) = app.try_state::<Bar>() else { return };
-    let floating_frame = {
+    state.instead.store(false, Ordering::Relaxed);
+    {
         let Ok(mut saved) = state.saved.lock() else { return };
         saved.set(mode);
         saved.save();
-        saved.frame
-    };
+    }
+    if mode == Mode::MenuBar {
+        to_menu_bar(app, 0);
+    } else {
+        show_as(app, mode);
+    }
+}
+
+/// Puts the bar in the menu bar once the desktop says it shows tray items, which is asked off
+/// the main thread (on Linux it asks D-Bus, `os::windows::tray_shown`). Where it doesn't, or the
+/// item can't be made, the bar floats for now and `bar.json` keeps the menu bar for the next
+/// launch; the desktop is asked again `tries` more times (a panel that comes up after
+/// Codealong as you log in).
+fn to_menu_bar(app: &AppHandle, tries: u32) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let shown = crate::os::windows::tray_shown();
+        let handle = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            let Some(state) = handle.try_state::<Bar>() else { return };
+            // Put somewhere else meanwhile.
+            if state.saved.lock().map(|s| s.mode()).ok() != Some(Mode::MenuBar) {
+                return;
+            }
+            if shown && crate::menubar::show(&handle, true) {
+                state.instead.store(false, Ordering::Relaxed);
+                show_as(&handle, Mode::MenuBar);
+                return;
+            }
+            // menubar.rs says why when it couldn't make the item.
+            if !shown {
+                eprintln!("This desktop shows no tray items, so the bar floats for now rather than going to the menu bar.");
+            }
+            state.instead.store(true, Ordering::Relaxed);
+            show_as(&handle, Mode::Floating);
+            if tries > 0 {
+                let again = handle.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(TRAY_EVERY);
+                    if again.try_state::<Bar>().is_some_and(|s| s.instead.load(Ordering::Relaxed)) {
+                        to_menu_bar(&again, tries - 1);
+                    }
+                });
+            }
+        });
+    });
+}
+
+/// Shows the bar `mode`'s way, which may be for now only (`Bar::instead`), and tells every window
+/// and the Window menu.
+fn show_as(app: &AppHandle, mode: Mode) {
+    let Some(state) = app.try_state::<Bar>() else { return };
+    let floating_frame = state.saved.lock().ok().and_then(|s| s.frame);
     for (item, checked) in [(&state.item, mode == Mode::Floating), (&state.notch_item, mode == Mode::Notch), (&state.menu_bar_item, mode == Mode::MenuBar)] {
         if let Some(item) = item.lock().ok().and_then(|i| i.clone()) {
             let _ = item.set_checked(checked);
@@ -639,11 +696,8 @@ pub fn set_mode(app: &AppHandle, mode: Mode) {
             }
         }
         panel::set_clickable(&bar, true);
-        let in_menu_bar = crate::menubar::show(&handle, mode == Mode::MenuBar);
-        // A desktop with no tray to put the item in: the bar floats instead.
-        if mode == Mode::MenuBar && !in_menu_bar {
-            set_mode(&handle, Mode::Floating);
-            return;
+        if mode != Mode::MenuBar {
+            crate::menubar::show(&handle, false);
         }
         match mode {
             Mode::Off | Mode::MenuBar => {
