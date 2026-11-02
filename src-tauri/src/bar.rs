@@ -279,10 +279,28 @@ struct Bar {
     /// In the menu bar by choice, but floating for now: the desktop shows no tray items (yet), or
     /// the item couldn't be made. `bar.json` keeps the choice for the next launch.
     instead: AtomicBool,
+    /// Which pick of a place is the latest, which alone a move to the menu bar answers for.
+    picks: Picks,
     /// The notch is being dragged to another screen: how far right of its middle the pointer
     /// went down, and which drag it is, so the look left from an earlier one stops (`drag`).
     moving: Mutex<Option<(f64, u64)>>,
     drags: AtomicU64,
+}
+
+/// Counts the places picked for the bar, so a move to the menu bar whose desktop answers after
+/// a later pick (another place, or the menu bar again) is dropped rather than undoing it.
+#[derive(Default)]
+struct Picks(AtomicU64);
+
+impl Picks {
+    /// A place was picked: this is the latest.
+    fn pick(&self) -> u64 {
+        self.0.fetch_add(1, Ordering::Relaxed) + 1
+    }
+
+    fn latest(&self, n: u64) -> bool {
+        self.0.load(Ordering::Relaxed) == n
+    }
 }
 
 impl Bar {
@@ -309,6 +327,7 @@ pub fn setup(app: &AppHandle) -> Result<()> {
         on_shape: AtomicBool::new(true),
         keys: AtomicBool::new(false),
         instead: AtomicBool::new(false),
+        picks: Picks::default(),
         moving: Mutex::new(None),
         drags: AtomicU64::new(0),
     });
@@ -325,7 +344,7 @@ pub fn setup(app: &AppHandle) -> Result<()> {
         panel::show(&window);
     }
     if mode == Mode::MenuBar {
-        to_menu_bar(app, TRAY_TRIES);
+        to_menu_bar(app, app.state::<Bar>().picks.pick(), TRAY_TRIES);
     }
 
     let item = CheckMenuItem::with_id(app, MENU_ID, "Floating bar", true, mode == Mode::Floating, None::<&str>)?;
@@ -615,6 +634,7 @@ pub fn set_on(app: &AppHandle, on: bool) {
 /// changed.
 pub fn set_mode(app: &AppHandle, mode: Mode) {
     let Some(state) = app.try_state::<Bar>() else { return };
+    let pick = state.picks.pick();
     state.instead.store(false, Ordering::Relaxed);
     {
         let Ok(mut saved) = state.saved.lock() else { return };
@@ -622,7 +642,7 @@ pub fn set_mode(app: &AppHandle, mode: Mode) {
         saved.save();
     }
     if mode == Mode::MenuBar {
-        to_menu_bar(app, 0);
+        to_menu_bar(app, pick, 0);
     } else {
         show_as(app, mode);
     }
@@ -632,16 +652,16 @@ pub fn set_mode(app: &AppHandle, mode: Mode) {
 /// the main thread (on Linux it asks D-Bus, `os::windows::tray_shown`). Where it doesn't, or the
 /// item can't be made, the bar floats for now and `bar.json` keeps the menu bar for the next
 /// launch; the desktop is asked again `tries` more times (a panel that comes up after
-/// Codealong as you log in).
-fn to_menu_bar(app: &AppHandle, tries: u32) {
+/// Codealong as you log in). Only for `pick`, while it's the latest place picked.
+fn to_menu_bar(app: &AppHandle, pick: u64, tries: u32) {
     let app = app.clone();
     std::thread::spawn(move || {
         let shown = crate::os::windows::tray_shown();
         let handle = app.clone();
         let _ = app.run_on_main_thread(move || {
             let Some(state) = handle.try_state::<Bar>() else { return };
-            // Put somewhere else meanwhile.
-            if state.saved.lock().map(|s| s.mode()).ok() != Some(Mode::MenuBar) {
+            // Put somewhere else meanwhile, or in the menu bar again by a later pick.
+            if !state.picks.latest(pick) {
                 return;
             }
             if shown && crate::menubar::show(&handle, true) {
@@ -659,8 +679,8 @@ fn to_menu_bar(app: &AppHandle, tries: u32) {
                 let again = handle.clone();
                 std::thread::spawn(move || {
                     std::thread::sleep(TRAY_EVERY);
-                    if again.try_state::<Bar>().is_some_and(|s| s.instead.load(Ordering::Relaxed)) {
-                        to_menu_bar(&again, tries - 1);
+                    if again.try_state::<Bar>().is_some_and(|s| s.picks.latest(pick) && s.instead.load(Ordering::Relaxed)) {
+                        to_menu_bar(&again, pick, tries - 1);
                     }
                 });
             }
@@ -904,6 +924,16 @@ mod tests {
         assert!(!s.menu_bar);
         assert!(Mode::Floating.has_window() && Mode::Notch.has_window());
         assert!(!Mode::MenuBar.has_window() && !Mode::Off.has_window());
+    }
+
+    #[test]
+    fn a_move_to_the_menu_bar_answers_only_for_the_latest_pick() {
+        let picks = Picks::default();
+        // The menu bar, then another place, then the menu bar again: the second move's desktop
+        // answers first, and the first's, answering after, is dropped.
+        let (first, _, again) = (picks.pick(), picks.pick(), picks.pick());
+        assert!(picks.latest(again));
+        assert!(!picks.latest(first));
     }
 
     #[test]
