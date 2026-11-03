@@ -118,6 +118,73 @@
           });
       });
     })
+    .then(function () {
+      if (!picked) return;
+      return clear()
+        .then(function () {
+          type(input(), WORD);
+          return until(function () { return !!rowOf(WORD); }, 5000).catch(function () {});
+        })
+        .then(function () { return rowOf(WORD) ? menuOf(rowOf(WORD)) : []; })
+        .then(function (labels) {
+          check('its menu renames it in Waiting on you, which lists the machine’s sessions', labels.indexOf('Rename…') >= 0, labels.join(' | '));
+          // Waiting on you stops listing other machines' sessions (`[devices] in_bar` off).
+          return window.__TAURI_INTERNALS__.invoke('get_board').then(function (b) {
+            b.devices = Object.assign({}, b.devices, { in_bar: false });
+            window.__emit('board', b);
+            return wait(300);
+          });
+        })
+        .then(function () { return rowOf(WORD) ? menuOf(rowOf(WORD)) : []; })
+        .then(function (labels) {
+          check('with Waiting on you not listing them, its menu has no Rename…', labels.length > 0 && labels.indexOf('Rename…') < 0, labels.join(' | '));
+          var waited = sent('show_waiting').length;
+          var shownBefore = sent('show_main').length;
+          key(input(), { key: 'Tab' });
+          return wait(300).then(function () {
+            var shown = sent('show_main').slice(shownBefore).pop();
+            check('and ⇥ shows it in Codealong instead', sent('show_waiting').length === waited && !!shown && !!shown.reveal && shown.reveal.key === picked.key, JSON.stringify(shown));
+          });
+        });
+    })
+    .then(function () {
+      if (!picked) return;
+      // Archived from its menu, it leaves the search at once, before the machine's next feed says
+      // so, as this machine's own sessions do (useDevices.ts `useDeviceLanes`).
+      type(input(), WORD);
+      return until(function () { return !!rowOf(WORD); }, 5000)
+        .catch(function () {})
+        .then(function () { return rowOf(WORD) ? menuOf(rowOf(WORD)) : []; })
+        .then(function (labels) {
+          var label = labels.filter(function (l) { return /^Archive/.test(l); })[0];
+          check('its menu archives it', !!label, labels.join(' | '));
+          if (!label) return;
+          menuItem(label)();
+          return until(function () { return !rowOf(WORD); }, 3000)
+            .catch(function () {})
+            .then(function () { check('archived, it leaves the search at once', !rowOf(WORD), rows().map(function (r) { return r.textContent.slice(0, 40); }).join(' | ')); });
+        });
+    })
+    .then(function () {
+      if (!spoken) return;
+      // Devices turned off while the panel was put away: the board says so, and the view it read
+      // last still says they're on.
+      return clear()
+        .then(function () {
+          type(input(), SAID);
+          return until(function () { return !!rowOf(SAID); }, 5000).catch(function () {});
+        })
+        .then(function () {
+          check('before devices are turned off, the machine’s session is found', !!rowOf(SAID), rows().map(function (r) { return r.textContent.slice(0, 40); }).join(' | '));
+          return window.__TAURI_INTERNALS__.invoke('get_board');
+        })
+        .then(function (b) {
+          b.devices = Object.assign({}, b.devices, { enabled: false });
+          window.__emit('board', b);
+          return until(function () { return !rowOf(SAID); }, 3000).catch(function () {});
+        })
+        .then(function () { check('with devices off, it isn’t', !rowOf(SAID), rows().map(function (r) { return r.textContent.slice(0, 40); }).join(' | ')); });
+    })
     .catch(function (e) { check('ran', false, String(e)); })
     .then(done);
 })();

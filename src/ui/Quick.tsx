@@ -58,9 +58,10 @@ import {
 } from '../api';
 import { CODEALONG_PROJECT, IMPROVE_PLACEHOLDER, improvePrompt, improveWords, remoteImproveLane, withCodealongProject } from '../improve';
 import { devSetupTask, type AgentTask } from '../agentTasks';
-import { boardAhead, boardView, observe, sendAhead, useAhead } from '../ahead';
+import { boardAhead, sendAhead, useAhead } from '../ahead';
 import { filesToAttach, keepFiles, useFileDrop } from '../attachInput';
 import { deviceLabel, floatingLanes, shortOf } from '../devices';
+import { useDeviceLanes, useObserve } from '../useDevices';
 import { useKeyPerf, usePerf } from '../perf';
 import { showContextMenu, type MenuSpec } from '../contextMenu';
 import { useEditorIcons } from '../editors';
@@ -551,10 +552,15 @@ export function Quick() {
   );
   useEffect(() => (shown ? onDevices(setDevices) : undefined), [shown]);
   usePerf(engineBoard, arrived);
-  // The panel follows the board only while it's up; so does what it knows of its changes.
-  useEffect(() => {
-    if (shown && engineBoard) observe(boardView(engineBoard.generatedAt, [engineBoard.lanes]));
-  }, [shown, engineBoard]);
+  // Your other machines while the board says devices are on: put away, the panel doesn't hear
+  // them turned off, and the view it read last still says they're on.
+  const devicesOn = engineBoard?.devices?.enabled ? devices : null;
+  // Their worktrees, with what any window changed of their sessions that the engine hasn't shown
+  // yet, as this machine's board has them (useDevices.ts).
+  const deviceLanes = useDeviceLanes(devicesOn, ahead);
+  // The panel follows the board only while it's up; so does what it knows of its changes, by
+  // both halves.
+  useObserve(engineBoard, devicesOn, shown && !!engineBoard);
   // Keys typed anywhere in the panel, its reply box included.
   const keyed = useKeyPerf(board?.perfLog ?? false);
   useEffect(() => {
@@ -873,7 +879,7 @@ export function Quick() {
   // A search finds your other machines' sessions too, as the main window lists them, after the
   // same match on the machine a new session would start on (quick.ts `findSessions`). Send to
   // lists this machine's only: what's typed goes to a session here.
-  const machines = useMemo((): Machines => ({ lanes: devices?.enabled ? devices.lanes : [], on: deviceNow }), [devices, deviceNow]);
+  const machines = useMemo((): Machines => ({ lanes: deviceLanes, on: deviceNow }), [deviceLanes, deviceNow]);
   // What was said in sessions is searched in the engine, once typing pauses, and on your other
   // machines in theirs; its hits join the list below the sessions whose titles and the like
   // match. In Send to, it's what's typed in the box that's looked for, and the prompt's own
@@ -1124,9 +1130,10 @@ export function Quick() {
 
   /** Answers a session in the waiting window, which lists another machine's only while it's
    *  connected and `[devices] in_bar` is on (devices.ts `floatingLanes`); one it doesn't list,
-   *  a search may still find, and Codealong shows it instead. */
+   *  a search may still find, and Codealong shows it instead. Renaming is the waiting window's
+   *  alone here, so the menu offers it only where that lists the session (`quickCan`). */
   const inWaiting = (lane: Lane) => !lane.device || floatingLanes(board?.devices, [lane]).length > 0;
-  const answerSession = (lane: Lane, session: Session, rename = false) => (inWaiting(lane) ? answerIn(session.key, rename) : showSession(lane, session));
+  const answerSession = (lane: Lane, session: Session) => (inWaiting(lane) ? answerIn(session.key) : showSession(lane, session));
 
   /** The session ⏎ opens for a todo, as in the main window: its primary one while that runs,
    *  else the live one, else the latest. */
@@ -1204,7 +1211,7 @@ export function Quick() {
       terminal: board?.apps.terminal ?? 'Terminal',
       reveal: () => revealSession(lane, s),
       reply: () => answerSession(lane, s),
-      rename: () => answerSession(lane, s, true),
+      rename: inWaiting(lane) ? () => answerIn(s.key, true) : undefined,
       worktrees: board?.lanes,
       editors: board ? { apps: board.apps, icons } : undefined,
       desktop: onDesktop,
