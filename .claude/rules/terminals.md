@@ -343,7 +343,9 @@ say the rest.
   there, and a newer show dropping it; not the real thread waiting for Rex to come forward, nor
   one ask waiting its turn behind another (`ask`'s lock). On this Mac's Rex a 1 ms wait answered
   late and a 1 s one showed the session; the order of a late select, the window bringing Rex
-  forward, then the ask again, wasn't seen.
+  forward, then the ask again, wasn't seen. The turns and the newest show are each process's
+  own, so the server's ask again and the app's show don't wait for each other (`SHOWS` says
+  when that matters).
 
 - tmux, 2026-10-18: a start while locked going to tmux and its Ghostty tab opening once unlocked,
   seen end to end (each step was, apart); and which app macOS's privacy prompts name for an agent

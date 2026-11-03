@@ -57,11 +57,17 @@ const APP_WAIT: Duration = if cfg!(test) { Duration::from_secs(1) } else { Durat
 /// with 404).
 const ANSWER_WAIT: Duration = Duration::from_secs(1);
 
-/// How long an app that answered late gets to come forward before it isn't asked again (`show`).
-const FRONT_WAIT: Duration = Duration::from_secs(5);
+/// How long an app that answered late gets to come forward before it isn't asked again (`show`):
+/// the windows bring it forward as soon as an open or a start returns, so a longer wait would
+/// only be for something else to, a newer show most likely.
+const FRONT_WAIT: Duration = Duration::from_secs(2);
 
-/// Shows asked for since Codealong started, so one asked again late is dropped once a newer one
-/// was asked for.
+/// Shows asked for since this process started, so one asked again late is dropped once a newer
+/// one was asked for. The server and the app each have their own, as they have their own
+/// `ASKING`: a start the server made, from the command or a phone, that the app didn't bring
+/// forward, can still be asked again over a show the app asked for within `FRONT_WAIT`, if its
+/// app hadn't known the session and the two asks land together. Left so: it needs both, and
+/// another click puts it right.
 pub(super) static SHOWS: AtomicU64 = AtomicU64::new(0);
 
 /// Held while the Rex apps are asked to show a block (`ask`).
