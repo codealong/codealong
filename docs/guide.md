@@ -465,12 +465,14 @@ that as ever. Whichever window comes to the session next (Sessions, the notch, t
 the peek, a session kept on the desktop) shows the side conversation above the box, and the box is
 its, as it is whenever one shows: the open one, or the one that answered if it was closed
 meanwhile. Out in a window of its own, that window comes forward instead, leaving the keyboard
-where it is. It comes up once in a window, so × puts it away for good there until there's another
-answer. An answer that comes in while the session shows leaves the box alone, as you may be typing
-in it, until the window next comes forward. The session stops waiting for it when you mark it seen,
-which also takes away one closed that came up by itself and gives the box back to the session; when
-you send the session a message; when you ask the side conversation something else; or when you
-Close the open one with nothing left to answer. Opening the session where it lives can't show what
+where it is. It comes up once, in whichever window comes to the session first, so × puts it away
+for good, in every window and after Codealong restarts, until there's another answer, even while
+the session can't be marked seen, as when it waits on a question it asked. An answer that comes in
+while the session shows leaves the box alone, as you may be typing in it, until the window next
+comes forward. The session stops waiting for it when you mark it seen, which also takes away one
+closed that came up by itself and gives the box back to the session; when you send the session a
+message; when you ask the side conversation something else; or when you Close the open one with
+nothing left to answer. Opening the session where it lives can't show what
 was answered, so that leaves the session waiting, and doesn't mark it seen as it otherwise would. A
 PR's questions have no session to wait on you.
 

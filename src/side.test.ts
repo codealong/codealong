@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { beingRead, endSide, keptLine, noteSide, showAnswer, showSides, STARTING_MS, takesBox, turnState, viewCodec } from './side';
+import { beingRead, broughtCodec, endSide, keptLine, noteSide, showAnswer, showSides, STARTING_MS, takesBox, turnState, viewCodec } from './side';
 import type { Side, SideKept, SideTurn } from './types';
 
 const turn = (t: Partial<SideTurn>): SideTurn => ({ question: 'why?', answer: '', done: false, ...t });
@@ -69,7 +69,7 @@ describe('showAnswer', () => {
     return beingRead(key);
   };
 
-  it('shows the one that answered once in a window, put away or not', () => {
+  it('shows the one that answered once, put away or not', () => {
     expect(shows(10)).toBe('a');
     expect(shows(10)).toBeNull();
     // Another answer comes up again.
@@ -78,6 +78,38 @@ describe('showAnswer', () => {
 
   it('leaves an open one above the box, where it shows by itself', () => {
     expect(shows(30, true)).toBeNull();
+  });
+
+  it('keeps one put away from coming back in another window, or once the app restarts', async () => {
+    // A session waiting on you for a question it asked can't be seen, so it keeps the answer, and
+    // each window that came to it brought the closed one up again (2026-11-03).
+    const items = new Map<string, string>();
+    vi.stubGlobal('window', { localStorage: { getItem: (k: string) => items.get(k) ?? null, setItem: (k: string, v: string) => void items.set(k, v), removeItem: (k: string) => void items.delete(k) } });
+    /** A window just opened, or the app restarted: side.ts as it loads, with nothing brought up yet. */
+    const opened = async () => {
+      vi.resetModules();
+      return import('./side');
+    };
+    const shownIn = (side: typeof import('./side'), at: number) => {
+      side.showSides(key, null);
+      side.showAnswer(key, { id: 'a', open: false, at });
+      return side.beingRead(key);
+    };
+    expect(shownIn(await opened(), 40)).toBe('a');
+    expect(shownIn(await opened(), 40)).toBeNull();
+    // A later answer comes up, once.
+    expect(shownIn(await opened(), 50)).toBe('a');
+    expect(shownIn(await opened(), 50)).toBeNull();
+    // The way it's written never changes, or one put away comes back with an update.
+    expect(items.get(`codealong.sideanswer.${key}`)).toBe('50');
+    vi.unstubAllGlobals();
+  });
+});
+
+describe('broughtCodec', () => {
+  it('reads back when an answer came, and nothing else', () => {
+    expect(broughtCodec.parse(broughtCodec.format(1793741766496) ?? '')).toBe(1793741766496);
+    for (const raw of ['', 'x', '-5', '1.5', '{"at":5}']) expect(broughtCodec.parse(raw)).toBeUndefined();
   });
 });
 
