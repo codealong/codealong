@@ -19,13 +19,14 @@
 //! See .claude/rules/terminals.md.
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use anyhow::{anyhow, bail, Result};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use super::{app_active, app_installed, close_tty_terminals, focus_on_tty, launcher, pasted, terminal_kind, terminals_beside, tty_of, type_on_tty, Closing, HostKind, Key, Placement, Submit, Tab, Terminal, TerminalHost, Typed};
+use super::{app_active, app_installed, close_tty_terminals, focus_on_tty, launcher, pasted, terminal_kind, terminals_beside, tty_of, type_on_tty, wait_until, Closing, HostKind, Key, Placement, Submit, Tab, Terminal, TerminalHost, Typed};
 use crate::config::NewTerminal;
 use crate::os::open::{self, App};
 use crate::procs;
@@ -54,6 +55,13 @@ const APP_WAIT: Duration = if cfg!(test) { Duration::from_secs(1) } else { Durat
 /// answers late: its answer reaches the server after the deadline (logged as a `client.reply`
 /// with 404).
 const ANSWER_WAIT: Duration = Duration::from_secs(1);
+
+/// How long an app that answered late gets to come forward before it isn't asked again (`show`).
+const FRONT_WAIT: Duration = Duration::from_secs(5);
+
+/// Shows asked for since Codealong started, so one asked again late is dropped once a newer one
+/// was asked for.
+static SHOWS: AtomicU64 = AtomicU64::new(0);
 
 /// The longest label Rex takes for a session or a window.
 const LABEL_CHARS: usize = 128;
@@ -511,20 +519,34 @@ fn shown_session() -> Option<String> {
 /// to the session only with Remote Control on. An app that doesn't answer within `ANSWER_WAIT`
 /// goes there once it does.
 fn show(ids: Value) -> Result<()> {
+    let ticket = SHOWS.fetch_add(1, Ordering::SeqCst) + 1;
     let mut ids = ids;
     if let Some(ids) = ids.as_object_mut() {
         ids.insert("wait_ms".into(), json!(ANSWER_WAIT.as_millis() as u64));
     }
-    let ask = || -> Result<Shown> { Ok(serde_json::from_value(script(SHOW, ids.clone(), false)?).unwrap_or_default()) };
-    let mut shown = ask()?;
+    let ask = |ids: &Value| -> Result<Shown> { Ok(serde_json::from_value(script(SHOW, ids.clone(), false)?).unwrap_or_default()) };
+    let mut shown = ask(&ids)?;
     open::in_app(App::Id(BUNDLE), None, Duration::from_secs(10))?;
+    // Late, it goes there once it gets to the request, unless its list of sessions had fallen
+    // behind and it didn't know this one (SHOW refreshes it and asks again only when told so in
+    // time). So once it's the active app, which wakes it, it's asked again, which costs nothing
+    // where it went: unless a newer show came first, or it isn't brought forward. The windows
+    // bring it forward once the open returns.
+    if shown.shown == 0 && !shown.late.is_empty() && !app_active(BUNDLE) {
+        std::thread::spawn(move || {
+            if wait_until(FRONT_WAIT, || app_active(BUNDLE), || SHOWS.load(Ordering::SeqCst) != ticket) {
+                let _ = ask(&ids);
+            }
+        });
+        return Ok(());
+    }
     // No app was connected: the one just opened is, once it has started. Or the app had every
     // window closed, and refuses any action until it has one: opened again, it makes one, on the
     // session it showed last.
     let started = std::time::Instant::now();
     while shown.shown == 0 && (shown.apps == 0 || !shown.windowless.is_empty()) && started.elapsed() < APP_WAIT {
         std::thread::sleep(Duration::from_millis(500));
-        shown = ask()?;
+        shown = ask(&ids)?;
     }
     if shown.shown > 0 || !shown.late.is_empty() {
         Ok(())

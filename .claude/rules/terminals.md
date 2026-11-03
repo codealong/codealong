@@ -200,13 +200,16 @@ say the rest.
   priority 4 within about 10 s of being covered), and a napped app on a busy Mac answered
   `session.select` in 6 to 8 s, or not within `client.perform`'s default `timeout_ms` of 10 s
   (load near 300, 2026-11-03). The server and its terminals don't nap, so only what the app
-  answers is slow. A request past its `timeout_ms` fails with `code=timeout` (504) and the app
-  still carries it out once it gets to it, its answer logged as a `client.reply` with 404. An
-  `open -g -b` doesn't wake it; coming forward does. So Codealong waits a second for the app,
-  then lets it go there by itself as the window brings Rex forward: `launch/rex.rs`
-  (`ANSWER_WAIT`, `show`). Waiting the 10 s, Attach in Rex looked like it did nothing, and a
-  second click opened a second tab attached to the same job. `defaults write
-  com.superlogical.rex NSAppSleepDisabled -bool YES` stops the naps once the app restarts.
+  answers is slow. A client answers its requests one at a time in the order they came, and a
+  request's `timeout_ms` starts only once it's at the front of that line (Rex's API reference).
+  Past it, the call fails with `code=timeout` (504), the app isn't told, and it still carried
+  the request out once it got to it, its answer logged as a `client.reply` with 404. An `open
+  -g -b` doesn't wake it; coming forward does. So Codealong waits a second for the app, lets it
+  go there by itself as the window brings Rex forward, and asks again once Rex is the active
+  app, for a session its list didn't have yet: `launch/rex.rs` (`ANSWER_WAIT`, `show`). Waiting
+  the 10 s, Attach in Rex looked like it did nothing, and a second click opened a second tab
+  attached to the same job. `defaults write com.superlogical.rex NSAppSleepDisabled -bool YES`
+  stops the naps once the app restarts.
 - The server makes a block's pty with no display to draw in, so it should start one while the
   screen is locked; unchecked with the screen locked. Starts go to Rex then rather than tmux
   (`Terminal::holds_sessions`, `launch.rs` `host_rule`).
@@ -334,6 +337,11 @@ say the rest.
   as Close stale terminals does (stale.rs), hanging up the `sleep` in front of its shell.
 
 ## Unchecked
+
+- Rex, 2026-11-03: asking a napped Rex again once it's in front (`launch/rex.rs` `show`'s
+  thread), which the stage can't play (every app is the active one there). Each half was seen
+  on this Mac's Rex: a 1 ms wait answering late and a 1 s one showing the session; the order of
+  a late select, then the window bringing Rex forward, then the ask again, wasn't.
 
 - tmux, 2026-10-18: a start while locked going to tmux and its Ghostty tab opening once unlocked,
   seen end to end (each step was, apart); and which app macOS's privacy prompts name for an agent
