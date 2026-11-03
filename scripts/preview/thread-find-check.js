@@ -7,7 +7,8 @@
 // the count, ⇧⏎ comes forward, ⌘G and ⇧⌘G step from outside the bar, and Escape closes it,
 // clears the marks, folds the run again and gives the box its keyboard back. ⌘F opens it again
 // with the words ready to type over. A second session says "needle" only two pages back: typing
-// it goes there by itself. Words said nowhere say so. The bar takes the place of the prompt pinned
+// it goes there by itself. Words that go on from one paragraph of a prompt into the next are
+// found there. Words said nowhere say so. The bar takes the place of the prompt pinned
 // over the top while it's open. ⌘F finds where you are (findKeys.ts): from the list it opens the
 // list's find (ListBar.tsx), which Escape puts away, after a click on the conversation it finds
 // there, and with the panel taking the whole window too; ⌥⌘F opens the list's find from the box,
@@ -32,7 +33,7 @@
   };
   var pagesA = {};
   pagesA.newest = page(200, [
-    ['you', 'Prompt 4: where is the lighthouse?'],
+    ['you', 'Prompt 4: look out.\n\nWhere is the lighthouse?'],
     ['agent', long('Four') + '\n\nThe **lighthouse** keeper, the Lighthouse beam and the light**house** at night.'],
     ['tool', 'Read · `src/a.ts`', 't1', 'src/a.ts'], ['result', '', 't1', undefined, 'ok'],
     ['tool', 'Edit · `src/lighthouse.ts`', 't2', 'src/lighthouse.ts'], ['result', '', 't2', undefined, 'ok'],
@@ -222,6 +223,11 @@
     .then(function () {
       // On the one nearest where you were reading, which went back to the second.
       check('marked again, all laid out now, the one nearest in view', / of 7$/.test(count()) && marks('ca-find').length === 7 && inView(), count() + ' ' + marks('ca-find').length);
+      type(field(), 'look out. where is');
+      return counted('1 of 1');
+    })
+    .then(function () {
+      check('words read on from one paragraph of a prompt into the next', count() === '1 of 1' && marks('ca-find-at').length === 1 && within('.ca-thread-you'), count() + ' ' + marks('ca-find-at').length);
       type(field(), 'zqxj');
       return counted('No matches');
     })

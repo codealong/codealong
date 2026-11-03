@@ -1,7 +1,7 @@
 // Just enough Markdown for what agents write back: headings, lists, quotes, fenced code, tables,
 // and **bold**, *italics*, `code` and [links](url) inside lines. Your prompts are drawn with it too,
 // kept as you typed them (`written`): their line breaks and indentation stay, and a glob written
-// without backticks isn't read as italics (`ITALIC`). Built as React elements, never as
+// without backticks isn't read as italics (emphasis.ts). Built as React elements, never as
 // HTML, so nothing in a transcript can put markup on the page. Web links, written as links or bare,
 // open in the browser; a file or an image Codealong keeps (`[name](files/…)`, `![image](images/…)`,
 // as a message sent with attachments refers to them) shows as a chip that opens it, or the image
@@ -24,6 +24,7 @@ import { pathIn, usePathKind, type PathAt } from '../filePaths';
 import { fileMenu } from '../menus';
 import type { PathKind } from '../types';
 import { ATTRS, attrsOf, cardAt, cardFields, cardKind, COMMENT, opensCard, tonesOf, toneLabel, type Card } from '../directives';
+import { BOLD, BOLD_UNDER, ITALIC } from '../emphasis';
 import { tildePath } from '../format';
 import { prLabel, prRefOf } from '../prLinks';
 import { isKeptFile, keptImageOf } from '../todos';
@@ -274,16 +275,6 @@ export function blocks(src: string, written = false): Block[] {
   }
   return out;
 }
-
-/** Bold and italics open at a word's edge, so a glob or a path written without backticks
- *  (`apps/*, libs/*`, `*.ts`, `Button*.tsx`, `src/**`) reads as it's written, as prompts often
- *  have them: the marks come after no letter, slash or other mark, and what they hold starts on
- *  something other than a space or a slash and ends on something other than a space. Italics don't
- *  start on the punctuation a glob goes on with either (`*, `, `*.`), and underscores, which names
- *  are full of, close before no letter too. */
-const BOLD = String.raw`(?<![\w/\\*])\*\*([^\s*/](?:[^*]*[^\s*])?)\*\*`;
-const BOLD_UNDER = String.raw`(?<![\w/\\])__([^\s_/](?:[^_]*[^\s_])?)__(?!\w)`;
-const ITALIC = String.raw`(?<![\w/\\*])\*([^\s*/.,;:!?)\]}](?:[^*]*[^\s*])?)\*`;
 
 /** A line's inline marks, each its own group: code, bold, a link (words, then where), a bare link
  *  in angle brackets, a Codex follow-up (label, then attributes), a file Codex cites, italics, an
@@ -567,13 +558,14 @@ function paragraph(text: string, key: number): ReactNode {
   const out: ReactNode[] = [];
   let words: ReactNode[] = [];
   const said = () => {
-    // The line breaks around an image are what put it on a line of its own.
+    // The line breaks around an image are what put it on a line of its own; the words keep their
+    // indentation, as a prompt's do.
     const edged = words.map((n, j) => {
       if (typeof n !== 'string') return n;
-      const s = j === 0 ? n.trimStart() : n;
-      return j === words.length - 1 ? s.trimEnd() : s;
+      const s = j === 0 ? n.replace(/^\n+/, '') : n;
+      return j === words.length - 1 ? s.replace(/\n+$/, '') : s;
     });
-    if (edged.some((n) => n !== '')) out.push(<p key={`w${out.length}`}>{edged}</p>);
+    if (edged.some((n) => typeof n !== 'string' || n.trim() !== '')) out.push(<p key={`w${out.length}`}>{edged}</p>);
     words = [];
   };
   for (const n of nodes) {

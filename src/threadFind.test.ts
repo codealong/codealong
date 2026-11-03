@@ -39,6 +39,10 @@ describe('plainOf', () => {
   it('keeps the underscores in a name', () => {
     expect(says(findPattern('snake_case_name')!, plainOf('call `snake_case_name` here'))).toBe(true);
   });
+
+  it('leaves the marks it doesn’t draw, as a glob written without backticks', () => {
+    expect(plainOf('Read apps/*, libs/* and src/__tests__, *then* **all of `it`** and __more__.')).toBe('Read apps/*, libs/* and src/__tests__, then all of it and more.');
+  });
 });
 
 describe('shownText', () => {

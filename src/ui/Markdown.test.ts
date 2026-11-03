@@ -217,6 +217,8 @@ describe('emphasis', () => {
     expect(html('**1,204 calls at 09:10 UTC**, about **(40–90)** a minute')).toBe('<strong>1,204 calls at 09:10 UTC</strong>, about <strong>(40–90)</strong> a minute');
     // A word can go on after one, and one can end on a slash, as agents write them.
     expect(html('the **PR**s, **3**x faster, *re*-run')).toBe('the <strong>PR</strong>s, <strong>3</strong>x faster, <em>re</em>-run');
+    // Bold can be part of a word, as Markdown has it.
+    expect(html('the light**house** at night')).toBe('the light<strong>house</strong> at night');
     expect(html('**See tests/** and **The *our* part**')).toBe('<strong>See tests/</strong> and **The <em>our</em> part**');
   });
 
@@ -250,8 +252,10 @@ describe('Markdown', () => {
     const image = /<button type="button" class="ca-desc-img"[^>]*><img[^>]*><\/button>/g;
     const laid = html(`Why is this cut off?\n${shot}\n${shot}\nand this`, true).replace(image, '<image/>');
     expect(laid).toBe('<div class="ca-md is-written"><div class="ca-md-para"><p>Why is this cut off?</p><image/><image/><p>and this</p></div></div>');
-    // Pasted in the middle of a line, as Claude Code's [Image #1] is.
-    expect(html(`Before ${shot} and after`).replace(image, '<image/>')).toBe('<div class="ca-md"><div class="ca-md-para"><p>Before</p><image/><p>and after</p></div></div>');
+    // Pasted in the middle of a line, as Claude Code's [Image #1] is; two side by side.
+    expect(html(`Before ${shot} and after ${shot} ${shot}`).replace(image, '<image/>')).toBe('<div class="ca-md"><div class="ca-md-para"><p>Before </p><image/><p> and after </p><image/><image/></div></div>');
+    // The words keep their indentation.
+    expect(html(`    at load (a.js:1)\n${shot}`, true).replace(image, '<image/>')).toBe('<div class="ca-md is-written"><div class="ca-md-para"><p>    at load (a.js:1)</p><image/></div></div>');
   });
 });
 

@@ -59,11 +59,15 @@ interface Match {
 /** Inside a root but not the conversation's words: the buttons on a code block, what it says
  *  when a run fails. */
 const SKIP = '.ca-codeblock-tools, .ca-codeblock-note, [aria-hidden="true"]';
+/** What a line of a message is laid out in: text in two of them reads with a break between it, as
+ *  the pages further back are counted (threadFind.ts), where their text nodes would run together. */
+const BLOCK = 'p, li, pre, blockquote, td, th, div';
 /** How long typing rests before a query found only further back goes there. */
 const SETTLE_MS = 300;
 
 /** Every match laid out, in the order they read. A match can run across the elements a line is
- *  made of (a word in bold, a link), but not from one root into the next. */
+ *  made of (a word in bold, a link), and from one paragraph or item into the next, as the words
+ *  read across a line break, but not from one root into the next. */
 function matchesIn(scroller: HTMLElement, roots: string, pattern: RegExp): Match[] {
   const out: Match[] = [];
   for (const root of scroller.querySelectorAll(roots)) {
@@ -76,7 +80,11 @@ function matchesIn(scroller: HTMLElement, roots: string, pattern: RegExp): Match
         return skip && root.contains(skip) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
       },
     });
+    let block: Element | null = null;
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const its = node.parentElement?.closest(BLOCK) ?? null;
+      if (nodes.length > 0 && its !== block) text += '\n';
+      block = its;
       nodes.push(node as Text);
       starts.push(text.length);
       text += (node as Text).data;
