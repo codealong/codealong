@@ -50,8 +50,7 @@ pub fn run() -> i32 {
     trim_log();
     perf::arm();
     os::system::no_app_nap();
-    let open = os::system::more_open_files().map_or_else(|| "unknown".to_string(), |n| n.to_string());
-    eprintln!("Codealong's server {} starting: pid {}, engine {ENGINE}, files in {}, open files up to {open}", env!("CARGO_PKG_VERSION"), std::process::id(), util::tilde(&config::support_dir()));
+    eprintln!("Codealong's server {} starting: pid {}, engine {ENGINE}, files in {}", env!("CARGO_PKG_VERSION"), std::process::id(), util::tilde(&config::support_dir()));
     match start() {
         Ok(_ctx) => loop {
             std::thread::park();
@@ -78,6 +77,10 @@ fn trim_log() {
 /// Starts everything the server runs, and the socket last, once there's an engine to answer
 /// with. What's started here runs for the life of the process.
 pub fn start() -> Result<Ctx, String> {
+    // Here rather than in `run`, so the app's own server, when it runs one, gets it too.
+    if os::system::more_open_files().is_none_or(|n| n < 1024) {
+        eprintln!("Codealong's server couldn't raise its limit on open files, which may run out under many agents.");
+    }
     // The files' one server first, then the socket: a server that can't have both starts nothing,
     // so no second engine runs. The lock is kept only once the socket is: a start that couldn't
     // bind (in the app, say) leaves it for the next.
