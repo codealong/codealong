@@ -11,6 +11,16 @@ mod linux;
 #[cfg(target_os = "linux")]
 pub use linux::*;
 
+/// How many descriptors a process holds, of each kind (`open_kinds`).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Kinds {
+    pub files: usize,
+    pub sockets: usize,
+    pub pipes: usize,
+    /// kqueues, epolls, eventfds and the rest.
+    pub other: usize,
+}
+
 /// A process as `ps` lists it: its parent, short name, terminal device and the process group in
 /// the foreground of that terminal.
 pub(crate) struct Listed {

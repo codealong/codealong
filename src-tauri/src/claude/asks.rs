@@ -19,7 +19,9 @@
 //! Each request's way through is written to `asks.log` in Codealong's logs, by the hook and by
 //! the server that holds it (`note`): a request let go is answered only where the session runs,
 //! and the hook's own output goes nowhere, so the log is what says why. Questions that waited in a
-//! terminal had been let go within minutes, with nothing to say why (2026-11-03).
+//! terminal had been let go within minutes, with nothing to say why (2026-11-03): the server had
+//! run out of open files, so it could read neither the session's registry (`no_longer_asked`)
+//! nor open the log.
 
 use std::io::Write;
 use std::os::unix::net::UnixStream;
@@ -33,7 +35,7 @@ use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
 
 use super::conversation::{claude_input, questions_of};
-use super::registry::{registry_of, INPUT_NEEDED, PERMISSION_PROMPT};
+use super::registry::{entry_of, registry_of, Entry, INPUT_NEEDED, PERMISSION_PROMPT};
 use super::transcript::tool_request;
 use crate::model::{Harness, Session, Status};
 use crate::transcript::{clip_input, Item};
@@ -258,13 +260,16 @@ pub fn hold(stream: &mut UnixStream, asked: Asked, watch: Watch, changed: &dyn F
 
 /// Why the session no longer waits on this request, or None while it does: its registry says it
 /// waits on the tool's prompt, and no result for the call has been written since the request came.
+/// An entry that didn't read says nothing either way, and is read again the next time: the
+/// server short of open files (2026-11-03) took every session for gone and let their questions go.
 fn no_longer_asked(w: &Watch, asked: &Asked) -> Option<String> {
     let want = prompt_of(&asked.tool);
-    match registry_of(&w.home, w.pid) {
-        None => return Some(format!("its registry entry (sessions/{}.json) is gone or didn't read", w.pid)),
-        Some(r) if r.session_id != asked.session => return Some(format!("process {} runs session {} now", w.pid, r.session_id)),
-        Some(r) if !r.waits_on(want) => return Some(format!("its registry says {}{}, not waiting on {want}", r.status, r.waiting_for.map(|f| format!(" on {f}")).unwrap_or_default())),
-        Some(_) => {}
+    match entry_of(&w.home, w.pid) {
+        Entry::Gone => return Some(format!("its registry entry (sessions/{}.json) is gone", w.pid)),
+        Entry::Unread => {}
+        Entry::Is(r) if r.session_id != asked.session => return Some(format!("process {} runs session {} now", w.pid, r.session_id)),
+        Entry::Is(r) if !r.waits_on(want) => return Some(format!("its registry says {}{}, not waiting on {want}", r.status, r.waiting_for.map(|f| format!(" on {f}")).unwrap_or_default())),
+        Entry::Is(_) => {}
     }
     call_answered(&w.record, asked, w.from).then(|| "the call's result is in its transcript".to_string())
 }
@@ -688,6 +693,32 @@ mod tests {
         let mut line = String::new();
         std::io::BufRead::read_line(&mut std::io::BufReader::new(&mut hooks), &mut line).unwrap();
         assert_eq!(serde_json::from_str::<Value>(&line).unwrap()["result"], Value::Null);
+    }
+
+    /// Only an entry that's gone says the session's process ended: one that didn't read is read
+    /// again, as the server short of open files couldn't read any (2026-11-03).
+    #[test]
+    fn a_registry_entry_that_didnt_read_isnt_taken_for_the_session_gone() {
+        let home = crate::fixtures::scratch("asks-unread");
+        std::fs::create_dir_all(home.join("sessions")).unwrap();
+        let entry = home.join("sessions/4242.json");
+        let record = home.join("abc.jsonl");
+        std::fs::write(&record, "").unwrap();
+        let (a, _) = parse(&hook("Bash"), 1).unwrap();
+        let w = Watch::new(home.clone(), 4242, record);
+        std::fs::write(&entry, json!({ "pid": 4242, "sessionId": "abc", "cwd": "/r", "status": "waiting", "waitingFor": "permission prompt" }).to_string()).unwrap();
+        assert_eq!(no_longer_asked(&w, &a), None);
+        // Caught halfway through a write.
+        std::fs::write(&entry, r#"{"pid": 4242, "sessionId": "ab"#).unwrap();
+        assert_eq!(no_longer_asked(&w, &a), None);
+        // There, but it won't read (a folder in its place reads as no open files left does).
+        std::fs::remove_file(&entry).unwrap();
+        std::fs::create_dir(&entry).unwrap();
+        assert_eq!(no_longer_asked(&w, &a), None);
+        // Gone: its process ended.
+        std::fs::remove_dir(&entry).unwrap();
+        assert!(no_longer_asked(&w, &a).is_some_and(|why| why.contains("is gone")));
+        let _ = std::fs::remove_dir_all(&home);
     }
 
     #[test]

@@ -193,6 +193,27 @@ pub fn listeners() -> Vec<Listener> {
 }
 
 /// The files it has open: its descriptors that link to a path, not a socket, pipe or the like.
+/// What each of `/proc/<pid>/fd`'s links names: a path, `socket:[…]`, `pipe:[…]`, or an
+/// `anon_inode:` (an eventfd or epoll), counted as the others. Reading the folder takes a
+/// descriptor of its own, which a process out of them doesn't have: then None.
+pub fn open_kinds(pid: u32) -> Option<super::Kinds> {
+    let mut kinds = super::Kinds::default();
+    for fd in std::fs::read_dir(format!("/proc/{pid}/fd")).ok()?.flatten() {
+        let Ok(to) = std::fs::read_link(fd.path()) else { continue };
+        let to = to.to_string_lossy();
+        if to.starts_with('/') {
+            kinds.files += 1;
+        } else if to.starts_with("socket:") {
+            kinds.sockets += 1;
+        } else if to.starts_with("pipe:") {
+            kinds.pipes += 1;
+        } else {
+            kinds.other += 1;
+        }
+    }
+    Some(kinds)
+}
+
 pub fn open_files(pid: u32) -> Option<Vec<PathBuf>> {
     let fds = std::fs::read_dir(format!("/proc/{pid}/fd")).ok()?;
     Some(fds.flatten().filter_map(|fd| std::fs::read_link(fd.path()).ok()).filter(|p| p.is_absolute()).collect())

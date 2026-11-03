@@ -134,7 +134,29 @@ fn remote_control_id(id: &str) -> bool {
 /// moved away, a spare and a side conversation's copy have one too, and only `read_registry`
 /// leaves them out.
 pub fn registry_of(home: &Path, pid: u32) -> Option<RegistryEntry> {
-    parse_registry(&std::fs::read_to_string(home.join("sessions").join(format!("{pid}.json"))).ok()?)
+    match entry_of(home, pid) {
+        Entry::Is(r) => Some(r),
+        Entry::Gone | Entry::Unread => None,
+    }
+}
+
+/// What the registry says of the process `pid` now.
+pub enum Entry {
+    Is(RegistryEntry),
+    /// Its file isn't there: the process ended.
+    Gone,
+    /// Its file is there but didn't read whole, which says nothing of the process: one caught
+    /// halfway through a write, or a reader short of open files.
+    Unread,
+}
+
+/// `registry_of`, telling an entry that's gone from one that didn't read.
+pub fn entry_of(home: &Path, pid: u32) -> Entry {
+    match std::fs::read_to_string(home.join("sessions").join(format!("{pid}.json"))) {
+        Ok(text) => parse_registry(&text).map_or(Entry::Unread, Entry::Is),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Entry::Gone,
+        Err(_) => Entry::Unread,
+    }
 }
 
 /// A live session's entry, while its process is still that session's.

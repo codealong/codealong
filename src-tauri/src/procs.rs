@@ -16,7 +16,7 @@ use crate::util::{home, now_ms};
 
 // The kernel's process table (os/procs).
 use crate::os::procs::listed;
-pub use crate::os::procs::{cwd_of, environment, listeners, open_files, parent_pid, proc_start_ms, tty};
+pub use crate::os::procs::{cwd_of, environment, listeners, open_files, open_kinds, parent_pid, proc_start_ms, tty};
 
 pub fn pid_alive(pid: u32) -> bool {
     if pid == 0 {
@@ -745,6 +745,18 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         // Launchd's files aren't yours to read.
         assert_eq!(open_files(1), None);
+    }
+
+    /// A `cat` reading a pipe and writing another holds those two and /dev/null for its errors.
+    #[test]
+    fn a_processes_descriptors_are_counted_by_kind() {
+        let mut cat = std::process::Command::new("cat").stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().unwrap();
+        let kinds = open_kinds(cat.id());
+        let _ = cat.kill();
+        let _ = cat.wait();
+        let kinds = kinds.unwrap();
+        assert!(kinds.pipes >= 2 && kinds.files >= 1, "{kinds:?}");
+        assert_eq!(open_kinds(1), None);
     }
 
     #[test]

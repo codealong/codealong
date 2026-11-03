@@ -203,6 +203,25 @@ fn list_fds(pid: libc::c_int, fds: &mut Vec<libc::proc_fdinfo>) -> bool {
     }
 }
 
+/// How many descriptors one of your processes holds of each kind, from the kernel, opening none
+/// itself: what a server that ran out of them was holding (server.rs `out_of_files`).
+pub fn open_kinds(pid: u32) -> Option<super::Kinds> {
+    let mut fds = Vec::new();
+    if !list_fds(pid as libc::c_int, &mut fds) {
+        return None;
+    }
+    let mut kinds = super::Kinds::default();
+    for fd in &fds {
+        match fd.proc_fdtype as libc::c_int {
+            libc::PROX_FDTYPE_VNODE => kinds.files += 1,
+            libc::PROX_FDTYPE_SOCKET => kinds.sockets += 1,
+            libc::PROX_FDTYPE_PIPE => kinds.pipes += 1,
+            _ => kinds.other += 1,
+        }
+    }
+    Some(kinds)
+}
+
 /// The files one of your processes has open, from the kernel, starting no `lsof`. None when the
 /// kernel doesn't answer: another user's process, or one that has gone.
 pub fn open_files(pid: u32) -> Option<Vec<std::path::PathBuf>> {

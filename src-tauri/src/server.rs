@@ -371,7 +371,34 @@ fn connection(stream: UnixStream, ctx: &Ctx) {
     });
     if let Err(e) = result {
         eprintln!("Couldn't answer a codealong command: {e}");
+        if e.raw_os_error() == Some(libc::EMFILE) {
+            out_of_files();
+        }
     }
+}
+
+/// Says once, in the server's log, what it held as it first ran out of open files, read from the
+/// kernel, since what held them is gone by the time anyone looks: on 2026-11-03 servers ran out
+/// within minutes, and the questions their hooks handed over went back to their terminals.
+fn out_of_files() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static SAID: AtomicBool = AtomicBool::new(false);
+    if SAID.swap(true, Ordering::Relaxed) {
+        return;
+    }
+    let pid = std::process::id();
+    let Some(k) = crate::procs::open_kinds(pid) else {
+        eprintln!("Out of open files, and what holds them didn't read.");
+        return;
+    };
+    let mut held: std::collections::HashMap<PathBuf, usize> = std::collections::HashMap::new();
+    for path in crate::procs::open_files(pid).unwrap_or_default() {
+        *held.entry(path).or_default() += 1;
+    }
+    let mut most: Vec<(PathBuf, usize)> = held.into_iter().collect();
+    most.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    let most: Vec<String> = most.iter().take(5).map(|(p, n)| format!("{} ×{n}", crate::util::tilde(p))).collect();
+    eprintln!("Out of open files: {} sockets, {} files, {} pipes, {} other; the files held most: {}.", k.sockets, k.files, k.pipes, k.other, most.join(", "));
 }
 
 /// The socket exchange, with the app's actions supplied by `connection`.

@@ -50,7 +50,8 @@ pub fn run() -> i32 {
     trim_log();
     perf::arm();
     os::system::no_app_nap();
-    eprintln!("Codealong's server {} starting: pid {}, engine {ENGINE}, files in {}", env!("CARGO_PKG_VERSION"), std::process::id(), util::tilde(&config::support_dir()));
+    let open = os::system::more_open_files().map_or_else(|| "unknown".to_string(), |n| n.to_string());
+    eprintln!("Codealong's server {} starting: pid {}, engine {ENGINE}, files in {}, open files up to {open}", env!("CARGO_PKG_VERSION"), std::process::id(), util::tilde(&config::support_dir()));
     match start() {
         Ok(_ctx) => loop {
             std::thread::park();

@@ -131,9 +131,13 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   instead; Escape typed through `attach` declines them ("User rejected tool use") and ends the
   turn (Haiku and Opus 5.5 jobs, 2026-10-19). The record has them while an Opus 5.5 job's
   transcript doesn't, and when the plugin's hook went away before they were answered (seen once,
-  across an app relaunch and a plugin update, cause not found; again on 2026-11-03 in a terminal
-  session, within eight minutes and before any relaunch, which `asks.log` now explains when it
-  happens): `claude/registry.rs` (`job_questions`), `claude/mod.rs` (`job_pending`,
+  across an app relaunch and a plugin update, cause not found; on 2026-11-03 again and again,
+  most of them background jobs, because the server had run out of open files: launchd's 256,
+  "Too many open files" in `server.log`, so a held request's registry didn't read and was taken
+  for gone, and `asks.log` had the hook's side alone. The server raises its limit now
+  (`os::system::more_open_files`), a registry entry that doesn't read is read again
+  (`registry::entry_of`), and the first time a server runs out it logs what it held, by kind
+  (`server.rs` `out_of_files`), since what ran it out wasn't caught): `claude/registry.rs` (`job_questions`), `claude/mod.rs` (`job_pending`,
   `answer_job_questions`). Several are answered with the dialog's keys (questions.rs) typed
   through `attach` once the transcript has the call: two Haiku 5.5 jobs on 2.1.317 took a pick,
   ticks and words of your own that way (2026-11-03). Still on 2.1.317, `block` says no more than
