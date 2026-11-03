@@ -71,7 +71,7 @@ enum Cmd {
         #[arg(long)]
         usage: bool,
     },
-    /// The services the accounts' agents reach through MCP servers and connectors (claude.ai's connectors, ChatGPT's apps, the servers an account's settings and plugins add), each once, with the accounts a session can start on that reach it, the one Auto would start first. A session reaches only its own account's: for a service yours doesn't, start a helper on an account that does (`codealong start --helper --account <account>`) and have it answer in a few lines. The app reads them at launch and every hour; an account it hasn't read yet is read here.
+    /// The services the accounts' agents reach through MCP servers and connectors (claude.ai's connectors, ChatGPT's apps, the servers an account's settings and plugins add), each once, with the accounts a session can start on that reach it, the one Auto would start first, and the model it would start it on when that isn't the account's default (`model`). A session reaches only its own account's: for a service yours doesn't, start a helper on an account that does (`codealong start --helper --account <account>`, with `--model <model>` when one is named) and have it answer in a few lines. The app reads them at launch and every hour; an account it hasn't read yet is read here.
     Mcp {
         /// Only the services with this in their names (`slack`, `drive`), with their tools.
         service: Option<String>,
@@ -3202,6 +3202,11 @@ struct ServiceRow {
     name: String,
     /// The accounts a session can start on that reach it, the one Auto would start first.
     accounts: Vec<String>,
+    /// The model Auto would start the first of them on, when it isn't that account's default
+    /// (its default's limit nearly used, say): a start with `--account` takes it only as
+    /// `--model`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    model: Option<String>,
     /// Only when a service was named or `--tools` given: they're most of what there is to say.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     tools: Vec<String>,
@@ -3227,7 +3232,14 @@ fn mcp(c: &mut Client, service: Option<&str>, tools: bool, json: bool) -> Result
         return print_json(&out);
     }
     let with_tools = tools || service.is_some();
-    let rows: Vec<Vec<String>> = out.services.iter().map(|s| vec![s.name.clone(), s.accounts.join(", "), s.tools.join(", ")]).collect();
+    let accounts = |s: &ServiceRow| {
+        let mut names = s.accounts.clone();
+        if let (Some(first), Some(model)) = (names.first_mut(), &s.model) {
+            *first = format!("{first} ({model})");
+        }
+        names.join(", ")
+    };
+    let rows: Vec<Vec<String>> = out.services.iter().map(|s| vec![s.name.clone(), accounts(s), s.tools.join(", ")]).collect();
     let head: &[&str] = if with_tools { &["SERVICE", "ACCOUNTS", "TOOLS"] } else { &["SERVICE", "ACCOUNTS"] };
     print!("{}", table_text(head, rows));
     for n in &out.notes {
@@ -3259,7 +3271,7 @@ fn mcp_out(services: Vec<crate::route::Service>, notes: Vec<McpNote>, query: Opt
     let services = services
         .into_iter()
         .filter(|s| named(s))
-        .map(|s| ServiceRow { name: s.name, accounts: s.accounts, tools: if tools || query.is_some() { s.tools } else { Vec::new() } })
+        .map(|s| ServiceRow { name: s.name, accounts: s.accounts, model: s.model, tools: if tools || query.is_some() { s.tools } else { Vec::new() } })
         .collect();
     Ok(McpOut { services, notes })
 }
@@ -8400,6 +8412,9 @@ mod tests {
         assert_eq!(names(&all), [("Gmail".into(), "claude codex".into(), 0), ("Google Calendar".into(), "claude".into(), 0), ("Slack".into(), "atlas".into(), 0)]);
         assert_eq!(serde_json::to_value(&all).unwrap()["services"][0], json!({ "name": "Gmail", "accounts": ["claude", "codex"] }));
         assert_eq!(mcp_out(services(), Vec::new(), None, true).unwrap().services[2].tools, ["slack_read_channel"]);
+        // The model Auto would start the first account on goes with it, for `--model`.
+        let fallback = crate::route::Service { model: Some("opus".into()), ..reached("Slack", &["atlas", "claude"], &[]) };
+        assert_eq!(serde_json::to_value(mcp_out(vec![fallback], Vec::new(), None, false).unwrap()).unwrap()["services"][0], json!({ "name": "Slack", "accounts": ["atlas", "claude"], "model": "opus" }));
         // Part of a name, written any way, finds it, with its tools.
         let calendar = mcp_out(services(), Vec::new(), Some("google-calendar"), false).unwrap();
         assert_eq!(names(&calendar), [("Google Calendar".into(), "claude".into(), 1)]);

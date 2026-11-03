@@ -440,8 +440,9 @@ Each account's agents reach their own MCP servers and connectors (Slack on one, 
 another), and you can call only your account's. When a task needs a service you have no tool
 for, `codealong mcp <service>` (any part of its name) lists the accounts that reach it, the one
 Auto would start first, with its tools; `codealong mcp` alone lists every service. Rather than
-telling your user you can't, start a helper on one of those accounts (`--account`) and ask it
-for just what you need, answered in a few lines: the service's tools and what they return
+telling your user you can't, start a helper on one of those accounts (`--account`, and
+`--model` when the service names a `model`, the one Auto would start the first account on) and
+ask it for just what you need, answered in a few lines: the service's tools and what they return
 stay in its context, not yours. Have it only read, unless your user asked for something sent
 or changed there. Its first call to the service may wait on your user to allow it. Say which
 account's service you used. Your own account listed means a tool you haven't found (Claude

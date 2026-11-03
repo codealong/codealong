@@ -35,11 +35,13 @@ Commands:
   mcp        The services the accounts' agents reach through MCP servers and connectors
              (claude.ai's connectors, ChatGPT's apps, the servers an account's settings
              and plugins add), each once, with the accounts a session can start on that
-             reach it, the one Auto would start first. A session reaches only its own
-             account's: for a service yours doesn't, start a helper on an account that
-             does (`codealong start --helper --account <account>`) and have it answer in
-             a few lines. The app reads them at launch and every hour; an account it
-             hasn't read yet is read here
+             reach it, the one Auto would start first, and the model it would start it
+             on when that isn't the account's default (`model`). A session reaches only
+             its own account's: for a service yours doesn't, start a helper on an
+             account that does (`codealong start --helper --account <account>`, with
+             `--model <model>` when one is named) and have it answer in a few lines. The
+             app reads them at launch and every hour; an account it hasn't read yet is
+             read here
   tokens     What sessions on this Mac used and cost, from the app's token ledger:
              tokens, what they'd cost at API prices, and what was paid (each account's
              plan, its `monthly` in config.toml, a day's share at a time; Claude's extra
@@ -331,10 +333,11 @@ Options:
 The services the accounts' agents reach through MCP servers and connectors (claude.ai's
 connectors, ChatGPT's apps, the servers an account's settings and plugins add), each
 once, with the accounts a session can start on that reach it, the one Auto would start
-first. A session reaches only its own account's: for a service yours doesn't, start a
-helper on an account that does (`codealong start --helper --account <account>`) and have
-it answer in a few lines. The app reads them at launch and every hour; an account it
-hasn't read yet is read here
+first, and the model it would start it on when that isn't the account's default
+(`model`). A session reaches only its own account's: for a service yours doesn't, start
+a helper on an account that does (`codealong start --helper --account <account>`, with
+`--model <model>` when one is named) and have it answer in a few lines. The app reads
+them at launch and every hour; an account it hasn't read yet is read here
 
 Usage: codealong mcp [OPTIONS] [SERVICE]
 
