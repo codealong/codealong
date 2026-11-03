@@ -1164,6 +1164,9 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
   const note = told ?? (failed ? { text: failed.why, error: true } : null);
   // Asked again when its line changes too: what it asks can reach Codealong a moment after the
   // session says it waits (the plugin's hook, a background job's record), and the line says so.
+  // And when it does something while it waits, which can leave its line as it was: a background
+  // job's report lets out the question its transcript held back, and with it the questions can be
+  // answered here.
   useEffect(() => {
     let live = true;
     sessionPending(s.key)
@@ -1172,7 +1175,7 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
     return () => {
       live = false;
     };
-  }, [s.key, s.statusSince, s.excerpt]);
+  }, [s.key, s.statusSince, s.excerpt, s.lastActivity]);
 
   /** Answers the call; resolves with why that didn't go, or null once it did. A deny with
    *  `message` tells it what to do instead. One that lets it go on shows it working at once, so

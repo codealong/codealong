@@ -4,10 +4,13 @@
 // a question call by its headers and, opened, shows an earlier call's questions with your picks.
 //   PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/questions-elsewhere-check.js
 // As PREVIEW_INIT (with PREVIEW_NAME=questions-elsewhere) it leaves the panel open, the answered
-// call opened, for a screenshot.
+// call opened, for a screenshot. Then the session does something that leaves its line as it was
+// (a background job's report lets out the call its transcript held back) and can be answered
+// here now: the panel asks again and offers Answer.
 (function () {
   localStorage.setItem('codealong.project', 'All projects');
   var picked = null;
+  var boardNow = null;
   var earlier = [
     { question: 'Which record should the new check read?', header: 'INR-AAR', options: [
       { label: 'Lesson status (Recommended)', description: 'Each lesson line ends with `done: <link>` or `due: YYYY-MM-DD`; a repo check fails on one with neither.' },
@@ -61,10 +64,12 @@
           s.asks = false;
           s.hosted = false;
           s.live = true;
+          s.lastActivity = s.statusSince;
           s.excerpt = pending.label;
           picked = { key: s.key, lane: l.id };
         });
       });
+      boardNow = board;
       return board;
     });
   };
@@ -110,6 +115,18 @@
       var pickedText = Array.prototype.map.call(done.querySelectorAll('li.is-picked'), function (li) { return text(li.querySelector('.ca-question-opt')); });
       check('your picks marked', pickedText.join('|') === 'Lesson status (Recommended)|Mon|Fri', pickedText.join('|'));
       if (window.__questions_screenshot) done.scrollIntoView({ block: 'start' });
+    })
+    .then(function () {
+      if (window.__questions_screenshot) return;
+      pending = Object.assign({}, pending, { cannot: null });
+      var b = JSON.parse(JSON.stringify(boardNow));
+      b.lanes.forEach(function (l) { l.sessions.forEach(function (s) { if (s.key === picked.key) s.lastActivity += 5000; }); });
+      window.__emit('board', b);
+      // Its questions go one at a time, each with Decline.
+      var decline = function () { return Array.prototype.filter.call(document.querySelectorAll('.ca-sessinsp .ca-composer.is-questions button'), function (x) { return text(x) === 'Decline'; })[0]; };
+      return until(function () { return !box() && decline(); }, 5000).then(function () {
+        check('answerable once it can be', !!decline() && document.querySelectorAll('.ca-sessinsp .ca-question-choice').length === 2);
+      });
     })
     .then(done)
     .catch(stopped);
