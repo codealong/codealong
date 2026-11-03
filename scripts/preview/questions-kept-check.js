@@ -1,9 +1,10 @@
 // Checks that your answers to the questions a session asks are kept as you go (drafts.ts
 // `AnswersDraft`, SessionReply.tsx `Questions`): picks, your own words and the question you were
 // on are there again as you go to another session and back, show as another window writes them
-// (and empties them), stay when the same questions are asked again under another id (as after a
-// server restart), are taken over by newer picks after an answer that didn't go, start afresh for
-// other questions, and go once the call is answered.
+// (and empties them), start afresh for another call though it asks the same and for the call's
+// questions offering other choices, are taken over by newer picks after an answer that didn't go,
+// and go once the call is answered. That a question keeps its id through a server restart is
+// claude/asks.rs's (`request_id`).
 //   PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/questions-kept-check.js
 (function () {
   localStorage.setItem('codealong.project', 'All projects');
@@ -87,7 +88,8 @@
     else localStorage.removeItem(name);
     window.dispatchEvent(new StorageEvent('storage', { key: name, newValue: value }));
   };
-  var asked = function () { return pending.questions.map(function (x) { return x.question; }).join('\n'); };
+  // The questions as answers are kept for (drafts.ts `askedAs`).
+  var asked = function () { return JSON.stringify(pending.questions.map(function (x) { return [x.question, !!x.multiSelect, x.options.map(function (o) { return o.label; })]; })); };
   var answerButton = function () { return q('.ca-composer-foot .ca-btn--primary', box()); };
   var away = function () {
     press(otherRow());
@@ -112,7 +114,7 @@
       choice('Tue').click();
       type(own(), 'mornings only');
       var k = kept() || {};
-      check('your answers are kept as you go', k.asked === asked() && k.at === 1 && JSON.stringify(k.picks) === JSON.stringify({ 'Which color do you prefer?': ['Red'], 'Which days suit you?': ['Tue'] }) && k.own['Which days suit you?'] === 'mornings only', stored());
+      check('your answers are kept as you go', k.call === pending.id && k.asked === asked() && k.at === 1 && JSON.stringify(k.picks) === JSON.stringify({ 'Which color do you prefer?': ['Red'], 'Which days suit you?': ['Tue'] }) && k.own['Which days suit you?'] === 'mornings only', stored());
       return away();
     })
     .then(function () {
@@ -126,18 +128,12 @@
     .then(function () {
       check('its pick is kept too', on(choice('Red')) && !on(choice('Blue')));
       // Another window picks Blue.
-      fromThere({ asked: asked(), picks: { 'Which color do you prefer?': ['Blue'], 'Which days suit you?': ['Tue'] }, own: { 'Which color do you prefer?': '', 'Which days suit you?': 'mornings only' }, at: 0 });
+      fromThere({ call: pending.id, asked: asked(), picks: { 'Which color do you prefer?': ['Blue'], 'Which days suit you?': ['Tue'] }, own: { 'Which color do you prefer?': '', 'Which days suit you?': 'mornings only' }, at: 0 });
       return until(function () { return on(choice('Blue')); }, 2000, 'another window’s pick');
     })
     .then(function () {
       check('what another window picks shows here', on(choice('Blue')) && !on(choice('Red')));
       check('and isn’t written back', kept().picks['Which color do you prefer?'][0] === 'Blue', stored());
-      // The same questions asked again under another id, as the hook asks a restarted server.
-      pending = Object.assign({}, pending, { id: 'ask-1' });
-      return away();
-    })
-    .then(function () {
-      check('the same questions asked again keep them', on(choice('Blue')) && /Which color/.test(showing()), showing());
       // Another window takes everything back, on the first question.
       fromThere(null);
       return until(function () { return !on(choice('Blue')); }, 2000, 'another window emptying them');
@@ -145,17 +141,35 @@
     .then(function () {
       check('what another window empties empties here', !on(choice('Red')) && !q('svg', steps()[1]));
       check('and nothing is written back', stored() === null, stored());
-      // Something picked, then other questions, once these are answered where it runs.
-      choice('Red').click();
-      return until(function () { return !!stored(); }, 2000, 'Red kept');
+      // Something picked, then another call asking the same, once this one's answered where it runs.
+      choice('Blue').click();
+      return until(function () { return !!stored(); }, 2000, 'Blue kept');
     })
     .then(function () {
-      pending = Object.assign({}, pending, { id: 'ask-2', questions: [{ question: 'Which shade do you prefer?', header: 'Shade', options: [{ label: 'Red' }, { label: 'Blue' }] }, pending.questions[1]] });
+      pending = Object.assign({}, pending, { id: 'ask-22' });
       return away();
     })
     .then(function () {
-      check('other questions start afresh', /Which shade/.test(showing()) && !on(choice('Red')) && !on(choice('Blue')) && !q('svg', steps()[0]) && !q('svg', steps()[1]), showing());
-      check('and the last ones’ answers go', stored() === null, stored());
+      check('another call starts afresh, though it asks the same', /Which color/.test(showing()) && !on(choice('Red')) && !on(choice('Blue')) && !q('svg', steps()[0]), showing());
+      check('and the last call’s answers go', stored() === null, stored());
+      choice('Blue').click();
+      return until(function () { return !!stored(); }, 2000, 'Blue kept');
+    })
+    .then(function () {
+      // The call's questions offering other choices: Blue isn't one to send.
+      pending = Object.assign({}, pending, { questions: [{ question: 'Which color do you prefer?', header: 'Color', options: [{ label: 'Green' }, { label: 'Yellow' }] }, pending.questions[1]] });
+      return away();
+    })
+    .then(function () {
+      check('other choices start afresh', /Which color/.test(showing()) && !!choice('Green') && !on(choice('Green')) && !on(choice('Yellow')) && !q('svg', steps()[0]), showing());
+      check('and nothing is ready to answer', answerButton().textContent.trim().indexOf('Next') === 0 || answerButton().disabled, answerButton().textContent);
+      check('and the answers to the others go', stored() === null, stored());
+      // Another call.
+      pending = Object.assign({}, pending, { id: 'ask-23', questions: [{ question: 'Which shade do you prefer?', header: 'Shade', options: [{ label: 'Red' }, { label: 'Blue' }] }, pending.questions[1]] });
+      return away();
+    })
+    .then(function () {
+      check('the next call’s questions show', /Which shade/.test(showing()) && !on(choice('Red')), showing());
       // An answer that doesn't go, then a change: the change is what's kept.
       choice('Red').click();
       return until(function () { return /Which days/.test(showing()); }, 2000, 'the second question');

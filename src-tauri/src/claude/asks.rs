@@ -27,12 +27,12 @@ use std::io::Write;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{channel, RecvTimeoutError, Sender};
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 
 use super::conversation::{claude_input, questions_of};
 use super::registry::{entry_of, registry_of, Entry, INPUT_NEEDED, PERMISSION_PROMPT};
@@ -75,7 +75,6 @@ struct Held {
 }
 
 static HELD: Mutex<Vec<Held>> = Mutex::new(Vec::new());
-static NEXT: AtomicU64 = AtomicU64::new(1);
 
 fn held() -> std::sync::MutexGuard<'static, Vec<Held>> {
     HELD.lock().unwrap_or_else(|e| e.into_inner())
@@ -104,7 +103,7 @@ pub fn parse(hook: &Value, at: i64) -> Option<(Asked, PathBuf)> {
         return None;
     }
     let asked = Asked {
-        id: format!("ask-{}", NEXT.fetch_add(1, Ordering::Relaxed)),
+        id: request_id(hook, at),
         session: s("session_id")?,
         agent: s("agent_id"),
         tool,
@@ -114,6 +113,36 @@ pub fn parse(hook: &Value, at: i64) -> Option<(Asked, PathBuf)> {
     };
     let transcript = s("transcript_path").map(|p| call_record(Path::new(&p), asked.agent.as_deref())).unwrap_or_default();
     Some((asked, transcript))
+}
+
+/// Codealong's id for a request, from the request and when its hook was run (`at`, which the hook
+/// sends each time it asks): the same when the hook asks a server that started again meanwhile, so
+/// a window keeping your answers to its questions still has them (drafts.ts `AnswersDraft`), and
+/// another for a later request that asks the same. A counter in the server numbered them from 1
+/// each time it started, so a question asked again got another number, and a later one an
+/// earlier one's. Two the same within a millisecond (parallel calls) are told apart as they're
+/// held (`unique`).
+fn request_id(hook: &Value, at: i64) -> String {
+    let mut h = Sha256::new();
+    for k in ["session_id", "agent_id", "tool_name", "tool_input"] {
+        h.update(hook.get(k).map(Value::to_string).unwrap_or_default().as_bytes());
+        h.update([0]);
+    }
+    h.update(at.to_string().as_bytes());
+    let id: String = h.finalize().iter().take(8).map(|b| format!("{b:02x}")).collect();
+    format!("ask-{id}")
+}
+
+/// The request with an id no other held request has: a second one the same, asked in the same
+/// millisecond, gets the next free one after it.
+fn unique(mut asked: Asked, held: &[Held]) -> Asked {
+    let base = asked.id.clone();
+    let mut n = 2;
+    while held.iter().any(|h| h.asked.id == asked.id) {
+        asked.id = format!("{base}-{n}");
+        n += 1;
+    }
+    asked
 }
 
 /// Where the call is written: the session's transcript, or its subagent's log beside it
@@ -222,8 +251,13 @@ const GRACE: Duration = Duration::from_secs(4);
 /// board should show it, or stop.
 pub fn hold(stream: &mut UnixStream, asked: Asked, watch: Watch, changed: &dyn Fn()) {
     let (tx, rx) = channel();
+    let asked = {
+        let mut held = held();
+        let asked = unique(asked, &held);
+        held.push(Held { asked: asked.clone(), tx });
+        asked
+    };
     let id = asked.id.clone();
-    held().push(Held { asked: asked.clone(), tx });
     note(Side::Server, &asked, &format!("held as {id}, for process {}", watch.pid));
     changed();
     let start = Instant::now();
@@ -557,6 +591,15 @@ mod tests {
     fn reads_a_hooks_request_and_leaves_questions_and_plans_to_the_prompt() {
         let (a, record) = parse(&hook("Bash"), 5).unwrap();
         assert_eq!((a.session.as_str(), a.tool.as_str(), a.agent, a.at), ("abc", "Bash", None, 5));
+        // Its id is the same each time its hook asks, a server that started again included, and
+        // another request's, the same one asked again later included.
+        assert!(a.id.starts_with("ask-") && is_ask_id(&a.id));
+        assert_eq!(parse(&hook("Bash"), 5).unwrap().0.id, a.id);
+        assert_ne!(parse(&hook("Bash"), 6).unwrap().0.id, a.id);
+        assert_ne!(parse(&hook("Edit"), 5).unwrap().0.id, a.id);
+        let mut other = hook("Bash");
+        other["session_id"] = json!("abd");
+        assert_ne!(parse(&other, 5).unwrap().0.id, a.id);
         assert_eq!(a.suggestions.len(), 1);
         assert_eq!(record, PathBuf::from("/p/-r/abc.jsonl"));
         assert!(parse(&hook("AskUserQuestion"), 5).is_some());
@@ -650,6 +693,18 @@ mod tests {
 
     fn watch(record: PathBuf) -> Watch {
         Watch::new(PathBuf::from("/nonexistent"), 1, record)
+    }
+
+    #[test]
+    fn two_requests_held_at_once_never_share_an_id() {
+        let (a, _) = parse(&hook("Bash"), 4).unwrap();
+        let tx = channel().0;
+        let held = vec![Held { asked: a.clone(), tx: tx.clone() }];
+        let b = unique(a.clone(), &held);
+        assert_eq!(b.id, format!("{}-2", a.id));
+        let held = vec![Held { asked: a.clone(), tx: tx.clone() }, Held { asked: b, tx }];
+        assert_eq!(unique(a.clone(), &held).id, format!("{}-3", a.id));
+        assert_eq!(unique(a.clone(), &[]).id, a.id);
     }
 
     #[test]

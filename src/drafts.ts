@@ -3,6 +3,8 @@
 // session's panel show the same draft. It outlasts the peek closing or moving to another session,
 // the session changing its place on the bar, and a restart. Sending it clears it.
 
+import type { Question } from './types';
+
 /** Each session's draft is its own item, so windows writing drafts for different sessions never
  *  write over each other's. */
 const PREFIX = 'codealong.draft.';
@@ -95,15 +97,16 @@ export function answersDraft(key: string): string {
   return `answers:${key}`;
 }
 
-/** Your picks and words so far for the questions a session waits on you to answer
- *  (SessionReply.tsx `Questions`), written as JSON to its `answersDraft`. They're there again as
- *  you go to another session and back, in every window, and after a restart, until the call is
- *  answered. */
+/** Your picks and words so far for the questions of one call a session waits on (SessionReply.tsx
+ *  `Questions`), written as JSON to its `answersDraft`. They're there again as you go to another
+ *  session and back, in every window, and after a restart, until the call is answered. */
 export interface AnswersDraft {
-  /** The questions they answer, their texts one to a line: other questions start afresh. Not the
-   *  call's id (`Pending.id`), since the server numbers the questions Claude Code's hook hands it
-   *  from 1 each time it starts, and numbers them again when the hook asks again after a restart.
-   *  So the same questions asked again have them too. */
+  /** The call they're for (`Pending.id`), which stays the same while it waits, through a restart
+   *  of the server too (claude/asks.rs `request_id`): another call's questions start afresh,
+   *  though they ask the same. */
+  call: string;
+  /** The questions as they're asked (`askedAs`): picks for others could name choices they don't
+   *  offer. */
   asked: string;
   /** Your picks by question; one you haven't touched isn't in it, so a suggested pick still shows. */
   picks: Record<string, string[]>;
@@ -113,20 +116,26 @@ export interface AnswersDraft {
   at: number;
 }
 
-/** The answers kept for the questions `asked`, from its draft's text; null for other questions'
- *  or none. */
-export function readAnswers(text: string, asked: string): AnswersDraft | null {
+/** The questions as answers are kept for: each one's words, whether it takes several and its
+ *  choices. */
+export function askedAs(questions: Question[]): string {
+  return JSON.stringify(questions.map((q) => [q.question, !!q.multiSelect, q.options.map((o) => o.label)]));
+}
+
+/** The answers kept for `call`'s questions as they're `asked`, from its draft's text; null for
+ *  another call's or none. */
+export function readAnswers(text: string, call: string, asked: string): AnswersDraft | null {
   if (!text) return null;
   try {
     const v: unknown = JSON.parse(text);
     if (typeof v !== 'object' || v === null) return null;
     const d = v as Partial<AnswersDraft>;
-    if (d.asked !== asked) return null;
+    if (d.call !== call || d.asked !== asked) return null;
     const picks: Record<string, string[]> = {};
     for (const [q, labels] of Object.entries(d.picks ?? {})) if (Array.isArray(labels)) picks[q] = labels.filter((l): l is string => typeof l === 'string');
     const own: Record<string, string> = {};
     for (const [q, words] of Object.entries(d.own ?? {})) if (typeof words === 'string') own[q] = words;
-    return { asked, picks, own, at: typeof d.at === 'number' && d.at >= 0 ? Math.floor(d.at) : 0 };
+    return { call, asked, picks, own, at: typeof d.at === 'number' && d.at >= 0 ? Math.floor(d.at) : 0 };
   } catch {
     return null;
   }
