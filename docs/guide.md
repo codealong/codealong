@@ -806,7 +806,11 @@ end of the box's head minimizes it to that head, which says the question on one 
 read the conversation above while you think about your answer; a click on the question, the arrow
 again, or ⌘⏎ where ⌘⏎ answers (the waiting window) shows the box again with your picks as you left
 them. It stays minimized as you go to another session and back, until the session asks you
-again. Claude Code's own prompt stays up all the while, and
+again. Your picks, your own words and the question you were on are kept until you answer: go to
+another session and back, open the same session in the peek, the notch or the waiting window, or
+restart Codealong, and the box has them as you left them. Two windows showing it at once show
+the same picks. When the session asks again, even the same questions, the box starts empty.
+Claude Code's own prompt stays up all the while, and
 whichever answer comes first counts. A background job's questions show too when the plugin didn't
 hand them over (the app restarted while they waited, say), from what its account's background
 service records of them, and its row says it asks you: a single question is answered from here

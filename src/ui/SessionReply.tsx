@@ -95,7 +95,7 @@ import { answerAhead, sendAhead, sending, useAhead } from '../ahead';
 import { shortOf } from '../devices';
 import { dismissSuggestions, forkSession, runCommand, sessionCancel, sessionPending, sessionWay, sideAsk, sideWindow, switchSessionEffort, switchSessionMode, switchSessionModel } from '../api';
 import { filesToAttach, keepFiles, useFileDrop } from '../attachInput';
-import { onDraftChange, readDraft, sideDraft, writeDraft } from '../drafts';
+import { answersDraft, onDraftChange, readAnswers, readDraft, sideDraft, writeDraft, writtenAnswers } from '../drafts';
 import { sessionPlace } from '../harness';
 import { stoppable, stuckMidTurn, waitsOnYou } from '../lanes';
 import { beingRead, notAsked, shownSide, showSides, startingSide, useAside, usePopped, useSideAnswer } from '../side';
@@ -1188,6 +1188,8 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
     const since = s.statusSince ?? null;
     return answerAhead(s, pending.id, a, answers, message)
       .then((said) => {
+        // The call is answered, so the answers kept for its questions go (`Questions`).
+        writeDraft(answersDraft(s.key), '');
         setNote({ text: said, error: false });
         setPending(null);
         onAnswered?.(said);
@@ -1329,6 +1331,9 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
     const unwritten = pending.unwritten ? `What ${s.account} wrote with this question shows in the conversation once it’s answered${s.hosted ? '' : `; ${where} has it now`}.` : null;
     return (
       <Questions
+        key={pending.id}
+        draft={answersDraft(s.key)}
+        call={pending.id}
         questions={pending.questions}
         unwritten={unwritten}
         where={s.hosted ? null : where}
@@ -1446,6 +1451,10 @@ interface QuestionsProps {
   keys?: boolean;
   busy: boolean;
   note: { text: string; error: boolean } | null;
+  /** Where your picks and words are kept as you go (drafts.ts `AnswersDraft`), and the call
+   *  they're for. */
+  draft: string;
+  call: string;
   /** Answers given before that didn't go: the box starts with their picks and words. */
   given?: Answers;
   /** Your picks; `on` when ⌘⏎ gave them, which goes on to the next that waits on you as it
@@ -1465,18 +1474,44 @@ interface QuestionsProps {
  *  question takes more, or type your own answer; your picks go back as its answer. Several show
  *  one at a time, as Claude Code's own prompt shows them, with a strip of their headers to go
  *  between them: all at once, a few long ones ran off the bottom of the panel. */
-function Questions({ questions, unwritten, where, onOpen, keys, busy, note, given, onAnswer, onDecline, suggested, onDismissSuggested, folded, onFold }: QuestionsProps) {
+function Questions({ questions, draft, call, unwritten, where, onOpen, keys, busy, note, given, onAnswer, onDecline, suggested, onDismissSuggested, folded, onFold }: QuestionsProps) {
+  // Your picks and words as you left them, in this window or another, on the question you were
+  // on; an answer that didn't go has them as it sent them.
+  const [kept] = useState(() => readAnswers(readDraft(draft), call));
   // Your picks, by question; a question you haven't touched has the ones suggested for it.
-  const [picks, setPicks] = useState<Record<string, string[]>>(() => givenBack(questions, given).picks);
-  const [own, setOwn] = useState<Record<string, string>>(() => givenBack(questions, given).own);
+  const [picks, setPicks] = useState<Record<string, string[]>>(() => (given ? givenBack(questions, given).picks : (kept?.picks ?? {})));
+  const [own, setOwn] = useState<Record<string, string>>(() => (given ? givenBack(questions, given).own : (kept?.own ?? {})));
   const offered = (q: Question): string[] => (suggested?.picks?.[q.question] ?? []).filter((l) => q.options.some((o) => o.label === l));
   const chosenFor = (q: Question): string[] => picks[q.question] ?? offered(q);
   const suggesting = !!suggested && questions.some((q) => offered(q).length > 0);
   // The question showing, for the questions it was picked among: another set starts at the first.
   const asked = questions.map((q) => q.question).join('\n');
-  const [step, setStep] = useState({ asked, at: 0 });
+  const [step, setStep] = useState({ asked, at: kept?.at ?? 0 });
   const at = step.asked === asked ? Math.min(step.at, questions.length - 1) : 0;
   const go = (i: number) => setStep({ asked, at: i });
+  // What you pick, write and go on to is kept as it changes, for wherever the box shows next. What
+  // another window kept (a peek and the main window on the same session) shows here as it's
+  // written there, and isn't written back: it may be older by then than what that window has.
+  const heard = useRef<string | null>(null);
+  useEffect(() => {
+    const text = writtenAnswers({ call, picks, own, at });
+    if (text === heard.current) return;
+    heard.current = null;
+    if (text !== readDraft(draft)) writeDraft(draft, text);
+  }, [draft, call, picks, own, at]);
+  useEffect(
+    () =>
+      onDraftChange(draft, (text) => {
+        const there = readAnswers(text, call);
+        // Answered there, or another call's: this box goes once its session says so.
+        if (!there) return;
+        heard.current = writtenAnswers(there);
+        setPicks(there.picks);
+        setOwn(there.own);
+        setStep({ asked, at: there.at });
+      }),
+    [draft, call, asked],
+  );
   const answers: Answers = {};
   for (const q of questions) {
     const words = (own[q.question] ?? '').trim();
