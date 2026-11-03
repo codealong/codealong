@@ -18,7 +18,9 @@
 //!
 //! When the accounts that can start a session don't all reach the same services through MCP
 //! servers and connectors (mcp.rs: Gmail on one, not on another), Jev is also asked which one the
-//! message needs, so "what does my email say" starts on an account that has Gmail.
+//! message needs, so "what does my email say" starts on an account that has Gmail. `codealong
+//! mcp` lists the same services, each led by the account Auto would start (`reach`), for an
+//! agent that needs one its own account doesn't reach.
 
 use std::collections::{BTreeMap, HashSet};
 use std::time::Instant;
@@ -68,15 +70,15 @@ pub struct Request {
 }
 
 /// A service the accounts' agents reach through an MCP server or connector, as the `needs`
-/// question offers it.
+/// question offers it and `codealong mcp` lists it.
 #[derive(Debug, Clone, PartialEq)]
-struct Service {
-    name: String,
-    tools: Vec<String>,
+pub struct Service {
+    pub name: String,
+    pub tools: Vec<String>,
     /// The accounts that reach it, in the order they're given.
-    accounts: Vec<String>,
-    /// The model Auto would start the first of them on (`service_candidates`).
-    model: Option<String>,
+    pub accounts: Vec<String>,
+    /// The model Auto would start the first of them on (`led_by_auto`).
+    pub model: Option<String>,
 }
 
 /// Jev's pick of a service counts when it's at least this sure, and surer than of none. Messages
@@ -288,10 +290,9 @@ fn agent_candidates(board: &Board, cfg: &crate::config::Config, now: i64) -> (Ma
     (cards, picks)
 }
 
-/// The services to ask about, given each account's reading (`readings`) and the accounts that
-/// can start a session (`startable`, in the order their lists keep): each once whoever names it
-/// (`mcp::key`), the first name read standing for it. None when every one of them reaches the
-/// same services, since the answer would change nothing then.
+/// The services the accounts that can start a session (`startable`, in the order their lists
+/// keep) reach, given each account's reading (`readings`): each once whoever names it
+/// (`mcp::key`), the first name read standing for it.
 fn services(readings: &[crate::mcp::Mcp], startable: &[&str]) -> Vec<Service> {
     let mut by_key: BTreeMap<String, Service> = BTreeMap::new();
     let mut order = Vec::new();
@@ -311,19 +312,38 @@ fn services(readings: &[crate::mcp::Mcp], startable: &[&str]) -> Vec<Service> {
             }
         }
     }
-    let differ = by_key.values().any(|s| s.accounts.len() < startable.len());
-    if !differ {
-        return Vec::new();
-    }
     order.into_iter().filter_map(|k| by_key.remove(&k)).collect()
 }
 
-/// `services` for the accounts that can start a session, each service's accounts led by the one
-/// Auto would pick of them, on the model it would pick: its routing group, the board's sessions
-/// and history, and its model fallback, as a start on Auto has them (`start::resolve_group`).
+/// The services to ask about: `services`, or none when every one of the `startable` accounts
+/// reaches the same ones, since the answer would change nothing then.
+fn differing(services: Vec<Service>, startable: usize) -> Vec<Service> {
+    match services.iter().any(|s| s.accounts.len() < startable) {
+        true => services,
+        false => Vec::new(),
+    }
+}
+
+/// The services to ask about, for the accounts that can start a session, each led by the account
+/// Auto would start (`led_by_auto`).
 fn service_candidates(board: &Board, cfg: &crate::config::Config, now: i64) -> Vec<Service> {
     let names: Vec<&str> = startable(cfg).map(|a| a.name.as_str()).collect();
-    services(&board.mcp, &names)
+    led_by_auto(board, cfg, now, differing(services(&board.mcp, &names), names.len()))
+}
+
+/// Every service the accounts that can start a session reach, given each account's reading
+/// (`readings`), each led by the account Auto would start: `codealong mcp`'s, for a session that
+/// needs a service its own account doesn't reach and starts a helper on one that does.
+pub fn reach(board: &Board, readings: &[crate::mcp::Mcp], cfg: &crate::config::Config, now: i64) -> Vec<Service> {
+    let names: Vec<&str> = startable(cfg).map(|a| a.name.as_str()).collect();
+    led_by_auto(board, cfg, now, services(readings, &names))
+}
+
+/// Each service's accounts led by the one Auto would pick of them, on the model it would pick:
+/// its routing group, the board's sessions and history, and its model fallback, as a start on
+/// Auto has them (`start::resolve_group`).
+fn led_by_auto(board: &Board, cfg: &crate::config::Config, now: i64, services: Vec<Service>) -> Vec<Service> {
+    services
         .into_iter()
         .map(|mut s| {
             if let Some(Ok(first)) = crate::start::resolve_group(cfg, Some(board), "auto", &[], None, None, false, now, |a| s.accounts.contains(&a.name)) {
@@ -904,15 +924,18 @@ mod tests {
             reading("codex", &[("gmail", &[]), ("Slack", &[])]),
             reading("off", &[("Kestrel", &[])]),
         ];
-        let got = services(&readings, &["claude", "claude2", "codex"]);
+        let asked = |startable: &[&str]| differing(services(&readings, startable), startable.len());
+        let got = asked(&["claude", "claude2", "codex"]);
         let names = |s: &[Service]| s.iter().map(|s| (s.name.clone(), s.accounts.join(" "))).collect::<Vec<_>>();
         // Gmail and gmail are one; an account that can't start (off) isn't asked about.
         assert_eq!(names(&got), [("Gmail".to_string(), "claude codex".to_string()), ("Slack".to_string(), "claude claude2 codex".to_string())]);
         assert_eq!(got[1].tools, ["slack_read_channel"], "the tools of whichever account lists them");
-        // Every account reaching the same services: nothing to ask.
-        assert!(services(&readings, &["claude", "codex"]).is_empty());
-        assert!(services(&readings, &["claude2"]).is_empty());
-        assert!(services(&[], &["claude", "codex"]).is_empty());
+        // Every account reaching the same services: nothing to ask, though they reach them.
+        assert!(asked(&["claude", "codex"]).is_empty());
+        assert_eq!(names(&services(&readings, &["claude", "codex"])).len(), 2);
+        assert!(asked(&["claude2"]).is_empty());
+        assert!(asked(&[]).is_empty());
+        assert!(differing(services(&[], &["claude", "codex"]), 2).is_empty());
     }
 
     #[test]
@@ -936,6 +959,15 @@ mod tests {
         // With claude's week nearly used instead, claude2 leads, on its own default.
         b.usage = vec![usage(&cfg.accounts[0], vec![meter("week", 97.0, None)]), usage(&cfg.accounts[1], vec![meter("week", 10.0, None)])];
         assert_eq!(service_candidates(&b, &cfg, NOW).iter().find(|s| s.name == "Slack").map(|s| (s.accounts[0].as_str(), s.model.clone())), Some(("claude2", None)));
+        // Both reaching the same: nothing for Jev to ask, but `codealong mcp` still lists them,
+        // led by Auto's pick, from the readings it's given.
+        let same = [reading("claude", &[("Slack", &[])]), reading("claude2", &[("Slack", &[])])];
+        b.mcp = same.to_vec();
+        assert!(service_candidates(&b, &cfg, NOW).is_empty());
+        let got = reach(&b, &same, &cfg, NOW);
+        assert_eq!(got.iter().map(|s| (s.name.as_str(), s.accounts.clone())).collect::<Vec<_>>(), [("Slack", vec!["claude2".to_string(), "claude".to_string()])]);
+        b.mcp = Vec::new();
+        assert_eq!(reach(&b, &same, &cfg, NOW).len(), 1, "the readings given, not the board's");
     }
 
     #[test]

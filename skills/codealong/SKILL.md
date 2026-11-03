@@ -1,6 +1,6 @@
 ---
 name: codealong
-description: Codealong todos, sessions and accounts on this Mac, through the `codealong` command. Use when the user asks for something done with a Codealong todo (adding, starting, changing or finishing one) or the session was started on one, when you need to know what other agents or sessions did in this repo or to message one (on any account or harness), when you'd have another account, harness or model (Codex, say) review, check or take on part of your work (a helper, started here rather than with its own CLI or plugin), when asked to go over the sessions that wait on the user and suggest replies or to run as their orchestrator, when asked to visualize or lay out their sessions on Codealong's canvas, or to make a board of some work or put work on one, or when choosing which account to start something on.
+description: Codealong todos, sessions and accounts on this Mac, through the `codealong` command. Use when the user asks for something done with a Codealong todo (adding, starting, changing or finishing one) or the session was started on one, when you need to know what other agents or sessions did in this repo or to message one (on any account or harness), when you'd have another account, harness or model (Codex, say) review, check or take on part of your work (a helper, started here rather than with its own CLI or plugin), when asked to go over the sessions that wait on the user and suggest replies or to run as their orchestrator, when asked to visualize or lay out their sessions on Codealong's canvas, or to make a board of some work or put work on one, when choosing which account to start something on, or when a task needs a service you have no tool for (Slack, Figma, a mailbox) that another account's MCP servers or connectors may reach.
 ---
 
 # Codealong
@@ -375,7 +375,8 @@ worked in a worktree on the PR's branch while the PR was open. So there's usuall
 `codealong accounts` lists the configured accounts and whether each is signed in;
 `--usage` adds each plan limit's percent used and `room`, how much of the tightest limit is
 left. Read it once when advising which account to use; don't poll it, the usage endpoint
-rate-limits.
+rate-limits. `codealong mcp` lists the services each account reaches (*Services on other
+accounts*).
 
 ## Starting sessions
 
@@ -432,6 +433,20 @@ user's sessions with nothing tying them to yours.
   session; a helper is for work on another account or harness, or that should be a session of
   its own. It still spends your user's usage: start one when their task or instructions call
   for it, as with any start.
+
+### Services on other accounts
+
+Each account's agents reach their own MCP servers and connectors (Slack on one, Figma on
+another), and you can call only your account's. When a task needs a service you have no tool
+for, `codealong mcp <service>` (any part of its name) lists the accounts that reach it, the one
+Auto would start first, with its tools; `codealong mcp` alone lists every service. Rather than
+telling your user you can't, start a helper on one of those accounts (`--account`) and ask it
+for just what you need, answered in a few lines: the service's tools and what they return
+stay in its context, not yours. Have it only read, unless your user asked for something sent
+or changed there. Its first call to the service may wait on your user to allow it. Say which
+account's service you used. Your own account listed means a tool you haven't found (Claude
+Code holds MCP tools back until a tool search loads them) or one added since your session
+started, which only a new session gets.
 
 ## Running a command in your user's terminal
 

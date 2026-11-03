@@ -2091,6 +2091,15 @@ adds for itself (its `.mcp.json`) belong to the repo, not the account, and aren'
 couldn't be read (a sign-in that expired, a file that doesn't parse), the card says why, and the
 last full list is kept meanwhile. `codealong --snapshot --mcp` prints them all.
 
+Agents see them too. A session can call only its own account's servers, so when a task needs a
+service it has no tool for (your Slack, from an account that doesn't have it), the skill has it run
+`codealong mcp slack`. That lists the accounts that reach the service, the one Auto would start
+first, with its tools. Then the agent starts a helper on one of them to ask for what it needs.
+The service's tools and what they return stay in the helper's conversation, and only its answer
+comes back. `codealong mcp` alone lists every service by name, and `--tools` adds every one's tools.
+Accounts the app hasn't read yet are read as the command runs, and it says which ones couldn't
+all be read. Nothing about these services goes into an agent's context until it asks.
+
 ## Finding and starting work
 
 ### Quick panel

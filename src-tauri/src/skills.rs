@@ -518,6 +518,21 @@ mod tests {
         assert_eq!(front_matter("# Just words\n"), (HashMap::new(), "# Just words\n"));
     }
 
+    /// The Agent Skills layout every harness reads caps a skill's name at 64 characters and its
+    /// description at 1024, and the codealong skill's description, which says every case it's
+    /// for, is near it.
+    #[test]
+    fn the_shipped_skills_fit_the_agent_skills_limits() {
+        let plugin = Path::new(env!("CARGO_MANIFEST_DIR")).join("../plugin/skills");
+        for folder in ["codealong", "orchestrate", "visualize"] {
+            let text = std::fs::read_to_string(plugin.join(folder).join("SKILL.md")).unwrap();
+            let (front, _) = front_matter(&text);
+            assert!(front["name"].chars().count() <= 64, "{folder}'s name");
+            let n = front["description"].chars().count();
+            assert!(n > 0 && n <= 1024, "{folder}'s description is {n} characters");
+        }
+    }
+
     #[test]
     fn reads_the_programs_a_skill_is_for() {
         let with = |metadata: &str| surfaces(&format!("---\nname: x\nmetadata:\n{metadata}\ndescription: y\n---\n"));

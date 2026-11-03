@@ -71,6 +71,14 @@ enum Cmd {
         #[arg(long)]
         usage: bool,
     },
+    /// The services the accounts' agents reach through MCP servers and connectors (claude.ai's connectors, ChatGPT's apps, the servers an account's settings and plugins add), each once, with the accounts a session can start on that reach it, the one Auto would start first. A session reaches only its own account's: for a service yours doesn't, start a helper on an account that does (`codealong start --helper --account <account>`) and have it answer in a few lines. The app reads them at launch and every hour; an account it hasn't read yet is read here.
+    Mcp {
+        /// Only the services with this in their names (`slack`, `drive`), with their tools.
+        service: Option<String>,
+        /// Every service's tools too, where its harness lists them without starting it.
+        #[arg(long)]
+        tools: bool,
+    },
     /// What sessions on this Mac used and cost, from the app's token ledger: tokens, what they'd cost at API prices, and what was paid (each account's plan, its `monthly` in config.toml, a day's share at a time; Claude's extra usage; and accounts that pay by the token). Rows by account, model, folder, session or day; JSON has them all.
     Tokens {
         /// How many days back, today included.
@@ -1958,6 +1966,7 @@ fn run(cmd: Cmd, c: &mut Client, json: bool) -> Result<()> {
         Cmd::Status => status(c, json),
         Cmd::Server { cmd } => server_cmd(cmd, json),
         Cmd::Accounts { usage } => accounts(c, usage, json),
+        Cmd::Mcp { service, tools } => mcp(c, service.as_deref(), tools, json),
         Cmd::Tokens { days, account, by } => tokens(c, days, account.as_deref(), by, json),
         Cmd::Whoami { context } => whoami(c, context, json),
         Cmd::Todo { cmd } => todo(cmd, c, json),
@@ -3173,6 +3182,114 @@ fn accounts(c: &mut Client, with_usage: bool, json: bool) -> Result<()> {
         .collect();
     print!("{}", table_text(&["ACCOUNT", "HARNESS", "SIGN-IN", "EMAIL", "USAGE"], table));
     Ok(())
+}
+
+// ---- mcp ----
+
+/// What `codealong mcp` prints: kept small, since it's mostly read by an agent looking for a
+/// service its own account doesn't reach.
+#[derive(Serialize, Debug, PartialEq)]
+struct McpOut {
+    services: Vec<ServiceRow>,
+    /// The accounts whose servers couldn't all be read, and why: a service missing from the list
+    /// may be on one of them.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    notes: Vec<McpNote>,
+}
+
+#[derive(Serialize, Debug, PartialEq)]
+struct ServiceRow {
+    name: String,
+    /// The accounts a session can start on that reach it, the one Auto would start first.
+    accounts: Vec<String>,
+    /// Only when a service was named or `--tools` given: they're most of what there is to say.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    tools: Vec<String>,
+}
+
+#[derive(Serialize, Debug, PartialEq)]
+struct McpNote {
+    account: String,
+    note: String,
+}
+
+/// The app's reading of each account's servers (mcp.rs, `McpPoll`), with the accounts it hasn't
+/// read yet (it reads them at launch, and a light board has none) read here.
+fn mcp(c: &mut Client, service: Option<&str>, tools: bool, json: bool) -> Result<()> {
+    let cfg = c.cfg()?.clone();
+    let board = c.board()?;
+    let mut readings = board.mcp.clone();
+    let unread: Vec<AccountCfg> = cfg.accounts.iter().filter(|a| !readings.iter().any(|m| m.account == a.name)).cloned().collect();
+    readings.extend(crate::mcp::read_all(&unread));
+    let now = now_ms();
+    let out = mcp_out(crate::route::reach(board, &readings, &cfg, now), mcp_notes(&cfg.accounts, &readings, now), service, tools)?;
+    if json {
+        return print_json(&out);
+    }
+    let with_tools = tools || service.is_some();
+    let rows: Vec<Vec<String>> = out.services.iter().map(|s| vec![s.name.clone(), s.accounts.join(", "), s.tools.join(", ")]).collect();
+    let head: &[&str] = if with_tools { &["SERVICE", "ACCOUNTS", "TOOLS"] } else { &["SERVICE", "ACCOUNTS"] };
+    print!("{}", table_text(head, rows));
+    for n in &out.notes {
+        println!("{}: {}", n.account, n.note);
+    }
+    Ok(())
+}
+
+/// The services to print (`services`, as `route::reach` has them): the ones with `query` in their
+/// names (`mcp::key`, so "google calendar" finds Google Calendar), with their tools, else all of
+/// them, with their tools only when asked. One named that no account reaches is an error saying
+/// which they do.
+fn mcp_out(services: Vec<crate::route::Service>, notes: Vec<McpNote>, query: Option<&str>, tools: bool) -> Result<McpOut> {
+    let want = query.map(crate::mcp::key);
+    if want.as_deref() == Some("") {
+        bail!("Give a service's name, or part of it: `codealong mcp slack`.");
+    }
+    let named = |s: &crate::route::Service| want.as_ref().is_none_or(|w| crate::mcp::key(&s.name).contains(w.as_str()));
+    if let (Some(q), false) = (query, services.iter().any(named)) {
+        let mut why = match services.is_empty() {
+            true => format!("No account reaches a service whose name has \"{q}\" in it: they reach none through MCP servers or connectors."),
+            false => format!("No account reaches a service whose name has \"{q}\" in it. They reach {}.", services.iter().map(|s| s.name.as_str()).collect::<Vec<_>>().join(", ")),
+        };
+        for n in &notes {
+            why.push_str(&format!(" {}'s couldn't all be read: {}", n.account, n.note));
+        }
+        bail!(why);
+    }
+    let services = services
+        .into_iter()
+        .filter(|s| named(s))
+        .map(|s| ServiceRow { name: s.name, accounts: s.accounts, tools: if tools || query.is_some() { s.tools } else { Vec::new() } })
+        .collect();
+    Ok(McpOut { services, notes })
+}
+
+/// What couldn't be read of each account that's on, in config order: one not read at all, part
+/// of one (the connectors, when its sign-in expired), or one whose last read failed, which keeps
+/// the reading before it (`stale`).
+fn mcp_notes(accounts: &[AccountCfg], readings: &[crate::mcp::Mcp], now: i64) -> Vec<McpNote> {
+    accounts
+        .iter()
+        .filter(|a| !a.disabled)
+        .filter_map(|a| {
+            let note = match readings.iter().find(|m| m.account == a.name) {
+                None => "Not read yet.".to_string(),
+                Some(m) => match (&m.note, &m.stale, m.as_of) {
+                    (Some(note), _, _) => note.clone(),
+                    (None, Some(why), Some(at)) => {
+                        let when = match ago(now - at).as_str() {
+                            "now" => "just now".to_string(),
+                            a => format!("{a} ago"),
+                        };
+                        format!("As read {when}; reading it since failed: {why}")
+                    }
+                    (None, Some(why), None) => why.clone(),
+                    (None, None, _) => return None,
+                },
+            };
+            Some(McpNote { account: a.name.clone(), note })
+        })
+        .collect()
 }
 
 // ---- tokens ----
@@ -8269,5 +8386,50 @@ mod tests {
         .unwrap();
         let labels = vec![Label { id: "l-1".into(), name: "release".into(), color: "blue".into() }];
         assert_eq!(kanban_text(&out, &labels), "Release, a board in Acme, takes in labelled release\n\nTo do (1)\n  todo  Fix login (1 session)  t-1\n\nDone (0, folded)\n");
+    }
+
+    fn reached(name: &str, accounts: &[&str], tools: &[&str]) -> crate::route::Service {
+        crate::route::Service { name: name.into(), tools: tools.iter().map(|t| t.to_string()).collect(), accounts: accounts.iter().map(|a| a.to_string()).collect(), model: None }
+    }
+
+    #[test]
+    fn mcp_lists_services_without_their_tools_unless_one_is_named() {
+        let services = || vec![reached("Gmail", &["claude", "codex"], &["search_threads"]), reached("Google Calendar", &["claude"], &["list_events"]), reached("Slack", &["atlas"], &["slack_read_channel"])];
+        let names = |out: &McpOut| out.services.iter().map(|s| (s.name.clone(), s.accounts.join(" "), s.tools.len())).collect::<Vec<_>>();
+        let all = mcp_out(services(), Vec::new(), None, false).unwrap();
+        assert_eq!(names(&all), [("Gmail".into(), "claude codex".into(), 0), ("Google Calendar".into(), "claude".into(), 0), ("Slack".into(), "atlas".into(), 0)]);
+        assert_eq!(serde_json::to_value(&all).unwrap()["services"][0], json!({ "name": "Gmail", "accounts": ["claude", "codex"] }));
+        assert_eq!(mcp_out(services(), Vec::new(), None, true).unwrap().services[2].tools, ["slack_read_channel"]);
+        // Part of a name, written any way, finds it, with its tools.
+        let calendar = mcp_out(services(), Vec::new(), Some("google-calendar"), false).unwrap();
+        assert_eq!(names(&calendar), [("Google Calendar".into(), "claude".into(), 1)]);
+        assert_eq!(names(&mcp_out(services(), Vec::new(), Some("google"), false).unwrap()).len(), 1);
+        assert_eq!(names(&mcp_out(services(), Vec::new(), Some("MAIL"), false).unwrap())[0].0, "Gmail");
+        assert!(mcp_out(services(), Vec::new(), Some(" - "), false).is_err());
+    }
+
+    #[test]
+    fn mcp_says_what_the_accounts_reach_when_none_has_the_service_named() {
+        let services = vec![reached("Gmail", &["claude"], &[]), reached("Slack", &["atlas"], &[])];
+        let notes = vec![McpNote { account: "kestrel".into(), note: "Not read yet.".into() }];
+        let err = mcp_out(services, notes, Some("figma"), false).unwrap_err().to_string();
+        assert_eq!(err, "No account reaches a service whose name has \"figma\" in it. They reach Gmail, Slack. kestrel's couldn't all be read: Not read yet.");
+        let err = mcp_out(Vec::new(), Vec::new(), Some("figma"), false).unwrap_err().to_string();
+        assert!(err.ends_with("they reach none through MCP servers or connectors."), "{err}");
+    }
+
+    #[test]
+    fn mcp_notes_what_it_couldnt_read() {
+        let account = |name: &str, disabled: bool| AccountCfg { name: name.into(), harness: "claude".into(), home: format!("~/.{name}"), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled };
+        let reading = |name: &str, note: Option<&str>, stale: Option<&str>| crate::mcp::Mcp { account: name.into(), servers: Vec::new(), note: note.map(String::from), as_of: Some(1_000), stale: stale.map(String::from) };
+        let accounts = [account("claude", false), account("atlas", false), account("kestrel", false), account("northwind", false), account("off", true)];
+        let readings = [reading("claude", None, None), reading("atlas", Some("The connectors couldn't be read: sign in again."), None), reading("kestrel", None, Some("mcp.json doesn't parse."))];
+        let notes = mcp_notes(&accounts, &readings, 1_000 + 2 * 3_600_000);
+        assert_eq!(notes.iter().map(|n| (n.account.as_str(), n.note.as_str())).collect::<Vec<_>>(), [
+            ("atlas", "The connectors couldn't be read: sign in again."),
+            ("kestrel", "As read 2h ago; reading it since failed: mcp.json doesn't parse."),
+            ("northwind", "Not read yet."),
+        ]);
+        assert_eq!(mcp_notes(&accounts[2..3], &readings, 1_000)[0].note, "As read just now; reading it since failed: mcp.json doesn't parse.");
     }
 }

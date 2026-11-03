@@ -32,6 +32,14 @@ Commands:
              when it isn't running, and so does the app as it opens
   accounts   The configured accounts: harness, sign-in, and with --usage how much of
              each plan limit is used
+  mcp        The services the accounts' agents reach through MCP servers and connectors
+             (claude.ai's connectors, ChatGPT's apps, the servers an account's settings
+             and plugins add), each once, with the accounts a session can start on that
+             reach it, the one Auto would start first. A session reaches only its own
+             account's: for a service yours doesn't, start a helper on an account that
+             does (`codealong start --helper --account <account>`) and have it answer in
+             a few lines. The app reads them at launch and every hour; an account it
+             hasn't read yet is read here
   tokens     What sessions on this Mac used and cost, from the app's token ledger:
              tokens, what they'd cost at API prices, and what was paid (each account's
              plan, its `monthly` in config.toml, a day's share at a time; Claude's extra
@@ -306,6 +314,41 @@ Options:
       --usage
           Read plan usage: from the app when it runs, else one call per Claude account.
           Don't loop it; the usage endpoint rate-limits
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong mcp
+
+```
+The services the accounts' agents reach through MCP servers and connectors (claude.ai's
+connectors, ChatGPT's apps, the servers an account's settings and plugins add), each
+once, with the accounts a session can start on that reach it, the one Auto would start
+first. A session reaches only its own account's: for a service yours doesn't, start a
+helper on an account that does (`codealong start --helper --account <account>`) and have
+it answer in a few lines. The app reads them at launch and every hour; an account it
+hasn't read yet is read here
+
+Usage: codealong mcp [OPTIONS] [SERVICE]
+
+Arguments:
+  [SERVICE]
+          Only the services with this in their names (`slack`, `drive`), with their
+          tools
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --tools
+          Every service's tools too, where its harness lists them without starting it
 
       --table
           Tables, even when piped
