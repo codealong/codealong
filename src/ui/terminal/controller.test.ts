@@ -15,6 +15,7 @@ vi.mock('../../api', async (original) => ({
   ...(await original<typeof import('../../api')>()),
   terminalInput: vi.fn((_id: string, inputs: TerminalInput[]) => hold(inputs.map((i) => (i.kind === 'key' ? i.text : i.kind)).join(''))),
   terminalPaste: vi.fn((_id: string, text: string, force: boolean) => hold(`paste:${text}${force ? '!' : ''}`, !/\n/.test(text) || force)),
+  terminalCopy: vi.fn(() => hold('copy', null)),
 }));
 
 const { TerminalController } = await import('./controller');
@@ -52,5 +53,19 @@ describe('what a window sends a terminal', () => {
     c.paste('rm x\nls', true);
     await answer();
     expect(sent[sent.length - 1]).toBe('paste:rm x\nls!');
+  });
+
+  it('copies the selection only once what came before it has reached the terminal', async () => {
+    sent.length = 0;
+    const c = new TerminalController('t', {} as HTMLElement, {} as HTMLCanvasElement, { onLeave: () => {}, onUnsafePaste: () => {}, onError: () => {}, onPointer: () => {} });
+    c.send(key('x'));
+    c.selectAll();
+    c.copy();
+    expect(sent).toEqual(['x']);
+    await answer();
+    expect(sent).toEqual(['x', 'select']);
+    await answer();
+    expect(sent).toEqual(['x', 'select', 'copy']);
+    await answer();
   });
 });

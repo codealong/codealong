@@ -42,6 +42,16 @@ export function routeKey(e: KeyLike, down: boolean): KeyRoute {
   const mods = modsOf(e);
   if (!down) return { to: 'terminal', input: { kind: 'key', code: e.code, mods, action: 'release' } };
   // What the key typed goes with it; with Ctrl the program goes by the key alone.
-  const text = !e.ctrlKey && !e.metaKey && e.key !== 'Unidentified' && !NAMED.test(e.key) ? e.key : undefined;
-  return { to: 'terminal', input: { kind: 'key', code: e.code, text, mods, action: e.repeat ? 'repeat' : 'press' } };
+  const char = e.key !== 'Unidentified' && !NAMED.test(e.key) ? e.key : undefined;
+  const text = !e.ctrlKey && !e.metaKey ? char : undefined;
+  return { to: 'terminal', input: { kind: 'key', code: e.code, text, unshifted: unshiftedOf(e, char), mods, action: e.repeat ? 'repeat' : 'press' } };
+}
+
+/** The character the key gives with no modifiers on your layout, which Ctrl and a letter go by
+ *  (on AZERTY Ctrl+A is the key a US keyboard has Q on): a letter's own, in lower case, and
+ *  anything else only when neither Shift nor Option changed it. None where it can't be told. */
+function unshiftedOf(e: Pick<KeyboardEvent, 'shiftKey' | 'altKey'>, char: string | undefined): string | undefined {
+  if (!char || [...char].length !== 1) return undefined;
+  if (/^\p{L}$/u.test(char)) return e.altKey ? undefined : char.toLowerCase();
+  return e.shiftKey || e.altKey ? undefined : char;
 }

@@ -73,10 +73,10 @@ export function TerminalView({ id, focusAt, onLeave }: TerminalViewProps) {
             if (!c || c.takesRightClick(e.nativeEvent)) return;
             void showContextMenu(
               [
-                { label: 'Copy', run: () => void c.copy() },
+                { label: 'Copy', run: () => c.copy() },
                 { label: 'Select all', run: () => c.selectAll() },
                 'separator',
-                { label: 'Copy all text', run: () => void c.copyAll() },
+                { label: 'Copy all text', run: () => c.copyAll() },
               ],
               { x: e.clientX, y: e.clientY },
             ).catch(() => {

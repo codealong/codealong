@@ -156,6 +156,10 @@ pub enum Input {
         code: String,
         #[serde(default)]
         text: Option<String>,
+        /// The character the key gives with no modifiers on your layout, where the window knows it
+        /// (on AZERTY the key that is Q on a US keyboard gives a): what Ctrl and a letter go by.
+        #[serde(default)]
+        unshifted: Option<String>,
         #[serde(default)]
         mods: Mods4,
         #[serde(default)]
@@ -390,7 +394,7 @@ impl Screen {
     /// selection, as Ghostty does.
     pub fn input(&mut self, input: &Input) {
         match input {
-            Input::Key { code, text, mods, action } => self.key(code, text.as_deref(), *mods, *action),
+            Input::Key { code, text, unshifted, mods, action } => self.key(code, text.as_deref(), unshifted.as_deref(), *mods, *action),
             Input::Text { text } => {
                 if !text.is_empty() {
                     self.out.extend_from_slice(text.as_bytes());
@@ -468,8 +472,17 @@ impl Screen {
         }
     }
 
-    fn key(&mut self, code: &str, text: Option<&str>, mods: Mods4, action: KeyAction) {
-        let (key, unshifted) = keys::of_code(code);
+    fn key(&mut self, code: &str, text: Option<&str>, layout: Option<&str>, mods: Mods4, action: KeyAction) {
+        let (physical, us) = keys::of_code(code);
+        // The layout's character where the window gave one, a US keyboard's where it didn't, and
+        // the key that character is on a US keyboard, which the encoder goes by: on AZERTY the
+        // key in Q's place gives a, so Ctrl and it is Ctrl+A, as in Ghostty.
+        let layout = layout.and_then(|l| {
+            let mut chars = l.chars();
+            chars.next().filter(|_| chars.next().is_none())
+        });
+        let unshifted = layout.unwrap_or(us);
+        let key = layout.and_then(keys::of_char).unwrap_or(physical);
         let mods = mods.mods();
         let text = text.filter(|t| !t.is_empty() && action != KeyAction::Release);
         // The modifiers the text already took in: Shift for a capital, and on macOS Option for
@@ -640,7 +653,7 @@ impl Screen {
         if alternate && self.term.mode(Mode::ALT_SCROLL).unwrap_or(false) {
             let code = if steps < 0 { "ArrowUp" } else { "ArrowDown" };
             for _ in 0..steps.unsigned_abs().min(10) {
-                self.key(code, None, Mods4::default(), KeyAction::Press);
+                self.key(code, None, None, Mods4::default(), KeyAction::Press);
             }
             return;
         }
@@ -914,15 +927,27 @@ mod tests {
     #[test]
     fn keys_are_encoded_for_the_modes_the_program_set() {
         let (mut s, _) = screen();
-        let press = |code: &str, text: Option<&str>| Input::Key { code: code.into(), text: text.map(String::from), mods: Mods4::default(), action: KeyAction::Press };
+        let press = |code: &str, text: Option<&str>| Input::Key { code: code.into(), text: text.map(String::from), unshifted: None, mods: Mods4::default(), action: KeyAction::Press };
         s.input(&press("KeyA", Some("a")));
         s.input(&press("ArrowUp", None));
-        s.input(&Input::Key { code: "KeyC".into(), text: None, mods: Mods4 { ctrl: true, ..Default::default() }, action: KeyAction::Press });
+        s.input(&Input::Key { code: "KeyC".into(), text: None, unshifted: None, mods: Mods4 { ctrl: true, ..Default::default() }, action: KeyAction::Press });
         assert_eq!(s.take_out(), b"a\x1b[A\x03");
         // Application cursor keys, as an editor sets them.
         s.feed(b"\x1b[?1h");
         s.input(&press("ArrowUp", None));
         assert_eq!(s.take_out(), b"\x1bOA");
+    }
+
+    /// Ctrl and a letter go by the letter on your layout, not the key's place on a US keyboard:
+    /// on AZERTY, Ctrl+A is the key a US keyboard has Q on.
+    #[test]
+    fn ctrl_and_a_letter_go_by_the_layouts_letter() {
+        let (mut s, _) = screen();
+        let ctrl = Mods4 { ctrl: true, ..Default::default() };
+        s.input(&Input::Key { code: "KeyQ".into(), text: None, unshifted: Some("a".into()), mods: ctrl, action: KeyAction::Press });
+        assert_eq!(s.take_out(), b"\x01", "Ctrl+A");
+        s.input(&Input::Key { code: "KeyQ".into(), text: None, unshifted: None, mods: ctrl, action: KeyAction::Press });
+        assert_eq!(s.take_out(), b"\x11", "Ctrl+Q where the window gave no letter");
     }
 
     #[test]

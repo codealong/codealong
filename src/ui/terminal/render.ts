@@ -109,7 +109,7 @@ interface Slot {
 /** The glyphs drawn so far, white on transparent (but colored emoji), in a canvas that becomes a
  *  texture. Each slot has `PAD` around its cells so what reaches past them (an italic's tail) is
  *  kept. Full, it starts again. */
-class Atlas {
+export class Atlas {
   static readonly SIZE = 2048;
   static readonly PAD = 4;
   readonly canvas: HTMLCanvasElement;
@@ -120,9 +120,8 @@ class Atlas {
   private rowH = 0;
   /** Changed since it was last sent to the GPU. */
   dirty = true;
-  /** Counts the times it started again, which moves every glyph: a draw that saw it change
-   *  places its glyphs again. */
-  generation = 0;
+  /** Called as it fills, before it starts again: a draw draws what it placed so far. */
+  onFull: (() => void) | null = null;
 
   constructor(
     private cellW: number,
@@ -151,7 +150,6 @@ class Atlas {
     this.y = 0;
     this.rowH = 0;
     this.dirty = true;
-    this.generation += 1;
   }
 
   get(g: SceneGlyph): Slot {
@@ -165,7 +163,10 @@ class Atlas {
       this.y += this.rowH;
       this.rowH = 0;
     }
-    if (this.y + h > Atlas.SIZE) this.clear();
+    if (this.y + h > Atlas.SIZE) {
+      this.onFull?.();
+      this.clear();
+    }
     const slot: Slot = { x: this.x, y: this.y, w, h, colored: COLORED.test(g.text) && !isShape(g.text) };
     this.x += w;
     this.rowH = Math.max(this.rowH, h);
@@ -331,11 +332,23 @@ function webgl(canvas: HTMLCanvasElement): Renderer | null {
         out.push(x, y, w, h, cr, cg, cb, r.alpha);
     } else out.push(r.x, r.y, r.w, r.h, cr, cg, cb, r.alpha);
   };
-  const pushGlyph = (out: number[], g: SceneGlyph) => {
+  /** Draws glyphs from the atlas. One that fills it starts it again, which moves every glyph in
+   *  it, so what was placed before is drawn first, from the atlas as it was: however many
+   *  different glyphs a screen has, each is drawn from where it was put. */
+  const drawGlyphs = (list: SceneGlyph[]) => {
     if (!atlas) return;
-    const s = atlas.get(g);
-    const [cr, cg, cb] = rgb(g.color);
-    out.push(g.x - Atlas.PAD, g.y - Atlas.PAD, s.w, s.h, s.x, s.y, s.w, s.h, cr, cg, cb, g.alpha, s.colored ? 1 : 0);
+    let data: number[] = [];
+    atlas.onFull = () => {
+      drawBatch(glyphs, data, withAtlas);
+      data = [];
+    };
+    for (const g of list) {
+      const s = atlas.get(g);
+      const [cr, cg, cb] = rgb(g.color);
+      data.push(g.x - Atlas.PAD, g.y - Atlas.PAD, s.w, s.h, s.x, s.y, s.w, s.h, cr, cg, cb, g.alpha, s.colored ? 1 : 0);
+    }
+    atlas.onFull = null;
+    drawBatch(glyphs, data, withAtlas);
   };
   const drawBatch = (b: Batch, data: number[], extra?: () => void) => {
     if (!data.length) return;
@@ -377,23 +390,10 @@ function webgl(canvas: HTMLCanvasElement): Renderer | null {
       scene.rects.forEach((x) => pushRect(back, x));
       const over: number[] = [];
       scene.over.forEach((x) => pushRect(over, x));
-      let text: number[] = [];
-      let overText: number[] = [];
-      const place = () => {
-        text = [];
-        overText = [];
-        scene.glyphs.forEach((x) => pushGlyph(text, x));
-        scene.overGlyphs.forEach((x) => pushGlyph(overText, x));
-      };
-      // The atlas filling up partway starts it again, which moves the glyphs placed before:
-      // they're placed once more in the new one.
-      const before = atlas?.generation;
-      place();
-      if (atlas && atlas.generation !== before) place();
       drawBatch(rects, back);
-      drawBatch(glyphs, text, withAtlas);
+      drawGlyphs(scene.glyphs);
       drawBatch(rects, over);
-      drawBatch(glyphs, overText, withAtlas);
+      drawGlyphs(scene.overGlyphs);
     },
     dispose() {
       gl.getExtension('WEBGL_lose_context')?.loseContext();

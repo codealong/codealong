@@ -1076,12 +1076,7 @@ fn shown_at(c: &Call, at: Option<i64>) -> Value {
 /// Archives it, or unarchives it with `archived: false` (Codex threads in Codex itself).
 fn archive(engine: &Handle, c: &Call) -> Result<Value, String> {
     let p: params::Archive = c.read()?;
-    let key = c.session()?;
-    let at = engine.archive(key, p.archived).map_err(words)?;
-    // Its terminals in Codealong go with it, as its own terminal does when it's done.
-    if p.archived {
-        crate::terminals::close_session(key);
-    }
+    let at = engine.archive(c.session()?, p.archived).map_err(words)?;
     Ok(shown_at(c, at))
 }
 
@@ -1302,10 +1297,11 @@ fn hand_over(engine: &Handle, board: &crate::model::Board, key: &str, copy: &str
             eprintln!("Moved {key}, but couldn't put {copy} on todo {}: {e}", t.id);
         }
     }
-    // Before it's archived, which unpins it.
+    // Before it's archived, which unpins it and closes its terminals: those go with the copy.
     if board.pinned.iter().any(|k| k == key) {
         engine.set_pinned(board.pinned.iter().map(|k| if k == key { copy.to_string() } else { k.clone() }).collect());
     }
+    crate::terminals::follow(key, copy);
     archive_moved(engine, key);
 }
 
@@ -1400,7 +1396,6 @@ fn finish(engine: &Handle, c: &Call, key: &str, stop: bool, by: Option<&str>) ->
     let title = s.title.clone();
     engine.mark_seen(vec![key.to_string()]);
     let at = engine.archive(key, true).map_err(words)?;
-    crate::terminals::close_session(key);
     let what = match ended {
         Some(what) => format!("{what} and it's archived."),
         None => "it's archived.".to_string(),

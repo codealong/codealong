@@ -601,6 +601,14 @@ impl Handle {
     }
 
     fn set_archived(&self, keys: Vec<String>, archived: bool) -> Result<Option<i64>> {
+        // A session's terminals of Codealong's own go with it, however it's archived (Archive,
+        // Mark as done, Close idle sessions, a helper's or a moved session's archiving), as the
+        // terminal it ran in does.
+        if archived {
+            for key in &keys {
+                crate::terminals::close_session(key);
+            }
+        }
         let (tx, rx) = channel();
         if self.tx.send(Msg::SetArchived(keys, archived, tx)).is_err() {
             bail!("Codealong's engine stopped.");

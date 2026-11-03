@@ -31,7 +31,7 @@ export interface Hooks {
 }
 
 /** What waits to go to the server, in order: inputs that go together, or a paste. */
-type Sending = { kind: 'inputs'; inputs: TerminalInput[] } | { kind: 'paste'; text: string; force: boolean };
+type Sending = { kind: 'inputs'; inputs: TerminalInput[] } | { kind: 'paste'; text: string; force: boolean } | { kind: 'copy'; all: boolean };
 
 interface Measured extends Metrics {
   font: Font;
@@ -201,9 +201,11 @@ export class TerminalController {
     const sent =
       next.kind === 'inputs'
         ? terminalInput(this.id, next.inputs)
-        : terminalPaste(this.id, next.text, next.force).then((pasted) => {
-            if (!pasted) this.hooks.onUnsafePaste(next.text);
-          });
+        : next.kind === 'paste'
+          ? terminalPaste(this.id, next.text, next.force).then((pasted) => {
+              if (!pasted) this.hooks.onUnsafePaste(next.text);
+            })
+          : (next.all ? terminalText(this.id) : terminalCopy(this.id)).then((text) => (text ? navigator.clipboard.writeText(text) : undefined));
     sent
       .catch((e: unknown) => this.hooks.onError(String(e)))
       .finally(() => {
@@ -230,7 +232,7 @@ export class TerminalController {
         this.send(route.input);
         return true;
       case 'copy':
-        if (down) void this.copy();
+        if (down) this.copy();
         return true;
       case 'selectAll':
         if (down) this.send({ kind: 'select', all: true });
@@ -249,18 +251,17 @@ export class TerminalController {
     }
   }
 
-  async copy(): Promise<void> {
-    const text = await terminalCopy(this.id).catch(() => null);
-    if (text) await navigator.clipboard.writeText(text).catch((e: unknown) => this.hooks.onError(String(e)));
+  /** Copies the selection, as it is once what came before (a click, Select all) has reached the
+   *  terminal. */
+  copy(): void {
+    this.queue.push({ kind: 'copy', all: false });
+    this.flush();
   }
 
   /** Copies everything the terminal holds, scrollback included. */
-  async copyAll(): Promise<void> {
-    const text = await terminalText(this.id).catch((e: unknown) => {
-      this.hooks.onError(String(e));
-      return '';
-    });
-    if (text) await navigator.clipboard.writeText(text).catch((e: unknown) => this.hooks.onError(String(e)));
+  copyAll(): void {
+    this.queue.push({ kind: 'copy', all: true });
+    this.flush();
   }
 
   selectAll(): void {

@@ -90,6 +90,34 @@ pub fn of_code(code: &str) -> (Key, char) {
     }
 }
 
+/// The key that types `c` on a US layout, for a character a key gives on another layout: the
+/// encoder goes by the key for Ctrl and the rest, so Ctrl and the letter A is Ctrl+A wherever the
+/// layout puts A. None for a character no US key types alone.
+pub fn of_char(c: char) -> Option<Key> {
+    let c = c.to_ascii_lowercase();
+    if c.is_ascii_lowercase() {
+        return Some(LETTERS[usize::from(c as u8 - b'a')]);
+    }
+    if c.is_ascii_digit() {
+        return Some(DIGITS[usize::from(c as u8 - b'0')]);
+    }
+    Some(match c {
+        '`' => Key::Backquote,
+        '\\' => Key::Backslash,
+        '[' => Key::BracketLeft,
+        ']' => Key::BracketRight,
+        ',' => Key::Comma,
+        '=' => Key::Equal,
+        '-' => Key::Minus,
+        '.' => Key::Period,
+        '\'' => Key::Quote,
+        ';' => Key::Semicolon,
+        '/' => Key::Slash,
+        ' ' => Key::Space,
+        _ => return None,
+    })
+}
+
 const LETTERS: [Key; 26] = [
     Key::A,
     Key::B,

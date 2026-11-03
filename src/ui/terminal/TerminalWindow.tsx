@@ -10,6 +10,7 @@ import { followBoard } from '../../followBoard';
 import { terminalName } from '../../terminals';
 import type { Board, TerminalGlance } from '../../types';
 import { Icon } from '../primitives';
+import { useTheme } from '../ThemeSwitch';
 import { TerminalView } from './TerminalView';
 
 export function TerminalWindow() {
@@ -17,6 +18,8 @@ export function TerminalWindow() {
   const [board, setBoard] = useState<Board | null>(null);
   const [focusAt] = useState(() => Date.now());
   const readied = useRef(false);
+  // Light or dark as Codealong is, not only as macOS is: the terminal's colors come from it.
+  useTheme(board?.theme ?? 'system');
 
   useEffect(() => {
     void Promise.all([keptSession(), keptTerminal()]).then(([key, id]) => {

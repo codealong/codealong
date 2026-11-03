@@ -2878,7 +2878,7 @@ export interface TerminalMods {
 /** What a window sends a terminal (screen.rs `Input`). Positions are in pixels from the grid's
  *  top left. */
 export type TerminalInput =
-  | { kind: 'key'; code: string; text?: string; mods: TerminalMods; action?: 'press' | 'repeat' | 'release' }
+  | { kind: 'key'; code: string; text?: string; unshifted?: string; mods: TerminalMods; action?: 'press' | 'repeat' | 'release' }
   | { kind: 'text'; text: string }
   | { kind: 'mouse'; action: 'down' | 'up' | 'move'; button?: 'left' | 'middle' | 'right'; x: number; y: number; mods: TerminalMods }
   | { kind: 'wheel'; rows: number; x: number; y: number; mods: TerminalMods }

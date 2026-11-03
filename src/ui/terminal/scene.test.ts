@@ -52,10 +52,18 @@ function key(key: string, code: string, mods: Partial<KeyLike> = {}): KeyLike {
 
 describe('where a key goes in a terminal', () => {
   it('sends the program what it typed, and Ctrl keys by their key alone', () => {
-    expect(routeKey(key('a', 'KeyA'), true)).toEqual({ to: 'terminal', input: { kind: 'key', code: 'KeyA', text: 'a', mods: { shift: false, ctrl: false, alt: false, meta: false }, action: 'press' } });
+    expect(routeKey(key('a', 'KeyA'), true)).toEqual({ to: 'terminal', input: { kind: 'key', code: 'KeyA', text: 'a', unshifted: 'a', mods: { shift: false, ctrl: false, alt: false, meta: false }, action: 'press' } });
     expect(routeKey(key('c', 'KeyC', { ctrlKey: true }), true)).toMatchObject({ input: { code: 'KeyC', text: undefined, mods: { ctrl: true } } });
     expect(routeKey(key('Enter', 'Enter'), true)).toMatchObject({ input: { code: 'Enter', text: undefined } });
-    expect(routeKey(key('å', 'KeyA', { altKey: true }), true)).toMatchObject({ input: { text: 'å', mods: { alt: true } } });
+    expect(routeKey(key('å', 'KeyA', { altKey: true }), true)).toMatchObject({ input: { text: 'å', unshifted: undefined, mods: { alt: true } } });
+  });
+
+  it('says which letter a key is on your layout, which Ctrl goes by', () => {
+    // AZERTY: the key in Q's place on a US keyboard types a.
+    expect(routeKey(key('a', 'KeyQ', { ctrlKey: true }), true)).toMatchObject({ input: { code: 'KeyQ', text: undefined, unshifted: 'a' } });
+    expect(routeKey(key('A', 'KeyQ', { shiftKey: true }), true)).toMatchObject({ input: { text: 'A', unshifted: 'a' } });
+    // A shifted symbol says nothing of the key's own: AZERTY's digits are shifted.
+    expect(routeKey(key('1', 'Digit1', { shiftKey: true }), true)).toMatchObject({ input: { unshifted: undefined } });
   });
 
   it('leaves ⌘ to the app but for copying, pasting and selecting all', () => {

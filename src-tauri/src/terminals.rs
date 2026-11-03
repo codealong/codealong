@@ -373,6 +373,23 @@ pub fn close(id: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// A session moved to another account goes on as a new session (start.rs `move_to`): its
+/// terminals go on as the copy's.
+pub fn follow(from: &str, to: &str) {
+    let moved = {
+        let mut st = state();
+        let mut moved = false;
+        for e in st.list.iter_mut().filter(|e| e.glance.session == from) {
+            e.glance.session = to.to_string();
+            moved = true;
+        }
+        moved
+    };
+    if moved {
+        changed();
+    }
+}
+
 /// Closes every terminal of a session.
 pub fn close_session(key: &str) {
     let ids: Vec<String> = state().list.iter().filter(|e| e.glance.session == key).map(|e| e.glance.id.clone()).collect();
@@ -621,9 +638,9 @@ mod tests {
         let g = open(Open { session: "test:session:two".into(), folder: dir, command: Some("read line; echo \"got $line\"; sleep 1".into()), size: Some(DEFAULT_SIZE), ..Default::default() }).unwrap();
         watch(&g.id, "main", true).unwrap();
         for (code, text) in [("KeyH", "h"), ("KeyI", "i")] {
-            input(&g.id, vec![Input::Key { code: code.into(), text: Some(text.into()), mods: Default::default(), action: Default::default() }]).unwrap();
+            input(&g.id, vec![Input::Key { code: code.into(), text: Some(text.into()), unshifted: None, mods: Default::default(), action: Default::default() }]).unwrap();
         }
-        input(&g.id, vec![Input::Key { code: "Enter".into(), text: None, mods: Default::default(), action: Default::default() }]).unwrap();
+        input(&g.id, vec![Input::Key { code: "Enter".into(), text: None, unshifted: None, mods: Default::default(), action: Default::default() }]).unwrap();
         assert!(wait_for(|| text(&g.id).is_ok_and(|t| t.contains("got hi"))), "{:?}", text(&g.id));
         close(&g.id).unwrap();
     }
@@ -637,6 +654,17 @@ mod tests {
         assert!(wait_for(|| pid_of("sleep 59.125").is_some()), "it runs");
         close(&g.id).unwrap();
         assert!(wait_for(|| pid_of("sleep 59.125").is_none()), "it ended");
+    }
+
+    /// A session moved to another account takes its terminals with it; one archived closes them.
+    #[test]
+    fn a_sessions_terminals_follow_it_when_it_moves_and_close_with_it() {
+        let g = open(Open { session: "test:moves:old".into(), folder: std::env::temp_dir(), size: Some(DEFAULT_SIZE), ..Default::default() }).unwrap();
+        follow("test:moves:old", "test:moves:new");
+        assert!(glances().get("test:moves:old").is_none());
+        assert_eq!(glances().get("test:moves:new").map(|l| l.iter().map(|t| t.id.clone()).collect::<Vec<_>>()), Some(vec![g.id.clone()]));
+        close_session("test:moves:new");
+        assert!(glance(&g.id).is_none());
     }
 
     #[test]
