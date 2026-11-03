@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { beingRead, broughtCodec, endSide, keptLine, noteSide, showAnswer, showSides, STARTING_MS, takesBox, turnState, viewCodec } from './side';
 import type { Side, SideKept, SideTurn } from './types';
 
@@ -80,29 +80,50 @@ describe('showAnswer', () => {
     expect(shows(30, true)).toBeNull();
   });
 
-  it('keeps one put away from coming back in another window, or once the app restarts', async () => {
-    // A session waiting on you for a question it asked can't be seen, so it keeps the answer, and
-    // each window that came to it brought the closed one up again (2026-11-03).
-    const items = new Map<string, string>();
-    vi.stubGlobal('window', { localStorage: { getItem: (k: string) => items.get(k) ?? null, setItem: (k: string, v: string) => void items.set(k, v), removeItem: (k: string) => void items.delete(k) } });
+  describe('across windows', () => {
+    // Local storage, which every window shares and keeps across restarts.
+    let items: Map<string, string>;
+    beforeEach(() => {
+      items = new Map();
+      vi.stubGlobal('window', { localStorage: { getItem: (k: string) => items.get(k) ?? null, setItem: (k: string, v: string) => void items.set(k, v), removeItem: (k: string) => void items.delete(k) } });
+    });
+    afterEach(() => vi.unstubAllGlobals());
     /** A window just opened, or the app restarted: side.ts as it loads, with nothing brought up yet. */
     const opened = async () => {
       vi.resetModules();
       return import('./side');
     };
-    const shownIn = (side: typeof import('./side'), at: number) => {
+    const shownIn = (side: typeof import('./side'), at: number, open = false) => {
       side.showSides(key, null);
-      side.showAnswer(key, { id: 'a', open: false, at });
+      side.showAnswer(key, { id: 'a', open, at });
       return side.beingRead(key);
     };
-    expect(shownIn(await opened(), 40)).toBe('a');
-    expect(shownIn(await opened(), 40)).toBeNull();
-    // A later answer comes up, once.
-    expect(shownIn(await opened(), 50)).toBe('a');
-    expect(shownIn(await opened(), 50)).toBeNull();
-    // The way it's written never changes, or one put away comes back with an update.
-    expect(items.get(`codealong.sideanswer.${key}`)).toBe('50');
-    vi.unstubAllGlobals();
+
+    it('keeps one put away from coming back in another window, or once the app restarts', async () => {
+      // A session waiting on you for a question it asked can't be seen, so it keeps the answer, and
+      // each window that came to it brought the closed one up again (2026-11-03).
+      expect(shownIn(await opened(), 40)).toBe('a');
+      expect(shownIn(await opened(), 40)).toBeNull();
+      // A later answer comes up, once.
+      expect(shownIn(await opened(), 50)).toBe('a');
+      expect(shownIn(await opened(), 50)).toBeNull();
+      // The way it's written never changes, or one put away comes back with an update.
+      expect(items.get(`codealong.sideanswer.${key}`)).toBe('50');
+    });
+
+    it('brings up an open one again once it has closed, as the server’s restart closes it', async () => {
+      // Open, it shows above the box by itself, and nothing's kept of it.
+      expect(shownIn(await opened(), 60, true)).toBeNull();
+      expect(items.has(`codealong.sideanswer.${key}`)).toBe(false);
+      // The app restarted with the server: the same answer, closed, shows to read.
+      expect(shownIn(await opened(), 60)).toBe('a');
+      // The server alone restarted, under a window that brought it up open.
+      const here = await opened();
+      expect(shownIn(here, 70, true)).toBeNull();
+      expect(shownIn(here, 70)).toBe('a');
+      expect(shownIn(here, 70)).toBeNull();
+      expect(shownIn(await opened(), 70)).toBeNull();
+    });
   });
 });
 

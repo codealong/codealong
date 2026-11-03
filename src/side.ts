@@ -221,9 +221,10 @@ export function showSide(key: string, side: Pick<SideGlance, 'id' | 'open'>): vo
   if (popped.has(key)) void sideWindow(key, true).catch(() => {});
 }
 
-/** The answer each session's side conversation last brought up, by when it came, is an item of
- *  its own in local storage, as its view is: put away, it doesn't come back up in any window,
- *  nor once the app restarts. */
+/** The closed one each session's side conversations last brought up, by when it answered, is an
+ *  item of its own in local storage, as its view is: put away, it doesn't come back up in any
+ *  window, nor once the app restarts. An open one needs none: it shows above the box by itself,
+ *  and closing it says you've read it (side.rs `close`). */
 const BROUGHT = 'codealong.sideanswer.';
 
 /** When an answer came, as it's kept: milliseconds, written as they are. */
@@ -235,17 +236,27 @@ export const broughtCodec: Codec<number> = {
   format: (at) => String(at),
 };
 
-/** The answers brought up in this window, for when storage is off. */
-const broughtUp = new Map<string, number>();
+/** The answer each session's side conversations last brought up in this window. */
+const broughtUp = new Map<string, SideAnswer>();
 
-/** Shows what a session waits on you for from its side conversations (`Session.sideAnswer`), once,
- *  whichever window comes to it first: the open one above its box, or the one that answered,
- *  closed since, to read there (`brought`), which every window then shows. Out in a window of its
- *  own, that window shows it and comes forward, leaving the keyboard where it is. */
+/** Whether `answer` was brought up already, as `last` was here, or put away in any window. One
+ *  open when it came up and closed since with nothing more asked, as the server's restart closes
+ *  every open one, comes up again, closed: it no longer shows above the box by itself. */
+function broughtBefore(key: string, answer: SideAnswer, last: SideAnswer | undefined): boolean {
+  if (readStored(BROUGHT + key, broughtCodec, 0) >= answer.at) return true;
+  if (!last) return false;
+  return last.at > answer.at || (last.at === answer.at && (answer.open || !last.open));
+}
+
+/** Shows what a session waits on you for from its side conversations (`Session.sideAnswer`): the
+ *  open one above its box, once in each window, or the one that answered, closed since, to read
+ *  there (`brought`), once in whichever window comes to the session first, every window then
+ *  showing it. Out in a window of its own, that window shows it and comes forward, leaving the
+ *  keyboard where it is. */
 export function showAnswer(key: string, answer: SideAnswer): void {
-  if (Math.max(broughtUp.get(key) ?? 0, readStored(BROUGHT + key, broughtCodec, 0)) >= answer.at) return;
-  broughtUp.set(key, answer.at);
-  writeStored(BROUGHT + key, broughtCodec, answer.at);
+  if (broughtBefore(key, answer, broughtUp.get(key))) return;
+  broughtUp.set(key, answer);
+  if (!answer.open) writeStored(BROUGHT + key, broughtCodec, answer.at);
   showSides(key, answer.open ? null : { kind: 'past', id: answer.id, brought: true });
   // Asked, not read from `popped`, which a window just opened hasn't heard yet. Unanswered, it stays
   // where it is, and what shows there is the view just set.
