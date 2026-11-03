@@ -20,6 +20,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex;
 use std::time::Duration;
 
 use anyhow::{anyhow, bail, Result};
@@ -61,7 +62,10 @@ const FRONT_WAIT: Duration = Duration::from_secs(5);
 
 /// Shows asked for since Codealong started, so one asked again late is dropped once a newer one
 /// was asked for.
-static SHOWS: AtomicU64 = AtomicU64::new(0);
+pub(super) static SHOWS: AtomicU64 = AtomicU64::new(0);
+
+/// Held while the Rex apps are asked to show a block (`ask`).
+static ASKING: Mutex<()> = Mutex::new(());
 
 /// The longest label Rex takes for a session or a window.
 const LABEL_CHARS: usize = 128;
@@ -524,33 +528,34 @@ fn show(ids: Value) -> Result<()> {
     if let Some(ids) = ids.as_object_mut() {
         ids.insert("wait_ms".into(), json!(ANSWER_WAIT.as_millis() as u64));
     }
-    let ask = |ids: &Value| -> Result<Shown> { Ok(serde_json::from_value(script(SHOW, ids.clone(), false)?).unwrap_or_default()) };
-    let mut shown = ask(&ids)?;
+    let mut shown = ask(&ids, || true)?.unwrap_or_default();
     open::in_app(App::Id(BUNDLE), None, Duration::from_secs(10))?;
-    // Late, it goes there once it gets to the request, unless its list of sessions had fallen
-    // behind and it didn't know this one (SHOW refreshes it and asks again only when told so in
-    // time). So once it's the active app, which wakes it, it's asked again, which costs nothing
-    // where it went: unless a newer show came first, or it isn't brought forward. The windows
-    // bring it forward once the open returns.
-    if shown.shown == 0 && !shown.late.is_empty() && !app_active(BUNDLE) {
-        std::thread::spawn(move || {
-            if wait_until(FRONT_WAIT, || app_active(BUNDLE), || SHOWS.load(Ordering::SeqCst) != ticket) {
-                let _ = ask(&ids);
-            }
-        });
-        return Ok(());
-    }
     // No app was connected: the one just opened is, once it has started. Or the app had every
     // window closed, and refuses any action until it has one: opened again, it makes one, on the
     // session it showed last.
     let started = std::time::Instant::now();
     while shown.shown == 0 && (shown.apps == 0 || !shown.windowless.is_empty()) && started.elapsed() < APP_WAIT {
         std::thread::sleep(Duration::from_millis(500));
-        shown = ask(&ids)?;
+        shown = ask(&ids, || true)?.unwrap_or_default();
     }
-    if shown.shown > 0 || !shown.late.is_empty() {
-        Ok(())
-    } else if shown.apps == 0 {
+    if shown.shown > 0 {
+        return Ok(());
+    }
+    // Late, it goes there once it gets to the request, unless its list of sessions had fallen
+    // behind and it didn't know this one (SHOW refreshes it and asks again only when told so in
+    // time). So once it's the active app, which wakes it, it's asked again, which costs nothing
+    // where it went: unless a newer show came first, or it isn't brought forward. The windows
+    // bring it forward once the open returns, and it may be in front already, just busy.
+    if !shown.late.is_empty() {
+        later(move || {
+            let newest = || SHOWS.load(Ordering::SeqCst) == ticket;
+            if wait_until(FRONT_WAIT, || app_active(BUNDLE), || !newest()) {
+                let _ = ask(&ids, newest);
+            }
+        });
+        return Ok(());
+    }
+    if shown.apps == 0 {
         bail!("Rex opened, but it didn't connect to its server in time to show this session's tab.")
     } else if !shown.refused.is_empty() {
         bail!(NO_REMOTE_CONTROL)
@@ -559,6 +564,28 @@ fn show(ids: Value) -> Result<()> {
     } else {
         bail!("Rex didn't go to this session's tab: {}", shown.failed)
     }
+}
+
+/// Asks the Rex apps to show a block (SHOW), one ask at a time, if `still` says to once it's this
+/// one's turn; None when it doesn't. An app answers requests in the order they came, so an ask
+/// made again late, with its refresh and second select, would otherwise land between a newer
+/// show's and take the app back to an older session.
+fn ask(ids: &Value, still: impl Fn() -> bool) -> Result<Option<Shown>> {
+    let _turn = ASKING.lock().unwrap_or_else(|e| e.into_inner());
+    if !still() {
+        return Ok(None);
+    }
+    Ok(Some(serde_json::from_value(script(SHOW, ids.clone(), false)?).unwrap_or_default()))
+}
+
+/// Runs `work` on a thread of its own; on the stage, at once on the test's, so what it sends is
+/// played too.
+fn later(work: impl FnOnce() + Send + 'static) {
+    #[cfg(test)]
+    if super::stage::playing() {
+        return work();
+    }
+    std::thread::spawn(work);
 }
 
 /// What SHOW answered.

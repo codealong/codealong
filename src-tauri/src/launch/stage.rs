@@ -261,6 +261,12 @@ pub fn app_active(_app: &str) -> Option<bool> {
     staged(|_| true)
 }
 
+/// Whether a play is running on this thread: work the code would hand to a thread of its own runs
+/// on the test's instead, so what it sends is played too.
+pub fn playing() -> bool {
+    staged(|_| ()).is_some()
+}
+
 pub fn ghostty_naps() -> Option<bool> {
     staged(|s| s.setup.ghostty_naps)
 }
@@ -1644,10 +1650,34 @@ mod tests {
         assert_eq!(err(p.got), "Rex didn't go to this session's tab: client.perform failed: connection reset");
         assert_eq!(p.log.len(), 3, "a connected app isn't asked again");
         // Its app not answering in time (macOS naps it behind other windows): it goes there once
-        // it does, and the open isn't held up for it, nor said to have failed.
+        // it does, and the open isn't held up for it, nor said to have failed. Once Rex is the
+        // active app it's asked again, for a session its list didn't have yet.
         let p = played(rex_answers(REX_LATE), || terminal_focus_session("ghostty", IN_REX, "Fix the login", Path::new("/r/app")));
         assert!(p.got.unwrap());
-        assert_eq!(p.log, [rex("REX_LIST", "{}", false), show("block:b1", "session:s1", "window:w1"), REX_OPEN.to_string()]);
+        assert_eq!(p.log, [rex("REX_LIST", "{}", false), show("block:b1", "session:s1", "window:w1"), REX_OPEN.to_string(), show("block:b1", "session:s1", "window:w1")]);
+        // Late once Rex was opened and connected, too.
+        let shows = Rc::new(Cell::new(0));
+        let answer = move |s: &Sent| {
+            if s.args.get(3).is_some_and(|a| a == "REX_SHOW") {
+                shows.set(shows.get() + 1);
+                return Ok(if shows.get() == 1 { r#"{"apps":0,"shown":0,"refused":"","failed":""}"# } else { REX_LATE }.to_string());
+            }
+            rex_answers(REX_SHOWN)(s)
+        };
+        let p = played(answer, || terminal_focus_session("ghostty", IN_REX, "Fix the login", Path::new("/r/app")));
+        assert!(p.got.unwrap());
+        assert_eq!(p.log[1..], [show("block:b1", "session:s1", "window:w1"), REX_OPEN.to_string(), show("block:b1", "session:s1", "window:w1"), show("block:b1", "session:s1", "window:w1")]);
+        // A newer show asked for meanwhile goes there instead: this one isn't asked again.
+        let answer = |s: &Sent| {
+            if s.args.get(3).is_some_and(|a| a == "REX_SHOW") {
+                crate::launch::rex::SHOWS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                return Ok(REX_LATE.to_string());
+            }
+            rex_answers(REX_SHOWN)(s)
+        };
+        let p = played(answer, || terminal_focus_session("ghostty", IN_REX, "Fix the login", Path::new("/r/app")));
+        assert!(p.got.unwrap());
+        assert_eq!(p.log[1..], [show("block:b1", "session:s1", "window:w1"), REX_OPEN.to_string()]);
         // Its app is running with every window closed: opened, it makes one, and is asked again.
         let shows = Rc::new(Cell::new(0));
         let answer = move |s: &Sent| {

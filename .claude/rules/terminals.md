@@ -338,10 +338,12 @@ say the rest.
 
 ## Unchecked
 
-- Rex, 2026-11-03: asking a napped Rex again once it's in front (`launch/rex.rs` `show`'s
-  thread), which the stage can't play (every app is the active one there). Each half was seen
-  on this Mac's Rex: a 1 ms wait answering late and a 1 s one showing the session; the order of
-  a late select, then the window bringing Rex forward, then the ask again, wasn't.
+- Rex, 2026-11-03: asking a napped Rex again once it's in front (`launch/rex.rs` `show`,
+  `later`). The stage plays the ask again on the test's thread, every app being the active one
+  there, and a newer show dropping it; not the real thread waiting for Rex to come forward, nor
+  one ask waiting its turn behind another (`ask`'s lock). On this Mac's Rex a 1 ms wait answered
+  late and a 1 s one showed the session; the order of a late select, the window bringing Rex
+  forward, then the ask again, wasn't seen.
 
 - tmux, 2026-10-18: a start while locked going to tmux and its Ghostty tab opening once unlocked,
   seen end to end (each step was, apart); and which app macOS's privacy prompts name for an agent
