@@ -22,7 +22,8 @@
 // too. A call that sent you files (Claude Code's SendUserFile) lists them under its line with what
 // it said of them, each opening on a click (Markdown.tsx `FileLink`), and stays out of a fold too.
 //
-// A prompt of yours shows its images in place, whichever way they went: sent from Codealong,
+// A prompt of yours shows as you typed it, its Markdown drawn as a reply's is (Markdown.tsx
+// `written`: its line breaks and indentation stay), and its images in place, whichever way they went: sent from Codealong,
 // pasted into the session's terminal, or attached in its harness's app. The engine keeps the
 // ones a record holds with Codealong's own and writes each as text refers to a kept image
 // (transcript.rs), so they show as an image in a todo's description does; a click opens one.
@@ -522,11 +523,13 @@ function PeerText({ item }: { item: TranscriptItem }) {
   );
 }
 
-/** What you wrote, as you wrote it, with the images you sent shown in place and files as chips. */
+/** What you wrote, as you wrote it but for its Markdown, which is drawn (a prompt an agent or a
+ *  schedule wrote is mostly headings and lists), with the images you sent shown in place and files
+ *  as chips. */
 function YourText({ text }: { text: string }) {
   return (
     <div className="ca-thread-you">
-      <DescriptionView text={text} />
+      <Markdown text={text} written />
     </div>
   );
 }

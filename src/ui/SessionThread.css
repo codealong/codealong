@@ -391,6 +391,11 @@
 .ca-thread-peer .ca-desc-img img {
   max-height: 200px;
 }
+/* Code and a table's header in a prompt of yours stand on the page's color: the tint they have
+   elsewhere is the prompt's own. */
+.ca-thread-you :is(.ca-ic, pre, th) {
+  background: var(--surface);
+}
 .ca-thread-said.is-ahead .ca-thread-you {
   opacity: 0.7;
 }

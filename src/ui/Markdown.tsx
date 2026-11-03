@@ -1,9 +1,11 @@
 // Just enough Markdown for what agents write back: headings, lists, quotes, fenced code, tables,
-// and **bold**, *italics*, `code` and [links](url) inside lines. Built as React elements, never as
+// and **bold**, *italics*, `code` and [links](url) inside lines. Your prompts are drawn with it too,
+// kept as you typed them (`written`): their line breaks and indentation stay, and a glob written
+// without backticks isn't read as italics (`ITALIC`). Built as React elements, never as
 // HTML, so nothing in a transcript can put markup on the page. Web links, written as links or bare,
 // open in the browser; a file or an image Codealong keeps (`[name](files/…)`, `![image](images/…)`,
-// as a message sent with attachments refers to them) shows as in a prompt of yours, a chip that
-// opens it or the image in place; any other link shows as its text. A full path written as code
+// as a message sent with attachments refers to them) shows as a chip that opens it, or the image
+// in place, on lines of its own (`paragraph`); any other link shows as its text. A full path written as code
 // opens its file on a click once the engine has said it's there (`PathCode`, filePaths.ts), and a
 // right-click on it, or on any file shown, offers your editor and the Finder too. A link to a GitHub PR is the PR's
 // (PrLink.tsx): a bare one reads `name#123`, hovering it shows the PR and its sessions, and a
@@ -15,7 +17,7 @@
 // (`FileLink`). Another `:::name` block
 // is a card of the same kind; other directives stay as they're written.
 
-import { createContext, Fragment, memo, useContext, useState, type MouseEvent, type ReactNode } from 'react';
+import { createContext, Fragment, isValidElement, memo, useContext, useState, type MouseEvent, type ReactNode } from 'react';
 import { editFile, openFile, openUrl, revealFile, yourEditor } from '../api';
 import { showContextMenu } from '../contextMenu';
 import { pathIn, usePathKind, type PathAt } from '../filePaths';
@@ -157,8 +159,11 @@ function dedent(body: string[]): string {
 const tableAt = (lines: string[], i: number) =>
   lines[i].includes('|') && i + 1 < lines.length && DELIM.test(lines[i + 1]) && cells(lines[i]).length === cells(lines[i + 1]).length;
 
-export function blocks(src: string): Block[] {
+/** `written`: a prompt's, kept as it was typed (`Markdown`'s `written`): a paragraph's or a quote's
+ *  lines stay lines, each with its indentation, where an agent's reply joins them into one. */
+export function blocks(src: string, written = false): Block[] {
   const out: Block[] = [];
+  const join = (body: string[]) => body.join(written ? '\n' : ' ');
   const lines = src.replace(/\r\n?/g, '\n').split('\n');
   let i = 0;
   while (i < lines.length) {
@@ -244,7 +249,7 @@ export function blocks(src: string): Block[] {
           body.push(...lines.slice(i, i + next));
           i += next;
         }
-        items.push(blocks(dedent(body)));
+        items.push(blocks(dedent(body), written));
         // A blank line between items keeps them in one list.
         const next = lines.slice(i).findIndex((l) => l.trim() !== '');
         const sibling = next >= 0 ? ITEM.exec(lines[i + next]) : null;
@@ -257,20 +262,33 @@ export function blocks(src: string): Block[] {
     if (/^\s*>/.test(line)) {
       const body: string[] = [];
       while (i < lines.length && /^\s*>/.test(lines[i])) body.push(lines[i++].replace(/^\s*>\s?/, ''));
-      out.push({ kind: 'quote', text: body.join(' ') });
+      out.push({ kind: 'quote', text: join(body) });
       continue;
     }
     const body: string[] = [];
-    while (i < lines.length && lines[i].trim() && !/^(#{1,6})\s|^\s*```|^\s*>/.test(lines[i]) && !ITEM.exec(lines[i]) && !tableAt(lines, i) && !opensCard(lines[i]) && !COMMENT.test(lines[i])) body.push(lines[i++].trim());
-    out.push({ kind: 'para', text: body.join(' ') });
+    while (i < lines.length && lines[i].trim() && !/^(#{1,6})\s|^\s*```|^\s*>/.test(lines[i]) && !ITEM.exec(lines[i]) && !tableAt(lines, i) && !opensCard(lines[i]) && !COMMENT.test(lines[i])) {
+      const line = lines[i++];
+      body.push(written ? line.trimEnd() : line.trim());
+    }
+    out.push({ kind: 'para', text: join(body) });
   }
   return out;
 }
 
+/** Bold and italics open at a word's edge, so a glob or a path written without backticks
+ *  (`apps/*, libs/*`, `*.ts`, `Button*.tsx`, `src/**`) reads as it's written, as prompts often
+ *  have them: the marks come after no letter, slash or other mark, and what they hold starts on
+ *  something other than a space or a slash and ends on something other than a space. Italics don't
+ *  start on the punctuation a glob goes on with either (`*, `, `*.`), and underscores, which names
+ *  are full of, close before no letter too. */
+const BOLD = String.raw`(?<![\w/\\*])\*\*([^\s*/](?:[^*]*[^\s*])?)\*\*`;
+const BOLD_UNDER = String.raw`(?<![\w/\\])__([^\s_/](?:[^_]*[^\s_])?)__(?!\w)`;
+const ITALIC = String.raw`(?<![\w/\\*])\*([^\s*/.,;:!?)\]}](?:[^*]*[^\s*])?)\*`;
+
 /** A line's inline marks, each its own group: code, bold, a link (words, then where), a bare link
  *  in angle brackets, a Codex follow-up (label, then attributes), a file Codex cites, italics, an
  *  image (words, then where). */
-const INLINE = String.raw`\`([^\`]+)\`|\*\*([^*]+)\*\*|__([^_]+)__|\[([^\]]+)\]\(([^)\s]+)[^)]*\)|<(https?:\/\/[^\s>]+)>|(?<![\w:]):codex-followup\[([^\]]*)\]${ATTRS}|(?<![\w:]):codex-file-citation${ATTRS}|\*([^*\s][^*]*)\*|!\[([^\]\n]*)\]\(([^)\s]+)\)`;
+const INLINE = String.raw`\`([^\`]+)\`|${BOLD}|${BOLD_UNDER}|\[([^\]]+)\]\(([^)\s]+)[^)]*\)|<(https?:\/\/[^\s>]+)>|(?<![\w:]):codex-followup\[([^\]]*)\]${ATTRS}|(?<![\w:]):codex-file-citation${ATTRS}|${ITALIC}|!\[([^\]\n]*)\]\(([^)\s]+)\)`;
 
 /** A line's inline marks as elements: code first, so nothing inside backticks is read as a mark.
  *  Inside a link (`links` false) nothing more becomes a link, since links can't nest. Codex's
@@ -539,6 +557,39 @@ function drawItem(item: Block[], j: number): ReactNode {
   );
 }
 
+/** A paragraph. One with images Codealong keeps in it (a prompt's, which go on the lines after its
+ *  words) shows its words and images one under another, as a description does (DescriptionEditor.tsx
+ *  `DescriptionView`), rather than an image pressed against the line above it. */
+function paragraph(text: string, key: number): ReactNode {
+  const nodes = inline(text);
+  const image = (n: ReactNode) => isValidElement(n) && n.type === KeptImage;
+  if (!nodes.some(image)) return <p key={key}>{nodes}</p>;
+  const out: ReactNode[] = [];
+  let words: ReactNode[] = [];
+  const said = () => {
+    // The line breaks around an image are what put it on a line of its own.
+    const edged = words.map((n, j) => {
+      if (typeof n !== 'string') return n;
+      const s = j === 0 ? n.trimStart() : n;
+      return j === words.length - 1 ? s.trimEnd() : s;
+    });
+    if (edged.some((n) => n !== '')) out.push(<p key={`w${out.length}`}>{edged}</p>);
+    words = [];
+  };
+  for (const n of nodes) {
+    if (image(n)) {
+      said();
+      out.push(n);
+    } else words.push(n);
+  }
+  said();
+  return (
+    <div key={key} className="ca-md-para">
+      {out}
+    </div>
+  );
+}
+
 function drawBlock(b: Block, i: number): ReactNode {
   switch (b.kind) {
     case 'heading':
@@ -548,7 +599,7 @@ function drawBlock(b: Block, i: number): ReactNode {
         </p>
       );
     case 'para':
-      return <p key={i}>{inline(b.text)}</p>;
+      return paragraph(b.text, i);
     case 'list': {
       const Tag = b.ordered ? 'ol' : 'ul';
       return (
@@ -597,7 +648,10 @@ function drawBlock(b: Block, i: number): ReactNode {
   }
 }
 
-/** Memoized: a thread re-renders every clock tick, and its messages' text doesn't change. */
-export const Markdown = memo(function Markdown({ text, className }: { text: string; className?: string }) {
-  return <div className={cx('ca-md', className)}>{blocks(text).map(drawBlock)}</div>;
+/** Memoized: a thread re-renders every clock tick, and its messages' text doesn't change.
+ *  `written`: a prompt of yours, which shows as you typed it but for its marks: its line breaks
+ *  and indentation stay, and a blank line between paragraphs is a line's height, as it was before
+ *  prompts were drawn as Markdown, rather than a reply's narrower gap. */
+export const Markdown = memo(function Markdown({ text, className, written = false }: { text: string; className?: string; written?: boolean }) {
+  return <div className={cx('ca-md', written && 'is-written', className)}>{blocks(text, written).map(drawBlock)}</div>;
 });

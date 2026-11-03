@@ -500,8 +500,9 @@ hover. When it made more, "+N more" beside the chip (naming them on hover) lists
 links, the latest first, each with what was last done with it and how long ago, and "fewer" puts
 them away, as the sessions that came of it go under its title. An artifact published again is one
 page, as it last stood. Below is its whole conversation, read from the session's own record
-(Claude Code's transcript, Codex's rollout, OpenCode's database): your prompts, the agent's replies
-as Markdown, and every tool call, which opens to its input and output; runs of calls fold into one
+(Claude Code's transcript, Codex's rollout, OpenCode's database): your prompts and the agent's
+replies, their Markdown drawn (a prompt keeps its line breaks and indentation as you typed them,
+and a glob written without backticks, `apps/*` or `*.ts`, isn't read as italics), and every tool call, which opens to its input and output; runs of calls fold into one
 line. Who said what and when heads a run of messages, not each one: your prompt, then the agent's
 reply, whose later messages between its calls go on under that heading; it heads one again after a
 note in the conversation or a pause of ten minutes (the agent woken by a background job's report).

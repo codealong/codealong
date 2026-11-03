@@ -58,10 +58,11 @@ describe('shownText', () => {
     expect(shownText(item('tool', 'SendUserFile · `before.png` and 1 more', { sent }))).toBe('SendUserFile · before.png and 1 more\nBefore and after\nbefore.png\nafter.png');
   });
 
-  it('reads a reply’s Codex directives as they’re drawn, and a prompt’s as written', () => {
+  it('reads Codex directives as they’re drawn, in a reply or a prompt, and Codealong’s as written', () => {
     const block = ':::writing{variant="standard" id="1"}\nRead the status.\n:::';
     expect(shownText(item('agent', block))).toBe('Writing\nRead the status.');
-    expect(shownText(item('you', block))).toBe(block);
+    expect(shownText(item('you', block))).toBe('Writing\nRead the status.');
+    expect(shownText(item('codealong', block))).toBe(block);
   });
 
   it('leaves out what shows only once opened', () => {

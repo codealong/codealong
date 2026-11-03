@@ -56,10 +56,10 @@ export function plainOf(markdown: string): string {
  *  call asked, which show as a message of yours (`answersShown`). */
 export function shownText(it: TranscriptItem): string {
   switch (it.kind) {
+    // A reply's Codex directives are drawn (Markdown.tsx), as another session's message's and a
+    // prompt's are; Codealong's aren't.
     case 'you':
-      return it.input != null ? `! ${it.input}` : plainOf(it.text);
-    // A reply's Codex directives are drawn (Markdown.tsx), as another session's message's are; a
-    // prompt's and Codealong's aren't.
+      return it.input != null ? `! ${it.input}` : plainOf(plainDirectives(it.text));
     case 'agent':
     case 'peer':
       return plainOf(plainDirectives(it.text));

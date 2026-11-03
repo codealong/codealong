@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { isValidElement, type ReactNode } from 'react';
-import { blocks, inline, linked } from './Markdown';
+import { createElement, Fragment, isValidElement, type ReactNode } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { blocks, inline, linked, Markdown } from './Markdown';
 import { FileChip, KeptImage } from './DescriptionEditor';
 import { prLabel, prRefOf } from '../prLinks';
 
@@ -188,6 +189,69 @@ describe('blocks', () => {
 
   it("doesn't read a pipe over a rule as a table", () => {
     expect(blocks('a | b\n---').some((x) => x.kind === 'table')).toBe(false);
+  });
+
+  it('keeps a prompt’s lines and their indentation, where a reply’s are joined', () => {
+    // A pasted error, an item that goes on under itself, a quote: as typed (2026-11-03).
+    const src = 'The build fails with\nerror: no such file\n    at load (a.js:1)   \n\n- one\n  wraps here\n> quoted\n> on two lines\n\n## Then';
+    expect(blocks(src)).toEqual([
+      { kind: 'para', text: 'The build fails with error: no such file at load (a.js:1)' },
+      { kind: 'list', ordered: false, items: [para('one wraps here')] },
+      { kind: 'quote', text: 'quoted on two lines' },
+      { kind: 'heading', level: 2, text: 'Then' },
+    ]);
+    expect(blocks(src, true)).toEqual([
+      { kind: 'para', text: 'The build fails with\nerror: no such file\n    at load (a.js:1)' },
+      { kind: 'list', ordered: false, items: [para('one\nwraps here')] },
+      { kind: 'quote', text: 'quoted\non two lines' },
+      { kind: 'heading', level: 2, text: 'Then' },
+    ]);
+  });
+});
+
+describe('emphasis', () => {
+  const html = (text: string) => renderToStaticMarkup(createElement(Fragment, null, ...inline(text)));
+
+  it('draws bold and italics that open at a word’s edge', () => {
+    expect(html('**Plan:** run it, *then* check *“both”* and __again__ (*all of it*).')).toBe('<strong>Plan:</strong> run it, <em>then</em> check <em>“both”</em> and <strong>again</strong> (<em>all of it</em>).');
+    expect(html('**1,204 calls at 09:10 UTC**, about **(40–90)** a minute')).toBe('<strong>1,204 calls at 09:10 UTC</strong>, about <strong>(40–90)</strong> a minute');
+    // A word can go on after one, and one can end on a slash, as agents write them.
+    expect(html('the **PR**s, **3**x faster, *re*-run')).toBe('the <strong>PR</strong>s, <strong>3</strong>x faster, <em>re</em>-run');
+    expect(html('**See tests/** and **The *our* part**')).toBe('<strong>See tests/</strong> and **The <em>our</em> part**');
+  });
+
+  it('leaves the globs and paths prompts write without backticks as they are', () => {
+    // As prompts write them, where the marks were read as italics before (2026-11-03).
+    for (const text of [
+      'Read apps/api/*, /internal/* and libs/*.',
+      'its rows: AB-*, CD-*, EF-*.',
+      'Button*.tsx and button*.tsx',
+      'any notes/*draft* there',
+      'every src/**/*.ts and lib/**/*.ts',
+      '(and their *.spec.tsx) or ~/.claude*, ~/.codex*',
+      'a * b * c, 2*3*4 and f(*args, **kwargs)',
+      'in src/__tests__ and a__b__c',
+    ])
+      expect(inline(text)).toEqual([text]);
+  });
+});
+
+describe('Markdown', () => {
+  // Without the preload React's server markup puts ahead of an image.
+  const html = (text: string, written?: boolean) => renderToStaticMarkup(createElement(Markdown, { text, written })).replace(/^(<link rel="preload"[^>]*>)+/, '');
+
+  it('marks a prompt as written', () => {
+    expect(html('one\ntwo', true)).toBe('<div class="ca-md is-written"><p>one\ntwo</p></div>');
+    expect(html('one\ntwo')).toBe('<div class="ca-md"><p>one two</p></div>');
+  });
+
+  it('puts the images Codealong keeps on lines of their own between a paragraph’s words', () => {
+    const shot = '![image](images/0123456789abcdef.png)';
+    const image = /<button type="button" class="ca-desc-img"[^>]*><img[^>]*><\/button>/g;
+    const laid = html(`Why is this cut off?\n${shot}\n${shot}\nand this`, true).replace(image, '<image/>');
+    expect(laid).toBe('<div class="ca-md is-written"><div class="ca-md-para"><p>Why is this cut off?</p><image/><image/><p>and this</p></div></div>');
+    // Pasted in the middle of a line, as Claude Code's [Image #1] is.
+    expect(html(`Before ${shot} and after`).replace(image, '<image/>')).toBe('<div class="ca-md"><div class="ca-md-para"><p>Before</p><image/><p>and after</p></div></div>');
   });
 });
 

@@ -16,6 +16,22 @@
 .ca-md .ca-md-h:first-child {
   margin-top: 0;
 }
+/* A prompt of yours, kept as you typed it (Markdown.tsx `written`): its lines and their
+   indentation, and a blank line's height between paragraphs, as it showed before it was Markdown. */
+.ca-md.is-written {
+  white-space: pre-wrap;
+}
+.ca-md.is-written > :not(:last-child) {
+  margin-bottom: 1lh;
+}
+/* A paragraph with images Codealong keeps in it (Markdown.tsx `paragraph`): its words and images
+   one under another, as a description shows them. */
+.ca-md-para > p {
+  margin: 0 0 8px;
+}
+.ca-md-para > :last-child {
+  margin-bottom: 0;
+}
 /* A web link in a reply, and in a tool's output (SessionThread.tsx), which isn't Markdown. */
 .ca-md a.ca-md-a,
 .ca-thread-out a.ca-md-a {
