@@ -24,6 +24,11 @@
     return all('.ca-settings-pane .ca-field').filter(function (f) { var s = f.querySelector(':scope > span:not(.ca-checkbox)'); return s && /^Keep .+ awake behind other windows$/.test(s.textContent); })[0];
   };
   var box = function () { return field().querySelector('input[type=checkbox]'); };
+  var pick = function (select, value) {
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(select, value);
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+  var first, other, release;
   var terminalField = function () {
     return all('.ca-settings-pane .ca-field').filter(function (f) { var s = f.querySelector(':scope > span'); return s && s.textContent === 'Terminal'; })[0];
   };
@@ -58,6 +63,30 @@
     })
     .then(function () {
       check('reads the system again on focus', !box().checked, field().textContent);
+      // A change still on its way for one terminal while you pick another: its answer stays that
+      // terminal's, and the other's switch shows its own setting.
+      var picker = terminalField().querySelector('select');
+      first = picker.value;
+      other = Array.prototype.filter.call(picker.options, function (o) { return o.value !== first && o.value !== 'tmux'; })[0].value;
+      window.__keepConfig = true;
+      window.__awake = {};
+      window.__awake[first] = false;
+      window.__awake[other] = false;
+      window.__awakeHold = new Promise(function (go) { release = go; });
+      box().click();
+      return until(function () { return calls('set_terminal_awake').length === 2; }, 5000, 'the second ask, held');
+    })
+    .then(function () {
+      pick(terminalField().querySelector('select'), other);
+      return until(function () { return field() && sent('terminal_awake').some(function (a) { return a.terminal === other; }) && field().querySelector(':scope > span:not(.ca-checkbox)').textContent.indexOf('Keep ' + first) < 0; }, 5000, 'the other terminal’s switch, read');
+    })
+    .then(function () {
+      release();
+      return wait(200);
+    })
+    .then(function () {
+      check('the held change went to the terminal it was asked for', window.__awake[first] === true && window.__awake[other] === false, JSON.stringify(window.__awake));
+      check('the other terminal’s switch shows its own setting', !box().checked && /slows/.test(field().textContent), field().textContent);
     })
     .then(done)
     .catch(stopped);

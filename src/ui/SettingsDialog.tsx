@@ -351,7 +351,9 @@ function GeneralPane({ cfg, view, theme, onPickTheme, disabled, onSave, now }: P
           <ProfileSelect value={cfg.apps.terminal} profiles={view.terminals} onChange={(terminal) => void onSave({ ...cfg, apps: { ...cfg.apps, terminal } })} />
           <small>Where sessions open and new ones start.</small>
         </label>
-        {platform() === 'mac' && <KeepAwakeField terminal={cfg.apps.terminal} name={terminalName} keepsTerminals={!!view.holdsSessions?.includes(cfg.apps.terminal)} />}
+        {/* A field of its own for each terminal: what was read or asked for another doesn't land
+            on this one's switch, nor does that one's show while this one's is read. */}
+        {platform() === 'mac' && <KeepAwakeField key={cfg.apps.terminal} terminal={cfg.apps.terminal} name={terminalName} keepsTerminals={!!view.holdsSessions?.includes(cfg.apps.terminal)} />}
         <div className="ca-field">
           <span>New terminals open as</span>
           <Seg
@@ -548,7 +550,7 @@ function OpenAtLoginField() {
  * (os/naps.rs), where a napped one on a busy Mac took seconds to bring a session's tab forward.
  * It's the terminal's own setting, so it's asked of the system each time, again on focus as Open
  * at login is, and the terminal takes it up only as it opens. Not shown for a terminal macOS
- * doesn't nap (tmux, or off macOS).
+ * doesn't nap (tmux, or off macOS). One terminal's: it's keyed by the terminal where it's shown.
  */
 function KeepAwakeField({ terminal, name, keepsTerminals }: { terminal: string; name: string; keepsTerminals: boolean }) {
   const [awake, setAwake] = useState<boolean | null>(null);
@@ -557,8 +559,6 @@ function KeepAwakeField({ terminal, name, keepsTerminals }: { terminal: string; 
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     let live = true;
-    setChanged(false);
-    setError(null);
     const read = () =>
       terminalAwake(terminal)
         .then((a) => live && setAwake(a))

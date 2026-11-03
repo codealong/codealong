@@ -432,11 +432,17 @@ window.__TAURI_INTERNALS__ = {
       });
     }
     // With a devices fixture, Settings reads `[devices]` from it.
+    // A check that sets `window.__keepConfig` has a save kept and read back, as config.toml would.
     if (cmd === 'get_config') {
       return Promise.all([fetch('./config.json').then(function (r) { return r.json(); }), optionalJson('./devices-fixture.json')]).then(function (all) {
         if (all[1] && all[1].cfg) all[0].config.devices = all[1].cfg;
+        if (window.__keepConfig && window.__keptConfig) all[0].config = window.__keptConfig;
         return all[0];
       });
+    }
+    if (cmd === 'save_config' && window.__keepConfig) {
+      window.__keptConfig = (args || {}).config;
+      return Promise.resolve(null);
     }
     // The window of lines between desktop cards (preview.sh lineage): lineage-desk.js's sample.
     if (cmd === 'lineage_feed') return Promise.resolve(window.__LINEAGE_FEED__ || { theme: 'system', lines: [] });
@@ -760,10 +766,24 @@ window.__TAURI_INTERNALS__ = {
     // takes, as the system would.
     if (cmd === 'open_at_login') return Promise.resolve(window.__atLogin || 'off');
     if (cmd === 'set_open_at_login') return Promise.resolve((window.__atLogin = (args || {}).on ? 'on' : 'off'));
-    // Keep your terminal awake: napped, as macOS has an app by default, or `window.__awake`;
-    // tmux isn't an app macOS naps. A change takes, as `defaults` would.
-    if (cmd === 'terminal_awake') return Promise.resolve((args || {}).terminal === 'tmux' ? null : !!window.__awake);
-    if (cmd === 'set_terminal_awake') return Promise.resolve((window.__awake = !!(args || {}).awake));
+    // Keep your terminal awake: napped, as macOS has an app by default, or as `window.__awake`
+    // says (true for every terminal, or an object by terminal); tmux isn't an app macOS naps. A
+    // change takes for its terminal, as `defaults` would, answered once `window.__awakeHold` (a
+    // promise a check holds) settles.
+    if (cmd === 'terminal_awake') {
+      var asked = (args || {}).terminal;
+      if (asked === 'tmux') return Promise.resolve(null);
+      return Promise.resolve(window.__awake && typeof window.__awake === 'object' ? !!window.__awake[asked] : !!window.__awake);
+    }
+    if (cmd === 'set_terminal_awake') {
+      var t = (args || {}).terminal;
+      var on = !!(args || {}).awake;
+      return Promise.resolve(window.__awakeHold).then(function () {
+        if (window.__awake && typeof window.__awake === 'object') window.__awake[t] = on;
+        else window.__awake = on;
+        return on;
+      });
+    }
     if (cmd === 'suggest_todo') {
       return optionalJson('./todos-fixture.json').then(function (fx) {
         return fx && fx.jev && fx.jev.suggest ? fx.jev.suggest : Promise.reject(new Error('Todo suggestions are off.'));
