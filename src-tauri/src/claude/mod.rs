@@ -2002,22 +2002,29 @@ fn keyed_questions(a: &ClaudeCode, ctx: &crate::harness::Ctx, s: &crate::model::
 /// Why questions the hook didn't hand over can't be answered with keys where the session runs,
 /// or None when they can: a background job's go through its account's service (`job_pending`),
 /// choices with previews are shown in a dialog whose keys Codealong doesn't press
-/// (`questions::previewed`), and some terminals can't press a single key (`cannot_press`).
+/// (`questions::previewed`), so a call whose own input can't be read to tell (a helper's, in
+/// its own log, or a line longer than the tail read) isn't pressed either, and some terminals
+/// can't press a single key (`cannot_press`).
 fn unkeyed(a: &ClaudeCode, ctx: &crate::harness::Ctx, s: &crate::model::Session, call: &Item, reg: &RegistryEntry) -> Option<String> {
     if reg.kind.as_deref() == Some("bg") {
         return Some(QUESTIONS_NOT_HANDED.to_string());
     }
-    let input = record(a, ctx, s).ok().zip(call.id.as_deref()).and_then(|(path, id)| call_input(&path, id));
-    if input.is_some_and(|i| questions::previewed(&i)) {
-        return Some(format!("{QUESTIONS_NOT_HANDED} Their choices have previews, shown in a dialog Codealong doesn't press keys in."));
+    match record(a, ctx, s).ok().zip(call.id.as_deref()).and_then(|(path, id)| call_input(&path, id)) {
+        None => return Some(format!("{QUESTIONS_NOT_HANDED} Codealong couldn't read the call itself to tell which of Claude Code's dialogs shows them.")),
+        Some(input) if questions::previewed(&input) => return Some(format!("{QUESTIONS_NOT_HANDED} Their choices have previews, shown in a dialog Codealong doesn't press keys in.")),
+        Some(_) => {}
     }
     cannot_press(ctx, reg).map(|why| format!("{QUESTIONS_NOT_HANDED} {why}"))
 }
 
+/// How much of a transcript's end `call_input` reads: the call a dialog is up for is the last
+/// thing its session wrote.
+const CALL_TAIL: u64 = 512 * 1024;
+
 /// The input of the call `id`, the latest written with it in the end of the session's
-/// transcript, as Claude Code wrote it.
+/// transcript, as Claude Code wrote it; None when its line isn't whole there.
 fn call_input(record: &Path, id: &str) -> Option<Value> {
-    let tail = crate::util::read_last(record, 512 * 1024).ok()?;
+    let tail = crate::util::read_last(record, CALL_TAIL).ok()?;
     tail.bytes.split(|&b| b == b'\n').rev().filter(|line| std::str::from_utf8(line).is_ok_and(|l| l.contains(id))).find_map(|line| {
         let v: Value = serde_json::from_slice(line).ok()?;
         let parts = v.pointer("/message/content")?.as_array()?;
@@ -2138,6 +2145,12 @@ mod tests {
         let refused = ClaudeCode.answer_questions(&ctx, &session, "toolu_q", &serde_json::json!({ "Which limit?": "45 days" })).unwrap_err().to_string();
         assert!(refused.contains("previews"), "{refused}");
         assert!(ClaudeCode.answer_questions(&ctx, &session, "toolu_other", &serde_json::json!({ "Which limit?": "45 days" })).unwrap_err().to_string().contains("something else"));
+        // A call whose line is longer than the tail read for its input can't be told apart, so
+        // it isn't pressed either, though the conversation reads it whole.
+        let long = ask.replace(r#""content":[{"type":"tool_use""#, &format!(r#""content":[{{"type":"text","text":"{}"}},{{"type":"tool_use""#, "x".repeat(CALL_TAIL as usize)));
+        std::fs::write(dir.join(format!("{id}.jsonl")), format!("{long}\n")).unwrap();
+        let p = ClaudeCode.pending(&ctx, &session).unwrap();
+        assert!(p.cannot.as_deref().is_some_and(|c| c.contains("couldn't read the call")), "{:?}", p.cannot);
         std::fs::write(dir.join(format!("{id}.jsonl")), format!("{ask}\n")).unwrap();
         // A permission prompt isn't a question, and nor is a call without any.
         registry("permission prompt");
