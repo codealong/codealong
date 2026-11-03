@@ -24,7 +24,12 @@ net.rs use them, and how devices are tested, moved from CLAUDE.md. Paths are und
   `peer/src/net.rs` (header, `Iroh::start`, `finish`). The public relays are rate-limited:
   real use wants their Pro plan or a self-hosted `iroh-relay`. Address lookup is pkarr and DNS.
   The `EndpointId` is the Ed25519 public key; `PublicKey` prints as hex and parses hex or
-  base32, and `fmt_short` is its first five bytes (`peer/src/proto.rs`, `short`).
+  base32, and `fmt_short` is its first five bytes (`peer/src/proto.rs`, `short`). The endpoint
+  opens a burst of UDP sockets as the network changes under it: the server went from 35
+  descriptors to 116, 81 of them UDP sockets on ports of their own, as the Mac woke on another
+  network, and back to 35 within 17 s (2026-11-03, `lsof -p` every 15 s). Under launchd's 256
+  that ran the server out of descriptors as a link to a device dropped, hence its higher limit
+  (`os::system::more_open_files`).
 - A stream from `open_bi` reaches the other side's `accept_bi` only once something is written
   on it.
 - Two devices in one process over loopback: `cargo test peers` (linking, feeds, requests and

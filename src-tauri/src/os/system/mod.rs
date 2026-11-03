@@ -31,7 +31,8 @@ pub struct System {
 }
 
 /// How many files the server may hold open: one for each window, hook and command waiting on
-/// it, and a pipe or three for each program it runs, under a busy day's agents.
+/// it, a pipe or three for each program it runs, under a busy day's agents, and the bursts of UDP
+/// sockets iroh opens as the network changes (81 at once, `.claude/rules/devices.md`).
 const OPEN_FILES: u64 = 8192;
 
 /// Raises this process's limit on open files to `OPEN_FILES`, as far as its hard limit lets it,
