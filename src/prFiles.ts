@@ -136,14 +136,26 @@ export function fileTree(hits: FileHit[]): FileFolder {
 /** A row of the list as a tree draws it: a folder or a file, `depth` folders in. */
 export type TreeRow = { kind: 'folder'; folder: FileFolder; depth: number } | { kind: 'file'; hit: FileHit; depth: number };
 
-/** The rows `tree` (`fileTree`) shows, in order: each folder, then, unless it's in `shut`, what's
- *  in it. */
+/** The folders a folder's row is drawn for, from the outermost: itself, and those it's drawn
+ *  with (`src` and `src/ui` for `src/ui`). Which those are changes as the filter narrows the
+ *  files, so a row is shut while any of them is (`isShut`). */
+export function drawnFor(folder: FileFolder): string[] {
+  const from = folder.path.length - folder.name.length;
+  return foldersOf(`${folder.path}/`).filter((p) => p.length > from);
+}
+
+export function isShut(folder: FileFolder, shut: ReadonlySet<string>): boolean {
+  return drawnFor(folder).some((p) => shut.has(p));
+}
+
+/** The rows `tree` (`fileTree`) shows, in order: each folder, then, unless it's shut, what's in
+ *  it. */
 export function treeRows(tree: FileFolder, shut: ReadonlySet<string>): TreeRow[] {
   const out: TreeRow[] = [];
   const walk = (f: FileFolder, depth: number) => {
     for (const c of f.folders) {
       out.push({ kind: 'folder', folder: c, depth });
-      if (!shut.has(c.path)) walk(c, depth + 1);
+      if (!isShut(c, shut)) walk(c, depth + 1);
     }
     for (const hit of f.files) out.push({ kind: 'file', hit, depth });
   };

@@ -32,7 +32,7 @@ import { forwardRef, Fragment, useEffect, useImperativeHandle, useLayoutEffect, 
 import { flushSync } from 'react-dom';
 import { findsAt } from '../findKeys';
 import { useLatest } from '../latest';
-import { diffRuns, fileTree, filterFiles, fileQuery, foldersOf, marks, parsePatch, pieces, splitPath, splitRows, treeRows, type DiffLine, type FileFolder, type FileHit, type TreeRow } from '../prFiles';
+import { diffRuns, drawnFor, fileTree, filterFiles, fileQuery, foldersOf, isShut, marks, parsePatch, pieces, splitPath, splitRows, treeRows, type DiffLine, type FileFolder, type FileHit, type TreeRow } from '../prFiles';
 import { flag, oneOf, useStored } from '../stored';
 import { paint, useSyntax, type Run } from '../syntax';
 import type { PrFile } from '../types';
@@ -415,6 +415,8 @@ export const PrFiles = forwardRef<FilesFinder, PrFilesProps>(function PrFiles({ 
   const namedRows = useMemo(() => listRows(named, shape, shut), [named, shape, shut]);
   const mentionedRows = useMemo(() => listRows(mentioned, shape, shut), [mentioned, shape, shut]);
   const rows = useMemo(() => [...namedRows, ...mentionedRows], [namedRows, mentionedRows]);
+  // The row the keyboard is on, among those drawn: shutting a folder can leave fewer.
+  const at = Math.min(active, rows.length - 1);
 
   const section = useRef<HTMLElement>(null);
   // Side by side only where there's room for both sides; your choice is kept for when there is.
@@ -447,14 +449,21 @@ export const PrFiles = forwardRef<FilesFinder, PrFilesProps>(function PrFiles({ 
     return () => window.removeEventListener('keydown', onKey);
   }, [keys, finding]);
 
-  const flip = (path: string) => (was: ReadonlySet<string>) => {
-    const next = new Set(was);
-    if (!next.delete(path)) next.add(path);
-    return next;
-  };
-  const toggle = (path: string) => setOpen(flip(path));
-  const fold = (path: string) => setShut(flip(path));
-  const pick = (r: TreeRow) => (r.kind === 'folder' ? fold(r.folder.path) : toggle(r.hit.file.path));
+  const toggle = (path: string) =>
+    setOpen((was) => {
+      const next = new Set(was);
+      if (!next.delete(path)) next.add(path);
+      return next;
+    });
+  // A folder's row opens by opening every folder it's drawn for, and shuts as itself.
+  const fold = (folder: FileFolder) =>
+    setShut((was) => {
+      const next = new Set(was);
+      if (isShut(folder, was)) for (const p of drawnFor(folder)) next.delete(p);
+      else next.add(folder.path);
+      return next;
+    });
+  const pick = (r: TreeRow) => (r.kind === 'folder' ? fold(r.folder) : toggle(r.hit.file.path));
   const allOpen = hits.length > 0 && hits.every((h) => open.has(h.file.path));
   const openAll = () => {
     // What opens shows, in the folders it's in.
@@ -484,9 +493,9 @@ export const PrFiles = forwardRef<FilesFinder, PrFilesProps>(function PrFiles({ 
   const count = filtering ? `${hits.length} of ${files.length}` : `${total}${more ? ` (first ${files.length} shown)` : ''}`;
   const row = (r: TreeRow, i: number) =>
     r.kind === 'folder' ? (
-      <FolderRow key={`folder:${r.folder.path}`} folder={r.folder} depth={r.depth} open={!shut.has(r.folder.path)} active={focused && i === active} words={words} onToggle={() => fold(r.folder.path)} />
+      <FolderRow key={`folder:${r.folder.path}`} folder={r.folder} depth={r.depth} open={!isShut(r.folder, shut)} active={focused && i === at} words={words} onToggle={() => fold(r.folder)} />
     ) : (
-      <FileRow key={r.hit.file.path} hit={r.hit} depth={shape === 'tree' ? r.depth : null} open={open.has(r.hit.file.path)} active={focused && i === active} words={words} view={view} opener={opener} onToggle={() => toggle(r.hit.file.path)} />
+      <FileRow key={r.hit.file.path} hit={r.hit} depth={shape === 'tree' ? r.depth : null} open={open.has(r.hit.file.path)} active={focused && i === at} words={words} view={view} opener={opener} onToggle={() => toggle(r.hit.file.path)} />
     );
 
   return (
@@ -515,7 +524,11 @@ export const PrFiles = forwardRef<FilesFinder, PrFilesProps>(function PrFiles({ 
               look="icon"
               label="How files are listed"
               value={shape}
-              onPick={setShape}
+              onPick={(s) => {
+                // The keyboard's row is a place in the other shape's rows: it starts again.
+                setShape(s);
+                setActive(filtering ? 0 : -1);
+              }}
               options={[
                 { id: 'list', label: 'List', icon: 'list', title: 'List: each file, its folder after its name' },
                 { id: 'tree', label: 'Tree', icon: 'list-tree', title: 'Tree: the files in their folders' },
@@ -554,12 +567,12 @@ export const PrFiles = forwardRef<FilesFinder, PrFilesProps>(function PrFiles({ 
               if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
                 e.preventDefault();
                 const step = e.key === 'ArrowDown' ? 1 : -1;
-                setActive((at) => Math.max(0, Math.min(rows.length - 1, at + step)));
+                setActive(Math.max(0, Math.min(rows.length - 1, at + step)));
               } else if (e.key === 'Enter') {
-                const r = rows[Math.max(0, active)];
+                const r = rows[Math.max(0, at)];
                 if (!r) return;
                 e.preventDefault();
-                setActive(Math.max(0, active));
+                setActive(Math.max(0, at));
                 pick(r);
               } else if (e.key === 'Escape') {
                 // Clears the filter, then leaves it; the window's own Escape waits for the next.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { diffRuns, fileOnGitHub, fileQuery, filterFiles, fileTree, firstChanged, foldersOf, marks, parsePatch, pieces, splitPath, splitRows, treeRows, type TreeRow } from './prFiles';
+import { diffRuns, drawnFor, fileOnGitHub, fileQuery, filterFiles, fileTree, firstChanged, foldersOf, isShut, marks, parsePatch, pieces, splitPath, splitRows, treeRows, type TreeRow } from './prFiles';
 import type { PrFile } from './types';
 
 const file = (path: string, patch: string | null = null): PrFile => ({ path, status: 'modified', additions: 1, deletions: 0, patch });
@@ -95,6 +95,17 @@ describe('fileTree and treeRows', () => {
     const rows = treeRows(TREE, new Set(['.sync/artifact/project/components', 'src/ui/card']));
     expect(say(rows)).toEqual(['.sync/ 4', '  artifact/ 3', '    project/components/ 2', '    build.mjs', '  NOTES.md', 'src/ui/card/ 2', 'README.md']);
     expect(rows.flatMap((r) => (r.kind === 'folder' ? [r.folder.path] : []))).toEqual(['.sync', '.sync/artifact', '.sync/artifact/project/components', 'src/ui/card']);
+  });
+
+  it('keeps a folder shut when the filter draws it with the folder under it', () => {
+    const narrowed = fileTree(hits(['src/ui/Button.tsx']));
+    const [row] = treeRows(narrowed, new Set(['src']));
+    expect(row.kind === 'folder' && [row.folder.name, drawnFor(row.folder), isShut(row.folder, new Set(['src']))]).toEqual(['src/ui', ['src', 'src/ui'], true]);
+    expect(say(treeRows(narrowed, new Set(['src'])))).toEqual(['src/ui/ 1']);
+    // A folder drawn with the ones it's in is drawn for itself and those, not for what's above.
+    const deep = treeRows(fileTree(hits(['a/x.ts', 'a/src/ui/Button.tsx'])), new Set(['a']));
+    expect(deep.map((r) => (r.kind === 'folder' ? drawnFor(r.folder) : []))).toEqual([['a']]);
+    expect(say(treeRows(fileTree(hits(['a/x.ts', 'a/src/ui/Button.tsx'])), new Set(['a/src'])))).toEqual(['a/ 2', '  src/ui/ 1', '  x.ts']);
   });
 
   it('has only the files to draw when they’re all at the root', () => {

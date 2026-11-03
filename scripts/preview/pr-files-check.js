@@ -179,14 +179,19 @@
     .then(function () {
       check('Open all opens the folders the files it opens are in', all('.ca-prfile.is-open:not(.is-folder)').length === 7 && names().indexOf('TeamPicker.tsx') >= 0, String(all('.ca-prfile.is-open:not(.is-folder)').length));
       q('.ca-prfiles-top .ca-linkbtn').click();
-      return press('Escape');
+      return [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].reduce(function (p) { return p.then(function () { return press('ArrowDown'); }); }, Promise.resolve());
     })
     .then(function () {
+      check('↓ goes down to the last row', (q('.ca-prfile.is-active .ca-prfile-name') || {}).textContent === 'teams.md');
       q('.ca-prfiles-view [aria-label="List"]').click();
       return wait(100);
     })
     .then(function () {
-      check('List lists them one after another again', !q('.ca-prfolder-name') && names().length === 12 && !!q('.ca-prfile-dir'));
+      check('List lists them one after another again, the keyboard on the first', !q('.ca-prfolder-name') && names().length === 7 && !!q('.ca-prfile-dir') && (q('.ca-prfile.is-active .ca-prfile-name') || {}).textContent === 'TeamPicker.tsx', JSON.stringify(names()));
+      return press('Escape');
+    })
+    .then(function () {
+      check('and every file once the filter’s cleared', names().length === 12);
     })
     .then(done, stopped);
 })();
