@@ -35,6 +35,16 @@ use crate::harness::Question;
 use crate::launch::{Key, Press};
 use crate::util::one_line;
 
+/// Whether an `AskUserQuestion` call's input gives a choice a preview (`options[].preview`, a
+/// mockup or code shown beside the choice the cursor is on). Claude Code shows such questions in
+/// another dialog, where a digit only moves the cursor, Return picks, and notes take the place of
+/// "Type something." (2.1.317's code, 2026-11-03). `keys` doesn't press that dialog's keys, and
+/// the questions Codealong keeps don't say which dialog shows, so the call itself is read.
+pub fn previewed(input: &Value) -> bool {
+    let list = |v: Option<&Value>| v.and_then(Value::as_array).cloned().unwrap_or_default();
+    list(input.get("questions")).iter().flat_map(|q| list(q.get("options"))).any(|o| o.get("preview").and_then(Value::as_str).is_some_and(|p| !p.trim().is_empty()))
+}
+
 /// The keys that answer `questions` with `answers` (`asks::picked`'s: a choice's label or your own
 /// words for a question that takes one answer, a list of labels for one that takes several, and
 /// nothing for one left unanswered), from wherever the dialog was left.
@@ -124,6 +134,16 @@ mod tests {
     fn a_lone_question_that_takes_several_has_a_submit_tab() {
         let colors = [question("Which colors?", &["Red", "Green", "Blue"], true)];
         assert_eq!(keys(&colors, &answers(json!({ "Which colors?": ["Blue"] }))).unwrap(), [K(Key::Left), K(Key::Digit(3)), K(Key::Tab), K(Key::Digit(1))]);
+    }
+
+    #[test]
+    fn a_choice_with_a_preview_means_the_other_dialog() {
+        let plain = json!({ "questions": [{ "question": "Which?", "options": [{ "label": "A" }, { "label": "B", "description": "b" }] }] });
+        assert!(!previewed(&plain));
+        let shown = json!({ "questions": [{ "question": "Which?", "options": [{ "label": "A" }] }, { "question": "Layout?", "options": [{ "label": "Grid", "preview": "┌─┬─┐" }] }] });
+        assert!(previewed(&shown));
+        assert!(!previewed(&json!({ "questions": [{ "question": "Which?", "options": [{ "label": "A", "preview": " " }] }] })));
+        assert!(!previewed(&Value::Null));
     }
 
     #[test]

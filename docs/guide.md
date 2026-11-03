@@ -818,7 +818,8 @@ conversation has the call (Claude Code often writes it only once they're answere
 its row only says it waits on you). In its Ghostty, iTerm2, Rex or tmux tab, Answer presses the
 keys that give your picks there, typing your own words into its "Type something." box, and Decline
 presses Escape, which stops its turn. Your own words for a question that takes several choices are
-answered in its terminal. A choice you ticked there and pick here too ends up unticked, and the
+answered in its terminal, and so are questions whose choices come with previews (a mockup or code
+beside each), which Claude Code shows in a dialog of its own. A choice you ticked there and pick here too ends up unticked, and the
 conversation shows the answers it took. Each request the plugin hands over, and why one was let go
 without an answer, is written to `~/Library/Logs/Codealong/asks.log` (on Linux,
 `~/.local/state/codealong/asks.log`). An Antigravity command line conversation's questions (its

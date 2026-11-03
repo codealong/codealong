@@ -289,11 +289,7 @@ impl crate::harness::Adapter for ClaudeCode {
             return Some(p);
         }
         if let Some((call, reg)) = written {
-            let cannot = match cannot_press(ctx, &reg) {
-                _ if reg.kind.as_deref() == Some("bg") => Some(QUESTIONS_NOT_HANDED.to_string()),
-                Some(why) => Some(format!("{QUESTIONS_NOT_HANDED} {why}")),
-                None => None,
-            };
+            let cannot = unkeyed(self, ctx, s, &call, &reg);
             return Some(crate::harness::Pending {
                 id: call.id.clone().unwrap_or_default(),
                 label: crate::board::asks_you(&call.questions[0].question),
@@ -1997,10 +1993,36 @@ fn keyed_questions(a: &ClaudeCode, ctx: &crate::harness::Ctx, s: &crate::model::
     if call.id.as_deref() != Some(id) {
         anyhow::bail!("It's asking you something else now. Look again before answering.");
     }
-    if reg.kind.as_deref() == Some("bg") {
-        anyhow::bail!("{QUESTIONS_NOT_HANDED}");
+    if let Some(why) = unkeyed(a, ctx, s, &call, &reg) {
+        anyhow::bail!("{why}");
     }
     Ok((call, reg))
+}
+
+/// Why questions the hook didn't hand over can't be answered with keys where the session runs,
+/// or None when they can: a background job's go through its account's service (`job_pending`),
+/// choices with previews are shown in a dialog whose keys Codealong doesn't press
+/// (`questions::previewed`), and some terminals can't press a single key (`cannot_press`).
+fn unkeyed(a: &ClaudeCode, ctx: &crate::harness::Ctx, s: &crate::model::Session, call: &Item, reg: &RegistryEntry) -> Option<String> {
+    if reg.kind.as_deref() == Some("bg") {
+        return Some(QUESTIONS_NOT_HANDED.to_string());
+    }
+    let input = record(a, ctx, s).ok().zip(call.id.as_deref()).and_then(|(path, id)| call_input(&path, id));
+    if input.is_some_and(|i| questions::previewed(&i)) {
+        return Some(format!("{QUESTIONS_NOT_HANDED} Their choices have previews, shown in a dialog Codealong doesn't press keys in."));
+    }
+    cannot_press(ctx, reg).map(|why| format!("{QUESTIONS_NOT_HANDED} {why}"))
+}
+
+/// The input of the call `id`, the latest written with it in the end of the session's
+/// transcript, as Claude Code wrote it.
+fn call_input(record: &Path, id: &str) -> Option<Value> {
+    let tail = crate::util::read_last(record, 512 * 1024).ok()?;
+    tail.bytes.split(|&b| b == b'\n').rev().filter(|line| std::str::from_utf8(line).is_ok_and(|l| l.contains(id))).find_map(|line| {
+        let v: Value = serde_json::from_slice(line).ok()?;
+        let parts = v.pointer("/message/content")?.as_array()?;
+        parts.iter().find(|p| p.get("type").and_then(Value::as_str) == Some("tool_use") && p.get("id").and_then(Value::as_str) == Some(id)).and_then(|p| p.get("input").cloned())
+    })
 }
 
 /// Answers as a sentence says them: each question, shortened, and what was picked for it.
@@ -2101,10 +2123,22 @@ mod tests {
         let qs = &page.items[0].questions;
         assert_eq!((qs.len(), qs[0].header.as_deref(), qs[0].options[0].description.as_deref(), qs[1].multi_select), (2, Some("Limit"), Some("A quarter and a bit."), true));
 
-        // Asked with no hook to hand them over: they show, and are answered where the session runs.
+        // Asked with no hook to hand them over: they show, and are answered with keys where the
+        // session runs, here in no terminal Codealong presses keys in.
         registry("input needed");
         let p = ClaudeCode.pending(&ctx, &session).unwrap();
-        assert_eq!((p.id.as_str(), p.label.as_str(), p.questions.len(), p.cannot.is_some()), ("toolu_q", "Asks you · Which limit?", 2, true));
+        assert_eq!((p.id.as_str(), p.label.as_str(), p.questions.len()), ("toolu_q", "Asks you · Which limit?", 2));
+        assert!(p.cannot.as_deref().is_some_and(|c| c.starts_with(QUESTIONS_NOT_HANDED) && c.contains("isn't in a terminal")), "{:?}", p.cannot);
+        // Choices with previews show in a dialog of their own, whose keys aren't pressed: an
+        // answer is turned down rather than pressed there.
+        let previewed = ask.replace(r#"{"label":"45 days"}"#, r#"{"label":"45 days","preview":"Jan ▇▇▇▇▇"}"#);
+        std::fs::write(dir.join(format!("{id}.jsonl")), format!("{previewed}\n")).unwrap();
+        let p = ClaudeCode.pending(&ctx, &session).unwrap();
+        assert!(p.cannot.as_deref().is_some_and(|c| c.contains("previews")), "{:?}", p.cannot);
+        let refused = ClaudeCode.answer_questions(&ctx, &session, "toolu_q", &serde_json::json!({ "Which limit?": "45 days" })).unwrap_err().to_string();
+        assert!(refused.contains("previews"), "{refused}");
+        assert!(ClaudeCode.answer_questions(&ctx, &session, "toolu_other", &serde_json::json!({ "Which limit?": "45 days" })).unwrap_err().to_string().contains("something else"));
+        std::fs::write(dir.join(format!("{id}.jsonl")), format!("{ask}\n")).unwrap();
         // A permission prompt isn't a question, and nor is a call without any.
         registry("permission prompt");
         assert!(ClaudeCode.pending(&ctx, &session).map_or(true, |p| p.questions.is_empty()));
