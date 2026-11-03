@@ -60,7 +60,7 @@ import { CODEALONG_PROJECT, IMPROVE_PLACEHOLDER, improvePrompt, improveWords, re
 import { devSetupTask, type AgentTask } from '../agentTasks';
 import { boardAhead, boardView, observe, sendAhead, useAhead } from '../ahead';
 import { filesToAttach, keepFiles, useFileDrop } from '../attachInput';
-import { deviceLabel, shortOf } from '../devices';
+import { deviceLabel, floatingLanes, shortOf } from '../devices';
 import { useKeyPerf, usePerf } from '../perf';
 import { showContextMenu, type MenuSpec } from '../contextMenu';
 import { useEditorIcons } from '../editors';
@@ -70,7 +70,7 @@ import { ago, tildePath } from '../format';
 import { useLogo } from '../logo';
 import { useRowDrag } from './useRowDrag';
 import { prPills } from '../prStatus';
-import { ALL_PROJECTS, NO_PROJECT, attachmentsNote, attentionRows, draftCodec, findPrs, foldedWords, holdsPrompt as holdsAPrompt, findSessions, findTodos, folderChoices, folderStart, FOUND_SESSIONS, inProject, isFolderPath, laneGroups, macUnavailable, MAX_ROWS, nextDraft, primaryRunningWords, projectCounts, QUICK_PLACEHOLDER, queryWords, readyTodos, recallList, recentRows, SEND_TO_PLACEHOLDER, sendTargets, shortcutLabel, startTitle, todosStayNote, worktreeCount, type PrRow, type QuickDraft, type ReviewRow, type RowGroup, type SessionRow, type TodoRow, withPrompt as historyWith } from '../quick';
+import { ALL_PROJECTS, NO_PROJECT, attachmentsNote, attentionRows, draftCodec, findPrs, foldedWords, holdsPrompt as holdsAPrompt, findSessions, findTodos, folderChoices, folderStart, FOUND_SESSIONS, inProject, isFolderPath, laneGroups, macUnavailable, MAX_ROWS, nextDraft, primaryRunningWords, projectCounts, QUICK_PLACEHOLDER, queryWords, readyTodos, recallList, recentRows, SEND_TO_PLACEHOLDER, sendTargets, shortcutLabel, startTitle, todosStayNote, worktreeCount, type Machines, type PrRow, type QuickDraft, type ReviewRow, type RowGroup, type SessionRow, type TodoRow, withPrompt as historyWith } from '../quick';
 import {
   agentChipWords,
   isAuto,
@@ -106,6 +106,7 @@ import { AgentFoot } from './AgentMenu';
 import { agentMenuSections, placeIcon } from './StartControls';
 import { Button, CheckBox, Chip, cx, Icon, Kbd, Mark, Marked, SaidText, STATUS_WORD, SessionEmblem, SessionGlyph, StatusGlyph } from './primitives';
 import { SnoozeChip } from './LaneRow';
+import { DeviceBadge } from './DeviceBadge';
 import { ProjectPrefix, ProjectShown } from './ProjectSaid';
 import { projectForDigit, projectKey } from './ProjectSwitcher';
 import { usePrLinks } from './PrLink';
@@ -468,8 +469,8 @@ export function Quick() {
     };
     const refresh = (b: Board | null) => {
       if (!cachedOptions.current || Date.now() - cachedOptions.current.at >= OPTIONS_FOR_MS) readOptions();
-      // Your other Macs, for starting there, when there are any; while the panel is up it
-      // follows them.
+      // Your other machines, for starting there and for a search to find their sessions, when
+      // there are any; while the panel is up it follows them.
       if (b?.devices?.enabled)
         getDevices()
           .then((d) => {
@@ -869,18 +870,22 @@ export function Quick() {
   const attention = useMemo(() => (board && listing ? attentionRows(board, current, MAX_ROWS - (readyList?.rows.length ?? 0)) : null), [board, current, listing, readyList]);
   // Below them, the rest of the day's sessions, for ↓ to reach one that isn't waiting on you.
   const recent = useMemo(() => (board && attention ? recentRows(board, current, new Set(attention.rows.map((r) => r.key)), now) : null), [board, current, attention, now]);
-  // What was said in sessions is searched in the engine, once typing pauses; its hits join the
-  // list below the sessions whose titles and the like match. The panel lists this Mac's sessions
-  // only, so other devices aren't asked. In Send to, it's what's typed in the box that's looked
-  // for, and the prompt's own search waits.
-  const { found: textFound, said } = useTextSearch(inSendTo ? sendTo : query, { ready: !!board, devices: false });
+  // A search finds your other machines' sessions too, as the main window lists them, after the
+  // same match on the machine a new session would start on (quick.ts `findSessions`). Send to
+  // lists this machine's only: what's typed goes to a session here.
+  const machines = useMemo((): Machines => ({ lanes: devices?.enabled ? devices.lanes : [], on: deviceNow }), [devices, deviceNow]);
+  // What was said in sessions is searched in the engine, once typing pauses, and on your other
+  // machines in theirs; its hits join the list below the sessions whose titles and the like
+  // match. In Send to, it's what's typed in the box that's looked for, and the prompt's own
+  // search waits.
+  const { found: textFound, said } = useTextSearch(inSendTo ? sendTo : query, { ready: !!board, devices: machines.lanes.length > 0 && !inSendTo });
   const searching = !!query && !inSendTo;
   const archivedMode = withArchived ? 'with' : 'without';
-  const foundSessions = useMemo(() => (board && searching ? findSessions(board, current, query, now, FOUND_ALL, said, archivedMode) : []), [board, current, query, searching, said, archivedMode, now]);
+  const foundSessions = useMemo(() => (board && searching ? findSessions(board, current, query, now, FOUND_ALL, said, archivedMode, machines) : []), [board, current, query, searching, said, archivedMode, now, machines]);
   // How many archived sessions match, for the toggle that lists them or leaves them out.
   const archivedFound = useMemo(
-    () => (!board || !query ? 0 : inSendTo ? sendTargets(board, current, sendTo, [], now, said, 'only', 0).count : findSessions(board, current, query, now, FOUND_ALL, said, 'only').length),
-    [board, current, query, inSendTo, sendTo, said, now],
+    () => (!board || !query ? 0 : inSendTo ? sendTargets(board, current, sendTo, [], now, said, 'only', 0).count : findSessions(board, current, query, now, FOUND_ALL, said, 'only', machines).length),
+    [board, current, query, inSendTo, sendTo, said, now, machines],
   );
   // A search lists its first few sessions, so todos and PRs fit below; a row under them lists
   // the rest, until what's typed changes.
@@ -1055,8 +1060,10 @@ export function Quick() {
     void showQuick({ keep: true });
   };
 
-  /** Opens a session where it lives. The search that found it is done with. */
-  const openSession = (lane: Lane, session: Session) => openHere(lane, session.openTarget);
+  /** Opens a session where it lives. The search that found it is done with. One on another
+   *  machine opens there, not from here, so Codealong shows it, as its header has no open
+   *  (SessionHeader.tsx). */
+  const openSession = (lane: Lane, session: Session) => (lane.device ? showSession(lane, session) : openHere(lane, session.openTarget));
 
   /** Opens one of a worktree's targets where it lives (open.ts): the panel puts itself away,
    *  and comes back as it was if the open fails. */
@@ -1114,6 +1121,12 @@ export function Quick() {
     void hideQuick();
     void showWaiting({ key, rename });
   };
+
+  /** Answers a session in the waiting window, which lists another machine's only while it's
+   *  connected and `[devices] in_bar` is on (devices.ts `floatingLanes`); one it doesn't list,
+   *  a search may still find, and Codealong shows it instead. */
+  const inWaiting = (lane: Lane) => !lane.device || floatingLanes(board?.devices, [lane]).length > 0;
+  const answerSession = (lane: Lane, session: Session, rename = false) => (inWaiting(lane) ? answerIn(session.key, rename) : showSession(lane, session));
 
   /** The session ⏎ opens for a todo, as in the main window: its primary one while that runs,
    *  else the live one, else the latest. */
@@ -1190,8 +1203,8 @@ export function Quick() {
       open: openHere,
       terminal: board?.apps.terminal ?? 'Terminal',
       reveal: () => revealSession(lane, s),
-      reply: () => answerIn(s.key),
-      rename: () => answerIn(s.key, true),
+      reply: () => answerSession(lane, s),
+      rename: () => answerSession(lane, s, true),
       worktrees: board?.lanes,
       editors: board ? { apps: board.apps, icons } : undefined,
       desktop: onDesktop,
@@ -1558,10 +1571,10 @@ export function Quick() {
         pickSkill(row);
         return;
       }
-      const session = row?.kind === 'session' ? row.session : row?.kind === 'suggest' && (row.s.kind === 'send' || row.s.kind === 'open') ? row.s.session : null;
-      if (session) {
+      const at = row?.kind === 'session' ? row : row?.kind === 'suggest' && (row.s.kind === 'send' || row.s.kind === 'open') ? row.s : null;
+      if (at) {
         e.preventDefault();
-        answerIn(session.key);
+        answerSession(at.lane, at.session);
         return;
       }
       // And on a PR waiting on your review, it reviews it there, as ⏎ does.
@@ -2288,6 +2301,11 @@ export function Quick() {
                       // what's typed, or shows a session that waits on you to answer.
                       const sendsTo = r.group === 'sendto' ? toSessionSuggestion(r.lane, s2, r.p ?? 0) : null;
                       const sendWords = sendsTo && describe(sendsTo);
+                      // One on another machine opens there, not from here, and is answered in
+                      // Waiting on you only while that lists it (`answerSession`).
+                      const there = r.lane.device;
+                      const answers = inWaiting(r.lane);
+                      const tab = sendsTo ? (sendsTo.kind === 'send' ? '⏎ Send' : '⏎ Answer') : answers ? '⇥ Reply' : null;
                       return (
                         <div
                           key={r.key}
@@ -2297,7 +2315,9 @@ export function Quick() {
                           title={keysIn(
                             sendsTo && sendWords
                               ? `${sendWords.title}\n${sendWords.why}\n${sendWords.where}${r.p != null ? ` · ${Math.round(r.p * 100)}% likely, from ${(route ?? lastRoute)?.model ?? 'Jev'}` : ''}\n${sendsTo.kind === 'send' ? '⏎ sends it · ⌥⏎ shows the session in Codealong' : '⏎ shows it in Codealong · ⌥⏎ opens it where it lives'} · ⇥ answers it in Waiting on you`
-                              : `${s2.title}\n${s2.account} · ${r.lane.callsign}\n⏎ shows it in Codealong · ⇥ answers it in Waiting on you · ⌥⏎ opens it where it lives`,
+                              : there
+                                ? `${s2.title}\n${s2.account} · ${r.lane.callsign} · on ${there.name}\n⏎ shows it in Codealong${answers ? ' · ⇥ answers it in Waiting on you' : ''}`
+                                : `${s2.title}\n${s2.account} · ${r.lane.callsign}\n⏎ shows it in Codealong · ⇥ answers it in Waiting on you · ⌥⏎ opens it where it lives`,
                           )}
                           {...handlers}
                         >
@@ -2320,10 +2340,11 @@ export function Quick() {
                             </Chip>
                           )}
                           <SnoozeChip until={s2.snoozedUntil} now={now} away="out of what waits on you" />
+                          {there && <DeviceBadge device={there} now={now} />}
                           <RowPlace lead={s2.account} project={r.lane.project} place={r.lane.callsign} />
                           {sendLikely && sendsTo && <span className={cx('ca-quick-sure', r.p != null && `is-${sureness(r.p)}`)}>{r.p != null ? `${Math.round(r.p * 100)}%` : ''}</span>}
                           <span className="ca-quick-row-age">{ago(s2.statusSince ?? s2.lastActivity, now)}</span>
-                          {active === r.key && <span className="ca-quick-row-tab">{keysIn(sendsTo ? (sendsTo.kind === 'send' ? '⏎ Send' : '⏎ Answer') : '⇥ Reply')}</span>}
+                          {active === r.key && tab && <span className="ca-quick-row-tab">{keysIn(tab)}</span>}
                           {n <= 9 && <Kbd keys={['⌘', String(n)]} />}
                         </div>
                       );

@@ -2155,7 +2155,14 @@ only when you moved the pointer onto it: one the list moved under a pointer that
 suggestions and what was said come in) is selected by the click, and a second click does it. A
 project picker (⌘P) narrows everything to one project, but for a search: the sessions it finds in
 other projects come after the project's own, as if they were eight times older, each saying its
-project before its worktree. ⌥⌘' (`[shortcuts] chat`) opens the same
+project before its worktree. A search finds the sessions on your other machines too (Settings ›
+Devices), as the main window lists them, by what was said in them as well (each machine searching
+its own), each row with its machine's badge: they come after the same match on the machine the
+panel would start a session on (the machine picker at the bottom), as if four times older. One
+opens where it lives only on its own machine, so ⏎ and ⌥⏎ both show it in Codealong, and ⇥ answers
+it in the waiting window while that lists the machine's sessions (connected, with `[devices]
+in_bar` on), else shows it in Codealong too. Send to lists this machine's sessions only.
+⌥⌘' (`[shortcuts] chat`) opens the same
 panel with the worktree picker on No project, so what you type starts a chat of its own, in a folder
 of its own among Codealong's chats, rather than in a worktree; it finds sessions as ⌥⌘/ does, and
 the picker (⌘T) still goes to a worktree. The shortcuts are yours to change in Settings › General;

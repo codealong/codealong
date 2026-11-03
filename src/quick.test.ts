@@ -238,6 +238,33 @@ describe('findSessions', () => {
     expect(findSessions(projects, 'Globex', 'retries', NOW).map((r) => r.key)).toEqual(['mine']);
   });
 
+  it('finds your other machines’ sessions too, after the same match on the machine it starts on', () => {
+    const HOUR = 3600e3;
+    const mini = { name: 'Sam’s Mac mini', short: 'm1', color: 'purple' as const, online: true, lastSeen: NOW };
+    const here = board([lane('app2', [session('here', 'idle', NOW - HOUR, { title: 'Login retries' }), session('mention', 'unread', NOW - 1, { title: 'Upgrade deps' })])]);
+    const there = [
+      lane('@m1:app2', [session('@m1:same', 'idle', NOW - HOUR, { title: 'Login page' }), session('@m1:old', 'idle', NOW - 7 * 24 * HOUR, { title: 'Kestrel cutover' }), session('@m1:gone', 'idle', NOW, { title: 'Login gone', archived: true })], { device: mini }),
+    ];
+    const said = new Map([
+      ['mention', { key: 'mention', snippet: 'after the login change', you: true, at: NOW, score: 7 }],
+      // The mini's own text search finds what was said there, keyed as its sessions are here.
+      ['@m1:old', { key: '@m1:old', snippet: 'the login cutover', you: true, at: NOW, score: 7 }],
+    ]);
+    const machines = { lanes: there, on: null };
+    // As old as the one here, the mini's comes after it; a title there still comes before a
+    // mention here; what was said there finds the week-old one, last.
+    expect(findSessions(here, ALL_PROJECTS, 'login', NOW, 9, said, 'without', machines).map((r) => r.key)).toEqual(['here', '@m1:same', 'mention', '@m1:old']);
+    // Its row carries the mini's worktree, which says where it is.
+    expect(findSessions(here, ALL_PROJECTS, 'login page', NOW, 9, new Map(), 'without', machines)[0].lane.device?.short).toBe('m1');
+    // Starting on the mini, its sessions come first.
+    expect(findSessions(here, ALL_PROJECTS, 'login', NOW, 9, said, 'without', { lanes: there, on: 'm1' }).map((r) => r.key).slice(0, 2)).toEqual(['@m1:same', 'here']);
+    // Archived ones there are left out unless asked for, as here.
+    expect(findSessions(here, ALL_PROJECTS, 'login gone', NOW, 9, new Map(), 'without', machines)).toEqual([]);
+    expect(findSessions(here, ALL_PROJECTS, 'login gone', NOW, 9, new Map(), 'with', machines).map((r) => r.key)).toEqual(['@m1:gone']);
+    // Without them, only this machine's.
+    expect(findSessions(here, ALL_PROJECTS, 'login', NOW, 9, said).map((r) => r.key)).toEqual(['here', 'mention']);
+  });
+
   it('marks where the words are in the title', () => {
     expect(findSessions(b, ALL_PROJECTS, 'login flake', NOW)[0].marks).toEqual([
       [8, 13],

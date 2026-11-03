@@ -4,10 +4,11 @@
 // todos ready to start, then the rest of the sessions started in the last day, which ↓ reaches
 // past the rest. Typed words find sessions, then todos, then PRs: every word has to be in what
 // describes them, or, for a session, in what was said in it (the engine's text search,
-// search.rs). Under a prompt, Send to lists every session it could go to, Jev's picks first
-// (`sendTargets`), its own box finding one while the prompt waits. Kept free of React so the
-// rules have tests.
+// search.rs), on this machine or on your other ones, as the main window lists them. Under a
+// prompt, Send to lists every session it could go to, Jev's picks first (`sendTargets`), its own
+// box finding one while the prompt waits. Kept free of React so the rules have tests.
 
+import { shortOf } from './devices';
 import { agoPhrase, middleTruncate } from './format';
 import { heldForAgent } from './prStatus';
 import { branchLabel, byStatusTime, sessionHomes, snoozedApart, unattended } from './lanes';
@@ -118,7 +119,7 @@ export type Archived = 'without' | 'with' | 'only';
 
 /** Every session once, listed under the worktree it runs in (not as a visitor elsewhere), with
  *  archived ones left out unless `archived` says otherwise. */
-function sessionsIn(board: Board, project: string, archived: Archived = 'without'): { lane: Lane; session: Session }[] {
+function sessionsIn(board: Pick<Board, 'lanes'>, project: string, archived: Archived = 'without'): { lane: Lane; session: Session }[] {
   const out: { lane: Lane; session: Session }[] = [];
   for (const lane of board.lanes) {
     if (!inProject(lane, project)) continue;
@@ -261,6 +262,22 @@ function searchCost(closeness: number, s: Session, now: number): number {
  *  the project that only mentions them. */
 const ANOTHER_PROJECT = 3;
 
+/** How many doublings further down a search puts a session on another machine than the one the
+ *  panel starts sessions on: as if it were four times older. The same match there comes after
+ *  the one here, but a title there that the words name still comes before a session here that
+ *  only mentions them. */
+const ANOTHER_MACHINE = 2;
+
+/** Your other machines, for a search to find their sessions too: their worktrees, each lane id
+ *  and session key starting `@<short>:` (devices.ts), and the machine the panel starts sessions
+ *  on, by its short id (null is this one), whose sessions come first. */
+export interface Machines {
+  lanes: readonly Lane[];
+  on: string | null;
+}
+
+const THIS_MACHINE: Machines = { lanes: [], on: null };
+
 /** The shortest search that's sent to the text search: fewer letters match nearly everything. */
 export const TEXT_SEARCH_MIN = 3;
 
@@ -276,14 +293,17 @@ export const TEXT_SEARCH_MIN = 3;
  * `archived` asks for them, and then count as older than they are. A project picked doesn't hide
  * the others' sessions from a search, since the one you look for may be in another: they come
  * after the project's own as older ones would (`ANOTHER_PROJECT`), and each row says its project.
+ * Your other machines' sessions (`machines`) are found as the main window lists them, after the
+ * same match on the machine the panel starts sessions on (`ANOTHER_MACHINE`).
  */
-export function findSessions(board: Board, project: string, query: string, now: number, limit = MAX_ROWS, said: ReadonlyMap<string, TextHit> = new Map(), archived: Archived = 'without'): SessionRow[] {
+export function findSessions(board: Board, project: string, query: string, now: number, limit = MAX_ROWS, said: ReadonlyMap<string, TextHit> = new Map(), archived: Archived = 'without', machines: Machines = THIS_MACHINE): SessionRow[] {
   const words = queryWords(query);
   if (words.length === 0) return [];
   const asked = words.join(' ');
-  const others = project === ALL_PROJECTS ? [] : sessionsIn(board, ALL_PROJECTS, archived).filter(({ lane }) => !inProject(lane, project));
-  const found = [...sessionsIn(board, project, archived), ...others].flatMap(({ lane, session: s }) => {
-    const away = inProject(lane, project) ? 0 : ANOTHER_PROJECT;
+  const everywhere = machines.lanes.length === 0 ? board : { lanes: [...board.lanes, ...machines.lanes] };
+  const others = project === ALL_PROJECTS ? [] : sessionsIn(everywhere, ALL_PROJECTS, archived).filter(({ lane }) => !inProject(lane, project));
+  const found = [...sessionsIn(everywhere, project, archived), ...others].flatMap(({ lane, session: s }) => {
+    const away = (inProject(lane, project) ? 0 : ANOTHER_PROJECT) + (shortOf(s.key) === machines.on ? 0 : ANOTHER_MACHINE);
     const cost = (closeness: number) => away + searchCost(closeness, s, now);
     // Marks only for a session that matches: a long prompt has hundreds of words, and looking for
     // each in every session's title was most of what a key cost.
