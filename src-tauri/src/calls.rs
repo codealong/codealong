@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex};
 use serde_json::Value;
 
 use crate::util::{self, words};
-use crate::{acp, actions, api, autoreview, boards, config, detect, engine, github, harness, idle, improve, install, jev, ledger, model, newfolder, peers, prasks, prlinks, prmerge, route, routelog, runcode, schedules, search, setup, side, skills, stale, start, store, todojev, todos, training, views, zoom};
+use crate::{acp, actions, api, autoreview, boards, config, detect, engine, github, harness, idle, improve, install, jev, ledger, model, newfolder, peers, prasks, prlinks, prmerge, route, routelog, runcode, schedules, search, setup, side, skills, stale, start, store, terminals, todojev, todos, training, views, zoom};
 
 /// What a call runs with: the server's engine, your other devices, and the automatic reviewer.
 #[derive(Clone)]
@@ -711,6 +711,58 @@ calls! {
     /// Forgets one of a session's kept side conversations, on its device.
     fn side_forget(c, key: String, id: String) -> Result<(), String> {
         actions::run(&c.engine, &c.peers, api::SIDE_FORGET, &key, actions::params::SideForget { id, ..Default::default() }).map(|_| ())
+    }
+
+    /// Opens a terminal of Codealong's own for a session (terminals.rs), in `folder`: a shell, or
+    /// `command` run in one. `size` and `theme` are the window's, which it measured.
+    fn terminal_open(c, key: String, folder: String, command: Option<String>, size: Option<terminals::Size>, theme: Option<terminals::Theme>) -> Result<terminals::Glance, String> {
+        if c.engine.read(|b| b.session(&key).is_none()) {
+            return Err("Codealong doesn't list that session.".into());
+        }
+        // A shell closes when it exits, as a tab does; a command stays to say how it ended.
+        let close_on_exit = command.is_none();
+        terminals::open(terminals::Open { session: key, folder: folder.into(), command, size, theme, close_on_exit, ..Default::default() })
+    }
+
+    /// A window shows a terminal (`on`), and is sent its frames while it says so again every few
+    /// seconds; or stops showing it.
+    fn terminal_watch(c, id: String, on: bool, window_label: Option<String>) -> Result<(), String> {
+        terminals::watch(&id, window_label.as_deref().unwrap_or("main"), on)
+    }
+
+    /// What a window typed or did with the mouse in a terminal, in order.
+    fn terminal_input(c, id: String, inputs: Vec<terminals::Input>) -> Result<(), String> {
+        terminals::input(&id, inputs)
+    }
+
+    /// Pastes into a terminal. False when the text could run commands as it's pasted (a line
+    /// break where the program doesn't bracket pastes) and `force` wasn't given.
+    fn terminal_paste(c, id: String, text: String, force: bool) -> Result<bool, String> {
+        terminals::paste(&id, text, force)
+    }
+
+    fn terminal_resize(c, id: String, size: terminals::Size) -> Result<(), String> {
+        terminals::resize(&id, size)
+    }
+
+    /// A window's colors, for a terminal it shows.
+    fn terminal_theme(c, id: String, theme: terminals::Theme) -> Result<(), String> {
+        terminals::theme(&id, theme)
+    }
+
+    /// The text selected in a terminal.
+    fn terminal_copy(c, id: String) -> Result<Option<String>, String> {
+        terminals::copy(&id)
+    }
+
+    /// Everything a terminal holds as text, scrollback included.
+    fn terminal_text(c, id: String) -> Result<String, String> {
+        terminals::text(&id)
+    }
+
+    /// Closes a terminal, hanging up on what runs in it.
+    fn terminal_close(c, id: String) -> Result<(), String> {
+        terminals::close(&id)
     }
 
     /// Closes a session's side conversation (side.rs `close`); what was said is kept to read.

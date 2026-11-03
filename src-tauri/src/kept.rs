@@ -39,6 +39,8 @@ const READY_WAIT: Duration = Duration::from_millis(2500);
 
 /// The size a side conversation's window opens at, its room for the shadow included.
 const SIDE_SIZE: (f64, f64) = (480.0, 600.0);
+/// The size a terminal's window opens at: about 90 columns by 24 rows in the terminal's font.
+const TERMINAL_SIZE: (f64, f64) = (720.0, 460.0);
 /// How far a side conversation's window opens from the window it popped out of.
 const SIDE_GAP: f64 = 8.0;
 /// How far down a side conversation's window opens over the window it popped out of, when
@@ -55,6 +57,30 @@ struct Kept {
     /// The window shows the session's side conversation, not the session.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     side: bool,
+    /// The window shows this terminal of the session's (terminals.rs), popped out of the drawer
+    /// under its box.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    terminal: Option<String>,
+}
+
+impl Kept {
+    fn kind(&self) -> Kind {
+        if self.terminal.is_some() {
+            Kind::Terminal
+        } else if self.side {
+            Kind::Side
+        } else {
+            Kind::Session
+        }
+    }
+}
+
+/// What a kept window shows, which its page is told as it loads.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Kind {
+    Session,
+    Side,
+    Terminal,
 }
 
 #[derive(Default, Serialize, Deserialize, Debug, PartialEq)]
@@ -106,12 +132,23 @@ impl Inner {
 
     /// The window a session is kept in, or with `side` the one its side conversation is.
     fn label_of(&self, key: &str, side: bool) -> Option<String> {
-        self.windows.iter().find(|(_, k)| k.key == key && k.side == side).map(|(l, _)| l.clone())
+        let kind = if side { Kind::Side } else { Kind::Session };
+        self.windows.iter().find(|(_, k)| k.key == key && k.kind() == kind).map(|(l, _)| l.clone())
+    }
+
+    /// The window a terminal popped out into.
+    fn label_of_terminal(&self, id: &str) -> Option<String> {
+        self.windows.iter().find(|(_, k)| k.terminal.as_deref() == Some(id)).map(|(l, _)| l.clone())
     }
 
     /// The sessions whose side conversations have windows of their own.
     fn sides(&self) -> Vec<String> {
-        self.windows.iter().filter(|(_, k)| k.side).map(|(_, k)| k.key.clone()).collect()
+        self.windows.iter().filter(|(_, k)| k.kind() == Kind::Side).map(|(_, k)| k.key.clone()).collect()
+    }
+
+    /// The terminals that have windows of their own.
+    fn terminals(&self) -> Vec<String> {
+        self.windows.iter().filter_map(|(_, k)| k.terminal.clone()).collect()
     }
 }
 
@@ -119,9 +156,9 @@ impl Inner {
 pub fn setup(app: &AppHandle) -> Result<()> {
     app.manage(State::default());
     for kept in Saved::load().sessions {
-        let side = kept.side;
+        let kind = kept.kind();
         let label = add(app, kept, false);
-        if let Err(e) = make_window(app, &label, side) {
+        if let Err(e) = make_window(app, &label, kind) {
             eprintln!("Couldn't put a kept session back on the desktop: {e:#}");
         }
     }
@@ -152,8 +189,12 @@ fn add(app: &AppHandle, kept: Kept, keys: bool) -> String {
 /// Makes a session's window, or its side conversation's, hidden, then on the main thread turns it
 /// into a panel where it was left. It shows once its page has laid the session out (`ready`), or
 /// after a moment without. Off the main thread, which making a window waits on.
-fn make_window(app: &AppHandle, label: &str, side: bool) -> Result<()> {
-    let script = if side { "window.__CODEALONG_KEPT__ = true; window.__CODEALONG_SIDE__ = true;" } else { "window.__CODEALONG_KEPT__ = true;" };
+fn make_window(app: &AppHandle, label: &str, kind: Kind) -> Result<()> {
+    let script = match kind {
+        Kind::Session => "window.__CODEALONG_KEPT__ = true;",
+        Kind::Side => "window.__CODEALONG_KEPT__ = true; window.__CODEALONG_SIDE__ = true;",
+        Kind::Terminal => "window.__CODEALONG_KEPT__ = true; window.__CODEALONG_TERMINAL__ = true;",
+    };
     let page = panel::Page { title: "Codealong", script, size: crate::peek::MIN_SIZE, focusable: true, first_mouse: true };
     panel::builder(app, label, page).build()?;
     let (handle, placed) = (app.clone(), label.to_string());
@@ -206,7 +247,7 @@ pub fn ready(app: &AppHandle, label: &str) {
             return;
         }
         let keys = inner.keys.remove(label);
-        (inner.windows.iter().find(|(l, k)| l == label && !k.side).map(|(_, k)| k.key.clone()), keys)
+        (inner.windows.iter().find(|(l, k)| l == label && k.kind() == Kind::Session).map(|(_, k)| k.key.clone()), keys)
     };
     panel::present(&window, keys);
     if crate::peek::showing(app).map(|(k, _)| k) == key {
@@ -235,8 +276,8 @@ pub fn keep(app: &AppHandle, key: String, card: Rect, keys: bool) -> Result<bool
         raise(app, &label, keys);
         return Ok(true);
     }
-    let label = add(app, Kept { key, frame: crate::peek::window_for(card), side: false }, keys);
-    open(app, label, false);
+    let label = add(app, Kept { key, frame: crate::peek::window_for(card), side: false, terminal: None }, keys);
+    open(app, label, Kind::Session);
     Ok(false)
 }
 
@@ -253,10 +294,55 @@ pub fn pop_side(app: &AppHandle, key: String, from: Option<Rect>, keys: bool) ->
     let screens = panel::screens();
     let visible = from.and_then(|f| screen_for(f, &screens)).or_else(|| screens.first().map(|s| s.visible)).ok_or_else(|| anyhow!("There's no screen to show it on."))?;
     let frame = side_frame(from, visible);
-    let label = add(app, Kept { key, frame, side: true }, keys);
-    open(app, label, true);
+    let label = add(app, Kept { key, frame, side: true, terminal: None }, keys);
+    open(app, label, Kind::Side);
     tell_sides(app);
     Ok(())
+}
+
+/// Pops a terminal of session `key`'s out of the drawer under its box into a window of its own,
+/// beside `from`, as a side conversation pops out: the terminal goes on in the server
+/// (terminals.rs), and the window shows it as the drawer did. One up already comes forward where
+/// it is. With `keys` it takes the keyboard as it shows. On the main thread.
+pub fn pop_terminal(app: &AppHandle, key: String, id: String, from: Option<Rect>, keys: bool) -> Result<()> {
+    let state = app.try_state::<State>().ok_or_else(|| anyhow!("Kept sessions aren't ready yet."))?;
+    let already = state.inner.lock().map_err(|_| anyhow!("Kept sessions are unavailable."))?.label_of_terminal(&id);
+    if let Some(label) = already {
+        raise(app, &label, keys);
+        return Ok(());
+    }
+    let screens = panel::screens();
+    let visible = from.and_then(|f| screen_for(f, &screens)).or_else(|| screens.first().map(|s| s.visible)).ok_or_else(|| anyhow!("There's no screen to show it on."))?;
+    let frame = beside(from, visible, TERMINAL_SIZE);
+    let label = add(app, Kept { key, frame, side: false, terminal: Some(id) }, keys);
+    open(app, label, Kind::Terminal);
+    tell_terminals(app);
+    Ok(())
+}
+
+/// Puts a popped-out terminal back in its drawer: its window closes.
+pub fn put_back_terminal(app: &AppHandle, id: &str) {
+    let label = app.try_state::<State>().and_then(|s| s.inner.lock().ok().and_then(|i| i.label_of_terminal(id)));
+    if let Some(label) = label {
+        close(app, &label);
+    }
+}
+
+/// The terminals that have windows of their own.
+pub fn terminals(app: &AppHandle) -> Vec<String> {
+    app.try_state::<State>().and_then(|s| s.inner.lock().ok().map(|i| i.terminals())).unwrap_or_default()
+}
+
+/// Tells every window which terminals have windows of their own.
+fn tell_terminals(app: &AppHandle) {
+    let _ = app.emit("terminal-windows", terminals(app));
+}
+
+/// The terminal a window shows, for its page.
+pub fn terminal(app: &AppHandle, label: &str) -> Option<String> {
+    let state = app.try_state::<State>()?;
+    let inner = state.inner.lock().ok()?;
+    inner.windows.iter().find(|(l, _)| l == label).and_then(|(_, k)| k.terminal.clone())
 }
 
 /// Where a side conversation's window opens: beside the window it popped out of, its top level
@@ -265,7 +351,12 @@ pub fn pop_side(app: &AppHandle, key: String, from: Option<Rect>, keys: bool) ->
 /// main window. From no window, in the middle of the screen. Whole on the screen (`visible`, the
 /// part the menu bar and Dock leave).
 pub fn side_frame(from: Option<Rect>, visible: Rect) -> Rect {
-    let (w, h) = (SIDE_SIZE.0.min(visible.w), SIDE_SIZE.1.min(visible.h));
+    beside(from, visible, SIDE_SIZE)
+}
+
+/// A window of `size` beside `from`, as `side_frame` places a side conversation's.
+fn beside(from: Option<Rect>, visible: Rect, size: (f64, f64)) -> Rect {
+    let (w, h) = (size.0.min(visible.w), size.1.min(visible.h));
     let Some(from) = from else {
         let (cx, cy) = visible.center();
         return Rect { x: cx - w / 2.0, y: cy - h / 2.0, w, h };
@@ -298,30 +389,37 @@ pub fn follow(app: &AppHandle, from: &str, to: &str) {
     let Some(state) = app.try_state::<State>() else { return };
     let (old, frame) = {
         let Ok(inner) = state.inner.lock() else { return };
-        let Some((label, kept)) = inner.windows.iter().find(|(_, k)| k.key == from && !k.side).filter(|_| inner.label_of(to, false).is_none()) else { return };
+        let Some((label, kept)) = inner.windows.iter().find(|(_, k)| k.key == from && k.kind() == Kind::Session).filter(|_| inner.label_of(to, false).is_none()) else { return };
         (label.clone(), kept.frame)
     };
-    let label = add(app, Kept { key: to.to_string(), frame, side: false }, false);
-    open(app, label, false);
+    let label = add(app, Kept { key: to.to_string(), frame, side: false, terminal: None }, false);
+    open(app, label, Kind::Session);
     close(app, &old);
 }
 
 /// Makes a new kept window, off the main thread, which making a window waits on.
-fn open(app: &AppHandle, label: String, side: bool) {
+fn open(app: &AppHandle, label: String, kind: Kind) {
     let handle = app.clone();
     std::thread::spawn(move || {
-        if let Err(e) = make_window(&handle, &label, side) {
+        if let Err(e) = make_window(&handle, &label, kind) {
             eprintln!("Couldn't keep the session on the desktop: {e:#}");
             if let Some(state) = handle.try_state::<State>() {
                 if let Ok(mut inner) = state.inner.lock() {
                     inner.windows.retain(|(l, _)| l != &label);
                 }
             }
-            if side {
-                tell_sides(&handle);
-            }
+            tell(&handle, kind);
         }
     });
+}
+
+/// Tells the windows of a change to which side conversations or terminals have windows.
+fn tell(app: &AppHandle, kind: Kind) {
+    match kind {
+        Kind::Side => tell_sides(app),
+        Kind::Terminal => tell_terminals(app),
+        Kind::Session => {}
+    }
 }
 
 /// Brings a kept session's window up, with the keyboard if `keys`. On the main thread.
@@ -393,19 +491,17 @@ pub fn take_keys(app: &AppHandle, label: &str) {
 /// conversation goes back above its session's box.
 pub fn close(app: &AppHandle, label: &str) {
     let Some(state) = app.try_state::<State>() else { return };
-    let (original, side) = {
+    let (original, kind) = {
         let Ok(mut inner) = state.inner.lock() else { return };
-        let Some(side) = inner.windows.iter().find(|(l, _)| l == label).map(|(_, k)| k.side) else { return };
+        let Some(kind) = inner.windows.iter().find(|(l, _)| l == label).map(|(_, k)| k.kind()) else { return };
         inner.windows.retain(|(l, _)| l != label);
         inner.shown.remove(label);
         inner.keys.remove(label);
         let original = inner.panels.remove(label).flatten();
         inner.save();
-        (original, side)
+        (original, kind)
     };
-    if side {
-        tell_sides(app);
-    }
+    tell(app, kind);
     let (handle, label) = (app.clone(), label.to_string());
     let _ = app.run_on_main_thread(move || {
         let Some(w) = handle.get_webview_window(&label) else { return };
@@ -543,12 +639,12 @@ mod tests {
         let s: Saved = serde_json::from_str("{}").unwrap();
         assert_eq!(s, Saved::default());
         let s: Saved = serde_json::from_str(r#"{"sessions":[{"key":"claude:claude:1","frame":{"x":1,"y":2,"w":3,"h":4}}]}"#).unwrap();
-        assert_eq!(s.sessions, [Kept { key: "claude:claude:1".into(), frame: r(1.0, 2.0, 3.0, 4.0), side: false }]);
+        assert_eq!(s.sessions, [Kept { key: "claude:claude:1".into(), frame: r(1.0, 2.0, 3.0, 4.0), side: false, terminal: None }]);
         // A side conversation's window says so; a session's is written as it always was, so a
         // build from before side windows reads it.
         let s: Saved = serde_json::from_str(r#"{"sessions":[{"key":"k","frame":{"x":1,"y":2,"w":3,"h":4},"side":true}]}"#).unwrap();
         assert!(s.sessions[0].side);
-        let written = serde_json::to_string(&Saved { sessions: vec![Kept { key: "k".into(), frame: r(1.0, 2.0, 3.0, 4.0), side: false }] }).unwrap();
+        let written = serde_json::to_string(&Saved { sessions: vec![Kept { key: "k".into(), frame: r(1.0, 2.0, 3.0, 4.0), side: false, terminal: None }] }).unwrap();
         assert!(!written.contains("side"), "{written}");
     }
 
@@ -580,11 +676,28 @@ mod tests {
     #[test]
     fn a_session_and_its_side_conversation_are_kept_apart() {
         let frame = r(1.0, 2.0, 3.0, 4.0);
-        let kept = |key: &str, side: bool| Kept { key: key.into(), frame, side };
+        let kept = |key: &str, side: bool| Kept { key: key.into(), frame, side, terminal: None };
         let inner = Inner { windows: vec![("kept-1".into(), kept("a", false)), ("kept-2".into(), kept("a", true)), ("kept-3".into(), kept("b", true))], ..Inner::default() };
         assert_eq!(inner.label_of("a", false).as_deref(), Some("kept-1"));
         assert_eq!(inner.label_of("a", true).as_deref(), Some("kept-2"));
         assert_eq!(inner.label_of("b", false), None);
         assert_eq!(inner.sides(), ["a", "b"]);
+    }
+
+    /// A terminal popped out of a session's drawer is a window of its own, which neither the
+    /// session's nor its side conversation's is taken for, and it's kept across a relaunch.
+    #[test]
+    fn a_terminal_popped_out_is_kept_apart_from_its_session() {
+        let frame = r(1.0, 2.0, 3.0, 4.0);
+        let term = Kept { key: "a".into(), frame, side: false, terminal: Some("term-1".into()) };
+        let inner = Inner { windows: vec![("kept-1".into(), term.clone()), ("kept-2".into(), Kept { key: "a".into(), frame, side: true, terminal: None })], ..Inner::default() };
+        assert_eq!(inner.label_of("a", false), None, "not the session's window");
+        assert_eq!(inner.label_of("a", true).as_deref(), Some("kept-2"));
+        assert_eq!(inner.label_of_terminal("term-1").as_deref(), Some("kept-1"));
+        assert_eq!(inner.terminals(), ["term-1"]);
+        assert_eq!(inner.sides(), ["a"]);
+        let written = serde_json::to_string(&Saved { sessions: vec![term.clone()] }).unwrap();
+        assert!(written.contains("\"terminal\":\"term-1\""), "{written}");
+        assert_eq!(serde_json::from_str::<Saved>(&written).unwrap().sessions, [term]);
     }
 }

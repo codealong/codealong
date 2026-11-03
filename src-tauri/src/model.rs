@@ -52,6 +52,9 @@ pub struct AppNames {
     pub diff_editor: Option<crate::config::Profile>,
     /// `[apps] new_terminal`: where a terminal Codealong opens goes.
     pub new_terminal: crate::config::NewTerminal,
+    /// `[apps] run_in`: where a session's new terminals and the commands run from it open.
+    #[serde(default)]
+    pub run_in: crate::config::RunIn,
 }
 
 /// A configured account and whether it's ready, for the Accounts dialog.
@@ -153,6 +156,10 @@ pub struct Board {
     /// devices.
     #[serde(default)]
     pub sides: std::collections::BTreeMap<String, Vec<crate::side::Glance>>,
+    /// Codealong's own terminals (terminals.rs), by the key of the session each is for, in the
+    /// order they were opened. This Mac's own: not sent to other devices.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub terminals: std::collections::BTreeMap<String, Vec<crate::terminals::Glance>>,
     /// Pinned session keys, in order.
     pub pinned: Vec<String>,
     /// Pinned worktrees (lane ids), in order.

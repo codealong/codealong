@@ -1,0 +1,950 @@
+//! One terminal's emulator: Ghostty's (libghostty-vt), fed what its process prints, and the
+//! screen that comes of it as the windows draw it (`Frame`): the rows that changed, each as runs
+//! of cells drawn alike, every color resolved to RGB, with the cursor. The windows only draw:
+//! what a key, a click, a paste or the wheel sends the program is worked out here, against the
+//! terminal's modes as they are (application cursor keys, the Kitty keyboard protocol, mouse
+//! reporting, bracketed paste), by libghostty's own encoders, and so is a selection.
+//!
+//! libghostty's types may not leave the thread that made them, so a `Screen` is made and used on
+//! its terminal's thread (terminals.rs `run`).
+
+use std::cell::{Cell, RefCell};
+use std::rc::Rc;
+use std::time::{Duration, Instant};
+
+use libghostty_vt::fmt::{Format, Formatter, FormatterOptions};
+use libghostty_vt::key::{self, Mods};
+use libghostty_vt::mouse;
+use libghostty_vt::paste;
+use libghostty_vt::render::{CellIterator, CursorVisualStyle, Dirty, RenderState, RowIterator};
+use libghostty_vt::screen::CellWide;
+use libghostty_vt::selection::gesture::{DragEvent, Geometry, Gesture, PressEvent, ReleaseEvent};
+use libghostty_vt::style::{Palette, RgbColor, StyleColor, Underline};
+use libghostty_vt::terminal::{ClipboardMime, ColorScheme, Mode, Point, PointCoordinate, ScrollViewport, SizeReportSize, Terminal};
+use serde::{Deserialize, Serialize};
+
+use super::keys;
+use super::pty::Size;
+
+/// The terminfo entry programs are told the terminal is, which every Mac and Linux has.
+pub const TERM: &str = "xterm-256color";
+/// How much scrollback a terminal keeps.
+const SCROLLBACK_LINES: usize = 10_000;
+/// How long two clicks may be apart to count as a double click, as macOS's default.
+const CLICK_INTERVAL: Duration = Duration::from_millis(500);
+
+/// A screen as the windows draw it, or what changed of it since the last.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Frame {
+    /// The terminal's id.
+    pub id: String,
+    /// Counts up with every frame of the terminal: a window that misses one asks for the whole.
+    pub seq: u64,
+    pub cols: u16,
+    pub rows: u16,
+    /// Every row is here: a window starts from it rather than from what it showed.
+    pub full: bool,
+    /// The rows that changed. A window clears each to the background and draws its runs.
+    pub lines: Vec<Line>,
+    /// The looks the runs name, by index.
+    pub looks: Vec<Look>,
+    /// Where the cursor shows, when it does.
+    pub cursor: Option<Caret>,
+    /// The default colors, as 0xRRGGBB.
+    pub fg: u32,
+    pub bg: u32,
+    /// Where the view is in the scrollback.
+    pub scroll: Scroll,
+    /// The program asks for the mouse: clicks and the wheel go to it (Shift selects anyway).
+    pub mouse: bool,
+}
+
+/// A row's cells that aren't blank, in runs drawn alike.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct Line {
+    pub y: u16,
+    pub runs: Vec<Run>,
+}
+
+/// Cells side by side drawn alike, from column `x`: one entry a cell, its text (a grapheme), " "
+/// for a blank one and "" for the second half of a wide character before it, or a wide one
+/// wrapped to the next line, neither of which is drawn.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct Run {
+    pub x: u16,
+    #[serde(rename = "l")]
+    pub look: u16,
+    #[serde(rename = "c")]
+    pub cells: Vec<String>,
+}
+
+/// How cells are drawn: colors as 0xRRGGBB (None for the default), and `flags` (`BOLD`…).
+#[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
+pub struct Look {
+    #[serde(rename = "f", skip_serializing_if = "Option::is_none")]
+    pub fg: Option<u32>,
+    #[serde(rename = "b", skip_serializing_if = "Option::is_none")]
+    pub bg: Option<u32>,
+    /// The underline's own color, when it has one.
+    #[serde(rename = "u", skip_serializing_if = "Option::is_none")]
+    pub ul: Option<u32>,
+    #[serde(rename = "a", skip_serializing_if = "is_zero")]
+    pub flags: u16,
+}
+
+fn is_zero(n: &u16) -> bool {
+    *n == 0
+}
+
+pub const BOLD: u16 = 1;
+pub const ITALIC: u16 = 1 << 1;
+pub const FAINT: u16 = 1 << 2;
+pub const BLINK: u16 = 1 << 3;
+pub const STRIKE: u16 = 1 << 4;
+pub const OVERLINE: u16 = 1 << 5;
+pub const SELECTED: u16 = 1 << 6;
+pub const LINK: u16 = 1 << 7;
+/// The underline's kind, in three bits: 1 single, 2 double, 3 curly, 4 dotted, 5 dashed.
+pub const UNDERLINE_SHIFT: u16 = 8;
+
+/// The cursor, where it shows.
+#[derive(Serialize, Clone, Copy, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Caret {
+    pub x: u16,
+    pub y: u16,
+    /// "block", "bar", "underline" or "hollow".
+    pub shape: &'static str,
+    pub blink: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color: Option<u32>,
+    /// A password is being typed (the terminal's echo is off).
+    pub password: bool,
+}
+
+/// Where the view is in the scrollback, in rows: `offset` from the top of `total`, `len` shown.
+#[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct Scroll {
+    pub total: u64,
+    pub offset: u64,
+    pub len: u64,
+}
+
+/// A window's colors, which programs that ask are told (OSC 10, 11 and 4) and draw with.
+#[derive(Deserialize, Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Theme {
+    pub fg: u32,
+    pub bg: u32,
+    #[serde(default)]
+    pub cursor: Option<u32>,
+    /// The 16 ANSI colors; fewer leaves the rest Ghostty's.
+    #[serde(default)]
+    pub palette: Vec<u32>,
+    /// Programs that ask whether the theme is dark are told this (CSI ? 996 n).
+    #[serde(default)]
+    pub dark: bool,
+}
+
+/// What a window sends a terminal. Pixel positions are from the grid's top left.
+#[derive(Deserialize, Clone, Debug, PartialEq)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum Input {
+    /// A key, by `KeyboardEvent.code`, with the text it typed.
+    Key {
+        code: String,
+        #[serde(default)]
+        text: Option<String>,
+        #[serde(default)]
+        mods: Mods4,
+        #[serde(default)]
+        action: KeyAction,
+    },
+    /// Text typed some other way: an input method's, or a dead key's.
+    Text { text: String },
+    /// A mouse button or the pointer moving.
+    Mouse {
+        action: MouseAction,
+        #[serde(default)]
+        button: Option<MouseButton>,
+        x: f64,
+        y: f64,
+        #[serde(default)]
+        mods: Mods4,
+    },
+    /// The wheel, in rows (up is negative), at a position.
+    Wheel {
+        rows: f64,
+        x: f64,
+        y: f64,
+        #[serde(default)]
+        mods: Mods4,
+    },
+    /// The window showing it took or lost the keyboard.
+    Focus { on: bool },
+    /// The view moved in the scrollback.
+    Scroll { to: ScrollTo },
+    /// Selects everything, or nothing.
+    Select { all: bool },
+}
+
+#[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[serde(default)]
+pub struct Mods4 {
+    pub shift: bool,
+    pub ctrl: bool,
+    pub alt: bool,
+    pub meta: bool,
+}
+
+impl Mods4 {
+    fn mods(self) -> Mods {
+        let mut m = Mods::empty();
+        m.set(Mods::SHIFT, self.shift);
+        m.set(Mods::CTRL, self.ctrl);
+        m.set(Mods::ALT, self.alt);
+        m.set(Mods::SUPER, self.meta);
+        m
+    }
+}
+
+#[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum KeyAction {
+    #[default]
+    Press,
+    Repeat,
+    Release,
+}
+
+#[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum MouseAction {
+    Down,
+    Up,
+    Move,
+}
+
+#[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum MouseButton {
+    Left,
+    Middle,
+    Right,
+}
+
+#[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum ScrollTo {
+    Top,
+    Bottom,
+    PageUp,
+    PageDown,
+    /// The prompt before the one at the top of the view, which needs the shell to mark prompts.
+    PromptUp,
+    PromptDown,
+}
+
+/// What the terminal's program did that Codealong shows beside the screen, noted as the program
+/// prints it (libghostty calls back from inside `vt_write`).
+#[derive(Default)]
+pub struct Noted {
+    pub title: bool,
+    pub bell: bool,
+    pub pwd: bool,
+}
+
+/// One terminal's emulator and what it encodes input with.
+pub struct Screen {
+    term: Terminal<'static, 'static>,
+    render: RenderState<'static>,
+    rows: RowIterator<'static>,
+    cells: CellIterator<'static>,
+    key_encoder: key::Encoder<'static>,
+    key_event: key::Event<'static>,
+    mouse_encoder: mouse::Encoder<'static>,
+    mouse_event: mouse::Event<'static>,
+    gesture: Gesture<'static>,
+    press: PressEvent<'static>,
+    release: ReleaseEvent<'static>,
+    drag: DragEvent<'static>,
+    /// When the screen was made: a click's time is counted from it.
+    born: Instant,
+    /// The buttons held, which a drag goes by.
+    held: Vec<MouseButton>,
+    /// A selection is being made with the left button.
+    selecting: bool,
+    size: Rc<Cell<Size>>,
+    dark: Rc<Cell<bool>>,
+    noted: Rc<RefCell<Noted>>,
+    /// What a key or a click came to, for the program: written out by the caller.
+    out: Vec<u8>,
+    seq: u64,
+}
+
+impl Screen {
+    /// A screen of `size`, which writes what the program is answered with (a cursor position
+    /// asked for, the colors) through `write`.
+    pub fn new(size: Size, write: impl Fn(&[u8]) + 'static) -> libghostty_vt::error::Result<Screen> {
+        let mut term = Terminal::new(size.cols, size.rows)?;
+        let size_cell = Rc::new(Cell::new(size));
+        let dark = Rc::new(Cell::new(false));
+        let noted = Rc::new(RefCell::new(Noted::default()));
+        term.set_scrollback_max_lines(Some(SCROLLBACK_LINES))?.set_terminfo_name(TERM)?;
+        term.resize(size.cols, size.rows, u32::from(size.cell_width), u32::from(size.cell_height))?;
+        let (sizes, scheme) = (size_cell.clone(), dark.clone());
+        let (titles, bells, pwds) = (noted.clone(), noted.clone(), noted.clone());
+        term.on_pty_write(move |_, data| write(data))?
+            .on_size(move |_| {
+                let s = sizes.get();
+                Some(SizeReportSize { rows: s.rows, columns: s.cols, cell_width: u32::from(s.cell_width), cell_height: u32::from(s.cell_height) })
+            })?
+            .on_xtversion(|_| Some("Codealong"))?
+            .on_color_scheme(move |_| Some(if scheme.get() { ColorScheme::Dark } else { ColorScheme::Light }))?
+            .on_title_changed(move |_| titles.borrow_mut().title = true)?
+            .on_bell(move |_| bells.borrow_mut().bell = true)?
+            .on_pwd_changed(move |_| pwds.borrow_mut().pwd = true)?;
+        let mut press = PressEvent::new()?;
+        press.set_repeat_interval(CLICK_INTERVAL)?;
+        Ok(Screen {
+            term,
+            render: RenderState::new()?,
+            rows: RowIterator::new()?,
+            cells: CellIterator::new()?,
+            key_encoder: key::Encoder::new()?,
+            key_event: key::Event::new()?,
+            mouse_encoder: mouse::Encoder::new()?,
+            mouse_event: mouse::Event::new()?,
+            gesture: Gesture::new()?,
+            press,
+            release: ReleaseEvent::new()?,
+            drag: DragEvent::new()?,
+            born: Instant::now(),
+            held: Vec::new(),
+            selecting: false,
+            size: size_cell,
+            dark,
+            noted,
+            out: Vec::new(),
+            seq: 0,
+        })
+    }
+
+    /// What the program printed.
+    pub fn feed(&mut self, bytes: &[u8]) {
+        self.term.vt_write(bytes);
+    }
+
+    /// What the program did since it was last asked, beside printing.
+    pub fn take_noted(&self) -> Noted {
+        std::mem::take(&mut *self.noted.borrow_mut())
+    }
+
+    pub fn title(&self) -> String {
+        self.term.title().map(|t| String::from_utf8_lossy(t).into_owned()).unwrap_or_default()
+    }
+
+    pub fn pwd(&self) -> String {
+        self.term.pwd().map(|t| String::from_utf8_lossy(t).into_owned()).unwrap_or_default()
+    }
+
+    pub fn size(&self) -> Size {
+        self.size.get()
+    }
+
+    /// A new size, reflowing what's on screen. The caller tells the pty.
+    pub fn resize(&mut self, size: Size) {
+        self.size.set(size);
+        let _ = self.term.resize(size.cols, size.rows, u32::from(size.cell_width), u32::from(size.cell_height));
+    }
+
+    /// A window's colors: the defaults the screen is drawn with, and what programs that ask are
+    /// told.
+    pub fn theme(&mut self, theme: &Theme) {
+        self.dark.set(theme.dark);
+        let _ = self.term.set_default_fg_color(Some(rgb_of(theme.fg)));
+        let _ = self.term.set_default_bg_color(Some(rgb_of(theme.bg)));
+        let _ = self.term.set_default_cursor_color(theme.cursor.map(rgb_of));
+        if let Ok(Palette(mut colors)) = self.term.default_color_palette() {
+            for (slot, c) in colors.iter_mut().zip(&theme.palette) {
+                *slot = rgb_of(*c);
+            }
+            let _ = self.term.set_default_color_palette(Some(Palette(colors)));
+        }
+        // Everything is drawn again in the new colors.
+        if let Ok(snap) = self.render.update(&self.term) {
+            let _ = snap.set_dirty(Dirty::Full);
+        }
+    }
+
+    /// Takes what input came to, for the program.
+    pub fn take_out(&mut self) -> Vec<u8> {
+        std::mem::take(&mut self.out)
+    }
+
+    /// Input from a window. Typing or pasting brings the view back to the bottom and clears the
+    /// selection, as Ghostty does.
+    pub fn input(&mut self, input: &Input) {
+        match input {
+            Input::Key { code, text, mods, action } => self.key(code, text.as_deref(), *mods, *action),
+            Input::Text { text } => {
+                if !text.is_empty() {
+                    self.out.extend_from_slice(text.as_bytes());
+                    self.typed();
+                }
+            }
+            Input::Mouse { action, button, x, y, mods } => self.mouse(*action, *button, *x, *y, *mods),
+            Input::Wheel { rows, x, y, mods } => self.wheel(*rows, *x, *y, *mods),
+            Input::Focus { on } => {
+                if self.term.mode(Mode::FOCUS_EVENT).unwrap_or(false) {
+                    let mut buf = [0u8; 8];
+                    let event = if *on { libghostty_vt::focus::Event::Gained } else { libghostty_vt::focus::Event::Lost };
+                    if let Ok(n) = event.encode(&mut buf) {
+                        self.out.extend_from_slice(&buf[..n]);
+                    }
+                }
+            }
+            Input::Scroll { to } => {
+                let rows = isize::try_from(self.size.get().rows).unwrap_or(1).max(1);
+                self.term.scroll_viewport(match to {
+                    ScrollTo::Top => ScrollViewport::Top,
+                    ScrollTo::Bottom => ScrollViewport::Bottom,
+                    ScrollTo::PageUp => ScrollViewport::Delta(-rows),
+                    ScrollTo::PageDown => ScrollViewport::Delta(rows),
+                    ScrollTo::PromptUp => ScrollViewport::DeltaPrompt(-1),
+                    ScrollTo::PromptDown => ScrollViewport::DeltaPrompt(1),
+                });
+            }
+            Input::Select { all } => {
+                if *all {
+                    if let Ok(Some(sel)) = self.term.select_all() {
+                        let _ = self.term.set_selection(Some(&sel));
+                    }
+                } else {
+                    let _ = self.term.set_selection(None);
+                }
+            }
+        }
+    }
+
+    /// Pastes `text` as the program asked for pastes (bracketed, or a paste event). Text that
+    /// could run commands as it's pasted (a line break where pastes aren't bracketed) is refused
+    /// unless `unsafe_ok`: false then, and nothing is written.
+    pub fn paste(&mut self, text: &str, unsafe_ok: bool) -> bool {
+        let mime = [ClipboardMime::new("text/plain")];
+        let options = paste::Options::new().with_allow_unsafe(unsafe_ok);
+        let pasted = self.term.paste(options, &mime, |_, w| w.write_all(text.as_bytes()));
+        match pasted {
+            Err(libghostty_vt::Error::Rejected) => false,
+            _ => {
+                self.typed();
+                true
+            }
+        }
+    }
+
+    /// The selection's text, as copying it gives it.
+    pub fn selection_text(&self) -> Option<String> {
+        let sel = self.term.selection().ok().flatten()?;
+        let opts = FormatterOptions::new().with_format(Format::Plain).with_unwrap(true).with_trim(true).with_selection(&sel);
+        let text = Formatter::new(&self.term, opts).ok()?.format_alloc(None).ok()?;
+        Some(String::from_utf8_lossy(&text).into_owned()).filter(|t| !t.is_empty())
+    }
+
+    /// Everything the terminal holds as text, scrollback included: what a command printed.
+    pub fn text(&self) -> String {
+        let opts = FormatterOptions::new().with_format(Format::Plain).with_unwrap(true).with_trim(true);
+        Formatter::new(&self.term, opts).and_then(|mut f| f.format_alloc(None).map(|b| String::from_utf8_lossy(&b).into_owned())).unwrap_or_default()
+    }
+
+    fn typed(&mut self) {
+        self.term.scroll_viewport(ScrollViewport::Bottom);
+        if self.term.selection().ok().flatten().is_some() {
+            let _ = self.term.set_selection(None);
+        }
+    }
+
+    fn key(&mut self, code: &str, text: Option<&str>, mods: Mods4, action: KeyAction) {
+        let (key, unshifted) = keys::of_code(code);
+        let mods = mods.mods();
+        let text = text.filter(|t| !t.is_empty() && action != KeyAction::Release);
+        // The modifiers the text already took in: Shift for a capital, and on macOS Option for
+        // the character it types (Ghostty's `macos-option-as-alt` off, its default).
+        let mut consumed = Mods::empty();
+        if text.is_some() {
+            if mods.contains(Mods::SHIFT) {
+                consumed |= Mods::SHIFT;
+            }
+            if mods.contains(Mods::ALT) && crate::os::current() == crate::os::Os::MacOs {
+                consumed |= Mods::ALT;
+            }
+        }
+        self.key_event
+            .set_action(match action {
+                KeyAction::Press => key::Action::Press,
+                KeyAction::Repeat => key::Action::Repeat,
+                KeyAction::Release => key::Action::Release,
+            })
+            .set_key(key)
+            .set_mods(mods)
+            .set_consumed_mods(consumed)
+            .set_unshifted_codepoint(unshifted)
+            .set_utf8(text);
+        let before = self.out.len();
+        let _ = self.key_encoder.set_options_from_terminal(&self.term).encode_to_vec(&self.key_event, &mut self.out);
+        // A key libghostty doesn't know that still typed something.
+        if self.out.len() == before && key == key::Key::Unidentified {
+            if let Some(t) = text {
+                self.out.extend_from_slice(t.as_bytes());
+            }
+        }
+        if self.out.len() > before {
+            self.typed();
+        }
+    }
+
+    fn point(&self, x: f64, y: f64) -> Point {
+        let s = self.size.get();
+        let col = (x / f64::from(s.cell_width.max(1))).floor().clamp(0.0, f64::from(s.cols.saturating_sub(1)));
+        let row = (y / f64::from(s.cell_height.max(1))).floor().clamp(0.0, f64::from(s.rows.saturating_sub(1)));
+        Point::Viewport(PointCoordinate { x: col as u16, y: row as u32 })
+    }
+
+    fn mouse(&mut self, action: MouseAction, button: Option<MouseButton>, x: f64, y: f64, mods4: Mods4) {
+        let mods = mods4.mods();
+        let tracking = self.term.is_mouse_tracking().unwrap_or(false);
+        // A program that asks for the mouse gets it; Shift selects anyway, as in Ghostty.
+        let selects = !tracking || mods.contains(Mods::SHIFT);
+        match action {
+            MouseAction::Down => {
+                if let Some(b) = button {
+                    if !self.held.contains(&b) {
+                        self.held.push(b);
+                    }
+                }
+                if button == Some(MouseButton::Left) && selects {
+                    self.selecting = true;
+                    let s = self.size.get();
+                    let point = self.point(x, y);
+                    if let Ok(grid) = self.term.grid_ref(point) {
+                        let since = self.born.elapsed();
+                        if let Ok(press) = self.press.set_repeat_distance(f64::from(s.cell_width)).and_then(|p| p.set_time(since)).and_then(|p| p.set_position(x, y)) {
+                            if let Ok(sel) = press.apply(&mut self.gesture, &self.term, grid) {
+                                let _ = self.term.set_selection(sel.as_ref());
+                            }
+                        }
+                    }
+                    return;
+                }
+            }
+            MouseAction::Up => {
+                self.held.retain(|b| Some(*b) != button);
+                if button == Some(MouseButton::Left) && self.selecting {
+                    self.selecting = false;
+                    let grid = self.term.grid_ref(self.point(x, y)).ok();
+                    let _ = self.release.apply(&mut self.gesture, &self.term, grid);
+                    return;
+                }
+            }
+            MouseAction::Move => {
+                if self.selecting {
+                    let s = self.size.get();
+                    if let Ok(grid) = self.term.grid_ref(self.point(x, y)) {
+                        let geometry = Geometry { columns: s.cols.into(), cell_width: u32::from(s.cell_width), padding_left: 0, screen_height: u32::from(s.rows) * u32::from(s.cell_height) };
+                        // Option drags a rectangle, as in Ghostty on macOS.
+                        if let Ok(drag) = self.drag.set_rectangle(mods.contains(Mods::ALT)).and_then(|d| d.set_position(x, y)) {
+                            if let Ok(sel) = drag.apply(&mut self.gesture, &self.term, grid, geometry) {
+                                let _ = self.term.set_selection(sel.as_ref());
+                            }
+                        }
+                    }
+                    return;
+                }
+            }
+        }
+        if !tracking {
+            return;
+        }
+        let s = self.size.get();
+        self.mouse_encoder
+            .set_options_from_terminal(&self.term)
+            .set_size(mouse::EncoderSize {
+                screen_width: u32::from(s.cols) * u32::from(s.cell_width),
+                screen_height: u32::from(s.rows) * u32::from(s.cell_height),
+                cell_width: u32::from(s.cell_width),
+                cell_height: u32::from(s.cell_height),
+                padding_top: 0,
+                padding_bottom: 0,
+                padding_left: 0,
+                padding_right: 0,
+            })
+            .set_any_button_pressed(!self.held.is_empty())
+            .set_track_last_cell(true);
+        let button = match action {
+            MouseAction::Move => self.held.first().copied(),
+            _ => button,
+        };
+        self.mouse_event
+            .set_mods(mods)
+            .set_position(mouse::Position { x: x as f32, y: y as f32 })
+            .set_action(match action {
+                MouseAction::Down => mouse::Action::Press,
+                MouseAction::Up => mouse::Action::Release,
+                MouseAction::Move => mouse::Action::Motion,
+            })
+            .set_button(button.map(|b| match b {
+                MouseButton::Left => mouse::Button::Left,
+                MouseButton::Middle => mouse::Button::Middle,
+                MouseButton::Right => mouse::Button::Right,
+            }));
+        let _ = self.mouse_encoder.encode_to_vec(&self.mouse_event, &mut self.out);
+    }
+
+    fn wheel(&mut self, rows: f64, x: f64, y: f64, mods4: Mods4) {
+        let steps = rows.round() as isize;
+        if steps == 0 {
+            return;
+        }
+        if self.term.is_mouse_tracking().unwrap_or(false) && !mods4.shift {
+            for _ in 0..steps.unsigned_abs().min(10) {
+                for action in [MouseAction::Down, MouseAction::Up] {
+                    self.held.clear();
+                    let s = self.size.get();
+                    self.mouse_encoder.set_options_from_terminal(&self.term).set_size(mouse::EncoderSize {
+                        screen_width: u32::from(s.cols) * u32::from(s.cell_width),
+                        screen_height: u32::from(s.rows) * u32::from(s.cell_height),
+                        cell_width: u32::from(s.cell_width),
+                        cell_height: u32::from(s.cell_height),
+                        padding_top: 0,
+                        padding_bottom: 0,
+                        padding_left: 0,
+                        padding_right: 0,
+                    });
+                    self.mouse_event
+                        .set_mods(mods4.mods())
+                        .set_position(mouse::Position { x: x as f32, y: y as f32 })
+                        .set_action(if action == MouseAction::Down { mouse::Action::Press } else { mouse::Action::Release })
+                        .set_button(Some(if steps < 0 { mouse::Button::Four } else { mouse::Button::Five }));
+                    let _ = self.mouse_encoder.encode_to_vec(&self.mouse_event, &mut self.out);
+                }
+            }
+            return;
+        }
+        // A full-screen program that didn't ask for the mouse gets arrow keys, as Ghostty sends
+        // them on the alternate screen (alternate scroll, mode 1007).
+        let alternate = self.term.mode(Mode::ALT_SCREEN_SAVE).unwrap_or(false) || self.term.mode(Mode::ALT_SCREEN).unwrap_or(false);
+        if alternate && self.term.mode(Mode::ALT_SCROLL).unwrap_or(false) {
+            let code = if steps < 0 { "ArrowUp" } else { "ArrowDown" };
+            for _ in 0..steps.unsigned_abs().min(10) {
+                self.key(code, None, Mods4::default(), KeyAction::Press);
+            }
+            return;
+        }
+        self.term.scroll_viewport(ScrollViewport::Delta(steps));
+    }
+
+    /// What to draw: every row with `full`, else the rows that changed since the last frame
+    /// (None when nothing did). `id` is the terminal's.
+    pub fn frame(&mut self, id: &str, full: bool) -> Option<Frame> {
+        let Screen { term, render, rows, cells, .. } = self;
+        let snap = render.update(term).ok()?;
+        if full {
+            snap.set_dirty(Dirty::Full).ok()?;
+        }
+        let dirty = snap.dirty().ok()?;
+        if dirty == Dirty::Clean {
+            return None;
+        }
+        let colors = snap.colors().ok()?;
+        let mut looks = Looks::default();
+        let mut lines = Vec::new();
+        let mut text = String::new();
+        let mut row_it = rows.update(&snap).ok()?;
+        while let Some((y, row)) = row_it.next_dirty() {
+            let Ok(mut cell_it) = cells.update(row) else { continue };
+            let mut runs: Vec<Run> = Vec::new();
+            let mut x: u16 = 0;
+            while let Some(cell) = cell_it.next() {
+                let wide = cell.raw_cell().and_then(|c| c.wide()).unwrap_or(CellWide::Narrow);
+                let content = match wide {
+                    CellWide::SpacerTail | CellWide::SpacerHead => String::new(),
+                    _ if cell.graphemes_len().unwrap_or(0) == 0 => " ".to_string(),
+                    _ => {
+                        text.clear();
+                        let _ = cell.graphemes_utf8(&mut text);
+                        text.clone()
+                    }
+                };
+                let look = look_of(cell, &colors);
+                let blank = (content == " " || (wide == CellWide::SpacerHead)) && look == Look::default();
+                if !blank {
+                    let index = looks.index(look);
+                    match runs.last_mut() {
+                        Some(run) if run.look == index && run.x + run.cells.len() as u16 == x => run.cells.push(content),
+                        _ => runs.push(Run { x, look: index, cells: vec![content] }),
+                    }
+                }
+                x = x.saturating_add(1);
+            }
+            lines.push(Line { y, runs });
+        }
+        let cursor = snap.cursor().ok().and_then(|c| {
+            let at = c.viewport?;
+            c.visible.then_some(Caret {
+                x: at.x,
+                y: at.y,
+                shape: match c.visual_style {
+                    CursorVisualStyle::Bar => "bar",
+                    CursorVisualStyle::Underline => "underline",
+                    CursorVisualStyle::BlockHollow => "hollow",
+                    _ => "block",
+                },
+                blink: c.blinking,
+                color: colors.cursor.map(hex_of),
+                password: c.password_input,
+            })
+        });
+        let (cols, rows_n) = (snap.cols().unwrap_or(0), snap.rows().unwrap_or(0));
+        let _ = snap.clean();
+        let scroll = term.scrollbar().map(|s| Scroll { total: s.total, offset: s.offset, len: s.len }).unwrap_or_default();
+        self.seq += 1;
+        Some(Frame {
+            id: id.to_string(),
+            seq: self.seq,
+            cols,
+            rows: rows_n,
+            full: dirty == Dirty::Full,
+            lines,
+            looks: looks.list,
+            cursor,
+            fg: hex_of(colors.foreground),
+            bg: hex_of(colors.background),
+            scroll,
+            mouse: self.term.is_mouse_tracking().unwrap_or(false),
+        })
+    }
+}
+
+/// A frame's looks, each once.
+#[derive(Default)]
+struct Looks {
+    list: Vec<Look>,
+}
+
+impl Looks {
+    fn index(&mut self, look: Look) -> u16 {
+        match self.list.iter().position(|l| *l == look) {
+            Some(i) => i as u16,
+            None => {
+                self.list.push(look);
+                (self.list.len() - 1) as u16
+            }
+        }
+    }
+}
+
+/// How a cell is drawn, its colors resolved: inverse swaps them, invisible draws the text in the
+/// background's.
+fn look_of(cell: &libghostty_vt::render::CellIteration<'_, '_>, colors: &libghostty_vt::render::Colors) -> Look {
+    let mut fg = cell.fg_color().ok().flatten().map(hex_of);
+    let mut bg = cell.bg_color().ok().flatten().map(hex_of);
+    let mut look = Look::default();
+    if cell.has_styling().unwrap_or(false) {
+        if let Ok(style) = cell.style() {
+            if style.inverse {
+                let (f, b) = (fg.unwrap_or(hex_of(colors.foreground)), bg.unwrap_or(hex_of(colors.background)));
+                fg = Some(b);
+                bg = Some(f);
+            }
+            if style.invisible {
+                fg = Some(bg.unwrap_or(hex_of(colors.background)));
+            }
+            look.ul = match style.underline_color {
+                StyleColor::Rgb(c) => Some(hex_of(c)),
+                StyleColor::Palette(i) => colors.palette.get(usize::from(i.0)).copied().map(hex_of),
+                StyleColor::None => None,
+            };
+            let mut flags = 0;
+            for (on, flag) in [(style.bold, BOLD), (style.italic, ITALIC), (style.faint, FAINT), (style.blink, BLINK), (style.strikethrough, STRIKE), (style.overline, OVERLINE)] {
+                if on {
+                    flags |= flag;
+                }
+            }
+            let underline: u16 = match style.underline {
+                Underline::None => 0,
+                Underline::Single => 1,
+                Underline::Double => 2,
+                Underline::Curly => 3,
+                Underline::Dotted => 4,
+                Underline::Dashed => 5,
+                // A kind newer than this build knows: drawn as a plain underline.
+                _ => 1,
+            };
+            look.flags = flags | (underline << UNDERLINE_SHIFT);
+        }
+    }
+    if cell.is_selected().unwrap_or(false) {
+        look.flags |= SELECTED;
+    }
+    if cell.raw_cell().and_then(|c| c.has_hyperlink()).unwrap_or(false) {
+        look.flags |= LINK;
+    }
+    look.fg = fg;
+    look.bg = bg;
+    look
+}
+
+fn hex_of(c: RgbColor) -> u32 {
+    (u32::from(c.r) << 16) | (u32::from(c.g) << 8) | u32::from(c.b)
+}
+
+fn rgb_of(hex: u32) -> RgbColor {
+    RgbColor { r: (hex >> 16) as u8, g: (hex >> 8) as u8, b: hex as u8 }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{Arc, Mutex};
+
+    const SIZE: Size = Size { cols: 20, rows: 4, cell_width: 8, cell_height: 16 };
+
+    fn screen() -> (Screen, Arc<Mutex<Vec<u8>>>) {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let w = written.clone();
+        (Screen::new(SIZE, move |b| w.lock().unwrap().extend_from_slice(b)).unwrap(), written)
+    }
+
+    fn row_text(frame: &Frame, y: u16) -> String {
+        let Some(line) = frame.lines.iter().find(|l| l.y == y) else { return String::new() };
+        let mut s = String::new();
+        for run in &line.runs {
+            while s.chars().count() < usize::from(run.x) {
+                s.push(' ');
+            }
+            for c in &run.cells {
+                s.push_str(if c.is_empty() { "" } else { c });
+            }
+        }
+        s.trim_end().to_string()
+    }
+
+    #[test]
+    fn a_frame_has_the_rows_printed_and_then_only_the_ones_that_change() {
+        let (mut s, _) = screen();
+        s.feed(b"hello\r\nworld");
+        let first = s.frame("t", true).expect("a frame");
+        assert!(first.full);
+        assert_eq!(first.lines.len(), 4, "every row");
+        assert_eq!(row_text(&first, 0), "hello");
+        assert_eq!(row_text(&first, 1), "world");
+        assert_eq!(first.cursor.map(|c| (c.x, c.y)), Some((5, 1)));
+        assert!(s.frame("t", false).is_none(), "nothing changed");
+        s.feed(b"!");
+        let next = s.frame("t", false).expect("a change");
+        assert!(!next.full);
+        assert_eq!(next.lines.iter().map(|l| l.y).collect::<Vec<_>>(), vec![1], "only the row typed on");
+        assert_eq!(row_text(&next, 1), "world!");
+        assert_eq!(next.seq, first.seq + 1);
+    }
+
+    #[test]
+    fn colors_come_resolved_and_blank_cells_are_left_out() {
+        let (mut s, _) = screen();
+        s.theme(&Theme { fg: 0x111111, bg: 0xeeeeee, cursor: None, palette: vec![0x000000, 0xcc0000], dark: false });
+        // Red (palette 1) and bold, then a true color background, then reverse video.
+        s.feed(b"\x1b[1;31mred\x1b[0m  \x1b[48;2;1;2;3mbg\x1b[0m \x1b[7minv\x1b[0m");
+        let f = s.frame("t", true).unwrap();
+        assert_eq!((f.fg, f.bg), (0x111111, 0xeeeeee), "the theme's defaults");
+        let runs = &f.lines.iter().find(|l| l.y == 0).unwrap().runs;
+        let red = &runs[0];
+        assert_eq!(red.cells.join(""), "red");
+        assert_eq!(f.looks[usize::from(red.look)], Look { fg: Some(0xcc0000), bg: None, ul: None, flags: BOLD });
+        let bg = runs.iter().find(|r| r.cells.join("") == "bg").expect("the background run");
+        assert_eq!(bg.x, 5, "the blank cells between are left out");
+        assert_eq!(f.looks[usize::from(bg.look)].bg, Some(0x010203));
+        let inv = runs.iter().find(|r| r.cells.join("") == "inv").expect("the reverse run");
+        assert_eq!(f.looks[usize::from(inv.look)], Look { fg: Some(0xeeeeee), bg: Some(0x111111), ul: None, flags: 0 });
+    }
+
+    #[test]
+    fn a_wide_character_takes_two_cells_the_second_left_empty() {
+        let (mut s, _) = screen();
+        s.feed("a字b".as_bytes());
+        let f = s.frame("t", true).unwrap();
+        let run = &f.lines[0].runs[0];
+        assert_eq!(run.cells, vec!["a", "字", "", "b"]);
+    }
+
+    #[test]
+    fn keys_are_encoded_for_the_modes_the_program_set() {
+        let (mut s, _) = screen();
+        let press = |code: &str, text: Option<&str>| Input::Key { code: code.into(), text: text.map(String::from), mods: Mods4::default(), action: KeyAction::Press };
+        s.input(&press("KeyA", Some("a")));
+        s.input(&press("ArrowUp", None));
+        s.input(&Input::Key { code: "KeyC".into(), text: None, mods: Mods4 { ctrl: true, ..Default::default() }, action: KeyAction::Press });
+        assert_eq!(s.take_out(), b"a\x1b[A\x03");
+        // Application cursor keys, as an editor sets them.
+        s.feed(b"\x1b[?1h");
+        s.input(&press("ArrowUp", None));
+        assert_eq!(s.take_out(), b"\x1bOA");
+    }
+
+    #[test]
+    fn a_paste_is_bracketed_when_the_program_asks_and_refused_when_it_could_run_commands() {
+        let (mut s, written) = screen();
+        assert!(!s.paste("ls\nrm -rf x\n", false), "a line break could run it");
+        assert!(written.lock().unwrap().is_empty());
+        assert!(s.paste("ls\n", true), "unless allowed");
+        s.feed(b"\x1b[?2004h");
+        assert!(s.paste("two\nlines", false));
+        let out = String::from_utf8_lossy(&written.lock().unwrap()).into_owned();
+        assert!(out.contains("\x1b[200~two"), "bracketed: {out:?}");
+    }
+
+    #[test]
+    fn programs_asking_for_the_colors_are_told_the_theme() {
+        let (mut s, written) = screen();
+        s.theme(&Theme { fg: 0x102030, bg: 0xf0e0d0, cursor: None, palette: vec![], dark: true });
+        s.feed(b"\x1b]11;?\x1b\\");
+        s.feed(b"\x1b[?996n");
+        let out = String::from_utf8_lossy(&written.lock().unwrap()).into_owned();
+        assert!(out.contains("rgb:f0f0/e0e0/d0d0"), "the background: {out:?}");
+        assert!(out.contains("\x1b[?997;1n"), "dark: {out:?}");
+    }
+
+    #[test]
+    fn the_title_a_program_sets_is_noted() {
+        let (mut s, _) = screen();
+        s.feed(b"\x1b]2;building\x07");
+        assert!(s.take_noted().title);
+        assert_eq!(s.title(), "building");
+        s.feed(b"\x07");
+        assert!(s.take_noted().bell);
+    }
+
+    #[test]
+    fn a_drag_selects_and_copying_gives_its_text() {
+        let (mut s, _) = screen();
+        s.feed(b"one two three");
+        s.input(&Input::Mouse { action: MouseAction::Down, button: Some(MouseButton::Left), x: 33.0, y: 4.0, mods: Mods4::default() });
+        s.input(&Input::Mouse { action: MouseAction::Move, button: Some(MouseButton::Left), x: 60.0, y: 4.0, mods: Mods4::default() });
+        s.input(&Input::Mouse { action: MouseAction::Up, button: Some(MouseButton::Left), x: 60.0, y: 4.0, mods: Mods4::default() });
+        assert_eq!(s.selection_text().as_deref(), Some("two"));
+        let f = s.frame("t", true).unwrap();
+        let selected: String = f.lines[0].runs.iter().filter(|r| f.looks[usize::from(r.look)].flags & SELECTED != 0).flat_map(|r| r.cells.clone()).collect();
+        assert_eq!(selected, "two");
+        assert!(s.take_out().is_empty(), "nothing went to the program");
+    }
+
+    #[test]
+    fn the_text_has_the_scrollback() {
+        let (mut s, _) = screen();
+        for i in 0..10 {
+            s.feed(format!("line {i}\r\n").as_bytes());
+        }
+        let text = s.text();
+        assert!(text.contains("line 0") && text.contains("line 9"), "{text:?}");
+    }
+}

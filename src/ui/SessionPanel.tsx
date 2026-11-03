@@ -33,7 +33,8 @@ import { seenable } from '../lanes';
 import { CHORDS, chordSigns, doneTitle, type SessionActions } from '../menus';
 import { AWAY_CHORD, QUEUE_CHORDS, type QueueAction } from '../queue';
 import { SNOOZE_CHORDS } from '../snooze';
-import type { Sent, Session, TranscriptItem } from '../types';
+import type { Sent, Session, TerminalGlance, TranscriptItem } from '../types';
+import { TerminalDrawer } from './terminal/TerminalDrawer';
 import { cardZoom, scaleOf } from '../zoom';
 import { EditDialog } from './EditFrom';
 import { MoveDialog } from './MoveAccount';
@@ -105,6 +106,9 @@ export interface SessionPanelProps extends Omit<SessionHeaderProps, 'seenAbove' 
   /** A dialog the window holds for the session (Merge and done…, SessionCard.tsx), drawn with
    *  the panel, at a card's zoom, as Move's is. */
   dialog?: ReactNode;
+  /** Its terminals of Codealong's own (`Board.terminals`), in a drawer under the box: in the
+   *  main window's panel, for a session on this Mac. */
+  terminals?: TerminalGlance[];
 }
 
 /** What the strip says at its left: what the window said (how the one before went, or how
@@ -363,7 +367,7 @@ export function QueueStrip({ queue, notice, hotkeys, session, actions, onSeen, b
   );
 }
 
-export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, autoFocus, keys, onSending, onSent, onFailed, onAnswered, onDone, onLoaded, onThreadMenu, find, dialog, ...header }: SessionPanelProps) {
+export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, autoFocus, keys, onSending, onSent, onFailed, onAnswered, onDone, onLoaded, onThreadMenu, find, dialog, terminals, ...header }: SessionPanelProps) {
   const { lane, session: s, apps, now, onOpen, onMenu, device, renaming } = header;
   const terminal = apps.terminal;
   const openIt = () => onOpen(s.openTarget);
@@ -420,6 +424,18 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
             </p>
           ) : (
             <Reply session={s} terminal={terminal} runIn={folder ?? undefined} onOpen={openIt} autoFocus={autoFocus && !renaming} keys={keys} onSending={onSending} onSent={onSent} onFailed={onFailed} onAnswered={onAnswered} onNext={goesOn ? onDone : undefined} sayKeys={!!hotkeys} moves={moves} onMove={ask} />
+          )}
+          {variant === 'panel' && folder !== null && terminals && (
+            <TerminalDrawer
+              sessionKey={key}
+              folder={folder}
+              terminals={terminals}
+              onLeave={() => {
+                // ⌃` in a terminal hands the keyboard back to the box, as it took it from there.
+                const box = document.querySelector<HTMLTextAreaElement>(`[data-shows-session="${CSS.escape(key)}"] .ca-composer-field textarea`);
+                box?.focus();
+              }}
+            />
           )}
           {moves && moving?.key === key && <MoveDialog session={s} moves={moves} to={moving.to} terminal={terminal} onClose={() => setMoving(null)} />}
           {edit && editing?.key === key && <EditDialog session={s} prompt={editing.prompt} onEdit={edit} onClose={() => setEditing(null)} />}

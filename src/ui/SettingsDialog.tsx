@@ -313,6 +313,7 @@ function GeneralPane({ cfg, view, theme, onPickTheme, disabled, onSave, now }: P
   const searchDays = cfg.search?.days ?? MAX_SEARCH_DAYS;
   const closeCommandTabs = cfg.apps.close_command_tabs_after ?? CLOSE_COMMAND_TABS_AFTER;
   const tmuxUse = cfg.apps.tmux ?? 'when-locked';
+  const runIn = cfg.apps.run_in ?? 'codealong';
   const terminalName = view.terminals.find((t) => t.id === cfg.apps.terminal)?.name ?? 'your terminal';
   return (
     <>
@@ -388,6 +389,26 @@ function GeneralPane({ cfg, view, theme, onPickTheme, disabled, onSave, now }: P
             </small>
           </div>
         )}
+        <div className="ca-field">
+          <span>Terminals for a session</span>
+          <Seg
+            className="ca-settings-theme"
+            label="Terminals for a session"
+            options={[
+              { id: 'codealong' as const, label: 'Under the session' },
+              { id: 'terminal' as const, label: `In ${terminalName}` },
+            ]}
+            value={runIn}
+            onPick={(id) => id !== runIn && void onSave({ ...cfg, apps: { ...cfg.apps, run_in: id } })}
+          />
+          <small>
+            {keysIn(
+              runIn === 'codealong'
+                ? `A session’s new terminals (⌃\`), and the commands you run from it or allow its agent to, open in a drawer under its box, in Codealong. Its folder still opens in ${terminalName} from its menu.`
+                : `A session’s new terminals (⌃\`), and the commands you run from it or allow its agent to, open in tabs of ${terminalName}.`,
+            )}
+          </small>
+        </div>
         <div className="ca-field">
           <span>Close a command's tab once it ends</span>
           <Seg

@@ -149,8 +149,12 @@ pub struct Run {
     pub session_title: String,
     pub command: String,
     pub cwd: PathBuf,
-    /// The terminal app its tab opened in.
+    /// The terminal app its tab opened in, or `OWN` for a terminal of Codealong's own.
     pub terminal: String,
+    /// The terminal of Codealong's own it runs in (terminals.rs), where `[apps] run_in` keeps
+    /// runs in Codealong.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub own_terminal: Option<String>,
     pub asked_at: i64,
     pub allowed_at: i64,
     /// You ran it yourself for this session, with `!` in its box or Run on a block in its
@@ -158,6 +162,17 @@ pub struct Run {
     /// (`report_ended`). An agent's run has none: its agent waits on it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub reports: bool,
+}
+
+impl Run {
+    /// Where it runs, in words: "a Ghostty tab", or Codealong's own terminal under its session.
+    pub fn place(&self) -> String {
+        if self.own_terminal.is_some() {
+            "a terminal under the session, in Codealong".to_string()
+        } else {
+            format!("a {} tab", self.terminal)
+        }
+    }
 }
 
 /// Where a run stands.
@@ -275,7 +290,7 @@ pub fn allow(key: &str, id: &str, open: impl FnOnce(&Asked) -> Result<Run>) -> O
     let h = claim(id, Some(key))?;
     Some(match open(&h.asked) {
         Ok(run) => {
-            let said = format!("Opened a {} tab and ran it there. What it prints goes back to its agent.", run.terminal);
+            let said = format!("Opened {} and ran it there. What it prints goes back to its agent.", run.place());
             let _ = h.tx.send(Outcome::Started(run));
             Ok(said)
         }
@@ -379,22 +394,47 @@ pub fn start(asked: &Asked, apps: &AppNames, lanes: &[Lane], session_title: &str
         bail!("It would run in {}, which isn't there any more.", tilde(cwd));
     }
     prune(now_ms());
-    let run = Run {
+    let cfg = crate::config::current();
+    // In a terminal of Codealong's own under its session, unless config.toml keeps runs in your
+    // terminal app; a run for no session has no drawer to show in.
+    let own = apps.run_in == crate::config::RunIn::Codealong && !asked.ask.session.is_empty();
+    let mut run = Run {
         id: asked.id.clone(),
         session: asked.ask.session.clone(),
         session_title: session_title.to_string(),
         command: asked.ask.command.clone(),
         cwd: cwd.clone(),
-        terminal: crate::launch::terminal_name(&apps.terminal_id),
+        terminal: if own { OWN.to_string() } else { crate::launch::terminal_name(&apps.terminal_id) },
+        own_terminal: None,
         asked_at: asked.at,
         allowed_at: now_ms(),
         reports,
     };
     let d = dir(&run.id);
-    let cfg = crate::config::current();
     let minutes = cfg.as_ref().map_or(crate::config::CLOSE_COMMAND_TABS_AFTER, |c| c.apps.close_command_tabs_after);
     let use_tmux = cfg.as_ref().map_or(crate::config::TmuxUse::default(), |c| c.apps.tmux);
     write_folder(&d, &run, Duration::from_secs(u64::from(minutes) * 60)).with_context(|| format!("writing {}", d.display()))?;
+    if own {
+        // The wrapper is the terminal's process, as it's a tab's shell in your terminal app: the
+        // run's folder, what it printed and how it ended are kept the same way, and the terminal
+        // closes when the wrapper ends, as the tab would.
+        let env = vec![(ENV.to_string(), d.to_string_lossy().into_owned())];
+        let opened = crate::terminals::open(crate::terminals::Open { session: run.session.clone(), folder: cwd.clone(), command: Some(OWN_LINE.to_string()), shown: Some(run.command.clone()), env, close_on_exit: true, ..Default::default() });
+        match opened {
+            Ok(g) => {
+                run.own_terminal = Some(g.id);
+                std::fs::write(d.join(RECORD), serde_json::to_string_pretty(&run)?)?;
+            }
+            Err(e) => {
+                let _ = std::fs::remove_dir_all(&d);
+                bail!("{e}");
+            }
+        }
+        if reports {
+            to_report().push(run.id.clone());
+        }
+        return Ok(run);
+    }
     let near = crate::board::terminal_neighbours(lanes, cwd);
     let label = crate::board::tab_label(lanes, cwd, &format!("Run {}", one_line(&run.command, 60)));
     let place = crate::launch::Placement { new_terminal: apps.new_terminal, near: &near, behind: false, label: label.as_deref() };
@@ -423,6 +463,10 @@ const ENV: &str = "CODEALONG_RUN";
 /// run's until you take a shell in it (`close`). The leading space keeps it out of a history that
 /// skips such lines, as a session's launcher line is (launch.rs).
 const TYPED: &str = " exec sh \"$CODEALONG_RUN/run.sh\"\n";
+/// What a terminal of Codealong's own runs for a run, as its shell's command: the wrapper.
+const OWN_LINE: &str = "exec sh \"$CODEALONG_RUN/run.sh\"";
+/// A run's `terminal` when it runs in a terminal of Codealong's own.
+pub const OWN: &str = "Codealong";
 
 /// A run's folder, its wrapper closing the tab `closes_after` the command ends (zero: never).
 fn write_folder(d: &Path, run: &Run, closes_after: Duration) -> Result<()> {
@@ -1355,7 +1399,7 @@ mod tests {
     fn a_tab_that_opened_without_its_terminal_answering_still_has_its_run() {
         let scratch = crate::fixtures::scratch("terminal-late-tab");
         TEST_RUNS.with(|r| *r.borrow_mut() = Some(scratch.join("runs")));
-        let apps = AppNames { terminal_id: "ghostty".into(), new_terminal: crate::config::NewTerminal::Window, ..Default::default() };
+        let apps = AppNames { terminal_id: "ghostty".into(), new_terminal: crate::config::NewTerminal::Window, run_in: crate::config::RunIn::Terminal, ..Default::default() };
         let begin = |wrapper_started: bool| {
             let (id, at) = new_id();
             let asked = Asked { id, ask: Ask { session: "k".into(), command: "true".into(), cwd: scratch.to_path_buf() }, at };
@@ -1375,6 +1419,37 @@ mod tests {
         let (id, got) = begin(false);
         assert!(got.unwrap_err().to_string().contains("didn't answer within a minute"));
         assert!(!dir(&id).exists());
+        TEST_RUNS.with(|r| *r.borrow_mut() = None);
+    }
+
+    /// A run in a terminal of Codealong's own (`[apps] run_in`, its default): the wrapper is the
+    /// terminal's process, so the run's folder says how it ended and what it printed as a tab's
+    /// would, and closing the run hangs up the wrapper, which closes the terminal.
+    #[test]
+    fn a_run_in_codealongs_own_terminal_is_kept_as_a_tabs_is() {
+        let scratch = crate::fixtures::scratch("terminal-own-run");
+        TEST_RUNS.with(|r| *r.borrow_mut() = Some(scratch.join("runs")));
+        let (id, at) = new_id();
+        let asked = Asked { id, ask: Ask { session: "test:own:run".into(), command: "echo from-the-run; exit 4".into(), cwd: scratch.to_path_buf() }, at };
+        let run = start(&asked, &AppNames::default(), &[], "A test", false).expect("a run");
+        assert_eq!(run.terminal, OWN);
+        let own = run.own_terminal.clone().expect("its terminal");
+        assert!(crate::terminals::glances().get("test:own:run").is_some_and(|l| l.iter().any(|t| t.id == own && t.command.as_deref() == Some("echo from-the-run; exit 4"))), "listed under its session, as the command it runs");
+        let waited = Instant::now();
+        while !status(&run.id).is_ok_and(|s| s.state == State::Exited) && waited.elapsed() < Duration::from_secs(20) {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        let s = status(&run.id).unwrap();
+        assert_eq!((s.state, s.exit_code), (State::Exited, Some(4)));
+        let printed = output(&run.id, 20, 0, None).unwrap();
+        assert!(printed.lines.iter().any(|(_, l)| l.contains("from-the-run")), "{printed:?}");
+        assert!(run.place().contains("Codealong"));
+        close(&run.id).expect("closed");
+        let waited = Instant::now();
+        while crate::terminals::glances().get("test:own:run").is_some_and(|l| l.iter().any(|t| t.id == own)) && waited.elapsed() < Duration::from_secs(10) {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(!crate::terminals::glances().get("test:own:run").is_some_and(|l| l.iter().any(|t| t.id == own)), "its terminal closed with it");
         TEST_RUNS.with(|r| *r.borrow_mut() = None);
     }
 

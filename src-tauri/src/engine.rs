@@ -220,6 +220,9 @@ pub enum Msg {
     Hosted,
     /// A side conversation was asked, answered, ended, closed or forgotten (side.rs `glances`).
     Sides,
+    /// A terminal of Codealong's own opened, closed or changed in a way the board lists
+    /// (terminals.rs `glances`).
+    Terminals,
     /// A read of a folder's files came back after the scan that asked for it went on (held.rs).
     Landed,
     /// The servers listening in worktrees changed (previews.rs).
@@ -432,6 +435,11 @@ impl Handle {
     /// What the board lists of the side conversations may have changed (side.rs `init`).
     pub fn sides_changed(&self) {
         let _ = self.tx.send(Msg::Sides);
+    }
+
+    /// What the board lists of Codealong's own terminals may have changed (terminals.rs `init`).
+    pub fn terminals_changed(&self) {
+        let _ = self.tx.send(Msg::Terminals);
     }
 
     pub fn refresh_usage(&self) {
@@ -2441,7 +2449,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                     self.load_reviews();
                     self.dirty = true;
                 }
-                Ok(Msg::Hosted) | Ok(Msg::Read) | Ok(Msg::Sides) => self.dirty = true,
+                Ok(Msg::Hosted) | Ok(Msg::Read) | Ok(Msg::Sides) | Ok(Msg::Terminals) => self.dirty = true,
                 Ok(Msg::SetArchived(keys, archived, reply)) => {
                     let now = now_ms();
                     for key in &keys {
@@ -3860,6 +3868,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             editors: editors::installed(),
             diff_editor: editors::diff_editor(&self.cfg.apps.editor),
             new_terminal: self.cfg.apps.new_terminal,
+            run_in: self.cfg.apps.run_in,
         };
         let order: Vec<String> = self.cfg.projects.iter().map(|p| p.name.clone()).collect();
         let notices = self.notices();
@@ -3898,6 +3907,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         board.training = self.training.list(&self.cfg.accounts);
         board.mcp = self.mcp.list(&self.cfg.accounts);
         board.sides = sides;
+        board.terminals = crate::terminals::glances();
         board.github_polled = self.github.polled();
         board.github_current = self.github.current();
         board.when_limited = self.cfg.limits.when_hit;

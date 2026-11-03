@@ -21,7 +21,7 @@ use crate::calls::Ctx;
 use crate::engine::Handle;
 use crate::server::{self, Request, Status};
 use crate::util::words;
-use crate::{acp, actions, agentdone, api, autoreview, config, engine, helpers, ledger, limits, nudges, origins, os, peers, perf, reconnect, rerequest, reviewdone, schedules, search, send, side, store, terminal, util, views};
+use crate::{acp, actions, agentdone, api, autoreview, config, engine, helpers, ledger, limits, nudges, origins, os, peers, perf, reconnect, rerequest, reviewdone, schedules, search, send, side, store, terminal, terminals, util, views};
 
 /// What the engine was built from (build.rs): a hash of the Rust that goes into it, so two builds
 /// that differ only in their windows have the same.
@@ -223,6 +223,12 @@ pub fn start() -> Result<Ctx, String> {
             },
             move || engine.sides_changed(),
         );
+    }
+    // Codealong's own terminals: their screens for the windows showing them, the board again when
+    // what it lists of them changes.
+    {
+        let engine = engine.clone();
+        terminals::init(|frame| views::emit("terminal-frame", frame), move || engine.terminals_changed());
     }
     let ctx = Ctx { engine: engine.clone(), peers: peers.clone(), reviews };
     server::serve(bound, ctx.clone())?;

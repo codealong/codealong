@@ -93,7 +93,7 @@ export const TIPS: readonly Tip[] = [
   { id: 'desktop', places: BOARD, says: says`Drag a row out of the window to pin its card to the desktop, where it floats over every app.` },
   { id: 'pr-chip', places: BOARD, says: says`A click on a PR's chip shows the PR beside the list, with a way back to the row. A double-click opens it on GitHub.` },
   { id: 'side', places: ['session', 'waiting', 'working'], says: says`${code('/side')} and a question asks a throwaway copy of a Claude Code or Codex session. The session carries on and never hears of it.` },
-  { id: 'bang', places: ['session', 'waiting'], says: says`For a session on this Mac, a message that starts with ${code('!')} runs in a new tab of your terminal, as you. The session is told what it printed.` },
+  { id: 'bang', places: ['session', 'waiting'], says: says`For a session on this Mac, a message that starts with ${code('!')} runs in a terminal under the session, as you. The session is told what it printed.` },
   { id: 'slash', places: CONVERSATION, says: says`Type ${code('/')} in a session's box for Codealong's commands and the skills its agent can run.` },
   { id: 'find', places: CONVERSATION, says: says`${key('Cmd+F')} finds words anywhere in a session's conversation, from its first prompt on.` },
   { id: 'prompts', places: CONVERSATION, says: says`${key('Cmd+Shift+Up')} and ${key('Cmd+Shift+Down')} bring your previous or next prompt to the top of the conversation.` },
@@ -142,7 +142,7 @@ export const TIPS: readonly Tip[] = [
   { id: 'devices', places: BOARD, says: says`Link your other Macs in Settings › Devices, and their sessions show here beside yours.` },
   { id: 'zoom', places: BOARD, says: says`${key('Cmd+=')} and ${key('Cmd+-')} make the windows bigger or smaller, and ${key('Cmd+0')} puts them back.` },
   { id: 'agents', places: ['board', 'session'], says: says`Agents can run the ${code('codealong')} command to list todos, message other sessions and start work.` },
-  { id: 'terminal-run', places: ['board', 'session'], says: says`An agent can ask to run a command in your terminal, as you: a sign-in, say. Allow opens it in a new tab, and what it prints goes back.` },
+  { id: 'terminal-run', places: ['board', 'session'], says: says`An agent can ask to run a command in your terminal, as you: a sign-in, say. Allow runs it under the session, and what it prints goes back.` },
   { id: 'orchestrate', places: ['board', 'session', 'working'], says: says`${code('/codealong:orchestrate')} in a Claude Code session's box makes it your orchestrator: it watches the others on a loop and suggests replies.` },
 ];
 

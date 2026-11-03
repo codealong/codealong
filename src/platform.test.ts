@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { CHORDS, PR_CHORDS, SUGGESTION_CHORDS } from './menus';
 import { VIEW_CHORDS } from './mainKeys';
-import { capsSaid, chordKeys, chordPressed, chordSigns, cmd, contextPress, ctrl, emacsCtrl, held, keysIn, keysSaid, parseChord, platform, platformChord, setPlatform, writeChord } from './platform';
+import { appKeyInTerminal, capsSaid, chordKeys, chordPressed, chordSigns, cmd, contextPress, ctrl, emacsCtrl, held, keysIn, keysSaid, parseChord, platform, platformChord, setPlatform, terminalClipboard, writeChord } from './platform';
 import { AWAY_CHORD, QUEUE_CHORDS } from './queue';
 import { RELOAD_CHORD } from './reload';
 import { SNOOZE_CHORDS } from './snooze';
@@ -31,6 +31,27 @@ const APP_CHORDS = [
   ...['Shift+Cmd+N', 'Shift+Cmd+F', 'Shift+Cmd+A', 'Shift+Cmd+U', 'Shift+Cmd+Up', 'Shift+Cmd+Down'],
   ...['Shift+Tab', 'Shift+Enter', 'Shift+Up', 'Shift+Down', 'Shift+0', 'Shift+1', 'Shift+2'],
 ];
+
+describe('in a terminal', () => {
+  it('leaves ⌘ to the app on macOS and gives the program ⌃ and ⌥', () => {
+    setPlatform('mac');
+    expect(appKeyInTerminal(press('w', { meta: true }))).toBe(true);
+    expect(appKeyInTerminal(press('c', { ctrl: true }))).toBe(false);
+    expect(appKeyInTerminal(press('b', { alt: true }))).toBe(false);
+    expect(terminalClipboard(press('c', { meta: true }, 'KeyC'))).toBe('copy');
+    expect(terminalClipboard(press('v', { meta: true }, 'KeyV'))).toBe('paste');
+    expect(terminalClipboard(press('c', { ctrl: true }, 'KeyC'))).toBeNull();
+  });
+
+  it('gives the program Ctrl alone on Linux, and copies and pastes with Ctrl+Shift', () => {
+    setPlatform('linux');
+    expect(appKeyInTerminal(press('c', { ctrl: true }))).toBe(false);
+    expect(appKeyInTerminal(press('w', { ctrl: true, alt: true }))).toBe(true);
+    expect(terminalClipboard(press('C', { ctrl: true, shift: true }, 'KeyC'))).toBe('copy');
+    expect(terminalClipboard(press('V', { ctrl: true, shift: true }, 'KeyV'))).toBe('paste');
+    expect(terminalClipboard(press('c', { ctrl: true }, 'KeyC'))).toBeNull();
+  });
+});
 
 describe('on macOS', () => {
   it('is the platform where nothing says otherwise', () => {

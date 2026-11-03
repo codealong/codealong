@@ -348,10 +348,11 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
   const shownHere = !!inMain && !!s.hosted;
   const own = lane.targets.filter((t) => t.id.startsWith(`s|${s.key}|`) && !(shownHere && t.id === s.openTarget));
   // Under the ways to open the session, its folder: a new terminal there (⌃`, in every window that
-  // shows a session), and its worktree's in any editor installed here. A session past the few its
-  // worktree lists opens by its own target alone.
+  // shows a session, but where ⌃` is the session's own terminal under its box), and its worktree's
+  // in any editor installed here. A session past the few its worktree lists opens by its own
+  // target alone.
   const place: Target = { id: s.openTarget, icon: 'arrow-up-right', label: `Open in ${sessionPlace(s, apps.terminal)}`, detail: null, kbd: null, disabled: false, group: 'session' };
-  const terminal = { name: apps.terminal, key: s.key, folder: middleTruncate(tildePath(runFolder(lane, s)), 44), kbd: chordKeys(CHORDS.terminal ?? '') };
+  const terminal = { name: apps.terminal, key: s.key, folder: middleTruncate(tildePath(runFolder(lane, s)), 44), kbd: actions?.ownTerminal ? undefined : chordKeys(CHORDS.terminal ?? '') };
   const folder = opensInEditor(lane) ? folderTargets(apps, icons, terminal) : [];
   const targets = folder.length > 0 ? [...(own.length > 0 || shownHere ? own : [place]), ...folder] : own;
   // Your editor, which comes first of them, when it's shown where it lives.

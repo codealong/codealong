@@ -1,0 +1,236 @@
+/* A session's terminals of Codealong's own (TerminalDrawer.tsx, TerminalView.tsx): the drawer
+   under the box, its tabs, and a terminal's screen, a canvas the size of whole cells. */
+
+/* Under the box, set apart from it, as tall as it was left; folded, its tabs alone. */
+.ca-termdrawer {
+  position: relative;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-top: 1px solid var(--line);
+  background: var(--surface-sunken);
+}
+.ca-termdrawer.is-open {
+  min-height: 96px;
+}
+
+/* The drawer's top edge, dragged to make it taller or shorter. */
+.ca-termdrawer-grip {
+  position: absolute;
+  top: -3px;
+  right: 0;
+  left: 0;
+  z-index: 1;
+  height: 6px;
+  cursor: row-resize;
+}
+
+.ca-termdrawer-tabs {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: var(--space-1) var(--space-2);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.ca-termdrawer-gap {
+  flex: 1;
+}
+
+.ca-termtab {
+  flex: none;
+  display: flex;
+  align-items: center;
+  max-width: 240px;
+  border-radius: var(--radius-sm);
+  color: var(--ink-2);
+}
+.ca-termtab:hover {
+  background: var(--surface-hover);
+}
+.ca-termtab.is-active {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.ca-termtab.is-ended {
+  color: var(--ink-3);
+}
+
+.ca-termtab-name {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 3px 4px 3px 8px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: var(--type-code-caption);
+  cursor: pointer;
+}
+.ca-termtab-name .ca-icon {
+  flex: none;
+}
+.ca-termtab-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ca-termtab-state {
+  flex: none;
+  color: var(--ink-3);
+}
+.ca-termtab-state.is-busy {
+  color: var(--unread);
+}
+.ca-termtab-state.is-failed {
+  color: var(--alert);
+}
+
+.ca-termtab-close,
+.ca-termdrawer-act {
+  appearance: none;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.ca-termtab-close {
+  visibility: hidden;
+}
+.ca-termtab:hover .ca-termtab-close,
+.ca-termtab.is-active .ca-termtab-close {
+  visibility: visible;
+}
+.ca-termtab-close:hover,
+.ca-termdrawer-act:hover {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+
+/* One terminal: the screen fills what's left of the drawer, and the field that holds the
+   keyboard sits unseen over its corner. */
+.ca-term {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--term-bg);
+}
+.ca-term-screen {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  margin: var(--space-1) var(--space-2) var(--space-2);
+  overflow: hidden;
+  font: var(--type-terminal);
+}
+.ca-term-canvas {
+  display: block;
+}
+.ca-term-field {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  resize: none;
+  outline: none;
+  caret-color: transparent;
+}
+
+/* Asked before text with line breaks is pasted where they'd run it. */
+.ca-term-ask {
+  position: absolute;
+  right: var(--space-2);
+  bottom: var(--space-2);
+  left: var(--space-2);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  color: var(--ink);
+  font: var(--type-body);
+  box-shadow: var(--shadow-popover);
+}
+.ca-term-ask > span {
+  flex: 1;
+}
+
+.ca-term-failed {
+  margin: 0;
+  padding: var(--space-1) var(--space-3);
+  color: var(--alert);
+  font: var(--type-meta);
+}
+
+/* Where a terminal popped out into a window of its own was: what it is, and the ways to it. */
+.ca-term-away {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  color: var(--ink-3);
+  font: var(--type-meta);
+}
+
+/* A terminal in a window of its own (TerminalWindow.tsx): a card filling the window but for the
+   room its shadow takes, its strip dragging the window. */
+.ca-termwin {
+  position: fixed;
+  inset: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  background: var(--surface-sunken);
+  box-shadow: var(--shadow-peek);
+}
+.ca-termwin-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: var(--space-1) var(--space-2) var(--space-1) var(--space-3);
+  color: var(--ink-2);
+  cursor: default;
+}
+.ca-termwin-name {
+  flex: none;
+  max-width: 50%;
+  overflow: hidden;
+  color: var(--ink);
+  font: var(--type-code-caption);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ca-termwin-session {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-3);
+  font: var(--type-meta);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -1,7 +1,9 @@
 // Checks ⌃`, a new terminal in the folder of what a window shows (menus.ts `CHORDS.terminal`,
-// mainKeys.ts, SessionCard.tsx): in Sessions from the session's box, a new terminal in the
-// session's folder (`s|<key>|terminal`), shown beside that item in its header's Open menu and its
-// right-click menu; grouped by worktree, on a worktree's heading, one in the worktree
+// mainKeys.ts, SessionCard.tsx): in Sessions from the session's box, a terminal of Codealong's own
+// under the session (terminals.ts), with ⌃` beside its New terminal in the right-click menu and not
+// beside the terminal app in its header's Open menu; or, where `[apps] run_in` keeps them in the
+// terminal app, a new terminal in the session's folder (`s|<key>|terminal`), shown beside that
+// item in both menus; grouped by worktree, on a worktree's heading, one in the worktree
 // (`l|terminal`); in Todo from a todo's title, one in the todo's worktree; and in the peek from
 // its box, in the session's folder.
 //   PREVIEW_WAIT=60000 PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh sessions '' scripts/preview/terminal-key-check.js
@@ -31,7 +33,12 @@
     localStorage.removeItem('codealong.sessionPanelMax');
   }
 
+  // In the main window a session's ⌃` opens a terminal of Codealong's own under it, unless
+  // config.toml keeps them in the terminal app (`[apps] run_in`); a worktree's and a todo's, and
+  // the peek's, open the terminal app.
+  var own = !peek && board.apps.runIn !== 'terminal';
   var opens = function () { return calls(peek ? 'open_from_bar' : 'open_target').map(function (c) { return c[1]; }); };
+  var ownOpens = function () { return sent('terminal_open'); };
   var lastOpen = function () { var o = opens(); return o[o.length - 1] || null; };
   var ctrlTick = function (el, over) { key(el || document.body, Object.assign({ key: '`', code: 'Backquote', ctrlKey: true }, over)); };
   var opened = function (n, what) { return until(function () { return opens().length > n; }, 3000, what).then(lastOpen); };
@@ -52,8 +59,17 @@
     })
     .then(function () { return wait(300); })
     .then(function () {
-      var n = opens().length;
       box().focus();
+      if (own) {
+        var m = ownOpens().length;
+        ctrlTick(box());
+        return until(function () { return ownOpens().length > m; }, 3000, '⌃` from the box').then(function () {
+          var o = ownOpens()[ownOpens().length - 1];
+          check('⌃` from the box opens a terminal under the session, in its folder', o.key === picked.key && !!o.folder, JSON.stringify(o));
+          check('and types nothing into the box', box().value.indexOf('`') < 0, box().value);
+        });
+      }
+      var n = opens().length;
       ctrlTick(box());
       return opened(n, '⌃` from the box').then(function (o) {
         check('⌃` from the box opens a terminal in the session’s folder', o && o.targetId === terminalTarget && o.laneId === pickedLane.id, JSON.stringify(o));
@@ -62,9 +78,10 @@
     })
     .then(function () {
       var n = opens().length;
+      var m = ownOpens().length;
       ctrlTick(box(), { shiftKey: true });
       ctrlTick(box(), { ctrlKey: false, metaKey: true });
-      return wait(300).then(function () { check('⌃⇧` and ⌘` don’t', opens().length === n, JSON.stringify(opens().slice(n))); });
+      return wait(300).then(function () { check('⌃⇧` and ⌘` don’t', opens().length === n && ownOpens().length === m, JSON.stringify(opens().slice(n))); });
     })
     .then(function () {
       // The header's Open menu says the key beside the terminal.
@@ -75,7 +92,8 @@
       return wait(150).then(function () {
         var item = all(root + ' .ca-openin .ca-menu-item').filter(function (e) { return e.textContent.indexOf('Open folder in ' + board.apps.terminal) >= 0; })[0];
         var keys = item ? all('.ca-kbd', item).map(function (k) { return k.textContent; }).join('') : '';
-        check('the header’s Open menu says ⌃` beside the terminal', keys === '⌃`', item ? item.textContent : 'no terminal item');
+        if (own) check('the header’s Open menu still opens the folder in the terminal app, ⌃` being the session’s own terminal', !!item && keys === '', item ? item.textContent : 'no terminal item');
+        else check('the header’s Open menu says ⌃` beside the terminal', keys === '⌃`', item ? item.textContent : 'no terminal item');
         caret.click();
       });
     })
@@ -85,6 +103,11 @@
       return wait(200).then(function () {
         var m = calls('plugin:menu|new').pop();
         var items = m ? m[1].options.items : [];
+        if (own) {
+          var term = items.filter(function (i) { return /^(New|Show) terminal$/.test(i.text || ''); })[0];
+          check('the session’s menu has its terminal, with ⌃`', term && term.accelerator === 'Ctrl+`', JSON.stringify(items.map(function (i) { return i.text; })));
+          return;
+        }
         var folder = items.filter(function (i) { return /^Open folder in/.test(i.text || ''); })[0];
         var first = folder && folder.items ? folder.items[0] : folder;
         check('the session’s menu has ⌃` beside the folder’s terminal', first && first.accelerator === 'Ctrl+`', JSON.stringify(first && { text: first.text, accelerator: first.accelerator }));

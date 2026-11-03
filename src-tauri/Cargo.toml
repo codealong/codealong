@@ -62,6 +62,11 @@ data-encoding = "2"
 png = "0.18"
 # Link codes as QR codes, for the phone app to scan (Settings › Devices).
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+# Codealong's own terminals (terminals.rs): Ghostty's terminal emulator, libghostty-vt, which its
+# build compiles from Ghostty's source with Zig (docs/development.md says which). Pinned to a
+# revision: the library is before 1.0, and a newer one is taken on purpose, with terminals.rs's
+# tests run against it.
+libghostty-vt = { git = "https://github.com/Uzaaft/libghostty-rs", rev = "575ed6b8ceb79ffaf247ecf7e34333876b0d5be4" }
 
 # The floating bar, the quick panel and the focus outline (flash.rs): panels, window occlusion, placement and Spaces, which
 # Tauri doesn't expose; and the sounds for what comes to wait on you (sounds.rs).

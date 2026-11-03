@@ -387,6 +387,8 @@ window.__TAURI_INTERNALS__ = {
         // Once a check keeps side conversations here (`window.__sides`, `window.__past`), the
         // board lists those, as the engine lists what it keeps (side.rs `glances`).
         if (window.__sides || window.__past) board.sides = sideGlances();
+        // Terminals of Codealong's own a check opened (`terminal_open`), as terminals.rs lists them.
+        if (window.__terminals) board.terminals = window.__terminals;
         if (all[3]) board.jev = Object.assign({ model: 'jev-latest', quick_panel: false, sessions: false, todos: false, pull_requests: false }, board.jev, { quick_panel: true });
         return all[2] ? withUsage(board, all[2]) : board;
       });
@@ -849,6 +851,77 @@ window.__TAURI_INTERNALS__ = {
     // A session Codealong runs: the reply it's writing, which a check can set.
     if (cmd === 'session_stream') return Promise.resolve(window.__stream || null);
     if (cmd === 'session_cancel') return Promise.resolve('Stopped it (in the preview nothing is pressed anywhere).');
+    // Terminals of Codealong's own (terminals.rs): one opens with a sample screen (a prompt,
+    // colors, a table drawn with box characters, a wide character), a window showing it is sent
+    // it whole, and what's typed is echoed on the prompt's line, as a shell would.
+    if (cmd === 'terminal_open') return Promise.resolve(fakeTerminalOpen(args || {}));
+    if (cmd === 'terminal_watch') {
+      if ((args || {}).on) setTimeout(function () { fakeTerminalFrame((args || {}).id, true); }, 0);
+      return Promise.resolve(null);
+    }
+    if (cmd === 'terminal_input') {
+      var term = fakeTerms[(args || {}).id];
+      if (term) {
+        ((args || {}).inputs || []).forEach(function (i) {
+          if (i.kind === 'key' && i.action !== 'release' && i.text) term.typed += i.text;
+          if (i.kind === 'key' && i.action !== 'release' && i.code === 'Backspace') term.typed = term.typed.slice(0, -1);
+          if (i.kind === 'text') term.typed += i.text;
+        });
+        setTimeout(function () { fakeTerminalFrame(term.id, false); }, 0);
+      }
+      return Promise.resolve(null);
+    }
+    if (cmd === 'terminal_paste') {
+      var pasted = fakeTerms[(args || {}).id];
+      if (pasted && ((args || {}).force || !/\n/.test((args || {}).text))) {
+        pasted.typed += (args || {}).text;
+        setTimeout(function () { fakeTerminalFrame(pasted.id, false); }, 0);
+        return Promise.resolve(true);
+      }
+      return Promise.resolve(!pasted);
+    }
+    if (cmd === 'terminal_copy') return Promise.resolve('npm test');
+    // Popping one out into a window of its own (kept.rs `pop_terminal`), and putting it back.
+    if (cmd === 'terminal_window') {
+      window.__poppedTerminals = (window.__poppedTerminals || []).filter(function (id) { return id !== (args || {}).id; }).concat([(args || {}).id]);
+      setTimeout(function () { window.__emit('terminal-windows', window.__poppedTerminals.slice()); }, 0);
+      return Promise.resolve(null);
+    }
+    if (cmd === 'terminal_put_back') {
+      window.__poppedTerminals = (window.__poppedTerminals || []).filter(function (id) { return id !== (args || {}).id; });
+      setTimeout(function () { window.__emit('terminal-windows', window.__poppedTerminals.slice()); }, 0);
+      return Promise.resolve(null);
+    }
+    if (cmd === 'terminal_windows') return Promise.resolve((window.__poppedTerminals || []).slice());
+    // The terminal view's window: the board's first session, with a terminal opened for it.
+    if (cmd === 'kept_session' && window.__CODEALONG_TERMINAL__) return previewTerminalWindow().then(function (t) { return t.session; });
+    if (cmd === 'kept_terminal') return previewTerminalWindow().then(function (t) { return t.id; });
+    if (cmd === 'terminal_theme') {
+      var themed = fakeTerms[(args || {}).id];
+      if (themed) {
+        themed.theme = args.theme;
+        setTimeout(function () { fakeTerminalFrame(themed.id, true); }, 0);
+      }
+      return Promise.resolve(null);
+    }
+    if (cmd === 'terminal_resize') {
+      var sized = fakeTerms[(args || {}).id];
+      if (sized && args.size) {
+        sized.cols = args.size.cols;
+        sized.rows = args.size.rows;
+        setTimeout(function () { fakeTerminalFrame(sized.id, true); }, 0);
+      }
+      return Promise.resolve(null);
+    }
+    if (cmd === 'terminal_close') {
+      var gone = (args || {}).id;
+      delete fakeTerms[gone];
+      Object.keys(window.__terminals || {}).forEach(function (key) {
+        window.__terminals[key] = window.__terminals[key].filter(function (t) { return t.id !== gone; });
+        if (!window.__terminals[key].length) delete window.__terminals[key];
+      });
+      return window.__pushSides().then(function () { return null; });
+    }
     // Side conversations: a question is kept and its answer never comes by itself; a check
     // writes it with `window.__emit('side', {id, key, turns, running, ended})`, or sets
     // `window.__sides[key]` for a window that opens on one. Closing one keeps its turns in
@@ -1137,6 +1210,82 @@ function sideGlances() {
   });
   Object.keys(by).forEach(function (key) { by[key].sort(function (a, b) { return b.startedAt - a.startedAt; }); });
   return by;
+}
+// The preview's terminals by id: their size, what's been typed on the prompt, and frame count.
+var fakeTerms = {};
+var fakeTermCount = 0;
+// The terminal the `terminal` view's window shows: one opened for the board's first session.
+var previewTerminal = null;
+function previewTerminalWindow() {
+  if (!previewTerminal) {
+    previewTerminal = fetch('./board.json')
+      .then(function (r) { return r.json(); })
+      .then(function (b) {
+        var first = b.lanes.flatMap(function (l) { return l.sessions; })[0];
+        return fakeTerminalOpen({ key: first ? first.key : 'preview', folder: '/Users/me/projects/northwind-app', size: { cols: 88, rows: 24 } });
+      });
+  }
+  return previewTerminal;
+}
+function fakeTerminalOpen(args) {
+  var id = 'term-preview-' + ++fakeTermCount;
+  var size = args.size || { cols: 100, rows: 14 };
+  fakeTerms[id] = { id: id, cols: size.cols, rows: size.rows, typed: '', seq: 0, command: args.command || null };
+  var glance = { id: id, session: args.key, title: '', shell: 'zsh', folder: args.folder || '/Users/me/projects/northwind-app', startedAt: Date.now(), running: true };
+  if (args.command) glance.command = args.command;
+  window.__terminals = window.__terminals || {};
+  window.__terminals[args.key] = (window.__terminals[args.key] || []).concat([glance]);
+  setTimeout(function () { window.__pushSides(); }, 0);
+  return glance;
+}
+// One run of cells drawn alike, from column x: one string a cell, '' after a wide one.
+function fakeRun(x, look, text) {
+  var cells = [];
+  Array.from(text).forEach(function (ch) {
+    cells.push(ch);
+    if (/[　-鿿＀-￯]/.test(ch)) cells.push('');
+  });
+  return { x: x, l: look, c: cells };
+}
+function fakeTerminalFrame(id, full) {
+  var t = fakeTerms[id];
+  if (!t) return;
+  // Colors as the server resolves them, from the window's theme (`terminal_theme`).
+  var theme = t.theme || { fg: 0x1c211f, bg: 0xfbfbfa, palette: [0, 0xb3261e, 0x1b7f3b, 0, 0x1f55c7, 0, 0, 0, 0x6b726e] };
+  var pal = function (i) { return (theme.palette || [])[i]; };
+  var looks = [{}, { f: pal(2), a: 1 }, { f: pal(4) }, { f: pal(1), a: 1 }, { f: pal(8) }];
+  var rows = [
+    [fakeRun(0, 1, '~/northwind-app'), fakeRun(16, 2, 'main'), fakeRun(21, 0, '$ npm test')],
+    [fakeRun(0, 0, '> northwind-app@2.4.0 test'), fakeRun(27, 4, '(vitest run)')],
+    [fakeRun(0, 0, '┌──────────┬────────┬──────┐')],
+    [fakeRun(0, 0, '│ suite    │ passed │ time │')],
+    [fakeRun(0, 0, '├──────────┼────────┼──────┤')],
+    [fakeRun(0, 0, '│ auth     │ '), fakeRun(13, 1, '12'), fakeRun(15, 0, '     │ 1.2s │')],
+    [fakeRun(0, 0, '│ checkout │ '), fakeRun(13, 3, '7/8'), fakeRun(16, 0, '    │ 3.4s │')],
+    [fakeRun(0, 0, '└──────────┴────────┴──────┘')],
+    [fakeRun(0, 3, 'FAIL'), fakeRun(5, 0, 'checkout › applies the 割引 code')],
+    [fakeRun(0, 1, '~/northwind-app'), fakeRun(16, 2, 'main'), fakeRun(21, 0, '$ ' + t.typed)],
+  ].slice(0, t.rows);
+  var last = rows.length - 1;
+  t.seq += 1;
+  var frame = {
+    id: id,
+    seq: t.seq,
+    cols: t.cols,
+    rows: t.rows,
+    full: full,
+    lines: rows.map(function (runs, y) { return { y: y, runs: runs }; }).filter(function (l) { return full || l.y === last; }),
+    looks: looks,
+    cursor: { x: 23 + Array.from(t.typed).length, y: last, shape: 'block', blink: false, password: false },
+    fg: theme.fg,
+    bg: theme.bg,
+    scroll: { total: t.rows, offset: 0, len: t.rows },
+    mouse: false,
+  };
+  if (full) {
+    for (var y = rows.length; y < t.rows; y++) frame.lines.push({ y: y, runs: [] });
+  }
+  window.__emit('terminal-frame', frame);
 }
 // The board again, as the engine makes it when what it lists of the side conversations changes:
 // a check calls it after telling of an answer (`window.__emit('side', …)`) that ends one.

@@ -406,7 +406,7 @@ pub fn server_environment() -> Vec<(String, String)> {
 
 /// A variable that belongs to the session or terminal it was set in: an agent's (its session's ID,
 /// its message socket), Codealong's own but those carried on purpose, tmux's.
-fn of_a_session(name: &str) -> bool {
+pub(crate) fn of_a_session(name: &str) -> bool {
     const PREFIXES: [&str; 8] = ["CLAUDE", "CODEX", "OPENCODE", "CURSOR", "ANTIGRAVITY", "AGY_", "TMUX", "CODEALONG_"];
     PREFIXES.iter().any(|p| name.starts_with(p)) && !CARRIED.contains(&name)
 }

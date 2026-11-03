@@ -142,6 +142,10 @@ export interface SessionCan {
   editors?: Editors;
   /** New session here…, when it's more than the quick panel on the worktree. */
   newSession?: () => void;
+  /** A terminal of Codealong's own under the session (terminals.ts `showTerminal`), where the
+   *  window shows one and `[apps] run_in` keeps them in Codealong: it takes ⌃` from Open in your
+   *  terminal app, which stays in the folder's menu. `has` says it has one already. */
+  ownTerminal?: { run: () => void; has: boolean };
   /** Add to todo and Remove from todo, where the todos are (the main window). */
   todos?: MenuSpec;
   /** Asks for a new name, where this window asks (a sheet, the peek, the waiting window). */
@@ -206,9 +210,12 @@ export interface SessionActions {
   /** A session on this Mac that isn't running: each place its account's sessions go on in, on
    *  the account's own model (its box picks another). */
   resume?: MenuGroup;
-  /** A new terminal in its folder, on this Mac (⌃`): the menu has it as the first of `folder`. */
+  /** A new terminal in its folder, on this Mac (⌃`): `ownTerminal` where the session has terminals
+   *  of Codealong's own, else the terminal app's, which the menu has as the first of `folder`. */
   terminal?: MenuAction;
   folder?: MenuAction | MenuGroup;
+  /** Its terminal of Codealong's own, in the drawer under it: shown, or a new one (⌃`). */
+  ownTerminal?: MenuAction;
   pr?: MenuAction;
   chrome?: MenuAction;
   reveal?: MenuAction;
@@ -373,12 +380,14 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
     else if (r.noted || noted) report.info(message);
   };
   const merges = can.mergeDone && mergesWith(can.mergeDone.prs, s);
+  const ownTerminal = can.ownTerminal && { label: can.ownTerminal.has ? 'Show terminal' : 'New terminal', run: can.ownTerminal.run };
   return {
     // One on another device opens on its own Mac (peerfeed.rs `shareable`): Show in Codealong reads it.
     open: s.openTarget ? { label: openLabel(lane, s, can.terminal), run: () => can.open(lane, s.openTarget) } : undefined,
     resume: resumeTo.length > 1 ? { label: cutOff ? 'Carry on in' : 'Resume in', items: resumeTo.map((to) => ({ label: to.label, run: () => void resume(to) })) } : undefined,
-    terminal: opensInEditor(lane) ? { label: `Open folder in ${can.terminal}`, run: () => can.open(lane, terminalTarget(s.key)) } : undefined,
-    folder: can.editors && opensInEditor(lane) ? item(folderMenu(can.editors.apps, can.editors.icons, (id) => can.open(lane, id), { name: can.terminal, key: s.key, accelerator: can.keys ? CHORDS.terminal : undefined })) : undefined,
+    terminal: ownTerminal ?? (opensInEditor(lane) ? { label: `Open folder in ${can.terminal}`, run: () => can.open(lane, terminalTarget(s.key)) } : undefined),
+    folder: can.editors && opensInEditor(lane) ? item(folderMenu(can.editors.apps, can.editors.icons, (id) => can.open(lane, id), { name: can.terminal, key: s.key, accelerator: can.keys && !ownTerminal ? CHORDS.terminal : undefined })) : undefined,
+    ownTerminal,
     pr: prItem(lane, report),
     // Its tab in Chrome, in whichever profile's window has it; Chrome here, so not for a session
     // on another device.
@@ -544,7 +553,7 @@ export function folderMoves(from: Lane, worktrees: Lane[], run: (to: Lane) => vo
  *  copying it. */
 const SESSION_MENU = [
   ['heading'],
-  ['open', 'resume', 'folder', 'pr', 'chrome', 'reveal', 'reply', 'newSession', 'fork', 'move', 'moveFolder'],
+  ['open', 'resume', 'folder', 'ownTerminal', 'pr', 'chrome', 'reveal', 'reply', 'newSession', 'fork', 'move', 'moveFolder'],
   ['todos', 'boards'],
   ['stop', 'rename', 'seen', 'unread', 'pin', 'desktop', 'raise', 'snooze', 'quiet', 'own', 'close', 'done', 'mergeDone', 'archive'],
   ['copyId', 'copyResume'],
@@ -1059,10 +1068,10 @@ export function repoMenu(repo: { name: string; slug: string | null }, can: RepoC
 
 /** ⌃` opens a new terminal in the folder of what a window shows, as it opens VS Code's terminal:
  *  the same chord in every view, from a text field too. */
-const TERMINAL_CHORD = 'Ctrl+`';
+export const TERMINAL_CHORD = 'Ctrl+`';
 /** The main window's keys for actions, shown beside them in its menus: a letter, or the terminal's
  *  chord, which is the same everywhere. */
-export const KEYS: Partial<Record<keyof SessionActions | keyof LaneActions, string>> = { seen: 'E', unread: 'U', pin: 'P', archive: 'A', rename: 'R', terminal: TERMINAL_CHORD };
+export const KEYS: Partial<Record<keyof SessionActions | keyof LaneActions, string>> = { seen: 'E', unread: 'U', pin: 'P', archive: 'A', rename: 'R', terminal: TERMINAL_CHORD, ownTerminal: TERMINAL_CHORD };
 /** The same actions' chords, which work in every view and from Sessions' box, where letters alone
  *  do nothing: ⌘E marks seen (and goes on, where a window works through what waits on you: it's
  *  the queue's key, queue.ts), ⇧⌘E marks done, beside it, ⇧⌘M asks to merge the PR and mark it
@@ -1070,7 +1079,7 @@ export const KEYS: Partial<Record<keyof SessionActions | keyof LaneActions, stri
  *  and the letter runs the rest. Closing a session's terminal,
  *  marking it done, which closes it too, and merging have a chord and no letter of their own:
  *  they're not ones to press by mistake. */
-export const CHORDS: typeof KEYS = { seen: QUEUE_CHORDS.seen[0], done: 'Shift+Cmd+E', mergeDone: 'Shift+Cmd+M', unread: 'Ctrl+Cmd+U', pin: 'Ctrl+Cmd+P', raise: 'Ctrl+Cmd+0', archive: 'Ctrl+Cmd+A', rename: 'Ctrl+Cmd+R', close: 'Ctrl+Cmd+W', terminal: TERMINAL_CHORD };
+export const CHORDS: typeof KEYS = { seen: QUEUE_CHORDS.seen[0], done: 'Shift+Cmd+E', mergeDone: 'Shift+Cmd+M', unread: 'Ctrl+Cmd+U', pin: 'Ctrl+Cmd+P', raise: 'Ctrl+Cmd+0', archive: 'Ctrl+Cmd+A', rename: 'Ctrl+Cmd+R', close: 'Ctrl+Cmd+W', terminal: TERMINAL_CHORD, ownTerminal: TERMINAL_CHORD };
 /** The keys that send the replies suggested for a session (SuggestedReplies.tsx), the first to
  *  the sixth, as the quick panel's ⌘1 to ⌘9 do its rows: from the session's box or the list of
  *  them, and from anywhere in a window whose keyboard works through what waits on you (the notch,

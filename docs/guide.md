@@ -2674,14 +2674,46 @@ on you shows by itself. Brought up again while it's open, it stays
 where you were; closed and brought up again, it starts on the longest wait. Where it was is kept for
 the next launch.
 
+### Terminals under a session
+
+A session on this Mac can have terminals of Codealong's own, in a drawer under its box in the
+main window: ⌃` (or New terminal in the session's menu) opens one in the folder the session works
+in, with the keyboard, and from the box again shows the drawer; ⌃` in a terminal gives the box the
+keyboard back. Each is a tab along the drawer's top, named by the title its program sets, else the
+program running in it (`vim`, `npm`), else its shell; + opens another, × closes one (ending what
+runs in it), and the chevron folds the drawer to its tabs. A tab says how a command ended, red
+when it failed. Drag the drawer's top edge to make it taller; it stays that tall for every session.
+The terminal is a real one: your login shell, with your profile, aliases and sign-ins, full-screen
+programs, colors, the mouse where a program asks for it (Shift selects anyway), and Ghostty's own
+emulator underneath, so what runs in Ghostty runs here. Drag to select, double-click a word,
+triple-click a line; ⌘C copies the selection, ⌘V pastes (a paste with line breaks into a shell
+that would run each line asks first), ⌘A selects everything, and ⌘-click opens a web address.
+A right-click has Copy, Select all and Copy all text, which copies its scrollback too. ⌘ keys stay
+Codealong's; ⌃ and ⌥ go to the program. On Linux copy and paste are Ctrl+Shift+C and V, and Ctrl
+alone goes to the program.
+
+The picture-in-picture button beside the chevron pops the terminal shown out into a window of its
+own, beside the main window, floating over every window as a kept session does; the drawer then
+says where it is, with a way to show its window or put it back. The window's strip drags it and
+has the same ways back. Terminals are drawn in Codealong's colors, light or dark as the app is,
+and programs that ask for the colors are told them.
+
+A terminal belongs to its session: marking the session done or archiving it closes its
+terminals. They run in Codealong's server, so they carry on while the app relaunches or is
+closed, and an open window picks them up as they were; a server that restarts (an update that
+changes the engine, Restart server) ends them. To keep using your terminal app for all of this,
+set `run_in = "terminal"` in config.toml's `[apps]`: ⌃` then opens the session's folder in your
+terminal app as before, and the commands below run in its tabs.
+
 ### Commands in your terminal
 
 An agent can ask to run a command in a terminal of yours, as you (`codealong terminal run`): a
 sign-in that opens a browser or asks for a password (`gcloud auth login`, `aws sso login`), a
 command that needs your identity rather than the agent's, a dev server you should see. Its session
 waits on you for it, wherever that shows (its panel, the notch, Waiting on you, the bar), under
-"Wants to run in your terminal", with the exact command and where it would run. Allow opens a new
-tab of your terminal beside the session's, in that folder, and runs it there in your login shell
+"Wants to run in your terminal", with the exact command and where it would run. Allow runs it in
+a terminal under the session (*Terminals under a session*; or, with `run_in = "terminal"`, a new
+tab of your terminal beside the session's), in that folder, in your login shell
 (zsh or bash, interactive, with your aliases and your sign-ins, outside any sandbox): you can watch
 it, type into it (a password prompt, a browser sign-in) and stop it with Ctrl-C. Once it ends the
 tab says how, and Return there gives you a shell in it; otherwise the tab closes by itself 10

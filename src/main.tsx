@@ -10,6 +10,7 @@ import { DesktopPin } from './ui/DesktopPin';
 import { Peek } from './ui/Peek';
 import { Quick } from './ui/Quick';
 import { Waiting } from './ui/Waiting';
+import { TerminalWindow } from './ui/terminal/TerminalWindow';
 import './styles/app.css';
 
 declare global {
@@ -26,6 +27,8 @@ declare global {
     __CODEALONG_KEPT__?: boolean;
     /** Set with that on the window a session's side conversation popped out into. */
     __CODEALONG_SIDE__?: boolean;
+    /** Set with that on the window a session's terminal popped out into. */
+    __CODEALONG_TERMINAL__?: boolean;
     /** Set on the windows of cards pinned to the desktop before the page loads. */
     __CODEALONG_DESKTOP__?: boolean;
     /** Set on the window of lines between cards pinned to the desktop before the page loads. */
@@ -43,6 +46,7 @@ const isQuick = window.__CODEALONG_QUICK__ === true;
 const isWaiting = window.__CODEALONG_WAITING__ === true;
 const isKept = window.__CODEALONG_KEPT__ === true;
 const isSide = isKept && window.__CODEALONG_SIDE__ === true;
+const isTerminal = isKept && window.__CODEALONG_TERMINAL__ === true;
 const isPeek = window.__CODEALONG_PEEK__ === true || isKept;
 const isDesktop = window.__CODEALONG_DESKTOP__ === true;
 const isLineage = window.__CODEALONG_LINEAGE__ === true;
@@ -59,7 +63,7 @@ if (platform() === 'linux') document.documentElement.classList.add('is-linux');
 // other windows hand on.
 if (!isBar && !isQuick && !isWaiting && !isPeek && !isDesktop && !isLineage) drawNoticesHere();
 
-createRoot(document.getElementById('root')!).render(<StrictMode>{isBar ? <Bar /> : isQuick ? <Quick /> : isWaiting ? <Waiting /> : isPeek ? <Peek kept={isKept} side={isSide} /> : isDesktop ? <DesktopPin /> : isLineage ? <DesktopLines /> : <App />}</StrictMode>);
+createRoot(document.getElementById('root')!).render(<StrictMode>{isBar ? <Bar /> : isQuick ? <Quick /> : isWaiting ? <Waiting /> : isTerminal ? <TerminalWindow /> : isPeek ? <Peek kept={isKept} side={isSide} /> : isDesktop ? <DesktopPin /> : isLineage ? <DesktopLines /> : <App />}</StrictMode>);
 
 watchCaret();
 

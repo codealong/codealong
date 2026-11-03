@@ -598,6 +598,7 @@ new_terminal = "project"       # a tab beside the same worktree, repo or project
 move_pointer = false           # move the pointer to a terminal brought forward on another screen
 close_command_tabs_after = 10   # minutes after a command Codealong runs in your terminal ends that its tab closes; 0 keeps it (Settings › General)
 tmux = "when-locked"           # sessions Codealong starts run in tmux, shown in your terminal: "always"; "when-locked", only while the screen is locked, when Ghostty can't start one; "never" (Settings › General). Either but never, Background starts of agents with no background service run in tmux with no window
+run_in = "codealong"           # a session's new terminals (⌃`) and the commands you run from it open in a terminal of Codealong's own under the session; "terminal" opens them in your terminal app
 
 [appearance]
 theme = "system"               # follows the system; or "light", "dark"

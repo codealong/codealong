@@ -2474,6 +2474,7 @@ pub fn compose(inp: Inputs) -> Board {
         training: Vec::new(),
         mcp: Vec::new(),
         sides: Default::default(),
+        terminals: Default::default(),
         pinned: pinned.to_vec(),
         pinned_worktrees: Vec::new(),
         pinned_prs: Vec::new(),

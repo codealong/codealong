@@ -17,6 +17,8 @@ devices is its own crate, codealong-peer (`src-tauri/peer/`), which the
 
 - macOS 13 or later, with Xcode's command line tools (`xcode-select --install`)
 - Rust 1.91 or later (`rustup`) and Node 22.13 or later
+- Zig 0.17 (`brew install zig`), which builds Ghostty's terminal library for Codealong's own
+  terminals (*Ghostty's terminal library*, below)
 - `gh` signed in (`gh auth login`) for PRs
 - A terminal: Ghostty 1.3+, iTerm2, Terminal or Rex (a new config.toml picks the first of those installed)
 
@@ -120,6 +122,26 @@ for their usage, and the menu bar (Tauri makes none on Linux), so what only it h
 sessions…. The windows' keys are written for macOS, and `src/platform.ts` presses and says
 them as Linux has them (⌘ is Ctrl, ⌥ and ⌃ are Alt); `PREVIEW_PLATFORM=linux` previews them.
 `.claude/rules/linux.md` has what was found there.
+
+## Ghostty's terminal library
+
+Codealong's own terminals (`src-tauri/src/terminals.rs`) run on libghostty-vt, Ghostty's terminal
+emulator as a library: the server parses what a terminal's shell prints with it, encodes keys,
+the mouse and pastes for the program's modes, and sends the windows the screen to draw
+(`src/ui/terminal/`, which draws with WebGL2, or Canvas 2D where there's none). It comes through
+the `libghostty-vt` crate, whose build script fetches Ghostty's source at the commit the crate
+pins and builds it with Zig, so a first build takes a few minutes and needs the network; it
+compiles once into the shared build directory after that. `GHOSTTY_SOURCE_DIR` builds it from a
+checkout of Ghostty instead, for building offline.
+
+The crate is pinned to a git revision in `src-tauri/Cargo.toml`, since libghostty has no stable
+version yet, and that revision fixes the Ghostty commit and so the Zig it needs (its
+`build.zig.zon`'s `minimum_zig_version`): 0.17 today, which CI installs too
+(`.github/workflows/`, `scripts/linux/lima.yaml`). Taking a newer one is a change of its own:
+move the revision, match the Zig version everywhere it's named, and run `cargo test terminals`,
+whose tests feed the emulator escape sequences and check the screens, keys and pastes that come
+of them. `.claude/rules/libghostty.md` has what the library does and doesn't do that the code
+relies on.
 
 ## Icons and the mark
 

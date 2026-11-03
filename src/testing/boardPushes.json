@@ -6,6 +6,7 @@
         "editorId": "",
         "editors": [],
         "newTerminal": "project",
+        "runIn": "codealong",
         "terminal": "",
         "terminalId": ""
       },
@@ -341,6 +342,7 @@
           "editorId": "",
           "editors": [],
           "newTerminal": "project",
+          "runIn": "codealong",
           "terminal": "",
           "terminalId": ""
         },
@@ -679,6 +681,7 @@
         "editorId": "",
         "editors": [],
         "newTerminal": "project",
+        "runIn": "codealong",
         "terminal": "",
         "terminalId": ""
       },
@@ -1055,6 +1058,7 @@
         "editorId": "",
         "editors": [],
         "newTerminal": "project",
+        "runIn": "codealong",
         "terminal": "",
         "terminalId": ""
       },
@@ -1430,6 +1434,7 @@
         "editorId": "",
         "editors": [],
         "newTerminal": "project",
+        "runIn": "codealong",
         "terminal": "",
         "terminalId": ""
       },
@@ -1874,6 +1879,7 @@
         "editorId": "",
         "editors": [],
         "newTerminal": "project",
+        "runIn": "codealong",
         "terminal": "",
         "terminalId": ""
       },
@@ -2290,6 +2296,7 @@
         "editorId": "",
         "editors": [],
         "newTerminal": "project",
+        "runIn": "codealong",
         "terminal": "",
         "terminalId": ""
       },

@@ -4,7 +4,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { emit, emitTo, listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import type { AccountCfg, AccountInfo, AgentsStatus, Answers, AtLogin, Attachment, BarFeed, BarNote, Board, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, DevicesView, EditorIcon, FolderLook, FoundAccount, HostedStream, IdlePlan, JevReport, LabelColor, Lane, LineageFeed, MergeBox, MergeOp, ModeSwitched, Notice, PathKind, PeekOpen, PeekShown, Pending, Profile, PointerProbe, PrAt, PrDetail, PrItem, ResumeIn, Reviewed, Route, RouteNote, ScheduleOp, ScheduleTimes, Sent, Session, SessionSpent, Since, SetupView, ShortcutStatus, Side, SideKept, SkillsListed, StalePlan, StaleOutcome, Started, StartOptions, StartPlace, StartSpec, TextFound, Theme, TodoSuggested, TokenReport, Training, TranscriptPage, Unqueued, UpdateView, Verdict, Way, WrittenReview, YourReview } from './types';
+import type { AccountCfg, AccountInfo, AgentsStatus, Answers, AtLogin, Attachment, BarFeed, BarNote, Board, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, DevicesView, EditorIcon, FolderLook, FoundAccount, HostedStream, IdlePlan, JevReport, LabelColor, Lane, LineageFeed, MergeBox, MergeOp, ModeSwitched, Notice, PathKind, PeekOpen, PeekShown, Pending, Profile, PointerProbe, PrAt, PrDetail, PrItem, ResumeIn, Reviewed, Route, RouteNote, ScheduleOp, ScheduleTimes, Sent, Session, SessionSpent, Since, SetupView, ShortcutStatus, Side, SideKept, SkillsListed, StalePlan, StaleOutcome, Started, StartOptions, StartPlace, StartSpec, TerminalFrame, TerminalGlance, TerminalInput, TerminalSize, TerminalTheme, TextFound, Theme, TodoSuggested, TokenReport, Training, TranscriptPage, Unqueued, UpdateView, Verdict, Way, WrittenReview, YourReview } from './types';
 import type { PrTab } from './agentReview';
 import type { AgentTask } from './agentTasks';
 import type { BoardDoc, BoardOp } from './boards/model';
@@ -973,6 +973,116 @@ export function onSide(cb: (side: Side) => void): () => void {
   let cancelled = false;
   let unlisten: (() => void) | undefined;
   void listen<Side>('side', (e) => cb(e.payload)).then((u) => {
+    if (cancelled) u();
+    else unlisten = u;
+  });
+  return () => {
+    cancelled = true;
+    unlisten?.();
+  };
+}
+
+/** Opens a terminal of Codealong's own for a session (terminals.rs), in `folder`: a shell, or
+ *  `command` run in one, at the size the window measured and in its colors. */
+export async function terminalOpen(key: string, folder: string, command: string | null, size: TerminalSize | null, theme: TerminalTheme | null): Promise<TerminalGlance> {
+  if (!inTauri) throw new Error('A terminal needs the app.');
+  return invoke<TerminalGlance>('terminal_open', { key, folder, command, size, theme });
+}
+
+/** This window shows a terminal (`on`), which sends it its frames while it says so again every
+ *  few seconds; or it stops. */
+export async function terminalWatch(id: string, on: boolean): Promise<void> {
+  if (!inTauri) return;
+  await invoke('terminal_watch', { id, on });
+}
+
+/** What was typed or done with the mouse in a terminal, in order. */
+export async function terminalInput(id: string, inputs: TerminalInput[]): Promise<void> {
+  if (!inTauri) return;
+  await invoke('terminal_input', { id, inputs });
+}
+
+/** Pastes into a terminal: false when the text could run commands as it's pasted and `force`
+ *  wasn't given. */
+export async function terminalPaste(id: string, text: string, force: boolean): Promise<boolean> {
+  if (!inTauri) return true;
+  return invoke<boolean>('terminal_paste', { id, text, force });
+}
+
+export async function terminalResize(id: string, size: TerminalSize): Promise<void> {
+  if (!inTauri) return;
+  await invoke('terminal_resize', { id, size });
+}
+
+export async function terminalTheme(id: string, theme: TerminalTheme): Promise<void> {
+  if (!inTauri) return;
+  await invoke('terminal_theme', { id, theme });
+}
+
+/** The text selected in a terminal. */
+export async function terminalCopy(id: string): Promise<string | null> {
+  if (!inTauri) return null;
+  return invoke<string | null>('terminal_copy', { id });
+}
+
+/** Pops a session's terminal out of the drawer into a window of its own beside this one (kept.rs
+ *  `pop_terminal`), or brings the one it has forward; with `keys` it takes the keyboard. */
+export async function terminalWindow(key: string, id: string, keys: boolean): Promise<void> {
+  if (!inTauri) return;
+  await invoke('terminal_window', { key, id, keys });
+}
+
+/** Puts a popped-out terminal back in its drawer: its window closes. */
+export async function terminalPutBack(id: string): Promise<void> {
+  if (!inTauri) return;
+  await invoke('terminal_put_back', { id });
+}
+
+/** The terminals that have windows of their own. */
+export async function terminalWindows(): Promise<string[]> {
+  if (!inTauri) return [];
+  return invoke<string[]>('terminal_windows');
+}
+
+/** Calls `cb` with the terminals that have windows of their own, as that changes. */
+export function onTerminalWindows(cb: (ids: string[]) => void): () => void {
+  if (!inTauri) return () => {};
+  let cancelled = false;
+  let unlisten: (() => void) | undefined;
+  void listen<string[]>('terminal-windows', (e) => cb(e.payload)).then((u) => {
+    if (cancelled) u();
+    else unlisten = u;
+  });
+  return () => {
+    cancelled = true;
+    unlisten?.();
+  };
+}
+
+/** The terminal a kept window shows, for its page. */
+export async function keptTerminal(): Promise<string | null> {
+  if (!inTauri) return null;
+  return invoke<string | null>('kept_terminal');
+}
+
+/** Everything a terminal holds as text, scrollback included. */
+export async function terminalText(id: string): Promise<string> {
+  if (!inTauri) return '';
+  return invoke<string>('terminal_text', { id });
+}
+
+/** Closes a terminal, hanging up on what runs in it. */
+export async function terminalClose(id: string): Promise<void> {
+  if (!inTauri) return;
+  await invoke('terminal_close', { id });
+}
+
+/** Calls `cb` with each frame of the terminals this window shows. */
+export function onTerminalFrame(cb: (frame: TerminalFrame) => void): () => void {
+  if (!inTauri) return () => {};
+  let cancelled = false;
+  let unlisten: (() => void) | undefined;
+  void listen<TerminalFrame>('terminal-frame', (e) => cb(e.payload)).then((u) => {
     if (cancelled) u();
     else unlisten = u;
   });

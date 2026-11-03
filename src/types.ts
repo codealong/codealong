@@ -764,7 +764,7 @@ export interface ProjectCfg {
 /** config.toml, as the engine parses it (src-tauri/src/config.rs). Keys are the file's own. */
 export interface Config {
   scan: string[];
-  apps: { terminal: string; editor: string; new_terminal?: NewTerminal; move_pointer?: boolean; close_command_tabs_after?: number; tmux?: TmuxUse };
+  apps: { terminal: string; editor: string; new_terminal?: NewTerminal; move_pointer?: boolean; close_command_tabs_after?: number; tmux?: TmuxUse; run_in?: 'codealong' | 'terminal' };
   /** `zoom` is a percent; Settings leaves it as config.toml has it. */
   appearance: { theme: Theme; zoom?: number };
   /** Shortcuts that work in any app, as config.toml writes them (`Option+Cmd+/`); empty is off. */
@@ -1305,7 +1305,7 @@ export interface Board {
   /** App-wide status from the engine; view and project filters do not change the logo. */
   logoStatus: LogoStatus;
   /** `editors`: the editors installed here, in menu order (editors.ts). */
-  apps: { terminal: string; terminalId: string; editor: string; editorId: string; editors?: Profile[]; diffEditor?: Profile | null; newTerminal?: NewTerminal };
+  apps: { terminal: string; terminalId: string; editor: string; editorId: string; editors?: Profile[]; diffEditor?: Profile | null; newTerminal?: NewTerminal; runIn?: 'codealong' | 'terminal' };
   projects: ProjectSummary[];
   lanes: Lane[];
   /** What isn't working in the background (notices.ts). */
@@ -1328,6 +1328,9 @@ export interface Board {
    *  the session or PR they're about, the latest started first. Absent from engines of older
    *  builds. */
   sides?: Record<string, SideGlance[]>;
+  /** Codealong's own terminals (terminals.rs `glances`), by the key of the session each is for,
+   *  in the order they were opened. Absent from engines of older builds, and when there are none. */
+  terminals?: Record<string, TerminalGlance[]>;
   /** Pinned session keys, in order. */
   pinned: string[];
   /** Pinned worktrees (lane ids), in order. */
@@ -2771,6 +2774,117 @@ export interface Side {
    *  no longer the open one, it's read where the kept ones are. */
   closed?: boolean;
 }
+
+/** A terminal of Codealong's own as the board lists it (terminals.rs `Glance`). */
+export interface TerminalGlance {
+  id: string;
+  /** The session it's for. */
+  session: string;
+  /** The title its program set, if any. */
+  title: string;
+  /** The shell's name (`zsh`), or a command's first word. */
+  shell: string;
+  /** The command it runs, when it was opened for one rather than for a shell. */
+  command?: string;
+  /** Where it started, or where its shell last said it is. */
+  folder: string;
+  startedAt: number;
+  /** Its process hasn't ended. */
+  running: boolean;
+  /** How its process ended: its status, or 128 and the signal that ended it. */
+  exit?: number;
+  /** The program in front, when it isn't the shell itself. */
+  program?: string;
+  /** When its program last rang the bell. */
+  bellAt?: number;
+}
+
+/** A terminal's size: in cells, and a cell's in pixels. */
+export interface TerminalSize {
+  cols: number;
+  rows: number;
+  cellWidth: number;
+  cellHeight: number;
+}
+
+/** A window's colors, for a terminal it shows, as 0xRRGGBB. */
+export interface TerminalTheme {
+  fg: number;
+  bg: number;
+  cursor?: number | null;
+  /** The 16 ANSI colors. */
+  palette: number[];
+  dark: boolean;
+}
+
+/** How cells are drawn (screen.rs `Look`): colors as 0xRRGGBB, absent for the default; `a` the
+ *  flags (terminal/grid.ts says which bit is which). */
+export interface TerminalLook {
+  f?: number;
+  b?: number;
+  u?: number;
+  a?: number;
+}
+
+/** Cells side by side drawn alike, from column `x`: one entry a cell, " " a blank one, "" the
+ *  second half of the wide character before it. `l` is the look's index in the frame. */
+export interface TerminalRun {
+  x: number;
+  l: number;
+  c: string[];
+}
+
+export interface TerminalLine {
+  y: number;
+  runs: TerminalRun[];
+}
+
+export interface TerminalCaret {
+  x: number;
+  y: number;
+  shape: 'block' | 'bar' | 'underline' | 'hollow';
+  blink: boolean;
+  color?: number;
+  password: boolean;
+}
+
+/** A terminal's screen, or the rows of it that changed (screen.rs `Frame`). */
+export interface TerminalFrame {
+  id: string;
+  /** Counts up with every frame of the terminal. */
+  seq: number;
+  cols: number;
+  rows: number;
+  /** Every row is here. */
+  full: boolean;
+  lines: TerminalLine[];
+  looks: TerminalLook[];
+  cursor: TerminalCaret | null;
+  fg: number;
+  bg: number;
+  /** Where the view is in the scrollback, in rows. */
+  scroll: { total: number; offset: number; len: number };
+  /** The program takes the mouse: clicks and the wheel go to it (Shift selects anyway). */
+  mouse: boolean;
+}
+
+export interface TerminalMods {
+  shift?: boolean;
+  ctrl?: boolean;
+  alt?: boolean;
+  meta?: boolean;
+}
+
+/** What a window sends a terminal (screen.rs `Input`). Positions are in pixels from the grid's
+ *  top left. */
+export type TerminalInput =
+  | { kind: 'key'; code: string; text?: string; mods: TerminalMods; action?: 'press' | 'repeat' | 'release' }
+  | { kind: 'text'; text: string }
+  | { kind: 'mouse'; action: 'down' | 'up' | 'move'; button?: 'left' | 'middle' | 'right'; x: number; y: number; mods: TerminalMods }
+  | { kind: 'wheel'; rows: number; x: number; y: number; mods: TerminalMods }
+  | { kind: 'focus'; on: boolean }
+  | { kind: 'scroll'; to: 'top' | 'bottom' | 'pageUp' | 'pageDown' | 'promptUp' | 'promptDown' }
+  | { kind: 'select'; all: boolean };
 
 /** A side conversation as the board lists it (side.rs `Glance`): what it was first asked, how far
  *  it went and whether its copy is answering, without what was said. */

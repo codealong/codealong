@@ -7091,7 +7091,7 @@ fn terminal_run(c: &mut Client, a: TerminalRunArgs, json: bool) -> Result<()> {
         _ => bail!("The app's answer didn't read: {answer}"),
     }
     let run: terminal::Run = serde_json::from_value(answer.get("run").cloned().unwrap_or_default()).context("reading the run the app started")?;
-    eprintln!("Allowed: it runs in a {} tab as {}.", run.terminal, run.id);
+    eprintln!("Allowed: it runs in {} as {}.", run.place(), run.id);
     let status = if a.detach { wait_for_start(c, &run.id)? } else { wait_for_run(c, &run.id, timeout)? };
     print_run(status, if a.detach { a.lines.min(40) } else { a.lines }, json)
 }

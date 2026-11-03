@@ -18,7 +18,7 @@ import { scheduleBySession } from '../schedules';
 import type * as menus from '../menus';
 import type { ListRow } from '../boardLists';
 import type { TodoItem, useTodoStore } from '../todos';
-import type { Board, DevicesView, Lane, Pr, PrItem, Session, Todo } from '../types';
+import type { Board, DevicesView, Lane, Pr, PrItem, Session, TerminalGlance, Todo } from '../types';
 import type { WaitingQueue } from '../useWaitingQueue';
 import type { useListPicks } from '../useListPicks';
 import type { useTodoView } from '../useTodoView';
@@ -32,6 +32,10 @@ import { PrPickPanel } from './PrPickPanel';
 import { SessionPickPanel } from './SessionPickPanel';
 import { WorktreePickPanel } from './WorktreePickPanel';
 import { TodoPanel, TodoPickPanel } from './TodoPanel';
+
+/** A session with no terminals of Codealong's own: one list, so its panel isn't drawn again for
+ *  a new empty one with every board. */
+const NO_TERMINALS: TerminalGlance[] = [];
 
 /** A panel shown in place of another: `from` is the row whose panel it is, `key` the session it
  *  shows, with `pr` the PR, or with `lane` the worktree. */
@@ -256,6 +260,7 @@ export function MainPanel(props: MainPanelProps) {
         key={session.key}
         lane={lane}
         session={session}
+        terminals={board?.terminals?.[session.key] ?? NO_TERMINALS}
         apps={board?.apps ?? { terminal: 'Terminal', terminalId: '', editor: 'Editor', editorId: '' }}
         now={now}
         onOpen={(id) => open(lane, id)}

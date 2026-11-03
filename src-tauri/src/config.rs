@@ -1203,11 +1203,36 @@ pub struct AppsCfg {
     /// than in the terminal itself (launch.rs `host_for`).
     #[serde(default)]
     pub tmux: TmuxUse,
+    /// Where a session's new terminals and the commands you run from it (Run on a block, `!` in
+    /// its box, an agent's request) open: in a terminal of Codealong's own under the session
+    /// (terminals.rs), or in a tab of your terminal app (terminal.rs).
+    #[serde(default)]
+    pub run_in: RunIn,
 }
 
 impl Default for AppsCfg {
     fn default() -> Self {
-        AppsCfg { terminal: default_terminal(), editor: default_editor(), new_terminal: NewTerminal::default(), move_pointer: false, close_command_tabs_after: default_close_command_tabs_after(), tmux: TmuxUse::default() }
+        AppsCfg { terminal: default_terminal(), editor: default_editor(), new_terminal: NewTerminal::default(), move_pointer: false, close_command_tabs_after: default_close_command_tabs_after(), tmux: TmuxUse::default(), run_in: RunIn::default() }
+    }
+}
+
+/// Where a session's new terminals and the commands run from it open (`AppsCfg::run_in`).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum RunIn {
+    /// A terminal of Codealong's own, in the drawer under the session.
+    #[default]
+    Codealong,
+    /// A tab of the terminal app (`[apps] terminal`).
+    Terminal,
+}
+
+impl RunIn {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            RunIn::Codealong => "codealong",
+            RunIn::Terminal => "terminal",
+        }
     }
 }
 
@@ -1755,7 +1780,7 @@ fn set_accounts(doc: &mut toml_edit::DocumentMut, accounts: &[AccountCfg]) {
     set_tables(doc, "accounts", rows);
 }
 
-const APPS_COMMENT: &str = "# Where Codealong opens things. terminal: \"ghostty\", \"iterm2\", \"terminal\" or \"rex\". editor: \"vscode\", \"cursor\", \"zed\", \"xcode\" and the others\n# Settings lists, or any app's name. Picking another editor from an Open in menu sets it here.\n# new_terminal: \"window\", \"tab\" (in the front window), or \"project\" (a tab beside the same repo or project).\n# move_pointer: move the pointer to a terminal Codealong brings forward on another screen.\n# close_command_tabs_after: minutes after a command Codealong runs in your terminal ends that its tab\n# closes, unless you pressed Return for a shell there; 0 keeps it open.\n# tmux: when the sessions Codealong starts run in tmux, shown in your terminal: \"always\", \"when-locked\"\n# (only while the screen is locked, when Ghostty can't start a terminal) or \"never\".\n";
+const APPS_COMMENT: &str = "# Where Codealong opens things. terminal: \"ghostty\", \"iterm2\", \"terminal\" or \"rex\". editor: \"vscode\", \"cursor\", \"zed\", \"xcode\" and the others\n# Settings lists, or any app's name. Picking another editor from an Open in menu sets it here.\n# new_terminal: \"window\", \"tab\" (in the front window), or \"project\" (a tab beside the same repo or project).\n# move_pointer: move the pointer to a terminal Codealong brings forward on another screen.\n# close_command_tabs_after: minutes after a command Codealong runs in your terminal ends that its tab\n# closes, unless you pressed Return for a shell there; 0 keeps it open.\n# tmux: when the sessions Codealong starts run in tmux, shown in your terminal: \"always\", \"when-locked\"\n# (only while the screen is locked, when Ghostty can't start a terminal) or \"never\".\n# run_in: where a session's new terminals (⌃`) and the commands you run from it open: \"codealong\", in a\n# terminal of Codealong's own under the session, or \"terminal\", in a tab of your terminal app.\n";
 const APPEARANCE_COMMENT: &str = "# Light or dark. \"system\" follows macOS. The buttons at the foot of the sidebar set this too.\n# zoom: how big the windows draw, in percent, 50 to 200. View › Zoom in and Zoom out (⌘= and ⌘-) set it.\n";
 const JEV_COMMENT: &str = "# What Codealong asks TypeSafe's Jev, feature by feature (Settings › Jev says what each one sends).\n# The API key is kept in the login keychain; set it in Settings.\n";
 const EMBLEMS_COMMENT: &str = "# Something to know each session by beside its title (Settings › General): an emoji Jev picks\n# (`kind = \"emoji\"`), or a picture an account draws (`\"drawn\"`), as `prompt` says.\n";
@@ -2122,6 +2147,9 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
     }
     if cfg.apps.tmux != TmuxUse::default() || doc["apps"].get("tmux").is_some() {
         set_value(&mut doc["apps"]["tmux"], Value::from(cfg.apps.tmux.as_str()));
+    }
+    if cfg.apps.run_in != RunIn::default() || doc["apps"].get("run_in").is_some() {
+        set_value(&mut doc["apps"]["run_in"], Value::from(cfg.apps.run_in.as_str()));
     }
 
     set_theme(&mut doc, cfg.appearance.theme);
@@ -2680,6 +2708,9 @@ pub fn render(cfg: &Config) -> String {
     }
     if cfg.apps.tmux != TmuxUse::default() {
         s.push_str(&format!("tmux = {}\n", q(cfg.apps.tmux.as_str())));
+    }
+    if cfg.apps.run_in != RunIn::default() {
+        s.push_str(&format!("run_in = {}\n", q(cfg.apps.run_in.as_str())));
     }
     s.push('\n');
     s.push_str(APPEARANCE_COMMENT);
@@ -3502,6 +3533,19 @@ mod tests {
         always.apps.tmux = TmuxUse::Always;
         let out = with_config(&old, &always).unwrap();
         assert!(with_config(&out, &full()).unwrap().contains("tmux = \"when-locked\""));
+    }
+
+    #[test]
+    fn commands_run_in_codealongs_own_terminals_unless_the_file_says_your_terminal() {
+        assert_eq!(toml::from_str::<Config>("").unwrap().apps.run_in, RunIn::Codealong);
+        let old = render(&full());
+        assert!(!old.contains("run_in ="), "the default isn't written: {old}");
+        let mut cfg = full();
+        cfg.apps.run_in = RunIn::Terminal;
+        let out = with_config(&old, &cfg).unwrap();
+        assert!(out.contains("run_in = \"terminal\""), "{out}");
+        assert_eq!(parse(&out).unwrap(), cfg);
+        assert_eq!(parse(&render(&cfg)).unwrap(), cfg);
     }
 
     #[test]

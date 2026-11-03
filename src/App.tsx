@@ -80,6 +80,8 @@ import { loadSaved, newSavedId, onSavedChange, sameView, storeSaved, suggestName
 import { useNow } from './ui/useNow';
 import { reloadWindow } from './reload';
 import { errorText } from './report';
+import { showTerminal } from './terminals';
+import { runFolder } from './ui/RunButton';
 import { afterStop } from './training';
 import { askWords, reviewSnoozeMenu, type SnoozeAsk } from './snooze';
 import { useSessionHistory } from './history';
@@ -1502,6 +1504,15 @@ export function App() {
       terminal: board?.apps.terminal ?? 'Terminal',
       editors,
       newSession: () => newSession({ laneId: lane.id }),
+      // A terminal of Codealong's own under the session, on this Mac, unless config.toml keeps
+      // them in your terminal app (`[apps] run_in`).
+      ownTerminal:
+        board?.apps.runIn !== 'terminal' && !shortOf(s.key)
+          ? {
+              has: !!board?.terminals?.[s.key]?.length,
+              run: () => void showTerminal(s.key, runFolder(lane, s), board?.terminals?.[s.key] ?? []).catch((e: unknown) => report.error(errorText(e))),
+            }
+          : undefined,
       todos: todoItemsRef.current(lane.project, { session: s.key }, { session: s.key, worktree: lane.id, label: `${s.account} in ${lane.callsign}` }, s.title),
       pin:
         pin === 'session'

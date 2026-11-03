@@ -681,7 +681,7 @@ fn run_command(engine: &Handle, c: &Call) -> Result<Value, String> {
     let (id, at) = crate::terminal::new_id();
     let asked = crate::terminal::Asked { id, ask: crate::terminal::Ask { session: key.to_string(), command, cwd: p.folder.into() }, at };
     let run = crate::terminal::start(&asked, &apps, &lanes, &title, true).map_err(words)?;
-    Ok(json!(format!("Running it in a new {} tab. What it prints goes to the session when it ends.", run.terminal)))
+    Ok(json!(format!("Running it in {}. What it prints goes to the session when it ends.", run.place())))
 }
 
 /// What `run_command` runs: a block without its comments (runcode.rs), its `!` the shell's; a
@@ -1076,7 +1076,12 @@ fn shown_at(c: &Call, at: Option<i64>) -> Value {
 /// Archives it, or unarchives it with `archived: false` (Codex threads in Codex itself).
 fn archive(engine: &Handle, c: &Call) -> Result<Value, String> {
     let p: params::Archive = c.read()?;
-    let at = engine.archive(c.session()?, p.archived).map_err(words)?;
+    let key = c.session()?;
+    let at = engine.archive(key, p.archived).map_err(words)?;
+    // Its terminals in Codealong go with it, as its own terminal does when it's done.
+    if p.archived {
+        crate::terminals::close_session(key);
+    }
     Ok(shown_at(c, at))
 }
 
@@ -1395,6 +1400,7 @@ fn finish(engine: &Handle, c: &Call, key: &str, stop: bool, by: Option<&str>) ->
     let title = s.title.clone();
     engine.mark_seen(vec![key.to_string()]);
     let at = engine.archive(key, true).map_err(words)?;
+    crate::terminals::close_session(key);
     let what = match ended {
         Some(what) => format!("{what} and it's archived."),
         None => "it's archived.".to_string(),

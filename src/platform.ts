@@ -136,6 +136,22 @@ export function bare(e: KeyMods): boolean {
   return typed(e) && !e.shiftKey;
 }
 
+/** With a terminal holding the keyboard (src/ui/terminal/), whether a key is the app's rather
+ *  than its program's: anything with ⌘ on macOS, whose terminals give programs ⌃ and ⌥; Ctrl with
+ *  Shift or Alt on Linux, whose terminals give programs Ctrl and Alt alone (copy and paste are
+ *  Ctrl+Shift+C and V there). */
+export function appKeyInTerminal(e: KeyMods): boolean {
+  return platform() === 'mac' ? e.metaKey : e.ctrlKey && (e.shiftKey || e.altKey);
+}
+
+/** Copy or paste where a terminal holds the keyboard: ⌘C and ⌘V on macOS, Ctrl+Shift+C and V on
+ *  Linux, as its terminals have them. By the key's code, so a layout's letters don't matter. */
+export function terminalClipboard(e: KeyMods & Pick<KeyboardEvent, 'code'>): 'copy' | 'paste' | null {
+  const mods = platform() === 'mac' ? e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey : e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey;
+  if (!mods) return null;
+  return e.code === 'KeyC' ? 'copy' : e.code === 'KeyV' ? 'paste' : null;
+}
+
 /** ⌃ and a letter as macOS's text fields take it (⌃N and ⌃P go down and up a list), whatever
  *  else is held. Linux has no such keys: Ctrl there is ⌘'s. */
 export function emacsCtrl(e: Pick<KeyboardEvent, 'key' | 'ctrlKey'>, key: string): boolean {

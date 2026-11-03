@@ -1,10 +1,10 @@
 // Running a command from a session's conversation: a button beside a shell block's Copy that runs
-// its commands in a new tab of your terminal, as you, in the folder the session works in or the
-// one the command ran in, says for a moment that it did, and has the session told what they
-// printed once they end (actions.rs `run_command`), as `!` in the session's box does: an agent
-// writes a command for you to run because it wants what it prints, whatever its harness. The tab
-// closes by itself a while after they end (`[apps] close_command_tabs_after`) unless you take a
-// shell there. A block with no language is a shell block when each of its lines starts with a
+// its commands in a terminal under the session (terminals.rs; or a new tab of your terminal app,
+// as `[apps] run_in` says), as you, in the folder the session works in or the one the command ran
+// in, says for a moment that it did, and has the session told what they printed once they end
+// (actions.rs `run_command`), as `!` in the session's box does: an agent writes a command for you
+// to run because it wants what it prints, whatever its harness. The terminal closes by itself a
+// while after they end (`[apps] close_command_tabs_after`) unless you take a shell there. A block with no language is a shell block when each of its lines starts with a
 // command this Mac has or a script by its path from where it runs, `./` or not (`isCommandBlock`),
 // as agents often write one for you to run, or when it's led by `!`, as Claude Code's agents
 // write one.

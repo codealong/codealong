@@ -39,6 +39,13 @@ provision:
     if [ ! -x "$HOME/.cargo/bin/cargo" ]; then
       curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
     fi
+    # Zig, which builds Ghostty's terminal library (libghostty-vt) from its source: the version
+    # the pinned Ghostty asks for (docs/development.md), which Ubuntu doesn't package.
+    if [ ! -x "$HOME/.local/zig/zig" ]; then
+      mkdir -p "$HOME/.local/zig"
+      curl -fsSL "https://ziglang.org/download/0.17.0/zig-$(uname -m)-linux-0.17.0.tar.xz" | tar -xJ --strip-components=1 -C "$HOME/.local/zig"
+    fi
+    grep -q '.local/zig' "$HOME/.profile" || echo 'export PATH="$HOME/.local/zig:$PATH"' >> "$HOME/.profile"
     grep -q CARGO_TARGET_DIR "$HOME/.profile" || cat >> "$HOME/.profile" <<'EOF'
     # Where cargo builds every copy of a checkout linux-vm.sh makes, one folder for all of them as
     # on the Mac, named for the scripts that run what it built.

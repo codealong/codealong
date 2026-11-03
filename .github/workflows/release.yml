@@ -49,6 +49,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
+      # Ghostty's terminal library (libghostty-vt) builds from Ghostty's source with Zig, for both
+      # Macs (docs/development.md).
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.17.0
       # Writes the crates' licenses that go in the app (src-tauri/about.toml).
       - run: cargo install cargo-about --version 0.9.2 --locked --features cli
       # dmgbuild, which draws the disk image's window, needs Python 3.10 or later.

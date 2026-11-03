@@ -7,7 +7,9 @@
 #   view     sessions | prs | todo | schedules | kanban | canvas, bar for the floating bar, notch for the
 #            bar docked in the notch, peek for the bar's peek, kept for a session kept on the
 #            desktop (the peek's session, in a window of its size), side for the peek's
-#            session's side conversation popped out into a window of its own, quick for the
+#            session's side conversation popped out into a window of its own, terminal for a
+#            terminal of Codealong's own popped out of its session's drawer (the stub's sample
+#            screen, for the board's first session), quick for the
 #            quick panel, waiting for the window that works through what waits on you, desktop for a card
 #            pinned to the desktop, or lineage for the lines between desktop cards over
 #            stand-ins for them (default sessions)
@@ -300,6 +302,11 @@ fi
 if [ "$view" = side ]; then
   size="${PREVIEW_SIZE:-520,640}"
   setup="$setup localStorage.setItem('codealong.preview.peek','${PREVIEW_TRANSCRIPT:-}'); window.__CODEALONG_KEPT__=true; window.__CODEALONG_SIDE__=true;"
+  on_desktop is-peek
+fi
+if [ "$view" = terminal ]; then
+  size="${PREVIEW_SIZE:-720,460}"
+  setup="$setup window.__CODEALONG_KEPT__=true; window.__CODEALONG_TERMINAL__=true;"
   on_desktop is-peek
 fi
 tail=""
