@@ -808,8 +808,9 @@ again, or ⌘⏎ where ⌘⏎ answers (the waiting window) shows the box again w
 them. It stays minimized as you go to another session and back, until the session asks you
 again. Your picks, your own words and the question you were on are kept until you answer: go to
 another session and back, open the same session in the peek, the notch or the waiting window, or
-restart Codealong, and the box has them as you left them. Two windows showing it at once show
-the same picks. When the session asks again, even the same questions, the box starts empty.
+restart Codealong, and the box has them as you left them, newer than an answer that didn't go.
+Two windows showing it at once show the same picks. They're kept for the questions they answer,
+so other questions start with the box empty, while the same questions asked again keep them.
 Claude Code's own prompt stays up all the while, and
 whichever answer comes first counts. A background job's questions show too when the plugin didn't
 hand them over (the app restarted while they waited, say), from what its account's background

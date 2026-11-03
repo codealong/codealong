@@ -1333,7 +1333,6 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
       <Questions
         key={pending.id}
         draft={answersDraft(s.key)}
-        call={pending.id}
         questions={pending.questions}
         unwritten={unwritten}
         where={s.hosted ? null : where}
@@ -1451,10 +1450,8 @@ interface QuestionsProps {
   keys?: boolean;
   busy: boolean;
   note: { text: string; error: boolean } | null;
-  /** Where your picks and words are kept as you go (drafts.ts `AnswersDraft`), and the call
-   *  they're for. */
+  /** Where your picks and words are kept as you go (drafts.ts `AnswersDraft`). */
   draft: string;
-  call: string;
   /** Answers given before that didn't go: the box starts with their picks and words. */
   given?: Answers;
   /** Your picks; `on` when ⌘⏎ gave them, which goes on to the next that waits on you as it
@@ -1474,18 +1471,20 @@ interface QuestionsProps {
  *  question takes more, or type your own answer; your picks go back as its answer. Several show
  *  one at a time, as Claude Code's own prompt shows them, with a strip of their headers to go
  *  between them: all at once, a few long ones ran off the bottom of the panel. */
-function Questions({ questions, draft, call, unwritten, where, onOpen, keys, busy, note, given, onAnswer, onDecline, suggested, onDismissSuggested, folded, onFold }: QuestionsProps) {
+function Questions({ questions, draft, unwritten, where, onOpen, keys, busy, note, given, onAnswer, onDecline, suggested, onDismissSuggested, folded, onFold }: QuestionsProps) {
+  // The questions, one to a line: what the question showing and the answers kept are for.
+  const asked = questions.map((q) => q.question).join('\n');
   // Your picks and words as you left them, in this window or another, on the question you were
-  // on; an answer that didn't go has them as it sent them.
-  const [kept] = useState(() => readAnswers(readDraft(draft), call));
+  // on. Kept as they change, they're as new as an answer that didn't go or newer, which has them
+  // only where nothing was kept (storage turned down, or the suggested picks sent untouched).
+  const [kept] = useState(() => readAnswers(readDraft(draft), asked));
   // Your picks, by question; a question you haven't touched has the ones suggested for it.
-  const [picks, setPicks] = useState<Record<string, string[]>>(() => (given ? givenBack(questions, given).picks : (kept?.picks ?? {})));
-  const [own, setOwn] = useState<Record<string, string>>(() => (given ? givenBack(questions, given).own : (kept?.own ?? {})));
+  const [picks, setPicks] = useState<Record<string, string[]>>(() => kept?.picks ?? givenBack(questions, given).picks);
+  const [own, setOwn] = useState<Record<string, string>>(() => kept?.own ?? givenBack(questions, given).own);
   const offered = (q: Question): string[] => (suggested?.picks?.[q.question] ?? []).filter((l) => q.options.some((o) => o.label === l));
   const chosenFor = (q: Question): string[] => picks[q.question] ?? offered(q);
   const suggesting = !!suggested && questions.some((q) => offered(q).length > 0);
   // The question showing, for the questions it was picked among: another set starts at the first.
-  const asked = questions.map((q) => q.question).join('\n');
   const [step, setStep] = useState({ asked, at: kept?.at ?? 0 });
   const at = step.asked === asked ? Math.min(step.at, questions.length - 1) : 0;
   const go = (i: number) => setStep({ asked, at: i });
@@ -1494,23 +1493,25 @@ function Questions({ questions, draft, call, unwritten, where, onOpen, keys, bus
   // written there, and isn't written back: it may be older by then than what that window has.
   const heard = useRef<string | null>(null);
   useEffect(() => {
-    const text = writtenAnswers({ call, picks, own, at });
+    const text = writtenAnswers({ asked, picks, own, at });
     if (text === heard.current) return;
     heard.current = null;
     if (text !== readDraft(draft)) writeDraft(draft, text);
-  }, [draft, call, picks, own, at]);
+  }, [draft, asked, picks, own, at]);
   useEffect(
     () =>
       onDraftChange(draft, (text) => {
-        const there = readAnswers(text, call);
-        // Answered there, or another call's: this box goes once its session says so.
+        // None kept there is nothing picked there: gone back to the first question with nothing
+        // picked, or answered, when this box goes too once its session says so.
+        const there = text ? readAnswers(text, asked) : { asked, picks: {}, own: {}, at: 0 };
+        // Other questions': this box goes once its session says so.
         if (!there) return;
         heard.current = writtenAnswers(there);
         setPicks(there.picks);
         setOwn(there.own);
         setStep({ asked, at: there.at });
       }),
-    [draft, call, asked],
+    [draft, asked],
   );
   const answers: Answers = {};
   for (const q of questions) {

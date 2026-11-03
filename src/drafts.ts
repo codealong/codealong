@@ -95,13 +95,16 @@ export function answersDraft(key: string): string {
   return `answers:${key}`;
 }
 
-/** Your picks and words so far for the questions of one call a session waits on (SessionReply.tsx
- *  `Questions`), written as JSON to its `answersDraft`. They're there again as you go to another
- *  session and back, in every window, and after a restart, until the call is answered. */
+/** Your picks and words so far for the questions a session waits on you to answer
+ *  (SessionReply.tsx `Questions`), written as JSON to its `answersDraft`. They're there again as
+ *  you go to another session and back, in every window, and after a restart, until the call is
+ *  answered. */
 export interface AnswersDraft {
-  /** The call they're for (`Pending.id`): another call's questions start afresh, though they ask
-   *  the same. */
-  call: string;
+  /** The questions they answer, their texts one to a line: other questions start afresh. Not the
+   *  call's id (`Pending.id`), since the server numbers the questions Claude Code's hook hands it
+   *  from 1 each time it starts, and numbers them again when the hook asks again after a restart.
+   *  So the same questions asked again have them too. */
+  asked: string;
   /** Your picks by question; one you haven't touched isn't in it, so a suggested pick still shows. */
   picks: Record<string, string[]>;
   /** Your own words by question. */
@@ -110,19 +113,20 @@ export interface AnswersDraft {
   at: number;
 }
 
-/** The answers kept for `call`, from its draft's text; null for another call's or none. */
-export function readAnswers(text: string, call: string): AnswersDraft | null {
+/** The answers kept for the questions `asked`, from its draft's text; null for other questions'
+ *  or none. */
+export function readAnswers(text: string, asked: string): AnswersDraft | null {
   if (!text) return null;
   try {
     const v: unknown = JSON.parse(text);
     if (typeof v !== 'object' || v === null) return null;
     const d = v as Partial<AnswersDraft>;
-    if (d.call !== call) return null;
+    if (d.asked !== asked) return null;
     const picks: Record<string, string[]> = {};
     for (const [q, labels] of Object.entries(d.picks ?? {})) if (Array.isArray(labels)) picks[q] = labels.filter((l): l is string => typeof l === 'string');
     const own: Record<string, string> = {};
     for (const [q, words] of Object.entries(d.own ?? {})) if (typeof words === 'string') own[q] = words;
-    return { call, picks, own, at: typeof d.at === 'number' && d.at >= 0 ? Math.floor(d.at) : 0 };
+    return { asked, picks, own, at: typeof d.at === 'number' && d.at >= 0 ? Math.floor(d.at) : 0 };
   } catch {
     return null;
   }
