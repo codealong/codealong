@@ -119,7 +119,8 @@ with `--usage`, and its endpoint rate-limits: don't loop it.
   <number> <account> <question> [follow-ups]` (spend usage).
 - `--snapshot --editor-icons`, `--snapshot --skills [folder…]`, `--snapshot --start-options`,
   `--snapshot --shell-commands`; `--snapshot --checkout`: the checkout the binary was built from;
-  `--snapshot --improve`: where Improve Codealong starts (improve.rs), without the pictures.
+  `--snapshot --improve`: where Improve Codealong starts (improve.rs), without the pictures;
+  `--snapshot --tab-picture <key> <file>`: a session's terminal tab, as it pictures it.
   `--snapshot --stale-terminals [wait]`: the tabs Close stale terminals would list, closing none.
 - `--snapshot --schedules`: the schedules as their view lists them; `--snapshot --schedule-plan
   <schedule>`: what a run would start or send now, without doing it; `--snapshot --schedule-check

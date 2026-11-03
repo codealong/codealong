@@ -1,4 +1,5 @@
-//! The outline on macOS: CoreGraphics' windows and pointer, and an AppKit window drawing a box.
+//! The outline on macOS: CoreGraphics' windows and pointer, and an AppKit window drawing a box;
+//! and pictures of a terminal's windows, found among them.
 
 use std::cell::RefCell;
 use std::ffi::c_void;
@@ -40,6 +41,8 @@ extern "C" {
     fn CGWindowListCopyWindowInfo(option: u32, relative_to: u32) -> *mut AnyObject;
     fn CGWarpMouseCursorPosition(point: CGPoint) -> i32;
     fn CGAssociateMouseAndMouseCursorPosition(connected: i32) -> i32;
+    fn CGPreflightScreenCaptureAccess() -> bool;
+    fn CGRequestScreenCaptureAccess() -> bool;
 }
 
 #[link(name = "CoreFoundation", kind = "framework")]
@@ -47,6 +50,7 @@ extern "C" {
     fn CFRelease(cf: *const c_void);
 }
 
+const ALL_WINDOWS: u32 = 0;
 const ON_SCREEN_ONLY: u32 = 1 << 0;
 const EXCLUDE_DESKTOP: u32 = 1 << 4;
 
@@ -109,22 +113,31 @@ fn number(obj: &AnyObject) -> f64 {
     unsafe { msg_send![obj, doubleValue] }
 }
 
-/// The front window of the app with this bundle ID among ordinary windows, its number and
-/// frame. Window bounds and owners are readable without Screen Recording; only titles aren't.
-fn front_window(bundle_id: &str) -> Option<(i64, Frame)> {
+/// One of an app's ordinary windows as the window server lists them.
+struct Listed {
+    id: i64,
+    frame: Frame,
+    /// Its title, which the window server tells only an app that may record the screen.
+    title: Option<String>,
+}
+
+/// The ordinary windows of the app with this bundle ID, front to back, among those the window
+/// server lists with `options`. Window bounds and owners are readable without Screen Recording;
+/// only titles aren't.
+fn windows_of(bundle_id: &str, options: u32) -> Vec<Listed> {
     let apps = NSRunningApplication::runningApplicationsWithBundleIdentifier(&NSString::from_str(bundle_id));
     if apps.count() == 0 {
-        return None;
+        return Vec::new();
     }
     let running = apps.objectAtIndex(0);
     // SAFETY: `- (pid_t)processIdentifier`; the typed method needs the libc feature.
     let pid: i32 = unsafe { msg_send![&*running, processIdentifier] };
     let pid = pid as f64;
     // SAFETY: the copy is ours (+1), and a CFArray is toll-free bridged to NSArray.
-    let list: Retained<AnyObject> = unsafe { Retained::from_raw(CGWindowListCopyWindowInfo(ON_SCREEN_ONLY | EXCLUDE_DESKTOP, 0))? };
+    let Some(list) = (unsafe { Retained::<AnyObject>::from_raw(CGWindowListCopyWindowInfo(options, 0)) }) else { return Vec::new() };
     // SAFETY: NSArray's `- (NSUInteger)count`, asked of the array just copied.
     let count: usize = unsafe { msg_send![&*list, count] };
-    // Front to back: the first of the app's normal windows is the one it just brought up.
+    let mut out = Vec::new();
     for i in 0..count {
         // SAFETY: `i` is under the count just read of an array that's this function's own
         // copy, so nothing changes it meanwhile; its members are the windows' dictionaries,
@@ -138,15 +151,51 @@ fn front_window(bundle_id: &str) -> Option<(i64, Frame)> {
         }
         let Some(b) = get(&w, "kCGWindowBounds") else { continue };
         let side = |k: &str| get(&b, k).map(|n| number(&n)).unwrap_or(0.0);
-        let f = Frame { x: side("X"), y: side("Y"), w: side("Width"), h: side("Height") };
+        let frame = Frame { x: side("X"), y: side("Y"), w: side("Width"), h: side("Height") };
         // Skip slivers such as a tab bar's drag image.
-        if f.w < 100.0 || f.h < 60.0 {
+        if frame.w < 100.0 || frame.h < 60.0 {
             continue;
         }
         let id = get(&w, "kCGWindowNumber").map(|n| number(&n) as i64).unwrap_or(-1);
-        return Some((id, f));
+        let title = get(&w, "kCGWindowName").and_then(|t| t.downcast_ref::<NSString>().map(|s| s.to_string()));
+        out.push(Listed { id, frame, title });
     }
-    None
+    out
+}
+
+/// The front window of the app with this bundle ID among ordinary windows, its number and
+/// frame: the first of them on screen is the one it just brought up.
+fn front_window(bundle_id: &str) -> Option<(i64, Frame)> {
+    windows_of(bundle_id, ON_SCREEN_ONLY | EXCLUDE_DESKTOP).into_iter().next().map(|w| (w.id, w.frame))
+}
+
+/// How long taking a picture of a window, or making it smaller, may take.
+const PICTURE_WAIT: Duration = Duration::from_secs(5);
+
+/// A picture of the one window of the app with this bundle ID whose title `titled` takes, on
+/// screen or ordered out, as PNG at one pixel a point, as the windows' own pictures are
+/// (improve.rs). None when another app's windows can't be pictured, as when Codealong may not
+/// record the screen, which macOS is asked here the first time (and remembers the answer); and
+/// when no window takes the title, or more than one, so it can't tell which is meant.
+/// `screencapture` takes the picture as Codealong (its responsible process), and `sips` makes it
+/// smaller.
+pub fn window_picture(bundle_id: &str, titled: impl Fn(&str) -> bool) -> Option<Vec<u8>> {
+    // SAFETY: plain calls that take nothing; asking shows macOS's own prompt, once.
+    if !unsafe { CGPreflightScreenCaptureAccess() } {
+        unsafe { CGRequestScreenCaptureAccess() };
+        return None;
+    }
+    let found: Vec<Listed> = windows_of(bundle_id, ALL_WINDOWS).into_iter().filter(|w| w.title.as_deref().is_some_and(&titled)).collect();
+    let [one] = found.as_slice() else { return None };
+    let file = std::env::temp_dir().join(format!("codealong-window-{}-{}-{}.png", std::process::id(), one.id, crate::util::now_ms()));
+    let path = file.to_string_lossy();
+    let (id, width) = (one.id.to_string(), (one.frame.w.round() as i64).to_string());
+    let taken = crate::procs::run("/usr/sbin/screencapture", &["-x", "-o", "-l", &id, &path], None, PICTURE_WAIT)
+        .and_then(|_| crate::procs::run("/usr/bin/sips", &["--resampleWidth", &width, &path], None, PICTURE_WAIT))
+        .ok()
+        .and_then(|_| std::fs::read(&file).ok());
+    let _ = std::fs::remove_file(&file);
+    taken
 }
 
 /// The app's front window once it stops changing. Ghostty raises the window on its next turn

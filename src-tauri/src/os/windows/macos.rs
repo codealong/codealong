@@ -581,6 +581,30 @@ fn snapshot(view: *const objc2_web_kit::WKWebView, done: impl FnOnce(Option<Vec<
     unsafe { view.takeSnapshotWithConfiguration_completionHandler(Some(&config), &block) };
 }
 
+/// Runs `script` in a window's page and gives `done` what it returned, when that's a string, on
+/// the main thread. False when it couldn't be asked.
+pub fn ask_page(window: &WebviewWindow, script: &str, done: impl FnOnce(Option<String>) + Send + 'static) -> bool {
+    let script = script.to_string();
+    window.with_webview(move |webview| evaluate(webview.inner() as *const objc2_web_kit::WKWebView, &script, done)).is_ok()
+}
+
+fn evaluate(view: *const objc2_web_kit::WKWebView, script: &str, done: impl FnOnce(Option<String>) + 'static) {
+    // SAFETY: as in `snapshot`.
+    let Some(view) = (unsafe { view.as_ref() }) else {
+        done(None);
+        return;
+    };
+    let done = std::cell::Cell::new(Some(done));
+    let block = block2::RcBlock::new(move |result: *mut AnyObject, _error: *mut objc2_foundation::NSError| {
+        // SAFETY: WebKit hands the completion the script's value for the call, or null with an error.
+        let text = unsafe { result.as_ref() }.and_then(|r| r.downcast_ref::<NSString>()).map(|s| s.to_string());
+        if let Some(done) = done.take() {
+            done(text);
+        }
+    });
+    unsafe { view.evaluateJavaScript_completionHandler(&NSString::from_str(script), Some(&block)) };
+}
+
 /// An image's bytes as PNG.
 fn png_of(image: &objc2_app_kit::NSImage) -> Option<Vec<u8>> {
     use objc2_app_kit::{NSBitmapImageFileType, NSBitmapImageRep};

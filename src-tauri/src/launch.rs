@@ -149,6 +149,14 @@ pub trait Terminal: Sync {
         bail!("{} can't press a single key for Codealong.", self.name())
     }
 
+    /// The title of the window the tab a session's process runs in is drawn in, which finds it
+    /// among its app's windows for a picture of it (`tab_window`), waiting no longer than
+    /// `within` for the tab. None where the tab isn't found, or where a window draws only the
+    /// tab selected in it, so a picture could show another's.
+    fn window_title(&self, _pid: u32, _cwd: &Path, _within: Duration) -> Result<Option<String>> {
+        Ok(None)
+    }
+
     /// Whether it has tabs Codealong can close once the sessions in them have ended (idle.rs).
     fn closes_tabs(&self) -> bool {
         false
@@ -1150,6 +1158,27 @@ pub fn closes_tabs_in() -> String {
 /// The terminal a process runs in, by its parents: cheap enough to ask on every look.
 pub fn terminal_kind(pid: u32) -> Option<&'static dyn Terminal> {
     kind_by(pid, parent_and_name).map(terminal).filter(|t| t.reachable())
+}
+
+/// The window a session's terminal tab is drawn in, for a picture of it (improve.rs): its app and
+/// the title it's found by among that app's windows, which the window server tells only an app
+/// that may record the screen.
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
+pub struct TabWindow {
+    /// The terminal, by its name.
+    pub terminal: String,
+    /// Its app, by bundle ID.
+    pub bundle: String,
+    pub title: String,
+}
+
+/// The window the tab a live session's process `pid` runs in is drawn in, waiting no longer than
+/// `within` for the tab. None in a terminal that doesn't say (`Terminal::window_title`), and in
+/// tmux, whose tab is its client's.
+pub fn tab_window(pid: u32, cwd: &Path, within: Duration) -> Result<Option<TabWindow>> {
+    let Some(terminal) = terminal_kind(pid) else { return Ok(None) };
+    let Some(bundle) = terminal.bundle() else { return Ok(None) };
+    Ok(terminal.window_title(pid, cwd, within)?.map(|title| TabWindow { terminal: terminal.name().to_string(), bundle: bundle.to_string(), title }))
 }
 
 /// A process's parent and name, as the kernel has them.

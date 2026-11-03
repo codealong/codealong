@@ -426,11 +426,14 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
           {dialog}
     </>
   );
+  // `data-shows-session` says which session is shown here, for Improve Codealong to picture the
+  // terminal tab it runs in beside the windows (improve.rs `SHOWN`).
   if (variant === 'card') {
     return (
       <div
         className="ca-reply"
         data-find="conversation"
+        data-shows-session={key}
         style={cardZoom(zoom)}
         onContextMenu={(e) => {
           // The box keeps its own menu, for copy and paste, as does anything inside with one.
@@ -444,7 +447,7 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
     );
   }
   return (
-    <aside className="ca-insp ca-sessinsp" aria-label={`${s.title} details`} data-find="conversation">
+    <aside className="ca-insp ca-sessinsp" aria-label={`${s.title} details`} data-find="conversation" data-shows-session={key}>
       {body}
     </aside>
   );

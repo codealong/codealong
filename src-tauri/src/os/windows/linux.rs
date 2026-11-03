@@ -244,6 +244,12 @@ pub fn picture(_window: &WebviewWindow, _done: impl FnOnce(Option<Vec<u8>>) + Se
     false
 }
 
+/// Nor asked what they show: it's asked only to picture the terminals of the sessions they
+/// show, which Linux has no way to find (os/outline/linux.rs).
+pub fn ask_page(_window: &WebviewWindow, _script: &str, _done: impl FnOnce(Option<String>) + Send + 'static) -> bool {
+    false
+}
+
 /// The window manager draws a board window's title bar.
 pub fn overlay_title_bar<'a, R: tauri::Runtime, M: tauri::Manager<R>>(b: tauri::WebviewWindowBuilder<'a, R, M>, _buttons: Option<(f64, f64)>) -> tauri::WebviewWindowBuilder<'a, R, M> {
     b

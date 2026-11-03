@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex};
 use serde_json::Value;
 
 use crate::util::{self, words};
-use crate::{acp, actions, api, autoreview, boards, config, detect, engine, github, harness, idle, install, jev, ledger, model, newfolder, peers, prasks, prlinks, prmerge, route, routelog, runcode, schedules, search, setup, side, skills, stale, start, store, todojev, todos, training, views, zoom};
+use crate::{acp, actions, api, autoreview, boards, config, detect, engine, github, harness, idle, improve, install, jev, ledger, model, newfolder, peers, prasks, prlinks, prmerge, route, routelog, runcode, schedules, search, setup, side, skills, stale, start, store, todojev, todos, training, views, zoom};
 
 /// What a call runs with: the server's engine, your other devices, and the automatic reviewer.
 #[derive(Clone)]
@@ -249,6 +249,13 @@ calls! {
     /// `before` is none, else what came before it.
     fn session_page(c, key: String, before: Option<u64>) -> Result<Value, String> {
         actions::run(&c.engine, &c.peers, api::SESSION_PAGE, &key, actions::params::Page { before, ..Default::default() })
+    }
+
+    /// The terminal tab a session shown in a window runs in, for Improve Codealong to picture
+    /// (improve.rs `capture`): None when it isn't live in one whose tabs' windows can be found.
+    /// The app's own question, about this Mac's screen, so no other device asks it.
+    fn improve_tab(c, key: String) -> Result<Option<improve::Tab>, String> {
+        improve::tab_of(&c.engine.board(), &key, improve::TAB_FIND_WAIT).map_err(words)
     }
 
     /// What a session waiting on you wants to do, when it's a tool call Codealong can answer for

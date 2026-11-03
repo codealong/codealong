@@ -16,7 +16,12 @@
 //! The pictures are each window's own drawing, asked of WKWebView (`takeSnapshot`), which draws
 //! the page as it is without macOS's screen-recording permission, and are kept as attachments
 //! (attachments.rs), so the prompt refers to each as `![Main window](images/…)` and the agent
-//! reads them as it reads any image.
+//! reads them as it reads any image. A session shown with its conversation (a panel or a card,
+//! which its page marks) that runs in a terminal tab gets a picture of that tab too, after its
+//! window's: the server finds the tab and the title of the window it's drawn in
+//! (`launch::tab_window`, which Ghostty answers), and the app finds that window among its
+//! terminal's and pictures it (`os::outline::window_picture`), which macOS lets it do only with
+//! the Screen Recording permission, asked for the first time one's wanted.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -29,6 +34,7 @@ use serde_json::{json, Map, Value};
 use tauri::{AppHandle, Manager, WebviewWindow};
 
 use crate::attachments::Attachment;
+use crate::model::Board;
 use crate::{bar, desktop, kept, panel, quick};
 
 /// The app's identifier in `src-tauri/tauri.conf.json`. The dev build's (`….dev`) is in
@@ -153,31 +159,133 @@ pub fn window_names<'a>(labels: impl IntoIterator<Item = &'a str>, notch: bool) 
 /// that doesn't draw (one on a Space macOS keeps asleep) doesn't hold the panel.
 const CAPTURE_WAIT: Duration = Duration::from_millis(1500);
 
+/// How long, from the click, the pictures of the terminal tabs of the sessions the windows show
+/// are waited for. Finding a tab is a question for its terminal (Ghostty's marks its TTY first,
+/// launch/ghostty.rs `terminal_of`), which answers within a second as a rule; macOS naps Ghostty
+/// behind other windows, and a napped one can take far longer, so the panel opens without it.
+const TAB_WAIT: Duration = Duration::from_millis(3000);
+
+/// How long the server looks for a session's tab (calls.rs `improve_tab`): what's left of
+/// `TAB_WAIT` once the windows have said what they show, less the picture.
+pub const TAB_FIND_WAIT: Duration = Duration::from_millis(2500);
+
+/// Asks a page for the sessions it shows with their conversation, which it marks
+/// (SessionPanel.tsx `data-shows-session`), as a JSON list of their keys.
+const SHOWN: &str = "JSON.stringify(Array.from(document.querySelectorAll('[data-shows-session]'), (e) => e.dataset.showsSession))";
+
+/// A session a window shows, in a terminal tab whose window can be pictured: what the server
+/// finds (calls.rs `improve_tab`), and the app pictures, since macOS's Screen Recording
+/// permission is the app's.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Tab {
+    /// The session's title, which names the picture.
+    pub session: String,
+    #[serde(flatten)]
+    pub window: crate::launch::TabWindow,
+}
+
+/// The terminal tab the session `key` runs in, when it's live in a terminal app whose tabs'
+/// windows Codealong can find (`launch::tab_window`). On the server.
+pub fn tab_of(board: &Board, key: &str, within: Duration) -> anyhow::Result<Option<Tab>> {
+    let Some((_, s)) = board.session(key) else { return Ok(None) };
+    let (true, Some(pid), Some(_)) = (s.live, s.pid, s.terminal.as_ref()) else { return Ok(None) };
+    Ok(crate::launch::tab_window(pid, Path::new(&s.cwd), within)?.map(|window| Tab { session: s.title.clone(), window }))
+}
+
+/// A picture of a session's terminal tab, as PNG. None where macOS doesn't let Codealong picture
+/// another app's window, or the tab's window can't be told from the app's others
+/// (`os::outline::window_picture`).
+pub fn tab_png(tab: &Tab) -> Option<Vec<u8>> {
+    crate::os::outline::window_picture(&tab.window.bundle, |title| same_title(title, &tab.window.title))
+}
+
+/// The picture of a session's terminal tab, kept and named for it ("Ghostty tab of …").
+fn tab_picture(tab: &Tab) -> Option<Attachment> {
+    let png = tab_png(tab)?;
+    let name = format!("{} tab of {}", tab.window.terminal, tab.session);
+    crate::attachments::keep(&png, &format!("{name}.png")).ok().map(|a| Attachment { name, ..a })
+}
+
+/// Whether a window's title is the one its terminal gave the tab, read a moment before: a
+/// program that names its tab may lead the name with a sign of what it's doing, which changes
+/// meanwhile (Claude Code's ✳ and its spinner), so what comes before the first letter or digit
+/// is left out of both.
+fn same_title(window: &str, tab: &str) -> bool {
+    let bare = |t: &str| t.trim_start_matches(|c: char| !c.is_alphanumeric()).trim_end().to_string();
+    let tab = bare(tab);
+    !tab.is_empty() && bare(window) == tab
+}
+
+/// Where a picture goes in the prompt: its window's place in the order asked, then 0 for the
+/// window itself and 1, 2… for the tabs of the sessions it shows, after it.
+type Place = (usize, usize);
+
 struct Capture {
-    /// Windows whose picture hasn't come.
+    /// Pictures not in yet, and windows that haven't said what sessions they show.
     left: usize,
-    /// Each picture, with its window's place in the order asked, which is how they're listed.
-    shots: Vec<(usize, Attachment)>,
+    /// Of those, the terminal tabs' pictures, which are waited for longer.
+    tabs: usize,
+    /// The windows' wait is over (`CAPTURE_WAIT`): only the tabs' pictures hold the panel now.
+    windows_over: bool,
+    /// The sessions whose tab is asked for: one shown in two windows is pictured once.
+    asked: HashSet<String>,
+    /// Each picture, with its place.
+    shots: Vec<(Place, Attachment)>,
     /// What runs once with the pictures; None once it has.
     done: Option<Box<dyn FnOnce(Vec<Attachment>) + Send>>,
 }
 
-/// Runs `done` once: when every window has answered, or when `force` says the wait is over.
+impl Capture {
+    fn new(windows: usize, done: impl FnOnce(Vec<Attachment>) + Send + 'static) -> Capture {
+        // Each window's picture, and its say on the sessions it shows.
+        Capture { left: 2 * windows, tabs: 0, windows_over: false, asked: HashSet::new(), shots: Vec::new(), done: Some(Box::new(done)) }
+    }
+
+    /// Whether what's not in yet holds the panel.
+    fn held(&self) -> bool {
+        if self.windows_over {
+            self.tabs > 0
+        } else {
+            self.left > 0
+        }
+    }
+
+    /// The sessions a window shows that no window's shown before, each now waited for.
+    fn shown(&mut self, keys: Vec<String>) -> Vec<String> {
+        let fresh: Vec<String> = keys.into_iter().filter(|k| self.asked.insert(k.clone())).collect();
+        self.left += fresh.len();
+        self.tabs += fresh.len();
+        fresh
+    }
+
+    /// A picture came, or didn't, or a window said what it shows: one less to wait for.
+    fn came(&mut self, shot: Option<(Place, Attachment)>, tab: bool) {
+        self.left = self.left.saturating_sub(1);
+        if tab {
+            self.tabs = self.tabs.saturating_sub(1);
+        }
+        self.shots.extend(shot);
+    }
+}
+
+/// Runs `done` once: when nothing holds the panel, or when `force` says the wait is over.
 fn settle(capture: &Arc<Mutex<Capture>>, force: bool) {
     let Ok(mut c) = capture.lock() else { return };
-    if c.left > 0 && !force {
+    if c.held() && !force {
         return;
     }
     let Some(done) = c.done.take() else { return };
     let mut shots = std::mem::take(&mut c.shots);
     drop(c);
-    shots.sort_by_key(|(i, _)| *i);
+    shots.sort_by_key(|(place, _)| *place);
     done(shots.into_iter().map(|(_, a)| a).collect());
 }
 
-/// Keeps a picture of every Codealong window that's up, the quick panel aside, and calls `done`
-/// with them, main window first, each named for its window. On the main thread; `done` runs on
-/// it too, after this returns.
+/// Keeps a picture of every Codealong window that's up, the quick panel aside, and of the
+/// terminal tab of each session they show, and calls `done` with them, main window first, the
+/// tabs of a window's sessions after it, each named for what it is. On the main thread; `done`
+/// runs on it too, after this returns.
 pub fn capture(app: &AppHandle, done: impl FnOnce(Vec<Attachment>) + Send + 'static) {
     let notch = bar::mode_of(app) == bar::Mode::Notch;
     let windows: HashMap<String, WebviewWindow> = app.webview_windows();
@@ -185,7 +293,7 @@ pub fn capture(app: &AppHandle, done: impl FnOnce(Vec<Attachment>) + Send + 'sta
     // The main window first, then the rest in a steady order.
     labels.sort_by_key(|l| (*l != "main", l.to_string()));
     let named = window_names(labels, notch);
-    let capture = Arc::new(Mutex::new(Capture { left: named.len(), shots: Vec::new(), done: Some(Box::new(done)) }));
+    let capture = Arc::new(Mutex::new(Capture::new(named.len(), done)));
     if named.is_empty() {
         settle(&capture, true);
         return;
@@ -193,23 +301,31 @@ pub fn capture(app: &AppHandle, done: impl FnOnce(Vec<Attachment>) + Send + 'sta
     for (i, (label, name)) in named.into_iter().enumerate() {
         let Some(window) = windows.get(label) else { continue };
         if !ask_picture(window, i, name, capture.clone()) {
-            one_in(&capture, None);
+            one_in(&capture, None, false);
+        }
+        if !ask_shown(app, window, i, capture.clone()) {
+            one_in(&capture, None, false);
         }
     }
     let handle = app.clone();
     std::thread::spawn(move || {
         std::thread::sleep(CAPTURE_WAIT);
+        let over = capture.clone();
+        let _ = handle.run_on_main_thread(move || {
+            if let Ok(mut c) = over.lock() {
+                c.windows_over = true;
+            }
+            settle(&over, false);
+        });
+        std::thread::sleep(TAB_WAIT.saturating_sub(CAPTURE_WAIT));
         let _ = handle.run_on_main_thread(move || settle(&capture, true));
     });
 }
 
-/// One window's picture came, or didn't.
-fn one_in(capture: &Arc<Mutex<Capture>>, shot: Option<(usize, Attachment)>) {
+/// A picture came, or didn't, or a window said what it shows.
+fn one_in(capture: &Arc<Mutex<Capture>>, shot: Option<(Place, Attachment)>, tab: bool) {
     if let Ok(mut c) = capture.lock() {
-        c.left = c.left.saturating_sub(1);
-        if let Some(s) = shot {
-            c.shots.push(s);
-        }
+        c.came(shot, tab);
     }
     settle(capture, false);
 }
@@ -218,8 +334,29 @@ fn one_in(capture: &Arc<Mutex<Capture>>, shot: Option<(usize, Attachment)>) {
 /// when it couldn't be asked, as on Linux.
 fn ask_picture(window: &WebviewWindow, i: usize, name: String, capture: Arc<Mutex<Capture>>) -> bool {
     crate::os::windows::picture(window, move |png| {
-        let shot = png.and_then(|png| crate::attachments::keep(&png, &format!("{name}.png")).ok()).map(|a| (i, Attachment { name: name.clone(), ..a }));
-        one_in(&capture, shot);
+        let shot = png.and_then(|png| crate::attachments::keep(&png, &format!("{name}.png")).ok()).map(|a| ((i, 0), Attachment { name: name.clone(), ..a }));
+        one_in(&capture, shot, false);
+    })
+}
+
+/// Asks a window's page what sessions it shows, then the server for the terminal tab of each
+/// not asked for yet, and pictures it, off the main thread; false when the page couldn't be
+/// asked, as on Linux.
+fn ask_shown(app: &AppHandle, window: &WebviewWindow, i: usize, capture: Arc<Mutex<Capture>>) -> bool {
+    let app = app.clone();
+    crate::os::windows::ask_page(window, SHOWN, move |answer| {
+        let keys: Vec<String> = answer.and_then(|a| serde_json::from_str(&a).ok()).unwrap_or_default();
+        let fresh = capture.lock().map(|mut c| c.shown(keys)).unwrap_or_default();
+        for (j, key) in fresh.into_iter().enumerate() {
+            let (app, capture) = (app.clone(), capture.clone());
+            std::thread::spawn(move || {
+                let found = crate::view::call("improve_tab", json!({ "key": key }));
+                let tab: Option<Tab> = found.ok().and_then(|v| serde_json::from_value(v).ok()).flatten();
+                let shot = tab.as_ref().and_then(tab_picture).map(|a| ((i, j + 1), a));
+                let _ = app.run_on_main_thread(move || one_in(&capture, shot, true));
+            });
+        }
+        one_in(&capture, None, false);
     })
 }
 
@@ -323,6 +460,82 @@ mod tests {
         // The panel suggests Codealong Dev only when the board says `installed` (improve.ts).
         assert_eq!(serde_json::to_value(Improve::default()).unwrap(), json!({}));
         assert_eq!(serde_json::to_value(Improve { installed: true, ..Improve::default() }).unwrap(), json!({ "installed": true }));
+    }
+
+    #[test]
+    fn a_tabs_window_is_known_by_its_title_whatever_sign_leads_it() {
+        // Claude Code's spinner moves between Ghostty's answer and the window server's.
+        assert!(same_title("⠐ Billing export", "✳ Billing export"));
+        assert!(same_title("northwind · Billing export", "northwind · Billing export"));
+        assert!(same_title("…/projects/northwind", "…/projects/northwind"));
+        assert!(!same_title("northwind · Billing export", "northwind · Key rotation"));
+        assert!(!same_title("atlas · Billing export", "Billing export"));
+        // A tab with no name in letters is never one window's.
+        assert!(!same_title("✳", "✳"));
+        assert!(!same_title("", ""));
+    }
+
+    fn shot(name: &str) -> Attachment {
+        Attachment { kind: crate::attachments::Kind::Image, path: format!("images/{name}.png"), name: name.into() }
+    }
+
+    /// A capture of two windows, and what its `done` was handed.
+    fn two_windows() -> (Arc<Mutex<Capture>>, Arc<Mutex<Option<Vec<String>>>>) {
+        let got = Arc::new(Mutex::new(None));
+        let into = got.clone();
+        let capture = Arc::new(Mutex::new(Capture::new(2, move |shots| *into.lock().unwrap() = Some(shots.into_iter().map(|a| a.name).collect()))));
+        (capture, got)
+    }
+
+    fn says(capture: &Arc<Mutex<Capture>>, keys: &[&str]) -> Vec<String> {
+        let fresh = capture.lock().unwrap().shown(keys.iter().map(|k| k.to_string()).collect());
+        one_in(capture, None, false);
+        fresh
+    }
+
+    #[test]
+    fn the_tabs_of_the_sessions_shown_come_after_their_window_each_once() {
+        let (capture, got) = two_windows();
+        assert_eq!(says(&capture, &["s1"]), vec!["s1"]);
+        one_in(&capture, Some(((1, 0), shot("Peek"))), false);
+        // A session the main window shows already is asked for once.
+        assert_eq!(says(&capture, &["s1", "s2"]), vec!["s2"]);
+        one_in(&capture, Some(((0, 0), shot("Main window"))), false);
+        // Every window is in, but the tabs hold the panel, past the windows' wait too.
+        one_in(&capture, Some(((1, 1), shot("Ghostty tab of s2"))), true);
+        capture.lock().unwrap().windows_over = true;
+        settle(&capture, false);
+        assert_eq!(*got.lock().unwrap(), None);
+        one_in(&capture, Some(((0, 1), shot("Ghostty tab of s1"))), true);
+        assert_eq!(*got.lock().unwrap(), Some(vec!["Main window".to_string(), "Ghostty tab of s1".into(), "Peek".into(), "Ghostty tab of s2".into()]));
+    }
+
+    #[test]
+    fn the_panel_opens_without_what_didnt_come_in_time() {
+        // A window that never drew, and nothing in a terminal: the windows' wait opens it.
+        let (capture, got) = two_windows();
+        assert!(says(&capture, &[]).is_empty());
+        assert!(says(&capture, &[]).is_empty());
+        one_in(&capture, Some(((0, 0), shot("Main window"))), false);
+        settle(&capture, false);
+        assert_eq!(*got.lock().unwrap(), None);
+        capture.lock().unwrap().windows_over = true;
+        settle(&capture, false);
+        assert_eq!(*got.lock().unwrap(), Some(vec!["Main window".to_string()]));
+        // A tab its terminal never finds: the tabs' wait opens it.
+        let (capture, got) = two_windows();
+        says(&capture, &["s1"]);
+        says(&capture, &[]);
+        one_in(&capture, Some(((0, 0), shot("Main window"))), false);
+        one_in(&capture, Some(((1, 0), shot("Peek"))), false);
+        capture.lock().unwrap().windows_over = true;
+        settle(&capture, false);
+        assert_eq!(*got.lock().unwrap(), None);
+        settle(&capture, true);
+        assert_eq!(*got.lock().unwrap(), Some(vec!["Main window".to_string(), "Peek".into()]));
+        // It opens once: what comes after is let go.
+        one_in(&capture, Some(((0, 1), shot("Ghostty tab of s1"))), true);
+        assert_eq!(got.lock().unwrap().as_ref().map(Vec::len), Some(2));
     }
 
     #[test]

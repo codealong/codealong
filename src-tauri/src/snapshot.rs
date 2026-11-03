@@ -103,6 +103,7 @@ const MODES: &[Mode] = &[
     Mode { flag: "--link", takes: "<url>", run: link },
     Mode { flag: "--checkout", takes: "", run: |_, _| Ok(crate::CHECKOUT.unwrap_or_default().to_string()) },
     Mode { flag: "--improve", takes: "", run: |_, _| Ok(pretty(&board_now().read(|b| b.improve.clone()))) },
+    Mode { flag: "--tab-picture", takes: "<session key> <file>", run: tab_picture },
     Mode { flag: "--tokens", takes: "[days] [--account <name>] [--session <key>] [--into <ledger file>]", run: tokens },
     Mode { flag: "--jev-usage", takes: "[days]", run: jev_usage },
     Mode { flag: "--stale-terminals", takes: "[how long unused: 90m, 24h, 3d, 1w]", run: stale_terminals },
@@ -112,6 +113,21 @@ const MODES: &[Mode] = &[
     Mode { flag: "--schedule-run", takes: "<schedule>", run: schedule_run },
     Mode { flag: "--schedule-times", takes: "<time, as a schedule writes it>", run: |_, rest| Ok(pretty(&crate::schedules::times(&rest.join(" "), util::now_ms(), &crate::schedules::rule::Local))) },
 ];
+
+/// `codealong --snapshot --tab-picture <session key> <file>`: the terminal tab a session runs in,
+/// as Improve Codealong finds it for a picture when a window shows the session (improve.rs), and
+/// the picture, written to the file. It's taken as the process that runs this, which macOS lets
+/// picture another app's window only with the Screen Recording permission of the app it runs in.
+fn tab_picture(_: &Args, rest: &[String]) -> Done {
+    let [key, file] = rest else { return Err(Stop::Usage) };
+    let tab = crate::improve::tab_of(&engine::snapshot(false, false), key, crate::improve::TAB_FIND_WAIT).map_err(failed)?;
+    let Some(tab) = tab else { return Err(Stop::Failed("It isn't live in a terminal tab whose window Codealong can find.".into())) };
+    let Some(png) = crate::improve::tab_png(&tab) else {
+        return Err(Stop::Failed(format!("Found its tab, {:?}, but no picture of it: Codealong may not record the screen, or another of {}'s windows has that title.", tab.window.title, tab.window.terminal)));
+    };
+    std::fs::write(file, png).map_err(|e| failed(e.into()))?;
+    Ok(pretty(&tab))
+}
 
 /// `codealong --snapshot --stale-terminals [wait]`: the terminal tabs File › Close stale
 /// terminals… would list, unused for the wait (a day when left out), closing nothing.

@@ -2488,7 +2488,21 @@ then the pictures, so the agent sees what you saw. A picture you take off the st
 you wrote and didn't start is the panel's draft with its pictures: ↑ in the panel brings both back,
 starting in Codealong's source again, after it closes or Codealong relaunches. The
 pictures are each window's own drawing, asked of WebKit, so macOS asks no screen-recording
-permission, and they're kept as attachments are (`images/`).
+permission for them, and they're kept as attachments are (`images/`).
+
+A session a window shows with its conversation (the main window's panel, the peek, a kept
+session, the notch's card, the waiting window) that runs in a Ghostty tab gets a picture of that
+tab too, after its window's, named for it (*Ghostty tab of …*), so the agent sees what the
+terminal showed beside what Codealong did: a prompt waiting there, say. That's a picture of
+another app's window, which macOS allows only with the Screen Recording permission: the first
+time one's wanted it asks (System Settings › Privacy & Security › Screen & System Audio
+Recording), and the panel opens without it until Codealong has it, which may take a relaunch.
+The tab is found as a send finds it, by a mark on its terminal, and its window by its title among
+Ghostty's, a tab that isn't selected included; when another of Ghostty's windows has the same
+title it's left out, since there's no telling which is the session's. The panel waits up to three
+seconds for these pictures, and opens with the ones that came. iTerm2, Terminal, Rex and tmux
+tabs aren't pictured. `codealong --snapshot --tab-picture <session key> <file>` finds a session's
+tab and writes its picture to the file, as the command's own process.
 
 Codealong's source is any checkout a scan finds whose `src-tauri/tauri.conf.json` is the app's, so
 a clone under another name or a fork counts, and its worktrees carry a mark the phone reads too.

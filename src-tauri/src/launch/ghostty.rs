@@ -133,7 +133,34 @@ impl Terminal for Ghostty {
     fn close_tabs(&self, tabs: &[&Closing]) -> Result<Vec<Result<()>>> {
         close_tabs(tabs)
     }
+
+    /// Each of Ghostty's tabs is a window of its own to the window server, titled with the
+    /// tab's name; the ones not selected are ordered out and still give a picture of what they
+    /// drew last (1.3.1, macOS 26.6, 2026-11-03), so any of a session's tabs can be pictured.
+    fn window_title(&self, pid: u32, cwd: &Path, within: Duration) -> Result<Option<String>> {
+        let deadline = Instant::now() + within;
+        let Some(id) = terminal_of(pid, cwd, Some(within))? else { return Ok(None) };
+        let left = deadline.checked_duration_since(Instant::now()).filter(|l| !l.is_zero()).ok_or_else(|| anyhow!("Ghostty didn't answer in time."))?;
+        let name = super::osascript_within(APP, GHOSTTY_TAB_NAME, &[id.as_str()], left)?;
+        let name = name.trim_end_matches(['\r', '\n']);
+        Ok((!name.is_empty()).then(|| name.to_string()))
+    }
 }
+
+/// `<terminal id>`: the name of the tab that terminal is in, or "" when it's in none (the quick
+/// terminal). Held as GHOSTTY_FOCUS holds them.
+const GHOSTTY_TAB_NAME: &str = r#"
+on run argv
+  set want to item 1 of argv
+  tell application "Ghostty"
+    set ws to every window whose id of every terminal contains want
+    if ws is {} then return ""
+    set tbs to every tab of (item 1 of ws) whose id of every terminal contains want
+    if tbs is {} then return ""
+    return name of (item 1 of tbs)
+  end tell
+end run
+"#;
 
 /// Arguments: where it goes (`window`, `front` for a tab in the front window, or `beside` for a
 /// tab in the frontmost window holding any of the terminals listed next), those terminal ids one

@@ -69,7 +69,7 @@ qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "libc", "objc2-core-foundation", "NSApplication", "NSBitmapImageRep", "NSBox", "NSColor", "NSEvent", "NSGraphics", "NSGraphicsContext", "NSImage", "NSImageRep", "NSPanel", "NSResponder", "NSRunningApplication", "NSScreen", "NSSound", "NSView", "NSWindow", "NSWorkspace"] }
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSData", "NSDictionary", "NSError", "NSGeometry", "NSNotification", "NSProcessInfo", "NSString"] }
-# Improve Codealong's pictures of the windows (improve.rs): WKWebView draws its own page, so no screen-recording permission is asked.
+# Improve Codealong's pictures of the windows (improve.rs): WKWebView draws its own page, so no screen-recording permission is asked, and says what sessions it shows.
 objc2-web-kit = { version = "0.3", default-features = false, features = ["std", "block2", "objc2-app-kit", "WKWebView", "WKSnapshotConfiguration"] }
 block2 = "0.6"
 # Open at login (os/login/macos.rs): the app as a login item, which System Settings › General › Login Items lists.

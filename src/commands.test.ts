@@ -11,6 +11,8 @@ import calls from '../src-tauri/src/calls.rs?raw';
 // api.ts is the only file that calls `invoke`; every source file is read anyway, so a call
 // added somewhere else is checked too.
 const sources = import.meta.glob<string>(['./**/*.{ts,tsx}', '!./**/*.test.{ts,tsx}'], { query: '?raw', import: 'default', eager: true });
+// And the engine's, for the calls the app makes of its server itself.
+const rust = import.meta.glob<string>('../src-tauri/src/**/*.rs', { query: '?raw', import: 'default', eager: true });
 
 /** The app's own commands: the names in lib.rs's one `app_commands!` list, a path's last part. */
 function appCommands(rust: string): string[] {
@@ -47,8 +49,9 @@ function invoked(text: string): { names: string[]; unnamed: number[] } {
 describe('the commands the window invokes', () => {
   const handlers = new Set([...appCommands(lib), ...serverCalls(calls)]);
   const callers = new Map<string, string>();
-  // The server's calls the app makes itself, which no window invokes (an image from another device).
-  for (const m of lib.matchAll(/view::call(?:_as)?\(\s*"(\w+)"/g)) callers.set(m[1], 'src-tauri/src/lib.rs');
+  // The server's calls the app makes itself, which no window invokes (an image from another
+  // device, the terminal tab of a session a window shows, improve.rs).
+  for (const [file, text] of Object.entries(rust)) for (const m of text.matchAll(/view::call(?:_as)?\(\s*"(\w+)"/g)) callers.set(m[1], file.replace(/^\.\.\//, ''));
   const unreadable: string[] = [];
   for (const [file, text] of Object.entries(sources)) {
     const { names, unnamed } = invoked(text);

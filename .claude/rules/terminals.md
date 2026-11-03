@@ -85,6 +85,14 @@ recording its input, 2026-09-29), and launch.rs's starts in iTerm2 and Terminal 
   wrapping at the ends); `set_tab_title:` with nothing clears the name, its docs say (`ghostty
   +list-actions --docs`). Checked on 1.3.1 (2026-10-05); `cargo test
   ghostty_groups_and_names_tabs -- --ignored` repeats it.
+- Each tab is a window of its own to the window server (`CGWindowListCopyWindowInfo`), titled
+  with the tab's name as the script's `name of tab` gives it (Codealong's `set_tab_title` label,
+  else the program's title, Claude Code's led by ✳ or its spinner); the tabs not selected are
+  ordered out, and `screencapture -o -l <window number>` still gives what they drew last. Many
+  windows can share a title (a session resumed in a new tab beside its old one). So Improve
+  Codealong's picture of a session's tab finds its window by the tab's name: `launch/ghostty.rs`
+  (`window_title`), `improve.rs` (`same_title`). Ghostty 1.3.1, 2026-11-03; titles are read only
+  by a process with the Screen Recording permission (`os/outline/macos.rs` `window_picture`).
 - App Nap: behind other apps' windows macOS naps Ghostty, every thread at priority 4, and a
   napped Ghostty on a busy Mac took 21 s over one question; marks are timed from its first
   answer, and what a send says when Ghostty was slow: `launch/ghostty.rs` (`naps`,
