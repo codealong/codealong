@@ -40,9 +40,10 @@ export function routeKey(e: KeyLike, down: boolean): KeyRoute {
   if (platform() === 'mac' && e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && e.code === 'KeyA') return { to: 'selectAll' };
   if (appKeyInTerminal(e)) return { to: 'app' };
   const mods = modsOf(e);
-  if (!down) return { to: 'terminal', input: { kind: 'key', code: e.code, mods, action: 'release' } };
-  // What the key typed goes with it; with Ctrl the program goes by the key alone.
   const char = e.key !== 'Unidentified' && !NAMED.test(e.key) ? e.key : undefined;
+  // A release names the key as its press did, for a program that pairs them.
+  if (!down) return { to: 'terminal', input: { kind: 'key', code: e.code, unshifted: unshiftedOf(e, char), mods, action: 'release' } };
+  // What the key typed goes with it; with Ctrl the program goes by the key alone.
   const text = !e.ctrlKey && !e.metaKey ? char : undefined;
   return { to: 'terminal', input: { kind: 'key', code: e.code, text, unshifted: unshiftedOf(e, char), mods, action: e.repeat ? 'repeat' : 'press' } };
 }

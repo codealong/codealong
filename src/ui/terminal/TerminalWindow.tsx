@@ -29,8 +29,10 @@ export function TerminalWindow() {
     return followBoard((b) => setBoard(b)).off;
   }, []);
 
-  const glance: TerminalGlance | undefined = ids && board ? board.terminals?.[ids.key]?.find((t) => t.id === ids.id) : undefined;
-  const session = ids && board ? board.lanes.flatMap((l) => l.sessions).find((s) => s.key === ids.key) : undefined;
+  // Found by its own id under whichever session has it now: a session moved to another account
+  // hands its terminals to its copy (terminals.rs `follow`).
+  const glance: TerminalGlance | undefined = ids && board ? Object.values(board.terminals ?? {}).flat().find((t) => t.id === ids.id) : undefined;
+  const session = glance && board ? board.lanes.flatMap((l) => l.sessions).find((s) => s.key === glance.session) : undefined;
 
   // Shown once there's a terminal to show; gone once the board no longer lists it. A board still
   // loading lists none yet (the app's first, before the server's comes), which says nothing.

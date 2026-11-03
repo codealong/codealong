@@ -64,6 +64,8 @@ describe('where a key goes in a terminal', () => {
     expect(routeKey(key('A', 'KeyQ', { shiftKey: true }), true)).toMatchObject({ input: { text: 'A', unshifted: 'a' } });
     // A shifted symbol says nothing of the key's own: AZERTY's digits are shifted.
     expect(routeKey(key('1', 'Digit1', { shiftKey: true }), true)).toMatchObject({ input: { unshifted: undefined } });
+    // Its release names it as its press did.
+    expect(routeKey(key('a', 'KeyQ', { ctrlKey: true }), false)).toMatchObject({ input: { code: 'KeyQ', unshifted: 'a', action: 'release' } });
   });
 
   it('leaves ⌘ to the app but for copying, pasting and selecting all', () => {

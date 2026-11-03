@@ -482,7 +482,9 @@ impl Screen {
             chars.next().filter(|_| chars.next().is_none())
         });
         let unshifted = layout.unwrap_or(us);
-        let key = layout.and_then(keys::of_char).unwrap_or(physical);
+        // The keypad's keys stay themselves, which application keypad mode and the Kitty protocol
+        // tell apart from the digits and symbols they type.
+        let key = if code.starts_with("Numpad") { physical } else { layout.and_then(keys::of_char).unwrap_or(physical) };
         let mods = mods.mods();
         let text = text.filter(|t| !t.is_empty() && action != KeyAction::Release);
         // The modifiers the text already took in: Shift for a capital, and on macOS Option for
@@ -948,6 +950,19 @@ mod tests {
         assert_eq!(s.take_out(), b"\x01", "Ctrl+A");
         s.input(&Input::Key { code: "KeyQ".into(), text: None, unshifted: None, mods: ctrl, action: KeyAction::Press });
         assert_eq!(s.take_out(), b"\x11", "Ctrl+Q where the window gave no letter");
+        // The keypad's 1 stays the keypad's, which a program that asked for every key told apart
+        // (the Kitty protocol's KP_1) from the 1 above the letters.
+        s.feed(b"\x1b[>8u");
+        s.input(&Input::Key { code: "Numpad1".into(), text: Some("1".into()), unshifted: Some("1".into()), mods: Mods4::default(), action: KeyAction::Press });
+        let keypad = String::from_utf8_lossy(&s.take_out()).into_owned();
+        assert!(keypad.contains("57400"), "{keypad:?}");
+        s.feed(b"\x1b[<u");
+        // A press and its release name the same key, for a program that asked for releases.
+        s.feed(b"\x1b[>3u");
+        s.input(&Input::Key { code: "KeyQ".into(), text: None, unshifted: Some("a".into()), mods: ctrl, action: KeyAction::Press });
+        s.input(&Input::Key { code: "KeyQ".into(), text: None, unshifted: Some("a".into()), mods: ctrl, action: KeyAction::Release });
+        let out = String::from_utf8_lossy(&s.take_out()).into_owned();
+        assert!(out.contains("\x1b[97;5u") && out.contains("\x1b[97;5:3u"), "{out:?}");
     }
 
     #[test]
