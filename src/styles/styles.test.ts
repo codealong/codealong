@@ -335,7 +335,7 @@ describe('the stylesheets', () => {
     '.ca-md table': { set: 'font-size: 12px; line-height: 17px', why: 'a table in an agent’s Markdown: a size under the conversation’s, a pixel looser than meta so rows of figures read' },
     '.ca-md th': { set: 'font-weight: 600', why: 'a Markdown table’s header cells: semibold as headings are, in place of the browser’s bold, at the table’s size' },
     '.ca-prbody table': { set: 'font-size: 12px', why: 'a table in a PR’s description: a size under the description’s, on its 19px line' },
-    '.ca-prfile-path mark, .ca-patch mark': { set: 'font-weight: 600', why: 'what the Files changed filter matched, in a path or a diff: semibold at the size of the code it marks' },
+    '.ca-prfile-path mark, .ca-prfolder-name mark, .ca-patch mark': { set: 'font-weight: 600', why: 'what the Files changed filter matched, in a path, a folder of the tree or a diff: semibold at the size of the code it marks' },
   };
   it('write no font family, size, line height or weight by hand around a type style, but the specials listed here', () => {
     const tokens = JSON.parse(read(join(root, 'design/tokens.json'))) as {

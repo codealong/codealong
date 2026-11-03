@@ -113,11 +113,14 @@
   gap: 2px;
 }
 /* A file's row: its head, which opens its diff, then the ways to open it elsewhere, which show as
-   the pointer comes onto the row or the keyboard is on it, and always keep their room. */
+   the pointer comes onto the row or the keyboard is on it, and always keep their room. In the
+   tree, a row's head is set in a step for each folder it's in (--prfile-depth), so a folder's
+   files have their chevrons under its icon; a diff keeps the list's whole width. */
 .ca-prfile-bar {
   display: flex;
   align-items: center;
   min-width: 0;
+  padding-left: calc(var(--prfile-depth, 0) * 18px);
   border-radius: var(--radius-xs);
 }
 .ca-prfile-bar:hover,
@@ -192,8 +195,18 @@
   color: var(--ink-3);
   transition: transform var(--dur-fast) ease-out;
 }
-.ca-prfile.is-open .ca-prfile-head > .ca-icon {
+.ca-prfile.is-open .ca-prfile-head > .ca-icon:first-child {
   transform: rotate(90deg);
+}
+/* A folder of the tree: its name, quieter than its files', and, while it's shut, how many files
+   it holds. */
+.ca-prfolder-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .ca-prfile-status {
   flex: none;
@@ -234,12 +247,14 @@
   direction: rtl;
   text-align: left;
 }
-.ca-prfile-mentions {
+.ca-prfile-mentions,
+.ca-prfolder-count {
   flex: none;
   color: var(--ink-3);
   font: var(--type-meta);
 }
 .ca-prfile-path mark,
+.ca-prfolder-name mark,
 .ca-patch mark {
   border-radius: 2px;
   background: var(--attn-tint);

@@ -1436,7 +1436,10 @@ whole title, its repo, branch, author, when it was opened and its commits, and t
 in Sessions, for reading its description and diffs at the window's width. Under the merge box are
 its parts as tabs, by whose words they are, which stay at the top as what's under them scrolls
 (← → between them): Description, what its author wrote of it; Changes, its changed files with their
-diffs (each file's name, then its folder; a filter beside Files changed on every PR, however few
+diffs (each file's name, then its folder, or, with the Tree switch beside the filter, which stays
+as you left it for every PR, the files in a tree of their folders, a folder that holds only a
+folder drawn as one with it as an editor's tree does, each shut and opened again by a click or ⏎
+and saying while it's shut how many files it holds; a filter beside Files changed on every PR, however few
 files it changes, which the file count goes to and which stays under the tabs as the list scrolls,
 narrows them to the paths holding every word
 typed, `-word` leaving some out, then lists the files whose changes mention the words, which are

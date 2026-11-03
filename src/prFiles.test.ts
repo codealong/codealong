@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { diffRuns, fileOnGitHub, fileQuery, filterFiles, firstChanged, marks, parsePatch, pieces, splitPath, splitRows } from './prFiles';
+import { diffRuns, fileOnGitHub, fileQuery, filterFiles, fileTree, firstChanged, foldersOf, marks, parsePatch, pieces, splitPath, splitRows, treeRows, type TreeRow } from './prFiles';
 import type { PrFile } from './types';
 
 const file = (path: string, patch: string | null = null): PrFile => ({ path, status: 'modified', additions: 1, deletions: 0, patch });
@@ -55,6 +55,56 @@ describe('filterFiles', () => {
     const [hit] = filterFiles(FILES, 'team multi').named;
     expect(hit.inPath).toEqual([[34, 43]]);
     expect(hit.file.path.slice(34, 43)).toBe('TeamMulti');
+  });
+});
+
+describe('fileTree and treeRows', () => {
+  const hits = (ps: string[]) => ps.map((p) => ({ file: file(p), inPath: [], lines: 0 }));
+  const say = (rows: TreeRow[]) => rows.map((r) => `${'  '.repeat(r.depth)}${r.kind === 'folder' ? `${r.folder.name}/ ${r.folder.count}` : splitPath(r.hit.file.path).name}`);
+  const TREE = fileTree(
+    hits([
+      '.sync/NOTES.md',
+      '.sync/artifact/build.mjs',
+      '.sync/artifact/project/components/Badge/README.md',
+      '.sync/artifact/project/components/Button/README.md',
+      'README.md',
+      'src/ui/card/Card.tsx',
+      'src/ui/card/Card.css',
+    ]),
+  );
+
+  it('lists a folder’s folders, then its files, one that holds only a folder drawn with it', () => {
+    expect(say(treeRows(TREE, new Set()))).toEqual([
+      '.sync/ 4',
+      '  artifact/ 3',
+      '    project/components/ 2',
+      '      Badge/ 1',
+      '        README.md',
+      '      Button/ 1',
+      '        README.md',
+      '    build.mjs',
+      '  NOTES.md',
+      'src/ui/card/ 2',
+      '  Card.tsx',
+      '  Card.css',
+      'README.md',
+    ]);
+  });
+
+  it('keys a folder drawn with the ones it’s in by its whole path, and leaves out what a shut one holds', () => {
+    const rows = treeRows(TREE, new Set(['.sync/artifact/project/components', 'src/ui/card']));
+    expect(say(rows)).toEqual(['.sync/ 4', '  artifact/ 3', '    project/components/ 2', '    build.mjs', '  NOTES.md', 'src/ui/card/ 2', 'README.md']);
+    expect(rows.flatMap((r) => (r.kind === 'folder' ? [r.folder.path] : []))).toEqual(['.sync', '.sync/artifact', '.sync/artifact/project/components', 'src/ui/card']);
+  });
+
+  it('has only the files to draw when they’re all at the root', () => {
+    expect(say(treeRows(fileTree(hits(['b.ts', 'a.ts'])), new Set()))).toEqual(['b.ts', 'a.ts']);
+    expect(treeRows(fileTree([]), new Set())).toEqual([]);
+  });
+
+  it('names the folders a file is in, from the outermost', () => {
+    expect(foldersOf('src/ui/card/Card.tsx')).toEqual(['src', 'src/ui', 'src/ui/card']);
+    expect(foldersOf('README.md')).toEqual([]);
   });
 });
 

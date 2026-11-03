@@ -12,6 +12,12 @@
 // since your last review of it, a switch beside the heading shows only what changed since
 // (`SinceScope`, since.ts), which the pill beside the line over its box turns on.
 //
+// Another switch lists the files in a tree of their folders instead (prFiles.ts `fileTree`), a
+// folder that holds only a folder drawn with it, as an editor's tree draws them; it's kept as you
+// left it, for every PR. A click on a folder, or ⏎ on it, shuts it or opens it again, and a shut
+// folder says how many files it holds; ↑ ↓ go over the folders and files you can see, and Open all
+// opens the folders the files it opens are in.
+//
 // A diff has each line's numbers before and after (prFiles.ts `parsePatch`), one under the other
 // (unified) or, where the list is wide enough, side by side (split), its code in its language's
 // colors (syntax.ts, by the file's name; prFiles.ts `diffRuns`), and its long lines wrap or
@@ -22,11 +28,11 @@
 // row; a right-click gives those and the file at its first change (menus.ts `prFileMenu`), and a
 // line's number after opens the file at that line, in the worktree that holds the PR.
 
-import { forwardRef, Fragment, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { forwardRef, Fragment, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import { findsAt } from '../findKeys';
 import { useLatest } from '../latest';
-import { diffRuns, filterFiles, fileQuery, marks, parsePatch, pieces, splitPath, splitRows, type DiffLine, type FileHit } from '../prFiles';
+import { diffRuns, fileTree, filterFiles, fileQuery, foldersOf, marks, parsePatch, pieces, splitPath, splitRows, treeRows, type DiffLine, type FileFolder, type FileHit, type TreeRow } from '../prFiles';
 import { flag, oneOf, useStored } from '../stored';
 import { paint, useSyntax, type Run } from '../syntax';
 import type { PrFile } from '../types';
@@ -39,6 +45,22 @@ const WRAP_KEY = 'codealong.diffWrap';
 const LAYOUTS = ['unified', 'split'] as const;
 type Layout = (typeof LAYOUTS)[number];
 const LAYOUT_CODEC = oneOf(LAYOUTS);
+
+/** Whether the files are listed one after another or in a tree of their folders, as you left it,
+ *  for every PR. */
+const SHAPE_KEY = 'codealong.prFilesShape';
+const SHAPES = ['list', 'tree'] as const;
+type Shape = (typeof SHAPES)[number];
+const SHAPE_CODEC = oneOf(SHAPES);
+
+/** The rows `hits` are listed as: in a tree of their folders, those in `shut` folded, or one after
+ *  another. */
+function listRows(hits: FileHit[], shape: Shape, shut: ReadonlySet<string>): TreeRow[] {
+  return shape === 'tree' ? treeRows(fileTree(hits), shut) : hits.map((hit) => ({ kind: 'file', hit, depth: 0 }));
+}
+
+/** How far in a row of the tree is drawn (`--prfile-depth`, PrFiles.css). */
+const indent = (depth: number): CSSProperties | undefined => (depth > 0 ? ({ '--prfile-depth': depth } as CSSProperties) : undefined);
 
 /** The narrowest the list is offered side by side at: less leaves each side too little. */
 const SPLIT_FROM = 760;
@@ -196,18 +218,47 @@ function EditorMark({ editor, icon }: { editor: FileEditor; icon: string }) {
   return editor.icon ? <img className="ca-appicon" src={editor.icon} alt="" /> : <Icon name={icon} size={14} />;
 }
 
-function FileRow({ hit, open, active, words, view, opener, onToggle }: { hit: FileHit; open: boolean; active: boolean; words: string[]; view: View; opener?: FileOpener; onToggle: () => void }) {
-  const { file, inPath, lines } = hit;
-  const { dir, name } = splitPath(file.path);
+/** Brings the row the keyboard is on into view. */
+function useInView(active: boolean) {
   const row = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     if (active) row.current?.scrollIntoView({ block: 'nearest' });
   }, [active]);
+  return row;
+}
+
+/** A folder of the tree: a click shuts it or opens it again, and shut, it says how many files it
+ *  holds. */
+function FolderRow({ folder, depth, open, active, words, onToggle }: { folder: FileFolder; depth: number; open: boolean; active: boolean; words: string[]; onToggle: () => void }) {
+  const row = useInView(active);
+  const { path, name, count } = folder;
+  return (
+    <div ref={row} className={cx('ca-prfile', 'is-folder', open && 'is-open', active && 'is-active')} style={indent(depth)}>
+      <div className="ca-prfile-bar">
+        <button type="button" className="ca-prfile-head" aria-expanded={open} onClick={onToggle} title={path}>
+          <Icon name="chevron-right" size={12} stroke={2} />
+          <Icon name="folder" size={12} />
+          <span className="ca-prfolder-name">
+            <Marked text={path} ranges={words.length > 0 ? marks(path, words) : []} from={path.length - name.length} />
+          </span>
+          {!open && <span className="ca-prfolder-count">{count === 1 ? '1 file' : `${count} files`}</span>}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** A file: in the list, its name, then its folder; in the tree (`depth`), its name alone, under
+ *  its folder. */
+function FileRow({ hit, depth, open, active, words, view, opener, onToggle }: { hit: FileHit; depth: number | null; open: boolean; active: boolean; words: string[]; view: View; opener?: FileOpener; onToggle: () => void }) {
+  const { file, inPath, lines } = hit;
+  const { dir, name } = splitPath(file.path);
+  const row = useInView(active);
   const editor = opener?.file;
   const onLine = opener && editor ? { title: (n: number) => `Open in ${editor.name} at line ${n}`, run: (n: number) => opener.open(file, 'file', n) } : undefined;
   const diffTitle = opener?.diff && `Open the diff in ${opener.diff.name}: ${opener.before}, beside ${opener.after}`;
   return (
-    <div ref={row} className={cx('ca-prfile', open && 'is-open', active && 'is-active')}>
+    <div ref={row} className={cx('ca-prfile', open && 'is-open', active && 'is-active')} style={indent(depth ?? 0)}>
       <div
         className="ca-prfile-bar"
         onContextMenu={
@@ -227,7 +278,7 @@ function FileRow({ hit, open, active, words, view, opener, onToggle }: { hit: Fi
             <span className="ca-prfile-name">
               <Marked text={file.path} ranges={inPath} from={file.path.length - name.length} />
             </span>
-            {dir && (
+            {dir && depth === null && (
               <span className="ca-prfile-dir">
                 <bdi>
                   <Marked text={file.path} ranges={inPath} to={dir.length} />
@@ -347,6 +398,9 @@ export const PrFiles = forwardRef<FilesFinder, PrFilesProps>(function PrFiles({ 
   const top = useRef<HTMLDivElement>(null);
   const [layout, setLayout] = useStored<Layout>(LAYOUT_KEY, LAYOUT_CODEC, 'unified');
   const [wrap, setWrap] = useStored(WRAP_KEY, flag, false);
+  const [shape, setShape] = useStored<Shape>(SHAPE_KEY, SHAPE_CODEC, 'list');
+  // The tree's folders you've shut, by path.
+  const [shut, setShut] = useState<ReadonlySet<string>>(() => new Set());
 
   useEffect(() => {
     queries.set(prKey, query);
@@ -355,7 +409,12 @@ export const PrFiles = forwardRef<FilesFinder, PrFilesProps>(function PrFiles({ 
   const words = useMemo(() => fileQuery(query).want, [query]);
   const filtering = query.trim().length > 0;
   const { named, mentioned } = useMemo(() => filterFiles(files, query), [files, query]);
-  const rows = useMemo(() => [...named, ...mentioned], [named, mentioned]);
+  const hits = useMemo(() => [...named, ...mentioned], [named, mentioned]);
+  // What's drawn, and what ↑ ↓ go over: the files, and in the tree their folders, the named ones'
+  // then the mentioned ones'.
+  const namedRows = useMemo(() => listRows(named, shape, shut), [named, shape, shut]);
+  const mentionedRows = useMemo(() => listRows(mentioned, shape, shut), [mentioned, shape, shut]);
+  const rows = useMemo(() => [...namedRows, ...mentionedRows], [namedRows, mentionedRows]);
 
   const section = useRef<HTMLElement>(null);
   // Side by side only where there's room for both sides; your choice is kept for when there is.
@@ -388,22 +447,32 @@ export const PrFiles = forwardRef<FilesFinder, PrFilesProps>(function PrFiles({ 
     return () => window.removeEventListener('keydown', onKey);
   }, [keys, finding]);
 
-  const toggle = (path: string) =>
+  const flip = (path: string) => (was: ReadonlySet<string>) => {
+    const next = new Set(was);
+    if (!next.delete(path)) next.add(path);
+    return next;
+  };
+  const toggle = (path: string) => setOpen(flip(path));
+  const fold = (path: string) => setShut(flip(path));
+  const pick = (r: TreeRow) => (r.kind === 'folder' ? fold(r.folder.path) : toggle(r.hit.file.path));
+  const allOpen = hits.length > 0 && hits.every((h) => open.has(h.file.path));
+  const openAll = () => {
+    // What opens shows, in the folders it's in.
+    if (!allOpen)
+      setShut((was) => {
+        const next = new Set(was);
+        for (const h of hits) for (const f of foldersOf(h.file.path)) next.delete(f);
+        return next;
+      });
     setOpen((was) => {
       const next = new Set(was);
-      if (!next.delete(path)) next.add(path);
-      return next;
-    });
-  const allOpen = rows.length > 0 && rows.every((h) => open.has(h.file.path));
-  const openAll = () =>
-    setOpen((was) => {
-      const next = new Set(was);
-      for (const h of rows) {
+      for (const h of hits) {
         if (allOpen) next.delete(h.file.path);
         else next.add(h.file.path);
       }
       return next;
     });
+  };
 
   const type = (text: string) => {
     setQuery(text);
@@ -412,8 +481,13 @@ export const PrFiles = forwardRef<FilesFinder, PrFilesProps>(function PrFiles({ 
 
   // What the filter found is counted against the files it looked through, which can be fewer than
   // the PR's (the first hundred) or, read later than the board, more.
-  const count = filtering ? `${rows.length} of ${files.length}` : `${total}${more ? ` (first ${files.length} shown)` : ''}`;
-  const row = (h: FileHit, i: number) => <FileRow key={h.file.path} hit={h} open={open.has(h.file.path)} active={focused && i === active} words={words} view={view} opener={opener} onToggle={() => toggle(h.file.path)} />;
+  const count = filtering ? `${hits.length} of ${files.length}` : `${total}${more ? ` (first ${files.length} shown)` : ''}`;
+  const row = (r: TreeRow, i: number) =>
+    r.kind === 'folder' ? (
+      <FolderRow key={`folder:${r.folder.path}`} folder={r.folder} depth={r.depth} open={!shut.has(r.folder.path)} active={focused && i === active} words={words} onToggle={() => fold(r.folder.path)} />
+    ) : (
+      <FileRow key={r.hit.file.path} hit={r.hit} depth={shape === 'tree' ? r.depth : null} open={open.has(r.hit.file.path)} active={focused && i === active} words={words} view={view} opener={opener} onToggle={() => toggle(r.hit.file.path)} />
+    );
 
   return (
     <section className="ca-insp-sec ca-prfiles-sec" aria-label="Files changed" ref={section}>
@@ -430,12 +504,24 @@ export const PrFiles = forwardRef<FilesFinder, PrFilesProps>(function PrFiles({ 
             ]}
           />
         )}
-        {filtering && rows.length > 1 && rows.length <= OPEN_ALL && (
+        {filtering && hits.length > 1 && hits.length <= OPEN_ALL && (
           <button type="button" className="ca-linkbtn" onClick={openAll}>
             {allOpen ? 'Close all' : 'Open all'}
           </button>
         )}
         <span className="ca-prfiles-view">
+          {files.length > 1 && (
+            <Seg<Shape>
+              look="icon"
+              label="How files are listed"
+              value={shape}
+              onPick={setShape}
+              options={[
+                { id: 'list', label: 'List', icon: 'list', title: 'List: each file, its folder after its name' },
+                { id: 'tree', label: 'Tree', icon: 'list-tree', title: 'Tree: the files in their folders' },
+              ]}
+            />
+          )}
           {wide && (
             <Seg<Layout>
               look="icon"
@@ -470,11 +556,11 @@ export const PrFiles = forwardRef<FilesFinder, PrFilesProps>(function PrFiles({ 
                 const step = e.key === 'ArrowDown' ? 1 : -1;
                 setActive((at) => Math.max(0, Math.min(rows.length - 1, at + step)));
               } else if (e.key === 'Enter') {
-                const h = rows[Math.max(0, active)];
-                if (!h) return;
+                const r = rows[Math.max(0, active)];
+                if (!r) return;
                 e.preventDefault();
                 setActive(Math.max(0, active));
-                toggle(h.file.path);
+                pick(r);
               } else if (e.key === 'Escape') {
                 // Clears the filter, then leaves it; the window's own Escape waits for the next.
                 e.preventDefault();
@@ -503,14 +589,14 @@ export const PrFiles = forwardRef<FilesFinder, PrFilesProps>(function PrFiles({ 
         </label>
       </div>
       {since?.on && since.note && <p className="ca-prfiles-since">{since.note}</p>}
-      <div className="ca-prfiles">{named.map((h, i) => row(h, i))}</div>
+      <div className="ca-prfiles">{namedRows.map((r, i) => row(r, i))}</div>
       {mentioned.length > 0 && (
         <>
           <h5 className="ca-prfiles-sub">Mentioned in the changes</h5>
-          <div className="ca-prfiles">{mentioned.map((h, i) => row(h, named.length + i))}</div>
+          <div className="ca-prfiles">{mentionedRows.map((r, i) => row(r, namedRows.length + i))}</div>
         </>
       )}
-      {filtering && rows.length === 0 && (
+      {filtering && hits.length === 0 && (
         <p className="ca-empty">
           No file’s path or changes hold that.{' '}
           <button type="button" className="ca-linkbtn" onClick={() => type('')}>

@@ -97,6 +97,66 @@ export function filterFiles(files: PrFile[], text: string): { named: FileHit[]; 
   return { named, mentioned };
 }
 
+/** A folder of the files the list shows as a tree: its path, what its row says (its name, or its
+ *  names down to the first folder that holds a file or more than one folder, `src/ui`, as an
+ *  editor's tree folds them), the folders under it and then its files, each in the order GitHub
+ *  lists them, and how many files it holds, at any depth. The tree's root has no path. */
+export interface FileFolder {
+  path: string;
+  name: string;
+  folders: FileFolder[];
+  files: FileHit[];
+  count: number;
+}
+
+/** `hits` by folder, in a tree whose root is the repository's. */
+export function fileTree(hits: FileHit[]): FileFolder {
+  const root: FileFolder = { path: '', name: '', folders: [], files: [], count: 0 };
+  const byPath = new Map([['', root]]);
+  const folder = (path: string): FileFolder => {
+    let f = byPath.get(path);
+    if (f) return f;
+    const { dir, name } = splitPath(path);
+    f = { path, name, folders: [], files: [], count: 0 };
+    byPath.set(path, f);
+    folder(dir).folders.push(f);
+    return f;
+  };
+  for (const hit of hits) folder(splitPath(hit.file.path).dir).files.push(hit);
+  // Each folder that holds only a folder is drawn as one row with it, and counted.
+  const finish = (f: FileFolder): FileFolder => {
+    let at = f;
+    while (at !== root && at.files.length === 0 && at.folders.length === 1) at = { ...at.folders[0], name: `${at.name}/${at.folders[0].name}` };
+    const folders = at.folders.map(finish);
+    return { ...at, folders, count: folders.reduce((n, c) => n + c.count, at.files.length) };
+  };
+  return finish(root);
+}
+
+/** A row of the list as a tree draws it: a folder or a file, `depth` folders in. */
+export type TreeRow = { kind: 'folder'; folder: FileFolder; depth: number } | { kind: 'file'; hit: FileHit; depth: number };
+
+/** The rows `tree` (`fileTree`) shows, in order: each folder, then, unless it's in `shut`, what's
+ *  in it. */
+export function treeRows(tree: FileFolder, shut: ReadonlySet<string>): TreeRow[] {
+  const out: TreeRow[] = [];
+  const walk = (f: FileFolder, depth: number) => {
+    for (const c of f.folders) {
+      out.push({ kind: 'folder', folder: c, depth });
+      if (!shut.has(c.path)) walk(c, depth + 1);
+    }
+    for (const hit of f.files) out.push({ kind: 'file', hit, depth });
+  };
+  walk(tree, 0);
+  return out;
+}
+
+/** The folders a file is in, from the outermost: what has to be open for it to show in a tree. */
+export function foldersOf(path: string): string[] {
+  const parts = path.split('/').slice(0, -1);
+  return parts.map((_, i) => parts.slice(0, i + 1).join('/'));
+}
+
 /** A line of a file's diff as its view draws it: a hunk's header, a line added, removed or the
  *  same on both sides, or git's note that a side has no newline at its end. `old` and `new` are
  *  its numbers in the file before and after, where it's on that side. `text` is without its

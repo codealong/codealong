@@ -6,7 +6,9 @@
 // colors (syntax.ts) and the words marked in them;
 // Open all opens what the filter lists; Escape clears the filter, then leaves it; ⌘F comes back to
 // it, and in the main window's PRs ⌘F from the list opens the list's find (ListBar.tsx) instead
-// (findKeys.ts); and a filter nothing matches says so, with a way to clear it.
+// (findKeys.ts); and a filter nothing matches says so, with a way to clear it. Tree lists the
+// files in their folders, which a click or ⏎ shuts and opens, ↑ ↓ going over them too, and Open
+// all opens the folders of what it opens.
 //   PREVIEW_WAIT=60000 scripts/preview.sh waiting '' scripts/preview/pr-files-check.js
 //   PREVIEW_WAIT=60000 scripts/preview.sh prs '' scripts/preview/pr-files-check.js
 (function () {
@@ -137,6 +139,54 @@
     })
     .then(function () {
       check('with a way to clear it', input().value === '' && names().length === 12);
+      q('.ca-prfiles-view [aria-label="Tree"]').click();
+      return wait(100);
+    })
+    .then(function () {
+      var folders = all('.ca-prfolder-name').map(function (n) { return n.textContent; });
+      check('Tree lists the files in their folders, a folder that holds only a folder drawn with it', JSON.stringify(folders) === JSON.stringify(['apps', 'app/src', 'teams', 'console', 'nav', 'server', 'src', 'project', 'team', 'migrations', 'docs']), JSON.stringify(folders));
+      check('each file under its folder by its name alone', names().length === 12 && !q('.ca-prfile-dir') && names()[0] === 'TeamPicker.tsx' && names()[11] === 'yarn.lock', JSON.stringify(names()));
+      var bar = function (name) { return all('.ca-prfile').filter(function (r) { var n = r.querySelector('.ca-prfile-name, .ca-prfolder-name'); return n && n.textContent === name; })[0].querySelector('.ca-prfile-bar'); };
+      check('set in a step for each folder it’s in', getComputedStyle(bar('TeamPicker.tsx')).paddingLeft === '54px' && getComputedStyle(bar('apps')).paddingLeft === '0px', getComputedStyle(bar('TeamPicker.tsx')).paddingLeft);
+      bar('server').querySelector('.ca-prfile-head').click();
+      return wait(100);
+    })
+    .then(function () {
+      check('a click shuts a folder, which says how many files it holds', names().length === 7 && all('.ca-prfolder-count').map(function (n) { return n.textContent; }).join() === '5 files', JSON.stringify(names()));
+      input().focus();
+      return filter('team');
+    })
+    .then(function () {
+      var folders = all('.ca-prfolder-name').map(function (n) { return n.textContent; });
+      check('the filter lists what it finds in its folders, the shut ones shut', JSON.stringify(folders) === JSON.stringify(['apps', 'app/src/teams', 'server', 'docs']) && JSON.stringify(names()) === JSON.stringify(['TeamPicker.tsx', 'TeamPicker.spec.tsx', 'teamValues.ts', 'teams.md']), JSON.stringify(folders) + ' ' + JSON.stringify(names()));
+      check('the words marked in the folders', (q('.ca-prfolder-name mark') || {}).textContent === 'team');
+      return [1, 2, 3, 4, 5].reduce(function (p) { return p.then(function () { return press('ArrowDown'); }); }, Promise.resolve());
+    })
+    .then(function () {
+      check('↓ goes over the folders too', (q('.ca-prfile.is-active .ca-prfolder-name') || {}).textContent === 'server');
+      return press('Enter');
+    })
+    .then(function () {
+      check('⏎ opens a folder', names().indexOf('TeamService.ts') >= 0 && names().length === 7, JSON.stringify(names()));
+      all('.ca-prfile.is-folder .ca-prfile-head')[1].click();
+      return wait(100);
+    })
+    .then(function () {
+      check('with a folder shut again', names().indexOf('TeamPicker.tsx') < 0);
+      q('.ca-prfiles-top .ca-linkbtn').click();
+      return wait(100);
+    })
+    .then(function () {
+      check('Open all opens the folders the files it opens are in', all('.ca-prfile.is-open:not(.is-folder)').length === 7 && names().indexOf('TeamPicker.tsx') >= 0, String(all('.ca-prfile.is-open:not(.is-folder)').length));
+      q('.ca-prfiles-top .ca-linkbtn').click();
+      return press('Escape');
+    })
+    .then(function () {
+      q('.ca-prfiles-view [aria-label="List"]').click();
+      return wait(100);
+    })
+    .then(function () {
+      check('List lists them one after another again', !q('.ca-prfolder-name') && names().length === 12 && !!q('.ca-prfile-dir'));
     })
     .then(done, stopped);
 })();
