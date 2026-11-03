@@ -88,8 +88,6 @@
     else localStorage.removeItem(name);
     window.dispatchEvent(new StorageEvent('storage', { key: name, newValue: value }));
   };
-  // The questions as answers are kept for (drafts.ts `askedAs`).
-  var asked = function () { return JSON.stringify(pending.questions.map(function (x) { return [x.question, !!x.multiSelect, x.options.map(function (o) { return o.label; })]; })); };
   var answerButton = function () { return q('.ca-composer-foot .ca-btn--primary', box()); };
   var away = function () {
     press(otherRow());
@@ -114,7 +112,7 @@
       choice('Tue').click();
       type(own(), 'mornings only');
       var k = kept() || {};
-      check('your answers are kept as you go', k.call === pending.id && k.asked === asked() && k.at === 1 && JSON.stringify(k.picks) === JSON.stringify({ 'Which color do you prefer?': ['Red'], 'Which days suit you?': ['Tue'] }) && k.own['Which days suit you?'] === 'mornings only', stored());
+      check('your answers are kept as you go', k.call === pending.id && k.at === 1 && JSON.stringify(k.picks) === JSON.stringify({ 'Which color do you prefer?': ['Red'], 'Which days suit you?': ['Tue'] }) && k.own['Which days suit you?'] === 'mornings only', stored());
       return away();
     })
     .then(function () {
@@ -128,7 +126,7 @@
     .then(function () {
       check('its pick is kept too', on(choice('Red')) && !on(choice('Blue')));
       // Another window picks Blue.
-      fromThere({ call: pending.id, asked: asked(), picks: { 'Which color do you prefer?': ['Blue'], 'Which days suit you?': ['Tue'] }, own: { 'Which color do you prefer?': '', 'Which days suit you?': 'mornings only' }, at: 0 });
+      fromThere({ call: pending.id, picks: { 'Which color do you prefer?': ['Blue'], 'Which days suit you?': ['Tue'] }, own: { 'Which color do you prefer?': '', 'Which days suit you?': 'mornings only' }, at: 0 });
       return until(function () { return on(choice('Blue')); }, 2000, 'another window’s pick');
     })
     .then(function () {
@@ -153,17 +151,33 @@
       check('another call starts afresh, though it asks the same', /Which color/.test(showing()) && !on(choice('Red')) && !on(choice('Blue')) && !q('svg', steps()[0]), showing());
       check('and the last call’s answers go', stored() === null, stored());
       choice('Blue').click();
-      return until(function () { return !!stored(); }, 2000, 'Blue kept');
+      return until(function () { return /Which days/.test(showing()); }, 2000, 'the second question');
     })
     .then(function () {
-      // The call's questions offering other choices: Blue isn't one to send.
+      choice('Tue').click();
+      return until(function () { return on(choice('Tue')); }, 2000, 'Tue picked');
+    })
+    .then(function () {
+      // The call's questions offering other choices as you answer them, as a background job's
+      // take more from its transcript: Blue isn't one to send any more, Tue still is.
       pending = Object.assign({}, pending, { questions: [{ question: 'Which color do you prefer?', header: 'Color', options: [{ label: 'Green' }, { label: 'Yellow' }] }, pending.questions[1]] });
+      window.__pushSides();
+      return until(function () { return !q('svg', steps()[0]); }, 5000, 'the questions asked otherwise');
+    })
+    .then(function () {
+      var k = kept() || {};
+      check('a pick no longer offered goes, as the questions change', !q('svg', steps()[0]) && !!q('svg', steps()[1]) && JSON.stringify(k.picks) === JSON.stringify({ 'Which days suit you?': ['Tue'] }), stored());
+      check('the others stay', /Which days/.test(showing()) && on(choice('Tue')), showing());
+      check('and nothing is ready to answer', answerButton().textContent.trim().indexOf('Next') === 0, answerButton().textContent);
       return away();
     })
     .then(function () {
-      check('other choices start afresh', /Which color/.test(showing()) && !!choice('Green') && !on(choice('Green')) && !on(choice('Yellow')) && !q('svg', steps()[0]), showing());
-      check('and nothing is ready to answer', answerButton().textContent.trim().indexOf('Next') === 0 || answerButton().disabled, answerButton().textContent);
-      check('and the answers to the others go', stored() === null, stored());
+      check('back again, it’s still gone', !q('svg', steps()[0]) && on(choice('Tue')), showing());
+      steps()[0].click();
+      return until(function () { return /Which color/.test(showing()); }, 2000, 'the first question');
+    })
+    .then(function () {
+      check('with none of the new choices picked', !!choice('Green') && !on(choice('Green')) && !on(choice('Yellow')));
       // Another call.
       pending = Object.assign({}, pending, { id: 'ask-23', questions: [{ question: 'Which shade do you prefer?', header: 'Shade', options: [{ label: 'Red' }, { label: 'Blue' }] }, pending.questions[1]] });
       return away();

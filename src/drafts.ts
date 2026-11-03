@@ -3,8 +3,6 @@
 // session's panel show the same draft. It outlasts the peek closing or moving to another session,
 // the session changing its place on the bar, and a restart. Sending it clears it.
 
-import type { Question } from './types';
-
 /** Each session's draft is its own item, so windows writing drafts for different sessions never
  *  write over each other's. */
 const PREFIX = 'codealong.draft.';
@@ -105,10 +103,9 @@ export interface AnswersDraft {
    *  of the server too (claude/asks.rs `request_id`): another call's questions start afresh,
    *  though they ask the same. */
   call: string;
-  /** The questions as they're asked (`askedAs`): picks for others could name choices they don't
-   *  offer. */
-  asked: string;
-  /** Your picks by question; one you haven't touched isn't in it, so a suggested pick still shows. */
+  /** Your picks by question; one you haven't touched isn't in it, so a suggested pick still shows.
+   *  They were picked among the call's questions as they were asked then, which can change as it
+   *  waits, so the box takes only the ones still offered (SessionReply.tsx `stillOffered`). */
   picks: Record<string, string[]>;
   /** Your own words by question. */
   own: Record<string, string>;
@@ -116,26 +113,20 @@ export interface AnswersDraft {
   at: number;
 }
 
-/** The questions as answers are kept for: each one's words, whether it takes several and its
- *  choices. */
-export function askedAs(questions: Question[]): string {
-  return JSON.stringify(questions.map((q) => [q.question, !!q.multiSelect, q.options.map((o) => o.label)]));
-}
-
-/** The answers kept for `call`'s questions as they're `asked`, from its draft's text; null for
- *  another call's or none. */
-export function readAnswers(text: string, call: string, asked: string): AnswersDraft | null {
+/** The answers kept for `call`'s questions, from its draft's text; null for another call's or
+ *  none. */
+export function readAnswers(text: string, call: string): AnswersDraft | null {
   if (!text) return null;
   try {
     const v: unknown = JSON.parse(text);
     if (typeof v !== 'object' || v === null) return null;
     const d = v as Partial<AnswersDraft>;
-    if (d.call !== call || d.asked !== asked) return null;
+    if (d.call !== call) return null;
     const picks: Record<string, string[]> = {};
     for (const [q, labels] of Object.entries(d.picks ?? {})) if (Array.isArray(labels)) picks[q] = labels.filter((l): l is string => typeof l === 'string');
     const own: Record<string, string> = {};
     for (const [q, words] of Object.entries(d.own ?? {})) if (typeof words === 'string') own[q] = words;
-    return { call, asked, picks, own, at: typeof d.at === 'number' && d.at >= 0 ? Math.floor(d.at) : 0 };
+    return { call, picks, own, at: typeof d.at === 'number' && d.at >= 0 ? Math.floor(d.at) : 0 };
   } catch {
     return null;
   }

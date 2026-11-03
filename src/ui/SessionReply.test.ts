@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import * as fx from '../testing/fixtures';
 import type { Question, Session } from '../types';
-import { boxPlace, givenBack, replyPlaceholder, takesReply } from './SessionReply';
+import { boxPlace, givenBack, replyPlaceholder, stillOffered, takesReply } from './SessionReply';
 
 const session = (over: Partial<Session> = {}): Session => fx.session({ live: true, asks: false, hosted: false, ...over });
 
@@ -74,5 +74,22 @@ describe('givenBack', () => {
     // Words of your own that name a choice stay words: the answer is sent again as it was.
     expect(givenBack([days], { 'Which days?': ['Tue', 'Mon, only mornings'] })).toEqual({ picks: { 'Which days?': ['Tue'] }, own: { 'Which days?': 'Mon, only mornings' } });
     expect(givenBack([color, days], undefined)).toEqual({ picks: {}, own: {} });
+  });
+});
+
+describe('stillOffered', () => {
+  const color: Question = { question: 'Which color?', multiSelect: false, options: [{ label: 'Red' }, { label: 'Blue' }] };
+  const days: Question = { question: 'Which days?', multiSelect: true, options: [{ label: 'Mon' }, { label: 'Tue' }] };
+
+  it('keeps the picks its questions still offer', () => {
+    expect(stillOffered([color, days], { 'Which color?': ['Red'], 'Which days?': ['Mon', 'Tue'] })).toEqual({ 'Which color?': ['Red'], 'Which days?': ['Mon', 'Tue'] });
+    // Other choices now: the question is untouched again, so what was suggested shows.
+    expect(stillOffered([{ ...color, options: [{ label: 'Green' }, { label: 'Yellow' }] }], { 'Which color?': ['Red'] })).toEqual({});
+    // One of them gone.
+    expect(stillOffered([{ ...days, options: [{ label: 'Tue' }, { label: 'Wed' }] }], { 'Which days?': ['Mon', 'Tue'] })).toEqual({ 'Which days?': ['Tue'] });
+    // Taking one now, it keeps the first.
+    expect(stillOffered([{ ...days, multiSelect: false }], { 'Which days?': ['Tue', 'Mon'] })).toEqual({ 'Which days?': ['Tue'] });
+    // A question no longer asked, and one whose picks were all taken back.
+    expect(stillOffered([days], { 'Which color?': ['Red'], 'Which days?': [] })).toEqual({ 'Which days?': [] });
   });
 });

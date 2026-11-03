@@ -95,7 +95,7 @@ import { answerAhead, sendAhead, sending, useAhead } from '../ahead';
 import { shortOf } from '../devices';
 import { dismissSuggestions, forkSession, runCommand, sessionCancel, sessionPending, sessionWay, sideAsk, sideWindow, switchSessionEffort, switchSessionMode, switchSessionModel } from '../api';
 import { filesToAttach, keepFiles, useFileDrop } from '../attachInput';
-import { answersDraft, askedAs, onDraftChange, readAnswers, readDraft, sideDraft, writeDraft, writtenAnswers } from '../drafts';
+import { answersDraft, onDraftChange, readAnswers, readDraft, sideDraft, writeDraft, writtenAnswers } from '../drafts';
 import { sessionPlace } from '../harness';
 import { stoppable, stuckMidTurn, waitsOnYou } from '../lanes';
 import { beingRead, notAsked, shownSide, showSides, startingSide, useAside, usePopped, useSideAnswer } from '../side';
@@ -1155,6 +1155,22 @@ export function givenBack(questions: Question[], given: Answers | undefined): { 
   return { picks, own };
 }
 
+/** Picks that are still among their questions' choices, one for a question that takes one. A
+ *  call's questions can change as it waits (a background job's take their headers and whether
+ *  they take several from its transcript once it has them), and picks made among the earlier
+ *  ones would answer with choices that don't show. A question whose picks are all gone has none,
+ *  so what was suggested for it shows again. */
+export function stillOffered(questions: Question[], picks: Record<string, string[]>): Record<string, string[]> {
+  const kept: Record<string, string[]> = {};
+  for (const q of questions) {
+    const labels = picks[q.question];
+    if (!labels) continue;
+    const offered = labels.filter((l) => q.options.some((o) => o.label === l));
+    if (offered.length || !labels.length) kept[q.question] = q.multiSelect ? offered : offered.slice(0, 1);
+  }
+  return kept;
+}
+
 /** A session waiting on you: what it wants to do, with Allow and Deny when it can be answered here. */
 function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNext }: ApprovalProps) {
   const [pending, setPending] = useState<Pending | null | undefined>(undefined);
@@ -1475,14 +1491,20 @@ interface QuestionsProps {
  *  one at a time, as Claude Code's own prompt shows them, with a strip of their headers to go
  *  between them: all at once, a few long ones ran off the bottom of the panel. */
 function Questions({ questions, draft, call, unwritten, where, onOpen, keys, busy, note, given, onAnswer, onDecline, suggested, onDismissSuggested, folded, onFold }: QuestionsProps) {
-  // The questions as they're asked, for the answers kept.
-  const shape = askedAs(questions);
   // Your picks and words as you left them, in this window or another, on the question you were
   // on. Kept as they change, they're as new as an answer that didn't go or newer, which has them
   // only where nothing was kept (storage turned down, or the suggested picks sent untouched).
-  const [kept] = useState(() => readAnswers(readDraft(draft), call, shape));
+  const [kept] = useState(() => readAnswers(readDraft(draft), call));
   // Your picks, by question; a question you haven't touched has the ones suggested for it.
-  const [picks, setPicks] = useState<Record<string, string[]>>(() => kept?.picks ?? givenBack(questions, given).picks);
+  const [picks, setPicks] = useState<Record<string, string[]>>(() => (kept ? stillOffered(questions, kept.picks) : givenBack(questions, given).picks));
+  // The questions as they were when you picked, so picks no longer offered go as they change.
+  const shape = JSON.stringify(questions.map((q) => [q.question, !!q.multiSelect, q.options.map((o) => o.label)]));
+  const [pickedAmong, setPickedAmong] = useState(shape);
+  if (pickedAmong !== shape) {
+    setPickedAmong(shape);
+    setPicks((all) => stillOffered(questions, all));
+  }
+  const questionsNow = useLatest(questions);
   const [own, setOwn] = useState<Record<string, string>>(() => kept?.own ?? givenBack(questions, given).own);
   const offered = (q: Question): string[] => (suggested?.picks?.[q.question] ?? []).filter((l) => q.options.some((o) => o.label === l));
   const chosenFor = (q: Question): string[] => picks[q.question] ?? offered(q);
@@ -1497,25 +1519,27 @@ function Questions({ questions, draft, call, unwritten, where, onOpen, keys, bus
   // written there, and isn't written back: it may be older by then than what that window has.
   const heard = useRef<string | null>(null);
   useEffect(() => {
-    const text = writtenAnswers({ call, asked: shape, picks, own, at });
+    const text = writtenAnswers({ call, picks, own, at });
     if (text === heard.current) return;
     heard.current = null;
     if (text !== readDraft(draft)) writeDraft(draft, text);
-  }, [draft, call, shape, picks, own, at]);
+  }, [draft, call, picks, own, at]);
   useEffect(
     () =>
       onDraftChange(draft, (text) => {
         // None kept there is nothing picked there: gone back to the first question with nothing
         // picked, or answered, when this box goes too once its session says so.
-        const there = text ? readAnswers(text, call, shape) : { call, asked: shape, picks: {}, own: {}, at: 0 };
+        const there = text ? readAnswers(text, call) : { call, picks: {}, own: {}, at: 0 };
         // Another call's: this box goes once its session says so.
         if (!there) return;
-        heard.current = writtenAnswers(there);
-        setPicks(there.picks);
+        // That window may have them for the questions as they were.
+        const offered = stillOffered(questionsNow.current, there.picks);
+        heard.current = writtenAnswers({ ...there, picks: offered });
+        setPicks(offered);
         setOwn(there.own);
         setStep({ asked, at: there.at });
       }),
-    [draft, call, shape, asked],
+    [draft, call, asked, questionsNow],
   );
   const answers: Answers = {};
   for (const q of questions) {

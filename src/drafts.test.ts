@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addToDraft, answersDraft, askedAs, draftChange, pruneDrafts, putBack, readAnswers, readDraft, sideDraft, writeDraft, writtenAnswers, type DraftStorage } from './drafts';
-import type { Question } from './types';
+import { addToDraft, answersDraft, draftChange, pruneDrafts, putBack, readAnswers, readDraft, sideDraft, writeDraft, writtenAnswers, type DraftStorage } from './drafts';
 
 /** Local storage as the app's windows share it, in memory. */
 function memoryStorage(): DraftStorage & { items: Map<string, string> } {
@@ -117,51 +116,35 @@ describe('drafts', () => {
     // Storage cleared.
     expect(draftChange('claude:claude:a', { key: null, newValue: null })).toBe('');
   });
-
-  it('keeps your answers to a call’s questions apart from the box’s draft, for that call and those questions only', () => {
+  it('keeps your answers to a call’s questions apart from the box’s draft, for that call only', () => {
     const store = memoryStorage();
     const key = 'claude:claude:a';
-    const color: Question = { question: 'Which color?', multiSelect: false, options: [{ label: 'Red' }, { label: 'Blue' }] };
-    const days: Question = { question: 'Which days?', multiSelect: true, options: [{ label: 'Mon' }, { label: 'Tue' }] };
-    const asked = askedAs([color, days]);
-    const answers = { call: 'ask-1a2b', asked, picks: { 'Which days?': ['Mon', 'Tue'], 'Which color?': [] }, own: { 'Which color?': 'Green' }, at: 1 };
+    const answers = { call: 'ask-1a2b', picks: { 'Which days?': ['Mon', 'Tue'], 'Which color?': [] }, own: { 'Which color?': 'Green' }, at: 1 };
     writeDraft(key, 'for the session', store);
     writeDraft(answersDraft(key), writtenAnswers(answers), store);
     expect(readDraft(key, store)).toBe('for the session');
-    expect(readAnswers(readDraft(answersDraft(key), store), 'ask-1a2b', asked)).toEqual(answers);
+    expect(readAnswers(readDraft(answersDraft(key), store), 'ask-1a2b')).toEqual(answers);
     // Another call's questions start afresh, though they ask the same.
-    expect(readAnswers(readDraft(answersDraft(key), store), 'ask-3c4d', asked)).toBeNull();
-    // So do the call's questions asked otherwise: other choices, or one taking several no longer.
-    expect(readAnswers(readDraft(answersDraft(key), store), 'ask-1a2b', askedAs([{ ...color, options: [{ label: 'Green' }, { label: 'Yellow' }] }, days]))).toBeNull();
-    expect(readAnswers(readDraft(answersDraft(key), store), 'ask-1a2b', askedAs([color, { ...days, multiSelect: false }]))).toBeNull();
-    expect(readAnswers(readDraft(answersDraft(key), store), 'ask-1a2b', askedAs([color]))).toBeNull();
+    expect(readAnswers(readDraft(answersDraft(key), store), 'ask-3c4d')).toBeNull();
     // They go with drafts left alone for a month.
     pruneDrafts(store, Date.now() + 31 * DAY);
     expect(readDraft(answersDraft(key), store)).toBe('');
   });
 
   it('writes no answers while nothing is picked, written or gone on to', () => {
-    const none = { call: 'ask-1a2b', asked: '[]' };
-    expect(writtenAnswers({ ...none, picks: {}, own: {}, at: 0 })).toBe('');
-    expect(writtenAnswers({ ...none, picks: {}, own: { 'Which color?': '' }, at: 0 })).toBe('');
+    const call = 'ask-1a2b';
+    expect(writtenAnswers({ call, picks: {}, own: {}, at: 0 })).toBe('');
+    expect(writtenAnswers({ call, picks: {}, own: { 'Which color?': '' }, at: 0 })).toBe('');
     // Untouched again, a choice taken back is still an answer begun: a suggested pick stays away.
-    expect(writtenAnswers({ ...none, picks: { 'Which days?': [] }, own: {}, at: 0 })).not.toBe('');
-    expect(writtenAnswers({ ...none, picks: {}, own: {}, at: 1 })).not.toBe('');
+    expect(writtenAnswers({ call, picks: { 'Which days?': [] }, own: {}, at: 0 })).not.toBe('');
+    expect(writtenAnswers({ call, picks: {}, own: {}, at: 1 })).not.toBe('');
   });
 
   it('reads what of kept answers it can', () => {
-    expect(readAnswers('', 'c', 'a')).toBeNull();
-    expect(readAnswers('not json', 'c', 'a')).toBeNull();
-    expect(readAnswers('"a"', 'c', 'a')).toBeNull();
-    expect(readAnswers(JSON.stringify({ call: 'c', asked: 'a', picks: { a: ['x', 2], b: 'y' }, own: { a: 'w', b: 3 }, at: -1 }), 'c', 'a')).toEqual({
-      call: 'c',
-      asked: 'a',
-      picks: { a: ['x'] },
-      own: { a: 'w' },
-      at: 0,
-    });
-    expect(readAnswers(JSON.stringify({ call: 'c', asked: 'a' }), 'c', 'a')).toEqual({ call: 'c', asked: 'a', picks: {}, own: {}, at: 0 });
-    // Kept before they were kept by call.
-    expect(readAnswers(JSON.stringify({ asked: 'a' }), 'c', 'a')).toBeNull();
+    expect(readAnswers('', 'c')).toBeNull();
+    expect(readAnswers('not json', 'c')).toBeNull();
+    expect(readAnswers('"c"', 'c')).toBeNull();
+    expect(readAnswers(JSON.stringify({ call: 'c', picks: { a: ['x', 2], b: 'y' }, own: { a: 'w', b: 3 }, at: -1 }), 'c')).toEqual({ call: 'c', picks: { a: ['x'] }, own: { a: 'w' }, at: 0 });
+    expect(readAnswers(JSON.stringify({ call: 'c' }), 'c')).toEqual({ call: 'c', picks: {}, own: {}, at: 0 });
   });
 });
