@@ -807,9 +807,11 @@ again. Claude Code's own prompt stays up all the while, and
 whichever answer comes first counts. A background job's questions show too when the plugin didn't
 hand them over (the app restarted while they waited, say), from what its account's background
 service records of them, and its row says it asks you: a single question is answered from here
-through that service, as Claude Code's own list of agents answers it, and Decline stops its turn;
-several are answered where it runs, since the service takes only the first one's answer. An answer
-that starts with `/` or `!` is turned down there, since the job would run it as a command. Until
+through that service, as Claude Code's own list of agents answers it, and Decline stops its turn.
+The service takes only the first of several answers, so several are answered from here once the
+job's conversation has the question, with the keys a terminal's dialog is answered by (below) typed
+into the job's terminal through the service, and where it runs until then. An answer to a single
+question that starts with `/` or `!` is turned down there, since the job would run it as a command. Until
 its conversation has the question (an Opus job writes it only once it's answered), that record
 doesn't say whether a question takes several choices, so it's offered as one that takes one: to
 give several, write them in your own answer ("Red, Blue"), which is how the job takes several

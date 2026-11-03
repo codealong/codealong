@@ -1,7 +1,7 @@
 //! Claude Code's background service, through its control socket
 //! (`/tmp/cc-daemon-<uid>/<hash>/control.sock`): handing a background job a prompt, which is a
-//! way in (`Background`), and typing into its terminal (Escape, or a prompt with the keys that
-//! send it now).
+//! way in (`Background`), and typing into its terminal (Escape, a prompt with the keys that send
+//! it now, or a dialog's keys).
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
@@ -14,7 +14,7 @@ use sha2::{Digest, Sha256};
 
 use super::SEND_NOW;
 use crate::attachments::{self, Style};
-use crate::launch::pasted;
+use crate::launch::{pasted, Key, Press};
 use crate::send::{boxed, sent, Delivery, MayHaveArrived, Own, Sent, Way};
 
 /// Claude Code's daemon socket for an account, when its daemon is running.
@@ -87,6 +87,25 @@ pub fn daemon_attach_request(key: &str, job: &str, attach_id: &str) -> String {
 /// `reply` pastes text and presses Return.
 pub fn daemon_press_escape(socket: &Path, key_file: &Path, job: &str) -> Result<()> {
     daemon_type(socket, key_file, job, &[b"\x1b"])
+}
+
+/// Presses keys in a background job's terminal, as `launch::press_all` presses them in a tab
+/// (`pressed`).
+pub fn daemon_press(socket: &Path, key_file: &Path, job: &str, presses: &[Press]) -> Result<()> {
+    let writes = pressed(presses);
+    daemon_type(socket, key_file, job, &writes.iter().map(|w| w.as_bytes()).collect::<Vec<_>>())
+}
+
+/// What `daemon_type` writes for each press: a key as typed, and words pasted, then Return
+/// written apart, which a paste would take as part of it.
+fn pressed(presses: &[Press]) -> Vec<String> {
+    presses
+        .iter()
+        .flat_map(|p| match p {
+            Press::Key(key) => vec![key.typed().to_string()],
+            Press::Words(words) => vec![pasted(words), Key::Return.typed().to_string()],
+        })
+        .collect()
 }
 
 /// Types into a background job's terminal: attaches as `claude attach` does, which hands what

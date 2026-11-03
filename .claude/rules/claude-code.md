@@ -134,7 +134,10 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   across an app relaunch and a plugin update, cause not found; again on 2026-11-03 in a terminal
   session, within eight minutes and before any relaunch, which `asks.log` now explains when it
   happens): `claude/registry.rs` (`job_questions`), `claude/mod.rs` (`job_pending`,
-  `answer_job_questions`).
+  `answer_job_questions`). Several are answered with the dialog's keys (questions.rs) typed
+  through `attach` once the transcript has the call: two Haiku 5.5 jobs on 2.1.317 took a pick,
+  ticks and words of your own that way (2026-11-03). Still on 2.1.317, `block` says no more than
+  above.
 - Warm spares (from 2.1.286), which Claude Code's own lookups and `read_registry` skip:
   `claude/registry.rs` (`RegistryEntry::spare`, `read_registry`). A spare's registry entry says
   `"spare": true`, `kind: bg`, `status: idle` and `name` its job ID, and its roster entry
@@ -586,8 +589,12 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   sessions held it until the answer every time, while a Haiku 5.5 one had the text and the call
   in its transcript, `stop_reason: "tool_use"`, as its question waited (2026-10-16). On 2.1.316
   and 2.1.317 (2026-11-03) an Opus 5.5 session had the call written as its question waited, twice,
-  and held it back once, while a Haiku 5.5 one held it back. The hook's input and the registry have
-  only the call.
+  and held it back once, while a Haiku 5.5 one held it back. A line written after it lets it out:
+  Haiku 5.5 and Opus 5.5 background jobs asked straight away held the call back, and Haiku jobs
+  whose background command reported while they waited (its `queue-operation` `enqueue`) had it
+  written by then, and so had an Opus job whose report came 33 s after its question (2.1.317,
+  2026-11-03). The hook's input and the registry
+  have only the call.
 - Claude Code's question dialog in a terminal (2.1.317, in tmux, 2026-11-03), its keys, and
   answering one the hook didn't hand over by pressing them: `claude/questions.rs` (module header,
   `keys`), `claude/mod.rs` (`keyed_questions`). With the call held back as above, such questions

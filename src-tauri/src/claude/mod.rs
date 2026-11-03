@@ -285,7 +285,7 @@ impl crate::harness::Adapter for ClaudeCode {
         // background job's are answered through its account's service, whether its transcript
         // has the call yet or not, and a terminal's with keys pressed there (questions.rs).
         let written = waiting_on(self, ctx, s, INPUT_NEEDED).filter(|(c, _)| !c.questions.is_empty());
-        if let Some(p) = job_pending(ctx, s, written.as_ref().map(|(c, _)| c)) {
+        if let Some(p) = job_pending(self, ctx, s, written.as_ref().map(|(c, _)| c)) {
             return Some(p);
         }
         if let Some((call, reg)) = written {
@@ -1882,6 +1882,8 @@ const JOB_ASKS_ID: &str = "job-asks:";
 struct JobAsks {
     id: String,
     questions: Vec<crate::harness::Question>,
+    /// The transcript's call for them, once it's written.
+    call: Option<Item>,
     reg: RegistryEntry,
 }
 
@@ -1895,25 +1897,34 @@ fn job_asks(ctx: &crate::harness::Ctx, s: &crate::model::Session, written: Optio
     let reg = session_entry(&home, s).filter(|r| r.kind.as_deref() == Some("bg") && r.waits_on(INPUT_NEEDED))?;
     let block = registry::job_questions(&home, reg.job_id.as_deref()?)?;
     let asked = questions_of(&block);
-    let questions = match written {
-        Some(call) if call.questions.iter().map(|q| &q.question).eq(asked.iter().map(|q| &q.question)) => call.questions.clone(),
-        _ => asked,
-    };
+    let call = written.filter(|call| call.questions.iter().map(|q| &q.question).eq(asked.iter().map(|q| &q.question))).cloned();
+    let questions = call.as_ref().map_or(asked, |c| c.questions.clone());
     let hash: String = Sha256::digest(format!("{}\n{block}", reg.status_updated_at.unwrap_or(0)).as_bytes()).iter().take(6).map(|b| format!("{b:02x}")).collect();
-    (!questions.is_empty()).then(|| JobAsks { id: format!("{JOB_ASKS_ID}{hash}"), questions, reg })
+    (!questions.is_empty()).then(|| JobAsks { id: format!("{JOB_ASKS_ID}{hash}"), questions, call, reg })
 }
 
-/// A background job's questions as the panel shows them. Claude Code's service takes a reply to
-/// a job waiting on questions as the first one's answer (`answer_job_questions`), so one question
-/// is answered from here; of several, the rest would go unanswered, so those are answered where
-/// it runs.
-fn job_pending(ctx: &crate::harness::Ctx, s: &crate::model::Session, written: Option<&Item>) -> Option<crate::harness::Pending> {
-    let JobAsks { id, questions, .. } = job_asks(ctx, s, written)?;
-    let cannot = if questions.len() > 1 {
-        Some(format!("Claude Code takes only the first of {} questions' answers from outside a background job.", questions.len()))
-    } else {
-        daemon_socket(&ctx.account.home_path()).is_none().then(|| "Its account's background service isn't running.".to_string())
+/// Why a background job's questions can't be answered from Codealong, or None when they can.
+/// Claude Code's service takes a reply to a job waiting on questions as the first one's answer, so
+/// one question goes that way whether its transcript has the call or not. Several go as the
+/// dialog's keys typed into the job's terminal (`answer_job_questions`), as a terminal session's
+/// are pressed in its tab (questions.rs), which needs the call: it says whether a question takes
+/// several, and which of Claude Code's dialogs shows them (`undialed`).
+fn job_unkeyed(a: &ClaudeCode, ctx: &crate::harness::Ctx, s: &crate::model::Session, asks: &JobAsks) -> Option<String> {
+    if asks.questions.len() < 2 {
+        return None;
+    }
+    let Some(call) = &asks.call else {
+        return Some(format!("{QUESTIONS_NOT_HANDED} Its background service takes only the first of {} answers, and Codealong presses the dialog's keys for them only once the job has written the call.", asks.questions.len()));
     };
+    undialed(a, ctx, s, call)
+}
+
+/// A background job's questions as the panel shows them, answered through its account's service
+/// (`job_unkeyed`).
+fn job_pending(a: &ClaudeCode, ctx: &crate::harness::Ctx, s: &crate::model::Session, written: Option<&Item>) -> Option<crate::harness::Pending> {
+    let asks = job_asks(ctx, s, written)?;
+    let cannot = job_unkeyed(a, ctx, s, &asks).or_else(|| daemon_socket(&ctx.account.home_path()).is_none().then(|| "Its account's background service isn't running.".to_string()));
+    let JobAsks { id, questions, .. } = asks;
     Some(crate::harness::Pending {
         id,
         label: crate::board::asks_you(&questions[0].question),
@@ -1934,24 +1945,32 @@ fn job_pending(ctx: &crate::harness::Ctx, s: &crate::model::Session, written: Op
 
 /// A background job's questions and the way to it, while it still waits on the ones `id` names:
 /// a reply to a job that has gone on is a prompt, not an answer.
-fn job_asked(a: &ClaudeCode, ctx: &crate::harness::Ctx, s: &crate::model::Session, id: &str) -> anyhow::Result<(Vec<crate::harness::Question>, daemon::Background)> {
+fn job_asked(a: &ClaudeCode, ctx: &crate::harness::Ctx, s: &crate::model::Session, id: &str) -> anyhow::Result<(JobAsks, daemon::Background)> {
     let written = waiting_on(a, ctx, s, INPUT_NEEDED).map(|(c, _)| c);
     let gone = || anyhow::anyhow!("It isn't waiting on that any more.");
     let asks = job_asks(ctx, s, written.as_ref()).filter(|a| a.id == id).ok_or_else(gone)?;
     let home = ctx.account.home_path();
     let socket = daemon_socket(&home).ok_or_else(|| anyhow::anyhow!("Its account's background service isn't running."))?;
-    let job = asks.reg.job_id.ok_or_else(gone)?;
-    Ok((asks.questions, daemon::Background { socket, key_file: home.join("daemon/control.key"), job }))
+    let job = asks.reg.job_id.clone().ok_or_else(gone)?;
+    Ok((asks, daemon::Background { socket, key_file: home.join("daemon/control.key"), job }))
 }
 
-/// Answers a background job's question through its account's service, as Claude Code's own list
-/// of agents does: a `reply` to a job waiting on questions answers the first, matched to a
-/// choice's label whatever its case, else taken as your own words, so several picks go as "A, B"
-/// (2.1.303's code; Haiku jobs answered "Apple" and "red, Blue" so, 2026-10-19).
+/// Answers a background job's questions through its account's service. One goes as Claude Code's
+/// own list of agents answers it: a `reply` to a job waiting on questions answers the first,
+/// matched to a choice's label whatever its case, else taken as your own words, so several picks
+/// go as "A, B" (2.1.303's code; Haiku jobs answered "Apple" and "red, Blue" so, 2026-10-19).
+/// Several go as the dialog's keys typed into the job's terminal, as `claude attach` would.
 fn answer_job_questions(a: &ClaudeCode, ctx: &crate::harness::Ctx, s: &crate::model::Session, id: &str, answers: &Value) -> anyhow::Result<String> {
-    let (questions, job) = job_asked(a, ctx, s, id)?;
+    let (asks, job) = job_asked(a, ctx, s, id)?;
+    if let Some(why) = job_unkeyed(a, ctx, s, &asks) {
+        anyhow::bail!("{why}");
+    }
+    let questions = asks.questions;
     if questions.len() > 1 {
-        anyhow::bail!("Claude Code takes only the first question's answer from outside a background job: answer them where it runs.");
+        let answers = asks::picked(&questions, answers)?;
+        let keys = questions::keys(&questions, &answers)?;
+        daemon::daemon_press(&job.socket, &job.key_file, &job.job, &keys)?;
+        return Ok(format!("Answered: {}.", said_of(&answers)));
     }
     let question = &questions[0].question;
     let text = match asks::picked(&questions, answers)?.remove(question) {
@@ -1985,7 +2004,7 @@ const QUESTIONS_NOT_HANDED: &str = "Codealong didn't get these as they were aske
 /// The questions a session in a terminal waits on you to answer that the plugin's hook didn't
 /// hand over, with its registry entry, while they're still the ones `id` names: answered with
 /// keys pressed there (questions.rs). A background job's go through its account's service
-/// (`job_pending`).
+/// (`job_unkeyed`).
 fn keyed_questions(a: &ClaudeCode, ctx: &crate::harness::Ctx, s: &crate::model::Session, id: &str) -> anyhow::Result<(Item, RegistryEntry)> {
     let Some((call, reg)) = waiting_on(a, ctx, s, INPUT_NEEDED).filter(|(c, _)| !c.questions.is_empty()) else {
         anyhow::bail!("It isn't waiting on that any more.");
@@ -2000,21 +2019,26 @@ fn keyed_questions(a: &ClaudeCode, ctx: &crate::harness::Ctx, s: &crate::model::
 }
 
 /// Why questions the hook didn't hand over can't be answered with keys where the session runs,
-/// or None when they can: a background job's go through its account's service (`job_pending`),
-/// choices with previews are shown in a dialog whose keys Codealong doesn't press
-/// (`questions::previewed`), so a call whose own input can't be read to tell (a helper's, in
-/// its own log, or a line longer than the tail read) isn't pressed either, and some terminals
-/// can't press a single key (`cannot_press`).
+/// or None when they can: a background job's go through its account's service (`job_unkeyed`),
+/// the call's dialog may not be the one whose keys Codealong presses (`undialed`), and some
+/// terminals can't press a single key (`cannot_press`).
 fn unkeyed(a: &ClaudeCode, ctx: &crate::harness::Ctx, s: &crate::model::Session, call: &Item, reg: &RegistryEntry) -> Option<String> {
     if reg.kind.as_deref() == Some("bg") {
         return Some(QUESTIONS_NOT_HANDED.to_string());
     }
+    undialed(a, ctx, s, call).or_else(|| cannot_press(ctx, reg).map(|why| format!("{QUESTIONS_NOT_HANDED} {why}")))
+}
+
+/// Why a call's questions aren't answered with the keys `questions::keys` presses, or None when
+/// they are: choices with previews are shown in a dialog whose keys Codealong doesn't press
+/// (`questions::previewed`), so a call whose own input can't be read to tell (a helper's, in its
+/// own log, or a line longer than the tail read) isn't pressed either.
+fn undialed(a: &ClaudeCode, ctx: &crate::harness::Ctx, s: &crate::model::Session, call: &Item) -> Option<String> {
     match record(a, ctx, s).ok().zip(call.id.as_deref()).and_then(|(path, id)| call_input(&path, id)) {
-        None => return Some(format!("{QUESTIONS_NOT_HANDED} Codealong couldn't read the call itself to tell which of Claude Code's dialogs shows them.")),
-        Some(input) if questions::previewed(&input) => return Some(format!("{QUESTIONS_NOT_HANDED} Their choices have previews, shown in a dialog Codealong doesn't press keys in.")),
-        Some(_) => {}
+        None => Some(format!("{QUESTIONS_NOT_HANDED} Codealong couldn't read the call itself to tell which of Claude Code's dialogs shows them.")),
+        Some(input) if questions::previewed(&input) => Some(format!("{QUESTIONS_NOT_HANDED} Their choices have previews, shown in a dialog Codealong doesn't press keys in.")),
+        Some(_) => None,
     }
-    cannot_press(ctx, reg).map(|why| format!("{QUESTIONS_NOT_HANDED} {why}"))
 }
 
 /// How much of a transcript's end `call_input` reads: the call a dialog is up for is the last
@@ -2169,8 +2193,8 @@ mod tests {
     }
 
     /// A background job's questions come from its record whether or not its transcript has the
-    /// call, and one is answered through its account's service: a reply answers it, Escape
-    /// declines it.
+    /// call, and are answered through its account's service: a reply answers one, the dialog's
+    /// keys typed into its terminal answer several once the call is written, Escape declines them.
     #[test]
     fn a_background_jobs_question_is_answered_through_its_service() {
         use crate::harness::{Adapter, Answer};
@@ -2211,7 +2235,7 @@ mod tests {
         let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
-            for conn in listener.incoming().take(3) {
+            for conn in listener.incoming().take(4) {
                 let mut conn = conn.unwrap();
                 let mut reader = BufReader::new(conn.try_clone().unwrap());
                 let mut line = String::new();
@@ -2264,12 +2288,31 @@ mod tests {
         assert!(ClaudeCode.answer_questions(&ctx, &session, &asked_before, &answers(serde_json::json!("Apple"))).unwrap_err().to_string().contains("isn't waiting"));
         assert!(ClaudeCode.answer(&ctx, &session, &asked_before, Answer::Deny).is_err());
 
-        // Of several, the service would answer only the first.
-        blocked(&format!(r#"{fruit},{{"question":"Which size?","options":[{{"label":"Small"}}]}}"#));
+        // Of several, the service would answer only the first, and until the job has written the
+        // call nothing says how its dialog takes them: they're answered where it runs.
+        std::fs::write(dir.join(format!("{id}.jsonl")), format!("{prompt}\n")).unwrap();
+        blocked(&format!(r#"{fruit},{{"question":"Which size?","options":[{{"label":"Small"}},{{"label":"Large"}}]}}"#));
         let p = ClaudeCode.pending(&ctx, &session).unwrap();
         assert_eq!(p.questions.len(), 2);
-        assert!(p.cannot.as_deref().is_some_and(|c| c.contains("first of 2")));
+        assert!(p.cannot.as_deref().is_some_and(|c| c.starts_with(QUESTIONS_NOT_HANDED) && c.contains("first of 2")), "{:?}", p.cannot);
         assert!(ClaudeCode.answer_questions(&ctx, &session, &p.id, &answers(serde_json::json!("Apple"))).is_err());
+
+        // Once it has, they're answered with the dialog's keys typed into the job's terminal, as
+        // in a terminal's tab: back to the first question, a tick and Tab on the one that takes
+        // several, "Type something." and your words, pasted then sent, then Submit.
+        let both = ask.replace(r#"{"label":"Pear"}]}]"#, r#"{"label":"Pear"}]},{"question":"Which size?","header":"Size","multiSelect":false,"options":[{"label":"Small"},{"label":"Large"}]}]"#);
+        std::fs::write(dir.join(format!("{id}.jsonl")), format!("{prompt}\n{both}\n")).unwrap();
+        let p = ClaudeCode.pending(&ctx, &session).unwrap();
+        assert_eq!((p.cannot.as_deref(), p.questions[1].header.as_deref()), (None, Some("Size")));
+        let said = ClaudeCode.answer_questions(&ctx, &session, &p.id, &serde_json::json!({ "Which fruit?": ["Pear"], "Which size?": "Medium" })).unwrap();
+        assert_eq!(said, "Answered: Which fruit? → Pear; Which size? → Medium.");
+        let (request, typed) = heard();
+        assert_eq!((request["op"].as_str(), String::from_utf8_lossy(&typed).as_ref()), (Some("attach"), "\x1b[D\x1b[D2\t3\x1b[200~Medium\x1b[201~\r1"));
+        // Choices with previews show in the other dialog, whose keys aren't pressed.
+        std::fs::write(dir.join(format!("{id}.jsonl")), format!("{prompt}\n{}\n", both.replace(r#"{"label":"Large"}"#, r#"{"label":"Large","preview":"▇▇▇"}"#))).unwrap();
+        let p = ClaudeCode.pending(&ctx, &session).unwrap();
+        assert!(p.cannot.as_deref().is_some_and(|c| c.contains("previews")), "{:?}", p.cannot);
+        assert!(ClaudeCode.answer_questions(&ctx, &session, &p.id, &serde_json::json!({ "Which size?": "Large" })).unwrap_err().to_string().contains("previews"));
 
         // Gone on: nothing waits.
         std::fs::write(home.join("jobs/1a2b3c4d/state.json"), r#"{"state":"working","tempo":"active"}"#).unwrap();

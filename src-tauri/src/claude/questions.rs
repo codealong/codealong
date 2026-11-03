@@ -1,6 +1,8 @@
 //! Answering an `AskUserQuestion` with keys in its session's terminal, for questions the plugin's
 //! hook didn't hand Codealong (asks.rs): they're read from the call in the transcript, and the
-//! picks are pressed into Claude Code's dialog as you'd press them there.
+//! picks are pressed into Claude Code's dialog as you'd press them there, or typed into a
+//! background job's terminal through its account's service (daemon.rs `daemon_press`) when it
+//! asks several, which the service's reply can't answer.
 //!
 //! The dialog (2.1.317, in tmux, 2026-11-03) shows one question at a time, with a tab for each
 //! along the top and Submit after them. A lone question that takes one answer has no tabs. Each
