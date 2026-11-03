@@ -120,6 +120,9 @@ class Atlas {
   private rowH = 0;
   /** Changed since it was last sent to the GPU. */
   dirty = true;
+  /** Counts the times it started again, which moves every glyph: a draw that saw it change
+   *  places its glyphs again. */
+  generation = 0;
 
   constructor(
     private cellW: number,
@@ -148,6 +151,7 @@ class Atlas {
     this.y = 0;
     this.rowH = 0;
     this.dirty = true;
+    this.generation += 1;
   }
 
   get(g: SceneGlyph): Slot {
@@ -371,12 +375,21 @@ function webgl(canvas: HTMLCanvasElement): Renderer | null {
       gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
       const back: number[] = [];
       scene.rects.forEach((x) => pushRect(back, x));
-      const text: number[] = [];
-      scene.glyphs.forEach((x) => pushGlyph(text, x));
       const over: number[] = [];
       scene.over.forEach((x) => pushRect(over, x));
-      const overText: number[] = [];
-      scene.overGlyphs.forEach((x) => pushGlyph(overText, x));
+      let text: number[] = [];
+      let overText: number[] = [];
+      const place = () => {
+        text = [];
+        overText = [];
+        scene.glyphs.forEach((x) => pushGlyph(text, x));
+        scene.overGlyphs.forEach((x) => pushGlyph(overText, x));
+      };
+      // The atlas filling up partway starts it again, which moves the glyphs placed before:
+      // they're placed once more in the new one.
+      const before = atlas?.generation;
+      place();
+      if (atlas && atlas.generation !== before) place();
       drawBatch(rects, back);
       drawBatch(glyphs, text, withAtlas);
       drawBatch(rects, over);

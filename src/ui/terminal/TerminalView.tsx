@@ -116,7 +116,7 @@ export function TerminalView({ id, focusAt, onLeave }: TerminalViewProps) {
           }}
           onPaste={(e) => {
             e.preventDefault();
-            void control.current?.paste(e.clipboardData.getData('text/plain'));
+            control.current?.paste(e.clipboardData.getData('text/plain'));
           }}
           onFocus={() => control.current?.focus(true)}
           onBlur={() => control.current?.focus(false)}
@@ -135,7 +135,7 @@ export function TerminalView({ id, focusAt, onLeave }: TerminalViewProps) {
             onClick={() => {
               const text = unsafe;
               setUnsafe(null);
-              void control.current?.paste(text, true);
+              control.current?.paste(text, true);
               field.current?.focus({ preventScroll: true });
             }}
           >

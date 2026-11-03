@@ -826,15 +826,19 @@ async fn open_pr_file(mirror: State<'_, view::Mirror>, ask: prdiff::Ask) -> Resu
 }
 
 /// Runs a command you ran for a session (led by `!` in its box, or with `block` Run on a shell
-/// block in its conversation) in a new tab of your terminal in `folder`, and has the session told
-/// what it printed once it ends (actions.rs `run_command`, run by the server). Says how it went,
-/// in a sentence.
+/// block in its conversation) in a terminal under the session, or a new tab of your terminal as
+/// `[apps] run_in` says, in `folder`, and has the session told what it printed once it ends
+/// (actions.rs `run_command`, run by the server). Says how it went, in a sentence.
 #[tauri::command]
 async fn run_command(app: tauri::AppHandle, mirror: State<'_, view::Mirror>, key: String, folder: String, text: String, block: bool) -> Result<String, String> {
     let mirror = mirror.inner().clone();
     blocking(move || {
         let said: String = view::call_as("run_command", serde_json::json!({ "key": key, "folder": folder, "text": text, "block": block }))?;
-        bring_terminal_forward(&app, &mirror, &key);
+        // In a terminal of Codealong's own it shows under the session (terminal.rs `start`), and
+        // your terminal app stays where it is.
+        if mirror.read(|b| b.apps.run_in) == config::RunIn::Terminal {
+            bring_terminal_forward(&app, &mirror, &key);
+        }
         Ok(said)
     })
     .await?

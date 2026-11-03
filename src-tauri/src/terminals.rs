@@ -210,43 +210,73 @@ pub fn open(o: Open) -> Result<Glance, String> {
         bell_at: None,
     };
     let (tx, rx) = mpsc::channel();
-    // Listed before its threads start, so one whose process ends at once finds itself to close.
-    state().list.push(Entry { glance: glance.clone(), tx: tx.clone() });
     let close_on_exit = o.close_on_exit;
     let pid = opened.pid();
     let pty::Pty { master, mut child } = opened;
-    let reader = master.try_clone().map_err(|e| e.to_string())?;
-    let writer = master.try_clone().map_err(|e| e.to_string())?;
-    let closed = Arc::new(AtomicBool::new(false));
-    {
-        let (tx, closed) = (tx.clone(), closed.clone());
-        std::thread::Builder::new().name(format!("terminal-read-{id}")).spawn(move || read(reader, tx, closed)).map_err(|e| e.to_string())?;
-    }
+    let fds = master.try_clone().and_then(|r| master.try_clone().map(|w| (r, w)));
+    let (reader, writer) = match fds {
+        Ok(fds) => fds,
+        Err(e) => {
+            pty::hang_up(pid, true);
+            let _ = child.wait();
+            return Err(format!("Couldn't start {}: {e}", glance.shell));
+        }
+    };
+    // The process is reaped by this thread however the rest goes.
     {
         let tx = tx.clone();
-        std::thread::Builder::new()
-            .name(format!("terminal-wait-{id}"))
-            .spawn(move || {
-                let code = child.wait().map(|s| exit_code(&s)).unwrap_or(-1);
-                let _ = tx.send(Msg::Exited(code));
-            })
-            .map_err(|e| e.to_string())?;
+        let waiting = std::thread::Builder::new().name(format!("terminal-wait-{id}")).spawn(move || {
+            let code = child.wait().map(|s| exit_code(&s)).unwrap_or(-1);
+            let _ = tx.send(Msg::Exited(code));
+        });
+        if let Err(e) = waiting {
+            pty::hang_up(pid, true);
+            // SAFETY: reaping the child we started, whose `Child` went with the thread that didn't start.
+            unsafe { libc::waitpid(pid as libc::pid_t, std::ptr::null_mut(), 0) };
+            return Err(format!("Couldn't start {}: {e}", glance.shell));
+        }
     }
-    let (out_tx, out_rx) = mpsc::channel::<Vec<u8>>();
-    std::thread::Builder::new().name(format!("terminal-write-{id}")).spawn(move || write(writer, out_rx)).map_err(|e| e.to_string())?;
-    {
-        let id = id.clone();
-        std::thread::Builder::new()
-            .name(format!("terminal-{id}"))
-            .spawn(move || {
-                if let Err(e) = run(&id, pid, master, size, theme, rx, out_tx, closed, close_on_exit) {
-                    eprintln!("Terminal {id} stopped: {e}");
-                }
-            })
-            .map_err(|e| e.to_string())?;
+    // Listed before the rest starts, so one whose process ends at once finds itself to close.
+    state().list.push(Entry { glance: glance.clone(), tx: tx.clone() });
+    let closed = Arc::new(AtomicBool::new(false));
+    let started = (|| -> std::io::Result<()> {
+        {
+            let (tx, closed) = (tx.clone(), closed.clone());
+            std::thread::Builder::new().name(format!("terminal-read-{id}")).spawn(move || read(reader, tx, closed))?;
+        }
+        let (out_tx, out_rx) = mpsc::channel::<Vec<u8>>();
+        std::thread::Builder::new().name(format!("terminal-write-{id}")).spawn(move || write(writer, out_rx))?;
+        let (id, closed) = (id.clone(), closed.clone());
+        std::thread::Builder::new().name(format!("terminal-{id}")).spawn(move || {
+            if let Err(e) = run(&id, pid, master, size, theme, rx, out_tx, closed.clone(), close_on_exit) {
+                eprintln!("Terminal {id} stopped: {e}");
+                abandon(&id, pid, &closed);
+            }
+        })?;
+        Ok(())
+    })();
+    if let Err(e) = started {
+        abandon(&id, pid, &closed);
+        return Err(format!("Couldn't start {}: {e}", glance.shell));
     }
     changed();
     Ok(glance)
+}
+
+/// Undoes a terminal that didn't get going: no longer listed, its reader stopped, and its process
+/// killed, which the thread waiting on it reaps.
+fn abandon(id: &str, pid: u32, closed: &AtomicBool) {
+    closed.store(true, Ordering::Relaxed);
+    pty::hang_up(pid, true);
+    let listed = {
+        let mut st = state();
+        let before = st.list.len();
+        st.list.retain(|e| e.glance.id != id);
+        st.list.len() != before
+    };
+    if listed {
+        changed();
+    }
 }
 
 fn exit_code(s: &std::process::ExitStatus) -> i32 {

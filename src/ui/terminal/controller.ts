@@ -30,6 +30,9 @@ export interface Hooks {
   onPointer: (cursor: string) => void;
 }
 
+/** What waits to go to the server, in order: inputs that go together, or a paste. */
+type Sending = { kind: 'inputs'; inputs: TerminalInput[] } | { kind: 'paste'; text: string; force: boolean };
+
 interface Measured extends Metrics {
   font: Font;
   dpr: number;
@@ -63,7 +66,7 @@ export class TerminalController {
   private m: Measured | null = null;
   private cols = 0;
   private rows = 0;
-  private queue: TerminalInput[] = [];
+  private queue: Sending[] = [];
   private sending = false;
   private drawPending = false;
   private focused = false;
@@ -182,16 +185,26 @@ export class TerminalController {
   }
 
   send(input: TerminalInput): void {
-    this.queue.push(input);
+    const last = this.queue[this.queue.length - 1];
+    if (last?.kind === 'inputs') last.inputs.push(input);
+    else this.queue.push({ kind: 'inputs', inputs: [input] });
     this.flush();
   }
 
+  /** Sends what's waiting, in the order it came: a run of inputs in one call, a paste in one of its
+   *  own, never two calls at once. */
   private flush() {
-    if (this.sending || !this.queue.length) return;
-    const batch = this.queue;
-    this.queue = [];
+    if (this.sending) return;
+    const next = this.queue.shift();
+    if (!next) return;
     this.sending = true;
-    terminalInput(this.id, batch)
+    const sent =
+      next.kind === 'inputs'
+        ? terminalInput(this.id, next.inputs)
+        : terminalPaste(this.id, next.text, next.force).then((pasted) => {
+            if (!pasted) this.hooks.onUnsafePaste(next.text);
+          });
+    sent
       .catch((e: unknown) => this.hooks.onError(String(e)))
       .finally(() => {
         this.sending = false;
@@ -260,13 +273,12 @@ export class TerminalController {
   }
 
   /** Text pasted, with a yes to text that could run commands as it's pasted. */
-  async paste(text: string, force = false): Promise<void> {
+  /** Text pasted, in its turn among what's typed: text that could run commands as it's pasted
+   *  comes back to `onUnsafePaste` unpasted, and goes with `force` once you say so. */
+  paste(text: string, force = false): void {
     if (!text) return;
-    const pasted = await terminalPaste(this.id, text, force).catch((e: unknown) => {
-      this.hooks.onError(String(e));
-      return true;
-    });
-    if (!pasted) this.hooks.onUnsafePaste(text);
+    this.queue.push({ kind: 'paste', text, force });
+    this.flush();
   }
 
   /** Text an input method or a dead key typed. */

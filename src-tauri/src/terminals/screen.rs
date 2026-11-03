@@ -281,6 +281,8 @@ pub struct Screen {
     /// What a key or a click came to, for the program: written out by the caller.
     out: Vec<u8>,
     seq: u64,
+    /// What the last frame said beside its rows.
+    around: Option<Around>,
 }
 
 impl Screen {
@@ -328,6 +330,7 @@ impl Screen {
             noted,
             out: Vec::new(),
             seq: 0,
+            around: None,
         })
     }
 
@@ -644,8 +647,10 @@ impl Screen {
         self.term.scroll_viewport(ScrollViewport::Delta(steps));
     }
 
-    /// What to draw: every row with `full`, else the rows that changed since the last frame
-    /// (None when nothing did). `id` is the terminal's.
+    /// What to draw: every row with `full`, else the rows that changed since the last frame, and
+    /// the cursor and the rest beside them (None when nothing did: a cursor that moved on its own,
+    /// as ← at a prompt moves it, leaves the rows clean and still makes a frame). `id` is the
+    /// terminal's.
     pub fn frame(&mut self, id: &str, full: bool) -> Option<Frame> {
         let Screen { term, render, rows, cells, .. } = self;
         let snap = render.update(term).ok()?;
@@ -653,10 +658,28 @@ impl Screen {
             snap.set_dirty(Dirty::Full).ok()?;
         }
         let dirty = snap.dirty().ok()?;
-        if dirty == Dirty::Clean {
+        let colors = snap.colors().ok()?;
+        let cursor = snap.cursor().ok().and_then(|c| {
+            let at = c.viewport?;
+            c.visible.then_some(Caret {
+                x: at.x,
+                y: at.y,
+                shape: match c.visual_style {
+                    CursorVisualStyle::Bar => "bar",
+                    CursorVisualStyle::Underline => "underline",
+                    CursorVisualStyle::BlockHollow => "hollow",
+                    _ => "block",
+                },
+                blink: c.blinking,
+                color: colors.cursor.map(hex_of),
+                password: c.password_input,
+            })
+        });
+        let scroll = term.scrollbar().map(|s| Scroll { total: s.total, offset: s.offset, len: s.len }).unwrap_or_default();
+        let around = Around { cursor, scroll, fg: hex_of(colors.foreground), bg: hex_of(colors.background), mouse: term.is_mouse_tracking().unwrap_or(false), cols: snap.cols().unwrap_or(0), rows: snap.rows().unwrap_or(0) };
+        if dirty == Dirty::Clean && self.around == Some(around) {
             return None;
         }
-        let colors = snap.colors().ok()?;
         let mut looks = Looks::default();
         let mut lines = Vec::new();
         let mut text = String::new();
@@ -689,41 +712,37 @@ impl Screen {
             }
             lines.push(Line { y, runs });
         }
-        let cursor = snap.cursor().ok().and_then(|c| {
-            let at = c.viewport?;
-            c.visible.then_some(Caret {
-                x: at.x,
-                y: at.y,
-                shape: match c.visual_style {
-                    CursorVisualStyle::Bar => "bar",
-                    CursorVisualStyle::Underline => "underline",
-                    CursorVisualStyle::BlockHollow => "hollow",
-                    _ => "block",
-                },
-                blink: c.blinking,
-                color: colors.cursor.map(hex_of),
-                password: c.password_input,
-            })
-        });
-        let (cols, rows_n) = (snap.cols().unwrap_or(0), snap.rows().unwrap_or(0));
         let _ = snap.clean();
-        let scroll = term.scrollbar().map(|s| Scroll { total: s.total, offset: s.offset, len: s.len }).unwrap_or_default();
+        self.around = Some(around);
         self.seq += 1;
         Some(Frame {
             id: id.to_string(),
             seq: self.seq,
-            cols,
-            rows: rows_n,
+            cols: around.cols,
+            rows: around.rows,
             full: dirty == Dirty::Full,
             lines,
             looks: looks.list,
-            cursor,
-            fg: hex_of(colors.foreground),
-            bg: hex_of(colors.background),
-            scroll,
-            mouse: self.term.is_mouse_tracking().unwrap_or(false),
+            cursor: around.cursor,
+            fg: around.fg,
+            bg: around.bg,
+            scroll: around.scroll,
+            mouse: around.mouse,
         })
     }
+}
+
+/// What a frame says beside its rows, which changes without them (a cursor moved, the program
+/// taking the mouse): a frame goes out when it does.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Around {
+    cursor: Option<Caret>,
+    scroll: Scroll,
+    fg: u32,
+    bg: u32,
+    mouse: bool,
+    cols: u16,
+    rows: u16,
 }
 
 /// A frame's looks, each once.
@@ -847,6 +866,21 @@ mod tests {
         assert_eq!(next.lines.iter().map(|l| l.y).collect::<Vec<_>>(), vec![1], "only the row typed on");
         assert_eq!(row_text(&next, 1), "world!");
         assert_eq!(next.seq, first.seq + 1);
+    }
+
+    /// ← at a prompt moves the cursor and changes no row: the window still hears where it went.
+    #[test]
+    fn a_cursor_that_moves_alone_makes_a_frame_without_rows() {
+        let (mut s, _) = screen();
+        s.feed(b"abc");
+        s.frame("t", true).unwrap();
+        s.feed(b"\x1b[D");
+        let moved = s.frame("t", false).expect("a frame for the cursor");
+        assert!(moved.lines.is_empty(), "no row changed");
+        assert_eq!(moved.cursor.map(|c| (c.x, c.y)), Some((2, 0)));
+        assert!(s.frame("t", false).is_none(), "and then nothing until something does");
+        s.feed(b"\x1b[?25l");
+        assert_eq!(s.frame("t", false).expect("hidden").cursor, None);
     }
 
     #[test]
