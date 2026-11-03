@@ -44,17 +44,20 @@ export function says(pattern: RegExp, text: string): boolean {
 /** Code, then bold and italics, as Markdown.tsx reads them: what each holds is its one group. */
 const MARKS = new RegExp(String.raw`\`([^\`]+)\`|${BOLD}|${BOLD_UNDER}|${ITALIC}`, 'g');
 
+/** Text without the marks for code, bold and italics, read inside one another as Markdown.tsx
+ *  `inline` reads them, code kept as it's written. */
+const unmarked = (text: string): string => text.replace(MARKS, (_, code?: string, bold?: string, under?: string, italic?: string) => code ?? unmarked(bold ?? under ?? italic ?? ''));
+
 /** Markdown as it reads once laid out, near enough: images gone, links as their words, and the
  *  marks for code, emphasis and headings left out where they're drawn, so a glob written without
  *  them (`apps/*`, `__tests__`) is found as it shows. */
 export function plainOf(markdown: string): string {
-  return markdown
-    .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
-    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
-    .replace(/^ {0,3}(#{1,6}|>+)\s+/gm, '')
-    .replace(MARKS, (_, code?: string, bold?: string, under?: string, italic?: string) => code ?? bold ?? under ?? italic ?? '')
-    // Code in bold, which the one pass above leaves.
-    .replace(/`([^`]+)`/g, '$1');
+  return unmarked(
+    markdown
+      .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
+      .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+      .replace(/^ {0,3}(#{1,6}|>+)\s+/gm, ''),
+  );
 }
 
 /** What an item shows, as plain text: your prompt (a command you ran with `!` as you typed it), a

@@ -42,6 +42,8 @@ describe('plainOf', () => {
 
   it('leaves the marks it doesn’t draw, as a glob written without backticks', () => {
     expect(plainOf('Read apps/*, libs/* and src/__tests__, *then* **all of `it`** and __more__.')).toBe('Read apps/*, libs/* and src/__tests__, then all of it and more.');
+    // Inside one another, as they're drawn, but code as it's written.
+    expect(plainOf('__very *important*__, *a __b__ c* and **`__x__`**')).toBe('very important, a b c and __x__');
   });
 });
 
