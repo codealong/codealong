@@ -162,7 +162,8 @@
       // take more from its transcript: Blue isn't one to send any more, Tue still is.
       pending = Object.assign({}, pending, { questions: [{ question: 'Which color do you prefer?', header: 'Color', options: [{ label: 'Green' }, { label: 'Yellow' }] }, pending.questions[1]] });
       window.__pushSides();
-      return until(function () { return !q('svg', steps()[0]); }, 5000, 'the questions asked otherwise');
+      // Shown, then kept once its effect runs, which can come a moment after.
+      return until(function () { return !q('svg', steps()[0]) && !('Which color do you prefer?' in ((kept() || {}).picks || {})); }, 5000, 'the questions asked otherwise');
     })
     .then(function () {
       var k = kept() || {};
