@@ -113,17 +113,21 @@ fn number(obj: &AnyObject) -> f64 {
     unsafe { msg_send![obj, doubleValue] }
 }
 
-/// One of an app's ordinary windows as the window server lists them.
+/// One of an app's windows as the window server lists them.
+#[derive(Clone, Debug, PartialEq)]
 struct Listed {
     id: i64,
     frame: Frame,
+    /// Its level: 0 for an ordinary window, above that for one that floats (Ghostty's Float on
+    /// Top puts a terminal's window at AppKit's floating level).
+    layer: f64,
     /// Its title, which the window server tells only an app that may record the screen.
     title: Option<String>,
 }
 
-/// The ordinary windows of the app with this bundle ID, front to back, among those the window
-/// server lists with `options`. Window bounds and owners are readable without Screen Recording;
-/// only titles aren't.
+/// The windows of the app with this bundle ID at any level, front to back, among those the
+/// window server lists with `options`, slivers left out. Window bounds and owners are readable
+/// without Screen Recording; only titles aren't.
 fn windows_of(bundle_id: &str, options: u32) -> Vec<Listed> {
     let apps = NSRunningApplication::runningApplicationsWithBundleIdentifier(&NSString::from_str(bundle_id));
     if apps.count() == 0 {
@@ -146,9 +150,7 @@ fn windows_of(bundle_id: &str, options: u32) -> Vec<Listed> {
         if get(&w, "kCGWindowOwnerPID").map(|n| number(&n)) != Some(pid) {
             continue;
         }
-        if get(&w, "kCGWindowLayer").map(|n| number(&n)) != Some(0.0) {
-            continue;
-        }
+        let Some(layer) = get(&w, "kCGWindowLayer").map(|n| number(&n)) else { continue };
         let Some(b) = get(&w, "kCGWindowBounds") else { continue };
         let side = |k: &str| get(&b, k).map(|n| number(&n)).unwrap_or(0.0);
         let frame = Frame { x: side("X"), y: side("Y"), w: side("Width"), h: side("Height") };
@@ -158,15 +160,28 @@ fn windows_of(bundle_id: &str, options: u32) -> Vec<Listed> {
         }
         let id = get(&w, "kCGWindowNumber").map(|n| number(&n) as i64).unwrap_or(-1);
         let title = get(&w, "kCGWindowName").and_then(|t| t.downcast_ref::<NSString>().map(|s| s.to_string()));
-        out.push(Listed { id, frame, title });
+        out.push(Listed { id, frame, layer, title });
     }
     out
 }
 
-/// The front window of the app with this bundle ID among ordinary windows, its number and
-/// frame: the first of them on screen is the one it just brought up.
+/// The front window among an app's ordinary ones: the first of them on screen is the one it
+/// just brought up.
+fn front(windows: Vec<Listed>) -> Option<Listed> {
+    windows.into_iter().find(|w| w.layer == 0.0)
+}
+
+/// The front window of the app with this bundle ID among ordinary windows, its number and frame.
 fn front_window(bundle_id: &str) -> Option<(i64, Frame)> {
-    windows_of(bundle_id, ON_SCREEN_ONLY | EXCLUDE_DESKTOP).into_iter().next().map(|w| (w.id, w.frame))
+    front(windows_of(bundle_id, ON_SCREEN_ONLY | EXCLUDE_DESKTOP)).map(|w| (w.id, w.frame))
+}
+
+/// The one window whose title `titled` takes, at whatever level: None when none does, or when
+/// more than one does (one floating among them too), so there's no telling which is meant.
+fn titled_one(windows: Vec<Listed>, titled: impl Fn(&str) -> bool) -> Option<Listed> {
+    let mut found = windows.into_iter().filter(|w| w.title.as_deref().is_some_and(&titled));
+    let one = found.next()?;
+    found.next().is_none().then_some(one)
 }
 
 /// How long taking a picture of a window, or making it smaller, may take.
@@ -185,8 +200,7 @@ pub fn window_picture(bundle_id: &str, titled: impl Fn(&str) -> bool) -> Option<
         unsafe { CGRequestScreenCaptureAccess() };
         return None;
     }
-    let found: Vec<Listed> = windows_of(bundle_id, ALL_WINDOWS).into_iter().filter(|w| w.title.as_deref().is_some_and(&titled)).collect();
-    let [one] = found.as_slice() else { return None };
+    let one = titled_one(windows_of(bundle_id, ALL_WINDOWS), titled)?;
     let file = std::env::temp_dir().join(format!("codealong-window-{}-{}-{}.png", std::process::id(), one.id, crate::util::now_ms()));
     let path = file.to_string_lossy();
     let (id, width) = (one.id.to_string(), (one.frame.w.round() as i64).to_string());
@@ -293,4 +307,32 @@ fn show(window: Frame, ticket: u64) {
             old.close();
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn window(id: i64, layer: f64, title: &str) -> Listed {
+        Listed { id, frame: Frame { x: 0.0, y: 0.0, w: 800.0, h: 600.0 }, layer, title: Some(title.to_string()) }
+    }
+
+    #[test]
+    fn a_window_is_pictured_only_when_its_title_is_its_own() {
+        let is = |want: &'static str| move |t: &str| t == want;
+        // A floating one (Ghostty's Float on Top) is found as an ordinary one is.
+        assert_eq!(titled_one(vec![window(1, 0.0, "a"), window(2, 3.0, "b")], is("b")).map(|w| w.id), Some(2));
+        // Two of one title, a floating one among them: there's no telling which.
+        assert_eq!(titled_one(vec![window(1, 0.0, "a"), window(2, 3.0, "a")], is("a")), None);
+        assert_eq!(titled_one(vec![window(1, 0.0, "a")], is("b")), None);
+        // One without a title (no Screen Recording) is never the one.
+        let untitled = Listed { title: None, ..window(3, 0.0, "") };
+        assert_eq!(titled_one(vec![untitled], |_| true), None);
+    }
+
+    #[test]
+    fn the_front_window_is_an_ordinary_one() {
+        assert_eq!(front(vec![window(1, 3.0, "floating"), window(2, 0.0, "a"), window(3, 0.0, "b")]).map(|w| w.id), Some(2));
+        assert_eq!(front(vec![window(1, 3.0, "floating")]), None);
+    }
 }
