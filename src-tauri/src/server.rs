@@ -507,21 +507,28 @@ fn handle_request(ctx: &Ctx, req: serde_json::Result<Request>) -> Reply {
 /// for a session whose process the hook didn't find, one Codealong runs itself (it asks through
 /// its adapter), nor for an account config.toml doesn't list.
 fn hold_permission_ask(engine: &Handle, hook: &Value, pid: Option<u32>, home: Option<&str>, at: Option<i64>, from: Option<u64>, out: &mut UnixStream) {
-    let Ok(cfg) = crate::config::current() else {
+    use crate::claude::asks::{note_for, Side};
+    let field = |k: &str| hook.get(k).and_then(Value::as_str).unwrap_or("?");
+    let let_go = |out: &mut UnixStream, why: &str| {
+        note_for(Side::Server, field("session_id"), field("tool_name"), &format!("let go at once: {why}"));
         crate::claude::asks::reply(out, None);
-        return;
     };
-    let found = crate::claude::asks::parse(hook, at.unwrap_or_else(crate::util::now_ms)).zip(pid).zip(home.and_then(|h| crate::claude::asks::account_for(&cfg, std::path::Path::new(h))));
-    let Some((((asked, record), pid), account)) = found else {
-        crate::claude::asks::reply(out, None);
-        return;
+    let cfg = match crate::config::current() {
+        Ok(cfg) => cfg,
+        Err(e) => return let_go(out, &format!("the settings don't read: {e:#}")),
+    };
+    let Some((asked, record)) = crate::claude::asks::parse(hook, at.unwrap_or_else(crate::util::now_ms)) else {
+        return let_go(out, "not a request Codealong answers");
+    };
+    let Some(pid) = pid else { return let_go(out, "the hook didn't say its session's process") };
+    let Some(account) = home.and_then(|h| crate::claude::asks::account_for(&cfg, std::path::Path::new(h))) else {
+        return let_go(out, &format!("{} is no account config.toml lists", home.unwrap_or("its folder")));
     };
     // A side conversation's copy has nobody to ask: Claude Code refuses the call as soon as
     // the hook returns. A session Codealong runs asks through its adapter too, and only that
     // request can be answered: one held here as well showed as waiting where nothing answered it.
     if crate::side::runs(pid) || crate::acp::runs(pid) {
-        crate::claude::asks::reply(out, None);
-        return;
+        return let_go(out, "a session Codealong runs itself asks through its own way in");
     }
     let mut watch = crate::claude::asks::Watch::new(account.home_path(), pid, record);
     watch.from = from.unwrap_or(watch.from);

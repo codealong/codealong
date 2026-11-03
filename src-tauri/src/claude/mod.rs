@@ -25,6 +25,7 @@ mod mcp;
 mod mode;
 mod names;
 pub mod peer;
+mod questions;
 mod registry;
 mod routes;
 mod shells;
@@ -282,17 +283,22 @@ impl crate::harness::Adapter for ClaudeCode {
         // Questions the hook didn't hand over (the plugin isn't in the account, the app started
         // after they were asked, or the hook went before it was answered) still show here: a
         // background job's are answered through its account's service, whether its transcript
-        // has the call yet or not, and the rest where the session runs.
-        let written = waiting_on(self, ctx, s, INPUT_NEEDED).map(|(c, _)| c).filter(|c| !c.questions.is_empty());
-        if let Some(p) = job_pending(ctx, s, written.as_ref()) {
+        // has the call yet or not, and a terminal's with keys pressed there (questions.rs).
+        let written = waiting_on(self, ctx, s, INPUT_NEEDED).filter(|(c, _)| !c.questions.is_empty());
+        if let Some(p) = job_pending(ctx, s, written.as_ref().map(|(c, _)| c)) {
             return Some(p);
         }
-        if let Some(call) = written {
+        if let Some((call, reg)) = written {
+            let cannot = match cannot_press(ctx, &reg) {
+                _ if reg.kind.as_deref() == Some("bg") => Some(QUESTIONS_NOT_HANDED.to_string()),
+                Some(why) => Some(format!("{QUESTIONS_NOT_HANDED} {why}")),
+                None => None,
+            };
             return Some(crate::harness::Pending {
                 id: call.id.clone().unwrap_or_default(),
                 label: crate::board::asks_you(&call.questions[0].question),
                 input: None,
-                cannot: Some("Codealong didn't get these as they were asked, so they're answered where the session runs.".into()),
+                cannot,
                 always: false,
                 no_once: false,
                 plan: false,
@@ -353,6 +359,14 @@ impl crate::harness::Adapter for ClaudeCode {
         if asks::is_ask_id(id) {
             anyhow::bail!("It isn't waiting on that any more.");
         }
+        // Questions the hook didn't hand over are declined as their dialog's Escape does.
+        if let Ok((_, reg)) = keyed_questions(self, ctx, s, id) {
+            if answer != crate::harness::Answer::Deny {
+                anyhow::bail!("It asks you questions: pick your answers.");
+            }
+            crate::launch::press_all(reg.pid, Path::new(&s.cwd), &[crate::launch::Press::Key(crate::launch::Key::Escape)])?;
+            return Ok("Declined its questions; it stops and waits for you.".into());
+        }
         let Some((call, reg)) = waiting_call(self, ctx, s) else {
             anyhow::bail!("It isn't waiting on a permission prompt any more.");
         };
@@ -402,15 +416,22 @@ impl crate::harness::Adapter for ClaudeCode {
         if id.starts_with(JOB_ASKS_ID) {
             return answer_job_questions(self, ctx, s, id, answers);
         }
-        let Some(asked) = asks::of_session(&s.id).filter(|a| a.id == id) else {
-            anyhow::bail!("It isn't waiting on that any more.");
-        };
-        let answers = asks::picked(&questions_of(&asked.input), answers)?;
-        let said = answers.iter().map(|(q, a)| format!("{} → {}", one_line(q, 80), a.as_str().map(String::from).unwrap_or_else(|| a.as_array().map(|l| l.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", ")).unwrap_or_default()))).collect::<Vec<_>>().join("; ");
-        match asks::answer(id, asks::Decision::Answers(Value::Object(answers))) {
-            Some(r) => r.map(|_| format!("Answered: {said}.")),
-            None => anyhow::bail!("It isn't waiting on that any more."),
+        if let Some(asked) = asks::of_session(&s.id).filter(|a| a.id == id) {
+            let answers = asks::picked(&questions_of(&asked.input), answers)?;
+            let said = said_of(&answers);
+            return match asks::answer(id, asks::Decision::Answers(Value::Object(answers))) {
+                Some(r) => r.map(|_| format!("Answered: {said}.")),
+                None => anyhow::bail!("It isn't waiting on that any more."),
+            };
         }
+        if asks::is_ask_id(id) {
+            anyhow::bail!("It isn't waiting on that any more.");
+        }
+        let (call, reg) = keyed_questions(self, ctx, s, id)?;
+        let answers = asks::picked(&call.questions, answers)?;
+        let keys = questions::keys(&call.questions, &answers)?;
+        crate::launch::press_all(reg.pid, Path::new(&s.cwd), &keys)?;
+        Ok(format!("Answered: {}.", said_of(&answers)))
     }
 
     fn open_calls(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> Vec<String> {
@@ -1959,6 +1980,33 @@ fn decline_job_questions(a: &ClaudeCode, ctx: &crate::harness::Ctx, s: &crate::m
     let (_, job) = job_asked(a, ctx, s, id)?;
     daemon_press_escape(&job.socket, &job.key_file, &job.job)?;
     Ok("Declined its questions; it stops and waits for you.".into())
+}
+
+/// Why questions the plugin's hook didn't hand over aren't answered from Codealong, ahead of what
+/// keeps Codealong from pressing their keys where the session runs.
+const QUESTIONS_NOT_HANDED: &str = "Codealong didn't get these as they were asked, so they're answered where the session runs.";
+
+/// The questions a session in a terminal waits on you to answer that the plugin's hook didn't
+/// hand over, with its registry entry, while they're still the ones `id` names: answered with
+/// keys pressed there (questions.rs). A background job's go through its account's service
+/// (`job_pending`).
+fn keyed_questions(a: &ClaudeCode, ctx: &crate::harness::Ctx, s: &crate::model::Session, id: &str) -> anyhow::Result<(Item, RegistryEntry)> {
+    let Some((call, reg)) = waiting_on(a, ctx, s, INPUT_NEEDED).filter(|(c, _)| !c.questions.is_empty()) else {
+        anyhow::bail!("It isn't waiting on that any more.");
+    };
+    if call.id.as_deref() != Some(id) {
+        anyhow::bail!("It's asking you something else now. Look again before answering.");
+    }
+    if reg.kind.as_deref() == Some("bg") {
+        anyhow::bail!("{QUESTIONS_NOT_HANDED}");
+    }
+    Ok((call, reg))
+}
+
+/// Answers as a sentence says them: each question, shortened, and what was picked for it.
+fn said_of(answers: &serde_json::Map<String, Value>) -> String {
+    let picked = |a: &Value| a.as_str().map(String::from).unwrap_or_else(|| a.as_array().map(|l| l.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", ")).unwrap_or_default());
+    answers.iter().map(|(q, a)| format!("{} → {}", one_line(q, 80), picked(a))).collect::<Vec<_>>().join("; ")
 }
 
 /// Whether Claude Code's plan prompt puts "Yes, clear context…" first, as 1, for a session in

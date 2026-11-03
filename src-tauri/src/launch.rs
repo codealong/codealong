@@ -1239,8 +1239,10 @@ pub enum Key {
     CtrlC,
     /// The last of a list's choices, in Claude Code's dialogs.
     End,
-    /// Back to the question before, in Antigravity's questions.
+    /// Back to the question before, in Antigravity's and Claude Code's questions.
     Left,
+    /// On to the next question, in Claude Code's questions.
+    Tab,
     /// Shift+Tab, which steps Claude Code's and Antigravity's terminal UIs to their next mode
     /// (cycle.rs).
     BackTab,
@@ -1263,6 +1265,7 @@ impl Key {
             Key::CtrlC => "\x03",
             Key::End => "\x1b[F",
             Key::Left => "\x1b[D",
+            Key::Tab => "\t",
             Key::BackTab => "\x1b[Z",
             Key::Return => "\r",
             Key::Keys(keys) => keys,
@@ -1273,6 +1276,39 @@ impl Key {
 /// Presses one key in a terminal, as if typed: no paste, no Return.
 pub fn press_key(host: &TerminalHost, key: Key) -> Result<()> {
     host.terminal.press(&host.at, key)
+}
+
+/// A key to press in a harness's terminal UI, or words to type there and send with Return: how
+/// a dialog's choices and write-ins are answered (`press_all`).
+#[derive(Debug, Clone, PartialEq)]
+pub enum Press {
+    Key(Key),
+    Words(String),
+}
+
+/// How long between presses: an Escape and the key after it arriving together read as Alt and
+/// that key.
+const PRESS_GAP: std::time::Duration = std::time::Duration::from_millis(100);
+
+/// Presses `keys` in the terminal the process `pid` runs in, in order.
+pub fn press_all(pid: u32, cwd: &Path, keys: &[Press]) -> Result<()> {
+    let Some(host) = terminal_host(pid, cwd)? else {
+        anyhow::bail!("It isn't in a terminal Codealong can press keys in ({}). Open it to answer.", presses_keys_in());
+    };
+    for (i, press) in keys.iter().enumerate() {
+        if i > 0 {
+            std::thread::sleep(PRESS_GAP);
+        }
+        match press {
+            Press::Key(key) => press_key(&host, *key)?,
+            Press::Words(words) => {
+                if let Typed::Nowhere(why) = terminal_type_session(pid, cwd, words, false, Submit::Return, false)? {
+                    anyhow::bail!("Your words couldn't be typed into it: {why}. Finish answering in its terminal.");
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 /// The terminal device a process writes to, or None for a background process.

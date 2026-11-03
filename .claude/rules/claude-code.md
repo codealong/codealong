@@ -131,8 +131,10 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   instead; Escape typed through `attach` declines them ("User rejected tool use") and ends the
   turn (Haiku and Opus 5.5 jobs, 2026-10-19). The record has them while an Opus 5.5 job's
   transcript doesn't, and when the plugin's hook went away before they were answered (seen once,
-  across an app relaunch and a plugin update, cause not found): `claude/registry.rs`
-  (`job_questions`), `claude/mod.rs` (`job_pending`, `answer_job_questions`).
+  across an app relaunch and a plugin update, cause not found; again on 2026-11-03 in a terminal
+  session, within eight minutes and before any relaunch, which `asks.log` now explains when it
+  happens): `claude/registry.rs` (`job_questions`), `claude/mod.rs` (`job_pending`,
+  `answer_job_questions`).
 - Warm spares (from 2.1.286), which Claude Code's own lookups and `read_registry` skip:
   `claude/registry.rs` (`RegistryEntry::spare`, `read_registry`). A spare's registry entry says
   `"spare": true`, `kind: bg`, `status: idle` and `name` its job ID, and its roster entry
@@ -563,7 +565,8 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   into a worktree writes them there): `claude/mod.rs` finds it there when plainly the one and
   answers it with the same keys, a background job's typed through its daemon (`waiting_on`,
   `helper_logs`, `helper_waiting`; reproduced and allowed in a `--bg` Haiku job, 2.1.295,
-  2026-10-08). An allow shows
+  2026-10-08). Each request's way through the hook and the server, and why one was let go, is in
+  `asks.log` (`claude/asks.rs` `note`). An allow shows
   "Allowed by PermissionRequest hook", and a `setMode` suggestion in `updatedPermissions`
   switches the session's mode. A deny with `"interrupt":true` ends the turn as the prompt's No
   does; without `interrupt` the turn goes on, the message being the call's result as given: the
@@ -581,8 +584,14 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   reach the transcript only with the answer, while the terminal already shows them (seen
   2026-10-06; a Bash call's prompt didn't hold its line back). It varies: on 2.1.302 Opus 5.5
   sessions held it until the answer every time, while a Haiku 5.5 one had the text and the call
-  in its transcript, `stop_reason: "tool_use"`, as its question waited (2026-10-16). The hook's
-  input and the registry have only the call.
+  in its transcript, `stop_reason: "tool_use"`, as its question waited (2026-10-16). On 2.1.316
+  and 2.1.317 (2026-11-03) an Opus 5.5 session had the call written as its question waited, twice,
+  and held it back once, while a Haiku 5.5 one held it back. The hook's input and the registry have
+  only the call.
+- Claude Code's question dialog in a terminal (2.1.317, in tmux, 2026-11-03), its keys, and
+  answering one the hook didn't hand over by pressing them: `claude/questions.rs` (module header,
+  `keys`), `claude/mod.rs` (`keyed_questions`). With the call held back as above, such questions
+  can't be read at all, so they're answered in the terminal.
 - The one live copy of a reply outside Claude Code is a `MessageDisplay` hook, which gets its
   text in batches of finished lines as the terminal shows them (at most ten a second), and which
   Codealong's plugin has with `[sessions] live_replies` on: `claude/live.rs` (module header,

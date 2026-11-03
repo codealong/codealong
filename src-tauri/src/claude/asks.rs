@@ -15,6 +15,11 @@
 //! A request lives only in the app that holds it. When that app quits before it replies (a
 //! relaunch), or none is up when the hook asks, the hook asks again once one answers, for as
 //! long as the session still waits on it (`ask_until_replied`).
+//!
+//! Each request's way through is written to `asks.log` in Codealong's logs, by the hook and by
+//! the server that holds it (`note`): a request let go is answered only where the session runs,
+//! and the hook's own output goes nowhere, so the log is what says why. Questions that waited in a
+//! terminal had been let go within minutes, with nothing to say why (2026-11-03).
 
 use std::io::Write;
 use std::os::unix::net::UnixStream;
@@ -217,43 +222,51 @@ pub fn hold(stream: &mut UnixStream, asked: Asked, watch: Watch, changed: &dyn F
     let (tx, rx) = channel();
     let id = asked.id.clone();
     held().push(Held { asked: asked.clone(), tx });
+    note(Side::Server, &asked, &format!("held as {id}, for process {}", watch.pid));
     changed();
     let start = Instant::now();
     let mut checked = Instant::now();
     let mut answer = None;
-    loop {
+    let why = loop {
         match rx.recv_timeout(Duration::from_millis(400)) {
             Ok((d, ack)) => {
                 let ok = reply(stream, Some(decision_json(&d, &asked)));
                 let _ = ack.send(ok);
                 answer = Some(d);
-                break;
+                break if ok { "answered here" } else { "answered here, but the hook was gone before it got the answer" }.to_string();
             }
             Err(RecvTimeoutError::Timeout) => {}
-            Err(RecvTimeoutError::Disconnected) => break,
+            Err(RecvTimeoutError::Disconnected) => break "nothing could answer it any more".to_string(),
         }
         if crate::server::hung_up(stream) {
-            break;
+            break "the hook hung up: its process ended".to_string();
         }
         if checked.elapsed() >= Duration::from_secs(1) {
             checked = Instant::now();
-            if start.elapsed() >= GRACE && !still_asked(&watch, &asked) {
-                break;
+            if let Some(why) = (start.elapsed() >= GRACE).then(|| no_longer_asked(&watch, &asked)).flatten() {
+                break format!("let go: {why}");
             }
         }
-    }
+    };
     held().retain(|h| h.asked.id != id);
     if answer.is_none() {
         reply(stream, None);
     }
+    note(Side::Server, &asked, &format!("{id} {why}, after {} s", start.elapsed().as_secs()));
     changed();
 }
 
-/// Whether the session still waits on this request: its registry says it waits on a permission
-/// prompt, and no result for the call has been written since the request came.
-fn still_asked(w: &Watch, asked: &Asked) -> bool {
-    let waiting = registry_of(&w.home, w.pid).is_some_and(|r| r.session_id == asked.session && r.waits_on(prompt_of(&asked.tool)));
-    waiting && !call_answered(&w.record, asked, w.from)
+/// Why the session no longer waits on this request, or None while it does: its registry says it
+/// waits on the tool's prompt, and no result for the call has been written since the request came.
+fn no_longer_asked(w: &Watch, asked: &Asked) -> Option<String> {
+    let want = prompt_of(&asked.tool);
+    match registry_of(&w.home, w.pid) {
+        None => return Some(format!("its registry entry (sessions/{}.json) is gone or didn't read", w.pid)),
+        Some(r) if r.session_id != asked.session => return Some(format!("process {} runs session {} now", w.pid, r.session_id)),
+        Some(r) if !r.waits_on(want) => return Some(format!("its registry says {}{}, not waiting on {want}", r.status, r.waiting_for.map(|f| format!(" on {f}")).unwrap_or_default())),
+        Some(_) => {}
+    }
+    call_answered(&w.record, asked, w.from).then(|| "the call's result is in its transcript".to_string())
 }
 
 /// The hook's side of a request: `ask` hands it to the app and gives the app's reply (the
@@ -263,14 +276,68 @@ fn still_asked(w: &Watch, asked: &Asked) -> bool {
 /// hook running when it's answered there, so the hook has to see that for itself.
 pub fn ask_until_replied(asked: &Asked, watch: &Watch, pause: Duration, mut ask: impl FnMut() -> Option<Value>) -> Value {
     let start = Instant::now();
+    note(Side::Hook, asked, &format!("asked, for process {}", watch.pid));
+    // Whether no server answered the last time, said once until one does.
+    let mut unanswered = false;
     loop {
         if let Some(reply) = ask() {
+            let what = if reply.is_null() { "the server let it go" } else { "the server answered" };
+            note(Side::Hook, asked, &format!("{what}, after {} s", start.elapsed().as_secs()));
             return reply;
         }
+        if !unanswered {
+            note(Side::Hook, asked, "no server answered: asking again every second while the session waits");
+            unanswered = true;
+        }
         std::thread::sleep(pause);
-        if start.elapsed() >= GRACE && !still_asked(watch, asked) {
+        if let Some(why) = (start.elapsed() >= GRACE).then(|| no_longer_asked(watch, asked)).flatten() {
+            note(Side::Hook, asked, &format!("gone without an answer, after {} s: {why}", start.elapsed().as_secs()));
             return Value::Null;
         }
+    }
+}
+
+/// Which side writes a line in asks.log: the hook's process or the server.
+#[derive(Clone, Copy)]
+pub enum Side {
+    Hook,
+    Server,
+}
+
+/// The log of requests' ways through Codealong (the module header).
+fn log_path() -> PathBuf {
+    crate::config::logs_dir().join("asks.log")
+}
+
+/// How big the log grows before it starts again.
+const LOG_MAX: u64 = 2 << 20;
+
+/// A line in asks.log, tab-separated: the local time, the side with its process id, the session,
+/// the tool, and what happened. Not from tests, whose requests are made up.
+pub fn note(side: Side, asked: &Asked, what: &str) {
+    note_for(side, &asked.session, &asked.tool, what);
+}
+
+/// `note`, for a request that wasn't parsed into an `Asked`.
+pub fn note_for(side: Side, session: &str, tool: &str, what: &str) {
+    if cfg!(test) {
+        return;
+    }
+    let who = match side {
+        Side::Hook => "hook",
+        Side::Server => "server",
+    };
+    let line = format!("{}\t{who} {}\t{session}\t{tool}\t{}\n", crate::perf::stamp(), std::process::id(), what.replace(['\t', '\n', '\r'], " "));
+    let path = log_path();
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    if std::fs::metadata(&path).is_ok_and(|m| m.len() > LOG_MAX) {
+        let _ = std::fs::write(&path, "");
+    }
+    // A request that can't be logged goes on all the same: the log is for finding out afterwards.
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+        let _ = f.write_all(line.as_bytes());
     }
 }
 

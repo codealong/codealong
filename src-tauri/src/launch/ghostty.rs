@@ -119,9 +119,9 @@ impl Terminal for Ghostty {
             Key::Escape => osascript(GHOSTTY_KEY, &[at, "escape"])?,
             Key::CtrlC => osascript(GHOSTTY_ACTION, &[at, GHOSTTY_CTRL_C])?,
             Key::Return => osascript(GHOSTTY_KEY, &[at, "enter"])?,
-            // End, Left and Shift+Tab as their terminal sequences, which need no key names of
-            // Ghostty's.
-            Key::Digit(_) | Key::End | Key::Left | Key::BackTab | Key::Keys(_) => osascript(GHOSTTY_ACTION, &[at, &text_action(key.typed())])?,
+            // End, Left, Tab and Shift+Tab as their terminal sequences, which need no key names
+            // of Ghostty's.
+            Key::Digit(_) | Key::End | Key::Left | Key::Tab | Key::BackTab | Key::Keys(_) => osascript(GHOSTTY_ACTION, &[at, &text_action(key.typed())])?,
         };
         Ok(())
     }

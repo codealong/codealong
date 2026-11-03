@@ -5023,10 +5023,17 @@ fn session_hook(event: &str) {
     }
     // Plans are left to the prompt: the app isn't asked about them.
     let Some((asked, record)) = crate::claude::asks::parse(&hook, now_ms()) else { return };
+    // A panic's message would go where the hook's errors go, nowhere: the log says it instead.
+    let (session, tool) = (asked.session.clone(), asked.tool.clone());
+    std::panic::set_hook(Box::new(move |p| crate::claude::asks::note_for(crate::claude::asks::Side::Hook, &session, &tool, &format!("failed: {p}"))));
     // The session's process, from its registry: the app watches the registry for the prompt
     // going away, and so does the hook while no app has it. The app answers none for a session
     // it has no process of, nor for one it runs itself, which asks through its adapter.
-    let Some(pid) = crate::claude::asks::session_process(&home, &asked.session) else { return };
+    let Some(pid) = crate::claude::asks::session_process(&home, &asked.session) else {
+        let why = format!("not asked: no process above the hook has the session in {}", home.join("sessions").display());
+        crate::claude::asks::note(crate::claude::asks::Side::Hook, &asked, &why);
+        return;
+    };
     let watch = crate::claude::asks::Watch::new(home.clone(), pid, record);
     let ask = || server::ask_permission(&hook, pid, &home, asked.at, watch.from);
     let decision = crate::claude::asks::ask_until_replied(&asked, &watch, std::time::Duration::from_secs(1), ask);

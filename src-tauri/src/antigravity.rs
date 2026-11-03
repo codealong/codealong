@@ -16,7 +16,7 @@ use serde_json::Value;
 
 use crate::config::AccountCfg;
 use crate::harness::{Applied, Ctx, Look, Question};
-use crate::launch::Key;
+use crate::launch::{press_all, Key, Press};
 use crate::model::{Harness, ModeKind, Session, SessionMode, Surface};
 use crate::procs;
 use crate::transcript::{clip_input, clip_output, item, kept_whole, Item, Page};
@@ -1845,42 +1845,9 @@ impl Antigravity {
     }
 }
 
-/// A key to press in a terminal UI, or words to type there and send with Return.
-#[derive(Debug, Clone, PartialEq)]
-enum Press {
-    Key(Key),
-    Words(String),
-}
-
 /// The keys that pick a question's choices: 1 to 9, the last for the write-in that follows its
 /// own choices.
 const KEYED_CHOICES: usize = 9;
-
-/// How long between keys: an Escape and the key after it arriving together read as Alt and that
-/// key.
-const PRESS_GAP: Duration = Duration::from_millis(100);
-
-/// Presses `keys` in the terminal a session's process runs in, in order.
-fn press_all(pid: u32, s: &Session, keys: &[Press]) -> anyhow::Result<()> {
-    let cwd = Path::new(&s.cwd);
-    let Some(host) = crate::launch::terminal_host(pid, cwd)? else {
-        anyhow::bail!("It isn't in a terminal Codealong can press keys in ({}). Open it to answer.", crate::launch::presses_keys_in());
-    };
-    for (i, press) in keys.iter().enumerate() {
-        if i > 0 {
-            std::thread::sleep(PRESS_GAP);
-        }
-        match press {
-            Press::Key(key) => crate::launch::press_key(&host, *key)?,
-            Press::Words(words) => {
-                if let crate::launch::Typed::Nowhere(why) = crate::launch::terminal_type_session(pid, cwd, words, false, crate::launch::Submit::Return, false)? {
-                    anyhow::bail!("Your words couldn't be typed into it: {why}. Finish answering in its terminal.");
-                }
-            }
-        }
-    }
-    Ok(())
-}
 
 /// Your answer to a question as `answers` gives it (`Adapter::answer_questions`): a label or words
 /// of your own, or a list of them where it takes several; empty ones left out.
@@ -2258,7 +2225,7 @@ impl crate::harness::Adapter for Antigravity {
             Answer::Deny => vec![Press::Key(Key::Escape)],
             Answer::Always => anyhow::bail!("Antigravity's prompt is answered here with Allow or Deny only."),
         };
-        press_all(pid, s, &keys)?;
+        press_all(pid, Path::new(&s.cwd), &keys)?;
         Ok(match answer {
             Answer::Deny if !call.questions.is_empty() => "Declined its questions; it stops and waits for you.".to_string(),
             Answer::Deny => format!("Denied {}; it stops and waits for you.", call.label),
@@ -2273,7 +2240,7 @@ impl crate::harness::Adapter for Antigravity {
             anyhow::bail!("It isn't asking you questions: allow or deny it.");
         }
         let keys = question_keys(&call.questions, Some(answers))?;
-        press_all(pid, s, &keys)?;
+        press_all(pid, Path::new(&s.cwd), &keys)?;
         let said: Vec<String> = call.questions.iter().filter_map(|q| Some(format!("{} → {}", one_line(&q.question, 80), given(answers, q).join(", "))).filter(|_| !given(answers, q).is_empty())).collect();
         Ok(format!("Answered: {}.", said.join("; ")))
     }

@@ -813,7 +813,15 @@ that starts with `/` or `!` is turned down there, since the job would run it as 
 its conversation has the question (an Opus job writes it only once it's answered), that record
 doesn't say whether a question takes several choices, so it's offered as one that takes one: to
 give several, write them in your own answer ("Red, Blue"), which is how the job takes several
-anyway. An Antigravity command line conversation's questions (its
+anyway. A session in a terminal whose questions the plugin didn't hand over shows them once its
+conversation has the call (Claude Code often writes it only once they're answered, and until then
+its row only says it waits on you). In its Ghostty, iTerm2, Rex or tmux tab, Answer presses the
+keys that give your picks there, typing your own words into its "Type something." box, and Decline
+presses Escape, which stops its turn. Your own words for a question that takes several choices are
+answered in its terminal. A choice you ticked there and pick here too ends up unticked, and the
+conversation shows the answers it took. Each request the plugin hands over, and why one was let go
+without an answer, is written to `~/Library/Logs/Codealong/asks.log` (on Linux,
+`~/.local/state/codealong/asks.log`). An Antigravity command line conversation's questions (its
 `ask_question`) show the same way while it runs in a Ghostty, iTerm2, Rex or tmux tab: Answer presses
 the keys there that give your picks, typing your own words into its Write-in box, and Decline
 skips them all and stops its turn. A question with more than eight choices is answered in its
