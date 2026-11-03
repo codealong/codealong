@@ -38,12 +38,22 @@ const BUNDLE: &str = "com.superlogical.rex";
 const APPS: [&str; 2] = ["Rex Beta.app", "Rex.app"];
 
 /// How long one `rex` call gets. The server answers in milliseconds; asking the app to show a
-/// session waits up to 10 s for its answer.
+/// session waits up to `ANSWER_WAIT` for each of its answers.
 const TIMEOUT: Duration = Duration::from_secs(30);
 
 /// How long the app gets to connect to its server once Codealong opened it (`show`); a moment
 /// on the test stage.
 const APP_WAIT: Duration = if cfg!(test) { Duration::from_secs(1) } else { Duration::from_secs(10) };
+
+/// How long the Rex app gets to answer a request to show a session before the open goes on
+/// without its answer. An app that's awake answers in well under a second. Behind other apps'
+/// windows macOS naps it (App Nap: every thread at priority 4), and on a busy Mac a napped app
+/// answered in 6 to 8 s, or not within the server's default of 10 s (load near 300,
+/// 2026-11-03). Waiting for it held Rex behind Codealong all that time, since the windows bring
+/// the app forward, which wakes it, once the open is done. It still carries out a request it
+/// answers late: its answer reaches the server after the deadline (logged as a `client.reply`
+/// with 404).
+const ANSWER_WAIT: Duration = Duration::from_secs(1);
 
 /// The longest label Rex takes for a session or a window.
 const LABEL_CHARS: usize = 128;
@@ -241,26 +251,27 @@ if not made then error(err, 0) end
 return { session = a.session, window = a.window, block = made.block_ids[1] }
 "#;
 
-/// `{session, window, block}`: focuses the block, which makes its window the session's active
-/// one, then asks each Rex app on this Mac to show that session. Returns `{apps, shown, refused,
-/// windowless, failed}`: how many apps there are and how many showed it, and what one said that
-/// refused (Remote Control off), had no window open to show it in, or failed otherwise. An app
-/// that doesn't know the session yet (a busy one, of a session just made) is asked again once
-/// it has refreshed its list.
+/// `{session, window, block, wait_ms}`: focuses the block, which makes its window the session's
+/// active one, then asks each Rex app on this Mac to show that session, waiting `wait_ms` for
+/// each to answer. Returns `{apps, shown, refused, windowless, late, failed}`: how many apps
+/// there are and how many showed it, and what one said that refused (Remote Control off), had no
+/// window open to show it in, didn't answer in time, or failed otherwise. An app that doesn't
+/// know the session yet (a busy one, of a session just made) is asked again once it has
+/// refreshed its list.
 const SHOW: &str = r#"
 local a = rex.args
 rex.session.attach{ session_id = a.session }
 local _, err = rex.session.focus_block{ session_id = a.session, block_id = a.block }
 if err then error(err, 0) end
-local apps, shown, refused, windowless, failed = 0, 0, "", "", ""
+local apps, shown, refused, windowless, late, failed = 0, 0, "", "", "", ""
 local clients = rex.call("client.list") or {}
 for _, c in ipairs(clients.clients or {}) do
   if c.info and c.info.kind == "app" and c.principal and c.principal.transport == "unix" then
     apps = apps + 1
-    local select = { client_id = c.client_id, action = "session.select", args = { session_id = a.session, window_id = a.window } }
+    local select = { client_id = c.client_id, action = "session.select", args = { session_id = a.session, window_id = a.window }, timeout_ms = a.wait_ms }
     local _, e = rex.call("client.perform", select)
     if e and string.find(e, "SessionNotFound", 1, true) then
-      rex.call("client.perform", { client_id = c.client_id, action = "session.refresh" })
+      rex.call("client.perform", { client_id = c.client_id, action = "session.refresh", timeout_ms = a.wait_ms })
       _, e = rex.call("client.perform", select)
     end
     if not e then
@@ -269,12 +280,14 @@ for _, c in ipairs(clients.clients or {}) do
       refused = e
     elseif string.find(e, "code=not_supported", 1, true) then
       windowless = e
+    elseif string.find(e, "code=timeout", 1, true) then
+      late = e
     else
       failed = e
     end
   end
 end
-return { apps = apps, shown = shown, refused = refused, windowless = windowless, failed = failed }
+return { apps = apps, shown = shown, refused = refused, windowless = windowless, late = late, failed = failed }
 "#;
 
 /// `{session, block, text, after}`: types `text` into the block as if typed, then `after` a
@@ -495,8 +508,13 @@ fn shown_session() -> Option<String> {
 
 /// Shows a block, by its `{session, window, block}` ids, in the Rex app and brings the app
 /// forward, opening it when it isn't. The block gets focus in its session either way; the app goes
-/// to the session only with Remote Control on.
+/// to the session only with Remote Control on. An app that doesn't answer within `ANSWER_WAIT`
+/// goes there once it does.
 fn show(ids: Value) -> Result<()> {
+    let mut ids = ids;
+    if let Some(ids) = ids.as_object_mut() {
+        ids.insert("wait_ms".into(), json!(ANSWER_WAIT.as_millis() as u64));
+    }
     let ask = || -> Result<Shown> { Ok(serde_json::from_value(script(SHOW, ids.clone(), false)?).unwrap_or_default()) };
     let mut shown = ask()?;
     open::in_app(App::Id(BUNDLE), None, Duration::from_secs(10))?;
@@ -508,7 +526,7 @@ fn show(ids: Value) -> Result<()> {
         std::thread::sleep(Duration::from_millis(500));
         shown = ask()?;
     }
-    if shown.shown > 0 {
+    if shown.shown > 0 || !shown.late.is_empty() {
         Ok(())
     } else if shown.apps == 0 {
         bail!("Rex opened, but it didn't connect to its server in time to show this session's tab.")
@@ -529,6 +547,7 @@ struct Shown {
     shown: u64,
     refused: String,
     windowless: String,
+    late: String,
     failed: String,
 }
 

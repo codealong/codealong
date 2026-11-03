@@ -102,7 +102,7 @@ const SCRIPTS: &[(&str, u64)] = &[
     ("REX_LIST", 0x72e73a8f753f9812),
     ("REX_NEW", 0xc96778bc839e4968),
     ("REX_SPLIT", 0x64195a51e964fb5d),
-    ("REX_SHOW", 0x925f451a2d1d06b4),
+    ("REX_SHOW", 0x830cd689a57511aa),
     ("REX_WRITE", 0x1141908aae8d52fa),
     ("REX_CLOSE", 0x14410192a422cbfb),
 ];
@@ -1482,6 +1482,8 @@ mod tests {
     const REX_DEFAULTS: &str = r#"/usr/bin/defaults ["export", "com.superlogical.rex", "-"] (5s)"#;
     const REX_SHOWN: &str = r#"{"apps":1,"shown":1,"refused":"","failed":""}"#;
     const REX_REFUSED: &str = r#"{"apps":1,"shown":0,"refused":"stream response \"control-7\" failed: Rex.app is not accepting actions. Turn on Remote Control in its Settings under Rex Server. (status=403 code=refused)","failed":""}"#;
+    /// Rex's app not answering within the wait, as the server says it (Rex Beta 0.1.0 (1541)).
+    const REX_LATE: &str = r#"{"apps":1,"shown":0,"refused":"","windowless":"","late":"stream response \"control-2\" failed: \"Mac\" did not answer within 1000ms (status=504 code=timeout)","failed":""}"#;
     /// Rex's app with every window closed, as Rex Beta 0.1.0 (1541) answers then.
     const REX_WINDOWLESS: &str = r#"{"apps":1,"shown":0,"refused":"","windowless":"stream response \"control-9\" failed: Rex Beta has no window to act in. (status=400 code=not_supported)","failed":""}"#;
 
@@ -1522,7 +1524,7 @@ mod tests {
             [
                 rex("REX_LIST", "{}", false),
                 rex("REX_NEW", r#"{"after":["window:w1"],"command":["/bin/sh","LAUNCHER"],"cwd":"/r/my app","focus":true,"input":"claude2 --session-id x \"$CODEALONG_PROMPT\"\n","label":"app · Fix it","session":"session:s1","session_label":"Spruce"}"#, true),
-                rex("REX_SHOW", r#"{"block":"block:b9","session":"session:s2","window":"window:w9"}"#, false),
+                rex("REX_SHOW", r#"{"block":"block:b9","session":"session:s2","wait_ms":1000,"window":"window:w9"}"#, false),
                 REX_OPEN.to_string(),
             ]
         );
@@ -1613,7 +1615,7 @@ mod tests {
 
     #[test]
     fn focusing_a_session_in_rex_shows_its_block_and_brings_rex_forward() {
-        let show = |block: &str, session: &str, window: &str| rex("REX_SHOW", &format!(r#"{{"block":"{block}","session":"{session}","window":"{window}"}}"#), false);
+        let show = |block: &str, session: &str, window: &str| rex("REX_SHOW", &format!(r#"{{"block":"{block}","session":"{session}","wait_ms":1000,"window":"{window}"}}"#), false);
         let p = played(rex_answers(REX_SHOWN), || terminal_focus_session("ghostty", IN_REX, "Fix the login", Path::new("/r/app")));
         assert!(p.got.unwrap());
         assert_eq!(p.log, [rex("REX_LIST", "{}", false), show("block:b1", "session:s1", "window:w1"), REX_OPEN.to_string()]);
@@ -1638,9 +1640,14 @@ mod tests {
         let p = played(rex_answers(r#"{"apps":0,"shown":0,"refused":"","failed":""}"#), || terminal_focus_session("ghostty", IN_REX, "Fix the login", Path::new("/r/app")));
         assert_eq!(err(p.got), "Rex opened, but it didn't connect to its server in time to show this session's tab.");
         assert_eq!(p.log[1..4], [show("block:b1", "session:s1", "window:w1"), REX_OPEN.to_string(), show("block:b1", "session:s1", "window:w1")]);
-        let p = played(rex_answers(r#"{"apps":1,"shown":0,"refused":"","failed":"client.perform timed out after 10s"}"#), || terminal_focus_session("ghostty", IN_REX, "Fix the login", Path::new("/r/app")));
-        assert_eq!(err(p.got), "Rex didn't go to this session's tab: client.perform timed out after 10s");
+        let p = played(rex_answers(r#"{"apps":1,"shown":0,"refused":"","failed":"client.perform failed: connection reset"}"#), || terminal_focus_session("ghostty", IN_REX, "Fix the login", Path::new("/r/app")));
+        assert_eq!(err(p.got), "Rex didn't go to this session's tab: client.perform failed: connection reset");
         assert_eq!(p.log.len(), 3, "a connected app isn't asked again");
+        // Its app not answering in time (macOS naps it behind other windows): it goes there once
+        // it does, and the open isn't held up for it, nor said to have failed.
+        let p = played(rex_answers(REX_LATE), || terminal_focus_session("ghostty", IN_REX, "Fix the login", Path::new("/r/app")));
+        assert!(p.got.unwrap());
+        assert_eq!(p.log, [rex("REX_LIST", "{}", false), show("block:b1", "session:s1", "window:w1"), REX_OPEN.to_string()]);
         // Its app is running with every window closed: opened, it makes one, and is asked again.
         let shows = Rc::new(Cell::new(0));
         let answer = move |s: &Sent| {
@@ -1673,7 +1680,7 @@ mod tests {
         let split = rex("REX_SPLIT", r#"{"block":"block:b1","cwd":"/r/app/src","session":"session:s1","window":"window:w1"}"#, false);
         let p = played(rex_answers(REX_SHOWN), || terminal_open_beside("rex", window(), Some(IN_REX), Path::new("/r/app/src")));
         p.got.unwrap();
-        assert_eq!(p.log, [rex("REX_LIST", "{}", false), split, rex("REX_SHOW", r#"{"block":"block:b8","session":"session:s1","window":"window:w1"}"#, false), REX_OPEN.to_string()]);
+        assert_eq!(p.log, [rex("REX_LIST", "{}", false), split, rex("REX_SHOW", r#"{"block":"block:b8","session":"session:s1","wait_ms":1000,"window":"window:w1"}"#, false), REX_OPEN.to_string()]);
         // A session that isn't in Rex, or isn't running: a terminal where the placement says,
         // without asking Rex's server, which a new terminal starts when it isn't running.
         let p = played(rex_answers(REX_SHOWN), || terminal_open_beside("rex", window(), Some(IN_GHOSTTY), Path::new("/r/app")));

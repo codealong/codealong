@@ -196,6 +196,17 @@ say the rest.
   0.1.0 (1541), 2026-10-28). `open -b` makes it open a window, on the session it showed last,
   within half a second, and `session.select` then works: `launch/rex.rs` (`show`). Before that,
   Attach in Rex opened its block and brought Rex forward on another session.
+- App Nap: behind other apps' windows macOS naps the Rex app as it does Ghostty (every thread at
+  priority 4 within about 10 s of being covered), and a napped app on a busy Mac answered
+  `session.select` in 6 to 8 s, or not within `client.perform`'s default `timeout_ms` of 10 s
+  (load near 300, 2026-11-03). The server and its terminals don't nap, so only what the app
+  answers is slow. A request past its `timeout_ms` fails with `code=timeout` (504) and the app
+  still carries it out once it gets to it, its answer logged as a `client.reply` with 404. An
+  `open -g -b` doesn't wake it; coming forward does. So Codealong waits a second for the app,
+  then lets it go there by itself as the window brings Rex forward: `launch/rex.rs`
+  (`ANSWER_WAIT`, `show`). Waiting the 10 s, Attach in Rex looked like it did nothing, and a
+  second click opened a second tab attached to the same job. `defaults write
+  com.superlogical.rex NSAppSleepDisabled -bool YES` stops the naps once the app restarts.
 - The server makes a block's pty with no display to draw in, so it should start one while the
   screen is locked; unchecked with the screen locked. Starts go to Rex then rather than tmux
   (`Terminal::holds_sessions`, `launch.rs` `host_rule`).
