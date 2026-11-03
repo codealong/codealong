@@ -96,7 +96,8 @@ recording its input, 2026-09-29), and launch.rs's starts in iTerm2 and Terminal 
 - App Nap: behind other apps' windows macOS naps Ghostty, every thread at priority 4, and a
   napped Ghostty on a busy Mac took 21 s over one question; marks are timed from its first
   answer, and what a send says when Ghostty was slow: `launch/ghostty.rs` (`naps`,
-  `GHOSTTY_MARK_WAIT_SECS`, `untyped`). Not said there: `ps -M -p <pid>` shows the priorities,
+  `GHOSTTY_MARK_WAIT_SECS`, `untyped`). Keeping a terminal awake, Settings › General's switch for
+  it: `os/naps.rs`. Not said there: `ps -M -p <pid>` shows the priorities,
   and `log show --predicate 'process == "runningboardd" AND eventMessage CONTAINS "Set AppNap
   state"'` when a nap began and ended (`active:Y`, `active:N`). An Apple Event doesn't wake a
   napped app at once: it's taken in at the napped priority, and the nap ends after.
@@ -208,8 +209,8 @@ say the rest.
   go there by itself as the window brings Rex forward, and asks again once Rex is the active
   app, for a session its list didn't have yet: `launch/rex.rs` (`ANSWER_WAIT`, `show`). Waiting
   the 10 s, Attach in Rex looked like it did nothing, and a second click opened a second tab
-  attached to the same job. `defaults write com.superlogical.rex NSAppSleepDisabled -bool YES`
-  stops the naps once the app restarts.
+  attached to the same job. Settings › General › Keep Rex awake stops the naps once the app
+  restarts (`os/naps.rs`).
 - The server makes a block's pty with no display to draw in, so it should start one while the
   screen is locked; unchecked with the screen locked. Starts go to Rex then rather than tmux
   (`Terminal::holds_sessions`, `launch.rs` `host_rule`).

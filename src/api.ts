@@ -754,6 +754,20 @@ export async function setOpenAtLogin(on: boolean): Promise<AtLogin> {
   return invoke<AtLogin>('set_open_at_login', { on });
 }
 
+/** Whether a terminal's app is kept awake behind other windows, as the system has it (os/naps.rs);
+ *  `null` for one macOS doesn't nap (tmux, or off macOS), or outside the app. */
+export async function terminalAwake(terminal: string): Promise<boolean | null> {
+  if (!inTauri) return null;
+  return invoke<boolean | null>('terminal_awake', { terminal });
+}
+
+/** Keeps a terminal's app awake behind other windows, or lets macOS nap it again, from the next
+ *  time it opens; how it stands after. */
+export async function setTerminalAwake(terminal: string, awake: boolean): Promise<boolean | null> {
+  if (!inTauri) throw new Error('Keeping a terminal awake needs the app.');
+  return invoke<boolean | null>('set_terminal_awake', { terminal, awake });
+}
+
 /** Calls `cb` whenever where updates stand changes, and `listening` once it hears them, so a
  *  read made then misses no change after it. */
 export function onUpdateStatus(cb: (view: UpdateView) => void, listening?: () => void): () => void {

@@ -949,7 +949,7 @@ mod tests {
             let answer = move |s: &Sent| if s.what == "GHOSTTY_LIST" { Ok(GHOSTTY_TABS.to_string()) } else { find.map(String::from).map_err(String::from) };
             play(Setup { ghostty_naps: true, ..setup() }, answer, || terminal_type_session(IN_GHOSTTY, Path::new("/r/app"), "Fix it", false, Submit::Return, false)).got.unwrap()
         };
-        let stops = "; macOS naps Ghostty behind other windows, which `defaults write com.mitchellh.ghostty NSAppSleepDisabled -bool YES` stops once Ghostty restarts";
+        let stops = "; macOS naps Ghostty behind other windows, which Settings › General › Keep Ghostty awake stops once Ghostty restarts";
         assert_eq!(napping(Ok("\n")), Typed::Nowhere(format!("Codealong couldn't find its Ghostty tab{stops}")));
         assert_eq!(napping(Err("/usr/bin/osascript timed out")), Typed::Nowhere(format!("Ghostty didn't answer in time{stops}")));
         assert_eq!(napping(Err(NOT_ALLOWED)), Typed::Nowhere("Codealong isn't allowed to control Ghostty (System Settings → Privacy & Security → Automation)".into()));

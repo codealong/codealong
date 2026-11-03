@@ -910,6 +910,25 @@ async fn set_open_at_login(app: tauri::AppHandle, on: bool) -> Result<os::login:
     blocking(move || os::login::set(&app, on).map_err(words)).await?
 }
 
+/// Whether a terminal's app is kept awake behind other windows (os/naps.rs), as the system has
+/// it: Settings › General. None for one macOS doesn't nap: tmux, or any off macOS.
+#[tauri::command]
+async fn terminal_awake(terminal: String) -> Option<bool> {
+    blocking(move || launch::bundle_id(&terminal).and_then(os::naps::awake)).await.ok().flatten()
+}
+
+/// Keeps a terminal's app awake behind other windows, or lets macOS nap it again, from the next
+/// time it opens; how it stands after.
+#[tauri::command]
+async fn set_terminal_awake(terminal: String, awake: bool) -> Result<Option<bool>, String> {
+    blocking(move || {
+        let bundle = launch::bundle_id(&terminal).ok_or_else(|| format!("{} isn't an app macOS naps.", launch::terminal_name(&terminal)))?;
+        os::naps::keep_awake(bundle, awake).map_err(words)?;
+        Ok(os::naps::awake(bundle))
+    })
+    .await?
+}
+
 /// Opens a repo's `.codealong/config.toml` from its main checkout in the editor.
 #[tauri::command]
 async fn open_team_file(mirror: State<'_, view::Mirror>, repo: String) -> Result<(), String> {
@@ -1332,7 +1351,7 @@ fn watch_main_thread(app: tauri::AppHandle) {
 /// it's one of its calls (`forward`).
 macro_rules! app_commands {
     ($($then:tt)*) => {
-        $($then)*![get_board, open_target, open_config, editor_icons, open_from_bar, peek_open, pr_at, session_at, perf_mark, page_unfocused, pointer_probe, popup_menu, fit_bar, show_main, peek_ready, peek_fit, peek_focus, peek_hide, peek_resize, peek_drag, keep_session, kept_session, kept_ready, kept_focus, kept_resize, kept_close, side_window, side_windows, bar_feed, desktop_pins, pin_to_desktop, drag_to_desktop, unpin_from_desktop, desktop_feed, fit_desktop, desktop_hover, lineage_feed, show_quick, hide_quick, quick_ready, show_waiting, waiting_asked, start_from_quick, quick_shortcut, pause_quick_shortcut, bar_on, set_bar_on, bar_mode, notch_shape, notch_drag, set_bar_mode, set_notch_open, notch_keys, keep_notch_session, review_in_codex, open_url, open_pr_file, run_command, play_sound, update_status, check_for_updates, restart_to_update, open_at_login, set_open_at_login, open_team_file, link_code_qr, start_session, move_session, resume_session, fork_session, sign_in, board_answer, schedule_times, save_attachment, import_attachment, expand_attachments, open_attachment, open_file, reveal_file, edit_file, your_editor, path_kinds, open_project_window]
+        $($then)*![get_board, open_target, open_config, editor_icons, open_from_bar, peek_open, pr_at, session_at, perf_mark, page_unfocused, pointer_probe, popup_menu, fit_bar, show_main, peek_ready, peek_fit, peek_focus, peek_hide, peek_resize, peek_drag, keep_session, kept_session, kept_ready, kept_focus, kept_resize, kept_close, side_window, side_windows, bar_feed, desktop_pins, pin_to_desktop, drag_to_desktop, unpin_from_desktop, desktop_feed, fit_desktop, desktop_hover, lineage_feed, show_quick, hide_quick, quick_ready, show_waiting, waiting_asked, start_from_quick, quick_shortcut, pause_quick_shortcut, bar_on, set_bar_on, bar_mode, notch_shape, notch_drag, set_bar_mode, set_notch_open, notch_keys, keep_notch_session, review_in_codex, open_url, open_pr_file, run_command, play_sound, update_status, check_for_updates, restart_to_update, open_at_login, set_open_at_login, terminal_awake, set_terminal_awake, open_team_file, link_code_qr, start_session, move_session, resume_session, fork_session, sign_in, board_answer, schedule_times, save_attachment, import_attachment, expand_attachments, open_attachment, open_file, reveal_file, edit_file, your_editor, path_kinds, open_project_window]
     };
 }
 

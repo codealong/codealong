@@ -760,6 +760,10 @@ window.__TAURI_INTERNALS__ = {
     // takes, as the system would.
     if (cmd === 'open_at_login') return Promise.resolve(window.__atLogin || 'off');
     if (cmd === 'set_open_at_login') return Promise.resolve((window.__atLogin = (args || {}).on ? 'on' : 'off'));
+    // Keep your terminal awake: napped, as macOS has an app by default, or `window.__awake`;
+    // tmux isn't an app macOS naps. A change takes, as `defaults` would.
+    if (cmd === 'terminal_awake') return Promise.resolve((args || {}).terminal === 'tmux' ? null : !!window.__awake);
+    if (cmd === 'set_terminal_awake') return Promise.resolve((window.__awake = !!(args || {}).awake));
     if (cmd === 'suggest_todo') {
       return optionalJson('./todos-fixture.json').then(function (fx) {
         return fx && fx.jev && fx.jev.suggest ? fx.jev.suggest : Promise.reject(new Error('Todo suggestions are off.'));

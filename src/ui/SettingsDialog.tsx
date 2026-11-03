@@ -5,7 +5,7 @@
 // (SettingsFind.tsx).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { getConfig, onQuickShortcut, openAtLogin, openTeamFile, openUrl, pauseQuickShortcut, playSound, quickShortcut, jevKey, saveConfig, saveConfigText, setJevKey, setOpenAtLogin, setReusable, startOptions, takeTeamSettings, testJev } from '../api';
+import { getConfig, onQuickShortcut, openAtLogin, openTeamFile, openUrl, pauseQuickShortcut, playSound, quickShortcut, jevKey, saveConfig, saveConfigText, setJevKey, setOpenAtLogin, setReusable, setTerminalAwake, startOptions, takeTeamSettings, terminalAwake, testJev } from '../api';
 import { nudgeKind, nudgeMerges, withMerges } from '../prStatus';
 import { heldSaid, shortcutFromKey, shortcutLabel, takenFor } from '../quick';
 import { DRAWS, HARNESS_WORD, MOVES_ACCOUNTS } from '../harness';
@@ -351,6 +351,7 @@ function GeneralPane({ cfg, view, theme, onPickTheme, disabled, onSave, now }: P
           <ProfileSelect value={cfg.apps.terminal} profiles={view.terminals} onChange={(terminal) => void onSave({ ...cfg, apps: { ...cfg.apps, terminal } })} />
           <small>Where sessions open and new ones start.</small>
         </label>
+        {platform() === 'mac' && <KeepAwakeField terminal={cfg.apps.terminal} name={terminalName} keepsTerminals={!!view.holdsSessions?.includes(cfg.apps.terminal)} />}
         <div className="ca-field">
           <span>New terminals open as</span>
           <Seg
@@ -532,6 +533,62 @@ function OpenAtLoginField() {
         <CheckBox checked={state === 'on' || state === 'approve'} disabled={busy || state === null} onChange={pick} />
         <span>Open at login</span>
         <small>{state === 'approve' ? 'macOS waits for you to allow Codealong in System Settings › General › Login Items.' : AT_LOGIN_SAYS[platform()]}</small>
+      </label>
+      {error && (
+        <p className="ca-form-error" role="alert">
+          {error}
+        </p>
+      )}
+    </>
+  );
+}
+
+/**
+ * Settings › General: whether macOS may nap your terminal while other apps' windows cover it
+ * (os/naps.rs), where a napped one on a busy Mac took seconds to bring a session's tab forward.
+ * It's the terminal's own setting, so it's asked of the system each time, again on focus as Open
+ * at login is, and the terminal takes it up only as it opens. Not shown for a terminal macOS
+ * doesn't nap (tmux, or off macOS).
+ */
+function KeepAwakeField({ terminal, name, keepsTerminals }: { terminal: string; name: string; keepsTerminals: boolean }) {
+  const [awake, setAwake] = useState<boolean | null>(null);
+  const [changed, setChanged] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    setChanged(false);
+    setError(null);
+    const read = () =>
+      terminalAwake(terminal)
+        .then((a) => live && setAwake(a))
+        .catch((e: unknown) => live && setError(errorText(e)));
+    void read();
+    window.addEventListener('focus', read);
+    return () => {
+      live = false;
+      window.removeEventListener('focus', read);
+    };
+  }, [terminal]);
+  const pick = (on: boolean) => {
+    setBusy(true);
+    setError(null);
+    setTerminalAwake(terminal, on)
+      .then((a) => {
+        setAwake(a);
+        setChanged(true);
+      })
+      .catch((e: unknown) => setError(errorText(e)))
+      .finally(() => setBusy(false));
+  };
+  if (awake === null && !error) return null;
+  const reopen = keepsTerminals ? `Quit and reopen ${name} for it to take effect; its terminals keep running.` : `It takes effect the next time ${name} opens.`;
+  return (
+    <>
+      <label className="ca-field ca-settings-check">
+        <CheckBox checked={awake === true} disabled={busy || awake === null} onChange={pick} />
+        <span>Keep {name} awake behind other windows</span>
+        <small>{changed ? reopen : `macOS slows ${name} down while other apps’ windows cover it, and on a busy Mac a session’s tab can then take seconds to come forward. ${reopen}`}</small>
       </label>
       {error && (
         <p className="ca-form-error" role="alert">

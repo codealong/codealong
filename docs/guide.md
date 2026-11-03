@@ -2021,7 +2021,9 @@ it later.
 *⌘, (comma), the app menu, or the foot of the sidebar*
 
 A form for everything in config.toml. General has the folders searched for repos, the shortcuts
-that work in any app, the terminal and editor, the theme, and Open at login (off until you turn it
+that work in any app, the terminal and editor, Keep <terminal> awake (on macOS: whether macOS may
+nap your terminal while other apps' windows cover it; see *How a prompt gets to a session*), the theme, and
+Open at login (off until you turn it
 on; the system keeps it rather than config.toml: on macOS System Settings › General › Login Items
 lists Codealong, and on Linux it's an entry in `~/.config/autostart`, and turning it off there
 shows here); Sounds has the sound for each thing that starts to
@@ -2246,8 +2248,11 @@ Ghostty is found and typed into by asking it, and macOS naps Ghostty while its w
 other apps' (App Nap): napped on a busy Mac it took seconds to answer, so a reply went as a message,
 an approval or an open failed, until you brought Ghostty forward. Codealong waits for its first
 answer before it starts timing, and when Ghostty doesn't answer in time and macOS may nap it, the
-note says so. `defaults write com.mitchellh.ghostty NSAppSleepDisabled -bool YES` keeps it awake
-once Ghostty restarts.
+note says so. Rex's app naps the same way, and was slow to go to a session's tab, so Codealong
+waits a second for it and lets Rex go there by itself once it comes forward. Settings › General ›
+Keep <terminal> awake keeps the terminal you picked from napping (its `NSAppSleepDisabled`, which
+`defaults write` sets too), from the next time it opens: quit and reopen it. Rex's terminals keep
+running when its app quits.
 
 #### What Codealong sends by itself
 

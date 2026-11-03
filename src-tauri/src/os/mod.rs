@@ -26,6 +26,7 @@ pub mod dirs;
 pub mod exits;
 pub mod files;
 pub mod login;
+pub mod naps;
 pub mod open;
 pub mod outline;
 pub mod procs;

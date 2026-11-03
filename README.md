@@ -869,9 +869,8 @@ harnesses, accounts and machines, and sends new work to the right one.
   accounts bar says when GitHub is signed out or out of requests.
 - **Codealong can't bring a terminal tab forward or type into it.** On macOS, allow it under
   System Settings › Privacy & Security › Automation.
-- **Ghostty answers only once you bring it forward.** macOS naps it while it's behind other
-  windows. Run `defaults write com.mitchellh.ghostty NSAppSleepDisabled -bool YES`, then quit and
-  reopen Ghostty.
+- **Your terminal answers only once you bring it forward.** macOS naps it while it's behind other
+  windows. Turn on Settings › General › Keep <terminal> awake, then quit and reopen the terminal.
 - **Something stopped working in the background.** Codealong says so in a chip at the end of the
   accounts bar; click it for what happened and what to open to fix it.
 

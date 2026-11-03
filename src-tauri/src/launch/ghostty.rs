@@ -9,7 +9,6 @@ use std::time::{Duration, Instant};
 use anyhow::{anyhow, Result};
 
 use super::{app_installed, hang_up, hang_up_tabs, shell_of, Closing, not_allowed_why, pick_by_title, placement, tty_of, write_osc7, HostKind, Key, NotAllowed, Placement, Submit, Tab, Terminal, TerminalHost, Typed, FOCUS_TURNS, MARK_PREFIX};
-use crate::procs;
 
 const APP: &str = "Ghostty";
 
@@ -426,46 +425,24 @@ const GHOSTTY_MARK_WAIT_SECS: &str = "8";
 /// this, the typing that follows is one question more.
 pub(super) const FIND_WAIT: Duration = Duration::from_secs(15);
 
-/// Whether macOS may nap Ghostty (App Nap): neither Ghostty's defaults nor the global ones set
-/// `NSAppSleepDisabled`. Behind other apps' windows Ghostty napped every minute or so, mostly for
-/// a few seconds, now and then for a minute or more (runningboardd's "Set AppNap state" lines).
-/// Napped, every thread of it runs at the lowest priority there is (4, where the agents' work
-/// runs at 31 and up), and on a busy Mac one question took it 21 s where an awake Ghostty
-/// answered within a second or two (macOS 26.6, Ghostty 1.3.1, a load average near 100,
-/// 2026-10-12). Bringing Ghostty forward wakes it. An app reads the default as it starts: set
-/// while Ghostty ran, it changed nothing until Ghostty restarted, and a test app launched with it
-/// never napped.
+/// Whether macOS may nap Ghostty behind other apps' windows (os/naps.rs). Behind them Ghostty
+/// napped every minute or so, mostly for a few seconds, now and then for a minute or more
+/// (runningboardd's "Set AppNap state" lines), and on a busy Mac one question took it 21 s where
+/// an awake Ghostty answered within a second or two (macOS 26.6, Ghostty 1.3.1, a load average
+/// near 100, 2026-10-12).
 fn naps() -> bool {
     #[cfg(test)]
     if let Some(naps) = super::stage::ghostty_naps() {
         return naps;
     }
-    let read = |domain: &str| procs::run("/usr/bin/defaults", &["read", domain, "NSAppSleepDisabled"], None, Duration::from_secs(5)).ok().and_then(|v| sleep_disabled(&v));
-    napping(read("com.mitchellh.ghostty"), read("-g"))
-}
-
-/// Whether an app naps, from its own `NSAppSleepDisabled` and the global one: its own wins,
-/// a NO too, as an app's defaults do over the global ones.
-fn napping(own: Option<bool>, global: Option<bool>) -> bool {
-    !own.or(global).unwrap_or(false)
-}
-
-/// `NSAppSleepDisabled` as `defaults read` prints it: 1 or 0 for a boolean, or a string that
-/// `boolForKey` reads (`defaults write` without `-bool` stores `YES` as one). Anything else
-/// counts as unset.
-fn sleep_disabled(printed: &str) -> Option<bool> {
-    match printed.trim().to_ascii_lowercase().as_str() {
-        "1" | "yes" | "true" => Some(true),
-        "0" | "no" | "false" => Some(false),
-        _ => None,
-    }
+    crate::os::naps::naps("com.mitchellh.ghostty")
 }
 
 /// Why Ghostty didn't take something typed, with what to do about it when macOS naps Ghostty,
 /// the likeliest reason it was slow.
 fn untyped(why: &str) -> String {
     if naps() {
-        format!("{why}; macOS naps Ghostty behind other windows, which `defaults write com.mitchellh.ghostty NSAppSleepDisabled -bool YES` stops once Ghostty restarts")
+        format!("{why}; macOS naps Ghostty behind other windows, which Settings › General › Keep Ghostty awake stops once Ghostty restarts")
     } else {
         why.to_string()
     }
@@ -689,20 +666,4 @@ fn close_tabs(tabs: &[&Closing]) -> Result<Vec<Result<()>>> {
         }
     }
     Ok(out)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{napping, sleep_disabled};
-
-    #[test]
-    fn ghostty_naps_unless_its_own_default_or_the_global_one_says_not_to() {
-        assert_eq!(["1\n", "YES", "true", "0\n", "NO", "", "maybe"].map(sleep_disabled), [Some(true), Some(true), Some(true), Some(false), Some(false), None, None]);
-        assert!(napping(None, None));
-        assert!(!napping(Some(true), None));
-        assert!(!napping(None, Some(true)));
-        // Ghostty's own NO wins over the global YES.
-        assert!(napping(Some(false), Some(true)));
-        assert!(!napping(Some(true), Some(false)));
-    }
 }
