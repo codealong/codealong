@@ -281,3 +281,28 @@ mod tests {
         assert_eq!(env["EQ"], "a=b");
     }
 }
+
+/// Becomes the program `exe` in place (this process, its pid and its children kept), passing on
+/// the descriptors in `keep` too, let through just before the exec, in the call that makes it: a
+/// process another thread starts in that moment would get them as well, which is why the server
+/// hands over one socket this way rather than its terminals (serve.rs `hand_over`). Returns only
+/// when it couldn't: why.
+pub fn exec_keeping(exe: &Path, args: &[std::ffi::OsString], env: &[(std::ffi::OsString, std::ffi::OsString)], keep: &[std::os::fd::RawFd]) -> std::io::Error {
+    use std::os::unix::process::CommandExt;
+    let keep = keep.to_vec();
+    let mut become_it = std::process::Command::new(exe);
+    become_it.args(args).env_clear().envs(env.iter().map(|(k, v)| (k, v)));
+    // SAFETY: runs in this process just before exec, and only clears a flag on descriptors it owns.
+    unsafe {
+        become_it.pre_exec(move || {
+            for fd in &keep {
+                let flags = libc::fcntl(*fd, libc::F_GETFD);
+                if flags >= 0 {
+                    libc::fcntl(*fd, libc::F_SETFD, flags & !libc::FD_CLOEXEC);
+                }
+            }
+            Ok(())
+        });
+    }
+    become_it.exec()
+}

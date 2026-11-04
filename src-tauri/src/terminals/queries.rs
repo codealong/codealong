@@ -7,9 +7,10 @@
 //! The questions: device attributes (`CSI c`, `CSI > c`, `CSI = c`), device status and cursor
 //! position (`CSI n`, `CSI ? n`), the terminal's name and version (`CSI > q`), the Kitty keyboard
 //! flags (`CSI ? u`), a mode's state (`CSI $ p`), sizes in cells and pixels (`CSI 14 t`, `16 t`,
-//! `18 t`…), colors and the clipboard (OSC 4, 10, 11, 12, 52 … ending in `?`), and termcap and
-//! settings (`DCS + q`, `DCS $ q`). Everything else goes through as it is. A sequence split
-//! between two reads is held until its end comes.
+//! `18 t`…), the terminal's identity the old way (`ESC Z`), colors and the clipboard (an OSC with
+//! a `?` field: 4, 10 to 19, 52, and others, a title aside), and termcap and settings (`DCS + q`,
+//! `DCS $ q`). An OSC that asks one color and sets another is taken out whole. Everything else
+//! goes through as it is. A sequence split between two reads is held until its end comes.
 
 /// What's held of a sequence not finished yet is let through past this, as it is: no question is
 /// that long.
@@ -72,6 +73,8 @@ fn sequence(s: &[u8]) -> Seq {
         Some(b'[') => csi(s),
         Some(b']') => string(s, |body| osc_asks(body)),
         Some(b'P') => string(s, |body| body.starts_with(b"+q") || body.starts_with(b"$q")),
+        // DECID, which asks what the terminal is, as `CSI c` does.
+        Some(b'Z') => Seq::Whole { len: 2, question: true },
         Some(_) => Seq::Other,
     }
 }
@@ -119,9 +122,15 @@ fn string(s: &[u8], asks: impl Fn(&[u8]) -> bool) -> Seq {
     Seq::Partial
 }
 
-/// An OSC that asks: its last field `?` (a color, the clipboard, Claude Code's 7501).
+/// An OSC that asks: one with a field that's `?` (a color, a palette entry among others set, the
+/// clipboard, Claude Code's 7501), but never a title (0, 1, 2), which may be `?` itself.
 fn osc_asks(body: &[u8]) -> bool {
-    body.ends_with(b";?") || body == b"?"
+    let mut fields = body.split(|b| *b == b';');
+    let command = fields.next().and_then(|c| std::str::from_utf8(c).ok()).and_then(|c| c.parse::<u32>().ok());
+    match command {
+        Some(0..=2) | None => false,
+        Some(_) => fields.any(|f| f == b"?"),
+    }
 }
 
 #[cfg(test)]
@@ -142,6 +151,9 @@ mod tests {
         assert_eq!(strip(&[b"\x1b]11;?\x1b\\\x1b]0;title\x07"]), b"\x1b]0;title\x07", "a color asked, a title set");
         assert_eq!(strip(&[b"\x1bP+q544e\x1b\\\x1bP1$r0m\x1b\\"]), b"\x1bP1$r0m\x1b\\");
         assert_eq!(strip(&[b"\x1b[?2026$p\x1b[!p"]), b"\x1b[!p", "a mode asked, a soft reset");
+        assert_eq!(strip(&[b"\x1b]4;1;?;2;#00ff00\x1b\\x"]), b"x", "one palette entry asked, another set");
+        assert_eq!(strip(&[b"a\x1bZb"]), b"ab", "DECID");
+        assert_eq!(strip(&[b"\x1b]2;?\x07\x1b]8;;https://example.com/?q\x07"]), b"\x1b]2;?\x07\x1b]8;;https://example.com/?q\x07", "a title that's ?, a link with ? in it");
         // What looks alike but sets things: the cursor's shape, the Kitty flags pushed, a window
         // title pushed, a size set.
         let sets: &[u8] = b"\x1b[2 q\x1b[>5u\x1b[22;0t\x1b[8;24;80t\x1b[5;10H";

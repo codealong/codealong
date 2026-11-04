@@ -97,8 +97,11 @@ pub fn run(what: &str) -> Result<()> {
     let mut buf = [0u8; 4096];
     let mut held: Vec<u8> = Vec::new();
     loop {
-        if !held.is_empty() && !crate::terminals::pty::readable(0, HOLD) {
-            if send(&writer, &AttachIn::Text { text: String::from_utf8_lossy(&std::mem::take(&mut held)).into_owned() }).is_err() {
+        // What's held for the let-go sequence goes as it is once nothing more comes in time (an
+        // Escape alone, say); a character that hasn't come whole waits for the rest however long.
+        if waits_for_more(&held) && !crate::terminals::pty::readable(0, HOLD) {
+            let now = timed_out(&mut held);
+            if send(&writer, &AttachIn::Text { text: String::from_utf8_lossy(&now).into_owned() }).is_err() {
                 break;
             }
             continue;
@@ -134,9 +137,9 @@ fn typed(held: &mut Vec<u8>, new: &[u8]) -> (Vec<u8>, bool) {
         all.truncate(at);
         return (all, true);
     }
-    // Three bytes or more of a let-go sequence at the end (an escape and a bracket alone start
-    // every key's sequence, which isn't held for).
-    let keep = LET_GO.iter().filter(|go| go.len() > 3).flat_map(|go| (3..go.len()).filter(|n| all.ends_with(&go[..*n]))).max().unwrap_or(0);
+    // The start of a let-go sequence at the end, however short (an escape alone too, whose rest
+    // may come in the next read): `HOLD` lets it go as it is if nothing follows.
+    let keep = LET_GO.iter().filter(|go| go.len() > 1).flat_map(|go| (1..go.len()).filter(|n| all.ends_with(&go[..*n]))).max().unwrap_or(0);
     let mut tail = all.split_off(all.len() - keep);
     if let Err(e) = std::str::from_utf8(&all) {
         if e.error_len().is_none() {
@@ -147,6 +150,27 @@ fn typed(held: &mut Vec<u8>, new: &[u8]) -> (Vec<u8>, bool) {
     }
     *held = tail;
     (all, false)
+}
+
+/// How many bytes at the end of `held` are a character not come whole yet.
+fn unfinished_character(held: &[u8]) -> usize {
+    match std::str::from_utf8(held) {
+        Err(e) if e.error_len().is_none() => held.len() - e.valid_up_to(),
+        _ => 0,
+    }
+}
+
+/// Whether `held` waits for a moment only (`HOLD`): it holds more than a character not come whole.
+fn waits_for_more(held: &[u8]) -> bool {
+    !held.is_empty() && unfinished_character(held) < held.len()
+}
+
+/// What's held goes once nothing more came in time, but a character not come whole stays for the
+/// rest of it, which may be slow over a slow link.
+fn timed_out(held: &mut Vec<u8>) -> Vec<u8> {
+    let keep = unfinished_character(held);
+    let rest = held.split_off(held.len() - keep);
+    std::mem::replace(held, rest)
 }
 
 fn send(to: &Mutex<UnixStream>, what: &AttachIn) -> std::io::Result<()> {
@@ -218,7 +242,11 @@ mod tests {
         assert_eq!(go(&[b"ab\x1ccd"]), (b"ab".to_vec(), true));
         assert_eq!(go(&[b"x\x1b[92;5u"]), (b"x".to_vec(), true), "the Kitty protocol's");
         assert_eq!(go(&[b"x\x1b[92;5:1u"]), (b"x".to_vec(), true), "with its event type");
-        assert_eq!(go(&[b"x\x1b[92", b";5u"]), (b"x".to_vec(), true), "split between reads");
+        // Split at every place, the escape alone and its bracket too.
+        let seq = b"\x1b[92;5u";
+        for at in 1..seq.len() {
+            assert_eq!(go(&[b"x", &seq[..at], &seq[at..]]), (b"x".to_vec(), true), "split after {at} bytes");
+        }
         // Keys that start alike go through.
         assert_eq!(go(&[b"\x1b[A\x1b[92;2u"]), (b"\x1b[A\x1b[92;2u".to_vec(), false));
     }
@@ -231,5 +259,20 @@ mod tests {
         let mut held = Vec::new();
         let (first, _) = typed(&mut held, &word[..2]);
         assert!(first.is_empty() && held.len() == 2, "held for its end");
+        assert!(!waits_for_more(&held), "however long its end takes");
+        // An escape held for the let-go sequence goes once nothing follows; a character half
+        // come stays.
+        let mut held = Vec::new();
+        let (sent, _) = typed(&mut held, b"\x1b");
+        assert!(sent.is_empty() && waits_for_more(&held), "an escape alone may start the let-go sequence");
+        assert_eq!(timed_out(&mut held), b"\x1b");
+        assert!(held.is_empty());
+        let euro = "€".as_bytes();
+        let (sent, _) = typed(&mut held, &euro[..1]);
+        assert!(sent.is_empty() && !waits_for_more(&held), "the start of a character isn't let go by the wait");
+        assert!(timed_out(&mut held).is_empty());
+        assert_eq!(held, &euro[..1]);
+        let (rest, _) = typed(&mut held, &euro[1..]);
+        assert_eq!(String::from_utf8(rest).unwrap(), "€");
     }
 }
