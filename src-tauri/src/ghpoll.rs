@@ -435,9 +435,11 @@ impl GhPoll {
     /// worktree's repo is on GitHub.
     fn ask(&mut self, seeds: &[LaneSeed], force: bool, now: Now) -> Option<github::Ask> {
         let made = self.made_to_read(seeds);
-        // None left to read: the ones read before are in repos read now, or no longer marked.
+        // None left to read: the ones read before are in repos read now, or no longer marked. What
+        // they were read at goes with them, so the same ones marked again are read again.
         if made.is_empty() {
             self.made.clear();
+            self.schedule.stamps.remove(github::MADE);
         }
         if !self.schedule.may_start(force, now.at) || (!seeds.iter().any(|s| s.repo_slug.is_some()) && made.is_empty()) {
             return None;
@@ -510,7 +512,7 @@ impl GhPoll {
             }
             Event::Made(result, stamp) => {
                 self.on_read(github::MADE, result.as_ref().err(), stamp, now);
-                self.on_made(result, now)
+                self.on_made(result, seeds, now)
             }
             Event::PollEnded => {
                 // The board says so at once (sounds.rs counts reviews from then).
@@ -568,7 +570,7 @@ impl GhPoll {
                 self.on_requested(result, seeds, now);
             }
             github::Answer::Made(result, _) => {
-                self.on_made(result, now);
+                self.on_made(result, seeds, now);
             }
         }
     }
@@ -718,9 +720,20 @@ impl GhPoll {
         true
     }
 
+    /// Each project's repo here by the name GitHub has for it now (lowercase), as its remote names
+    /// it.
+    fn here(&self, seeds: &[LaneSeed]) -> HashMap<String, String> {
+        let mut here: HashMap<String, String> = HashMap::new();
+        for slug in seeds.iter().filter_map(|s| s.repo_slug.as_ref()) {
+            let now = self.names.now.get(&slug.to_lowercase()).unwrap_or(slug);
+            here.entry(now.to_lowercase()).or_insert_with(|| slug.clone());
+        }
+        here
+    }
+
     /// The PRs sessions made in repos whose PRs aren't read, filed under the repo each was asked
-    /// for by.
-    fn on_made(&mut self, result: Result<Made, Failure>, now: Now) -> bool {
+    /// for by, or a project's repo that GitHub calls that now.
+    fn on_made(&mut self, result: Result<Made, Failure>, seeds: &[LaneSeed], now: Now) -> bool {
         let found = match result {
             Ok(found) => found,
             Err(e) => {
@@ -728,8 +741,12 @@ impl GhPoll {
                 return true;
             }
         };
+        // A project's repo whose remote has the name it had before a rename, by that name, as the
+        // search's PRs are (`on_requested`).
+        let here = self.here(seeds);
         let mut made: HashMap<String, Vec<PrRaw>> = HashMap::new();
         for (slug, pr) in found.prs {
+            let slug = here.get(&slug.to_lowercase()).cloned().unwrap_or(slug);
             made.entry(slug).or_default().push(pr);
         }
         for (slug, prs) in made.iter_mut() {
@@ -755,11 +772,7 @@ impl GhPoll {
                 return true;
             }
         };
-        let mut here: HashMap<String, String> = HashMap::new();
-        for slug in seeds.iter().filter_map(|s| s.repo_slug.as_ref()) {
-            let now = self.names.now.get(&slug.to_lowercase()).unwrap_or(slug);
-            here.entry(now.to_lowercase()).or_insert_with(|| slug.clone());
-        }
+        let here = self.here(seeds);
         let mut requested: HashMap<String, Vec<PrRaw>> = HashMap::new();
         for (slug, pr) in found.prs {
             if let Some(local) = here.get(&slug.to_lowercase()) {
@@ -1403,7 +1416,7 @@ mod tests {
         gh.set_marked(vec!["upstream/orm#8580".to_string()]);
         let plain = [LaneSeed { repo_slug: None, ..seed("/x/notes", "", "main") }];
         let running = PrRaw { url: "https://github.com/Upstream/orm/pull/8580".into(), checks: Checks { pending: 1, ..Checks::default() }, updated_at: t.ms - 60_000, ..pr(8580) };
-        assert!(gh.on_event(Event::Made(Ok(Made { login: Some("gwen".into()), prs: vec![("Upstream/orm".into(), running)] }), Some(Stamp { glance: "m".into(), at: t.ms })), &plain, t));
+        assert!(gh.on_event(Event::Made(Ok(Made { login: Some("gwen".into()), prs: vec![("Upstream/orm".into(), running)], asked: vec!["upstream/orm#8580".into()] }), Some(Stamp { glance: "m".into(), at: t.ms })), &plain, t));
         assert_eq!(gh.made()["Upstream/orm"][0].number, 8580);
         assert_eq!(gh.login(), Some("gwen"));
         assert_eq!(gh.schedule.stamps.get(github::MADE).map(|s| s.glance.as_str()), Some("m"));
@@ -1423,9 +1436,18 @@ mod tests {
         assert_eq!(gh.made().len(), 1);
         assert!(gh.notice().is_some());
 
-        // Once none is left to read, the ones read before go.
+        // Once none is left to read, the ones read before go, with what they were read at: marked
+        // again, they're read again.
         gh.set_marked(Vec::new());
         assert!(gh.ask(&plain, true, after(t, 180)).is_none());
         assert!(gh.made().is_empty());
+        assert!(!gh.schedule.stamps.contains_key(github::MADE));
+
+        // A project's repo renamed on GitHub, whose remote has its old name: a PR read by the new
+        // name is filed under the remote's, as the project's repo.
+        gh.names.now.insert("spurhq/spur".into(), "spurhq/spur-app".into());
+        let renamed = PrRaw { url: "https://github.com/spurhq/spur-app/pull/12".into(), ..pr(12) };
+        gh.on_event(Event::Made(Ok(Made { prs: vec![("spurhq/spur-app".into(), renamed)], ..Made::default() }), None), &seeds, after(t, 181));
+        assert_eq!(gh.made().keys().collect::<Vec<_>>(), ["spurhq/spur"]);
     }
 }

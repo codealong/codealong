@@ -135,6 +135,8 @@ pub struct Requested {
 pub struct Made {
     pub login: Option<String>,
     pub prs: Vec<(String, PrRaw)>,
+    /// The PRs asked for, as `Ask::made` had them.
+    pub asked: Vec<String>,
 }
 
 const QUERY: &str = r#"
@@ -466,7 +468,7 @@ pub fn parse_made(json: &str) -> Result<Made> {
         })
         .collect();
     prs.sort_by(|(a, p), (b, q)| (a.to_lowercase(), p.number).cmp(&(b.to_lowercase(), q.number)));
-    Ok(Made { login: login.map(String::from), prs })
+    Ok(Made { login: login.map(String::from), prs, asked: asked.iter().map(|k| k.to_string()).collect() })
 }
 
 pub fn parse(json: &str) -> Result<RepoPrs> {
@@ -1071,9 +1073,9 @@ pub enum Answer {
 
 /// What the made PRs' answer is read at in place of a glance: the PRs asked for, so another
 /// set is read at once, and the answer stands for the same set as a repo's does for the same
-/// glance.
-fn made_mark(made: &[String]) -> String {
-    mark(&made.iter().map(String::as_str).collect::<Vec<_>>())
+/// glance; and whose glance it is, as for a repo, since another sign-in sees other requests.
+fn made_mark(made: &[String], who: &str) -> String {
+    mark(&std::iter::once(who).chain(made.iter().map(String::as_str)).collect::<Vec<_>>())
 }
 
 /// One poll: a glance, then the PRs of each repo whose answer no longer stands, and the search
@@ -1111,9 +1113,11 @@ fn poll_in(dir: &Path, ask: &Ask, on: &(dyn Fn(Answer) + Sync)) {
         });
         if !ask.made.is_empty() {
             scope.spawn(move || {
-                let mark = made_mark(&ask.made);
+                // Without a glance, what's had stands until it would be read again anyway, as a
+                // repo's does.
+                let mark = glance.map(|g| made_mark(&ask.made, g.login.as_deref().unwrap_or("")));
                 let busy = |made: &Made| made.prs.iter().any(|(_, p)| busy(std::slice::from_ref(p), now));
-                let read = Reading { dir, ask, key: MADE, mark: Some(&mark), now, fetch: &|| fetch_made_text(&ask.made), parse: &parse_made, busy: &busy }.read();
+                let read = Reading { dir, ask, key: MADE, mark: mark.as_deref(), now, fetch: &|| fetch_made_text(&ask.made), parse: &parse_made, busy: &busy }.read();
                 if let Some((result, stamp)) = read {
                     on(Answer::Made(result, stamp));
                 }
@@ -1223,7 +1227,7 @@ fn fresh(dir: &Path, slugs: &[String], made: &[String], now: SystemTime) -> Opti
     }
     // Kept for the PRs asked for now, not others.
     if !made.is_empty() {
-        let kept = lately(MADE).filter(|a| matches!(a, Answer::Made(_, Some(stamp)) if stamp.glance == made_mark(made)))?;
+        let kept = lately(MADE).filter(|a| matches!(a, Answer::Made(Ok(found), _) if found.asked == made))?;
         answers.push(kept);
     }
     Some(answers)
@@ -2863,6 +2867,8 @@ mod tests {
         assert_eq!(got, vec![("lists/awesome", 12, PrState::Open, Merge::Blocked), ("lists/old-name", 7, PrState::Closed, Merge::Unknown), ("Upstream/orm", 8580, PrState::Merged, Merge::Unknown)]);
         assert_eq!(made.prs[0].1.reviewers_asked, ["ana"], "an open one's reviews are read as a repo's are");
         assert_eq!(made.login.as_deref(), Some("me"));
+        assert_eq!(made.asked.len(), 5, "what was asked for, which a snapshot takes it for");
+        assert_ne!(made_mark(&made.asked, "me"), made_mark(&made.asked, "ana"), "another sign-in sees other requests");
         assert!(parse_made(r#"{"data":null}"#).is_err());
     }
 
@@ -2870,9 +2876,9 @@ mod tests {
     fn a_snapshot_takes_the_made_prs_kept_for_the_same_prs() {
         let dir = scratch("fresh-made");
         save(&dir, REQUESTED, &Stamp { glance: "a".into(), at: 1 }, r#"{"data":{"viewer":{"login":"gwen"},"search":{"nodes":[]}}}"#);
-        let made = vec!["lists/awesome#12".to_string(), "upstream/orm#8580".to_string()];
+        let made: Vec<String> = ["upstream/orm#8580", "gone/repo#1", "lists/awesome#3", "lists/awesome#12", "lists/old-name#7"].map(String::from).to_vec();
         assert!(fresh(&dir, &[], &made, SystemTime::now()).is_none(), "nothing kept for them");
-        save(&dir, MADE, &Stamp { glance: made_mark(&made), at: 1 }, MADE_PRS);
+        save(&dir, MADE, &Stamp { glance: made_mark(&made, "gwen"), at: 1 }, MADE_PRS);
         let answers = fresh(&dir, &[], &made, SystemTime::now()).unwrap();
         assert!(matches!(&answers[1], Answer::Made(Ok(found), Some(_)) if found.prs.len() == 3));
         assert!(fresh(&dir, &[], &made[1..], SystemTime::now()).is_none(), "kept for other PRs than are asked for");

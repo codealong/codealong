@@ -1065,13 +1065,15 @@ pub fn pr_items(seeds: &[LaneSeed], lanes: &[Lane], prs: &HashMap<String, Vec<Pr
     let repos = repos_of(seeds);
     let owners = owners_of(seeds);
     let polled = polled_slugs(seeds);
+    let read_alone: HashSet<String> = made.iter().flat_map(|(slug, list)| list.iter().map(move |p| crate::prlinks::pr_key(&format!("{slug}#{}", p.number)))).collect();
     let mut out = Vec::new();
     for (slug, list) in prs {
         let Some(&repo) = repos.get(slug.as_str()) else { continue };
         let searched = (!polled.contains(slug)).then(|| requested.get(slug).map_or(&[][..], Vec::as_slice));
         for p in list {
-            // The search's copy is the newer.
-            if searched.is_some_and(|found| found.iter().any(|x| x.number == p.number)) {
+            // The search's copy is the newer, and so is one read by its number: a repo no longer
+            // read keeps its last read.
+            if searched.is_some_and(|found| found.iter().any(|x| x.number == p.number) || read_alone.contains(&crate::prlinks::pr_key(&format!("{slug}#{}", p.number)))) {
                 continue;
             }
             let mut item = pr_item(lanes, &owners, slug, repo, p, branch_freed(list, p), login, links);
@@ -1115,18 +1117,22 @@ fn made_item(repos: &HashMap<&str, (&str, &str, Option<&str>)>, owners: &HashMap
 }
 
 /// The PRs sessions on the board (`lanes`) made or changed by their records, or were linked to by
-/// hand, as `owner/name#number`, the latest marked first (a link by hand first of all). Records
-/// outlast the sessions the board lists (a background job removed, say), and a session unlinked
-/// from a PR counts for none. The engine reads the ones in repos whose PRs aren't read by their
-/// numbers (ghpoll.rs `made_to_read`), which are listed only with such a session (`made_item`).
+/// hand, as `owner/name#number`: one linked by hand first, however long ago it was marked, then
+/// the latest marked. Records outlast the sessions the board lists (a background job removed,
+/// say), and a session unlinked from a PR counts for none. The engine reads the ones in repos
+/// whose PRs aren't read by their numbers (ghpoll.rs `made_to_read`), which are listed only with
+/// such a session (`made_item`).
 pub fn worked_prs(links: &PrLinks, lanes: &[Lane]) -> Vec<String> {
     let on_board: HashSet<&str> = lanes.iter().flat_map(|l| l.sessions.iter().map(|s| s.key.as_str())).collect();
     let mut prs: Vec<(Reverse<i64>, &String)> = links
         .worked
         .iter()
         .filter(|(pr, sessions)| sessions.iter().any(|s| on_board.contains(s.as_str()) && !links.unlinked.contains(&((*pr).clone(), s.clone()))))
-        .map(|(pr, _)| {
-            let marked = links.made.get(pr).into_iter().flatten().map(|(_, at)| *at).max();
+        .map(|(pr, sessions)| {
+            let marks = links.made.get(pr).map_or(&[][..], Vec::as_slice);
+            // A session linked by hand is one whose records don't mark it.
+            let by_hand = sessions.iter().any(|s| !marks.iter().any(|(m, _)| m == s));
+            let marked = marks.iter().map(|(_, at)| *at).max().filter(|_| !by_hand);
             (Reverse(marked.unwrap_or(i64::MAX)), pr)
         })
         .collect();
@@ -3212,8 +3218,14 @@ mod tests {
         assert_eq!(listed(&none, &lanes, &links), vec![upstream_item.clone(), docs_item.clone()]);
 
         // Waiting on your review there too, it's listed once.
-        let asked = HashMap::from([("SpruceHQ/docs".to_string(), vec![PrRaw { review_requested: true, ..docs_pr }])]);
+        let asked = HashMap::from([("SpruceHQ/docs".to_string(), vec![PrRaw { review_requested: true, ..docs_pr.clone() }])]);
         assert_eq!(listed(&asked, &lanes, &links).len(), 2);
+
+        // A repo no longer read keeps its last read, from before the docs PR merged: the one read
+        // by its number is the newer.
+        let stale = HashMap::from([("SpruceHQ/docs".to_string(), vec![PrRaw { state: PrState::Open, merged_at: None, ..docs_pr }])]);
+        let docs: Vec<PrState> = pr_items(&seeds, &lanes, &stale, &none, &made, Some("gwen"), &links).into_iter().filter(|p| p.repo == "docs").map(|p| p.state).collect();
+        assert_eq!(docs, [PrState::Merged]);
 
         // With no session it's for on the board, or the one there unlinked from it, nothing
         // gives the upstream PR a project.
@@ -3235,14 +3247,17 @@ mod tests {
                 ("o/r#2".to_string(), vec![("b".to_string(), 300), ("a".to_string(), 50)]),
                 ("o/r#3".to_string(), vec![("c".to_string(), 200)]),
                 ("o/r#5".to_string(), vec![("gone".to_string(), 900)]),
+                ("o/r#6".to_string(), vec![("a".to_string(), 10)]),
             ]),
             ..Default::default()
         };
-        // A link by hand first, then by the latest session's mark.
-        assert_eq!(worked_prs(&links, &lanes), ["o/r#4", "o/r#2", "o/r#3", "o/r#1"]);
+        // #6, marked long ago, was linked to another session by hand today.
+        links.worked.insert("o/r#6".into(), vec!["a".into(), "linked".into()]);
+        // Links by hand first, then by the latest session's mark.
+        assert_eq!(worked_prs(&links, &lanes), ["o/r#4", "o/r#6", "o/r#2", "o/r#3", "o/r#1"]);
         // Every session it had unlinked by hand: it's no one's.
         links.unlinked.insert(("o/r#3".into(), "c".into()));
-        assert_eq!(worked_prs(&links, &lanes), ["o/r#4", "o/r#2", "o/r#1"]);
+        assert_eq!(worked_prs(&links, &lanes), ["o/r#4", "o/r#6", "o/r#2", "o/r#1"]);
     }
 
     #[test]
