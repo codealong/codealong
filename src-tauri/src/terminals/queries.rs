@@ -43,6 +43,10 @@ impl Queries {
                     }
                     i += len;
                 }
+                Seq::Rewritten { len, kept } => {
+                    out.extend_from_slice(&kept);
+                    i += len;
+                }
                 Seq::Partial if input.len() - i <= MOST_HELD => {
                     self.held = input[i..].to_vec();
                     return out;
@@ -60,6 +64,9 @@ impl Queries {
 enum Seq {
     /// A whole sequence of `len` bytes, and whether it asks something.
     Whole { len: usize, question: bool },
+    /// A whole sequence of `len` bytes that asks and sets at once (a palette entry asked and
+    /// another set): what it sets, as sequences of their own.
+    Rewritten { len: usize, kept: Vec<u8> },
     /// It doesn't end in what's here.
     Partial,
     /// Not one this reads (an escape alone, or one of two bytes).
@@ -71,7 +78,10 @@ fn sequence(s: &[u8]) -> Seq {
     match s.get(1) {
         None => Seq::Partial,
         Some(b'[') => csi(s),
-        Some(b']') => string(s, |body| osc_asks(body)),
+        Some(b']') => match string(s, osc_asks) {
+            Seq::Whole { len, question: true } => osc_sets(&s[..len]).map_or(Seq::Whole { len, question: true }, |kept| Seq::Rewritten { len, kept }),
+            other => other,
+        },
         Some(b'P') => string(s, |body| body.starts_with(b"+q") || body.starts_with(b"$q")),
         // DECID, which asks what the terminal is, as `CSI c` does.
         Some(b'Z') => Seq::Whole { len: 2, question: true },
@@ -122,6 +132,43 @@ fn string(s: &[u8], asks: impl Fn(&[u8]) -> bool) -> Seq {
     Seq::Partial
 }
 
+/// What an OSC that asks also sets, as OSCs of their own ended as it was, where it sets
+/// anything: the palette entries (4) and special colors (5) given a color beside those asked, and
+/// the dynamic colors (10 to 19) given one, each its own number counted from the first. None where
+/// it only asks.
+fn osc_sets(seq: &[u8]) -> Option<Vec<u8>> {
+    let (body, end): (&[u8], &[u8]) = if seq.ends_with(b"\x07") { (&seq[2..seq.len() - 1], b"\x07") } else { (&seq[2..seq.len() - 2], b"\x1b\\") };
+    let mut fields = body.split(|b| *b == b';');
+    let command: u32 = std::str::from_utf8(fields.next()?).ok()?.parse().ok()?;
+    let rest: Vec<&[u8]> = fields.collect();
+    let mut out = Vec::new();
+    let mut emit = |number: u32, parts: &[&[u8]]| {
+        out.extend_from_slice(format!("\x1b]{number}").as_bytes());
+        for p in parts {
+            out.push(b';');
+            out.extend_from_slice(p);
+        }
+        out.extend_from_slice(end);
+    };
+    match command {
+        4 | 5 => {
+            let set: Vec<&[u8]> = rest.chunks(2).filter(|pair| pair.len() == 2 && pair[1] != b"?").flat_map(|pair| pair.iter().copied()).collect();
+            if !set.is_empty() {
+                emit(command, &set);
+            }
+        }
+        10..=19 => {
+            for (n, spec) in rest.iter().enumerate() {
+                if *spec != b"?" {
+                    emit(command + n as u32, &[spec]);
+                }
+            }
+        }
+        _ => {}
+    }
+    (!out.is_empty()).then_some(out)
+}
+
 /// An OSC that asks: one with a field that's `?` (a color, a palette entry among others set, the
 /// clipboard, Claude Code's 7501), but never a title (0, 1, 2), which may be `?` itself.
 fn osc_asks(body: &[u8]) -> bool {
@@ -151,7 +198,9 @@ mod tests {
         assert_eq!(strip(&[b"\x1b]11;?\x1b\\\x1b]0;title\x07"]), b"\x1b]0;title\x07", "a color asked, a title set");
         assert_eq!(strip(&[b"\x1bP+q544e\x1b\\\x1bP1$r0m\x1b\\"]), b"\x1bP1$r0m\x1b\\");
         assert_eq!(strip(&[b"\x1b[?2026$p\x1b[!p"]), b"\x1b[!p", "a mode asked, a soft reset");
-        assert_eq!(strip(&[b"\x1b]4;1;?;2;#00ff00\x1b\\x"]), b"x", "one palette entry asked, another set");
+        assert_eq!(strip(&[b"\x1b]4;1;?;2;#00ff00\x1b\\x"]), b"\x1b]4;2;#00ff00\x1b\\x", "one palette entry asked, the other set kept");
+        assert_eq!(strip(&[b"\x1b]10;?;#ffffff\x07"]), b"\x1b]11;#ffffff\x07", "the foreground asked, the background set");
+        assert_eq!(strip(&[b"\x1b]4;1;?;3;?\x07"]), b"", "only asking");
         assert_eq!(strip(&[b"a\x1bZb"]), b"ab", "DECID");
         assert_eq!(strip(&[b"\x1b]2;?\x07\x1b]8;;https://example.com/?q\x07"]), b"\x1b]2;?\x07\x1b]8;;https://example.com/?q\x07", "a title that's ?, a link with ? in it");
         // What looks alike but sets things: the cursor's shape, the Kitty flags pushed, a window

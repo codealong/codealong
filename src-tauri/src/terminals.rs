@@ -1024,10 +1024,27 @@ fn run(id: &str, pid: u32, master: OwnedFd, how: How, rx: Receiver<Msg>, out: Se
                     Ok(Msg::Output(bytes)) => screen.feed(&bytes),
                     Ok(Msg::Hangup) => reader_done = true,
                     Ok(Msg::Exited(_)) => running = false,
-                    // The server is going: anything else waits for the next build.
+                    // What's typed meanwhile goes to the writer, which writes it or hands it
+                    // across with the rest of what it hadn't written.
+                    Ok(Msg::Write(bytes)) => {
+                        let _ = out.send(bytes);
+                    }
+                    Ok(Msg::Input(inputs)) => {
+                        for i in &inputs {
+                            screen.input(i);
+                        }
+                        let _ = out.send(screen.take_out());
+                    }
+                    Ok(Msg::Paste { text, unsafe_ok, reply }) => {
+                        let _ = reply.send(running && screen.paste(&text, unsafe_ok));
+                    }
+                    // The server is going: a window's size, colors or watch are the next build's.
                     Ok(_) => {}
                     Err(_) => break,
                 }
+            }
+            if !reader_done {
+                eprintln!("Terminal {id}'s reader didn't stop in time: what it reads from here on is lost to the next build.");
             }
             let glance = state().list.iter().find(|e| e.glance.id == id).map(|e| e.glance.clone());
             let handed = glance.zip(if running { pty::inheritable(master.as_raw_fd()) } else { None }).map(|(glance, fd)| Handed { glance, fd, pid, size: screen.size(), theme: theme_now.clone(), close_on_exit, snapshot: None, pending: Vec::new() });
@@ -1037,7 +1054,13 @@ fn run(id: &str, pid: u32, master: OwnedFd, how: How, rx: Receiver<Msg>, out: Se
             // What the program hasn't been sent yet goes across, for the next build to write.
             let pending = written.recv_timeout(HAND_OVER_WAIT).unwrap_or_else(|_| {
                 stop_writing.store(true, Ordering::Relaxed);
-                written.recv_timeout(Duration::from_secs(1)).unwrap_or_default()
+                // It looks at `stop_writing` every `WRITE_POLL`. One that doesn't answer even so
+                // is stuck: the terminal goes across without what it held, rather than not at all,
+                // which would end its program.
+                written.recv_timeout(Duration::from_secs(1)).unwrap_or_else(|_| {
+                    eprintln!("Terminal {id}'s writer didn't hand back what it hadn't written: that's lost.");
+                    Vec::new()
+                })
             });
             let _ = reply.send(handed.map(|h| (Handed { pending, ..h }, snapshot)));
             // The next build has it now: this thread ends and leaves its process be.

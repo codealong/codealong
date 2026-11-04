@@ -263,8 +263,11 @@ say the rest.
   EBADF, as does naming a closed stdin; checked 2026-11-04), so that end is unmarked just before,
   and a process another thread starts in that moment would get the socket, not a terminal. Once
   the sender has closed its end, a read of the empty socket says the connection was reset, after
-  everything queued. The run lock and the server's socket close at the exec, for the new build to
-  take. A server's children it didn't hand over (ACP adapters) lose their pipes as it changes and
+  everything queued. Every message waits in the socket until the new build reads it, and macOS's
+  default buffer for a datagram pair held nine messages of sixteen descriptors (the tenth failed
+  with ENOBUFS, Codex's probe, 2026-11-04), so the server asks for megabytes (`pty::socket_room`;
+  240 descriptors fit in a test) and hands over what fits if some don't. The run lock and the
+  server's socket close at the exec, for the new build to take. A server's children it didn't hand over (ACP adapters) lose their pipes as it changes and
   exit; the new build reaps them by pid. Checked with a server of this build in a home of its own
   (2026-11-04).
 - A terminal's side is non-blocking (`pty::nonblocking`, for every copy): its reader and writer

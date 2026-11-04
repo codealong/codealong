@@ -50,6 +50,10 @@ const HANDOVER_FDS_VAR: &str = "CODEALONG_HANDOVER_FDS";
 /// How many descriptors go in one message of the hand-over's socket.
 const FDS_A_MESSAGE: usize = 16;
 
+/// The hand-over socket's buffers: all its messages wait in it at once. macOS's default held nine
+/// messages of sixteen (Codex's probe, 2026-11-04); this holds thousands.
+const HAND_OVER_ROOM: usize = 4 * 1024 * 1024;
+
 /// What the build a server became in place takes over as it starts (`take_handover`).
 static HANDED: Mutex<Option<Handover>> = Mutex::new(None);
 
@@ -311,12 +315,20 @@ pub fn hand_over() -> String {
         Ok(pair) => pair,
         Err(e) => return format!("couldn't make the socket to hand the terminals over in: {e}"),
     };
+    // Room for every terminal's message at once, as nothing reads them until the new build does.
+    terminals::pty::socket_room(keep.as_raw_fd(), HAND_OVER_ROOM);
+    terminals::pty::socket_room(give.as_raw_fd(), HAND_OVER_ROOM);
+    let mut sent = 0;
     for batch in handed.terminals.chunks(FDS_A_MESSAGE) {
         let fds: Vec<i32> = batch.iter().map(|h| h.fd).collect();
         let ids = batch.iter().map(|h| h.glance.id.as_str()).collect::<Vec<_>>().join("\n");
         if let Err(e) = terminals::pty::send_fds(give.as_raw_fd(), &fds, ids.as_bytes()) {
-            return format!("couldn't hand the terminals' descriptors over: {e}");
+            // The ones that didn't fit end with this build, as without a hand-over; the rest
+            // still go.
+            eprintln!("Only {sent} of {} terminals could be handed over: {e}", handed.terminals.len());
+            break;
         }
+        sent += batch.len();
     }
     // The socket holds them now: this process's copies go.
     for h in &mut handed.terminals {

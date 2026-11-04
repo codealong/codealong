@@ -164,6 +164,15 @@ pub(crate) fn cloexec(fd: RawFd) -> io::Result<()> {
     Ok(())
 }
 
+/// Asks for `bytes` of room in a socket's send and receive buffers; the system may give less.
+pub fn socket_room(sock: RawFd, bytes: usize) {
+    let size = bytes as libc::c_int;
+    for opt in [libc::SO_SNDBUF, libc::SO_RCVBUF] {
+        // SAFETY: setsockopt reads the int we pass for a socket we own.
+        unsafe { libc::setsockopt(sock, libc::SOL_SOCKET, opt, (&size as *const libc::c_int).cast(), std::mem::size_of::<libc::c_int>() as libc::socklen_t) };
+    }
+}
+
 /// Sends descriptors over a Unix datagram socket (SCM_RIGHTS), with `payload` as the message's
 /// bytes: the socket holds them for whoever reads it (`recv_fds`), who gets descriptors of their
 /// own for the same open files, even once the sender has closed its own and become another
@@ -329,6 +338,32 @@ mod tests {
             assert_eq!(got, word);
         }
         assert!(recv_fds(keep.as_raw_fd(), 16).unwrap().is_none(), "nothing more, without waiting");
+    }
+
+    /// A hand-over's socket holds every terminal's descriptor at once, hundreds of them, with its
+    /// room asked for (`socket_room`): nothing reads it until the next build does.
+    #[test]
+    fn a_hand_over_socket_holds_hundreds_of_descriptors_at_once() {
+        use std::os::fd::AsRawFd;
+        let (keep, give) = std::os::unix::net::UnixDatagram::pair().unwrap();
+        socket_room(keep.as_raw_fd(), 4 * 1024 * 1024);
+        socket_room(give.as_raw_fd(), 4 * 1024 * 1024);
+        let pipes: Vec<_> = (0..240).map(|_| std::io::pipe().unwrap()).collect();
+        for (n, batch) in pipes.chunks(16).enumerate() {
+            let fds: Vec<RawFd> = batch.iter().map(|(_, w)| w.as_raw_fd()).collect();
+            let ids = (0..batch.len()).map(|i| format!("term-1793770000000-{}", n * 16 + i)).collect::<Vec<_>>().join("\n");
+            send_fds(give.as_raw_fd(), &fds, ids.as_bytes()).unwrap_or_else(|e| panic!("batch {n}: {e}"));
+        }
+        drop(give);
+        let mut got = 0;
+        while let Some((fds, _)) = recv_fds(keep.as_raw_fd(), 16).unwrap() {
+            got += fds.len();
+            for fd in fds {
+                // SAFETY: a descriptor this test was given and owns.
+                unsafe { libc::close(fd) };
+            }
+        }
+        assert_eq!(got, 240);
     }
 
     #[test]
