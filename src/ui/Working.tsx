@@ -88,19 +88,28 @@ export function Working({ session: s, tips, onGrow }: { session: Session; tips: 
 }
 
 /** In the working line's place, for a session whose turn is over that waits on a command it left
- *  running in the background (lanes.ts `waitsInBackground`): the clock the list and its header
- *  draw, and what it waits on, in the engine's words for its excerpt; the command on one line, all
- *  of it on hover. */
+ *  running in the background (lanes.ts `waitsInBackground`), or that waits on a command you
+ *  allowed in your terminal (`Session.running`): the clock the list and its header draw, and what
+ *  it waits on, in the engine's words for its excerpt; the command on one line, all of it on
+ *  hover. */
 export function Waiting({ session: s, onGrow }: { session: Session; onGrow: () => void }) {
   useLayoutEffect(onGrow, [onGrow]);
+  const run = s.running;
   // "" when the engine couldn't read the command. Shown on one line; on hover as it was written.
-  const command = s.background?.replace(/\s+/g, ' ').trim();
+  const command = (run?.command ?? s.background)?.replace(/\s+/g, ' ').trim();
   return (
     <div className="ca-working is-waiting">
       <span className="ca-working-head">
         <SessionGlyph s={s} size={14} />
         <span className="ca-working-line">
-          {command ? (
+          {run ? (
+            <>
+              <span className="ca-working-word is-lead">Running in {run.terminal}</span>
+              <code className="ca-ic" title={run.command}>
+                {command}
+              </code>
+            </>
+          ) : command ? (
             <>
               <span className="ca-working-word is-lead">Waiting on</span>
               <code className="ca-ic" title={s.background}>

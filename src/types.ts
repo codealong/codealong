@@ -114,6 +114,14 @@ export interface Suggestions {
   promptAt?: number;
 }
 
+/** A command you allowed in a terminal, which a session's agent waits on (model.rs `RunningIn`). */
+export interface RunningIn {
+  /** The terminal app its tab is in (Ghostty, Rex…), or Codealong for a terminal under the session. */
+  terminal: string;
+  /** The command, less a leading `cd` to its folder. */
+  command: string;
+}
+
 export interface Session {
   key: string;
   id: string;
@@ -164,6 +172,10 @@ export interface Session {
    *  when it couldn't be read. Working, it waits on it (`waitsInBackground`). Missing from a
    *  board an older app sent. */
   background?: string;
+  /** While its agent waits on a command you allowed in your terminal (`codealong terminal run`):
+   *  where it runs and what, which the end of its conversation says (`Waiting`). Missing from a
+   *  board an older app sent. */
+  running?: RunningIn;
   /** Jev's read of how its turn ended, when `[jev] sessions` is on (insights.rs). */
   insight?: SessionInsight;
   /** Needs you only because its last reply asks you something: it sits at its prompt, so a

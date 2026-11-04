@@ -6,7 +6,8 @@
 // none. A new word comes round in time. The line goes once the turn ends, and for a session gone
 // silent mid-turn, which its header speaks for. One whose turn is over that waits on a command it
 // left running in the background says what it waits on in the line's place, with its clock, or
-// that it waits on a command when the command couldn't be read.
+// that it waits on a command when the command couldn't be read. One that waits on a command you
+// allowed in your terminal says where that runs and what, whether its turn is over or not.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/working-check.js
 (function () {
   localStorage.setItem('codealong.project', 'All projects');
@@ -39,6 +40,7 @@
         s.lastPromptAt = started + at * 30e3;
         s.stalledSince = own.stalledSince || null;
         s.background = own.background;
+        s.running = own.running;
         s.snoozedUntil = undefined;
         s.raised = undefined;
         s.queued = undefined;
@@ -55,6 +57,7 @@
     row(i).click();
   };
   var COMMAND = 'until gh pr checks 139 | grep -q .;\n  do sleep 10; done; gh pr checks 139 --watch --interval 15 2>&1 | tail -4';
+  var RUN = { terminal: 'Rex', command: 'node scripts/publish.mjs' };
   // Whether the conversation, its panel made narrow, has nothing that goes past its side.
   var fitsNarrow = function () {
     var panel = q('.ca-sessinsp');
@@ -221,6 +224,25 @@
       check('or that it waits on a command, when it couldn’t be read', waiting().textContent === 'Waiting on a command in the background', waiting().textContent);
       var narrow = fitsNarrow();
       check('which wraps in a narrow panel rather than going past its side', narrow === true, narrow);
+      // Its command in the background waits on a run you allowed in Rex.
+      shape[picked[0].key] = { background: 'codealong terminal run "cd /Users/me/projects/northwind-app && node scripts/publish.mjs" 2>&1 | tail -60', running: RUN };
+      return push().then(function () { return until(function () { return waiting() && /^Running in/.test(waiting().textContent); }, 5000, 'the line saying where the run is'); });
+    })
+    .then(function () {
+      var w = waiting();
+      var said = w.querySelector('.ca-working-word');
+      var cmd = w.querySelector('code');
+      check('one waiting on a command you allowed in your terminal says where it runs and what', said.textContent === 'Running in Rex' && !!cmd && cmd.textContent === RUN.command && cmd.getAttribute('title') === RUN.command, w.textContent);
+      var oneLine = cmd.getClientRects().length === 1 && said.getClientRects().length === 1 && Math.abs(said.getBoundingClientRect().top - cmd.getBoundingClientRect().top) < 6;
+      check('on one line, with its clock', oneLine && !!w.querySelector('.ca-glyph--waiting') && !tip());
+      var narrow = fitsNarrow();
+      check('fitting a narrow panel too', narrow === true, narrow);
+      // Waiting on it in its turn, its command not in the background.
+      shape[picked[0].key] = { running: RUN };
+      return push().then(function () { return until(function () { return waiting() && !line(); }, 5000, 'the run in the working line’s place mid-turn'); });
+    })
+    .then(function () {
+      check('and mid-turn, in the working line’s place', /^Running in Rex/.test(waiting().textContent) && !line(), waiting().textContent);
       shape[picked[0].key] = { status: 'idle' };
       return push().then(function () { return until(function () { return !waiting(); }, 5000, 'the waiting line to go'); });
     })

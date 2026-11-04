@@ -177,10 +177,11 @@ pub enum Request {
         id: Option<String>,
         #[serde(default)]
         session: Option<String>,
-        /// The command asks as it waits on the run `id` (`terminal run`, `terminal wait`): its
-        /// session shows the run going (terminal.rs `note_waited`).
-        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-        waiting: bool,
+        /// The session whose command asks as it waits on the run `id` (`terminal run`, `terminal
+        /// wait`), by key: it shows the run going (terminal.rs `note_waited`). None from a command
+        /// that only asks, or one no session runs.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        waiting: Option<String>,
     },
 }
 
@@ -533,8 +534,8 @@ fn handle_request(ctx: &Ctx, req: serde_json::Result<Request>) -> Reply {
         Request::PermissionAsk { .. } | Request::TerminalAsk { .. } => Reply::ok(Value::Null),
         Request::TerminalRuns { id: Some(id), waiting, .. } => {
             let status = crate::terminal::status(&id);
-            if let (true, Ok(s)) = (waiting, &status) {
-                if crate::terminal::note_waited(s, crate::util::now_ms()) {
+            if let (Some(by), Ok(s)) = (&waiting, &status) {
+                if crate::terminal::note_waited(s, by, crate::util::now_ms()) {
                     engine.hosted_changed();
                 }
             }
@@ -1041,11 +1042,11 @@ mod tests {
         assert_eq!(review, r#"{"method":"pr-review","pr":"acme/app#12","account":"cursor"}"#);
         assert!(matches!(serde_json::from_str(r#"{"method":"pr-review","pr":"acme/app#12"}"#).unwrap(), Request::PrReview { account: None, .. }));
         // A command that waits on a run says so; one that only asks, and an older one, don't.
-        let waits = serde_json::to_string(&Request::TerminalRuns { id: Some("run-1".into()), session: None, waiting: true }).unwrap();
-        assert_eq!(waits, r#"{"method":"terminal-runs","id":"run-1","session":null,"waiting":true}"#);
-        let asks = serde_json::to_string(&Request::TerminalRuns { id: Some("run-1".into()), session: None, waiting: false }).unwrap();
+        let waits = serde_json::to_string(&Request::TerminalRuns { id: Some("run-1".into()), session: None, waiting: Some("claude:claude:abc".into()) }).unwrap();
+        assert_eq!(waits, r#"{"method":"terminal-runs","id":"run-1","session":null,"waiting":"claude:claude:abc"}"#);
+        let asks = serde_json::to_string(&Request::TerminalRuns { id: Some("run-1".into()), session: None, waiting: None }).unwrap();
         assert_eq!(asks, r#"{"method":"terminal-runs","id":"run-1","session":null}"#);
-        assert!(matches!(serde_json::from_str(&asks).unwrap(), Request::TerminalRuns { waiting: false, .. }));
+        assert!(matches!(serde_json::from_str(&asks).unwrap(), Request::TerminalRuns { waiting: None, .. }));
         let reply: Reply = serde_json::from_str(r#"{"ok":false,"error":"no"}"#).unwrap();
         assert!(!reply.ok && reply.error.as_deref() == Some("no"));
     }

@@ -249,6 +249,11 @@ pub struct Session {
     /// spinner of a turn that's running.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub background: Option<String>,
+    /// Set while its agent waits on a command you allowed in your terminal (`codealong terminal
+    /// run`): where it runs and what. Working, the windows say that at the end of its
+    /// conversation, in place of a turn's word or the command it waits with in the background.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub running: Option<RunningIn>,
     /// When the latest of the messages it holds came, by its harness's word: one typed while it
     /// takes a turn waits in its harness's queue until the turn ends, and its record has it only
     /// then (Antigravity's terminal UI). A window shows a message it sent there as queued, not as
@@ -565,6 +570,7 @@ impl Session {
             origin: None,
             stalled_since: None,
             background: None,
+            running: None,
             queued_at: None,
             queued: Vec::new(),
             insight: None,
@@ -798,6 +804,17 @@ pub struct AgentSeen {
     /// What the turn came to, in a sentence, when the agent said.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
+}
+
+/// A command you allowed in a terminal, which a session's agent waits on.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RunningIn {
+    /// The terminal app its tab is in (Ghostty, Rex…), or Codealong for a terminal under the
+    /// session.
+    pub terminal: String,
+    /// The command, less a leading `cd` to its folder, which the session's worktree says.
+    pub command: String,
 }
 
 /// Where a session came from: the session it was forked from or started by.

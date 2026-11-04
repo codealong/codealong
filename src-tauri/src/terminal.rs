@@ -30,11 +30,11 @@
 //! An agent's sandbox may keep its command from looking at your processes, so the command asks the
 //! app where a run stands, and to stop or close it, when it's up (server.rs).
 //!
-//! Waiting. While a command waits on a run you allowed (`terminal run`, `terminal wait`), it says so
-//! each time it asks where the run stands (`note_waited`), and the session shows the run going there
-//! (`overlay_running`). To the session's harness and to Jev, a command that has printed nothing for
-//! a while looks stuck, which would show the session needing you with nothing to answer while the
-//! run goes on in a tab you may not see.
+//! Waiting. While a session's command waits on a run you allowed (`terminal run`, `terminal wait`),
+//! it says so, and for which session, each time it asks where the run stands (`note_waited`), and
+//! that session shows the run going there (`overlay_running`). To the session's harness and to
+//! Jev, a command that has printed nothing for a while looks stuck, which would show the session
+//! needing you with nothing to answer while the run goes on in a tab you may not see.
 //!
 //! Reading. What it printed is a terminal's bytes, colors and a progress line redrawn with a
 //! carriage return among them; `render` turns them into the lines a screen ends up showing, one
@@ -56,7 +56,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::config::support_dir;
-use crate::model::{AppNames, Lane, Session, Status};
+use crate::model::{AppNames, Lane, RunningIn, Session, Status};
 use crate::os::{self, Os};
 use crate::procs;
 use crate::util::{code, now_ms, one_line, sh_quote, tilde, truncate, without_cd, words, DAY_MS};
@@ -270,20 +270,27 @@ pub fn overlay(s: &mut Session) {
 /// asks every 300 ms (cli.rs `wait_for_run`); the server may answer late on a busy Mac.
 const WAIT_LAPSE_MS: i64 = 5_000;
 
-/// The runs a command waits on, each as it stood when its command last asked, and when.
-static WAITED: Mutex<Vec<(RunStatus, i64)>> = Mutex::new(Vec::new());
+/// A run a command waits on, as it stood when the command last asked, and when.
+struct Waited {
+    run: RunStatus,
+    /// The session whose command waits, by key: the run's own, or another's (`terminal wait`).
+    by: String,
+    at: i64,
+}
 
-fn waited() -> MutexGuard<'static, Vec<(RunStatus, i64)>> {
+static WAITED: Mutex<Vec<Waited>> = Mutex::new(Vec::new());
+
+fn waited() -> MutexGuard<'static, Vec<Waited>> {
     WAITED.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-/// Notes that a command waits on a run, standing as `s` does now. True when the board should be
-/// read again: no command was waiting on it, or it has started or ended since.
-pub fn note_waited(s: &RunStatus, now: i64) -> bool {
+/// Notes that the session `by` waits on a run, standing as `s` does now. True when the board
+/// should be read again: it wasn't waiting on it, or the run has started or ended since.
+pub fn note_waited(s: &RunStatus, by: &str, now: i64) -> bool {
     let mut w = waited();
-    let before = w.iter().position(|(r, _)| r.run.id == s.run.id).map(|at| w.remove(at));
-    w.push((s.clone(), now));
-    before.is_none_or(|(r, at)| r.state != s.state || now - at >= WAIT_LAPSE_MS)
+    let before = w.iter().position(|x| x.run.run.id == s.run.id && x.by == by).map(|at| w.remove(at));
+    w.push(Waited { run: s.clone(), by: by.to_string(), at: now });
+    before.is_none_or(|x| x.run.state != s.state || now - x.at >= WAIT_LAPSE_MS)
 }
 
 /// Forgets the runs no command has asked about for a while: its command ended, was stopped, or
@@ -291,16 +298,16 @@ pub fn note_waited(s: &RunStatus, now: i64) -> bool {
 pub fn forget_unwaited(now: i64) -> bool {
     let mut w = waited();
     let before = w.len();
-    w.retain(|(_, at)| now - at < WAIT_LAPSE_MS);
+    w.retain(|x| now - x.at < WAIT_LAPSE_MS);
     w.len() != before
 }
 
-/// The run of the session `key` a command waits on now, once it has a tab: the latest allowed.
+/// The run the session `key` waits on now, once it has a tab: the latest allowed.
 fn waited_on(key: &str, now: i64) -> Option<Run> {
     let w = waited();
     w.iter()
-        .filter(|(r, at)| r.run.session == key && now - at < WAIT_LAPSE_MS && matches!(r.state, State::Starting | State::Running))
-        .map(|(r, _)| &r.run)
+        .filter(|x| x.by == key && now - x.at < WAIT_LAPSE_MS && matches!(x.run.state, State::Starting | State::Running))
+        .map(|x| &x.run.run)
         .max_by_key(|r| r.allowed_at)
         .cloned()
 }
@@ -328,6 +335,7 @@ pub fn overlay_running(s: &mut Session, now: i64) {
     s.stalled_since = None;
     s.asks = false;
     s.excerpt = Some(running_label(&run));
+    s.running = Some(RunningIn { terminal: run.terminal.clone(), command: without_cd(run.command.trim()).to_string() });
 }
 
 /// Holds a request as a connection would, for other modules' tests; the receiver hears its answer.
@@ -1228,7 +1236,7 @@ mod tests {
             ..Default::default()
         };
         let at = |state| RunStatus { run: run.clone(), state, exit_code: None, ended_at: None };
-        let shown = |s: &Session| (s.status, s.status_since, s.stalled_since, s.excerpt.clone(), s.asks);
+        let shown = |s: &Session| (s.status, s.status_since, s.stalled_since, s.excerpt.clone(), s.asks, s.running.clone());
         // Stuck as its harness and Jev read the command that waits, printing nothing.
         let stuck = Session {
             status: Status::Needs,
@@ -1242,12 +1250,13 @@ mod tests {
         overlay_running(&mut s, 10_000);
         assert_eq!(shown(&s), shown(&stuck), "no command waits on it yet");
 
-        assert!(note_waited(&at(State::Starting), 10_000), "a command waits on it now");
-        assert!(!note_waited(&at(State::Starting), 10_300), "nothing new");
-        assert!(note_waited(&at(State::Running), 10_600), "it has started");
+        assert!(note_waited(&at(State::Starting), key, 10_000), "a command waits on it now");
+        assert!(!note_waited(&at(State::Starting), key, 10_300), "nothing new");
+        assert!(note_waited(&at(State::Running), key, 10_600), "it has started");
         overlay_running(&mut s, 10_700);
         assert_eq!((s.status, s.status_since, s.stalled_since, s.excerpt.as_deref()), (Status::Working, Some(1_000), None, Some("Running in Rex · `node scripts/publish.mjs`")));
         assert_eq!(s.background, stuck.background, "its command still runs in the background");
+        assert_eq!(s.running, Some(RunningIn { terminal: "Rex".into(), command: "node scripts/publish.mjs".into() }));
 
         // Already working, it keeps its time; one of Codealong's own terminals is said as such.
         let mut working = Session { status: Status::Working, status_since: Some(800), ..crate::fixtures::session(key) };
@@ -1269,14 +1278,30 @@ mod tests {
         assert_eq!(shown(&s), shown(&stuck), "no longer waited on");
         assert!(!forget_unwaited(10_600 + WAIT_LAPSE_MS - 1));
         assert!(forget_unwaited(10_600 + WAIT_LAPSE_MS), "the board stops showing it");
-        assert!(note_waited(&at(State::Running), 20_000), "a command waiting on it again shows it again");
+        assert!(note_waited(&at(State::Running), key, 20_000), "a command waiting on it again shows it again");
 
         // It ended: its command reads how, and goes.
-        assert!(note_waited(&at(State::Exited), 20_300));
+        assert!(note_waited(&at(State::Exited), key, 20_300));
         let mut s = stuck.clone();
         overlay_running(&mut s, 20_400);
         assert_eq!(shown(&s), shown(&stuck), "ended");
-        waited().retain(|(r, _)| r.run.session != key);
+        waited().retain(|x| x.run.run.session != key);
+    }
+
+    #[test]
+    fn a_run_shows_on_the_session_that_waits_on_it() {
+        let (owner, other) = ("claude:claude:terminal-owner-test", "codex:codex:terminal-waiter-test");
+        let run = Run { id: "run-test-waited-by".into(), session: owner.into(), command: "make deploy".into(), terminal: "Ghostty".into(), allowed_at: 1_000, ..Default::default() };
+        let running = RunStatus { run, state: State::Running, exit_code: None, ended_at: None };
+        // Its own session asked for it with --detach and has moved on; another waits on it.
+        assert!(note_waited(&running, other, 2_000));
+        let mut mine = Session { status: Status::Unread, excerpt: Some("It's deploying.".into()), ..crate::fixtures::session(owner) };
+        overlay_running(&mut mine, 2_100);
+        assert_eq!((mine.status, mine.running), (Status::Unread, None), "its turn is over: yours to read");
+        let mut theirs = Session { status: Status::Working, ..crate::fixtures::session(other) };
+        overlay_running(&mut theirs, 2_100);
+        assert_eq!(theirs.excerpt.as_deref(), Some("Running in Ghostty · `make deploy`"));
+        waited().retain(|x| x.run.run.id != "run-test-waited-by");
     }
 
     #[test]
