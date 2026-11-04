@@ -31,14 +31,14 @@ Harness facts (from GitHub's answers on this Mac, 2026-10-01). A bare file name 
 - `gh api graphql` exits 1 when any part of a query failed (a repo you can't see is `null` under
   its alias, with a `NOT_FOUND` error) and still prints the rest: `github.rs` (`glance_some`).
   A PR number a repo doesn't have is `{"pullRequest": null}` under its alias, `NOT_FOUND` too.
+  `gh api rate_limit` isn't to go by: it disagreed with the queries' own `rateLimit`, a second
+  counter that one query in ten lands on.
 - PRs sessions worked on in repos whose PRs aren't read are read by their numbers, one alias each
   (`repository(owner:, name:) { pullRequest(number:) { ...pr mergeStateStatus ...asked } }`):
   `github.rs` ("The PRs sessions made…", `made_query`, `fetch_made_text`), `ghpoll.rs`
   (`made_to_read`). 26 of them in one query, 24 there to see, cost 2 points and took 7.9 s; the
   same as a glance (`number state updatedAt headRefOid isDraft reviewDecision statusCheckRollup {
   state }`), 1 point and 2.6 s (2026-11-03), so they have none and are read again on a timer.
-  `gh api rate_limit` isn't to go by: it disagreed with the queries' own `rateLimit`, a second
-  counter that one query in ten lands on.
 - A PR's file opened as a diff in your editor (`prdiff.rs`) reads its two sides with REST, no
   GraphQL points: `pulls/<n>` for `.head.sha` and `.base.sha`, `compare/<base>...<head>` for
   `.merge_base_commit.sha` (the side before, as GitHub's own diff has it), and
