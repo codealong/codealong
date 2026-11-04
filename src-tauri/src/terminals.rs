@@ -109,6 +109,13 @@ enum Msg {
     /// Bytes for the program as they are, as if typed: a message sent to the session in it, a key
     /// that answers its prompt.
     Write(Vec<u8>),
+    /// Another terminal shows this one (`attach`): its screen as escape sequences to `reply`, then
+    /// what the program prints to `out`, at its size while it's attached.
+    Attach { tap: u64, size: Option<Size>, out: Sender<Vec<u8>>, reply: Sender<Vec<u8>> },
+    /// An attached terminal's new size.
+    AttachSize(Size),
+    /// An attached terminal let go (`detach`).
+    Detach(u64),
     /// The server is handing its terminals to the next (`hand_over`): the terminal as it's handed,
     /// with its screen's snapshot, after which its thread ends and leaves its process be.
     HandOver(Sender<Option<(Handed, Option<Vec<u8>>)>>),
@@ -545,6 +552,52 @@ pub fn paste(id: &str, text: String, unsafe_ok: bool) -> Result<bool, String> {
     rx.recv_timeout(Duration::from_secs(5)).map_err(|_| "The terminal didn't answer.".to_string())
 }
 
+/// Another terminal attaching to terminal `id` (`codealong terminal attach`, server.rs): its
+/// screen as escape sequences to start from, then what the program prints, as it prints it, until
+/// the terminal ends or `detach`. While one is attached the terminal has its `size`, which a
+/// program redraws for; it goes back to the window's as the last lets go.
+pub fn attach(id: &str, size: Option<Size>) -> Result<(u64, Vec<u8>, Receiver<Vec<u8>>), String> {
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    let tap = NEXT.fetch_add(1, Ordering::Relaxed);
+    let (out, output) = mpsc::channel();
+    let (reply, rx) = mpsc::channel();
+    send(id, Msg::Attach { tap, size: size.map(sane), out, reply })?;
+    let screen = rx.recv_timeout(Duration::from_secs(5)).map_err(|_| "The terminal didn't answer.".to_string())?;
+    Ok((tap, screen, output))
+}
+
+/// An attached terminal's new size.
+pub fn attach_size(id: &str, size: Size) -> Result<(), String> {
+    send(id, Msg::AttachSize(sane(size)))
+}
+
+/// An attached terminal lets go.
+pub fn detach(id: &str, tap: u64) {
+    let _ = send(id, Msg::Detach(tap));
+}
+
+/// The terminal `what` names, for `attach`: its id or a unique start of it, else a session's key,
+/// whose own terminal (the one it runs in) or only one it is.
+pub fn find(what: &str) -> Result<Glance, String> {
+    let list = list();
+    if let Some(g) = list.iter().find(|g| g.id == what) {
+        return Ok(g.clone());
+    }
+    let by_id: Vec<&Glance> = list.iter().filter(|g| g.id.starts_with(what)).collect();
+    if by_id.len() == 1 {
+        return Ok(by_id[0].clone());
+    }
+    let of: Vec<&Glance> = list.iter().filter(|g| !g.session.is_empty() && g.session == what).collect();
+    if let Some(home) = of.iter().find(|g| g.hosts) {
+        return Ok((*home).clone());
+    }
+    match of.as_slice() {
+        [one] => Ok((*one).clone()),
+        [] if by_id.is_empty() => Err(format!("No terminal of Codealong's is {what}. `codealong terminal attach` lists them.")),
+        _ => Err(format!("{what} names several of Codealong's terminals; give one's id (`codealong terminal attach` lists them).")),
+    }
+}
+
 /// A window's size for a terminal, which one opened without a window's then starts at.
 pub fn resize(id: &str, size: Size) -> Result<(), String> {
     let size = sane(size);
@@ -725,6 +778,10 @@ fn run(id: &str, pid: u32, master: OwnedFd, how: How, rx: Receiver<Msg>, out: Se
         pty::redraw(master.as_raw_fd());
     }
     let mut theme_now = theme.clone();
+    // Other terminals attached to this one (`attach`), and the size the windows last gave it,
+    // which it goes back to once they've let go.
+    let mut taps: Vec<(u64, Sender<Vec<u8>>)> = Vec::new();
+    let mut window_size: Option<Size> = None;
     if let Some(t) = &theme {
         screen.theme(t);
     }
@@ -760,7 +817,37 @@ fn run(id: &str, pid: u32, master: OwnedFd, how: How, rx: Receiver<Msg>, out: Se
             match msg {
                 Msg::Output(bytes) => {
                     screen.feed(&bytes);
+                    let attached = !taps.is_empty();
+                    taps.retain(|(_, tap)| tap.send(bytes.clone()).is_ok());
+                    if attached && taps.is_empty() {
+                        if let Some(w) = window_size {
+                            resize_to(&mut screen, master.as_raw_fd(), w);
+                        }
+                    }
                     dirty = true;
+                }
+                Msg::Attach { tap, size, out: to, reply } => {
+                    if let Some(s) = size {
+                        resize_to(&mut screen, master.as_raw_fd(), s);
+                    }
+                    let _ = reply.send(screen.vt());
+                    taps.push((tap, to));
+                    dirty = true;
+                }
+                Msg::AttachSize(s) => {
+                    if !taps.is_empty() {
+                        resize_to(&mut screen, master.as_raw_fd(), s);
+                        dirty = true;
+                    }
+                }
+                Msg::Detach(tap) => {
+                    taps.retain(|(t, _)| *t != tap);
+                    if taps.is_empty() {
+                        if let Some(w) = window_size {
+                            resize_to(&mut screen, master.as_raw_fd(), w);
+                            dirty = true;
+                        }
+                    }
                 }
                 Msg::Hangup => {}
                 Msg::Exited(code) => {
@@ -792,9 +879,11 @@ fn run(id: &str, pid: u32, master: OwnedFd, how: How, rx: Receiver<Msg>, out: Se
                     dirty = true;
                 }
                 Msg::Resize(s) => {
-                    if s != screen.size() {
-                        screen.resize(s);
-                        pty::resize(master.as_raw_fd(), s);
+                    // While another terminal is attached, its size holds; the window's comes back
+                    // as it lets go.
+                    window_size = Some(s);
+                    if taps.is_empty() && s != screen.size() {
+                        resize_to(&mut screen, master.as_raw_fd(), s);
                         dirty = true;
                     }
                 }
@@ -884,6 +973,14 @@ fn run(id: &str, pid: u32, master: OwnedFd, how: How, rx: Receiver<Msg>, out: Se
         }
     }
     Ok(())
+}
+
+/// A new size for the screen and the terminal, which signals the program in front.
+fn resize_to(screen: &mut screen::Screen, master: std::os::fd::RawFd, size: Size) {
+    if size != screen.size() {
+        screen.resize(size);
+        pty::resize(master, size);
+    }
 }
 
 /// The folder an OSC 7 report names (`file://host/path`), when it's a folder here.
@@ -1018,6 +1115,33 @@ mod tests {
         assert_eq!(ended_with_server(&before), ["test:living:gone"]);
         close(&g.id).unwrap();
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Another terminal attached to one of Codealong's gets its screen first, then what its program
+    /// prints; the terminal has the attached one's size while it's attached, and the window's
+    /// again once it lets go.
+    #[test]
+    fn an_attached_terminal_gets_the_screen_then_the_output_at_its_size() {
+        let g = open(Open { folder: std::env::temp_dir(), command: Some("echo before; while read l; do echo \"got:$l\"; stty size; done".into()), size: Some(DEFAULT_SIZE), ..Default::default() }).unwrap();
+        resize(&g.id, Size { cols: 90, rows: 20, ..DEFAULT_SIZE }).unwrap();
+        assert!(wait_for(|| text(&g.id).is_ok_and(|t| t.contains("before"))));
+        let (tap, screen, output) = attach(&find(&g.id).unwrap().id, Some(Size { cols: 70, rows: 15, ..DEFAULT_SIZE })).unwrap();
+        let screen = String::from_utf8_lossy(&screen).into_owned();
+        assert!(screen.contains("before"), "its screen first: {screen:?}");
+        write_to(&g.id, b"one\r".to_vec()).unwrap();
+        let mut seen = String::new();
+        assert!(wait_for(|| {
+            while let Ok(bytes) = output.try_recv() {
+                seen.push_str(&String::from_utf8_lossy(&bytes));
+            }
+            seen.contains("15 70")
+        }), "then the output, at the attached size: {seen:?}");
+        assert!(seen.contains("got:one"));
+        detach(&g.id, tap);
+        write_to(&g.id, b"two\r".to_vec()).unwrap();
+        assert!(wait_for(|| text(&g.id).is_ok_and(|t| t.contains("20 90"))), "the window's size again: {:?}", text(&g.id));
+        assert!(find("no-such-terminal").is_err());
+        close(&g.id).unwrap();
     }
 
     #[test]

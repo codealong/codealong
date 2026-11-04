@@ -38,6 +38,17 @@ pub enum Request {
     /// Quits without telling the apps, which start a server again as they find it gone: the menu
     /// bar's Restart server (serve.rs `restart`). The reply is the pid that quits.
     Restart,
+    /// Another terminal shows one of Codealong's (`codealong terminal attach`): the reply line
+    /// names it, then the connection carries what the program prints as it is, and takes what's
+    /// typed there, its size and its letting go, a JSON line each (`AttachIn`). `cols` and `rows`
+    /// are its size, which the terminal takes while it's attached.
+    TerminalAttach {
+        terminal: String,
+        #[serde(default)]
+        cols: u16,
+        #[serde(default)]
+        rows: u16,
+    },
     /// For an app of a newer build at the server's own path: the server becomes that build in
     /// place, handing its terminals to it (serve.rs `hand_over`), or, with none running, quits as
     /// `Quit` does. The reply says which (`handsOver`) and the pid, which stays the same.
@@ -372,6 +383,10 @@ fn connection(stream: UnixStream, ctx: &Ctx) {
                 hold_terminal_ask(&ctx.engine, ask, out);
                 None
             }
+            Ok(Request::TerminalAttach { terminal, cols, rows }) => {
+                attach_terminal(&terminal, cols, rows, out);
+                None
+            }
             Ok(Request::Subscribe { view }) => {
                 if let Ok(stream) = out.try_clone() {
                     let (engine, peers) = (ctx.engine.clone(), ctx.peers.clone());
@@ -417,6 +432,68 @@ fn out_of_files() {
 }
 
 /// The socket exchange, with the app's actions supplied by `connection`.
+/// What an attached terminal sends, a JSON line each (`Request::TerminalAttach`).
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum AttachIn {
+    /// Typed there, for the program.
+    Text { text: String },
+    /// Its new size.
+    Size { cols: u16, rows: u16 },
+    /// It lets go.
+    Detach,
+}
+
+/// Shows one of Codealong's terminals in another (`Request::TerminalAttach`): the reply, then its
+/// screen as escape sequences and what its program prints after, while what's typed there goes to
+/// the program, until either lets go.
+fn attach_terminal(what: &str, cols: u16, rows: u16, out: &mut UnixStream) {
+    let size = (cols > 0 && rows > 0).then(|| crate::terminals::Size { cols, rows, ..crate::terminals::DEFAULT_SIZE });
+    let found = crate::terminals::find(what).and_then(|g| crate::terminals::attach(&g.id, size).map(|a| (g, a)));
+    let (glance, (tap, screen, output)) = match found {
+        Ok(found) => found,
+        Err(e) => {
+            let _ = writeln!(out, "{}", serde_json::to_string(&Reply::err(e)).unwrap_or_default());
+            return;
+        }
+    };
+    let said = Reply::ok(serde_json::json!({ "id": glance.id, "title": glance.title, "shell": glance.shell, "session": glance.session }));
+    if writeln!(out, "{}", serde_json::to_string(&said).unwrap_or_default()).and_then(|()| out.write_all(&screen)).is_err() {
+        crate::terminals::detach(&glance.id, tap);
+        return;
+    }
+    // What the program prints, as it prints it, until the terminal ends or the other lets go.
+    if let Ok(mut to) = out.try_clone() {
+        std::thread::spawn(move || {
+            for bytes in output {
+                if to.write_all(&bytes).is_err() {
+                    break;
+                }
+            }
+            let _ = to.shutdown(std::net::Shutdown::Write);
+        });
+    }
+    if let Ok(from) = out.try_clone() {
+        let _ = from.set_read_timeout(None);
+        for line in BufReader::new(from).lines() {
+            let Ok(line) = line else { break };
+            match serde_json::from_str::<AttachIn>(&line) {
+                Ok(AttachIn::Text { text }) => {
+                    if crate::terminals::write_to(&glance.id, text.into_bytes()).is_err() {
+                        break;
+                    }
+                }
+                Ok(AttachIn::Size { cols, rows }) => {
+                    let _ = crate::terminals::attach_size(&glance.id, crate::terminals::Size { cols, rows, ..crate::terminals::DEFAULT_SIZE });
+                }
+                Ok(AttachIn::Detach) => break,
+                Err(_) => {}
+            }
+        }
+    }
+    crate::terminals::detach(&glance.id, tap);
+}
+
 fn connection_on(stream: UnixStream, mut answer: impl FnMut(serde_json::Result<Request>, &mut UnixStream) -> Option<Reply>) -> std::io::Result<()> {
     stream.set_read_timeout(Some(Duration::from_secs(60)))?;
     let mut out = stream.try_clone()?;
@@ -507,7 +584,7 @@ fn handle_request(ctx: &Ctx, req: serde_json::Result<Request>) -> Reply {
             Reply::ok(Value::Null)
         }
         // Held on their connection instead (`connection`).
-        Request::Subscribe { .. } => Reply::ok(Value::Null),
+        Request::Subscribe { .. } | Request::TerminalAttach { .. } => Reply::ok(Value::Null),
         Request::TodoApply { op } => match engine.todo_within(op, Duration::from_secs(90)) {
             Ok(at) => Reply::ok(at),
             Err(e) => Reply::err(e),

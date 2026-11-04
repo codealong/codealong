@@ -239,6 +239,28 @@ say the rest.
   windows, checks its environment and typing, presses a key and closes it;
   `rex_notes_the_session_it_shows` checks the app's note names one of the server's sessions.
 
+## Codealong's own terminals
+
+`[apps] terminal = "codealong"`: `launch/codealong.rs`, over the terminals the server holds
+(`terminals.rs`, `src-tauri/src/terminals/`; `.claude/rules/libghostty.md` for the emulator).
+
+- A session's process is known to run in one by its terminal device (`Glance::tty`, `ttyname_r` of
+  the terminal's other side as it opens), not by the processes above it, which are the server's
+  (it runs ACP sessions too) or, after a hand-over, launchd's: `launch.rs` `terminal_kind` asks
+  `codealong::hosting` first. The engine marks a terminal opened for a start or resume as its
+  session's own once the session's process turns up on the board (`engine.rs` `adopt_terminals`).
+- A send pastes as the program asked for pastes and presses Return 0.3 s later, as Rex's does:
+  Claude Code takes a Return that comes while it's still taking a paste in as part of it, which
+  Sculptor's code measured at about 0.2 s (`PASTE_WAIT`).
+- A server replaced by an app of a newer build at the same path hands its terminals over by
+  becoming that build in place (`execve` of its own path, which now holds the new binary): the pid,
+  launchd's job, the children and their responsible process stay. Descriptors not marked
+  close-on-exec survive it (Rust opens everything close-on-exec, so only the terminals' copies made
+  with `dup` do), and the run lock and the socket close, for the new build to take. A server's
+  children it didn't hand over (ACP adapters) lose their pipes as it changes and exit; the new
+  build reaps them by pid (`serve.rs` `take_handover`). Checked with a server of this build in a
+  home of its own (2026-11-04).
+
 ## Codealong's tmux server
 
 - When a start runs in tmux (`[apps] tmux`, the screen locked, or a Background start out of

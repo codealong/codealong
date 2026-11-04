@@ -42,11 +42,36 @@ revision: `docs/development.md` (*Ghostty's terminal library*).
 - Selection lives in the terminal: the gesture API (`PressEvent`, `DragEvent`, `ReleaseEvent`)
   counts clicks for words and lines, `set_selection` sets it, the render state marks selected
   cells, and the formatter (`fmt`, Plain with `with_selection`) gives its text.
+- A program that marks a redraw as one (synchronized output, DEC mode 2026, which Claude Code and
+  Codex wrap every draw in) calls `on_render_hold` with true as it starts and false as it ends (or
+  on a reset or a resize); a renderer keeps the last finished frame meanwhile and gives up after a
+  second. The server makes no frame while one's held (`screen.rs` `held`, `HOLD_MAX`).
+- `Terminal::encode_snapshot` writes everything a terminal holds (size, palette, modes and mouse
+  settings, both screens with their cursors and Kitty keyboard stacks, the scrollback, newest
+  first) and `snapshot::Decoder::decode` makes a terminal of it; format version 1 has no
+  compatibility promise yet. Encoding partway through a sequence needs continuation tracking on
+  (`set_continuation_max_bytes`) before the bytes that started it, so every screen has it
+  (`screen.rs` `CONTINUATION_BYTES`); the decoded terminal finishes the sequence from the next
+  bytes. Callbacks aren't in a snapshot: they're set again on the decoded terminal (`Screen::around`).
+- The formatter's `Vt` format, with `with_modes`, `with_keyboard`, `with_scrolling_region`,
+  `with_tabstops` and `with_pwd`, writes a screen and its scrollback as escape sequences another
+  terminal draws; the cursor's place isn't in it (`screen.rs` `vt`, for `codealong terminal attach`).
+- Claude Code turns the Kitty keyboard protocol on (`CSI > 5 u`) only once a terminal it doesn't
+  know answers `CSI ? u` (2.1.317, by `TERM_PROGRAM`: Ghostty's it turns on unasked); Codex pushes
+  `CSI > 7 u` itself. Without it the encoder sends Shift+Return as xterm's `CSI 27;2;13~`, as
+  Ghostty does.
 - The `libghostty-vt-sys` build script clones Ghostty into its `OUT_DIR` and runs `zig build
   -Demit-lib-vt`, Debug in a cargo build whose profile has debug info, else ReleaseFast; across
   targets it passes `-Dtarget` (x86_64 macOS builds from an arm64 Mac, 2026-11-03).
 
 ## Unchecked
+
+- 2026-11-04, in the real app: a session started and resumed in Codealong's terminal
+  (`[apps] terminal = "codealong"`) shown in its panel, Show in and the waiting window's answers
+  there, and a server handing its terminals to a new build through a real update or relaunch
+  (checked against a server of this build in a home of its own, which handed a terminal over to
+  itself and took it back: same pid, screen, input and attach). Whether macOS's privacy grants
+  hold for an agent across the change is reasoned (the same process), not seen.
 
 - 2026-11-03, in the real app (the preview's Chrome showed them, with WebGL2 drawn by
   SwiftShader): the terminal drawn with WebGL2 in WKWebView and on WebKitGTK, and Canvas 2D where

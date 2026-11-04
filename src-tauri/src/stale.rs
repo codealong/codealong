@@ -544,8 +544,9 @@ mod tests {
     fn lists_the_tabs_of_terminal_apps_and_not_tmux_panes() {
         let taken: Vec<&str> = crate::launch::terminals().iter().filter(|t| takes_tabs_of(**t)).map(|t| t.name()).collect();
         match crate::os::current() {
-            crate::os::Os::MacOs => assert_eq!(taken, ["Ghostty", "iTerm2", "Terminal", "Rex"]),
-            crate::os::Os::Linux => assert!(taken.is_empty(), "{taken:?}"),
+            crate::os::Os::MacOs => assert_eq!(taken, ["Ghostty", "iTerm2", "Terminal", "Rex", "Codealong"]),
+            // Linux's terminal is a tmux session: only Codealong's own have tabs to close.
+            crate::os::Os::Linux => assert_eq!(taken, ["Codealong"]),
         }
     }
 

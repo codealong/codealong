@@ -495,6 +495,25 @@ impl Screen {
         Some(String::from_utf8_lossy(&text).into_owned()).filter(|t| !t.is_empty())
     }
 
+    /// The screen as a terminal draws it from escape sequences, for another terminal to show it
+    /// from where it is (terminals.rs `attach`): that terminal cleared, the scrollback and the
+    /// screen with their colors, the modes the program set (its keyboard protocol, the mouse,
+    /// bracketed pastes, the other screen), and the cursor where it is. What the program prints
+    /// next goes on from there.
+    pub fn vt(&self) -> Vec<u8> {
+        let mut out = b"\x1b[!p\x1b[H\x1b[2J\x1b[3J".to_vec();
+        let opts = FormatterOptions::new().with_format(Format::Vt).with_modes(true).with_keyboard(true).with_scrolling_region(true).with_tabstops(true).with_pwd(true);
+        if let Ok(mut f) = Formatter::new(&self.term, opts) {
+            if let Ok(bytes) = f.format_alloc(None) {
+                out.extend_from_slice(&bytes);
+            }
+        }
+        if let (Ok(x), Ok(y)) = (self.term.cursor_x(), self.term.cursor_y()) {
+            out.extend_from_slice(format!("\x1b[{};{}H", y + 1, x + 1).as_bytes());
+        }
+        out
+    }
+
     /// Everything the terminal holds as text, scrollback included: what a command printed.
     pub fn text(&self) -> String {
         let opts = FormatterOptions::new().with_format(Format::Plain).with_unwrap(true).with_trim(true);
