@@ -700,7 +700,9 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
   const shellWay = useShellWay(s, runs);
   const handOver = (): boolean => {
     const yours = `⏎ runs it ${runsWhere(terminal, runsUnder)}, as you.`;
-    if (shellWay === null) {
+    // Before the engine has said, it goes and the engine turns it down where it must; a session
+    // Codealong runs has no shell of its own to hand it to (send.rs `deliver`).
+    if (shellWay === null || s.hosted) {
       setNote({ text: keysIn(`Codealong can’t hand ${s.account} a command to run in its own shell from here; ${yours}`), error: true });
       return false;
     }

@@ -682,7 +682,13 @@ fn deliver(board: &Board, cfg: &Config, session_key: &str, text: &str, sender: &
     if from_its_helper(board, cfg, &origins, sender, session_key) {
         msg.bypasses = true;
     }
+    // A command of yours for the session's own shell (`shell_command`), not words for its agent.
+    let for_its_shell = !msg.from_agent() && *sender != Sender::Codealong && shell_command(&msg.text);
     if session.hosted {
+        // Its adapter has no shell of its own to hand a command to: the agent would get the words.
+        if for_its_shell {
+            bail!("Codealong runs {} itself, with no shell of its own to run a command that starts with ! in, so nothing was sent.", quoted(&session.title));
+        }
         // Codealong runs it: the prompt goes in over its adapter, after the running turn if
         // there is one, and a question it waits on is answered from its panel.
         let message = crate::acp::send(account, session_key, &attachments::expand(&msg.text, Style::Path))?;
@@ -708,7 +714,7 @@ fn deliver(board: &Board, cfg: &Config, session_key: &str, text: &str, sender: &
         routes = agent_routes(session, routes)?;
     } else if *sender == Sender::Codealong {
         routes = codealong_routes(session, routes)?;
-    } else if shell_command(&msg.text) {
+    } else if for_its_shell {
         routes = shell_routes(adapter, routes);
         if routes.is_empty() {
             let title = quoted(&session.title);
@@ -1343,6 +1349,24 @@ mod tests {
         let board = Board { lanes: vec![crate::fixtures::lane("/tmp", vec![working.clone()])], ..Board::default() };
         let e = deliver(&board, &cfg, &working.key, "Go on", &Sender::You, false).unwrap_err().to_string();
         assert!(!e.contains("turned off"), "{e}");
+    }
+
+    /// A command of yours led by `!` isn't handed to a session Codealong runs itself, whose
+    /// adapter would give its agent the words; nor to one whose harness has no way to run it in
+    /// its own shell from here, a Cursor terminal's box among them.
+    #[test]
+    fn a_command_for_its_shell_isnt_handed_to_an_agent_as_words() {
+        let account: AccountCfg = serde_json::from_value(json!({ "name": "claude", "harness": "claude", "home": "/nowhere/claude" })).unwrap();
+        let cursor: AccountCfg = serde_json::from_value(json!({ "name": "cursor", "harness": "cursor", "home": "/nowhere/cursor" })).unwrap();
+        let cfg = Config { accounts: vec![account, cursor], ..Config::default() };
+        let hosted = Session { key: "claude:claude:abc".into(), hosted: true, ..session(Harness::Claude, Surface::Cli, Status::Idle, true, None) };
+        let board = Board { lanes: vec![crate::fixtures::lane("/tmp", vec![hosted.clone()])], ..Board::default() };
+        let e = deliver(&board, &cfg, &hosted.key, "! npm test", &Sender::You, false).unwrap_err().to_string();
+        assert_eq!(e, "Codealong runs “Fix the build” itself, with no shell of its own to run a command that starts with ! in, so nothing was sent.");
+        let typed = Session { key: "cursor:cursor:c1".into(), account: "cursor".into(), ..session(Harness::Cursor, Surface::Cli, Status::Idle, true, Some(42)) };
+        let board = Board { lanes: vec![crate::fixtures::lane("/tmp", vec![typed.clone()])], ..Board::default() };
+        let e = deliver(&board, &cfg, &typed.key, "! npm test", &Sender::You, false).unwrap_err().to_string();
+        assert!(e.starts_with("Codealong can't hand “Fix the build” a command that starts with ! to run in its own shell"), "{e}");
     }
 
     /// A stand-in for one of a harness's own ways in.

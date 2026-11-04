@@ -42,9 +42,10 @@ its source at that tag, its compiled bundle and its files on this Mac. Paths are
   /api/session/<id>/shell {command}` (`session.shell`), answered 204 only once the command ends; a
   request given up on early leaves it running to its end (a scratch server, 2026-11-03). It writes a
   `shell` message (`{shellID, command, status, exit, output: {output, truncated…}, time}`, `status`
-  `exited` at the end) and starts no turn, so it isn't a prompt for `turn_open`: `opencode.rs`
-  (`run_shell`, `SHELL_WAIT_SECS`, `shell_items`). Whether a later turn's model reads it wasn't
-  checked. `/api/shell` runs one for a folder rather than a session, and isn't recorded in one.
+  `running`, then `exited`, `timeout` or `killed`, `exit` a number or `Infinity`, `-Infinity` or
+  `NaN` as words, by its schema) and starts no turn, so it isn't a prompt for `turn_open`. Several
+  can run side by side: `opencode.rs` (`run_shell`, `SHELL_WAIT_SECS`, `shell_items`,
+  `first_shell_running`). Whether a later turn's model reads it wasn't checked. `/api/shell` runs one for a folder rather than a session, and isn't recorded in one.
 - Renaming, `PATCH /api/session/<id>` with `{title}`: `opencode.rs` (`OpenCode::rename`). It
   answers 204, `time_updated` moves, and it takes `metadata` and `permissions` too.
 - Stopping a run: `opencode.rs` (`OpenCode::interrupt`, `interrupted`). The row gets

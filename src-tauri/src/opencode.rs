@@ -360,15 +360,14 @@ pub fn transcript_page<T>(db: &Path, session: &str, before: Option<u64>, limit: 
     let Some(db) = open(db) else { return crate::transcript::PageOf { items: Vec::new(), before: None, after: 0 } };
     let newest: i64 = db.query_row("SELECT COALESCE(MAX(seq), 0) FROM session_message WHERE session_id = ?1", [session], |r| r.get(0)).unwrap_or(0);
     // Asked before the messages are read: a reply that has ended by now is read whole below, and
-    // one still going is read again from its own place.
-    // So is a command of yours still running in its shell.
-    let going = |kind: &str, still: fn(&Value) -> bool| {
-        db.query_row(&format!("SELECT seq, data FROM session_message WHERE session_id = ?1 AND type = '{kind}' AND seq <= ?2 ORDER BY seq DESC LIMIT 1"), rusqlite::params![session, newest], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))
-            .ok()
-            .filter(|(_, data)| still(&serde_json::from_str(data).unwrap_or(Value::Null)))
-            .map(|(seq, _)| (seq - 1).max(0))
-    };
-    let after = [going("assistant", streaming), going("shell", |v| !shell_ended(v))].into_iter().flatten().min().unwrap_or(newest);
+    // one still going is read again from its own place, as is a command of yours still running in
+    // its shell.
+    let reply = db
+        .query_row("SELECT seq, data FROM session_message WHERE session_id = ?1 AND type = 'assistant' AND seq <= ?2 ORDER BY seq DESC LIMIT 1", rusqlite::params![session, newest], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))
+        .ok()
+        .filter(|(_, data)| streaming(&serde_json::from_str(data).unwrap_or(Value::Null)))
+        .map(|(seq, _)| seq);
+    let after = [reply, first_shell_running(&db, session, newest)].into_iter().flatten().min().map_or(newest, |seq| (seq - 1).max(0));
     let mut out: Vec<Vec<T>> = Vec::new();
     let mut count = 0;
     let mut first_seq: Option<i64> = None;
@@ -400,6 +399,17 @@ pub fn transcript_page<T>(db: &Path, session: &str, before: Option<u64>, limit: 
     crate::transcript::PageOf { items: out.into_iter().rev().flatten().collect(), before: (first_seq.is_some() && has_older).then_some(oldest as u64), after: after as u64 }
 }
 
+/// The first command of yours still running in the session's shell (`shell_ended`), by `seq`, at
+/// or before `newest`. Several can run side by side, and each is read again once it ends.
+fn first_shell_running(db: &Connection, session: &str, newest: i64) -> Option<i64> {
+    db.query_row(
+        "SELECT seq FROM session_message WHERE session_id = ?1 AND type = 'shell' AND seq <= ?2 AND json_extract(data, '$.status') = 'running' ORDER BY seq LIMIT 1",
+        rusqlite::params![session, newest],
+        |r| r.get(0),
+    )
+    .ok()
+}
+
 /// Whether an assistant message is still being written. OpenCode writes a reply into its row as
 /// it streams, the same row each time, and stamps `time.completed` when it ends.
 fn streaming(message: &Value) -> bool {
@@ -416,21 +426,22 @@ pub fn transcript_newer<T>(db: &Path, session: &str, after: u64, items: impl Fn(
         let mut last = after;
         // The newest reply read, and whether it's still going: only the newest can be, as a
         // session runs one turn at a time, though a prompt queued meanwhile can come after it.
-        // The same for the newest command of yours in its shell, which gets its output as it ends.
+        // Commands of yours in its shell can run side by side, so the first still running counts.
         let mut reply: Option<(u64, bool)> = None;
-        let mut shell: Option<(u64, bool)> = None;
+        let mut shell: Option<u64> = None;
         let mut out = Vec::new();
         for (seq, at, data, kind) in stmt.query_map(rusqlite::params![session, after as i64], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, String>(2)?, r.get::<_, String>(3)?)))?.flatten() {
             let v: Value = serde_json::from_str(&data).unwrap_or(Value::Null);
             match kind.as_str() {
                 "assistant" => reply = Some((seq as u64, streaming(&v))),
-                "shell" => shell = Some((seq as u64, !shell_ended(&v))),
+                "shell" if !shell_ended(&v) => shell = shell.or(Some(seq as u64)),
                 _ => {}
             }
             out.extend(items(&v, seq as u64, at));
             last = seq as u64;
         }
-        let going = [reply, shell].into_iter().flatten().filter(|(_, going)| *going).map(|(seq, _)| seq.saturating_sub(1)).min();
+        let reply = reply.filter(|(_, going)| *going).map(|(seq, _)| seq);
+        let going = [reply, shell].into_iter().flatten().map(|seq| seq.saturating_sub(1)).min();
         Ok((out, going.unwrap_or(last)))
     };
     match read() {
@@ -957,13 +968,21 @@ fn shell_items(v: &Value, at: i64) -> Option<Vec<Item>> {
         return Some(vec![you]);
     }
     let printed = v.pointer("/output/output").and_then(Value::as_str).unwrap_or("");
-    let failed = v.get("exit").and_then(Value::as_i64).is_some_and(|code| code != 0);
+    let failed = shell_failed(v);
     Some(vec![you, Item { id: Some(id.to_string()), output: Some(clip_output(printed)), failed, ..item(at, "result", "") }])
 }
 
-/// Whether a `shell` message's command has ended (`shell_items`).
+/// Whether a `shell` message's command has ended (`shell_items`): 2.0.16's schema has `running`,
+/// then `exited`, `timeout` or `killed`.
 fn shell_ended(v: &Value) -> bool {
-    v.get("status").and_then(Value::as_str) == Some("exited")
+    v.get("status").and_then(Value::as_str) != Some("running")
+}
+
+/// Whether a `shell` message's command that ended failed: it timed out or was killed, or exited
+/// with a code other than 0, which the schema also lets be `Infinity` or `NaN` as words.
+fn shell_failed(v: &Value) -> bool {
+    let cut_off = matches!(v.get("status").and_then(Value::as_str), Some("timeout" | "killed"));
+    cut_off || v.get("exit").is_some_and(|exit| exit.as_f64().is_none_or(|code| code != 0.0))
 }
 
 /* ---- Reading sessions for the board ---- */
@@ -1857,6 +1876,23 @@ mod tests {
         assert_eq!(said(&next.items), [row("you", "! npm test", None, false), row("result", "", Some("1 failing"), true)]);
         assert_eq!(next.items[1].id.as_deref(), Some("sh_1"));
         assert!(transcript_newer(&path, "ses_a", next.after, conversation_items).items.is_empty());
+        // Two side by side: the first still running is read again, with the one after it, until it
+        // ends, by a newer read and a first page alike.
+        let ran = |id: &str, command: &str, status: &str, exit: Value, printed: &str| {
+            serde_json::json!({ "time": { "created": 1 }, "shellID": id, "command": command, "status": status, "exit": exit, "output": { "output": printed } }).to_string()
+        };
+        write(3, "shell", &ran("sh_2", "sleep 30", "running", Value::Null, ""));
+        write(4, "shell", &ran("sh_3", "echo quick", "exited", serde_json::json!(0), "quick\n"));
+        let both = transcript_newer(&path, "ses_a", next.after, conversation_items);
+        assert_eq!((both.items.len(), both.after), (3, 2));
+        assert_eq!(transcript_page(&path, "ses_a", None, 50, conversation_items).after, 2);
+        // Killed, or timed out, it has ended, and failed, whatever its exit says.
+        write(3, "shell", &ran("sh_2", "sleep 30", "killed", serde_json::json!("NaN"), "partial\n"));
+        let cut = transcript_newer(&path, "ses_a", both.after, conversation_items);
+        assert_eq!(said(&cut.items)[..2], [row("you", "! sleep 30", None, false), row("result", "", Some("partial"), true)]);
+        assert_eq!(cut.after, 4);
+        assert!(shell_failed(&serde_json::json!({ "status": "timeout", "exit": 0 })) && !shell_failed(&serde_json::json!({ "status": "exited", "exit": 0 })));
+        assert!(shell_ended(&serde_json::json!({ "status": "timeout" })) && !shell_ended(&serde_json::json!({ "status": "running" })));
         // It starts no turn, so it isn't the session's last prompt, which would read as a turn
         // running until its next one ended (`SessionRow::turn_open`).
         let board = db_with(&format!("INSERT INTO session_v2 (id, directory, time_created, time_updated) VALUES ('ses_a', '/r', 1, 1); INSERT INTO session_message VALUES ('m2', 'ses_a', 'shell', 2, 2, 2, '{ended}');"));

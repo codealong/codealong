@@ -647,12 +647,12 @@ the session is doing, as it doesn't reach the session until it ends. ⌥⏎ (or 
 hands it to the session's harness instead, to run in the session's own shell as its own `!` does:
 typed into a Claude Code or Codex terminal or a Claude Code background job's box, or run by
 OpenCode's service. There the command and what it printed show in the conversation as yours; Claude
-Code's agent takes a turn on them, while Codex and OpenCode start none. Elsewhere (a
-Claude app, Codex app, Cursor or Antigravity session, one that isn't running, one that waits on you)
-⌥⏎ says it can't. What the box says (*What the box says*) says what ⏎ does, and ⌥⏎ where the harness
-takes it, as you type it, and its button shows a terminal. A session on another device takes a `!`
-as a message, going only the ways ⌥⏎ would. A message that opens with an image isn't a command, its
-`!` being the image's.
+Code's agent takes a turn on them, while Codex and OpenCode start none. Elsewhere (a session
+Codealong runs, a Claude app, Codex app, Cursor or Antigravity session, one that isn't running, one
+that waits on you) ⌥⏎ says it can't. What the box says (*What the box says*) says what ⏎ does, and
+⌥⏎ where the harness takes it, as you type it, and its button shows a terminal. A session on another
+device takes a `!` as a message, going only the ways ⌥⏎ would. A message that opens with an image
+isn't a command, its `!` being the image's.
 
 The box at the bottom sends it a message where it runs, as the waiting window does; paste a
 screenshot or a file into it and the agent gets its path, and what you'd written to a session and
