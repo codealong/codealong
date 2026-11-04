@@ -160,9 +160,15 @@ export class TerminalController {
     const rows = Math.max(1, Math.floor((rect.height * m.dpr) / m.cellH));
     const width = cols * m.cellW;
     const height = rows * m.cellH;
-    this.canvas.style.width = `${width / m.dpr}px`;
-    this.canvas.style.height = `${height / m.dpr}px`;
-    this.renderer.resize(width, height, m.cellW, m.cellH, m.baseline, m.font);
+    // A canvas given a size, even the one it has, is wiped: only a new size is given, and it's
+    // drawn again at once, before the page is painted, rather than on the next frame, so a
+    // resize never shows it blank in between.
+    if (width !== this.canvas.width || height !== this.canvas.height || remeasure) {
+      this.canvas.style.width = `${width / m.dpr}px`;
+      this.canvas.style.height = `${height / m.dpr}px`;
+      this.renderer.resize(width, height, m.cellW, m.cellH, m.baseline, m.font);
+      this.drawNow();
+    }
     if (cols !== this.cols || rows !== this.rows || remeasure) {
       this.cols = cols;
       this.rows = rows;
@@ -170,7 +176,6 @@ export class TerminalController {
       rememberSize(size);
       void terminalResize(this.id, size).catch((e: unknown) => this.hooks.onError(String(e)));
     }
-    this.redraw();
   }
 
   private redraw() {
@@ -178,10 +183,20 @@ export class TerminalController {
     this.drawPending = true;
     requestAnimationFrame(() => {
       this.drawPending = false;
-      if (!this.renderer || !this.m || this.stopped) return;
-      const colors = { selection: hexVar('--term-selection', 0xcddcf7), cursor: this.theme?.cursor ?? this.grid.fg };
-      this.renderer.draw(buildScene(this.grid, this.m, colors, this.focused, this.blinkOn));
+      this.drawNow();
     });
+  }
+
+  private drawNow() {
+    if (!this.renderer || !this.m || this.stopped) return;
+    const colors = { selection: hexVar('--term-selection', 0xcddcf7), cursor: this.theme?.cursor ?? this.grid.fg };
+    this.renderer.draw(buildScene(this.grid, this.m, colors, this.focused, this.blinkOn));
+    // The terminal's own background behind and around the canvas: the part of a cell the grid
+    // leaves at its edges, and the canvas itself if it's ever shown before it's drawn.
+    // Only once a frame has said what it is; till then the theme's.
+    if (this.grid.seq === 0) return;
+    const bg = `#${this.grid.bg.toString(16).padStart(6, '0')}`;
+    if (this.wrap.style.getPropertyValue('--term-shown-bg') !== bg) this.wrap.style.setProperty('--term-shown-bg', bg);
   }
 
   send(input: TerminalInput): void {

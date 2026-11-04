@@ -138,6 +138,9 @@
   margin: var(--space-1) var(--space-2) var(--space-2);
   overflow: hidden;
   font: var(--type-terminal);
+  /* The background the terminal last drew (controller.ts `drawNow`), behind its canvas, which a
+     new size wipes clear: a window being resized shows it there, not black, until it's drawn. */
+  background: var(--term-shown-bg, var(--term-bg));
 }
 .ca-term-canvas {
   display: block;

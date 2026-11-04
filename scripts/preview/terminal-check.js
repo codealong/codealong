@@ -31,6 +31,41 @@
       var size = last('terminal_resize').size;
       check('the window says it shows it, and its size in whole cells', size.cols > 10 && size.rows > 2 && size.cellWidth > 0 && size.cellHeight > 0, JSON.stringify(size));
 
+      // Resizing: a canvas given a new size is wiped, so it must be drawn again before the page
+      // is painted, never a frame later (which showed black while a window was being resized).
+      // Each new size, each draw and each frame's start is noted in order; a size followed by a
+      // frame before a draw would have been painted blank.
+      var screen = q('.ca-term-screen', drawer);
+      await until(function () { return screen.style.getPropertyValue('--term-shown-bg'); }, 3000, 'the terminal’s background behind its canvas');
+      check('behind its canvas, the terminal’s own background', getComputedStyle(screen).backgroundColor !== 'rgba(0, 0, 0, 0)', getComputedStyle(screen).backgroundColor);
+      var log = [];
+      var proto = HTMLCanvasElement.prototype;
+      ['width', 'height'].forEach(function (p) {
+        var d = Object.getOwnPropertyDescriptor(proto, p);
+        Object.defineProperty(canvas, p, { configurable: true, get: function () { return d.get.call(this); }, set: function (v) { log.push('size'); d.set.call(this, v); } });
+      });
+      var ctx = canvas.getContext(canvas.dataset.renderer === 'webgl2' ? 'webgl2' : '2d');
+      var drawn = canvas.dataset.renderer === 'webgl2' ? 'clear' : 'fillRect';
+      var original = ctx[drawn];
+      ctx[drawn] = function () { if (log[log.length - 1] !== 'draw') log.push('draw'); return original.apply(this, arguments); };
+      var marking = true;
+      (function mark() { if (!marking) return; log.push('frame'); requestAnimationFrame(mark); })();
+      var tall = screen.getBoundingClientRect().height;
+      screen.style.flex = 'none';
+      for (var step = 1; step <= 6; step++) {
+        screen.style.height = tall - step * 13 + 'px';
+        await new Promise(function (r) { requestAnimationFrame(function () { requestAnimationFrame(r); }); });
+      }
+      marking = false;
+      var sizes = log.filter(function (e) { return e === 'size'; }).length;
+      var blank = log.some(function (e, i) { return e === 'size' && log.slice(i + 1).find(function (n) { return n !== 'size'; }) === 'frame'; });
+      check('a new size is drawn before the page is painted', sizes > 0 && !blank, log.join(' '));
+      screen.style.flex = '';
+      screen.style.height = '';
+      ctx[drawn] = original;
+      delete canvas.width;
+      delete canvas.height;
+
       // Typing: keys in order, with what they typed; Ctrl by its key alone.
       var before = calls('terminal_input').length;
       [['l', 'KeyL'], ['s', 'KeyS']].forEach(function (k) { key(field, { key: k[0], code: k[1] }); });

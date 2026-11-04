@@ -58,7 +58,9 @@ export function makeRenderer(canvas: HTMLCanvasElement): Renderer {
 }
 
 function canvas2d(canvas: HTMLCanvasElement): Renderer {
-  const ctx = canvas.getContext('2d', { alpha: false });
+  // Clear where nothing's drawn, so a canvas wiped by a new size shows the terminal's background
+  // behind it (`--term-shown-bg`) until it's drawn, never black.
+  const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('This window can’t draw a terminal.');
   let cell = { w: 1, h: 1, baseline: 1 };
   let font: Font = { family: 'monospace', size: 12 };
@@ -79,8 +81,8 @@ function canvas2d(canvas: HTMLCanvasElement): Renderer {
   return {
     kind: 'canvas2d',
     resize(width, height, cellW, cellH, baseline, f) {
-      canvas.width = width;
-      canvas.height = height;
+      if (canvas.width !== width) canvas.width = width;
+      if (canvas.height !== height) canvas.height = height;
       cell = { w: cellW, h: cellH, baseline };
       font = f;
     },
@@ -135,6 +137,11 @@ export class Atlas {
     const ctx = this.canvas.getContext('2d', { willReadFrequently: false });
     if (!ctx) throw new Error('No 2D context for the glyph atlas.');
     this.ctx = ctx;
+  }
+
+  /** Whether its glyphs are drawn for this cell and font. */
+  fits(cellW: number, cellH: number, baseline: number, font: Font): boolean {
+    return this.cellW === cellW && this.cellH === cellH && this.baseline === baseline && this.font.family === font.family && this.font.size === font.size;
   }
 
   /** Starts again for another cell size or font. */
@@ -287,7 +294,8 @@ function batch(gl: WebGL2RenderingContext, program: WebGLProgram, quad: WebGLBuf
 }
 
 function webgl(canvas: HTMLCanvasElement): Renderer | null {
-  const gl = canvas.getContext('webgl2', { alpha: false, antialias: false, premultipliedAlpha: true, preserveDrawingBuffer: false });
+  // As the 2D canvas: clear where nothing's drawn, so a wiped one is never black.
+  const gl = canvas.getContext('webgl2', { alpha: true, antialias: false, premultipliedAlpha: true, preserveDrawingBuffer: false });
   if (!gl) return null;
   let rects: Batch;
   let glyphs: Batch;
@@ -374,11 +382,13 @@ function webgl(canvas: HTMLCanvasElement): Renderer | null {
   return {
     kind: 'webgl2',
     resize(width, height, cellW, cellH, baseline, font) {
-      canvas.width = width;
-      canvas.height = height;
+      if (canvas.width !== width) canvas.width = width;
+      if (canvas.height !== height) canvas.height = height;
       gl.viewport(0, 0, width, height);
-      if (atlas) atlas.reset(cellW, cellH, baseline, font);
-      else atlas = new Atlas(cellW, cellH, baseline, font);
+      // The glyphs drawn so far stay while the cell and the font do: a window dragged bigger
+      // draws from them rather than drawing every glyph again at each step.
+      if (!atlas) atlas = new Atlas(cellW, cellH, baseline, font);
+      else if (!atlas.fits(cellW, cellH, baseline, font)) atlas.reset(cellW, cellH, baseline, font);
     },
     draw(scene) {
       const [r, g, b] = rgb(scene.bg);
