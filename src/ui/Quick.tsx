@@ -1049,9 +1049,19 @@ export function Quick() {
   const firstFound = asSearch && !inSendTo ? (keys.find((k) => k !== 'sendto' && k !== COMPOSE) ?? keys[0]) : keys[0];
   const active = activeKey && keys.includes(activeKey) ? activeKey : startLeads && !inSendTo ? COMPOSE : firstFound;
 
+  // The selected row is brought into view as you choose it (the keys, the pointer, a click) and as
+  // the list starts afresh (what's typed, Send to's box, the project, an open). Not when the row
+  // that leads by itself changes as the list sorts itself again under a list you've scrolled
+  // down (a session that works moving up, what sessions said coming in): that took you back to
+  // the top every few seconds. It's found by its key, not its class: rows a render left behind
+  // (two groups under one key, 2026-11-04) kept `is-active` and took the scroll to the top.
   useEffect(() => {
-    list.current?.querySelector('.is-active')?.scrollIntoView({ block: 'nearest' });
-  }, [active]);
+    const rows = list.current?.querySelectorAll<HTMLElement>('[data-row]') ?? [];
+    Array.from(rows)
+      .find((el) => el.dataset.row === active)
+      ?.scrollIntoView({ block: 'nearest' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on what chose the row: `active` changing by itself as the list sorts itself again mustn't scroll
+  }, [activeKey, text, sendTo, current, opens]);
 
   const move = (delta: number) => {
     const i = keys.indexOf(active);

@@ -179,11 +179,16 @@ html.is-quick body {
   flex-direction: column;
   min-height: 0;
 }
+/* The list stays where you scrolled it as its rows change. WebKit doesn't anchor scrolling
+   (macOS 26, 2026-11-04); Chrome, the preview's, does, following the row it anchored on as the
+   list sorts itself again, and took a search scrolled down back to its top as a session moved
+   up. This keeps every engine to WebKit's way (quick-scroll-check.js). */
 .ca-quick-scroll {
   flex: 1 1 auto;
   min-height: 0;
   padding: 2px 6px 5px;
   overflow-y: auto;
+  overflow-anchor: none;
 }
 .ca-quick-scroll:empty {
   padding-bottom: 0;
