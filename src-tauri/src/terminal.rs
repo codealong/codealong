@@ -30,6 +30,12 @@
 //! An agent's sandbox may keep its command from looking at your processes, so the command asks the
 //! app where a run stands, and to stop or close it, when it's up (server.rs).
 //!
+//! Waiting. While a command waits on a run you allowed (`terminal run`, `terminal wait`), it says so
+//! each time it asks where the run stands (`note_waited`), and the session shows the run going there
+//! (`overlay_running`). To the session's harness and to Jev, a command that has printed nothing for
+//! a while looks stuck, which would show the session needing you with nothing to answer while the
+//! run goes on in a tab you may not see.
+//!
 //! Reading. What it printed is a terminal's bytes, colors and a progress line redrawn with a
 //! carriage return among them; `render` turns them into the lines a screen ends up showing, one
 //! line at a time. A program that draws the whole screen (an editor, `top`) comes out garbled, as
@@ -53,7 +59,7 @@ use crate::config::support_dir;
 use crate::model::{AppNames, Lane, Session, Status};
 use crate::os::{self, Os};
 use crate::procs;
-use crate::util::{code, now_ms, one_line, sh_quote, tilde, words, DAY_MS};
+use crate::util::{code, now_ms, one_line, sh_quote, tilde, truncate, without_cd, words, DAY_MS};
 
 /// How a run's id starts, and the id of the request it comes from.
 const PREFIX: &str = "run-";
@@ -258,6 +264,70 @@ pub fn overlay(s: &mut Session) {
     s.excerpt = Some(label(&a));
     s.stalled_since = None;
     s.asks = false;
+}
+
+/// How long a run counts as waited on after its command last asked where it stands. The command
+/// asks every 300 ms (cli.rs `wait_for_run`); the server may answer late on a busy Mac.
+const WAIT_LAPSE_MS: i64 = 5_000;
+
+/// The runs a command waits on, each as it stood when its command last asked, and when.
+static WAITED: Mutex<Vec<(RunStatus, i64)>> = Mutex::new(Vec::new());
+
+fn waited() -> MutexGuard<'static, Vec<(RunStatus, i64)>> {
+    WAITED.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Notes that a command waits on a run, standing as `s` does now. True when the board should be
+/// read again: no command was waiting on it, or it has started or ended since.
+pub fn note_waited(s: &RunStatus, now: i64) -> bool {
+    let mut w = waited();
+    let before = w.iter().position(|(r, _)| r.run.id == s.run.id).map(|at| w.remove(at));
+    w.push((s.clone(), now));
+    before.is_none_or(|(r, at)| r.state != s.state || now - at >= WAIT_LAPSE_MS)
+}
+
+/// Forgets the runs no command has asked about for a while: its command ended, was stopped, or
+/// gave up waiting. True when it forgot one, which the board stops showing.
+pub fn forget_unwaited(now: i64) -> bool {
+    let mut w = waited();
+    let before = w.len();
+    w.retain(|(_, at)| now - at < WAIT_LAPSE_MS);
+    w.len() != before
+}
+
+/// The run of the session `key` a command waits on now, once it has a tab: the latest allowed.
+fn waited_on(key: &str, now: i64) -> Option<Run> {
+    let w = waited();
+    w.iter()
+        .filter(|(r, at)| r.run.session == key && now - at < WAIT_LAPSE_MS && matches!(r.state, State::Starting | State::Running))
+        .map(|(r, _)| &r.run)
+        .max_by_key(|r| r.allowed_at)
+        .cloned()
+}
+
+/// The line the windows show for a run its agent waits on: where, and what. The folder it went
+/// to with a leading `cd` is the row's worktree, and would leave little of the command in a line.
+pub fn running_label(run: &Run) -> String {
+    format!("Running in {} · {}", run.terminal, code(&truncate(&one_line(without_cd(&run.command), 200), 80)))
+}
+
+/// Lays a run its agent waits on over the session, as the engine reads it, after Jev's read
+/// (engine.rs `with_runs`): it's working, on that, there, since you allowed it. The command it
+/// waits with has printed nothing, so its harness and Jev may take it for stuck; Codealong knows
+/// it's running. What the session asks you meanwhile (an approval, another command to allow)
+/// stays as it is, and so does a session that has stopped or failed.
+pub fn overlay_running(s: &mut Session, now: i64) {
+    if matches!(s.status, Status::Stopped | Status::Error) || (s.status == Status::Needs && s.stalled_since.is_none()) {
+        return;
+    }
+    let Some(run) = waited_on(&s.key, now) else { return };
+    if s.status != Status::Working {
+        s.status = Status::Working;
+        s.status_since = Some(run.allowed_at);
+    }
+    s.stalled_since = None;
+    s.asks = false;
+    s.excerpt = Some(running_label(&run));
 }
 
 /// Holds a request as a connection would, for other modules' tests; the receiver hears its answer.
@@ -1144,6 +1214,69 @@ mod tests {
         let mut again = Session { status: Status::Working, ..crate::fixtures::session(key) };
         overlay(&mut again);
         assert_eq!(again.status, Status::Working);
+    }
+
+    #[test]
+    fn a_run_its_agent_waits_on_shows_its_session_running_there() {
+        let key = "claude:claude:terminal-running-test";
+        let run = Run {
+            id: "run-test-running".into(),
+            session: key.into(),
+            command: "cd /Users/me/projects/northwind-app && node scripts/publish.mjs".into(),
+            terminal: "Rex".into(),
+            allowed_at: 1_000,
+            ..Default::default()
+        };
+        let at = |state| RunStatus { run: run.clone(), state, exit_code: None, ended_at: None };
+        let shown = |s: &Session| (s.status, s.status_since, s.stalled_since, s.excerpt.clone(), s.asks);
+        // Stuck as its harness and Jev read the command that waits, printing nothing.
+        let stuck = Session {
+            status: Status::Needs,
+            status_since: Some(500),
+            stalled_since: Some(500),
+            excerpt: Some("Stuck on `codealong terminal run \"cd /Users/me/projects/northwind-app && node…`".into()),
+            background: Some("codealong terminal run \"cd /Users/me/projects/northwind-app && node scripts/publish.mjs\"".into()),
+            ..crate::fixtures::session(key)
+        };
+        let mut s = stuck.clone();
+        overlay_running(&mut s, 10_000);
+        assert_eq!(shown(&s), shown(&stuck), "no command waits on it yet");
+
+        assert!(note_waited(&at(State::Starting), 10_000), "a command waits on it now");
+        assert!(!note_waited(&at(State::Starting), 10_300), "nothing new");
+        assert!(note_waited(&at(State::Running), 10_600), "it has started");
+        overlay_running(&mut s, 10_700);
+        assert_eq!((s.status, s.status_since, s.stalled_since, s.excerpt.as_deref()), (Status::Working, Some(1_000), None, Some("Running in Rex · `node scripts/publish.mjs`")));
+        assert_eq!(s.background, stuck.background, "its command still runs in the background");
+
+        // Already working, it keeps its time; one of Codealong's own terminals is said as such.
+        let mut working = Session { status: Status::Working, status_since: Some(800), ..crate::fixtures::session(key) };
+        overlay_running(&mut working, 10_700);
+        assert_eq!((working.status, working.status_since), (Status::Working, Some(800)));
+        assert_eq!(running_label(&Run { terminal: OWN.into(), command: "make deploy".into(), ..Default::default() }), "Running in Codealong · `make deploy`");
+
+        // What it asks you meanwhile stays, and so does a session that has stopped.
+        for status in [Status::Needs, Status::Stopped, Status::Error] {
+            let asks = Session { status, excerpt: Some("Bash · `rm -rf build`".into()), ..crate::fixtures::session(key) };
+            let mut s = asks.clone();
+            overlay_running(&mut s, 10_700);
+            assert_eq!(shown(&s), shown(&asks), "{status:?}");
+        }
+
+        // Its command stopped asking: given up, or stopped by its agent.
+        let mut s = stuck.clone();
+        overlay_running(&mut s, 10_600 + WAIT_LAPSE_MS);
+        assert_eq!(shown(&s), shown(&stuck), "no longer waited on");
+        assert!(!forget_unwaited(10_600 + WAIT_LAPSE_MS - 1));
+        assert!(forget_unwaited(10_600 + WAIT_LAPSE_MS), "the board stops showing it");
+        assert!(note_waited(&at(State::Running), 20_000), "a command waiting on it again shows it again");
+
+        // It ended: its command reads how, and goes.
+        assert!(note_waited(&at(State::Exited), 20_300));
+        let mut s = stuck.clone();
+        overlay_running(&mut s, 20_400);
+        assert_eq!(shown(&s), shown(&stuck), "ended");
+        waited().retain(|(r, _)| r.run.session != key);
     }
 
     #[test]

@@ -1382,6 +1382,18 @@ struct Engine {
     emblems: crate::emblems::Store,
 }
 
+/// What terminal.rs knows a session waits on, over Jev's read of it (`with_insights`), which can
+/// only guess from a command gone quiet: a command it asks you to allow (`overlay`, laid on as
+/// the sessions are built too, for Jev to read them with it) and a run you allowed that its agent
+/// waits on (`overlay_running`).
+fn with_runs(mut sessions: Vec<Session>, now: i64) -> Vec<Session> {
+    for s in &mut sessions {
+        crate::terminal::overlay(s);
+        crate::terminal::overlay_running(s, now);
+    }
+    sessions
+}
+
 /// Each live session's terminal app (`Session::terminal`): the one its process runs under, asked
 /// of the process table on every compose as `launch::terminal_kind` is meant to be. tmux, which
 /// shows in its client's app, is none.
@@ -3118,6 +3130,10 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         if !self.reads.out_for(HELD_WARN_AFTER).is_empty() {
             self.dirty = true;
         }
+        // A run whose command stopped waiting on it is no longer shown on its session.
+        if crate::terminal::forget_unwaited(now_ms()) {
+            self.dirty = true;
+        }
         perf::took(|| "engine tick".into(), t.elapsed());
     }
 
@@ -3888,7 +3904,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             now,
             apps: &apps,
             seeds: &self.seeds,
-            sessions: self.with_connections(self.with_limits(self.with_snoozes(self.with_suggestions(self.with_insights(self.with_emblems(self.with_artifacts(self.with_chrome(self.with_run_origins(self.with_origins(with_terminals(self.build_sessions(now))))))), now)), &sides, now), &usage, now)),
+            sessions: self.with_connections(self.with_limits(self.with_snoozes(self.with_suggestions(with_runs(self.with_insights(self.with_emblems(self.with_artifacts(self.with_chrome(self.with_run_origins(self.with_origins(with_terminals(self.build_sessions(now))))))), now), now)), &sides, now), &usage, now)),
             git: &self.git,
             prs: self.github.prs(),
             requested: self.github.requested(),

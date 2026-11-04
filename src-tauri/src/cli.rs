@@ -6989,7 +6989,7 @@ fn terminal_cmd(c: &mut Client, cmd: TerminalCmd, json: bool) -> Result<()> {
                 wait_for_output(c, &id, wait);
             }
             let output = terminal::output(&id, a.lines.clamp(1, 2000), a.skip, a.grep.as_deref())?;
-            let status = run_status(c, &id)?;
+            let status = run_status(c, &id, false)?;
             if json {
                 return print_json(&RunOut::of(status, output));
             }
@@ -7092,7 +7092,7 @@ fn terminal_run(c: &mut Client, a: TerminalRunArgs, json: bool) -> Result<()> {
     }
     let run: terminal::Run = serde_json::from_value(answer.get("run").cloned().unwrap_or_default()).context("reading the run the app started")?;
     eprintln!("Allowed: it runs in {} as {}.", run.place(), run.id);
-    let status = if a.detach { wait_for_start(c, &run.id)? } else { wait_for_run(c, &run.id, timeout)? };
+    let status = if a.detach { wait_for_start(c, &run.id, false)? } else { wait_for_run(c, &run.id, timeout)? };
     print_run(status, if a.detach { a.lines.min(40) } else { a.lines }, json)
 }
 
@@ -7100,12 +7100,12 @@ fn terminal_run(c: &mut Client, a: TerminalRunArgs, json: bool) -> Result<()> {
 /// or a Ghostty that's napping (launch.rs).
 const START_WAIT_MS: i64 = 2 * 60_000;
 
-/// Waits for a run to have started in its tab.
 /// Where a run stands: from the app when it's up, since whether its processes are still there is a
-/// look at your processes, which an agent's sandbox may keep this command from taking.
-fn run_status(c: &Client, id: &str) -> Result<crate::terminal::RunStatus> {
+/// look at your processes, which an agent's sandbox may keep this command from taking. `waiting`
+/// when this command waits on it, which the app shows on its session.
+fn run_status(c: &Client, id: &str, waiting: bool) -> Result<crate::terminal::RunStatus> {
     if c.app.is_some() {
-        match server::ask(&Request::TerminalRuns { id: Some(id.to_string()), session: None }) {
+        match server::ask(&Request::TerminalRuns { id: Some(id.to_string()), session: None, waiting }) {
             Some(Ok(v)) => return serde_json::from_value(v).context("reading where the run stands"),
             Some(Err(e)) if !e.starts_with(server::UNKNOWN_REQUEST) => bail!("{e}"),
             _ => {}
@@ -7117,7 +7117,7 @@ fn run_status(c: &Client, id: &str) -> Result<crate::terminal::RunStatus> {
 /// The runs kept, as `run_status` has each.
 fn run_list(c: &Client, session: Option<&str>) -> Result<Vec<crate::terminal::RunStatus>> {
     if c.app.is_some() {
-        match server::ask(&Request::TerminalRuns { id: None, session: session.map(String::from) }) {
+        match server::ask(&Request::TerminalRuns { id: None, session: session.map(String::from), waiting: false }) {
             Some(Ok(v)) => return serde_json::from_value(v).context("reading the runs"),
             Some(Err(e)) if !e.starts_with(server::UNKNOWN_REQUEST) => bail!("{e}"),
             _ => {}
@@ -7126,10 +7126,11 @@ fn run_list(c: &Client, session: Option<&str>) -> Result<Vec<crate::terminal::Ru
     Ok(crate::terminal::list(session))
 }
 
-fn wait_for_start(c: &Client, id: &str) -> Result<crate::terminal::RunStatus> {
+/// Waits for a run to have started in its tab; `waiting` on to its end, as `wait_for_run` does.
+fn wait_for_start(c: &Client, id: &str, waiting: bool) -> Result<crate::terminal::RunStatus> {
     let start = now_ms();
     loop {
-        let s = run_status(c, id)?;
+        let s = run_status(c, id, waiting)?;
         if s.state != crate::terminal::State::Starting {
             return Ok(s);
         }
@@ -7143,10 +7144,10 @@ fn wait_for_start(c: &Client, id: &str) -> Result<crate::terminal::RunStatus> {
 /// Waits for a run to end, or for `timeout_ms` once it runs; says where it stands then.
 fn wait_for_run(c: &Client, id: &str, timeout_ms: i64) -> Result<crate::terminal::RunStatus> {
     use crate::terminal::State;
-    wait_for_start(c, id)?;
+    wait_for_start(c, id, true)?;
     let start = now_ms();
     loop {
-        let s = run_status(c, id)?;
+        let s = run_status(c, id, true)?;
         if matches!(s.state, State::Exited | State::Ended) || now_ms() - start > timeout_ms {
             return Ok(s);
         }
@@ -7160,7 +7161,7 @@ fn wait_for_output(c: &Client, id: &str, wait_ms: i64) {
     let (start, before) = (now_ms(), size());
     while now_ms() - start < wait_ms {
         std::thread::sleep(std::time::Duration::from_millis(200));
-        let ended = run_status(c, id).is_ok_and(|s| s.state != crate::terminal::State::Running && s.state != crate::terminal::State::Starting);
+        let ended = run_status(c, id, false).is_ok_and(|s| s.state != crate::terminal::State::Running && s.state != crate::terminal::State::Starting);
         if size() != before || ended {
             // A moment for the rest of what it's printing.
             std::thread::sleep(std::time::Duration::from_millis(300));
