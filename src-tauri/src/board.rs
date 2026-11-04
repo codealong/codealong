@@ -1161,21 +1161,31 @@ pub fn polled_slugs(seeds: &[LaneSeed]) -> BTreeSet<String> {
     seeds.iter().filter(|s| s.branch.is_some() && s.branch != s.default_branch).filter_map(|s| s.repo_slug.clone()).collect()
 }
 
-/// The repos renamed on GitHub whose remotes here have the old name: GitHub's name now, lowercase,
-/// to the remote's slug, lowercase, which the PR links name their PRs by (prlinks.rs
-/// `named_here`). From the worktrees' remotes as they are (`names`, ghpoll.rs `repo_names`, keeps
-/// a remote's slug after it's changed): none where a remote has the new name itself, and of
-/// several with old names, the first in order.
-pub fn renamed_here(seeds: &[LaneSeed], names: &HashMap<String, String>) -> HashMap<String, String> {
-    let slugs: BTreeSet<String> = seeds.iter().filter_map(|s| s.repo_slug.as_ref()).map(|s| s.to_lowercase()).collect();
+/// Every other name a repo renamed on GitHub is known by, lowercase, to the one a worktree's remote
+/// has now (`slugs`), lowercase, which the PR links name its PRs by (prlinks.rs `named_here`): a
+/// session's records and a link to a PR have its name when it was made. `names` is what GitHub
+/// calls each remote's repo now (ghpoll.rs `repo_names`, which keeps a remote's slug after it's
+/// changed). GitHub's own name where a remote has it, else of several old ones, the first in order.
+pub fn renamed_here<'a>(slugs: impl IntoIterator<Item = &'a str>, names: &HashMap<String, String>) -> HashMap<String, String> {
+    let slugs: BTreeSet<String> = slugs.into_iter().map(str::to_lowercase).collect();
+    // Each repo by GitHub's name now, with the names it's had here.
+    let mut repos: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for (was, now) in names {
+        let now = now.to_lowercase();
+        repos.entry(now.clone()).or_default().extend([was.to_lowercase(), now]);
+    }
     let mut here = HashMap::new();
-    for slug in &slugs {
-        let Some(now) = names.get(slug).map(|n| n.to_lowercase()) else { continue };
-        if now != *slug && !slugs.contains(&now) {
-            here.entry(now).or_insert_with(|| slug.clone());
-        }
+    for (now, known) in repos {
+        let named = if slugs.contains(&now) { Some(&now) } else { known.iter().find(|k| slugs.contains(*k)) };
+        let Some(named) = named else { continue };
+        here.extend(known.iter().filter(|k| *k != named).map(|k| (k.clone(), named.clone())));
     }
     here
+}
+
+/// `renamed_here` for the worktrees the board has.
+pub fn renamed_in(seeds: &[LaneSeed], names: &HashMap<String, String>) -> HashMap<String, String> {
+    renamed_here(seeds.iter().filter_map(|s| s.repo_slug.as_deref()), names)
 }
 
 /// One PR that `pr_items` doesn't list, for a link to it in a conversation: one older than the
@@ -3260,7 +3270,7 @@ mod tests {
         let spur = LaneSeed { project: "Spur".into(), repo: "spur".into(), repo_slug: Some("SpurHQ/spur".into()), ..seed("/r/spur", "main") };
         let seeds = vec![seed("/r/spark-portal", "portal"), spur];
         let names = HashMap::from([("spurhq/spur".to_string(), "SpurHQ/spur-app".to_string()), ("sprucehq/spark".to_string(), "sprucehq/spark".to_string())]);
-        let here = renamed_here(&seeds, &names);
+        let here = renamed_in(&seeds, &names);
         assert_eq!(here, HashMap::from([("spurhq/spur-app".to_string(), "spurhq/spur".to_string())]));
         // Made after the rename, the PR's records have the new name; one fixer's has the old.
         let marks: crate::prlinks::Marks = HashMap::from([("maker".to_string(), vec![("spurhq/spur-app#5".to_string(), 100)]), ("fixer".to_string(), vec![("spurhq/spur#5".to_string(), 200)])]);
@@ -3280,13 +3290,20 @@ mod tests {
         sessions.sort();
         assert_eq!(sessions, ["fixer", "maker"]);
 
-        // Its remote changed to the new name since, which the names asked for at launch don't
-        // know: the new name is the one here.
-        let moved = [LaneSeed { repo_slug: Some("SpurHQ/spur-app".into()), ..seeds[1].clone() }];
+        // Its remote changed to the new name since, which GitHub's names, asked once a launch, still
+        // have the old one of: the new name is the one here, and the old one goes by it.
+        let moved = vec![seeds[0].clone(), LaneSeed { repo_slug: Some("SpurHQ/spur-app".into()), ..seeds[1].clone() }];
         let names = HashMap::from([("spurhq/spur".to_string(), "SpurHQ/spur-app".to_string()), ("spurhq/spur-app".to_string(), "SpurHQ/spur-app".to_string())]);
-        assert!(renamed_here(&moved, &names).is_empty());
-        // Nor while a checkout of it has either.
-        assert!(renamed_here(&[seeds[1].clone(), moved[0].clone()], &names).is_empty());
+        let here = renamed_in(&moved, &names);
+        assert_eq!(here, HashMap::from([("spurhq/spur".to_string(), "spurhq/spur-app".to_string())]));
+        let (worked, unlinked, made_by) = crate::prlinks::resolve(&crate::prlinks::marks_named_here(&marks, &here), &crate::prlinks::LinkStore::default());
+        let links = PrLinks { worked, unlinked, made: made_by, ..Default::default() };
+        assert_eq!(links.worked.keys().collect::<Vec<_>>(), ["spurhq/spur-app#5"]);
+        let p = PrRaw { number: 5, url: "https://github.com/SpurHQ/spur-app/pull/5".into(), head_ref: "fix".into(), ..pr(PrState::Open, 0) };
+        let items = pr_items(&moved, &lanes, &HashMap::new(), &HashMap::new(), &HashMap::from([("spurhq/spur-app".to_string(), vec![p])]), Some("gwen"), &links);
+        assert_eq!(items.iter().map(|p| (p.key.as_str(), p.project.as_str(), p.sessions.len())).collect::<Vec<_>>(), vec![("SpurHQ/spur-app#5", "Spur", 2)]);
+        // With checkouts by both names, GitHub's own is the one.
+        assert_eq!(renamed_here(["SpurHQ/spur", "SpurHQ/spur-app"], &names), here);
     }
 
     #[test]

@@ -216,17 +216,18 @@ pub fn carry_moves(by_session: &HashMap<String, Vec<(String, i64)>>, moves: &[(S
 //
 // A session's records name a PR by its repo's name as it was made, so one made after GitHub
 // renamed the repo has the new name, while a checkout whose remote wasn't changed, and everything
-// read by it (the repo's PRs, the review search's copies, the repo's settings), has the old; and
-// `codealong pr link` takes a PR's link with either. The marks and the store are named by the
-// remote's name before they're resolved (`here`: GitHub's name now, lowercase, to the remote's,
-// board.rs `renamed_here`), so a PR has one name on the board.
+// read by it (the repo's PRs, the review search's copies, the repo's settings), has the old; and a
+// remote changed to the new name leaves the records before it with the old. The marks and the
+// store are named by the remote's name before they're resolved (`here`: each other name, lowercase,
+// to the remote's, board.rs `renamed_here`), so a PR has one name on the board. `codealong pr`
+// names a PR it's given by its link so, as the app does, and the engine writes the store so where
+// it has another name (engine.rs `name_links_here`), so a choice made again changes the one entry.
 
-/// `pr` (`owner/name#number`) by its repo's name here.
-fn named_here(pr: &str, here: &HashMap<String, String>) -> String {
-    let pr = pr_key(pr);
-    match pr.split_once('#').and_then(|(slug, number)| Some((here.get(slug)?, number))) {
-        Some((was, number)) => format!("{was}#{number}"),
-        None => pr,
+/// `pr` (`owner/name#number`) by its repo's name here, or as it is where that's its name.
+pub fn named_here(pr: &str, here: &HashMap<String, String>) -> String {
+    match pr.split_once('#').and_then(|(slug, number)| Some((here.get(&slug.to_ascii_lowercase())?, number))) {
+        Some((named, number)) => format!("{named}#{number}"),
+        None => pr.to_string(),
     }
 }
 
@@ -240,7 +241,7 @@ pub fn marks_named_here(marks: &Marks, here: &HashMap<String, String>) -> Marks 
     for (session, prs) in marks {
         let have = out.entry(session.clone()).or_default();
         for (pr, at) in prs {
-            add_mark(have, named_here(pr, here), *at);
+            add_mark(have, pr_key(&named_here(pr, here)), *at);
         }
     }
     out
@@ -250,7 +251,7 @@ impl LinkStore {
     /// The store with its PRs named by their repos' names here, the latest choice made under
     /// either name winning: a session's link or unlink by its time, a primary by its time. A nudge
     /// turned on under one name and off under the other has no time to go by: the one under the
-    /// remote's name wins, being the name the app writes it under.
+    /// remote's name wins, being the name the app and `codealong pr` write it under.
     pub fn named_here(&self, here: &HashMap<String, String>) -> LinkStore {
         if here.is_empty() {
             return self.clone();
@@ -259,7 +260,7 @@ impl LinkStore {
         let mut by_time: Vec<&PrLink> = self.links.iter().collect();
         by_time.sort_by_key(|l| l.at);
         for l in by_time {
-            let pr = named_here(&l.pr, here);
+            let pr = pr_key(&named_here(&l.pr, here));
             if l.primary {
                 for other in links.iter_mut().filter(|o| o.pr == pr) {
                     other.primary = false;
@@ -268,7 +269,7 @@ impl LinkStore {
             links.retain(|o| !(o.pr == pr && o.session == l.session));
             links.push(PrLink { pr, ..l.clone() });
         }
-        let named = |list: &[String]| list.iter().map(|pr| (named_here(pr, here), pr_key(pr) == named_here(pr, here))).collect::<Vec<_>>();
+        let named = |list: &[String]| list.iter().map(|pr| (pr_key(&named_here(pr, here)), pr_key(pr) == pr_key(&named_here(pr, here)))).collect::<Vec<_>>();
         let (on, off) = (named(&self.nudges), named(&self.nudges_off));
         // Kept where it's there by the remote's name, or isn't under that name in the other list.
         let keep = |list: &[(String, bool)], other: &[(String, bool)]| {
@@ -485,6 +486,23 @@ mod tests {
         assert_eq!((named.nudges, named.nudges_off), (vec!["spurhq/spur#5".to_string()], vec!["spurhq/spur#6".to_string()]));
         // With nothing renamed, the store is as it was.
         assert_eq!(store.named_here(&HashMap::new()), store);
+
+        // Written by the name here, as the engine writes the store and `codealong pr` names a link,
+        // choices made again by either name change the one entry, the last one holding.
+        assert_eq!(named_here("SpurHQ/Spur-App#5", &here), "spurhq/spur#5");
+        assert_eq!(named_here("Acme/Tool#1", &here), "Acme/Tool#1", "a repo not renamed keeps its name as given");
+        let mut store = LinkStore::default();
+        store.set("spurhq/spur-app#5", "s", false, 1);
+        let mut store = store.named_here(&here);
+        for (pr, linked, at) in [("spurhq/spur#5", true, 2), ("spurhq/spur-app#5", false, 3), ("spurhq/spur#5", true, 4), ("spurhq/spur-app#5", false, 5)] {
+            assert!(store.set(&named_here(pr, &here), "s", linked, at), "{pr} at {at}");
+        }
+        assert_eq!(store.links.iter().map(|l| (l.pr.as_str(), l.linked)).collect::<Vec<_>>(), [("spurhq/spur#5", false)]);
+        // A nudge turned on by the old name and off by the new is off.
+        store.set_nudge(&named_here("spurhq/spur#5", &here), true);
+        store.set_nudge(&named_here("spurhq/spur-app#5", &here), false);
+        assert!(store.nudges.is_empty());
+        assert_eq!(store.nudges_off, ["spurhq/spur#5"]);
 
         // A mark by either name is one, at its earliest.
         let marks: Marks = HashMap::from([("a".to_string(), vec![("spurhq/spur-app#5".to_string(), 300), ("SpurHQ/spur#5".to_string(), 100), ("acme/tool#1".to_string(), 5)])]);
