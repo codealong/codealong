@@ -39,6 +39,8 @@
           s.lastActivity = now - (n === 0 ? 120 : 1) * 60 * 1000;
           if (n === 1) s.snoozedUntil = now + 60 * 60 * 1000;
           else delete s.snoozedUntil;
+          // One moved to the top on this Mac would be listed under Moved to top instead.
+          delete s.raised;
           n++;
         });
       });
