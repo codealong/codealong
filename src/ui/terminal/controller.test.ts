@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { Font, Renderer } from './render';
 import type { TerminalInput } from '../../types';
 
 /** Every call the controller makes, in the order the server would take them, each held until
@@ -16,7 +17,12 @@ vi.mock('../../api', async (original) => ({
   terminalInput: vi.fn((_id: string, inputs: TerminalInput[]) => hold(inputs.map((i) => (i.kind === 'key' ? i.text : i.kind)).join(''))),
   terminalPaste: vi.fn((_id: string, text: string, force: boolean) => hold(`paste:${text}${force ? '!' : ''}`, !/\n/.test(text) || force)),
   terminalCopy: vi.fn(() => hold('copy', null)),
+  terminalResize: vi.fn((_id: string, size: { cols: number; rows: number }) => {
+    resizes.push(`${size.cols}x${size.rows}`);
+    return Promise.resolve();
+  }),
 }));
+const resizes: string[] = [];
 
 const { TerminalController } = await import('./controller');
 
@@ -67,5 +73,41 @@ describe('what a window sends a terminal', () => {
     await answer();
     expect(sent).toEqual(['x', 'select', 'copy']);
     await answer();
+  });
+});
+
+describe('a terminal fitted to its room', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('takes a new cell and font when a zoom changes the pixel ratio, though its canvas comes out as many pixels', () => {
+    // No 2D context here, so a cell is measured from the font's size: 7 by 16 pixels at 1, 8 by
+    // 18 at 1.1, where a room of 560 by 288 pixels holds 80 by 18 cells, then 70 by 16.
+    let dpr = 1;
+    vi.stubGlobal('window', { get devicePixelRatio() { return dpr; } });
+    vi.stubGlobal('getComputedStyle', () => ({ fontSize: '12px', lineHeight: '16px', fontFamily: 'monospace', getPropertyValue: () => '' }));
+    vi.stubGlobal('document', { documentElement: {}, createElement: () => ({ getContext: () => null }) });
+    const wrap = { getBoundingClientRect: () => ({ width: 560 / dpr, height: 288 / dpr }) } as unknown as HTMLElement;
+    const canvas = { width: 0, height: 0, style: {} } as unknown as HTMLCanvasElement;
+    const given: string[] = [];
+    const renderer: Renderer = {
+      kind: 'canvas2d',
+      resize(width: number, height: number, cellW: number, cellH: number, _baseline: number, font: Font) {
+        canvas.width = width;
+        canvas.height = height;
+        given.push(`${width}x${height} cell ${cellW}x${cellH} font ${font.size}`);
+      },
+      draw: () => {},
+      dispose: () => {},
+    };
+    const c = new TerminalController('t', wrap, canvas, { onLeave: () => {}, onUnsafePaste: () => {}, onError: () => {}, onPointer: () => {} });
+    (c as unknown as { renderer: Renderer }).renderer = renderer;
+    resizes.length = 0;
+    c.fit(true);
+    c.fit();
+    expect(given, 'a fit to the same room gives the canvas no size, which would wipe it').toEqual(['560x288 cell 7x16 font 12']);
+    dpr = 1.1;
+    c.fit();
+    expect(given).toEqual(['560x288 cell 7x16 font 12', '560x288 cell 8x18 font 13.2']);
+    expect(resizes).toEqual(['80x18', '70x16']);
   });
 });

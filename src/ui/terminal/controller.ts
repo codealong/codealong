@@ -153,8 +153,12 @@ export class TerminalController {
   /** Sizes the grid to the room the terminal has, and tells the server when it changed. */
   fit(remeasure = false): void {
     if (!this.renderer) return;
-    if (remeasure || !this.m || this.m.dpr !== (window.devicePixelRatio || 1)) this.m = measure(this.wrap);
-    const m = this.m;
+    const was = this.m;
+    const m = remeasure || !was || was.dpr !== (window.devicePixelRatio || 1) ? measure(this.wrap) : was;
+    this.m = m;
+    // Measured again (the font, or the pixel ratio a zoom changes): the cell and the font are
+    // new even where the canvas comes out the same number of pixels.
+    const measured = m !== was;
     const rect = this.wrap.getBoundingClientRect();
     const cols = Math.max(2, Math.floor((rect.width * m.dpr) / m.cellW));
     const rows = Math.max(1, Math.floor((rect.height * m.dpr) / m.cellH));
@@ -163,13 +167,13 @@ export class TerminalController {
     // A canvas given a size, even the one it has, is wiped: only a new size is given, and it's
     // drawn again at once, before the page is painted, rather than on the next frame, so a
     // resize never shows it blank in between.
-    if (width !== this.canvas.width || height !== this.canvas.height || remeasure) {
+    if (measured || width !== this.canvas.width || height !== this.canvas.height) {
       this.canvas.style.width = `${width / m.dpr}px`;
       this.canvas.style.height = `${height / m.dpr}px`;
       this.renderer.resize(width, height, m.cellW, m.cellH, m.baseline, m.font);
       this.drawNow();
     }
-    if (cols !== this.cols || rows !== this.rows || remeasure) {
+    if (measured || cols !== this.cols || rows !== this.rows) {
       this.cols = cols;
       this.rows = rows;
       const size = { cols, rows, cellWidth: m.cellW, cellHeight: m.cellH };
