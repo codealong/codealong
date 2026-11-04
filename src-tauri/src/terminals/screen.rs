@@ -498,18 +498,26 @@ impl Screen {
     /// The screen as a terminal draws it from escape sequences, for another terminal to show it
     /// from where it is (terminals.rs `attach`): that terminal cleared, the scrollback and the
     /// screen with their colors, the modes the program set (its keyboard protocol, the mouse,
-    /// bracketed pastes, the other screen), and the cursor where it is. What the program prints
-    /// next goes on from there.
+    /// bracketed pastes, the other screen, the Kitty keyboard protocol), the pen it's drawing with,
+    /// and the cursor where it is. What the program prints next goes on from there.
     pub fn vt(&self) -> Vec<u8> {
         let mut out = b"\x1b[!p\x1b[H\x1b[2J\x1b[3J".to_vec();
-        let opts = FormatterOptions::new().with_format(Format::Vt).with_modes(true).with_keyboard(true).with_scrolling_region(true).with_tabstops(true).with_pwd(true);
+        let opts = FormatterOptions::new()
+            .with_format(Format::Vt)
+            .with_modes(true)
+            .with_keyboard(true)
+            .with_kitty_keyboard(true)
+            .with_scrolling_region(true)
+            .with_tabstops(true)
+            .with_pwd(true)
+            .with_charsets(true)
+            .with_hyperlink(true)
+            .with_style(true)
+            .with_cursor(true);
         if let Ok(mut f) = Formatter::new(&self.term, opts) {
             if let Ok(bytes) = f.format_alloc(None) {
                 out.extend_from_slice(&bytes);
             }
-        }
-        if let (Ok(x), Ok(y)) = (self.term.cursor_x(), self.term.cursor_y()) {
-            out.extend_from_slice(format!("\x1b[{};{}H", y + 1, x + 1).as_bytes());
         }
         out
     }
@@ -1052,6 +1060,27 @@ mod tests {
         let shift_return = Input::Key { code: "Enter".into(), text: None, unshifted: None, mods: Mods4 { shift: true, ..Default::default() }, action: KeyAction::Press };
         back.input(&shift_return);
         assert_eq!(back.take_out(), b"\x1b[13;2u", "the keyboard protocol came too");
+    }
+
+    /// What an attached terminal is first sent draws the same screen in another: its text, the
+    /// Kitty keyboard protocol the program turned on, and the cursor where it was.
+    #[test]
+    fn the_screen_as_escape_sequences_draws_the_same_screen_with_its_modes() {
+        let (mut s, _) = screen();
+        s.feed(b"\x1b[>5u\x1b[?2004hone\r\ntwo \x1b[1;31mred");
+        let (mut other, _) = screen();
+        other.feed(&s.vt());
+        let f = other.frame("t", true).unwrap();
+        assert_eq!(row_text(&f, 0), "one");
+        assert_eq!(row_text(&f, 1), "two red");
+        assert_eq!(f.cursor.map(|c| (c.x, c.y)), Some((7, 1)), "the cursor where it was");
+        other.feed(b"!");
+        let g = other.frame("t", false).unwrap();
+        let bang = g.lines.iter().flat_map(|l| &l.runs).find(|r| r.cells.join("").contains('!')).expect("drawn");
+        assert!(g.looks[usize::from(bang.look)].fg.is_some(), "drawn with the pen the program had");
+        let shift_return = Input::Key { code: "Enter".into(), text: None, unshifted: None, mods: Mods4 { shift: true, ..Default::default() }, action: KeyAction::Press };
+        other.input(&shift_return);
+        assert_eq!(other.take_out(), b"\x1b[13;2u", "the Kitty keyboard protocol on");
     }
 
     #[test]

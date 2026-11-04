@@ -136,13 +136,27 @@ pub fn hang_up(pid: u32, kill: bool) {
     }
 }
 
-/// A copy of `fd` that outlives this process becoming another program (exec), for a server
-/// handing its terminals to its next build (terminals.rs `hand_over`). None when there's none to
-/// be had.
+/// A copy of `fd` for a server handing its terminals to its next build (terminals.rs
+/// `hand_over`). It's closed on exec like every other descriptor until the moment the server
+/// becomes the next build, which clears that for the copies it hands over and no others
+/// (serve.rs `hand_over`): a process the server starts meanwhile never gets one. None when
+/// there's none to be had.
 pub fn inheritable(fd: RawFd) -> Option<RawFd> {
-    // SAFETY: dup makes a new descriptor for one we own; the copy isn't closed on exec.
-    let copy = unsafe { libc::dup(fd) };
+    // SAFETY: F_DUPFD_CLOEXEC makes a new descriptor for one we own.
+    let copy = unsafe { libc::fcntl(fd, libc::F_DUPFD_CLOEXEC, 0) };
     (copy >= 0).then_some(copy)
+}
+
+/// Lets a descriptor through exec, for the copies a server hands to its next build, in the
+/// moment before it becomes that build (serve.rs `hand_over`). Only async-signal-safe calls.
+pub fn keep_across_exec(fd: RawFd) {
+    // SAFETY: fcntl reads and sets a flag on a descriptor we own.
+    unsafe {
+        let flags = libc::fcntl(fd, libc::F_GETFD);
+        if flags >= 0 {
+            libc::fcntl(fd, libc::F_SETFD, flags & !libc::FD_CLOEXEC);
+        }
+    }
 }
 
 /// Has the program in front draw its screen again, as a terminal resized does: for one whose

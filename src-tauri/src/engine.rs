@@ -4569,17 +4569,19 @@ fn first_run_config() -> Config {
 
 /// A terminal of Codealong's that a live session's own process runs in is that session's
 /// (launch/codealong.rs): one opened to start or resume a session belongs to none until its
-/// process turns up on the board, found by the terminal device it has (`tty_of`). Only those are
-/// looked for: a terminal already a session's stays that session's, whatever you run in it.
-/// Asked only while there's such a terminal, so most boards cost nothing.
+/// process turns up on the board, found by the terminal device it has (`tty_of`), and one a
+/// session lives in goes to whichever session runs there now, as a new conversation in the same
+/// process (`/clear`, `/resume` in Claude Code) is a new session. A terminal beside a session (its
+/// drawer's) stays that session's, whatever you run in it. Asked only while there's such a
+/// terminal, so most boards cost nothing.
 fn adopt_terminals(lanes: &[crate::model::Lane], tty_of: impl Fn(u32) -> Option<String>) {
-    let open: Vec<crate::terminals::Glance> = crate::terminals::list().into_iter().filter(|g| g.running && g.session.is_empty() && !g.tty.is_empty()).collect();
+    let open: Vec<crate::terminals::Glance> = crate::terminals::list().into_iter().filter(|g| g.running && (g.session.is_empty() || g.hosts) && !g.tty.is_empty()).collect();
     if open.is_empty() {
         return;
     }
     for s in lanes.iter().flat_map(|l| &l.sessions).filter(|s| s.live && !s.archived) {
         let Some(tty) = s.pid.and_then(&tty_of) else { continue };
-        if let Some(g) = open.iter().find(|g| g.tty == tty) {
+        if let Some(g) = open.iter().find(|g| g.tty == tty && g.session != s.key) {
             crate::terminals::adopt(&g.id, &s.key);
         }
     }
@@ -5606,6 +5608,12 @@ mod tests {
         let found = terminals::glances().get("test:adopts:here").cloned().unwrap_or_default();
         assert!(found.iter().any(|t| t.id == g.id && t.hosts), "{found:?}");
         assert!(terminals::glances().get("test:adopts:elsewhere").is_none());
+        // A new conversation in the same process (`/clear`): the terminal goes with it.
+        let next = crate::model::Session { live: true, pid: Some(4242), ..crate::fixtures::session("test:adopts:next") };
+        let tty = g.tty.clone();
+        adopt_terminals(&[crate::fixtures::lane("/r", vec![next])], |pid| (pid == 4242).then(|| tty.clone()));
+        assert!(terminals::glances().get("test:adopts:next").is_some_and(|l| l.iter().any(|t| t.id == g.id && t.hosts)));
+        assert!(terminals::glances().get("test:adopts:here").is_none());
         terminals::close(&g.id).unwrap();
     }
 }

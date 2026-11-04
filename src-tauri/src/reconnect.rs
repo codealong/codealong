@@ -161,8 +161,8 @@ pub fn cut_off_here(s: &Session) -> bool {
 /// after; a limit once it's lifted and Claude Code's own carrying on has had time to show
 /// (`LIFTED_GRACE_MS`), in the day after that. Only a cut is owed to a session that isn't running,
 /// which the answer picks up again.
-fn owed(s: &Session, now: i64, cut_offs: bool, ended_with_server: bool) -> Option<(Why, i64, Option<&'static str>)> {
-    let ours = cut_off_here(s) || (ended_with_server && !s.live && s.cut_off.is_some());
+fn owed(s: &Session, now: i64, cut_offs: bool, ended_with_server: Option<i64>) -> Option<(Why, i64, Option<&'static str>)> {
+    let ours = cut_off_here(s) || (!s.live && s.cut_off.zip(ended_with_server).is_some_and(|(cut, ended)| cut <= ended));
     if cut_offs && ours && s.helper.as_ref().is_none_or(|h| h.pr.is_none()) {
         let at = s.cut_off?;
         return (now - at <= CUT_MAX_AGE_MS).then_some((Why::CutOff, at, None));
@@ -184,15 +184,16 @@ fn owed(s: &Session, now: i64, cut_offs: bool, ended_with_server: bool) -> Optio
 /// takes it in (engine.rs `board_hash`): the board that's composed then goes out, and `due` runs
 /// on it.
 pub fn lifted(board: &Board, now: i64) -> Vec<String> {
-    board.lanes.iter().flat_map(|l| &l.sessions).filter(|s| matches!(owed(s, now, false, false), Some((Why::Limit, ..)))).map(|s| s.key.clone()).collect()
+    board.lanes.iter().flat_map(|l| &l.sessions).filter(|s| matches!(owed(s, now, false, None), Some((Why::Limit, ..)))).map(|s| s.key.clone()).collect()
 }
 
 /// Where each session that stopped stands, so each stop is answered once.
 #[derive(Default)]
 pub struct Continuer {
     runs: HashMap<String, Run>,
-    /// Sessions that ended with the last server's terminals (`ended_with_server`).
-    ended: HashSet<String>,
+    /// Sessions that ended with the last server's terminals, and when this server took over from it
+    /// (`ended_with_server`).
+    ended: HashMap<String, i64>,
 }
 
 impl Continuer {
@@ -202,11 +203,12 @@ impl Continuer {
     /// session the board no longer lists is forgotten; one that stopped running and came back
     /// keeps its answers, so no stop is answered twice. They're kept only while the app runs, so
     /// a cut by each relaunch is answered afresh.
-    /// Sessions that lived in a terminal of Codealong's and ended with the last server (terminals.rs
-    /// `ended_with_server`): Codealong cut them off, not you, so one cut off partway is owed an
-    /// answer as one it runs itself is.
-    pub fn ended_with_server(&mut self, keys: Vec<String>) {
-        self.ended.extend(keys);
+    /// Sessions that lived in a terminal of Codealong's and ended with the last server, which this
+    /// one took over from at `at` (terminals.rs `ended_with_server`): Codealong cut them off, not
+    /// you, so one cut off partway then is owed an answer as one it runs itself is. A cut after
+    /// `at` (its terminal closed later) is yours again.
+    pub fn ended_with_server(&mut self, keys: Vec<String>, at: i64) {
+        self.ended.extend(keys.into_iter().map(|k| (k, at)));
     }
 
     pub fn due(&mut self, board: &Board, now: i64, cut_offs: bool) -> Due {
@@ -218,7 +220,7 @@ impl Continuer {
             if s.archived || board.automation_blocked(&s.key) {
                 continue;
             }
-            let Some((why, at, address)) = owed(s, now, cut_offs, self.ended.contains(&s.key)) else { continue };
+            let Some((why, at, address)) = owed(s, now, cut_offs, self.ended.get(&s.key).copied()) else { continue };
             let run = self.runs.entry(s.key.clone()).or_default();
             if run.at != at {
                 // A stop not seen before: stopped again straight after the last answer, or afresh.
@@ -354,16 +356,20 @@ mod tests {
         let b = board(vec![in_terminal(A), in_terminal(B)]);
         assert!(Continuer::default().due(&b, NOW, true).jobs.is_empty(), "closing a terminal may have been you");
         let mut c = Continuer::default();
-        c.ended_with_server(vec![A.into()]);
+        c.ended_with_server(vec![A.into()], NOW - 500);
         let due = c.due(&b, NOW, true);
         assert_eq!(due.jobs, vec![Job { session: A.into(), at: NOW - 1_000, why: Why::CutOff, address: None }]);
         let mut off = Continuer::default();
-        off.ended_with_server(vec![A.into()]);
+        off.ended_with_server(vec![A.into()], NOW - 500);
         assert!(off.due(&b, NOW, false).jobs.is_empty(), "not with continue_after_restart off");
         let idle = Session { cut_off: None, ..in_terminal(A) };
         let mut quiet = Continuer::default();
-        quiet.ended_with_server(vec![A.into()]);
+        quiet.ended_with_server(vec![A.into()], NOW - 500);
         assert!(quiet.due(&board(vec![idle]), NOW, true).jobs.is_empty(), "one that wasn't partway through a turn is left as it is");
+        // Carried on, then its terminal closed partway through a later turn: that was you.
+        let mut later = Continuer::default();
+        later.ended_with_server(vec![A.into()], NOW - 5_000);
+        assert!(later.due(&b, NOW, true).jobs.is_empty(), "a cut after this server took over isn't Codealong's");
     }
 
     #[test]
