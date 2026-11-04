@@ -3565,25 +3565,28 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
 
     /// What pr-links.json and the sessions' records say of PRs, for the board, a moved
     /// conversation's records going on in its copy (`prlinks::carry_moves`), each PR by its repo's
-    /// name here (`PrLinks::named_here`).
+    /// name here, a renamed repo's by the one its remote has (`board::renamed_here`), before
+    /// they're resolved, so the latest choice made under either name wins.
     fn pr_links(&self) -> board::PrLinks {
         let moves = origins::current().moves();
-        let (worked, unlinked, made) = prlinks::resolve(&prlinks::carry_moves(&self.pr_marks, &moves, prlinks::add_mark), &self.pr_store);
-        let picked = self.pr_store.links.iter().filter(|l| l.linked && l.primary).map(|l| (prlinks::pr_key(&l.pr), l.session.clone())).collect();
+        let here = board::renamed_here(&self.seeds, self.github.repo_names());
+        let store = self.pr_store.named_here(&here);
+        let marks = prlinks::marks_named_here(&prlinks::carry_moves(&self.pr_marks, &moves, prlinks::add_mark), &here);
+        let (worked, unlinked, made) = prlinks::resolve(&marks, &store);
+        let picked = store.links.iter().filter(|l| l.linked && l.primary).map(|l| (prlinks::pr_key(&l.pr), l.session.clone())).collect();
         board::PrLinks {
             worked,
             unlinked,
             made,
             pushed: prlinks::carry_moves(&self.pr_pushes, &moves, prlinks::add_push),
             picked,
-            by_hand: self.pr_store.links.iter().filter(|l| l.linked).map(|l| prlinks::pr_key(&l.pr)).collect(),
-            nudged: self.pr_store.nudges.iter().cloned().collect(),
-            not_nudged: self.pr_store.nudges_off.iter().cloned().collect(),
+            by_hand: store.links.iter().filter(|l| l.linked).map(|l| prlinks::pr_key(&l.pr)).collect(),
+            nudged: store.nudges.iter().cloned().collect(),
+            not_nudged: store.nudges_off.iter().cloned().collect(),
             nudge_by_default: self.cfg.pull_requests.nudge_by_default,
             nudge_by_default_in: self.team_files.settings(&self.cfg.repos).nudges_by_default(),
             agent_posts: self.reviews.prs.values().flat_map(|t| t.rounds.iter().filter_map(|r| r.comment.clone())).collect(),
         }
-        .named_here(self.github.repo_names())
     }
 
     /// schedules.json and schedule-runs.json as they are now. One that doesn't read leaves what

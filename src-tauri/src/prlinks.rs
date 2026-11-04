@@ -212,6 +212,80 @@ pub fn carry_moves(by_session: &HashMap<String, Vec<(String, i64)>>, moves: &[(S
     out
 }
 
+// ---- A renamed repo's PRs by the name its remote has ----
+//
+// A session's records name a PR by its repo's name as it was made, so one made after GitHub
+// renamed the repo has the new name, while a checkout whose remote wasn't changed, and everything
+// read by it (the repo's PRs, the review search's copies, the repo's settings), has the old; and
+// `codealong pr link` takes a PR's link with either. The marks and the store are named by the
+// remote's name before they're resolved (`here`: GitHub's name now, lowercase, to the remote's,
+// board.rs `renamed_here`), so a PR has one name on the board.
+
+/// `pr` (`owner/name#number`) by its repo's name here.
+fn named_here(pr: &str, here: &HashMap<String, String>) -> String {
+    let pr = pr_key(pr);
+    match pr.split_once('#').and_then(|(slug, number)| Some((here.get(slug)?, number))) {
+        Some((was, number)) => format!("{was}#{number}"),
+        None => pr,
+    }
+}
+
+/// Each session's marks with their PRs named by their repos' names here, a PR marked by both names
+/// at its earliest.
+pub fn marks_named_here(marks: &Marks, here: &HashMap<String, String>) -> Marks {
+    if here.is_empty() {
+        return marks.clone();
+    }
+    let mut out: Marks = HashMap::new();
+    for (session, prs) in marks {
+        let have = out.entry(session.clone()).or_default();
+        for (pr, at) in prs {
+            add_mark(have, named_here(pr, here), *at);
+        }
+    }
+    out
+}
+
+impl LinkStore {
+    /// The store with its PRs named by their repos' names here, the latest choice made under
+    /// either name winning: a session's link or unlink by its time, a primary by its time. A nudge
+    /// turned on under one name and off under the other has no time to go by: the one under the
+    /// remote's name wins, being the name the app writes it under.
+    pub fn named_here(&self, here: &HashMap<String, String>) -> LinkStore {
+        if here.is_empty() {
+            return self.clone();
+        }
+        let mut links: Vec<PrLink> = Vec::new();
+        let mut by_time: Vec<&PrLink> = self.links.iter().collect();
+        by_time.sort_by_key(|l| l.at);
+        for l in by_time {
+            let pr = named_here(&l.pr, here);
+            if l.primary {
+                for other in links.iter_mut().filter(|o| o.pr == pr) {
+                    other.primary = false;
+                }
+            }
+            links.retain(|o| !(o.pr == pr && o.session == l.session));
+            links.push(PrLink { pr, ..l.clone() });
+        }
+        let named = |list: &[String]| list.iter().map(|pr| (named_here(pr, here), pr_key(pr) == named_here(pr, here))).collect::<Vec<_>>();
+        let (on, off) = (named(&self.nudges), named(&self.nudges_off));
+        // Kept where it's there by the remote's name, or isn't under that name in the other list.
+        let keep = |list: &[(String, bool)], other: &[(String, bool)]| {
+            let mut kept: Vec<String> = Vec::new();
+            for (pr, local) in list {
+                let beaten = other.iter().any(|(o, o_local)| o == pr && *o_local && !*local);
+                if !beaten && !kept.contains(pr) {
+                    kept.push(pr.clone());
+                }
+            }
+            kept
+        };
+        let (nudges, nudges_off) = (keep(&on, &off), keep(&off, &on));
+        LinkStore { links, nudges, nudges_off }
+    }
+}
+
 /// PR key → session keys, from what each session's records show and the links made by hand;
 /// the pairs unlinked by hand; and PR key → the sessions whose records show it, each with the
 /// time of its first mark, which says who opened it.
@@ -376,5 +450,44 @@ mod tests {
         // A copy that has the lines already (no compaction before the move) gets nothing twice.
         let pushed = carry_moves(&HashMap::from([("claude:a:s".to_string(), pushes["claude:a:s"].clone()), ("claude:b:s".to_string(), pushes["claude:a:s"].clone())]), &moves[..1], add_push);
         assert_eq!(pushed["claude:b:s"], vec![("feature".to_string(), 12)]);
+    }
+    #[test]
+    fn a_renamed_repos_prs_go_by_its_remotes_name_the_latest_choice_winning() {
+        let here = HashMap::from([("spurhq/spur-app".to_string(), "spurhq/spur".to_string())]);
+        let link = |pr: &str, session: &str, linked: bool, at: i64, primary: bool| PrLink { pr: pr.into(), session: session.into(), linked, at, primary };
+        let store = LinkStore {
+            links: vec![
+                // Unlinked by its new name, then linked again by its old.
+                link("spurhq/spur-app#5", "a", false, 1, false),
+                link("spurhq/spur#5", "a", true, 2, false),
+                // Linked by its old name, then unlinked by its new.
+                link("SpurHQ/spur#6", "a", true, 1, false),
+                link("spurhq/spur-app#6", "a", false, 2, false),
+                // Picked as primary under each name: the later pick holds.
+                link("spurhq/spur#7", "b", true, 3, true),
+                link("spurhq/spur-app#7", "c", true, 4, true),
+                link("acme/tool#1", "a", true, 1, false),
+            ],
+            // On by the name the app writes, off by the new one.
+            nudges: vec!["spurhq/spur#5".into()],
+            nudges_off: vec!["spurhq/spur-app#5".into(), "spurhq/spur-app#6".into()],
+        };
+        let named = store.named_here(&here);
+        let got: Vec<(&str, &str, bool, bool)> = named.links.iter().map(|l| (l.pr.as_str(), l.session.as_str(), l.linked, l.primary)).collect();
+        assert_eq!(got, vec![
+            ("acme/tool#1", "a", true, false),
+            ("spurhq/spur#5", "a", true, false),
+            ("spurhq/spur#6", "a", false, false),
+            ("spurhq/spur#7", "b", true, false),
+            ("spurhq/spur#7", "c", true, true),
+        ]);
+        assert_eq!(named.picked("spurhq/spur#7"), Some("c"));
+        assert_eq!((named.nudges, named.nudges_off), (vec!["spurhq/spur#5".to_string()], vec!["spurhq/spur#6".to_string()]));
+        // With nothing renamed, the store is as it was.
+        assert_eq!(store.named_here(&HashMap::new()), store);
+
+        // A mark by either name is one, at its earliest.
+        let marks: Marks = HashMap::from([("a".to_string(), vec![("spurhq/spur-app#5".to_string(), 300), ("SpurHQ/spur#5".to_string(), 100), ("acme/tool#1".to_string(), 5)])]);
+        assert_eq!(marks_named_here(&marks, &here)["a"], vec![("spurhq/spur#5".to_string(), 100), ("acme/tool#1".to_string(), 5)]);
     }
 }

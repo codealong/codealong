@@ -187,49 +187,6 @@ pub struct PrLinks {
     pub agent_posts: HashSet<String>,
 }
 
-impl PrLinks {
-    /// The links with each PR named by its repo's name here, the one the repo's remote has. A
-    /// session's records name a PR by its repo's name as it was made, so one made after a rename is
-    /// named by the new name where the remote still has the old (`names`: a remote's slug,
-    /// lowercase, to what GitHub calls the repo now, ghpoll.rs `repo_names`). The board lists the
-    /// PR by the remote's name, and matches its sessions, its repo's settings and its other copies
-    /// by it.
-    pub fn named_here(mut self, names: &HashMap<String, String>) -> PrLinks {
-        let here: HashMap<String, &str> = names.iter().filter(|(was, now)| !now.eq_ignore_ascii_case(was)).map(|(was, now)| (now.to_lowercase(), was.as_str())).collect();
-        if here.is_empty() {
-            return self;
-        }
-        let key = |pr: &str| match pr.split_once('#').and_then(|(slug, number)| Some((here.get(slug)?, number))) {
-            Some((was, number)) => format!("{was}#{number}"),
-            None => pr.to_string(),
-        };
-        let mut worked: HashMap<String, Vec<String>> = HashMap::new();
-        for (pr, sessions) in self.worked {
-            let have = worked.entry(key(&pr)).or_default();
-            for s in sessions {
-                if !have.contains(&s) {
-                    have.push(s);
-                }
-            }
-        }
-        let mut made: HashMap<String, Vec<(String, i64)>> = HashMap::new();
-        for (pr, marks) in self.made {
-            let have = made.entry(key(&pr)).or_default();
-            for (s, at) in marks {
-                crate::prlinks::add_mark(have, s, at);
-            }
-        }
-        self.worked = worked;
-        self.made = made;
-        self.unlinked = self.unlinked.into_iter().map(|(pr, s)| (key(&pr), s)).collect();
-        self.picked = self.picked.into_iter().map(|(pr, s)| (key(&pr), s)).collect();
-        for set in [&mut self.by_hand, &mut self.nudged, &mut self.not_nudged] {
-            *set = std::mem::take(set).into_iter().map(|pr| key(&pr)).collect();
-        }
-        self
-    }
-}
-
 fn plain(s: &str) -> String {
     s.replace('`', "'")
 }
@@ -1148,9 +1105,9 @@ pub fn pr_items(seeds: &[LaneSeed], lanes: &[Lane], prs: &HashMap<String, Vec<Pr
 }
 
 /// A PR sessions made in a repo whose PRs aren't read (`pr_items`): in the project whose repo it's
-/// in, by its name in any case (`PrLinks::named_here` names it so), else under the project of the
-/// session it's for.
-/// None when no session it's for is on the board, which leaves it no project.
+/// in, by its name in any case (prlinks.rs `named_here` names a renamed repo's by its remote's),
+/// else under the project of the session it's for. None when no session it's for is on the
+/// board, which leaves it no project.
 fn made_item(repos: &HashMap<&str, (&str, &str, Option<&str>)>, owners: &HashMap<&Path, &[String]>, lanes: &[Lane], slug: &str, p: &PrRaw, login: Option<&str>, links: &PrLinks) -> Option<PrItem> {
     if let Some((&local, &repo)) = repos.iter().find(|(s, _)| s.eq_ignore_ascii_case(slug)) {
         return Some(pr_item(lanes, owners, local, repo, p, None, login, links));
@@ -1202,6 +1159,23 @@ pub fn apply_review_snoozes(prs: &mut [PrItem], snoozes: &[Snooze], now: i64) {
 /// review, from one search across GitHub.
 pub fn polled_slugs(seeds: &[LaneSeed]) -> BTreeSet<String> {
     seeds.iter().filter(|s| s.branch.is_some() && s.branch != s.default_branch).filter_map(|s| s.repo_slug.clone()).collect()
+}
+
+/// The repos renamed on GitHub whose remotes here have the old name: GitHub's name now, lowercase,
+/// to the remote's slug, lowercase, which the PR links name their PRs by (prlinks.rs
+/// `named_here`). From the worktrees' remotes as they are (`names`, ghpoll.rs `repo_names`, keeps
+/// a remote's slug after it's changed): none where a remote has the new name itself, and of
+/// several with old names, the first in order.
+pub fn renamed_here(seeds: &[LaneSeed], names: &HashMap<String, String>) -> HashMap<String, String> {
+    let slugs: BTreeSet<String> = seeds.iter().filter_map(|s| s.repo_slug.as_ref()).map(|s| s.to_lowercase()).collect();
+    let mut here = HashMap::new();
+    for slug in &slugs {
+        let Some(now) = names.get(slug).map(|n| n.to_lowercase()) else { continue };
+        if now != *slug && !slugs.contains(&now) {
+            here.entry(now).or_insert_with(|| slug.clone());
+        }
+    }
+    here
 }
 
 /// One PR that `pr_items` doesn't list, for a link to it in a conversation: one older than the
@@ -3286,21 +3260,13 @@ mod tests {
         let spur = LaneSeed { project: "Spur".into(), repo: "spur".into(), repo_slug: Some("SpurHQ/spur".into()), ..seed("/r/spur", "main") };
         let seeds = vec![seed("/r/spark-portal", "portal"), spur];
         let names = HashMap::from([("spurhq/spur".to_string(), "SpurHQ/spur-app".to_string()), ("sprucehq/spark".to_string(), "sprucehq/spark".to_string())]);
+        let here = renamed_here(&seeds, &names);
+        assert_eq!(here, HashMap::from([("spurhq/spur-app".to_string(), "spurhq/spur".to_string())]));
         // Made after the rename, the PR's records have the new name; one fixer's has the old.
-        let links = PrLinks {
-            worked: HashMap::from([("spurhq/spur-app#5".to_string(), vec!["maker".to_string()]), ("spurhq/spur#5".to_string(), vec!["fixer".to_string()])]),
-            made: HashMap::from([("spurhq/spur-app#5".to_string(), vec![("maker".to_string(), 100)]), ("spurhq/spur#5".to_string(), vec![("fixer".to_string(), 200)])]),
-            unlinked: HashSet::from([("spurhq/spur-app#9".to_string(), "maker".to_string())]),
-            by_hand: HashSet::from(["spurhq/spur-app#9".to_string(), "sprucehq/spark#1037".to_string()]),
-            nudge_by_default: true,
-            nudge_by_default_in: HashMap::from([("SpurHQ/spur".to_string(), false)]),
-            ..Default::default()
-        }
-        .named_here(&names);
+        let marks: crate::prlinks::Marks = HashMap::from([("maker".to_string(), vec![("spurhq/spur-app#5".to_string(), 100)]), ("fixer".to_string(), vec![("spurhq/spur#5".to_string(), 200)])]);
+        let (worked, unlinked, made) = crate::prlinks::resolve(&crate::prlinks::marks_named_here(&marks, &here), &crate::prlinks::LinkStore::default());
+        let links = PrLinks { worked, unlinked, made, nudge_by_default: true, nudge_by_default_in: HashMap::from([("SpurHQ/spur".to_string(), false)]), ..Default::default() };
         assert_eq!(links.worked.keys().collect::<Vec<_>>(), ["spurhq/spur#5"]);
-        assert_eq!(links.made["spurhq/spur#5"].len(), 2);
-        assert!(links.unlinked.contains(&("spurhq/spur#9".to_string(), "maker".to_string())));
-        assert_eq!(links.by_hand, HashSet::from(["spurhq/spur#9".to_string(), "sprucehq/spark#1037".to_string()]), "a repo that kept its name keeps it");
         // So it's asked for by the old name, and GitHub's answer filed under it (github.rs
         // `parse_made`); the review search's copy is filed under it too (ghpoll.rs `on_requested`).
         let p = PrRaw { number: 5, url: "https://github.com/SpurHQ/spur-app/pull/5".into(), head_ref: "fix".into(), author: Some("gwen".into()), ..pr(PrState::Open, 0) };
@@ -3313,6 +3279,14 @@ mod tests {
         let mut sessions: Vec<&str> = items[0].sessions.iter().map(|s| s.key.as_str()).collect();
         sessions.sort();
         assert_eq!(sessions, ["fixer", "maker"]);
+
+        // Its remote changed to the new name since, which the names asked for at launch don't
+        // know: the new name is the one here.
+        let moved = [LaneSeed { repo_slug: Some("SpurHQ/spur-app".into()), ..seeds[1].clone() }];
+        let names = HashMap::from([("spurhq/spur".to_string(), "SpurHQ/spur-app".to_string()), ("spurhq/spur-app".to_string(), "SpurHQ/spur-app".to_string())]);
+        assert!(renamed_here(&moved, &names).is_empty());
+        // Nor while a checkout of it has either.
+        assert!(renamed_here(&[seeds[1].clone(), moved[0].clone()], &names).is_empty());
     }
 
     #[test]
