@@ -26,6 +26,7 @@
 
 mod keys;
 pub mod pty;
+mod queries;
 pub mod screen;
 
 use std::collections::{BTreeMap, HashMap};
@@ -354,10 +355,11 @@ fn spawn(st: Started, wait: impl FnOnce() -> i32 + Send + 'static) -> Result<Gla
             // Waits in the terminal until the shell reads it.
             let _ = out_tx.send(input.into_bytes());
         }
-        std::thread::Builder::new().name(format!("terminal-write-{id}")).spawn(move || write(writer, out_rx))?;
+        let (written_tx, written) = mpsc::channel::<()>();
+        std::thread::Builder::new().name(format!("terminal-write-{id}")).spawn(move || write(writer, out_rx, written_tx))?;
         let (id, stop) = (id.clone(), stop.clone());
         std::thread::Builder::new().name(format!("terminal-{id}")).spawn(move || {
-            let how = How { size, theme, close_on_exit, snapshot };
+            let how = How { size, theme, close_on_exit, snapshot, written };
             if let Err(e) = run(&id, pid, master, how, rx, out_tx, stop.clone()) {
                 eprintln!("Terminal {id} stopped: {e}");
                 abandon(&id, pid, &stop);
@@ -422,18 +424,27 @@ fn hand_over_these(dir: &Path, pick: impl Fn(&Glance) -> bool) -> Vec<Handed> {
     if running.is_empty() {
         return Vec::new();
     }
+    // Every reader stops, then every terminal is asked at once; each answers once its reader has
+    // (`run`'s barrier). One that doesn't answer in time isn't handed over: the copy of its side it
+    // may have made is closed on exec, so its program ends with the server, as one would without
+    // a hand-over.
     for (_, _, stop) in &running {
         stop.store(true, Ordering::Relaxed);
     }
-    // A reader looks at its flag at least this often (`read`).
-    std::thread::sleep(READ_POLL + Duration::from_millis(150));
     let _ = std::fs::create_dir_all(dir);
-    running
+    let asked: Vec<(String, Receiver<Option<(Handed, Option<Vec<u8>>)>>)> = running
         .into_iter()
         .filter_map(|(id, tx, _)| {
             let (reply, rx) = mpsc::channel();
             tx.send(Msg::HandOver(reply)).ok()?;
-            let (mut handed, snapshot) = rx.recv_timeout(Duration::from_secs(5)).ok()??;
+            Some((id, rx))
+        })
+        .collect();
+    let until = Instant::now() + HAND_OVER_WAIT + Duration::from_secs(1);
+    asked
+        .into_iter()
+        .filter_map(|(id, rx)| {
+            let (mut handed, snapshot) = rx.recv_timeout(until.saturating_duration_since(Instant::now())).ok()??;
             if let Some(bytes) = snapshot {
                 let path = dir.join(format!("{id}.snap"));
                 if std::fs::write(&path, bytes).is_ok() {
@@ -711,6 +722,9 @@ fn update(id: &str, f: impl FnOnce(&mut Glance)) {
 /// How often a reader looks at whether to stop.
 const READ_POLL: Duration = Duration::from_millis(250);
 
+/// How long a terminal being handed over waits for its reader to stop and its writer to finish.
+const HAND_OVER_WAIT: Duration = Duration::from_secs(3);
+
 /// Reads what the process prints, until the terminal's other side closes or the terminal does.
 fn read(fd: OwnedFd, tx: Sender<Msg>, closed: Arc<AtomicBool>) {
     let raw = fd.as_raw_fd();
@@ -736,13 +750,15 @@ fn read(fd: OwnedFd, tx: Sender<Msg>, closed: Arc<AtomicBool>) {
 }
 
 /// Writes what goes to the process, in order, until the terminal goes.
-fn write(fd: OwnedFd, rx: Receiver<Vec<u8>>) {
+fn write(fd: OwnedFd, rx: Receiver<Vec<u8>>, done: Sender<()>) {
     let mut file = std::fs::File::from(fd);
     for bytes in rx {
         if file.write_all(&bytes).is_err() {
-            return;
+            break;
         }
     }
+    // Everything queued for the program is written (a hand-over waits for this).
+    let _ = done.send(());
 }
 
 /// How a terminal's screen starts (`run`).
@@ -752,11 +768,13 @@ struct How {
     close_on_exit: bool,
     /// The screen another server handed over, as its snapshot.
     snapshot: Option<Vec<u8>>,
+    /// Said once the writer has written everything queued for the program and ended.
+    written: Receiver<()>,
 }
 
 /// A terminal's thread: its emulator, fed and asked, and its frames sent while a window shows it.
 fn run(id: &str, pid: u32, master: OwnedFd, how: How, rx: Receiver<Msg>, out: Sender<Vec<u8>>, closed: Arc<AtomicBool>) -> Result<(), String> {
-    let How { size, theme, close_on_exit, snapshot } = how;
+    let How { size, theme, close_on_exit, snapshot, written } = how;
     let answers = out.clone();
     let answer = move |b: &[u8]| {
         let _ = answers.send(b.to_vec());
@@ -778,9 +796,12 @@ fn run(id: &str, pid: u32, master: OwnedFd, how: How, rx: Receiver<Msg>, out: Se
         pty::redraw(master.as_raw_fd());
     }
     let mut theme_now = theme.clone();
+    // The reader has stopped (`Msg::Hangup`), and a hand-over asked for (`Msg::HandOver`).
+    let mut reader_done = false;
+    let mut handing: Option<Sender<Option<(Handed, Option<Vec<u8>>)>>> = None;
     // Other terminals attached to this one (`attach`), and the size the windows last gave it,
     // which it goes back to once they've let go.
-    let mut taps: Vec<(u64, Sender<Vec<u8>>)> = Vec::new();
+    let mut taps: Vec<(u64, Sender<Vec<u8>>, queries::Queries)> = Vec::new();
     let mut window_size: Option<Size> = None;
     if let Some(t) = &theme {
         screen.theme(t);
@@ -818,7 +839,12 @@ fn run(id: &str, pid: u32, master: OwnedFd, how: How, rx: Receiver<Msg>, out: Se
                 Msg::Output(bytes) => {
                     screen.feed(&bytes);
                     let attached = !taps.is_empty();
-                    taps.retain(|(_, tap)| tap.send(bytes.clone()).is_ok());
+                    // Without what the program asks, which the emulator here answers: the other
+                    // terminal would answer again (queries.rs).
+                    taps.retain_mut(|(_, tap, asked)| {
+                        let shown = asked.strip(&bytes);
+                        shown.is_empty() || tap.send(shown).is_ok()
+                    });
                     if attached && taps.is_empty() {
                         if let Some(w) = window_size {
                             resize_to(&mut screen, master.as_raw_fd(), w);
@@ -831,7 +857,7 @@ fn run(id: &str, pid: u32, master: OwnedFd, how: How, rx: Receiver<Msg>, out: Se
                         resize_to(&mut screen, master.as_raw_fd(), s);
                     }
                     let _ = reply.send(screen.vt());
-                    taps.push((tap, to));
+                    taps.push((tap, to, queries::Queries::default()));
                     dirty = true;
                 }
                 Msg::AttachSize(s) => {
@@ -841,7 +867,7 @@ fn run(id: &str, pid: u32, master: OwnedFd, how: How, rx: Receiver<Msg>, out: Se
                     }
                 }
                 Msg::Detach(tap) => {
-                    taps.retain(|(t, _)| *t != tap);
+                    taps.retain(|(t, _, _)| *t != tap);
                     if taps.is_empty() {
                         if let Some(w) = window_size {
                             resize_to(&mut screen, master.as_raw_fd(), w);
@@ -849,7 +875,7 @@ fn run(id: &str, pid: u32, master: OwnedFd, how: How, rx: Receiver<Msg>, out: Se
                         }
                     }
                 }
-                Msg::Hangup => {}
+                Msg::Hangup => reader_done = true,
                 Msg::Exited(code) => {
                     running = false;
                     dirty = true;
@@ -906,14 +932,9 @@ fn run(id: &str, pid: u32, master: OwnedFd, how: How, rx: Receiver<Msg>, out: Se
                 Msg::Text(reply) => {
                     let _ = reply.send(screen.text());
                 }
-                Msg::HandOver(reply) => {
-                    let glance = state().list.iter().find(|e| e.glance.id == id).map(|e| e.glance.clone());
-                    let fd = if running { pty::inheritable(master.as_raw_fd()) } else { None };
-                    let answer = glance.zip(fd).map(|(glance, fd)| (Handed { glance, fd, pid, size: screen.size(), theme: theme_now.clone(), close_on_exit, snapshot: None }, screen.snapshot()));
-                    let _ = reply.send(answer);
-                    // The next build has it now: this thread ends and leaves its process be.
-                    return Ok(());
-                }
+                // Answered once the rest of this batch is in, which may hold what the reader read
+                // last (below).
+                Msg::HandOver(reply) => handing = Some(reply),
                 Msg::Write(bytes) => {
                     if running && !bytes.is_empty() {
                         screen.typed();
@@ -935,6 +956,32 @@ fn run(id: &str, pid: u32, master: OwnedFd, how: How, rx: Receiver<Msg>, out: Se
                     return Ok(());
                 }
             }
+        }
+        if let Some(reply) = handing.take() {
+            // An I/O barrier before the screen and the descriptor go across: everything the
+            // reader read is fed first (it says it's stopped after its last output), then what's
+            // queued for the program is written, the writer ending once nothing here can queue
+            // more. Each is waited on a few seconds at most.
+            let until = Instant::now() + HAND_OVER_WAIT;
+            while !reader_done {
+                match rx.recv_timeout(until.saturating_duration_since(Instant::now())) {
+                    Ok(Msg::Output(bytes)) => screen.feed(&bytes),
+                    Ok(Msg::Hangup) => reader_done = true,
+                    Ok(Msg::Exited(_)) => running = false,
+                    // The server is going: anything else waits for the next build.
+                    Ok(_) => {}
+                    Err(_) => break,
+                }
+            }
+            let glance = state().list.iter().find(|e| e.glance.id == id).map(|e| e.glance.clone());
+            let handed = glance.zip(if running { pty::inheritable(master.as_raw_fd()) } else { None }).map(|(glance, fd)| Handed { glance, fd, pid, size: screen.size(), theme: theme_now.clone(), close_on_exit, snapshot: None });
+            let snapshot = screen.snapshot();
+            drop(screen);
+            drop(out);
+            let _ = written.recv_timeout(until.saturating_duration_since(Instant::now()));
+            let _ = reply.send(handed.map(|h| (h, snapshot)));
+            // The next build has it now: this thread ends and leaves its process be.
+            return Ok(());
         }
         let noted = screen.take_noted();
         if noted.title || noted.bell || noted.pwd {

@@ -265,7 +265,7 @@ pub fn start() -> Result<Ctx, String> {
     if !ended.is_empty() {
         eprintln!("{} session(s) ended with the last server's terminals.", ended.len());
         if let Ok(mut c) = cut_by_us.lock() {
-            c.ended_with_server(ended);
+            c.ended_with_server(ended, util::now_ms());
         }
     }
     let ctx = Ctx { engine: engine.clone(), peers: peers.clone(), reviews };
@@ -304,7 +304,21 @@ pub fn hand_over() -> String {
         return format!("couldn't write {}: {e}", file.display());
     }
     let Ok(exe) = std::env::current_exe() else { return "couldn't find its binary".into() };
-    let err = std::process::Command::new(&exe).args(std::env::args_os().skip(1)).env(HANDOVER_VAR, &file).exec();
+    let fds: Vec<i32> = handed.terminals.iter().map(|h| h.fd).collect();
+    let mut become_it = std::process::Command::new(&exe);
+    become_it.args(std::env::args_os().skip(1)).env(HANDOVER_VAR, &file);
+    // SAFETY: runs in this process just before exec, and only clears a flag on descriptors it
+    // owns: the terminals' copies, closed on exec until now, so nothing it started meanwhile has
+    // them (terminals/pty.rs `inheritable`).
+    unsafe {
+        become_it.pre_exec(move || {
+            for fd in &fds {
+                terminals::pty::keep_across_exec(*fd);
+            }
+            Ok(())
+        });
+    }
+    let err = become_it.exec();
     format!("couldn't run {}: {err}", exe.display())
 }
 
@@ -322,6 +336,13 @@ fn take_handover() {
         eprintln!("The terminals the server's last build handed over couldn't be read from {}.", PathBuf::from(&file).display());
         return;
     };
+    // The terminals' descriptors closed on exec again before anything here starts a process, so
+    // none inherits them.
+    for h in &handed.terminals {
+        if h.fd >= 0 {
+            let _ = terminals::pty::cloexec(h.fd);
+        }
+    }
     let theirs: Vec<u32> = handed.terminals.iter().map(|h| h.pid).collect();
     let me = std::process::id();
     let strays: Vec<u32> = crate::procs::list(Duration::from_secs(5)).lines.iter().filter(|p| p.ppid == me && !theirs.contains(&p.pid)).map(|p| p.pid).collect();

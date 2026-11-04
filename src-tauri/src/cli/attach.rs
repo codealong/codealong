@@ -17,8 +17,14 @@ use anyhow::{anyhow, bail, Result};
 
 use crate::server::{AttachIn, Request};
 
-/// The key that lets go: Ctrl+\, as dtach's.
-const LET_GO: u8 = 0x1c;
+/// What this terminal sends for Ctrl+\, which lets go, as dtach's does: the byte itself, or its
+/// encodings under the Kitty keyboard protocol (with the event type and without), which this
+/// terminal uses once the program it shows turns that on (Claude Code and Codex do).
+const LET_GO: [&[u8]; 3] = [b"\x1c", b"\x1b[92;5u", b"\x1b[92;5:1u"];
+
+/// How long what may be the start of the let-go sequence, or of a character, is held for the rest
+/// before it goes as it is.
+const HOLD: i32 = 50;
 
 /// What letting go turns off again, of what a program may have turned on in this terminal: the
 /// other screen, mouse reports, focus reports, bracketed pastes, the Kitty keyboard protocol and
@@ -86,27 +92,61 @@ pub fn run(what: &str) -> Result<()> {
             }
         });
     }
-    // What's typed here, until Ctrl+\.
-    let mut stdin = std::io::stdin().lock();
+    // What's typed here, until Ctrl+\. Read from the descriptor itself, not through a buffer of
+    // the standard library's, so a wait for more (`HOLD`) sees everything that came.
     let mut buf = [0u8; 4096];
+    let mut held: Vec<u8> = Vec::new();
     loop {
-        let n = match stdin.read(&mut buf) {
-            Ok(0) | Err(_) => break,
-            Ok(n) => n,
-        };
-        let typed = &buf[..n];
-        if let Some(at) = typed.iter().position(|b| *b == LET_GO) {
-            if at > 0 {
-                let _ = send(&writer, &AttachIn::Text { text: String::from_utf8_lossy(&typed[..at]).into_owned() });
+        if !held.is_empty() && !crate::terminals::pty::readable(0, HOLD) {
+            if send(&writer, &AttachIn::Text { text: String::from_utf8_lossy(&std::mem::take(&mut held)).into_owned() }).is_err() {
+                break;
             }
-            let _ = send(&writer, &AttachIn::Detach);
+            continue;
+        }
+        // SAFETY: read into a buffer of ours, of its length, from this process's stdin.
+        let n = unsafe { libc::read(0, buf.as_mut_ptr().cast(), buf.len()) };
+        if n <= 0 {
+            if n < 0 && std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
+                continue;
+            }
             break;
         }
-        if send(&writer, &AttachIn::Text { text: String::from_utf8_lossy(typed).into_owned() }).is_err() {
+        let (text, lets_go) = typed(&mut held, &buf[..n as usize]);
+        if !text.is_empty() && send(&writer, &AttachIn::Text { text: String::from_utf8_lossy(&text).into_owned() }).is_err() {
+            break;
+        }
+        if lets_go {
+            let _ = send(&writer, &AttachIn::Detach);
             break;
         }
     }
     finish(&format!("Let go of {name}: it runs on in Codealong."));
+}
+
+/// What was typed, split into what goes to the program and whether it lets go there
+/// (`LET_GO`). `held` keeps what may be the start of a let-go sequence, or a character split
+/// between reads, for the next: it goes with what follows it.
+fn typed(held: &mut Vec<u8>, new: &[u8]) -> (Vec<u8>, bool) {
+    let mut all = std::mem::take(held);
+    all.extend_from_slice(new);
+    let found = LET_GO.iter().filter_map(|go| all.windows(go.len()).position(|w| w == *go)).min();
+    if let Some(at) = found {
+        all.truncate(at);
+        return (all, true);
+    }
+    // Three bytes or more of a let-go sequence at the end (an escape and a bracket alone start
+    // every key's sequence, which isn't held for).
+    let keep = LET_GO.iter().filter(|go| go.len() > 3).flat_map(|go| (3..go.len()).filter(|n| all.ends_with(&go[..*n]))).max().unwrap_or(0);
+    let mut tail = all.split_off(all.len() - keep);
+    if let Err(e) = std::str::from_utf8(&all) {
+        if e.error_len().is_none() {
+            let mut cut = all.split_off(e.valid_up_to());
+            cut.extend_from_slice(&tail);
+            tail = cut;
+        }
+    }
+    *held = tail;
+    (all, false)
 }
 
 fn send(to: &Mutex<UnixStream>, what: &AttachIn) -> std::io::Result<()> {
@@ -151,5 +191,45 @@ fn size_of(fd: i32) -> Option<(u16, u16)> {
     unsafe {
         let mut ws: libc::winsize = std::mem::zeroed();
         (libc::ioctl(fd, libc::TIOCGWINSZ, &mut ws) == 0 && ws.ws_col > 0 && ws.ws_row > 0).then_some((ws.ws_col, ws.ws_row))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn go(chunks: &[&[u8]]) -> (Vec<u8>, bool) {
+        let mut held = Vec::new();
+        let mut sent = Vec::new();
+        for c in chunks {
+            let (text, lets_go) = typed(&mut held, c);
+            sent.extend(text);
+            if lets_go {
+                return (sent, true);
+            }
+        }
+        sent.extend(held);
+        (sent, false)
+    }
+
+    #[test]
+    fn ctrl_backslash_lets_go_however_its_encoded() {
+        assert_eq!(go(&[b"ls\r"]), (b"ls\r".to_vec(), false));
+        assert_eq!(go(&[b"ab\x1ccd"]), (b"ab".to_vec(), true));
+        assert_eq!(go(&[b"x\x1b[92;5u"]), (b"x".to_vec(), true), "the Kitty protocol's");
+        assert_eq!(go(&[b"x\x1b[92;5:1u"]), (b"x".to_vec(), true), "with its event type");
+        assert_eq!(go(&[b"x\x1b[92", b";5u"]), (b"x".to_vec(), true), "split between reads");
+        // Keys that start alike go through.
+        assert_eq!(go(&[b"\x1b[A\x1b[92;2u"]), (b"\x1b[A\x1b[92;2u".to_vec(), false));
+    }
+
+    #[test]
+    fn a_character_split_between_reads_goes_whole() {
+        let word = "日本".as_bytes();
+        let (text, _) = go(&[&word[..2], &word[2..4], &word[4..]]);
+        assert_eq!(String::from_utf8(text).unwrap(), "日本");
+        let mut held = Vec::new();
+        let (first, _) = typed(&mut held, &word[..2]);
+        assert!(first.is_empty() && held.len() == 2, "held for its end");
     }
 }
