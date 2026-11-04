@@ -38,6 +38,10 @@ pub enum Request {
     /// Quits without telling the apps, which start a server again as they find it gone: the menu
     /// bar's Restart server (serve.rs `restart`). The reply is the pid that quits.
     Restart,
+    /// For an app of a newer build at the server's own path: the server becomes that build in
+    /// place, handing its terminals to it (serve.rs `hand_over`), or, with none running, quits as
+    /// `Quit` does. The reply says which (`handsOver`) and the pid, which stays the same.
+    HandOver,
     /// Tells the apps connected to the server that opened before `since` to quit, and answers once
     /// they have: for an app that's opening, which takes their place (the last one opened wins,
     /// view.rs `take_over`); with none, every app.
@@ -231,6 +235,9 @@ pub struct Status {
     /// The binary it runs, which an app keeps only when it's its own (serve.rs `ensure`).
     #[serde(default)]
     pub exe: Option<String>,
+    /// It takes `HandOver`: one from before can only quit.
+    #[serde(default)]
+    pub hand_over: bool,
     /// The apps connected to it, the latest last.
     #[serde(default)]
     pub views: Vec<crate::views::Info>,
@@ -445,6 +452,7 @@ fn handle_request(ctx: &Ctx, req: serde_json::Result<Request>) -> Reply {
                 role: Some(crate::serve::ROLE.into()),
                 engine: Some(crate::serve::ENGINE.into()),
                 exe: crate::serve::this_binary().map(|p| p.to_string_lossy().into_owned()),
+                hand_over: true,
                 views: crate::views::list(),
             })
         }
@@ -459,6 +467,23 @@ fn handle_request(ctx: &Ctx, req: serde_json::Result<Request>) -> Reply {
                 std::process::exit(0);
             });
             Reply::ok(std::process::id())
+        }
+        Request::HandOver => {
+            let hands = crate::terminals::any_running();
+            // After the reply is on its way, and the apps gone first, as for `Quit`.
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(200));
+                crate::views::quit_all(Duration::from_secs(5), None);
+                if hands {
+                    eprintln!("Codealong's server becoming the build at its path, its terminals handed over.");
+                    let why = crate::serve::hand_over();
+                    eprintln!("Codealong's server couldn't become the new build ({why}), so it quits, ending its terminals.");
+                    std::process::exit(1);
+                }
+                eprintln!("Codealong's server quitting for a new build, with no terminals to hand over.");
+                std::process::exit(0);
+            });
+            Reply::ok(serde_json::json!({ "pid": std::process::id(), "handsOver": hands }))
         }
         Request::Restart => {
             std::thread::spawn(|| {

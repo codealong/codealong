@@ -39,6 +39,21 @@ const QUIT_WAIT: Duration = Duration::from_secs(10);
 /// The server's log is cut back to nothing at its start once it's grown past this.
 const LOG_MAX: u64 = 20 * 1024 * 1024;
 
+/// Set for the build a server becomes in place (`hand_over`): the file that lists the terminals
+/// it handed over.
+const HANDOVER_VAR: &str = "CODEALONG_HANDOVER";
+
+/// What the build a server became in place takes over as it starts (`take_handover`).
+static HANDED: Mutex<Option<Handover>> = Mutex::new(None);
+
+/// What a server hands the build it becomes: its terminals, and the processes of its own it
+/// started that aren't theirs, which this build reaps as they end.
+#[derive(serde::Serialize, serde::Deserialize, Default)]
+struct Handover {
+    version: u32,
+    terminals: Vec<terminals::Handed>,
+}
+
 /// `codealong serve`: runs the server here until it's asked to quit.
 pub fn run() -> i32 {
     // One server for the files: one already answering keeps them, and this one leaves without
@@ -47,6 +62,10 @@ pub fn run() -> i32 {
         eprintln!("Codealong's server is already running (pid {}).", s.pid);
         return 0;
     }
+    // Before anything else runs: the variable goes from the environment before there are threads
+    // to read it, and the processes the server started before it became this build are known
+    // before this one starts any.
+    take_handover();
     trim_log();
     perf::arm();
     os::system::no_app_nap();
@@ -118,6 +137,7 @@ pub fn start() -> Result<Ctx, String> {
     let (nudger, nudges_with) = (Arc::new(Mutex::new(nudges::Nudger::default())), engine_slot.clone());
     let ends_with = engine_slot.clone();
     let (continuer, continues_with) = (Arc::new(Mutex::new(reconnect::Continuer::default())), engine_slot.clone());
+    let cut_by_us = continuer.clone();
     let (rerequester, rerequests_with) = (Arc::new(Mutex::new(rerequest::Rerequester::default())), engine_slot.clone());
     let (reporter, reports_with) = (Arc::new(Mutex::new(helpers::Reporter::default())), engine_slot.clone());
     let (reviewer, reviews_with) = (Arc::new(Mutex::new(autoreview::Reviewer::load())), engine_slot.clone());
@@ -226,9 +246,27 @@ pub fn start() -> Result<Ctx, String> {
     }
     // Codealong's own terminals: their screens for the windows showing them, the board again when
     // what it lists of them changes.
+    let living = config::support_dir().join("terminals.json");
+    let lived = terminals::living_before(&living);
     {
         let engine = engine.clone();
-        terminals::init(|frame| views::emit("terminal-frame", frame), move || engine.terminals_changed());
+        terminals::init(|frame| views::emit("terminal-frame", frame), move || engine.terminals_changed(), living);
+    }
+    // The terminals the server handed over as it became this build, before the socket answers, so
+    // the first board a window gets has them.
+    if let Some(handed) = HANDED.lock().ok().and_then(|mut h| h.take()) {
+        let n = terminals::take_over(handed.terminals);
+        eprintln!("Took over {n} of Codealong's terminals from the server's last build.");
+    }
+    // Sessions that lived in the last server's terminals and didn't come across ended with it (a
+    // crash, a quit, a server of another binary replaced): one cut off partway is carried on, as a
+    // session Codealong runs itself is after a restart, in a terminal of Codealong's again.
+    let ended = terminals::ended_with_server(&lived);
+    if !ended.is_empty() {
+        eprintln!("{} session(s) ended with the last server's terminals.", ended.len());
+        if let Ok(mut c) = cut_by_us.lock() {
+            c.ended_with_server(ended);
+        }
     }
     let ctx = Ctx { engine: engine.clone(), peers: peers.clone(), reviews };
     server::serve(bound, ctx.clone())?;
@@ -248,6 +286,77 @@ pub fn start() -> Result<Ctx, String> {
     ledger::spawn(Duration::from_secs(45));
     std::thread::spawn(acp::refresh_adapters);
     Ok(ctx)
+}
+
+/// Hands this server's terminals to the build now at its binary's path by becoming it, for an app
+/// of that build (`Request::HandOver`): the process stays, so the programs in its terminals stay
+/// its children (they're waited on as before), launchd keeps its job, and macOS's privacy grants,
+/// which go by the process that started them, hold. Each terminal's screen and side go across as
+/// a snapshot and a descriptor (terminals.rs `hand_over`), listed in a file the new build reads
+/// (`take_handover`). Returns only when it couldn't: why.
+pub fn hand_over() -> String {
+    use std::os::unix::process::CommandExt;
+    let dir = config::support_dir().join("handover");
+    let handed = Handover { version: 1, terminals: terminals::hand_over(&dir) };
+    let file = dir.join("terminals.json");
+    let written = serde_json::to_vec(&handed).map_err(|e| e.to_string()).and_then(|b| std::fs::write(&file, b).map_err(|e| e.to_string()));
+    if let Err(e) = written {
+        return format!("couldn't write {}: {e}", file.display());
+    }
+    let Ok(exe) = std::env::current_exe() else { return "couldn't find its binary".into() };
+    let err = std::process::Command::new(&exe).args(std::env::args_os().skip(1)).env(HANDOVER_VAR, &file).exec();
+    format!("couldn't run {}: {err}", exe.display())
+}
+
+/// What the server this process was handed over (`hand_over`), read once at its start, while it's
+/// the only thread: its file read and removed, and the variable that named it taken out, so what
+/// this server starts doesn't see it. The processes the server started that aren't its terminals'
+/// (sessions Codealong runs, commands it was waiting on) lost their way to it as it changed, and
+/// are reaped as they end.
+fn take_handover() {
+    let Some(file) = std::env::var_os(HANDOVER_VAR) else { return };
+    std::env::remove_var(HANDOVER_VAR);
+    let read = std::fs::read(&file).ok().and_then(|b| serde_json::from_slice::<Handover>(&b).ok());
+    let _ = std::fs::remove_file(&file);
+    let Some(handed) = read else {
+        eprintln!("The terminals the server's last build handed over couldn't be read from {}.", PathBuf::from(&file).display());
+        return;
+    };
+    let theirs: Vec<u32> = handed.terminals.iter().map(|h| h.pid).collect();
+    let me = std::process::id();
+    let strays: Vec<u32> = crate::procs::list(Duration::from_secs(5)).lines.iter().filter(|p| p.ppid == me && !theirs.contains(&p.pid)).map(|p| p.pid).collect();
+    for pid in strays {
+        std::thread::spawn(move || {
+            // SAFETY: waitpid on a child this process started before it became this build.
+            unsafe { libc::waitpid(pid as libc::pid_t, std::ptr::null_mut(), 0) };
+        });
+    }
+    if let Ok(mut h) = HANDED.lock() {
+        *h = Some(handed);
+    }
+}
+
+/// Asks a server of another build of this app, at this binary's path, to become this build in
+/// place (`Request::HandOver`), so the terminals it holds carry on. The server once it answers as
+/// this build; None when it had none to hand over (it quits then, as `Quit` has it) or didn't
+/// come back as this build in time.
+fn hand_over_from(s: &Status) -> Option<Status> {
+    let asked = server::ask_within(&Request::HandOver, Duration::from_secs(3))?.ok()?;
+    if !asked.get("handsOver").and_then(serde_json::Value::as_bool).unwrap_or(false) {
+        return None;
+    }
+    eprintln!("Codealong's server (pid {}) becomes this build, handing its terminals over.", s.pid);
+    let until = Instant::now() + START_WAIT;
+    while Instant::now() < until {
+        if let Some(now) = running_within(Duration::from_secs(2)).filter(|n| n.pid == s.pid && n.engine.as_deref() == Some(ENGINE)) {
+            return Some(now);
+        }
+        if !crate::procs::pid_alive(s.pid) {
+            return None;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    None
 }
 
 /// Keeps, for the life of the process, the lock one server for a folder of Codealong's files holds
@@ -351,6 +460,13 @@ fn ensure_under(own: bool, since: Option<i64>) -> Result<Status, String> {
         Some(s) if !is_server(&s) || !own || ours(&s) => return Ok(s),
         Some(s) if since.is_some_and(|me| s.views.iter().any(|v| v.since > me)) => return Err(GIVE_WAY.into()),
         Some(s) => {
+            // One at this binary's path (the app updated where it is) becomes this build, so its
+            // terminals carry on; else it's replaced, ending them.
+            if s.hand_over && s.exe.as_deref().map(PathBuf::from) == this_binary() {
+                if let Some(now) = hand_over_from(&s) {
+                    return Ok(now);
+                }
+            }
             eprintln!("Replacing Codealong's server (pid {}, engine {}, {}) with this build's.", s.pid, s.engine.as_deref().unwrap_or("?"), s.exe.as_deref().unwrap_or("?"));
             stop_it(&s, Request::Quit);
         }

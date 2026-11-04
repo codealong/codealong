@@ -13,7 +13,7 @@ use std::process::{Child, Command, Stdio};
 
 /// A terminal's size: in cells, and the cell's size in pixels, which programs that draw pictures
 /// ask for.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Size {
     pub cols: u16,
@@ -136,7 +136,25 @@ pub fn hang_up(pid: u32, kill: bool) {
     }
 }
 
-fn cloexec(fd: RawFd) -> io::Result<()> {
+/// A copy of `fd` that outlives this process becoming another program (exec), for a server
+/// handing its terminals to its next build (terminals.rs `hand_over`). None when there's none to
+/// be had.
+pub fn inheritable(fd: RawFd) -> Option<RawFd> {
+    // SAFETY: dup makes a new descriptor for one we own; the copy isn't closed on exec.
+    let copy = unsafe { libc::dup(fd) };
+    (copy >= 0).then_some(copy)
+}
+
+/// Has the program in front draw its screen again, as a terminal resized does: for one whose
+/// screen couldn't be carried over to a new build (terminals.rs `take_over`).
+pub fn redraw(master: RawFd) {
+    if let Some(group) = foreground(master) {
+        // SAFETY: signalling the process group in front on our terminal.
+        unsafe { libc::killpg(group as libc::pid_t, libc::SIGWINCH) };
+    }
+}
+
+pub(crate) fn cloexec(fd: RawFd) -> io::Result<()> {
     // SAFETY: setting a flag on a descriptor we own.
     let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
     if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFD, flags | libc::FD_CLOEXEC) } < 0 {

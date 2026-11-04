@@ -18,7 +18,11 @@
 //! spell, so typing is echoed without waiting. The board lists each session's terminals
 //! (`glances`), which the windows show as tabs.
 //!
-//! The terminals live as long as the server: one that restarts (a new engine) ends their shells.
+//! The terminals outlive the server's build: a server replaced by a new build of the same app
+//! hands them over (`hand_over`, serve.rs `hand_over`). It becomes the new build in place, so its
+//! processes stay its children and nothing is told, and the new build takes each terminal back
+//! from the descriptor it inherited and a snapshot of its screen (`take_over`). A server that ends
+//! any other way (a crash, a quit) ends their shells.
 
 mod keys;
 pub mod pty;
@@ -33,7 +37,7 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, Instant};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 pub use pty::Size;
 pub use screen::{Frame, Input, Theme};
@@ -105,12 +109,34 @@ enum Msg {
     /// Bytes for the program as they are, as if typed: a message sent to the session in it, a key
     /// that answers its prompt.
     Write(Vec<u8>),
+    /// The server is handing its terminals to the next (`hand_over`): the terminal as it's handed,
+    /// with its screen's snapshot, after which its thread ends and leaves its process be.
+    HandOver(Sender<Option<(Handed, Option<Vec<u8>>)>>),
     Close,
 }
 
 struct Entry {
     glance: Glance,
     tx: Sender<Msg>,
+    /// Stops its reader (`read`): as it closes, or as it's handed over.
+    stop: Arc<AtomicBool>,
+}
+
+/// A terminal as one server hands it to the next build (`hand_over`, `take_over`): what the board
+/// lists of it, its side of the terminal as a descriptor the next build inherits, its process,
+/// and its screen's snapshot in a file beside Codealong's.
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct Handed {
+    pub glance: Glance,
+    pub fd: i32,
+    pub pid: u32,
+    pub size: Size,
+    #[serde(default)]
+    pub theme: Option<Theme>,
+    pub close_on_exit: bool,
+    #[serde(default)]
+    pub snapshot: Option<PathBuf>,
 }
 
 #[derive(Default)]
@@ -128,18 +154,57 @@ type FrameHook = Box<dyn Fn(&Frame) + Send + Sync>;
 type ChangedHook = Box<dyn Fn() + Send + Sync>;
 static FRAMES: OnceLock<FrameHook> = OnceLock::new();
 static CHANGED: OnceLock<ChangedHook> = OnceLock::new();
+static LIVING: OnceLock<PathBuf> = OnceLock::new();
 
 /// What the server does with a terminal's frames (to the windows), and when what the board lists
-/// of the terminals changed (the board again).
-pub fn init(frames: impl Fn(&Frame) + Send + Sync + 'static, changed: impl Fn() + Send + Sync + 'static) {
+/// of the terminals changed (the board again); and the file that keeps which sessions live in
+/// them (`living`).
+pub fn init(frames: impl Fn(&Frame) + Send + Sync + 'static, changed: impl Fn() + Send + Sync + 'static, living: PathBuf) {
     let _ = FRAMES.set(Box::new(frames));
     let _ = CHANGED.set(Box::new(changed));
+    let _ = LIVING.set(living);
 }
 
 fn changed() {
     if let Some(f) = CHANGED.get() {
         f();
     }
+    note_living();
+}
+
+/// The sessions whose processes run in a terminal of Codealong's, kept in a file as they change,
+/// so the next server knows which ended with this one (`living_before`). Written only when the
+/// list changes.
+#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+pub struct Living {
+    pub sessions: Vec<String>,
+}
+
+fn note_living() {
+    static LAST: Mutex<Option<Living>> = Mutex::new(None);
+    let Some(path) = LIVING.get() else { return };
+    let mut now = Living { sessions: state().list.iter().filter(|e| e.glance.hosts && e.glance.running && !e.glance.session.is_empty()).map(|e| e.glance.session.clone()).collect() };
+    now.sessions.sort();
+    let mut last = LAST.lock().unwrap_or_else(|e| e.into_inner());
+    if last.as_ref() == Some(&now) {
+        return;
+    }
+    if crate::store::save(path, &now).is_ok() {
+        *last = Some(now);
+    }
+}
+
+/// The sessions that lived in the last server's terminals, as it last wrote them: read once as a
+/// server starts, before it takes over or opens any.
+pub fn living_before(path: &Path) -> Vec<String> {
+    crate::store::read::<Living>(path, "the sessions in Codealong's terminals").ok().flatten().map(|l| l.sessions).unwrap_or_default()
+}
+
+/// Of the sessions that lived in the last server's terminals, those whose terminal didn't come
+/// across to this one (`take_over`): they ended with that server.
+pub fn ended_with_server(before: &[String]) -> Vec<String> {
+    let now: Vec<String> = state().list.iter().filter(|e| e.glance.hosts).map(|e| e.glance.session.clone()).collect();
+    before.iter().filter(|k| !now.contains(k)).cloned().collect()
 }
 
 /// Every terminal, by the key of the session it's for, in the order they were opened.
@@ -224,62 +289,190 @@ pub fn open(o: Open) -> Result<Glance, String> {
         tty: opened.tty.clone(),
         hosts: false,
     };
-    let (tx, rx) = mpsc::channel();
-    let close_on_exit = o.close_on_exit;
     let pid = opened.pid();
     let pty::Pty { master, mut child, .. } = opened;
+    let started = Started { glance, pid, master, size, theme, close_on_exit: o.close_on_exit, input: o.input, snapshot: None };
+    spawn(started, move || child.wait().map(|s| exit_code(&s)).unwrap_or(-1))
+}
+
+/// A terminal's side and process, and how its thread starts: a new screen, or the one another
+/// server handed over (`snapshot`).
+struct Started {
+    glance: Glance,
+    pid: u32,
+    master: OwnedFd,
+    size: Size,
+    theme: Option<Theme>,
+    close_on_exit: bool,
+    input: Option<String>,
+    snapshot: Option<Vec<u8>>,
+}
+
+/// Starts a terminal's threads and lists it: its process waited on with `wait` (reaped however
+/// the rest goes), its output read, its input written, and its screen run.
+fn spawn(st: Started, wait: impl FnOnce() -> i32 + Send + 'static) -> Result<Glance, String> {
+    let Started { glance, pid, master, size, theme, close_on_exit, input, snapshot } = st;
+    let id = glance.id.clone();
+    let (tx, rx) = mpsc::channel();
     let fds = master.try_clone().and_then(|r| master.try_clone().map(|w| (r, w)));
     let (reader, writer) = match fds {
         Ok(fds) => fds,
         Err(e) => {
             pty::hang_up(pid, true);
-            let _ = child.wait();
+            reap(pid);
             return Err(format!("Couldn't start {}: {e}", glance.shell));
         }
     };
-    // The process is reaped by this thread however the rest goes.
     {
         let tx = tx.clone();
         let waiting = std::thread::Builder::new().name(format!("terminal-wait-{id}")).spawn(move || {
-            let code = child.wait().map(|s| exit_code(&s)).unwrap_or(-1);
-            let _ = tx.send(Msg::Exited(code));
+            let _ = tx.send(Msg::Exited(wait()));
         });
         if let Err(e) = waiting {
             pty::hang_up(pid, true);
-            // SAFETY: reaping the child we started, whose `Child` went with the thread that didn't start.
-            unsafe { libc::waitpid(pid as libc::pid_t, std::ptr::null_mut(), 0) };
+            reap(pid);
             return Err(format!("Couldn't start {}: {e}", glance.shell));
         }
     }
+    let stop = Arc::new(AtomicBool::new(false));
     // Listed before the rest starts, so one whose process ends at once finds itself to close.
-    state().list.push(Entry { glance: glance.clone(), tx: tx.clone() });
-    let closed = Arc::new(AtomicBool::new(false));
+    state().list.push(Entry { glance: glance.clone(), tx: tx.clone(), stop: stop.clone() });
     let started = (|| -> std::io::Result<()> {
         {
-            let (tx, closed) = (tx.clone(), closed.clone());
-            std::thread::Builder::new().name(format!("terminal-read-{id}")).spawn(move || read(reader, tx, closed))?;
+            let (tx, stop) = (tx.clone(), stop.clone());
+            std::thread::Builder::new().name(format!("terminal-read-{id}")).spawn(move || read(reader, tx, stop))?;
         }
         let (out_tx, out_rx) = mpsc::channel::<Vec<u8>>();
-        if let Some(input) = o.input {
+        if let Some(input) = input {
             // Waits in the terminal until the shell reads it.
             let _ = out_tx.send(input.into_bytes());
         }
         std::thread::Builder::new().name(format!("terminal-write-{id}")).spawn(move || write(writer, out_rx))?;
-        let (id, closed) = (id.clone(), closed.clone());
+        let (id, stop) = (id.clone(), stop.clone());
         std::thread::Builder::new().name(format!("terminal-{id}")).spawn(move || {
-            if let Err(e) = run(&id, pid, master, size, theme, rx, out_tx, closed.clone(), close_on_exit) {
+            let how = How { size, theme, close_on_exit, snapshot };
+            if let Err(e) = run(&id, pid, master, how, rx, out_tx, stop.clone()) {
                 eprintln!("Terminal {id} stopped: {e}");
-                abandon(&id, pid, &closed);
+                abandon(&id, pid, &stop);
             }
         })?;
         Ok(())
     })();
     if let Err(e) = started {
-        abandon(&id, pid, &closed);
+        abandon(&id, pid, &stop);
         return Err(format!("Couldn't start {}: {e}", glance.shell));
     }
     changed();
     Ok(glance)
+}
+
+/// Reaps a process of this server's that won't be waited on otherwise.
+fn reap(pid: u32) {
+    // SAFETY: waitpid on a child of this process; one already reaped answers an error.
+    unsafe { libc::waitpid(pid as libc::pid_t, std::ptr::null_mut(), 0) };
+}
+
+/// Waits for a process this server took over to end (`take_over`): its child since before the
+/// server became this build, so waited on by its pid. One reaped before then (it ended as the
+/// server changed) is waited on until it's gone, its status unknown.
+fn wait_pid(pid: u32) -> i32 {
+    loop {
+        let mut status: libc::c_int = 0;
+        // SAFETY: waitpid fills a status for a child of this process.
+        let r = unsafe { libc::waitpid(pid as libc::pid_t, &mut status, 0) };
+        if r == pid as libc::pid_t {
+            if libc::WIFEXITED(status) {
+                return libc::WEXITSTATUS(status);
+            }
+            if libc::WIFSIGNALED(status) {
+                return 128 + libc::WTERMSIG(status);
+            }
+            continue;
+        }
+        if std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
+            continue;
+        }
+        while crate::procs::pid_alive(pid) {
+            std::thread::sleep(Duration::from_millis(500));
+        }
+        return -1;
+    }
+}
+
+/// Hands every running terminal to the next build of the server, which this process is about to
+/// become (serve.rs `hand_over`): each reader stops first, so all it read is in its terminal's
+/// queue ahead of the question, then each terminal's thread answers with the terminal, its side
+/// as a descriptor that outlives the change (`pty::inheritable`), and its screen's snapshot,
+/// written to a file in `dir`, and ends, leaving its process running. One that ended or doesn't
+/// answer isn't handed over.
+pub fn hand_over(dir: &Path) -> Vec<Handed> {
+    hand_over_these(dir, |_| true)
+}
+
+/// `hand_over` for the terminals `pick` picks.
+fn hand_over_these(dir: &Path, pick: impl Fn(&Glance) -> bool) -> Vec<Handed> {
+    let running: Vec<(String, Sender<Msg>, Arc<AtomicBool>)> = state().list.iter().filter(|e| e.glance.running && pick(&e.glance)).map(|e| (e.glance.id.clone(), e.tx.clone(), e.stop.clone())).collect();
+    if running.is_empty() {
+        return Vec::new();
+    }
+    for (_, _, stop) in &running {
+        stop.store(true, Ordering::Relaxed);
+    }
+    // A reader looks at its flag at least this often (`read`).
+    std::thread::sleep(READ_POLL + Duration::from_millis(150));
+    let _ = std::fs::create_dir_all(dir);
+    running
+        .into_iter()
+        .filter_map(|(id, tx, _)| {
+            let (reply, rx) = mpsc::channel();
+            tx.send(Msg::HandOver(reply)).ok()?;
+            let (mut handed, snapshot) = rx.recv_timeout(Duration::from_secs(5)).ok()??;
+            if let Some(bytes) = snapshot {
+                let path = dir.join(format!("{id}.snap"));
+                if std::fs::write(&path, bytes).is_ok() {
+                    handed.snapshot = Some(path);
+                }
+            }
+            Some(handed)
+        })
+        .collect()
+}
+
+/// Whether any terminal's process is running, which a server replaced by a new build hands over.
+pub fn any_running() -> bool {
+    state().list.iter().any(|e| e.glance.running)
+}
+
+/// Takes back the terminals the server handed over as it became this build (`hand_over`): each
+/// from the descriptor this process inherited, its screen from its snapshot (or drawn again by
+/// its program, told its size changed, where the snapshot can't be read), its process waited on
+/// by its pid. Each snapshot's file goes once it's read. How many it took.
+pub fn take_over(handed: Vec<Handed>) -> usize {
+    use std::os::fd::FromRawFd;
+    let mut taken = 0;
+    for h in handed {
+        if h.fd < 0 {
+            continue;
+        }
+        // SAFETY: the descriptor was handed down by the server this process was before it became
+        // this build, and nothing else in this process has it.
+        let master = unsafe { OwnedFd::from_raw_fd(h.fd) };
+        // Not for the processes this build starts.
+        let _ = pty::cloexec(master.as_raw_fd());
+        let snapshot = h.snapshot.as_ref().and_then(|p| {
+            let bytes = std::fs::read(p).ok();
+            let _ = std::fs::remove_file(p);
+            bytes
+        });
+        let pid = h.pid;
+        let id = h.glance.id.clone();
+        let started = Started { glance: h.glance, pid, master, size: sane(h.size), theme: h.theme, close_on_exit: h.close_on_exit, input: None, snapshot };
+        match spawn(started, move || wait_pid(pid)) {
+            Ok(_) => taken += 1,
+            Err(e) => eprintln!("Couldn't take terminal {id} over: {e}"),
+        }
+    }
+    taken
 }
 
 /// Undoes a terminal that didn't get going: no longer listed, its reader stopped, and its process
@@ -462,13 +655,16 @@ fn update(id: &str, f: impl FnOnce(&mut Glance)) {
     }
 }
 
+/// How often a reader looks at whether to stop.
+const READ_POLL: Duration = Duration::from_millis(250);
+
 /// Reads what the process prints, until the terminal's other side closes or the terminal does.
 fn read(fd: OwnedFd, tx: Sender<Msg>, closed: Arc<AtomicBool>) {
     let raw = fd.as_raw_fd();
     let mut file = std::fs::File::from(fd);
     let mut buf = vec![0u8; 64 * 1024];
     while !closed.load(Ordering::Relaxed) {
-        if !pty::readable(raw, 250) {
+        if !pty::readable(raw, READ_POLL.as_millis() as i32) {
             continue;
         }
         match file.read(&mut buf) {
@@ -496,14 +692,39 @@ fn write(fd: OwnedFd, rx: Receiver<Vec<u8>>) {
     }
 }
 
+/// How a terminal's screen starts (`run`).
+struct How {
+    size: Size,
+    theme: Option<Theme>,
+    close_on_exit: bool,
+    /// The screen another server handed over, as its snapshot.
+    snapshot: Option<Vec<u8>>,
+}
+
 /// A terminal's thread: its emulator, fed and asked, and its frames sent while a window shows it.
-#[allow(clippy::too_many_arguments)]
-fn run(id: &str, pid: u32, master: OwnedFd, size: Size, theme: Option<Theme>, rx: Receiver<Msg>, out: Sender<Vec<u8>>, closed: Arc<AtomicBool>, close_on_exit: bool) -> Result<(), String> {
+fn run(id: &str, pid: u32, master: OwnedFd, how: How, rx: Receiver<Msg>, out: Sender<Vec<u8>>, closed: Arc<AtomicBool>) -> Result<(), String> {
+    let How { size, theme, close_on_exit, snapshot } = how;
     let answers = out.clone();
-    let mut screen = screen::Screen::new(size, move |b| {
+    let answer = move |b: &[u8]| {
         let _ = answers.send(b.to_vec());
-    })
-    .map_err(|e| format!("{e:?}"))?;
+    };
+    let handed = snapshot.is_some();
+    let restored = snapshot.and_then(|bytes| match screen::Screen::restore(&bytes, size, answer.clone()) {
+        Ok(s) => Some(s),
+        Err(e) => {
+            eprintln!("Terminal {id}'s screen couldn't be restored ({e:?}): its program draws it again.");
+            None
+        }
+    });
+    let restored_ok = restored.is_some();
+    let mut screen = match restored {
+        Some(s) => s,
+        None => screen::Screen::new(size, answer).map_err(|e| format!("{e:?}"))?,
+    };
+    if handed && !restored_ok {
+        pty::redraw(master.as_raw_fd());
+    }
+    let mut theme_now = theme.clone();
     if let Some(t) = &theme {
         screen.theme(t);
     }
@@ -579,6 +800,7 @@ fn run(id: &str, pid: u32, master: OwnedFd, size: Size, theme: Option<Theme>, rx
                 }
                 Msg::Theme(t) => {
                     screen.theme(&t);
+                    theme_now = Some(t);
                     full = true;
                 }
                 Msg::Watch { window, on } => {
@@ -594,6 +816,14 @@ fn run(id: &str, pid: u32, master: OwnedFd, size: Size, theme: Option<Theme>, rx
                 }
                 Msg::Text(reply) => {
                     let _ = reply.send(screen.text());
+                }
+                Msg::HandOver(reply) => {
+                    let glance = state().list.iter().find(|e| e.glance.id == id).map(|e| e.glance.clone());
+                    let fd = if running { pty::inheritable(master.as_raw_fd()) } else { None };
+                    let answer = glance.zip(fd).map(|(glance, fd)| (Handed { glance, fd, pid, size: screen.size(), theme: theme_now.clone(), close_on_exit, snapshot: None }, screen.snapshot()));
+                    let _ = reply.send(answer);
+                    // The next build has it now: this thread ends and leaves its process be.
+                    return Ok(());
                 }
                 Msg::Write(bytes) => {
                     if running && !bytes.is_empty() {
@@ -747,6 +977,47 @@ mod tests {
         let mine = glances().get("test:adopt:one").cloned().unwrap_or_default();
         assert!(mine.iter().any(|t| t.id == g.id && t.hosts), "{mine:?}");
         close(&g.id).unwrap();
+    }
+
+    /// A terminal handed over (as a server does that becomes a new build) is taken back with its
+    /// screen and goes on taking input, its process never having noticed.
+    #[test]
+    fn a_terminal_handed_over_is_taken_back_with_its_screen() {
+        let g = open(Open { folder: std::env::temp_dir(), command: Some("read a; echo \"got:$a\"; read b; echo \"then:$b\"; sleep 30".into()), size: Some(DEFAULT_SIZE), ..Default::default() }).unwrap();
+        write_to(&g.id, b"first\r".to_vec()).unwrap();
+        assert!(wait_for(|| text(&g.id).is_ok_and(|t| t.contains("got:first"))), "{:?}", text(&g.id));
+        let dir = std::env::temp_dir().join(format!("codealong-handover-test-{}", std::process::id()));
+        let mut handed = hand_over_these(&dir, |t| t.id == g.id);
+        assert_eq!(handed.len(), 1);
+        assert!(handed[0].snapshot.as_ref().is_some_and(|p| p.exists()), "its screen is in a file");
+        assert!(handed[0].fd >= 0);
+        // As in the new build, where the old list is gone.
+        state().list.retain(|e| e.glance.id != g.id);
+        assert_eq!(take_over(std::mem::take(&mut handed)), 1);
+        assert!(text(&g.id).is_ok_and(|t| t.contains("got:first")), "its screen came back: {:?}", text(&g.id));
+        write_to(&g.id, b"second\r".to_vec()).unwrap();
+        assert!(wait_for(|| text(&g.id).is_ok_and(|t| t.contains("then:second"))), "{:?}", text(&g.id));
+        close(&g.id).unwrap();
+        assert!(wait_for(|| glance(&g.id).is_none()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The sessions the last server's terminals held, as it wrote them, less those whose terminal
+    /// came across, ended with it.
+    #[test]
+    fn sessions_whose_terminal_didnt_come_across_ended_with_the_server() {
+        let dir = std::env::temp_dir().join(format!("codealong-living-test-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let file = dir.join("terminals.json");
+        crate::store::save(&file, &Living { sessions: vec!["test:living:gone".into(), "test:living:kept".into()] }).unwrap();
+        let before = living_before(&file);
+        assert_eq!(before, ["test:living:gone", "test:living:kept"]);
+        assert!(living_before(&dir.join("none.json")).is_empty());
+        let g = open(Open { folder: std::env::temp_dir(), command: Some("sleep 5".into()), size: Some(DEFAULT_SIZE), ..Default::default() }).unwrap();
+        adopt(&g.id, "test:living:kept");
+        assert_eq!(ended_with_server(&before), ["test:living:gone"]);
+        close(&g.id).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
