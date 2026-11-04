@@ -2,12 +2,13 @@
 //! are in editors.rs. See `[apps]` in README.md's Settings section.
 //!
 //! Each terminal is a module of its own behind `Terminal` (Ghostty, iTerm2 and Terminal through
-//! AppleScript, Rex and tmux through their commands, and on Linux an emulator's window showing
-//! tmux). What's
+//! AppleScript, Rex and tmux through their commands, Codealong's own terminals directly, and on
+//! Linux an emulator's window showing tmux). What's
 //! here is what they share: where a new terminal goes, the launcher that sets up a new tab's
 //! shell, waiting for that shell, a process's TTY and which terminal it runs under, marks on a
 //! TTY, and focus requests taking turns.
 
+mod codealong;
 mod ghostty;
 mod iterm;
 mod linux;
@@ -183,8 +184,8 @@ fn app_installed(app: &str) -> bool {
 /// desktop's emulator through tmux. tmux sessions run in any terminal.
 pub fn terminals() -> &'static [&'static dyn Terminal] {
     match os::current() {
-        Os::MacOs => &[&ghostty::Ghostty, &iterm::ITerm2, &terminal_app::AppleTerminal, &rex::Rex, &tmux::Tmux],
-        Os::Linux => &[&linux::LinuxTerminal, &tmux::Tmux],
+        Os::MacOs => &[&ghostty::Ghostty, &iterm::ITerm2, &terminal_app::AppleTerminal, &rex::Rex, &codealong::Own, &tmux::Tmux],
+        Os::Linux => &[&linux::LinuxTerminal, &codealong::Own, &tmux::Tmux],
     }
 }
 
@@ -1141,6 +1142,7 @@ pub enum HostKind {
     ITerm2,
     Terminal,
     Rex,
+    Codealong,
     Tmux,
     Linux,
 }
@@ -1155,8 +1157,13 @@ pub fn closes_tabs_in() -> String {
     terminals_that(|t| t.closes_tabs())
 }
 
-/// The terminal a process runs in, by its parents: cheap enough to ask on every look.
+/// The terminal a process runs in: one of Codealong's own by its terminal device, which outlasts
+/// the processes above it (`codealong::hosting`), else by its parents. Cheap enough to ask on
+/// every look.
 pub fn terminal_kind(pid: u32) -> Option<&'static dyn Terminal> {
+    if codealong::hosting(pid).is_some() {
+        return Some(&codealong::Own);
+    }
     kind_by(pid, parent_and_name).map(terminal).filter(|t| t.reachable())
 }
 

@@ -49,6 +49,9 @@ pub struct Spawn<'a> {
 pub struct Pty {
     pub master: OwnedFd,
     pub child: Child,
+    /// The other side's device (`/dev/ttys012`), which the process and everything it starts have
+    /// as their terminal: how a session's process is known to run here (launch/codealong.rs).
+    pub tty: String,
 }
 
 impl Pty {
@@ -82,15 +85,27 @@ impl Pty {
                 Ok(())
             });
         }
+        let tty = tty_name(slave.as_raw_fd());
         let child = cmd.spawn()?;
         // The process has its own copies; this one would keep the terminal open after it ends.
         drop(slave);
-        Ok(Pty { master, child })
+        Ok(Pty { master, child, tty })
     }
 
     pub fn pid(&self) -> u32 {
         self.child.id()
     }
+}
+
+/// The device a terminal's side is, by its descriptor; empty where the system won't say.
+fn tty_name(fd: RawFd) -> String {
+    let mut buf = [0 as libc::c_char; 128];
+    // SAFETY: ttyname_r writes a NUL-ended name into the buffer we pass, of the length we pass.
+    if unsafe { libc::ttyname_r(fd, buf.as_mut_ptr(), buf.len()) } != 0 {
+        return String::new();
+    }
+    // SAFETY: on success the buffer holds a NUL-ended string.
+    unsafe { std::ffi::CStr::from_ptr(buf.as_ptr()) }.to_string_lossy().into_owned()
 }
 
 /// Tells the terminal its new size, which signals the program in front (SIGWINCH).
@@ -177,6 +192,7 @@ mod tests {
         let out = read_until(&pty.master, "/dev/", Duration::from_secs(5));
         assert!(out.contains("17 91"), "stty sees the size: {out:?}");
         assert!(out.contains("/dev/"), "it has a terminal of its own: {out:?}");
+        assert!(pty.tty.starts_with("/dev/") && out.contains(&pty.tty), "the terminal's device is known: {:?} in {out:?}", pty.tty);
         assert_eq!(foreground(pty.master.as_raw_fd()), Some(pty.pid()), "the shell's group is in front");
         hang_up(pty.pid(), false);
         let status = pty.child.wait().unwrap();

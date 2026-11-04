@@ -15,7 +15,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { below, showContextMenu, type MenuAction, type MenuSpec } from './contextMenu';
 import { useEditorIcons } from './editors';
 import { homeOf, narrowed, runsShownKey, sidesShownKey, type BoardRow, type Filter } from './lanes';
-import { answerLink, barMode, onBarMode, onCloseIdle, onCloseStale, onUsageMenu, onWebsiteMenu, onNewWindow, onReveal, onSettings, onSetupMenu, onCheckUpdates, openConfig, openProjectWindow, openUrl, orderAccounts, refresh, refreshUsage, scheduleOp, setBarMode, startOptions, setPinned, setPinnedPrs, setPinnedRepos, setPinnedWorktrees, setTheme, setupNeeded, showQuick, signIn, stopTraining, windowLabel, zoomWindows, onZoomMenu, onReloadMenu, WEBSITE, type BarMode, type Reveal } from './api';
+import { answerLink, barMode, onBarMode, onCloseIdle, onCloseStale, onUsageMenu, onWebsiteMenu, onNewWindow, onReveal, onSettings, onSetupMenu, onCheckUpdates, openConfig, openProjectWindow, openUrl, orderAccounts, refresh, refreshUsage, scheduleOp, setBarMode, startOptions, setPinned, setPinnedPrs, setPinnedRepos, setPinnedWorktrees, setTheme, setupNeeded, showQuick, signIn, stopTraining, terminalWindow, windowLabel, zoomWindows, onZoomMenu, onReloadMenu, WEBSITE, type BarMode, type Reveal } from './api';
 import { count, middleTruncate } from './format';
 import * as menus from './menus';
 import { prRefOf } from './prLinks';
@@ -27,6 +27,7 @@ import { itemPrimaryHolds, statusSection, todoAgent, todoInFilter, todoProjects,
 import { repoReviews } from './repoSettings';
 import type { Lane, Pr, PrItem, Schedule, ScheduleItem, Session, SideGlance, StartOptions, TeamFile, Theme, Todo } from './types';
 import { showSide } from './side';
+import { allTerminals, placeOf, setDrawer, setSessionView, TERMINAL_WAIT_MS, usePoppedTerminals } from './terminals';
 import { shortOf, type DeviceFilter } from './devices';
 import { NEW_PROJECT, SettingsDialog, type SettingsSection } from './ui/SettingsDialog';
 import { CleanUpDialog } from './ui/CleanUpDialog';
@@ -1030,7 +1031,40 @@ export function App() {
   // Each time something asks to show a row here, which opens the group that folds it away even
   // when it's the row selected already.
   const [revealed, setRevealed] = useState(0);
+  // A terminal of Codealong's the server asked to show (launch/codealong.rs): its session's panel,
+  // or a window of its own for one that's no session's, once the board says whose it is
+  // (terminals.ts `placeOf`), looked at again as boards come and once the wait is up.
+  const pendingTerminal = useRef<{ id: string; wait: boolean; since: number } | null>(null);
+  const poppedTerminals = usePoppedTerminals();
+  const placeTerminal = useLatest(() => {
+    const p = pendingTerminal.current;
+    if (!p) return;
+    const t = allTerminals(board?.terminals).find((x) => x.id === p.id);
+    const place = placeOf(t, p.wait, Date.now() - p.since >= TERMINAL_WAIT_MS);
+    if (place.to === 'wait') return;
+    pendingTerminal.current = null;
+    if (place.to === 'none') return;
+    // One in a window of its own (no session's, or popped out) comes forward there.
+    if (place.to === 'window' || poppedTerminals.includes(p.id)) {
+      terminalWindow(t?.session ?? '', p.id, true).catch((e: unknown) => setToast(String(e)));
+      return;
+    }
+    const lane = (board?.lanes ?? []).find((l) => l.sessions.some((s) => s.key === place.key));
+    if (lane) reveal.current({ kind: 'session', laneId: lane.id, key: place.key });
+    if (place.home) {
+      setSessionView(place.key, 'terminal');
+      setDrawer(place.key, { homeAt: Date.now() });
+    } else setDrawer(place.key, { open: true, active: p.id, focusAt: Date.now() });
+  });
+  useEffect(() => placeTerminal.current(), [board, placeTerminal]);
+
   const reveal = useLatest((r: Reveal) => {
+    if (r.kind === 'terminal') {
+      pendingTerminal.current = { id: r.id, wait: !!r.wait, since: Date.now() };
+      placeTerminal.current();
+      window.setTimeout(() => placeTerminal.current(), TERMINAL_WAIT_MS + 100);
+      return;
+    }
     // A view's chord pressed in a window that floats: that view, as the chord goes to it here.
     // One this window doesn't have (a board's, with boards off) leaves it on the one it shows.
     if (r.kind === 'view') {

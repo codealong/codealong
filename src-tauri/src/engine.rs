@@ -3942,6 +3942,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         board.training = self.training.list(&self.cfg.accounts);
         board.mcp = self.mcp.list(&self.cfg.accounts);
         board.sides = sides;
+        adopt_terminals(&board.lanes, |pid| crate::procs::tty(pid).map(|t| t.to_string_lossy().into_owned()));
         board.terminals = crate::terminals::glances();
         board.github_polled = self.github.polled();
         board.github_current = self.github.current();
@@ -4564,6 +4565,24 @@ fn first_run_config() -> Config {
         }
     }
     Config { accounts, projects: config::suggest_projects(&owners, github::display_name), ..defaults }
+}
+
+/// A terminal of Codealong's that a live session's own process runs in is that session's
+/// (launch/codealong.rs): one opened to start or resume a session belongs to none until its
+/// process turns up on the board, found by the terminal device it has (`tty_of`). Only those are
+/// looked for: a terminal already a session's stays that session's, whatever you run in it.
+/// Asked only while there's such a terminal, so most boards cost nothing.
+fn adopt_terminals(lanes: &[crate::model::Lane], tty_of: impl Fn(u32) -> Option<String>) {
+    let open: Vec<crate::terminals::Glance> = crate::terminals::list().into_iter().filter(|g| g.running && g.session.is_empty() && !g.tty.is_empty()).collect();
+    if open.is_empty() {
+        return;
+    }
+    for s in lanes.iter().flat_map(|l| &l.sessions).filter(|s| s.live && !s.archived) {
+        let Some(tty) = s.pid.and_then(&tty_of) else { continue };
+        if let Some(g) = open.iter().find(|g| g.tty == tty) {
+            crate::terminals::adopt(&g.id, &s.key);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -5567,5 +5586,26 @@ mod tests {
             e.apply_fs(paths.clone());
         }
         eprintln!("fs batch of {} paths {:.1} ms, over {batches} runs", paths.len(), ms(t) / batches as f64);
+    }
+
+    /// A terminal opened to start a session becomes that session's own once its process runs
+    /// there, found by the device; a session elsewhere takes none.
+    #[test]
+    fn a_session_running_in_a_terminal_of_codealongs_makes_it_its_own() {
+        use super::*;
+        use crate::terminals;
+        let g = terminals::open(terminals::Open { folder: std::env::temp_dir(), command: Some("sleep 5".into()), size: Some(terminals::DEFAULT_SIZE), ..Default::default() }).unwrap();
+        let here = crate::model::Session { live: true, pid: Some(4242), ..crate::fixtures::session("test:adopts:here") };
+        let elsewhere = crate::model::Session { live: true, pid: Some(4343), ..crate::fixtures::session("test:adopts:elsewhere") };
+        let lanes = vec![crate::fixtures::lane("/r", vec![elsewhere, here])];
+        let tty = g.tty.clone();
+        adopt_terminals(&lanes, |pid| match pid {
+            4242 => Some(tty.clone()),
+            _ => Some("/dev/ttys999".into()),
+        });
+        let found = terminals::glances().get("test:adopts:here").cloned().unwrap_or_default();
+        assert!(found.iter().any(|t| t.id == g.id && t.hosts), "{found:?}");
+        assert!(terminals::glances().get("test:adopts:elsewhere").is_none());
+        terminals::close(&g.id).unwrap();
     }
 }

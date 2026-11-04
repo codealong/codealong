@@ -350,12 +350,16 @@ function GeneralPane({ cfg, view, theme, onPickTheme, disabled, onSave, now }: P
         <label className="ca-field">
           <span>Terminal</span>
           <ProfileSelect value={cfg.apps.terminal} profiles={view.terminals} onChange={(terminal) => void onSave({ ...cfg, apps: { ...cfg.apps, terminal } })} />
-          <small>Where sessions open and new ones start.</small>
+          <small>
+            {cfg.apps.terminal === 'codealong'
+              ? 'Where sessions open and new ones start: a terminal of Codealong’s own, in the session’s panel, with its conversation a click away. A folder opened in a terminal gets a window of its own.'
+              : 'Where sessions open and new ones start.'}
+          </small>
         </label>
         {/* A field of its own for each terminal: what was read or asked for another doesn't land
             on this one's switch, nor does that one's show while this one's is read. */}
-        {platform() === 'mac' && <KeepAwakeField key={cfg.apps.terminal} terminal={cfg.apps.terminal} name={terminalName} keepsTerminals={!!view.holdsSessions?.includes(cfg.apps.terminal)} />}
-        <div className="ca-field">
+        {platform() === 'mac' && cfg.apps.terminal !== 'codealong' && <KeepAwakeField key={cfg.apps.terminal} terminal={cfg.apps.terminal} name={terminalName} keepsTerminals={!!view.holdsSessions?.includes(cfg.apps.terminal)} />}
+        {cfg.apps.terminal !== 'codealong' && <div className="ca-field">
           <span>New terminals open as</span>
           <Seg
             className="ca-settings-theme"
@@ -369,7 +373,7 @@ function GeneralPane({ cfg, view, theme, onPickTheme, disabled, onSave, now }: P
               ? 'Terminal can’t open a tab for another app, so new terminals always open as windows there.'
               : NEW_TERMINALS.find((t) => t.id === (cfg.apps.new_terminal ?? 'project'))?.says}
           </small>
-        </div>
+        </div>}
         {platform() === 'mac' && (
           <div className="ca-field">
             <span>Run sessions in tmux</span>
@@ -389,7 +393,8 @@ function GeneralPane({ cfg, view, theme, onPickTheme, disabled, onSave, now }: P
             </small>
           </div>
         )}
-        <div className="ca-field">
+        {/* With Codealong's own terminal for sessions, a session's other terminals are its too. */}
+        {cfg.apps.terminal !== 'codealong' && <div className="ca-field">
           <span>Terminals for a session</span>
           <Seg
             className="ca-settings-theme"
@@ -408,7 +413,7 @@ function GeneralPane({ cfg, view, theme, onPickTheme, disabled, onSave, now }: P
                 : `A session’s new terminals (⌃\`), and the commands you run from it or allow its agent to, open in tabs of ${terminalName}.`,
             )}
           </small>
-        </div>
+        </div>}
         <div className="ca-field">
           <span>Close a command's tab once it ends</span>
           <Seg

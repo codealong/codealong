@@ -1,5 +1,27 @@
 /* A session's terminals of Codealong's own (TerminalDrawer.tsx, TerminalView.tsx): the drawer
-   under the box, its tabs, and a terminal's screen, a canvas the size of whole cells. */
+   under the box, its tabs, and a terminal's screen, a canvas the size of whole cells; and the
+   terminal a session runs in, in its panel (SessionTerminal.tsx). */
+
+/* Under the header of a session that runs in a terminal of Codealong's: its conversation or its
+   terminal. */
+.ca-sessview {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: var(--space-1) var(--space-3);
+  border-bottom: 1px solid var(--line);
+}
+
+/* The terminal in the conversation's place, taking what's left of the panel. */
+.ca-sessterm {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
 
 /* Under the box, set apart from it, as tall as it was left; folded, its tabs alone. */
 .ca-termdrawer {

@@ -2,7 +2,9 @@
 // `pop_terminal`), as a side conversation pops out: a strip that drags the window, says which
 // terminal and session it is, and puts it back or closes it, over the terminal itself. The
 // terminal goes on in the server either way; the window is only another place to show it, and
-// closes when the terminal does.
+// closes when the terminal does. A terminal that's no session's (a folder opened in Codealong's
+// terminal, a background job attached to) has only this window, as a terminal app's would: there's
+// nowhere to put it back, and closing it closes the terminal.
 
 import { useEffect, useRef, useState } from 'react';
 import { keptClose, keptFocus, keptReady, keptSession, keptTerminal, terminalClose } from '../../api';
@@ -23,7 +25,7 @@ export function TerminalWindow() {
 
   useEffect(() => {
     void Promise.all([keptSession(), keptTerminal()]).then(([key, id]) => {
-      if (key && id) setIds({ key, id });
+      if (id) setIds({ key: key ?? '', id });
       else void keptClose();
     });
     return followBoard((b) => setBoard(b)).off;
@@ -49,6 +51,7 @@ export function TerminalWindow() {
   }, [ids, board, glance]);
 
   if (!ids || !glance) return null;
+  const mine = !!glance.session;
   return (
     <div className="ca-termwin" onMouseDown={() => void keptFocus()}>
       <div className="ca-termwin-bar" data-tauri-drag-region="deep">
@@ -56,9 +59,11 @@ export function TerminalWindow() {
         <span className="ca-termwin-name">{terminalName(glance)}</span>
         {session && <span className="ca-termwin-session">{session.title}</span>}
         <span className="ca-termdrawer-gap" />
-        <button type="button" className="ca-termdrawer-act" aria-label="Put it back under the session" title="Put it back under the session" onClick={() => void keptClose()}>
-          <Icon name="picture-in-picture-off" size={14} />
-        </button>
+        {mine && (
+          <button type="button" className="ca-termdrawer-act" aria-label="Put it back under the session" title="Put it back under the session" onClick={() => void keptClose()}>
+            <Icon name="picture-in-picture-off" size={14} />
+          </button>
+        )}
         <button
           type="button"
           className="ca-termdrawer-act"
@@ -69,7 +74,8 @@ export function TerminalWindow() {
           <Icon name="x" size={14} />
         </button>
       </div>
-      <TerminalView id={glance.id} focusAt={focusAt} onLeave={() => void keptClose()} />
+      {/* ⌃` puts a session's back where it came from; one that's no session's stays. */}
+      <TerminalView id={glance.id} focusAt={focusAt} onLeave={() => mine && void keptClose()} />
     </div>
   );
 }

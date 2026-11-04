@@ -2693,8 +2693,8 @@ the next launch.
 
 A session on this Mac can have terminals of Codealong's own, in a drawer under its box in the
 main window: ⌃` (or New terminal in the session's menu) opens one in the folder the session works
-in, with the keyboard, and from the box again shows the drawer; ⌃` in a terminal gives the box the
-keyboard back. Each is a tab along the drawer's top, named by the title its program sets, else the
+in, with the keyboard, and from the box again shows the drawer; ⌃` in a terminal hides the drawer
+and gives the box the keyboard back, as VS Code's ⌃` hides its terminal. Each is a tab along the drawer's top, named by the title its program sets, else the
 program running in it (`vim`, `npm`), else its shell; + opens another, × closes one (ending what
 runs in it), and the chevron folds the drawer to its tabs. A tab says how a command ended, red
 when it failed. Drag the drawer's top edge to make it taller; it stays that tall for every session.

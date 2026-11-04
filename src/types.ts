@@ -2809,6 +2809,11 @@ export interface TerminalGlance {
   program?: string;
   /** When its program last rang the bell. */
   bellAt?: number;
+  /** Its device (`/dev/ttys012`). */
+  tty?: string;
+  /** The session's own process runs in it (a start or resume in Codealong's terminal): where the
+   *  session lives, shown in its panel, not a terminal beside it. */
+  hosts?: boolean;
 }
 
 /** A terminal's size: in cells, and a cell's in pixels. */
