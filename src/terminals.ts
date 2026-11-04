@@ -12,14 +12,16 @@ import { onTerminalWindows, terminalOpen, terminalWindows } from './api';
 import type { TerminalGlance, TerminalSize, TerminalTheme } from './types';
 
 /** A session's drawer: open or folded to its tabs, the tab shown, and when it last asked for the
- *  keyboard (a new terminal does). */
+ *  keyboard (a new terminal does); and when the terminal the session runs in last asked for it,
+ *  which its panel shows (`SessionView`), apart from the drawer's so the two don't both take it. */
 export interface Drawer {
   open: boolean;
   active: string | null;
   focusAt: number;
+  homeAt: number;
 }
 
-const CLOSED: Drawer = { open: false, active: null, focusAt: 0 };
+const CLOSED: Drawer = { open: false, active: null, focusAt: 0, homeAt: 0 };
 const drawers = new Map<string, Drawer>();
 const listeners = new Set<() => void>();
 
@@ -45,6 +47,64 @@ export function useDrawer(key: string): Drawer {
     },
     () => drawerOf(key),
   );
+}
+
+/** What a session's panel shows: its conversation, or the terminal it runs in, for a session
+ *  that runs in one of Codealong's (`TerminalGlance.hosts`). The same in every place in the window
+ *  that shows the session. */
+export type SessionView = 'conversation' | 'terminal';
+const views = new Map<string, SessionView>();
+
+export function sessionViewOf(key: string): SessionView {
+  return views.get(key) ?? 'conversation';
+}
+
+export function setSessionView(key: string, view: SessionView): void {
+  views.set(key, view);
+  emit();
+}
+
+export function useSessionView(key: string): SessionView {
+  return useSyncExternalStore(
+    (l) => {
+      listeners.add(l);
+      return () => listeners.delete(l);
+    },
+    () => sessionViewOf(key),
+  );
+}
+
+/** The terminal a session runs in, of its terminals: where it lives, not one beside it. */
+export function homeTerminalOf(terminals: readonly TerminalGlance[] | undefined): TerminalGlance | null {
+  return terminals?.find((t) => t.hosts) ?? null;
+}
+
+/** The terminals a drawer lists: those beside the session, not the one it runs in, which its
+ *  panel shows in place of the conversation. */
+export function besideOf(terminals: readonly TerminalGlance[]): TerminalGlance[] {
+  return terminals.filter((t) => !t.hosts);
+}
+
+/** Every terminal the board lists, whoever's it is. */
+export function allTerminals(byKey: Record<string, TerminalGlance[]> | undefined): TerminalGlance[] {
+  return Object.values(byKey ?? {}).flat();
+}
+
+/** Where a terminal the server asked to show (a reveal of kind `terminal`) goes, by what the board
+ *  says of it: its session's panel (the terminal it runs in, or its drawer's tab), a window of its
+ *  own for one that's no session's, or nothing yet (`wait`) while one opened for a command may
+ *  still turn out to be a session's, or one the board doesn't list yet may still come, until
+ *  `waited` says that's long enough; then one never listed is nowhere. */
+export type TerminalPlace = { to: 'session'; key: string; home: boolean } | { to: 'window' } | { to: 'wait' } | { to: 'none' };
+
+/** How long a window waits for the board to say whose a terminal is (`placeOf`): a start's
+ *  session is on the board a second or two after its process starts. */
+export const TERMINAL_WAIT_MS = 5000;
+
+export function placeOf(t: TerminalGlance | undefined, wait: boolean, waited: boolean): TerminalPlace {
+  if (!t) return waited ? { to: 'none' } : { to: 'wait' };
+  if (t.session) return { to: 'session', key: t.session, home: !!t.hosts };
+  return wait && !waited ? { to: 'wait' } : { to: 'window' };
 }
 
 /** The terminal a drawer shows: the one it was left on, else the last opened. */

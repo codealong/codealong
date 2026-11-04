@@ -79,6 +79,13 @@ pub struct Glance {
     /// When its program last rang the bell.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bell_at: Option<i64>,
+    /// Its device (`/dev/ttys012`): a session whose process has it runs here.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub tty: String,
+    /// The session's own process runs in it: it's where the session lives, opened to start or
+    /// resume it in Codealong's terminal (launch/codealong.rs), not a terminal beside it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hosts: bool,
 }
 
 /// What a terminal's thread is told.
@@ -95,6 +102,9 @@ enum Msg {
     Watch { window: String, on: bool },
     Copy(Sender<Option<String>>),
     Text(Sender<String>),
+    /// Bytes for the program as they are, as if typed: a message sent to the session in it, a key
+    /// that answers its prompt.
+    Write(Vec<u8>),
     Close,
 }
 
@@ -164,6 +174,9 @@ pub struct Open {
     /// It closes when its process ends, as a terminal app's tab does when its shell exits. One
     /// that doesn't stays, saying how its command ended, until it's closed.
     pub close_on_exit: bool,
+    /// Typed into it as it starts, before its shell reads anything, as Ghostty's `initial input`
+    /// is: the line that starts or resumes a session in it.
+    pub input: Option<String>,
 }
 
 /// The size and colors a window last gave a terminal, for one opened without a window's.
@@ -208,11 +221,13 @@ pub fn open(o: Open) -> Result<Glance, String> {
         exit: None,
         program: None,
         bell_at: None,
+        tty: opened.tty.clone(),
+        hosts: false,
     };
     let (tx, rx) = mpsc::channel();
     let close_on_exit = o.close_on_exit;
     let pid = opened.pid();
-    let pty::Pty { master, mut child } = opened;
+    let pty::Pty { master, mut child, .. } = opened;
     let fds = master.try_clone().and_then(|r| master.try_clone().map(|w| (r, w)));
     let (reader, writer) = match fds {
         Ok(fds) => fds,
@@ -245,6 +260,10 @@ pub fn open(o: Open) -> Result<Glance, String> {
             std::thread::Builder::new().name(format!("terminal-read-{id}")).spawn(move || read(reader, tx, closed))?;
         }
         let (out_tx, out_rx) = mpsc::channel::<Vec<u8>>();
+        if let Some(input) = o.input {
+            // Waits in the terminal until the shell reads it.
+            let _ = out_tx.send(input.into_bytes());
+        }
         std::thread::Builder::new().name(format!("terminal-write-{id}")).spawn(move || write(writer, out_rx))?;
         let (id, closed) = (id.clone(), closed.clone());
         std::thread::Builder::new().name(format!("terminal-{id}")).spawn(move || {
@@ -360,6 +379,38 @@ pub fn text(id: &str) -> Result<String, String> {
     rx.recv_timeout(Duration::from_secs(5)).map_err(|_| "The terminal didn't answer.".to_string())
 }
 
+/// Writes bytes for the program as they are, as if typed.
+pub fn write_to(id: &str, bytes: Vec<u8>) -> Result<(), String> {
+    send(id, Msg::Write(bytes))
+}
+
+/// Whether there's a terminal at all: until there is, nothing needs looking up.
+pub fn any() -> bool {
+    !state().list.is_empty()
+}
+
+/// The terminal whose device is `tty`, which a process there has as its terminal.
+pub fn on_tty(tty: &str) -> Option<Glance> {
+    if tty.is_empty() {
+        return None;
+    }
+    state().list.iter().find(|e| e.glance.tty == tty).map(|e| e.glance.clone())
+}
+
+/// Every terminal, in the order they were opened.
+pub fn list() -> Vec<Glance> {
+    state().list.iter().map(|e| e.glance.clone()).collect()
+}
+
+/// A session's own process runs in terminal `id` (found by its device, `engine.rs`): the
+/// terminal is the session's, where it lives, and goes where its terminals go.
+pub fn adopt(id: &str, key: &str) {
+    update(id, |g| {
+        g.session = key.to_string();
+        g.hosts = true;
+    });
+}
+
 /// Closes a terminal: its process is hung up on, as closing a tab does, and killed if it hasn't
 /// ended a few seconds later.
 pub fn close(id: &str) -> Result<(), String> {
@@ -465,7 +516,12 @@ fn run(id: &str, pid: u32, master: OwnedFd, size: Size, theme: Option<Theme>, rx
     loop {
         let now = Instant::now();
         let watched = watchers.values().any(|until| *until > now);
-        let wait = if watched && (dirty || full) { FRAME_EVERY.saturating_sub(last_frame.elapsed()) } else { LOOK_EVERY };
+        // A screen held still (a redraw under way) is looked at again a frame later, not at once.
+        let wait = if watched && (dirty || full) {
+            if screen.held(now) { FRAME_EVERY } else { FRAME_EVERY.saturating_sub(last_frame.elapsed()) }
+        } else {
+            LOOK_EVERY
+        };
         let first = match rx.recv_timeout(wait) {
             Ok(m) => Some(m),
             Err(RecvTimeoutError::Timeout) => None,
@@ -539,6 +595,13 @@ fn run(id: &str, pid: u32, master: OwnedFd, size: Size, theme: Option<Theme>, rx
                 Msg::Text(reply) => {
                     let _ = reply.send(screen.text());
                 }
+                Msg::Write(bytes) => {
+                    if running && !bytes.is_empty() {
+                        screen.typed();
+                        let _ = out.send(bytes);
+                        dirty = true;
+                    }
+                }
                 Msg::Close => {
                     closed.store(true, Ordering::Relaxed);
                     if running {
@@ -579,7 +642,7 @@ fn run(id: &str, pid: u32, master: OwnedFd, size: Size, theme: Option<Theme>, rx
         }
         let now = Instant::now();
         watchers.retain(|_, until| *until > now);
-        if !watchers.is_empty() && (dirty || full) && last_frame.elapsed() >= FRAME_EVERY {
+        if !watchers.is_empty() && (dirty || full) && last_frame.elapsed() >= FRAME_EVERY && !screen.held(now) {
             if let Some(f) = screen.frame(id, full) {
                 if let Some(hook) = FRAMES.get() {
                     hook(&f);
@@ -665,6 +728,25 @@ mod tests {
         assert_eq!(glances().get("test:moves:new").map(|l| l.iter().map(|t| t.id.clone()).collect::<Vec<_>>()), Some(vec![g.id.clone()]));
         close_session("test:moves:new");
         assert!(glance(&g.id).is_none());
+    }
+
+    /// A terminal opened to start a session (launch/codealong.rs) is typed its line as it
+    /// starts, is found by its device, takes bytes as if typed, and becomes the session's own once
+    /// the session's process turns up in it.
+    #[test]
+    fn a_terminal_for_a_start_is_typed_its_line_and_found_by_its_device() {
+        let g = open(Open { folder: std::env::temp_dir(), command: Some("read line; echo \"got $line\"; read more; echo \"then $more\"; sleep 1".into()), input: Some("first\n".into()), size: Some(DEFAULT_SIZE), ..Default::default() }).unwrap();
+        assert!(g.session.is_empty() && !g.hosts, "no session's yet");
+        assert!(g.tty.starts_with("/dev/"), "{:?}", g.tty);
+        assert!(wait_for(|| text(&g.id).is_ok_and(|t| t.contains("got first"))), "{:?}", text(&g.id));
+        assert_eq!(on_tty(&g.tty).map(|t| t.id), Some(g.id.clone()));
+        assert!(on_tty("").is_none());
+        write_to(&g.id, b"second\r".to_vec()).unwrap();
+        assert!(wait_for(|| text(&g.id).is_ok_and(|t| t.contains("then second"))), "{:?}", text(&g.id));
+        adopt(&g.id, "test:adopt:one");
+        let mine = glances().get("test:adopt:one").cloned().unwrap_or_default();
+        assert!(mine.iter().any(|t| t.id == g.id && t.hosts), "{mine:?}");
+        close(&g.id).unwrap();
     }
 
     #[test]

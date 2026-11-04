@@ -562,8 +562,8 @@ mod tests {
     #[test]
     fn a_profile_that_is_unknown_or_not_installed_is_said_before_anything_is_sent() {
         let p = played(|_| Ok(String::new()), || (terminal_run("kitty", window(), Path::new("/r/app"), "ls\n", &[]), terminal_open("tmux", window(), Path::new("/r/app"), None)));
-        assert_eq!(err(p.got.0), "There's no terminal profile called \"kitty\". Use \"ghostty\", \"iterm2\", \"terminal\" or \"rex\" in config.toml.");
-        assert_eq!(err(p.got.1), "There's no terminal profile called \"tmux\". Use \"ghostty\", \"iterm2\", \"terminal\" or \"rex\" in config.toml.");
+        assert_eq!(err(p.got.0), "There's no terminal profile called \"kitty\". Use \"ghostty\", \"iterm2\", \"terminal\", \"rex\" or \"codealong\" in config.toml.");
+        assert_eq!(err(p.got.1), "There's no terminal profile called \"tmux\". Use \"ghostty\", \"iterm2\", \"terminal\", \"rex\" or \"codealong\" in config.toml.");
         assert!(p.log.is_empty());
         let p = play(Setup { installed: false, ..setup() }, |_| Ok("/dev/ttys310\n".into()), || {
             (terminal_run("ghostty", window(), Path::new("/r/app"), "ls\n", &[]), terminal_open("iterm2", window(), Path::new("/r/app"), None), terminal_open("terminal", window(), Path::new("/r/app"), None))
@@ -573,10 +573,10 @@ mod tests {
         p.got.2.unwrap();
         assert_eq!(p.log[0], r#"TERMINAL_NEW ["front"]"#, "Terminal comes with macOS");
         let p = play(Setup { installed: false, ..setup() }, |_| Ok(String::new()), || (crate::config::terminal_profiles(), default_terminal()));
-        assert_eq!(p.got.0.iter().map(|t| (t.id.as_str(), t.name.as_str())).collect::<Vec<_>>(), [("terminal", "Terminal")]);
+        assert_eq!(p.got.0.iter().map(|t| (t.id.as_str(), t.name.as_str())).collect::<Vec<_>>(), [("terminal", "Terminal"), ("codealong", "Codealong")], "Codealong's own is always there");
         assert_eq!(p.got.1, "terminal");
         let p = played(|_| Ok(String::new()), || (crate::config::terminal_profiles(), default_terminal()));
-        assert_eq!(p.got.0.iter().map(|t| (t.id.as_str(), t.name.as_str())).collect::<Vec<_>>(), [("ghostty", "Ghostty"), ("iterm2", "iTerm2"), ("terminal", "Terminal"), ("rex", "Rex")]);
+        assert_eq!(p.got.0.iter().map(|t| (t.id.as_str(), t.name.as_str())).collect::<Vec<_>>(), [("ghostty", "Ghostty"), ("iterm2", "iTerm2"), ("terminal", "Terminal"), ("rex", "Rex"), ("codealong", "Codealong")]);
         assert_eq!(p.got.1, "ghostty");
     }
 
@@ -598,7 +598,7 @@ mod tests {
             ]
         );
         assert!(p.log.is_empty(), "nothing is asked of any app");
-        assert_eq!(crate::os::as_if(crate::os::Os::MacOs, presses_keys_in), "Ghostty, iTerm2, Rex or tmux");
+        assert_eq!(crate::os::as_if(crate::os::Os::MacOs, presses_keys_in), "Ghostty, iTerm2, Rex, Codealong or tmux");
     }
 
     #[test]
@@ -1150,8 +1150,8 @@ mod tests {
 
         // In no terminal Codealong types into.
         let p = played(|_| Ok(String::new()), || (terminal_type_session(IN_KITTY, Path::new("/r/app"), "Fix it", false, Submit::Return, false), terminal_type_session(IN_BACKGROUND, Path::new("/r/app"), "Fix it", true, Submit::Return, false)));
-        assert_eq!(p.got.0.unwrap(), Typed::Nowhere("it isn't in a Ghostty, iTerm2, Terminal, Rex or tmux tab".into()));
-        assert_eq!(p.got.1.unwrap(), Typed::Nowhere("it isn't in a Ghostty, iTerm2, Terminal, Rex or tmux tab".into()));
+        assert_eq!(p.got.0.unwrap(), Typed::Nowhere("it isn't in a Ghostty, iTerm2, Terminal, Rex, Codealong or tmux tab".into()));
+        assert_eq!(p.got.1.unwrap(), Typed::Nowhere("it isn't in a Ghostty, iTerm2, Terminal, Rex, Codealong or tmux tab".into()));
         assert!(p.log.is_empty());
     }
 
@@ -1282,10 +1282,10 @@ mod tests {
                 "It's the tab you're in.",
                 "Couldn't find its iTerm2 tab.",
                 "closed",
-                "It isn't in a Ghostty, iTerm2, Terminal, Rex or tmux tab.",
+                "It isn't in a Ghostty, iTerm2, Terminal, Rex, Codealong or tmux tab.",
                 "closed",
                 "It's the tab you're in.",
-                "It isn't in a Ghostty, iTerm2, Terminal, Rex or tmux tab.",
+                "It isn't in a Ghostty, iTerm2, Terminal, Rex, Codealong or tmux tab.",
             ]
         );
         assert_eq!(

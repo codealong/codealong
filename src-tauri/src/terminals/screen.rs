@@ -33,6 +33,11 @@ const SCROLLBACK_LINES: usize = 10_000;
 /// How long two clicks may be apart to count as a double click, as macOS's default.
 const CLICK_INTERVAL: Duration = Duration::from_millis(500);
 
+/// The longest a program may hold the screen still while it redraws (synchronized output): one
+/// that never lets go, having ended or hung halfway, is drawn after this as it stands, as
+/// libghostty's docs and Ghostty itself do.
+const HOLD_MAX: Duration = Duration::from_secs(1);
+
 /// A screen as the windows draw it, or what changed of it since the last.
 #[derive(Serialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -287,6 +292,8 @@ pub struct Screen {
     seq: u64,
     /// What the last frame said beside its rows.
     around: Option<Around>,
+    /// Since when the program has held the screen still while it redraws (`held`).
+    hold: Rc<Cell<Option<Instant>>>,
 }
 
 impl Screen {
@@ -301,6 +308,8 @@ impl Screen {
         term.resize(size.cols, size.rows, u32::from(size.cell_width), u32::from(size.cell_height))?;
         let (sizes, scheme) = (size_cell.clone(), dark.clone());
         let (titles, bells, pwds) = (noted.clone(), noted.clone(), noted.clone());
+        let hold = Rc::new(Cell::new(None));
+        let holding = hold.clone();
         term.on_pty_write(move |_, data| write(data))?
             .on_size(move |_| {
                 let s = sizes.get();
@@ -310,7 +319,8 @@ impl Screen {
             .on_color_scheme(move |_| Some(if scheme.get() { ColorScheme::Dark } else { ColorScheme::Light }))?
             .on_title_changed(move |_| titles.borrow_mut().title = true)?
             .on_bell(move |_| bells.borrow_mut().bell = true)?
-            .on_pwd_changed(move |_| pwds.borrow_mut().pwd = true)?;
+            .on_pwd_changed(move |_| pwds.borrow_mut().pwd = true)?
+            .on_render_hold(move |_, held| holding.set(held.then(Instant::now)))?;
         let mut press = PressEvent::new()?;
         press.set_repeat_interval(CLICK_INTERVAL)?;
         Ok(Screen {
@@ -335,6 +345,7 @@ impl Screen {
             out: Vec::new(),
             seq: 0,
             around: None,
+            hold,
         })
     }
 
@@ -465,7 +476,9 @@ impl Screen {
         Formatter::new(&self.term, opts).and_then(|mut f| f.format_alloc(None).map(|b| String::from_utf8_lossy(&b).into_owned())).unwrap_or_default()
     }
 
-    fn typed(&mut self) {
+    /// Something was typed: the view goes back to the bottom and the selection goes, as in
+    /// Ghostty.
+    pub fn typed(&mut self) {
         self.term.scroll_viewport(ScrollViewport::Bottom);
         if self.term.selection().ok().flatten().is_some() {
             let _ = self.term.set_selection(None);
@@ -660,6 +673,20 @@ impl Screen {
             return;
         }
         self.term.scroll_viewport(ScrollViewport::Delta(steps));
+    }
+
+    /// Whether the program holds the screen still at `now`, halfway through a redraw it marked as
+    /// one (synchronized output, which Claude Code and Codex wrap their draws in): no frame is
+    /// made then, so a window never shows a redraw half done. Past `HOLD_MAX` the hold is let go.
+    pub fn held(&mut self, now: Instant) -> bool {
+        match self.hold.get() {
+            Some(since) if now.saturating_duration_since(since) >= HOLD_MAX => {
+                let _ = self.term.set_mode(Mode::SYNC_OUTPUT, false);
+                self.hold.set(None);
+                false
+            }
+            since => since.is_some(),
+        }
     }
 
     /// What to draw: every row with `full`, else the rows that changed since the last frame, and
@@ -915,6 +942,44 @@ mod tests {
         assert_eq!(f.looks[usize::from(bg.look)].bg, Some(0x010203));
         let inv = runs.iter().find(|r| r.cells.join("") == "inv").expect("the reverse run");
         assert_eq!(f.looks[usize::from(inv.look)], Look { fg: Some(0xeeeeee), bg: Some(0x111111), ul: None, flags: 0 });
+    }
+
+    /// Claude Code and Codex wrap each redraw in synchronized output: while one is under way no
+    /// frame is made, and a program that never lets go is drawn after `HOLD_MAX` anyway.
+    #[test]
+    fn a_redraw_held_still_is_drawn_once_its_done() {
+        let (mut s, _) = screen();
+        s.feed(b"old");
+        s.frame("t", true).unwrap();
+        let now = Instant::now();
+        assert!(!s.held(now));
+        s.feed(b"\x1b[?2026h\r\x1b[2Knew, half");
+        assert!(s.held(now), "a redraw under way");
+        s.feed(b" drawn\x1b[?2026l");
+        assert!(!s.held(now));
+        assert_eq!(row_text(&s.frame("t", false).unwrap(), 0), "new, half drawn", "drawn whole");
+        s.feed(b"\x1b[?2026h\r\x1b[2Kstuck");
+        assert!(s.held(now + Duration::from_millis(500)));
+        assert!(!s.held(now + HOLD_MAX + Duration::from_millis(10)), "let go after the limit");
+        assert!(!s.held(Instant::now()), "and stays let go");
+        assert_eq!(row_text(&s.frame("t", false).unwrap(), 0), "stuck");
+    }
+
+    /// Claude Code turns the Kitty keyboard protocol on only once the terminal answers its
+    /// question about it (it asks every terminal it doesn't know), and Shift+Return then reaches
+    /// it as a key of its own, a new line rather than sending the message.
+    #[test]
+    fn claude_codes_keyboard_question_is_answered_and_shift_return_is_its_own_key() {
+        let (mut s, written) = screen();
+        s.feed(b"\x1b[?u\x1b[c");
+        let answer = String::from_utf8_lossy(&written.lock().unwrap()).into_owned();
+        assert!(answer.starts_with("\x1b[?0u"), "the keyboard question answered before the attributes: {answer:?}");
+        let shift_return = Input::Key { code: "Enter".into(), text: None, unshifted: None, mods: Mods4 { shift: true, ..Default::default() }, action: KeyAction::Press };
+        s.input(&shift_return);
+        assert_eq!(s.take_out(), b"\x1b[27;2;13~", "never a plain Return, even before the program asks: xterm's form, as Ghostty sends it");
+        s.feed(b"\x1b[>5u");
+        s.input(&shift_return);
+        assert_eq!(s.take_out(), b"\x1b[13;2u");
     }
 
     #[test]

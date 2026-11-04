@@ -35,6 +35,8 @@ import { AWAY_CHORD, QUEUE_CHORDS, type QueueAction } from '../queue';
 import { SNOOZE_CHORDS } from '../snooze';
 import type { Sent, Session, TerminalGlance, TranscriptItem } from '../types';
 import { TerminalDrawer } from './terminal/TerminalDrawer';
+import { besideOf, homeTerminalOf, setDrawer, useSessionView } from '../terminals';
+import { SessionTerminal, SessionViewSwitch, showView } from './terminal/SessionTerminal';
 import { cardZoom, scaleOf } from '../zoom';
 import { EditDialog } from './EditFrom';
 import { MoveDialog } from './MoveAccount';
@@ -389,11 +391,29 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
   // from here, as its box does, and only for the session it was asked for.
   const edit = replies ? header.actions?.edit : undefined;
   const [editing, setEditing] = useState<{ key: string; prompt: TranscriptItem } | null>(null);
+  // The terminal it runs in, for a session started or resumed in Codealong's own: the panel
+  // shows that or its conversation, and the drawer the terminals beside it.
+  const home = variant === 'panel' && folder !== null ? homeTerminalOf(terminals) : null;
+  const view = useSessionView(key);
+  const inTerminal = !!home && view === 'terminal';
+  const toBox = () => document.querySelector<HTMLTextAreaElement>(`[data-shows-session="${CSS.escape(key)}"] .ca-composer-field textarea`)?.focus();
   const body = (
     <>
           <QueueStrip queue={queue} notice={notice} hotkeys={hotkeys} session={s} actions={header.actions} onSeen={header.onSeen} />
           <SessionHeader {...header} seenAbove={!!hotkeys} compact={variant === 'card'} accountBelow={replies} inMain={variant === 'panel'} onMove={moves && (() => ask(null))} />
-          <SessionThread
+          {home && <SessionViewSwitch sessionKey={key} home={home} view={view} />}
+          {inTerminal && home && (
+            <SessionTerminal
+              sessionKey={key}
+              home={home}
+              onLeave={() => {
+                // ⌃` in its terminal goes back to the conversation and its box.
+                showView(key, 'conversation');
+                requestAnimationFrame(toBox);
+              }}
+            />
+          )}
+          {!inTerminal && <SessionThread
             key={s.key}
             session={s}
             now={now}
@@ -413,8 +433,8 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
                 </p>
               ) : null
             }
-          />
-          {device && !device.online ? (
+          />}
+          {inTerminal ? null : device && !device.online ? (
             <p className="ca-sessinsp-remote" role="status">
               {device.name} isn't connected, so nothing can reach this session from here right now.
             </p>
@@ -429,11 +449,12 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
             <TerminalDrawer
               sessionKey={key}
               folder={folder}
-              terminals={terminals}
+              terminals={besideOf(terminals)}
               onLeave={() => {
-                // ⌃` in a terminal hands the keyboard back to the box, as it took it from there.
-                const box = document.querySelector<HTMLTextAreaElement>(`[data-shows-session="${CSS.escape(key)}"] .ca-composer-field textarea`);
-                box?.focus();
+                // ⌃` in a terminal hides it and hands the keyboard back to the box, as VS Code's
+                // ⌃` hides its terminal; ⌃` in the box shows it again.
+                setDrawer(key, { open: false });
+                toBox();
               }}
             />
           )}

@@ -2,7 +2,8 @@
 // terminals.ts, menus.ts `ownTerminal`): ⌃` from the session's box opens one in the drawer under
 // the box, in the session's folder, which takes the keyboard; keys typed there reach it as keys,
 // in order, with what they typed, and ⌘ keys stay the app's but copy; a paste with line breaks
-// asks before it goes; ⌃` gives the box the keyboard back; the session's menu says Show terminal
+// asks before it goes; ⌃` hides it and gives the box the keyboard back, and shows it again from
+// there; the session's menu says Show terminal
 // with ⌃`; the drawer folds to its tabs and opens again; it pops out into a window of its own and
 // back; and a tab's × closes its terminal.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/terminal-check.js
@@ -98,11 +99,17 @@
       await until(function () { return sent('terminal_paste').length === 2; }, 3000, 'the paste sent');
       check('and goes once you say so', sent('terminal_paste')[1].force === true && !q('.ca-term-ask', drawer));
 
-      // ⌃` gives the box the keyboard back.
+      // ⌃` in the terminal hides it and gives the box the keyboard back; ⌃` there shows it again.
       field.focus();
       key(field, { key: '`', code: 'Backquote', ctrlKey: true });
       await until(function () { return document.activeElement === box; }, 3000, 'the box with the keyboard');
       check('⌃` in the terminal gives the box the keyboard back', document.activeElement === box);
+      await until(function () { return !q('.ca-termdrawer.is-open', panel); }, 3000, 'the terminal hidden');
+      check('and hides the terminal', !q('.ca-term-canvas', panel) && !!q('.ca-termdrawer .ca-termtab', panel));
+      key(box, { key: '`', code: 'Backquote', ctrlKey: true });
+      await until(function () { return q('.ca-termdrawer.is-open .ca-term-field', panel) === document.activeElement; }, 3000, 'the terminal shown again with the keyboard');
+      check('⌃` in the box shows it again, without opening another', calls('terminal_open').length === 1);
+      drawer = q('.ca-termdrawer', panel);
 
       // The session's menu: Show terminal, with its key.
       var row = await until(function () { return q('.ca-sessionlist .ca-lane.is-selected'); }, 3000, 'the session’s row');
