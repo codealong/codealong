@@ -137,26 +137,13 @@ pub fn hang_up(pid: u32, kill: bool) {
 }
 
 /// A copy of `fd` for a server handing its terminals to its next build (terminals.rs
-/// `hand_over`). It's closed on exec like every other descriptor until the moment the server
-/// becomes the next build, which clears that for the copies it hands over and no others
-/// (serve.rs `hand_over`): a process the server starts meanwhile never gets one. None when
-/// there's none to be had.
+/// `hand_over`), closed on exec like every other descriptor: it goes across through a socket
+/// (`send_fds`), never inherited, so a process the server starts meanwhile never gets one. None
+/// when there's none to be had.
 pub fn inheritable(fd: RawFd) -> Option<RawFd> {
     // SAFETY: F_DUPFD_CLOEXEC makes a new descriptor for one we own.
     let copy = unsafe { libc::fcntl(fd, libc::F_DUPFD_CLOEXEC, 0) };
     (copy >= 0).then_some(copy)
-}
-
-/// Lets a descriptor through exec, for the copies a server hands to its next build, in the
-/// moment before it becomes that build (serve.rs `hand_over`). Only async-signal-safe calls.
-pub fn keep_across_exec(fd: RawFd) {
-    // SAFETY: fcntl reads and sets a flag on a descriptor we own.
-    unsafe {
-        let flags = libc::fcntl(fd, libc::F_GETFD);
-        if flags >= 0 {
-            libc::fcntl(fd, libc::F_SETFD, flags & !libc::FD_CLOEXEC);
-        }
-    }
 }
 
 /// Has the program in front draw its screen again, as a terminal resized does: for one whose
@@ -172,6 +159,92 @@ pub(crate) fn cloexec(fd: RawFd) -> io::Result<()> {
     // SAFETY: setting a flag on a descriptor we own.
     let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
     if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFD, flags | libc::FD_CLOEXEC) } < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+/// Sends descriptors over a Unix datagram socket (SCM_RIGHTS), with `payload` as the message's
+/// bytes: the socket holds them for whoever reads it (`recv_fds`), who gets descriptors of their
+/// own for the same open files, even once the sender has closed its own and become another
+/// program (serve.rs `hand_over`).
+pub fn send_fds(sock: RawFd, fds: &[RawFd], payload: &[u8]) -> io::Result<()> {
+    let bytes = std::mem::size_of_val(fds) as libc::c_uint;
+    // SAFETY: the message, its one buffer and its control space are ours and outlive the call;
+    // the control header is written where CMSG_FIRSTHDR says, its data where CMSG_DATA says.
+    unsafe {
+        let space = libc::CMSG_SPACE(bytes) as usize;
+        let mut control = vec![0u8; space];
+        let mut iov = libc::iovec { iov_base: payload.as_ptr().cast_mut().cast(), iov_len: payload.len() };
+        let mut msg: libc::msghdr = std::mem::zeroed();
+        msg.msg_iov = &mut iov;
+        msg.msg_iovlen = 1;
+        msg.msg_control = control.as_mut_ptr().cast();
+        msg.msg_controllen = space as _;
+        let cmsg = libc::CMSG_FIRSTHDR(&msg);
+        (*cmsg).cmsg_level = libc::SOL_SOCKET;
+        (*cmsg).cmsg_type = libc::SCM_RIGHTS;
+        (*cmsg).cmsg_len = libc::CMSG_LEN(bytes) as _;
+        std::ptr::copy_nonoverlapping(fds.as_ptr(), libc::CMSG_DATA(cmsg).cast::<libc::c_int>(), fds.len());
+        if libc::sendmsg(sock, &msg, 0) < 0 {
+            return Err(io::Error::last_os_error());
+        }
+    }
+    Ok(())
+}
+
+/// The next message `send_fds` sent: its descriptors, each closed on exec, and its bytes. None
+/// once there's none waiting (it doesn't wait).
+pub fn recv_fds(sock: RawFd, most: usize) -> io::Result<Option<(Vec<RawFd>, Vec<u8>)>> {
+    let mut payload = vec![0u8; 64 * 1024];
+    // SAFETY: as `send_fds`, reading instead; the descriptors are read from the control data the
+    // kernel wrote, as many as its length holds.
+    unsafe {
+        let space = libc::CMSG_SPACE((most * std::mem::size_of::<libc::c_int>()) as libc::c_uint) as usize;
+        let mut control = vec![0u8; space];
+        let mut iov = libc::iovec { iov_base: payload.as_mut_ptr().cast(), iov_len: payload.len() };
+        let mut msg: libc::msghdr = std::mem::zeroed();
+        msg.msg_iov = &mut iov;
+        msg.msg_iovlen = 1;
+        msg.msg_control = control.as_mut_ptr().cast();
+        msg.msg_controllen = space as _;
+        let n = libc::recvmsg(sock, &mut msg, libc::MSG_DONTWAIT);
+        if n < 0 {
+            let e = io::Error::last_os_error();
+            // Empty, or empty with the sender gone (macOS says the connection was reset then,
+            // having given everything queued first).
+            return if matches!(e.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::ConnectionReset) { Ok(None) } else { Err(e) };
+        }
+        let mut fds = Vec::new();
+        let cmsg = libc::CMSG_FIRSTHDR(&msg);
+        if !cmsg.is_null() && (*cmsg).cmsg_level == libc::SOL_SOCKET && (*cmsg).cmsg_type == libc::SCM_RIGHTS {
+            let data = libc::CMSG_DATA(cmsg) as usize - cmsg as usize;
+            let count = ((*cmsg).cmsg_len as usize).saturating_sub(data) / std::mem::size_of::<libc::c_int>();
+            for i in 0..count {
+                let fd = std::ptr::read_unaligned(libc::CMSG_DATA(cmsg).cast::<libc::c_int>().add(i));
+                let _ = cloexec(fd);
+                fds.push(fd);
+            }
+        }
+        payload.truncate(n as usize);
+        Ok(Some((fds, payload)))
+    }
+}
+
+/// Waits up to `ms` for `fd` to take a write.
+pub fn writable(fd: RawFd, ms: i32) -> bool {
+    let mut p = libc::pollfd { fd, events: libc::POLLOUT, revents: 0 };
+    // SAFETY: poll reads and writes the one pollfd we give it.
+    let n = unsafe { libc::poll(&mut p, 1, ms) };
+    n > 0
+}
+
+/// Makes reads and writes on `fd` return rather than wait, for every copy of it: a terminal's
+/// writer then never sits in a write it can't be stopped in (terminals.rs `write`).
+pub fn nonblocking(fd: RawFd) -> io::Result<()> {
+    // SAFETY: setting a flag on a descriptor we own.
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+    if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
         return Err(io::Error::last_os_error());
     }
     Ok(())
@@ -229,6 +302,33 @@ mod tests {
         hang_up(pty.pid(), false);
         let status = pty.child.wait().unwrap();
         assert!(!status.success(), "hung up on");
+    }
+
+    /// Descriptors sent through a socket reach whoever reads it, closed on exec there, with the
+    /// message's bytes, after the sender has closed its own; reading an empty socket doesn't wait.
+    #[test]
+    fn descriptors_go_through_a_socket_and_outlive_the_senders_copies() {
+        use std::os::fd::{AsRawFd, FromRawFd};
+        let (keep, give) = std::os::unix::net::UnixDatagram::pair().unwrap();
+        let (mut a_read, a_write) = std::io::pipe().unwrap();
+        let (mut b_read, b_write) = std::io::pipe().unwrap();
+        send_fds(give.as_raw_fd(), &[a_write.as_raw_fd(), b_write.as_raw_fd()], b"term-a\nterm-b").unwrap();
+        drop((a_write, b_write, give));
+        let (fds, ids) = recv_fds(keep.as_raw_fd(), 16).unwrap().expect("a message");
+        assert_eq!(ids, b"term-a\nterm-b");
+        assert_eq!(fds.len(), 2);
+        // SAFETY: a descriptor F_GETFD only reads.
+        assert!(fds.iter().all(|fd| unsafe { libc::fcntl(*fd, libc::F_GETFD) } & libc::FD_CLOEXEC != 0), "closed on exec as it's taken");
+        for (fd, (reader, word)) in fds.into_iter().zip([(&mut a_read, "one"), (&mut b_read, "two")]) {
+            // SAFETY: a descriptor the socket gave this test and nothing else holds.
+            let mut w = unsafe { File::from_raw_fd(fd) };
+            std::io::Write::write_all(&mut w, word.as_bytes()).unwrap();
+            drop(w);
+            let mut got = String::new();
+            reader.read_to_string(&mut got).unwrap();
+            assert_eq!(got, word);
+        }
+        assert!(recv_fds(keep.as_raw_fd(), 16).unwrap().is_none(), "nothing more, without waiting");
     }
 
     #[test]

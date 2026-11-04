@@ -327,3 +327,68 @@ mod tests {
         assert_eq!(procargs_environment(&3i32.to_ne_bytes()), None);
     }
 }
+
+extern "C" {
+    // In libSystem since macOS 10.15; the libc crate doesn't declare it.
+    fn posix_spawn_file_actions_addinherit_np(actions: *mut libc::posix_spawn_file_actions_t, fd: libc::c_int) -> libc::c_int;
+}
+
+/// Becomes the program `exe` in place (this process, its pid and its children kept), passing on
+/// stdin, stdout, stderr and the descriptors in `keep` and nothing else: posix_spawn's
+/// `POSIX_SPAWN_SETEXEC` with `POSIX_SPAWN_CLOEXEC_DEFAULT`, the passed ones named to it. macOS
+/// passes only a descriptor not marked close-on-exec (one that is fails the exec with EBADF, as
+/// does a closed one named: checked 2026-11-04), so `keep`'s are unmarked just before; a process
+/// another thread starts in that moment would get them too, which is why the server hands over
+/// one socket this way rather than its terminals (serve.rs `hand_over`). Returns only when it
+/// couldn't: why.
+pub fn exec_keeping(exe: &std::path::Path, args: &[std::ffi::OsString], env: &[(std::ffi::OsString, std::ffi::OsString)], keep: &[std::os::fd::RawFd]) -> std::io::Error {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+    let c = |bytes: &[u8]| CString::new(bytes).map_err(|_| std::io::Error::other("a NUL in what to run"));
+    let path = match c(exe.as_os_str().as_bytes()) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
+    let mut argv = vec![path.clone()];
+    for a in args {
+        match c(a.as_bytes()) {
+            Ok(a) => argv.push(a),
+            Err(e) => return e,
+        }
+    }
+    let envs: Vec<CString> = env.iter().filter_map(|(k, v)| c(&[k.as_bytes(), b"=", v.as_bytes()].concat()).ok()).collect();
+    let argp: Vec<*mut libc::c_char> = argv.iter().map(|a| a.as_ptr().cast_mut()).chain(std::iter::once(std::ptr::null_mut())).collect();
+    let envp: Vec<*mut libc::c_char> = envs.iter().map(|e| e.as_ptr().cast_mut()).chain(std::iter::once(std::ptr::null_mut())).collect();
+    // SAFETY: the attributes and file actions are made, used and destroyed here; the strings
+    // outlive the call, which replaces this process when it succeeds.
+    unsafe {
+        let mut attr: libc::posix_spawnattr_t = std::mem::zeroed();
+        let mut actions: libc::posix_spawn_file_actions_t = std::mem::zeroed();
+        if libc::posix_spawnattr_init(&mut attr) != 0 || libc::posix_spawn_file_actions_init(&mut actions) != 0 {
+            return std::io::Error::last_os_error();
+        }
+        for fd in keep {
+            let f = libc::fcntl(*fd, libc::F_GETFD);
+            if f >= 0 {
+                libc::fcntl(*fd, libc::F_SETFD, f & !libc::FD_CLOEXEC);
+            }
+        }
+        let flags = (libc::POSIX_SPAWN_SETEXEC | libc::POSIX_SPAWN_CLOEXEC_DEFAULT) as libc::c_short;
+        let mut r = libc::posix_spawnattr_setflags(&mut attr, flags);
+        // Stdin, stdout and stderr where they're open (a server may have no stdin): naming a
+        // closed one fails the whole exec.
+        let open = |fd: libc::c_int| libc::fcntl(fd, libc::F_GETFD) >= 0;
+        for fd in [0, 1, 2].into_iter().filter(|fd| open(*fd)).chain(keep.iter().copied()) {
+            if r == 0 {
+                r = posix_spawn_file_actions_addinherit_np(&mut actions, fd);
+            }
+        }
+        if r == 0 {
+            let mut pid: libc::pid_t = 0;
+            r = libc::posix_spawn(&mut pid, path.as_ptr(), &actions, &attr, argp.as_ptr(), envp.as_ptr());
+        }
+        libc::posix_spawn_file_actions_destroy(&mut actions);
+        libc::posix_spawnattr_destroy(&mut attr);
+        std::io::Error::from_raw_os_error(r)
+    }
+}

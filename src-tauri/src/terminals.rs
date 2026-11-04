@@ -21,7 +21,7 @@
 //! The terminals outlive the server's build: a server replaced by a new build of the same app
 //! hands them over (`hand_over`, serve.rs `hand_over`). It becomes the new build in place, so its
 //! processes stay its children and nothing is told, and the new build takes each terminal back
-//! from the descriptor it inherited and a snapshot of its screen (`take_over`). A server that ends
+//! from the descriptor handed to it and a snapshot of its screen (`take_over`). A server that ends
 //! any other way (a crash, a quit) ends their shells.
 
 mod keys;
@@ -131,7 +131,8 @@ struct Entry {
 }
 
 /// A terminal as one server hands it to the next build (`hand_over`, `take_over`): what the board
-/// lists of it, its side of the terminal as a descriptor the next build inherits, its process,
+/// lists of it, its side of the terminal as a descriptor for the next build (sent through a socket,
+/// serve.rs `hand_over`; `fd` is this process's number for it), its process,
 /// and its screen's snapshot in a file beside Codealong's.
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -145,6 +146,9 @@ pub struct Handed {
     pub close_on_exit: bool,
     #[serde(default)]
     pub snapshot: Option<PathBuf>,
+    /// What was on its way to the program and not written yet, written first by the next build.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pending: Vec<u8>,
 }
 
 #[derive(Default)]
@@ -299,7 +303,7 @@ pub fn open(o: Open) -> Result<Glance, String> {
     };
     let pid = opened.pid();
     let pty::Pty { master, mut child, .. } = opened;
-    let started = Started { glance, pid, master, size, theme, close_on_exit: o.close_on_exit, input: o.input, snapshot: None };
+    let started = Started { glance, pid, master, size, theme, close_on_exit: o.close_on_exit, input: o.input.map(String::into_bytes).unwrap_or_default(), snapshot: None };
     spawn(started, move || child.wait().map(|s| exit_code(&s)).unwrap_or(-1))
 }
 
@@ -312,7 +316,8 @@ struct Started {
     size: Size,
     theme: Option<Theme>,
     close_on_exit: bool,
-    input: Option<String>,
+    /// For the program as it starts: the line a start types, or what a hand-over hadn't written.
+    input: Vec<u8>,
     snapshot: Option<Vec<u8>>,
 }
 
@@ -322,7 +327,8 @@ fn spawn(st: Started, wait: impl FnOnce() -> i32 + Send + 'static) -> Result<Gla
     let Started { glance, pid, master, size, theme, close_on_exit, input, snapshot } = st;
     let id = glance.id.clone();
     let (tx, rx) = mpsc::channel();
-    let fds = master.try_clone().and_then(|r| master.try_clone().map(|w| (r, w)));
+    // Its reader and writer wait in poll, never in a read or a write (`read`, `write`).
+    let fds = pty::nonblocking(master.as_raw_fd()).and_then(|()| master.try_clone()).and_then(|r| master.try_clone().map(|w| (r, w)));
     let (reader, writer) = match fds {
         Ok(fds) => fds,
         Err(e) => {
@@ -351,15 +357,19 @@ fn spawn(st: Started, wait: impl FnOnce() -> i32 + Send + 'static) -> Result<Gla
             std::thread::Builder::new().name(format!("terminal-read-{id}")).spawn(move || read(reader, tx, stop))?;
         }
         let (out_tx, out_rx) = mpsc::channel::<Vec<u8>>();
-        if let Some(input) = input {
+        if !input.is_empty() {
             // Waits in the terminal until the shell reads it.
-            let _ = out_tx.send(input.into_bytes());
+            let _ = out_tx.send(input);
         }
-        let (written_tx, written) = mpsc::channel::<()>();
-        std::thread::Builder::new().name(format!("terminal-write-{id}")).spawn(move || write(writer, out_rx, written_tx))?;
+        let (written_tx, written) = mpsc::channel::<Vec<u8>>();
+        let stop_writing = Arc::new(AtomicBool::new(false));
+        {
+            let stop_writing = stop_writing.clone();
+            std::thread::Builder::new().name(format!("terminal-write-{id}")).spawn(move || write(writer, out_rx, written_tx, stop_writing))?;
+        }
         let (id, stop) = (id.clone(), stop.clone());
         std::thread::Builder::new().name(format!("terminal-{id}")).spawn(move || {
-            let how = How { size, theme, close_on_exit, snapshot, written };
+            let how = How { size, theme, close_on_exit, snapshot, written, stop_writing };
             if let Err(e) = run(&id, pid, master, how, rx, out_tx, stop.clone()) {
                 eprintln!("Terminal {id} stopped: {e}");
                 abandon(&id, pid, &stop);
@@ -440,7 +450,7 @@ fn hand_over_these(dir: &Path, pick: impl Fn(&Glance) -> bool) -> Vec<Handed> {
             Some((id, rx))
         })
         .collect();
-    let until = Instant::now() + HAND_OVER_WAIT + Duration::from_secs(1);
+    let until = Instant::now() + READER_WAIT + HAND_OVER_WAIT + Duration::from_secs(2);
     asked
         .into_iter()
         .filter_map(|(id, rx)| {
@@ -462,7 +472,7 @@ pub fn any_running() -> bool {
 }
 
 /// Takes back the terminals the server handed over as it became this build (`hand_over`): each
-/// from the descriptor this process inherited, its screen from its snapshot (or drawn again by
+/// from the descriptor handed to this process, its screen from its snapshot (or drawn again by
 /// its program, told its size changed, where the snapshot can't be read), its process waited on
 /// by its pid. Each snapshot's file goes once it's read. How many it took.
 pub fn take_over(handed: Vec<Handed>) -> usize {
@@ -484,7 +494,7 @@ pub fn take_over(handed: Vec<Handed>) -> usize {
         });
         let pid = h.pid;
         let id = h.glance.id.clone();
-        let started = Started { glance: h.glance, pid, master, size: sane(h.size), theme: h.theme, close_on_exit: h.close_on_exit, input: None, snapshot };
+        let started = Started { glance: h.glance, pid, master, size: sane(h.size), theme: h.theme, close_on_exit: h.close_on_exit, input: h.pending, snapshot };
         match spawn(started, move || wait_pid(pid)) {
             Ok(_) => taken += 1,
             Err(e) => eprintln!("Couldn't take terminal {id} over: {e}"),
@@ -722,8 +732,16 @@ fn update(id: &str, f: impl FnOnce(&mut Glance)) {
 /// How often a reader looks at whether to stop.
 const READ_POLL: Duration = Duration::from_millis(250);
 
-/// How long a terminal being handed over waits for its reader to stop and its writer to finish.
+/// How long a terminal being handed over waits for its reader to stop, which it does within
+/// `READ_POLL` unless the Mac is very busy: what it read after would be lost.
+const READER_WAIT: Duration = Duration::from_secs(10);
+
+/// How long a terminal being handed over waits for its writer to write what's queued for the
+/// program; then what's left goes across to be written by the next build.
 const HAND_OVER_WAIT: Duration = Duration::from_secs(3);
+
+/// How often a writer looks at whether to stop.
+const WRITE_POLL: Duration = Duration::from_millis(100);
 
 /// Reads what the process prints, until the terminal's other side closes or the terminal does.
 fn read(fd: OwnedFd, tx: Sender<Msg>, closed: Arc<AtomicBool>) {
@@ -734,6 +752,11 @@ fn read(fd: OwnedFd, tx: Sender<Msg>, closed: Arc<AtomicBool>) {
         if !pty::readable(raw, READ_POLL.as_millis() as i32) {
             continue;
         }
+        // Looked at again between the wait and the read, so a hand-over asked meanwhile reads
+        // nothing more here: the next build reads it.
+        if closed.load(Ordering::Relaxed) {
+            break;
+        }
         match file.read(&mut buf) {
             Ok(0) => break,
             Ok(n) => {
@@ -741,7 +764,7 @@ fn read(fd: OwnedFd, tx: Sender<Msg>, closed: Arc<AtomicBool>) {
                     return;
                 }
             }
-            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) if matches!(e.kind(), std::io::ErrorKind::Interrupted | std::io::ErrorKind::WouldBlock) => continue,
             // EIO once the other side has closed, on Linux.
             Err(_) => break,
         }
@@ -749,16 +772,42 @@ fn read(fd: OwnedFd, tx: Sender<Msg>, closed: Arc<AtomicBool>) {
     let _ = tx.send(Msg::Hangup);
 }
 
-/// Writes what goes to the process, in order, until the terminal goes.
-fn write(fd: OwnedFd, rx: Receiver<Vec<u8>>, done: Sender<()>) {
+/// Writes what goes to the process, in order, until the terminal goes, waiting in poll for room
+/// rather than in a write (the terminal's side doesn't block, `spawn`), so `stop` (a hand-over)
+/// stops it even while the program isn't reading. What it hadn't written goes back through
+/// `done` as it ends: nothing once it has written all there was.
+fn write(fd: OwnedFd, rx: Receiver<Vec<u8>>, done: Sender<Vec<u8>>, stop: Arc<AtomicBool>) {
+    let raw = fd.as_raw_fd();
     let mut file = std::fs::File::from(fd);
-    for bytes in rx {
-        if file.write_all(&bytes).is_err() {
-            break;
+    let mut left: Vec<u8> = Vec::new();
+    'all: loop {
+        let bytes = match rx.recv_timeout(WRITE_POLL) {
+            Ok(bytes) => bytes,
+            Err(RecvTimeoutError::Timeout) if stop.load(Ordering::Relaxed) => break,
+            Err(RecvTimeoutError::Timeout) => continue,
+            Err(RecvTimeoutError::Disconnected) => break,
+        };
+        let mut at = 0;
+        while at < bytes.len() {
+            if stop.load(Ordering::Relaxed) {
+                left.extend_from_slice(&bytes[at..]);
+                break 'all;
+            }
+            if !pty::writable(raw, WRITE_POLL.as_millis() as i32) {
+                continue;
+            }
+            match file.write(&bytes[at..]) {
+                Ok(n) => at += n,
+                Err(e) if matches!(e.kind(), std::io::ErrorKind::Interrupted | std::io::ErrorKind::WouldBlock) => {}
+                // The terminal's gone: nothing more will be read.
+                Err(_) => break 'all,
+            }
         }
     }
-    // Everything queued for the program is written (a hand-over waits for this).
-    let _ = done.send(());
+    if stop.load(Ordering::Relaxed) {
+        left.extend(rx.try_iter().flatten());
+    }
+    let _ = done.send(left);
 }
 
 /// How a terminal's screen starts (`run`).
@@ -768,13 +817,15 @@ struct How {
     close_on_exit: bool,
     /// The screen another server handed over, as its snapshot.
     snapshot: Option<Vec<u8>>,
-    /// Said once the writer has written everything queued for the program and ended.
-    written: Receiver<()>,
+    /// What the writer hadn't written as it ended: nothing once it has written all there was,
+    /// what's left when it's stopped (`stop_writing`) for a hand-over.
+    written: Receiver<Vec<u8>>,
+    stop_writing: Arc<AtomicBool>,
 }
 
 /// A terminal's thread: its emulator, fed and asked, and its frames sent while a window shows it.
 fn run(id: &str, pid: u32, master: OwnedFd, how: How, rx: Receiver<Msg>, out: Sender<Vec<u8>>, closed: Arc<AtomicBool>) -> Result<(), String> {
-    let How { size, theme, close_on_exit, snapshot, written } = how;
+    let How { size, theme, close_on_exit, snapshot, written, stop_writing } = how;
     let answers = out.clone();
     let answer = move |b: &[u8]| {
         let _ = answers.send(b.to_vec());
@@ -788,8 +839,13 @@ fn run(id: &str, pid: u32, master: OwnedFd, how: How, rx: Receiver<Msg>, out: Se
         }
     });
     let restored_ok = restored.is_some();
+    // The screen holds the only way its answers reach the writer, so the writer ends once the
+    // screen and `out` are gone (a hand-over waits for that).
     let mut screen = match restored {
-        Some(s) => s,
+        Some(s) => {
+            drop(answer);
+            s
+        }
         None => screen::Screen::new(size, answer).map_err(|e| format!("{e:?}"))?,
     };
     if handed && !restored_ok {
@@ -962,7 +1018,7 @@ fn run(id: &str, pid: u32, master: OwnedFd, how: How, rx: Receiver<Msg>, out: Se
             // reader read is fed first (it says it's stopped after its last output), then what's
             // queued for the program is written, the writer ending once nothing here can queue
             // more. Each is waited on a few seconds at most.
-            let until = Instant::now() + HAND_OVER_WAIT;
+            let until = Instant::now() + READER_WAIT;
             while !reader_done {
                 match rx.recv_timeout(until.saturating_duration_since(Instant::now())) {
                     Ok(Msg::Output(bytes)) => screen.feed(&bytes),
@@ -974,12 +1030,16 @@ fn run(id: &str, pid: u32, master: OwnedFd, how: How, rx: Receiver<Msg>, out: Se
                 }
             }
             let glance = state().list.iter().find(|e| e.glance.id == id).map(|e| e.glance.clone());
-            let handed = glance.zip(if running { pty::inheritable(master.as_raw_fd()) } else { None }).map(|(glance, fd)| Handed { glance, fd, pid, size: screen.size(), theme: theme_now.clone(), close_on_exit, snapshot: None });
+            let handed = glance.zip(if running { pty::inheritable(master.as_raw_fd()) } else { None }).map(|(glance, fd)| Handed { glance, fd, pid, size: screen.size(), theme: theme_now.clone(), close_on_exit, snapshot: None, pending: Vec::new() });
             let snapshot = screen.snapshot();
             drop(screen);
             drop(out);
-            let _ = written.recv_timeout(until.saturating_duration_since(Instant::now()));
-            let _ = reply.send(handed.map(|h| (h, snapshot)));
+            // What the program hasn't been sent yet goes across, for the next build to write.
+            let pending = written.recv_timeout(HAND_OVER_WAIT).unwrap_or_else(|_| {
+                stop_writing.store(true, Ordering::Relaxed);
+                written.recv_timeout(Duration::from_secs(1)).unwrap_or_default()
+            });
+            let _ = reply.send(handed.map(|h| (Handed { pending, ..h }, snapshot)));
             // The next build has it now: this thread ends and leaves its process be.
             return Ok(());
         }
@@ -1141,8 +1201,50 @@ mod tests {
         assert!(text(&g.id).is_ok_and(|t| t.contains("got:first")), "its screen came back: {:?}", text(&g.id));
         write_to(&g.id, b"second\r".to_vec()).unwrap();
         assert!(wait_for(|| text(&g.id).is_ok_and(|t| t.contains("then:second"))), "{:?}", text(&g.id));
+        // Handed over again, as the next update does: at once, its writer done with nothing
+        // queued, not after the writer's wait.
+        let started = Instant::now();
+        let again = hand_over_these(&dir, |t| t.id == g.id);
+        assert_eq!(again.len(), 1);
+        assert!(started.elapsed() < HAND_OVER_WAIT, "took {:?}", started.elapsed());
+        state().list.retain(|e| e.glance.id != g.id);
+        assert_eq!(take_over(again), 1);
+        assert!(text(&g.id).is_ok_and(|t| t.contains("then:second")));
         close(&g.id).unwrap();
         assert!(wait_for(|| glance(&g.id).is_none()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// What's on its way to a program that isn't reading goes across in a hand-over, for the next
+    /// build to write, rather than being lost with the old build's writer.
+    #[test]
+    fn what_a_program_hasnt_read_yet_goes_across() {
+        // In raw mode, as a full-screen program has it: there the terminal holds a program's
+        // unread input up to a limit and makes the writer wait past it, where a line-reading one
+        // throws away what's past its line's limit.
+        let g = open(Open { folder: std::env::temp_dir(), command: Some("stty raw -echo; sleep 30".into()), size: Some(DEFAULT_SIZE), ..Default::default() }).unwrap();
+        // Once `stty` has made it raw: line mode off, as its device says.
+        let raw = || {
+            use std::os::fd::AsRawFd;
+            use std::os::unix::fs::OpenOptionsExt;
+            let Ok(f) = std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NOCTTY | libc::O_NONBLOCK).open(&g.tty) else { return false };
+            // SAFETY: tcgetattr fills a plain struct for an open descriptor.
+            unsafe {
+                let mut t: libc::termios = std::mem::zeroed();
+                libc::tcgetattr(f.as_raw_fd(), &mut t) == 0 && t.c_lflag & libc::ICANON == 0
+            }
+        };
+        assert!(wait_for(raw), "raw mode on {}", g.tty);
+        // More than the terminal holds for a program that doesn't read.
+        write_to(&g.id, vec![b'x'; 64 * 1024]).unwrap();
+        std::thread::sleep(Duration::from_millis(300));
+        let dir = std::env::temp_dir().join(format!("codealong-handover-pending-{}", std::process::id()));
+        let handed = hand_over_these(&dir, |t| t.id == g.id);
+        assert_eq!(handed.len(), 1);
+        assert!(!handed[0].pending.is_empty() && handed[0].pending.iter().all(|b| *b == b'x'), "{} bytes went across", handed[0].pending.len());
+        state().list.retain(|e| e.glance.id != g.id);
+        assert_eq!(take_over(handed), 1);
+        close(&g.id).unwrap();
         let _ = std::fs::remove_dir_all(&dir);
     }
 

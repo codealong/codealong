@@ -253,13 +253,25 @@ say the rest.
   Claude Code takes a Return that comes while it's still taking a paste in as part of it, which
   Sculptor's code measured at about 0.2 s (`PASTE_WAIT`).
 - A server replaced by an app of a newer build at the same path hands its terminals over by
-  becoming that build in place (`execve` of its own path, which now holds the new binary): the pid,
-  launchd's job, the children and their responsible process stay. Descriptors not marked
-  close-on-exec survive it (Rust opens everything close-on-exec, so only the terminals' copies made
-  with `dup` do), and the run lock and the socket close, for the new build to take. A server's
-  children it didn't hand over (ACP adapters) lose their pipes as it changes and exit; the new
-  build reaps them by pid (`serve.rs` `take_handover`). Checked with a server of this build in a
-  home of its own (2026-11-04).
+  becoming that build in place: on macOS posix_spawn with `POSIX_SPAWN_SETEXEC` and
+  `POSIX_SPAWN_CLOEXEC_DEFAULT` (os/procs `exec_keeping`), so the pid, launchd's job, the children
+  and their responsible process stay. The terminals' descriptors are never made inheritable: they
+  go through a datagram socket pair (SCM_RIGHTS, `pty::send_fds`) and only the socket's receiving
+  end goes through the exec, read by the new build before it starts a thread (`serve.rs`
+  `take_handover`). macOS's exec in place passes only a descriptor not marked close-on-exec
+  (`posix_spawn_file_actions_addinherit_np` or `adddup2` of a marked one fails the whole exec with
+  EBADF, as does naming a closed stdin; checked 2026-11-04), so that end is unmarked just before,
+  and a process another thread starts in that moment would get the socket, not a terminal. Once
+  the sender has closed its end, a read of the empty socket says the connection was reset, after
+  everything queued. The run lock and the server's socket close at the exec, for the new build to
+  take. A server's children it didn't hand over (ACP adapters) lose their pipes as it changes and
+  exit; the new build reaps them by pid. Checked with a server of this build in a home of its own
+  (2026-11-04).
+- A terminal's side is non-blocking (`pty::nonblocking`, for every copy): its reader and writer
+  wait in poll, so a hand-over can stop the writer while the program isn't reading and carry what
+  it hadn't written to the next build (`Handed::pending`). A program reading lines throws away
+  input past the line's limit rather than making the writer wait; one in raw mode, as a
+  full-screen program is, makes it wait.
 
 ## Codealong's tmux server
 

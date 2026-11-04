@@ -39,9 +39,16 @@ const QUIT_WAIT: Duration = Duration::from_secs(10);
 /// The server's log is cut back to nothing at its start once it's grown past this.
 const LOG_MAX: u64 = 20 * 1024 * 1024;
 
+/// How long an app waits for a server it asked to hand over to come back as its build.
+const HAND_OVER_WAIT: Duration = Duration::from_secs(60);
+
 /// Set for the build a server becomes in place (`hand_over`): the file that lists the terminals
-/// it handed over.
+/// it handed over, and the socket their descriptors wait in.
 const HANDOVER_VAR: &str = "CODEALONG_HANDOVER";
+const HANDOVER_FDS_VAR: &str = "CODEALONG_HANDOVER_FDS";
+
+/// How many descriptors go in one message of the hand-over's socket.
+const FDS_A_MESSAGE: usize = 16;
 
 /// What the build a server became in place takes over as it starts (`take_handover`).
 static HANDED: Mutex<Option<Handover>> = Mutex::new(None);
@@ -291,34 +298,44 @@ pub fn start() -> Result<Ctx, String> {
 /// Hands this server's terminals to the build now at its binary's path by becoming it, for an app
 /// of that build (`Request::HandOver`): the process stays, so the programs in its terminals stay
 /// its children (they're waited on as before), launchd keeps its job, and macOS's privacy grants,
-/// which go by the process that started them, hold. Each terminal's screen and side go across as
-/// a snapshot and a descriptor (terminals.rs `hand_over`), listed in a file the new build reads
-/// (`take_handover`). Returns only when it couldn't: why.
+/// which go by the process that started them, hold. Each terminal's screen goes across as a
+/// snapshot, listed in a file the new build reads (`take_handover`), and its side as a descriptor
+/// sent through a socket (`pty::send_fds`): the descriptors are never inheritable, so a process
+/// another thread starts as this one changes gets none, and only the socket's other end is passed
+/// through the exec. Returns only when it couldn't: why.
 pub fn hand_over() -> String {
-    use std::os::unix::process::CommandExt;
+    use std::os::fd::AsRawFd;
     let dir = config::support_dir().join("handover");
-    let handed = Handover { version: 1, terminals: terminals::hand_over(&dir) };
+    let mut handed = Handover { version: 1, terminals: terminals::hand_over(&dir) };
+    let (keep, give) = match std::os::unix::net::UnixDatagram::pair() {
+        Ok(pair) => pair,
+        Err(e) => return format!("couldn't make the socket to hand the terminals over in: {e}"),
+    };
+    for batch in handed.terminals.chunks(FDS_A_MESSAGE) {
+        let fds: Vec<i32> = batch.iter().map(|h| h.fd).collect();
+        let ids = batch.iter().map(|h| h.glance.id.as_str()).collect::<Vec<_>>().join("\n");
+        if let Err(e) = terminals::pty::send_fds(give.as_raw_fd(), &fds, ids.as_bytes()) {
+            return format!("couldn't hand the terminals' descriptors over: {e}");
+        }
+    }
+    // The socket holds them now: this process's copies go.
+    for h in &mut handed.terminals {
+        // SAFETY: closing a copy this process made for the hand-over and owns alone.
+        unsafe { libc::close(h.fd) };
+        h.fd = -1;
+    }
+    drop(give);
     let file = dir.join("terminals.json");
     let written = serde_json::to_vec(&handed).map_err(|e| e.to_string()).and_then(|b| std::fs::write(&file, b).map_err(|e| e.to_string()));
     if let Err(e) = written {
         return format!("couldn't write {}: {e}", file.display());
     }
     let Ok(exe) = std::env::current_exe() else { return "couldn't find its binary".into() };
-    let fds: Vec<i32> = handed.terminals.iter().map(|h| h.fd).collect();
-    let mut become_it = std::process::Command::new(&exe);
-    become_it.args(std::env::args_os().skip(1)).env(HANDOVER_VAR, &file);
-    // SAFETY: runs in this process just before exec, and only clears a flag on descriptors it
-    // owns: the terminals' copies, closed on exec until now, so nothing it started meanwhile has
-    // them (terminals/pty.rs `inheritable`).
-    unsafe {
-        become_it.pre_exec(move || {
-            for fd in &fds {
-                terminals::pty::keep_across_exec(*fd);
-            }
-            Ok(())
-        });
-    }
-    let err = become_it.exec();
+    let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
+    let mut env: Vec<(std::ffi::OsString, std::ffi::OsString)> = std::env::vars_os().filter(|(k, _)| k != HANDOVER_VAR && k != HANDOVER_FDS_VAR).collect();
+    env.push((HANDOVER_VAR.into(), file.clone().into_os_string()));
+    env.push((HANDOVER_FDS_VAR.into(), keep.as_raw_fd().to_string().into()));
+    let err = os::procs::exec_keeping(&exe, &args, &env, &[keep.as_raw_fd()]);
     format!("couldn't run {}: {err}", exe.display())
 }
 
@@ -329,19 +346,39 @@ pub fn hand_over() -> String {
 /// are reaped as they end.
 fn take_handover() {
     let Some(file) = std::env::var_os(HANDOVER_VAR) else { return };
+    let socket = std::env::var(HANDOVER_FDS_VAR).ok().and_then(|s| s.parse::<i32>().ok());
     std::env::remove_var(HANDOVER_VAR);
+    std::env::remove_var(HANDOVER_FDS_VAR);
+    // The descriptors waiting in the socket, by their terminals' ids, each closed on exec as it's
+    // taken, before anything here starts a process.
+    let mut fds: std::collections::HashMap<String, i32> = std::collections::HashMap::new();
+    if let Some(sock) = socket {
+        let _ = terminals::pty::cloexec(sock);
+        while let Ok(Some((got, ids))) = terminals::pty::recv_fds(sock, FDS_A_MESSAGE) {
+            let ids = String::from_utf8_lossy(&ids).into_owned();
+            for (id, fd) in ids.split('\n').zip(got) {
+                fds.insert(id.to_string(), fd);
+            }
+        }
+        // SAFETY: the socket's end this process was handed, read to its end.
+        unsafe { libc::close(sock) };
+    }
     let read = std::fs::read(&file).ok().and_then(|b| serde_json::from_slice::<Handover>(&b).ok());
     let _ = std::fs::remove_file(&file);
-    let Some(handed) = read else {
+    let Some(mut handed) = read else {
         eprintln!("The terminals the server's last build handed over couldn't be read from {}.", PathBuf::from(&file).display());
+        for fd in fds.into_values() {
+            // SAFETY: a descriptor this process was handed and nothing will use.
+            unsafe { libc::close(fd) };
+        }
         return;
     };
-    // The terminals' descriptors closed on exec again before anything here starts a process, so
-    // none inherits them.
-    for h in &handed.terminals {
-        if h.fd >= 0 {
-            let _ = terminals::pty::cloexec(h.fd);
-        }
+    for h in &mut handed.terminals {
+        h.fd = fds.remove(&h.glance.id).unwrap_or(-1);
+    }
+    for fd in fds.into_values() {
+        // SAFETY: as above: handed over with no terminal listed for it.
+        unsafe { libc::close(fd) };
     }
     let theirs: Vec<u32> = handed.terminals.iter().map(|h| h.pid).collect();
     let me = std::process::id();
@@ -367,7 +404,9 @@ fn hand_over_from(s: &Status) -> Option<Status> {
         return None;
     }
     eprintln!("Codealong's server (pid {}) becomes this build, handing its terminals over.", s.pid);
-    let until = Instant::now() + START_WAIT;
+    // Its apps quit first, then each terminal is handed over once what it read and what it was
+    // writing are in (terminals.rs `hand_over`): seconds at most on a busy Mac.
+    let until = Instant::now() + HAND_OVER_WAIT;
     while Instant::now() < until {
         if let Some(now) = running_within(Duration::from_secs(2)).filter(|n| n.pid == s.pid && n.engine.as_deref() == Some(ENGINE)) {
             return Some(now);
