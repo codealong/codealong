@@ -721,8 +721,8 @@ impl GhPoll {
     }
 
     /// The PRs sessions made in repos whose PRs aren't read, filed under the repo each was asked
-    /// for by, which is how the sessions' links name it: a project's repo renamed since is matched
-    /// by the board (`board::made_item`).
+    /// for by, which is how the sessions' links name it: by its remote's name, for a project's repo
+    /// renamed since (`board::PrLinks::named_here`).
     fn on_made(&mut self, result: Result<Made, Failure>, now: Now) -> bool {
         let found = match result {
             Ok(found) => found,
@@ -1159,7 +1159,7 @@ mod tests {
         let mut gh = quiet();
         let seeds = [seed("/r/spark", "sprucehq/spark", "feature")];
         let asked = PrRaw { review_requested: true, ..pr(7) };
-        let reviews = |gh: &GhPoll| board::pr_items(&seeds, &[], gh.prs(), gh.requested(), gh.made(), gh.repo_names(), Some("gwen"), &Default::default()).into_iter().filter(|p| p.waits_on_review()).count();
+        let reviews = |gh: &GhPoll| board::pr_items(&seeds, &[], gh.prs(), gh.requested(), gh.made(), Some("gwen"), &Default::default()).into_iter().filter(|p| p.waits_on_review()).count();
         // The search answers first: the board lists a read repo's reviews from its read, which
         // is still to come.
         let found = Requested { login: Some("gwen".into()), prs: vec![("sprucehq/spark".into(), asked.clone())] };

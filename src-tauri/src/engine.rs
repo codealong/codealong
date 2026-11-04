@@ -3564,7 +3564,8 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
     }
 
     /// What pr-links.json and the sessions' records say of PRs, for the board, a moved
-    /// conversation's records going on in its copy (`prlinks::carry_moves`).
+    /// conversation's records going on in its copy (`prlinks::carry_moves`), each PR by its repo's
+    /// name here (`PrLinks::named_here`).
     fn pr_links(&self) -> board::PrLinks {
         let moves = origins::current().moves();
         let (worked, unlinked, made) = prlinks::resolve(&prlinks::carry_moves(&self.pr_marks, &moves, prlinks::add_mark), &self.pr_store);
@@ -3582,6 +3583,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             nudge_by_default_in: self.team_files.settings(&self.cfg.repos).nudges_by_default(),
             agent_posts: self.reviews.prs.values().flat_map(|t| t.rounds.iter().filter_map(|r| r.comment.clone())).collect(),
         }
+        .named_here(self.github.repo_names())
     }
 
     /// schedules.json and schedule-runs.json as they are now. One that doesn't read leaves what
@@ -3919,7 +3921,6 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             prs: self.github.prs(),
             requested: self.github.requested(),
             made: self.github.made(),
-            repo_names: self.github.repo_names(),
             project_order: &order,
             notices,
             loading: self.loading,
