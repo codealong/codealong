@@ -33,6 +33,10 @@ const SCROLLBACK_LINES: usize = 10_000;
 /// How long two clicks may be apart to count as a double click, as macOS's default.
 const CLICK_INTERVAL: Duration = Duration::from_millis(500);
 
+/// The most of a sequence still being read that a snapshot keeps: more than any a program sends
+/// whole (a long title, a hyperlink), so one cut partway goes on in the server it's handed to.
+const CONTINUATION_BYTES: usize = 64 * 1024;
+
 /// The longest a program may hold the screen still while it redraws (synchronized output): one
 /// that never lets go, having ended or hung halfway, is drawn after this as it stands, as
 /// libghostty's docs and Ghostty itself do.
@@ -300,11 +304,32 @@ impl Screen {
     /// A screen of `size`, which writes what the program is answered with (a cursor position
     /// asked for, the colors) through `write`.
     pub fn new(size: Size, write: impl Fn(&[u8]) + 'static) -> libghostty_vt::error::Result<Screen> {
-        let mut term = Terminal::new(size.cols, size.rows)?;
+        Screen::around(Terminal::new(size.cols, size.rows)?, size, write)
+    }
+
+    /// The screen a snapshot holds (`snapshot`), as another of Codealong's servers took it: what
+    /// it showed and its scrollback, the modes the program set (its keyboard protocol, bracketed
+    /// pastes, the mouse) and a sequence it was halfway through, so the program carries on as if
+    /// nothing happened. At `size`, which may have changed since.
+    pub fn restore(snapshot: &[u8], size: Size, write: impl Fn(&[u8]) + 'static) -> libghostty_vt::error::Result<Screen> {
+        let term = libghostty_vt::snapshot::Decoder::new_buf(snapshot)?.decode()?;
+        Screen::around(term, size, write)
+    }
+
+    /// Everything the terminal holds, to hand to another server (`restore`). None when it can't
+    /// be encoded.
+    pub fn snapshot(&mut self) -> Option<Vec<u8>> {
+        let mut out = Vec::new();
+        self.term.encode_snapshot(&mut out).ok().map(|()| out)
+    }
+
+    fn around(mut term: Terminal<'static, 'static>, size: Size, write: impl Fn(&[u8]) + 'static) -> libghostty_vt::error::Result<Screen> {
         let size_cell = Rc::new(Cell::new(size));
         let dark = Rc::new(Cell::new(false));
         let noted = Rc::new(RefCell::new(Noted::default()));
         term.set_scrollback_max_lines(Some(SCROLLBACK_LINES))?.set_terminfo_name(TERM)?;
+        // A snapshot taken partway through a sequence needs the part already read (`snapshot`).
+        term.set_continuation_max_bytes(CONTINUATION_BYTES)?;
         term.resize(size.cols, size.rows, u32::from(size.cell_width), u32::from(size.cell_height))?;
         let (sizes, scheme) = (size_cell.clone(), dark.clone());
         let (titles, bells, pwds) = (noted.clone(), noted.clone(), noted.clone());
@@ -980,6 +1005,34 @@ mod tests {
         s.feed(b"\x1b[>5u");
         s.input(&shift_return);
         assert_eq!(s.take_out(), b"\x1b[13;2u");
+    }
+
+    /// A screen handed to another server comes back as it was: what it shows, its scrollback, the
+    /// modes the program set (the Kitty keyboard protocol, bracketed pastes), and a sequence cut
+    /// partway, which the next bytes finish.
+    #[test]
+    fn a_snapshot_restores_the_screen_its_modes_and_a_sequence_cut_partway() {
+        let (mut s, _) = screen();
+        for n in 0..30 {
+            s.feed(format!("line {n}\r\n").as_bytes());
+        }
+        s.feed(b"\x1b[?2004h\x1b[>5u\x1b[1;32mgreen\x1b[0m \x1b[3");
+        let snap = s.snapshot().expect("a snapshot partway through a sequence");
+        let written = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let w = written.clone();
+        let mut back = Screen::restore(&snap, SIZE, move |b| w.lock().unwrap().extend_from_slice(b)).expect("restored");
+        back.feed(b"1mred\x1b[0m");
+        let f = back.frame("t", true).unwrap();
+        let row = f.lines.iter().find(|l| l.runs.iter().any(|r| r.cells.join("") == "red")).expect("the cut sequence finished");
+        let red = row.runs.iter().find(|r| r.cells.join("") == "red").unwrap();
+        assert!(f.looks[usize::from(red.look)].fg.is_some(), "drawn in its color");
+        assert!(row_text(&f, row.y).starts_with("green red"), "{:?}", row_text(&f, row.y));
+        assert!(back.text().contains("line 0"), "the scrollback came too");
+        assert!(back.paste("two\nlines", false), "a paste with a line break goes, bracketed");
+        assert!(String::from_utf8_lossy(&written.lock().unwrap()).contains("\x1b[200~two"), "{:?}", written.lock().unwrap());
+        let shift_return = Input::Key { code: "Enter".into(), text: None, unshifted: None, mods: Mods4 { shift: true, ..Default::default() }, action: KeyAction::Press };
+        back.input(&shift_return);
+        assert_eq!(back.take_out(), b"\x1b[13;2u", "the keyboard protocol came too");
     }
 
     #[test]
