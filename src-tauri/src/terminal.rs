@@ -1224,8 +1224,10 @@ mod tests {
         assert_eq!(again.status, Status::Working);
     }
 
+    // One test, as the runs waited on are one store for the whole process: another test's runs,
+    // noted or forgotten on a clock of its own, would come and go in the middle of this one's.
     #[test]
-    fn a_run_its_agent_waits_on_shows_its_session_running_there() {
+    fn a_run_shows_running_there_on_the_session_that_waits_on_it() {
         let key = "claude:claude:terminal-running-test";
         let run = Run {
             id: "run-test-running".into(),
@@ -1285,23 +1287,20 @@ mod tests {
         let mut s = stuck.clone();
         overlay_running(&mut s, 20_400);
         assert_eq!(shown(&s), shown(&stuck), "ended");
-        waited().retain(|x| x.run.run.session != key);
-    }
+        assert!(forget_unwaited(20_300 + WAIT_LAPSE_MS));
 
-    #[test]
-    fn a_run_shows_on_the_session_that_waits_on_it() {
+        // A run shows on the session that waits on it, which may not be the one that asked: that
+        // one asked with --detach and has moved on, and another waits on its run.
         let (owner, other) = ("claude:claude:terminal-owner-test", "codex:codex:terminal-waiter-test");
-        let run = Run { id: "run-test-waited-by".into(), session: owner.into(), command: "make deploy".into(), terminal: "Ghostty".into(), allowed_at: 1_000, ..Default::default() };
-        let running = RunStatus { run, state: State::Running, exit_code: None, ended_at: None };
-        // Its own session asked for it with --detach and has moved on; another waits on it.
-        assert!(note_waited(&running, other, 2_000));
+        let run = Run { id: "run-test-waited-by".into(), session: owner.into(), command: "make deploy".into(), terminal: "Ghostty".into(), allowed_at: 30_000, ..Default::default() };
+        assert!(note_waited(&RunStatus { run, state: State::Running, exit_code: None, ended_at: None }, other, 31_000));
         let mut mine = Session { status: Status::Unread, excerpt: Some("It's deploying.".into()), ..crate::fixtures::session(owner) };
-        overlay_running(&mut mine, 2_100);
+        overlay_running(&mut mine, 31_100);
         assert_eq!((mine.status, mine.running), (Status::Unread, None), "its turn is over: yours to read");
         let mut theirs = Session { status: Status::Working, ..crate::fixtures::session(other) };
-        overlay_running(&mut theirs, 2_100);
+        overlay_running(&mut theirs, 31_100);
         assert_eq!(theirs.excerpt.as_deref(), Some("Running in Ghostty · `make deploy`"));
-        waited().retain(|x| x.run.run.id != "run-test-waited-by");
+        assert!(forget_unwaited(31_000 + WAIT_LAPSE_MS));
     }
 
     #[test]
