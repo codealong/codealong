@@ -7,6 +7,8 @@
 //! a unique prefix. `--help` on any subcommand is the reference the agent skill points at, so
 //! its text is written for an agent reading it cold.
 
+mod attach;
+
 use std::collections::{HashMap, HashSet};
 use std::io::Read;
 use std::path::Path;
@@ -218,6 +220,11 @@ enum TerminalCmd {
         id: String,
         #[arg(long)]
         close: bool,
+    },
+    /// Show one of Codealong's own terminals here, in this terminal, as it is (its scrollback, its screen, the program's modes), and type into it: for a session that runs in Codealong's terminal, from Ghostty or over ssh. The terminal takes this one's size while it's attached. Ctrl+\ lets go, leaving it running. Its id, or a session's key for the terminal the session runs in; without one, lists the terminals there are.
+    Attach {
+        /// The terminal's id (or a unique start of it), or a session's key.
+        terminal: Option<String>,
     },
     /// The runs kept (a week), newest first: the ones the session running this asked for, or every one with --all. Each has its state (starting: its tab is open and its shell hasn't run it yet; running; exited, with `exitCode`; ended: its tab was closed or it was killed).
     List {
@@ -7017,6 +7024,25 @@ fn terminal_cmd(c: &mut Client, cmd: TerminalCmd, json: bool) -> Result<()> {
             println!("{said}");
             Ok(())
         }
+        TerminalCmd::Attach { terminal: None } => {
+            let board = c.board()?;
+            let title = |key: &str| board.lanes.iter().flat_map(|l| &l.sessions).find(|s| s.key == key).map(|s| s.title.clone());
+            let all: Vec<&crate::terminals::Glance> = board.terminals.values().flatten().filter(|t| t.running).collect();
+            if json {
+                return print_json(&all);
+            }
+            if all.is_empty() {
+                println!("No terminal of Codealong's is running.");
+                return Ok(());
+            }
+            for t in all {
+                let name = if t.title.trim().is_empty() { t.program.clone().unwrap_or_else(|| t.shell.clone()) } else { t.title.trim().to_string() };
+                let whose = if t.session.is_empty() { "no session".to_string() } else { title(&t.session).unwrap_or_else(|| t.session.clone()) };
+                println!("{}  {}  {}  {}{}", t.id, one_line(&name, 40), one_line(&whose, 50), tilde(Path::new(&t.folder)), if t.hosts { "  (the session runs here)" } else { "" });
+            }
+            Ok(())
+        }
+        TerminalCmd::Attach { terminal: Some(what) } => attach::run(&what),
         TerminalCmd::List { all } => {
             let me = if all { None } else { find_me(c)?.0 };
             let runs = run_list(c, me.as_deref())?;

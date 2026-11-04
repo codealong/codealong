@@ -592,7 +592,7 @@ that sets one goes unused, with a notice saying why.
 scan = ["~/projects"]          # where repos are found, three levels deep
 
 [apps]
-terminal = "ghostty"           # or "iterm2", "terminal", "rex"
+terminal = "ghostty"           # or "iterm2", "terminal", "rex", or "codealong": sessions start in a terminal of Codealong's own, in their panel
 editor = "cursor"              # or "vscode", "zed", "xcode"… (Settings lists those installed), or an app's name
 new_terminal = "project"       # a tab beside the same worktree, repo or project (in Rex, the project's own session); or "tab", "window"
 move_pointer = false           # move the pointer to a terminal brought forward on another screen

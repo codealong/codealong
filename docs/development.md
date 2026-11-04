@@ -143,6 +143,14 @@ whose tests feed the emulator escape sequences and check the screens, keys and p
 of them. `.claude/rules/libghostty.md` has what the library does and doesn't do that the code
 relies on.
 
+A newer revision may write snapshots (`Terminal::encode_snapshot`) its older builds can't read:
+a server handing its terminals to a new build (`serve.rs` `hand_over`) writes them with the old
+library and the new build reads them with its own. One it can't read leaves its program to draw
+the screen again (`terminals.rs` `run`), its scrollback lost, so a revision that changes the
+format is worth a word in the release notes. `cargo test terminals` checks a snapshot round trip
+within one build; across two builds, a server in a home of its own handed over to the next is the
+check (`.claude/rules/terminals.md`, *Codealong's own terminals*).
+
 ## Icons and the mark
 
 The [logo master and brand notes](../design/brand/README.md) live in `design/brand`.

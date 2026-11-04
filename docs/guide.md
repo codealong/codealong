@@ -254,7 +254,7 @@ session, through its service, so OpenCode must be running. Antigravity's can't b
 
 Stop turn, in the right-click menu of a session whose turn is running (here, on the floating bar and
 in the quick panel), ends that turn and leaves the session waiting for you, as its own Stop or
-Escape would: Escape pressed in its Ghostty, iTerm2, Rex or tmux tab for Claude Code and the Codex CLI
+Escape would: Escape pressed in its Ghostty, iTerm2, Rex, Codealong or tmux tab for Claude Code and the Codex CLI
 (through its account's background service for a Claude Code background job), the Codex app's own
 Stop for its threads, and OpenCode's service for OpenCode. Claude app sessions, Terminal tabs and
 Antigravity can't be stopped from Codealong.
@@ -675,7 +675,7 @@ the turn takes it in at its next step; one Codex didn't take stays queued, with 
 Claude Code holds a message sent while its turn runs until the step it's on ends (a long command
 included), and lists it the same way, from Codealong, its own terminal or another device, saying
 Queued until its current step ends. Send now there is Claude Code's own send-now key, the one its
-terminal offers under what it holds (Ctrl+X Ctrl+S), pressed in its Ghostty, iTerm2, Rex or tmux tab or
+terminal offers under what it holds (Ctrl+X Ctrl+S), pressed in its Ghostty, iTerm2, Rex, Codealong or tmux tab or
 through the background service for a background job: Claude Code stops the step it's on, as
 Escape would, cutting a running command short, and goes on with everything it holds. To keep a
 long command running, send the message with the box's own Send now (⌃⏎) instead, which moves the
@@ -724,7 +724,7 @@ Code's Manual, Accept edits, Plan, Auto and Bypass); ⇧⇥ in its box steps to 
 Code's terminal. Either switches that session alone, mid-turn too and while it waits on you: what it
 asks from then on goes by the new mode, and what it asks now still waits for your answer.
 
-A Claude Code or Antigravity session running in Ghostty, iTerm2, Rex or tmux has the same menu, of the
+A Claude Code or Antigravity session running in Ghostty, iTerm2, Rex, Codealong or tmux has the same menu, of the
 modes its terminal steps through with Shift+Tab, in that order, and ⇧⇥ in its box steps to the
 next: Codealong presses Shift+Tab in its tab, as often as it takes to reach the mode you picked,
 mid-turn too, but not while it waits on you, where Shift+Tab would go to what it asks. Antigravity
@@ -775,7 +775,7 @@ instead): a session Codealong runs is answered through its agent, and calls it a
 (Claude Code reading several files at once) show one after another; OpenCode's are answered through its service, Claude Code's through the Codealong plugin's
 `PermissionRequest` hook when the account has the plugin (wherever the session runs: any terminal,
 the Claude app), with Always too where Claude Code offers to allow calls like it from now on (its
-button says what that adds), and otherwise by a keypress in its Ghostty, iTerm2, Rex or tmux tab, only
+button says what that adds), and otherwise by a keypress in its Ghostty, iTerm2, Rex, Codealong or tmux tab, only
 while its own record says the prompt is up for that call. A Codex session's approval comes the
 moment Codex asks it, through a hook Codealong puts in the account with its skill (Settings ›
 Agents): the command or the edit, with the reason the agent gave, and in its Ghostty, iTerm2, Rex or
@@ -832,7 +832,7 @@ doesn't say whether a question takes several choices, so it's offered as one tha
 give several, write them in your own answer ("Red, Blue"), which is how the job takes several
 anyway. A session in a terminal whose questions the plugin didn't hand over shows them once its
 conversation has the call (Claude Code often writes it only once they're answered, and until then
-its row only says it waits on you). In its Ghostty, iTerm2, Rex or tmux tab, Answer presses the
+its row only says it waits on you). In its Ghostty, iTerm2, Rex, Codealong or tmux tab, Answer presses the
 keys that give your picks there, typing your own words into its "Type something." box, and Decline
 presses Escape, which stops its turn. Your own words for a question that takes several choices are
 answered in its terminal, and so are questions whose choices come with previews (a mockup or code
@@ -840,14 +840,14 @@ beside each), which Claude Code shows in a dialog of its own. A choice you ticke
 conversation shows the answers it took. Each request the plugin hands over, and why one was let go
 without an answer, is written to `~/Library/Logs/Codealong/asks.log` (on Linux,
 `~/.local/state/codealong/asks.log`). An Antigravity command line conversation's questions (its
-`ask_question`) show the same way while it runs in a Ghostty, iTerm2, Rex or tmux tab: Answer presses
+`ask_question`) show the same way while it runs in a Ghostty, iTerm2, Rex, Codealong or tmux tab: Answer presses
 the keys there that give your picks, typing your own words into its Write-in box, and Decline
 skips them all and stops its turn. A question with more than eight choices is answered in its
 terminal. What you'd begun answering in its terminal is cleared first, except on the last
 question, where a choice you ticked there and pick here too ends up unticked; the conversation
 shows the answers it took. Another session's message that a Claude Code session holds for
 you to allow (it skips permission prompts and the sender didn't say it does too) shows the same way,
-all of it when Codealong sent it, with Deliver and Deny, pressed in its Ghostty, iTerm2, Rex or tmux tab
+all of it when Codealong sent it, with Deliver and Deny, pressed in its Ghostty, iTerm2, Rex, Codealong or tmux tab
 or typed into its background job; with several held, it opens where it runs, which shows them one at
 a time. Others open where they run to be answered. The box stays meanwhile, keeping what you'd
 written. Where the call can be answered here, sending what you wrote (⏎) denies it and tells the
@@ -877,7 +877,7 @@ buttons' tooltips have them.
 #### Stop and send now
 
 The box's send button sits inside it, at its corner, and its placeholder says how a message gets
-there: typed into its Ghostty, iTerm2, Terminal, Rex or tmux tab, pasted into its background job, as a
+there: typed into its Ghostty, iTerm2, Terminal, Rex, Codealong or tmux tab, pasted into its background job, as a
 message from Codealong, or through its app. While a turn runs that Codealong can stop, the button
 stops it while the box is empty, and so do Escape twice in the box and ⌘. anywhere in the window, as
 the placeholder says; it says Stopping until the turn has ended. One Escape never stops a turn, since
@@ -2715,10 +2715,44 @@ and programs that ask for the colors are told them.
 
 A terminal belongs to its session: marking the session done or archiving it closes its
 terminals. They run in Codealong's server, so they carry on while the app relaunches or is
-closed, and an open window picks them up as they were; a server that restarts (an update that
-changes the engine, Restart server) ends them. To keep using your terminal app for all of this,
-set `run_in = "terminal"` in config.toml's `[apps]`: ⌃` then opens the session's folder in your
-terminal app as before, and the commands below run in its tabs.
+closed, and an open window picks them up as they were. An update of the app where it's installed
+hands them to the new build as they are (below); a server that ends any other way (Restart
+server, a crash) ends them. To keep using your terminal app for all of this, set `run_in =
+"terminal"` in config.toml's `[apps]`: ⌃` then opens the session's folder in your terminal app as
+before, and the commands below run in its tabs.
+
+### Sessions in Codealong's terminal
+
+Codealong's own terminal can be the one sessions start in, in place of Ghostty, iTerm2, Terminal
+or Rex: Settings › General › Terminal › Codealong (`terminal = "codealong"` in `[apps]`). A start
+or a resume in a terminal then opens one of Codealong's, its shell typed the start's line, and the
+session it makes lives there: its panel gets a switch under its header between its
+conversation and its terminal, where you type to the agent directly. ⌃` in that terminal goes back
+to the conversation and its box; Show in shows the terminal; its picture-in-picture button pops it
+out into a window of its own, as a terminal under the box does. The drawer under the box keeps
+the session's other terminals. Everything Codealong does to a session in a terminal is done
+directly: what you send is pasted and sent with Return, Answer presses its keys, Close idle
+sessions and Close stale terminals close it, and a start goes ahead while the screen is locked,
+with no tmux needed. A folder opened in a terminal, or a background job attached to, is no
+session's, and gets a window of its own. Claude Code and Codex turn on the keyboard protocol that
+tells Shift+Return apart, so it starts a new line there; and a program that marks a redraw as one
+(synchronized output, which both do) is drawn once it's done, never halfway.
+
+The terminals carry on through an update: when an app of a newer build at the same place opens,
+the server becomes that build in place, its terminals handed across with their screens, modes and
+scrollback, and the agents in them never notice; macOS's privacy permissions they had hold, since
+it's the same process. A server that ends any other way (a crash, Restart server, a Codealong of
+another build or place replacing it) ends them; a session it cut off partway through a turn is
+carried on, in Codealong's terminal again, as a session Codealong runs itself is after a restart
+(`[sessions] continue_after_restart`). Privacy prompts for an agent in Codealong's terminal name
+Codealong, not your terminal app, and what you let your terminal app reach (Full Disk Access,
+say) isn't Codealong's until you let it too.
+
+`codealong terminal attach <terminal>` shows one of these terminals in another, Ghostty or a
+terminal over ssh, as it is (its scrollback, its screen, the program's modes), and what you type
+there goes to its program; the terminal takes that terminal's size while it's attached, and
+Ctrl+\ lets go, leaving it running in Codealong. It takes a terminal's id or a session's key
+(the terminal the session runs in); `codealong terminal attach` alone lists them.
 
 ### Commands in your terminal
 
