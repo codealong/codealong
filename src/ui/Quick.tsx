@@ -387,6 +387,9 @@ export function Quick() {
   const arrived = useRef<number | null>(null);
   // The row the pointer was last moved onto, so a click does only a row you aimed at (aim.ts).
   const aim = useRef<Aim | null>(null);
+  // Whether you've scrolled the list since you last chose a row or it started afresh: the
+  // selected row is kept in view only until then (below, where `active` is worked out).
+  const scrolledByYou = useRef(false);
 
   // Opening. Codealong opens the panel with a script that calls `window.__quickOpen` with what
   // it opens for and the board, and shows the panel at the height it returns. WebKit runs that
@@ -1049,19 +1052,23 @@ export function Quick() {
   const firstFound = asSearch && !inSendTo ? (keys.find((k) => k !== 'sendto' && k !== COMPOSE) ?? keys[0]) : keys[0];
   const active = activeKey && keys.includes(activeKey) ? activeKey : startLeads && !inSendTo ? COMPOSE : firstFound;
 
-  // The selected row is brought into view as you choose it (the keys, the pointer, a click) and as
-  // the list starts afresh (what's typed, Send to's box, the project, an open). Not when the row
-  // that leads by itself changes as the list sorts itself again under a list you've scrolled
-  // down (a session that works moving up, what sessions said coming in): that took you back to
-  // the top every few seconds. It's found by its key, not its class: rows a render left behind
-  // (two groups under one key, 2026-11-04) kept `is-active` and took the scroll to the top.
+  // The selected row is kept in view, whatever selects it (you, Jev's answer coming in, the row
+  // that leads changing), until you scroll the list yourself; then only your next choice or a
+  // fresh list (what's typed, Send to's box, the project, an open) moves it. Following the row
+  // that leads as the list sorts itself again under a list you'd scrolled down (a session that
+  // works moving up, what sessions said coming in) took you back to the top every few seconds.
+  // It's found by its key, not its class: rows a render left behind (two groups under one key,
+  // 2026-11-04) kept `is-active` and took the scroll to the top.
   useEffect(() => {
+    scrolledByYou.current = false;
+  }, [activeKey, text, sendTo, current, opens]);
+  useEffect(() => {
+    if (scrolledByYou.current) return;
     const rows = list.current?.querySelectorAll<HTMLElement>('[data-row]') ?? [];
     Array.from(rows)
       .find((el) => el.dataset.row === active)
       ?.scrollIntoView({ block: 'nearest' });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on what chose the row: `active` changing by itself as the list sorts itself again mustn't scroll
-  }, [activeKey, text, sendTo, current, opens]);
+  }, [active, activeKey, text, sendTo, current, opens]);
 
   const move = (delta: number) => {
     const i = keys.indexOf(active);
@@ -2103,12 +2110,21 @@ export function Quick() {
           onMouseMove={pointerAt}
           onWheel={() => {
             aim.current = aimedByScroll(aim.current);
+            scrolledByYou.current = true;
           }}
           onMouseLeave={() => {
             aim.current = aimedAtNothing(aim.current);
           }}
         >
-          <div ref={scroller} className="ca-quick-scroll">
+          <div
+            ref={scroller}
+            className="ca-quick-scroll"
+            // A press on the list itself, not on a row in it, is on its scroll bar, where macOS
+            // shows one: dragging it scrolls as the wheel does.
+            onPointerDown={(e) => {
+              if (e.target === e.currentTarget) scrolledByYou.current = true;
+            }}
+          >
             {!board || board.loading ? (
               <>
                 <p className="ca-quick-note">{error ? '' : 'Reading sessions…'}</p>
