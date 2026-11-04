@@ -512,7 +512,7 @@ impl GhPoll {
             }
             Event::Made(result, stamp) => {
                 self.on_read(github::MADE, result.as_ref().err(), stamp, now);
-                self.on_made(result, seeds, now)
+                self.on_made(result, now)
             }
             Event::PollEnded => {
                 // The board says so at once (sounds.rs counts reviews from then).
@@ -570,7 +570,7 @@ impl GhPoll {
                 self.on_requested(result, seeds, now);
             }
             github::Answer::Made(result, _) => {
-                self.on_made(result, seeds, now);
+                self.on_made(result, now);
             }
         }
     }
@@ -720,20 +720,10 @@ impl GhPoll {
         true
     }
 
-    /// Each project's repo here by the name GitHub has for it now (lowercase), as its remote names
-    /// it.
-    fn here(&self, seeds: &[LaneSeed]) -> HashMap<String, String> {
-        let mut here: HashMap<String, String> = HashMap::new();
-        for slug in seeds.iter().filter_map(|s| s.repo_slug.as_ref()) {
-            let now = self.names.now.get(&slug.to_lowercase()).unwrap_or(slug);
-            here.entry(now.to_lowercase()).or_insert_with(|| slug.clone());
-        }
-        here
-    }
-
     /// The PRs sessions made in repos whose PRs aren't read, filed under the repo each was asked
-    /// for by, or a project's repo that GitHub calls that now.
-    fn on_made(&mut self, result: Result<Made, Failure>, seeds: &[LaneSeed], now: Now) -> bool {
+    /// for by, which is how the sessions' links name it: a project's repo renamed since is matched
+    /// by the board (`board::made_item`).
+    fn on_made(&mut self, result: Result<Made, Failure>, now: Now) -> bool {
         let found = match result {
             Ok(found) => found,
             Err(e) => {
@@ -741,12 +731,8 @@ impl GhPoll {
                 return true;
             }
         };
-        // A project's repo whose remote has the name it had before a rename, by that name, as the
-        // search's PRs are (`on_requested`).
-        let here = self.here(seeds);
         let mut made: HashMap<String, Vec<PrRaw>> = HashMap::new();
         for (slug, pr) in found.prs {
-            let slug = here.get(&slug.to_lowercase()).cloned().unwrap_or(slug);
             made.entry(slug).or_default().push(pr);
         }
         for (slug, prs) in made.iter_mut() {
@@ -772,7 +758,11 @@ impl GhPoll {
                 return true;
             }
         };
-        let here = self.here(seeds);
+        let mut here: HashMap<String, String> = HashMap::new();
+        for slug in seeds.iter().filter_map(|s| s.repo_slug.as_ref()) {
+            let now = self.names.now.get(&slug.to_lowercase()).unwrap_or(slug);
+            here.entry(now.to_lowercase()).or_insert_with(|| slug.clone());
+        }
         let mut requested: HashMap<String, Vec<PrRaw>> = HashMap::new();
         for (slug, pr) in found.prs {
             if let Some(local) = here.get(&slug.to_lowercase()) {
@@ -1169,7 +1159,7 @@ mod tests {
         let mut gh = quiet();
         let seeds = [seed("/r/spark", "sprucehq/spark", "feature")];
         let asked = PrRaw { review_requested: true, ..pr(7) };
-        let reviews = |gh: &GhPoll| board::pr_items(&seeds, &[], gh.prs(), gh.requested(), gh.made(), Some("gwen"), &Default::default()).into_iter().filter(|p| p.waits_on_review()).count();
+        let reviews = |gh: &GhPoll| board::pr_items(&seeds, &[], gh.prs(), gh.requested(), gh.made(), gh.repo_names(), Some("gwen"), &Default::default()).into_iter().filter(|p| p.waits_on_review()).count();
         // The search answers first: the board lists a read repo's reviews from its read, which
         // is still to come.
         let found = Requested { login: Some("gwen".into()), prs: vec![("sprucehq/spark".into(), asked.clone())] };
@@ -1442,12 +1432,5 @@ mod tests {
         assert!(gh.ask(&plain, true, after(t, 180)).is_none());
         assert!(gh.made().is_empty());
         assert!(!gh.schedule.stamps.contains_key(github::MADE));
-
-        // A project's repo renamed on GitHub, whose remote has its old name: a PR read by the new
-        // name is filed under the remote's, as the project's repo.
-        gh.names.now.insert("spurhq/spur".into(), "spurhq/spur-app".into());
-        let renamed = PrRaw { url: "https://github.com/spurhq/spur-app/pull/12".into(), ..pr(12) };
-        gh.on_event(Event::Made(Ok(Made { prs: vec![("spurhq/spur-app".into(), renamed)], ..Made::default() }), None), &seeds, after(t, 181));
-        assert_eq!(gh.made().keys().collect::<Vec<_>>(), ["spurhq/spur"]);
     }
 }

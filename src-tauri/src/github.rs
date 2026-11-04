@@ -1225,9 +1225,14 @@ fn fresh(dir: &Path, slugs: &[String], made: &[String], now: SystemTime) -> Opti
     for slug in slugs {
         answers.push(lately(slug)?);
     }
-    // Kept for the PRs asked for now, not others.
+    // Kept for the PRs asked for now, not others, and read as whoever the search was read as:
+    // another sign-in sees other requests, and the answer taken last says who's signed in.
     if !made.is_empty() {
-        let kept = lately(MADE).filter(|a| matches!(a, Answer::Made(Ok(found), _) if found.asked == made))?;
+        let who = match &answers[0] {
+            Answer::Requested(Ok(found), _) => found.login.clone(),
+            _ => None,
+        };
+        let kept = lately(MADE).filter(|a| matches!(a, Answer::Made(Ok(found), _) if found.asked == made && found.login == who))?;
         answers.push(kept);
     }
     Some(answers)
@@ -2875,14 +2880,17 @@ mod tests {
     #[test]
     fn a_snapshot_takes_the_made_prs_kept_for_the_same_prs() {
         let dir = scratch("fresh-made");
-        save(&dir, REQUESTED, &Stamp { glance: "a".into(), at: 1 }, r#"{"data":{"viewer":{"login":"gwen"},"search":{"nodes":[]}}}"#);
+        save(&dir, REQUESTED, &Stamp { glance: "a".into(), at: 1 }, r#"{"data":{"viewer":{"login":"me"},"search":{"nodes":[]}}}"#);
         let made: Vec<String> = ["upstream/orm#8580", "gone/repo#1", "lists/awesome#3", "lists/awesome#12", "lists/old-name#7"].map(String::from).to_vec();
         assert!(fresh(&dir, &[], &made, SystemTime::now()).is_none(), "nothing kept for them");
-        save(&dir, MADE, &Stamp { glance: made_mark(&made, "gwen"), at: 1 }, MADE_PRS);
+        save(&dir, MADE, &Stamp { glance: made_mark(&made, "me"), at: 1 }, MADE_PRS);
         let answers = fresh(&dir, &[], &made, SystemTime::now()).unwrap();
         assert!(matches!(&answers[1], Answer::Made(Ok(found), Some(_)) if found.prs.len() == 3));
         assert!(fresh(&dir, &[], &made[1..], SystemTime::now()).is_none(), "kept for other PRs than are asked for");
         assert_eq!(fresh(&dir, &[], &[], SystemTime::now()).map(|a| a.len()), Some(1), "none asked for");
+        // The search was read as someone else since: theirs aren't taken with it.
+        save(&dir, REQUESTED, &Stamp { glance: "b".into(), at: 2 }, r#"{"data":{"viewer":{"login":"gwen"},"search":{"nodes":[]}}}"#);
+        assert!(fresh(&dir, &[], &made, SystemTime::now()).is_none(), "read as another sign-in");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
