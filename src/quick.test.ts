@@ -50,7 +50,27 @@ describe('attentionRows', () => {
       ['u1', 'unread'],
       ['u2', 'unread'],
     ]);
-    expect(counts).toEqual({ needs: 2, reviews: 0, unread: 2, working: 1 });
+    expect(counts).toEqual({ top: 0, needs: 2, reviews: 0, unread: 2, working: 1 });
+  });
+
+  it('lists the ones moved to the top first under a heading of their own, so no group comes twice', () => {
+    const up = (at: number) => ({ raised: { at, agent: true, by: 'claude:claude:boss', byTitle: 'boss', note: 'first' } });
+    const b = board([
+      lane('app2', [session('n', 'needs', NOW - 90), session('u', 'unread', NOW - 80), session('nUp', 'needs', NOW - 5, up(NOW - 2)), session('uUp', 'unread', NOW - 1, up(NOW - 1))]),
+      // One running isn't waiting yet: it stays with Working.
+      lane('app3', [session('wUp', 'working', NOW, up(NOW))]),
+    ]);
+    const { rows, counts } = attentionRows(b, ALL_PROJECTS);
+    expect(rows.map((r) => [r.key, r.group])).toEqual([
+      ['uUp', 'top'],
+      ['nUp', 'top'],
+      ['n', 'needs'],
+      ['u', 'unread'],
+    ]);
+    // Each heading counts what's under it.
+    expect(counts).toEqual({ top: 2, needs: 1, reviews: 0, unread: 1, working: 1 });
+    // The waiting window works through them in the same order.
+    expect(queueRows(b, ALL_PROJECTS).map((r) => r.key)).toEqual(['uUp', 'nUp', 'n', 'u']);
   });
 
   it('lists a helper only while it waits on you, as the floating bar does', () => {
@@ -67,7 +87,7 @@ describe('attentionRows', () => {
     const { rows, counts } = attentionRows(b, ALL_PROJECTS);
     expect(rows.map((r) => r.key)).toEqual(['n']);
     // One that runs still counts with Working.
-    expect(counts).toEqual({ needs: 1, reviews: 0, unread: 0, working: 1 });
+    expect(counts).toEqual({ top: 0, needs: 1, reviews: 0, unread: 0, working: 1 });
     expect(queueRows(b, ALL_PROJECTS).map((r) => r.key)).toEqual(['n']);
     expect(recentRows(b, ALL_PROJECTS, new Set(rows.map((r) => r.key)), NOW).rows.map((r) => r.key)).toEqual(['zw', 'zu', 'zn']);
     expect(projectCounts(b, [ALL_PROJECTS])).toEqual({ [ALL_PROJECTS]: { needs: 1, unread: 0 } });

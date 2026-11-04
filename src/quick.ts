@@ -34,7 +34,7 @@ export function inProject(lane: Pick<Lane, 'project'>, project: string): boolean
   return project === ALL_PROJECTS || lane.project === project;
 }
 
-export type RowGroup = 'suggested' | 'skills' | 'needs' | 'reviews' | 'unread' | 'working' | 'found' | 'sendto' | 'todos' | 'prs' | 'ready' | 'recent';
+export type RowGroup = 'suggested' | 'skills' | 'top' | 'needs' | 'reviews' | 'unread' | 'working' | 'found' | 'sendto' | 'todos' | 'prs' | 'ready' | 'recent';
 
 /** Where a session goes in the empty panel's list by its status, as on the floating bar: errors
  *  wait on you like questions do. A helper or a headless run waits there only while it needs
@@ -150,22 +150,27 @@ export const QUEUE_READS: Reads<QueueRow> = {
  *  sessions whose turn ended, each the longest wait first, as on the floating bar and in the
  *  notch (bar.ts `NOTCH_ORDER`); with none of those, the ones working, the longest running first.
  *  Snoozed ones are left out until their time (`groupOf`), so a recent one is in `recentRows`.
+ *  The ones moved to the top come first whatever they wait as (lanes.ts `byRaise`), under a
+ *  heading of their own: under their statuses' they'd split those groups, a Needs you and a
+ *  Your turn above the Needs you and Your turn of the rest.
  *  `counts` has every group's full size, for the headings. */
-export function attentionRows(board: Board, project: string, limit = MAX_ROWS): { rows: QueueRow[]; counts: Record<'needs' | 'reviews' | 'unread' | 'working', number> } {
+export function attentionRows(board: Board, project: string, limit = MAX_ROWS): { rows: QueueRow[]; counts: Record<'top' | 'needs' | 'reviews' | 'unread' | 'working', number> } {
   const sessions = sessionsIn(board, project)
     .flatMap(({ lane, session }) => {
-      const group = groupOf(session);
+      const status = groupOf(session);
+      // One running isn't in the queue yet: it's first once its turn ends.
+      const group: 'top' | typeof status = status && session.raised && status !== 'working' ? 'top' : status;
       return group ? [{ kind: 'session' as const, key: session.key, group, lane, session, marks: [] }] : [];
     })
     .sort((a, b) => ORDER.indexOf(a.group) - ORDER.indexOf(b.group) || byStatusTime(a.session, b.session) || a.key.localeCompare(b.key));
   const reviews = reviewRows(board, project);
-  const counts = { needs: 0, reviews: reviews.length, unread: 0, working: 0 };
-  for (const r of sessions) counts[r.group as 'needs' | 'unread' | 'working'] += 1;
+  const counts = { top: 0, needs: 0, reviews: reviews.length, unread: 0, working: 0 };
+  for (const r of sessions) counts[r.group] += 1;
   const waiting = inQueueOrder<QueueRow>([...sessions.filter((r) => r.group !== 'working'), ...reviews], QUEUE_READS);
   return { rows: (waiting.length > 0 ? waiting : sessions).slice(0, limit), counts };
 }
 
-const ORDER: RowGroup[] = ['needs', 'unread', 'working'];
+const ORDER: RowGroup[] = ['top', 'needs', 'unread', 'working'];
 
 /**
  * What the waiting window works through (Waiting.tsx): every session in the project that needs

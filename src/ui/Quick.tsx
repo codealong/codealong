@@ -160,7 +160,7 @@ const HERE = 'here';
 
 type PickerKind = 'project' | 'device' | 'worktree' | 'agent';
 
-const GROUP_WORD: Record<RowGroup, string> = { suggested: 'Suggested', skills: 'Skills', needs: 'Needs you', reviews: 'Review requested', unread: 'Your turn', working: 'Working', found: 'Sessions', sendto: 'Send to', todos: 'Todos', prs: 'PRs', ready: 'Ready todos', recent: 'Last 24 hours' };
+const GROUP_WORD: Record<RowGroup, string> = { suggested: 'Suggested', skills: 'Skills', top: 'Moved to top', needs: 'Needs you', reviews: 'Review requested', unread: 'Your turn', working: 'Working', found: 'Sessions', sendto: 'Send to', todos: 'Todos', prs: 'PRs', ready: 'Ready todos', recent: 'Last 24 hours' };
 
 /** A suggestion from Jev, as a row. */
 interface SuggestRow {
@@ -1976,12 +1976,12 @@ export function Quick() {
   const foundNothing = searching && rows.every((r) => r.kind === 'suggest' || r.kind === 'sendto');
   // Send to's rows keep a column for how likely Jev thinks each is, when it weighed any.
   const sendLikely = !!sendList?.rows.some((r) => r.p != null);
-  const nothingWaits = listing && !!attention && attention.counts.needs + attention.counts.reviews + attention.counts.unread === 0;
+  const nothingWaits = listing && !!attention && attention.counts.top + attention.counts.needs + attention.counts.reviews + attention.counts.unread === 0;
   /** A group's heading count: all there are of it, when the list shows only some. */
   const groupCount = (g: RowGroup, shown: number): number => {
     if (g === 'ready') return readyList?.count ?? shown;
     if (g === 'recent') return recent?.count ?? shown;
-    if (g === 'needs' || g === 'reviews' || g === 'unread' || g === 'working') return attention?.counts[g] ?? shown;
+    if (g === 'top' || g === 'needs' || g === 'reviews' || g === 'unread' || g === 'working') return attention?.counts[g] ?? shown;
     if (g === 'found') return foundSessions.length;
     if (g === 'sendto') return sendList?.count ?? shown;
     return shown;
