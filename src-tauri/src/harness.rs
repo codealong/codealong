@@ -109,6 +109,14 @@ pub trait Adapter: Sync {
         crate::attachments::Style::Path
     }
 
+    /// Whether a prompt led by `!` typed into the session's terminal runs the rest in its own
+    /// shell, as its box takes one (Claude Code's bash mode, Codex's shell command), rather than
+    /// going to the agent as words: a command of yours for its shell is typed there then
+    /// (`send::shell_routes`).
+    fn typed_shell_commands(&self) -> bool {
+        false
+    }
+
     /// Whether the session's input box may still hold text of its own, which what's typed
     /// would be added to: the box is cleared first then.
     fn clears_before_typing(&self, _account: &AccountCfg, _session: &Session) -> bool {
@@ -1342,6 +1350,22 @@ mod tests {
 
     fn session(harness: Harness, surface: Surface, status: Status, live: bool, pid: Option<u32>) -> Session {
         Session { harness, surface, status, live, pid, title: "Fix the build".into(), cwd: "/tmp".into(), ..Session::new(Harness::Claude, "claude", "abc") }
+    }
+
+    /// A command of yours led by `!` goes only where its harness runs it in the session's own
+    /// shell: typed into Claude Code's or Codex's terminal, or OpenCode's service; never the Codex
+    /// app, a resume, or a terminal whose box would hand the agent the words.
+    #[test]
+    fn a_command_for_its_shell_goes_only_where_its_harness_runs_one() {
+        use crate::send::shell_routes;
+        let typed = || vec![Route::Type { pid: 9 }, Route::Resume];
+        assert_eq!(shell_routes(adapter(Harness::Claude), typed()), vec![Route::Type { pid: 9 }]);
+        assert_eq!(shell_routes(adapter(Harness::Codex), typed()), vec![Route::Type { pid: 9 }]);
+        assert!(shell_routes(adapter(Harness::Cursor), typed()).is_empty());
+        assert!(shell_routes(adapter(Harness::Antigravity), typed()).is_empty());
+        assert!(shell_routes(adapter(Harness::Codex), vec![crate::codex::ipc::InApp.into()]).is_empty());
+        let posted = || -> Route { crate::opencode::Posted.into() };
+        assert_eq!(shell_routes(adapter(Harness::Opencode), vec![posted()]), vec![posted()]);
     }
 
     #[test]

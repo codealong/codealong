@@ -690,8 +690,7 @@ fn command_to_run(p: &params::RunCommand) -> Result<String, String> {
     if p.block {
         return crate::runcode::command(&p.text).map_err(words);
     }
-    let text = p.text.trim_start();
-    let command = text.strip_prefix('!').unwrap_or(text).trim().to_string();
+    let command = crate::send::shell_command_body(&p.text).to_string();
     match crate::terminal::refused(&command) {
         Some(why) => Err(why.into()),
         None => Ok(command),

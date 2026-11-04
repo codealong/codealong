@@ -20,12 +20,14 @@
 //! until the agent can take it.
 //!
 //! A prompt of yours that starts with `!` is a command for the session's own shell, as Claude
-//! Code's box takes one (bash mode: it runs in the session, and the agent reads what it prints).
-//! It goes only the ways that put it in that box as typed, its terminal or a background job's,
-//! never one that would hand the agent the words, or resume the session on them
-//! (`typed_routes`). That's for one sent from another device: the box in a window here, and Run on
-//! a block in the conversation, run it in a tab of yours instead and tell the session what it
-//! printed (actions.rs `run_command`).
+//! Code's box takes one (bash mode: it runs in the session, and the agent reads what it prints),
+//! and Codex's terminal and OpenCode's service do too. It goes only the ways that run it there:
+//! typed into a box that takes `!` so (`Adapter::typed_shell_commands`), or a way of the
+//! harness's own that runs it (`Own::runs_shell_commands`), never one that would hand the agent
+//! the words, or resume the session on them (`shell_routes`). That's for one sent from another
+//! device, and for ⌥⏎ in a window's box here (`shell_way_in` says where it would go); ⏎ there,
+//! and Run on a block in the conversation, run it in a terminal of yours instead and tell the
+//! session what it printed (actions.rs `run_command`).
 //!
 //! An agent's message (`codealong session send`) is never yours. It starts with who sent it, that
 //! it isn't from the session's user, and how to answer, and it goes only the ways that don't read
@@ -373,6 +375,14 @@ pub trait Own: std::fmt::Debug + Send + Sync {
         false
     }
 
+    /// A command of yours led by `!` sent this way runs in the session's own shell, as its
+    /// harness's box runs one, rather than going to the agent as words: pasted into its box
+    /// (`as_typed`), or by a way of the harness's own to run a command in the session, which
+    /// `deliver` takes when `Delivery::shell_command` says so.
+    fn runs_shell_commands(&self) -> bool {
+        self.as_typed()
+    }
+
     /// Nothing takes the prompt this way: the harness takes none from outside, and it's only
     /// left on the clipboard for someone at this Mac to paste. An agent is told as much.
     fn leaves_it_to_paste(&self) -> bool {
@@ -431,6 +441,13 @@ pub struct Delivery<'a> {
 impl Delivery<'_> {
     pub fn from_agent(&self) -> bool {
         self.agent.is_some()
+    }
+
+    /// A command of yours led by `!`, for the session's own shell: it comes only a way that
+    /// `runs_shell_commands` (`shell_routes`). An agent's message, or Codealong's, starts with
+    /// who it's from, so it's never one.
+    pub fn shell_command(&self) -> bool {
+        self.agent.is_none() && shell_command(self.text)
     }
 
     /// The session's title as a sentence names it.
@@ -550,11 +567,17 @@ pub fn send_here(engine: &crate::engine::Handle, key: &str, text: &str, sender: 
 /// send it: the first of its ways in (`Adapter::routes`) that applies, as `send` tries them. None
 /// for a session Codealong runs itself, which its box says in its own words.
 pub fn way_in(board: &Board, cfg: &Config, key: &str) -> Result<Option<Way>> {
+    first_way(board, cfg, key, |_, routes| routes)
+}
+
+/// The first of the session's ways in that `keep` keeps and that applies, as `send` tries them.
+fn first_way(board: &Board, cfg: &Config, key: &str, keep: impl FnOnce(&dyn crate::harness::Adapter, Vec<Route>) -> Vec<Route>) -> Result<Option<Way>> {
     let (session, account) = crate::harness::find(board, cfg, key)?;
     if session.hosted {
         return Ok(None);
     }
-    let routes = crate::harness::adapter(session.harness).routes(account, session);
+    let adapter = crate::harness::adapter(session.harness);
+    let routes = keep(adapter, adapter.routes(account, session));
     let resume_in = launch::terminal_name(&cfg.apps.terminal);
     Ok(routes.iter().find_map(|r| way_of(r, &|pid| launch::terminal_kind(pid).map(|k| k.name()), &resume_in)))
 }
@@ -686,11 +709,11 @@ fn deliver(board: &Board, cfg: &Config, session_key: &str, text: &str, sender: &
     } else if *sender == Sender::Codealong {
         routes = codealong_routes(session, routes)?;
     } else if shell_command(&msg.text) {
-        routes = typed_routes(routes);
+        routes = shell_routes(adapter, routes);
         if routes.is_empty() {
             let title = quoted(&session.title);
             bail!(if session.live {
-                format!("{title} runs a command that starts with ! only when it's typed into its own box, and Codealong can't type there, so nothing was sent. Open it and run the command there.")
+                format!("Codealong can't hand {title} a command that starts with ! to run in its own shell from here, so nothing was sent. Open it and run the command there.")
             } else {
                 format!("{title} isn't running, so there's no shell for the command to run in; nothing was sent.")
             });
@@ -925,18 +948,33 @@ pub fn shell_command(text: &str) -> bool {
     text.starts_with('!') && !attachments::leads_with_link(text)
 }
 
-/// The ways in a command for the session's shell may take (`shell_command`): those that put it
-/// in the session's box as typed, where the `!` runs it. Any other would hand the agent the words
-/// to act on as it saw fit, or resume the session on them.
-pub(crate) fn typed_routes(routes: Vec<Route>) -> Vec<Route> {
+/// The command a prompt led by `!` runs (`shell_command`): what follows the `!`, as the box's
+/// bash mode runs it.
+pub fn shell_command_body(text: &str) -> &str {
+    let text = text.trim_start();
+    text.strip_prefix('!').unwrap_or(text).trim()
+}
+
+/// The ways in a command for the session's shell may take (`shell_command`): typed into its
+/// terminal where its harness's box runs a `!` (`Adapter::typed_shell_commands`), and its
+/// harness's own ways that run one (`Own::runs_shell_commands`). Any other would hand the agent
+/// the words to act on as it saw fit, or resume the session on them.
+pub(crate) fn shell_routes(adapter: &dyn crate::harness::Adapter, routes: Vec<Route>) -> Vec<Route> {
     routes
         .into_iter()
         .filter(|r| match r {
-            Route::Type { .. } => true,
+            Route::Type { .. } => adapter.typed_shell_commands(),
             Route::Resume => false,
-            Route::Own(own) => own.as_typed(),
+            Route::Own(own) => own.runs_shell_commands(),
         })
         .collect()
+}
+
+/// How a command of yours led by `!` would reach the session with this key to run in its own
+/// shell (`shell_routes`), for its box to say what ⌥⏎ does there: the first of those ways that
+/// applies, as `send` tries them. None where there's none, and for a session Codealong runs.
+pub fn shell_way_in(board: &Board, cfg: &Config, key: &str) -> Result<Option<Way>> {
+    first_way(board, cfg, key, shell_routes)
 }
 
 /// The ways in an agent's message may take, of the session's own. A harness with a way in for

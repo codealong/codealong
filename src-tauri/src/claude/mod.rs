@@ -825,6 +825,11 @@ impl crate::harness::Adapter for ClaudeCode {
         crate::attachments::Style::Mention
     }
 
+    /// `!` at the start of its box is bash mode, a paste led by one too (.claude/rules/claude-code.md).
+    fn typed_shell_commands(&self) -> bool {
+        true
+    }
+
     /// A prompt Claude Code took back may be in its input box again, where what's typed would
     /// be added to it and both go as one prompt.
     fn clears_before_typing(&self, account: &AccountCfg, s: &Session) -> bool {

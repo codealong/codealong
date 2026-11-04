@@ -44,6 +44,10 @@ pub fn conversation_items(v: &Value, at: i64) -> Vec<Item> {
                     };
                     let shell = scripted && !script.trim().is_empty() && kept_whole(&script);
                     let exit = it.get("exit_code").and_then(Value::as_i64);
+                    // One you ran with `!` in its box.
+                    if s("source") == "user_shell" {
+                        return user_shell(it, at, &script, shell, exit);
+                    }
                     vec![Item {
                         input: Some(clip_input(&script)),
                         output: Some(clip_output(&s("aggregated_output"))),
@@ -94,6 +98,25 @@ pub fn conversation_items(v: &Value, at: i64) -> Vec<Item> {
         }
         _ => Vec::new(),
     }
+}
+
+/// A command you ran with `!` in the thread's terminal UI, which runs it as itself and records
+/// it as a turn with no reply (0.162.1, 2026-11-03): this `CommandExecution` item with `source:
+/// "user_shell"`, then a user `response_item` `<user_shell_command>` holding the command and
+/// what it printed, which the model reads and the panel doesn't. The command is yours and its
+/// output its result, as Claude Code's bash mode shows (claude/conversation.rs `shell_items`).
+fn user_shell(it: &Value, at: i64, script: &str, shell: bool, exit: Option<i64>) -> Vec<Item> {
+    let id = it.get("id").and_then(Value::as_str).map(String::from);
+    let command = script.trim();
+    let you = Item {
+        id: id.clone(),
+        input: Some(clip_input(command)),
+        shell,
+        cwd: shell.then(|| it.get("cwd").and_then(Value::as_str).map(file_path_of)).flatten(),
+        ..item(at, "you", format!("! {command}"))
+    };
+    let printed = it.get("aggregated_output").and_then(Value::as_str).unwrap_or("");
+    vec![you, Item { id, output: Some(clip_output(printed)), failed: exit.is_some_and(|c| c != 0), ..item(at, "result", "") }]
 }
 
 // A prompt's images are in the rollout twice. The `UserMessage` item names each as you gave it:
@@ -181,5 +204,23 @@ mod tests {
         // Once the turn ends, nothing is running, whatever went unanswered.
         std::fs::write(&path, [lines.join("\n"), line("event_msg", r#"{"type":"turn_aborted"}"#)].join("\n") + "\n").unwrap();
         assert!(open_calls(&path).is_empty());
+    }
+
+    /// A command you ran with `!` in its terminal UI, as 0.162.1 records it (a scratch thread in
+    /// tmux, 2026-11-03), shows as yours with what it printed; the agent's own commands as before.
+    #[test]
+    fn a_command_you_ran_with_bang_shows_as_yours() {
+        let ran = |source: &str| {
+            serde_json::json!({ "timestamp": "2026-11-04T00:34:18.843Z", "type": "event_msg", "payload": { "type": "item_completed", "completed_at_ms": 1793752458843_i64, "item": {
+                "type": "CommandExecution", "id": "b6aa2297", "command": ["/bin/zsh", "-lc", "echo bang-$((6*7)) && pwd"], "cwd": "file:///Users/me/projects/kestrel",
+                "source": source, "status": "completed", "aggregated_output": "bang-42\n/Users/me/projects/kestrel\n", "exit_code": 0 } } })
+        };
+        let items = conversation_items(&ran("user_shell"), 0);
+        let said: Vec<(&str, &str, Option<&str>)> = items.iter().map(|i| (i.kind, i.text.as_str(), i.output.as_deref())).collect();
+        assert_eq!(said, [("you", "! echo bang-$((6*7)) && pwd", None), ("result", "", Some("bang-42\n/Users/me/projects/kestrel"))]);
+        assert_eq!((items[0].id.as_deref(), items[1].id.as_deref()), (Some("b6aa2297"), Some("b6aa2297")));
+        assert_eq!((items[0].input.as_deref(), items[0].shell, items[0].cwd.as_deref()), (Some("echo bang-$((6*7)) && pwd"), true, Some("/Users/me/projects/kestrel")));
+        let agents = conversation_items(&ran("agent"), 0);
+        assert_eq!((agents.len(), agents[0].kind), (1, "tool"));
     }
 }

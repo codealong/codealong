@@ -39,7 +39,9 @@ a change to what's sent shows there. What each harness records and accepts is in
      socket, its app) is a type in its module that implements `send::Own` and sends by it, told
      whose the message is and whether it goes in now (`send::Delivery`); `typed_attachments`,
      `clears_before_typing`, `takes_messages`, and for Send now `steers` and `sends_now_with`
-     (the keys typed in place of Return);
+     (the keys typed in place of Return); for a command of yours led by `!` (⌥⏎ in a window's
+     box), `typed_shell_commands` where its terminal's box runs one, or `Own::runs_shell_commands`
+     on a way of its own that does (`Delivery::shell_command`);
    - acting on it: `fork`, `fork_background`, `fork_from` (a copy from before a prompt of
      yours, Edit from here), `moves_accounts` with `move_to` and
      `move_to_background` (to another of its accounts), `move_folder` and

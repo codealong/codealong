@@ -107,7 +107,8 @@ mod tests {
 
     #[test]
     fn runs_a_shell_command_only_where_its_typed_into_the_box() {
-        use crate::send::{shell_command, typed_routes};
+        use crate::send::{shell_command, shell_routes};
+        let typed_routes = |routes| shell_routes(&crate::claude::ClaudeCode, routes);
         assert!(shell_command("! make test") && shell_command("  !ls") && !shell_command("Run `! ls` for me"));
         // An image the prompt opens with is a mention in the box, not bash mode, so a session
         // that isn't running is resumed on it.

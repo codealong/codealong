@@ -156,6 +156,8 @@ fn read_sessions_from(db: &Connection, since_ms: i64, keep: &HashSet<String>) ->
         }
     }
     // The newest user and assistant message of each session; `seq` counts up within a session.
+    // A command of yours run in its shell (a `shell` message) starts no turn, so isn't one: the
+    // session would read as working until its next run ended (`SessionRow::turn_open`).
     let mut stmt = db.prepare(
         "SELECT m.session_id, m.type, m.time_created, m.time_updated, m.data FROM session_message m \
          JOIN (SELECT session_id, type, max(seq) AS seq FROM session_message WHERE type IN ('user', 'assistant') GROUP BY session_id, type) l \
@@ -359,16 +361,19 @@ pub fn transcript_page<T>(db: &Path, session: &str, before: Option<u64>, limit: 
     let newest: i64 = db.query_row("SELECT COALESCE(MAX(seq), 0) FROM session_message WHERE session_id = ?1", [session], |r| r.get(0)).unwrap_or(0);
     // Asked before the messages are read: a reply that has ended by now is read whole below, and
     // one still going is read again from its own place.
-    let after = db
-        .query_row("SELECT seq, data FROM session_message WHERE session_id = ?1 AND type = 'assistant' AND seq <= ?2 ORDER BY seq DESC LIMIT 1", rusqlite::params![session, newest], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))
-        .ok()
-        .filter(|(_, data)| streaming(&serde_json::from_str(data).unwrap_or(Value::Null)))
-        .map_or(newest, |(seq, _)| (seq - 1).max(0));
+    // So is a command of yours still running in its shell.
+    let going = |kind: &str, still: fn(&Value) -> bool| {
+        db.query_row(&format!("SELECT seq, data FROM session_message WHERE session_id = ?1 AND type = '{kind}' AND seq <= ?2 ORDER BY seq DESC LIMIT 1"), rusqlite::params![session, newest], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))
+            .ok()
+            .filter(|(_, data)| still(&serde_json::from_str(data).unwrap_or(Value::Null)))
+            .map(|(seq, _)| (seq - 1).max(0))
+    };
+    let after = [going("assistant", streaming), going("shell", |v| !shell_ended(v))].into_iter().flatten().min().unwrap_or(newest);
     let mut out: Vec<Vec<T>> = Vec::new();
     let mut count = 0;
     let mut first_seq: Option<i64> = None;
     let read = |from: i64, out: &mut Vec<Vec<T>>, count: &mut usize, first: &mut Option<i64>| -> rusqlite::Result<bool> {
-        let mut stmt = db.prepare("SELECT seq, time_created, data FROM session_message WHERE session_id = ?1 AND seq < ?2 AND type IN ('user', 'assistant') ORDER BY seq DESC LIMIT 50")?;
+        let mut stmt = db.prepare("SELECT seq, time_created, data FROM session_message WHERE session_id = ?1 AND seq < ?2 AND type IN ('user', 'assistant', 'shell') ORDER BY seq DESC LIMIT 50")?;
         let rows: Vec<(i64, i64, String)> = stmt.query_map(rusqlite::params![session, from], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.flatten().collect();
         let more = rows.len() == 50;
         for (seq, at, data) in rows {
@@ -407,24 +412,26 @@ fn streaming(message: &Value) -> bool {
 pub fn transcript_newer<T>(db: &Path, session: &str, after: u64, items: impl Fn(&Value, u64, i64) -> Vec<T>) -> crate::transcript::PageOf<T> {
     let Some(db) = open(db) else { return crate::transcript::PageOf { items: Vec::new(), before: None, after } };
     let read = || -> rusqlite::Result<(Vec<T>, u64)> {
-        let mut stmt = db.prepare("SELECT seq, time_created, data, type FROM session_message WHERE session_id = ?1 AND seq > ?2 AND type IN ('user', 'assistant') ORDER BY seq")?;
+        let mut stmt = db.prepare("SELECT seq, time_created, data, type FROM session_message WHERE session_id = ?1 AND seq > ?2 AND type IN ('user', 'assistant', 'shell') ORDER BY seq")?;
         let mut last = after;
         // The newest reply read, and whether it's still going: only the newest can be, as a
         // session runs one turn at a time, though a prompt queued meanwhile can come after it.
+        // The same for the newest command of yours in its shell, which gets its output as it ends.
         let mut reply: Option<(u64, bool)> = None;
+        let mut shell: Option<(u64, bool)> = None;
         let mut out = Vec::new();
         for (seq, at, data, kind) in stmt.query_map(rusqlite::params![session, after as i64], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, String>(2)?, r.get::<_, String>(3)?)))?.flatten() {
             let v: Value = serde_json::from_str(&data).unwrap_or(Value::Null);
-            if kind == "assistant" {
-                reply = Some((seq as u64, streaming(&v)));
+            match kind.as_str() {
+                "assistant" => reply = Some((seq as u64, streaming(&v))),
+                "shell" => shell = Some((seq as u64, !shell_ended(&v))),
+                _ => {}
             }
             out.extend(items(&v, seq as u64, at));
             last = seq as u64;
         }
-        match reply {
-            Some((seq, true)) => Ok((out, seq.saturating_sub(1))),
-            _ => Ok((out, last)),
-        }
+        let going = [reply, shell].into_iter().flatten().filter(|(_, going)| *going).map(|(seq, _)| seq.saturating_sub(1)).min();
+        Ok((out, going.unwrap_or(last)))
     };
     match read() {
         Ok((items, last)) => crate::transcript::PageOf { items, before: None, after: last },
@@ -704,15 +711,46 @@ fn patch(svc: &Service, path: &str, body: &Value) -> anyhow::Result<Value> {
 }
 
 fn send(svc: &Service, method: &str, path: &str, body: &Value) -> anyhow::Result<Value> {
+    send_waiting(svc, method, path, body, 10)
+}
+
+/// `send`, waiting `secs` for the answer: curl gives up after that, saying so with its exit code
+/// 28 ("Operation timed out"), which `timed_out` reads.
+fn send_waiting(svc: &Service, method: &str, path: &str, body: &Value, secs: u64) -> anyhow::Result<Value> {
     let config = format!("{}data-binary = \"{}\"\n", sign_in(svc), curl_quote(&body.to_string()));
     let url = format!("{}{path}", svc.url);
+    let wait = secs.to_string();
     let out = procs::run_stdin(
         "/usr/bin/curl",
-        &["-sS", "--fail-with-body", "-m", "10", "-K", "-", "-X", method, "-H", "Content-Type: application/json", "-H", "Accept: application/json", &url],
+        &["-sS", "--fail-with-body", "-m", &wait, "-K", "-", "-X", method, "-H", "Content-Type: application/json", "-H", "Accept: application/json", &url],
         &config,
-        Duration::from_secs(15),
+        Duration::from_secs(secs + 5),
     )?;
     Ok(serde_json::from_str(&out).unwrap_or(Value::Null))
+}
+
+/// Whether curl gave up waiting for the answer (`send_waiting`), as `-sS` says it on stderr.
+fn timed_out(e: &anyhow::Error) -> bool {
+    e.to_string().contains("curl: (28)")
+}
+
+/// How long a command of yours run in a session's shell is waited for. The service answers once
+/// it has ended, and runs it to its end when the request is given up on before then (2.0.16, a
+/// scratch server, 2026-11-03: a `sleep 3` given up on after a second still wrote its output), so
+/// a longer one is left running.
+const SHELL_WAIT_SECS: u64 = 3;
+
+/// Runs a command of yours in the session's own shell, as its TUI's `!` does: `POST
+/// /api/session/<id>/shell {command}`, answered 204 once it ends. It's recorded in the session
+/// as a `shell` message (`shell_items`) and starts no turn. Says whether it ended while waited
+/// for (`SHELL_WAIT_SECS`).
+fn run_shell(svc: &Service, session: &str, command: &str) -> anyhow::Result<bool> {
+    let path = format!("/api/session/{}/shell", urlencoding::encode(session));
+    match send_waiting(svc, "POST", &path, &serde_json::json!({ "command": command }), SHELL_WAIT_SECS) {
+        Ok(_) => Ok(true),
+        Err(e) if timed_out(&e) => Ok(false),
+        Err(e) => Err(e),
+    }
 }
 
 /// The way in for every session: the prompt posted to the service, which queues it for the
@@ -729,9 +767,22 @@ impl crate::send::Own for Posted {
         true
     }
 
+    /// The service runs a command in the session's shell as its TUI's `!` does (`run_shell`).
+    fn runs_shell_commands(&self) -> bool {
+        true
+    }
+
     fn deliver(&self, d: &crate::send::Delivery) -> anyhow::Result<crate::send::Sent> {
         let title = d.title();
         let svc = service(&d.account.home_path()).ok_or_else(|| anyhow::anyhow!("OpenCode's service isn't running, so Codealong can't reach {title}. Open it and send it there."))?;
+        if d.shell_command() {
+            let ended = run_shell(&svc, &d.session.id, crate::send::shell_command_body(d.text))?;
+            return Ok(crate::send::sent(if ended {
+                format!("Ran it in {title}'s shell in OpenCode; what it printed is in its conversation.")
+            } else {
+                format!("Running it in {title}'s shell in OpenCode; what it prints goes in its conversation once it ends.")
+            }));
+        }
         post(&svc, &format!("/api/session/{}/prompt", urlencoding::encode(&d.session.id)), &prompt_body(d.text, d.now))?;
         Ok(crate::send::sent(if d.now {
             format!("Sent now to {title} in OpenCode: it takes it into the turn it's taking.")
@@ -831,8 +882,12 @@ pub fn terminal_for<'a>(terminals: &'a [Terminal], row: &SessionRow, latest_in_d
 
 /* ---- The session panel's conversation, and answering permission requests ---- */
 
-/// An OpenCode message's items (transcript.rs): a user's text, or an assistant's text and tool parts.
+/// An OpenCode message's items (transcript.rs): a user's text, an assistant's text and tool
+/// parts, or a command you ran in the session's shell.
 pub fn conversation_items(v: &Value, seq: u64, at: i64) -> Vec<Item> {
+    if let Some(ran) = shell_items(v, at) {
+        return crate::transcript::placed(ran, seq);
+    }
     let mut out = Vec::new();
     let images: Vec<crate::transcript::Image> = v
         .get("files")
@@ -884,6 +939,31 @@ pub fn conversation_items(v: &Value, seq: u64, at: i64) -> Vec<Item> {
         }
     }
     crate::transcript::placed(out, seq)
+}
+
+/// A command you ran in the session's shell (its TUI's `!`, or the service's, `run_shell`), as
+/// 2.0.16 records it: a `shell` message `{shellID, command, status, exit, output: {output,
+/// truncated…}, time}`, `status` `exited` once it has ended. The command is yours and its output
+/// its result, as Claude Code's bash mode shows (claude/conversation.rs `shell_items`); it runs
+/// in the session's folder, which the record doesn't repeat.
+fn shell_items(v: &Value, at: i64) -> Option<Vec<Item>> {
+    let id = v.get("shellID")?.as_str()?;
+    let command = v.get("command")?.as_str()?.trim();
+    if command.is_empty() {
+        return None;
+    }
+    let you = Item { id: Some(id.to_string()), input: Some(clip_input(command)), shell: kept_whole(command), ..item(at, "you", format!("! {command}")) };
+    if !shell_ended(v) {
+        return Some(vec![you]);
+    }
+    let printed = v.pointer("/output/output").and_then(Value::as_str).unwrap_or("");
+    let failed = v.get("exit").and_then(Value::as_i64).is_some_and(|code| code != 0);
+    Some(vec![you, Item { id: Some(id.to_string()), output: Some(clip_output(printed)), failed, ..item(at, "result", "") }])
+}
+
+/// Whether a `shell` message's command has ended (`shell_items`).
+fn shell_ended(v: &Value) -> bool {
+    v.get("status").and_then(Value::as_str) == Some("exited")
 }
 
 /* ---- Reading sessions for the board ---- */
@@ -1746,6 +1826,50 @@ mod tests {
         write(4, "assistant", &reply("Stopping", false));
         let found = transcript_newer(&path, "ses_a", done.after, conversation_items);
         assert_eq!((texts(&found.items), found.after), (vec![(4, "Stopping".to_string())], 3));
+    }
+
+    /// A command you ran in the session's shell shows as yours with what it printed, as 2.0.16
+    /// records one (a scratch server's `session.shell`, 2026-11-03), and one still running is read
+    /// again once it ends.
+    #[test]
+    fn a_command_run_in_its_shell_shows_as_yours() {
+        let dir = crate::fixtures::scratch("oc-shell");
+        let path = dir.join("opencode.db");
+        let db = Connection::open(&path).unwrap();
+        db.execute_batch(SCHEMA).unwrap();
+        let write = |seq: i64, kind: &str, data: &str| {
+            db.execute("INSERT OR REPLACE INTO session_message VALUES (?1, 'ses_a', ?2, ?3, ?3, ?3, ?4)", rusqlite::params![format!("m{seq}"), kind, seq, data]).unwrap();
+        };
+        let shell = |status: &str, exit: i64, printed: &str| {
+            serde_json::json!({ "metadata": { "background": true }, "time": { "created": 1 }, "shellID": "sh_1", "command": "npm test", "status": status, "exit": exit, "output": { "output": printed, "cursor": 0, "size": 0, "truncated": false } }).to_string()
+        };
+        let said = |items: &[Item]| items.iter().map(|i| (i.kind.to_string(), i.text.clone(), i.output.clone(), i.failed)).collect::<Vec<_>>();
+        let row = |kind: &str, text: &str, output: Option<&str>, failed: bool| (kind.to_string(), text.to_string(), output.map(String::from), failed);
+        write(1, "user", r#"{"text":"Fix the test"}"#);
+        write(2, "shell", &shell("running", 0, ""));
+        let first = transcript_page(&path, "ses_a", None, 50, conversation_items);
+        assert_eq!(said(&first.items), [row("you", "Fix the test", None, false), row("you", "! npm test", None, false)]);
+        assert_eq!((first.items[1].id.as_deref(), first.items[1].input.as_deref(), first.items[1].shell), (Some("sh_1"), Some("npm test"), true));
+        // Ended, it's read again from its own place, with what it printed as its result.
+        let ended = shell("exited", 1, "1 failing\n");
+        write(2, "shell", &ended);
+        let next = transcript_newer(&path, "ses_a", first.after, conversation_items);
+        assert_eq!(said(&next.items), [row("you", "! npm test", None, false), row("result", "", Some("1 failing"), true)]);
+        assert_eq!(next.items[1].id.as_deref(), Some("sh_1"));
+        assert!(transcript_newer(&path, "ses_a", next.after, conversation_items).items.is_empty());
+        // It starts no turn, so it isn't the session's last prompt, which would read as a turn
+        // running until its next one ended (`SessionRow::turn_open`).
+        let board = db_with(&format!("INSERT INTO session_v2 (id, directory, time_created, time_updated) VALUES ('ses_a', '/r', 1, 1); INSERT INTO session_message VALUES ('m2', 'ses_a', 'shell', 2, 2, 2, '{ended}');"));
+        let rows = read_sessions_from(&board, 0, &HashSet::new()).unwrap();
+        assert_eq!((rows[0].last_prompt_at, rows[0].turn_open()), (None, false));
+    }
+
+    #[test]
+    fn a_command_of_yours_runs_in_its_shell_through_the_service() {
+        use crate::send::Own as _;
+        assert!(Posted.runs_shell_commands() && !Posted.as_typed());
+        assert!(timed_out(&anyhow::anyhow!("curl: (28) Operation timed out after 3002 milliseconds with 0 bytes received")));
+        assert!(!timed_out(&anyhow::anyhow!("curl: (7) Failed to connect to 127.0.0.1 port 1")));
     }
 
     #[test]

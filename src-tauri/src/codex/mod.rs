@@ -178,6 +178,13 @@ impl crate::harness::Adapter for Codex {
         Ok(with_images_before(&rollout, crate::transcript::file_page(&rollout, conversation_items, before, limit)?))
     }
 
+    /// Its terminal UI runs a prompt led by `!` as a shell command of yours, typed or pasted
+    /// (0.162.1, in tmux, 2026-11-03): "You ran …" with what it printed, recorded as a turn with
+    /// no reply (`conversation::user_shell`). The app has no such way in from outside.
+    fn typed_shell_commands(&self) -> bool {
+        true
+    }
+
     /// A thread in a terminal is typed into; any other goes through the app.
     fn routes(&self, _account: &crate::config::AccountCfg, s: &crate::model::Session) -> Vec<crate::send::Route> {
         // A thread open in a terminal gets it typed there; one made in the CLI and closed

@@ -105,10 +105,10 @@
       check('what it says is between them, level with them', n.left >= w.right - 1 && n.right <= b.left + 1 && Math.abs((n.top + n.bottom) / 2 - (w.top + w.bottom) / 2) <= 2, Math.round(n.left) + '–' + Math.round(n.right) + ' between ' + Math.round(w.right) + ' and ' + Math.round(b.left));
 
       type(box(), '!ls');
-      return says(/runs it in a new/, 'what ⏎ does with a command');
+      return says(/runs it (in a terminal under the session|in a new )/, 'what ⏎ does with a command');
     })
     .then(function () {
-      check('a command led by ! says what ⏎ does with it', /^⏎ runs it in a new .+ tab, as you; .+ is told what it prints once it ends\.$/.test(note()), note());
+      check('a command led by ! says what ⏎ does with it', /^⏎ runs it (in a terminal under the session|in a new .+ tab)(, as you; .+ is told what it prints once it ends\.| · ⌥⏎ in .+’s own shell)$/.test(note()), note());
       // Narrowed so it can't fit, it's cut on its one line, and has all of it to show under the
       // pointer.
       var el = noteEl();

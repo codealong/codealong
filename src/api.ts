@@ -2083,6 +2083,13 @@ export async function sessionWay(key: string): Promise<Way | null> {
   return invoke<Way | null>('session_way', { key });
 }
 
+/** How a command of yours led by `!` would reach a session to run in its own shell, for what ⌥⏎
+ *  does in its box (send.rs `shell_way_in`); null where it can't. Only for this Mac's sessions. */
+export async function sessionShellWay(key: string): Promise<Way | null> {
+  if (!inTauri) return null;
+  return invoke<Way | null>('session_shell_way', { key });
+}
+
 export async function sessionPending(key: string): Promise<Pending | null> {
   if (!inTauri) return null;
   return invoke<Pending | null>('session_pending', { key });

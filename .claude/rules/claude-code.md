@@ -85,8 +85,9 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   pastes too: one line of 644 characters and 12 lines of 1,300 ran (2.1.293 in tmux, bracketed
   as `launch/tmux.rs` pastes, 2026-10-07); a daemon `reply` led by `!` runs the same way (its
   code takes the reply's mode from its text). What it records, and Run on a `!` block:
-  `claude/conversation.rs` (`shell_items`), `send.rs` (`shell_command`, `typed_routes`). Agents
-  are told to write `! <command>` for a command you should run yourself.
+  `claude/conversation.rs` (`shell_items`), `send.rs` (`shell_command`, `shell_routes`); ⌥⏎ in a
+  window's box sends one this way (`claude/mod.rs` `typed_shell_commands`). Agents are told to
+  write `! <command>` for a command you should run yourself.
 - Another session's message (`origin: {kind: "peer", name, body}`, on an `isMeta` `user` line
   or a `queued_command` attachment), what you send a Claude app session from Codealong, and a
   subagent's report back (`handback: true`): `claude/conversation.rs` (`Peer`, `line_peer`,

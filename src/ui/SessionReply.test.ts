@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import * as fx from '../testing/fixtures';
+import { setPlatform } from '../platform';
 import type { Question, Session } from '../types';
-import { boxPlace, givenBack, replyPlaceholder, stillOffered, takesReply } from './SessionReply';
+import { bangSays, bangTitle, boxPlace, givenBack, replyPlaceholder, stillOffered, takesReply } from './SessionReply';
 
 const session = (over: Partial<Session> = {}): Session => fx.session({ live: true, asks: false, hosted: false, ...over });
 
@@ -46,6 +47,26 @@ describe('boxPlace', () => {
     const stopped = session({ live: false });
     expect(boxPlace(stopped, 'Ghostty', { kind: 'resume', app: 'Ghostty' }, { place: 'background', label: 'Background' })).toEqual({ icon: 'stack', label: 'Background', title: 'It isn’t running: a send goes on with it in the background' });
     expect(boxPlace(stopped, 'Ghostty', { kind: 'resume', app: 'Ghostty' }).label).toBe('Ghostty');
+  });
+});
+
+describe('bangSays', () => {
+  afterEach(() => setPlatform(null));
+
+  it('says ⏎ runs a command led by ! in a terminal of yours, and ⌥⏎ in the session’s own shell where its harness takes it', () => {
+    setPlatform('mac');
+    expect(bangSays(session(), 'Ghostty', true, { kind: 'typed', app: 'Ghostty' })).toBe('⏎ runs it in a terminal under the session · ⌥⏎ in claude’s own shell');
+    expect(bangSays(session({ harness: 'codex', account: 'codex' }), 'Ghostty', false, { kind: 'typed', app: 'Ghostty' })).toBe('⏎ runs it in a new Ghostty tab · ⌥⏎ in codex’s own shell');
+    // A harness that can't take one from here, or none said yet: ⏎ alone, with what follows.
+    expect(bangSays(session({ harness: 'cursor', account: 'cursor' }), 'Ghostty', true, null)).toBe('⏎ runs it in a terminal under the session, as you; cursor is told what it prints once it ends.');
+    // The button's title says the rest.
+    expect(bangTitle(session(), 'Ghostty', true, { kind: 'background' })).toBe('Run it in a terminal under the session, as you (⏎): claude is told what it prints once it ends. ⌥-click or ⌥⏎ runs it in claude’s own shell instead, as Claude Code’s ! does');
+    expect(bangTitle(session({ harness: 'cursor', account: 'cursor' }), 'Ghostty', false, null)).toBe('Run it in a new Ghostty tab, as you (⏎): cursor is told what it prints once it ends');
+  });
+
+  it('says the keys as Linux has them', () => {
+    setPlatform('linux');
+    expect(bangSays(session(), 'Ghostty', true, { kind: 'background' })).toBe('Enter runs it in a terminal under the session · Alt+Enter in claude’s own shell');
   });
 });
 

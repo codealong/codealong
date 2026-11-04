@@ -38,6 +38,13 @@ its source at that tag, its compiled bundle and its files on this Mac. Paths are
   command runs in, from its tool part not yet completed: `opencode.rs` (`open_calls_in`;
   checked with `opencode run`, 2026-09-27).
 - Sending a prompt, queued or into the running turn: `opencode.rs` (`Posted`, `prompt_body`).
+- Running a command of yours in a session's shell, as the TUI's `!` does: `POST
+  /api/session/<id>/shell {command}` (`session.shell`), answered 204 only once the command ends; a
+  request given up on early leaves it running to its end (a scratch server, 2026-11-03). It writes a
+  `shell` message (`{shellID, command, status, exit, output: {output, truncated…}, time}`, `status`
+  `exited` at the end) and starts no turn, so it isn't a prompt for `turn_open`: `opencode.rs`
+  (`run_shell`, `SHELL_WAIT_SECS`, `shell_items`). Whether a later turn's model reads it wasn't
+  checked. `/api/shell` runs one for a folder rather than a session, and isn't recorded in one.
 - Renaming, `PATCH /api/session/<id>` with `{title}`: `opencode.rs` (`OpenCode::rename`). It
   answers 204, `time_updated` moves, and it takes `metadata` and `permissions` too.
 - Stopping a run: `opencode.rs` (`OpenCode::interrupt`, `interrupted`). The row gets

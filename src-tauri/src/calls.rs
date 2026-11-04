@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex};
 use serde_json::Value;
 
 use crate::util::{self, words};
-use crate::{acp, actions, api, autoreview, boards, config, detect, engine, github, harness, idle, improve, install, jev, ledger, model, newfolder, peers, prasks, prlinks, prmerge, route, routelog, runcode, schedules, search, setup, side, skills, stale, start, store, terminals, todojev, todos, training, views, zoom};
+use crate::{acp, actions, api, autoreview, boards, config, detect, engine, github, harness, idle, improve, install, jev, ledger, model, newfolder, peers, prasks, prlinks, prmerge, route, routelog, runcode, schedules, search, send, setup, side, skills, stale, start, store, terminals, todojev, todos, training, views, zoom};
 
 /// What a call runs with: the server's engine, your other devices, and the automatic reviewer.
 #[derive(Clone)]
@@ -280,6 +280,14 @@ calls! {
     /// How a message sent to a session would reach it, for its box's placeholder (send.rs `way_in`).
     fn session_way(c, key: String) -> Result<Value, String> {
         actions::run(&c.engine, &c.peers, api::SESSION_WAY, &key, actions::params::Session::default())
+    }
+
+    /// How a command of yours led by `!` would reach a session to run in its own shell, for what
+    /// ⌥⏎ does in its box (send.rs `shell_way_in`); null where it can't. Only this Mac's
+    /// sessions are asked: the box sends `!` to another device's as any message.
+    fn session_shell_way(c, key: String) -> Result<Option<api::Way>, String> {
+        let cfg = config::current().map_err(words)?;
+        send::shell_way_in(&c.engine.board(), &cfg, &key).map_err(words)
     }
 
     /// Allows or denies the tool call `id` a session waits on, if it's still the one waiting; or,

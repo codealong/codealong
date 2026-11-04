@@ -75,17 +75,17 @@
     })
     .then(function () {
       type(box(), '!ls');
-      return says(/runs it in a new/, 'what ⏎ does with a command');
+      return says(/runs it (in a terminal under the session|in a new )/, 'what ⏎ does with a command');
     })
     .then(function () {
-      check('the box’s foot says what ⏎ does with the command', /^⏎ runs it in a new /.test(note()), note());
-      check('and the strip doesn’t', !/runs it in a new/.test(strip()), strip());
+      check('the box’s foot says what ⏎ does with the command', /^⏎ runs it (in a terminal under the session|in a new )/.test(note()), note());
+      check('and the strip doesn’t', !/runs it (in a terminal under the session|in a new )/.test(strip()), strip());
       pending[0].reject('Its terminal is gone.');
       return until(function () { return /Didn’t send to Strip A/.test(strip()); }, 4000, 'the failure');
     })
     .then(function () {
       check('a message that then fails says so on the strip, in the alert color', /^Didn’t send to Strip A, so it’s back in its box: Its terminal is gone\./.test(strip()) && stripEl().classList.contains('is-error'), strip());
-      check('while the box’s foot still says what ⏎ does', /^⏎ runs it in a new /.test(note()), note());
+      check('while the box’s foot still says what ⏎ does', /^⏎ runs it (in a terminal under the session|in a new )/.test(note()), note());
       type(box(), '/fork now');
       return says(/^\/fork/, 'the box’s newer word');
     })

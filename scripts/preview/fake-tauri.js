@@ -846,6 +846,20 @@ window.__TAURI_INTERNALS__ = {
         return s.surface === 'app' ? { kind: 'message' } : { kind: 'typed', app: terminal };
       });
     }
+    // How a command led by `!` would reach a session to run in its own shell (send.rs
+    // `shell_way_in`), guessed from the session the same way: typed into a Claude Code or Codex
+    // terminal, a Claude Code background job's box, OpenCode's service; nothing else.
+    if (cmd === 'session_shell_way') {
+      return fetch('./board.json').then(function (r) { return r.json(); }).then(function (board) {
+        var key = (args || {}).key;
+        var s = (window.__madeSessions || {})[key] || null;
+        if (!s) board.lanes.forEach(function (l) { l.sessions.forEach(function (x) { if (x.key === key) s = x; }); });
+        if (!s || s.hosted || !s.live) return s && s.harness === 'opencode' ? { kind: 'opencode' } : null;
+        if (s.harness === 'opencode') return { kind: 'opencode' };
+        if (s.surface !== 'cli' || (s.harness !== 'claude' && s.harness !== 'codex')) return null;
+        return s.harness === 'claude' && s.attachCommand ? { kind: 'background' } : { kind: 'typed', app: board.apps.terminal };
+      });
+    }
     if (cmd === 'session_answer') return Promise.resolve((args || {}).answer === 'allow' ? 'Allowed it (in the preview nothing is pressed anywhere).' : 'Denied it (in the preview nothing is pressed anywhere).');
     if (cmd === 'session_newer') return Promise.resolve({ items: [], before: null, after: (args || {}).after || 0 });
     // A session Codealong runs: the reply it's writing, which a check can set.

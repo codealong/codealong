@@ -638,14 +638,21 @@ in Claude Code's own terminal shows as yours with its output, and Run runs it ag
 
 #### Replying
 
-A message that starts with `!` is a command rather than words, for any harness: ⏎ runs it in a new
-tab of your terminal, in the folder the session works in, as you (*Commands in your terminal*), and
-once it ends the session gets a message from you with the command, how it ended and the last of
-what it printed, so its agent reads it as Claude Code's own `!` has it read what a command printed.
-What the box says (*What the box says*) says so as you type it, and its button shows a terminal. It runs whatever the
-session is doing, as it doesn't reach the session until it ends; a session on another device takes
-it as a message, as before. A message that opens with an image isn't a command, its `!` being the
-image's.
+A message that starts with `!` is a command rather than words, for any harness: ⏎ runs it in a
+terminal under the session, or a new tab of your terminal app (Settings › General › Terminals for a
+session), in the folder the session works in, as you (*Commands in your terminal*), and once it ends
+the session gets a message from you with the command, how it ended and the last of what it printed,
+so its agent reads it as Claude Code's own `!` has it read what a command printed. It runs whatever
+the session is doing, as it doesn't reach the session until it ends. ⌥⏎ (or ⌥-click on the button)
+hands it to the session's harness instead, to run in the session's own shell as its own `!` does:
+typed into a Claude Code or Codex terminal or a Claude Code background job's box, or run by
+OpenCode's service. There the command and what it printed show in the conversation as yours; Claude
+Code's agent takes a turn on them, while Codex and OpenCode start none. Elsewhere (a
+Claude app, Codex app, Cursor or Antigravity session, one that isn't running, one that waits on you)
+⌥⏎ says it can't. What the box says (*What the box says*) says what ⏎ does, and ⌥⏎ where the harness
+takes it, as you type it, and its button shows a terminal. A session on another device takes a `!`
+as a message, going only the ways ⌥⏎ would. A message that opens with an image isn't a command, its
+`!` being the image's.
 
 The box at the bottom sends it a message where it runs, as the waiting window does; paste a
 screenshot or a file into it and the agent gets its path, and what you'd written to a session and

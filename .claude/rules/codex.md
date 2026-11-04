@@ -306,6 +306,17 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
   `originator`, `codex/rollout.rs` (`parse_meta`); starting, resuming and forking, `codex/mod.rs`
   (`start_in_terminal`, `resume`, `fork`); Return steering and Tab queueing, `codex/mod.rs`
   (`steers`); the `@` list in its box, `send.rs` (`boxed`).
+- `!` in the terminal UI's box runs the rest as a shell command of yours, typed or pasted
+  (bracketed), in the thread's folder, unsandboxed: "You ran …" and what it printed, and no reply
+  (0.162.1 on a scratch `CODEX_HOME` in tmux, 2026-11-03). It's recorded as a turn of its own
+  (`task_started`, a `CommandExecution` item with `source: "user_shell"`, a user `response_item`
+  `<user_shell_command><command>…</command><result>Exit code … Output: …</result>`, then
+  `task_complete` with `last_agent_message: null`), so the model reads it with the next prompt:
+  `codex/mod.rs` (`typed_shell_commands`), `codex/conversation.rs` (`user_shell`), send.rs
+  (`shell_routes`). The app-server's `thread/shellCommand {threadId, command, timeoutMs}` is the
+  same (one hour by default, run by the thread's shell with full access), but a thread has one
+  writer (above), so for one of the app's threads it would have to come from the app, and its
+  window socket has nothing like it (not tried).
 - Going back to a point in a thread (0.162.1's schema, `codex app-server generate-json-schema`):
   `thread/fork` takes `lastTurnId`, the copy going through that turn (not one in progress), and
   `beforeTurnId`, which the published schema leaves out; `thread/revert {threadId,

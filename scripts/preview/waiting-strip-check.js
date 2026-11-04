@@ -64,10 +64,10 @@
     .then(function () {
       check('an open that fails says why on the strip', failed.test(strip()) && stripEl().classList.contains('is-error'), strip());
       type(box(), '!ls');
-      return says(/runs it in a new/, 'what ⏎ does with a command');
+      return says(/runs it (in a terminal under the session|in a new )/, 'what ⏎ does with a command');
     })
     .then(function () {
-      check('a command typed after it says what ⏎ does in the box’s foot', /^⏎ runs it in a new /.test(note()), note());
+      check('a command typed after it says what ⏎ does in the box’s foot', /^⏎ runs it (in a terminal under the session|in a new )/.test(note()), note());
       check('while the strip still says why the open failed', failed.test(strip()), strip());
       open().click();
       return until(function () { return opens() === 2; }, 3000, 'the second open').then(function () { return wait(200); });

@@ -989,11 +989,13 @@ export function sentWorthSaying(sent: Sent): boolean {
  * whatever's been written since, and each rejects with why. `toDraft: false` leaves the draft
  * alone, for a caller that puts the text back itself (the quick panel's input). `now` sends it
  * into the turn the session is taking at once (Send now). `resume`: a session that isn't running
- * goes on there with it (start.rs `resume`), rather than in a terminal.
+ * goes on there with it (start.rs `resume`), rather than in a terminal. `starts: false` is for one
+ * that may start no turn (a command for its shell), which the session isn't shown working for
+ * meanwhile.
  */
-export function sendAhead(s: Session, text: string, { toDraft = true, now = false, resume }: { toDraft?: boolean; now?: boolean; resume?: ResumeIn } = {}): Promise<Sent> {
+export function sendAhead(s: Session, text: string, { toDraft = true, now = false, resume, starts = startsTurn(s) }: { toDraft?: boolean; now?: boolean; resume?: ResumeIn; starts?: boolean } = {}): Promise<Sent> {
   const key = s.key;
-  const a = made({ kind: 'send', key, text, working: s.status === 'working' || stuckMidTurn(s), starts: startsTurn(s) });
+  const a = made({ kind: 'send', key, text, working: s.status === 'working' || stuckMidTurn(s), starts });
   put(a, true);
   const mine = { id: a.id, text, failed: undefined as unknown };
   queued.set(key, [...(queued.get(key) ?? []), mine]);

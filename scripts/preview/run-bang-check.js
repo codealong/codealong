@@ -119,9 +119,9 @@
       // `!` in the box runs it the same way, rather than sending it.
       type('! echo from the box');
       return until(function () { return sendButton() && sendButton().getAttribute('aria-label') === 'Run in your terminal'; }, 3000).then(function () {
-        check('the box’s button runs it', /^Run it in a new .+ tab, as you \(⏎\)$/.test(sendButton().title), sendButton().title);
+        check('the box’s button runs it', /^Run it (in a terminal under the session|in a new .+ tab), as you \(⏎\)/.test(sendButton().title), sendButton().title);
         check('no Send now beside it, which would send it into the turn', !document.querySelector('.ca-sessinsp .ca-composer-send.is-now'));
-        check('the box’s foot says what happens', /runs it in a new .+ tab, as you; .+ is told what it prints once it ends/.test(under()), under());
+        check('the box’s foot says what happens', /⏎ runs it (in a terminal under the session|in a new .+ tab)(, as you; .+ is told what it prints once it ends| · ⌥⏎ in .+’s own shell)/.test(under()), under());
         var before = calls('run_command').length;
         // ⏎ runs it, as the button does.
         press();
