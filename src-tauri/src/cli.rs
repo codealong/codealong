@@ -3946,7 +3946,7 @@ fn pr_snooze(c: &mut Client, pr: &str, when: &SnoozeWhen, json: bool) -> Result<
         bail!("Snoozing needs Codealong's server, which couldn't be started here (`codealong server start` says why): it keeps the snooze, and PRs come through it.");
     }
     let board = c.board()?;
-    let p = find_pr(board, &key).ok_or_else(|| anyhow!("Codealong doesn't read {key}: its repo isn't in a project, or it's closed and older than GitHub's recent list."))?;
+    let p = find_pr(board, &key).ok_or_else(|| anyhow!("Codealong doesn't read {key}: its repo isn't in a project and no session here worked on it, or it's closed and older than GitHub's recent list."))?;
     let key = p.key.clone();
     if until.is_some() && (!p.review_requested || matches!(p.state, PrState::Merged | PrState::Closed)) {
         bail!("{key} doesn't ask for your review, so there's no review of it to snooze.");
@@ -4400,7 +4400,7 @@ fn pr_show(c: &mut Client, pr: &str, json: bool) -> Result<()> {
         bail!("Codealong isn't running, and PRs come through it.");
     }
     let board = c.board()?;
-    let p = find_pr(board, &key).ok_or_else(|| anyhow!("Codealong doesn't read {key}: its repo isn't in a project, or it's closed and older than GitHub's recent list."))?;
+    let p = find_pr(board, &key).ok_or_else(|| anyhow!("Codealong doesn't read {key}: its repo isn't in a project and no session here worked on it, or it's closed and older than GitHub's recent list."))?;
     let all = all_sessions(board);
     let rows: Vec<SessionRow> = p.sessions.iter().filter_map(|ps| all.iter().find(|(s, _)| s.key == ps.key)).map(|(s, l)| session_row(s, l, &board.todos)).collect();
     if json {
@@ -4500,8 +4500,10 @@ struct PrLinkOut {
 fn pr_link(c: &mut Client, a: &PrLinkArgs, linked: bool, json: bool) -> Result<()> {
     let key = resolve_pr(c, &a.pr)?;
     let session = resolve_session(c, &a.session)?;
-    if c.app.is_some() && find_pr(c.board()?, &key).is_none() {
-        eprintln!("Note: Codealong doesn't read {key} (its repo isn't in a project, or it's old), so the link won't show until it does.");
+    // Linked to a session on the board, a PR in a repo whose PRs aren't read is read by its number
+    // (ghpoll.rs `made_to_read`); one older than its repo's recent PRs still isn't.
+    if linked && c.app.is_some() && find_pr(c.board()?, &key).is_none() {
+        eprintln!("Note: Codealong doesn't list {key} yet. It reads it within a minute if its repo's PRs aren't read here; if it's older than its repo's recent PRs, the link won't show.");
     }
     let mut changed = false;
     crate::prlinks::change(|store| {
@@ -4578,7 +4580,7 @@ fn pr_nudge(c: &mut Client, a: &PrNudgeArgs, json: bool) -> Result<()> {
     let listed = if on && c.app.is_some() { find_pr(c.board()?, &key).cloned() } else { None };
     if on && c.app.is_some() {
         match &listed {
-            None => eprintln!("Note: Codealong doesn't read {key} yet (it's new, its repo isn't in a project, or it's old), so nobody is told until it does."),
+            None => eprintln!("Note: Codealong doesn't read {key} yet (it's new or old, or in a repo no project covers that no session here worked on), so nobody is told until it does."),
             Some(p) if !p.state.is_open() => eprintln!("Note: {key} is {}, so there's nothing more to tell of.", lower_debug(&p.state)),
             Some(_) => {}
         }

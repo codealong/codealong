@@ -128,6 +128,15 @@ pub struct Requested {
     pub prs: Vec<(String, PrRaw)>,
 }
 
+/// The PRs sessions here made or changed in repos whose own PRs aren't read (`Ask::made`), each
+/// with its repo as it was asked for (`parse_made`), and who `gh` is signed in as. One GitHub
+/// doesn't show you (its repo deleted, or no longer yours to see) isn't there.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Made {
+    pub login: Option<String>,
+    pub prs: Vec<(String, PrRaw)>,
+}
+
 const QUERY: &str = r#"
 query($owner: String!, $name: String!, $requested: String!) {
   viewer { login }
@@ -344,8 +353,14 @@ query($owner: String!, $name: String!, $number: Int!) {
 pub fn parse_one(json: &str) -> Result<(PrRaw, Option<String>)> {
     let v: Value = serde_json::from_str(json)?;
     let n = v.pointer("/data/repository/pullRequest").filter(|n| !n.is_null()).ok_or_else(|| anyhow!("GitHub didn't return the PR"))?;
-    let mut pr = parse_pr(n).ok_or_else(|| anyhow!("GitHub's answer for the PR didn't read"))?;
     let login = v.pointer("/data/viewer/login").and_then(Value::as_str);
+    let pr = parse_alone(n, login).ok_or_else(|| anyhow!("GitHub's answer for the PR didn't read"))?;
+    Ok((pr, login.map(String::from)))
+}
+
+/// A PR asked for by its number (`...pr mergeStateStatus ...asked`) rather than among its repo's.
+fn parse_alone(n: &Value, login: Option<&str>) -> Option<PrRaw> {
+    let mut pr = parse_pr(n)?;
     // As on the board, where it's asked only of open PRs. Without the review search, a request
     // to a team you're on isn't counted as yours, but the team is among those asked.
     if pr.state.is_open() {
@@ -358,7 +373,100 @@ pub fn parse_one(json: &str) -> Result<(PrRaw, Option<String>)> {
     } else {
         pr.merge = Merge::Unknown;
     }
-    Ok((pr, login.map(String::from)))
+    Some(pr)
+}
+
+// ---- The PRs sessions made where the board reads no repo's PRs ----
+//
+// A session's records name the PRs it made or changed (prlinks.rs), wherever they are: an
+// upstream project's, a list's it added you to, a repo of yours with no checkout here. Those in
+// repos whose PRs aren't read (board.rs `polled_slugs`) are read here, by their numbers, a
+// `MADE_GROUP` of them to a query, the queries at once. 26 such PRs, 24 of them there to see,
+// cost 2 points in one query and took 8 s (2026-11-03). With no glance to tell a change (one
+// for them took 2.6 s more, a point a minute), what was read stands for `RESYNC_MS` while the
+// PRs asked for stay the same, as long as `BUSY_MS` while one's checks run.
+
+/// PRs asked for in one query.
+const MADE_GROUP: usize = 20;
+
+/// The key the PRs sessions made go by, among stamps and kept answers.
+pub const MADE: &str = "made";
+
+/// A query for `n` PRs by their numbers, `m0` to `m<n-1>`, each read as `ONE_QUERY` reads one.
+fn made_query(n: usize) -> String {
+    let vars: Vec<String> = (0..n).map(|i| format!("$o{i}: String!, $n{i}: String!, $k{i}: Int!")).collect();
+    let fields: String = (0..n).map(|i| format!("  m{i}: repository(owner: $o{i}, name: $n{i}) {{ pullRequest(number: $k{i}) {{ ...pr mergeStateStatus ...asked }} }}\n")).collect();
+    format!("query({}) {{\n  viewer {{ login }}\n{fields}}}\n{PR_FIELDS}{ASKED_FIELDS}", vars.join(", "))
+}
+
+/// GitHub's answer for the PRs `keys` names (`owner/name#number`), `MADE_GROUP` to a query, put
+/// together as one answer for `parse_made`, with the keys asked for (`asked`): GitHub answers a
+/// repo's old name with the repo as it's named now. A PR GitHub doesn't show fails its query, with
+/// the rest answered (as `glance_some` has it), so a query fails only when it answered nothing,
+/// and then the read does: the PRs read before stand, rather than the group's going missing.
+fn fetch_made_text(keys: &[String]) -> std::result::Result<String, Failure> {
+    let answers: Vec<std::result::Result<Value, Failure>> = std::thread::scope(|scope| {
+        let asked: Vec<_> = keys.chunks(MADE_GROUP).map(|group| scope.spawn(move || fetch_made_group(group))).collect();
+        asked.into_iter().map(|a| a.join().unwrap_or_else(|_| Err(Failure::Other("GitHub: couldn't load the PRs sessions made".into())))).collect()
+    });
+    let mut data = serde_json::Map::new();
+    for (i, answer) in answers.into_iter().enumerate() {
+        let Value::Object(part) = answer? else { continue };
+        for (key, value) in part {
+            // Each group numbers its PRs from 0: they're numbered across the groups here.
+            let key = match key.strip_prefix('m').and_then(|n| n.parse::<usize>().ok()) {
+                Some(n) => format!("m{}", i * MADE_GROUP + n),
+                None => key,
+            };
+            data.insert(key, value);
+        }
+    }
+    Ok(serde_json::json!({ "data": data, "asked": keys }).to_string())
+}
+
+/// One query of `fetch_made_text`'s: what came back under `data`.
+fn fetch_made_group(keys: &[String]) -> std::result::Result<Value, Failure> {
+    let mut fields = vec![("-f", format!("query={}", made_query(keys.len())))];
+    for (i, key) in keys.iter().enumerate() {
+        let (slug, number) = key.split_once('#').unwrap_or((key, ""));
+        let (owner, name) = slug.split_once('/').unwrap_or((slug, ""));
+        fields.extend([("-f", format!("o{i}={owner}")), ("-f", format!("n{i}={name}")), ("-F", format!("k{i}={number}"))]);
+    }
+    let mut args = vec!["api", "graphql"];
+    for (flag, field) in &fields {
+        args.extend([*flag, field.as_str()]);
+    }
+    let o = procs::run_output("gh", &args, None, Duration::from_secs(30)).map_err(|e| failed(&e, "the PRs sessions made"))?;
+    let data = serde_json::from_str::<Value>(&o.out).ok().and_then(|v| v.get("data").cloned()).filter(|d| d.as_object().is_some_and(|d| d.values().any(|v| !v.is_null())));
+    // With nothing answered, why is in what it printed: a refusal for want of points comes as an
+    // error in the answer.
+    data.ok_or_else(|| failed(&anyhow!("gh {} {}", o.err.trim(), o.out.chars().take(400).collect::<String>()), "the PRs sessions made"))
+}
+
+/// The PRs `fetch_made_text` read, each under its repo as it was asked for: the name the session's
+/// records and a project's remote know it by, which GitHub's link spells as it is now. The link's
+/// spelling is kept where it's the same name in another case.
+pub fn parse_made(json: &str) -> Result<Made> {
+    let v: Value = serde_json::from_str(json)?;
+    let data = v.get("data").and_then(Value::as_object).ok_or_else(|| anyhow!("no data in response"))?;
+    let asked: Vec<&str> = v.get("asked").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).collect();
+    let login = data.get("viewer").and_then(|w| w.get("login")).and_then(Value::as_str);
+    let mut prs: Vec<(String, PrRaw)> = data
+        .iter()
+        .filter_map(|(alias, repo)| {
+            let i: usize = alias.strip_prefix('m')?.parse().ok()?;
+            let pr = parse_alone(repo.get("pullRequest").filter(|n| !n.is_null())?, login)?;
+            let linked = crate::prlinks::from_url(&pr.url)?;
+            let (now, _) = linked.split_once('#')?;
+            let slug = match asked.get(i).and_then(|key| key.split_once('#')) {
+                Some((was, _)) if !was.eq_ignore_ascii_case(now) => was,
+                _ => now,
+            };
+            Some((slug.to_string(), pr))
+        })
+        .collect();
+    prs.sort_by(|(a, p), (b, q)| (a.to_lowercase(), p.number).cmp(&(b.to_lowercase(), q.number)));
+    Ok(Made { login: login.map(String::from), prs })
 }
 
 pub fn parse(json: &str) -> Result<RepoPrs> {
@@ -936,7 +1044,11 @@ fn stands(stamp: &Stamp, glance: &str, busy: bool, thrifty: bool, now: i64) -> b
 #[derive(Debug, Clone, Default)]
 pub struct Ask {
     pub slugs: Vec<String>,
-    /// What the asker's answers were read at, by slug, the search's under `REQUESTED`.
+    /// The PRs sessions made in repos `slugs` doesn't have, as `owner/name#number`, in one order
+    /// for the same PRs: they're read together, again whenever they change (`made_mark`).
+    pub made: Vec<String>,
+    /// What the asker's answers were read at, by slug, the search's under `REQUESTED` and the
+    /// made PRs' under `MADE`.
     pub have: HashMap<String, Stamp>,
     /// The repos whose checks are running (`busy`).
     pub busy: BTreeSet<String>,
@@ -954,6 +1066,14 @@ pub enum Answer {
     /// A repo's PRs, read from GitHub or as kept, and what they were read at.
     Repo(String, std::result::Result<RepoPrs, Failure>, Option<Stamp>),
     Requested(std::result::Result<Requested, Failure>, Option<Stamp>),
+    Made(std::result::Result<Made, Failure>, Option<Stamp>),
+}
+
+/// What the made PRs' answer is read at in place of a glance: the PRs asked for, so another
+/// set is read at once, and the answer stands for the same set as a repo's does for the same
+/// glance.
+fn made_mark(made: &[String]) -> String {
+    mark(&made.iter().map(String::as_str).collect::<Vec<_>>())
 }
 
 /// One poll: a glance, then the PRs of each repo whose answer no longer stands, and the search
@@ -968,7 +1088,8 @@ fn poll_in(dir: &Path, ask: &Ask, on: &(dyn Fn(Answer) + Sync)) {
     // Out of points: the reads would be refused too. An asker with nothing gets what's kept,
     // however old, and then hears why it's no newer.
     if seen.as_ref().is_err_and(Failure::rate_limited) {
-        for key in ask.slugs.iter().map(String::as_str).chain([REQUESTED]).filter(|key| !ask.have.contains_key(*key)) {
+        let made = (!ask.made.is_empty()).then_some(MADE);
+        for key in ask.slugs.iter().map(String::as_str).chain([REQUESTED]).chain(made).filter(|key| !ask.have.contains_key(*key)) {
             if let Some(answer) = saved(dir, key).and_then(|kept| kept_answer(key, kept)) {
                 on(answer);
             }
@@ -988,6 +1109,16 @@ fn poll_in(dir: &Path, ask: &Ask, on: &(dyn Fn(Answer) + Sync)) {
                 on(Answer::Requested(result, stamp));
             }
         });
+        if !ask.made.is_empty() {
+            scope.spawn(move || {
+                let mark = made_mark(&ask.made);
+                let busy = |made: &Made| made.prs.iter().any(|(_, p)| busy(std::slice::from_ref(p), now));
+                let read = Reading { dir, ask, key: MADE, mark: Some(&mark), now, fetch: &|| fetch_made_text(&ask.made), parse: &parse_made, busy: &busy }.read();
+                if let Some((result, stamp)) = read {
+                    on(Answer::Made(result, stamp));
+                }
+            });
+        }
         for slug in &ask.slugs {
             scope.spawn(move || {
                 let mark = match glance.map_or(Seen::Unknown, |g| g.seen(slug)) {
@@ -1069,13 +1200,13 @@ impl<T> Reading<'_, T> {
 /// Everything a poll would bring, for an engine that starts with nothing and doesn't stay
 /// (`--snapshot`): the kept answers when an engine that polls confirmed them all lately, which
 /// asks GitHub nothing, else a poll.
-pub fn read_once(slugs: &[String]) -> Vec<Answer> {
+pub fn read_once(slugs: &[String], made: &[String]) -> Vec<Answer> {
     let dir = saved_dir();
-    if let Some(kept) = fresh(&dir, slugs, SystemTime::now()) {
+    if let Some(kept) = fresh(&dir, slugs, made, SystemTime::now()) {
         return kept;
     }
     let answers = std::sync::Mutex::new(Vec::new());
-    let ask = Ask { slugs: slugs.to_vec(), ..Ask::default() };
+    let ask = Ask { slugs: slugs.to_vec(), made: made.to_vec(), ..Ask::default() };
     poll_in(&dir, &ask, &|answer| {
         if let Ok(mut all) = answers.lock() {
             all.push(answer);
@@ -1084,11 +1215,16 @@ pub fn read_once(slugs: &[String]) -> Vec<Answer> {
     answers.into_inner().unwrap_or_default()
 }
 
-fn fresh(dir: &Path, slugs: &[String], now: SystemTime) -> Option<Vec<Answer>> {
+fn fresh(dir: &Path, slugs: &[String], made: &[String], now: SystemTime) -> Option<Vec<Answer>> {
     let lately = |key: &str| saved(dir, key).filter(|kept| now.duration_since(kept.stood).is_ok_and(|d| d < FRESH)).and_then(|kept| kept_answer(key, kept));
     let mut answers = vec![lately(REQUESTED)?];
     for slug in slugs {
         answers.push(lately(slug)?);
+    }
+    // Kept for the PRs asked for now, not others.
+    if !made.is_empty() {
+        let kept = lately(MADE).filter(|a| matches!(a, Answer::Made(_, Some(stamp)) if stamp.glance == made_mark(made)))?;
+        answers.push(kept);
     }
     Some(answers)
 }
@@ -1097,6 +1233,7 @@ fn fresh(dir: &Path, slugs: &[String], now: SystemTime) -> Option<Vec<Answer>> {
 fn kept_answer(key: &str, kept: Saved) -> Option<Answer> {
     Some(match key {
         REQUESTED => Answer::Requested(Ok(parse_requested(&kept.answer).ok()?), Some(kept.stamp)),
+        MADE => Answer::Made(Ok(parse_made(&kept.answer).ok()?), Some(kept.stamp)),
         slug => Answer::Repo(slug.to_string(), Ok(parse(&kept.answer).ok()?), Some(kept.stamp)),
     })
 }
@@ -2473,27 +2610,27 @@ mod tests {
         let slugs = vec!["sprucehq/spark".to_string()];
         let stamp = Stamp { glance: "a".into(), at: 1 };
         let search = r#"{"data":{"viewer":{"login":"gwen"},"search":{"nodes":[]}}}"#;
-        assert!(fresh(&dir, &slugs, SystemTime::now()).is_none(), "nothing kept");
+        assert!(fresh(&dir, &slugs, &[], SystemTime::now()).is_none(), "nothing kept");
         save(&dir, REQUESTED, &stamp, search);
-        assert!(fresh(&dir, &slugs, SystemTime::now()).is_none(), "a repo's answer is missing");
+        assert!(fresh(&dir, &slugs, &[], SystemTime::now()).is_none(), "a repo's answer is missing");
         save(&dir, &slugs[0], &stamp, PRS);
         assert_eq!(std::fs::metadata(saved_path(&dir, &slugs[0])).unwrap().permissions().mode() & 0o777, 0o600);
-        let answers = fresh(&dir, &slugs, SystemTime::now()).unwrap();
+        let answers = fresh(&dir, &slugs, &[], SystemTime::now()).unwrap();
         assert!(matches!(&answers[0], Answer::Requested(Ok(found), _) if found.prs.is_empty()));
         assert!(matches!(&answers[1], Answer::Repo(slug, Ok(repo), Some(at)) if slug == &slugs[0] && repo.prs.len() == 2 && at == &stamp));
 
         // Nobody has confirmed them for a while: GitHub is asked.
         let later = SystemTime::now() + FRESH;
-        assert!(fresh(&dir, &slugs, later).is_none());
+        assert!(fresh(&dir, &slugs, &[], later).is_none());
         // An engine that polls says they still stand.
         let old = SystemTime::now() - Duration::from_secs(3600);
         for key in [REQUESTED, slugs[0].as_str()] {
             std::fs::File::options().write(true).open(saved_path(&dir, key)).unwrap().set_modified(old).unwrap();
         }
-        assert!(fresh(&dir, &slugs, SystemTime::now()).is_none());
+        assert!(fresh(&dir, &slugs, &[], SystemTime::now()).is_none());
         confirm(&dir, REQUESTED);
         confirm(&dir, &slugs[0]);
-        assert!(fresh(&dir, &slugs, SystemTime::now()).is_some());
+        assert!(fresh(&dir, &slugs, &[], SystemTime::now()).is_some());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -2699,6 +2836,48 @@ mod tests {
         assert_eq!(pr.reviewers_asked, ["ana", "platform"]);
         let (pr, _) = parse_one(&open.replace(r#"{"requestedReviewer":{"__typename":"User","login":"me"}},"#, "")).unwrap();
         assert!(!pr.review_requested && pr.requested_by.is_none());
+    }
+
+    /// One merged upstream, one in a repo GitHub doesn't show, one gone from a repo it does, one
+    /// open, and one in a repo renamed since, as `fetch_made_text` puts them together.
+    const MADE_PRS: &str = r#"{"asked":["upstream/orm#8580","gone/repo#1","lists/awesome#3","lists/awesome#12","lists/old-name#7"],"data":{"viewer":{"login":"me"},
+      "m4":{"pullRequest":{"number":7,"title":"List kestrel","url":"https://github.com/lists/new-name/pull/7","state":"CLOSED","isDraft":false,"reviewDecision":null,"updatedAt":"2026-10-01T10:00:00Z","headRefName":"add-kestrel","commits":{"nodes":[]}}},
+      "m0":{"pullRequest":{"number":8580,"title":"Skip a quadratic scan","url":"https://github.com/Upstream/orm/pull/8580","state":"MERGED","isDraft":false,"reviewDecision":"APPROVED","mergeStateStatus":"CLEAN","updatedAt":"2026-11-03T10:00:00Z","createdAt":"2026-11-02T10:00:00Z","mergedAt":"2026-11-03T10:00:00Z","closedAt":"2026-11-03T10:00:00Z","headRefName":"skip-scan","baseRefName":"master","author":{"login":"me"},"headRepositoryOwner":{"login":"me"},"commits":{"nodes":[]}}},
+      "m1":null,
+      "m2":{"pullRequest":null},
+      "m3":{"pullRequest":{"number":12,"title":"List northwind","url":"https://github.com/lists/awesome/pull/12","state":"OPEN","isDraft":false,"reviewDecision":null,"mergeStateStatus":"BLOCKED","updatedAt":"2026-11-01T10:00:00Z","headRefName":"add-northwind","author":{"login":"me"},"commits":{"nodes":[]},
+        "reviewRequests":{"nodes":[{"requestedReviewer":{"__typename":"User","login":"ana"}}]}}}}}"#;
+
+    #[test]
+    fn reads_the_prs_sessions_made_by_their_numbers() {
+        let query = made_query(2);
+        assert!(query.starts_with("query($o0: String!, $n0: String!, $k0: Int!, $o1: String!, $n1: String!, $k1: Int!) {\n  viewer { login }\n"), "{query}");
+        assert!(query.contains("  m1: repository(owner: $o1, name: $n1) { pullRequest(number: $k1) { ...pr mergeStateStatus ...asked } }\n"));
+        assert!(query.contains("fragment pr on PullRequest") && query.contains("fragment asked on PullRequest"));
+
+        let made = parse_made(MADE_PRS).unwrap();
+        let got: Vec<(&str, u64, PrState, Merge)> = made.prs.iter().map(|(slug, p)| (slug.as_str(), p.number, p.state, p.merge)).collect();
+        // Each under its repo as it was asked for, as its link spells it where that's the same
+        // name, and the renamed one by the name its session's records know; the two GitHub
+        // doesn't show aren't there.
+        assert_eq!(got, vec![("lists/awesome", 12, PrState::Open, Merge::Blocked), ("lists/old-name", 7, PrState::Closed, Merge::Unknown), ("Upstream/orm", 8580, PrState::Merged, Merge::Unknown)]);
+        assert_eq!(made.prs[0].1.reviewers_asked, ["ana"], "an open one's reviews are read as a repo's are");
+        assert_eq!(made.login.as_deref(), Some("me"));
+        assert!(parse_made(r#"{"data":null}"#).is_err());
+    }
+
+    #[test]
+    fn a_snapshot_takes_the_made_prs_kept_for_the_same_prs() {
+        let dir = scratch("fresh-made");
+        save(&dir, REQUESTED, &Stamp { glance: "a".into(), at: 1 }, r#"{"data":{"viewer":{"login":"gwen"},"search":{"nodes":[]}}}"#);
+        let made = vec!["lists/awesome#12".to_string(), "upstream/orm#8580".to_string()];
+        assert!(fresh(&dir, &[], &made, SystemTime::now()).is_none(), "nothing kept for them");
+        save(&dir, MADE, &Stamp { glance: made_mark(&made), at: 1 }, MADE_PRS);
+        let answers = fresh(&dir, &[], &made, SystemTime::now()).unwrap();
+        assert!(matches!(&answers[1], Answer::Made(Ok(found), Some(_)) if found.prs.len() == 3));
+        assert!(fresh(&dir, &[], &made[1..], SystemTime::now()).is_none(), "kept for other PRs than are asked for");
+        assert_eq!(fresh(&dir, &[], &[], SystemTime::now()).map(|a| a.len()), Some(1), "none asked for");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

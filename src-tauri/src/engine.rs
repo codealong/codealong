@@ -1019,7 +1019,9 @@ fn snapshot_engine(with_github: bool, with_usage: bool) -> Engine {
     }
     if with_github {
         let slugs: Vec<String> = board::polled_slugs(&e.seeds).into_iter().collect();
-        for answer in github::read_once(&slugs) {
+        e.github.set_marked(board::worked_prs(&e.pr_links(), &e.compose().lanes));
+        let made = e.github.made_to_read(&e.seeds);
+        for answer in github::read_once(&slugs, &made) {
             e.github.take(answer, &e.seeds, Now::real());
         }
         e.github.took_all(slugs);
@@ -3103,6 +3105,13 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         // What processes came or went is looked at once they're listed (`on_processes`).
         self.list_processes();
         self.poll_readers();
+        // A PR a session just made in a repo whose PRs aren't read is asked about now, not at the
+        // next poll, so it shows with its session at once.
+        let links = self.pr_links();
+        let worked = self.board.read().map(|b| board::worked_prs(&links, &b.lanes)).unwrap_or_default();
+        if self.github.set_marked(worked) {
+            self.github.poll(&self.seeds, false, Now::real());
+        }
         self.github.tick(&self.seeds, Now::real());
         let every = if self.usage_backoff { USAGE_BACKOFF } else { USAGE_EVERY };
         if self.usage_last.map(|t| t.elapsed() >= every).unwrap_or(true) {
@@ -3908,6 +3917,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             git: &self.git,
             prs: self.github.prs(),
             requested: self.github.requested(),
+            made: self.github.made(),
             project_order: &order,
             notices,
             loading: self.loading,

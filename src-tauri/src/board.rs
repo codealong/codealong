@@ -116,6 +116,9 @@ pub struct Inputs<'a> {
     /// Open PRs that GitHub's search says wait on your review, by the slug a project's repo has
     /// here, for the repos whose own PRs aren't read (`pr_items`).
     pub requested: &'a HashMap<String, Vec<PrRaw>>,
+    /// The PRs sessions made or changed in repos whose PRs aren't read, by the slug they were
+    /// asked for by, read one by one (ghpoll.rs `made`, `pr_items`).
+    pub made: &'a HashMap<String, Vec<PrRaw>>,
     pub project_order: &'a [String],
     pub notices: Vec<crate::model::Notice>,
     pub loading: bool,
@@ -1053,7 +1056,12 @@ pub fn find_pr(seed: &LaneSeed, prs: &HashMap<String, Vec<PrRaw>>, now: i64) -> 
 /// A repo whose PRs aren't read (`polled_slugs`) lists the PRs GitHub's search says wait on your
 /// review (`requested`), and the search has the last word on reviews there: a PR it no longer
 /// lists doesn't wait on you, though an earlier read of the repo said so.
-pub fn pr_items(seeds: &[LaneSeed], lanes: &[Lane], prs: &HashMap<String, Vec<PrRaw>>, requested: &HashMap<String, Vec<PrRaw>>, login: Option<&str>, links: &PrLinks) -> Vec<PrItem> {
+///
+/// Then the PRs sessions made or changed in repos whose PRs aren't read, read one by one
+/// (`made`, `worked_prs`), so a PR an agent opened anywhere is listed with it: in its project's
+/// repo where one covers it, else under the project of the session it's for, the primary's, or
+/// the first that's on the board (`made_item`).
+pub fn pr_items(seeds: &[LaneSeed], lanes: &[Lane], prs: &HashMap<String, Vec<PrRaw>>, requested: &HashMap<String, Vec<PrRaw>>, made: &HashMap<String, Vec<PrRaw>>, login: Option<&str>, links: &PrLinks) -> Vec<PrItem> {
     let repos = repos_of(seeds);
     let owners = owners_of(seeds);
     let polled = polled_slugs(seeds);
@@ -1081,8 +1089,49 @@ pub fn pr_items(seeds: &[LaneSeed], lanes: &[Lane], prs: &HashMap<String, Vec<Pr
         let history = || prs.get(slug).into_iter().flatten().chain(list);
         out.extend(list.iter().map(|p| pr_item(lanes, &owners, slug, repo, p, branch_freed(history(), p), login, links)));
     }
+    let listed: HashSet<String> = out.iter().map(|p| crate::prlinks::pr_key(&p.key)).collect();
+    for (slug, list) in made {
+        for p in list.iter().filter(|p| !listed.contains(&crate::prlinks::pr_key(&format!("{slug}#{}", p.number)))) {
+            out.extend(made_item(&repos, &owners, lanes, slug, p, login, links));
+        }
+    }
     out.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
     out
+}
+
+/// A PR sessions made in a repo whose PRs aren't read (`pr_items`): in the project whose repo it's
+/// in, matched as a link to it is (`pr_card`), else under the project of the session it's for.
+/// None when no session it's for is on the board, which leaves it no project.
+fn made_item(repos: &HashMap<&str, (&str, &str, Option<&str>)>, owners: &HashMap<&Path, &[String]>, lanes: &[Lane], slug: &str, p: &PrRaw, login: Option<&str>, links: &PrLinks) -> Option<PrItem> {
+    if let Some((&local, &repo)) = repos.iter().find(|(s, _)| s.eq_ignore_ascii_case(slug)) {
+        return Some(pr_item(lanes, owners, local, repo, p, None, login, links));
+    }
+    let mut item = pr_item(lanes, owners, slug, ("", slug.rsplit('/').next().unwrap_or(slug), None), p, None, login, links);
+    let key = crate::prlinks::pr_key(&item.key);
+    let worked = links.worked.get(&key).into_iter().flatten().filter(|k| !links.unlinked.contains(&(key.clone(), (*k).clone())));
+    let project = item.primary.iter().chain(item.sessions.iter().map(|s| &s.key)).chain(worked).find_map(|k| home(lanes, k)).map(|(l, _)| l.project.clone())?;
+    item.project = project;
+    Some(item)
+}
+
+/// The PRs sessions on the board (`lanes`) made or changed by their records, or were linked to by
+/// hand, as `owner/name#number`, the latest marked first (a link by hand first of all). Records
+/// outlast the sessions the board lists (a background job removed, say), and a session unlinked
+/// from a PR counts for none. The engine reads the ones in repos whose PRs aren't read by their
+/// numbers (ghpoll.rs `made_to_read`), which are listed only with such a session (`made_item`).
+pub fn worked_prs(links: &PrLinks, lanes: &[Lane]) -> Vec<String> {
+    let on_board: HashSet<&str> = lanes.iter().flat_map(|l| l.sessions.iter().map(|s| s.key.as_str())).collect();
+    let mut prs: Vec<(Reverse<i64>, &String)> = links
+        .worked
+        .iter()
+        .filter(|(pr, sessions)| sessions.iter().any(|s| on_board.contains(s.as_str()) && !links.unlinked.contains(&((*pr).clone(), s.clone()))))
+        .map(|(pr, _)| {
+            let marked = links.made.get(pr).into_iter().flatten().map(|(_, at)| *at).max();
+            (Reverse(marked.unwrap_or(i64::MAX)), pr)
+        })
+        .collect();
+    prs.sort();
+    prs.into_iter().map(|(_, pr)| pr.clone()).collect()
 }
 
 /// Applies the snoozes you gave reviews asked of you. Until its time a PR that waits on your
@@ -2274,7 +2323,7 @@ pub fn targets(seed: &LaneSeed, sessions: &[Session], pr: Option<&Pr>, preview: 
 }
 
 pub fn compose(inp: Inputs) -> Board {
-    let Inputs { now, apps, seeds, mut sessions, visitors, git, prs, requested, project_order, notices, loading, github_at, pinned, github_login, pr_links, previews, reusable: marks, review_snoozes, auto_reviews, session_settings, machines } = inp;
+    let Inputs { now, apps, seeds, mut sessions, visitors, git, prs, requested, made, project_order, notices, loading, github_at, pinned, github_login, pr_links, previews, reusable: marks, review_snoozes, auto_reviews, session_settings, machines } = inp;
     for s in &mut sessions {
         let (h, d) = session_headline(s);
         s.headline = h;
@@ -2426,7 +2475,7 @@ pub fn compose(inp: Inputs) -> Board {
         });
     }
     lanes.sort_by(lane_order);
-    let mut pr_list = pr_items(seeds, &lanes, prs, requested, github_login, pr_links);
+    let mut pr_list = pr_items(seeds, &lanes, prs, requested, made, github_login, pr_links);
     crate::autoreview::asked_again(&mut pr_list, auto_reviews.0, &polled_slugs(seeds), machines);
     apply_review_snoozes(&mut pr_list, review_snoozes, now);
     crate::autoreview::apply(&mut pr_list, auto_reviews.0, auto_reviews.1, session_settings, auto_reviews.2, &lanes, machines, now);
@@ -2852,7 +2901,7 @@ mod tests {
         // On the board it waits on your review, asked by whoever assigned you, since then; a repo
         // whose PRs aren't read has only the search's word on it.
         let seeds = [seed("/r/spark-portal", "portal")];
-        let items = |prs: &HashMap<String, Vec<PrRaw>>, requested: &HashMap<String, Vec<PrRaw>>, seeds: &[LaneSeed]| pr_items(seeds, &[], prs, requested, Some("me"), &PrLinks::default());
+        let items = |prs: &HashMap<String, Vec<PrRaw>>, requested: &HashMap<String, Vec<PrRaw>>, seeds: &[LaneSeed]| pr_items(seeds, &[], prs, requested, &HashMap::new(), Some("me"), &PrLinks::default());
         let prs = HashMap::from([("sprucehq/spark".to_string(), vec![p(vec![], 100)])]);
         let got = items(&prs, &HashMap::new(), &seeds).remove(0);
         assert_eq!((got.review_requested, got.requested_by.as_deref(), got.requested_at), (true, Some("ken"), Some(100)));
@@ -2899,11 +2948,11 @@ mod tests {
             ("sprucehq/spark".to_string(), vec![asked(1037)]),
             ("acme/elsewhere".to_string(), vec![asked(3)]),
         ]);
-        let mut got: Vec<(String, bool, String)> = pr_items(&seeds, &[], &prs, &requested, None, &PrLinks::default()).into_iter().map(|p| (p.key, p.review_requested, p.project)).collect();
+        let mut got: Vec<(String, bool, String)> = pr_items(&seeds, &[], &prs, &requested, &HashMap::new(), None, &PrLinks::default()).into_iter().map(|p| (p.key, p.review_requested, p.project)).collect();
         got.sort();
         let want = [("sprucehq/site#5", false), ("sprucehq/site#7", true), ("sprucehq/site#9", true), ("sprucehq/spark#1037", false)];
         assert_eq!(got, want.map(|(k, r)| (k.to_string(), r, "Spruce".to_string())));
-        let items = pr_items(&seeds, &[], &prs, &requested, None, &PrLinks::default());
+        let items = pr_items(&seeds, &[], &prs, &requested, &HashMap::new(), None, &PrLinks::default());
         assert_eq!(items.iter().find(|p| p.number == 7).map(|p| p.title.as_str()), Some("Let the agent add and caption project photos"));
     }
 
@@ -2933,6 +2982,7 @@ mod tests {
             git: &HashMap::new(),
             prs: &HashMap::from([("sprucehq/spark".to_string(), vec![pr(PrState::Open, 0)])]),
             requested: &HashMap::new(),
+            made: &HashMap::new(),
             project_order: &["Spruce".to_string()],
             notices: vec![],
             loading: false,
@@ -3063,6 +3113,7 @@ mod tests {
             git: &git,
             prs: &prs,
             requested: &HashMap::new(),
+            made: &HashMap::new(),
             project_order: &order,
             notices: vec![],
             loading: false,
@@ -3119,7 +3170,7 @@ mod tests {
         maker.branch = Some("app4".into());
         let (git, visitors, prs) = (HashMap::new(), HashMap::new(), HashMap::new());
         let order = vec!["Spruce".to_string()];
-        let board = compose(Inputs { now: NOW, apps: &AppNames::default(), seeds: &seeds, sessions: vec![maker.clone()], visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new(), review_snoozes: &[], session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default() });
+        let board = compose(Inputs { now: NOW, apps: &AppNames::default(), seeds: &seeds, sessions: vec![maker.clone()], visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), made: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new(), review_snoozes: &[], session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default() });
         let old = pr(PrState::Merged, 0);
         let links = PrLinks { worked: HashMap::from([("sprucehq/spark#1037".to_string(), vec![maker.key.clone()]), ("acme/tool#1037".to_string(), vec![maker.key.clone()])]), ..Default::default() };
         let renamed = HashMap::from([("sprucehq/spark".to_string(), "Spruce/spark".to_string())]);
@@ -3136,6 +3187,62 @@ mod tests {
         assert_eq!((other.key.as_str(), other.project.as_str(), other.repo.as_str()), ("acme/tool#1037", "", "tool"));
         assert_eq!(other.sessions.len(), 1);
         assert!(other.lanes.is_empty());
+    }
+
+    #[test]
+    fn a_pr_a_session_made_where_no_repo_is_read_is_listed_with_it() {
+        let maker = Session { cwd: "/r/spark-portal".into(), branch: Some("portal".into()), ..crate::fixtures::session("maker") };
+        let lanes = vec![Lane { project: "Spruce".into(), repo_slug: Some("sprucehq/spark".into()), branch: Some("portal".into()), ..crate::fixtures::lane("/r/spark-portal", vec![maker]) }];
+        // Spark's PRs are read; its docs repo is checked out on its default branch alone.
+        let docs = LaneSeed { repo: "docs".into(), repo_slug: Some("SpruceHQ/docs".into()), ..seed("/r/docs", "main") };
+        let seeds = vec![seed("/r/spark-portal", "portal"), docs];
+        let upstream = PrRaw { number: 8580, url: "https://github.com/Upstream/orm/pull/8580".into(), head_ref: "skip-scan".into(), updated_at: NOW - 1_000, ..pr(PrState::Open, 0) };
+        let docs_pr = PrRaw { number: 12, url: "https://github.com/sprucehq/docs/pull/12".into(), head_ref: "photos".into(), ..pr(PrState::Merged, 0) };
+        let made = HashMap::from([("Upstream/orm".to_string(), vec![upstream.clone()]), ("sprucehq/docs".to_string(), vec![docs_pr.clone()])]);
+        let mut links = PrLinks { worked: HashMap::from([("upstream/orm#8580".to_string(), vec!["maker".to_string()])]), ..Default::default() };
+        let listed = |requested: &HashMap<String, Vec<PrRaw>>, lanes: &[Lane], links: &PrLinks| {
+            let items = pr_items(&seeds, lanes, &HashMap::new(), requested, &made, Some("gwen"), links);
+            items.into_iter().map(|p| (p.key, p.project, p.repo, p.sessions.into_iter().map(|s| s.key).collect::<Vec<_>>())).collect::<Vec<_>>()
+        };
+        let none = HashMap::new();
+        let upstream_item = ("Upstream/orm#8580".to_string(), "Spruce".to_string(), "orm".to_string(), vec!["maker".to_string()]);
+        let docs_item = ("SpruceHQ/docs#12".to_string(), "Spruce".to_string(), "docs".to_string(), vec![]);
+        // Upstream, under the project of the session that made it, with it; the docs PR in its
+        // project's repo, whatever case its link has.
+        assert_eq!(listed(&none, &lanes, &links), vec![upstream_item.clone(), docs_item.clone()]);
+
+        // Waiting on your review there too, it's listed once.
+        let asked = HashMap::from([("SpruceHQ/docs".to_string(), vec![PrRaw { review_requested: true, ..docs_pr }])]);
+        assert_eq!(listed(&asked, &lanes, &links).len(), 2);
+
+        // With no session it's for on the board, or the one there unlinked from it, nothing
+        // gives the upstream PR a project.
+        assert_eq!(listed(&none, &[], &links), vec![docs_item.clone()]);
+        links.unlinked.insert(("upstream/orm#8580".into(), "maker".into()));
+        assert_eq!(listed(&none, &lanes, &links), vec![docs_item]);
+    }
+
+    #[test]
+    fn the_prs_worked_on_come_latest_marked_first() {
+        let worked = |keys: &[(&str, &str)]| keys.iter().map(|(pr, s)| (pr.to_string(), vec![s.to_string()])).collect();
+        let on_board = ["a", "b", "c", "linked"].map(crate::fixtures::session);
+        let lanes = vec![crate::fixtures::lane("/w", on_board.to_vec())];
+        let mut links = PrLinks {
+            // A session the board no longer lists made #5.
+            worked: worked(&[("o/r#1", "a"), ("o/r#2", "b"), ("o/r#3", "c"), ("o/r#4", "linked"), ("o/r#5", "gone")]),
+            made: HashMap::from([
+                ("o/r#1".to_string(), vec![("a".to_string(), 100)]),
+                ("o/r#2".to_string(), vec![("b".to_string(), 300), ("a".to_string(), 50)]),
+                ("o/r#3".to_string(), vec![("c".to_string(), 200)]),
+                ("o/r#5".to_string(), vec![("gone".to_string(), 900)]),
+            ]),
+            ..Default::default()
+        };
+        // A link by hand first, then by the latest session's mark.
+        assert_eq!(worked_prs(&links, &lanes), ["o/r#4", "o/r#2", "o/r#3", "o/r#1"]);
+        // Every session it had unlinked by hand: it's no one's.
+        links.unlinked.insert(("o/r#3".into(), "c".into()));
+        assert_eq!(worked_prs(&links, &lanes), ["o/r#4", "o/r#2", "o/r#1"]);
     }
 
     #[test]
@@ -3251,7 +3358,7 @@ mod tests {
         let reused = PrLinks { pushed: HashMap::from([("router".to_string(), router)]), ..Default::default() };
         let router_pushes = |seeds: &[LaneSeed], prs: Vec<PrRaw>, requested: Vec<PrRaw>| {
             let (prs, requested) = (HashMap::from([("sprucehq/spark".to_string(), prs)]), HashMap::from([("sprucehq/spark".to_string(), requested)]));
-            let items = pr_items(seeds, &lanes, &prs, &requested, Some("gwen"), &reused);
+            let items = pr_items(seeds, &lanes, &prs, &requested, &HashMap::new(), Some("gwen"), &reused);
             items.iter().find(|p| p.number == 1037).and_then(|p| p.sessions.iter().find(|x| x.key == "router")).map(|x| x.pushes)
         };
         assert_eq!(router_pushes(&seeds, vec![earlier.clone(), pr(PrState::Open, 0)], vec![]), Some(1));
@@ -3379,6 +3486,7 @@ mod tests {
                 git: &git,
                 prs: &prs,
                 requested: &HashMap::new(),
+                made: &HashMap::new(),
                 project_order: &order,
                 notices: vec![],
                 loading: false,
@@ -3441,6 +3549,7 @@ mod tests {
             git: &git,
             prs: &prs,
             requested: &HashMap::new(),
+            made: &HashMap::new(),
             project_order: &order,
             notices: vec![],
             loading: false,
@@ -3480,7 +3589,7 @@ mod tests {
         let prs = HashMap::from([("sprucehq/spark".to_string(), vec![pr(PrState::Open, 0), photos])]);
         let (git, visitors) = (HashMap::new(), HashMap::new());
         let order = vec!["Spruce".to_string()];
-        let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![s.clone()], visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new(), review_snoozes: &[], session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default() });
+        let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![s.clone()], visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), made: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new(), review_snoozes: &[], session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default() });
         let linked = |number: u64| board.prs.iter().find(|p| p.number == number).unwrap().sessions.iter().map(|x| x.key.clone()).collect::<Vec<_>>();
         assert_eq!((linked(1037), linked(1038)), (vec![s.key.clone()], vec![s.key.clone()]));
         let listed = board.lanes.iter().find(|l| l.path == "/r/spark-portal").unwrap();
@@ -3519,6 +3628,7 @@ mod tests {
             git: &git,
             prs: &prs,
             requested: &HashMap::new(),
+            made: &HashMap::new(),
             project_order: &order,
             notices: vec![],
             loading: false,
@@ -3572,6 +3682,7 @@ mod tests {
                 git: &git,
                 prs: &prs,
                 requested: &HashMap::new(),
+                made: &HashMap::new(),
                 project_order: &order,
                 notices: vec![],
                 loading: false,
@@ -5031,7 +5142,7 @@ mod tests {
         let (git, prs, visitors) = (HashMap::new(), HashMap::new(), HashMap::new());
         let order = vec!["Spruce".to_string()];
         let hidden = |sessions: Vec<Session>| {
-            let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions, visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new(), review_snoozes: &[], session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default() });
+            let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions, visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), made: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new(), review_snoozes: &[], session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default() });
             let lane = |p: &str| board.lanes.iter().find(|l| l.path == p).unwrap().clone();
             assert!(!lane(root).looks_finished);
             assert!(lane(root).chats && !lane("/Users/me/notes").chats);
@@ -5053,7 +5164,7 @@ mod tests {
         let seeds = vec![seed("/r/spark", "main"), chats];
         let (git, prs, visitors) = (HashMap::new(), HashMap::new(), HashMap::new());
         let order = vec!["Spruce".to_string()];
-        let board = |sessions: Vec<Session>| compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions, visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new(), review_snoozes: &[], session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default() });
+        let board = |sessions: Vec<Session>| compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions, visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), made: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new(), review_snoozes: &[], session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default() });
         let empty = board(vec![]);
         let lane = empty.lanes.iter().find(|l| l.path == root).unwrap();
         assert!(lane.starts_chats && lane.hidden, "there to start in, out of sight");
@@ -5139,7 +5250,7 @@ mod tests {
         running.archived = true;
         let (prs, visitors) = (HashMap::new(), HashMap::new());
         let order = vec!["Spruce".to_string()];
-        let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![running], visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new(), review_snoozes: &[], session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default() });
+        let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![running], visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), made: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new(), review_snoozes: &[], session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default() });
         let said = |p: &str| board.lanes.iter().find(|l| l.path == p).unwrap().cleanup.clone().map(|c| (c.ok, c.why));
         assert_eq!(said("/r/spark"), Some((false, "the main checkout".into())));
         assert_eq!(said("/r/spark/.claude/worktrees/done"), Some((true, String::new())));
@@ -5159,7 +5270,7 @@ mod tests {
         s.work = vec!["/r/codealong-pins".into(); 3];
         let (git, prs, visitors) = (HashMap::new(), HashMap::new(), HashMap::new());
         let order = vec!["Spruce".to_string()];
-        let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![s], visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new(), review_snoozes: &[], session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default() });
+        let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![s], visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), made: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new(), review_snoozes: &[], session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default() });
         let lane = |p: &str| board.lanes.iter().find(|l| l.path == p).unwrap();
         assert_eq!(lane("/r/codealong-pins").bay, Bay::Working);
         assert_eq!(lane("/r/codealong-pins").sessions.len(), 1);
@@ -5189,7 +5300,7 @@ mod tests {
             apply_helper(&mut s);
             s
         };
-        let board = |h: Session| compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![h, boss.clone()], visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new(), review_snoozes: &[], session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default() });
+        let board = |h: Session| compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![h, boss.clone()], visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), made: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new(), review_snoozes: &[], session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default() });
         // Working, it's its agent's work: the worktree stands as its own sessions do, and the mark
         // doesn't spin for it. It's listed after them.
         let working = board(helper("busy"));
@@ -5691,7 +5802,7 @@ mod tests {
         maker.cwd = "/r/vault".into();
         let (git, prs, order) = (HashMap::new(), HashMap::new(), vec!["Spruce".to_string()]);
         let visitors = HashMap::new();
-        let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![maker], visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new(), review_snoozes: &[], session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default() });
+        let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![maker], visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), made: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new(), review_snoozes: &[], session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default() });
         let lane = board.lanes.iter().find(|l| l.path == scratch).unwrap();
         assert_eq!(lane.sessions.len(), 1);
         assert_eq!(lane.sessions[0].visitor.as_deref(), Some("made this worktree"));
@@ -5719,6 +5830,7 @@ mod tests {
             git: &git,
             prs: &prs,
             requested: &HashMap::new(),
+            made: &HashMap::new(),
             project_order: &order,
             notices: vec![],
             loading: false,
@@ -5767,6 +5879,7 @@ mod tests {
             git: &git,
             prs: &prs,
             requested: &HashMap::new(),
+            made: &HashMap::new(),
             project_order: &order,
             notices: vec![],
             loading: false,
@@ -5808,7 +5921,7 @@ mod tests {
         let (git, prs, visitors) = (HashMap::new(), HashMap::new(), HashMap::new());
         let order = vec!["Spruce".to_string()];
         let keys = |sessions: Vec<Session>| {
-            let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions, visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new(), review_snoozes: &[], session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default() });
+            let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions, visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), made: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new(), review_snoozes: &[], session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default() });
             board.lanes[0].sessions.iter().map(|s| s.key.clone()).collect::<Vec<_>>()
         };
         let read = keys(sessions.clone());
@@ -5837,6 +5950,7 @@ mod tests {
             git: &git,
             prs: &prs,
             requested: &HashMap::new(),
+            made: &HashMap::new(),
             project_order: &order,
             notices: vec![],
             loading: false,
@@ -5870,7 +5984,7 @@ mod tests {
         let seeds = vec![seed("/r/spark", "main"), seed("/r/spark-pins", "pins"), other_repo, elsewhere, folder("/Users/me/Documents/Codex", true), folder("/Users/me/notes", false)];
         let (git, prs, visitors) = (HashMap::new(), HashMap::new(), HashMap::new());
         let order = vec!["Spruce".to_string()];
-        let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![], visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new(), review_snoozes: &[], session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default() });
+        let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions: vec![], visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), made: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new(), review_snoozes: &[], session_settings: &Default::default(), auto_reviews: (&Default::default(), &Default::default(), &Default::default()), machines: &Default::default() });
         let near = |p: &str| terminal_neighbours(&board.lanes, Path::new(p));
         let at = |p: &str| (near(p).folders, near(p).project);
         let strings = |groups: &[&[&str]]| groups.iter().map(|g| g.iter().map(|f| f.to_string()).collect()).collect::<Vec<Vec<String>>>();

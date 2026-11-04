@@ -967,6 +967,14 @@ though Claude Code writes the copy only from the conversation's last compaction 
 Pushes are read from Claude Code's records (`gitOperation.push`), which name the branch but not
 the repo, so only sessions in the PR's repo count.
 
+A PR a session worked on (by its records, or linked by hand) in a repo whose PRs aren't read is
+listed too, with that session: an upstream project's, a list's, a repo of yours with no checkout
+here, or a project's repo checked out only on its default branch. It's in its project's repo where
+one covers it, else under the project of the session it's for, by its repo's name alone. Such PRs
+are read by their numbers, the 60 latest worked on and only while a session the board lists worked
+on them: at once when one is new, then every ten minutes, or every minute while one's checks run.
+Nudges reach their primary session as on any other PR.
+
 Until the project's PRs have come from GitHub (each repo's first read, and the search for the PRs
 that wait on your review), a view with none of them yet says it's reading them, with a tip, rather
 than that there are none. When GitHub can't be asked (`gh` missing or signed out, a rate limit), it

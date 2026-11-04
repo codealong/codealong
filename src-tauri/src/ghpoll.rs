@@ -10,7 +10,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::board::{self, LaneSeed};
-use crate::github::{self, Failure, Glance, Points, PrRaw, RepoPrs, Requested, Stamp, Verdict};
+use crate::github::{self, Failure, Glance, Made, Points, PrRaw, RepoPrs, Requested, Stamp, Verdict};
 use crate::model::{LastReview, LastReviewState, Notice, PrState};
 use crate::throttle;
 use crate::util::now_ms;
@@ -28,6 +28,10 @@ const NAME_RETRY: Duration = Duration::from_secs(60 * 60);
 /// What a glance's failure is kept under, beside each repo's slug and the search's
 /// `github::REQUESTED`.
 const GLANCE: &str = "glance";
+/// The most PRs sessions made that are read by their numbers (`GhPoll::made_to_read`): the
+/// latest marked. A repo whose worktrees left their branches can have hundreds marked in the
+/// month its sessions' records are kept.
+const MADE_MAX: usize = 60;
 
 /// The time, both ways it's told here: for waits, and as GitHub's answers tell it, in
 /// milliseconds. Every rule takes it rather than reading a clock, so tests make it up.
@@ -51,6 +55,8 @@ pub enum Event {
     Repo(String, Result<RepoPrs, Failure>, Option<Stamp>),
     /// The PRs that wait on your review anywhere, from the same poll.
     Requested(Result<Requested, Failure>, Option<Stamp>),
+    /// The PRs sessions made in repos whose PRs aren't read, from the same poll.
+    Made(Result<Made, Failure>, Option<Stamp>),
     /// The poll is over, however it ended: everything it had to say has been sent.
     PollEnded,
     /// What GitHub calls each repo now, by the slug its remote has (lowercase); None where
@@ -64,6 +70,7 @@ impl From<github::Answer> for Event {
             github::Answer::Glance(seen) => Event::Glance(seen),
             github::Answer::Repo(slug, result, stamp) => Event::Repo(slug, result, stamp),
             github::Answer::Requested(result, stamp) => Event::Requested(result, stamp),
+            github::Answer::Made(result, stamp) => Event::Made(result, stamp),
         }
     }
 }
@@ -81,8 +88,9 @@ struct Schedule {
     again: bool,
     /// When the latest poll was sent: the one on its way is the latest.
     last: Option<Instant>,
-    /// What each repo's PRs were read at, by slug, and the search's under `github::REQUESTED`:
-    /// a poll reads again only those whose glance has changed since (github.rs).
+    /// What each repo's PRs were read at, by slug, the search's under `github::REQUESTED` and
+    /// the made PRs' under `github::MADE`: a poll reads again only those whose glance has changed
+    /// since (github.rs).
     stamps: HashMap<String, Stamp>,
     /// The next poll reads everything, whatever its glance says (`refetch`).
     all: bool,
@@ -114,11 +122,12 @@ impl Schedule {
         !self.hold.is_some_and(|until| now < until)
     }
 
-    /// A poll is sent: what it goes by, for these repos, `busy` being those whose checks run.
-    fn start(&mut self, slugs: Vec<String>, busy: BTreeSet<String>, now: Now) -> github::Ask {
+    /// A poll is sent: what it goes by, for these repos and made PRs, `busy` being those whose
+    /// checks run.
+    fn start(&mut self, slugs: Vec<String>, made: Vec<String>, busy: BTreeSet<String>, now: Now) -> github::Ask {
         self.inflight = true;
         self.last = Some(now.at);
-        github::Ask { slugs, have: self.stamps.clone(), busy, all: std::mem::take(&mut self.all), thrifty: self.thrifty(now.ms) }
+        github::Ask { slugs, made, have: self.stamps.clone(), busy, all: std::mem::take(&mut self.all), thrifty: self.thrifty(now.ms) }
     }
 
     /// Few points are left in an hour that hasn't ended: only a changed glance gets a repo read.
@@ -221,6 +230,12 @@ pub struct GhPoll {
     /// The open PRs GitHub's search says wait on your review, by the slug a project's repo has
     /// here: the board lists them for the repos `prs` doesn't read (`board::pr_items`).
     requested: HashMap<String, Vec<PrRaw>>,
+    /// The PRs sessions here made or changed in repos `prs` doesn't read, by the slug they were
+    /// asked for by (`set_marked`, `github::parse_made`).
+    made: HashMap<String, Vec<PrRaw>>,
+    /// Every PR sessions' records show they made or changed, or that's linked to one by hand, as
+    /// `owner/name#number`, the latest marked first (`board::worked_prs`).
+    marked: Vec<String>,
     /// What went wrong, by what was asked (`GLANCE`, a repo's slug, `github::REQUESTED`): the
     /// repos and the search are read at once, so each failure stays until what failed answers
     /// again, whatever else answers meanwhile.
@@ -279,6 +294,8 @@ impl GhPoll {
             back,
             prs: HashMap::new(),
             requested: HashMap::new(),
+            made: HashMap::new(),
+            marked: Vec::new(),
             failures: BTreeMap::new(),
             heard: (false, HashSet::new()),
             approved_here: HashMap::new(),
@@ -303,6 +320,38 @@ impl GhPoll {
     /// The PRs that wait on your review, by the slug their repo has here.
     pub fn requested(&self) -> &HashMap<String, Vec<PrRaw>> {
         &self.requested
+    }
+
+    /// The PRs sessions made in repos whose PRs aren't read, by the slug they were asked
+    /// for by.
+    pub fn made(&self) -> &HashMap<String, Vec<PrRaw>> {
+        &self.made
+    }
+
+    /// The PRs sessions made or changed, the latest marked first (`board::worked_prs`). True when
+    /// one is new, which the caller asks GitHub about now rather than at the next poll.
+    pub fn set_marked(&mut self, keys: Vec<String>) -> bool {
+        let new = keys.iter().any(|k| !self.marked.contains(k));
+        self.marked = keys;
+        new
+    }
+
+    /// The PRs sessions made that polls read by their numbers: those in repos whose PRs aren't
+    /// read, by the name a repo's remote has or the one GitHub has for it now, the latest marked
+    /// first and `MADE_MAX` at most, then in order, so the same PRs are asked for alike.
+    pub fn made_to_read(&self, seeds: &[LaneSeed]) -> Vec<String> {
+        let mut read: HashSet<String> = HashSet::new();
+        for slug in board::polled_slugs(seeds) {
+            let lower = slug.to_lowercase();
+            if let Some(now) = self.names.now.get(&lower) {
+                read.insert(now.to_lowercase());
+            }
+            read.insert(lower);
+        }
+        let outside = |k: &&String| k.split_once('#').is_some_and(|(slug, _)| !read.contains(&slug.to_lowercase()));
+        let mut made: Vec<String> = self.marked.iter().filter(outside).take(MADE_MAX).cloned().collect();
+        made.sort();
+        made
     }
 
     /// When GitHub last answered.
@@ -385,15 +434,23 @@ impl GhPoll {
     /// What a poll sent now goes by, marking it on its way; None when none may be sent, or no
     /// worktree's repo is on GitHub.
     fn ask(&mut self, seeds: &[LaneSeed], force: bool, now: Now) -> Option<github::Ask> {
-        if !self.schedule.may_start(force, now.at) || !seeds.iter().any(|s| s.repo_slug.is_some()) {
+        let made = self.made_to_read(seeds);
+        // None left to read: the ones read before are in repos read now, or no longer marked.
+        if made.is_empty() {
+            self.made.clear();
+        }
+        if !self.schedule.may_start(force, now.at) || (!seeds.iter().any(|s| s.repo_slug.is_some()) && made.is_empty()) {
             return None;
         }
-        let busy = self.prs.iter().filter(|(_, prs)| github::busy(prs, now.ms)).map(|(slug, _)| slug.clone()).collect();
+        let mut busy: BTreeSet<String> = self.prs.iter().filter(|(_, prs)| github::busy(prs, now.ms)).map(|(slug, _)| slug.clone()).collect();
+        if self.made.values().any(|prs| github::busy(prs, now.ms)) {
+            busy.insert(github::MADE.to_string());
+        }
         self.heard = (false, HashSet::new());
         self.asked_ms = Some(now.ms);
         let slugs: Vec<String> = board::polled_slugs(seeds).into_iter().collect();
         self.asked_slugs = slugs.clone();
-        Some(self.schedule.start(slugs, busy, now))
+        Some(self.schedule.start(slugs, made, busy, now))
     }
 
     /// Runs a poll's work on a thread of its own. `Event::PollEnded` follows it however it
@@ -451,6 +508,10 @@ impl GhPoll {
                 self.on_read(github::REQUESTED, result.as_ref().err(), stamp, now);
                 self.on_requested(result, seeds, now)
             }
+            Event::Made(result, stamp) => {
+                self.on_read(github::MADE, result.as_ref().err(), stamp, now);
+                self.on_made(result, now)
+            }
             Event::PollEnded => {
                 // The board says so at once (sounds.rs counts reviews from then).
                 let ready = !self.polled && self.search_answered();
@@ -505,6 +566,9 @@ impl GhPoll {
             github::Answer::Repo(slug, Err(e), _) => self.answered(&slug, Some(e)),
             github::Answer::Requested(result, _) => {
                 self.on_requested(result, seeds, now);
+            }
+            github::Answer::Made(result, _) => {
+                self.on_made(result, now);
             }
         }
     }
@@ -561,7 +625,8 @@ impl GhPoll {
     pub fn on_approved(&mut self, slug: String, number: u64, verdict: Verdict, commit: Option<String>, seeds: &[LaneSeed], now: Now) -> bool {
         let mut dirty = false;
         let mut shown = None;
-        if let Some(pr) = self.prs.get_mut(&slug).and_then(|prs| prs.iter_mut().find(|p| p.number == number)) {
+        let made = self.made.iter_mut().filter(|(s, _)| s.eq_ignore_ascii_case(&slug)).flat_map(|(_, prs)| prs.iter_mut());
+        if let Some(pr) = self.prs.get_mut(&slug).into_iter().flatten().chain(made).find(|p| p.number == number) {
             pr.review_requested = false;
             let review = LastReview { state: verdict.into(), commit: commit.or_else(|| pr.head_oid.clone()), at: Some(now.ms) };
             shown_review(pr, review.clone());
@@ -583,7 +648,8 @@ impl GhPoll {
     /// True when the board has changed.
     pub fn on_merged(&mut self, slug: String, number: u64, seeds: &[LaneSeed], now: Now) -> bool {
         let mut dirty = false;
-        let lists = self.prs.get_mut(&slug).into_iter().chain(self.requested.get_mut(&slug));
+        let made = self.made.iter_mut().filter(|(s, _)| s.eq_ignore_ascii_case(&slug)).map(|(_, prs)| prs);
+        let lists = self.prs.get_mut(&slug).into_iter().chain(self.requested.get_mut(&slug)).chain(made);
         for pr in lists.flat_map(|prs| prs.iter_mut()).filter(|p| p.number == number) {
             shown_merged(pr, now.ms);
             dirty = true;
@@ -601,40 +667,45 @@ impl GhPoll {
         }
     }
 
+    /// What you did here to the PRs of `slug`'s repo that an answer GitHub was asked for before
+    /// doesn't have yet. One sent before you reviewed a PR here still asks for your review,
+    /// without it, and one sent before you merged it still has it open; one sent after has
+    /// GitHub's word on them, and what was done here is let go.
+    fn as_done_here(&mut self, slug: &str, prs: &mut [PrRaw]) {
+        let asked = self.schedule.last;
+        self.approved_here.retain(|(s, n), (at, review)| {
+            if !s.eq_ignore_ascii_case(slug) {
+                return true;
+            }
+            if asked.is_some_and(|t| t >= *at) {
+                return false;
+            }
+            if let Some(pr) = prs.iter_mut().find(|p| p.number == *n) {
+                pr.review_requested = false;
+                if let Some(review) = review {
+                    shown_review(pr, review.clone());
+                }
+            }
+            true
+        });
+        self.merged_here.retain(|(s, n), (at, ms)| {
+            if !s.eq_ignore_ascii_case(slug) {
+                return true;
+            }
+            if asked.is_some_and(|t| t >= *at) {
+                return false;
+            }
+            if let Some(pr) = prs.iter_mut().find(|p| p.number == *n) {
+                shown_merged(pr, *ms);
+            }
+            true
+        });
+    }
+
     fn on_repo(&mut self, slug: String, result: Result<RepoPrs, Failure>, now: Now) -> bool {
         match result {
             Ok(mut repo) => {
-                // An answer to a request sent before you reviewed a PR here still asks for your
-                // review, without it; one sent after has GitHub's word on it.
-                let asked = self.schedule.last;
-                self.approved_here.retain(|(s, n), (at, review)| {
-                    if *s != slug {
-                        return true;
-                    }
-                    if asked.is_some_and(|t| t >= *at) {
-                        return false;
-                    }
-                    if let Some(pr) = repo.prs.iter_mut().find(|p| p.number == *n) {
-                        pr.review_requested = false;
-                        if let Some(review) = review {
-                            shown_review(pr, review.clone());
-                        }
-                    }
-                    true
-                });
-                // And one sent before you merged a PR here still has it open.
-                self.merged_here.retain(|(s, n), (at, ms)| {
-                    if *s != slug {
-                        return true;
-                    }
-                    if asked.is_some_and(|t| t >= *at) {
-                        return false;
-                    }
-                    if let Some(pr) = repo.prs.iter_mut().find(|p| p.number == *n) {
-                        shown_merged(pr, *ms);
-                    }
-                    true
-                });
+                self.as_done_here(&slug, &mut repo.prs);
                 self.answered(&slug, None);
                 self.prs.insert(slug, repo.prs);
                 if repo.login.is_some() {
@@ -644,6 +715,32 @@ impl GhPoll {
             }
             Err(e) => self.answered(&slug, Some(e)),
         }
+        true
+    }
+
+    /// The PRs sessions made in repos whose PRs aren't read, filed under the repo each was asked
+    /// for by.
+    fn on_made(&mut self, result: Result<Made, Failure>, now: Now) -> bool {
+        let found = match result {
+            Ok(found) => found,
+            Err(e) => {
+                self.answered(github::MADE, Some(e));
+                return true;
+            }
+        };
+        let mut made: HashMap<String, Vec<PrRaw>> = HashMap::new();
+        for (slug, pr) in found.prs {
+            made.entry(slug).or_default().push(pr);
+        }
+        for (slug, prs) in made.iter_mut() {
+            self.as_done_here(slug, prs);
+        }
+        self.made = made;
+        if found.login.is_some() {
+            self.login = found.login;
+        }
+        self.answered(github::MADE, None);
+        self.at = Some(now.ms);
         true
     }
 
@@ -793,7 +890,7 @@ mod tests {
         let mut s = Schedule::default();
         let t = clock();
         assert!(s.due(t.at) && s.may_start(false, t.at), "nothing sent yet");
-        s.start(vec![], BTreeSet::new(), t);
+        s.start(vec![], vec![], BTreeSet::new(), t);
         assert!(!s.may_start(true, t.at), "one is on its way");
         assert!(!s.ended(), "nothing was asked for meanwhile");
 
@@ -1059,7 +1156,7 @@ mod tests {
         let mut gh = quiet();
         let seeds = [seed("/r/spark", "sprucehq/spark", "feature")];
         let asked = PrRaw { review_requested: true, ..pr(7) };
-        let reviews = |gh: &GhPoll| board::pr_items(&seeds, &[], gh.prs(), gh.requested(), Some("gwen"), &Default::default()).into_iter().filter(|p| p.waits_on_review()).count();
+        let reviews = |gh: &GhPoll| board::pr_items(&seeds, &[], gh.prs(), gh.requested(), gh.made(), Some("gwen"), &Default::default()).into_iter().filter(|p| p.waits_on_review()).count();
         // The search answers first: the board lists a read repo's reviews from its read, which
         // is still to come.
         let found = Requested { login: Some("gwen".into()), prs: vec![("sprucehq/spark".into(), asked.clone())] };
@@ -1265,7 +1362,7 @@ mod tests {
             let _ = tx.lock().unwrap().send(event);
         }));
         let t = clock();
-        gh.schedule.start(vec![], BTreeSet::new(), t);
+        gh.schedule.start(vec![], vec![], BTreeSet::new(), t);
         gh.run_poll(|back| {
             back(Event::Glance(Ok(Glance::default())));
             // Without the hook's report on stderr, as a panic would unwind.
@@ -1277,5 +1374,58 @@ mod tests {
         assert!(matches!(ended, Event::PollEnded));
         gh.on_event(ended, &[], t);
         assert!(!gh.schedule.inflight && gh.schedule.may_start(true, t.at));
+    }
+
+    #[test]
+    fn the_prs_sessions_made_are_read_where_their_repo_isnt() {
+        let mut gh = quiet();
+        let t = clock();
+        // sprucehq/spark has a worktree on a branch of its own, so its PRs are read; spurhq/spur is
+        // checked out on its default branch alone, and the upstream project not at all.
+        let seeds = [seed("/x/spark-app4", "SparkHQ/spark", "app4"), seed("/x/spur", "spurhq/spur", "main")];
+        gh.names.now.insert("sparkhq/spark".into(), "sprucehq/spark".into());
+        let marked = vec!["upstream/orm#8580".to_string(), "sprucehq/spark#1037".to_string(), "sparkhq/spark#1036".to_string(), "spurhq/spur#12".to_string()];
+        assert!(gh.set_marked(marked.clone()), "every one is new");
+        assert!(!gh.set_marked(marked.iter().rev().cloned().collect()), "the same ones in another order");
+        // By the name its remote has and by GitHub's name for it now, spark's are read with its
+        // repo; the rest are asked for in order.
+        assert_eq!(gh.made_to_read(&seeds), ["spurhq/spur#12", "upstream/orm#8580"]);
+
+        // The latest marked are read, and no more than so many.
+        let many: Vec<String> = (0..MADE_MAX + 5).map(|n| format!("upstream/orm#{}", 9000 - n)).collect();
+        gh.set_marked(many.clone());
+        let read = gh.made_to_read(&seeds);
+        assert_eq!(read.len(), MADE_MAX);
+        assert!(read.contains(&many[0]) && !read.contains(&many[MADE_MAX]));
+
+        // With no repo of a project's on GitHub, a poll still goes for them, and the ones whose
+        // checks run keep it busy.
+        gh.set_marked(vec!["upstream/orm#8580".to_string()]);
+        let plain = [LaneSeed { repo_slug: None, ..seed("/x/notes", "", "main") }];
+        let running = PrRaw { url: "https://github.com/Upstream/orm/pull/8580".into(), checks: Checks { pending: 1, ..Checks::default() }, updated_at: t.ms - 60_000, ..pr(8580) };
+        assert!(gh.on_event(Event::Made(Ok(Made { login: Some("gwen".into()), prs: vec![("Upstream/orm".into(), running)] }), Some(Stamp { glance: "m".into(), at: t.ms })), &plain, t));
+        assert_eq!(gh.made()["Upstream/orm"][0].number, 8580);
+        assert_eq!(gh.login(), Some("gwen"));
+        assert_eq!(gh.schedule.stamps.get(github::MADE).map(|s| s.glance.as_str()), Some("m"));
+        let ask = gh.ask(&plain, true, after(t, 60)).unwrap();
+        assert_eq!(ask.made, ["upstream/orm#8580"]);
+        assert!(ask.slugs.is_empty());
+        assert!(ask.busy.contains(github::MADE), "its checks are running");
+
+        // Merged here while that poll is on its way, it shows merged at once, by the repo's name
+        // in any case.
+        assert!(gh.on_merged("upstream/orm".into(), 8580, &plain, after(t, 61)));
+        assert_eq!(gh.made()["Upstream/orm"][0].state, PrState::Merged);
+        gh.schedule.ended();
+
+        // A read that failed keeps what was read, and says so until one answers.
+        gh.on_event(Event::Made(Err(Failure::Other("GitHub: couldn't load the PRs sessions made".into())), None), &plain, after(t, 62));
+        assert_eq!(gh.made().len(), 1);
+        assert!(gh.notice().is_some());
+
+        // Once none is left to read, the ones read before go.
+        gh.set_marked(Vec::new());
+        assert!(gh.ask(&plain, true, after(t, 180)).is_none());
+        assert!(gh.made().is_empty());
     }
 }
