@@ -721,8 +721,7 @@ impl GhPoll {
     }
 
     /// The PRs sessions made in repos whose PRs aren't read, filed under the repo each was asked
-    /// for by, which is how the sessions' links name it: by its remote's name, for a project's repo
-    /// renamed since (`board::renamed_here`, prlinks.rs `named_here`).
+    /// for by, which is how the sessions' links name it (`github::parse_made`).
     fn on_made(&mut self, result: Result<Made, Failure>, now: Now) -> bool {
         let found = match result {
             Ok(found) => found,

@@ -1105,9 +1105,8 @@ pub fn pr_items(seeds: &[LaneSeed], lanes: &[Lane], prs: &HashMap<String, Vec<Pr
 }
 
 /// A PR sessions made in a repo whose PRs aren't read (`pr_items`): in the project whose repo it's
-/// in, by its name in any case (prlinks.rs `named_here` names a renamed repo's by its remote's),
-/// else under the project of the session it's for. None when no session it's for is on the
-/// board, which leaves it no project.
+/// in, by its name in any case, else under the project of the session it's for. None when no
+/// session it's for is on the board, which leaves it no project.
 fn made_item(repos: &HashMap<&str, (&str, &str, Option<&str>)>, owners: &HashMap<&Path, &[String]>, lanes: &[Lane], slug: &str, p: &PrRaw, login: Option<&str>, links: &PrLinks) -> Option<PrItem> {
     if let Some((&local, &repo)) = repos.iter().find(|(s, _)| s.eq_ignore_ascii_case(slug)) {
         return Some(pr_item(lanes, owners, local, repo, p, None, login, links));
@@ -1159,33 +1158,6 @@ pub fn apply_review_snoozes(prs: &mut [PrItem], snoozes: &[Snooze], now: i64) {
 /// review, from one search across GitHub.
 pub fn polled_slugs(seeds: &[LaneSeed]) -> BTreeSet<String> {
     seeds.iter().filter(|s| s.branch.is_some() && s.branch != s.default_branch).filter_map(|s| s.repo_slug.clone()).collect()
-}
-
-/// Every other name a repo renamed on GitHub is known by, lowercase, to the one a worktree's remote
-/// has now (`slugs`), lowercase, which the PR links name its PRs by (prlinks.rs `named_here`): a
-/// session's records and a link to a PR have its name when it was made. `names` is what GitHub
-/// calls each remote's repo now (ghpoll.rs `repo_names`, which keeps a remote's slug after it's
-/// changed). GitHub's own name where a remote has it, else of several old ones, the first in order.
-pub fn renamed_here<'a>(slugs: impl IntoIterator<Item = &'a str>, names: &HashMap<String, String>) -> HashMap<String, String> {
-    let slugs: BTreeSet<String> = slugs.into_iter().map(str::to_lowercase).collect();
-    // Each repo by GitHub's name now, with the names it's had here.
-    let mut repos: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-    for (was, now) in names {
-        let now = now.to_lowercase();
-        repos.entry(now.clone()).or_default().extend([was.to_lowercase(), now]);
-    }
-    let mut here = HashMap::new();
-    for (now, known) in repos {
-        let named = if slugs.contains(&now) { Some(&now) } else { known.iter().find(|k| slugs.contains(*k)) };
-        let Some(named) = named else { continue };
-        here.extend(known.iter().filter(|k| *k != named).map(|k| (k.clone(), named.clone())));
-    }
-    here
-}
-
-/// `renamed_here` for the worktrees the board has.
-pub fn renamed_in(seeds: &[LaneSeed], names: &HashMap<String, String>) -> HashMap<String, String> {
-    renamed_here(seeds.iter().filter_map(|s| s.repo_slug.as_deref()), names)
 }
 
 /// One PR that `pr_items` doesn't list, for a link to it in a conversation: one older than the
@@ -3260,50 +3232,6 @@ mod tests {
         assert_eq!(listed(&none, &[], &links), vec![docs_item.clone()]);
         links.unlinked.insert(("upstream/orm#8580".into(), "maker".into()));
         assert_eq!(listed(&none, &lanes, &links), vec![docs_item]);
-    }
-
-    #[test]
-    fn a_pr_made_in_a_project_repo_renamed_since_is_known_by_its_remotes_name() {
-        let lanes = vec![Lane { project: "Spruce".into(), ..crate::fixtures::lane("/r/spark-portal", vec![crate::fixtures::session("maker"), crate::fixtures::session("fixer")]) }];
-        // Spur's remote has the name GitHub gave it before a rename, and it's checked out on its
-        // default branch alone. It isn't nudged of by default, though other repos are.
-        let spur = LaneSeed { project: "Spur".into(), repo: "spur".into(), repo_slug: Some("SpurHQ/spur".into()), ..seed("/r/spur", "main") };
-        let seeds = vec![seed("/r/spark-portal", "portal"), spur];
-        let names = HashMap::from([("spurhq/spur".to_string(), "SpurHQ/spur-app".to_string()), ("sprucehq/spark".to_string(), "sprucehq/spark".to_string())]);
-        let here = renamed_in(&seeds, &names);
-        assert_eq!(here, HashMap::from([("spurhq/spur-app".to_string(), "spurhq/spur".to_string())]));
-        // Made after the rename, the PR's records have the new name; one fixer's has the old.
-        let marks: crate::prlinks::Marks = HashMap::from([("maker".to_string(), vec![("spurhq/spur-app#5".to_string(), 100)]), ("fixer".to_string(), vec![("spurhq/spur#5".to_string(), 200)])]);
-        let (worked, unlinked, made) = crate::prlinks::resolve(&crate::prlinks::marks_named_here(&marks, &here), &crate::prlinks::LinkStore::default());
-        let links = PrLinks { worked, unlinked, made, nudge_by_default: true, nudge_by_default_in: HashMap::from([("SpurHQ/spur".to_string(), false)]), ..Default::default() };
-        assert_eq!(links.worked.keys().collect::<Vec<_>>(), ["spurhq/spur#5"]);
-        // So it's asked for by the old name, and GitHub's answer filed under it (github.rs
-        // `parse_made`); the review search's copy is filed under it too (ghpoll.rs `on_requested`).
-        let p = PrRaw { number: 5, url: "https://github.com/SpurHQ/spur-app/pull/5".into(), head_ref: "fix".into(), author: Some("gwen".into()), ..pr(PrState::Open, 0) };
-        let made = HashMap::from([("spurhq/spur".to_string(), vec![p.clone()])]);
-        let asked = HashMap::from([("SpurHQ/spur".to_string(), vec![PrRaw { review_requested: true, ..p }])]);
-        let items = pr_items(&seeds, &lanes, &HashMap::new(), &asked, &made, Some("gwen"), &links);
-        let got: Vec<_> = items.iter().map(|p| (p.key.as_str(), p.project.as_str(), p.repo.as_str(), p.nudge)).collect();
-        // Once, in the project whose repo it is, with both sessions, and by that repo's settings.
-        assert_eq!(got, vec![("SpurHQ/spur#5", "Spur", "spur", false)]);
-        let mut sessions: Vec<&str> = items[0].sessions.iter().map(|s| s.key.as_str()).collect();
-        sessions.sort();
-        assert_eq!(sessions, ["fixer", "maker"]);
-
-        // Its remote changed to the new name since, which GitHub's names, asked once a launch, still
-        // have the old one of: the new name is the one here, and the old one goes by it.
-        let moved = vec![seeds[0].clone(), LaneSeed { repo_slug: Some("SpurHQ/spur-app".into()), ..seeds[1].clone() }];
-        let names = HashMap::from([("spurhq/spur".to_string(), "SpurHQ/spur-app".to_string()), ("spurhq/spur-app".to_string(), "SpurHQ/spur-app".to_string())]);
-        let here = renamed_in(&moved, &names);
-        assert_eq!(here, HashMap::from([("spurhq/spur".to_string(), "spurhq/spur-app".to_string())]));
-        let (worked, unlinked, made_by) = crate::prlinks::resolve(&crate::prlinks::marks_named_here(&marks, &here), &crate::prlinks::LinkStore::default());
-        let links = PrLinks { worked, unlinked, made: made_by, ..Default::default() };
-        assert_eq!(links.worked.keys().collect::<Vec<_>>(), ["spurhq/spur-app#5"]);
-        let p = PrRaw { number: 5, url: "https://github.com/SpurHQ/spur-app/pull/5".into(), head_ref: "fix".into(), ..pr(PrState::Open, 0) };
-        let items = pr_items(&moved, &lanes, &HashMap::new(), &HashMap::new(), &HashMap::from([("spurhq/spur-app".to_string(), vec![p])]), Some("gwen"), &links);
-        assert_eq!(items.iter().map(|p| (p.key.as_str(), p.project.as_str(), p.sessions.len())).collect::<Vec<_>>(), vec![("SpurHQ/spur-app#5", "Spur", 2)]);
-        // With checkouts by both names, GitHub's own is the one.
-        assert_eq!(renamed_here(["SpurHQ/spur", "SpurHQ/spur-app"], &names), here);
     }
 
     #[test]

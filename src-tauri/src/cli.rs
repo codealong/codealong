@@ -4363,18 +4363,13 @@ fn session_suggest(c: &mut Client, a: SuggestArgs, json: bool) -> Result<()> {
 /// folder's worktree.
 fn resolve_pr(c: &mut Client, pr: &str) -> Result<String> {
     let pr = pr.trim();
-    let given = crate::prlinks::from_url(pr).or_else(|| {
-        let (slug, n) = pr.split_once('#')?;
-        (slug.contains('/') && !n.is_empty() && n.chars().all(|c| c.is_ascii_digit())).then(|| pr.to_string())
-    });
-    if let Some(key) = given {
-        // By its repo's name here, as the board and the app name it, so a link or a nudge set
-        // through a renamed repo's new name changes the same entry (prlinks.rs `named_here`). A
-        // board that can't be had leaves it as given, which the server names so when it reads it.
-        let Ok(board) = c.board() else { return Ok(key) };
-        let slugs = board.lanes.iter().filter_map(|l| l.repo_slug.as_deref());
-        let names: HashMap<String, String> = board.lanes.iter().filter_map(|l| Some((l.repo_slug.as_ref()?.to_lowercase(), l.repo_slug_now.clone().or_else(|| l.repo_slug.clone())?))).collect();
-        return Ok(crate::prlinks::named_here(&key, &board::renamed_here(slugs, &names)));
+    if let Some(key) = crate::prlinks::from_url(pr) {
+        return Ok(key);
+    }
+    if let Some((slug, n)) = pr.split_once('#') {
+        if slug.contains('/') && !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()) {
+            return Ok(pr.to_string());
+        }
     }
     let n = pr.trim_start_matches('#');
     if n.is_empty() || !n.chars().all(|c| c.is_ascii_digit()) {
