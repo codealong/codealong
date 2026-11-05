@@ -52,6 +52,16 @@ describe('whether this window has the keyboard, for a terminal’s size and colo
     expect(heard).toEqual([false, true, false]);
   });
 
+  it('goes by the answer over an event that came before it was asked, which may have missed another', async () => {
+    // Tauri hears focus before it hears blur: a blur while only focus was heard is lost.
+    const t = await fresh();
+    event(true);
+    listening();
+    answer(false);
+    await Promise.resolve();
+    expect(t.hasKeys()).toBe(false);
+  });
+
   it('goes by an event that came while the app was asked, which is newer than its answer', async () => {
     const t = await fresh();
     listening();
