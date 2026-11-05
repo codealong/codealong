@@ -35,10 +35,12 @@ function hear(h: () => void): () => void {
   return () => heard.delete(h);
 }
 
-/** What a set of questions asks, to know a call's line in the conversation for the box's: the
- *  questions' own words, which the call's record and what the box was handed have alike. */
-export function askedOf(questions: Pick<Question, 'question'>[]): string {
-  return questions.map((q) => q.question.trim()).join('\n');
+/** What a set of questions asks, to know a call's line in the conversation for the box's: each
+ *  question's words and its choices' labels, which the call's record and what the box was handed
+ *  have alike. Not its header nor whether it takes several, which a background job's record
+ *  doesn't say (claude/registry.rs `job_questions`). */
+export function askedOf(questions: Pick<Question, 'question' | 'options'>[]): string {
+  return JSON.stringify(questions.map((q) => [q.question.trim(), q.options.map((o) => o.label.trim())]));
 }
 
 /** Says a session's box shows `call`'s questions, until the function it returns is called. */

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { Question } from './types';
 import { askedOf, foldQuestions, questionsFolded, showQuestions, shownQuestions } from './questionsBox';
 
 describe('questionsBox', () => {
@@ -32,9 +33,12 @@ describe('questionsBox', () => {
     expect(shownQuestions('s3')?.call).toBe('ask-2');
   });
 
-  it('knows questions by their words, whatever their headers and choices', () => {
-    const asked = askedOf([{ question: 'Which color?' }, { question: ' Which days? ' }]);
-    expect(asked).toBe('Which color?\nWhich days?');
-    expect(askedOf([{ question: 'Which color?' }])).not.toBe(asked);
+  it('knows questions by their words and their choices, whatever their headers', () => {
+    const approach: Question = { question: 'Which approach?', options: [{ label: 'Keep the cache' }, { label: 'Remove the cache' }] };
+    const asked = askedOf([approach]);
+    const headed: Question = { ...approach, question: ' Which approach? ', header: 'Approach', multiSelect: true };
+    expect(askedOf([headed])).toBe(asked);
+    expect(askedOf([{ ...approach, options: [{ label: 'Use polling' }, { label: 'Use events' }] }])).not.toBe(asked);
+    expect(askedOf([approach, { question: 'Which days?', options: [] }])).not.toBe(asked);
   });
 });

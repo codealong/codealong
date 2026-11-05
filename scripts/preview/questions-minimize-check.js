@@ -183,8 +183,9 @@
         .then(function () {
           check('the next call shows whole, though it asks the same', !folded());
           // Waiting on two calls at once (a subagent's and its own), the box shows the one asked
-          // first, and the conversation's line for the latest isn't the box's.
-          pending = Object.assign({}, pending, { id: 'ask-14', questions: [{ question: 'Which branch should the subagent use?', header: 'Branch', options: [{ label: 'main' }, { label: 'next' }] }] });
+          // first, and the conversation's line for the latest isn't the box's, though it asks the
+          // same questions in the same words: their choices differ.
+          pending = Object.assign({}, pending, { id: 'ask-14', questions: [{ question: latest[0].question, header: 'Color', options: [{ label: 'main' }, { label: 'next' }] }, latest[1]] });
           choose(other);
           return until(function () { return !box(); }, 3000, 'another session');
         })
