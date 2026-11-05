@@ -8,7 +8,7 @@
 // (`themeOf`) so programs that ask for the colors get them.
 
 import { useSyncExternalStore } from 'react';
-import { onTerminalWindows, onWindowKeys, terminalOpen, terminalWindows } from './api';
+import { inTauri, onTerminalWindows, onWindowKeys, terminalOpen, terminalWindows, windowKeys } from './api';
 import { shortOf } from './devices';
 import type { TerminalGlance, TerminalSize, TerminalTheme } from './types';
 
@@ -172,29 +172,43 @@ export function usePoppedTerminals(): readonly string[] {
 }
 
 /** Whether this window has the keyboard, which only the window you're in gives a terminal its
- *  size and colors by (terminal/controller.ts): as macOS last said (`onWindowKeys`), and as the
- *  page says until it has. */
+ *  size and colors by (terminal/controller.ts): as the OS says, asked as this is first read and
+ *  then followed (`windowKeys`, `onWindowKeys`), and not as the page says, which a window that
+ *  floats keeps true while it doesn't have it. Until the first answer, no: what waited on it is
+ *  given then (`onKeysHere`). */
 let keysHere: boolean | null = null;
 const keysListeners = new Set<(has: boolean) => void>();
-let followingKeys = false;
 
-function followKeys() {
-  if (followingKeys) return;
-  followingKeys = true;
+function setKeysHere(has: boolean) {
+  keysHere = has;
+  for (const l of keysListeners) l(has);
+}
+
+if (inTauri) {
+  let told = false;
   onWindowKeys((has) => {
-    keysHere = has;
-    for (const l of keysListeners) l(has);
+    told = true;
+    setKeysHere(has);
   });
+  windowKeys().then(
+    (has) => {
+      // An event that came meanwhile is newer than the answer.
+      if (!told) setKeysHere(has === true);
+    },
+    () => {
+      if (!told) setKeysHere(document.hasFocus());
+    },
+  );
 }
 
 export function hasKeys(): boolean {
-  followKeys();
-  return keysHere ?? document.hasFocus();
+  // Outside the app (a test), as the page says.
+  if (!inTauri) return typeof document !== 'undefined' && document.hasFocus();
+  return keysHere === true;
 }
 
-/** Calls `cb` as this window gets the keyboard or loses it. */
+/** Calls `cb` as this window gets the keyboard or loses it, and as it's first known. */
 export function onKeysHere(cb: (has: boolean) => void): () => void {
-  followKeys();
   keysListeners.add(cb);
   return () => keysListeners.delete(cb);
 }

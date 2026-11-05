@@ -357,6 +357,14 @@ pub fn other_is_key(w: &WebviewWindow) -> bool {
     NSApplication::sharedApplication(mtm).keyWindow().is_some_and(|k| !std::ptr::eq(&*k, n))
 }
 
+/// Whether the window has the keyboard, as AppKit has it: the application's key window, which a
+/// panel's own `isKeyWindow` doesn't say while it isn't engaged (`is_key`), nor its page's
+/// `document.hasFocus()`.
+pub fn has_keys(w: &WebviewWindow) -> bool {
+    let (Some(mtm), Some(n)) = (main_thread(), ns(w)) else { return false };
+    NSApplication::sharedApplication(mtm).keyWindow().is_some_and(|k| std::ptr::eq(&*k, n))
+}
+
 /// Moves the panel to another level.
 pub fn set_level(w: &WebviewWindow, level: Level) {
     if let Some(n) = ns(w) {

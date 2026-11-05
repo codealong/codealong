@@ -58,7 +58,11 @@ under `src-tauri/src/`.
 - WebKit treats a page as active only while its window says it's key (re-read when the window is
   ordered on screen), and an inactive page gets mouse moves only for its scrollbars (WebKit's
   WebFrame.cpp, checked in an offscreen WKWebView on 2026-09-26): what each panel answers and
-  why is `panel.rs` (`Keys`, `present`, `Config`'s `tooltips`). A WKWebView takes mouse moves
+  why is `panel.rs` (`Keys`, `present`, `Config`'s `tooltips`). So a panel's page has
+  `document.hasFocus()` true while the panel isn't key (Codex in a WKWebView, 2026-11-05); which
+  window has the keyboard is `NSApp.keyWindow`, and Tauri's focus events, which come from
+  AppKit's became-key and resigned-key notifications, follow it (os/windows `has_keys`,
+  `src/terminals.ts` `hasKeys`). A WKWebView takes mouse moves
   from its own tracking area, active always with classic scroll bars and in the key window with
   overlay ones, and has no `mouseMoved:` to call: a test would send them with
   `_simulateMouseMove:`.

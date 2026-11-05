@@ -367,6 +367,11 @@ export function onNewWindow(cb: () => void): () => void {
   };
 }
 
+/** Whether this window has the keyboard, as the OS has it (lib.rs `window_keys`). */
+export async function windowKeys(): Promise<boolean> {
+  return invoke<boolean>('window_keys');
+}
+
 /** Calls `cb` as this window gets the keyboard and as it loses it, as macOS says: Tauri's focus
  *  events, from AppKit's became-key and resigned-key notifications. Not as `document.hasFocus()`
  *  says, which a window that floats keeps true while it doesn't have it, so its page still gets

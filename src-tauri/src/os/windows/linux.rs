@@ -77,6 +77,11 @@ pub fn other_is_key(w: &WebviewWindow) -> bool {
     w.app_handle().webview_windows().values().any(|o| o.label() != w.label() && o.is_focused().unwrap_or(false))
 }
 
+/// Whether the window has the keyboard, as the window manager says.
+pub fn has_keys(w: &WebviewWindow) -> bool {
+    w.is_focused().unwrap_or(false)
+}
+
 /// Every panel is on top, in the one stack the window manager keeps.
 pub fn set_level(_w: &WebviewWindow, _level: Level) {}
 
