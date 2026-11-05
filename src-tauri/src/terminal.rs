@@ -15,7 +15,9 @@
 //! where an agent may have asked: the tab has your environment, not the agent's, so what an agent's
 //! setup keeps from it (a credential, an identity a repo's scripts won't run under) the tab has. A
 //! request lives while the command that asked waits; one whose command was stopped (an agent's tool
-//! timing out) goes from the windows.
+//! timing out) goes from the windows. One whose server went (a relaunch with a new engine replaces
+//! it) is asked again by its command once a server answers, unless you'd allowed it as the server
+//! went (`allowed_between`, cli.rs `ask_to_run`).
 //!
 //! Running. Codealong doesn't own the terminal, and Ghostty gives a script no way to read a tab's
 //! text, so the command runs under `script(1)` in the tab: on a terminal of its own, which `script`
@@ -751,6 +753,20 @@ pub fn list(session: Option<&str>) -> Vec<RunStatus> {
         .collect();
     out.sort_by_key(|s| std::cmp::Reverse(s.run.allowed_at));
     out
+}
+
+/// The run your user allowed for `ask` from the request asked at `from` and lost at `to`, when
+/// there's one: they allowed it as the server holding it went (an app relaunched with a new engine
+/// replaces it), its tab opened, and the reply never reached the command. Asked again, they'd be
+/// asked to allow what already runs. Read from the runs' records alone, since the server's gone
+/// and an agent's sandbox may keep its command from looking at your processes.
+pub fn allowed_between(ask: &Ask, from: i64, to: i64) -> Option<Run> {
+    let entries = std::fs::read_dir(runs_dir()).ok()?;
+    entries
+        .flatten()
+        .filter_map(|e| e.file_name().to_str().filter(|n| is_id(n)).and_then(|id| record(id).ok()))
+        .filter(|r| !r.reports && r.session == ask.session && r.command == ask.command && r.cwd == ask.cwd && (from..=to).contains(&r.asked_at))
+        .max_by_key(|r| r.asked_at)
 }
 
 /// The run an id or a unique start of one names, with or without its `run-`.
@@ -1546,6 +1562,32 @@ mod tests {
         for id in ["run-linked", "run-missing", "run-../forged", "../forged", "/tmp", "run-", "abc123", "run-a/b"] {
             assert!(run_folder(id).is_err(), "{id}");
         }
+        TEST_RUNS.with(|r| *r.borrow_mut() = None);
+    }
+
+    /// A request whose server went before its reply reached the command was allowed when a run
+    /// came of it while it was held: that run, the agent's, of this session, command and folder,
+    /// asked for in that time, and no other.
+    #[test]
+    fn a_run_allowed_as_its_server_went_is_found_by_its_request() {
+        let scratch = crate::fixtures::scratch("terminal-allowed-between");
+        TEST_RUNS.with(|r| *r.borrow_mut() = Some(scratch.join("runs")));
+        let ask = Ask { session: "claude:northwind:a1".into(), command: "npm run publish".into(), cwd: scratch.join("northwind") };
+        let keep = |id: &str, f: &dyn Fn(&mut Run)| {
+            let mut run = Run { id: id.into(), session: ask.session.clone(), command: ask.command.clone(), cwd: ask.cwd.clone(), terminal: "Ghostty".into(), asked_at: 2_000, allowed_at: 2_500, ..Default::default() };
+            f(&mut run);
+            write_folder(&dir(id), &run, Duration::ZERO).unwrap();
+        };
+        assert_eq!(allowed_between(&ask, 1_000, 3_000), None, "no runs at all");
+        keep("run-before", &|r| r.asked_at = 500);
+        keep("run-after", &|r| r.asked_at = 3_500);
+        keep("run-other-session", &|r| r.session = "claude:atlas:b2".into());
+        keep("run-other-command", &|r| r.command = "npm run build".into());
+        keep("run-other-folder", &|r| r.cwd = scratch.join("atlas"));
+        keep("run-yours", &|r| r.reports = true);
+        assert_eq!(allowed_between(&ask, 1_000, 3_000), None, "none of these is the request's");
+        keep("run-it", &|_| {});
+        assert_eq!(allowed_between(&ask, 1_000, 3_000).map(|r| r.id), Some("run-it".to_string()));
         TEST_RUNS.with(|r| *r.borrow_mut() = None);
     }
 

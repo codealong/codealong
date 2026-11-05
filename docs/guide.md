@@ -2784,6 +2784,10 @@ progress lines drawn over themselves resolved; what you type isn't kept, so a pa
 prompt that hides it isn't either. Deny tells the agent no, with what you write in the box when you write something. It's asked
 every time: there's no Always, and only you allow it, on this Mac or from your phone, never the
 agent's command or another Mac. The request goes away if the agent stops waiting for your answer.
+Codealong's server going meanwhile doesn't end it (an app relaunched with a new build replaces
+its server): the agent's command asks again once a server answers, for up to three minutes, so
+the request comes back where you'd answer it, unless you'd allowed it just as the server went,
+when the run that started is your answer and you aren't asked twice.
 Once you've allowed it, and while the agent waits for it to end, the session shows as working on
 it, with where it runs and the command ("Running in Ghostty · `npm run deploy`"), however long it
 goes without printing anything, rather than as stuck.

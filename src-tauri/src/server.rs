@@ -702,10 +702,23 @@ fn own_bundle() -> Option<String> {
     info.as_dictionary()?.get("CFBundleIdentifier")?.as_string().map(String::from)
 }
 
+/// How long a request to run in your terminal waits for the server's first scan before it's asked.
+const FIRST_SCAN_WAIT: Duration = Duration::from_secs(120);
+
 /// Holds a command's request to run in your terminal until you answer it (terminal.rs). One that
 /// can't be asked for is refused at once: a command that wouldn't show as it is, one from a session
 /// the board doesn't have here, one for a folder that isn't there.
 fn hold_terminal_ask(engine: &Handle, ask: crate::terminal::Ask, out: &mut UnixStream) {
+    // A server answers before its first scan has listed the sessions: one a relaunch just started
+    // is asked again by the commands whose requests went with the last (cli.rs `ask_to_run`), and
+    // would refuse each for a session it doesn't list yet.
+    let until = std::time::Instant::now() + FIRST_SCAN_WAIT;
+    while engine.read(|b| b.loading) && std::time::Instant::now() < until {
+        if hung_up(out) {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(250));
+    }
     let refused = crate::terminal::refused(&ask.command)
         .map(String::from)
         .or_else(|| engine.read(|b| b.session(&ask.session).is_none()).then(|| "Codealong doesn't list the session that asks, so there's nowhere to ask its user.".to_string()))
