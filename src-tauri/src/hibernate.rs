@@ -198,7 +198,8 @@ fn one(engine: &Handle, cfg: &Config, key: &str) {
         return;
     };
     let Some(pid) = c.pid else { return };
-    let check = || still(&engine.board(), cfg, crate::util::now_ms(), after_ms, key, pid, &typed_at);
+    // Settings as they are then too: turned off, a longer wait, or its account turned off since.
+    let check = || crate::config::current().is_ok_and(|now| still(&engine.board(), &now, crate::util::now_ms(), key, pid, &typed_at));
     let closing = crate::launch::Closing { pid, cwd: std::path::Path::new(&c.cwd), hang_up: vec![pid], unasked: Some(&check) };
     match crate::launch::close_terminals(&[closing]).pop() {
         Some(Ok(())) => eprintln!("Hibernated “{}”, idle {}: its terminal closed, and a click resumes it.", c.title, crate::idle::span(crate::util::now_ms() - c.last_activity)),
@@ -208,9 +209,13 @@ fn one(engine: &Handle, cfg: &Config, key: &str) {
 }
 
 /// Whether `key` may still hibernate in the terminal of `pid`, its tab found: the plan's own
-/// rules over `board` as it is now, with what's typed asked again, and the terminal still named by
-/// it (a session new in it since names it).
-fn still(board: &Board, cfg: &Config, now: i64, after_ms: i64, key: &str, pid: u32, typed: &dyn Fn(u32) -> Option<i64>) -> bool {
+/// rules over `board` and `cfg` as they are now, with what's typed asked again, and the terminal
+/// still named by it (a session new in it since names it). Not once it's turned off.
+fn still(board: &Board, cfg: &Config, now: i64, key: &str, pid: u32, typed: &dyn Fn(u32) -> Option<i64>) -> bool {
+    let after_ms = after_ms(cfg);
+    if after_ms == 0 {
+        return false;
+    }
     let looks = Looks { closable: &|p| p == pid, typed: Some(typed) };
     plan(board, cfg, now, after_ms, &looks).hibernate.iter().any(|c| c.key == key && c.pid == Some(pid))
 }
@@ -388,7 +393,7 @@ mod tests {
     #[test]
     fn its_tab_found_the_same_rules_are_asked_again() {
         let c = cfg(60);
-        let at = |b: &Board, typed: &dyn Fn(u32) -> Option<i64>| still(b, &c, NOW, after_ms(&c), "a", 1, typed);
+        let at = |b: &Board, typed: &dyn Fn(u32) -> Option<i64>| still(b, &c, NOW, "a", 1, typed);
         let before = |_| Some(0);
         let mut helper = session("helper", 9, 0);
         helper.helper = Some(Helper { parent: Some("a".into()), ..Default::default() });
@@ -412,6 +417,14 @@ mod tests {
         let mut joined = b.clone();
         joined.lanes[0].sessions.push(session("c", 1, 2 * HOUR));
         assert!(!at(&joined, &before));
+        // The settings changed while its tab was looked for: turned off, a wait it hasn't sat, or
+        // its account turned off.
+        for changed in [cfg(0), cfg(4 * 60)] {
+            assert!(!still(&b, &changed, NOW, "a", 1, &before), "{}", changed.sessions.hibernate_after);
+        }
+        let mut off = cfg(60);
+        off.accounts[0].disabled = true;
+        assert!(!still(&b, &off, NOW, "a", 1, &before));
     }
 
     /// What would hibernate on this Mac now after two hours, doing nothing:
