@@ -27,6 +27,7 @@ import { agoPhrase } from '../format';
 import { errorText } from '../report';
 import { endSide, forgetSide, keptLine, showSides, takesBox, turnState, useClosing, useKept, usePopped, useSide, useSideView } from '../side';
 import type { PrItem, SideTurn } from '../types';
+import { ImagesFrom } from './DescriptionEditor';
 import { Markdown } from './Markdown';
 import { Button, cx, Icon, Rich } from './primitives';
 import { heardOf, scrolledUp, type Heard } from './SessionThread';
@@ -131,6 +132,15 @@ function Act({ icon, label, title, onClick }: { icon: string; label: string; tit
   return <Button variant="ghost" size="sm" icon={icon} aria-label={label} title={title ?? label} onClick={onClick} />;
 }
 
+/** Puts the end of `el` in view, unless you've scrolled back to read since it was last heard. */
+function keepEnd(el: HTMLElement, atEnd: { current: boolean }, heard: { current: Heard | null }) {
+  // A scroll up made just before it grew, which the view hasn't heard yet, holds too.
+  if (heard.current && scrolledUp(el, heard.current)) atEnd.current = false;
+  if (!atEnd.current) return;
+  el.scrollTop = el.scrollHeight;
+  heard.current = heardOf(el);
+}
+
 /** Questions and their answers. `current` is the turn the copy is on, in an open one. */
 function Turns({ turns, current }: { turns: SideTurn[]; current: number }) {
   return (
@@ -205,11 +215,7 @@ export function SideStrip({ sideKey: key, words, inWindow }: { sideKey: string; 
       heard.current = null;
       return;
     }
-    // A scroll up made just before the answer grew, which the view hasn't heard yet, holds too.
-    if (heard.current && scrolledUp(el, heard.current)) atEnd.current = false;
-    if (!atEnd.current) return;
-    el.scrollTop = el.scrollHeight;
-    heard.current = heardOf(el);
+    keepEnd(el, atEnd, heard);
   }, [side, view]);
   if (popped && !inWindow) return null;
 
@@ -265,8 +271,14 @@ export function SideStrip({ sideKey: key, words, inWindow }: { sideKey: string; 
               }
             : undefined
         }
+        // An image takes its room once it loads, after the end was put in view, so it's put in
+        // view again (as SessionThread.tsx `onImage` does). React hands an image's load to the
+        // elements around it, which the browser doesn't.
+        onLoad={scrolls ? (e) => e.target instanceof HTMLImageElement && keepEnd(e.currentTarget, atEnd, heard) : undefined}
       >
-        {body}
+        {/* Another machine's session: the images and files its questions and answers name are
+            there, as in its conversation; one kept here shows from here (lib.rs `serve_image`). */}
+        <ImagesFrom.Provider value={shortOf(key)}>{body}</ImagesFrom.Provider>
       </div>
     </section>
   );
