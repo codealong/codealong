@@ -186,11 +186,11 @@ pub fn spawn(engine: Handle) {
 
 /// Hibernates the session `key` if it still may, with the board as it is now and this Mac asked
 /// about its tab now: which tabs close with nobody asking, and when it was last typed in. Its tab
-/// found, it's asked again (`still`) just before its agent is hung up.
+/// found, the same rules are asked again of the board as it is then (`still`), just before its
+/// agent is hung up.
 fn one(engine: &Handle, cfg: &Config, key: &str) {
     let after_ms = after_ms(cfg);
-    let board = engine.board();
-    let fresh = plan_now(&board, cfg, after_ms);
+    let fresh = plan_now(&engine.board(), cfg, after_ms);
     let Some(c) = fresh.hibernate.iter().find(|c| c.key == key) else {
         if let Some(k) = fresh.kept.iter().find(|k| k.key == key) {
             eprintln!("Not hibernating “{}”: {}.", k.title, k.why);
@@ -198,9 +198,7 @@ fn one(engine: &Handle, cfg: &Config, key: &str) {
         return;
     };
     let Some(pid) = c.pid else { return };
-    let typed = typed_at(pid);
-    let shown: Vec<(&str, i64)> = std::iter::once(&c.key).chain(&c.with).filter_map(|k| board.session(k).map(|(_, s)| (k.as_str(), s.last_activity))).collect();
-    let check = || typed_at(pid) == typed && still(&engine.board(), &shown);
+    let check = || still(&engine.board(), cfg, crate::util::now_ms(), after_ms, key, pid, &typed_at);
     let closing = crate::launch::Closing { pid, cwd: std::path::Path::new(&c.cwd), hang_up: vec![pid], unasked: Some(&check) };
     match crate::launch::close_terminals(&[closing]).pop() {
         Some(Ok(())) => eprintln!("Hibernated “{}”, idle {}: its terminal closed, and a click resumes it.", c.title, crate::idle::span(crate::util::now_ms() - c.last_activity)),
@@ -209,10 +207,12 @@ fn one(engine: &Handle, cfg: &Config, key: &str) {
     }
 }
 
-/// Whether the sessions a terminal shows, each with its last activity as it was looked at
-/// (`shown`), are on `board` as they were: running, resting, and nothing new in them.
-fn still(board: &Board, shown: &[(&str, i64)]) -> bool {
-    shown.iter().all(|(key, at)| board.session(key).is_some_and(|(_, s)| s.live && s.last_activity == *at && matches!(s.status, Status::Idle | Status::Unread | Status::Stopped)))
+/// Whether `key` may still hibernate in the terminal of `pid`, its tab found: the plan's own
+/// rules over `board` as it is now, with what's typed asked again, and the terminal still named by
+/// it (a session new in it since names it).
+fn still(board: &Board, cfg: &Config, now: i64, after_ms: i64, key: &str, pid: u32, typed: &dyn Fn(u32) -> Option<i64>) -> bool {
+    let looks = Looks { closable: &|p| p == pid, typed: Some(typed) };
+    plan(board, cfg, now, after_ms, &looks).hibernate.iter().any(|c| c.key == key && c.pid == Some(pid))
 }
 
 /// The plan for the board as it is now, with this Mac asked about each terminal.
@@ -386,21 +386,32 @@ mod tests {
     }
 
     #[test]
-    fn closes_only_while_its_sessions_are_as_they_were_looked_at() {
-        let b = board(vec![session("a", 1, 3 * HOUR), session("b", 1, 4 * HOUR)]);
-        let shown = [("a", NOW - 3 * HOUR), ("b", NOW - 4 * HOUR)];
-        assert!(still(&b, &shown));
-        // A prompt came in since, it's working, or it's gone.
+    fn its_tab_found_the_same_rules_are_asked_again() {
+        let c = cfg(60);
+        let at = |b: &Board, typed: &dyn Fn(u32) -> Option<i64>| still(b, &c, NOW, after_ms(&c), "a", 1, typed);
+        let before = |_| Some(0);
+        let mut helper = session("helper", 9, 0);
+        helper.helper = Some(Helper { parent: Some("a".into()), ..Default::default() });
+        let b = board(vec![session("a", 1, 3 * HOUR), session("b", 1, 4 * HOUR), helper]);
+        assert!(at(&b, &before));
+        // Its helper went back to work meanwhile, with nothing new in it.
+        let mut helping = b.clone();
+        helping.lanes[0].sessions[2].status = Status::Working;
+        assert!(!at(&helping, &before));
+        // A draft begun since, or no telling, whatever was read before.
+        let prompted = NOW - 3 * HOUR - TURN;
+        assert!(!at(&b, &|_| Some(prompted + 500)));
+        assert!(!at(&b, &|_| None));
+        // A prompt came in, it's gone, or a session new in its terminal names it now.
         let mut moved = b.clone();
         moved.lanes[0].sessions[0].last_activity = NOW;
-        assert!(!still(&moved, &shown));
-        let mut working = b.clone();
-        working.lanes[0].sessions[1].status = Status::Working;
-        assert!(!still(&working, &shown));
+        assert!(!at(&moved, &before));
         let mut gone = b.clone();
         gone.lanes[0].sessions[0].live = false;
-        assert!(!still(&gone, &shown));
-        assert!(!still(&board(vec![session("b", 1, 4 * HOUR)]), &shown));
+        assert!(!at(&gone, &before));
+        let mut joined = b.clone();
+        joined.lanes[0].sessions.push(session("c", 1, 2 * HOUR));
+        assert!(!at(&joined, &before));
     }
 
     /// What would hibernate on this Mac now after two hours, doing nothing:
