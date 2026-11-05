@@ -113,7 +113,7 @@ pub fn dir(id: &str) -> PathBuf {
 }
 
 /// What the command asks for.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Ask {
     /// The key of the session whose agent asks.
@@ -121,6 +121,12 @@ pub struct Ask {
     pub command: String,
     /// Where it runs: the folder the command was run in, unless it named another.
     pub cwd: PathBuf,
+    /// The command's own name for its request, the same each time it asks again after the server
+    /// holding it went (cli.rs `ask_to_run`), which the run it starts keeps: how the command finds
+    /// its run, which another asking for the same command meanwhile doesn't have. None from a
+    /// command from before, and for a command you ran yourself.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token: Option<String>,
 }
 
 /// A request held for you to answer.
@@ -170,6 +176,9 @@ pub struct Run {
     /// (`report_ended`). An agent's run has none: its agent waits on it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub reports: bool,
+    /// The token of the request it was allowed from (`Ask::token`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token: Option<String>,
 }
 
 impl Run {
@@ -489,6 +498,7 @@ pub fn start(asked: &Asked, apps: &AppNames, lanes: &[Lane], session_title: &str
         asked_at: asked.at,
         allowed_at: now_ms(),
         reports,
+        token: asked.ask.token.clone(),
     };
     let d = dir(&run.id);
     let minutes = cfg.as_ref().map_or(crate::config::CLOSE_COMMAND_TABS_AFTER, |c| c.apps.close_command_tabs_after);
@@ -755,17 +765,20 @@ pub fn list(session: Option<&str>) -> Vec<RunStatus> {
     out
 }
 
-/// The run your user allowed for `ask` from the request asked at `from` and lost at `to`, when
-/// there's one: they allowed it as the server holding it went (an app relaunched with a new engine
-/// replaces it), its tab opened, and the reply never reached the command. Asked again, they'd be
-/// asked to allow what already runs. Read from the runs' records alone, since the server's gone
-/// and an agent's sandbox may keep its command from looking at your processes.
+/// The run your user allowed for `ask` from the time it was asked at `from` to when it was lost at
+/// `to`, when there's one: they allowed it as the server holding it went (an app relaunched with a
+/// new engine replaces it), and the reply never reached the command. Asked again, they'd be asked
+/// to allow what may already run. Its record is written before its tab opens, so it may be one
+/// that never ran (`status` says once its wrapper has started). Known by the request's token, and
+/// read from the runs' records alone, since the server's gone and an agent's sandbox may keep its
+/// command from looking at your processes.
 pub fn allowed_between(ask: &Ask, from: i64, to: i64) -> Option<Run> {
+    ask.token.as_ref()?;
     let entries = std::fs::read_dir(runs_dir()).ok()?;
     entries
         .flatten()
         .filter_map(|e| e.file_name().to_str().filter(|n| is_id(n)).and_then(|id| record(id).ok()))
-        .filter(|r| !r.reports && r.session == ask.session && r.command == ask.command && r.cwd == ask.cwd && (from..=to).contains(&r.asked_at))
+        .filter(|r| r.token == ask.token && r.session == ask.session && (from..=to).contains(&r.asked_at))
         .max_by_key(|r| r.asked_at)
 }
 
@@ -1211,7 +1224,7 @@ mod tests {
 
     #[test]
     fn a_request_shows_as_what_its_session_waits_on() {
-        let a = Asked { id: "run-abc".into(), ask: Ask { session: "codex:codex:1".into(), command: "gcloud auth login\n# then".into(), cwd: crate::util::home().join("app") }, at: 5 };
+        let a = Asked { id: "run-abc".into(), ask: Ask { session: "codex:codex:1".into(), command: "gcloud auth login\n# then".into(), cwd: crate::util::home().join("app"), ..Default::default() }, at: 5 };
         let p = pending(&a, "Ghostty");
         assert_eq!(p.label, "Run in your terminal · `gcloud auth login`");
         assert_eq!(p.input.as_deref(), Some("gcloud auth login\n# then"));
@@ -1228,7 +1241,7 @@ mod tests {
         let mut s = Session { status: Status::Working, status_since: Some(1), excerpt: Some("working".into()), ..crate::fixtures::session(key) };
         let (tx, rx) = channel();
         let id = "run-test-overlay".to_string();
-        held().push(Held { asked: Asked { id: id.clone(), ask: Ask { session: key.into(), command: "make deploy".into(), cwd: "/tmp".into() }, at: 50 }, tx });
+        held().push(Held { asked: Asked { id: id.clone(), ask: Ask { session: key.into(), command: "make deploy".into(), cwd: "/tmp".into(), ..Default::default() }, at: 50 }, tx });
         overlay(&mut s);
         assert_eq!((s.status, s.status_since, s.excerpt.as_deref()), (Status::Needs, Some(50), Some("Run in your terminal · `make deploy`")));
         assert!(deny("claude:claude:another", &id, None).is_none(), "another session's key doesn't answer it");
@@ -1323,7 +1336,7 @@ mod tests {
     fn a_tab_that_wont_open_is_said_where_it_was_allowed() {
         let (tx, rx) = channel();
         let id = "run-test-fails".to_string();
-        held().push(Held { asked: Asked { id: id.clone(), ask: Ask { session: "k".into(), command: "x".into(), cwd: "/tmp".into() }, at: 1 }, tx });
+        held().push(Held { asked: Asked { id: id.clone(), ask: Ask { session: "k".into(), command: "x".into(), cwd: "/tmp".into(), ..Default::default() }, at: 1 }, tx });
         let r = allow("k", &id, |_| Err(anyhow!("Ghostty isn't installed."))).unwrap();
         assert_eq!(r.unwrap_err().to_string(), "Ghostty isn't installed.");
         assert_eq!(rx.recv().unwrap(), Outcome::Failed("Ghostty isn't installed.".into()));
@@ -1445,7 +1458,7 @@ mod tests {
     fn a_held_request_replies_to_the_command_that_asked_or_goes_with_it() {
         use std::io::{BufRead, BufReader};
         let key = "claude:claude:terminal-hold-test";
-        let ask = |id: &str| Asked { id: id.into(), ask: Ask { session: key.into(), command: "echo hi".into(), cwd: "/tmp".into() }, at: 7 };
+        let ask = |id: &str| Asked { id: id.into(), ask: Ask { session: key.into(), command: "echo hi".into(), cwd: "/tmp".into(), ..Default::default() }, at: 7 };
         let wait_held = |id: &str| {
             let start = Instant::now();
             while !held().iter().any(|h| h.asked.id == id) && start.elapsed() < Duration::from_secs(5) {
@@ -1506,7 +1519,7 @@ mod tests {
         let key = "claude:claude:terminal-two-requests";
         let (first, at1) = new_id();
         let (second, at2) = new_id();
-        let ask = Ask { session: key.into(), command: "make".into(), cwd: "/tmp".into() };
+        let ask = Ask { session: key.into(), command: "make".into(), cwd: "/tmp".into(), ..Default::default() };
         let _a = held_for_tests(Asked { id: first.clone(), ask: ask.clone(), at: at1 });
         let _b = held_for_tests(Asked { id: second.clone(), ask, at: at2 });
         let waits = || {
@@ -1566,15 +1579,15 @@ mod tests {
     }
 
     /// A request whose server went before its reply reached the command was allowed when a run
-    /// came of it while it was held: that run, the agent's, of this session, command and folder,
-    /// asked for in that time, and no other.
+    /// came of it while it was held: that run, started from the request's token, asked for in that
+    /// time, and no other, not even the same command asked for by the same session meanwhile.
     #[test]
     fn a_run_allowed_as_its_server_went_is_found_by_its_request() {
         let scratch = crate::fixtures::scratch("terminal-allowed-between");
         TEST_RUNS.with(|r| *r.borrow_mut() = Some(scratch.join("runs")));
-        let ask = Ask { session: "claude:northwind:a1".into(), command: "npm run publish".into(), cwd: scratch.join("northwind") };
+        let ask = Ask { session: "claude:northwind:a1".into(), command: "npm run publish".into(), cwd: scratch.join("northwind"), token: Some("4242-1000".into()) };
         let keep = |id: &str, f: &dyn Fn(&mut Run)| {
-            let mut run = Run { id: id.into(), session: ask.session.clone(), command: ask.command.clone(), cwd: ask.cwd.clone(), terminal: "Ghostty".into(), asked_at: 2_000, allowed_at: 2_500, ..Default::default() };
+            let mut run = Run { id: id.into(), session: ask.session.clone(), command: ask.command.clone(), cwd: ask.cwd.clone(), terminal: "Ghostty".into(), asked_at: 2_000, allowed_at: 2_500, token: ask.token.clone(), ..Default::default() };
             f(&mut run);
             write_folder(&dir(id), &run, Duration::ZERO).unwrap();
         };
@@ -1582,10 +1595,13 @@ mod tests {
         keep("run-before", &|r| r.asked_at = 500);
         keep("run-after", &|r| r.asked_at = 3_500);
         keep("run-other-session", &|r| r.session = "claude:atlas:b2".into());
-        keep("run-other-command", &|r| r.command = "npm run build".into());
-        keep("run-other-folder", &|r| r.cwd = scratch.join("atlas"));
-        keep("run-yours", &|r| r.reports = true);
+        keep("run-same-command-asked-again", &|r| r.token = Some("4243-1001".into()));
+        keep("run-yours", &|r| {
+            r.reports = true;
+            r.token = None;
+        });
         assert_eq!(allowed_between(&ask, 1_000, 3_000), None, "none of these is the request's");
+        assert_eq!(allowed_between(&Ask { token: None, ..ask.clone() }, 1_000, 3_000), None, "a request without a token has no run to find");
         keep("run-it", &|_| {});
         assert_eq!(allowed_between(&ask, 1_000, 3_000).map(|r| r.id), Some("run-it".to_string()));
         TEST_RUNS.with(|r| *r.borrow_mut() = None);
@@ -1601,7 +1617,7 @@ mod tests {
         let apps = AppNames { terminal_id: "ghostty".into(), new_terminal: crate::config::NewTerminal::Window, run_in: crate::config::RunIn::Terminal, ..Default::default() };
         let begin = |wrapper_started: bool| {
             let (id, at) = new_id();
-            let asked = Asked { id, ask: Ask { session: "k".into(), command: "true".into(), cwd: scratch.to_path_buf() }, at };
+            let asked = Asked { id, ask: Ask { session: "k".into(), command: "true".into(), cwd: scratch.to_path_buf(), ..Default::default() }, at };
             let answer = move |sent: &crate::launch::stage::Sent| {
                 let folder = sent.args.iter().find_map(|a| a.strip_prefix(&format!("{ENV}="))).expect("the run's folder");
                 if wrapper_started {
@@ -1629,9 +1645,10 @@ mod tests {
         let scratch = crate::fixtures::scratch("terminal-own-run");
         TEST_RUNS.with(|r| *r.borrow_mut() = Some(scratch.join("runs")));
         let (id, at) = new_id();
-        let asked = Asked { id, ask: Ask { session: "test:own:run".into(), command: "echo from-the-run; exit 4".into(), cwd: scratch.to_path_buf() }, at };
+        let asked = Asked { id, ask: Ask { session: "test:own:run".into(), command: "echo from-the-run; exit 4".into(), cwd: scratch.to_path_buf(), token: Some("4242-1000".into()) }, at };
         let run = start(&asked, &AppNames::default(), &[], "A test", false).expect("a run");
         assert_eq!(run.terminal, OWN);
+        assert_eq!(record(&run.id).unwrap().token.as_deref(), Some("4242-1000"), "its record keeps the request's token");
         let own = run.own_terminal.clone().expect("its terminal");
         assert!(crate::terminals::glances().get("test:own:run").is_some_and(|l| l.iter().any(|t| t.id == own && t.command.as_deref() == Some("echo from-the-run; exit 4"))), "listed under its session, as the command it runs");
         let waited = Instant::now();

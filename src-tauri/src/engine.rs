@@ -4595,7 +4595,7 @@ mod tests {
     fn jev_reads_a_command_for_your_terminal_whole() {
         use super::*;
         let key = "codex:codex:engine-terminal-risk";
-        let asked = crate::terminal::Asked { id: "run-engine-risk".into(), ask: crate::terminal::Ask { session: key.into(), command: "echo tidying up\nrm -rf ~/projects".into(), cwd: "/tmp".into() }, at: 1 };
+        let asked = crate::terminal::Asked { id: "run-engine-risk".into(), ask: crate::terminal::Ask { session: key.into(), command: "echo tidying up\nrm -rf ~/projects".into(), cwd: "/tmp".into(), ..Default::default() }, at: 1 };
         let _held = crate::terminal::held_for_tests(asked);
         let words = Engine::waiting_call(&crate::fixtures::session(key), None).unwrap();
         assert!(words.starts_with("Run in your terminal") && words.ends_with("echo tidying up\nrm -rf ~/projects"), "{words}");

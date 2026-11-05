@@ -679,7 +679,7 @@ fn run_command(engine: &Handle, c: &Call) -> Result<Value, String> {
     let (apps, lanes, title) = engine.read(|b| (b.apps.clone(), b.lanes.clone(), b.session(key).map(|(_, s)| s.title.clone())));
     let title = title.ok_or("Codealong doesn't list that session.")?;
     let (id, at) = crate::terminal::new_id();
-    let asked = crate::terminal::Asked { id, ask: crate::terminal::Ask { session: key.to_string(), command, cwd: p.folder.into() }, at };
+    let asked = crate::terminal::Asked { id, ask: crate::terminal::Ask { session: key.to_string(), command, cwd: p.folder.into(), ..Default::default() }, at };
     let run = crate::terminal::start(&asked, &apps, &lanes, &title, true).map_err(words)?;
     Ok(json!(format!("Running it in {}. What it prints goes to the session when it ends.", run.place())))
 }

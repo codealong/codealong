@@ -7104,7 +7104,8 @@ fn terminal_run(c: &mut Client, a: TerminalRunArgs, json: bool) -> Result<()> {
     };
     let cwd = cwd.canonicalize().with_context(|| format!("{} isn't a folder here", tilde(&cwd)))?;
     eprintln!("Asking your user to allow it in Codealong, and waiting for their answer…");
-    let ask = terminal::Ask { session: session.clone(), command, cwd };
+    // No other command on this Mac has this one's pid while it runs.
+    let ask = terminal::Ask { session: session.clone(), command, cwd, token: Some(format!("{}-{}", std::process::id(), now_ms())) };
     let answer = ask_to_run(&mut OnSocket(&ask))?;
     let message = answer.get("message").and_then(Value::as_str).filter(|m| !m.trim().is_empty());
     match answer.get("answer").and_then(Value::as_str) {
@@ -7147,6 +7148,9 @@ trait RunAsker {
     fn back(&mut self) -> bool;
     /// The run your user allowed of the request asked at `from` and lost at `to`, if they did.
     fn allowed(&self, from: i64, to: i64) -> Option<crate::terminal::Run>;
+    /// Waits for an allowed run's tab to run it: whether it did. Its record is written before its
+    /// tab opens, so a server that went in between left one that never will.
+    fn started(&mut self, run: &crate::terminal::Run) -> bool;
     fn now(&self) -> i64;
     fn say(&mut self, words: &str);
 }
@@ -7163,6 +7167,18 @@ impl RunAsker for OnSocket<'_> {
     fn allowed(&self, from: i64, to: i64) -> Option<crate::terminal::Run> {
         crate::terminal::allowed_between(self.0, from, to)
     }
+    /// As `wait_for_start` waits, from the run's folder: no server may answer yet. A folder gone
+    /// is a tab that didn't open (terminal.rs `start` takes it away).
+    fn started(&mut self, run: &crate::terminal::Run) -> bool {
+        let start = now_ms();
+        loop {
+            match crate::terminal::status(&run.id) {
+                Ok(s) if s.state != crate::terminal::State::Starting => return true,
+                Ok(_) if now_ms() - start <= START_WAIT_MS => std::thread::sleep(std::time::Duration::from_millis(300)),
+                _ => return false,
+            }
+        }
+    }
     fn now(&self) -> i64 {
         now_ms()
     }
@@ -7175,8 +7191,11 @@ impl RunAsker for OnSocket<'_> {
 /// `reply`). The request lives on its connection to the server, so a server that goes before
 /// they answer takes it with it: an app relaunched with a new engine replaces its server, and an
 /// agent may relaunch it at any time. Once a server answers again it's asked again, as it was, so
-/// it's offered where they'd answer it, unless they'd allowed it as the server went, when the run
-/// that started is the answer: they're never asked twice for what already runs.
+/// it's offered where they'd answer it, unless they'd allowed it as the server went and its tab
+/// ran it, when that run is the answer: they're never asked twice for what runs.
+///
+/// A deny the server took as it went, in the moment before its reply was written, is asked
+/// again: nothing records a deny, and asking again only asks them once more.
 fn ask_to_run(a: &mut impl RunAsker) -> Result<Value> {
     let mut quick = 0;
     loop {
@@ -7188,14 +7207,17 @@ fn ask_to_run(a: &mut impl RunAsker) -> Result<Value> {
             None => {}
         }
         let lost = a.now();
-        if let Some(run) = a.allowed(from, lost) {
-            return Ok(crate::terminal::reply(&crate::terminal::Outcome::Started(run)));
+        match a.allowed(from, lost) {
+            Some(run) if a.started(&run) => return Ok(crate::terminal::reply(&crate::terminal::Outcome::Started(run))),
+            Some(_) => a.say("Your user allowed it as Codealong's server went, but its tab never ran it; asking them again once Codealong is back…"),
+            None => {
+                quick = if lost - from < QUICK_LOSS_MS { quick + 1 } else { 0 };
+                if quick >= QUICK_LOSSES {
+                    bail!("Codealong let the request go as soon as it was asked, {QUICK_LOSSES} times running, before your user could answer. Ask again later, or ask your user to run the command themselves.");
+                }
+                a.say("Codealong's server went before your user answered (a relaunch with a new build replaces it); asking them again once it's back…");
+            }
         }
-        quick = if lost - from < QUICK_LOSS_MS { quick + 1 } else { 0 };
-        if quick >= QUICK_LOSSES {
-            bail!("Codealong let the request go as soon as it was asked, {QUICK_LOSSES} times running, before your user could answer. Ask again later, or ask your user to run the command themselves.");
-        }
-        a.say("Codealong's server went before your user answered (a relaunch with a new build replaces it); asking them again once it's back…");
         if !a.back() {
             bail!("Codealong's server went before your user answered, and none came back within {} minutes: Codealong may have quit. Ask again once it's running.", SERVER_BACK_MS / 60_000);
         }
@@ -7457,13 +7479,15 @@ mod tests {
 
     /// A server for `ask_to_run` on a made-up clock: each ask takes its time and gets its answer
     /// in turn, None for a connection closed first, and each wait for a server to come back finds
-    /// one or not in turn. A run allowed at `allowed_at` is found by a request held then.
+    /// one or not in turn. A run allowed at `allowed_at` is found by a request held then, and its
+    /// tab runs it when `tab_runs`.
     #[derive(Default)]
     struct Relaunching {
         clock: i64,
         asks: std::collections::VecDeque<(i64, Option<Result<Value, String>>)>,
         backs: std::collections::VecDeque<bool>,
         allowed_at: Option<i64>,
+        tab_runs: bool,
         asked: usize,
         waited: usize,
         said: Vec<String>,
@@ -7484,6 +7508,10 @@ mod tests {
         fn allowed(&self, from: i64, to: i64) -> Option<crate::terminal::Run> {
             self.allowed_at.filter(|at| (from..=to).contains(at)).map(|at| crate::terminal::Run { id: "run-northwind".into(), asked_at: at, ..Default::default() })
         }
+        fn started(&mut self, _: &crate::terminal::Run) -> bool {
+            self.clock += 1_000;
+            self.tab_runs
+        }
         fn now(&self) -> i64 {
             self.clock
         }
@@ -7494,8 +7522,8 @@ mod tests {
 
     /// A request held when its server goes (an app relaunched with a new engine replaces it) is
     /// asked again once a server answers, so it's still there to allow; one allowed as the server
-    /// went is the run it started, never asked again; and it gives up, saying why, when no server
-    /// comes back or each lets it go at once.
+    /// went is the run it started, never asked again, unless its tab never ran it; and it gives
+    /// up, saying why, when no server comes back or each lets it go at once.
     #[test]
     fn a_request_to_run_outlives_its_server() {
         let allowed = json!({ "answer": "allowed", "run": { "id": "run-atlas" } });
@@ -7504,14 +7532,18 @@ mod tests {
         assert_eq!((a.asked, a.waited), (2, 1), "asked again once a server answered");
         assert!(a.said.iter().any(|s| s.contains("asking them again once it's back")), "{:?}", a.said);
 
-        let mut a = Relaunching { asks: [(600_000, None)].into(), allowed_at: Some(599_000), ..Default::default() };
+        let mut a = Relaunching { asks: [(600_000, None)].into(), allowed_at: Some(599_000), tab_runs: true, ..Default::default() };
         let answer = ask_to_run(&mut a).unwrap();
         assert_eq!((answer["answer"].as_str(), answer["run"]["id"].as_str()), (Some("allowed"), Some("run-northwind")));
         assert_eq!((a.asked, a.waited), (1, 0), "allowed as it went: never asked twice");
 
-        let mut a = Relaunching { asks: [(600_000, None), (60_000, None)].into(), backs: [true].into(), allowed_at: Some(650_000), ..Default::default() };
+        let mut a = Relaunching { asks: [(600_000, None), (60_000, None)].into(), backs: [true].into(), allowed_at: Some(650_000), tab_runs: true, ..Default::default() };
         assert!(ask_to_run(&mut a).is_ok_and(|v| v["run"]["id"] == "run-northwind"), "allowed as the server it was asked of again went");
         assert_eq!(a.asked, 2);
+
+        let mut a = Relaunching { asks: [(600_000, None), (40_000, Some(Ok(allowed.clone())))].into(), backs: [true].into(), allowed_at: Some(599_000), ..Default::default() };
+        assert_eq!(ask_to_run(&mut a).unwrap(), allowed, "a run whose tab never ran it is asked for again");
+        assert!(a.said.iter().any(|s| s.contains("its tab never ran it")), "{:?}", a.said);
 
         let mut a = Relaunching { asks: [(600_000, None)].into(), backs: [false].into(), ..Default::default() };
         let e = ask_to_run(&mut a).unwrap_err().to_string();
