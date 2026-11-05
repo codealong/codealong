@@ -82,8 +82,9 @@ const EXIT: &str = "exit";
 const CLAIM: &str = "claim";
 /// In the claim, when a close made it.
 const CLOSING: &str = "closing";
-/// The command, set aside while a run that may never start is taken away (`withdraw_unstarted`).
-const SET_ASIDE: &str = "command.withdrawn";
+/// Made by the wrapper as it starts, before anything else, and by a withdraw of a run whose tab
+/// may never run it (`withdraw`): one `mkdir` each, so only one of them does.
+const STARTED: &str = "started";
 
 /// How long a run's folder is kept once it has ended.
 const KEEP_MS: i64 = 7 * DAY_MS;
@@ -535,11 +536,10 @@ pub fn start(asked: &Asked, apps: &AppNames, lanes: &[Lane], session_title: &str
     // (`launch::session_run`), and what it prints comes back all the same.
     if let Err(e) = crate::launch::session_run(&apps.terminal_id, use_tmux, place, cwd, TYPED, &env) {
         // A terminal can open the tab and run the line without answering in time (a napping
-        // Ghostty took over a minute): once the wrapper has noted itself the command runs, and the
-        // wrapper notes its end and closes the tab through this folder. Otherwise the folder goes,
-        // and a tab that opens later has no wrapper to run.
-        if !d.join(PIDS).exists() {
-            let _ = std::fs::remove_dir_all(&d);
+        // Ghostty took over a minute): once the wrapper has claimed its start the command runs, and
+        // the wrapper notes its end and closes the tab through this folder. Otherwise the run is
+        // withdrawn, and a tab that opens later has no wrapper to run.
+        if withdraw(&d).unwrap_or(true) {
             return Err(e);
         }
     }
@@ -577,7 +577,8 @@ fn write_folder(d: &Path, run: &Run, closes_after: Duration) -> Result<()> {
     Ok(())
 }
 
-/// The script the tab runs, as its shell: it notes its processes (whole, so a look meanwhile never
+/// The script the tab runs, as its shell: it claims its start (`STARTED`), and ends at once when a
+/// withdraw claimed it first, then notes its processes (whole, so a look meanwhile never
 /// finds the file half written), shows what runs and for whom, runs the command under `script` in
 /// your shell as a new tab starts it (a login shell, and interactive, for your aliases and
 /// functions; `/bin/sh` with the tab's environment when your shell isn't one these words suit,
@@ -615,6 +616,7 @@ pub fn wrapper(d: &Path, run: &Run, closes_after: Duration) -> String {
     format!(
         r#"# A command run in your terminal, as you allowed or asked (Codealong's terminal.rs).
 d={d}
+mkdir "$d/{STARTED}" 2>/dev/null || exit 0
 printf '%s %s\n' "$$" "$PPID" > "$d/{PIDS}.new" && mv -f "$d/{PIDS}.new" "$d/{PIDS}"
 printf '\n\033[2m%s\033[0m\n' {says}
 sed 's/^/  /' "$d/{COMMAND}"
@@ -784,34 +786,31 @@ pub fn allowed_between(ask: &Ask, from: i64, to: i64) -> Option<Run> {
         .max_by_key(|r| r.asked_at)
 }
 
-/// Takes away the folder of a run whose wrapper hasn't started, so a tab that gets to it later has
-/// nothing to run, as `start` does for a tab that didn't answer: for a run allowed as its server
-/// went whose tab hasn't run it in time (`allowed_between`), before its request is asked again,
-/// which would otherwise let both run. Whether it can't run now: false when its wrapper had
-/// started, or what it would run couldn't be taken away.
-///
-/// The command is set aside before the wrapper is looked for, in one rename: the wrapper notes
-/// itself (`PIDS`) before it reads the command, so with no note after the rename, no wrapper read
-/// it before, and none can after. A wrapper noted by then gets it back, and is the run.
-pub fn withdraw_unstarted(id: &str) -> bool {
-    withdraw_with(id, || {})
+/// Takes away a run whose wrapper hasn't started, so a tab that gets to it later runs nothing: for
+/// a run allowed as its server went whose tab hasn't run it in time (`allowed_between`), before
+/// its request is asked again, which would otherwise let both run. True once it can't start,
+/// false when its wrapper started first, and an error when neither can be told.
+pub fn withdraw_unstarted(id: &str) -> Result<bool> {
+    match run_folder(id) {
+        Ok(d) => withdraw(&d),
+        Err(_) => Ok(true),
+    }
 }
 
-/// `withdraw_unstarted`, running `between` once the command is set aside and before the wrapper is
-/// looked for: where a test starts one.
-fn withdraw_with(id: &str, between: impl FnOnce()) -> bool {
-    let Ok(d) = run_folder(id) else { return true };
-    let (command, aside) = (d.join(COMMAND), d.join(SET_ASIDE));
-    let set_aside = std::fs::rename(&command, &aside).is_ok();
-    between();
-    if d.join(PIDS).exists() {
-        if set_aside {
-            let _ = std::fs::rename(&aside, &command);
+/// Claims a run's start from its wrapper, which claims it first thing (`STARTED`): one `mkdir`
+/// each, which only one of them can make, so the wrapper runs the command or it's withdrawn, never
+/// both and never neither. Withdrawn, its folder goes. True once it can't start, false when the
+/// wrapper has claimed it and runs.
+fn withdraw(d: &Path) -> Result<bool> {
+    match std::fs::create_dir(d.join(STARTED)) {
+        Ok(()) => {
+            let _ = std::fs::remove_dir_all(d);
+            Ok(true)
         }
-        return false;
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(true),
+        Err(e) => Err(e).with_context(|| format!("claiming {}", d.display())),
     }
-    let _ = std::fs::remove_dir_all(&d);
-    !command.exists()
 }
 
 /// The run an id or a unique start of one names, with or without its `run-`.
@@ -1639,51 +1638,58 @@ mod tests {
         TEST_RUNS.with(|r| *r.borrow_mut() = None);
     }
 
-    /// A run allowed as its server went whose tab hasn't run it in time is taken away before it's
-    /// asked again: a tab that gets to its line later runs nothing, so it never runs twice. One
-    /// whose wrapper started is left to run.
+    /// A run allowed as its server went whose tab hasn't run it in time is withdrawn before it's
+    /// asked again, so it never runs twice: its wrapper and the withdraw each claim its start, and
+    /// only one can. The wrapper first, it runs the command, once, and the withdraw leaves it; the
+    /// withdraw first, a wrapper that gets there after runs nothing, nor does the line a late tab
+    /// types once the folder's gone.
     #[test]
     fn a_run_whose_tab_never_ran_it_is_withdrawn_before_its_asked_again() {
         let scratch = crate::fixtures::scratch("terminal-withdraw");
         TEST_RUNS.with(|r| *r.borrow_mut() = Some(scratch.join("runs")));
         let marker = scratch.join("ran");
         let keep = |id: &str| {
-            let run = Run { id: id.into(), session: "claude:northwind:a1".into(), command: format!("touch {}", sh_quote(&marker.to_string_lossy())), cwd: scratch.to_path_buf(), terminal: "Ghostty".into(), ..Default::default() };
+            let run = Run { id: id.into(), session: "claude:northwind:a1".into(), command: format!("echo once >> {}", sh_quote(&marker.to_string_lossy())), cwd: scratch.to_path_buf(), terminal: "Ghostty".into(), ..Default::default() };
             write_folder(&dir(id), &run, Duration::ZERO).unwrap();
             dir(id)
         };
+        let home = scratch.join("home");
+        std::fs::create_dir_all(&home).unwrap();
+        // The wrapper as a tab runs it, `script` stubbed as the wrapper tests do, from its text, as
+        // a shell that had opened it before anything was taken away would have it.
+        let run_wrapper = |text: &str| {
+            std::process::Command::new("/bin/sh").arg("-c").arg(no_script(text.to_string())).env("SHELL", "/bin/sh").env("HOME", &home).env_remove("ENV").stdin(std::process::Stdio::null()).output().unwrap();
+        };
+        let ran = || std::fs::read_to_string(&marker).unwrap_or_default();
+
+        let first = keep("run-wrapper-first");
+        run_wrapper(&std::fs::read_to_string(first.join(WRAPPER)).unwrap());
+        assert_eq!(ran(), "once\n");
+        assert!(!withdraw_unstarted("run-wrapper-first").unwrap(), "a wrapper that claimed its start runs");
+        assert!(first.join(COMMAND).exists(), "and keeps its folder");
+
+        std::fs::remove_file(&marker).unwrap();
+        let claimed = keep("run-withdrawn-first");
+        let text = std::fs::read_to_string(claimed.join(WRAPPER)).unwrap();
+        std::fs::create_dir(claimed.join(STARTED)).unwrap();
+        run_wrapper(&text);
+        assert_eq!(ran(), "", "a wrapper that finds its start claimed runs nothing");
+        assert!(!claimed.join(PIDS).exists());
+
         let late = keep("run-late");
-        assert!(withdraw_unstarted("run-late"));
+        assert!(withdraw_unstarted("run-late").unwrap());
         assert!(!late.exists());
         let typed = std::process::Command::new("/bin/sh").args(["-c", TYPED.trim()]).env(ENV, &late).stdin(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status().unwrap();
         assert!(!typed.success(), "the line a late tab types finds no wrapper");
-        assert!(!marker.exists(), "and runs nothing");
-        let started = keep("run-started");
-        std::fs::write(started.join(PIDS), "200 100\n").unwrap();
-        assert!(!withdraw_unstarted("run-started"), "a wrapper that started runs");
-        assert!(started.join(COMMAND).exists());
-        assert!(withdraw_unstarted("run-gone"), "a folder already gone can't run");
-
-        // A wrapper that starts once the command is set aside, before it's looked for, notes
-        // itself and finds no command to run: it's the run, given its command back, and it ran
-        // nothing, so asking again can't run it twice.
-        let racing = keep("run-racing");
-        let wrapper = no_script(std::fs::read_to_string(racing.join(WRAPPER)).unwrap());
-        let home = scratch.join("home");
-        std::fs::create_dir_all(&home).unwrap();
-        let start_wrapper = || {
-            let out = std::process::Command::new("/bin/sh").arg("-c").arg(&wrapper).env("SHELL", "/bin/sh").env("HOME", &home).env_remove("ENV").stdin(std::process::Stdio::null()).output().unwrap();
-            assert!(racing.join(PIDS).exists(), "the wrapper noted itself: {}", String::from_utf8_lossy(&out.stderr));
-        };
-        assert!(!withdraw_with("run-racing", start_wrapper), "a wrapper that started is the run");
-        assert!(!marker.exists(), "it found no command to run");
-        assert!(racing.join(COMMAND).exists() && !racing.join(SET_ASIDE).exists(), "its command is back");
+        run_wrapper(&text.replace(&claimed.to_string_lossy().into_owned(), &late.to_string_lossy()));
+        assert_eq!(ran(), "", "nor does a wrapper that had opened it run anything");
+        assert!(withdraw_unstarted("run-gone").unwrap(), "a folder already gone can't run");
         TEST_RUNS.with(|r| *r.borrow_mut() = None);
     }
 
     /// A terminal that opened the tab but didn't answer in time still has the run once its wrapper
-    /// noted itself: the command runs there, and the wrapper needs the folder to note the end and
-    /// close the tab. One whose wrapper hadn't started is a run that didn't start.
+    /// claimed its start: the command runs there, and the wrapper needs the folder to note the end
+    /// and close the tab. One whose wrapper hadn't started is a run that didn't start.
     #[test]
     fn a_tab_that_opened_without_its_terminal_answering_still_has_its_run() {
         let scratch = crate::fixtures::scratch("terminal-late-tab");
@@ -1695,6 +1701,7 @@ mod tests {
             let answer = move |sent: &crate::launch::stage::Sent| {
                 let folder = sent.args.iter().find_map(|a| a.strip_prefix(&format!("{ENV}="))).expect("the run's folder");
                 if wrapper_started {
+                    std::fs::create_dir(Path::new(folder).join(STARTED)).unwrap();
                     std::fs::write(Path::new(folder).join(PIDS), "200 100\n").unwrap();
                 }
                 Err("osascript timed out".to_string())

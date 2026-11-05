@@ -7181,7 +7181,8 @@ impl RunAsker for OnSocket<'_> {
     }
     /// As `wait_for_start` waits, from the run's folder: no server may answer yet. A folder gone
     /// is a tab that didn't open (terminal.rs `start` takes it away). One that hasn't run it by
-    /// then is taken away, unless it starts meanwhile.
+    /// then is withdrawn, unless its wrapper claims its start first (terminal.rs `withdraw`): then
+    /// it runs, and waiting on it waits for that.
     fn started(&mut self, run: &crate::terminal::Run) -> Found {
         use crate::terminal::{self, State};
         let start = now_ms();
@@ -7189,9 +7190,13 @@ impl RunAsker for OnSocket<'_> {
             match terminal::status(&run.id) {
                 Ok(s) if s.state != State::Starting => return Found::Runs,
                 Ok(_) if now_ms() - start <= START_WAIT_MS => std::thread::sleep(std::time::Duration::from_millis(300)),
-                Ok(_) if terminal::withdraw_unstarted(&run.id) => return Found::Withdrawn,
-                Ok(_) if terminal::status(&run.id).is_ok_and(|s| s.state != State::Starting) => return Found::Runs,
-                Ok(_) => return Found::Unsure,
+                Ok(_) => {
+                    return match terminal::withdraw_unstarted(&run.id) {
+                        Ok(true) => Found::Withdrawn,
+                        Ok(false) => Found::Runs,
+                        Err(_) => Found::Unsure,
+                    }
+                }
                 Err(_) => return Found::Withdrawn,
             }
         }
