@@ -107,6 +107,7 @@ const MODES: &[Mode] = &[
     Mode { flag: "--tokens", takes: "[days] [--account <name>] [--session <key>] [--into <ledger file>]", run: tokens },
     Mode { flag: "--jev-usage", takes: "[days]", run: jev_usage },
     Mode { flag: "--stale-terminals", takes: "[how long unused: 90m, 24h, 3d, 1w]", run: stale_terminals },
+    Mode { flag: "--hibernate", takes: "[how long idle: 30m, 2h, 1d]", run: hibernating },
     Mode { flag: "--schedules", takes: "", run: schedules },
     Mode { flag: "--schedule-plan", takes: "<schedule>", run: schedule_plan },
     Mode { flag: "--schedule-check", takes: "<schedule>", run: schedule_check },
@@ -137,6 +138,18 @@ fn stale_terminals(_: &Args, rest: &[String]) -> Done {
         None => util::DAY_MS,
     };
     Ok(pretty(&crate::stale::plan_now(&engine::snapshot(false, false), crate::stale::Uses::load(), after_ms)))
+}
+
+/// `codealong --snapshot --hibernate [wait]`: the sessions that would hibernate now and why the
+/// rest stay, after config.toml's `[sessions] hibernate_after` (two hours while that's off) or
+/// the wait given, closing nothing.
+fn hibernating(_: &Args, rest: &[String]) -> Done {
+    let cfg = config::current().map_err(failed)?;
+    let after_ms = match rest.first() {
+        Some(wait) => crate::idle::parse_after(wait).ok_or(Stop::Usage)?,
+        None => Some(crate::hibernate::after_ms(&cfg)).filter(|ms| *ms > 0).unwrap_or(2 * 3_600_000),
+    };
+    Ok(pretty(&crate::hibernate::plan_now(&engine::snapshot(false, false), &cfg, after_ms)))
 }
 
 /// `codealong --snapshot --schedules`: the schedules as the Schedules view lists them, with when

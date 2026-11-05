@@ -49,6 +49,7 @@ mod git;
 mod harness;
 mod held;
 mod helpers;
+mod hibernate;
 mod http;
 mod hygiene;
 mod idle;

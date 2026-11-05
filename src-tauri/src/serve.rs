@@ -21,7 +21,7 @@ use crate::calls::Ctx;
 use crate::engine::Handle;
 use crate::server::{self, Request, Status};
 use crate::util::words;
-use crate::{acp, actions, agentdone, api, autoreview, config, engine, helpers, ledger, limits, nudges, origins, os, peers, perf, reconnect, rerequest, reviewdone, schedules, search, send, side, store, terminal, terminals, util, views};
+use crate::{acp, actions, agentdone, api, autoreview, config, engine, helpers, hibernate, ledger, limits, nudges, origins, os, peers, perf, reconnect, rerequest, reviewdone, schedules, search, send, side, store, terminal, terminals, throttle, util, views};
 
 /// What the engine was built from (build.rs): a hash of the Rust that goes into it, so two builds
 /// that differ only in their windows have the same.
@@ -153,6 +153,7 @@ pub fn start() -> Result<Ctx, String> {
     let (reporter, reports_with) = (Arc::new(Mutex::new(helpers::Reporter::default())), engine_slot.clone());
     let (reviewer, reviews_with) = (Arc::new(Mutex::new(autoreview::Reviewer::load())), engine_slot.clone());
     let reviews = reviewer.clone();
+    let (hibernator, hibernates_with) = (Arc::new(Mutex::new(hibernate::Hibernator::default())), engine_slot.clone());
     let engine = engine::start(move |board| {
         // The apps first: they put together what they show from it (view.rs).
         views::emit("board", board);
@@ -222,6 +223,15 @@ pub fn start() -> Result<Ctx, String> {
                     Ok(said) => eprintln!("Ended {key} once its turn did, as it asked: {said}"),
                     Err(e) => eprintln!("Couldn't end {key} once its turn did: {e}"),
                 });
+            }
+        }
+        // Sessions left idle long enough to hibernate, where config.toml says to (hibernate.rs):
+        // one thread for the batch, which asks this Mac about each terminal before closing it.
+        if let (Some(engine), Ok(cfg)) = (hibernates_with.get(), config::current()) {
+            let due = hibernator.lock().map(|mut h| h.due(board, &cfg, board.generated_at)).unwrap_or_default();
+            if !due.is_empty() {
+                let (engine, hibernator) = (engine.clone(), hibernator.clone());
+                throttle::background("codealong-hibernate", move || hibernate::now(&engine, &due), move |_| hibernator.lock().unwrap_or_else(|e| e.into_inner()).ended());
             }
         }
     });

@@ -94,6 +94,22 @@ function closeCommandTabsOptions(current: number): { id: number; label: string }
   return [...waits, ...CLOSE_COMMAND_TABS.filter((o) => o.id === 0)];
 }
 
+/** How long a session sits idle before it hibernates, in minutes (`[sessions] hibernate_after`,
+ *  hibernate.rs); 0, the default, is off. */
+const HIBERNATE: { id: number; label: string }[] = [
+  { id: 60, label: '1 hour' },
+  { id: 240, label: '4 hours' },
+  { id: 1440, label: '1 day' },
+  { id: 0, label: 'Never' },
+];
+
+/** The choices, with the file's own wait among them when it says another. */
+function hibernateOptions(current: number): { id: number; label: string }[] {
+  if (HIBERNATE.some((o) => o.id === current)) return HIBERNATE;
+  const waits = [...HIBERNATE.filter((o) => o.id > 0), { id: current, label: `${current} minutes` }].sort((a, b) => a.id - b.id);
+  return [...waits, ...HIBERNATE.filter((o) => o.id === 0)];
+}
+
 const WHEN_LIMITED: { id: WhenLimited; label: string; says: string }[] = [
   { id: 'suggest', label: 'Suggest a move', says: 'The session says which account has room, with a button that moves it there to carry on.' },
   { id: 'move', label: 'Move it', says: 'Codealong moves it to the account with room as soon as it stops, and it carries on there: in a new terminal, or as a background job if it was one.' },
@@ -713,8 +729,9 @@ function SoundsPane({ cfg, names, disabled, onSave, onError }: PaneProps & { nam
  *  usage limit stopped; `[sessions] continue_after_network_error`, about one a lost connection
  *  stopped; `[sessions] continue_after_restart`, about one Codealong runs that its quitting cut
  *  off; `[sessions] resume_for_any_session` and `resume_for_sessions_it_started`, about one
- *  that stopped before another session sent it a message; and `resume_for_pr_news`, about a PR's
- *  primary session that stopped before its PR had news for it. */
+ *  that stopped before another session sent it a message; `resume_for_pr_news`, about a PR's
+ *  primary session that stopped before its PR had news for it; and `hibernate_after`, about one
+ *  left idle a long while. */
 function LimitsField({ cfg, disabled, onSave }: PaneProps) {
   const limits = { when_hit: 'suggest' as WhenLimited, continue_when_lifted: true, ...cfg.limits };
   const value = limits.when_hit;
@@ -726,6 +743,7 @@ function LimitsField({ cfg, disabled, onSave }: PaneProps) {
   const resumes = sessions.resume_for_sessions_it_started ?? true;
   const resumesAny = sessions.resume_for_any_session ?? true;
   const resumesForPrs = sessions.resume_for_pr_news ?? true;
+  const hibernateAfter = sessions.hibernate_after ?? 0;
   const saveSessions = (change: Partial<SessionsCfg>) => void onSave({ ...cfg, sessions: { ...sessions, ...change } });
   return (
     <fieldset className="ca-settings-fields" disabled={disabled}>
@@ -777,6 +795,13 @@ function LimitsField({ cfg, disabled, onSave }: PaneProps) {
           When a pull request’s nudge (above) has news that asks for work (someone else’s comments or review, changes asked for, failing checks, a conflict) and the session it tells has stopped, Codealong resumes that session out of sight with it. Not for an approval, a merge or a close, nor a session you archived or marked done, nor while another of the pull request’s sessions is running, which may have taken the work on.
         </small>
       </label>
+      <div className="ca-field">
+        <span>Hibernate idle sessions</span>
+        <Seg className="ca-settings-theme" label="Hibernate idle sessions" options={hibernateOptions(hibernateAfter)} value={hibernateAfter} onPick={(id) => id !== hibernateAfter && saveSessions({ hibernate_after: id })} />
+        <small>
+          A session in a terminal that has sat idle this long, with nothing typed in its terminal since its turn ended, has its tab closed, which ends its agent’s process and frees what that holds. It stays in your lists, and opening it or replying to it resumes it in a new tab. Not one whose last reply may ask you something, that left a command running, whose helper is still at work, or whose tab you’re in. Claude Code’s background jobs are left alone: Close idle sessions in the File menu stops them.
+        </small>
+      </div>
     </fieldset>
   );
 }

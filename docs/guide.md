@@ -3524,6 +3524,26 @@ and the sessions Codealong can't close (in the Claude or Codex app, run by Codea
 archived only, staying open where they are. `codealong sessions close-idle --dry-run [--archive]`
 lists the same from the command line.
 
+### Hibernate idle sessions
+
+*Settings › Automation › Hibernate idle sessions* (`[sessions] hibernate_after`, in minutes; off
+until you pick a wait)
+
+Does what Close idle sessions does, by itself, for sessions in a terminal. Once a session has sat
+idle for the wait (an hour to a day, you choose; config.toml takes any number of minutes) and asks
+you nothing, by Close idle sessions' rules, its Ghostty, iTerm2, Terminal or Rex tab, tmux pane or
+terminal of Codealong's own closes, which ends its agent's process and frees what that held. It
+isn't archived: it stays in your lists, and opening it or replying from its box resumes it in a new
+tab, as for any session whose terminal closed. Besides Close idle sessions' rules, a session stays
+open when something was typed in its terminal since its turn ended (a prompt you're writing in its
+box would go with it), when a session it started is still at work or waits on you, when it's an
+automatic review's, when it can't be resumed in a terminal or its account is turned off, and when
+its tab is the one you're in. Claude Code's background jobs are left alone: Close idle sessions
+stops them. Codealong looks once a minute and tries a session it
+couldn't close again half an hour later; `server.log` (*Codealong's server*) says what it
+hibernated and why it left the rest. `codealong --snapshot --hibernate [wait]` lists what would
+hibernate now and why the rest stay, closing nothing.
+
 ### Close stale terminals
 
 *File › Close stale terminals…*

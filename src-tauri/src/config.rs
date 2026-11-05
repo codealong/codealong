@@ -469,6 +469,11 @@ pub struct SessionsCfg {
     /// started after it's on: Claude Code reads hooks as a session starts. Off until turned on.
     #[serde(default)]
     pub live_replies: bool,
+    /// A session in a terminal left idle this many minutes, wanting nothing from you, is
+    /// hibernated: its terminal tab closes, ending its agent's process and what that holds, and a
+    /// click on it or a reply resumes it (hibernate.rs). 0, the default, is off.
+    #[serde(default)]
+    pub hibernate_after: u32,
 }
 
 impl SessionsCfg {
@@ -479,7 +484,7 @@ impl SessionsCfg {
 
 impl Default for SessionsCfg {
     fn default() -> Self {
-        SessionsCfg { block_flagged_sessions: true, continue_after_network_error: true, continue_after_restart: true, resume_for_sessions_it_started: true, resume_for_any_session: true, resume_for_pr_news: true, live_replies: false }
+        SessionsCfg { block_flagged_sessions: true, continue_after_network_error: true, continue_after_restart: true, resume_for_sessions_it_started: true, resume_for_any_session: true, resume_for_pr_news: true, live_replies: false, hibernate_after: 0 }
     }
 }
 
@@ -1797,7 +1802,7 @@ const DEVICES_COMMENT: &str = "# Your other devices: Codealong on each shows the
 const UPDATES_COMMENT: &str = "# check: look for a newer Codealong now and then, and put it in place for the next launch.\n# The app menu's Check for updates… works either way.\n";
 const LIMITS_COMMENT: &str = "# When a session stops at its account's usage limit. when_hit: \"suggest\" offers to move it to an account\n# of its harness that has room; \"move\" moves it there by itself, and it carries on where it stopped.\n# continue_when_lifted: when the limit lifts and it's still stopped there, tell it to carry on.\n";
 const ROUTING_COMMENT: &str = "# Model groups ([[routing.groups]]) that starts and reviews can pick, which group Auto uses (`auto`),\n# and what Jev is told when suggesting an account and model in the quick panel (`prompt`).\n# strategy: \"usage\" (most room under usage_cap), \"alternate-harness\" (rotate harnesses), \"round-robin\",\n# or \"fallback\" (the members in order, each until it's within `buffer` of its usage_cap).\n# buffer: the percent below each account's usage_cap left for the sessions already running on it (default 5).\n";
-const SESSIONS_COMMENT: &str = "# block_flagged_sessions: keep provider-flagged sessions out of automatic messages, resumes and\n# account moves. On by default; manual replies and resumes remain available.\n# continue_after_network_error: when a session's turn ends because its agent couldn't reach its API\n# (the Mac slept, or the network dropped), tell it to carry on once the API can be reached again.\n# continue_after_restart: when Codealong quitting cuts off a turn of a session it runs itself, tell it to\n# carry on once Codealong is back.\n# resume_for_sessions_it_started: when a session that isn't running is sent a message by a session it\n# started, or by the one that started it, resume it out of sight with that message.\n# resume_for_any_session: the same for a message from any session, which tells it it had stopped;\n# while it's on, resume_for_sessions_it_started is part of it.\n# resume_for_pr_news: when a pull request's nudge has news that asks for work (comments, changes asked\n# for, failing checks, a conflict) and its primary session isn't running, resume it out of sight with\n# it, unless another of the pull request's sessions is running.\n# live_replies: Claude Code sessions hand Codealong a reply as their terminal shows it, so Codealong\n# shows it as it's written; their terminals then show a reply a paragraph at a time. New sessions only.\n";
+const SESSIONS_COMMENT: &str = "# block_flagged_sessions: keep provider-flagged sessions out of automatic messages, resumes and\n# account moves. On by default; manual replies and resumes remain available.\n# continue_after_network_error: when a session's turn ends because its agent couldn't reach its API\n# (the Mac slept, or the network dropped), tell it to carry on once the API can be reached again.\n# continue_after_restart: when Codealong quitting cuts off a turn of a session it runs itself, tell it to\n# carry on once Codealong is back.\n# resume_for_sessions_it_started: when a session that isn't running is sent a message by a session it\n# started, or by the one that started it, resume it out of sight with that message.\n# resume_for_any_session: the same for a message from any session, which tells it it had stopped;\n# while it's on, resume_for_sessions_it_started is part of it.\n# resume_for_pr_news: when a pull request's nudge has news that asks for work (comments, changes asked\n# for, failing checks, a conflict) and its primary session isn't running, resume it out of sight with\n# it, unless another of the pull request's sessions is running.\n# live_replies: Claude Code sessions hand Codealong a reply as their terminal shows it, so Codealong\n# shows it as it's written; their terminals then show a reply a paragraph at a time. New sessions only.\n# hibernate_after: minutes a session in a terminal sits idle, wanting nothing from you, before its terminal\n# closes to free what its agent holds; a click on it or a reply resumes it. 0 (the default) is off.\n";
 const PULL_REQUESTS_COMMENT: &str = "# nudge_by_default: every open PR of yours tells its primary session (the one picked in its menu, else the one\n# that pushed to it most) what happens on it (reviews, comments, an approval, a merge, failing checks,\n# conflicts), in a message from Codealong. A PR's own switch wins either way.\n# nudge_about: what a nudge tells of: \"everything\"; \"feedback\", only comments and reviews that ask for changes\n# or say something, never an approval, a merge or a close; \"feedback-and-checks\", that, failing checks and\n# conflicts; or \"feedback-and-merges\" or \"feedback-checks-and-merges\", one of those and a merge.\n# rerequest_after_fixes: on a PR of yours whose reviewer asked for changes, once commits came after their last\n# word and nobody said so on it, ask them to review it again, as you. GitHub tells a reviewer of that, not of a push.\n";
 const REVIEWS_COMMENT: &str = "# auto: an agent reviews each open pull request that waits on your review, and again when new commits come
 # in while it still waits. account, model and effort: what it runs on; \"\" for the account Auto would start, on its
@@ -2282,6 +2287,10 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
         set_value(&mut doc["sessions"]["resume_for_any_session"], Value::from(cfg.sessions.resume_for_any_session));
         set_value(&mut doc["sessions"]["resume_for_pr_news"], Value::from(cfg.sessions.resume_for_pr_news));
         set_value(&mut doc["sessions"]["live_replies"], Value::from(cfg.sessions.live_replies));
+        // Off by default: only a file that turns it on, or has it already, gets the key.
+        if cfg.sessions.hibernate_after != 0 || doc["sessions"].get("hibernate_after").is_some() {
+            set_value(&mut doc["sessions"]["hibernate_after"], Value::from(i64::from(cfg.sessions.hibernate_after)));
+        }
     }
 
     // The same: only a file that has the table or turns reviews on gets it.
@@ -2818,6 +2827,9 @@ pub fn render(cfg: &Config) -> String {
         s.push_str(&format!("resume_for_any_session = {}\n", cfg.sessions.resume_for_any_session));
         s.push_str(&format!("resume_for_pr_news = {}\n", cfg.sessions.resume_for_pr_news));
         s.push_str(&format!("live_replies = {}\n", cfg.sessions.live_replies));
+        if cfg.sessions.hibernate_after != 0 {
+            s.push_str(&format!("hibernate_after = {}\n", cfg.sessions.hibernate_after));
+        }
     }
     if cfg.reviews != ReviewsCfg::default() {
         s.push('\n');
@@ -2994,7 +3006,7 @@ mod tests {
                     members: vec![GroupMemberCfg { account: "claude".into(), model: "opus".into(), effort: String::new() }, GroupMemberCfg { account: "codex".into(), model: String::new(), effort: String::new() }],
                 }],
             },
-            sessions: SessionsCfg { block_flagged_sessions: false, continue_after_network_error: false, continue_after_restart: false, resume_for_sessions_it_started: false, resume_for_any_session: false, resume_for_pr_news: false, live_replies: true },
+            sessions: SessionsCfg { block_flagged_sessions: false, continue_after_network_error: false, continue_after_restart: false, resume_for_sessions_it_started: false, resume_for_any_session: false, resume_for_pr_news: false, live_replies: true, hibernate_after: 0 },
             reviews: ReviewsCfg { auto: true, account: "claude".into(), model: "opus".into(), effort: String::new(), other_harness: true, drafts: true, prompt: "Start two subagents.\nThen combine their findings.".into(), start: ReviewStart::Codealong, post: ReviewPost::None, submit: ReviewSubmit::Approve, auto_approve: false, reviewers: Vec::new(), own: OwnReviewsCfg::default(), team_instructions: String::new(), never_submit: Vec::new() },
             pull_requests: PullRequestsCfg { nudge_by_default: true, nudge_about: NudgeAbout::FeedbackAndChecks, rerequest_after_fixes: false },
             repos: BTreeMap::from([("github.com/sprucehq/web".to_string(), RepoCfg { reviews: ReviewsPatch { auto: Some(true), account: Some("codex".into()), post: Some(ReviewPost::Draft), own: OwnReviewsPatch { send: Some(false), ..OwnReviewsPatch::default() }, ..ReviewsPatch::default() }, pull_requests: PullRequestsPatch { nudge_about: Some(NudgeAbout::Feedback), ..PullRequestsPatch::default() } })]),
@@ -3577,6 +3589,26 @@ mod tests {
         assert!(out.contains("[sessions]\nblock_flagged_sessions = true\ncontinue_after_network_error = true\ncontinue_after_restart = true\nresume_for_sessions_it_started = false"), "{out}");
         assert_eq!(parse(&out).unwrap(), off);
         assert_eq!(parse(&render(&off)).unwrap(), off);
+    }
+
+    #[test]
+    fn hibernation_is_off_until_the_file_sets_a_wait() {
+        assert_eq!(toml::from_str::<Config>("").unwrap().sessions.hibernate_after, 0);
+        let old = render(&full());
+        assert!(!old.contains("hibernate_after ="), "off isn't written: {old}");
+        assert!(!with_config(&old, &full()).unwrap().contains("hibernate_after ="));
+        let mut on = full();
+        on.sessions.hibernate_after = 120;
+        let out = with_config(&old, &on).unwrap();
+        assert!(out.contains("\nhibernate_after = 120\n"), "{out}");
+        assert_eq!(parse(&out).unwrap(), on);
+        assert_eq!(parse(&render(&on)).unwrap(), on);
+        // Turned off again, the line stays, saying so.
+        assert!(with_config(&out, &full()).unwrap().contains("\nhibernate_after = 0\n"));
+        // A file that turns only this on gets a [sessions] table with it.
+        let mut only = Config::default();
+        only.sessions.hibernate_after = 60;
+        assert_eq!(parse(&with_config("", &only).unwrap()).unwrap().sessions.hibernate_after, 60);
     }
 
     #[test]
