@@ -82,6 +82,8 @@ const EXIT: &str = "exit";
 const CLAIM: &str = "claim";
 /// In the claim, when a close made it.
 const CLOSING: &str = "closing";
+/// The command, set aside while a run that may never start is taken away (`withdraw_unstarted`).
+const SET_ASIDE: &str = "command.withdrawn";
 
 /// How long a run's folder is kept once it has ended.
 const KEEP_MS: i64 = 7 * DAY_MS;
@@ -785,17 +787,31 @@ pub fn allowed_between(ask: &Ask, from: i64, to: i64) -> Option<Run> {
 /// Takes away the folder of a run whose wrapper hasn't started, so a tab that gets to it later has
 /// nothing to run, as `start` does for a tab that didn't answer: for a run allowed as its server
 /// went whose tab hasn't run it in time (`allowed_between`), before its request is asked again,
-/// which would otherwise let both run. The command goes first: a wrapper that starts this moment
-/// reads it only once its shell has started. Whether it can't run now: false when its wrapper
-/// had started, or what it would run couldn't be taken away.
+/// which would otherwise let both run. Whether it can't run now: false when its wrapper had
+/// started, or what it would run couldn't be taken away.
+///
+/// The command is set aside before the wrapper is looked for, in one rename: the wrapper notes
+/// itself (`PIDS`) before it reads the command, so with no note after the rename, no wrapper read
+/// it before, and none can after. A wrapper noted by then gets it back, and is the run.
 pub fn withdraw_unstarted(id: &str) -> bool {
+    withdraw_with(id, || {})
+}
+
+/// `withdraw_unstarted`, running `between` once the command is set aside and before the wrapper is
+/// looked for: where a test starts one.
+fn withdraw_with(id: &str, between: impl FnOnce()) -> bool {
     let Ok(d) = run_folder(id) else { return true };
+    let (command, aside) = (d.join(COMMAND), d.join(SET_ASIDE));
+    let set_aside = std::fs::rename(&command, &aside).is_ok();
+    between();
     if d.join(PIDS).exists() {
+        if set_aside {
+            let _ = std::fs::rename(&aside, &command);
+        }
         return false;
     }
-    let _ = std::fs::remove_file(d.join(COMMAND));
     let _ = std::fs::remove_dir_all(&d);
-    !d.join(COMMAND).exists()
+    !command.exists()
 }
 
 /// The run an id or a unique start of one names, with or without its `run-`.
@@ -1647,6 +1663,21 @@ mod tests {
         assert!(!withdraw_unstarted("run-started"), "a wrapper that started runs");
         assert!(started.join(COMMAND).exists());
         assert!(withdraw_unstarted("run-gone"), "a folder already gone can't run");
+
+        // A wrapper that starts once the command is set aside, before it's looked for, notes
+        // itself and finds no command to run: it's the run, given its command back, and it ran
+        // nothing, so asking again can't run it twice.
+        let racing = keep("run-racing");
+        let wrapper = no_script(std::fs::read_to_string(racing.join(WRAPPER)).unwrap());
+        let home = scratch.join("home");
+        std::fs::create_dir_all(&home).unwrap();
+        let start_wrapper = || {
+            let out = std::process::Command::new("/bin/sh").arg("-c").arg(&wrapper).env("SHELL", "/bin/sh").env("HOME", &home).env_remove("ENV").stdin(std::process::Stdio::null()).output().unwrap();
+            assert!(racing.join(PIDS).exists(), "the wrapper noted itself: {}", String::from_utf8_lossy(&out.stderr));
+        };
+        assert!(!withdraw_with("run-racing", start_wrapper), "a wrapper that started is the run");
+        assert!(!marker.exists(), "it found no command to run");
+        assert!(racing.join(COMMAND).exists() && !racing.join(SET_ASIDE).exists(), "its command is back");
         TEST_RUNS.with(|r| *r.borrow_mut() = None);
     }
 
