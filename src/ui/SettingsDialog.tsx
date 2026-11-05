@@ -1017,6 +1017,15 @@ function ReviewsField({ reviews, set, setOwn, scope, team, disabled, defaultProm
           review is done, and its card says where that stands. Off, an agent reviews one when you ask, with Review with… on the pull request: the same review, by the reviewer below, its review going as below.
         </small>
       </label>
+      {reviews.auto && (
+        <label className="ca-field ca-settings-check">
+          <CheckBox checked={reviews.drafts} onChange={(on) => set({ drafts: on })} />
+          <span>
+            Review drafts that ask for your review too<SourceTag field="reviews.drafts" scope={scope} />
+          </span>
+          <small>Off, a draft is reviewed once it’s ready for review. Being assigned to a draft doesn’t ask for your review, so it isn’t reviewed either way.</small>
+        </label>
+      )}
       <div className="ca-field">
         <span>
           The reviewer<SourceTag field="reviews.reviewer" scope={scope} />
@@ -1173,7 +1182,7 @@ function OwnReviewsField({ own, setOwn, scope, team, accounts, all, lanes, group
             <span>
               Review your draft pull requests too<SourceTag field="own.drafts" scope={scope} />
             </span>
-            <small>Off, a pull request of yours is reviewed once it’s ready for review. Drafts of other people’s are never reviewed.</small>
+            <small>Off, a pull request of yours is reviewed once it’s ready for review.</small>
           </label>
         </>
       )}

@@ -1080,9 +1080,12 @@ a harness's own automation.
 #### Automatic reviews
 
 With `[reviews] auto = true` (Settings › Automation), an agent reviews each open PR that asks for your
-review (or was assigned to you since your last review, see Assigned), isn't yours and isn't a draft, in a session of its own on `[reviews] account` (an account or
+review (or was assigned to you since your last review, see Assigned) and isn't yours, in a session of its own on `[reviews] account` (an account or
 routing group) and `model` (else the account Auto would start, on its own model), apart from the
-account new sessions start on. With `[reviews] other_harness = true` (the default), Auto or a
+account new sessions start on. A draft is reviewed too when its review is asked of you, unless
+`[reviews] drafts = false` (Review drafts that ask for your review too); being assigned to a draft
+doesn't ask for your review, so a draft you're only assigned to waits until it's ready for review.
+With `[reviews] other_harness = true` (the default), Auto or a
 routing group prefers a harness other than the one that wrote the PR (read from a session on this
 Mac, or from `Co-Authored-By:` and `Generated with` lines in the PR's head commit or description)
 whenever another harness in the pool can review, and passes over any account that has reached its
@@ -1234,8 +1237,8 @@ machine is reviewed the same way, by an agent on `[reviews.own] account` (an acc
 group) and `model`, else on the account Auto would start, preferring another harness than the PR's
 when `[reviews.own] other_harness = true` (the default), so another model reads what one wrote
 (Codex reviews what Claude Code wrote, say); one of the same harness only when no other can start. Drafts wait until they're ready for review unless `[reviews.own] drafts` (Review
-your draft pull requests too) says to review them as well; a draft of someone else's that asks for
-your review is never reviewed. Nor is a PR whose session is gone or archived. Its
+your draft pull requests too) says to review them as well; someone else's draft goes by `[reviews]
+drafts`. Nor is a PR whose session is gone or archived. Its
 instructions are `[reviews.own] prompt`, else Codealong's own; it's told the review goes back to the
 agent that wrote the PR, and to end on whether it would approve it (see *Your review*). Nothing goes
 on GitHub: the review is kept in Codealong, in the PR's Reviews tab, its comments on lines with the

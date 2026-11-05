@@ -664,6 +664,7 @@ account = ""                   # the account or routing group it runs on; "" for
 model = ""                     # the model it starts on; "" for the account's or group member's own
 effort = ""                    # the effort it starts at, with an account named; "" for the account's or group member's own
 other_harness = true           # prefer a harness other than the PR author's (from its session here or Co-Authored-By / Generated with trailers)
+drafts = true                  # review a draft that asks for your review too; being assigned to one doesn't ask
 prompt = ""                    # what it's told to do (what to look for, subagents to start); "" for Codealong's own
 start = "no-terminal"          # where its session runs, yours too: "no-terminal" (Claude Code's background service, else Codealong); "codealong"; "background" (tmux with no window where the account has neither); "terminal" (in front, as new_terminal says)
 post = "draft"                 # "draft": a draft review of yours to finish; "comment": a comment; "none": stays in the session
@@ -677,7 +678,7 @@ effort = ""                    # the effort it starts at, with an account named;
 other_harness = true           # prefer a harness other than the PR's session or trailers
 prompt = ""                    # what it's told to do; "" for Codealong's own
 send = true                    # hand each review to the PR's primary session; nothing goes on GitHub
-drafts = false                 # review your draft PRs too; others' drafts are never reviewed
+drafts = false                 # review your draft PRs too; others' go by [reviews] drafts
 
 [pull_requests]
 nudge_by_default = false       # every open PR of yours tells its primary session what happens on it (Settings › Automation)

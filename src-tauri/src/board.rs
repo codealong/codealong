@@ -2922,6 +2922,13 @@ mod tests {
         let replied = HashMap::from([("sprucehq/spark".to_string(), vec![p(vec![wrote("me", 90), wrote("gwen", 110)], 100)])]);
         let got = items(&HashMap::new(), &replied, &gone).remove(0);
         assert_eq!((got.review_requested, got.requested_by.as_deref(), got.turn.map(|t| t.kind)), (true, Some("ken"), Some(TurnKind::AuthorReplied)));
+        // A draft assigned to you doesn't wait on you, its assignee often being whoever does the
+        // work: only a request for your review has a draft wait on you, and reviewed
+        // (autoreview.rs `wants`, `[reviews] drafts`).
+        let draft = HashMap::from([("sprucehq/spark".to_string(), vec![PrRaw { state: PrState::Draft, ..p(vec![], 100) }])]);
+        assert!(!items(&draft, &HashMap::new(), &seeds)[0].review_requested);
+        let asked = HashMap::from([("sprucehq/spark".to_string(), vec![PrRaw { state: PrState::Draft, review_requested: true, ..p(vec![], 100) }])]);
+        assert!(items(&asked, &HashMap::new(), &seeds)[0].review_requested);
     }
 
     #[test]

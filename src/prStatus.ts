@@ -196,7 +196,9 @@ function turnPill(pr: PrFacts): PrPill | null {
 
 function reviewPill(pr: PrFacts): PrPill {
   const pill = reviewPillOf;
-  const agent = pr.state === 'draft' ? null : agentPill(pr);
+  // A draft that asks for your review is reviewed too ([reviews] drafts): where the agent stands
+  // says more than Draft, which its chip's icon still says.
+  const agent = agentPill(pr);
   if (agent) return agent;
   const turn = turnPill(pr);
   if (turn) return turn;

@@ -1,7 +1,8 @@
 //! Reviewing the pull requests that wait on your review without being asked, when config.toml
 //! says to (`[reviews] auto`, Settings › Automation). Every board the engine publishes is looked
 //! at for open PRs that ask for your review (someone assigning you since your last review asks it
-//! too: board.rs `pr_item`), aren't yours and aren't drafts. Each is reviewed in a
+//! too: board.rs `pr_item`) and aren't yours, a draft too while `[reviews] drafts` says so (being
+//! assigned to a draft doesn't ask for your review: github.rs `assigned_review`). Each is reviewed in a
 //! session of its own for that PR, on `[reviews] account` and `model` (else the account Auto would
 //! start, on its own model), where `[reviews] start` says (`review_places`: by default never in a
 //! terminal, under the harness's background service, else in Codealong), started in the worktree
@@ -74,8 +75,8 @@
 //!
 //! The pull requests your own sessions open are reviewed the same way when `[reviews.own] auto`
 //! says to (`wants_own`): each open PR of yours whose primary session (`PrItem::primary`, most
-//! often the one that opened it) is on this Mac, and a draft only when `[reviews.own] drafts` says so (another's
-//! draft never), on `[reviews.own]`'s account and model, else the account Auto would start among
+//! often the one that opened it) is on this Mac, and a draft only when `[reviews.own] drafts` says so,
+//! on `[reviews.own]`'s account and model, else the account Auto would start among
 //! those of another harness than that session's (`Seat::avoid`), so another model reads what one
 //! wrote. Nothing goes on GitHub: the review is kept here (`ReviewStage::Kept`)
 //! and, with `[reviews.own] send`, handed back to the PR's session once that runs here and doesn't
@@ -794,10 +795,13 @@ pub struct Reviewer {
     post_failures: HashMap<String, u32>,
 }
 
-/// Whether Codealong reviews a PR: it's open and not a draft, it asks for your review, and it
-/// isn't yours.
-pub fn wants(pr: &PrItem) -> bool {
-    pr.review_requested && pr.state.is_open() && pr.state != PrState::Draft && !pr.mine && pr.head_oid.is_some()
+/// Whether Codealong reviews a PR: it's open, it asks for your review, it isn't yours, and it's
+/// ready for review, or a draft while `[reviews] drafts` says to review those too. A draft asks
+/// for your review only by a request for it: being assigned to one doesn't (github.rs
+/// `assigned_review`), nor do its author's replies (board.rs `turn_of`) or its commits after a
+/// review submitted for you (`brought_back`).
+pub fn wants(cfg: &ReviewsCfg, pr: &PrItem) -> bool {
+    pr.review_requested && pr.state.is_open() && (pr.state != PrState::Draft || cfg.drafts) && !pr.mine && pr.head_oid.is_some()
 }
 
 /// The session a PR of yours goes back to: its primary session (`PrItem::primary`), when it's
@@ -827,7 +831,7 @@ fn wanted(cfg: &ReviewsCfg, lanes: &[Lane], pr: &PrItem) -> bool {
     if pr.mine {
         cfg.own.auto && wants_own(cfg, lanes, pr)
     } else {
-        cfg.auto && wants(pr)
+        cfg.auto && wants(cfg, pr)
     }
 }
 
@@ -1000,7 +1004,7 @@ pub fn to_submit(submit: ReviewSubmit, verdict: Verdict) -> Option<Verdict> {
 /// says (or kept), `[reviews] submit` takes its agent's verdict (`to_submit`), and it hasn't been
 /// tried; and reviews are on, or the round was asked for by hand, which goes the same way.
 fn submit_due(cfg: &ReviewsCfg, pr: &PrItem, r: &Round, head: &str) -> Option<Verdict> {
-    if !((cfg.auto || r.by_hand) && wants(pr) && r.head == head && r.submitted.is_none() && matches!(r.stage, ReviewStage::Drafted | ReviewStage::Posted | ReviewStage::Kept)) {
+    if !((cfg.auto || r.by_hand) && wants(cfg, pr) && r.head == head && r.submitted.is_none() && matches!(r.stage, ReviewStage::Drafted | ReviewStage::Posted | ReviewStage::Kept)) {
         return None;
     }
     to_submit(cfg.submit, round_verdict(r)?).filter(|v| !cfg.never_submit.contains(v))
@@ -1787,11 +1791,11 @@ pub fn apply(prs: &mut [PrItem], store: &Store, global: &ReviewsCfg, sessions: &
         let own = pr.mine;
         pr.shared_review = shared_review(t, &head, wanted && !own && has_checkout(lanes, pr));
         // Another machine of yours reviews it: its round shows here, and none starts here (`due`).
-        if let Some((m, r)) = wants(pr).then(|| reviewer_of(pr, &pr.shared_review, machines, now)).flatten() {
+        if let Some((m, r)) = wants(cfg, pr).then(|| reviewer_of(pr, &pr.shared_review, machines, now)).flatten() {
             pr.auto_review = Some(elsewhere(&head, m, r, since, now));
             continue;
         }
-        let approves = t.filter(|_| wants(pr)).and_then(approved);
+        let approves = t.filter(|_| wants(cfg, pr)).and_then(approved);
         let paused = blocked && (wants_review || (own && cfg.own.send));
         let holds = wanted
             && !own
@@ -2712,7 +2716,7 @@ pub fn plan(board: &Board, cfg: &Config, key: &str) -> anyhow::Result<Plan> {
         }
         Err(e) => PlannedStart { who: seat.who.clone(), spec: None, start: None, problem: Some(e) },
     };
-    let (wanted, on) = if pr.mine { (wants_own(&reviews, &board.lanes, pr), reviews.own.auto) } else { (wants(pr), reviews.auto) };
+    let (wanted, on) = if pr.mine { (wants_own(&reviews, &board.lanes, pr), reviews.own.auto) } else { (wants(&reviews, pr), reviews.auto) };
     Ok(Plan { wanted, on, stands, start })
 }
 
@@ -2760,9 +2764,13 @@ fn codealongs_only(whole: &str) -> bool {
 /// The draft found is the one submitted, so what's checked is what goes.
 fn submit(engine: &Handle, pr: &PrItem, head: &str, verdict: Verdict, text: Option<&str>) -> Went {
     let board = engine.board();
+    let cfg = match crate::config::current() {
+        Ok(c) => c,
+        Err(e) => return Went::PostFailed(format!("{e:#}")),
+    };
     let Some(pr) = board.prs.iter().find(|p| p.key == pr.key) else { return Went::Later };
     // Nor once another machine of yours has its review: only the one whose review shows submits.
-    if !wants(pr) || pr.head_oid.as_deref() != Some(head) || pr.auto_review.as_ref().is_some_and(|a| a.machine.is_some()) {
+    if !wants(&board.repo_settings.reviews(&cfg.reviews, pr), pr) || pr.head_oid.as_deref() != Some(head) || pr.auto_review.as_ref().is_some_and(|a| a.machine.is_some()) {
         return Went::Later;
     }
     let draft = match crate::github::your_review(&pr.repo_slug, pr.number) {
@@ -3428,17 +3436,24 @@ mod tests {
     }
 
     #[test]
-    fn a_draft_of_yours_is_reviewed_only_with_drafts_on_and_another_s_draft_never() {
+    fn a_draft_is_reviewed_by_its_own_switch_yours_off_and_another_s_that_asks_for_you_on() {
         let lanes = vec![fixtures::lane("/r", vec![fixtures::session(MAKER)])];
-        let drafts = ReviewsCfg { auto: true, own: crate::config::OwnReviewsCfg { auto: true, drafts: true, ..Default::default() }, ..ReviewsCfg::default() };
+        let both = ReviewsCfg { auto: true, own: crate::config::OwnReviewsCfg { auto: true, ..Default::default() }, ..ReviewsCfg::default() };
         let yours = PrItem { state: PrState::Draft, ..mine(7, HEAD) };
         let theirs = PrItem { state: PrState::Draft, ..pr(8, HEAD) };
-        assert!(!wanted(&own(), &lanes, &yours), "drafts off");
-        assert!(wanted(&drafts, &lanes, &yours));
-        assert!(!wanted(&drafts, &lanes, &theirs), "asks for your review, but it's someone else's draft");
-        // It's started as a PR of yours ready for review is.
+        // As config.toml has them when it says nothing: your drafts wait until they're ready for
+        // review, another's draft that asks for your review is reviewed.
+        assert!(!wanted(&both, &lanes, &yours), "[reviews.own] drafts is off");
+        assert!(wanted(&both, &lanes, &theirs));
+        let flipped = ReviewsCfg { drafts: false, own: crate::config::OwnReviewsCfg { drafts: true, ..both.own.clone() }, ..both.clone() };
+        assert!(wanted(&flipped, &lanes, &yours));
+        assert!(!wanted(&flipped, &lanes, &theirs), "[reviews] drafts is off");
+        // Asked of you only by a request: it's someone else's and doesn't ask for your review.
+        assert!(!wanted(&both, &lanes, &PrItem { review_requested: false, ..theirs.clone() }));
+        // Each is started as a PR ready for review is.
         let b = board(vec![yours, theirs], vec![fixtures::session(MAKER)]);
-        assert_eq!(kinds(&Reviewer::default().due(&b, &drafts, NOW)), ["review 7 1111111 since None by auto"]);
+        assert_eq!(kinds(&Reviewer::default().due(&b, &both, NOW)), ["review 8 1111111 since None by auto"]);
+        assert_eq!(kinds(&Reviewer::default().due(&b, &flipped, NOW)), ["review 7 1111111 since None by auto"]);
     }
 
     #[test]
@@ -3954,7 +3969,9 @@ mod tests {
         let not_asked = PrItem { review_requested: false, ..pr(3, HEAD) };
         let merged = PrItem { state: PrState::Merged, ..pr(4, HEAD) };
         let no_head = PrItem { head_oid: None, ..pr(5, HEAD) };
-        assert!(r.due(&board(vec![mine, draft, not_asked, merged, no_head], vec![]), &on(), NOW).is_empty());
+        assert!(r.due(&board(vec![mine, not_asked, merged, no_head], vec![]), &on(), NOW).is_empty());
+        // A draft that asks for your review is, unless [reviews] drafts is off.
+        assert!(r.due(&board(vec![draft], vec![]), &ReviewsCfg { drafts: false, ..on() }, NOW).is_empty());
         assert!(r.due(&board(vec![pr(6, HEAD)], vec![]), &ReviewsCfg::default(), NOW).is_empty(), "off");
         let unread = Board { github_login: None, ..board(vec![pr(6, HEAD)], vec![]) };
         assert!(r.due(&unread, &on(), NOW).is_empty(), "GitHub not read yet");

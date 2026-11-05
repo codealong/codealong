@@ -505,6 +505,10 @@ pub struct ReviewsCfg {
     /// the reviewer and a session here or a trailer on the PR says which harness wrote it.
     #[serde(default = "yes")]
     pub other_harness: bool,
+    /// Review someone else's draft too when it asks for your review, not only once it's ready
+    /// for review. Being assigned to a draft doesn't ask for your review (`PrRaw::assigned_review`).
+    #[serde(default = "yes")]
+    pub drafts: bool,
     /// What the reviewer is told to do, in place of Codealong's own instructions
     /// (autoreview.rs `INSTRUCTIONS`): what to look for and how, and whether to start subagents
     /// of its own. Empty for Codealong's. Which PR, where it's written out, that nothing is to
@@ -545,7 +549,7 @@ pub struct ReviewsCfg {
 
 impl Default for ReviewsCfg {
     fn default() -> Self {
-        ReviewsCfg { auto: false, account: String::new(), model: String::new(), effort: String::new(), other_harness: true, prompt: String::new(), start: ReviewStart::NoTerminal, post: ReviewPost::Draft, submit: ReviewSubmit::Never, auto_approve: false, reviewers: Vec::new(), own: OwnReviewsCfg::default(), team_instructions: String::new(), never_submit: Vec::new() }
+        ReviewsCfg { auto: false, account: String::new(), model: String::new(), effort: String::new(), other_harness: true, drafts: true, prompt: String::new(), start: ReviewStart::NoTerminal, post: ReviewPost::Draft, submit: ReviewSubmit::Never, auto_approve: false, reviewers: Vec::new(), own: OwnReviewsCfg::default(), team_instructions: String::new(), never_submit: Vec::new() }
     }
 }
 
@@ -578,8 +582,8 @@ pub struct OwnReviewsCfg {
     /// you; else it's kept here, to send from the PR's Review tab.
     #[serde(default = "yes")]
     pub send: bool,
-    /// Review your draft PRs too, not only the ones ready for review. Drafts of other people's
-    /// that ask for your review are never reviewed.
+    /// Review your draft PRs too, not only the ones ready for review. Other people's drafts go by
+    /// `[reviews] drafts`.
     #[serde(default)]
     pub drafts: bool,
     /// What a repo's team adds to the instructions for reviews of your pull requests there, as
@@ -772,6 +776,7 @@ impl RepoCfg {
         put(&mut mine.model, &r.model);
         put(&mut mine.effort, &r.effort);
         put(&mut mine.other_harness, &r.other_harness);
+        put(&mut mine.drafts, &r.drafts);
         put(&mut mine.prompt, &r.prompt);
         put(&mut mine.post, &r.post);
         put(&mut mine.submit, &r.submit);
@@ -809,6 +814,8 @@ pub struct ReviewsPatch {
     pub effort: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub other_harness: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub drafts: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -897,6 +904,7 @@ pub fn reviews_for(global: &ReviewsCfg, team: Option<&crate::teamfile::TeamCfg>,
         set(&mut r.model, &m.model);
         set(&mut r.effort, &m.effort);
         r.other_harness = m.other_harness.unwrap_or(r.other_harness);
+        r.drafts = m.drafts.unwrap_or(r.drafts);
         set(&mut r.prompt, &m.prompt);
         r.post = m.post.unwrap_or(r.post);
         r.submit = m.submit.unwrap_or(r.submit);
@@ -1805,6 +1813,7 @@ const REVIEWS_COMMENT: &str = "# auto: an agent reviews each open pull request t
 # before it merges); \"approve-or-request-changes\", and a request for changes when it would ask for them;
 # \"approve-or-comment\", that request sent as a comment instead; or \"request-changes\" or \"comment\", only that
 # request, never an approval, which stays yours to give. When it can't tell, it's left for you.
+# drafts: review someone else's draft too when it asks for your review (being assigned to one doesn't).
 ";
 const OWN_REVIEWS_COMMENT: &str = "# [reviews.own] auto: an agent reviews each open pull request a session of yours opened here, and again when new
 # commits come in. account, model and effort: what it runs on; \"\" for the account Auto would start among those of
@@ -2297,6 +2306,9 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
         if !cfg.reviews.other_harness || doc["reviews"].get("other_harness").is_some() {
             set_value(&mut doc["reviews"]["other_harness"], Value::from(cfg.reviews.other_harness));
         }
+        if !cfg.reviews.drafts || doc["reviews"].get("drafts").is_some() {
+            set_value(&mut doc["reviews"]["drafts"], Value::from(cfg.reviews.drafts));
+        }
         // What said who reviewed and where it went for a day (2026-10-09): `comment`, then
         // `reviewers` (folded into `account` and `model` as it's read) and `combine`; and
         // `auto_approve`, folded into `submit` (2026-10-11).
@@ -2598,6 +2610,7 @@ fn set_repos(doc: &mut toml_edit::DocumentMut, repos: &BTreeMap<String, RepoCfg>
             ("model", text(&rv.model)),
             ("effort", text(&rv.effort)),
             ("other_harness", rv.other_harness.map(Value::from)),
+            ("drafts", rv.drafts.map(Value::from)),
             ("prompt", text(&rv.prompt)),
             ("post", rv.post.map(|v| Value::from(v.as_str()))),
             ("submit", rv.submit.map(|v| Value::from(v.as_str()))),
@@ -2823,6 +2836,9 @@ pub fn render(cfg: &Config) -> String {
         if !cfg.reviews.other_harness {
             s.push_str("other_harness = false\n");
         }
+        if !cfg.reviews.drafts {
+            s.push_str("drafts = false\n");
+        }
         let own = &cfg.reviews.own;
         if *own != OwnReviewsCfg::default() {
             s.push('\n');
@@ -2979,7 +2995,7 @@ mod tests {
                 }],
             },
             sessions: SessionsCfg { block_flagged_sessions: false, continue_after_network_error: false, continue_after_restart: false, resume_for_sessions_it_started: false, resume_for_any_session: false, resume_for_pr_news: false, live_replies: true },
-            reviews: ReviewsCfg { auto: true, account: "claude".into(), model: "opus".into(), effort: String::new(), other_harness: true, prompt: "Start two subagents.\nThen combine their findings.".into(), start: ReviewStart::Codealong, post: ReviewPost::None, submit: ReviewSubmit::Approve, auto_approve: false, reviewers: Vec::new(), own: OwnReviewsCfg::default(), team_instructions: String::new(), never_submit: Vec::new() },
+            reviews: ReviewsCfg { auto: true, account: "claude".into(), model: "opus".into(), effort: String::new(), other_harness: true, drafts: true, prompt: "Start two subagents.\nThen combine their findings.".into(), start: ReviewStart::Codealong, post: ReviewPost::None, submit: ReviewSubmit::Approve, auto_approve: false, reviewers: Vec::new(), own: OwnReviewsCfg::default(), team_instructions: String::new(), never_submit: Vec::new() },
             pull_requests: PullRequestsCfg { nudge_by_default: true, nudge_about: NudgeAbout::FeedbackAndChecks, rerequest_after_fixes: false },
             repos: BTreeMap::from([("github.com/sprucehq/web".to_string(), RepoCfg { reviews: ReviewsPatch { auto: Some(true), account: Some("codex".into()), post: Some(ReviewPost::Draft), own: OwnReviewsPatch { send: Some(false), ..OwnReviewsPatch::default() }, ..ReviewsPatch::default() }, pull_requests: PullRequestsPatch { nudge_about: Some(NudgeAbout::Feedback), ..PullRequestsPatch::default() } })]),
             sounds: SoundsCfg { needs_you: "Tink".into(), your_turn: String::new(), review_requested: "Purr".into(), volume: 35 },
@@ -3609,11 +3625,13 @@ mod tests {
         let none = toml::from_str::<Config>("").unwrap().reviews;
         assert_eq!(none, ReviewsCfg::default());
         assert_eq!((none.auto, none.account.as_str(), none.model.as_str(), none.prompt.as_str(), none.post), (false, "", "", "", ReviewPost::Draft));
+        // Someone else's draft that asks for your review is reviewed unless the file says not to.
+        assert!(none.drafts);
         let old = render(&full());
         assert!(!old.contains("[reviews]"), "{old}");
         assert!(!with_config(&old, &full()).unwrap().contains("[reviews]"));
         let mut on = full();
-        on.reviews = ReviewsCfg { auto: true, account: "claude".into(), model: "opus".into(), effort: String::new(), other_harness: true, prompt: "Start two subagents, on Opus and Sonnet.\nCombine what they find.".into(), start: ReviewStart::Terminal, post: ReviewPost::Comment, submit: ReviewSubmit::ApproveOrComment, auto_approve: false, reviewers: Vec::new(), own: OwnReviewsCfg::default(), team_instructions: String::new(), never_submit: Vec::new() };
+        on.reviews = ReviewsCfg { auto: true, account: "claude".into(), model: "opus".into(), effort: String::new(), other_harness: true, drafts: true, prompt: "Start two subagents, on Opus and Sonnet.\nCombine what they find.".into(), start: ReviewStart::Terminal, post: ReviewPost::Comment, submit: ReviewSubmit::ApproveOrComment, auto_approve: false, reviewers: Vec::new(), own: OwnReviewsCfg::default(), team_instructions: String::new(), never_submit: Vec::new() };
         let out = with_config(&old, &on).unwrap();
         assert!(out.contains(&format!("{REVIEWS_COMMENT}[reviews]\nauto = true\naccount = \"claude\"\nmodel = \"opus\"\nprompt = ")), "{out}");
         assert!(out.find("[reviews]").unwrap() < out.find("[[accounts]]").unwrap(), "{out}");
@@ -3634,6 +3652,16 @@ mod tests {
         let mut bad = hard.clone();
         bad.reviews.effort = "hard".into();
         assert!(check(&bad).unwrap_err().contains("[reviews] effort is \"hard\""));
+        // Drafts are written only once they're turned off, and stay written as they're turned on again.
+        assert!(!out.contains("drafts ="), "{out}");
+        let mut no_drafts = on.clone();
+        no_drafts.reviews.drafts = false;
+        let without = with_config(&out, &no_drafts).unwrap();
+        assert!(without.contains("\ndrafts = false\n"), "{without}");
+        assert_eq!(parse(&without).unwrap(), no_drafts);
+        assert!(render(&no_drafts).contains("\ndrafts = false\n"));
+        assert_eq!(parse(&render(&no_drafts)).unwrap(), no_drafts);
+        assert!(with_config(&without, &on).unwrap().contains("\ndrafts = true\n"));
         // Turned off again, the table stays, saying so.
         let off = with_config(&out, &full()).unwrap();
         assert!(off.contains("[reviews]\nauto = false\naccount = \"\"\nmodel = \"\"\nprompt = \"\"\nstart = \"no-terminal\"\npost = \"draft\""), "{off}");
@@ -3699,11 +3727,11 @@ mod tests {
         assert_eq!((p.nudge_by_default, p.nudge_about), (false, NudgeAbout::Feedback));
 
         let mine = RepoCfg {
-            reviews: ReviewsPatch { auto: Some(true), account: Some(" codex ".into()), post: Some(ReviewPost::None), own: OwnReviewsPatch { send: Some(false), drafts: Some(true), ..OwnReviewsPatch::default() }, ..ReviewsPatch::default() },
+            reviews: ReviewsPatch { auto: Some(true), account: Some(" codex ".into()), post: Some(ReviewPost::None), drafts: Some(false), own: OwnReviewsPatch { send: Some(false), drafts: Some(true), ..OwnReviewsPatch::default() }, ..ReviewsPatch::default() },
             pull_requests: PullRequestsPatch { nudge_by_default: Some(true), nudge_about: Some(NudgeAbout::Everything), ..Default::default() },
         };
         let r = reviews_for(&global, Some(&team()), Some(&mine));
-        assert_eq!((r.auto, r.account.as_str(), r.post, r.own.send, r.own.drafts), (true, "codex", ReviewPost::None, false, true));
+        assert_eq!((r.auto, r.account.as_str(), r.post, r.drafts, r.own.send, r.own.drafts), (true, "codex", ReviewPost::None, false, false, true));
         assert_eq!(r.team_instructions, "Check migrations.", "the team's words are added whatever you set");
         assert_eq!(r.model, "", "what you don't set for the repo is as [reviews] says");
         let p = pull_requests_for(&prs, Some(&team()), Some(&mine));

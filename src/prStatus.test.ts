@@ -410,6 +410,10 @@ describe('heldForAgent', () => {
     expect(heldForAgent(held)).toBe(true);
     expect(prFlag(held)).toBe(null);
     expect(prPills(held)[0]).toMatchObject({ text: 'Agent reviewing', tone: 'plain' });
+    // A draft that asks for your review is reviewed too ([reviews] drafts), and says where the
+    // agent stands over Draft; one it isn't reviewing still says Draft.
+    expect(prPills({ ...held, state: 'draft' })[0]).toMatchObject({ text: 'Agent reviewing', tone: 'plain' });
+    expect(prPills({ ...held, state: 'draft', autoReview: undefined })[0].text).toBe('Draft');
   });
   it('hands it to you once the agent is done', () => {
     const done = asked({ stage: 'posted', head: '309811a', at: 0, rounds: 1 });

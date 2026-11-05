@@ -845,6 +845,7 @@ export interface ReviewsPatch {
   model?: string;
   effort?: string;
   other_harness?: boolean;
+  drafts?: boolean;
   prompt?: string;
   post?: ReviewPost;
   submit?: ReviewSubmit;
@@ -943,6 +944,9 @@ export interface ReviewsCfg {
   /** Keep off the harness that wrote the PR (from a session here or a commit/PR trailer) when
    *  another harness in the pool can review. Older files have none: on. */
   other_harness?: boolean;
+  /** Review someone else's draft too when it asks for your review. Older files have none: on.
+   *  Being assigned to a draft doesn't ask for your review. */
+  drafts?: boolean;
   /** What it's told to do; empty for Codealong's own instructions (`ConfigView.reviewPrompt`). */
   prompt?: string;
   /** Where review sessions start, of your own PRs too. Older files have none: never in a
@@ -973,7 +977,7 @@ export interface OwnReviewsCfg {
   prompt?: string;
   /** Hand each review to the PR's primary session. Older files have none: on. */
   send?: boolean;
-  /** Review your draft PRs too. Older files have none: off. Others' drafts are never reviewed. */
+  /** Review your draft PRs too. Older files have none: off. Others' drafts go by `ReviewsCfg.drafts`. */
   drafts?: boolean;
 }
 

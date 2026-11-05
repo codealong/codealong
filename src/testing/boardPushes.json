@@ -296,6 +296,7 @@
       "reviews": {
         "account": "",
         "auto": false,
+        "drafts": true,
         "effort": "",
         "model": "",
         "other_harness": true,
@@ -632,6 +633,7 @@
         "reviews": {
           "account": "",
           "auto": false,
+          "drafts": true,
           "effort": "",
           "model": "",
           "other_harness": true,
@@ -971,6 +973,7 @@
       "reviews": {
         "account": "",
         "auto": false,
+        "drafts": true,
         "effort": "",
         "model": "",
         "other_harness": true,
@@ -1348,6 +1351,7 @@
       "reviews": {
         "account": "",
         "auto": false,
+        "drafts": true,
         "effort": "",
         "model": "",
         "other_harness": true,
@@ -1724,6 +1728,7 @@
       "reviews": {
         "account": "",
         "auto": false,
+        "drafts": true,
         "effort": "",
         "model": "",
         "other_harness": true,
@@ -2166,6 +2171,7 @@
       "reviews": {
         "account": "",
         "auto": false,
+        "drafts": true,
         "effort": "",
         "model": "",
         "other_harness": true,
@@ -2583,6 +2589,7 @@
       "reviews": {
         "account": "",
         "auto": false,
+        "drafts": true,
         "effort": "",
         "model": "",
         "other_harness": true,
