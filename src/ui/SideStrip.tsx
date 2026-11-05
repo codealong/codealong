@@ -140,7 +140,9 @@ function Turns({ turns, current }: { turns: SideTurn[]; current: number }) {
         const steps = t.tools ?? [];
         return (
           <div key={i} className="ca-sidestrip-turn">
-            <div className="ca-sidestrip-q">{t.question}</div>
+            {/* As a prompt of yours shows in the thread (SessionThread.tsx `YourText`): what the box
+                pasted with it is written in as `![image](images/…)`, which shows as the image. */}
+            <Markdown text={t.question} written className="ca-sidestrip-q" />
             {/* What it did to answer: the one it's on while it works, all of them to unfold after. */}
             {t.done && steps.length > 0 && (
               <details className="ca-sidestrip-steps">

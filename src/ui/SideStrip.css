@@ -106,6 +106,10 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+/* An image pasted with it, as small as one in a prompt in the thread. */
+.ca-sidestrip-q .ca-desc-img img {
+  max-height: 200px;
+}
 .ca-sidestrip-a {
   color: var(--ink);
   font: var(--type-reading);
