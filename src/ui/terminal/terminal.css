@@ -37,7 +37,8 @@
   min-height: 96px;
 }
 /* In a card (SessionCard.tsx: the notch, the peek, a kept session, the waiting window), however
-   tall it was left, it leaves the conversation and the box at least half the card. */
+   tall it was left, it leaves the conversation and the box at least half the card (half the room
+   the peek has, where it's as tall as what's in it: Peek.css). */
 .ca-reply > .ca-termdrawer.is-open {
   max-height: 50%;
 }

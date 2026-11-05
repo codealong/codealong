@@ -34,6 +34,12 @@ html.is-peek body {
 .ca-peek-root.is-filled .ca-peek {
   height: 100%;
 }
+/* Not sized by hand, the card is as tall as what's in it, so half of it is nothing to cap the
+   drawer of terminals under its box by (terminal.css): half the room it has is, in the card's
+   own pixels at its zoom. */
+.ca-peek-root:not(.is-filled) .ca-reply > .ca-termdrawer.is-open {
+  max-height: calc(var(--card-room) / 2 / var(--card-zoom, 1));
+}
 /* The edges that size it, in the room the window keeps around the card for its shadow: the
    right edge, the edge away from the bar, and the corner between them. */
 .ca-peek-grip {

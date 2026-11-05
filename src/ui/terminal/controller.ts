@@ -6,13 +6,14 @@
 // keys reach the program as typed however long a call takes.
 //
 // A terminal can show in two windows at once (the main window's panel and a card in the notch,
-// say), and has one size and one set of colors: it takes them from the window you're in, which
-// gives them again whenever you come back to it (`give`). The other draws it as it is meanwhile.
+// say), and has one size and one set of colors: it takes them from the window you're in (as macOS
+// says, terminals.ts `hasKeys`), which gives them again whenever you come back to it or to the
+// terminal (`give`). The other draws it as it is meanwhile.
 // In a card, which a window that floats zooms with CSS `zoom` (zoom.ts), the cell is measured at
 // the card's scale, so the text is as sharp and as big as the card's.
 
 import { onTerminalFrame, openUrl, terminalCopy, terminalInput, terminalPaste, terminalResize, terminalText, terminalTheme, terminalWatch } from '../../api';
-import { rememberSize, themeOf } from '../../terminals';
+import { hasKeys, onKeysHere, rememberSize, themeOf } from '../../terminals';
 import type { TerminalInput, TerminalTheme } from '../../types';
 import { cmd } from '../../platform';
 import { scaleOf } from '../../zoom';
@@ -132,9 +133,7 @@ export class TerminalController {
     themeAttr.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'class', 'style'] });
     this.cleanups.push(() => scheme.removeEventListener('change', recolor), () => themeAttr.disconnect());
     // Coming back to this window, it gives the terminal its size and colors again.
-    const back = () => this.give();
-    window.addEventListener('focus', back);
-    this.cleanups.push(() => window.removeEventListener('focus', back));
+    this.cleanups.push(onKeysHere((has) => has && this.give()));
     this.fit(true);
     this.sendTheme();
     this.watch();
@@ -166,13 +165,13 @@ export class TerminalController {
     const theme = themeOf();
     if (JSON.stringify(theme) === JSON.stringify(this.theme)) return;
     this.theme = theme;
-    if (document.hasFocus()) void terminalTheme(this.id, theme).catch((e: unknown) => this.hooks.onError(String(e)));
+    if (hasKeys()) void terminalTheme(this.id, theme).catch((e: unknown) => this.hooks.onError(String(e)));
   }
 
   /** Gives the server this window's size and colors for the terminal, as you come back to the
    *  window or to the terminal: another window that shows it may have given its own meanwhile. */
   give(): void {
-    if (!document.hasFocus() || this.stopped) return;
+    if (!hasKeys() || this.stopped) return;
     if (this.m && this.cols > 0) void terminalResize(this.id, { cols: this.cols, rows: this.rows, cellWidth: this.m.cellW, cellHeight: this.m.cellH }).catch((e: unknown) => this.hooks.onError(String(e)));
     if (this.theme) void terminalTheme(this.id, this.theme).catch((e: unknown) => this.hooks.onError(String(e)));
   }
@@ -205,7 +204,7 @@ export class TerminalController {
       this.rows = rows;
       const size = { cols, rows, cellWidth: m.cellW, cellHeight: m.cellH };
       rememberSize(size);
-      if (document.hasFocus()) void terminalResize(this.id, size).catch((e: unknown) => this.hooks.onError(String(e)));
+      if (hasKeys()) void terminalResize(this.id, size).catch((e: unknown) => this.hooks.onError(String(e)));
     }
   }
 

@@ -24,7 +24,7 @@
 // the strip's top line and sized by its edges as a kept session is. Its × and ⌘W end the side
 // conversation and close the window; Put back closes the window alone.
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { barNote, getBoard, getDevices, inPreview, keepSession, keptClose, keptFocus, keptReady, keptResize, keptSession, onKeptKeys, onPeekHidden, onPeekOpen, onPeekShown, peekDrag, peekFit, peekFocus, peekHide, peekOpen, peekReady, peekResize, sideClose } from '../api';
 import { renameAhead, sentWorthSaying } from '../ahead';
@@ -441,7 +441,9 @@ export function Peek({ kept = false, side = false }: { kept?: boolean; side?: bo
       <div
         ref={card}
         className="ca-peek"
-        style={filled ? undefined : { maxHeight: open.room - FAR - NEAR }}
+        // As tall as what's in it, up to the room it has, which what's in it caps itself by
+        // (`--card-room`: the drawer of terminals under its box, Peek.css).
+        style={filled ? undefined : ({ maxHeight: open.room - FAR - NEAR, '--card-room': `${open.room - FAR - NEAR}px` } as CSSProperties)}
         onPointerDown={(e) => {
           // Hovering never gives it the keyboard; a click does.
           if (!engaged) void (kept ? keptFocus() : peekFocus());

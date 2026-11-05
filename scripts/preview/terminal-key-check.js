@@ -5,7 +5,7 @@
 // terminal app, a new terminal in the session's folder (`s|<key>|terminal`), shown beside that
 // item in both menus; grouped by worktree, on a worktree's heading, one in the worktree
 // (`l|terminal`); in Todo from a todo's title, one in the todo's worktree; and in the peek from
-// its box, in the session's folder.
+// its box, as in Sessions, a terminal under the session in the drawer under its box (SessionCard.tsx).
 //   PREVIEW_WAIT=60000 PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh sessions '' scripts/preview/terminal-key-check.js
 //   PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/terminal-key-check.js
 (function () {
@@ -33,10 +33,10 @@
     localStorage.removeItem('codealong.sessionPanelMax');
   }
 
-  // In the main window a session's ⌃` opens a terminal of Codealong's own under it, unless
-  // config.toml keeps them in the terminal app (`[apps] run_in`); a worktree's and a todo's, and
-  // the peek's, open the terminal app.
-  var own = !peek && board.apps.runIn !== 'terminal';
+  // A session's ⌃`, in the main window and in the peek, opens a terminal of Codealong's own under
+  // it, unless config.toml keeps them in the terminal app (`[apps] run_in`); a worktree's and a
+  // todo's open the terminal app.
+  var own = board.apps.runIn !== 'terminal';
   var opens = function () { return calls(peek ? 'open_from_bar' : 'open_target').map(function (c) { return c[1]; }); };
   var ownOpens = function () { return sent('terminal_open'); };
   var lastOpen = function () { var o = opens(); return o[o.length - 1] || null; };

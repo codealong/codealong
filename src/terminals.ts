@@ -8,7 +8,7 @@
 // (`themeOf`) so programs that ask for the colors get them.
 
 import { useSyncExternalStore } from 'react';
-import { onTerminalWindows, terminalOpen, terminalWindows } from './api';
+import { onTerminalWindows, onWindowKeys, terminalOpen, terminalWindows } from './api';
 import { shortOf } from './devices';
 import type { TerminalGlance, TerminalSize, TerminalTheme } from './types';
 
@@ -169,6 +169,34 @@ export function usePoppedTerminals(): readonly string[] {
     },
     () => popped,
   );
+}
+
+/** Whether this window has the keyboard, which only the window you're in gives a terminal its
+ *  size and colors by (terminal/controller.ts): as macOS last said (`onWindowKeys`), and as the
+ *  page says until it has. */
+let keysHere: boolean | null = null;
+const keysListeners = new Set<(has: boolean) => void>();
+let followingKeys = false;
+
+function followKeys() {
+  if (followingKeys) return;
+  followingKeys = true;
+  onWindowKeys((has) => {
+    keysHere = has;
+    for (const l of keysListeners) l(has);
+  });
+}
+
+export function hasKeys(): boolean {
+  followKeys();
+  return keysHere ?? document.hasFocus();
+}
+
+/** Calls `cb` as this window gets the keyboard or loses it. */
+export function onKeysHere(cb: (has: boolean) => void): () => void {
+  followKeys();
+  keysListeners.add(cb);
+  return () => keysListeners.delete(cb);
 }
 
 /** The last size a terminal was measured at in this window, for the next one to start at. */
