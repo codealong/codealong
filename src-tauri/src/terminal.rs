@@ -782,6 +782,22 @@ pub fn allowed_between(ask: &Ask, from: i64, to: i64) -> Option<Run> {
         .max_by_key(|r| r.asked_at)
 }
 
+/// Takes away the folder of a run whose wrapper hasn't started, so a tab that gets to it later has
+/// nothing to run, as `start` does for a tab that didn't answer: for a run allowed as its server
+/// went whose tab hasn't run it in time (`allowed_between`), before its request is asked again,
+/// which would otherwise let both run. The command goes first: a wrapper that starts this moment
+/// reads it only once its shell has started. Whether it can't run now: false when its wrapper
+/// had started, or what it would run couldn't be taken away.
+pub fn withdraw_unstarted(id: &str) -> bool {
+    let Ok(d) = run_folder(id) else { return true };
+    if d.join(PIDS).exists() {
+        return false;
+    }
+    let _ = std::fs::remove_file(d.join(COMMAND));
+    let _ = std::fs::remove_dir_all(&d);
+    !d.join(COMMAND).exists()
+}
+
 /// The run an id or a unique start of one names, with or without its `run-`.
 pub fn resolve(given: &str) -> Result<String> {
     let given = given.trim();
@@ -1604,6 +1620,33 @@ mod tests {
         assert_eq!(allowed_between(&Ask { token: None, ..ask.clone() }, 1_000, 3_000), None, "a request without a token has no run to find");
         keep("run-it", &|_| {});
         assert_eq!(allowed_between(&ask, 1_000, 3_000).map(|r| r.id), Some("run-it".to_string()));
+        TEST_RUNS.with(|r| *r.borrow_mut() = None);
+    }
+
+    /// A run allowed as its server went whose tab hasn't run it in time is taken away before it's
+    /// asked again: a tab that gets to its line later runs nothing, so it never runs twice. One
+    /// whose wrapper started is left to run.
+    #[test]
+    fn a_run_whose_tab_never_ran_it_is_withdrawn_before_its_asked_again() {
+        let scratch = crate::fixtures::scratch("terminal-withdraw");
+        TEST_RUNS.with(|r| *r.borrow_mut() = Some(scratch.join("runs")));
+        let marker = scratch.join("ran");
+        let keep = |id: &str| {
+            let run = Run { id: id.into(), session: "claude:northwind:a1".into(), command: format!("touch {}", sh_quote(&marker.to_string_lossy())), cwd: scratch.to_path_buf(), terminal: "Ghostty".into(), ..Default::default() };
+            write_folder(&dir(id), &run, Duration::ZERO).unwrap();
+            dir(id)
+        };
+        let late = keep("run-late");
+        assert!(withdraw_unstarted("run-late"));
+        assert!(!late.exists());
+        let typed = std::process::Command::new("/bin/sh").args(["-c", TYPED.trim()]).env(ENV, &late).stdin(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status().unwrap();
+        assert!(!typed.success(), "the line a late tab types finds no wrapper");
+        assert!(!marker.exists(), "and runs nothing");
+        let started = keep("run-started");
+        std::fs::write(started.join(PIDS), "200 100\n").unwrap();
+        assert!(!withdraw_unstarted("run-started"), "a wrapper that started runs");
+        assert!(started.join(COMMAND).exists());
+        assert!(withdraw_unstarted("run-gone"), "a folder already gone can't run");
         TEST_RUNS.with(|r| *r.borrow_mut() = None);
     }
 

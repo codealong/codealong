@@ -7148,11 +7148,23 @@ trait RunAsker {
     fn back(&mut self) -> bool;
     /// The run your user allowed of the request asked at `from` and lost at `to`, if they did.
     fn allowed(&self, from: i64, to: i64) -> Option<crate::terminal::Run>;
-    /// Waits for an allowed run's tab to run it: whether it did. Its record is written before its
-    /// tab opens, so a server that went in between left one that never will.
-    fn started(&mut self, run: &crate::terminal::Run) -> bool;
+    /// Waits for an allowed run's tab to run it, and says what became of it. Its record is written
+    /// before its tab opens, so a server that went in between left one that may never run.
+    fn started(&mut self, run: &crate::terminal::Run) -> Found;
     fn now(&self) -> i64;
     fn say(&mut self, words: &str);
+}
+
+/// What became of a run your user allowed as the server went (`RunAsker::started`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Found {
+    /// Its tab ran it: it's the answer.
+    Runs,
+    /// Its tab never ran it, and now can't: the request is asked again.
+    Withdrawn,
+    /// Its tab hasn't run it, and it couldn't be kept from running later: not asked again, so it
+    /// never runs twice.
+    Unsure,
 }
 
 struct OnSocket<'a>(&'a crate::terminal::Ask);
@@ -7168,14 +7180,19 @@ impl RunAsker for OnSocket<'_> {
         crate::terminal::allowed_between(self.0, from, to)
     }
     /// As `wait_for_start` waits, from the run's folder: no server may answer yet. A folder gone
-    /// is a tab that didn't open (terminal.rs `start` takes it away).
-    fn started(&mut self, run: &crate::terminal::Run) -> bool {
+    /// is a tab that didn't open (terminal.rs `start` takes it away). One that hasn't run it by
+    /// then is taken away, unless it starts meanwhile.
+    fn started(&mut self, run: &crate::terminal::Run) -> Found {
+        use crate::terminal::{self, State};
         let start = now_ms();
         loop {
-            match crate::terminal::status(&run.id) {
-                Ok(s) if s.state != crate::terminal::State::Starting => return true,
+            match terminal::status(&run.id) {
+                Ok(s) if s.state != State::Starting => return Found::Runs,
                 Ok(_) if now_ms() - start <= START_WAIT_MS => std::thread::sleep(std::time::Duration::from_millis(300)),
-                _ => return false,
+                Ok(_) if terminal::withdraw_unstarted(&run.id) => return Found::Withdrawn,
+                Ok(_) if terminal::status(&run.id).is_ok_and(|s| s.state != State::Starting) => return Found::Runs,
+                Ok(_) => return Found::Unsure,
+                Err(_) => return Found::Withdrawn,
             }
         }
     }
@@ -7208,8 +7225,11 @@ fn ask_to_run(a: &mut impl RunAsker) -> Result<Value> {
         }
         let lost = a.now();
         match a.allowed(from, lost) {
-            Some(run) if a.started(&run) => return Ok(crate::terminal::reply(&crate::terminal::Outcome::Started(run))),
-            Some(_) => a.say("Your user allowed it as Codealong's server went, but its tab never ran it; asking them again once Codealong is back…"),
+            Some(run) => match a.started(&run) {
+                Found::Runs => return Ok(crate::terminal::reply(&crate::terminal::Outcome::Started(run))),
+                Found::Withdrawn => a.say("Your user allowed it as Codealong's server went, but its tab never ran it; asking them again once Codealong is back…"),
+                Found::Unsure => bail!("Your user allowed it as Codealong's server went, but its tab hasn't run it in two minutes and may still, so it isn't asked for again, which could run it twice. `codealong terminal list` says if {} starts later.", run.id),
+            },
             None => {
                 quick = if lost - from < QUICK_LOSS_MS { quick + 1 } else { 0 };
                 if quick >= QUICK_LOSSES {
@@ -7479,15 +7499,15 @@ mod tests {
 
     /// A server for `ask_to_run` on a made-up clock: each ask takes its time and gets its answer
     /// in turn, None for a connection closed first, and each wait for a server to come back finds
-    /// one or not in turn. A run allowed at `allowed_at` is found by a request held then, and its
-    /// tab runs it when `tab_runs`.
+    /// one or not in turn. A run allowed at `allowed_at` is found by a request held then, and
+    /// `tab` is what became of it.
     #[derive(Default)]
     struct Relaunching {
         clock: i64,
         asks: std::collections::VecDeque<(i64, Option<Result<Value, String>>)>,
         backs: std::collections::VecDeque<bool>,
         allowed_at: Option<i64>,
-        tab_runs: bool,
+        tab: Option<Found>,
         asked: usize,
         waited: usize,
         said: Vec<String>,
@@ -7508,9 +7528,9 @@ mod tests {
         fn allowed(&self, from: i64, to: i64) -> Option<crate::terminal::Run> {
             self.allowed_at.filter(|at| (from..=to).contains(at)).map(|at| crate::terminal::Run { id: "run-northwind".into(), asked_at: at, ..Default::default() })
         }
-        fn started(&mut self, _: &crate::terminal::Run) -> bool {
+        fn started(&mut self, _: &crate::terminal::Run) -> Found {
             self.clock += 1_000;
-            self.tab_runs
+            self.tab.expect("a run the test didn't expect")
         }
         fn now(&self) -> i64 {
             self.clock
@@ -7522,8 +7542,9 @@ mod tests {
 
     /// A request held when its server goes (an app relaunched with a new engine replaces it) is
     /// asked again once a server answers, so it's still there to allow; one allowed as the server
-    /// went is the run it started, never asked again, unless its tab never ran it; and it gives
-    /// up, saying why, when no server comes back or each lets it go at once.
+    /// went is the run it started, never asked again, unless its tab never ran it and now can't;
+    /// and it gives up, saying why, when no server comes back, each lets it go at once, or such a
+    /// run may still start.
     #[test]
     fn a_request_to_run_outlives_its_server() {
         let allowed = json!({ "answer": "allowed", "run": { "id": "run-atlas" } });
@@ -7532,18 +7553,23 @@ mod tests {
         assert_eq!((a.asked, a.waited), (2, 1), "asked again once a server answered");
         assert!(a.said.iter().any(|s| s.contains("asking them again once it's back")), "{:?}", a.said);
 
-        let mut a = Relaunching { asks: [(600_000, None)].into(), allowed_at: Some(599_000), tab_runs: true, ..Default::default() };
+        let mut a = Relaunching { asks: [(600_000, None)].into(), allowed_at: Some(599_000), tab: Some(Found::Runs), ..Default::default() };
         let answer = ask_to_run(&mut a).unwrap();
         assert_eq!((answer["answer"].as_str(), answer["run"]["id"].as_str()), (Some("allowed"), Some("run-northwind")));
         assert_eq!((a.asked, a.waited), (1, 0), "allowed as it went: never asked twice");
 
-        let mut a = Relaunching { asks: [(600_000, None), (60_000, None)].into(), backs: [true].into(), allowed_at: Some(650_000), tab_runs: true, ..Default::default() };
+        let mut a = Relaunching { asks: [(600_000, None), (60_000, None)].into(), backs: [true].into(), allowed_at: Some(650_000), tab: Some(Found::Runs), ..Default::default() };
         assert!(ask_to_run(&mut a).is_ok_and(|v| v["run"]["id"] == "run-northwind"), "allowed as the server it was asked of again went");
         assert_eq!(a.asked, 2);
 
-        let mut a = Relaunching { asks: [(600_000, None), (40_000, Some(Ok(allowed.clone())))].into(), backs: [true].into(), allowed_at: Some(599_000), ..Default::default() };
-        assert_eq!(ask_to_run(&mut a).unwrap(), allowed, "a run whose tab never ran it is asked for again");
+        let mut a = Relaunching { asks: [(600_000, None), (40_000, Some(Ok(allowed.clone())))].into(), backs: [true].into(), allowed_at: Some(599_000), tab: Some(Found::Withdrawn), ..Default::default() };
+        assert_eq!(ask_to_run(&mut a).unwrap(), allowed, "a run whose tab never ran it, taken away, is asked for again");
         assert!(a.said.iter().any(|s| s.contains("its tab never ran it")), "{:?}", a.said);
+
+        let mut a = Relaunching { asks: [(600_000, None)].into(), allowed_at: Some(599_000), tab: Some(Found::Unsure), ..Default::default() };
+        let e = ask_to_run(&mut a).unwrap_err().to_string();
+        assert!(e.contains("isn't asked for again") && e.contains("run-northwind"), "{e}");
+        assert_eq!((a.asked, a.waited), (1, 0), "one that may still start isn't asked for twice");
 
         let mut a = Relaunching { asks: [(600_000, None)].into(), backs: [false].into(), ..Default::default() };
         let e = ask_to_run(&mut a).unwrap_err().to_string();
