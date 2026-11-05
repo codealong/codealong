@@ -799,12 +799,19 @@ pub fn withdraw_unstarted(id: &str) -> Result<bool> {
 
 /// Claims a run's start from its wrapper, which claims it first thing (`STARTED`): one `mkdir`
 /// each, which only one of them can make, so the wrapper runs the command or it's withdrawn, never
-/// both and never neither. Withdrawn, its folder goes. True once it can't start, false when the
-/// wrapper has claimed it and runs.
+/// both and never neither. True once it can't start, false when the wrapper has claimed it and
+/// runs.
+///
+/// Withdrawn, its folder is moved away whole, in one rename, and taken apart there: taken apart
+/// where it is, the claim could go before the command, for a wrapper to claim its start again and
+/// run it. One that can't be moved keeps the claim, and stays.
 fn withdraw(d: &Path) -> Result<bool> {
     match std::fs::create_dir(d.join(STARTED)) {
         Ok(()) => {
-            let _ = std::fs::remove_dir_all(d);
+            let away = d.with_file_name(format!(".withdrawn-{}", d.file_name().map(|n| n.to_string_lossy()).unwrap_or_default()));
+            if std::fs::rename(d, &away).is_ok() {
+                let _ = std::fs::remove_dir_all(&away);
+            }
             Ok(true)
         }
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
@@ -1679,6 +1686,7 @@ mod tests {
         let late = keep("run-late");
         assert!(withdraw_unstarted("run-late").unwrap());
         assert!(!late.exists());
+        assert!(std::fs::read_dir(runs_dir()).unwrap().flatten().all(|e| !e.file_name().to_string_lossy().starts_with(".withdrawn-")), "moved away whole, then taken apart");
         let typed = std::process::Command::new("/bin/sh").args(["-c", TYPED.trim()]).env(ENV, &late).stdin(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status().unwrap();
         assert!(!typed.success(), "the line a late tab types finds no wrapper");
         run_wrapper(&text.replace(&claimed.to_string_lossy().into_owned(), &late.to_string_lossy()));
