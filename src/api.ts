@@ -375,17 +375,30 @@ export async function windowKeys(): Promise<boolean> {
 /** Calls `cb` as this window gets the keyboard and as it loses it, as macOS says: Tauri's focus
  *  events, from AppKit's became-key and resigned-key notifications. Not as `document.hasFocus()`
  *  says, which a window that floats keeps true while it doesn't have it, so its page still gets
- *  the pointer (os/windows/macos.rs `is_key`). */
-export function onWindowKeys(cb: (has: boolean) => void): () => void {
-  if (!inTauri) return () => {};
+ *  the pointer (os/windows/macos.rs `is_key`). `listening` once it hears them, as `onBoard`'s: a
+ *  read of where the keyboard is (`windowKeys`) is only as new as that. */
+export function onWindowKeys(cb: (has: boolean) => void, listening?: () => void): () => void {
+  if (!inTauri) {
+    listening?.();
+    return () => {};
+  }
   let cancelled = false;
   let unlisten: (() => void) | undefined;
   void getCurrentWebviewWindow()
     .onFocusChanged((e) => cb(e.payload))
-    .then((u) => {
-      if (cancelled) u();
-      else unlisten = u;
-    });
+    .then(
+      (u) => {
+        if (cancelled) u();
+        else {
+          unlisten = u;
+          listening?.();
+        }
+      },
+      // Failing, it hears no events, but the window still asks once.
+      () => {
+        if (!cancelled) listening?.();
+      },
+    );
   return () => {
     cancelled = true;
     unlisten?.();

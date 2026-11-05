@@ -186,19 +186,21 @@ function setKeysHere(has: boolean) {
 
 if (inTauri) {
   let told = false;
+  // Asked once the events are heard, so a change can't come between the answer and them; one
+  // that comes while it's asked is newer than the answer.
+  const ask = () =>
+    windowKeys().then(
+      (has) => {
+        if (!told) setKeysHere(has === true);
+      },
+      () => {
+        if (!told) setKeysHere(document.hasFocus());
+      },
+    );
   onWindowKeys((has) => {
     told = true;
     setKeysHere(has);
-  });
-  windowKeys().then(
-    (has) => {
-      // An event that came meanwhile is newer than the answer.
-      if (!told) setKeysHere(has === true);
-    },
-    () => {
-      if (!told) setKeysHere(document.hasFocus());
-    },
-  );
+  }, () => void ask());
 }
 
 export function hasKeys(): boolean {
