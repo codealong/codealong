@@ -3,7 +3,8 @@
 // there are, and gives the room to the conversation above; a click on the question (or ⌘⏎, where
 // ⌘⏎ answers) shows the box again with your picks and the question you were on, and answers
 // nothing. The conversation's line for the call never opens a copy of its questions that can't be
-// answered: minimized, a click on it shows the box again. In the main window the box stays
+// answered: minimized, a click on it shows the box again; the line of another call it waits on at
+// the same time opens its own. In the main window the box stays
 // minimized as you go to another session and back, and the next call it waits on shows whole
 // though it asks the same. ⌘⏎ is Ctrl+Enter on Linux.
 //   PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/questions-minimize-check.js
@@ -26,6 +27,8 @@
       { question: 'Which days suit you for the review, given the release goes out on Thursday and the notes need a day?', header: 'Days', options: [{ label: 'Mon' }, { label: 'Tue' }, { label: 'Wed' }], multiSelect: true },
     ],
   };
+  // The call its conversation ends on, which the box shows until it waits on another too.
+  var latest = pending.questions;
   var real = window.__TAURI_INTERNALS__.invoke;
   window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
     if (cmd === 'session_pending' && picked && (args || {}).key === picked.key) {
@@ -40,7 +43,7 @@
       return Promise.resolve({ before: null, after: 3, items: [
         item(0, 'you', 'Set up the review'),
         item(1, 'agent', 'Two things to settle first.'),
-        item(2, 'tool', 'AskUserQuestion', { id: 'toolu_wait', input: '{ "questions": [] }', questions: pending.questions }),
+        item(2, 'tool', 'AskUserQuestion', { id: 'toolu_wait', input: '{ "questions": [] }', questions: latest }),
       ] });
     }
     if (cmd === 'session_answer') {
@@ -179,6 +182,27 @@
         })
         .then(function () {
           check('the next call shows whole, though it asks the same', !folded());
+          // Waiting on two calls at once (a subagent's and its own), the box shows the one asked
+          // first, and the conversation's line for the latest isn't the box's.
+          pending = Object.assign({}, pending, { id: 'ask-14', questions: [{ question: 'Which branch should the subagent use?', header: 'Branch', options: [{ label: 'main' }, { label: 'next' }] }] });
+          choose(other);
+          return until(function () { return !box(); }, 3000, 'another session');
+        })
+        .then(function () {
+          choose(picked);
+          return until(function () { return box() && choice('main') && line(); }, 5000, 'the call asked first');
+        })
+        .then(function () {
+          fold().click();
+          return until(function () { return folded(); }, 2000, 'minimized');
+        })
+        .then(function () {
+          check('another call’s line doesn’t show the box', lineHead().title !== 'Show the questions', lineHead().title);
+          lineHead().click();
+          return until(function () { return q('.ca-questions', line()); }, 2000, 'its own questions');
+        })
+        .then(function () {
+          check('it opens its own questions, and the box stays minimized', /Which color/.test(q('.ca-questions', line()).textContent) && !!folded());
         });
     });
   }

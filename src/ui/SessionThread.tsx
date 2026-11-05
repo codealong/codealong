@@ -73,7 +73,7 @@ import { Button, Chip, cx, Icon, Rich, StatusGlyph } from './primitives';
 import { useAside } from '../side';
 import { waitsInBackground } from '../lanes';
 import { answeredOf, QuestionList } from './QuestionList';
-import { unfoldQuestions, useQuestionsBox } from '../questionsBox';
+import { askedOf, foldQuestions, useQuestionsFolded, useShownQuestions } from '../questionsBox';
 import { RunContext, type RunPlace } from './RunButton';
 import { useReloads } from '../reload';
 import { errorText } from '../report';
@@ -295,9 +295,10 @@ function MadeLine({ link }: { link: NonNullable<TranscriptItem['link']> }) {
   );
 }
 
-/** The box of questions under the conversation, for the line of the call whose questions it
- *  shows (questionsBox.ts): whether they're minimized there, and what shows them again. */
+/** The box of questions under the conversation (questionsBox.ts): what it asks, for the line of
+ *  the call it shows, whether it's minimized, and what shows it again. */
 interface BoxBelow {
+  asked: string;
   state: 'open' | 'folded';
   show: () => void;
 }
@@ -308,7 +309,7 @@ function ToolLine({ item, result, state, onOpen, below }: { item: TranscriptItem
   const [open, setOpen] = useState(!!questions && state === 'asks' && !!onOpen);
   // Where the box below shows them, a click shows the box once it's minimized, and opens no copy
   // of them here, which couldn't be answered.
-  const box = questions && state === 'asks' && below ? below : null;
+  const box = questions && state === 'asks' && below?.asked === askedOf(questions) ? below : null;
   const output = item.output ?? result?.output;
   const failed = item.failed || !!result?.failed;
   const detail = questions || item.input || output;
@@ -1156,8 +1157,9 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
   const askHere = answeredBelow ? undefined : onOpen;
   // The box below, while it shows the questions the session waits on you for. Questions stay out
   // of a run of calls, so only a line of its own is theirs.
-  const boxState = useQuestionsBox(s.key);
-  const below = useMemo(() => (boxState ? { state: boxState, show: () => unfoldQuestions(s.key) } : null), [boxState, s.key]);
+  const shownBelow = useShownQuestions(s.key);
+  const foldedBelow = useQuestionsFolded(s.key, shownBelow?.call ?? null);
+  const below = useMemo<BoxBelow | null>(() => (shownBelow ? { asked: shownBelow.asked, state: foldedBelow ? 'folded' : 'open', show: () => foldQuestions(s.key, shownBelow.call, false) } : null), [shownBelow, foldedBelow, s.key]);
   const stateOf = (it: TranscriptItem): 'done' | 'running' | 'asks' | 'open' => {
     if (keyOf(it) !== pending || !busy.includes(s.status)) return 'done';
     return s.status === 'needs' ? 'asks' : 'running';

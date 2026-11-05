@@ -113,7 +113,7 @@ import { Markdown } from './Markdown';
 import { ModeLabel, ModeMenu, nextMode } from './ModeLabel';
 import { BoxText, Button, Chip, cx, Icon, OneLine, Rich, Seg } from './primitives';
 import { nextQuestion, QuestionList, QuestionWhy } from './QuestionList';
-import { foldQuestions, showQuestions, useQuestionsFolded } from '../questionsBox';
+import { askedOf, foldQuestions, showQuestions, useQuestionsFolded } from '../questionsBox';
 import { BoxPlace, offersResume, SessionAgent } from './SessionAgent';
 import { placeIcon } from './StartControls';
 import { ContextMeter } from './ContextMeter';
@@ -1370,7 +1370,8 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
   // Its questions' box minimized to its head, to read the conversation above while you think. The
   // conversation's line for the call shows it again (questionsBox.ts).
   const asking = pending?.questions?.length ? pending.id : null;
-  useEffect(() => (asking === null ? undefined : showQuestions(s.key, asking)), [s.key, asking]);
+  const asked = pending?.questions?.length ? askedOf(pending.questions) : '';
+  useEffect(() => (asking === null ? undefined : showQuestions(s.key, asking, asked)), [s.key, asking, asked]);
   const folded = useQuestionsFolded(s.key, asking);
   const fold = (on: boolean) => {
     if (asking !== null) foldQuestions(s.key, asking, on);
