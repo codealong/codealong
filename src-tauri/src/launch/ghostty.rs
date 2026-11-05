@@ -135,7 +135,7 @@ impl Terminal for Ghostty {
     }
 
     fn close_tabs(&self, tabs: &[&Closing]) -> Result<Vec<Result<()>>> {
-        close_tabs(tabs)
+        close_tabs(tabs, self.bundle())
     }
 
     /// Each of Ghostty's tabs is a window of its own to the window server, titled with the
@@ -584,7 +584,7 @@ pub(super) fn terminal_of(pid: u32, cwd: &Path, within: Option<Duration>) -> Res
 /// `close terminal` orders the window out but keeps the terminal, its shell running unseen (1.3.1,
 /// 2026-10-22), so the script only closes what Ghostty kept open after its process ended
 /// (`wait-after-command`).
-fn close_tabs(tabs: &[&Closing]) -> Result<Vec<Result<()>>> {
+fn close_tabs(tabs: &[&Closing], bundle: Option<&str>) -> Result<Vec<Result<()>>> {
     // Marks take over TTYs' folder reports, as focusing's do, so the two never run at once.
     let _turn = FOCUS_TURNS.hold();
     let before = terminals()?;
@@ -631,14 +631,19 @@ fn close_tabs(tabs: &[&Closing]) -> Result<Vec<Result<()>>> {
             .unwrap_or_else(|| tabs[*i].cwd.to_string_lossy().into_owned());
         let _ = write_osc7(tty, &real);
     }
-    let front = osascript(GHOSTTY_IN_FRONT, &[]).map(|s| s.trim().to_string()).unwrap_or_default();
+    let asked = osascript(GHOSTTY_IN_FRONT, &[]).map(|s| Some(s.trim().to_string()).filter(|id| !id.is_empty()).into_iter().collect());
+    let known = super::tabs_youre_in(tabs, asked, bundle);
+    let front = known.clone().unwrap_or_default();
     // (index, terminal id) of the ones to end.
     let mut ending = Vec::new();
     for (j, (i, _, _)) in marked.iter().enumerate() {
         match &ids[j] {
             None => out[*i] = Err(anyhow!("Couldn't find its Ghostty tab.")),
-            Some(id) if !front.is_empty() && *id == front => out[*i] = Err(anyhow!("It's the tab you're in.")),
-            Some(id) => ending.push((*i, id.clone())),
+            Some(id) if front.contains(id) => out[*i] = Err(anyhow!("It's the tab you're in.")),
+            Some(id) => match super::unasked_stays(tabs[*i], known.is_some()) {
+                Some(why) => out[*i] = Err(why),
+                None => ending.push((*i, id.clone())),
+            },
         }
     }
     let stayed = hang_up_tabs(&ending.iter().map(|(i, _)| tabs[*i]).collect::<Vec<_>>());

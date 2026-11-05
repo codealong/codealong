@@ -1024,12 +1024,18 @@ pub struct Closing<'a> {
     pub pid: u32,
     pub cwd: &'a Path,
     pub hang_up: Vec<u32>,
+    /// Set for a close nobody asked for (hibernate.rs), which goes only to a terminal that leaves
+    /// the tab you're in (`Terminal::spares_yours`), and only once it's known which tab that is
+    /// (`tabs_youre_in`). It's asked once the tab is found, just before what runs there is hung
+    /// up, whether the tab may still close: the finding can take seconds, waiting its turn behind
+    /// a send into another tab.
+    pub unasked: Option<&'a dyn Fn() -> bool>,
 }
 
 /// Ends sessions' processes and closes the terminal tabs they ran in (idle.rs): `close_terminals`,
 /// each session's process hung up. One result per `(pid, folder)`, in order.
 pub fn close_session_terminals(sessions: &[(u32, &Path)]) -> Vec<Result<()>> {
-    close_terminals(&sessions.iter().map(|&(pid, cwd)| Closing { pid, cwd, hang_up: vec![pid] }).collect::<Vec<_>>())
+    close_terminals(&sessions.iter().map(|&(pid, cwd)| Closing { pid, cwd, hang_up: vec![pid], unasked: None }).collect::<Vec<_>>())
 }
 
 /// Hangs up what runs in tabs and closes them, all at once for each app: with dozens of tabs on a
@@ -1041,7 +1047,14 @@ pub fn close_terminals(tabs: &[Closing]) -> Vec<Result<()>> {
     let mut out: Vec<Option<Result<()>>> = tabs.iter().map(|_| None).collect();
     let kinds: Vec<Option<HostKind>> = tabs.iter().map(|t| terminal_kind(t.pid).map(|t| t.kind())).collect();
     for terminal in terminals().iter().filter(|t| t.closes_tabs()) {
-        let at: Vec<usize> = (0..tabs.len()).filter(|&i| kinds[i] == Some(terminal.kind())).collect();
+        let mut at: Vec<usize> = (0..tabs.len()).filter(|&i| kinds[i] == Some(terminal.kind())).collect();
+        // A close nobody asked for doesn't go to a terminal that might close the tab you're in.
+        if !terminal.spares_yours() {
+            for &i in at.iter().filter(|&&i| tabs[i].unasked.is_some()) {
+                out[i] = Some(Err(anyhow!("{} can't say whether it's the tab you're in.", terminal.name())));
+            }
+            at.retain(|&i| tabs[i].unasked.is_none());
+        }
         if at.is_empty() {
             continue;
         }
@@ -1061,9 +1074,10 @@ pub fn close_terminals(tabs: &[Closing]) -> Vec<Result<()>> {
 /// terminal, whose settings say whether it closes a tab whose process ended (Terminal keeps one
 /// that didn't exit cleanly): with nothing running there the script can't find it by what runs in
 /// it, and its TTY is free for a new tab to take, which the script would close in its place.
-fn close_tty_terminals(tabs: &[&Closing], app: &str, ttys: fn() -> Result<Vec<String>>, in_front: fn() -> Result<Vec<String>>, close: fn(&[&str]) -> Result<()>) -> Result<Vec<Result<()>>> {
+fn close_tty_terminals(tabs: &[&Closing], app: &str, bundle: Option<&str>, ttys: fn() -> Result<Vec<String>>, in_front: fn() -> Result<Vec<String>>, close: fn(&[&str]) -> Result<()>) -> Result<Vec<Result<()>>> {
     let listed = ttys()?;
-    let front = in_front().unwrap_or_default();
+    let known = tabs_youre_in(tabs, in_front(), bundle);
+    let front = known.clone().unwrap_or_default();
     let mut out: Vec<Result<()>> = Vec::new();
     // (index, tty) of the ones to end.
     let mut ending = Vec::new();
@@ -1072,10 +1086,13 @@ fn close_tty_terminals(tabs: &[&Closing], app: &str, ttys: fn() -> Result<Vec<St
             None => out.push(Err(anyhow!("It has no terminal tab."))),
             Some(tty) if !listed.contains(&tty) => out.push(Err(anyhow!("Couldn't find its {app} tab."))),
             Some(tty) if front.contains(&tty) => out.push(Err(anyhow!("It's the tab you're in."))),
-            Some(tty) => {
-                out.push(Ok(()));
-                ending.push((i, tty));
-            }
+            Some(tty) => match unasked_stays(tab, known.is_some()) {
+                Some(why) => out.push(Err(why)),
+                None => {
+                    out.push(Ok(()));
+                    ending.push((i, tty));
+                }
+            },
         }
     }
     let last: Vec<bool> = ending.iter().map(|(i, _)| tabs[*i].hang_up.contains(&tabs[*i].pid) && shell_of(tabs[*i].pid) == Some(tabs[*i].pid)).collect();
@@ -1104,6 +1121,31 @@ fn close_tty_terminals(tabs: &[&Closing], app: &str, ttys: fn() -> Result<Vec<St
 
 /// Hangs up every tab's processes at once, and says for each tab the first of them that didn't
 /// exit, if one didn't.
+/// The tabs you're in, as the app answered (`asked`), for closing `tabs`; None when a close nobody
+/// asked for is among them (`Closing::unasked`) and that isn't known: the question failed, or it
+/// found none while the app is in front, which its script answers when it can't tell. A close you
+/// asked for takes a failed question for none, as it always has.
+fn tabs_youre_in(tabs: &[&Closing], asked: Result<Vec<String>>, bundle: Option<&str>) -> Option<Vec<String>> {
+    let unasked = tabs.iter().any(|t| t.unasked.is_some());
+    match asked {
+        Ok(front) if front.is_empty() && unasked && bundle.is_some_and(app_active) => None,
+        Ok(front) => Some(front),
+        Err(_) if unasked => None,
+        Err(_) => Some(Vec::new()),
+    }
+}
+
+/// Why a close nobody asked for stays, its tab found and about to be hung up (`Closing::unasked`):
+/// it isn't known which tab you're in (`known` false), or it says it may no longer close. None
+/// when it goes, and for a close you asked for.
+fn unasked_stays(tab: &Closing, known: bool) -> Option<anyhow::Error> {
+    let still = tab.unasked?;
+    if !known {
+        return Some(anyhow!("Couldn't tell whether it's the tab you're in."));
+    }
+    (!still()).then(|| anyhow!("It was used since it was looked at."))
+}
+
 fn hang_up_tabs(tabs: &[&Closing]) -> Vec<Option<u32>> {
     let mut exited = hang_up(&tabs.iter().flat_map(|t| t.hang_up.iter().copied()).collect::<Vec<_>>()).into_iter();
     tabs.iter()

@@ -3538,7 +3538,8 @@ closed. Besides Close idle sessions' rules, a session stays open when anything w
 since the last prompt you sent it (a prompt you're writing in its box, begun while it worked or
 after, would go with it; an answer to its question counts too, until its next prompt), when a
 session it started is still at work or waits on you, when it's an automatic review's, when it can't
-be resumed in a terminal or its account is turned off, and when its tab is the one you're in.
+be resumed in a terminal or its account is turned off, and when its tab is the one you're in or
+the terminal can't say which tab that is.
 Sessions in tmux or in Codealong's own terminals, which can't tell whether you're looking at them,
 and Claude Code's background jobs are left alone: Close idle sessions closes them. Codealong looks
 once a minute, checks each session again just before closing its tab, and tries one it couldn't

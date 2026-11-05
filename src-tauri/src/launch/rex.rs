@@ -176,7 +176,7 @@ impl Terminal for Rex {
     }
 
     fn close_tabs(&self, tabs: &[&Closing]) -> Result<Vec<Result<()>>> {
-        close_tty_terminals(tabs, APP, ttys, in_front, close)
+        close_tty_terminals(tabs, APP, self.bundle(), ttys, in_front, close)
     }
 }
 

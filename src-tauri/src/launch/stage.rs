@@ -1316,6 +1316,64 @@ mod tests {
     }
 
     #[test]
+    fn a_close_nobody_asked_for_goes_only_where_its_known_which_tab_youre_in_and_nothing_moved() {
+        let dir = Path::new("/r/app");
+        let said = |results: &[Result<()>]| results.iter().map(|r| r.as_ref().map_err(|e| e.to_string()).err().unwrap_or_else(|| "closed".into())).collect::<Vec<_>>();
+        let unasked = |pid: u32, still: &'static dyn Fn() -> bool| Closing { pid, cwd: dir, hang_up: vec![pid], unasked: Some(still) };
+        let hung_up = |log: &[String]| log.iter().any(|l| l.starts_with("hang up [") && l != "hang up []");
+        // On the stage every app is the one in front, so an answer of no tab is no telling.
+        let iterm = |front: Result<&'static str, &'static str>| {
+            move |s: &Sent| match s.what.as_str() {
+                "ITERM_TTYS" => Ok("/dev/ttys200\n/dev/ttys201\n".to_string()),
+                "ITERM_IN_FRONT" => front.map(String::from).map_err(String::from),
+                _ => Ok("ok\n".to_string()),
+            }
+        };
+        let p = played(iterm(Ok("/dev/ttys200\n")), move || close_terminals(&[unasked(IN_ITERM, &|| true)]));
+        assert_eq!(said(&p.got), ["closed"]);
+        assert_eq!(p.log, ["ITERM_TTYS []", "ITERM_IN_FRONT []", "hang up [200010]", r#"ITERM_CLOSE+SESSION_ON ["/dev/ttys201"]"#]);
+        // Used since it was looked at: asked once its tab is found, before anything's hung up.
+        let p = played(iterm(Ok("/dev/ttys200\n")), move || close_terminals(&[unasked(IN_ITERM, &|| false)]));
+        assert_eq!(said(&p.got), ["It was used since it was looked at."]);
+        assert!(!hung_up(&p.log), "{:?}", p.log);
+        // Which tab you're in unknown: the question failed, or found none with the app in front.
+        for front in [Err("boom"), Ok("\n")] {
+            let p = played(iterm(front), move || close_terminals(&[unasked(IN_ITERM, &|| true)]));
+            assert_eq!(said(&p.got), ["Couldn't tell whether it's the tab you're in."]);
+            assert!(!hung_up(&p.log), "{:?}", p.log);
+        }
+        // A close you asked for goes as it always has, taking no answer for no tab.
+        let p = played(iterm(Err("boom")), move || close_session_terminals(&[(IN_ITERM, dir)]));
+        assert_eq!(said(&p.got), ["closed"]);
+
+        // Ghostty, the same once its tab is found by its mark.
+        let ghostty = |front: &'static str| {
+            move |s: &Sent| {
+                Ok(match s.what.as_str() {
+                    "GHOSTTY_LIST" => match marks().as_slice() {
+                        [one] => format!("T1\t{one}\ta\n"),
+                        _ => GHOSTTY_TABS.to_string(),
+                    },
+                    "GHOSTTY_IN_FRONT" => front.to_string(),
+                    _ => "\n".to_string(),
+                })
+            }
+        };
+        let p = played(ghostty("T9\n"), move || close_terminals(&[unasked(IN_GHOSTTY, &|| true)]));
+        assert_eq!(said(&p.got), ["closed"]);
+        let p = played(ghostty("T9\n"), move || close_terminals(&[unasked(IN_GHOSTTY, &|| false)]));
+        assert_eq!(said(&p.got), ["It was used since it was looked at."]);
+        assert!(!hung_up(&p.log), "{:?}", p.log);
+        let p = played(ghostty("\n"), move || close_terminals(&[unasked(IN_GHOSTTY, &|| true)]));
+        assert_eq!(said(&p.got), ["Couldn't tell whether it's the tab you're in."]);
+
+        // tmux closes a pane without asking which you're in, so it isn't sent one.
+        let p = played(|_| Ok(String::new()), move || close_terminals(&[unasked(IN_TMUX, &|| true)]));
+        assert_eq!(said(&p.got), ["tmux can't say whether it's the tab you're in."]);
+        assert!(!p.log.iter().any(|l| l.contains("kill-pane")), "{:?}", p.log);
+    }
+
+    #[test]
     fn a_tab_stays_when_its_process_does_or_its_app_says_no() {
         let dir = Path::new("/r/app");
         let said = |results: &[Result<()>]| results.iter().map(|r| r.as_ref().map_err(|e| e.to_string()).err().unwrap_or_else(|| "closed".into())).collect::<Vec<_>>();
@@ -1337,7 +1395,7 @@ mod tests {
         // A tab whose last process is hung up (a program in place of its shell) is left to its
         // terminal, and no script goes looking for it by a TTY a new tab may have taken.
         let shell = 300_003;
-        let p = play(setup(), answer, move || close_terminals(&[Closing { pid: shell, cwd: dir, hang_up: vec![shell] }]));
+        let p = play(setup(), answer, move || close_terminals(&[Closing { pid: shell, cwd: dir, hang_up: vec![shell], unasked: None }]));
         assert_eq!(said(&p.got), ["Its program ended; whether Terminal closes the tab now is its own setting."]);
         assert_eq!(p.log, ["TERMINAL_TTYS []", "TERMINAL_IN_FRONT []", "hang up [300003]"]);
 

@@ -199,7 +199,7 @@ mod tests {
         Own.press(&at, Key::Digit(2)).unwrap();
         Own.press(&at, Key::Return).unwrap();
         assert!(wait_for(|| terminals::text(&g.id).is_ok_and(|t| t.contains("key:2"))), "{:?}", terminals::text(&g.id));
-        let closed = Own.close_tabs(&[&Closing { pid, cwd: Path::new("/"), hang_up: vec![pid] }]).unwrap();
+        let closed = Own.close_tabs(&[&Closing { pid, cwd: Path::new("/"), hang_up: vec![pid], unasked: None }]).unwrap();
         assert!(closed[0].is_ok(), "{closed:?}");
         assert!(!terminals::list().iter().any(|t| t.id == g.id), "closed");
         assert_ne!(Own.type_session(pid, Path::new("/"), "again", false, Submit::Return, false).unwrap(), Typed::Into("Codealong"));

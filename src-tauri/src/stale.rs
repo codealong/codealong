@@ -449,7 +449,7 @@ pub fn close(board: &Board, uses: Uses, keys: &[String], after_ms: i64) -> Vec<O
     let tabs = tabs_now(uses);
     let fresh = plan(board, &tabs, crate::util::now_ms(), after_ms);
     let chosen: Vec<(&Stale, &Tab)> = keys.iter().filter_map(|k| Some((fresh.tabs.iter().find(|t| &t.key == k)?, tabs.iter().find(|t| &key_of(t) == k)?))).collect();
-    let closing: Vec<crate::launch::Closing> = chosen.iter().map(|(_, tab)| crate::launch::Closing { pid: tab.shell, cwd: Path::new(&tab.cwd), hang_up: tab.runs.iter().map(|r| r.0).collect() }).collect();
+    let closing: Vec<crate::launch::Closing> = chosen.iter().map(|(_, tab)| crate::launch::Closing { pid: tab.shell, cwd: Path::new(&tab.cwd), hang_up: tab.runs.iter().map(|r| r.0).collect(), unasked: None }).collect();
     let ended: Vec<Result<(), String>> = crate::launch::close_terminals(&closing).into_iter().map(|r| r.map_err(crate::util::words)).collect();
     keys.iter()
         .map(|key| {

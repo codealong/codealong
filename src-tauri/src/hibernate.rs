@@ -21,7 +21,8 @@
 //!   from;
 //! - it's an automatic review's, which reviewdone.rs ends;
 //! - its terminal isn't one whose closing leaves the tab you're in (`Terminal::spares_yours`):
-//!   Ghostty, iTerm2, Terminal and Rex are; tmux panes and Codealong's own terminals aren't.
+//!   Ghostty, iTerm2, Terminal and Rex are; tmux panes and Codealong's own terminals aren't. Nor
+//!   does it close one while it can't be told which tab you're in (`launch::Closing::unasked`).
 //!
 //! Claude Code's background jobs are left alone: Close idle sessions stops one. Its background
 //! service retires a job left idle for an hour, but not, as far as was seen here, one a tab is
@@ -29,8 +30,8 @@
 //!
 //! The server looks once a minute on a thread of its own (`spawn`), not as the board changes: a
 //! board that sits still is what a session crossing the wait looks like. Each session is looked at
-//! again, board and keys, just before its terminal closes; what's left is the moment the closing
-//! takes (Ghostty's tab found by its mark, then hung up).
+//! again, board and keys, before its tab is looked for, and once more after it's found, just
+//! before its agent is hung up (`one`): finding it can wait its turn behind a send.
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -48,10 +49,6 @@ const RETRY_MS: i64 = 30 * 60_000;
 
 /// How often the server looks for what may hibernate: the wait is minutes at least.
 const LOOK_EVERY: Duration = Duration::from_secs(60);
-
-/// Keys read a moment before its prompt was written down are the prompt's: its Return, or a
-/// paste's.
-const PROMPT_SLACK_MS: i64 = 1_000;
 
 /// The wait, in ms; 0 when it's off.
 pub fn after_ms(cfg: &Config) -> i64 {
@@ -112,7 +109,8 @@ fn keeps(board: &Board, cfg: &Config, c: &Idle, looks: &Looks) -> Option<String>
     let typed = looks.typed?;
     match c.pid.and_then(typed) {
         None => Some("couldn't tell when its terminal was last typed in".into()),
-        Some(at) if at > prompted + PROMPT_SLACK_MS => Some("something was typed in its terminal since its last prompt".into()),
+        // The prompt is written down once its Return is read, so keys read after it aren't its own.
+        Some(at) if at > prompted => Some("something was typed in its terminal since its last prompt".into()),
         Some(_) => None,
     }
 }
@@ -187,24 +185,34 @@ pub fn spawn(engine: Handle) {
 }
 
 /// Hibernates the session `key` if it still may, with the board as it is now and this Mac asked
-/// about its tab now: which tabs close with nobody asking, and when it was last typed in.
+/// about its tab now: which tabs close with nobody asking, and when it was last typed in. Its tab
+/// found, it's asked again (`still`) just before its agent is hung up.
 fn one(engine: &Handle, cfg: &Config, key: &str) {
     let after_ms = after_ms(cfg);
     let board = engine.board();
     let fresh = plan_now(&board, cfg, after_ms);
-    if !fresh.hibernate.iter().any(|c| c.key == key) {
+    let Some(c) = fresh.hibernate.iter().find(|c| c.key == key) else {
         if let Some(k) = fresh.kept.iter().find(|k| k.key == key) {
             eprintln!("Not hibernating “{}”: {}.", k.title, k.why);
         }
         return;
+    };
+    let Some(pid) = c.pid else { return };
+    let typed = typed_at(pid);
+    let shown: Vec<(&str, i64)> = std::iter::once(&c.key).chain(&c.with).filter_map(|k| board.session(k).map(|(_, s)| (k.as_str(), s.last_activity))).collect();
+    let check = || typed_at(pid) == typed && still(&engine.board(), &shown);
+    let closing = crate::launch::Closing { pid, cwd: std::path::Path::new(&c.cwd), hang_up: vec![pid], unasked: Some(&check) };
+    match crate::launch::close_terminals(&[closing]).pop() {
+        Some(Ok(())) => eprintln!("Hibernated “{}”, idle {}: its terminal closed, and a click resumes it.", c.title, crate::idle::span(crate::util::now_ms() - c.last_activity)),
+        Some(Err(e)) => eprintln!("Couldn't hibernate “{}”: {e:#}", c.title),
+        None => {}
     }
-    let idle_for = board.session(key).map_or(0, |(_, s)| crate::util::now_ms() - s.last_activity);
-    for o in crate::idle::close(&board, cfg, &[key.to_string()], after_ms, None) {
-        match o.closed {
-            true => eprintln!("Hibernated “{}”, idle {}: its terminal closed, and a click resumes it.", o.title, crate::idle::span(idle_for)),
-            false => eprintln!("Couldn't hibernate “{}”: {}", o.title, o.message),
-        }
-    }
+}
+
+/// Whether the sessions a terminal shows, each with its last activity as it was looked at
+/// (`shown`), are on `board` as they were: running, resting, and nothing new in them.
+fn still(board: &Board, shown: &[(&str, i64)]) -> bool {
+    shown.iter().all(|(key, at)| board.session(key).is_some_and(|(_, s)| s.live && s.last_activity == *at && matches!(s.status, Status::Idle | Status::Unread | Status::Stopped)))
 }
 
 /// The plan for the board as it is now, with this Mac asked about each terminal.
@@ -283,12 +291,12 @@ mod tests {
         let c = cfg(60);
         let b = board(vec![session("a", 1, 3 * HOUR)]);
         let (ended, prompted) = (NOW - 3 * HOUR, NOW - 3 * HOUR - TURN);
-        // Typed before the prompt, or the prompt's own Return read a moment before it was written.
+        // Typed before the prompt was written down: the prompt itself, its Return last.
         assert_eq!(planned(&b, &c, &|_| Some(prompted - HOUR)).0, ["a"]);
-        assert_eq!(planned(&b, &c, &|_| Some(prompted + PROMPT_SLACK_MS)).0, ["a"]);
-        // A prompt being written in its box, begun after its turn or while it worked, keeps it, as
-        // does no telling.
-        for typed in [ended + 5 * 60_000, ended - 5 * 60_000, ended + 1] {
+        assert_eq!(planned(&b, &c, &|_| Some(prompted)).0, ["a"]);
+        // A prompt being written in its box, begun after its turn or while it worked, even straight
+        // after the last one went, keeps it, as does no telling.
+        for typed in [ended + 5 * 60_000, ended - 5 * 60_000, ended + 1, prompted + 500] {
             let (go, kept) = planned(&b, &c, &|_| Some(typed));
             assert!(go.is_empty(), "typed {} after the prompt", typed - prompted);
             assert_eq!(kept[0].1, "something was typed in its terminal since its last prompt");
@@ -375,6 +383,24 @@ mod tests {
         // The same board, unchanged, once a has sat the hour.
         assert_eq!(h.due(&b, &c, NOW + 11 * 60_000), ["a"]);
         assert_eq!(h.due(&b, &c, NOW + RETRY_MS), ["b"], "tried again once a while has gone by");
+    }
+
+    #[test]
+    fn closes_only_while_its_sessions_are_as_they_were_looked_at() {
+        let b = board(vec![session("a", 1, 3 * HOUR), session("b", 1, 4 * HOUR)]);
+        let shown = [("a", NOW - 3 * HOUR), ("b", NOW - 4 * HOUR)];
+        assert!(still(&b, &shown));
+        // A prompt came in since, it's working, or it's gone.
+        let mut moved = b.clone();
+        moved.lanes[0].sessions[0].last_activity = NOW;
+        assert!(!still(&moved, &shown));
+        let mut working = b.clone();
+        working.lanes[0].sessions[1].status = Status::Working;
+        assert!(!still(&working, &shown));
+        let mut gone = b.clone();
+        gone.lanes[0].sessions[0].live = false;
+        assert!(!still(&gone, &shown));
+        assert!(!still(&board(vec![session("b", 1, 4 * HOUR)]), &shown));
     }
 
     /// What would hibernate on this Mac now after two hours, doing nothing:
