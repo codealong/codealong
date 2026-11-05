@@ -36,6 +36,11 @@
 .ca-termdrawer.is-open {
   min-height: 96px;
 }
+/* In a card (SessionCard.tsx: the notch, the peek, a kept session, the waiting window), however
+   tall it was left, it leaves the conversation and the box at least half the card. */
+.ca-reply > .ca-termdrawer.is-open {
+  max-height: 50%;
+}
 
 /* The drawer's top edge, dragged to make it taller or shorter. */
 .ca-termdrawer-grip {

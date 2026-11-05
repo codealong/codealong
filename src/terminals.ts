@@ -9,6 +9,7 @@
 
 import { useSyncExternalStore } from 'react';
 import { onTerminalWindows, terminalOpen, terminalWindows } from './api';
+import { shortOf } from './devices';
 import type { TerminalGlance, TerminalSize, TerminalTheme } from './types';
 
 /** A session's drawer: open or folded to its tabs, the tab shown, and when it last asked for the
@@ -185,6 +186,15 @@ export async function showTerminal(key: string, folder: string, terminals: Termi
     return;
   }
   setDrawer(key, { open: true, focusAt: Date.now() });
+}
+
+/** A session's New terminal and Show terminal (⌃`, menus.ts `SessionCan.ownTerminal`) in a window
+ *  that shows its drawer: a terminal of Codealong's own under it, in `folder`, for a session on
+ *  this Mac, unless config.toml keeps them in your terminal app (`[apps] run_in`). */
+export function ownTerminalFor(key: string, folder: string, runIn: string | undefined, terminals: TerminalGlance[] | undefined, failed: (e: unknown) => void): { has: boolean; run: () => void } | undefined {
+  if (runIn === 'terminal' || shortOf(key)) return undefined;
+  const list = terminals ?? [];
+  return { has: list.length > 0, run: () => void showTerminal(key, folder, list).catch(failed) };
 }
 
 /** Opens a terminal for a session in `folder`, a shell or `command`, and shows it in the session's

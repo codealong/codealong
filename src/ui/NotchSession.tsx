@@ -321,7 +321,9 @@ export function useNotchStage(items: BarItem[], reviews: BarReview[], known: (ke
   // Its keys, while it's up. Escape closes it, and ⌘Q, ⌘H and ⌘W close it rather than going to
   // Codealong, since the menu bar is the other app's. The rest are the queue's, the ones a
   // session's panel has in Sessions (queue.ts `QUEUE_CHORDS`). Typing with nothing focused goes
-  // to the box.
+  // to the box. A terminal in the drawer under the box takes every key but the ⌘ ones while it
+  // has the keyboard (terminal/keys.ts), Escape included, which its program needs: ⌘W still
+  // closes the notch, and ⌘] ⌘[ ⌘E still go through what waits.
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {

@@ -108,8 +108,9 @@ export interface SessionPanelProps extends Omit<SessionHeaderProps, 'seenAbove' 
   /** A dialog the window holds for the session (Merge and done…, SessionCard.tsx), drawn with
    *  the panel, at a card's zoom, as Move's is. */
   dialog?: ReactNode;
-  /** Its terminals of Codealong's own (`Board.terminals`), in a drawer under the box: in the
-   *  main window's panel, for a session on this Mac. */
+  /** Its terminals of Codealong's own (`Board.terminals`), in a drawer under the box, for a
+   *  session on this Mac: in the main window's panel and in a card (SessionCard.tsx), so a
+   *  command run from either shows there. The terminal it runs in is the panel's alone. */
   terminals?: TerminalGlance[];
 }
 
@@ -445,7 +446,7 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
           ) : (
             <Reply session={s} terminal={terminal} runIn={folder ?? undefined} runsUnder={apps.runIn !== 'terminal'} onOpen={openIt} autoFocus={autoFocus && !renaming} keys={keys} onSending={onSending} onSent={onSent} onFailed={onFailed} onAnswered={onAnswered} onNext={goesOn ? onDone : undefined} sayKeys={!!hotkeys} moves={moves} onMove={ask} />
           )}
-          {variant === 'panel' && folder !== null && terminals && (
+          {folder !== null && terminals && (
             <TerminalDrawer
               sessionKey={key}
               folder={folder}

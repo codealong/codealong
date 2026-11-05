@@ -27,7 +27,7 @@ import { itemPrimaryHolds, statusSection, todoAgent, todoInFilter, todoProjects,
 import { repoReviews } from './repoSettings';
 import type { Lane, Pr, PrItem, Schedule, ScheduleItem, Session, SideGlance, StartOptions, TeamFile, Theme, Todo } from './types';
 import { showSide } from './side';
-import { allTerminals, placeOf, setDrawer, setSessionView, TERMINAL_WAIT_MS, usePoppedTerminals } from './terminals';
+import { allTerminals, ownTerminalFor, placeOf, setDrawer, setSessionView, TERMINAL_WAIT_MS, usePoppedTerminals } from './terminals';
 import { shortOf, type DeviceFilter } from './devices';
 import { NEW_PROJECT, SettingsDialog, type SettingsSection } from './ui/SettingsDialog';
 import { CleanUpDialog } from './ui/CleanUpDialog';
@@ -81,7 +81,6 @@ import { loadSaved, newSavedId, onSavedChange, sameView, storeSaved, suggestName
 import { useNow } from './ui/useNow';
 import { reloadWindow } from './reload';
 import { errorText } from './report';
-import { showTerminal } from './terminals';
 import { runFolder } from './ui/RunButton';
 import { afterStop } from './training';
 import { askWords, reviewSnoozeMenu, type SnoozeAsk } from './snooze';
@@ -1538,15 +1537,7 @@ export function App() {
       terminal: board?.apps.terminal ?? 'Terminal',
       editors,
       newSession: () => newSession({ laneId: lane.id }),
-      // A terminal of Codealong's own under the session, on this Mac, unless config.toml keeps
-      // them in your terminal app (`[apps] run_in`).
-      ownTerminal:
-        board?.apps.runIn !== 'terminal' && !shortOf(s.key)
-          ? {
-              has: !!board?.terminals?.[s.key]?.length,
-              run: () => void showTerminal(s.key, runFolder(lane, s), board?.terminals?.[s.key] ?? []).catch((e: unknown) => report.error(errorText(e))),
-            }
-          : undefined,
+      ownTerminal: ownTerminalFor(s.key, runFolder(lane, s), board?.apps.runIn, board?.terminals?.[s.key], (e: unknown) => report.error(errorText(e))),
       todos: todoItemsRef.current(lane.project, { session: s.key }, { session: s.key, worktree: lane.id, label: `${s.account} in ${lane.callsign}` }, s.title),
       pin:
         pin === 'session'

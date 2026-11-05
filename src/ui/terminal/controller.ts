@@ -4,11 +4,18 @@
 // come (grid.ts) and draws it (render.ts) once a display frame, and sends what's typed and done
 // with the mouse in order, one call at a time with whatever came meanwhile, so a fast typist's
 // keys reach the program as typed however long a call takes.
+//
+// A terminal can show in two windows at once (the main window's panel and a card in the notch,
+// say), and has one size and one set of colors: it takes them from the window you're in, which
+// gives them again whenever you come back to it (`give`). The other draws it as it is meanwhile.
+// In a card, which a window that floats zooms with CSS `zoom` (zoom.ts), the cell is measured at
+// the card's scale, so the text is as sharp and as big as the card's.
 
 import { onTerminalFrame, openUrl, terminalCopy, terminalInput, terminalPaste, terminalResize, terminalText, terminalTheme, terminalWatch } from '../../api';
 import { rememberSize, themeOf } from '../../terminals';
 import type { TerminalInput, TerminalTheme } from '../../types';
 import { cmd } from '../../platform';
+import { scaleOf } from '../../zoom';
 import { apply, emptyGrid, linkAt, type GridState } from './grid';
 import { modsOf, routeKey } from './keys';
 import { makeRenderer, type Font, type Renderer } from './render';
@@ -35,12 +42,20 @@ type Sending = { kind: 'inputs'; inputs: TerminalInput[] } | { kind: 'paste'; te
 
 interface Measured extends Metrics {
   font: Font;
+  /** Device pixels to the element's own CSS pixel: the window's ratio times its card's zoom. */
   dpr: number;
+  /** Device pixels to a CSS pixel on the screen's scale, which rects and the pointer are on. */
+  screenDpr: number;
+}
+
+/** The device pixels to the element's own CSS pixel, its card's zoom in it. */
+function dprOf(el: HTMLElement): number {
+  return (window.devicePixelRatio || 1) * scaleOf(el);
 }
 
 function measure(el: HTMLElement): Measured {
   const cs = getComputedStyle(el);
-  const dpr = window.devicePixelRatio || 1;
+  const dpr = dprOf(el);
   const sizeCss = parseFloat(cs.fontSize) || 12;
   const lineCss = parseFloat(cs.lineHeight) || Math.round(sizeCss * 1.35);
   const font: Font = { family: cs.fontFamily, size: Math.round(sizeCss * dpr * 100) / 100 };
@@ -57,7 +72,7 @@ function measure(el: HTMLElement): Measured {
   }
   const cellH = Math.max(1, Math.round(lineCss * dpr));
   const baseline = Math.round((cellH - (ascent + descent)) / 2 + ascent);
-  return { font, dpr, cellW, cellH, baseline, line: Math.max(1, Math.round(dpr)) };
+  return { font, dpr, screenDpr: window.devicePixelRatio || 1, cellW, cellH, baseline, line: Math.max(1, Math.round(dpr)) };
 }
 
 export class TerminalController {
@@ -116,6 +131,10 @@ export class TerminalController {
     const themeAttr = new MutationObserver(recolor);
     themeAttr.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'class', 'style'] });
     this.cleanups.push(() => scheme.removeEventListener('change', recolor), () => themeAttr.disconnect());
+    // Coming back to this window, it gives the terminal its size and colors again.
+    const back = () => this.give();
+    window.addEventListener('focus', back);
+    this.cleanups.push(() => window.removeEventListener('focus', back));
     this.fit(true);
     this.sendTheme();
     this.watch();
@@ -147,21 +166,29 @@ export class TerminalController {
     const theme = themeOf();
     if (JSON.stringify(theme) === JSON.stringify(this.theme)) return;
     this.theme = theme;
-    void terminalTheme(this.id, theme).catch((e: unknown) => this.hooks.onError(String(e)));
+    if (document.hasFocus()) void terminalTheme(this.id, theme).catch((e: unknown) => this.hooks.onError(String(e)));
+  }
+
+  /** Gives the server this window's size and colors for the terminal, as you come back to the
+   *  window or to the terminal: another window that shows it may have given its own meanwhile. */
+  give(): void {
+    if (!document.hasFocus() || this.stopped) return;
+    if (this.m && this.cols > 0) void terminalResize(this.id, { cols: this.cols, rows: this.rows, cellWidth: this.m.cellW, cellHeight: this.m.cellH }).catch((e: unknown) => this.hooks.onError(String(e)));
+    if (this.theme) void terminalTheme(this.id, this.theme).catch((e: unknown) => this.hooks.onError(String(e)));
   }
 
   /** Sizes the grid to the room the terminal has, and tells the server when it changed. */
   fit(remeasure = false): void {
     if (!this.renderer) return;
     const was = this.m;
-    const m = remeasure || !was || was.dpr !== (window.devicePixelRatio || 1) ? measure(this.wrap) : was;
+    const m = remeasure || !was || was.dpr !== dprOf(this.wrap) ? measure(this.wrap) : was;
     this.m = m;
     // Measured again (the font, or the pixel ratio a zoom changes): the cell and the font are
     // new even where the canvas comes out the same number of pixels.
     const measured = m !== was;
     const rect = this.wrap.getBoundingClientRect();
-    const cols = Math.max(2, Math.floor((rect.width * m.dpr) / m.cellW));
-    const rows = Math.max(1, Math.floor((rect.height * m.dpr) / m.cellH));
+    const cols = Math.max(2, Math.floor((rect.width * m.screenDpr) / m.cellW));
+    const rows = Math.max(1, Math.floor((rect.height * m.screenDpr) / m.cellH));
     const width = cols * m.cellW;
     const height = rows * m.cellH;
     // A canvas given a size, even the one it has, is wiped: only a new size is given, and it's
@@ -178,7 +205,7 @@ export class TerminalController {
       this.rows = rows;
       const size = { cols, rows, cellWidth: m.cellW, cellHeight: m.cellH };
       rememberSize(size);
-      void terminalResize(this.id, size).catch((e: unknown) => this.hooks.onError(String(e)));
+      if (document.hasFocus()) void terminalResize(this.id, size).catch((e: unknown) => this.hooks.onError(String(e)));
     }
   }
 
@@ -236,6 +263,7 @@ export class TerminalController {
   focus(on: boolean): void {
     this.focused = on;
     this.blinkOn = true;
+    if (on) this.give();
     this.send({ kind: 'focus', on });
     this.redraw();
   }
@@ -308,7 +336,7 @@ export class TerminalController {
 
   private at(e: MouseEvent): { x: number; y: number } {
     const r = this.canvas.getBoundingClientRect();
-    const dpr = this.m?.dpr ?? 1;
+    const dpr = this.m?.screenDpr ?? 1;
     return { x: (e.clientX - r.left) * dpr, y: (e.clientY - r.top) * dpr };
   }
 
@@ -345,7 +373,7 @@ export class TerminalController {
 
   wheel(e: WheelEvent): void {
     if (!this.m) return;
-    const rowCss = this.m.cellH / this.m.dpr;
+    const rowCss = this.m.cellH / this.m.screenDpr;
     const rows = e.deltaMode === 1 ? e.deltaY : e.deltaMode === 2 ? e.deltaY * this.rows : e.deltaY / rowCss;
     this.wheelRest += rows;
     const whole = Math.trunc(this.wheelRest);

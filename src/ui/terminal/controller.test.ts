@@ -85,7 +85,7 @@ describe('a terminal fitted to its room', () => {
     let dpr = 1;
     vi.stubGlobal('window', { get devicePixelRatio() { return dpr; } });
     vi.stubGlobal('getComputedStyle', () => ({ fontSize: '12px', lineHeight: '16px', fontFamily: 'monospace', getPropertyValue: () => '' }));
-    vi.stubGlobal('document', { documentElement: {}, createElement: () => ({ getContext: () => null }) });
+    vi.stubGlobal('document', { documentElement: {}, createElement: () => ({ getContext: () => null }), hasFocus: () => true });
     const wrap = { getBoundingClientRect: () => ({ width: 560 / dpr, height: 288 / dpr }) } as unknown as HTMLElement;
     const canvas = { width: 0, height: 0, style: {} } as unknown as HTMLCanvasElement;
     const given: string[] = [];
@@ -109,5 +109,53 @@ describe('a terminal fitted to its room', () => {
     c.fit();
     expect(given).toEqual(['560x288 cell 7x16 font 12', '560x288 cell 8x18 font 13.2']);
     expect(resizes).toEqual(['80x18', '70x16']);
+  });
+
+  /** A controller with a renderer that notes what it's given, in a room `own` CSS pixels wide
+   *  and tall drawn `zoom` times bigger, as a card's CSS zoom draws it. */
+  function fitted(own: { width: number; height: number }, zoom: number, focused: () => boolean) {
+    vi.stubGlobal('window', { devicePixelRatio: 1 });
+    vi.stubGlobal('getComputedStyle', () => ({ fontSize: '12px', lineHeight: '16px', fontFamily: 'monospace', getPropertyValue: () => '' }));
+    vi.stubGlobal('document', { documentElement: {}, createElement: () => ({ getContext: () => null }), hasFocus: focused });
+    const wrap = { offsetWidth: own.width, getBoundingClientRect: () => ({ width: own.width * zoom, height: own.height * zoom }) } as unknown as HTMLElement;
+    const canvas = { width: 0, height: 0, style: {} as Record<string, string> } as unknown as HTMLCanvasElement;
+    const given: string[] = [];
+    const renderer: Renderer = {
+      kind: 'canvas2d',
+      resize(width: number, height: number, cellW: number, cellH: number, _baseline: number, font: Font) {
+        canvas.width = width;
+        canvas.height = height;
+        given.push(`${width}x${height} cell ${cellW}x${cellH} font ${font.size}`);
+      },
+      draw: () => {},
+      dispose: () => {},
+    };
+    const c = new TerminalController('t', wrap, canvas, { onLeave: () => {}, onUnsafePaste: () => {}, onError: () => {}, onPointer: () => {} });
+    (c as unknown as { renderer: Renderer }).renderer = renderer;
+    return { c, canvas, given };
+  }
+
+  it('in a card drawn at a zoom, measures the cell at the card’s scale and fills what it has on the screen', () => {
+    // At 125% the font is 15 pixels and the cell 9 by 20, so 560 by 288 on the screen holds 62
+    // by 14 cells; the canvas, in the card's own pixels, comes out that size on the screen.
+    const { c, canvas, given } = fitted({ width: 448, height: 230.4 }, 1.25, () => true);
+    resizes.length = 0;
+    c.fit(true);
+    expect(given).toEqual(['558x280 cell 9x20 font 15']);
+    expect(canvas.style.width, 'drawn 1.25 times bigger, 558 pixels on the screen').toBe('446.4px');
+    expect(resizes).toEqual(['62x14']);
+  });
+
+  it('gives its size only from the window you’re in, and again as you come back to it', () => {
+    let focused = false;
+    const { c } = fitted({ width: 560, height: 288 }, 1, () => focused);
+    resizes.length = 0;
+    c.fit(true);
+    expect(resizes, 'another window that shows it keeps its size meanwhile').toEqual([]);
+    focused = true;
+    c.give();
+    expect(resizes).toEqual(['80x18']);
+    c.give();
+    expect(resizes, 'and each time you come back, as another may have given its own').toEqual(['80x18', '80x18']);
   });
 });

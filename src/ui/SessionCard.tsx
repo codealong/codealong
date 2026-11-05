@@ -5,7 +5,9 @@
 // came from and that came of it), the session's menu on ⋯ and on a right-click, the menus of the
 // PRs and sessions the header names, and the Sessions list's shortcuts for the session shown:
 // ⌘E marks it seen, ⌃⌘A archives it, ⌃⌘R renames it, ⌃⌘P pins it in Sessions and ⌃` opens a
-// terminal in its folder, each shown beside its item in the menu. It draws at the zoom, ⌘= ⌘- ⌘0
+// terminal in its folder, each shown beside its item in the menu. Its terminals of Codealong's own
+// show in the drawer under its box, as in the main window's panel, so what Run on a command in its
+// conversation prints shows in the card you ran it from. It draws at the zoom, ⌘= ⌘- ⌘0
 // zoom it as they do the board's windows (zoom.ts, cardHost.ts `zoomKey`), and ⌘R reloads what it
 // shows (cardHost.ts `reloadKey`).
 //
@@ -25,14 +27,18 @@ import { errorText, type Report } from '../report';
 import { useLatest } from '../latest';
 import { sessionContext } from '../sessionContext';
 import { useStartAccounts } from '../startAccounts';
-import type { Board, Lane, Pr, PrItem, Session, Todo } from '../types';
+import { besideOf, ownTerminalFor } from '../terminals';
+import type { Board, Lane, Pr, PrItem, Session, TerminalGlance, Todo } from '../types';
 import { reloadKey, zoomKey } from './cardHost';
 import { dialogUp } from './focusTrap';
 import { MergeDoneDialog } from './MergeDone';
+import { runFolder } from './RunButton';
 import { SessionPanel, type SessionPanelProps } from './SessionPanel';
 
 /** What the card reads from the board: what's around the session, and what's pinned in Sessions. */
-export type CardBoard = Pick<Board, 'prs' | 'lanes' | 'todos' | 'sides' | 'nudgeAbout' | 'reviews' | 'repos' | 'teamFiles'> & { pinned?: string[] };
+export type CardBoard = Pick<Board, 'prs' | 'lanes' | 'todos' | 'sides' | 'nudgeAbout' | 'reviews' | 'repos' | 'teamFiles' | 'terminals'> & { pinned?: string[] };
+
+const NO_TERMINALS: TerminalGlance[] = [];
 
 /** What a window does for a session's actions (menus.ts `SessionCan`), less what the card knows
  *  for every window: the apps, what's on the desktop, the pin and the shortcuts. A window that has
@@ -96,6 +102,10 @@ export function SessionCard({ lane, session, apps, now, board, can, canFor, outg
     desktop: onDesktop,
     pin: pinItem(board, s, report),
     mergeDone: board ? { prs: board.prs, ask: setMergingDone } : undefined,
+    // Its terminal under its box, for the session shown; another the header names opens its
+    // folder in your terminal app, as it has no drawer here. The terminal it runs in isn't in a
+    // card's drawer (SessionPanel.tsx), so with only that one, ⌃` opens a shell beside it.
+    ownTerminal: s.key === session.key ? ownTerminalFor(s.key, runFolder(lane, s), apps.runIn, besideOf(board?.terminals?.[s.key] ?? NO_TERMINALS), (e: unknown) => report.error(errorText(e))) : undefined,
     keys: 'chords',
   });
   const mine = whole(session, can);
@@ -171,6 +181,7 @@ export function SessionCard({ lane, session, apps, now, board, can, canFor, outg
       onShowSchedule={(id) => void showMain({ kind: 'schedule', id })}
       onShowSession={onShowSession}
       onSessionMenu={(l, s) => show(menus.sessionMenu(l, s, whole(s, canFor(l, s))))}
+      terminals={board?.terminals?.[session.key] ?? NO_TERMINALS}
       dialog={mergingDone && <MergeDoneDialog ask={mergingDone} onClose={() => setMergingDone(null)} />}
     />
   );

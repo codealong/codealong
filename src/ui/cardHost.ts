@@ -46,7 +46,8 @@ export interface LiveSession {
   /** The zoom, in percent, once a board has said. */
   zoom: number | null;
   /** The board's PRs, worktrees and todos, for what the header says around the session and for
-   *  PR links in the conversation. The last ones stay for the next session shown. */
+   *  PR links in the conversation, and its terminals of Codealong's own, for the drawer under its
+   *  box. The last ones stay for the next session shown. */
   board: CardBoard | null;
   /** The device it's on, when that's another of yours, as your devices last said: whether it's
    *  connected and takes prompts from here (SessionPanel.tsx). */
@@ -69,7 +70,7 @@ export function useLiveSession(told: Told | null, shown: boolean): LiveSession {
   // The theme and zoom as the latest push says, for one the board doesn't list (another device's).
   const [look, setLook] = useState<{ theme: Theme; zoom: number | null } | null>(null);
   const [board, setBoard] = useState<CardBoard | null>(null);
-  const takeBoard = useCallback((b: Board) => setBoard((prev) => reuse(prev, { prs: b.prs, lanes: b.lanes, todos: b.todos, sides: b.sides, pinned: b.pinned, nudgeAbout: b.nudgeAbout, reviews: b.reviews, repos: b.repos, teamFiles: b.teamFiles })), []);
+  const takeBoard = useCallback((b: Board) => setBoard((prev) => reuse(prev, { prs: b.prs, lanes: b.lanes, todos: b.todos, sides: b.sides, pinned: b.pinned, nudgeAbout: b.nudgeAbout, reviews: b.reviews, repos: b.repos, teamFiles: b.teamFiles, terminals: b.terminals })), []);
   const toldNow = useRef(told);
   toldNow.current = told;
 

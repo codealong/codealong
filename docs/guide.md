@@ -2695,8 +2695,11 @@ the next launch.
 
 ### Terminals under a session
 
-A session on this Mac can have terminals of Codealong's own, in a drawer under its box in the
-main window: ⌃` (or New terminal in the session's menu) opens one in the folder the session works
+A session on this Mac can have terminals of Codealong's own, in a drawer under its box, in the
+main window and wherever else the session shows as a card (the notch, the peek, a session kept on
+the desktop, the waiting window), so Run on a command in its conversation shows what it prints
+under the box you ran it from. There the drawer takes at most half the card. ⌃` (or New terminal
+in the session's menu) opens one in the folder the session works
 in, with the keyboard, and from the box again shows the drawer; ⌃` in a terminal hides the drawer
 and gives the box the keyboard back, as VS Code's ⌃` hides its terminal. Each is a tab along the drawer's top, named by the title its program sets, else the
 program running in it (`vim`, `npm`), else its shell; + opens another, × closes one (ending what
@@ -2709,7 +2712,11 @@ triple-click a line; ⌘C copies the selection, ⌘V pastes (a paste with line b
 that would run each line asks first), ⌘A selects everything, and ⌘-click opens a web address.
 A right-click has Copy, Select all and Copy all text, which copies its scrollback too. ⌘ keys stay
 Codealong's; ⌃ and ⌥ go to the program. On Linux copy and paste are Ctrl+Shift+C and V, and Ctrl
-alone goes to the program.
+alone goes to the program. So in the notch, with a terminal holding the keyboard, Escape goes to
+the program (Claude Code's interrupt, say) rather than putting the notch away: ⌘W puts it away,
+⌃` goes back to the box, and the ⌘ keys for what waits on you (⌘] next, ⌘[ back, ⌘E seen) work
+as before. A terminal showing in two windows at once has one size and one set of colors, which it
+takes from the window you're in; the other draws it as it is until you come back to it.
 
 The picture-in-picture button beside the chevron pops the terminal shown out into a window of its
 own, beside the main window, floating over every window as a kept session does; the drawer then
