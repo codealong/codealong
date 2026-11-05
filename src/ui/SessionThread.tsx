@@ -73,6 +73,7 @@ import { Button, Chip, cx, Icon, Rich, StatusGlyph } from './primitives';
 import { useAside } from '../side';
 import { waitsInBackground } from '../lanes';
 import { answeredOf, QuestionList } from './QuestionList';
+import { unfoldQuestions, useQuestionsBox } from '../questionsBox';
 import { RunContext, type RunPlace } from './RunButton';
 import { useReloads } from '../reload';
 import { errorText } from '../report';
@@ -294,17 +295,34 @@ function MadeLine({ link }: { link: NonNullable<TranscriptItem['link']> }) {
   );
 }
 
-function ToolLine({ item, result, state, onOpen }: { item: TranscriptItem; result?: TranscriptItem; state: 'done' | 'running' | 'asks' | 'open'; onOpen?: () => void }) {
+/** The box of questions under the conversation, for the line of the call whose questions it
+ *  shows (questionsBox.ts): whether they're minimized there, and what shows them again. */
+interface BoxBelow {
+  state: 'open' | 'folded';
+  show: () => void;
+}
+
+function ToolLine({ item, result, state, onOpen, below }: { item: TranscriptItem; result?: TranscriptItem; state: 'done' | 'running' | 'asks' | 'open'; onOpen?: () => void; below?: BoxBelow | null }) {
   const questions = item.questions?.length ? item.questions : null;
   // Questions it waits on you for show without a click, unless the reply area below shows them.
   const [open, setOpen] = useState(!!questions && state === 'asks' && !!onOpen);
+  // Where the box below shows them, a click shows the box once it's minimized, and opens no copy
+  // of them here, which couldn't be answered.
+  const box = questions && state === 'asks' && below ? below : null;
   const output = item.output ?? result?.output;
   const failed = item.failed || !!result?.failed;
   const detail = questions || item.input || output;
   const link = item.link ?? result?.link;
   return (
     <div className={cx('ca-thread-tool', failed && 'is-failed', state === 'asks' && 'is-asks')}>
-      <button type="button" className="ca-thread-toolhead" aria-expanded={open} disabled={!detail} onClick={() => setOpen(!open)}>
+      <button
+        type="button"
+        className="ca-thread-toolhead"
+        aria-expanded={box ? box.state === 'open' : open}
+        disabled={box ? box.state === 'open' : !detail}
+        title={box?.state === 'folded' ? 'Show the questions' : undefined}
+        onClick={() => (box ? box.show() : setOpen(!open))}
+      >
         <Icon name={questions ? 'help' : item.sent ? 'paperclip' : toolIcon(item.text)} size={13} />
         <span className="ca-thread-toollabel">
           <Rich text={questions ? questionsLine(questions) : item.text} now={0} />
@@ -318,7 +336,7 @@ function ToolLine({ item, result, state, onOpen }: { item: TranscriptItem; resul
         ) : result || item.output != null ? (
           <Icon name="check" size={12} stroke={2.25} title="Done" />
         ) : null}
-        {detail && <Icon name={open ? 'chevron-down' : 'chevron-right'} size={12} />}
+        {box ? box.state === 'folded' && <Icon name="chevron-up" size={12} /> : detail && <Icon name={open ? 'chevron-down' : 'chevron-right'} size={12} />}
       </button>
       {link && <MadeLine link={link} />}
       {item.sent && (
@@ -342,7 +360,7 @@ function ToolLine({ item, result, state, onOpen }: { item: TranscriptItem; resul
           </button>
         </div>
       )}
-      {open && questions && (
+      {open && questions && !box && (
         <div className="ca-thread-tooldetail">
           <QuestionList questions={questions} answers={result?.answers} />
           {/* Declined, or refused: why, from its result. Answered, the picks above say it all. */}
@@ -1136,6 +1154,10 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
   }, [items]);
   const busy: Status[] = ['needs', 'working'];
   const askHere = answeredBelow ? undefined : onOpen;
+  // The box below, while it shows the questions the session waits on you for. Questions stay out
+  // of a run of calls, so only a line of its own is theirs.
+  const boxState = useQuestionsBox(s.key);
+  const below = useMemo(() => (boxState ? { state: boxState, show: () => unfoldQuestions(s.key) } : null), [boxState, s.key]);
   const stateOf = (it: TranscriptItem): 'done' | 'running' | 'asks' | 'open' => {
     if (keyOf(it) !== pending || !busy.includes(s.status)) return 'done';
     return s.status === 'needs' ? 'asks' : 'running';
@@ -1182,7 +1204,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
                 if (r.kind === 'tools') return <ToolRun key={keyOf(r.calls[0].item)} calls={r.calls} stateOf={stateOf} onOpen={askHere} />;
                 if (r.kind === 'answers') return <Said key={keyOf(r.result)} item={r.result} asked={r.questions} now={now} label="You" head={headings.headed.get(keyOf(r.result))} onMenu={onMenu} />;
                 const it = r.item;
-                if (it.kind === 'tool') return <ToolLine key={keyOf(it)} item={it} result={r.result} state={stateOf(it)} onOpen={askHere} />;
+                if (it.kind === 'tool') return <ToolLine key={keyOf(it)} item={it} result={r.result} state={stateOf(it)} onOpen={askHere} below={below} />;
                 if (it.kind === 'note') {
                   // Where the turn was stopped stands out: otherwise only the call it cut short,
                   // marked failed, said so.

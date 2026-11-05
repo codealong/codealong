@@ -113,6 +113,7 @@ import { Markdown } from './Markdown';
 import { ModeLabel, ModeMenu, nextMode } from './ModeLabel';
 import { BoxText, Button, Chip, cx, Icon, OneLine, Rich, Seg } from './primitives';
 import { nextQuestion, QuestionList, QuestionWhy } from './QuestionList';
+import { foldQuestions, showQuestions, useQuestionsFolded } from '../questionsBox';
 import { BoxPlace, offersResume, SessionAgent } from './SessionAgent';
 import { placeIcon } from './StartControls';
 import { ContextMeter } from './ContextMeter';
@@ -1230,10 +1231,6 @@ function useUnanswered(s: Session): Unanswered | null {
   return said && said.since === (s.statusSince ?? null) ? said : null;
 }
 
-/** The call whose questions you minimized, by session, so its box stays minimized as you go to
- *  another session and back. The next call it waits on shows whole, whatever it asks. */
-const minimized = new Map<string, string>();
-
 /** The picks and words of answers that didn't go, for the questions' box to have again. The box
  *  sent each choice as its own label and your words as one more (`Questions`), so they're taken
  *  apart as that, never split. */
@@ -1370,14 +1367,13 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
     });
   };
 
-  // Its questions' box minimized to its head, to read the conversation above while you think.
-  const [minimizedCall, setMinimizedCall] = useState(() => minimized.get(s.key) ?? null);
-  const folded = !!pending?.questions?.length && minimizedCall === pending.id;
+  // Its questions' box minimized to its head, to read the conversation above while you think. The
+  // conversation's line for the call shows it again (questionsBox.ts).
+  const asking = pending?.questions?.length ? pending.id : null;
+  useEffect(() => (asking === null ? undefined : showQuestions(s.key, asking)), [s.key, asking]);
+  const folded = useQuestionsFolded(s.key, asking);
   const fold = (on: boolean) => {
-    if (!pending) return;
-    if (on) minimized.set(s.key, pending.id);
-    else minimized.delete(s.key);
-    setMinimizedCall(on ? pending.id : null);
+    if (asking !== null) foldQuestions(s.key, asking, on);
   };
 
   const where = sessionPlace(s, terminal);

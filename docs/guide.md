@@ -811,8 +811,9 @@ peek under a tall header, say), the conversation gives up its room first, then t
 choices scroll together while your own answer's box and the buttons stay in view. The arrow at the
 end of the box's head minimizes it to that head, which says the question on one line, so you can
 read the conversation above while you think about your answer; a click on the question, the arrow
-again, or ⌘⏎ where ⌘⏎ answers (the waiting window) shows the box again with your picks as you left
-them. It stays minimized as you go to another session and back, until the session asks you
+again, the call's own *Asks you* line in the conversation, or ⌘⏎ where ⌘⏎ answers (the waiting
+window) shows the box again with your picks as you left them. While the box shows the questions,
+that line opens no copy of them, which couldn't be answered. It stays minimized as you go to another session and back, until the session asks you
 again. Your picks, your own words and the question you were on are kept until you answer: go to
 another session and back, open the same session in the peek, the notch or the waiting window, or
 restart Codealong, and the box has them as you left them, newer than an answer that didn't go.

@@ -2,8 +2,10 @@
 // box's head leaves the head alone, saying the question showing on one line and how many more
 // there are, and gives the room to the conversation above; a click on the question (or ⌘⏎, where
 // ⌘⏎ answers) shows the box again with your picks and the question you were on, and answers
-// nothing. In the main window the box stays minimized as you go to another session and back, and
-// the next call it waits on shows whole though it asks the same. ⌘⏎ is Ctrl+Enter on Linux.
+// nothing. The conversation's line for the call never opens a copy of its questions that can't be
+// answered: minimized, a click on it shows the box again. In the main window the box stays
+// minimized as you go to another session and back, and the next call it waits on shows whole
+// though it asks the same. ⌘⏎ is Ctrl+Enter on Linux.
 //   PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/questions-minimize-check.js
 //   PREVIEW_WAIT=30000 scripts/preview.sh waiting '' scripts/preview/questions-minimize-check.js
 //   PREVIEW_WAIT=30000 PREVIEW_PLATFORM=linux scripts/preview.sh waiting '' scripts/preview/questions-minimize-check.js
@@ -29,6 +31,17 @@
     if (cmd === 'session_pending' && picked && (args || {}).key === picked.key) {
       window.__calls.push([cmd, args, options]);
       return Promise.resolve(pending);
+    }
+    // Its conversation ends on the call it waits on.
+    if (cmd === 'session_page' && picked && (args || {}).key === picked.key) {
+      window.__calls.push([cmd, args, options]);
+      var at = Date.now() - 10 * 60e3;
+      var item = function (n, kind, text, extra) { return Object.assign({ at: at + n * 60e3, kind: kind, text: text, failed: false, cursor: n, n: 0 }, extra || {}); };
+      return Promise.resolve({ before: null, after: 3, items: [
+        item(0, 'you', 'Set up the review'),
+        item(1, 'agent', 'Two things to settle first.'),
+        item(2, 'tool', 'AskUserQuestion', { id: 'toolu_wait', input: '{ "questions": [] }', questions: pending.questions }),
+      ] });
     }
     if (cmd === 'session_answer') {
       window.__calls.push([cmd, args, options]);
@@ -68,6 +81,9 @@
   var fold = function () { return q('.ca-approval-fold', box()); };
   var folded = function () { return q('.ca-approval-folded', box()); };
   var thread = function () { return q('.ca-thread', box().parentElement); };
+  // The conversation's line for the call it waits on, and its head.
+  var line = function () { return q('.ca-thread-tool.is-asks', thread()); };
+  var lineHead = function () { return q('.ca-thread-toolhead', line()); };
   var choice = function (text) {
     return all('.ca-question-choice', box()).filter(function (b) { return q('.ca-question-choice-label > span', b).textContent.trim() === text; })[0];
   };
@@ -91,6 +107,13 @@
     })
     .then(function () {
       choice('Tue').click();
+      // While the box shows the questions, their line above opens no copy of them.
+      check('its line in the conversation', !!line() && /Color, Days/.test(lineHead().textContent), line() ? lineHead().textContent : 'none');
+      if (!lineHead().disabled) lineHead().click();
+      return wait(100);
+    })
+    .then(function () {
+      check('opens no copy of the questions while the box shows them', !q('.ca-questions', line()));
       before = thread().clientHeight;
       check('a button minimizes it', !!fold() && fold().getAttribute('aria-expanded') === 'true' && fold().getAttribute('aria-label') === 'Minimize');
       fold().click();
@@ -105,42 +128,58 @@
       check('the conversation takes the room', thread().clientHeight > before + 100, before + ' → ' + thread().clientHeight);
       check('the button shows it again', fold().getAttribute('aria-expanded') === 'false' && fold().getAttribute('aria-label') === 'Show the questions');
       if (window.__questions_minimized) return;
-      // Where ⌘⏎ answers (the waiting window), minimized it shows the box again instead.
-      if (listed) folded().click();
-      else key(document.body, { key: 'Enter', code: 'Enter', metaKey: !linux, ctrlKey: linux });
-      return until(function () { return !folded() && q('.ca-question-choice', box()); }, 2000, 'the box shown again').then(function () {
-        check(listed ? 'a click on the question shows it again' : '⌘⏎ shows it again', true);
-        check('on the question it was on', /Which days/.test(showing()), showing());
-        check('with your picks', on(choice('Tue')) && !on(choice('Mon')) && !!q('.ca-question-steps button svg', box()));
-        check('and answers nothing', !answered());
-        if (!listed || !other) return;
-        // Minimized, it stays so as you go to another session and back.
-        fold().click();
-        return until(function () { return folded(); }, 2000, 'minimized again')
-          .then(function () {
-            choose(other);
-            return until(function () { return !box(); }, 3000, 'another session');
-          })
-          .then(function () {
-            choose(picked);
-            return until(function () { return box(); }, 5000, 'the session again');
-          })
-          .then(function () {
-            check('back again, it stays minimized', !!folded() && !q('.ca-question-choice', box()));
-            // Another call that asks the same, once this one's answered where it runs.
-            pending = Object.assign({}, pending, { id: 'ask-13' });
-            choose(other);
-            return until(function () { return !box(); }, 3000, 'another session');
-          })
-          .then(function () {
-            choose(picked);
-            return until(function () { return box() && q('.ca-question-choice', box()); }, 5000, 'the next call');
-          })
-          .then(function () {
-            check('the next call shows whole, though it asks the same', !folded());
-          });
-      });
+      // Minimized, its line in the conversation shows the box again, rather than a copy of the
+      // questions that can't be answered.
+      check('its line shows the box again', !!lineHead() && !lineHead().disabled && lineHead().title === 'Show the questions' && lineHead().getAttribute('aria-expanded') === 'false', lineHead() ? lineHead().title : 'none');
+      lineHead().click();
+      return until(function () { return !folded() && q('.ca-question-choice', box()); }, 2000, 'the box shown from its line')
+        .then(function () {
+          check('a click on its line shows the box again', !q('.ca-questions', line()));
+          check('on the question it was on, with your picks', /Which days/.test(showing()) && on(choice('Tue')), showing());
+          fold().click();
+          return until(function () { return folded(); }, 2000, 'minimized again');
+        })
+        .then(showAgain);
     })
     .then(done)
     .catch(stopped);
+
+  // A click on the head (or ⌘⏎, where ⌘⏎ answers) shows the box again too.
+  function showAgain() {
+    // Where ⌘⏎ answers (the waiting window), minimized it shows the box again instead.
+    if (listed) folded().click();
+    else key(document.body, { key: 'Enter', code: 'Enter', metaKey: !linux, ctrlKey: linux });
+    return until(function () { return !folded() && q('.ca-question-choice', box()); }, 2000, 'the box shown again').then(function () {
+      check(listed ? 'a click on the question shows it again' : '⌘⏎ shows it again', true);
+      check('on the question it was on', /Which days/.test(showing()), showing());
+      check('with your picks', on(choice('Tue')) && !on(choice('Mon')) && !!q('.ca-question-steps button svg', box()));
+      check('and answers nothing', !answered());
+      if (!listed || !other) return;
+      // Minimized, it stays so as you go to another session and back.
+      fold().click();
+      return until(function () { return folded(); }, 2000, 'minimized again')
+        .then(function () {
+          choose(other);
+          return until(function () { return !box(); }, 3000, 'another session');
+        })
+        .then(function () {
+          choose(picked);
+          return until(function () { return box(); }, 5000, 'the session again');
+        })
+        .then(function () {
+          check('back again, it stays minimized', !!folded() && !q('.ca-question-choice', box()));
+          // Another call that asks the same, once this one's answered where it runs.
+          pending = Object.assign({}, pending, { id: 'ask-13' });
+          choose(other);
+          return until(function () { return !box(); }, 3000, 'another session');
+        })
+        .then(function () {
+          choose(picked);
+          return until(function () { return box() && q('.ca-question-choice', box()); }, 5000, 'the next call');
+        })
+        .then(function () {
+          check('the next call shows whole, though it asks the same', !folded());
+        });
+    });
+  }
 })();
