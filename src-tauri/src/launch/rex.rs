@@ -170,6 +170,11 @@ impl Terminal for Rex {
         true
     }
 
+    /// It's asked which tab you're in, and leaves that one.
+    fn spares_yours(&self) -> bool {
+        true
+    }
+
     fn close_tabs(&self, tabs: &[&Closing]) -> Result<Vec<Result<()>>> {
         close_tty_terminals(tabs, APP, ttys, in_front, close)
     }

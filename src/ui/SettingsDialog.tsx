@@ -799,7 +799,7 @@ function LimitsField({ cfg, disabled, onSave }: PaneProps) {
         <span>Hibernate idle sessions</span>
         <Seg className="ca-settings-theme" label="Hibernate idle sessions" options={hibernateOptions(hibernateAfter)} value={hibernateAfter} onPick={(id) => id !== hibernateAfter && saveSessions({ hibernate_after: id })} />
         <small>
-          A session in a terminal that has sat idle this long, with nothing typed in its terminal since its turn ended, has its tab closed, which ends its agent’s process and frees what that holds. It stays in your lists, and opening it or replying to it resumes it in a new tab. Not one whose last reply may ask you something, that left a command running, whose helper is still at work, or whose tab you’re in. Claude Code’s background jobs are left alone: Close idle sessions in the File menu stops them.
+          A session in a Ghostty, iTerm2, Terminal or Rex tab that has sat idle this long, with nothing typed there since the last prompt you sent it, has its tab closed, which ends its agent’s process and frees what that holds. It stays in your lists, and opening it or replying to it resumes it in a new tab. Not one whose last reply may ask you something, that left a command running, whose helper is still at work, or whose tab you’re in. Sessions in tmux or in Codealong’s own terminals, and Claude Code’s background jobs, are left alone: Close idle sessions in the File menu closes them.
         </small>
       </div>
     </fieldset>

@@ -469,9 +469,9 @@ pub struct SessionsCfg {
     /// started after it's on: Claude Code reads hooks as a session starts. Off until turned on.
     #[serde(default)]
     pub live_replies: bool,
-    /// A session in a terminal left idle this many minutes, wanting nothing from you, is
-    /// hibernated: its terminal tab closes, ending its agent's process and what that holds, and a
-    /// click on it or a reply resumes it (hibernate.rs). 0, the default, is off.
+    /// A session in a terminal tab left idle this many minutes, wanting nothing from you, is
+    /// hibernated: its tab closes, ending its agent's process and what that holds, and a click on
+    /// it or a reply resumes it (hibernate.rs). 0, the default, is off.
     #[serde(default)]
     pub hibernate_after: u32,
 }

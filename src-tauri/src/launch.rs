@@ -163,6 +163,12 @@ pub trait Terminal: Sync {
         false
     }
 
+    /// Whether closing its tabs (`close_tabs`) leaves the one you're in, so they may close with
+    /// nobody asking (hibernate.rs): one pulled from under you is worse than one left open.
+    fn spares_yours(&self) -> bool {
+        false
+    }
+
     /// Hangs up what runs in tabs and closes them, all at once (`close_terminals`). One result
     /// per tab, in order; an error when it couldn't be asked at all.
     fn close_tabs(&self, _tabs: &[&Closing]) -> Result<Vec<Result<()>>> {

@@ -11,21 +11,29 @@
 //! when every session in it can close), and leaves a session alone besides when:
 //! - a click couldn't bring it back: its harness can't resume it in a terminal, or its account is
 //!   turned off;
-//! - anything was typed in its terminal since its turn ended, which may be a prompt you're
-//!   writing in its box, and would go with it. What's typed is read by the agent, which moves the
-//!   terminal device's access time (`typed_at`). Its modification time is no help: idle Claude
-//!   Code sessions write to their terminals every few minutes (2.1.318, 2026-11-05: every one
-//!   here had within the half hour, some idle for a day). When that can't be told, it stays;
+//! - anything was typed in its terminal since the last prompt you sent it: a prompt you're writing
+//!   in its box, begun while it worked or after, would go with it. That keeps one whose turn you
+//!   answered a question in too, until its next prompt. What's typed is read by the agent, which
+//!   moves the terminal device's access time (`typed_at`). Its modification time is no help: idle
+//!   Claude Code sessions write to their terminals every few minutes (2.1.318, 2026-11-05: every
+//!   one here had within the half hour, some idle for a day). When that can't be told, it stays;
 //! - a session it started is still at work, or waits on you, which it may be waiting to hear back
 //!   from;
 //! - it's an automatic review's, which reviewdone.rs ends;
-//! - its tab is the one you're in, which closing leaves (`launch::close_session_terminals`).
+//! - its terminal isn't one whose closing leaves the tab you're in (`Terminal::spares_yours`):
+//!   Ghostty, iTerm2, Terminal and Rex are; tmux panes and Codealong's own terminals aren't.
 //!
 //! Claude Code's background jobs are left alone: Close idle sessions stops one. Its background
 //! service retires a job left idle for an hour, but not, as far as was seen here, one a tab is
 //! attached to (`claude attach`): jobs attached for a day and more ran on (2.1.317, 2026-11-05).
+//!
+//! The server looks once a minute on a thread of its own (`spawn`), not as the board changes: a
+//! board that sits still is what a session crossing the wait looks like. Each session is looked at
+//! again, board and keys, just before its terminal closes; what's left is the moment the closing
+//! takes (Ghostty's tab found by its mark, then hung up).
 
 use std::collections::HashMap;
+use std::time::Duration;
 
 use serde::Serialize;
 
@@ -35,15 +43,15 @@ use crate::idle::{Ends, Idle, Kept};
 use crate::model::{Board, OriginHow, Session, Status};
 
 /// How long after it was tried a session that didn't hibernate is tried again: one typed in, or
-/// whose tab couldn't be found or closed, isn't asked about at every board.
+/// whose tab couldn't be found or closed, isn't asked about at every look.
 const RETRY_MS: i64 = 30 * 60_000;
 
-/// How often the board is looked at for what may hibernate: the wait is minutes at least.
-const LOOK_EVERY_MS: i64 = 60_000;
+/// How often the server looks for what may hibernate: the wait is minutes at least.
+const LOOK_EVERY: Duration = Duration::from_secs(60);
 
-/// Keys read just before a turn's end was written down count as before it: the answer or the
-/// Escape that ended it.
-const TYPED_SLACK_MS: i64 = 2_000;
+/// Keys read a moment before its prompt was written down are the prompt's: its Return, or a
+/// paste's.
+const PROMPT_SLACK_MS: i64 = 1_000;
 
 /// The wait, in ms; 0 when it's off.
 pub fn after_ms(cfg: &Config) -> i64 {
@@ -62,11 +70,12 @@ pub struct Plan {
 
 /// What the plan asks of this Mac, so its rules are tested without one.
 pub struct Looks<'a> {
-    /// Whether a process runs in a tab Codealong can close (`idle::plan`'s `closable`).
+    /// Whether a process runs in a tab that may close with nobody asking (`idle::plan`'s
+    /// `closable`).
     pub closable: &'a dyn Fn(u32) -> bool,
     /// When something was last typed in the terminal a process runs in, None when that can't be
-    /// told. None itself when it isn't asked: the look `Hibernator::due` takes at a board, which
-    /// leaves it to the look before closing (`now`).
+    /// told. None itself when it isn't asked: `Hibernator::due`'s look, which leaves it to the
+    /// look just before closing (`one`).
     pub typed: Option<&'a dyn Fn(u32) -> Option<i64>>,
 }
 
@@ -91,17 +100,19 @@ pub fn plan(board: &Board, cfg: &Config, now: i64, after_ms: i64, looks: &Looks)
 /// Why the terminal `c` stays open, though Close idle sessions would close it; None when it may
 /// hibernate.
 fn keeps(board: &Board, cfg: &Config, c: &Idle, looks: &Looks) -> Option<String> {
+    let mut prompted = 0;
     for key in std::iter::once(&c.key).chain(&c.with) {
         let Some((_, s)) = board.session(key) else { return Some("it just changed".into()) };
         if let Some(why) = keeps_session(board, cfg, s) {
             return Some(why);
         }
+        prompted = prompted.max(s.last_prompt_at);
     }
-    // Not asked at a board's look: the look before closing asks.
+    // Not asked at `Hibernator::due`'s look: the look before closing asks.
     let typed = looks.typed?;
     match c.pid.and_then(typed) {
         None => Some("couldn't tell when its terminal was last typed in".into()),
-        Some(at) if at > c.last_activity + TYPED_SLACK_MS => Some("something was typed in its terminal since its turn ended".into()),
+        Some(at) if at > prompted + PROMPT_SLACK_MS => Some("something was typed in its terminal since its last prompt".into()),
         Some(_) => None,
     }
 }
@@ -130,70 +141,67 @@ fn started_by(o: &Session, key: &str) -> bool {
     o.helper.as_ref().and_then(|h| h.parent.as_deref()) == Some(key) || o.origin.as_ref().is_some_and(|g| g.how == OriginHow::Started && g.key == key)
 }
 
-/// What's been tried, so the server hibernates each session once, a batch at a time.
+/// What's been tried, so the server tries each session once in a while.
 #[derive(Default)]
 pub struct Hibernator {
     /// When each session was last handed out, kept for `RETRY_MS`.
     tried: HashMap<String, i64>,
-    /// A batch is under way.
-    running: bool,
-    /// When the board is next looked at.
-    next_look: i64,
 }
 
 impl Hibernator {
     /// What's due to hibernate at `now` (ms), by the board alone, each marked tried: the sessions
-    /// naming the terminals that may close, which `now` looks at again with this Mac's answers.
-    /// Nothing while it's off, while a batch is under way, or within a minute of the last look.
+    /// naming the terminals that may close, which `one` looks at again with this Mac's answers.
+    /// Nothing while it's off, or while the board is still loading.
     pub fn due(&mut self, board: &Board, cfg: &Config, now: i64) -> Vec<String> {
         let after_ms = after_ms(cfg);
-        if after_ms == 0 || self.running || now < self.next_look {
+        if after_ms == 0 || board.loading {
             return Vec::new();
         }
-        self.next_look = now + LOOK_EVERY_MS;
         self.tried.retain(|_, at| now - *at < RETRY_MS);
         let looks = Looks { closable: &|_| true, typed: None };
         let due: Vec<String> = plan(board, cfg, now, after_ms, &looks).hibernate.into_iter().map(|c| c.key).filter(|k| !self.tried.contains_key(k)).collect();
-        if !due.is_empty() {
-            self.running = true;
-            self.tried.extend(due.iter().map(|k| (k.clone(), now)));
-        }
+        self.tried.extend(due.iter().map(|k| (k.clone(), now)));
         due
-    }
-
-    /// The batch `due` handed out is over, however it went.
-    pub fn ended(&mut self) {
-        self.running = false;
     }
 }
 
-/// Hibernates the sessions of `keys` (`Hibernator::due`) that may, looked at again now with this
-/// Mac's answers: which tabs Codealong can close, and when each was last typed in. What it did
-/// goes in the server's log.
-pub fn now(engine: &Handle, keys: &[String]) {
-    let cfg = match crate::config::current() {
-        Ok(cfg) => cfg,
-        Err(e) => return eprintln!("Couldn't read config.toml to hibernate idle sessions: {e:#}"),
-    };
-    let after_ms = after_ms(&cfg);
-    if after_ms == 0 {
-        return;
+/// Looks once a minute, for as long as the server runs, and hibernates what's due, one session
+/// at a time. What it did goes in the server's log.
+pub fn spawn(engine: Handle) {
+    let started = std::thread::Builder::new().name("codealong-hibernate".into()).spawn(move || {
+        let mut hibernator = Hibernator::default();
+        loop {
+            std::thread::sleep(LOOK_EVERY);
+            let Ok(cfg) = crate::config::current() else { continue };
+            for key in hibernator.due(&engine.board(), &cfg, crate::util::now_ms()) {
+                // One that goes wrong doesn't stop the looks.
+                if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| one(&engine, &cfg, &key))).is_err() {
+                    eprintln!("Hibernating {key} stopped partway.");
+                }
+            }
+        }
+    });
+    if let Err(e) = started {
+        eprintln!("codealong: idle sessions won't hibernate: {e}");
     }
+}
+
+/// Hibernates the session `key` if it still may, with the board as it is now and this Mac asked
+/// about its tab now: which tabs close with nobody asking, and when it was last typed in.
+fn one(engine: &Handle, cfg: &Config, key: &str) {
+    let after_ms = after_ms(cfg);
     let board = engine.board();
-    let fresh = plan_now(&board, &cfg, after_ms);
-    let (go, stay): (Vec<&String>, Vec<&String>) = keys.iter().partition(|k| fresh.hibernate.iter().any(|c| &c.key == *k));
-    for key in stay {
-        if let Some(k) = fresh.kept.iter().find(|k| &k.key == key) {
+    let fresh = plan_now(&board, cfg, after_ms);
+    if !fresh.hibernate.iter().any(|c| c.key == key) {
+        if let Some(k) = fresh.kept.iter().find(|k| k.key == key) {
             eprintln!("Not hibernating “{}”: {}.", k.title, k.why);
         }
-    }
-    let go: Vec<String> = go.into_iter().cloned().collect();
-    if go.is_empty() {
         return;
     }
-    for o in crate::idle::close(&board, &cfg, &go, after_ms, None) {
+    let idle_for = board.session(key).map_or(0, |(_, s)| crate::util::now_ms() - s.last_activity);
+    for o in crate::idle::close(&board, cfg, &[key.to_string()], after_ms, None) {
         match o.closed {
-            true => eprintln!("Hibernated “{}”, idle {}: its terminal closed, and a click resumes it.", o.title, crate::idle::span(crate::util::now_ms() - board.session(&o.key).map_or(0, |(_, s)| s.last_activity))),
+            true => eprintln!("Hibernated “{}”, idle {}: its terminal closed, and a click resumes it.", o.title, crate::idle::span(idle_for)),
             false => eprintln!("Couldn't hibernate “{}”: {}", o.title, o.message),
         }
     }
@@ -201,7 +209,7 @@ pub fn now(engine: &Handle, keys: &[String]) {
 
 /// The plan for the board as it is now, with this Mac asked about each terminal.
 pub fn plan_now(board: &Board, cfg: &Config, after_ms: i64) -> Plan {
-    let closable = |pid: u32| crate::launch::terminal_kind(pid).is_some_and(|t| t.closes_tabs());
+    let closable = |pid: u32| crate::launch::terminal_kind(pid).is_some_and(|t| t.closes_tabs() && t.spares_yours());
     let typed = |pid: u32| typed_at(pid);
     plan(board, cfg, crate::util::now_ms(), after_ms, &Looks { closable: &closable, typed: Some(&typed) })
 }
@@ -223,6 +231,8 @@ mod tests {
 
     const NOW: i64 = 100 * DAY_MS;
     const HOUR: i64 = 3_600_000;
+    /// How long each session's last turn took, from its prompt to its last activity.
+    const TURN: i64 = 10 * 60_000;
 
     fn session(key: &str, pid: u32, quiet_ms: i64) -> Session {
         Session {
@@ -232,6 +242,7 @@ mod tests {
             cwd: "/work".into(),
             reply_tail: Some("Pushed it.".into()),
             last_activity: NOW - quiet_ms,
+            last_prompt_at: NOW - quiet_ms - TURN,
             resume_command: Some(format!("claude --resume {key}")),
             ..crate::fixtures::session(key)
         }
@@ -268,26 +279,49 @@ mod tests {
     }
 
     #[test]
-    fn what_was_typed_since_its_turn_ended_keeps_it() {
+    fn what_was_typed_since_its_last_prompt_keeps_it() {
         let c = cfg(60);
         let b = board(vec![session("a", 1, 3 * HOUR)]);
-        let ended = NOW - 3 * HOUR;
-        // Typed to start the turn, or the key that ended it: before, as far as it goes.
-        assert_eq!(planned(&b, &c, &|_| Some(ended - HOUR)).0, ["a"]);
-        assert_eq!(planned(&b, &c, &|_| Some(ended + TYPED_SLACK_MS)).0, ["a"]);
-        // A prompt being written in its box since, or no telling, keeps it.
-        let (go, kept) = planned(&b, &c, &|_| Some(ended + 5 * 60_000));
-        assert!(go.is_empty());
-        assert_eq!(kept[0].1, "something was typed in its terminal since its turn ended");
+        let (ended, prompted) = (NOW - 3 * HOUR, NOW - 3 * HOUR - TURN);
+        // Typed before the prompt, or the prompt's own Return read a moment before it was written.
+        assert_eq!(planned(&b, &c, &|_| Some(prompted - HOUR)).0, ["a"]);
+        assert_eq!(planned(&b, &c, &|_| Some(prompted + PROMPT_SLACK_MS)).0, ["a"]);
+        // A prompt being written in its box, begun after its turn or while it worked, keeps it, as
+        // does no telling.
+        for typed in [ended + 5 * 60_000, ended - 5 * 60_000, ended + 1] {
+            let (go, kept) = planned(&b, &c, &|_| Some(typed));
+            assert!(go.is_empty(), "typed {} after the prompt", typed - prompted);
+            assert_eq!(kept[0].1, "something was typed in its terminal since its last prompt");
+        }
         assert_eq!(planned(&b, &c, &|_| None).1[0].1, "couldn't tell when its terminal was last typed in");
-        // The look at a board doesn't ask, leaving that to the look before closing.
+        // The due look doesn't ask, leaving that to the look before closing.
         assert_eq!(plan(&b, &c, NOW, after_ms(&c), &Looks { closable: &|_| true, typed: None }).hibernate.len(), 1);
+    }
+
+    #[test]
+    fn a_terminal_of_several_sessions_goes_by_the_latest_prompt_among_them() {
+        let c = cfg(60);
+        let older = session("older", 1, 5 * HOUR);
+        // Prompted after the older one's turn, in the same terminal (an OpenCode TUI shows several).
+        let newer = session("newer", 1, 3 * HOUR);
+        let between = NOW - 5 * HOUR + 60_000;
+        assert!(planned(&board(vec![older.clone(), newer.clone()]), &c, &|_| Some(between)).0 == ["newer"], "typed before the newer one's prompt");
+        assert!(planned(&board(vec![older, newer]), &c, &|_| Some(NOW - 2 * HOUR)).0.is_empty());
+    }
+
+    #[test]
+    fn only_terminals_that_spare_the_tab_youre_in_close() {
+        let b = board(vec![session("tmux", 7, 3 * HOUR), session("ghostty", 8, 3 * HOUR)]);
+        let c = cfg(60);
+        let p = plan(&b, &c, NOW, after_ms(&c), &Looks { closable: &|pid| pid == 8, typed: Some(&|_| Some(0)) });
+        assert_eq!(p.hibernate.iter().map(|h| h.key.as_str()).collect::<Vec<_>>(), ["ghostty"]);
+        assert_eq!(p.kept.iter().map(|k| (k.key.as_str(), k.why.as_str())).collect::<Vec<_>>(), [("tmux", "in a terminal Codealong can't close")]);
     }
 
     #[test]
     fn stays_awake_for_what_it_started_and_what_a_click_couldnt_bring_back() {
         let c = cfg(60);
-        let idle = || Some(NOW - DAY_MS);
+        let idle = || Some(0);
         // A helper it started that's still at work, or waits on you: it may be waiting to hear back.
         let mut helper = session("helper", 9, 0);
         helper.status = Status::Working;
@@ -317,7 +351,7 @@ mod tests {
     }
 
     #[test]
-    fn leaves_background_jobs_to_their_harness() {
+    fn leaves_background_jobs_alone() {
         let mut job = session("job", 1, 3 * HOUR);
         job.attach_command = Some("claude attach 1".into());
         let (go, kept) = planned(&board(vec![job]), &cfg(60), &|_| Some(0));
@@ -326,23 +360,21 @@ mod tests {
     }
 
     #[test]
-    fn the_server_tries_each_once_a_batch_at_a_time() {
-        let b = board(vec![session("a", 1, 3 * HOUR), session("b", 2, 3 * HOUR)]);
-        // Off by default.
+    fn the_server_tries_each_once_in_a_while_as_the_clock_goes() {
+        let b = board(vec![session("a", 1, 50 * 60_000), session("b", 2, 3 * HOUR)]);
+        // Off by default, and nothing while the first scan is still coming in.
         assert!(Hibernator::default().due(&b, &Config::default(), NOW).is_empty());
         let c = cfg(60);
+        let mut loading = b.clone();
+        loading.loading = true;
+        assert!(Hibernator::default().due(&loading, &c, NOW).is_empty());
+
         let mut h = Hibernator::default();
-        let mut due = h.due(&b, &c, NOW);
-        due.sort();
-        assert_eq!(due, ["a", "b"]);
-        // Nothing while the batch runs, nor within the minute after.
-        assert!(h.due(&b, &c, NOW + 2 * LOOK_EVERY_MS).is_empty());
-        h.ended();
-        assert!(h.due(&b, &c, NOW + 3 * LOOK_EVERY_MS).is_empty(), "each was tried already");
-        let later = NOW + RETRY_MS + LOOK_EVERY_MS;
-        assert_eq!(h.due(&b, &c, later).len(), 2, "tried again once a while has gone by");
-        h.ended();
-        assert!(h.due(&b, &c, later + 1).is_empty(), "looked at once a minute");
+        assert_eq!(h.due(&b, &c, NOW), ["b"]);
+        assert!(h.due(&b, &c, NOW + 60_000).is_empty(), "b was tried already, and a hasn't sat the hour");
+        // The same board, unchanged, once a has sat the hour.
+        assert_eq!(h.due(&b, &c, NOW + 11 * 60_000), ["a"]);
+        assert_eq!(h.due(&b, &c, NOW + RETRY_MS), ["b"], "tried again once a while has gone by");
     }
 
     /// What would hibernate on this Mac now after two hours, doing nothing:

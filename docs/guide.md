@@ -3529,19 +3529,21 @@ lists the same from the command line.
 *Settings › Automation › Hibernate idle sessions* (`[sessions] hibernate_after`, in minutes; off
 until you pick a wait)
 
-Does what Close idle sessions does, by itself, for sessions in a terminal. Once a session has sat
-idle for the wait (an hour to a day, you choose; config.toml takes any number of minutes) and asks
-you nothing, by Close idle sessions' rules, its Ghostty, iTerm2, Terminal or Rex tab, tmux pane or
-terminal of Codealong's own closes, which ends its agent's process and frees what that held. It
-isn't archived: it stays in your lists, and opening it or replying from its box resumes it in a new
-tab, as for any session whose terminal closed. Besides Close idle sessions' rules, a session stays
-open when something was typed in its terminal since its turn ended (a prompt you're writing in its
-box would go with it), when a session it started is still at work or waits on you, when it's an
-automatic review's, when it can't be resumed in a terminal or its account is turned off, and when
-its tab is the one you're in. Claude Code's background jobs are left alone: Close idle sessions
-stops them. Codealong looks once a minute and tries a session it
-couldn't close again half an hour later; `server.log` (*Codealong's server*) says what it
-hibernated and why it left the rest. `codealong --snapshot --hibernate [wait]` lists what would
+Does what Close idle sessions does, by itself, for sessions in a Ghostty, iTerm2, Terminal or Rex
+tab. Once a session has sat idle for the wait (an hour to a day, you choose; config.toml takes any
+number of minutes) and asks you nothing, by Close idle sessions' rules, its tab closes, which ends
+its agent's process and frees what that held. It isn't archived: it stays in your lists, and
+opening it or replying from its box resumes it in a new tab, as for any session whose terminal
+closed. Besides Close idle sessions' rules, a session stays open when anything was typed in its tab
+since the last prompt you sent it (a prompt you're writing in its box, begun while it worked or
+after, would go with it; an answer to its question counts too, until its next prompt), when a
+session it started is still at work or waits on you, when it's an automatic review's, when it can't
+be resumed in a terminal or its account is turned off, and when its tab is the one you're in.
+Sessions in tmux or in Codealong's own terminals, which can't tell whether you're looking at them,
+and Claude Code's background jobs are left alone: Close idle sessions closes them. Codealong looks
+once a minute, checks each session again just before closing its tab, and tries one it couldn't
+close again half an hour later; `server.log` (*Codealong's server*) says what it hibernated and why
+it left the rest. `codealong --snapshot --hibernate [wait]` lists what would
 hibernate now and why the rest stay, closing nothing.
 
 ### Close stale terminals
