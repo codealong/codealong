@@ -234,8 +234,13 @@ describe('the bar docked in the notch', () => {
     // Wide pills: as wide as they are.
     const wide = notchSizes(notch, { w: 600, h: 24 }, 60, room, screen, null, 1, 150);
     expect(wide.end.w).toBe(wide.pills.w);
-    // Never past the session it takes the place of.
-    expect(notchSizes(notch, { w: 200, h: 24 }, 60, room, screen, { w: 300, h: 100 }, 1, 900).end.h).toBe(66 + NOTCH.session.least);
+    // As tall as it needs with the session dragged shorter than it, its tip and Next tip included;
+    // never past the most the layout has.
+    const short = notchSizes(notch, { w: 200, h: 24 }, 60, room, screen, { w: 300, h: 100 }, 1, 300);
+    expect(short.session.h).toBe(66 + NOTCH.session.least);
+    expect(short.end.h).toBe(66 + 300);
+    const tallest = notchSizes(notch, { w: 200, h: 24 }, 60, room, screen, { w: 300, h: 100 }, 1, 5000);
+    expect(tallest.end.h).toBe(tallest.full.h);
     const small = notchSizes(notch, { w: 200, h: 24 }, 60, room, { w: 380, h: 700 }, null, 1, 150);
     expect(small.session.w).toBeLessThan(401);
     expect(small.end.w).toBe(small.session.w);

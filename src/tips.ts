@@ -89,7 +89,7 @@ export const TIPS: readonly Tip[] = [
   { id: 'snooze', places: SESSION_KEYS, says: says`${key(SNOOZE_CHORDS[0])} to ${key(SNOOZE_CHORDS[SNOOZE_CHORDS.length - 1])} snooze a session for one of the Snooze menu's times. It comes back when the time is up.` },
   { id: 'bar-peek', places: ['board', 'session', 'working'], says: says`Click a session's pill in the notch, or rest the pointer on one in the floating bar, to read and answer it without leaving your app.` },
   { id: 'history', places: SESSION_KEYS, says: says`${key(QUEUE_CHORDS.historyBack[0])} goes back to the session you looked at before, and ${key(QUEUE_CHORDS.historyForward[0])} forward again.` },
-  { id: 'terminal', places: ['board', 'session'], says: says`${key(CHORDS.terminal)} opens a terminal in the folder of what's shown, as VS Code does: for a session, in a drawer under its box.` },
+  { id: 'terminal', places: ['board', 'session'], says: says`${key(CHORDS.terminal)} opens a terminal in the folder of what's shown, as VS Code does: for a session, in a drawer under its box by default.` },
   { id: 'queue-next', places: ['session', 'waiting', 'working'], says: says`${key(QUEUE_CHORDS.next[0])} skips to the next session that waits on you, and ${key(QUEUE_CHORDS.back[0])} goes back.` },
   { id: 'pin', places: BOARD, says: says`${key(CHORDS.pin)} pins a session to the top of Sessions. Drag the pinned ones into the order you want.` },
   { id: 'picks', places: BOARD, says: says`${key('Cmd')}-click or ${key('Shift')}-click picks several rows, and ${key('Cmd+A')} every row: the panel then acts on all of them at once.` },

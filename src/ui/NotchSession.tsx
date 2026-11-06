@@ -81,6 +81,9 @@ export interface NotchStageState {
   notice: Notice | null;
   /** At the end of what waits, how the last one went (useWaitingQueue.ts `ended`). */
   ended: string | null;
+  /** How many times the end of what waits has opened: each opening is the end afresh, a new tip
+   *  with it (QueueEnd.tsx), even one while it's still fading out from the last. */
+  endOpens: number;
   /** Back to the session looked at before it; null with none. */
   back: (() => void) | null;
   /** The session the PR shown was shown in place of (`showPr`); null for any other. */
@@ -128,6 +131,7 @@ export function useNotchStage(items: BarItem[], reviews: BarReview[], known: (ke
   const [shown, setShown] = useState<{ key: string; kind: ShownKind; rename: boolean; from: CameFrom | null } | null>(null);
   const [open, setOpen] = useState(false);
   const [keys, setKeys] = useState(false);
+  const [endOpens, setEndOpens] = useState(0);
   const linger = useRef<number | null>(null);
   const rows = useMemo(() => notchRows(items, reviews), [items, reviews]);
   const rowsNow = useRef(rows);
@@ -197,7 +201,10 @@ export function useNotchStage(items: BarItem[], reviews: BarReview[], known: (ke
   const end = useCallback(() => {
     if (linger.current != null) window.clearTimeout(linger.current);
     linger.current = null;
-    if (shownNow.current === null) fresh();
+    if (shownNow.current === null) {
+      fresh();
+      setEndOpens((n) => n + 1);
+    }
     shownNow.current = END;
     fromNow.current = null;
     setShown({ key: END, kind: 'end', rename: false, from: null });
@@ -353,7 +360,7 @@ export function useNotchStage(items: BarItem[], reviews: BarReview[], known: (ke
 
   const back = history.back ? () => void run('historyBack') : null;
 
-  return { key: shown?.key ?? null, kind: shown?.kind ?? 'session', open, keys, rename: shown?.rename ?? false, queue: queue.queue, notice: queue.notice, ended: queue.ended, back, from: shown?.from ?? null, show, showPr, returnFrom, toggle, press, workThrough, close, takeKeys, next, left, failed, unsent };
+  return { key: shown?.key ?? null, kind: shown?.kind ?? 'session', open, keys, rename: shown?.rename ?? false, queue: queue.queue, notice: queue.notice, ended: queue.ended, endOpens, back, from: shown?.from ?? null, show, showPr, returnFrom, toggle, press, workThrough, close, takeKeys, next, left, failed, unsent };
 }
 
 interface NotchSessionProps {

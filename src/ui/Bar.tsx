@@ -947,7 +947,7 @@ export function Bar() {
                 }}
               />
             ) : stage.key && stage.kind === 'end' ? (
-              <QueueEnd said={stage.ended} className="ca-notch-end" />
+              <QueueEnd key={stage.endOpens} said={stage.ended} className="ca-notch-end" />
             ) : stage.key ? (
               <NotchSession
                 sessionKey={stage.key}

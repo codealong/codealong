@@ -154,7 +154,7 @@ export interface NotchSizes {
   pills: Size;
   session: Size;
   /** With the end of what waits under the pills: as wide as they are, or `NOTCH.end`, and as tall
-   *  as it needs. */
+   *  as it needs, whatever size you dragged the session to. */
   end: Size;
   /** The biggest the shape can get, a session dragged as far as it goes: what everything is laid
    *  out in. */
@@ -174,7 +174,8 @@ export interface NotchSizes {
  *  stays as you left it. The most it can get grows only for a usual size past it, so most zooms
  *  leave the window as it was: a window resized by the engine lands a moment after the page has
  *  laid out for it, and the shape jumped across in between. `endH` is how tall the end of what
- *  waits is at its width, which it never grows past the session's. */
+ *  waits is at its width: it's as tall as that, a session dragged shorter or not, within the
+ *  most the layout has. */
 export function notchSizes(notch: { width: number; height: number }, body: Size, side: number, room: number, screen: Size, want?: Size | null, zoom = 1, endH = 0): NotchSizes {
   const closed = { w: notch.width + 2 * NOTCH.wing, h: notch.height };
   // As much wider than closed on each side, in whole points: the clip's edges then fall on whole
@@ -190,7 +191,7 @@ export function notchSizes(notch: { width: number; height: number }, body: Size,
   const tall = Math.min(tallest, Math.max(NOTCH.session.least, Math.round(want?.h ?? usual.h)));
   const session = { w: Math.min(widest, Math.max(narrowest, widened(want?.w ?? usual.w))), h: pills.h + tall };
   const full = { w: Math.max(widest, widened(room + 2 * NOTCH.pad)), h: pills.h + tallest };
-  const end = { w: Math.min(session.w, Math.max(pills.w, widened(NOTCH.end))), h: Math.min(session.h, pills.h + Math.ceil(endH)) };
+  const end = { w: Math.min(session.w, Math.max(pills.w, widened(NOTCH.end))), h: Math.min(full.h, pills.h + Math.ceil(endH)) };
   const margin = Math.max(NOTCH.ear.open, NOTCH.shadow.side);
   return { closed, pills, session, end, full, window: { w: full.w + 2 * margin, h: full.h + NOTCH.shadow.bottom } };
 }

@@ -4,9 +4,13 @@
 // pressed again it's put away. What comes to wait
 // on you while it's up takes its place by itself, and gone on from the last one (⌘E marks it
 // seen) the end says nothing else waits and how that one went; Escape puts it away. Under what it
-// says, a tip, which the shape makes room for, and another each time the end opens.
+// says, a tip, which the shape makes room for though the session was dragged as short as it goes,
+// and another each time the end opens.
 //   PREVIEW_SIZE=1512,980 PREVIEW_WAIT=60000 scripts/preview.sh notch '' scripts/preview/notch-end-check.js
 (function () {
+  // The session dragged as short as it goes (bar.ts `NOTCH.session.least`), shorter than the end
+  // with its tip: read as the notch is first drawn, which is after this script.
+  localStorage.setItem('codealong.notch.size', JSON.stringify({ w: 680, h: 240 }));
   var calls = sent;
   var notch = function () { return document.querySelector('.ca-notch'); };
   var is = function (state) { return notch() && notch().classList.contains('is-' + state); };
@@ -16,6 +20,12 @@
   var firstTip = '';
   var keysCalls = function () { return calls('notch_keys').map(function (a) { return a.on; }); };
   var lastShape = function () { var s = calls('notch_shape'); return s[s.length - 1]; };
+  // The bottom of Next tip, under the end's tip, and how tall the shape is: Next tip must be in it.
+  var nextInShape = function () {
+    var s = lastShape();
+    var next = q('.ca-notch-session .ca-tip-next');
+    return { ok: !!s && !!next && next.getBoundingClientRect().bottom <= s.h, said: (next ? Math.round(next.getBoundingClientRect().bottom) : 'no Next tip') + ' in a shape ' + (s ? s.h : '?') + ' tall' };
+  };
   var press = function () { window.__emit('waiting-shortcut', null); };
   var key = function (init) { (document.activeElement || document.body).dispatchEvent(new KeyboardEvent('keydown', Object.assign({ bubbles: true, cancelable: true }, init))); };
 
@@ -76,6 +86,8 @@
       var box = document.querySelector('.ca-notch-end-box').getBoundingClientRect();
       var top = document.querySelector('.ca-notch-session').getBoundingClientRect().top;
       check('the shape opens only as tall as the end and its tip need', !!s && Math.abs(s.h - (top + box.height + 1)) <= 2 && s.h < 450, JSON.stringify(s) + ' for an end ' + Math.round(box.height) + ' tall at ' + Math.round(top));
+      var inShape = nextInShape();
+      check('Next tip within it', inShape.ok, inShape.said);
       check('and as wide as the end is', !!s && Math.abs(s.w - box.width) <= 1, JSON.stringify(s) + ' for an end ' + Math.round(box.width) + ' wide');
       press();
       return until(function () { return !is('open'); }, 3000, 'put away');
@@ -88,6 +100,16 @@
     })
     .then(function () {
       check('opened again, it has another tip', tipId() !== firstTip, firstTip + ' then ' + tipId());
+      // Put away and opened again while it's still fading out, its card still there.
+      firstTip = tipId();
+      press();
+      return wait(100).then(function () {
+        press();
+        return until(function () { return is('end') && !!tipId() && tipId() !== firstTip; }, 3000, 'another tip').catch(function () {});
+      });
+    })
+    .then(function () {
+      check('opened again as it fades out, it has another tip too', is('end') && tipId() !== firstTip, firstTip + ' then ' + tipId());
       // A session's turn ends while the end is up.
       window.__emit('bar-feed', feedWith([item, running]));
       return until(function () { return is('session') && title().indexOf(item.title.slice(0, 20)) === 0; }, 3000, 'the session that came to wait');
@@ -104,6 +126,8 @@
       check('⌘E marks the last one seen', seen.length === 1 && JSON.stringify(seen[0]).indexOf(item.key) >= 0, JSON.stringify(seen));
       check('and the end says nothing else waits', /Nothing else waits on you/.test(end()), end());
       check('and how the last one went', end().indexOf(item.title + ': marked seen.') >= 0, end());
+      var inShape = nextInShape();
+      check('its tip and Next tip within the shape, taller than the session was dragged', inShape.ok, inShape.said);
       check('it keeps the keyboard', keysCalls()[keysCalls().length - 1] === true, keysCalls().join());
       check('the one marked seen doesn’t come straight back', is('end'), notch().className);
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', cancelable: true }));
