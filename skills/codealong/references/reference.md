@@ -1311,7 +1311,8 @@ Options:
       --thread[=<YES|NO>]
           Keep one session going: the first run starts it, and each later one is sent to
           it (once its turn ends, if it's at work), going on out of sight with it if it
-          stopped. `--thread=no` starts a new session each run
+          stopped. Once its session is archived (Mark as done, `session done`), the next
+          run starts a new one. `--thread=no` starts a new session each run
 
       --fresh-after <FRESH_AFTER>
           With --thread: start a new session once its session started this long ago
@@ -1485,7 +1486,8 @@ Options:
       --thread[=<YES|NO>]
           Keep one session going: the first run starts it, and each later one is sent to
           it (once its turn ends, if it's at work), going on out of sight with it if it
-          stopped. `--thread=no` starts a new session each run
+          stopped. Once its session is archived (Mark as done, `session done`), the next
+          run starts a new one. `--thread=no` starts a new session each run
 
       --fresh-after <FRESH_AFTER>
           With --thread: start a new session once its session started this long ago

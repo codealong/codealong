@@ -2069,7 +2069,8 @@ export interface ScheduleItem extends Schedule {
   problem?: string;
   /** When it runs next: a time, or a watch's next look. */
   nextAt?: number;
-  /** The session it keeps going. */
+  /** The session it keeps going, followed to where it moved; none once it's archived, when the
+   *  next run starts a new one. */
   thread?: string;
   /** Runs waiting for its session's turn to end. */
   queued?: { at: number; why: string[]; files: string[] };

@@ -556,8 +556,15 @@ fn shown(board: &Board, p: &Pending, claimed: &HashSet<String>) -> Option<String
 }
 
 /// The session a schedule's runs go to, as the board has it now: its thread or its session,
-/// followed to where it moved.
-fn target(board: &Board, s: &Schedule, track: Option<&Track>) -> Option<String> {
+/// followed to where it moved. A thread whose session (where it moved to) has been archived, by
+/// Mark as done or `session done`, is over as one that left the board is, and its next run
+/// starts a new one; a session the schedule was told to send to still gets its runs.
+pub(super) fn target(board: &Board, s: &Schedule, track: Option<&Track>) -> Option<String> {
+    target_in(board, s, track, &crate::origins::current())
+}
+
+/// `target`, with the record of where sessions moved: a test's own.
+fn target_in(board: &Board, s: &Schedule, track: Option<&Track>, origins: &crate::origins::Store) -> Option<String> {
     let key = match s.run.to {
         To::New => return None,
         To::Thread => track.and_then(|t| t.thread.clone())?,
@@ -567,13 +574,13 @@ fn target(board: &Board, s: &Schedule, track: Option<&Track>) -> Option<String> 
             track.filter(|t| t.follows.as_deref() == Some(session)).and_then(|t| t.thread.clone()).filter(|k| board.session(k).is_some()).unwrap_or_else(|| session.to_string())
         }
     };
-    let origins = crate::origins::current();
     let key = origins.moved_to(&key, |k| board.session(k).is_some()).unwrap_or(key);
-    board.session(&key).is_some().then_some(key)
+    let (_, session) = board.session(&key)?;
+    (s.run.to != To::Thread || !session.archived).then_some(key)
 }
 
 /// Whether a waiting run can go to its session: it's there and neither at work nor waiting on
-/// you, or it's gone (a thread then starts a new one).
+/// you, or it's gone, as a thread's is once archived (a thread then starts a new one).
 fn can_take(board: &Board, s: &Schedule, track: &Track) -> bool {
     match target(board, s, Some(track)) {
         Some(key) => !busy(board, &key),
@@ -918,6 +925,12 @@ pub enum Step {
 /// What a run of `s` would do on this board, with `prompt`: start a session, or send to the one
 /// it goes to, as that session stands.
 pub fn step(board: &Board, cfg: &crate::config::Config, s: &Schedule, track: &Track, prompt: &str, todos: &[&crate::todos::Todo], now: i64) -> Step {
+    step_in(board, cfg, s, track, prompt, todos, now, &crate::util::home())
+}
+
+/// `step`, with the home folder its accounts' places are looked up in: a test's own.
+#[allow(clippy::too_many_arguments)]
+fn step_in(board: &Board, cfg: &crate::config::Config, s: &Schedule, track: &Track, prompt: &str, todos: &[&crate::todos::Todo], now: i64, home: &std::path::Path) -> Step {
     let key = match s.run.to {
         To::New => None,
         To::Thread => target(board, s, Some(track)).filter(|_| !stale(s, track, now)),
@@ -926,7 +939,7 @@ pub fn step(board: &Board, cfg: &crate::config::Config, s: &Schedule, track: &Tr
             None => return Step::Fail { why: "The session it sends to isn't on the board.".into() },
         },
     };
-    let Some(key) = key else { return start_step(board, cfg, s, prompt, todos, now) };
+    let Some(key) = key else { return start_step(board, cfg, s, prompt, todos, now, home) };
     let Some((_, session)) = board.session(&key) else { return Step::Fail { why: "Its session is gone.".into() } };
     if busy(board, &key) {
         return Step::Wait { needs_you: session.status == crate::model::Status::Needs, key };
@@ -937,9 +950,8 @@ pub fn step(board: &Board, cfg: &crate::config::Config, s: &Schedule, track: &Tr
     let Some(account) = cfg.accounts.iter().find(|a| a.name == session.account) else {
         return Step::Fail { why: format!("Its account, {}, isn't in Settings › Accounts.", session.account) };
     };
-    let home = crate::util::home();
-    let places = crate::start::resume_places(account, &home);
-    match s.run.place.filter(|p| places.contains(p)).or_else(|| crate::start::resume_out_of_sight(account, &home)) {
+    let places = crate::start::resume_places(account, home);
+    match s.run.place.filter(|p| places.contains(p)).or_else(|| crate::start::resume_out_of_sight(account, home)) {
         Some(place) => Step::Resume { key, place },
         None => Step::Fail { why: format!("{} isn't running, and {} can't go on with it out of sight.", title_of(board, &key), account.name) },
     }
@@ -947,7 +959,7 @@ pub fn step(board: &Board, cfg: &crate::config::Config, s: &Schedule, track: &Tr
 
 /// A new session's start for a run: in its folder (a chat of its own without one), on its
 /// account, routing group or Auto as picked now, where it says, else out of sight.
-fn start_step(board: &Board, cfg: &crate::config::Config, s: &Schedule, prompt: &str, todos: &[&crate::todos::Todo], now: i64) -> Step {
+fn start_step(board: &Board, cfg: &crate::config::Config, s: &Schedule, prompt: &str, todos: &[&crate::todos::Todo], now: i64, home: &std::path::Path) -> Step {
     let lane_id = if s.run.folder.trim().is_empty() {
         crate::config::chats_dir().to_string_lossy().into_owned()
     } else {
@@ -957,7 +969,7 @@ fn start_step(board: &Board, cfg: &crate::config::Config, s: &Schedule, prompt: 
         }
     };
     let account = Some(s.run.account.trim()).filter(|a| !a.is_empty()).unwrap_or("auto");
-    let pick = match crate::start::pick(cfg, Some(board), account, s.run.place, s.run.model.as_deref(), s.run.effort.as_deref(), s.run.place.is_none(), now, &crate::util::home()) {
+    let pick = match crate::start::pick(cfg, Some(board), account, s.run.place, s.run.model.as_deref(), s.run.effort.as_deref(), s.run.place.is_none(), now, home) {
         Ok(p) => p,
         Err(e) => return Step::Fail { why: crate::util::words(e) },
     };
@@ -1152,8 +1164,8 @@ fn title_of(board: &Board, key: &str) -> String {
 }
 
 /// Sends a schedule's waiting runs to its session, now that it can take them: one message for all
-/// of them, the todos they're for told and linked. A thread that's gone starts a new session with
-/// them. They were taken off the schedule as this was planned (`claim`): one that's busy again by
+/// of them, the todos they're for told and linked. A thread that's gone, or whose session was
+/// archived meanwhile, starts a new session with them. They were taken off the schedule as this was planned (`claim`): one that's busy again by
 /// now gets them back, to wait on.
 fn deliver_queued(engine: &Handle, id: &str, q: Queued) -> Option<Done> {
     let back = || Some(Done { queued: Some(Some(q.clone())), ..Done::default() });
@@ -1395,6 +1407,73 @@ mod tests {
         // A copy of another session it once sent to isn't this one's.
         let other = Track { follows: Some("elsewhere".into()), ..copied };
         assert_eq!(target(&b, &s, Some(&other)).as_deref(), Some("old"));
+    }
+
+    /// The account `atlas`, in a home of the tests' own, which nothing looks into for what's
+    /// installed.
+    fn atlas() -> crate::config::Config {
+        let account = crate::config::AccountCfg { name: "atlas".into(), harness: "claude".into(), home: "/Users/me/.atlas".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        crate::config::Config { accounts: vec![account], ..crate::config::Config::default() }
+    }
+
+    const HOME: &str = "/Users/me";
+
+    #[test]
+    fn a_thread_goes_on_until_its_session_is_archived() {
+        let s = Schedule { run: Run { to: To::Thread, account: "atlas".into(), place: Some(Place::Terminal), prompt: "Look".into(), ..Run::default() }, ..schedule("a", When::Fired) };
+        let track = Track { thread: Some("k".into()), thread_since: Some(1), ..armed(1) };
+        let on = |s: Session| Board { lanes: vec![lane("/r", vec![Session { account: "atlas".into(), ..s }])], ..board() };
+        let step_on = |b: &Board| step_in(b, &atlas(), &s, &track, "Look", &[], 10, std::path::Path::new(HOME));
+        // Not archived, it's sent each run while it runs, and goes on with one once it's stopped.
+        assert!(matches!(step_on(&on(session("k"))), Step::Send { key } if key == "k"));
+        assert!(matches!(step_on(&on(Session { live: false, ..session("k") })), Step::Resume { key, place: Place::Terminal } if key == "k"));
+        // Archived (Mark as done, `session done`), stopped or still running, it's over: the run
+        // starts a new session, as for one that left the board.
+        for live in [false, true] {
+            let b = on(Session { archived: true, live, ..session("k") });
+            assert_eq!(target(&b, &s, Some(&track)), None);
+            assert!(matches!(step_on(&b), Step::Start { spec } if spec.account == "atlas" && spec.place == Place::Terminal));
+        }
+    }
+
+    #[test]
+    fn a_run_that_waited_on_a_session_archived_meanwhile_starts_a_new_one() {
+        let z = Fake::utc();
+        let s = Schedule { run: Run { to: To::Thread, account: "atlas".into(), place: Some(Place::Terminal), prompt: "Look".into(), ..Run::default() }, ..schedule("a", When::Fired) };
+        let waited = Queued { at: 5, why: vec!["8:00".into()], ..Queued::default() };
+        let track = Track { thread: Some("k".into()), queued: Some(waited.clone()), ..armed(1) };
+        let runs = Runs { of: [("a".to_string(), track.clone())].into(), ..Runs::default() };
+        let file = File { schedules: vec![s.clone()], ..File::default() };
+        let working = Session { account: "atlas".into(), status: Status::Working, ..session("k") };
+        // Still at work, it waits for its turn to end.
+        let busy_board = Board { lanes: vec![lane("/r", vec![working.clone()])], ..board() };
+        assert!(plan(&file, &runs, &busy_board, &HashSet::new(), 10, &z).0.is_empty());
+        // Archived at work, what waited goes now, to a new session rather than the archived one.
+        let archived = Board { lanes: vec![lane("/r", vec![Session { archived: true, ..working }])], ..board() };
+        assert_eq!(plan(&file, &runs, &archived, &HashSet::new(), 10, &z).0, vec![Job::Deliver { id: "a".into(), queued: waited }]);
+        assert!(matches!(step_in(&archived, &atlas(), &s, &track, "Look", &[], 10, std::path::Path::new(HOME)), Step::Start { .. }));
+    }
+
+    #[test]
+    fn a_thread_follows_its_session_to_where_it_moved_and_ends_once_that_is_archived() {
+        let s = Schedule { run: Run { to: To::Thread, prompt: "Look".into(), ..Run::default() }, ..schedule("a", When::Fired) };
+        let track = Track { thread: Some("claude:atlas:s1".into()), ..armed(1) };
+        let entry = crate::origins::Entry { from: "claude:atlas:s1".into(), how: crate::model::OriginHow::Fork, at: 1, helper: false, report: false, known: true };
+        let origins = crate::origins::Store { sessions: [("claude:kestrel:s2".to_string(), entry)].into(), ..crate::origins::Store::default() };
+        // The move left the session it moved from archived; its copy is the thread now.
+        let moved = |copy: Session| Board { lanes: vec![lane("/r", vec![Session { archived: true, ..session("claude:atlas:s1") }, copy])], ..board() };
+        let copy = session("claude:kestrel:s2");
+        assert_eq!(target_in(&moved(copy.clone()), &s, Some(&track), &origins).as_deref(), Some("claude:kestrel:s2"));
+        assert_eq!(target_in(&moved(Session { archived: true, ..copy }), &s, Some(&track), &origins), None);
+    }
+
+    #[test]
+    fn a_session_it_was_told_to_send_to_gets_its_runs_archived_or_not() {
+        let s = Schedule { run: Run { to: To::Session, session: "k".into(), prompt: "Look".into(), ..Run::default() }, ..schedule("a", When::Fired) };
+        let track = armed(1);
+        let b = Board { lanes: vec![lane("/r", vec![Session { account: "atlas".into(), archived: true, ..session("k") }])], ..board() };
+        assert_eq!(target(&b, &s, Some(&track)).as_deref(), Some("k"));
+        assert!(matches!(step_in(&b, &atlas(), &s, &track, "Look", &[], 10, std::path::Path::new(HOME)), Step::Send { key } if key == "k"));
     }
 
     #[test]

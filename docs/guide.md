@@ -1656,7 +1656,8 @@ Any of them can have *Only if*: a command run before each run, which goes ahead 
 command succeeds and prints something, and what it printed goes with it.
 
 **What it does.** *New session* starts one each run; *One session* starts one the first time and
-sends each later run to it, starting a new one once it's gone (or once it's `fresh_after` old,
+sends each later run to it, starting a new one once it's gone or archived (Mark as done, `session
+done`), for runs that were waiting for its turn to end too (or once it's `fresh_after` old,
 from the command); *A session* sends each run to one that's there, found by typing any of its title, worktree,
 project or account, the latest first and those in the schedule's worktree before the rest; picking
 it makes its worktree the schedule's, where its watch and *Only if* run. A new session starts in

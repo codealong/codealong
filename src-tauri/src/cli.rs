@@ -1330,7 +1330,7 @@ struct ScheduleOptions {
     /// The prompt from a file, or from stdin with `-`.
     #[arg(long, conflicts_with = "prompt")]
     prompt_file: Option<String>,
-    /// Keep one session going: the first run starts it, and each later one is sent to it (once its turn ends, if it's at work), going on out of sight with it if it stopped. `--thread=no` starts a new session each run.
+    /// Keep one session going: the first run starts it, and each later one is sent to it (once its turn ends, if it's at work), going on out of sight with it if it stopped. Once its session is archived (Mark as done, `session done`), the next run starts a new one. `--thread=no` starts a new session each run.
     #[arg(long, value_name = "YES|NO", num_args = 0..=1, require_equals = true, default_missing_value = "yes", value_parser = yes_no, conflicts_with = "to")]
     thread: Option<bool>,
     /// With --thread: start a new session once its session started this long ago (`1d`, `12h`), so it doesn't carry weeks of runs.

@@ -294,7 +294,8 @@ at 9, every two hours, whenever a deploy goes out, check back on this tomorrow),
 Codealong schedule rather than a loop or cron of your harness's own: it lasts past this session,
 its runs pick an account with room each time, and your user sees it and every run in the app's
 Schedules view. `codealong schedule add "<name>" --at "weekdays 9:00" --prompt "<what to do>"`
-starts a new session each time; `--thread` keeps one going; `--to me` sends each run to you.
+starts a new session each time; `--thread` keeps one going (once its session is archived, by
+Mark as done or `session done`, the next run starts a new one); `--to me` sends each run to you.
 `--watch "<command>" --every 5m` runs when a command prints a line it hasn't before (a deploy's id;
 its first look only notes what's there), `--on pr-merged|checks-failed|todo-ready` when that
 happens on the board, and `--when-fired` only when a script runs `codealong schedule fire

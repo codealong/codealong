@@ -136,7 +136,7 @@ export function SchedulePanel({ item, now, sessionOf, onShowSession, onRun, onPa
         {s.run.to === 'session' ? (
           target ? sessionButton(target, 'Sends to') : <p className="ca-schedinsp-line">Sends to a session that’s no longer on the board.</p>
         ) : (
-          <p className="ca-schedinsp-line">{s.run.to === 'thread' ? 'Keeps one session going: the first run starts it, and the rest are sent to it.' : 'Starts a new session each time.'}</p>
+          <p className="ca-schedinsp-line">{s.run.to === 'thread' ? 'Keeps one session going: the first run starts it, and the rest are sent to it. Once it’s archived (Mark as done), the next run starts a new one.' : 'Starts a new session each time.'}</p>
         )}
         {thread && sessionButton(thread, 'Its session')}
         <ul className="ca-schedinsp-settings">

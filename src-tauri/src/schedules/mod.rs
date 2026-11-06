@@ -299,7 +299,8 @@ pub enum To {
     /// A new session each time.
     #[default]
     New,
-    /// The schedule's own session: the first run starts it, the rest are sent to it.
+    /// The schedule's own session: the first run starts it, the rest are sent to it. Once it's
+    /// archived (Mark as done), the next run starts a new one.
     Thread,
     /// A session that's already there (`Run::session`).
     Session,
@@ -534,6 +535,8 @@ pub struct Item {
     /// When it runs next, for a time or a watch's check.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_at: Option<i64>,
+    /// The session it keeps going, as its next run finds it (`runner::target`): followed to where
+    /// it moved, and none once it's archived, when the next run starts a new one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thread: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -858,7 +861,10 @@ pub fn items(file: &File, runs: &Runs, board: &Board, cfg: &Config, now: i64, zo
                 when_words: when_words(&s.when),
                 problem,
                 next_at,
-                thread: track.and_then(|t| t.thread.clone()),
+                thread: match s.run.to {
+                    To::Thread => runner::target(board, s, track),
+                    _ => track.and_then(|t| t.thread.clone()),
+                },
                 queued: track.and_then(|t| t.queued.clone()),
                 check: track.and_then(|t| t.check.clone()),
                 runs: shown,
