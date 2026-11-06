@@ -449,7 +449,9 @@ pub fn new_id() -> (String, i64) {
     loop {
         let now = now_ms().max(1) as u64;
         let next = |last: u64| last.max(now - 1) + 1;
-        let at = match LAST_ID.try_update(Ordering::SeqCst, Ordering::SeqCst, |last| Some(next(last))) {
+        // `fetch_update`, not `try_update`, which Rust has had only since after 1.91, the
+        // `rust-version` the crate says it builds with.
+        let at = match LAST_ID.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |last| Some(next(last))) {
             Ok(last) | Err(last) => next(last),
         };
         let id = format!("{PREFIX}{}", base36(at));
