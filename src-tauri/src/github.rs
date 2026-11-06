@@ -193,11 +193,14 @@ fn paged(ask: &dyn Fn(&[&str]) -> Result<String>, query: &str, fields: &[String]
         }
         let answered: Value = serde_json::from_str(&ask(&args)?)?;
         let list = answered.pointer(at).ok_or_else(|| anyhow!("no {at} in response"))?;
+        let had = nodes.len();
         nodes.extend(list.get("nodes").and_then(Value::as_array).into_iter().flatten().cloned());
         let more = list.pointer("/pageInfo/hasNextPage").and_then(Value::as_bool) == Some(true);
         after = list.pointer("/pageInfo/endCursor").and_then(Value::as_str).filter(|_| more).map(String::from);
         answer.get_or_insert(answered);
-        if after.is_none() || nodes.len() as u64 >= most {
+        // A page that brought nothing ends it too, whatever it says of the next: asking for that
+        // again could go on for ever.
+        if after.is_none() || nodes.len() == had || nodes.len() as u64 >= most {
             break;
         }
     }
@@ -569,7 +572,13 @@ pub fn parse(json: &str) -> Result<RepoPrs> {
                     pr.assigned = assigned_of(n, login);
                     ((pr.said, pr.said_from), pr.changes_asked) = (said_of(n), changes_asked_of(n));
                 }
-                prs.push(pr);
+                // The open and the done are read apart, and each a page at a time (`paged`), so a
+                // PR merged or updated between two reads can come twice: as it was last updated.
+                match prs.iter_mut().find(|p: &&mut PrRaw| p.number == pr.number) {
+                    Some(had) if had.updated_at < pr.updated_at => *had = pr,
+                    Some(_) => {}
+                    None => prs.push(pr),
+                }
             }
         }
     }
@@ -597,8 +606,10 @@ pub fn parse_requested(json: &str) -> Result<Requested> {
         ((pr.said, pr.said_from), pr.changes_asked) = (said_of(n), changes_asked_of(n));
         (pr.review_requested || pr.assigned_review(login).is_some()).then(|| (slug.to_string(), pr))
     };
-    let mut prs: Vec<(String, PrRaw)> = nodes.iter().filter_map(|n| read(n, true)).collect();
-    for (slug, pr) in assigned.iter().filter_map(|n| read(n, false)) {
+    // A search read a page at a time (`paged`) can list a PR twice, when one updated meanwhile
+    // moved it up a page.
+    let mut prs: Vec<(String, PrRaw)> = Vec::new();
+    for (slug, pr) in nodes.iter().filter_map(|n| read(n, true)).chain(assigned.iter().filter_map(|n| read(n, false))) {
         if !prs.iter().any(|(s, p)| *s == slug && p.number == pr.number) {
             prs.push((slug, pr));
         }
@@ -2757,6 +2768,29 @@ mod tests {
         // A page that fails fails the read: a list cut short would pass for the whole of it.
         let failing = |args: &[&str]| if args.iter().any(|a| a.starts_with("after=")) { Err(anyhow!("HTTP 504")) } else { github(args) };
         assert!(paged(&failing, "q", &[], "/data/repository/open", 10, 2).is_err());
+
+        // A page that brings nothing ends it, though it says there's more.
+        let pages = std::cell::Cell::new(0);
+        let empty = |_: &[&str]| -> Result<String> {
+            pages.set(pages.get() + 1);
+            Ok(serde_json::json!({ "data": { "repository": { "open": { "pageInfo": { "hasNextPage": true, "endCursor": "0" }, "nodes": [] } } } }).to_string())
+        };
+        assert_eq!(numbers(&paged(&empty, "q", &[], "/data/repository/open", 10, 2).unwrap()), Vec::<u64>::new());
+        assert_eq!(pages.get(), 1);
+    }
+
+    #[test]
+    fn a_pr_read_twice_is_listed_once() {
+        // Merged between the read of the open PRs and the done ones, it's as it was last updated;
+        // and one listed by two pages of the open, once.
+        let node = |state: &str, at: &str| format!(r#"{{"number":63,"title":"t","url":"u","state":"{state}","isDraft":false,"reviewDecision":null,"updatedAt":"{at}","headRefName":"b","commits":{{"nodes":[]}},"author":{{"login":"kestrel"}}}}"#);
+        let (open, merged) = (node("OPEN", "2026-10-28T07:07:05Z"), node("MERGED", "2026-10-28T07:08:00Z"));
+        let read = |open: &[&str], done: &[&str]| parse(&format!(r#"{{"data":{{"viewer":{{"login":"wren"}},"repository":{{"open":{{"nodes":[{}]}},"done":{{"nodes":[{}]}}}}}}}}"#, open.join(","), done.join(","))).unwrap().prs;
+        let prs = read(&[&open], &[&merged]);
+        assert_eq!(prs.len(), 1);
+        assert_eq!(prs[0].state, PrState::Merged);
+        assert_eq!(read(&[&merged], &[&open])[0].state, PrState::Merged);
+        assert_eq!(read(&[&open, &open], &[]).len(), 1);
     }
 
     #[test]
@@ -2900,6 +2934,8 @@ mod tests {
         let both = answer(&[&team], &[&team]);
         assert_eq!(both.len(), 1);
         assert!(both[0].1.review_requested);
+        // So is one a search read a page at a time lists twice, moved up a page while it was read.
+        assert_eq!(answer(&[&team, &team], &[]).len(), 1);
         // A kept answer from before the assignments were searched still reads.
         assert_eq!(parse_requested(r#"{"data":{"viewer":{"login":"wren"},"search":{"nodes":[]}}}"#).unwrap().prs.len(), 0);
         assert!(ASSIGNED_QUERY.contains("assigned: search(query: $assigned, type: ISSUE, first: $first, after: $after)") && ASSIGNED_SEARCH.contains("assignee:@me -author:@me"));
