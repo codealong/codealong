@@ -1471,6 +1471,11 @@ pub fn run() {
             let windows = std::sync::Mutex::new(windowfeed::Feed::default());
             let publishing = floating.clone();
             let on_board = move |board: &model::Board| {
+                // The server turns the perf log on as config.toml says, and the app follows it
+                // from the board, so the app's own lines go in too: its windows' (`perf_mark`)
+                // and its main thread's lag, which went nowhere once the engine moved into the
+                // server, since only the engine turned it on.
+                perf::set_enabled(board.perf_log);
                 if let Ok(mut shown) = shown_logo.lock() {
                     if *shown != board.logo_status {
                         match logo::update(&emitter, board.logo_status) {

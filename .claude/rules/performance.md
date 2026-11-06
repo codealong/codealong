@@ -14,7 +14,15 @@ paths:
 
 - `[debug] perf_log = true` in config.toml (no restart needed) makes the engine and every window
   append timings to `~/Library/Logs/Codealong/perf.log`; perf.rs's header says what's in it. Set
-  it back to false when done: the log grows.
+  it back to false when done: the log grows. The server turns it on from config.toml and the app
+  from the board's `perfLog` (lib.rs `on_board`), so the windows' `ui[<window>]` lines are the
+  app's to write: from 2026-10-31, when the engine moved into the server, until 2026-11-06 only
+  the server turned it on, and the log has no window lines from those days.
+- Its `ui[<window>] box:` lines say what moved the caret in a session's reply box
+  (src/typingTrace.ts): typing and where it went in, drafts taken from another window, focus,
+  the page's own calls that place the caret with where in the bundle they came from (`file:line:col`
+  of the minified build: build that commit with `sourcemap: true` to name them), and moves
+  nothing in the page made.
 - A main thread still stuck a second after the watcher's probe is sampled while it's stuck
   (`/usr/bin/sample`, two seconds, at most every five minutes, and again at ten seconds), and
   `stalls/` beside the log keeps the last 20 reports. The release build is stripped, so

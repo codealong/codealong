@@ -96,6 +96,7 @@ import { shortOf } from '../devices';
 import { dismissSuggestions, forkSession, runCommand, sessionCancel, sessionPending, sessionShellWay, sessionWay, sideAsk, sideWindow, switchSessionEffort, switchSessionMode, switchSessionModel } from '../api';
 import { filesToAttach, keepFiles, useFileDrop } from '../attachInput';
 import { answersDraft, onDraftChange, readAnswers, readDraft, sideDraft, writeDraft, writtenAnswers } from '../drafts';
+import { noteDraftTaken } from '../typingTrace';
 import { HARNESS_WORD, sessionPlace } from '../harness';
 import { stoppable, stuckMidTurn, waitsOnYou } from '../lanes';
 import { beingRead, notAsked, shownSide, showSides, startingSide, useAside, usePopped, useSideAnswer } from '../side';
@@ -483,6 +484,7 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
   useEffect(
     () =>
       onDraftChange(draft, (raw, focus) => {
+        noteDraftTaken(box.current, latest.current, splitAttachments(raw).text);
         const t = loadDraft(raw);
         const el = box.current;
         if (!focus || !el) return;

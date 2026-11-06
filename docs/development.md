@@ -291,6 +291,7 @@ as the engine always was.
 | `src-tauri/src/editors.rs`, `src/editors.ts` | The editors a folder opens in: the ones Codealong knows, found where Mac apps are installed, and the Open in menus |
 | `src-tauri/src/flash.rs` | Outlines a focused terminal that came forward on another screen |
 | `src-tauri/src/caret.rs`, `src/caret.ts` | A text cursor WebKit stopped drawing in a window you type in: typing into a page that says it isn't focused hands it its focus again, and the perf log says what macOS said of the window |
+| `src/typingTrace.ts` | With the perf log on, what moved the text cursor in a session's reply box, in each window: typing, drafts from another window, focus, and the page's own calls that place the caret |
 | `src-tauri/src/previews.rs`, `src-tauri/src/chrome.rs`, `src/ui/PreviewBits.tsx` | Previews: each worktree's URL and Chrome profile (`previews.json`), the servers listening in worktrees' folders (`procs::listeners`, the kernel's socket lists), their front pages read once, a kqueue for their exits; Chrome's profiles and opening a page in one; the row's chip, the panel's section and the URL sheet |
 | `src/ui/ContextMeter.tsx` | How full a session's context window is, in its reply box's foot (`Session.context`, from each harness's latest call), and on hover what the session has cost |
 | `src/ui/UsageDialog.tsx`, `src/spend.ts` | The Usage window (View › Usage…, the usage bar): what sessions used and cost from the token ledger, its tiles, charts and table, and the words and sums for them (pure, tested) |
