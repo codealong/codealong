@@ -1058,7 +1058,10 @@ pub fn find_pr(seed: &LaneSeed, prs: &HashMap<String, Vec<PrRaw>>, now: i64) -> 
 ///
 /// A repo whose PRs aren't read (`polled_slugs`) lists the PRs GitHub's search says wait on your
 /// review (`requested`), and the search has the last word on reviews there: a PR it no longer
-/// lists doesn't wait on you, though an earlier read of the repo said so.
+/// lists doesn't wait on you, though an earlier read of the repo said so. A repo whose PRs are
+/// read keeps its read's word on the PRs it lists, and lists the search's it doesn't: past the
+/// hundred most recently updated that a read holds, in a busy repo, or any while no read of it
+/// has come (its first not yet, or every one failing).
 ///
 /// Then the PRs sessions made or changed in repos whose PRs aren't read, read one by one
 /// (`made`, `worked_prs`), so a PR an agent opened anywhere is listed with it: in its project's
@@ -1089,10 +1092,12 @@ pub fn pr_items(seeds: &[LaneSeed], lanes: &[Lane], prs: &HashMap<String, Vec<Pr
         }
     }
     for (slug, list) in requested {
-        let Some(&repo) = repos.get(slug.as_str()).filter(|_| !polled.contains(slug)) else { continue };
+        let Some(&repo) = repos.get(slug.as_str()) else { continue };
+        let read = prs.get(slug).filter(|_| polled.contains(slug));
+        let unread = |p: &&PrRaw| !read.is_some_and(|read| read.iter().any(|x| x.number == p.number));
         // The search lists only open PRs; the repo's last read has the ones that ended.
         let history = || prs.get(slug).into_iter().flatten().chain(list);
-        out.extend(list.iter().map(|p| pr_item(lanes, &owners, slug, repo, p, branch_freed(history(), p), login, links)));
+        out.extend(list.iter().filter(unread).map(|p| pr_item(lanes, &owners, slug, repo, p, branch_freed(history(), p), login, links)));
     }
     let listed: HashSet<String> = out.iter().map(|p| crate::prlinks::pr_key(&p.key)).collect();
     for (slug, list) in made {
@@ -2961,19 +2966,20 @@ mod tests {
         let asked = |number: u64| PrRaw { number, review_requested: true, ..pr(PrState::Open, 0) };
         // The site's PRs were read before its last worktree left its branch: #5 has since been
         // reviewed, #7 still waits and is newer from the search. The repo read on its own keeps
-        // its own word: the search's copy of #1037 doesn't count there.
+        // its own word: the search's copy of #1037 doesn't count there. The search's #2000, past
+        // the hundred PRs the repo's read holds, is listed from the search.
         let prs = HashMap::from([
             ("sprucehq/spark".to_string(), vec![pr(PrState::Open, 0)]),
             ("sprucehq/site".to_string(), vec![asked(5), PrRaw { title: "Old title".into(), ..asked(7) }]),
         ]);
         let requested = HashMap::from([
             ("sprucehq/site".to_string(), vec![asked(7), asked(9)]),
-            ("sprucehq/spark".to_string(), vec![asked(1037)]),
+            ("sprucehq/spark".to_string(), vec![asked(1037), asked(2000)]),
             ("acme/elsewhere".to_string(), vec![asked(3)]),
         ]);
         let mut got: Vec<(String, bool, String)> = pr_items(&seeds, &[], &prs, &requested, &HashMap::new(), None, &PrLinks::default()).into_iter().map(|p| (p.key, p.review_requested, p.project)).collect();
         got.sort();
-        let want = [("sprucehq/site#5", false), ("sprucehq/site#7", true), ("sprucehq/site#9", true), ("sprucehq/spark#1037", false)];
+        let want = [("sprucehq/site#5", false), ("sprucehq/site#7", true), ("sprucehq/site#9", true), ("sprucehq/spark#1037", false), ("sprucehq/spark#2000", true)];
         assert_eq!(got, want.map(|(k, r)| (k.to_string(), r, "Spruce".to_string())));
         let items = pr_items(&seeds, &[], &prs, &requested, &HashMap::new(), None, &PrLinks::default());
         assert_eq!(items.iter().find(|p| p.number == 7).map(|p| p.title.as_str()), Some("Let the agent add and caption project photos"));

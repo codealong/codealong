@@ -1159,14 +1159,15 @@ mod tests {
         let seeds = [seed("/r/spark", "sprucehq/spark", "feature")];
         let asked = PrRaw { review_requested: true, ..pr(7) };
         let reviews = |gh: &GhPoll| board::pr_items(&seeds, &[], gh.prs(), gh.requested(), gh.made(), Some("gwen"), &Default::default()).into_iter().filter(|p| p.waits_on_review()).count();
-        // The search answers first: the board lists a read repo's reviews from its read, which
-        // is still to come.
+        // The search answers first: the board lists the review from it until the repo's read,
+        // still to come, lists it instead (`board::pr_items`), so a repo whose reads fail still
+        // shows what waits on you.
         let found = Requested { login: Some("gwen".into()), prs: vec![("sprucehq/spark".into(), asked.clone())] };
         gh.on_event(Event::Requested(Ok(found), None), &seeds, clock());
-        assert_eq!(reviews(&gh), 0);
+        assert_eq!(reviews(&gh), 1);
         assert!(!gh.polled());
         gh.on_event(Event::Repo("sprucehq/spark".into(), Ok(RepoPrs { login: Some("gwen".into()), prs: vec![asked] }), None), &seeds, clock());
-        assert_eq!(reviews(&gh), 1, "the review comes with the repo's read");
+        assert_eq!(reviews(&gh), 1, "once, from the repo's read");
         assert!(!gh.polled());
         assert!(gh.on_event(Event::PollEnded, &seeds, clock()), "the board says so at once");
         assert!(gh.polled(), "and the poll that brought both has ended");

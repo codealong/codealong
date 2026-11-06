@@ -218,7 +218,8 @@ fn gh_paged(query: &str, fields: &[String], at: &str, most: u64) -> Result<Value
 
 /// PRs that ask for your review, in every repo, and those someone else assigned you to
 /// (`ASSIGNED_SEARCH`): the board reads a repo's PRs only while one of its worktrees is on a branch
-/// of its own, so a request in a repo checked out only on its default branch is found here. The
+/// of its own, so a request in a repo checked out only on its default branch is found here, as is
+/// one past the `OPEN_PRS` a busy repo's read holds (`board::pr_items`). The
 /// assignments are a search of their own, so they never take the requests' places among the fifty,
 /// and being found by the first still says a team you're on was asked (`asked_of`): one advanced
 /// search for either (`review-requested:@me OR assignee:@me`, which the plain search answered
