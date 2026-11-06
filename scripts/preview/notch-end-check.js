@@ -3,7 +3,8 @@
 // tall as it needs, with the keyboard, rather than the waiting window or the session running;
 // pressed again it's put away. What comes to wait
 // on you while it's up takes its place by itself, and gone on from the last one (⌘E marks it
-// seen) the end says nothing else waits and how that one went; Escape puts it away.
+// seen) the end says nothing else waits and how that one went; Escape puts it away. Under what it
+// says, a tip, which the shape makes room for, and another each time the end opens.
 //   PREVIEW_SIZE=1512,980 PREVIEW_WAIT=60000 scripts/preview.sh notch '' scripts/preview/notch-end-check.js
 (function () {
   var calls = sent;
@@ -11,6 +12,8 @@
   var is = function (state) { return notch() && notch().classList.contains('is-' + state); };
   var end = function () { var e = document.querySelector('.ca-notch-session .ca-queue-end'); return e ? e.textContent : ''; };
   var title = function () { var t = document.querySelector('.ca-notch-session .ca-sessinsp-title, .ca-notch-session .ca-sessinsp-head h2'); return t ? t.textContent.trim() : ''; };
+  var tipId = function () { var t = document.querySelector('.ca-notch-session .ca-queue-end .ca-tip'); return t ? t.getAttribute('data-tip') : ''; };
+  var firstTip = '';
   var keysCalls = function () { return calls('notch_keys').map(function (a) { return a.on; }); };
   var lastShape = function () { var s = calls('notch_shape'); return s[s.length - 1]; };
   var press = function () { window.__emit('waiting-shortcut', null); };
@@ -59,18 +62,20 @@
     })
     .then(function () {
       press();
-      return until(function () { return is('end') && /Nothing waits on you/.test(end()); }, 3000, 'the end of what waits');
+      return until(function () { return is('end') && /Nothing waits on you/.test(end()) && !!tipId(); }, 3000, 'the end of what waits, with a tip');
     })
     .then(function () { return wait(500); })
     .then(function () {
       check('with nothing waiting the shortcut opens the notch on the end of what waits, not the one running', is('end') && is('open'), notch().className);
       check('which says nothing waits, and no more', /Nothing waits on you/.test(end()) && !/else/.test(end()), end());
+      firstTip = tipId();
+      check('under what it says, a tip', !!firstTip, end());
       check('with the keyboard', keysCalls().join() === 'true', keysCalls().join());
       check('the waiting window stays out of it', calls('show_waiting').length === 0, JSON.stringify(calls('show_waiting')));
       var s = lastShape();
       var box = document.querySelector('.ca-notch-end-box').getBoundingClientRect();
       var top = document.querySelector('.ca-notch-session').getBoundingClientRect().top;
-      check('the shape opens only as tall as the end needs', !!s && Math.abs(s.h - (top + box.height + 1)) <= 2 && s.h < 300, JSON.stringify(s) + ' for an end ' + Math.round(box.height) + ' tall at ' + Math.round(top));
+      check('the shape opens only as tall as the end and its tip need', !!s && Math.abs(s.h - (top + box.height + 1)) <= 2 && s.h < 450, JSON.stringify(s) + ' for an end ' + Math.round(box.height) + ' tall at ' + Math.round(top));
       check('and as wide as the end is', !!s && Math.abs(s.w - box.width) <= 1, JSON.stringify(s) + ' for an end ' + Math.round(box.width) + ' wide');
       press();
       return until(function () { return !is('open'); }, 3000, 'put away');
@@ -79,9 +84,10 @@
     .then(function () {
       check('pressed again it’s put away and the keyboard given back', !is('end') && keysCalls().join() === 'true,false', keysCalls().join());
       press();
-      return until(function () { return is('end'); }, 3000, 'the end again');
+      return until(function () { return is('end') && !!tipId(); }, 3000, 'the end again');
     })
     .then(function () {
+      check('opened again, it has another tip', tipId() !== firstTip, firstTip + ' then ' + tipId());
       // A session's turn ends while the end is up.
       window.__emit('bar-feed', feedWith([item, running]));
       return until(function () { return is('session') && title().indexOf(item.title.slice(0, 20)) === 0; }, 3000, 'the session that came to wait');

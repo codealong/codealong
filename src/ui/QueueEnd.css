@@ -1,6 +1,6 @@
 /* The end of what waits on you (QueueEnd.tsx), in the waiting window and under the notch's pills:
-   a check, what it says, and how the last one went. Gone on from the last one, the check draws
-   in. */
+   a check, what it says, and how the last one went, then a tip (Tip.css sets it). Gone on from
+   the last one, the check draws in. */
 
 .ca-queue-end {
   display: flex;

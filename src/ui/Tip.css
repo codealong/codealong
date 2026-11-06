@@ -2,7 +2,8 @@
    place is reading (the quick panel's list, a PR's description): Tip and Next tip over its words,
    lined up with that line. Where a whole window or pane is reading (Reading): in the middle of
    it, under the mark at work and what's being read, Tip over its words set larger and Next tip
-   under them. Either fades in. */
+   under them; under the end of what waits (QueueEnd.tsx) the same, at the size of the end's own
+   words. Either fades in. */
 
 .ca-tip {
   color: var(--ink-2);
@@ -49,40 +50,57 @@
   font: var(--type-body);
   color: var(--ink-3);
 }
-.ca-reading .ca-tip {
+/* Its parts go in a column: Tip, the words, Next tip under them. Tip sits between two hairlines,
+   which set the tip apart from what's over it: what's being read, or the end's own words. */
+.ca-reading .ca-tip,
+.ca-queue-end .ca-tip {
   display: flex;
   flex-direction: column;
   align-items: center;
-  max-width: 440px;
-  margin-top: var(--space-8);
   text-align: center;
 }
-/* Its parts go in a column: Tip, the words, Next tip under them. Tip sits between two hairlines,
-   which set the tip apart from what's being read over it. */
-.ca-reading .ca-tip-head {
+.ca-reading .ca-tip {
+  max-width: 440px;
+  margin-top: var(--space-8);
+}
+.ca-queue-end .ca-tip {
+  margin-top: var(--space-5);
+}
+.ca-reading .ca-tip-head,
+.ca-queue-end .ca-tip-head {
   display: contents;
 }
-.ca-reading .ca-tip .ca-label {
+.ca-reading .ca-tip .ca-label,
+.ca-queue-end .ca-tip .ca-label {
   display: flex;
   align-items: center;
   gap: var(--space-3);
 }
 .ca-reading .ca-tip .ca-label::before,
-.ca-reading .ca-tip .ca-label::after {
+.ca-reading .ca-tip .ca-label::after,
+.ca-queue-end .ca-tip .ca-label::before,
+.ca-queue-end .ca-tip .ca-label::after {
   content: '';
   width: var(--space-6);
   height: 1px;
   background: var(--line);
 }
-.ca-reading .ca-tip-text {
+.ca-reading .ca-tip-text,
+.ca-queue-end .ca-tip-text {
   margin-top: var(--space-2);
-  font: var(--type-lead);
   color: var(--ink-2);
   text-wrap: balance;
 }
-.ca-reading .ca-tip-next {
+.ca-reading .ca-tip-text {
+  font: var(--type-lead);
+}
+.ca-reading .ca-tip-next,
+.ca-queue-end .ca-tip-next {
   order: 1;
   margin: var(--space-4) 0 0;
+}
+.ca-queue-end .ca-tip-next {
+  margin-top: var(--space-3);
 }
 /* One that may be over in a moment (a conversation) comes in only once it hasn't been. */
 .ca-reading.is-late {

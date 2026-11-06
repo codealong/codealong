@@ -272,7 +272,8 @@ else: a key in its terminal, or Claude Code's Remote Control.
 
 #### Seen and unread
 
-Mark a finished turn seen, which makes it idle and takes it off the floating bar, with ⌘E (`e`
+Mark a finished turn seen, which makes it idle and takes it off the bar and out of what waits on
+you, with ⌘E (`e`
 elsewhere), the check at the top of its panel or its right-click menu. Only that marks it: a Claude
 Code turn you haven't seen stays Your turn for three days after its terminal closes or the Mac
 restarts, and a Codex thread's until you see it. Mark as unread (⌃⌘U, `u` elsewhere, or its
@@ -624,8 +625,8 @@ A right-click on a message has Copy message, which copies it as it was written, 
 and Copy for what you'd selected in it; in the peek, the notch, the waiting window and a kept
 session, the session's own menu follows. Code blocks have Copy on hover, and a shell block in a
 reply (`bash`, `sh`, `zsh`…) or a command the agent ran has Run beside it: that runs the commands
-without their comments in a new tab of your terminal, where the session works or where the command
-ran, as `!` in the session's box does (*Replying*), and once they end the session is told what they
+without their comments in a terminal under the session, or a new tab of your terminal app, where
+the session works or where the command ran, as `!` in the session's box does (*Replying*), and once they end the session is told what they
 printed, whatever its harness: an agent that writes a command for you to run wants what it prints
 (a sign-in, a script it can't run itself). They run as a command in your terminal does (*Commands
 in your terminal*): in your login shell, the tab closing by itself a while after they end unless
@@ -1963,7 +1964,10 @@ show. At launch the tip comes with the line over it; a conversation or a descrip
 once it has taken a moment, since they often come at once. Another comes every 12 seconds while the
 wait goes on, and Next tip brings one at once. They come in turn, the ones you haven't seen first,
 wherever you saw the last. A conversation whose agent works gets one now and then too, under the
-line that says so (*While it works*).
+line that says so (*While it works*). The end of what waits, in the notch and the waiting window,
+has one under what it says, about what to do with nothing waiting and how what comes next reaches
+you; it keeps that tip while it shows, since the notch is as tall as what it says, and has another
+each time it opens.
 
 ### Light or dark
 
@@ -2964,7 +2968,7 @@ launches. There's no peek beside a docked bar: click a session's pill and the no
 into that session under the pills, its header, its conversation and the box that answers it, dark as
 the notch is; ⌥⌘. from any app opens it on the session that waits on you, and with nothing waiting,
 though some run, on the end of what waits: a short card under the pills that says nothing waits on
-you, rather than the *Waiting on you* window. A click on the notch itself opens it on the one you
+you, with a tip under it (*Tips*), rather than the *Waiting on you* window. A click on the notch itself opens it on the one you
 looked at last, running or not, and on that card only with nothing on the bar. The reviews pill opens it
 the same way on a PR waiting on your review (the one PR; a menu picks among several, and the count
 beside the camera opens the first): the PR's card, with its details and a box at its foot that

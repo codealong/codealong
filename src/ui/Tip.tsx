@@ -1,9 +1,11 @@
 // A tip on using Codealong (tips.ts), under what a window says it's reading while it has nothing
 // else to show: the board before the engine's first scan, the PRs view before GitHub's PRs, a
-// conversation, a PR's description. At launch it shows with the line over it; a conversation or a
-// description, which often come at once, gets one only once its wait has gone on a moment, so
-// switching between them doesn't flash one. While the wait goes on another comes round every so
-// often, and Next tip brings one at once. Which tips have shown is kept for every window together, so the next wait, here or in
+// conversation, a PR's description; and under the end of what waits on you (QueueEnd.tsx). At
+// launch it shows with the line over it; a conversation or a description, which often come at
+// once, gets one only once its wait has gone on a moment, so switching between them doesn't flash
+// one. While the wait goes on another comes round every so often, and Next tip brings one at once.
+// The end of what waits keeps its tip while it shows, since the notch is as tall as what it says,
+// and takes another each time it's shown. Which tips have shown is kept for every window together, so the next wait, here or in
 // another window, starts on one not seen yet. A window that can't be seen shows none, so none counts as seen.
 // The shortcuts that work in every app are asked of the engine as the wait starts, so a tip names
 // them only while they're on and work (a clash with another app's leaves them off). A working
@@ -23,9 +25,11 @@ const SHOWN_KEY = 'codealong.tips.shown';
 /** Where a tip shows while a window reads; a working conversation's comes its own way (Working.tsx). */
 type ReadingPlace = Exclude<TipPlace, 'working'>;
 /** How long a wait goes on before it gets a tip: none at launch, where it's always seconds. */
-const TIP_AFTER_MS: Record<ReadingPlace, number> = { board: 0, waiting: 0, quick: 0, session: 700, pr: 700 };
-/** How long a tip shows before the next, while the wait goes on: time to read two sentences. */
-const TIP_FOR_MS = 12_000;
+const TIP_AFTER_MS: Record<ReadingPlace, number> = { board: 0, waiting: 0, quick: 0, session: 700, pr: 700, end: 0 };
+/** How long a tip shows before the next, while the wait goes on: time to read two sentences; or
+ *  null where it stays until Next tip, or until the window is shown again. The end of what waits
+ *  isn't a wait, and the notch is sized to it, so a tip changing there would change its shape. */
+const TIP_FOR_MS: Record<ReadingPlace, number | null> = { board: 12_000, waiting: 12_000, quick: 12_000, session: 12_000, pr: 12_000, end: null };
 const NO_SHORTCUTS: TipShortcuts = {};
 
 /** The shortcuts that work in every app, asked of the engine; null until it has said them. A tip
@@ -88,11 +92,13 @@ export function Tip({ place, className }: { place: ReadingPlace; className?: str
 
   // The first once it's due, then one every so often; Next tip starts the count again. A window
   // that was hidden when its first was due (the quick panel's page is made hidden) shows one as
-  // it comes up.
+  // it comes up; one whose tip stays shows another each time it comes up (the waiting window is
+  // hidden, not closed, so its end of what waits is still there when it's opened again).
+  const turnFor = TIP_FOR_MS[place];
   const keepTurning = useCallback(() => {
     window.clearInterval(turn.current);
-    turn.current = window.setInterval(show, TIP_FOR_MS);
-  }, [show]);
+    if (turnFor !== null) turn.current = window.setInterval(show, turnFor);
+  }, [show, turnFor]);
   const due = useRef(false);
   const shownOne = useLatest(tip !== null);
   useEffect(() => {
@@ -103,7 +109,7 @@ export function Tip({ place, className }: { place: ReadingPlace; className?: str
       keepTurning();
     }, TIP_AFTER_MS[place]);
     const onVisible = () => {
-      if (due.current && !shownOne.current && !document.hidden) show();
+      if (due.current && (!shownOne.current || turnFor === null) && !document.hidden) show();
     };
     document.addEventListener('visibilitychange', onVisible);
     return () => {
@@ -111,7 +117,7 @@ export function Tip({ place, className }: { place: ReadingPlace; className?: str
       window.clearInterval(turn.current);
       document.removeEventListener('visibilitychange', onVisible);
     };
-  }, [asked, place, show, keepTurning, shownOne]);
+  }, [asked, place, show, keepTurning, shownOne, turnFor]);
 
   if (!tip) return null;
   const more = TIPS.filter((t) => t.places.includes(place) && tipShows(t, known)).length > 1;
