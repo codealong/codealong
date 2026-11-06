@@ -95,7 +95,7 @@
       // An ordinary open is itself again.
       window.__quickOpen({}, board);
       await wait(200);
-      check('an ordinary open asks for a session or new work', input().placeholder.indexOf('Find a session') === 0, input().placeholder);
+      check('an ordinary open asks to search or prompt', input().placeholder.indexOf('Search or prompt') === 0, input().placeholder);
       check('with no pictures and no note', thumbs().length === 0 && !box());
       done();
     } catch (e) {

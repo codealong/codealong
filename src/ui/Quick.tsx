@@ -2057,7 +2057,7 @@ export function Quick() {
             value={inSendTo ? sendTo : text}
             rows={1}
             spellCheck={!inSendTo}
-            aria-label={inSendTo ? SEND_TO_PLACEHOLDER : 'Find a session, or describe new work'}
+            aria-label={inSendTo ? SEND_TO_PLACEHOLDER : 'Search or prompt'}
             placeholder={inSendTo ? SEND_TO_PLACEHOLDER : improve ? IMPROVE_PLACEHOLDER : draft ? `${QUICK_PLACEHOLDER} ↑ brings back your draft` : history.length ? `${QUICK_PLACEHOLDER} ↑ for earlier prompts` : QUICK_PLACEHOLDER}
             onChange={(e) => {
               setActiveKey(null);

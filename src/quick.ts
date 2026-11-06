@@ -21,7 +21,7 @@ import type { Attachment, Board, DeviceFound, DeviceView, FolderLook, Lane, PrIt
 
 export const ALL_PROJECTS = 'All projects';
 /** What the panel's empty box says, and the box in the main window's title bar that opens it. */
-export const QUICK_PLACEHOLDER = 'Find a session, or describe new work…';
+export const QUICK_PLACEHOLDER = 'Search or prompt…';
 /** What the box says in Send to, while it finds the session what's typed goes to. */
 export const SEND_TO_PLACEHOLDER = 'Find the session to send this to…';
 /** Codealong's chats, as the worktree picker offers them: a chat of its own, in no project. */

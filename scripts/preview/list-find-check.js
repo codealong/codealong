@@ -55,7 +55,7 @@
     .then(function () {
       var box = q('.ca-win-bar .ca-search');
       var r = box.getBoundingClientRect();
-      check('the title bar’s box says what the quick panel’s does', q('span', box).textContent === 'Find a session, or describe new work…', q('span', box).textContent);
+      check('the title bar’s box says what the quick panel’s does', q('span', box).textContent === 'Search or prompt…', q('span', box).textContent);
       var keys = all('.ca-kbd', box).map(function (k) { return k.textContent; }).join('');
       check('with the panel’s shortcut', keys.length > 1 && box.title.indexOf(keys === '⌘K' ? '⌘K' : keys) >= 0, keys + ' / ' + box.title);
       check('in the middle of the window', Math.abs(r.left + r.width / 2 - window.innerWidth / 2) <= 1, Math.round(r.left) + '–' + Math.round(r.right) + ' of ' + window.innerWidth);
