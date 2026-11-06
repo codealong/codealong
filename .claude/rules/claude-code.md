@@ -380,7 +380,13 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   `workers`. Its `state.json` keeps `state: "done"` (`lastTerminalAt` the retirement), and
   `--resume <id> --bg` brings it back under the same job ID (`bg claimed-spare <job> (fleet)`).
   Seen across a day's jobs on 2.1.296 (2026-10-12); whether a setting changes the hour wasn't
-  looked into. Why another session's message may resume it: send.rs (`wakes`).
+  looked into. Why another session's message may resume it: send.rs (`wakes`). It doesn't
+  retire one a tab is attached to (`claude attach` running): jobs attached for a day and more,
+  idle for hours, ran on (2.1.317, 2026-11-05), so hibernation stops them (hibernate.rs). A job's
+  worker is a process on a terminal of its own under the service's pty host (`Session::pid`),
+  which what its attached tabs type is read from; prompts the service hands it (`reply`) didn't
+  move that terminal's read time, and four jobs' terminals were all reread within the same
+  second with nobody typing.
 - What a session scheduled to wake itself (`ScheduleWakeup`, a self-paced `/loop`'s next tick;
   `CronCreate`, a `/loop` at an interval or a one-shot check at a time) lives in its process, and
   a resumed process brings back from the transcript what's still to come: what the calls'

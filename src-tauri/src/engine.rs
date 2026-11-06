@@ -1347,8 +1347,8 @@ struct Engine {
     processes_inflight: bool,
     /// When to look for sessions that wait for a tab of your terminal (`launch::show_unlocked`).
     tab_looks: launch::TabLooks,
-    /// When each terminal tab was last used, a redraw of every tab not counted, for Close stale
-    /// terminals (`stale::Uses`), shared with the handle. Only the app's engine keeps it and
+    /// When each terminal tab was last used, and last typed in, a redraw of every tab not counted,
+    /// for Close stale terminals and hibernating sessions (`stale::Uses`), shared with the handle. Only the app's engine keeps it and
     /// writes it; a snapshot's or a test's has none.
     terminal_use: Option<Arc<Mutex<crate::stale::Uses>>>,
     /// Each repo's team settings, `.codealong/config.toml` on its branches (teamfile.rs).
@@ -3176,7 +3176,10 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         let Some(listed) = listed.filter(|l| !l.lines.is_empty()) else { return };
         if let Some(Ok(mut uses)) = self.terminal_use.as_ref().map(|u| u.lock()) {
             let now = crate::util::now_ms();
-            if uses.on_look(now, &crate::stale::device_times(&listed.lines)) {
+            let used = uses.on_look(now, &crate::stale::device_times(&listed.lines));
+            // And when each was last typed in, for hibernating sessions (hibernate.rs).
+            let typed = uses.on_read_look(now, &crate::stale::device_read_times(&listed.lines));
+            if used || typed {
                 uses.save(now);
             }
         }

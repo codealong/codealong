@@ -33,9 +33,9 @@ export interface SessionsCfg {
    *  `MessageDisplay` hook), so the panel shows it as it's written; their terminals then show a
    *  reply a paragraph at a time. New sessions only. Files from before it have none: off. */
   live_replies?: boolean;
-  /** Minutes a session in a terminal sits idle, wanting nothing from you, before its terminal
-   *  closes to free what its agent holds; a click or a reply resumes it (hibernate.rs). 0, or
-   *  none, is off. */
+  /** Minutes a session in a terminal, or a background job, sits idle, wanting nothing from you,
+   *  before its tab closes or its job stops to free what its agent holds; a click or a reply
+   *  resumes it (hibernate.rs). 0, or none, is off. */
   hibernate_after?: number;
 }
 
