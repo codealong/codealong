@@ -17,6 +17,7 @@
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
+use crate::engine::Handle;
 use crate::model::{Board, OriginHow, Session, Status};
 use crate::util::now_ms;
 
@@ -89,13 +90,15 @@ impl Waiting {
     /// One whose turn ended asking you something, or with an error, is left as it is, unarchived,
     /// and so is one that's gone or waited too long, or isn't running and has nothing to archive.
     /// One to archive that has stopped running is archived all the same: a Codex app thread runs
-    /// only while it takes a turn. The board can lag a turn that just started: a status from
-    /// before the ask isn't the turn's end.
+    /// only while it takes a turn. One that moved on since it asked (a prompt, another session's
+    /// message, a turn started after the one it asked in), as `session seen` goes by
+    /// (`board::agent_seen_spent`), is forgotten: the ask was about a turn that's over. The board
+    /// can lag a turn that just started: a status from before the ask isn't the turn's end.
     pub fn due(&mut self, board: &Board, now: i64, jev: bool) -> Vec<Due> {
         let mut out = Vec::new();
         self.asked.retain(|key, &mut Asked { at, archive }| {
             let Some((_, s)) = board.session(key) else { return false };
-            if (!s.live && !archive) || now - at > WAIT_MS {
+            if (!s.live && !archive) || now - at > WAIT_MS || crate::board::agent_seen_spent(s, at) {
                 return false;
             }
             let in_turn = s.status == Status::Working || (s.status == Status::Needs && !s.asks);
@@ -152,15 +155,47 @@ pub fn wait_for_turn(key: &str, archive: bool) {
     }
 }
 
-/// The sessions to end now, from each board the engine publishes (serve.rs).
-pub fn due(board: &Board) -> Vec<Due> {
+/// The sessions to end now, as `board` shows them at `now`.
+fn due(board: &Board, now: i64) -> Vec<Due> {
     let Ok(mut w) = waiting().lock() else { return Vec::new() };
     if w.asked.is_empty() {
         return Vec::new();
     }
     // Without settings that read, a reply is taken to ask something by its question mark alone.
     let jev = crate::config::current().is_ok_and(|c| c.jev.sessions);
-    w.due(board, board.generated_at, jev)
+    w.due(board, now, jev)
+}
+
+/// Ends the sessions due now, as `board` shows them at `now`: from each board the engine
+/// publishes (serve.rs), and on `spawn`'s clock. Each on a thread of its own: closing a terminal
+/// takes a moment. Taken off the queue as they're found, so the two never end one twice.
+pub fn end_due(engine: &Handle, board: &Board, now: i64) {
+    for Due { key, archive } in due(board, now) {
+        let engine = engine.clone();
+        std::thread::spawn(move || match crate::actions::end_after_turn(&engine, &key, archive) {
+            Ok(said) => eprintln!("Ended {key} once its turn did, as it asked: {said}"),
+            Err(e) => eprintln!("Couldn't end {key} once its turn did: {e}"),
+        });
+    }
+}
+
+/// How often the clock looks while a session waits to be ended.
+const LOOK_EVERY: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// Looks at the sessions waiting to be ended on a clock of its own, beside the boards the engine
+/// publishes: a turn waiting on Jev's read of its reply goes by its question mark once the read
+/// is overdue (`READ_WAIT_MS`), and a read that failed changes nothing on the board, which isn't
+/// published again until something does.
+pub fn spawn(engine: Handle) {
+    let started = std::thread::Builder::new().name("codealong-agentdone".into()).spawn(move || loop {
+        std::thread::sleep(LOOK_EVERY);
+        if waiting().lock().is_ok_and(|w| !w.asked.is_empty()) {
+            end_due(&engine, &engine.board(), now_ms());
+        }
+    });
+    if let Err(e) = started {
+        eprintln!("codealong: a session waiting on Jev's read to be archived waits until the board changes: {e}");
+    }
 }
 
 #[cfg(test)]
@@ -267,7 +302,8 @@ mod tests {
         let done = "Deleted the branch; this session closes now.";
         let mut w = Waiting::default();
         w.ask("me", asked, true);
-        assert!(w.due(&ended_with(Status::Working, done, |_| {}), NOW, false).is_empty());
+        // Still in the turn it asked in.
+        assert!(w.due(&ended_with(Status::Working, done, |s| s.status_since = Some(asked - 60_000)), NOW, false).is_empty());
         assert_eq!(w.due(&ended_with(Status::Unread, done, |_| {}), NOW, false), due("me", true));
         // Asked again without it before its turn ends, it's left for its user to read.
         w.ask("me", asked, true);
@@ -281,15 +317,41 @@ mod tests {
         }
         // A reply that may ask something, or a turn its harness cut short, is ended and left
         // for its user to see.
-        let cut_short: [(&str, fn(&mut Session)); 3] = [
-            ("asks", |_| {}),
-            ("connection lost", |s| s.connection_lost = Some(Default::default())),
-            ("cut off", |s| s.cut_off = Some(NOW - 10_000)),
+        let cut_short: [(&str, &str, fn(&mut Session)); 4] = [
+            ("asks", "Want me to remove the worktree too?", |_| {}),
+            ("asks in Markdown, with more after", "**Should I keep the worktree?** It has no changes.", |_| {}),
+            ("connection lost", done, |s| s.connection_lost = Some(Default::default())),
+            ("cut off", done, |s| s.cut_off = Some(NOW - 10_000)),
         ];
-        for (what, change) in cut_short {
+        for (what, reply, change) in cut_short {
             w.ask("me", asked, true);
-            let reply = if what == "asks" { "Want me to remove the worktree too?" } else { done };
             assert_eq!(w.due(&ended_with(Status::Unread, reply, change), NOW, false), due("me", false), "{what}");
+        }
+    }
+
+    /// Its user wrote to it once its turn had ended, before Jev's read came, or another turn of
+    /// its began: what it asked was about a turn that's over, and the next is theirs.
+    #[test]
+    fn one_that_moved_on_since_it_asked_is_forgotten() {
+        let asked = NOW - 30_000;
+        let reply = "Deleted the branch; the worktree is next";
+        let moved_on: [(&str, fn(&mut Session)); 3] = [
+            ("a prompt", |s| s.last_prompt_at = NOW - 5_000),
+            ("another session's message", |s| s.input_at = Some(NOW - 5_000)),
+            ("a turn after the one it asked in", |s| {
+                s.status = Status::Working;
+                s.status_since = Some(NOW - 5_000);
+            }),
+        ];
+        for (what, change) in moved_on {
+            let mut w = Waiting::default();
+            w.ask("me", asked, true);
+            // Its turn ended, and Jev hasn't read it yet.
+            assert!(w.due(&ended_with(Status::Unread, reply, |_| {}), NOW, true).is_empty(), "{what}");
+            assert!(w.due(&ended_with(Status::Unread, reply, change), NOW, true).is_empty(), "{what}");
+            // The turn that came of it ends, read as asking nothing: it isn't ended for the ask.
+            let read = |s: &mut Session| s.insight = Some(crate::model::SessionInsight { asks_you: Some(0.0), ..Default::default() });
+            assert!(w.due(&ended_with(Status::Unread, reply, read), NOW + 60_000, true).is_empty(), "{what}");
         }
     }
 

@@ -141,11 +141,11 @@ pub fn verdict(s: &Session, now: i64, after_ms: i64) -> Result<String, String> {
 }
 
 /// Whether a session's last reply may ask you something: by Jev's read of it (or an agent's tag)
-/// when there's one, else by its ending in a question.
+/// when there's one, else by its having a question in it, Markdown's or one with more after it.
 pub fn reply_asks(s: &Session) -> bool {
     match s.insight.as_ref().and_then(|i| i.asks_you) {
         Some(p) => p >= ASKS_YOU_KEEP,
-        None => s.reply_tail.as_deref().is_some_and(|t| t.trim_end().ends_with('?')),
+        None => s.reply_tail.as_deref().is_some_and(crate::board::has_question),
     }
 }
 

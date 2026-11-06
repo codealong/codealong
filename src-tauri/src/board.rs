@@ -1483,8 +1483,18 @@ pub fn last_sentence(text: &str) -> String {
 /// a question mark, else its last sentence. A reply often goes on after its question, with what
 /// it tested or the sources it read, and the last of that isn't what it asks.
 pub fn question_in(text: &str) -> String {
-    let asked = sentences(text).into_iter().filter(|s| s.trim_end_matches(CLOSERS).ends_with('?')).last();
+    let asked = sentences(text).into_iter().filter(|s| is_question(s)).last();
     asked.map_or_else(|| last_sentence(text), |q| truncate(q, 140))
+}
+
+/// Whether a reply has a question in it, wherever it is and however it's set (`**Keep it?**`),
+/// for where there's no read of what it asks to go by.
+pub fn has_question(text: &str) -> bool {
+    sentences(text).into_iter().any(is_question)
+}
+
+fn is_question(sentence: &str) -> bool {
+    sentence.trim_end_matches(CLOSERS).ends_with('?')
 }
 
 /// What can close a sentence after its stop: Markdown's emphasis, quotes, a bracket.
@@ -4000,6 +4010,15 @@ mod tests {
         assert_eq!(question_in("Should I merge it? Or should I wait for Wes?"), "Or should I wait for Wes?", "the last of several");
         assert_eq!(question_in("I'm still waiting on your `aws sso login` to rerun the plan."), "I'm still waiting on your `aws sso login` to rerun the plan.", "no question mark: the last sentence");
         assert_eq!(question_in("See claude.ai/settings/usage?from=cli for more. Then tell me."), "Then tell me.", "a question mark inside a link isn't a question");
+    }
+
+    #[test]
+    fn tells_a_reply_with_a_question_in_it() {
+        assert!(has_question("Deleted the branch. **Should I keep the worktree?**"), "set in Markdown");
+        assert!(has_question("Do you want me to make that change? To test, I trusted a folder."), "with more after it");
+        assert!(has_question("Pushed it. Merge it now?\n"));
+        assert!(!has_question("Deleted the branch; this session closes now."));
+        assert!(!has_question("See claude.ai/settings/usage?from=cli for more. Then tell me."), "a question mark inside a link isn't a question");
     }
 
     #[test]

@@ -213,16 +213,10 @@ pub fn start() -> Result<Ctx, String> {
                 std::thread::spawn(move || autoreview::run(&engine, &reviewer, job));
             }
         }
-        // Sessions that asked from the command to be ended once their turn ended (agentdone.rs);
-        // closing a terminal takes a moment, so off this thread.
+        // Sessions that asked from the command to be ended once their turn ended (agentdone.rs),
+        // off this thread.
         if let Some(engine) = ends_with.get() {
-            for agentdone::Due { key, archive } in agentdone::due(board) {
-                let engine = engine.clone();
-                std::thread::spawn(move || match actions::end_after_turn(&engine, &key, archive) {
-                    Ok(said) => eprintln!("Ended {key} once its turn did, as it asked: {said}"),
-                    Err(e) => eprintln!("Couldn't end {key} once its turn did: {e}"),
-                });
-            }
+            agentdone::end_due(engine, board, board.generated_at);
         }
     });
     let _ = engine_slot.set(engine.clone());
@@ -233,6 +227,8 @@ pub fn start() -> Result<Ctx, String> {
     // Sessions left idle long enough to hibernate, where config.toml says to (hibernate.rs), on a
     // clock of their own: a board that sits still is what crossing the wait looks like.
     hibernate::spawn(engine.clone());
+    // Sessions waiting to be ended once their turn has, between the boards it publishes.
+    agentdone::spawn(engine.clone());
     // Sessions Codealong runs itself: a turn's start and end recompose the board, and the reply as
     // it streams goes to the apps, which hand it to whichever windows show the session.
     {

@@ -1998,11 +1998,12 @@ Commands:
               session ends once its current turn does (its terminal closes, or its
               harness exits it and cleans up a worktree it made), and its last reply
               stays in Your turn for its user to read and mark done, or with --archive
-              is marked seen and archived too. A session this one started with
-              `codealong start`: it ends now and is marked seen and archived, and
-              Codealong's main window says which session did it, with an Undo. Never a
-              session that's working, waiting on its user, or on another Mac; any other
-              session is its user's to mark done, in Codealong
+              is marked seen and archived too; a prompt or message that comes to it
+              before then calls that off. A session this one started with `codealong
+              start`: it ends now and is marked seen and archived, and Codealong's main
+              window says which session did it, with an Undo. Never a session that's
+              working, waiting on its user, or on another Mac; any other session is its
+              user's to mark done, in Codealong
   seen        Mark the turn this session is taking seen, from inside it, when its user
               needs to do nothing about it: a loop's tick or a check that found nothing
               new, a watch with nothing to report. Once the turn ends it's idle rather
@@ -2333,10 +2334,11 @@ Mark a session done, as Mark as done in Codealong does, from inside a session, w
 mark only its own and the ones it started. `me`: this session ends once its current turn
 does (its terminal closes, or its harness exits it and cleans up a worktree it made),
 and its last reply stays in Your turn for its user to read and mark done, or with
---archive is marked seen and archived too. A session this one started with `codealong
-start`: it ends now and is marked seen and archived, and Codealong's main window says
-which session did it, with an Undo. Never a session that's working, waiting on its user,
-or on another Mac; any other session is its user's to mark done, in Codealong
+--archive is marked seen and archived too; a prompt or message that comes to it before
+then calls that off. A session this one started with `codealong start`: it ends now and
+is marked seen and archived, and Codealong's main window says which session did it, with
+an Undo. Never a session that's working, waiting on its user, or on another Mac; any
+other session is its user's to mark done, in Codealong
 
 Usage: codealong session done [OPTIONS] <KEY>
 
