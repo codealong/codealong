@@ -181,7 +181,13 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
   `~/Library/Logs/com.openai.codex/<year>/<month>/<day>/`, a file a day for each process, named
   with its pid; `thread_stream_role_changed … role=owner` is logged as a window takes a thread,
   and nothing as it lets one go. `[IpcRouter] I am the router` is logged for each client that
-  joins a router in that process, not for each router.
+  joins a router in that process, not for each router. Seen 2026-11-06 on 26.1013, open since
+  2026-10-22: both routers in the app's main process, and the primary window on the old one, so
+  no thread it opened could be reached. A send then goes through the thread's follow-up queue
+  (`codex/ipc.rs` `through_queue`): the app-server behind the windows has the thread loaded once
+  the window takes it, and started the message 3 s after Codealong's own app-server queued it;
+  the primary window showed the turn and its finished notice, and the hotkey windows logged
+  "Received turn/started for unknown conversation" for it (a scratch thread, 2026-11-06).
 - Stopping a thread's turn in the app (`thread-follower-interrupt-turn`, `user-stop`):
   `codex/ipc.rs` (`codex_interrupt_request`). With `expectedTurnId` (version 4) it stops the turn
   only while it's still the one running. The window sends `turn/interrupt` and kills the exec
@@ -214,7 +220,8 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
   kept in `queue_1.sqlite`. The app-server that has the thread loaded starts its head as each
   turn ends, and notices another process's addition within seconds while the thread is idle
   (`PRAGMA data_version`, `queued_thread_revisions`); one that hasn't loaded it starts nothing
-  (two app-servers on one CODEX_HOME, 2026-10-12). `thread-follower-start-turn` during a turn
+  (two app-servers on one CODEX_HOME, 2026-10-12; again on the app's 0.163.0-alpha.10.2,
+  2026-11-06, which started it 3.3 s after the addition and then listed the queue empty). `thread-follower-start-turn` during a turn
   doesn't wait for it: the window shows a turn of its own holding the prompt, and its
   `turn/start` puts the prompt into the running turn, so the window shows it twice (seen
   2026-10-12). A follower window's queue goes to the owner whole

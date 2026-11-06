@@ -2276,9 +2276,11 @@ TypeSafe won't take one, Jev answers from the words alone.
 
 Sending goes the way each harness takes a prompt: pasted into the session's Ghostty, iTerm2,
 Terminal, Rex or tmux tab, Claude Code's daemon for a background job, OpenCode's service, a turn started
-by the Codex app itself (opening the thread there first when no window has it; when the app doesn't
-take it, nothing is sent: the message goes back in the box with why, and the app opens the thread
-with it filled in to send from there), and Claude Code's cross-session socket for Claude app
+by the Codex app itself (opening the thread there first when no window has it; when the window
+that has it can't be reached, as happens after the app has been open a long while, the message
+goes into the thread's queue, which the app starts within seconds, or once a running turn ends;
+when the app doesn't take it, nothing is sent: the message goes back in the box with why, and the
+app opens the thread with it filled in to send from there), and Claude Code's cross-session socket for Claude app
 sessions, which read it as a message from another session (what you type in Codealong says it's
 yours, so one that skips permission prompts takes it without asking, and that its answer goes in
 its reply, where you read it, not in a message back). A terminal session whose tab

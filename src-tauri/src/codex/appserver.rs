@@ -241,6 +241,11 @@ impl Queue {
         Ok(Queue(Server::start(cmd, queue_hello())?))
     }
 
+    /// Queues `text` in `thread` as `id`, as `queue` does.
+    pub fn add(&self, thread: &str, text: &str, id: &str) -> Result<()> {
+        add_to_queue(&self.0, thread, text, id)
+    }
+
     /// The message `thread` holds as `id`, the `clientUserMessageId` it went under or Codex's own
     /// id for it, as queue.rs lists it; None once it's gone (sent, or taken out).
     pub fn find(&self, thread: &str, id: &str) -> Result<Option<Queued>> {

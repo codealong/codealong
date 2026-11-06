@@ -171,7 +171,7 @@ impl Ipc {
                 by = (Instant::now() + Duration::from_secs(3)).min(deadline);
             }
             if Instant::now() >= by {
-                bail!(if split { SPLIT } else { "No Codex window took this thread." });
+                return Err(if split { Split.into() } else { anyhow!("No Codex window took this thread.") });
             }
             if !opened {
                 launch::open_codex(&launch::codex_thread_url(thread))?;
@@ -184,6 +184,20 @@ impl Ipc {
 
 /// Why no window answered for a thread when the app's windows can't reach each other.
 const SPLIT: &str = "Codex's windows can't reach each other right now, so the one with this thread didn't answer; quitting and reopening Codex fixes that.";
+
+/// No window answered for a thread because the app's windows can't reach each other (`SPLIT`),
+/// though one of them has it loaded: a send goes on through the app-server behind them, which
+/// they don't stand between (`through_queue`).
+#[derive(Debug)]
+struct Split;
+
+impl std::fmt::Display for Split {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(SPLIT)
+    }
+}
+
+impl std::error::Error for Split {}
 
 /// How many routers listen at `socket`, from `netstat -an -f unix`: a socket bound there lists
 /// the vnode it's bound to (Inode, the fifth column), a connection accepted from one lists none,
@@ -309,7 +323,7 @@ fn steer(codex_home: &Path, thread: &str, prose: &str, input: Value, message_id:
     let deadline = Instant::now() + Duration::from_secs(12);
     let mut ipc = Ipc::connect(codex_home, deadline)?;
     let Some(owner) = ipc.owner(thread, (Instant::now() + Duration::from_secs(3)).min(deadline))? else {
-        bail!(not_running(codex_home, thread));
+        return Err(not_running(codex_home, thread));
     };
     let id = crate::start::new_session_id();
     ipc.send(&codex_steer_request(&id, &ipc.client_id.clone(), &owner, thread, prose, input, message_id, cwd, crate::util::now_ms()))?;
@@ -350,11 +364,11 @@ fn steer_from(queue: &appserver::Queue, codex_home: &Path, s: &Session, id: &str
 /// Why no window answered for a thread that should be running in the app: a thread that's
 /// running there is loaded in some window, so none claiming it means it isn't, unless the one
 /// that took it can't be reached.
-fn not_running(codex_home: &Path, thread: &str) -> &'static str {
+fn not_running(codex_home: &Path, thread: &str) -> anyhow::Error {
     if routers_split(codex_home) && taken_in_log(&applog::dir(), thread) {
-        SPLIT
+        Split.into()
     } else {
-        "No Codex window has this thread open, so it isn't running in the app."
+        anyhow!("No Codex window has this thread open, so it isn't running in the app.")
     }
 }
 
@@ -391,7 +405,7 @@ pub fn codex_interrupt_turn(codex_home: &Path, thread: &str) -> Result<()> {
     let deadline = Instant::now() + Duration::from_secs(12);
     let mut ipc = Ipc::connect(codex_home, deadline)?;
     let Some(owner) = ipc.owner(thread, (Instant::now() + Duration::from_secs(3)).min(deadline))? else {
-        bail!(not_running(codex_home, thread));
+        return Err(not_running(codex_home, thread));
     };
     let id = crate::start::new_session_id();
     ipc.send(&codex_interrupt_request(&id, &ipc.client_id.clone(), &owner, thread))?;
@@ -480,10 +494,51 @@ fn queued_as(went: Result<()>, id: String, title: &str) -> Option<Result<Sent>> 
     }
 }
 
+/// How long the app's app-server gets to start a message queued for an idle thread
+/// (`through_queue`): it started one in 3.3 s (2026-11-06).
+const PICKUP: Duration = Duration::from_secs(10);
+
+/// A send when no window that has the thread can be reached (`Split`), through the app-server
+/// behind the windows, which has the thread loaded (the open before saw to that): a message
+/// added to the thread's follow-up queue from another process is started there within seconds
+/// while the thread is idle, and as the next turn once a running one ends, and the window shows
+/// the turn as one it started (the app's 0.163.0-alpha.10.2, 2026-11-06: started 3.3 s after an
+/// app-server of Codealong's own queued it). One still queued after `pickup` may never be
+/// started, as when no app-server has the thread loaded, so it's taken out again and nothing
+/// went: None, as for one Codex didn't take, so the prompt is filled in instead. `id` is its
+/// `clientUserMessageId`.
+fn through_queue(queue: &appserver::Queue, d: &Delivery, prompt: &str, id: String, pickup: Duration) -> Option<Result<Sent>> {
+    let title = d.title();
+    let thread = &d.session.id;
+    let added = queue.add(thread, prompt, &id);
+    if d.busy() || added.is_err() {
+        return queued_as(added, id, &title);
+    }
+    let went = || Some(Ok(sent(format!("Sent to {title} in Codex."))));
+    let by = Instant::now() + pickup;
+    while Instant::now() < by {
+        std::thread::sleep(Duration::from_millis(300));
+        match queue.find(thread, &id) {
+            Ok(None) => return went(),
+            Ok(Some(_)) => {}
+            Err(_) => break,
+        }
+    }
+    match queue.take_out(thread, &id) {
+        Ok(true) => None,
+        // Started as it was being taken out.
+        Ok(false) => went(),
+        // Still held, as far as Codealong can tell, which its conversation shows
+        // (`Session::queued`), to send now or take out from there.
+        Err(_) => Some(Ok(Sent { queued: Some(id), ..sent(format!("Queued for {title} in Codex, which hasn't started it yet.")) })),
+    }
+}
+
 /// The way in for a thread the app has: a turn started through the app's own windows, as if
-/// you'd sent it there. When that doesn't work nothing was sent, and the send fails, so the
-/// prompt stays in the box it was sent from; the app opens the thread with it filled in too, to
-/// send from there.
+/// you'd sent it there, or through the app-server behind them when the window that has it
+/// can't be reached (`through_queue`). When that doesn't work nothing was sent, and the send
+/// fails, so the prompt stays in the box it was sent from; the app opens the thread with it
+/// filled in too, to send from there.
 #[derive(Debug, Clone, PartialEq)]
 pub struct InApp;
 
@@ -526,22 +581,30 @@ impl Own for InApp {
                 Err(_) => {}
             }
         }
-        match codex_start_turn(&home, &d.session.id, &prompt, None) {
-            Ok(()) => Ok(sent(format!("Sent to {title} in Codex."))),
-            Err(e) if e.is::<MayHaveArrived>() => Err(e),
-            // A prompt filled in for someone to send isn't a message an agent can leave.
-            Err(e) if d.from_agent() => bail!("Codex didn't take it for {title} ({e}), so nothing was sent."),
-            Err(e) => {
-                // The app isn't running, no window took the thread, or the app has changed how
-                // its windows talk: nothing went. The app's own link fills the prompt in to send
-                // from there, and the send still fails, so the prompt stays in the box it was
-                // sent from rather than passing for sent.
-                let link = format!("{}?prompt={}", launch::codex_thread_url(&d.session.id), urlencoding::encode(&prompt));
-                match launch::open_codex(&link) {
-                    Ok(()) => bail!("{e} Nothing was sent to {title}: it's waiting in Codex's box for you to send there."),
-                    Err(_) => bail!("{e} Nothing was sent to {title}."),
-                }
+        let e = match codex_start_turn(&home, &d.session.id, &prompt, None) {
+            Ok(()) => return Ok(sent(format!("Sent to {title} in Codex."))),
+            Err(e) if e.is::<MayHaveArrived>() => return Err(e),
+            Err(e) => e,
+        };
+        // The window that has the thread can't be reached, but the app-server behind it can.
+        if e.is::<Split>() {
+            let id = crate::start::new_session_id();
+            if let Some(went) = appserver::Queue::open(&home).ok().and_then(|q| through_queue(&q, d, &prompt, id, PICKUP)) {
+                return went;
             }
+        }
+        // A prompt filled in for someone to send isn't a message an agent can leave.
+        if d.from_agent() {
+            bail!("Codex didn't take it for {title} ({e}), so nothing was sent.");
+        }
+        // The app isn't running, no window took the thread, or the app has changed how its
+        // windows talk: nothing went. The app's own link fills the prompt in to send from there,
+        // and the send still fails, so the prompt stays in the box it was sent from rather than
+        // passing for sent.
+        let link = format!("{}?prompt={}", launch::codex_thread_url(&d.session.id), urlencoding::encode(&prompt));
+        match launch::open_codex(&link) {
+            Ok(()) => bail!("{e} Nothing was sent to {title}: it's waiting in Codex's box for you to send there."),
+            Err(_) => bail!("{e} Nothing was sent to {title}."),
         }
     }
 
@@ -955,6 +1018,71 @@ mod tests {
 
     fn working_thread() -> Session {
         Session { surface: Surface::App, status: Status::Working, live: true, title: "Fix the build".into(), cwd: "/r/app".into(), ..Session::new(Harness::Codex, "codex", "t1") }
+    }
+
+    /// A queue whose app-server takes an addition and lists it as `u1` (Codex's `q1`) for its
+    /// first `looks` lists, as a message no app-server has started yet, and then no more, and
+    /// answers a delete with `deleted`; its lines go to `heard`.
+    fn queue_started_after(heard: &Path, looks: usize, deleted: &str) -> appserver::Queue {
+        let listed = r#"{"id":%s,"result":{"data":[{"id":"q1","clientUserMessageId":"u1","input":[{"type":"text","text":"hello","text_elements":[]}]}],"nextCursor":null}}"#;
+        let empty = r#"{"id":%s,"result":{"data":[],"nextCursor":null}}"#;
+        let answer = format!(
+            r#"case "$line" in *'"thread/queue/list"'*) n=$((n+1)); if [ "$n" -le {looks} ]; then printf '{listed}\n' "$id"; else printf '{empty}\n' "$id"; fi;; *'"thread/queue/delete"'*) {deleted};; *) printf '{{"id":%s,"result":{{}}}}\n' "$id";; esac"#
+        );
+        appserver::Queue::through(appserver::stand_in(heard, &answer)).unwrap()
+    }
+
+    /// What was asked of the stand-in app-server after its handshake, by method.
+    fn asked_of(heard: &Path) -> Vec<String> {
+        let lines = std::fs::read_to_string(heard).unwrap();
+        lines.lines().skip(2).map(|l| serde_json::from_str::<Value>(l).unwrap()["method"].as_str().unwrap().to_string()).collect()
+    }
+
+    /// With the window that has the thread out of reach, a send goes into the thread's queue,
+    /// for the app-server behind the windows to start: sent once it has, and the queue isn't
+    /// looked at again.
+    #[test]
+    fn a_split_codex_send_goes_through_the_app_servers_queue() {
+        let home = scratch("codex-split-queue");
+        let heard = home.join("heard");
+        let account: AccountCfg = serde_json::from_value(json!({ "name": "codex", "harness": "codex", "home": "/nonexistent/codex" })).unwrap();
+        let idle = Session { status: Status::Idle, ..working_thread() };
+        let d = Delivery { session: &idle, account: &account, text: "hello", agent: None, bypasses: false, now: false, untyped: None };
+        let went = through_queue(&queue_started_after(&heard, 2, "exit 1"), &d, "hello", "u1".into(), Duration::from_secs(5)).unwrap().unwrap();
+        assert_eq!((went.message.as_str(), went.queued), ("Sent to \u{201c}Fix the build\u{201d} in Codex.", None));
+        assert_eq!(asked_of(&heard), ["thread/queue/add", "thread/queue/list", "thread/queue/list", "thread/queue/list"]);
+        let added = std::fs::read_to_string(&heard).unwrap().lines().nth(2).unwrap().to_string();
+        assert_eq!(added, r#"{"id":2,"method":"thread/queue/add","params":{"clientUserMessageId":"u1","input":[{"text":"hello","text_elements":[],"type":"text"}],"threadId":"t1"}}"#);
+        // Mid-turn, it waits for the turn to end, and its session lists it as held meanwhile.
+        let _ = std::fs::remove_file(&heard);
+        let working = working_thread();
+        let d = Delivery { session: &working, ..d };
+        let queued = through_queue(&queue_started_after(&heard, 9, "exit 1"), &d, "hello", "u1".into(), Duration::from_secs(5)).unwrap().unwrap();
+        assert_eq!((queued.message.as_str(), queued.queued.as_deref()), ("Queued for \u{201c}Fix the build\u{201d} in Codex: it starts once its current turn ends.", Some("u1")));
+        assert_eq!(asked_of(&heard), ["thread/queue/add"]);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// A message nothing started in time is taken out of the queue again, so it can't go later
+    /// as well as from the box it's filled in to; one that started as it was taken out went.
+    #[test]
+    fn a_queued_codex_send_nothing_started_is_taken_back() {
+        let home = scratch("codex-split-unstarted");
+        let heard = home.join("heard");
+        let account: AccountCfg = serde_json::from_value(json!({ "name": "codex", "harness": "codex", "home": "/nonexistent/codex" })).unwrap();
+        let idle = Session { status: Status::Idle, ..working_thread() };
+        let d = Delivery { session: &idle, account: &account, text: "hello", agent: None, bypasses: false, now: false, untyped: None };
+        let deleted = |was: bool| format!(r#"printf '{{"id":%s,"result":{{"deleted":{was}}}}}\n' "$id""#);
+        assert!(through_queue(&queue_started_after(&heard, 99, &deleted(true)), &d, "hello", "u1".into(), Duration::from_millis(700)).is_none());
+        let asked = asked_of(&heard);
+        assert_eq!((asked.first().map(String::as_str), asked.last().map(String::as_str)), (Some("thread/queue/add"), Some("thread/queue/delete")));
+        let went = through_queue(&queue_started_after(&heard, 99, &deleted(false)), &d, "hello", "u1".into(), Duration::from_millis(700)).unwrap().unwrap();
+        assert_eq!(went.message, "Sent to \u{201c}Fix the build\u{201d} in Codex.");
+        // Codex didn't queue it: nothing went.
+        let refused = r#"echo '{"id":2,"error":{"code":-32600,"message":"no such thread"}}'"#;
+        let queue = appserver::Queue::through(appserver::stand_in(&heard, &format!(r#"[ "$id" = 1 ] && echo '{{"id":1,"result":{{}}}}' || {refused}"#))).unwrap();
+        assert!(through_queue(&queue, &d, "hello", "u1".into(), Duration::from_secs(5)).is_none());
+        let _ = std::fs::remove_dir_all(&home);
     }
 
     /// Steer on a queued message sends it into the turn as it was queued, its images and its id
