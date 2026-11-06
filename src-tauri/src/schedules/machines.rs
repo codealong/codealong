@@ -173,6 +173,9 @@ pub fn merged(file: &File, machines: &Machines, now: i64) -> Option<Merged> {
     let heard = |g: &codealong_peer::schedules::Gone| machines.others.iter().all(|m| m.fed_at.is_some_and(|t| t > g.at) && !copy_before(m, g));
     let gone: Vec<_> = out.gone.iter().filter(|g| !back(g) && (now - g.at < KEEP_GONE_MS || !heard(g))).cloned().collect();
     out.gone = gone;
+    // One that went and came back newer (a word it went that an older machine passed on, as it's
+    // told of one that runs once, `schedules::for_older`) keeps what happened to it.
+    removed.retain(|id| !out.schedules.iter().any(|s| &s.id == id));
     (out != *file).then_some(Merged { file: out, removed })
 }
 
@@ -511,8 +514,17 @@ mod tests {
         assert!(merged(&mine, &machines(Rank::First, vec![echoed.clone()]), NOW).is_none_or(|m| m.file.schedules == vec![made_once.clone()]));
         let third = File { schedules: vec![schedule("s-1", one(""), 50)], gone: Vec::new() };
         let from_me = machine(ME, "MacBook", Rank::First, true, vec![copy(&made_once, true)]);
-        let m = merged(&third, &machines(Rank::Backup, vec![echoed, from_me]), NOW).unwrap();
-        assert_eq!(m.file.schedules, vec![made_once]);
+        let m = merged(&third, &machines(Rank::Backup, vec![echoed.clone(), from_me.clone()]), NOW).unwrap();
+        assert_eq!(m.file.schedules, vec![made_once.clone()]);
         assert!(m.file.gone.is_empty(), "{:?}", m.file.gone);
+        // Its runs stay: it isn't removed, only changed.
+        assert!(m.removed.is_empty(), "{:?}", m.removed);
+        // The word heard before the change, from a machine it hasn't heard from since: it goes there
+        // until the change comes, and comes back with it, its runs started afresh.
+        let m = merged(&third, &machines(Rank::Backup, vec![echoed.clone()]), NOW).unwrap();
+        assert_eq!((m.removed.as_slice(), m.file.schedules.len()), (["s-1".to_string()].as_slice(), 0));
+        let back = merged(&m.file, &machines(Rank::Backup, vec![echoed, from_me]), NOW).unwrap();
+        assert_eq!(back.file.schedules, vec![made_once]);
+        assert!(back.removed.is_empty() && back.file.gone.is_empty(), "{:?}", back.file.gone);
     }
 }

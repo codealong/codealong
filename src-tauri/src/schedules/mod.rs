@@ -672,13 +672,20 @@ pub fn day_of(ms: i64, zone: &dyn Zone) -> i64 {
 /// Why a schedule can't be saved as it is: what each part must be on its own, whatever the
 /// board has. `now` is for its time's rule, which must still run after it.
 pub fn check(s: &Schedule, cfg: &Config, now: i64, zone: &dyn Zone) -> std::result::Result<(), String> {
+    checked(s, cfg, Some(now), zone)
+}
+
+/// `check`, its time's rule checked to still run after `at`, or only read when there's none: for a
+/// schedule whose times were said before and haven't changed, or that's finished, the time having
+/// passed is no fault.
+pub fn checked(s: &Schedule, cfg: &Config, at: Option<i64>, zone: &dyn Zone) -> std::result::Result<(), String> {
     if s.name.trim().is_empty() {
         return Err("Give it a name.".into());
     }
     match &s.when {
         When::Time { rule } => {
             let parsed = rule::parse_checked(rule)?;
-            if rule::next_after(&parsed, now, s.created_at, zone).is_none() {
+            if at.is_some_and(|at| rule::next_after(&parsed, at, s.created_at, zone).is_none()) {
                 return Err("That time has passed.".into());
             }
         }
@@ -844,9 +851,11 @@ pub fn items(file: &File, runs: &Runs, board: &Board, cfg: &Config, now: i64, zo
         .iter()
         .map(|s| {
             let track = runs.of.get(&s.id);
-            // Checked as it was when saved: a time once that has since run isn't a problem.
-            let saved = check(s, cfg, timed_at(s), zone).err();
-            let (problem, here, runs_on_words) = match &s.runs_on {
+            // Checked as it was when its times were said: a time once that has since run isn't a
+            // problem, and a finished one has none, as nothing will run it.
+            let finished = s.finished_at.or_else(|| spent(s, track, now, zone));
+            let saved = checked(s, cfg, finished.is_none().then(|| timed_at(s)), zone).err();
+            let (mut problem, mut here, runs_on_words) = match &s.runs_on {
                 RunsOn::This => (saved.or_else(|| board_problem(s, board)), None, None),
                 // One this machine can't run, the others still do: it's said of this machine alone.
                 RunsOn::Every => match machines::able(s, board, cfg, zone).err() {
@@ -863,13 +872,15 @@ pub fn items(file: &File, runs: &Runs, board: &Board, cfg: &Config, now: i64, zo
                     }
                 }
             };
+            if finished.is_some() {
+                (problem, here) = (None, None);
+            }
             let mut shown: Vec<RunRecord> = track.map(|t| t.runs.iter().rev().take(20).cloned().collect()).unwrap_or_default();
             if s.runs_on.shared() {
                 shown.extend(machines::their_runs(&s.id, &board.machines));
                 shown.sort_by(|a, b| b.at.cmp(&a.at));
                 shown.truncate(20);
             }
-            let finished = s.finished_at.or_else(|| spent(s, track, now, zone));
             let next_at = match (&s.when, s.paused || finished.is_some()) {
                 (_, true) => None,
                 (When::Time { .. }, _) => next_due(s, track, now, zone),
@@ -1073,10 +1084,10 @@ pub fn apply_op(op: Op, by: Option<&str>, board: Option<&Board>, cfg: &Config, n
                 }
                 schedule.updated_at = now;
                 (schedule.checkout, schedule.folder_only) = checkout_for(&schedule, old.map(|i| &file.schedules[i]), board);
-                // Its time is checked as it was saved while it's the same: one whose `once` time has
-                // run can still be renamed or told something else.
-                let checked_at = old.map(|i| &file.schedules[i]).filter(|w| w.when == schedule.when).map_or(now, timed_at);
-                if let Err(why) = check(&schedule, cfg, checked_at, zone) {
+                // A time that's the same as it was isn't checked again: one whose `once` time has run
+                // can still be renamed, told something else, paused and resumed.
+                let same = old.is_some_and(|i| file.schedules[i].when == schedule.when);
+                if let Err(why) = checked(&schedule, cfg, (!same).then_some(now), zone) {
                     bail!("{why}");
                 }
                 if schedule.runs_on.shared() {
@@ -1445,8 +1456,17 @@ mod tests {
         let file = File { schedules: vec![renamed], ..File::default() };
         assert_eq!(items(&file, &runs, &Board::default(), &Config::default(), due + 7_200_000, &z)[0].problem, None);
         // Told another time that has passed, it's said to have.
-        let moved = Schedule { when: When::Time { rule: "once 2026-11-06 9:00".into() }, resumed_at: Some(due + 3_600_000), ..s };
+        let moved = Schedule { when: When::Time { rule: "once 2026-11-06 9:00".into() }, resumed_at: Some(due + 3_600_000), ..s.clone() };
         assert_eq!(check(&moved, &Config::default(), timed_at(&moved), &z), Err("That time has passed.".into()));
+        // Finished, then paused and resumed after its time: still nothing wrong with it, and it
+        // can be saved again as it is.
+        let resumed = Schedule { once: true, finished_at: Some(due + 5000), resumed_at: Some(due + 3_600_000), ..s.clone() };
+        let file = File { schedules: vec![resumed.clone()], ..File::default() };
+        assert_eq!(items(&file, &runs, &Board::default(), &Config::default(), due + 7_200_000, &z)[0].problem, None);
+        assert_eq!(checked(&resumed, &Config::default(), None, &z), Ok(()));
+        let spent_resumed = Schedule { resumed_at: Some(due + 3_600_000), ..s };
+        let file = File { schedules: vec![spent_resumed], ..File::default() };
+        assert_eq!(items(&file, &runs, &Board::default(), &Config::default(), due + 7_200_000, &z)[0].problem, None);
     }
 
     /// A run that took a while finished a schedule told meanwhile to run on a watch instead.
