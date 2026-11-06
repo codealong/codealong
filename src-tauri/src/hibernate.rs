@@ -282,11 +282,12 @@ fn stop_job(engine: &Handle, board: &Board, c: &Idle) -> Result<&'static str, St
 /// Whether `key` may still hibernate, asked of the board, the settings and this Mac as they are
 /// now, just before its agent is hung up or its job stopped: the plan's own rules, with
 /// `closable` the tabs about to close, and it named as it was (`pid`, its terminal's process; None
-/// for a job). The processes are listed first, once, and the board read after: nothing slow comes
-/// between the board and the answer, which the hang-up or stop follows at once.
+/// for a job). The processes are listed first, once, and the settings and the board read after:
+/// nothing slow comes between them and the answer. The terminal asks which tab you're in after it
+/// (`launch::front_stays`), just before the hang-up.
 fn asked_again(engine: &Handle, key: &str, pid: Option<u32>, closable: &dyn Fn(u32) -> bool) -> bool {
-    let Ok(cfg) = crate::config::current() else { return false };
     let listed = crate::procs::list(Duration::from_secs(10));
+    let Ok(cfg) = crate::config::current() else { return false };
     let attached = |attach: &str| attached_in(&listed.lines, attach);
     still(&engine.board(), &cfg, crate::util::now_ms(), key, pid, &Looks { closable, typed: Some(&typed_at), attached: &attached })
 }
