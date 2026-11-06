@@ -3558,9 +3558,9 @@ would go with it; an answer to its question counts too, until its next prompt; a
 the one its attached tabs type into), when a session it started is still at work or waits on you,
 when it's an automatic review's, when it can't be resumed in a terminal or its account is turned
 off, and when its tab, or one attached to the job, is the one you're in or the terminal can't say
-which tab that is. A resize has every program reread its terminal at once, which isn't typing:
-Codealong tells it apart as Close stale terminals tells a redraw, once it has watched that terminal
-since before the resize; a terminal read again within the resize's seconds was typed in. Sessions in tmux or in Codealong's
+which tab that is. A program that rereads its terminal for another reason (Claude Code's
+background jobs' terminals all at once, now and then) keeps it too, until its next prompt, as that
+can't be told from typing. Sessions in tmux or in Codealong's
 own terminals, which can't tell whether you're looking at them, are left alone, as is a job
 attached in one: Close idle sessions closes them. Codealong looks once a minute, checks each
 session again just before closing its tab or stopping its job, and tries one it couldn't close

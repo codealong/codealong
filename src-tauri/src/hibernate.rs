@@ -16,12 +16,13 @@
 //!   in its box, begun while it worked or after, would go with it. That keeps one whose turn you
 //!   answered a question in too, until its next prompt. A background job's terminal is its
 //!   worker's, which the tabs attached to it type into. What's typed is read by the agent, which
-//!   moves the terminal device's access time; its modification time is no help, as idle Claude
-//!   Code sessions write to their terminals every few minutes (2.1.318, 2026-11-05: every one here
-//!   had within the half hour, some idle for a day). But a resize has every program reread its
-//!   terminal at once, the agents' too, so the time is taken as the engine's looks saw it, a burst
-//!   of them not counted where the looks saw the time before it (`stale::Uses::typed`). When it
-//!   can't be told, it stays, as it does after a burst the looks didn't see the start of;
+//!   moves the terminal device's access time (`typed_at`); its modification time is no help, as
+//!   idle Claude Code sessions write to their terminals every few minutes (2.1.318, 2026-11-05:
+//!   every one here had within the half hour, some idle for a day). A program rereads its terminal
+//!   for other reasons too (four background jobs' terminals here, in one second, with nobody
+//!   typing), and that keeps it as well, until its next prompt: a burst of rereads can't be told
+//!   from typing straight after it, as the engine looks at the processes only every ten seconds.
+//!   When it can't be told, it stays;
 //! - a session it started is still at work, or waits on you, which it may be waiting to hear back
 //!   from;
 //! - it's an automatic review's, which reviewdone.rs ends;
@@ -47,7 +48,6 @@ use crate::engine::Handle;
 use crate::idle::{Ends, Idle, Kept};
 use crate::model::{Board, OriginHow, Session, Status};
 use crate::procs::PsLine;
-use crate::stale::Uses;
 
 /// How long after it was tried a session that didn't hibernate is tried again: one typed in, or
 /// whose tab couldn't be found or closed, isn't asked about at every look.
@@ -223,7 +223,7 @@ pub fn spawn(engine: Handle) {
 /// attached to a job.
 fn one(engine: &Handle, cfg: &Config, key: &str) {
     let board = engine.board();
-    let fresh = plan_now(&board, cfg, after_ms(cfg), engine.terminal_use());
+    let fresh = plan_now(&board, cfg, after_ms(cfg));
     let Some(c) = fresh.hibernate.iter().find(|c| c.key == key) else {
         if let Some(k) = fresh.kept.iter().find(|k| k.key == key) {
             eprintln!("Not hibernating “{}”: {}.", k.title, k.why);
@@ -282,12 +282,13 @@ fn stop_job(engine: &Handle, board: &Board, c: &Idle) -> Result<&'static str, St
 /// Whether `key` may still hibernate, asked of the board, the settings and this Mac as they are
 /// now, just before its agent is hung up or its job stopped: the plan's own rules, with
 /// `closable` the tabs about to close, and it named as it was (`pid`, its terminal's process; None
-/// for a job).
+/// for a job). The processes are listed first, once, and the board read after: nothing slow comes
+/// between the board and the answer, which the hang-up or stop follows at once.
 fn asked_again(engine: &Handle, key: &str, pid: Option<u32>, closable: &dyn Fn(u32) -> bool) -> bool {
     let Ok(cfg) = crate::config::current() else { return false };
-    let uses = engine.terminal_use();
-    let typed = |p: u32| typed_at(&uses, p);
-    still(&engine.board(), &cfg, crate::util::now_ms(), key, pid, &Looks { closable, typed: Some(&typed), attached: &attached_now })
+    let listed = crate::procs::list(Duration::from_secs(10));
+    let attached = |attach: &str| attached_in(&listed.lines, attach);
+    still(&engine.board(), &cfg, crate::util::now_ms(), key, pid, &Looks { closable, typed: Some(&typed_at), attached: &attached })
 }
 
 /// Whether `key` may still hibernate on `board` and `cfg` as they are now: the plan's own rules,
@@ -300,28 +301,20 @@ fn still(board: &Board, cfg: &Config, now: i64, key: &str, pid: Option<u32>, loo
     plan(board, cfg, now, after_ms, looks).hibernate.iter().any(|c| c.key == key && c.pid == pid)
 }
 
-/// The plan for the board as it is now, with this Mac asked about each terminal and job, and what
-/// was typed where as the engine's looks saw it (`uses`), which this look adds to, as Close stale
-/// terminals' does (`stale::tabs_now`).
-pub fn plan_now(board: &Board, cfg: &Config, after_ms: i64, mut uses: Uses) -> Plan {
+/// The plan for the board as it is now, with this Mac asked about each terminal and job.
+pub fn plan_now(board: &Board, cfg: &Config, after_ms: i64) -> Plan {
     let listed = crate::procs::list(Duration::from_secs(10));
-    // A listing that fell over lists none, which says nothing of what was read.
-    if !listed.lines.is_empty() {
-        uses.on_read_look(crate::util::now_ms(), &crate::stale::device_read_times(&listed.lines));
-    }
     let closable = |pid: u32| crate::launch::terminal_kind(pid).is_some_and(|t| t.closes_tabs() && t.spares_yours());
-    let typed = |pid: u32| typed_at(&uses, pid);
     let attached = |attach: &str| attached_in(&listed.lines, attach);
-    plan(board, cfg, crate::util::now_ms(), after_ms, &Looks { closable: &closable, typed: Some(&typed), attached: &attached })
+    plan(board, cfg, crate::util::now_ms(), after_ms, &Looks { closable: &closable, typed: Some(&typed_at), attached: &attached })
 }
 
-/// When something was last typed in the terminal `pid` runs in: when its device was last read
-/// from, as the engine's looks saw it, a burst of rereads not counted (`Uses::typed`). None for a
-/// process with no terminal.
-fn typed_at(uses: &Uses, pid: u32) -> Option<i64> {
-    let device = crate::procs::tty(pid)?;
-    let time = crate::stale::last_read(&device)?;
-    Some(uses.typed(device.strip_prefix("/dev").ok()?.to_str()?, time))
+/// When something was last typed in the terminal `pid` runs in: its device's access time, which
+/// moves as the program there reads what was typed. None for a process with no terminal.
+fn typed_at(pid: u32) -> Option<i64> {
+    use std::os::unix::fs::MetadataExt;
+    let m = std::fs::metadata(crate::procs::tty(pid)?).ok()?;
+    Some(m.atime() * 1000 + m.atime_nsec() / 1_000_000)
 }
 
 /// The processes running `attach` (a background job's attach command) now; None when the
@@ -602,7 +595,7 @@ mod tests {
     #[test]
     #[ignore]
     fn this_macs_hibernating_sessions() {
-        let p = plan_now(&crate::engine::light_snapshot(), &crate::config::current().unwrap(), 2 * HOUR, Uses::load());
+        let p = plan_now(&crate::engine::light_snapshot(), &crate::config::current().unwrap(), 2 * HOUR);
         for c in &p.hibernate {
             println!("sleep  {:<10} {:<40} {}", c.account, c.title.chars().take(40).collect::<String>(), c.why);
         }

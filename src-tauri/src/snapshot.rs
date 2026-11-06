@@ -149,7 +149,7 @@ fn hibernating(_: &Args, rest: &[String]) -> Done {
         Some(wait) => crate::idle::parse_after(wait).ok_or(Stop::Usage)?,
         None => Some(crate::hibernate::after_ms(&cfg)).filter(|ms| *ms > 0).unwrap_or(2 * 3_600_000),
     };
-    Ok(pretty(&crate::hibernate::plan_now(&engine::snapshot(false, false), &cfg, after_ms, crate::stale::Uses::load())))
+    Ok(pretty(&crate::hibernate::plan_now(&engine::snapshot(false, false), &cfg, after_ms)))
 }
 
 /// `codealong --snapshot --schedules`: the schedules as the Schedules view lists them, with when

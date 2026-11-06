@@ -253,13 +253,6 @@ pub struct Uses {
     /// By device (`ttys004`). A device a new tab takes keeps its record, which its tab's
     /// opening comes after.
     seen: BTreeMap<String, Seen>,
-    /// The same for what was typed alone: when each device was last read from
-    /// (`device_read_times`), which printing doesn't touch, for hibernating sessions
-    /// (hibernate.rs). Its redraws are told apart the same way: a resize has every program reread
-    /// the terminal at once, the agents' too (four background jobs' terminals here, in a second,
-    /// with nobody typing, 2026-11-05).
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    read: BTreeMap<String, Seen>,
     /// When the file was last written, or tried to be.
     #[serde(skip)]
     saved_at: i64,
@@ -318,88 +311,36 @@ impl Uses {
     /// counts. A device no look saw before (Codealong just started, or its tab is new) has only
     /// its time, which counts as such a move when it's `QUIET_MS` old, with no use before it.
     pub fn on_look(&mut self, now: i64, devices: &[(String, i64)]) -> bool {
-        let (seen, found) = looked(&self.seen, now, devices, Record::Used);
+        let mut seen: BTreeMap<String, Seen> = devices
+            .iter()
+            .map(|(tty, at)| {
+                let next = match self.seen.get(tty) {
+                    Some(s) if *at <= s.at => *s,
+                    Some(Seen { still: Some(still), .. }) if *at - still.since <= REDRAW_WITHIN_MS => Seen { at: *at, used: *at, still: Some(*still) },
+                    Some(s) => Seen { at: *at, used: *at, still: (*at - s.at >= QUIET_MS).then_some(Still { since: *at, before: s.used }) },
+                    None => Seen { at: *at, used: *at, still: (now - *at >= QUIET_MS).then_some(Still { since: *at, before: 0 }) },
+                };
+                (tty.clone(), next)
+            })
+            .collect();
+        let moves: Vec<(&str, i64)> = seen.iter().filter_map(|(tty, s)| Some((tty.as_str(), s.still?.since))).collect();
+        let redrawn: Vec<String> = moved_together(moves).into_iter().map(String::from).collect();
+        let mut found = false;
+        for tty in redrawn {
+            if let Some(Seen { used, still: Some(still), .. }) = seen.get_mut(&tty) {
+                found |= *used != still.before;
+                *used = still.before;
+            }
+        }
         self.unsaved |= seen != self.seen;
         self.seen = seen;
         found || (self.unsaved && now - self.saved_at >= SAVE_EVERY_MS)
-    }
-
-    /// `on_look` for what was typed: each device's read time `now` (`device_read_times`). Kept to
-    /// the safe side (`Record::Typed`): a device no look saw before has its time stand, and one
-    /// read again in a redraw was typed in.
-    pub fn on_read_look(&mut self, now: i64, devices: &[(String, i64)]) -> bool {
-        let (read, found) = looked(&self.read, now, devices, Record::Typed);
-        self.unsaved |= read != self.read;
-        self.read = read;
-        found || (self.unsaved && now - self.saved_at >= SAVE_EVERY_MS)
-    }
-
-    /// When something was last typed on `tty` (`ttys004`), given its read time now (`time`):
-    /// as the looks saw it, a redraw not counted; 0 when no look saw it typed in; and `time`
-    /// itself when it was read since the last look, which can't be told from a redraw yet.
-    pub fn typed(&self, tty: &str, time: i64) -> i64 {
-        match self.read.get(tty) {
-            Some(s) if time <= s.at => s.used,
-            _ => time,
-        }
     }
 
     /// When `tty` was used last, as the last look saw it; 0 when no look saw it used.
     fn used(&self, tty: &str) -> i64 {
         self.seen.get(tty).map_or(0, |s| s.used)
     }
-}
-
-/// Which of `Uses`' records a look is for. They differ where what a redraw left can't be told
-/// from use: Close stale terminals may count a tab from its opening, and so a redraw it didn't see
-/// begin; hibernating may not take keys for a redraw's, as a draft in a box would go.
-#[derive(Clone, Copy, PartialEq)]
-enum Record {
-    /// What was used, read or written (`Uses::seen`).
-    Used,
-    /// What was typed, read (`Uses::read`).
-    Typed,
-}
-
-/// A look at every device's time `now` over what the looks before saw (`before`): what they see
-/// now, and whether a redraw was found (`Uses::on_look`, which says how one is told).
-fn looked(before: &BTreeMap<String, Seen>, now: i64, devices: &[(String, i64)], record: Record) -> (BTreeMap<String, Seen>, bool) {
-    let mut seen: BTreeMap<String, Seen> = devices
-        .iter()
-        .map(|(tty, at)| {
-            let next = match before.get(tty) {
-                Some(s) if *at <= s.at => *s,
-                Some(Seen { still: Some(still), .. }) if *at - still.since <= REDRAW_WITHIN_MS => match record {
-                    // One redraw can touch a device more than once.
-                    Record::Used => Seen { at: *at, used: *at, still: Some(*still) },
-                    // A redraw has its program reread the terminal once; read again, it was typed
-                    // in, however soon after.
-                    Record::Typed => Seen { at: *at, used: *at, still: None },
-                },
-                Some(s) => Seen { at: *at, used: *at, still: (*at - s.at >= QUIET_MS).then_some(Still { since: *at, before: s.used }) },
-                None => Seen {
-                    at: *at,
-                    used: *at,
-                    still: match record {
-                        Record::Used => (now - *at >= QUIET_MS).then_some(Still { since: *at, before: 0 }),
-                        // What was typed before it isn't known, so its time stands.
-                        Record::Typed => None,
-                    },
-                },
-            };
-            (tty.clone(), next)
-        })
-        .collect();
-    let moves: Vec<(&str, i64)> = seen.iter().filter_map(|(tty, s)| Some((tty.as_str(), s.still?.since))).collect();
-    let redrawn: Vec<String> = moved_together(moves).into_iter().map(String::from).collect();
-    let mut found = false;
-    for tty in redrawn {
-        if let Some(Seen { used, still: Some(still), .. }) = seen.get_mut(&tty) {
-            found |= *used != still.before;
-            *used = still.before;
-        }
-    }
-    (seen, found)
 }
 
 /// The devices of `moves` that moved together: `REDRAW_TABS` or more within `REDRAW_WITHIN_MS`
@@ -420,29 +361,11 @@ fn moved_together(mut moves: Vec<(&str, i64)>) -> std::collections::HashSet<&str
     out
 }
 
-/// The time each terminal device a process in `lines` is on was last read from: what's typed
-/// there is read, and what's printed isn't, so an agent at rest that redraws its screen every few
-/// minutes (Claude Code does) leaves it alone.
-pub fn device_read_times(lines: &[PsLine]) -> Vec<(String, i64)> {
-    devices_of(lines).into_iter().filter_map(|tty| Some((tty.to_string(), last_read(&Path::new("/dev").join(tty))?))).collect()
-}
-
-/// The devices processes in `lines` are on.
-fn devices_of(lines: &[PsLine]) -> std::collections::BTreeSet<&str> {
-    lines.iter().map(|l| l.tty.as_str()).filter(|t| !matches!(*t, "??" | "?" | "-" | "")).collect()
-}
-
-/// When a terminal device was last read from: what was typed there, read by its program.
-pub fn last_read(device: &Path) -> Option<i64> {
-    use std::os::unix::fs::MetadataExt;
-    let m = std::fs::metadata(device).ok()?;
-    Some(m.atime() * 1000 + m.atime_nsec() / 1_000_000)
-}
-
 /// The time of each terminal device a process in `lines` is on: when it was last read from or
 /// written to.
 pub fn device_times(lines: &[PsLine]) -> Vec<(String, i64)> {
-    devices_of(lines).into_iter().filter_map(|tty| Some((tty.to_string(), last_used(&Path::new("/dev").join(tty))?))).collect()
+    let ttys: std::collections::BTreeSet<&str> = lines.iter().map(|l| l.tty.as_str()).filter(|t| !matches!(*t, "??" | "?" | "-" | "")).collect();
+    ttys.into_iter().filter_map(|tty| Some((tty.to_string(), last_used(&Path::new("/dev").join(tty))?))).collect()
 }
 
 /// The tabs on this Mac now: one `ps`, and the kernel asked about each tab's shell and device,
@@ -746,37 +669,6 @@ mod tests {
         assert_eq!([uses.used("ttys001"), uses.used("ttys002"), uses.used("ttys003")], [0, 0, 0]);
         assert_eq!(uses.used("ttys004"), NOW - 2 * DAY_MS, "a tab used alone");
         assert_eq!(uses.used("ttys006"), NOW - 400, "agents printing now");
-    }
-
-    #[test]
-    fn what_was_typed_goes_by_reads_kept_apart_a_burst_of_them_not_counted() {
-        let hour = 3_600_000;
-        let reads = |devices: &[(&str, i64)]| devices.iter().map(|(tty, at)| (tty.to_string(), *at)).collect::<Vec<_>>();
-        let mut uses = Uses::default();
-        let ttys = ["ttys041", "ttys044", "ttys096", "ttys104"];
-        // Seen first: what was typed before isn't known, so each time stands, a burst or not.
-        let typed = NOW - 20 * hour;
-        uses.on_read_look(NOW - 18 * hour, &reads(&ttys.map(|t| (t, typed))));
-        assert_eq!(uses.typed("ttys041", typed), typed);
-        let mut first = Uses::default();
-        first.on_read_look(NOW, &reads(&[("ttys041", NOW - hour), ("ttys044", NOW - hour + 300), ("ttys096", NOW - hour + 600)]));
-        assert_eq!(first.typed("ttys041", NOW - hour), NOW - hour, "a burst with nothing known before it");
-        // Four background jobs' terminals reread within a second (a resize), with nobody typing:
-        // what was typed before stands.
-        let burst = NOW - 17 * hour;
-        uses.on_read_look(NOW, &reads(&[("ttys041", burst), ("ttys044", burst + 300), ("ttys096", burst + 600), ("ttys104", burst + 900), ("ttys006", NOW - 3 * hour)]));
-        assert_eq!(uses.typed("ttys041", burst), typed, "the burst isn't typing");
-        assert_eq!(uses.typed("ttys006", NOW - 3 * hour), NOW - 3 * hour);
-        // Typed in a moment after the burst: read again, within the redraw's seconds.
-        uses.on_read_look(NOW + 1, &reads(&[("ttys041", burst + 5_000), ("ttys044", burst + 300), ("ttys096", burst + 600), ("ttys104", burst + 900)]));
-        assert_eq!(uses.typed("ttys041", burst + 5_000), burst + 5_000);
-        assert_eq!(uses.typed("ttys044", burst + 300), typed);
-        // Read since the last look: no telling it from a burst yet, so it counts.
-        assert_eq!(uses.typed("ttys044", NOW - 1_000), NOW - 1_000);
-        assert_eq!(uses.typed("ttys200", NOW - 5_000), NOW - 5_000, "a device no look saw");
-        // The other record is its own: printing looks don't touch what was typed.
-        look(&mut uses, NOW + 2, &[("ttys044", NOW - 60_000)]);
-        assert_eq!(uses.typed("ttys044", burst + 300), typed);
     }
 
     #[test]
