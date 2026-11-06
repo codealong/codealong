@@ -627,15 +627,19 @@ impl GhPoll {
     pub fn on_approved(&mut self, slug: String, number: u64, verdict: Verdict, commit: Option<String>, seeds: &[LaneSeed], now: Now) -> bool {
         let mut dirty = false;
         let mut shown = None;
+        let review_of = |pr: &PrRaw| LastReview { state: verdict.into(), commit: commit.clone().or_else(|| pr.head_oid.clone()), at: Some(now.ms) };
         let made = self.made.iter_mut().filter(|(s, _)| s.eq_ignore_ascii_case(&slug)).flat_map(|(_, prs)| prs.iter_mut());
         if let Some(pr) = self.prs.get_mut(&slug).into_iter().flatten().chain(made).find(|p| p.number == number) {
             pr.review_requested = false;
-            let review = LastReview { state: verdict.into(), commit: commit.or_else(|| pr.head_oid.clone()), at: Some(now.ms) };
+            let review = review_of(pr);
             shown_review(pr, review.clone());
             shown = Some(review);
             dirty = true;
         }
         if let Some(prs) = self.requested.get_mut(&slug) {
+            // One the board lists from the search alone (`board::pr_items`) has its review kept
+            // all the same, for its repo's first read, asked for before it (`as_done_here`).
+            shown = shown.or_else(|| prs.iter().find(|p| p.number == number).map(&review_of));
             prs.retain(|p| p.number != number);
             dirty = true;
         }
@@ -1298,6 +1302,27 @@ mod tests {
         gh.schedule.last = Some(after(sent, 3).at);
         gh.on_event(found(), &seeds, after(sent, 4));
         assert_eq!(gh.requested()["SparkHQ/spark"].len(), 1);
+    }
+
+    #[test]
+    fn a_review_here_of_a_pr_listed_from_the_search_alone_outlasts_its_repos_first_read() {
+        let mut gh = quiet();
+        let slug = "sprucehq/spark".to_string();
+        let seeds = [seed("/r/spark", "sprucehq/spark", "feature")];
+        // Assigned to you, and found by the search before the repo's first read has come, so the
+        // board lists it from the search (`board::pr_items`).
+        let assigned = PrRaw { head_oid: Some("c0ffee1".into()), assigned: Some(github::Assigned { by: "ken".into(), at: 10 }), ..pr(7) };
+        let sent = clock();
+        gh.schedule.last = Some(sent.at);
+        gh.on_event(Event::Requested(Ok(Requested { login: Some("gwen".into()), prs: vec![(slug.clone(), assigned.clone())] }), None), &seeds, sent);
+        gh.schedule.inflight = true;
+        assert!(gh.on_approved(slug.clone(), 7, Verdict::Comment, None, &seeds, after(sent, 1)));
+        // The repo's first read, asked for before your review, comes after it: your review
+        // answers the assignment all the same.
+        gh.on_event(Event::Repo(slug.clone(), Ok(RepoPrs { login: Some("gwen".into()), prs: vec![assigned] }), None), &seeds, after(sent, 2));
+        let pr = &gh.prs()[&slug][0];
+        assert_eq!(pr.last_review.as_ref().map(|r| (r.state, r.commit.as_deref())), Some((LastReviewState::Commented, Some("c0ffee1"))));
+        assert_eq!(pr.assigned_review(Some("gwen")), None);
     }
 
     #[test]
