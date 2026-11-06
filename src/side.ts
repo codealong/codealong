@@ -471,11 +471,16 @@ export function useSide(key: string): Side | null {
   return useSyncExternalStore(subscribe, () => sides.get(key) ?? null);
 }
 
-/** What a turn that hasn't its answer yet is doing, in a few words: the tool the copy runs is
- *  said by the turn itself, so this is for before and between. `first` is the turn the copy is
- *  on; the ones after it wait. */
-export function turnState(turn: SideTurn, first: boolean): string | null {
-  if (turn.done || turn.tool) return null;
-  if (!first) return 'Next';
-  return turn.answer ? null : 'Reading the conversation…';
+/** Where a turn that hasn't its answer yet stands. `current` is the turn the copy is on, which
+ *  shows the working line (ui/Working.tsx `WorkingLine`) until it's answered: otherwise a tool
+ *  the copy runs, or minutes of thought, are all that shows of it, and it doesn't read as
+ *  working. Its `word` says it reads the conversation until it has done or said anything, the
+ *  line's own words after. The ones after it wait their turn. */
+export type TurnState = { kind: 'working'; word?: string } | { kind: 'waits'; words: string } | null;
+
+export function turnState(turn: SideTurn, current: boolean): TurnState {
+  if (turn.done) return null;
+  if (!current) return { kind: 'waits', words: 'Waits for the answer above' };
+  const begun = turn.answer || turn.tool || (turn.tools?.length ?? 0) > 0;
+  return begun ? { kind: 'working' } : { kind: 'working', word: 'Reading the conversation' };
 }

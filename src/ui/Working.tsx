@@ -56,6 +56,27 @@ function useClock(everyMs: number): number {
   return now;
 }
 
+/** The line's head: the mark, `word` with its ellipsis, and how long it has gone on since `since`
+ *  (none where that isn't known). */
+function Head({ word, since, now }: { word: string; since: number | null; now: number }) {
+  return (
+    <span className="ca-working-head">
+      <MarkLive size={14} status="working" moment={null} quiet />
+      <span className="ca-working-line">
+        <span key={word} className="ca-working-word">
+          {word}
+          <span className="ca-working-dots">
+            <span>.</span>
+            <span>.</span>
+            <span>.</span>
+          </span>
+        </span>
+        {since !== null && <span className="ca-working-for">{duration(since, now)}</span>}
+      </span>
+    </span>
+  );
+}
+
 export function Working({ session: s, tips, onGrow }: { session: Session; tips: boolean; onGrow: () => void }) {
   const now = useClock(TICK_MS);
   const since = workingSince(s) ?? s.lastPromptAt;
@@ -68,21 +89,21 @@ export function Working({ session: s, tips, onGrow }: { session: Session; tips: 
   useLayoutEffect(onGrow, [onGrow, word]);
   return (
     <div className="ca-working">
-      <span className="ca-working-head">
-        <MarkLive size={14} status="working" moment={null} quiet />
-        <span className="ca-working-line">
-          <span key={word} className="ca-working-word">
-            {word}
-            <span className="ca-working-dots">
-              <span>.</span>
-              <span>.</span>
-              <span>.</span>
-            </span>
-          </span>
-          <span className="ca-working-for">{duration(since, now)}</span>
-        </span>
-      </span>
+      <Head word={word} since={since} now={now} />
       {due && (due !== 'take' || !document.hidden) && <WorkingTip kept={due === 'take' ? null : due.keep} turn={turn} since={since} onGrow={onGrow} />}
+    </div>
+  );
+}
+
+/** The line under a side conversation's question while its copy answers it (SideStrip.tsx), so
+ *  a copy at work for minutes on a command reads as working: `word` while there's one to say,
+ *  else the line's own words, in an order of `seed`'s, and how long since it was asked. No tips:
+ *  the conversation beside it has its own line for those. */
+export function WorkingLine({ seed, since, word }: { seed: string; since: number | null; word?: string }) {
+  const now = useClock(TICK_MS);
+  return (
+    <div className="ca-working" role="status">
+      <Head word={word ?? workingWord(seed, since ?? now, now)} since={since} now={now} />
     </div>
   );
 }

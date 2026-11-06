@@ -415,8 +415,12 @@ of it. The copy reads files and runs commands to answer, and is told to change n
 question asks for that change in so many words, as Codex's own `/side` is; then it can do what the
 session itself can without asking (a Claude Code session that skips permission prompts, a Codex
 thread's sandbox), and what would have to ask you is refused. The harness keeps nothing of the copy:
-no transcript, no session on the board. While it shows, the box under it asks the side conversation,
-not the session (its placeholder says Ask on the side): type a follow-up and press ⏎. Close gives
+no transcript, no session on the board. While the copy answers, the command or tool it runs shows
+under your question, and under that the working line a session's conversation has while its agent
+works (the mark breathing, a word, and how long since you asked), so a copy busy for minutes on a
+slow command still reads as working. While it shows, the box under it asks the side conversation,
+not the session (its placeholder says Ask on the side): type a follow-up and press ⏎; one asked
+while the copy answers says it waits for the answer above, and is answered next. Close gives
 the box back to the session at once. A copy that's still answering when you close it answers what it
 was asked before it ends, so closing one to talk to the session loses no answer: it stays listed
 under the session as answering, and a click on it shows it to read as the answer comes (Delete there

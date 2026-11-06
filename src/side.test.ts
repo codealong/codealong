@@ -5,15 +5,24 @@ import type { Side, SideKept, SideTurn } from './types';
 const turn = (t: Partial<SideTurn>): SideTurn => ({ question: 'why?', answer: '', done: false, ...t });
 
 describe('turnState', () => {
-  it('says what a turn without its answer is waiting on', () => {
-    expect(turnState(turn({}), true)).toBe('Reading the conversation…');
-    expect(turnState(turn({}), false)).toBe('Next');
+  it('says the copy reads the conversation until it has done or said anything', () => {
+    expect(turnState(turn({}), true)).toEqual({ kind: 'working', word: 'Reading the conversation' });
   });
 
-  it('leaves it to the answer and the tool once there is one', () => {
-    expect(turnState(turn({ answer: 'Because' }), true)).toBeNull();
-    expect(turnState(turn({ tool: 'Bash · `git status`' }), true)).toBeNull();
+  it('keeps the working line, in its own words, through tools and the answer as it comes', () => {
+    // A tool that has run, with the copy thinking after it, is still work.
+    expect(turnState(turn({ tool: 'Bash · `gcloud compute instances list`' }), true)).toEqual({ kind: 'working' });
+    expect(turnState(turn({ tools: ['Bash · `gcloud compute instances list`'] }), true)).toEqual({ kind: 'working' });
+    expect(turnState(turn({ answer: 'Because' }), true)).toEqual({ kind: 'working' });
+  });
+
+  it('says one asked after the turn the copy is on waits for it', () => {
+    expect(turnState(turn({}), false)).toEqual({ kind: 'waits', words: 'Waits for the answer above' });
+  });
+
+  it('says nothing once a turn is answered, or ended without one', () => {
     expect(turnState(turn({ answer: 'Because.', done: true }), false)).toBeNull();
+    expect(turnState(turn({ answer: 'Because.', done: true }), true)).toBeNull();
     expect(turnState(turn({ done: true, error: 'The copy stopped.' }), true)).toBeNull();
   });
 });

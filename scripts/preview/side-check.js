@@ -95,16 +95,24 @@
       check('leaves the peek open', calls('peek_hide').length === hides);
       check('shows the question above the box', turns().length === 1 && turns()[0].indexOf('why a queue?') === 0 && turns()[0].indexOf('Reading the conversation') > 0, turns().join(' / '));
       check('the strip sits right above the box', strip().nextElementSibling === document.querySelector('.ca-composer:last-child'));
+      // The working line a conversation has while its agent works, under the turn the copy is on.
+      var working = function (n) { var t = document.querySelectorAll('.ca-sidestrip-turn')[n]; return t && t.querySelector('.ca-working'); };
+      check('under it, the working line says the copy reads the conversation', !!working(0) && /^Reading the conversation\.\.\./.test(working(0).textContent) && !!working(0).querySelector('.ca-lmark'), working(0) ? working(0).textContent : 'none');
 
-      tell({ turns: [{ question: 'why a queue?', answer: '', tool: 'Bash · `git log -3`', done: false }] });
+      // Asked three minutes ago, and on a slow command since.
+      var asked = Date.now() - 3.5 * 60000;
+      tell({ turns: [{ question: 'why a queue?', answer: '', tool: 'Bash · `git log -3`', done: false, at: asked }] });
       await wait(50);
-      check('shows the tool the copy runs', turns()[0].indexOf('Bash · git log -3') > 0 && turns()[0].indexOf('Reading') < 0, turns()[0]);
-      tell({ turns: [{ question: 'why a queue?', answer: 'Because sends must keep their **order**.', done: false }] });
+      check('shows the tool the copy runs', turns()[0].indexOf('Bash · git log -3') > 0 && turns()[0].indexOf('Reading the conversation') < 0, turns()[0]);
+      var line = working(0);
+      check('and under it the working line, in its own words, with how long since it was asked', !!line && !!line.querySelector('.ca-lmark') && line.querySelector('.ca-working-for').textContent === '3m' && line.compareDocumentPosition(strip().querySelector('.ca-sidestrip-doing')) === Node.DOCUMENT_POSITION_PRECEDING, line ? line.textContent : 'none');
+      tell({ turns: [{ question: 'why a queue?', answer: 'Because sends must keep their **order**.', tools: ['Bash · `git log -3`'], done: false, at: asked }] });
       await wait(50);
       check('then its answer as it comes', turns()[0].indexOf('Because sends must keep their order.') > 0 && !!strip().querySelector('.ca-sidestrip-a strong'), turns()[0]);
-      tell({ running: false, turns: [{ question: 'why a queue?', answer: 'Because sends must keep their **order**.', tools: ['Bash · `git log -3`', 'Read · `send.rs`'], done: true }] });
+      check('the working line staying under it until it’s done', !!working(0) && working(0).previousElementSibling.classList.contains('ca-sidestrip-a'), working(0) ? working(0).textContent : 'none');
+      tell({ running: false, turns: [{ question: 'why a queue?', answer: 'Because sends must keep their **order**.', tools: ['Bash · `git log -3`', 'Read · `send.rs`'], done: true, at: asked }] });
       await wait(50);
-      check('and nothing more once it has answered', !strip().querySelector('.ca-sidestrip-doing'));
+      check('and nothing more once it has answered', !strip().querySelector('.ca-sidestrip-doing') && !strip().querySelector('.ca-working'));
       var steps = strip().querySelector('.ca-sidestrip-steps');
       check('but what it did, folded', !!steps && !steps.open && steps.querySelector('summary').textContent === '2 steps' && steps.textContent.indexOf('Read · send.rs') > 0, steps && steps.textContent);
 
@@ -113,6 +121,10 @@
       enter();
       await until(function () { return turns().length === 2; }, 5000);
       check('a second question joins the first', calls('side_ask')[1][1].text === 'and without one?' && turns()[0].indexOf('order') > 0, turns().join(' / '));
+      // As one asked while the copy still answers the first shows.
+      tell({ turns: [{ question: 'why a queue?', answer: '', tool: 'Bash · `git log -3`', done: false }, { question: 'and without one?', answer: '', done: false }] });
+      await wait(50);
+      check('one asked while the copy answers says it waits for the answer above', turns()[1].indexOf('Waits for the answer above') > 0 && !working(1) && !!working(0), turns().join(' / '));
       tell({ turns: [{ question: 'why a queue?', answer: 'Because.', done: true }, { question: 'and without one?', answer: '', done: true, error: 'The copy stopped: usage limit reached' }], running: false, ended: true });
       await wait(50);
       check('a copy that stops says why', turns()[1].indexOf('The copy stopped: usage limit reached') > 0 && strip().textContent.indexOf('Its copy has ended') > 0, strip().textContent);

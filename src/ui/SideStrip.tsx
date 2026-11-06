@@ -1,6 +1,7 @@
 // A session's side conversations (side.ts), above the box that asks them with `/side`. The open
 // one shows each question and its answer as the throwaway copy writes it, the tool it's using
-// meanwhile, and Close, which gives the box back to the session: a copy that's answering answers
+// meanwhile with, under it, the working line a conversation has while its agent works (Working.tsx
+// `WorkingLine`), and Close, which gives the box back to the session: a copy that's answering answers
 // what it was asked first and then ends, listed with the ones from before and read as it answers.
 // Codealong keeps what was asked and answered, with what the copy did to answer, so `/side` alone
 // (or Earlier, beside an open one) lists the ones from before, and picking one shows it to read,
@@ -31,6 +32,7 @@ import { ImagesFrom } from './DescriptionEditor';
 import { Markdown } from './Markdown';
 import { Button, cx, Icon, Rich } from './primitives';
 import { heardOf, scrolledUp, type Heard } from './SessionThread';
+import { WorkingLine } from './Working';
 
 /** What a strip says of its conversations, which are about a session or a PR, and how it ends
  *  the open one. */
@@ -141,8 +143,9 @@ function keepEnd(el: HTMLElement, atEnd: { current: boolean }, heard: { current:
   heard.current = heardOf(el);
 }
 
-/** Questions and their answers. `current` is the turn the copy is on, in an open one. */
-function Turns({ turns, current }: { turns: SideTurn[]; current: number }) {
+/** Questions and their answers. `current` is the turn the copy is on, in an open one; `id` is the
+ *  conversation's, whose working line says its words in an order of its own. */
+function Turns({ id, turns, current }: { id: string; turns: SideTurn[]; current: number }) {
   return (
     <>
       {turns.map((t, i) => {
@@ -170,9 +173,11 @@ function Turns({ turns, current }: { turns: SideTurn[]; current: number }) {
                 <Rich text={t.tool} now={0} />
               </div>
             )}
-            {state && (
+            {/* How long since it was asked: a turn kept from before Codealong noted that has none. */}
+            {state?.kind === 'working' && <WorkingLine seed={id} since={t.at || null} word={state.word} />}
+            {state?.kind === 'waits' && (
               <div className="ca-sidestrip-doing" role="status">
-                {state}
+                {state.words}
               </div>
             )}
             {t.error && <div className="ca-sidestrip-error">{t.error}</div>}
@@ -307,7 +312,7 @@ export function SideStrip({ sideKey: key, words, inWindow }: { sideKey: string; 
         />
         {hide}
       </Head>,
-      <Turns turns={read.turns} current={read.current} />,
+      <Turns id={read.id} turns={read.turns} current={read.current} />,
     );
   }
 
@@ -367,7 +372,7 @@ export function SideStrip({ sideKey: key, words, inWindow }: { sideKey: string; 
         }
       />
     </Head>,
-    <Turns turns={side.turns} current={side.turns.findIndex((t) => !t.done)} />,
+    <Turns id={side.id} turns={side.turns} current={side.turns.findIndex((t) => !t.done)} />,
     true,
   );
 }
