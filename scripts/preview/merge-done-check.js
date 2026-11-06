@@ -305,7 +305,8 @@
       await wait(50);
       check('confirmed, the dialog goes at once, before GitHub answers', !dialog() && sent('merge_pr').length === 1, sent('merge_pr').length + ' merges asked, dialog ' + (dialog() ? 'up' : 'gone'));
       if (bySessions) check('and the session leaves Sessions with it, as Mark as done has it', !rowOf());
-      var error = await until(function () { return q('.ca-mergedonedlg .ca-form-error'); }, 5000, 'a refused merge didn’t bring the dialog back');
+      // Back, it says why at once, and has its fields once the box is read again.
+      var error = await until(function () { return titleField() && q('.ca-mergedonedlg .ca-form-error'); }, 5000, 'a refused merge didn’t bring the dialog back');
       check('a merge GitHub refuses brings the dialog back, saying why', /Head branch was modified/.test(error.textContent), error.textContent);
       check('with the commit as it was written', titleField().value === 'fail' && q('.ca-mergedonedlg textarea').value === 'Written here', titleField().value + ' / ' + q('.ca-mergedonedlg textarea').value);
       check('its button not taking the keyboard, so a Return meant for something else doesn’t merge it', document.activeElement !== confirm(), document.activeElement ? document.activeElement.outerHTML.slice(0, 80) : 'nothing');

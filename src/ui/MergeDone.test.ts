@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as fx from '../testing/fixtures';
-import { mergeDoneWords } from './MergeDone';
+import { comesBack, mergeDoneWords } from './MergeDone';
 
 describe('mergeDoneWords', () => {
   const pr = fx.prItem({ number: 7, base: 'main' });
@@ -18,5 +18,19 @@ describe('mergeDoneWords', () => {
 
   it('leaves out a base it doesn’t know', () => {
     expect(mergeDoneWords({ pr: { ...pr, base: null }, session })).toMatch(/^Merges #7, then/);
+  });
+});
+
+describe('comesBack', () => {
+  it('brings a refused merge’s dialog back over the main window, or on a card on its own session', () => {
+    expect(comesBack('a', { up: true, open: false })).toBe(true);
+    expect(comesBack('a', { up: true, open: false, showing: 'a' })).toBe(true);
+  });
+
+  it('keeps it for its session where it would take another’s place', () => {
+    // A card gone on to another session, or away; another dialog up, with what you wrote in it.
+    expect(comesBack('a', { up: true, open: false, showing: 'b' })).toBe(false);
+    expect(comesBack('a', { up: false, open: false, showing: 'a' })).toBe(false);
+    expect(comesBack('a', { up: true, open: true })).toBe(false);
   });
 });

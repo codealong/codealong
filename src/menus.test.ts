@@ -663,6 +663,20 @@ describe('Merge and done', () => {
     await flush();
     expect(asks[2].refused?.why).toBe('Couldn’t merge #7: Base branch was modified.');
     expect(said).toEqual(['error: Couldn’t merge #7: Base branch was modified. “Fix login” isn’t done.']);
+
+    // A window that went on from it has it come round again, and says why itself where the
+    // dialog isn't in front of you.
+    said.length = 0;
+    const failed: (string | null)[] = [];
+    const going: SessionCan = { ...can, failed: (why) => failed.push(why) };
+    for (const front of [true, false]) {
+      inFront = front;
+      sessionActions(lane(), session(), going).mergeDone?.run();
+      asks[asks.length - 1].then(Promise.reject(new Error('Couldn’t merge #7: Head branch was modified.')), 'Merged #7.', commit);
+      await flush();
+    }
+    expect(failed).toEqual([null, 'Couldn’t merge #7: Head branch was modified. “Fix login” isn’t done.']);
+    expect(said).toEqual([]);
   });
 });
 

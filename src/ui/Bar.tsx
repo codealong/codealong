@@ -965,6 +965,7 @@ export function Bar() {
                 onNext={stage.next}
                 onLeft={stage.left}
                 onUnsent={stage.unsent}
+                onFailed={stage.failed}
                 onGone={(key) => {
                   stage.close();
                   setFailed({ anchor: key, message: 'That session is no longer on the board.' });

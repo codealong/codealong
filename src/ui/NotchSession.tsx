@@ -7,20 +7,20 @@
 // does. A click on the pill again or on the notch, Escape, or a click anywhere else puts it away.
 //
 // It has the keyboard from the click, and works through what waits on you as a session's panel
-// in Sessions does, with the same keys, from the same code (queue.ts, useWaitingQueue.ts): ⌘⏎ in
+// in Sessions does, with the same keys, from the same code (queue.ts, useWaitingQueue.ts): ââ in
 // the box sends (or allows the call the session waits on) and goes on to the next that waits on
-// you, ⌘E marks a finished turn seen and goes on, ⌘] or ⌥⇧↓ skips to it and ⌘[ or ⌥⇧↑ goes back,
-// ⌥↑ ⌥↓ step along the bar's sessions, the running ones too, and ⌃- and ⌃⇧- go back and forward
+// you, âE marks a finished turn seen and goes on, â] or â¥â§â skips to it and â[ or â¥â§â goes back,
+// â¥â â¥â step along the bar's sessions, the running ones too, and â- and ââ§- go back and forward
 // through the ones you looked at here (history.ts). The pill
 // of the one shown is marked, and a strip over its header has what's commonly done to it as
 // buttons that say their keys (SessionPanel.tsx `Hotkeys`) and says how many more wait
 // and how the last one went. Marked seen, snoozed or archived, a session leaves the bar, and the
 // next that waits takes its place; with none left, the end of what waits does (QueueEnd.tsx),
-// saying how the last one went, as the waiting window and the iPhone say it. (⌘⏎ goes on only
-// while something's next: on the last one it sends and stays, as ⏎ does.) So does the shortcut with nothing waiting, though some run, and a click on the notch
+// saying how the last one went, as the waiting window and the iPhone say it. (ââ goes on only
+// while something's next: on the last one it sends and stays, as â does.) So does the shortcut with nothing waiting, though some run, and a click on the notch
 // with nothing on the bar. The end keeps the
 // keyboard until it's put away as a session is, and what comes to wait on you meanwhile takes its
-// place by itself. The session's own shortcuts (⌃⌘A, ⌃⌘R, ⌃⌘P) are its card's.
+// place by itself. The session's own shortcuts (ââA, ââR, ââP) are its card's.
 //
 // A PR waiting on your review takes the same place (NotchReview.tsx), among the sessions in the
 // bar's order (bar.ts `notchRows`): the keys go from a session to a review and on as one list.
@@ -74,7 +74,7 @@ export interface NotchStageState {
   open: boolean;
   /** It has the keyboard. */
   keys: boolean;
-  /** Asked for with its name ready to change (Rename… in a pill's menu). */
+  /** Asked for with its name ready to change (Renameâ¦ in a pill's menu). */
   rename: boolean;
   /** What's left to work through after it, and how the last one went. */
   queue: Queue | undefined;
@@ -105,7 +105,7 @@ export interface NotchStageState {
   close: () => void;
   /** A click in the card of a session that lost the keyboard takes it back. */
   takeKeys: () => void;
-  /** The session `from` was sent a message or allowed its call with ⌘⏎: on to the next that
+  /** The session `from` was sent a message or allowed its call with ââ: on to the next that
    *  waits on you, saying what was done. */
   next: (done: string, from: string) => void;
   /** The session or review left the bar (marked seen, snoozed, archived; approved, reviewed): on
@@ -151,7 +151,7 @@ export function useNotchStage(items: BarItem[], reviews: BarReview[], known: (ke
   const history = useSessionHistory(key, (k) => known(k) || fromChips.current.has(k), HISTORY_KEY);
 
   // The way through what waits on you (useWaitingQueue.ts), over the bar's own list: the pills
-  // and reviews that wait, with ⌥↑ ⌥↓ along all of them. One that leaves the bar takes the notch
+  // and reviews that wait, with â¥â â¥â along all of them. One that leaves the bar takes the notch
   // on to the next whether it waited or not, since it has no pill to stay on. `show` is below:
   // the queue calls it only from a key or an answer.
   const row = key ? rows.find((r) => r.key === key) : undefined;
@@ -160,9 +160,9 @@ export function useNotchStage(items: BarItem[], reviews: BarReview[], known: (ke
     along: rows,
     reads: ROW_READS,
     // One the bar's groups no longer list (it went idle, or it's another project's, come to
-    // through ⌃- or from a session it started) is still shown until you leave it. The bar has
-    // no pill to say whether there's anything in it to mark seen, so ⌘E goes on from it. A
-    // review has nothing to mark seen either: ⌘E skips it.
+    // through â- or from a session it started) is still shown until you leave it. The bar has
+    // no pill to say whether there's anything in it to mark seen, so âE goes on from it. A
+    // review has nothing to mark seen either: âE skips it.
     shown: key ? { key, title: row ? ROW_READS.titleOf(row) : 'The last one', since: row ? ROW_READS.sinceOf(row) : undefined, seenable: row?.kind === 'session' && seenable(row.item), skipsOnSeen: row?.kind === 'review' } : null,
     show: (to) => show(to.key),
     travel: (dir) => {
@@ -293,7 +293,7 @@ export function useNotchStage(items: BarItem[], reviews: BarReview[], known: (ke
   const unsent = useCallback(
     (key: string, said: string) => {
       again(key);
-      // At the end of what waits (⏎, then the last one marked seen before the message failed),
+      // At the end of what waits (â, then the last one marked seen before the message failed),
       // the notch goes back to it, saying why, as for a review: it may not wait on you, so
       // nothing else would bring it back.
       if (shownNow.current === END) show(key);
@@ -318,12 +318,12 @@ export function useNotchStage(items: BarItem[], reviews: BarReview[], known: (ke
     [],
   );
 
-  // Its keys, while it's up. Escape closes it, and ⌘Q, ⌘H and ⌘W close it rather than going to
+  // Its keys, while it's up. Escape closes it, and âQ, âH and âW close it rather than going to
   // Codealong, since the menu bar is the other app's. The rest are the queue's, the ones a
   // session's panel has in Sessions (queue.ts `QUEUE_CHORDS`). Typing with nothing focused goes
-  // to the box. A terminal in the drawer under the box takes every key but the ⌘ ones while it
-  // has the keyboard (terminal/keys.ts), Escape included, which its program needs: ⌘W still
-  // closes the notch, and ⌘] ⌘[ ⌘E still go through what waits.
+  // to the box. A terminal in the drawer under the box takes every key but the â ones while it
+  // has the keyboard (terminal/keys.ts), Escape included, which its program needs: âW still
+  // closes the notch, and â] â[ âE still go through what waits.
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -336,7 +336,7 @@ export function useNotchStage(items: BarItem[], reviews: BarReview[], known: (ke
       }
       // A dialog over the card keeps the rest (focusTrap.ts `dialogUp`).
       if (dialogUp()) return;
-      // ⌘E on a session that can be marked seen isn't taken here: it's its card's
+      // âE on a session that can be marked seen isn't taken here: it's its card's
       // (SessionCard.tsx), which marks it seen and says it left.
       if (onQueueKey(e)) {
         e.preventDefault();
@@ -364,7 +364,7 @@ interface NotchSessionProps {
   now: number;
   queue: Queue | undefined;
   notice: Notice | null;
-  /** Back to the session looked at before (⌃-); null with none. */
+  /** Back to the session looked at before (â-); null with none. */
   onBack: (() => void) | null;
   /** It has the keyboard; a click in it takes it. */
   keys: boolean;
@@ -375,19 +375,23 @@ interface NotchSessionProps {
    *  `showPr`). */
   onShowPr: (key: string, from: CameFrom) => void;
   onClose: () => void;
-  /** Sent or allowed with ⌘⏎, and what took it off the bar: on to the next. */
+  /** Sent or allowed with ââ, and what took it off the bar: on to the next. */
   onNext: (done: string, from: string) => void;
   onLeft: (key: string, done: Left) => void;
   /** A message to the session `key` didn't go after the notch went on from it; false when there's
    *  no strip to say `said` on (NotchStageState `unsent`). */
   onUnsent: (key: string, said: string) => boolean;
+  /** Merge and done…'s merge of the session `key` was refused after the notch went on from it
+   *  (NotchStageState `failed`): it comes round again, the notch back on it where it closed or
+   *  ended, saying `why` (menus.ts `SessionCan.failed`). */
+  onFailed: (key: string, why: string) => void;
   /** The board no longer has it. */
   onGone: (key: string) => void;
   /** The zoom the card draws at, in percent, from the bar's feed (zoom.ts). */
   zoom?: number;
 }
 
-export function NotchSession({ sessionKey, rename, now, queue, notice, onBack, keys, onKeys, onShow, onShowPr, onClose, onNext, onLeft, onUnsent, onGone, zoom }: NotchSessionProps) {
+export function NotchSession({ sessionKey, rename, now, queue, notice, onBack, keys, onKeys, onShow, onShowPr, onClose, onNext, onLeft, onUnsent, onFailed, onGone, zoom }: NotchSessionProps) {
   // The session as the engine has it, asked for as it's shown; the one before stays until it
   // comes, so going from one to the next never shows an empty notch.
   const [told, setTold] = useState<(Told & { apps: Board['apps'] }) | null>(null);
@@ -442,7 +446,15 @@ export function NotchSession({ sessionKey, rename, now, queue, notice, onBack, k
 
   /** What the notch does for its session's actions (SessionCard.tsx has the rest): what takes the
    *  session off the bar goes on to the next that waits on you. */
-  const can: WindowCan = { report, open: host.open, reveal: () => host.showSession(lane, session), rename: () => setRenameAsked(session.key), left: (done) => onLeft(session.key, done) };
+  const can: WindowCan = {
+    report,
+    open: host.open,
+    reveal: () => host.showSession(lane, session),
+    rename: () => setRenameAsked(session.key),
+    left: (done) => onLeft(session.key, done),
+    // A card's Merge and done… dialog is never surely in front of you, so there's always a why.
+    failed: (why) => why && onFailed(session.key, why),
+  };
 
   /** Keeps the session on the desktop, in a window of its own where its card is, and the notch
    *  closes over it. */
@@ -496,7 +508,7 @@ export function NotchSession({ sessionKey, rename, now, queue, notice, onBack, k
         // It didn't go, after the notch went on from it: the strip of the one shown says why, as
         // the waiting window's does. Where the notch closed on it, the bar says so by its pill.
         onFailed={(why) => {
-          if (!onUnsent(session.key, `Didn’t send to ${session.title}: ${why}`)) report.error(why);
+          if (!onUnsent(session.key, `Didnât send to ${session.title}: ${why}`)) report.error(why);
         }}
       />
     </div>

@@ -1554,6 +1554,12 @@ export function App() {
       // Undo takes it out of the archive; a terminal it closed stays closed, and it resumes as any other.
       undoDone: (message) => setArchivedUndo({ keys: [s.key], title: s.title, message }),
       left: (done) => leftAndOn(s, done),
+      // Its merge refused: round again in Sessions' queue, with a toast where the dialog didn't
+      // come back (another was up).
+      failed: (why) => {
+        queue.again(s.key);
+        if (why) report.error(why);
+      },
       mergeDone: board ? { prs: board.prs, ask: mergingDone.ask } : undefined,
       // Moved from its panel in Sessions, it stays there until its copy takes its place, rather
       // than the panel going on to the next that waits.

@@ -43,7 +43,7 @@ const NO_TERMINALS: TerminalGlance[] = [];
 /** What a window does for a session's actions (menus.ts `SessionCan`), less what the card knows
  *  for every window: the apps, what's on the desktop, the pin and the shortcuts. A window that has
  *  the board gives its worktrees, for Move to worktree. */
-export type WindowCan = Pick<menus.SessionCan, 'report' | 'open' | 'reveal' | 'reply' | 'rename' | 'left' | 'worktrees'>;
+export type WindowCan = Pick<menus.SessionCan, 'report' | 'open' | 'reveal' | 'reply' | 'rename' | 'left' | 'failed' | 'worktrees'>;
 
 interface SessionCardProps extends Pick<SessionPanelProps, 'zoom' | 'queue' |'notice' | 'hotkeys' | 'autoFocus' | 'keys' | 'renaming' | 'onRename' | 'onKeep' | 'keepTitle' | 'onClose' | 'closeTitle' | 'onSending' | 'onSent' | 'onFailed' | 'onAnswered' | 'onDone' | 'onLoaded' | 'device'> {
   lane: Lane;
@@ -93,9 +93,10 @@ export function SessionCard({ lane, session, apps, now, board, can, canFor, outg
   const { report } = can;
   const icons = useEditorIcons(apps);
   const onDesktop = menus.useDesktopPins();
-  // Merge and done…'s dialog: the card may have gone on, or been put away, by the time a refused
-  // merge brings it back, so the window says why too (menus.ts `SessionCan.mergeDone`).
-  const mergingDone = useMergeDone(false);
+  // Merge and done…'s dialog, back after a refusal only on its own session's card: the card may
+  // have gone on, or been put away, by then, so the window says why too (menus.ts
+  // `SessionCan.mergeDone`).
+  const mergingDone = useMergeDone(false, session.key);
   /** A window's part for a session, with the card's: the same menu in every window. */
   const whole = (s: Session, base: WindowCan): menus.SessionCan => ({
     ...base,

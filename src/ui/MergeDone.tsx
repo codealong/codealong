@@ -12,13 +12,16 @@
 // merges it and, once GitHub has, marks the session done in the same request (ahead.ts
 // `mergeDoneAhead`), any work under way ended too, as the dialog says, so a window closed
 // meanwhile doesn't leave it half done. A merge GitHub refuses puts the PR and the session back as
-// they were and brings the dialog back, with the commit as it was written and why; its button
-// doesn't take the keyboard then, so a Return meant for whatever you'd gone on to doesn't merge
-// it. The main window holds the dialog (App.tsx), and so does a session's card in the other
-// windows (SessionCard.tsx), each through `useMergeDone`.
+// they were, the session round again in what waits (menus.ts `SessionCan.failed`), and brings
+// the dialog back with the commit as it was written and why: over whatever the main window
+// shows, and in a card once it's on the session again, never in place of another dialog
+// (`useMergeDone`). Its button doesn't take the keyboard then, so a Return meant for whatever
+// you'd gone on to doesn't merge it. The main window holds the dialog (App.tsx), and so does a
+// session's card in the other windows (SessionCard.tsx).
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { mergeDoneAhead } from '../ahead';
+import { useLatest } from '../latest';
 import { mergeBox } from '../api';
 import { below, showContextMenu } from '../contextMenu';
 import { middleTruncate } from '../format';
@@ -45,18 +48,68 @@ export function mergeDoneWords(ask: Pick<MergeDoneAsk, 'pr'> & { session: Sessio
   return `Merges #${pr.number}${into}, then marks “${s.title}” done: ${whatDoneDoes(s)}.${first}`;
 }
 
+/** Merges GitHub refused whose dialog couldn't come back where it was asked, by session: the card
+ *  had gone on to another session or away, or another dialog was up. Merge and done… on the
+ *  session opens with the commit as it was written and why, and a card that comes back to the
+ *  session opens it by itself. This window's alone. */
+const refusedFor = new Map<string, MergeDoneAsk>();
+
+/** Whether the dialog of `session`'s refused merge comes back now, where it was asked: the window
+ *  still has it (`up`), with no other dialog `open`, and it's not a card on another session
+ *  (`showing`; the main window shows none). Else it waits for the session (`refusedFor`). */
+export function comesBack(session: string, here: { up: boolean; open: boolean; showing?: string }): boolean {
+  return here.up && !here.open && (here.showing === undefined || here.showing === session);
+}
+
 /** A window's Merge and done… dialog: `ask` opens it, for the session's menu and keys (menus.ts
- *  `SessionCan.mergeDone`), and again once GitHub has refused a merge confirmed in it. `inFront`
- *  is what `ask` answers: whether the window surely shows it to you then. Each ask is a dialog of
- *  its own, read afresh. */
-export function useMergeDone(inFront: boolean): { ask: (ask: MergeDoneAsk) => boolean; dialog: ReactNode } {
+ *  `SessionCan.mergeDone`), and again once GitHub has refused a merge confirmed in it, where that
+ *  doesn't take the place of another dialog, nor show over another session's card (`showing`, a
+ *  card's session; the main window has none and shows it over anything); else it waits in
+ *  `refusedFor`. `ask` answers whether it's shown and `inFront`: the window surely shows it to
+ *  you. Each ask is a dialog of its own, read afresh. */
+export function useMergeDone(inFront: boolean, showing?: string): { ask: (ask: MergeDoneAsk) => boolean; dialog: ReactNode } {
   const [asked, setAsked] = useState<{ ask: MergeDoneAsk; n: number } | null>(null);
   const n = useRef(0);
-  const ask = (a: MergeDoneAsk) => {
+  const open = (a: MergeDoneAsk) => {
     n.current += 1;
     setAsked({ ask: a, n: n.current });
+  };
+  // Whether it's still here, and what it has up, when GitHub answers.
+  const up = useRef(false);
+  useEffect(() => {
+    up.current = true;
+    return () => {
+      up.current = false;
+    };
+  }, []);
+  const askedNow = useLatest(asked);
+  const showingNow = useLatest(showing);
+  const ask = (a: MergeDoneAsk) => {
+    const key = a.session.key;
+    if (!a.refused) {
+      // Asked afresh, as now: with what a refused merge left, where there's one.
+      const left = refusedFor.get(key)?.refused;
+      refusedFor.delete(key);
+      open(left ? { ...a, refused: left } : a);
+      return inFront;
+    }
+    if (!comesBack(key, { up: up.current, open: !!askedNow.current, showing: showingNow.current })) {
+      refusedFor.set(key, a);
+      return false;
+    }
+    open(a);
     return inFront;
   };
+  // A card that comes to a session whose merge was refused while it was elsewhere, with no dialog
+  // up: the dialog, back.
+  useEffect(() => {
+    if (showing === undefined || asked) return;
+    const left = refusedFor.get(showing);
+    if (!left) return;
+    refusedFor.delete(showing);
+    n.current += 1;
+    setAsked({ ask: left, n: n.current });
+  }, [showing, asked]);
   return { ask, dialog: asked && <MergeDoneDialog key={asked.n} ask={asked.ask} onClose={() => setAsked(null)} /> };
 }
 
@@ -119,11 +172,15 @@ function MergeDoneDialog({ ask, onClose }: MergeDoneDialogProps) {
 function Ready({ ask, box, checking, onClose }: { ask: MergeDoneAsk; box: Box; checking: boolean; onClose: () => void }) {
   const { pr, refused } = ask;
   const [picked, keepMethod] = useMethod(pr.repoSlug);
-  const method = pickMethod(box, picked);
+  // Back after a refusal, the method it went with, while the repo still allows it, whatever was
+  // picked for the repo since.
+  const [chosen, choose] = useState<MergeMethod | null>(refused?.commit.method ?? null);
+  const method = pickMethod(box, chosen ?? picked);
   // The commit as GitHub would write it, for the method it opens on and each picked after; back
   // after a refusal, as it was written.
   const commit = useCommit(box, method, refused?.commit);
   const pick = (m: MergeMethod) => {
+    choose(m);
     keepMethod(m);
     commit.fill(m);
   };

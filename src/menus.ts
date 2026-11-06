@@ -167,6 +167,11 @@ export interface SessionCan {
   /** It left the list it was picked from, and how: the peek goes away, the waiting window's queue
    *  and the notch's go on to the next. */
   left?: (done: Left) => void;
+  /** It left (`left`), but what it left for didn't happen after all: Merge and done's merge was
+   *  refused. It comes round again where the window goes through what waits, the window back on
+   *  it where it shows nothing else, and the window says `why` where it isn't null (null: the
+   *  dialog, back in front of you, says it). Without it, `report` says why. */
+  failed?: (why: string | null) => void;
   /** It's moving, and `copy` gives the key of the session that goes on in its place (start.rs
    *  `move_to`), or null when there's none: it moved as itself, or the move failed. The window
    *  keeps it in view meanwhile and then shows the copy (the main window's Sessions). Without
@@ -178,8 +183,9 @@ export interface SessionCan {
   /** The board's PRs, and this window's dialog that asks before Merge and done… merges a PR
    *  and marks its primary session done (ui/MergeDone.tsx). Without it there's no such item.
    *  `ask` opens the dialog, and says whether it's surely in front of you: the main window's is,
-   *  over whatever it shows; a card's may have gone on or been put away since you asked, so a
-   *  refused merge it brings back is said where the window says things too. */
+   *  over whatever it shows, unless another dialog was up; a card's may have gone on or been put
+   *  away since you asked, so a refused merge it brings back is said where the window says things
+   *  too. */
   mergeDone?: { prs: readonly PrItem[]; ask: (ask: MergeDoneAsk) => boolean };
   /** Shows the main window's keys beside the actions they run (`KEYS`), or its chords (`CHORDS`)
    *  where letters alone do nothing (Sessions). */
@@ -379,8 +385,9 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
   // Merged from the window's dialog and marked done with it, ahead of GitHub: the session has left
   // as the dialog goes, and the window goes on, as from Mark as done. How it went is said as Mark
   // as done says it, so a floating window says only what didn't go as asked. A merge GitHub
-  // refuses brings the dialog back with the commit as it was written and why, the session as it
-  // was; where the window may not show it (a card's), the window says why too.
+  // refuses brings the dialog back with the commit as it was written and why (MergeDone.tsx
+  // `useMergeDone` says where), the session as it was and round again (`failed`); where the
+  // dialog isn't surely in front of you, the window says why too.
   const askMerge = (pr: PrItem, refused?: MergeDoneAsk['refused']): boolean => can.mergeDone?.ask({ lane, session: s, pr, refused, then: afterMerge(pr) }) ?? false;
   const afterMerge = (pr: PrItem) => (merging: Promise<MergeDone>, merged: string, commit: MergeForm) => {
     can.left?.('done');
@@ -395,7 +402,10 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
       },
       (e: unknown) => {
         const why = errorText(e);
-        if (!askMerge(pr, { commit, why })) report.error(`${why} “${s.title}” isn’t done.`);
+        const inFront = askMerge(pr, { commit, why });
+        const words = inFront ? null : `${why} “${s.title}” isn’t done.`;
+        if (can.failed) can.failed(words);
+        else if (words) report.error(words);
       },
     );
   };

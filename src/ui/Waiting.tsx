@@ -243,6 +243,19 @@ export function Waiting() {
     reply: s.key === shownKey ? undefined : () => show(s.key),
     rename: () => show(s.key, true),
     left: s.key === shownKey ? (done) => went(way.left(s.key, done)) : undefined,
+    // Its merge was refused after the window went on from it: it's back in what's left, the strip
+    // saying why, and with nothing shown since, the window is back on it, as for a review.
+    failed:
+      s.key === shownKey
+        ? (why) => {
+            way.again(s.key);
+            const said = why && { text: why, error: true };
+            if (shownNow.current === null) {
+              setKey(s.key);
+              if (said) way.say(said, s.key);
+            } else if (said) way.say(said);
+          }
+        : undefined,
     worktrees: board?.lanes,
   });
   const sessionMenu = (lane: Lane, s: Session): MenuSpec => menus.sessionMenu(lane, s, { ...can(lane, s), terminal: board?.apps.terminal ?? 'Terminal', editors: board ? { apps: board.apps, icons } : undefined, desktop: onDesktop });
