@@ -203,6 +203,13 @@ what changed), and the pull request template filled in.
 - Ask before anything destructive: force-push, reset, rebasing commits that are already
   pushed, deleting branches. Rebasing your own unpushed branch onto `origin/main` needs no ask,
   nor removing your own worktree and branch once they've landed (step 5).
+- Someone else's pull request that needs more to land (a conflict with `main`, a review's
+  findings, a failing check) is finished here, without asking, when GitHub lets us edit it
+  (`gh pr view <n> --json maintainerCanModify`) and the fix doesn't change what it's for: rebase
+  it onto `origin/main`, its commits still its author's, add yours after them, have it reviewed
+  as any change, push it back to its branch with `--force-with-lease=<branch>:<the head you
+  fetched>` (that push needs no ask), then push the same commits to `main`, which GitHub shows
+  as the PR merged. A fix that would change what it's for goes to your user first.
 
 Open the last message of every turn that changed something with the work's status, on one
 short line. Codealong shows a session whose turn has ended by the first line of its last
