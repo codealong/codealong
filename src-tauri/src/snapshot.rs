@@ -109,6 +109,7 @@ const MODES: &[Mode] = &[
     Mode { flag: "--stale-terminals", takes: "[how long unused: 90m, 24h, 3d, 1w]", run: stale_terminals },
     Mode { flag: "--hibernate", takes: "[how long idle: 30m, 2h, 1d]", run: hibernating },
     Mode { flag: "--schedules", takes: "", run: schedules },
+    Mode { flag: "--harness-schedules", takes: "", run: harness_schedules },
     Mode { flag: "--schedule-plan", takes: "<schedule>", run: schedule_plan },
     Mode { flag: "--schedule-check", takes: "<schedule>", run: schedule_check },
     Mode { flag: "--schedule-run", takes: "<schedule>", run: schedule_run },
@@ -159,6 +160,14 @@ fn schedules(_: &Args, _: &[String]) -> Done {
     let cfg = config::current().map_err(failed)?;
     let (file, runs) = (crate::schedules::load().map_err(failed)?, crate::schedules::load_runs().map_err(failed)?);
     Ok(pretty(&crate::schedules::items(&file, &runs, &board, &cfg, util::now_ms(), &crate::schedules::rule::Local)))
+}
+
+/// `codealong --snapshot --harness-schedules`: the schedules the harnesses keep themselves, as the
+/// Schedules view lists them under its own (schedules/harnesses.rs).
+fn harness_schedules(_: &Args, _: &[String]) -> Done {
+    let board = engine::snapshot(false, false);
+    let cfg = config::current().map_err(failed)?;
+    Ok(pretty(&crate::schedules::harnesses::list(&cfg, &board, util::now_ms())))
 }
 
 /// A schedule by its name or id, with what's noted of it.

@@ -15,7 +15,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { below, showContextMenu, type MenuAction, type MenuSpec } from './contextMenu';
 import { useEditorIcons } from './editors';
 import { homeOf, narrowed, runsShownKey, sidesShownKey, type BoardRow, type Filter } from './lanes';
-import { answerLink, barMode, onBarMode, onCloseIdle, onCloseStale, onUsageMenu, onWebsiteMenu, onNewWindow, onReveal, onSettings, onSetupMenu, onCheckUpdates, openConfig, openProjectWindow, openUrl, orderAccounts, refresh, refreshUsage, scheduleOp, setBarMode, startOptions, setPinned, setPinnedPrs, setPinnedRepos, setPinnedWorktrees, setTheme, setupNeeded, showQuick, signIn, stopTraining, terminalWindow, windowLabel, zoomWindows, onZoomMenu, onReloadMenu, WEBSITE, type BarMode, type Reveal } from './api';
+import { answerLink, barMode, harnessSchedules, onBarMode, onCloseIdle, onCloseStale, onUsageMenu, onWebsiteMenu, onNewWindow, onReveal, onSettings, onSetupMenu, onCheckUpdates, openConfig, openHarnessLink, openProjectWindow, openUrl, orderAccounts, refresh, refreshUsage, scheduleOp, setBarMode, startOptions, setPinned, setPinnedPrs, setPinnedRepos, setPinnedWorktrees, setTheme, setupNeeded, showQuick, signIn, stopTraining, terminalWindow, windowLabel, zoomWindows, onZoomMenu, onReloadMenu, WEBSITE, type BarMode, type Reveal } from './api';
 import { count, middleTruncate } from './format';
 import * as menus from './menus';
 import { prRefOf } from './prLinks';
@@ -25,7 +25,7 @@ import { reviewItems as reviewItemsFor, tryAgain } from './review';
 import { START_OPTIONS_NOTICE, startOptionsFailed } from './start';
 import { itemPrimaryHolds, statusSection, todoAgent, todoInFilter, todoProjects, todoPrompt, useTodoStore, type TodoItem, type TodoSort } from './todos';
 import { repoReviews } from './repoSettings';
-import type { Lane, Pr, PrItem, Schedule, ScheduleItem, Session, SideGlance, StartOptions, TeamFile, Theme, Todo } from './types';
+import type { HarnessSchedule, Lane, Pr, PrItem, Schedule, ScheduleItem, Session, SideGlance, StartOptions, TeamFile, Theme, Todo } from './types';
 import { showSide } from './side';
 import { allTerminals, ownTerminalFor, placeOf, setDrawer, setSessionView, TERMINAL_WAIT_MS, usePoppedTerminals } from './terminals';
 import { shortOf, type DeviceFilter } from './devices';
@@ -55,7 +55,7 @@ import { placeIn, type ListGroupBy, type RepoName } from './groups';
 import { ListBar, ListFind, ListSeg, ListTools, RowsSeg, type RowLines } from './ui/ListBar';
 import { TODO_GROUPS, TODO_ROWS, TODO_SORTS, TodoComposer, TodoView } from './ui/TodoView';
 import { ScheduleDialog } from './ui/ScheduleDialog';
-import { SchedulePanel } from './ui/SchedulePanel';
+import { HarnessSchedulePanel, SchedulePanel } from './ui/SchedulePanel';
 import { SchedulesView } from './ui/SchedulesView';
 import { blankSchedule, newScheduleFolder, scheduleOf, scheduleProject } from './schedules';
 import { KanbanView } from './ui/KanbanView';
@@ -101,7 +101,7 @@ import { canvasPicked, MainPanel, type Drill } from './ui/MainPanel';
 import { showPrTab } from './ui/PrInspector';
 import type { FindAsk } from './ui/ThreadFind';
 import { Toasts, useToasts } from './ui/Toasts';
-import { ageListingChain, ageListingPr, chainOf, currentProject, FACET_WORD, facetsIn, facetsOn, laneInQuery, onlyPick, prInDone, prInFilter, prInQuery, projectOfCard, revealing, unarchived, scheduleSessions, schedulesIn, sessionInFacets, sessionInFilter, sessionInQuery, sessionItemOf, sessionItemsOf, showingHelper, todoInQuery, togglePick, toggleShown, useBoardLists, projectsOf, type Facets } from './boardLists';
+import { ageListingChain, ageListingPr, chainOf, currentProject, FACET_WORD, facetsIn, facetsOn, harnessSchedulesIn, laneInQuery, onlyPick, prInDone, prInFilter, prInQuery, projectOfCard, revealing, unarchived, scheduleSessions, schedulesIn, sessionInFacets, sessionInFilter, sessionInQuery, sessionItemOf, sessionItemsOf, showingHelper, todoInQuery, togglePick, toggleShown, useBoardLists, projectsOf, type Facets } from './boardLists';
 import { inProject, QUICK_PLACEHOLDER, queryWords, shortcutKeys, shortcutLabel } from './quick';
 import { findFor } from './threadFind';
 import { CODEALONG_REPO, improveTitle } from './improve';
@@ -253,6 +253,11 @@ export function App() {
   const [scheduleId, setScheduleId] = useState<string | null>(null);
   const [scheduleSession, setScheduleSession] = useState<string | null>(null);
   const [schedulesAll, setSchedulesAll] = useState<ReadonlySet<string>>(() => new Set());
+  // The Schedules view's finished schedules are folded away until asked for.
+  const [showFinished, setShowFinished] = useState(false);
+  // The schedules the harnesses keep themselves, read while the Schedules view shows: they're read
+  // from records and files, not sent with the board.
+  const [harnessItems, setHarnessItems] = useState<HarnessSchedule[]>([]);
   const [scheduleEdit, setScheduleEdit] = useState<Schedule | null>(null);
   // The session shown in Sessions as you moved it (menus.ts `moving`), and its copy's key once the
   // move says it: the panel holds it until the copy is listed, then shows the copy.
@@ -995,8 +1000,34 @@ export function App() {
   // first, until one is picked), and the session selected under it while it's still listed there.
   const projectSchedules = useMemo(() => schedulesIn(board?.schedules ?? [], board?.lanes ?? [], current, ''), [board?.schedules, board?.lanes, current]);
   const shownSchedules = useMemo(() => schedulesIn(projectSchedules, board?.lanes ?? [], ALL_PROJECTS, query), [projectSchedules, board?.lanes, query]);
-  const selectedSchedule: ScheduleItem | null = shownSchedules.find((x) => x.id === scheduleId) ?? shownSchedules[0] ?? null;
-  const scheduleSessionShown = selectedSchedule && scheduleSession ? (scheduleSessions(selectedSchedule, allHomes, true).rows.find((p) => p.session.key === scheduleSession) ?? null) : null;
+  const shownHarnessSchedules = useMemo(() => harnessSchedulesIn(harnessItems, allHomes, board?.lanes ?? [], current, query), [harnessItems, allHomes, board?.lanes, current, query]);
+  // A harness's schedule selected, by its key, which no schedule of Codealong's has.
+  const selectedHarness: HarnessSchedule | null = shownHarnessSchedules.find((h) => h.key === scheduleId) ?? null;
+  const selectedSchedule: ScheduleItem | null = selectedHarness ? null : (shownSchedules.find((x) => x.id === scheduleId) ?? shownSchedules[0] ?? null);
+  const scheduleSessionShown = !scheduleSession
+    ? null
+    : selectedHarness
+      ? selectedHarness.session === scheduleSession
+        ? (allHomes.get(scheduleSession) ?? null)
+        : null
+      : selectedSchedule
+        ? (scheduleSessions(selectedSchedule, allHomes, true).rows.find((p) => p.session.key === scheduleSession) ?? null)
+        : null;
+  useEffect(() => {
+    if (view !== 'schedules') return;
+    let live = true;
+    const read = () =>
+      void harnessSchedules()
+        .then((items) => live && setHarnessItems(items))
+        // Read again in half a minute; meanwhile the list shows the last it read.
+        .catch(() => {});
+    read();
+    const every = window.setInterval(read, 30_000);
+    return () => {
+      live = false;
+      window.clearInterval(every);
+    };
+  }, [view]);
   // In the Schedules view, that session is what the window's keys act on, as a row selected in a
   // list is elsewhere (mainKeys.ts): its worktree's shortcuts and a new session's place go by it.
   const scheduleRow = view === 'schedules' && scheduleSessionShown ? sessionItemOf(scheduleSessionShown) : null;
@@ -2010,6 +2041,12 @@ export function App() {
   const sessionTitle = (key: string) => homes.get(key)?.session.title ?? null;
   const scheduleDone = (what: Promise<unknown>) => void what.catch((e: unknown) => setToast(errorText(e)));
   const runSchedule = (x: ScheduleItem) => scheduleDone(scheduleOp({ op: 'run', id: x.id }).then(() => setToast(`“${x.name}” runs in a few seconds.`)));
+  // A harness's schedule opens where it lives, by its link, else in its session.
+  const openHarness = (h: HarnessSchedule) => {
+    const p = h.session ? allHomes.get(h.session) : undefined;
+    if (h.link) scheduleDone(openHarnessLink(h.harness, h.link));
+    else if (p) open(p.lane, p.session.openTarget);
+  };
   const pauseSchedule = (x: ScheduleItem, paused: boolean) => scheduleDone(scheduleOp({ op: 'pause', id: x.id, paused }));
   const newSchedule = () => setScheduleEdit(blankSchedule(newScheduleFolder(board?.lanes ?? [], current, selectedLane, board?.pinnedWorktrees ?? [])));
   const scheduleMenu = (x: ScheduleItem, at?: { x: number; y: number }) =>
@@ -2058,8 +2095,8 @@ export function App() {
   const boardShowing = view === 'kanban' || view === 'canvas';
   const layoutShown = boardShowing ? view : lastLayout;
   const boardCount = layoutShown === 'canvas' ? (canvas.doc?.items.filter((it) => it.kind === 'ref').length ?? '') : openCardCount;
-  // The project's schedules that aren't paused, for the sidebar's count.
-  const activeSchedules = projectSchedules.filter((x) => !x.paused).length;
+  // The project's schedules that aren't paused or finished, for the sidebar's count.
+  const activeSchedules = projectSchedules.filter((x) => !x.paused && x.finished == null).length;
   const sideViews = views.filter((v) => v.id !== 'canvas').map((v) => {
     const board = v.id === 'kanban';
     return {
@@ -2435,13 +2472,17 @@ export function App() {
           {view === 'schedules' && board && !loading && (
             <SchedulesView
               items={shownSchedules}
+              harnessItems={shownHarnessSchedules}
               problem={board.schedulesProblem}
               now={now}
-              selectedId={selectedSchedule?.id ?? null}
+              selectedId={selectedHarness?.key ?? selectedSchedule?.id ?? null}
               selectedSession={scheduleSessionShown?.session.key ?? null}
               sessionTitle={sessionTitle}
               sessionsOf={(x) => scheduleSessions(x, allHomes, schedulesAll.has(x.id))}
+              placed={(key) => allHomes.get(key) ?? null}
               allShown={schedulesAll}
+              showFinished={showFinished}
+              onToggleFinished={() => setShowFinished(!showFinished)}
               onToggleAll={(id) =>
                 setSchedulesAll((all) => {
                   const next = new Set(all);
@@ -2453,12 +2494,13 @@ export function App() {
                 setScheduleId(id);
                 setScheduleSession(null);
               }}
-              onSelectSession={(x, p) => {
-                setScheduleId(x.id);
+              onSelectSession={(id, p) => {
+                setScheduleId(id);
                 setScheduleSession(p.session.key);
               }}
               onOpenSession={(p) => open(p.lane, p.session.openTarget)}
               onSessionMenu={(p) => sessionMenu(p.lane, p.session, 'session')}
+              onOpenHarness={openHarness}
               onEdit={(item) => setScheduleEdit(scheduleOf(item))}
               onMenu={scheduleMenu}
               onNew={newSchedule}
@@ -2705,8 +2747,11 @@ export function App() {
             markSeen={markSeen}
             setToast={setToast}
             showSchedule={(id) => reveal.current({ kind: 'schedule', id })}
-            scheduleSession={scheduleSessionShown && selectedSchedule ? { ...scheduleSessionShown, back: { label: selectedSchedule.name, onBack: () => setScheduleSession(null) } } : null}
+            scheduleSession={scheduleSessionShown && (selectedSchedule || selectedHarness) ? { ...scheduleSessionShown, back: { label: selectedHarness?.name ?? selectedSchedule?.name ?? '', onBack: () => setScheduleSession(null) } } : null}
             schedulePanel={
+              selectedHarness ? (
+                <HarnessSchedulePanel item={selectedHarness} now={now} sessionOf={(key) => homes.get(key) ?? allHomes.get(key) ?? null} onShowSession={showSessionFromPanel} onOpen={() => openHarness(selectedHarness)} />
+              ) : (
               <SchedulePanel
                 item={selectedSchedule}
                 now={now}
@@ -2717,6 +2762,7 @@ export function App() {
                 onEdit={() => selectedSchedule && setScheduleEdit(scheduleOf(selectedSchedule))}
                 onMenu={(at) => selectedSchedule && scheduleMenu(selectedSchedule, at)}
               />
+              )
             }
           />
         )}

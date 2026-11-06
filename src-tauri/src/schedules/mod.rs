@@ -25,6 +25,7 @@
 //! it prefers while it's around and can, else the next, or on each of them. Every machine keeps a
 //! copy of the ones they share, from the others' feeds (machines.rs).
 
+pub mod harnesses;
 pub mod machines;
 pub mod rule;
 pub mod runner;
@@ -138,6 +139,16 @@ pub struct Schedule {
     /// GitHub, or on no branch): it goes by its folder alone, and no later save says a repo for it.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub folder_only: bool,
+    /// Then stop: after its first run that goes (a session started or sent to, or a run waiting
+    /// for its session's turn to end), it's finished, whatever it runs on: a follow-up that goes
+    /// once a deploy is out, or once its Only if holds. Run now doesn't count, so it can be tried.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub once: bool,
+    /// When it finished (`once`), as the scheduler noted its run: nothing runs it from then but Run
+    /// now, on any of your machines (it's written with `updated_at`, so their copies take it). Kept
+    /// through saves until it's said to run at other times or on something else, or not just once.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub finished_at: Option<i64>,
 }
 
 /// A checkout of a repo, as a schedule's folder is one: the repo's main checkout, or a worktree of
@@ -557,6 +568,10 @@ pub struct Item {
     /// repo, which is somewhere else (`place`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub runs_in: Option<String>,
+    /// When it finished, for the Schedules view's Finished: one that runs once and has (`once`),
+    /// or one whose times are over, a `once <date>` time run or missed (`spent`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub finished: Option<i64>,
 }
 
 /// The schedules, or why schedules.json doesn't read. No file is no schedules.
@@ -663,7 +678,8 @@ pub fn check(s: &Schedule, cfg: &Config, now: i64, zone: &dyn Zone) -> std::resu
     match &s.when {
         When::Time { rule } => {
             let parsed = rule::parse_checked(rule)?;
-            if rule::next_after(&parsed, now, s.created_at, zone).is_none() {
+            // A finished one's time has run: it's kept as it was, to say what it ran at.
+            if s.finished_at.is_none() && rule::next_after(&parsed, now, s.created_at, zone).is_none() {
                 return Err("That time has passed.".into());
             }
         }
@@ -708,7 +724,8 @@ pub fn check(s: &Schedule, cfg: &Config, now: i64, zone: &dyn Zone) -> std::resu
 fn board_problem(s: &Schedule, board: &Board) -> Option<String> {
     let run = &s.run;
     match run.to {
-        To::Session => board.session(run.session.trim()).is_none().then(|| "The session it sends to isn't on the board.".to_string()),
+        // One whose session has gone starts a new one in its place, in its folder (runner.rs `step`).
+        To::Session if board.session(run.session.trim()).is_some() => None,
         _ if run.folder.trim().is_empty() => None,
         _ if place(s, board).is_some() => None,
         _ => Some(match &s.checkout {
@@ -806,7 +823,10 @@ pub fn does_words(s: &Schedule, board: &Board) -> String {
     match run.to {
         To::New => format!("New session {}", place()),
         To::Thread => format!("Keeps one session going {}", place()),
-        To::Session => format!("Sends to {}", board.session(run.session.trim()).map_or_else(|| run.session.trim().to_string(), |(_, s)| format!("“{}”", s.title))),
+        To::Session => match board.session(run.session.trim()) {
+            Some((_, s)) => format!("Sends to “{}”", s.title),
+            None => format!("Sends to a session that's gone, so a new one starts {}", place()),
+        },
     }
 }
 
@@ -850,7 +870,8 @@ pub fn items(file: &File, runs: &Runs, board: &Board, cfg: &Config, now: i64, zo
                 shown.sort_by(|a, b| b.at.cmp(&a.at));
                 shown.truncate(20);
             }
-            let next_at = match (&s.when, s.paused) {
+            let finished = s.finished_at.or_else(|| spent(s, track, now, zone));
+            let next_at = match (&s.when, s.paused || finished.is_some()) {
                 (_, true) => None,
                 (When::Time { .. }, _) => next_due(s, track, now, zone),
                 (When::Watch { every, .. }, _) => next_check(every, track),
@@ -872,9 +893,23 @@ pub fn items(file: &File, runs: &Runs, board: &Board, cfg: &Config, now: i64, zo
                 runs_on_words,
                 here,
                 runs_in: place(s, board).map(|l| l.path.clone()).filter(|p| std::path::Path::new(p) != crate::util::expand(s.run.folder.trim())),
+                finished,
             }
         })
         .collect()
+}
+
+/// When a schedule at times finished because its times are over (a `once <date>` time that ran,
+/// was skipped or was missed): its last run's time, else that time's. None while one is still to
+/// come, a run still waits for its session, or the scheduler hasn't had it yet.
+pub fn spent(s: &Schedule, track: Option<&Track>, now: i64, zone: &dyn Zone) -> Option<i64> {
+    let When::Time { rule } = &s.when else { return None };
+    rule::parse(rule).ok()?;
+    let track = track.filter(|t| t.armed_at > 0 && t.queued.is_none())?;
+    if next_due(s, Some(track), now, zone).is_some() {
+        return None;
+    }
+    track.runs.last().map(|r| r.at).or(track.last_due)
 }
 
 /// What on the board a schedule's event is for now: each PR merged, PR whose checks fail at its
@@ -1022,6 +1057,7 @@ pub fn apply_op(op: Op, by: Option<&str>, board: Option<&Board>, cfg: &Config, n
                         schedule.created_by = was.created_by.clone();
                         let resumed = was.paused && !schedule.paused;
                         schedule.resumed_at = if resumed || starts_afresh(was, &schedule) { Some(now) } else { was.resumed_at };
+                        schedule.finished_at = kept_finished(was, &schedule);
                         // Made this machine's alone: the other machines drop their copies.
                         if was.runs_on.shared() && !schedule.runs_on.shared() {
                             file.gone.push(codealong_peer::schedules::Gone { id: schedule.id.clone(), at: now });
@@ -1033,11 +1069,15 @@ pub fn apply_op(op: Op, by: Option<&str>, board: Option<&Board>, cfg: &Config, n
                         }
                         schedule.created_at = now;
                         schedule.created_by = by.map(str::to_string);
+                        schedule.finished_at = None;
                     }
                 }
                 schedule.updated_at = now;
                 (schedule.checkout, schedule.folder_only) = checkout_for(&schedule, old.map(|i| &file.schedules[i]), board);
-                if let Err(why) = check(&schedule, cfg, now, zone) {
+                // Its time is checked as it was saved while it's the same: one whose `once` time has
+                // run can still be renamed or told something else.
+                let checked_at = old.map(|i| &file.schedules[i]).filter(|w| w.when == schedule.when).map_or(now, |w| w.updated_at.max(w.created_at));
+                if let Err(why) = check(&schedule, cfg, checked_at, zone) {
                     bail!("{why}");
                 }
                 if schedule.runs_on.shared() {
@@ -1113,6 +1153,16 @@ pub fn apply_op(op: Op, by: Option<&str>, board: Option<&Board>, cfg: &Config, n
     };
     runner::poke();
     Ok(out)
+}
+
+/// When a schedule saved as `now` where it was `was` finished: finished is the scheduler's to say,
+/// whatever a window that read it before sends, so it stays finished until it's told to run at
+/// other times or on something else, or more than once.
+pub fn kept_finished(was: &Schedule, now: &Schedule) -> Option<i64> {
+    if starts_afresh(was, now) || !now.once {
+        return None;
+    }
+    was.finished_at
 }
 
 /// Whether a schedule saved as `now` where it was `was` goes on as one just made would, as it
@@ -1341,6 +1391,53 @@ mod tests {
         let saved = rule::tests::ms(&z, 2026, 10, 31, 14, 40);
         let s = Schedule { created_at: 1, resumed_at: Some(saved), when: at("daily 14:00"), ..Schedule::default() };
         assert_eq!(next_due(&s, Some(&ran), saved, &z), Some(rule::tests::ms(&z, 2026, 11, 1, 14, 0)));
+    }
+
+    /// A follow-up made as `once 2026-11-07 16:30` stayed in the list after it ran, with no next
+    /// time and nothing to say it was done (2026-11-06).
+    #[test]
+    fn a_schedule_whose_times_are_over_is_finished() {
+        let z = rule::tests::Fake::utc();
+        let made = rule::tests::ms(&z, 2026, 11, 6, 12, 0);
+        let due = rule::tests::ms(&z, 2026, 11, 7, 16, 30);
+        let s = Schedule { id: "s-1".into(), name: "Atlas follow-up".into(), created_at: made, updated_at: made, when: When::Time { rule: "once 2026-11-07 16:30".into() }, run: Run { prompt: "Did it deploy?".into(), ..Run::default() }, ..Schedule::default() };
+        let armed = Track { armed_at: made, ..Track::default() };
+        assert_eq!(spent(&s, Some(&armed), made + 1000, &z), None, "still to come");
+        assert_eq!(spent(&s, Some(&armed), due + 60_000, &z), None, "due, and not run yet");
+        assert_eq!(spent(&s, None, due + 60_000, &z), None, "not armed yet");
+        let ran = Track { last_due: Some(due), runs: vec![RunRecord { at: due + 4000, outcome: Outcome::Started, ..RunRecord::default() }], ..armed.clone() };
+        assert_eq!(spent(&s, Some(&ran), due + 60_000, &z), Some(due + 4000));
+        // Its run waits for its session: not over until it goes.
+        let waiting = Track { queued: Some(Queued::default()), ..ran.clone() };
+        assert_eq!(spent(&s, Some(&waiting), due + 60_000, &z), None);
+        // Missed, with the Mac off for more than a week: over too, at its time.
+        let missed = Track { last_due: Some(due), ..armed.clone() };
+        assert_eq!(spent(&s, Some(&missed), due + 8 * crate::util::DAY_MS, &z), Some(due));
+        // Times that come again never are.
+        let daily = Schedule { when: When::Time { rule: "daily 16:30".into() }, ..s.clone() };
+        assert_eq!(spent(&daily, Some(&ran), due + 60_000, &z), None);
+        // The view lists it as finished, with no next time and nothing wrong with it.
+        let runs = Runs { of: [("s-1".to_string(), ran)].into(), ..Runs::default() };
+        let file = File { schedules: vec![s.clone()], ..File::default() };
+        let item = &items(&file, &runs, &Board::default(), &Config::default(), due + 60_000, &z)[0];
+        assert_eq!((item.finished, item.next_at, item.problem.as_deref()), (Some(due + 4000), None, None));
+        // One that ran once is finished from when it did, though the scheduler wrote it after its time.
+        let once = Schedule { once: true, finished_at: Some(due + 5000), updated_at: due + 5000, ..s };
+        let file = File { schedules: vec![once], ..File::default() };
+        let item = &items(&file, &Runs::default(), &Board::default(), &Config::default(), due + 60_000, &z)[0];
+        assert_eq!((item.finished, item.next_at, item.problem.as_deref()), (Some(due + 5000), None, None));
+    }
+
+    #[test]
+    fn a_finished_schedule_stays_finished_until_its_told_to_run_otherwise() {
+        let was = Schedule { once: true, finished_at: Some(500), when: When::Watch { command: "./deploys".into(), every: "5m".into(), mode: WatchMode::Lines }, ..Schedule::default() };
+        // A window that read it before it finished saves it, renamed.
+        assert_eq!(kept_finished(&was, &Schedule { name: "Atlas".into(), finished_at: None, ..was.clone() }), Some(500));
+        assert_eq!(kept_finished(&was, &Schedule { when: When::Fired, ..was.clone() }), None);
+        assert_eq!(kept_finished(&was, &Schedule { once: false, ..was.clone() }), None);
+        // A window can't finish one the scheduler hasn't.
+        let running = Schedule { finished_at: None, ..was.clone() };
+        assert_eq!(kept_finished(&running, &was), None);
     }
 
     #[test]

@@ -285,6 +285,19 @@ pub trait Adapter: Sync {
         None
     }
 
+    /// The schedules the harness keeps itself for the account, outside Codealong's, for the
+    /// Schedules view to list (schedules/harnesses.rs): what its sessions (`sessions`, the
+    /// account's on the board) scheduled inside their processes, or what its app runs on a
+    /// schedule. Read when a window asks, so it may read records.
+    fn own_schedules(&self, _account: &AccountCfg, _sessions: &[&Session], _now: i64) -> Vec<crate::schedules::harnesses::Kept> {
+        Vec::new()
+    }
+
+    /// Opens a link one of its `own_schedules` gave (`Kept::link`) where it lives: its app.
+    fn open_link(&self, _url: &str) -> Result<()> {
+        bail!("{} has no links to open.", self.harness().word())
+    }
+
     /// Puts Codealong's hook in an account, which hands it the account's permission prompts as
     /// they come up, where its harness runs such hooks and Codealong doesn't go in as a plugin
     /// (Codex's `PermissionRequest`, codex/hook.rs), or brings it up to date; `codealong` gives

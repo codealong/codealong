@@ -43,8 +43,10 @@ export function whenIcon(when: ScheduleWhen): string {
 }
 
 /** When it runs next, as its row says it: `in 42m`, `Fri 9:00 AM`; `Paused`, or nothing for one
- *  that runs only when something happens. A time that's come and not yet run is `due now`. */
-export function nextWords(item: Pick<ScheduleItem, 'paused' | 'nextAt' | 'when'>, now: number): string {
+ *  that runs only when something happens, or that's finished. A time that's come and not yet run
+ *  is `due now`. */
+export function nextWords(item: Pick<ScheduleItem, 'paused' | 'nextAt' | 'when' | 'finished'>, now: number): string {
+  if (item.finished != null) return '';
   if (item.paused) return 'Paused';
   if (item.nextAt == null) return '';
   if (item.nextAt <= now) return item.when.kind === 'watch' ? 'Looks now' : 'Due now';
@@ -55,7 +57,7 @@ export function nextWords(item: Pick<ScheduleItem, 'paused' | 'nextAt' | 'when'>
 /** What it does, in a few words: `New session in web on Auto`, `Sends to “Fix the header”`. The
  *  folder's own name, as its worktree's row says it: where it runs here, for one whose repo's
  *  checkout is elsewhere on this machine than on the one it came from. */
-export function doesWords(s: Pick<ScheduleItem, 'run' | 'runsIn'>, sessionTitle: (key: string) => string | null): string {
+export function doesWords(s: Pick<ScheduleItem, 'run' | 'runsIn' | 'thread'>, sessionTitle: (key: string) => string | null): string {
   const r = s.run;
   const folder = (s.runsIn ?? r.folder).trim();
   const name = folder ? (folder.split('/').filter(Boolean).pop() ?? folder) : 'a chat';
@@ -66,10 +68,20 @@ export function doesWords(s: Pick<ScheduleItem, 'run' | 'runsIn'>, sessionTitle:
     case 'thread':
       return `Keeps one session going in ${name} on ${on}`;
     case 'session': {
-      const title = sessionTitle(r.session);
-      return title ? `Sends to “${title}”` : 'Sends to a session that’s gone';
+      // Gone, it went on as a copy, or a new session took its place (runner.rs `in_place_of`).
+      const title = sessionTitle(r.session) ?? (s.thread ? sessionTitle(s.thread) : null);
+      return title ? `Sends to “${title}”` : `Sends to a session that’s gone, so a new one starts in ${name}`;
     }
   }
+}
+
+/** The Schedules view's two lists: the schedules still to run, as they come, and the finished
+ *  ones, the latest to finish first, which the view folds away. */
+export function scheduleSections(items: ScheduleItem[]): { active: ScheduleItem[]; finished: ScheduleItem[] } {
+  return {
+    active: items.filter((x) => x.finished == null),
+    finished: items.filter((x) => x.finished != null).sort((a, b) => (b.finished ?? 0) - (a.finished ?? 0)),
+  };
 }
 
 /** The machines a schedule that runs on one of yours may prefer, for its dialog's menu: none in
@@ -122,6 +134,7 @@ export function blankSchedule(folder: string): Schedule {
     notes: false,
     createdAt: 0,
     updatedAt: 0,
+    once: false,
   };
 }
 
@@ -144,6 +157,7 @@ export function scheduleOf(item: ScheduleItem): Schedule {
     updatedAt: item.updatedAt,
     createdBy: item.createdBy,
     runsOn: item.runsOn,
+    once: item.once ?? false,
   };
 }
 

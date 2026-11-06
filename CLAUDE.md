@@ -123,7 +123,9 @@ with `--usage`, and its endpoint rate-limits: don't loop it.
   `--snapshot --tab-picture <key> <file>`: a session's terminal tab, as it pictures it.
   `--snapshot --stale-terminals [wait]`: the tabs Close stale terminals would list, closing none.
   `--snapshot --hibernate [wait]`: what would hibernate now (`[sessions] hibernate_after`), closing none.
-- `--snapshot --schedules`: the schedules as their view lists them; `--snapshot --schedule-plan
+- `--snapshot --schedules`: the schedules as their view lists them;
+  `--snapshot --harness-schedules`: the ones the harnesses keep themselves (schedules/harnesses.rs);
+  `--snapshot --schedule-plan
   <schedule>`: what a run would start or send now, without doing it; `--snapshot --schedule-check
   <schedule>`: runs its watch's command once and says what's new, noting nothing;
   `--snapshot --schedule-times <time>`: a time as a schedule reads it. Real:

@@ -372,6 +372,10 @@ export function ScheduleDialog({ schedule, board, devices, now, onClose, onSaved
               <CheckBox checked={draft.notes} onChange={(notes) => setDraft({ ...draft, notes })} />
               <span>Keep notes between runs</span>
             </label>
+            <label className="ca-check" title="After its first run that goes, it’s finished and nothing runs it again. Run now doesn’t count, so you can try it.">
+              <CheckBox checked={!!draft.once} onChange={(once) => setDraft({ ...draft, once })} />
+              <span>Run once, then stop</span>
+            </label>
             {when.kind === 'time' && (
               <label className="ca-check" title="A time missed while the Mac slept or Codealong was closed runs once, late, when it’s back">
                 <CheckBox checked={draft.catchUp === 'once'} onChange={(on) => setDraft({ ...draft, catchUp: on ? 'once' : 'skip' })} />

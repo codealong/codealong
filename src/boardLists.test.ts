@@ -59,6 +59,7 @@ import {
   type Facets,
   scheduleSessions,
   schedulesIn,
+  harnessSchedulesIn,
 } from './boardLists';
 import { needsOn } from './devices';
 import { bayOf, runsShownKey, sessionHomes, unattended } from './lanes';
@@ -67,7 +68,7 @@ import { blankSchedule } from './schedules';
 import { todoItem, type TodoItem } from './todos';
 import * as fx from './testing/fixtures';
 import { prSections } from './ui/PrsView';
-import type { Board, Lane, Pr, PrItem, ProjectSummary, ScheduleItem, Session, SideGlance, TextHit, Todo } from './types';
+import type { Board, HarnessSchedule, Lane, Pr, PrItem, ProjectSummary, ScheduleItem, Session, SideGlance, TextHit, Todo } from './types';
 import { familiesOf, groupedRows, groupSessions, helpersUnder, sessionSections, type SessionItem } from './ui/SessionsView';
 import { GROUP_SHOWN, type GroupOptions } from './groups';
 
@@ -1251,6 +1252,18 @@ describe('the Schedules view’s list', () => {
   it('narrows to what the find has, by name, when or what it says', () => {
     expect(names(schedulesIn(items, lanes, ALL_PROJECTS, 'gh run'))).toEqual(['Deploys']);
     expect(names(schedulesIn(items, lanes, 'Northwind', 'standup'))).toEqual([]);
+  });
+
+  it('lists the harnesses’ own in the project of the session each wakes, or the folder it starts in', () => {
+    const kept = (name: string, over: Partial<HarnessSchedule> = {}): HarnessSchedule => ({ key: name, harness: 'claude', account: 'claude', id: name, kind: 'Loop', name, prompt: 'Check the deploy', whenWords: 'Its loop’s next tick', paused: false, lasts: '', ...over });
+    const harness = [kept('Loop', { session: 'claude:claude:a' }), kept('Nightly', { harness: 'codex', kind: 'Automation', folder: '/w/atlas' }), kept('Heartbeat', { harness: 'codex', kind: 'Heartbeat', session: 'codex:codex:gone' })];
+    const homes = sessionHomes(lanes);
+    const listed = (project: string, query = '') => harnessSchedulesIn(harness, homes, lanes, project, query).map((h) => h.name);
+    expect(listed('Northwind')).toEqual(['Loop']);
+    expect(listed('Atlas')).toEqual(['Nightly']);
+    // Its session gone from the board, only All projects lists it.
+    expect(listed(ALL_PROJECTS)).toEqual(['Loop', 'Nightly', 'Heartbeat']);
+    expect(listed(ALL_PROJECTS, 'automation')).toEqual(['Nightly']);
   });
 
   it('lists under a schedule its latest run’s sessions and the ones at work, the rest when asked', () => {

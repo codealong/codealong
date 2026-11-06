@@ -2040,6 +2040,10 @@ export interface Schedule {
   createdBy?: string;
   /** Which of your machines run it; none for this machine alone. */
   runsOn?: ScheduleRunsOn;
+  /** Then stop: after its first run that goes it's finished (Run now doesn't count). */
+  once?: boolean;
+  /** When the scheduler noted a `once` schedule finished. Saves keep the engine's, whatever they send. */
+  finishedAt?: number;
 }
 
 /** Which of your machines run a schedule (schedules/mod.rs `RunsOn`): this one alone; one of them
@@ -2086,6 +2090,34 @@ export interface ScheduleItem extends Schedule {
   here?: string;
   /** The folder it runs in here, when that's another than its own: this machine's checkout of its repo. */
   runsIn?: string;
+  /** When it finished: one that runs once and has, or one whose times are over (schedules/mod.rs `spent`). */
+  finished?: number;
+}
+
+/** A schedule a harness keeps itself, outside Codealong (schedules/harnesses.rs `Kept`): a Claude
+ *  Code session's loop or cron job, a Codex app automation. Listed, never changed. */
+export interface HarnessSchedule {
+  /** Unique among them: the harness, the account and its own id. */
+  key: string;
+  harness: Harness;
+  account: string;
+  id: string;
+  /** What the harness calls it: Loop, Cron job, Heartbeat, Automation. */
+  kind: string;
+  name: string;
+  prompt: string;
+  whenWords: string;
+  /** When it runs next, where that can be told. */
+  nextAt?: number;
+  paused: boolean;
+  /** The session it wakes, or sends its runs to, by key. */
+  session?: string;
+  /** The folder its runs start sessions in, for one that starts its own. */
+  folder?: string;
+  /** A link that opens it where it lives (`codex://…`). */
+  link?: string;
+  /** What keeps it going, in a sentence. */
+  lasts: string;
 }
 
 /** A schedule's time as it's being written: in words, and its next few times (`schedule_times`). */

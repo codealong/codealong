@@ -45,24 +45,61 @@ const RECURRING_MAX_AGE_MS: i64 = 7 * 86_400_000;
 /// come, by its transcripts (one in each folder it was resumed in, all read, the oldest first)
 /// and when its process started (`since`).
 pub fn next_wakeup(transcripts: &[PathBuf], since: i64, now: i64) -> Option<i64> {
+    scanned(transcripts).next_after(now, since, &rule::Local)
+}
+
+/// Every transcript's lines read in order, the oldest transcript first.
+fn scanned(transcripts: &[PathBuf]) -> Scan {
     let mut files: Vec<&PathBuf> = transcripts.iter().collect();
     files.sort_by_key(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok());
     let mut scan = Scan::default();
     for path in files {
-        let Ok(file) = std::fs::File::open(path) else { continue };
-        for line in BufReader::new(file).split(b'\n').map_while(Result::ok) {
-            if let Ok(line) = std::str::from_utf8(&line) {
-                scan.line(line);
-            }
-        }
+        scan.read(path, 0);
     }
-    scan.next_after(now, since, &rule::Local)
+    scan
+}
+
+/// Something a session scheduled inside itself that's still to come.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Wakeup {
+    /// A `CronCreate` job's ID; none for a self-paced loop's next tick (`ScheduleWakeup`).
+    pub job: Option<String>,
+    /// The job's cron, five fields on this Mac's clock.
+    pub cron: Option<String>,
+    /// What it's told when it fires, where its call said.
+    pub prompt: String,
+    pub recurring: bool,
+    /// Saved in the project's `.claude/scheduled_tasks.json`, so a process that starts there
+    /// takes it up again.
+    pub durable: bool,
+    /// When it comes next.
+    pub next: i64,
+    /// When it was scheduled.
+    pub made: i64,
+}
+
+/// What a session has scheduled inside itself that's still to come, the soonest first, by its
+/// transcripts as `next_wakeup` reads them. One transcript (most sessions') is read on from where
+/// the last look at it stopped, as it only grows: the Schedules view asks every half minute.
+pub fn upcoming(key: &str, transcripts: &[PathBuf], since: i64, now: i64) -> Vec<Wakeup> {
+    static READ: std::sync::OnceLock<std::sync::Mutex<HashMap<String, (PathBuf, u64, Scan)>>> = std::sync::OnceLock::new();
+    let [path] = transcripts else { return scanned(transcripts).upcoming(now, since, &rule::Local) };
+    let Ok(mut read) = READ.get_or_init(Default::default).lock() else { return Vec::new() };
+    let len = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+    let fresh = !matches!(read.get(key), Some((p, at, _)) if p == path && *at <= len);
+    if fresh {
+        read.insert(key.to_string(), (path.clone(), 0, Scan::default()));
+    }
+    let (_, at, scan) = read.get_mut(key).expect("just put there");
+    *at = scan.read(path, *at);
+    scan.upcoming(now, since, &rule::Local)
 }
 
 /// A job scheduled with `CronCreate`.
 struct Job {
     id: String,
     cron: String,
+    prompt: String,
     made: i64,
     recurring: bool,
     durable: bool,
@@ -76,14 +113,15 @@ enum Call {
     Cron,
     /// A `CronDelete` of this job.
     Delete(String),
-    Wakeup,
+    /// A `ScheduleWakeup`, with what it's to be told and when it was made.
+    Wakeup(String, i64),
 }
 
 /// What a transcript's lines, read in order, say was scheduled.
 #[derive(Default)]
 struct Scan {
-    /// `CronCreate` calls by tool use ID: the cron and when it was called.
-    crons: Vec<(String, String, i64)>,
+    /// `CronCreate` calls by tool use ID: the cron, what it's told, and when it was called.
+    crons: Vec<(String, String, String, i64)>,
     calls: HashMap<String, Call>,
     /// `CronCreate`'s results, by tool use ID.
     results: HashMap<String, Value>,
@@ -93,9 +131,37 @@ struct Scan {
     fired: HashMap<String, i64>,
     /// When the latest wakeup is due, while it hasn't fired or been cancelled.
     wakeup: Option<i64>,
+    /// What the latest wakeup is told, and when it was made.
+    wakeup_said: (String, i64),
 }
 
 impl Scan {
+    /// Reads a transcript's lines from byte `from` up to its last whole line, and says where that
+    /// ended: where to read on from as it grows.
+    fn read(&mut self, path: &std::path::Path, from: u64) -> u64 {
+        use std::io::{Seek, SeekFrom};
+        let Ok(mut file) = std::fs::File::open(path) else { return from };
+        if file.seek(SeekFrom::Start(from)).is_err() {
+            return from;
+        }
+        let mut at = from;
+        let mut reader = BufReader::new(file);
+        let mut line = Vec::new();
+        loop {
+            line.clear();
+            match reader.read_until(b'\n', &mut line) {
+                // A line still being written is read once it's whole.
+                Ok(n) if n > 0 && line.ends_with(b"\n") => {
+                    at += n as u64;
+                    if let Ok(text) = std::str::from_utf8(&line) {
+                        self.line(text.trim_end());
+                    }
+                }
+                _ => return at,
+            }
+        }
+    }
+
     fn line(&mut self, line: &str) {
         // Almost no line is one of these, so only one that may be is parsed.
         let named = ["\"CronCreate\"", "\"CronDelete\"", "\"ScheduleWakeup\"", "scheduled_task_fire", "session_cron_carry"].iter().any(|w| line.contains(w));
@@ -112,14 +178,14 @@ impl Scan {
                     let call = match p["name"].as_str() {
                         Some("CronCreate") => {
                             let (Some(cron), Some(at)) = (input["cron"].as_str(), at) else { continue };
-                            self.crons.push((id.to_string(), cron.to_string(), at));
+                            self.crons.push((id.to_string(), cron.to_string(), input["prompt"].as_str().unwrap_or_default().to_string(), at));
                             Call::Cron
                         }
                         Some("CronDelete") => {
                             let Some(job) = input["id"].as_str() else { continue };
                             Call::Delete(job.to_string())
                         }
-                        Some("ScheduleWakeup") => Call::Wakeup,
+                        Some("ScheduleWakeup") => Call::Wakeup(input["prompt"].as_str().or(input["reason"].as_str()).unwrap_or_default().to_string(), at.unwrap_or_default()),
                         _ => continue,
                     };
                     self.calls.insert(id.to_string(), call);
@@ -136,7 +202,10 @@ impl Scan {
                         Some(Call::Delete(job)) => {
                             self.deleted.insert(job);
                         }
-                        Some(Call::Wakeup) => self.wakeup = if result["stopped"] == true { None } else { result["scheduledFor"].as_i64().filter(|t| *t > 0) },
+                        Some(Call::Wakeup(said, made)) => {
+                            self.wakeup = if result["stopped"] == true { None } else { result["scheduledFor"].as_i64().filter(|t| *t > 0) };
+                            self.wakeup_said = (said, made);
+                        }
                         None => {}
                     }
                 }
@@ -154,7 +223,7 @@ impl Scan {
                 if let Some(tasks) = carry["tasks"].as_array() {
                     self.carried = tasks
                         .iter()
-                        .filter_map(|t| Some(Job { id: t["id"].as_str()?.to_string(), cron: t["cron"].as_str()?.to_string(), made: t["createdAt"].as_f64()? as i64, recurring: t["recurring"] == true, durable: false, fires: None }))
+                        .filter_map(|t| Some(Job { id: t["id"].as_str()?.to_string(), cron: t["cron"].as_str()?.to_string(), prompt: t["prompt"].as_str().unwrap_or_default().to_string(), made: t["createdAt"].as_f64()? as i64, recurring: t["recurring"] == true, durable: false, fires: None }))
                         .collect();
                 }
                 self.deleted.extend(carry["ended"].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_string));
@@ -169,24 +238,35 @@ impl Scan {
     /// The earliest of what's still to come after `now` for a process started at `since`, on
     /// `zone`'s clock.
     fn next_after(&self, now: i64, since: i64, zone: &dyn Zone) -> Option<i64> {
-        let made = self.crons.iter().filter_map(|(call, cron, made)| {
+        self.upcoming(now, since, zone).first().map(|w| w.next)
+    }
+
+    /// What's still to come after `now` for a process started at `since`, on `zone`'s clock, the
+    /// soonest first.
+    fn upcoming(&self, now: i64, since: i64, zone: &dyn Zone) -> Vec<Wakeup> {
+        let made = self.crons.iter().filter_map(|(call, cron, prompt, made)| {
             let r = self.results.get(call)?;
-            Some(Job { id: r["id"].as_str()?.to_string(), cron: cron.clone(), made: *made, recurring: r["recurring"] != false, durable: r["durable"] == true, fires: r["nextFireAt"].as_f64().map(|t| t as i64) })
+            Some(Job { id: r["id"].as_str()?.to_string(), cron: cron.clone(), prompt: prompt.clone(), made: *made, recurring: r["recurring"] != false, durable: r["durable"] == true, fires: r["nextFireAt"].as_f64().map(|t| t as i64) })
         });
         let mut seen = HashSet::new();
-        let jobs = made.chain(self.carried.iter().map(|j| Job { id: j.id.clone(), cron: j.cron.clone(), ..*j })).filter(|j| !self.deleted.contains(&j.id) && seen.insert(j.id.clone()));
+        let jobs = made.chain(self.carried.iter().map(|j| Job { id: j.id.clone(), cron: j.cron.clone(), prompt: j.prompt.clone(), ..*j })).filter(|j| !self.deleted.contains(&j.id) && seen.insert(j.id.clone()));
         let fires = jobs.filter_map(|j| {
             // A cron Codealong's schedules can't read is one whose time can't be told, and isn't
             // counted: Claude Code takes cron's five fields, which they read.
             let cron = rule::parse(&format!("cron {}", j.cron)).ok()?;
-            if !j.recurring {
-                return j.fires.or_else(|| rule::next_after(&cron, j.made, j.made, zone)).filter(|t| *t > now);
-            }
-            let expires = j.made + RECURRING_MAX_AGE_MS;
-            let ended = self.fired.get(&j.id).is_some_and(|t| *t >= expires) || (now >= expires && since >= expires && !j.durable);
-            (!ended).then(|| rule::next_after(&cron, now, j.made, zone)).flatten()
+            let next = if !j.recurring {
+                j.fires.or_else(|| rule::next_after(&cron, j.made, j.made, zone)).filter(|t| *t > now)
+            } else {
+                let expires = j.made + RECURRING_MAX_AGE_MS;
+                let ended = self.fired.get(&j.id).is_some_and(|t| *t >= expires) || (now >= expires && since >= expires && !j.durable);
+                (!ended).then(|| rule::next_after(&cron, now, j.made, zone)).flatten()
+            }?;
+            Some(Wakeup { job: Some(j.id), cron: Some(j.cron), prompt: j.prompt, recurring: j.recurring, durable: j.durable, next, made: j.made })
         });
-        fires.chain(self.wakeup.filter(|t| *t > now)).min()
+        let tick = self.wakeup.filter(|t| *t > now).map(|next| Wakeup { job: None, cron: None, prompt: self.wakeup_said.0.clone(), recurring: false, durable: false, next, made: self.wakeup_said.1 });
+        let mut out: Vec<Wakeup> = fires.chain(tick).collect();
+        out.sort_by_key(|w| w.next);
+        out
     }
 }
 

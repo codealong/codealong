@@ -84,9 +84,18 @@ function withSchedules(board, fixture) {
       run: run,
       createdBy: s.createdBy ? at(s.createdBy) || undefined : undefined,
       nextAt: s.nextIn == null ? undefined : now + s.nextIn * 60e3,
+      finished: s.finishedAgo == null ? undefined : now - s.finishedAgo * 60e3,
       thread: s.thread ? at(s.thread) || undefined : undefined,
       check: s.check ? Object.assign({}, s.check, { at: now - (s.check.atAgo || 0) * 60e3 }) : undefined,
       runs: (s.runs || []).map(function (r) { return Object.assign({}, r, { at: now - r.atAgo * 60e3, session: r.session ? at(r.session) || undefined : undefined }); }),
+    });
+  });
+  // The harnesses' own (`harness`), which the view asks for apart (`harness_schedules`).
+  window.__harnessSchedules = (fixture.harness || []).map(function (h, i) {
+    return Object.assign({ key: 'h-' + i, harness: 'claude', account: 'claude', id: 'job-' + i, kind: 'Loop', prompt: '', paused: false, lasts: '' }, h, {
+      session: h.session ? at(h.session) || undefined : undefined,
+      folder: h.folder ? at(h.folder) || undefined : undefined,
+      nextAt: h.nextIn == null ? undefined : now + h.nextIn * 60e3,
     });
   });
   fixture.schedules.forEach(function (s) {
@@ -406,6 +415,12 @@ window.__TAURI_INTERNALS__ = {
       return Promise.resolve({ words: (args || {}).rule || '', next: [t + 3600e3, t + 86400e3 + 3600e3, t + 2 * 86400e3 + 3600e3] });
     }
     if (cmd === 'schedule_op') return Promise.resolve(((args || {}).op || {}).schedule || null);
+    // The harnesses' own schedules, as PREVIEW_SCHEDULES's `harness` has them, once the board has
+    // read it; none without.
+    if (cmd === 'harness_schedules') {
+      return window.__TAURI_INTERNALS__.invoke('get_board').then(function () { return window.__harnessSchedules || []; });
+    }
+    if (cmd === 'open_harness_link') return Promise.resolve(null);
     if (cmd === 'session_tokens') {
       var key = (args || {}).key || '';
       var api = Math.round(hashOf(key) * 4000) / 100;

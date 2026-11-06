@@ -169,6 +169,8 @@ struct Done {
     follows: Option<String>,
     /// What waited for a session, going now: counted toward the day as it was taken, not again.
     delivered: bool,
+    /// A run of a schedule that runs once went: it's finished (`Schedule::finished_at`).
+    finished: bool,
 }
 
 static POKE: OnceLock<Mutex<Tx<()>>> = OnceLock::new();
@@ -294,7 +296,9 @@ pub fn plan_in(file: &File, runs: &Runs, board: &Board, busy: &HashSet<String>, 
                 if s.quiet {
                     quiet.push(key.clone());
                 }
-                notes.push(Note::Shown { id: s.id.clone(), run_at: r.at, key, thread: s.run.to == To::Thread });
+                // A start for a schedule that sends to a session is one in place of its session,
+                // gone: its later runs go to the new one, as to its thread.
+                notes.push(Note::Shown { id: s.id.clone(), run_at: r.at, key, thread: s.run.to != To::New });
             }
             None if now - p.at > PENDING_MS => notes.push(Note::NeverShown { id: s.id.clone(), run_at: r.at }),
             None => {}
@@ -319,8 +323,9 @@ pub fn plan_in(file: &File, runs: &Runs, board: &Board, busy: &HashSet<String>, 
             }
             continue;
         };
-        // Runs asked for: by hand even while it's paused, which drops the rest.
-        let (go, drop): (Vec<&Fired>, Vec<&Fired>) = asked.into_iter().partition(|f| !s.paused || f.by_hand);
+        // Runs asked for: by hand even while it's paused or finished, which drops the rest.
+        let stopped = s.paused || s.finished_at.is_some();
+        let (go, drop): (Vec<&Fired>, Vec<&Fired>) = asked.into_iter().partition(|f| !stopped || f.by_hand);
         if !drop.is_empty() {
             notes.push(Note::Dropped { fired: drop.iter().map(|f| f.id.clone()).collect() });
         }
@@ -358,9 +363,9 @@ pub fn plan_in(file: &File, runs: &Runs, board: &Board, busy: &HashSet<String>, 
             Some(l) => !settling && l.first().is_some_and(|x| x.me),
             None => able_here,
         };
-        if s.paused || (!able_here && line.is_none()) {
+        if stopped || (!able_here && line.is_none()) {
             // Times that pass while it's paused aren't run when it's resumed; nor do those of one
-            // every machine runs that this one can't.
+            // every machine runs that this one can't, or of one that ran once and is finished.
             if let Some(due) = next_due(s, Some(track), now, zone).filter(|&d| d <= now) {
                 notes.push(Note::Passed { id: s.id.clone(), due: latest_due(s, due, now, zone), missed: false });
             }
@@ -672,7 +677,7 @@ fn apply_done(runs: &mut Runs, id: &str, done: Done) {
 /// the day's runs, and the session a new-session run started, which the next waits for.
 /// `on_the_day` is false for what waited for a session, going now: it counted as it was taken.
 fn counted(t: &mut Track, r: &RunRecord, on_the_day: bool, now: i64, zone: &dyn Zone) {
-    if !matches!(r.outcome, Outcome::Started | Outcome::Sent | Outcome::Resumed | Outcome::Queued) {
+    if !went(r) {
         return;
     }
     if on_the_day {
@@ -701,9 +706,36 @@ pub fn run(engine: &Handle, job: Job) {
 
 fn finish(id: &str, done: Option<Done>) {
     let Some(done) = done else { return };
+    let finished = done.finished;
     if let Err(e) = change_runs(|r| apply_done(r, id, done)) {
         eprintln!("codealong: couldn't note schedule {id}'s run: {e:#}");
     }
+    if finished {
+        finish_once(id, now_ms());
+    }
+}
+
+/// Notes a schedule that runs once as finished, now that its run has gone: written to the schedule,
+/// with `updated_at`, so your other machines' copies take it too and none runs it again.
+fn finish_once(id: &str, now: i64) {
+    let noted = change(|file| match file.schedules.iter_mut().find(|s| s.id == id && s.once && s.finished_at.is_none()) {
+        Some(s) => {
+            s.finished_at = Some(now);
+            s.updated_at = now;
+            Ok(())
+        }
+        // Removed meanwhile, or not just once any more: nothing to write.
+        None => bail!("Nothing to finish."),
+    });
+    if noted.is_ok() {
+        poke();
+    }
+}
+
+/// Whether a run's record is of one that went: a session started, sent to or gone on with, or a
+/// run waiting for its session, which goes once its turn ends.
+fn went(r: &RunRecord) -> bool {
+    matches!(r.outcome, Outcome::Started | Outcome::Sent | Outcome::Resumed | Outcome::Queued)
 }
 
 /// Who a schedule's messages are from: you, for one you made; Codealong, for one an agent made,
@@ -936,7 +968,7 @@ fn step_in(board: &Board, cfg: &crate::config::Config, s: &Schedule, track: &Tra
         To::Thread => target(board, s, Some(track)).filter(|_| !stale(s, track, now)),
         To::Session => match target(board, s, Some(track)) {
             Some(k) => Some(k),
-            None => return Step::Fail { why: "The session it sends to isn't on the board.".into() },
+            None => return in_place_of(board, cfg, s, track, prompt, todos, now, home),
         },
     };
     let Some(key) = key else { return start_step(board, cfg, s, prompt, todos, now, home) };
@@ -955,6 +987,38 @@ fn step_in(board: &Board, cfg: &crate::config::Config, s: &Schedule, track: &Tra
         Some(place) => Step::Resume { key, place },
         None => Step::Fail { why: format!("{} isn't running, and {} can't go on with it out of sight.", title_of(board, &key), account.name) },
     }
+}
+
+/// A run for a session that's no longer on the board: a new session in its place, in the
+/// schedule's folder (the session's worktree, as the schedule was made) on the account the session
+/// was on, while that's yours and not turned off (else as a new schedule's would), told whose place
+/// it takes and where that session's conversation is, if its harness still keeps it. Its later
+/// runs go to the new one (`Track::follows`).
+#[allow(clippy::too_many_arguments)]
+fn in_place_of(board: &Board, cfg: &crate::config::Config, s: &Schedule, track: &Track, prompt: &str, todos: &[&crate::todos::Todo], now: i64, home: &std::path::Path) -> Step {
+    let (fresh, prompt) = in_place(cfg, s, track, prompt, |a, was| crate::harness::adapter(was.harness).records(a, was).into_iter().find(|p| p.is_file()));
+    start_step(board, cfg, &fresh, &prompt, todos, now, home)
+}
+
+/// `in_place_of`'s new session, as a schedule to start and its prompt, with `record` finding a
+/// session's conversation on an account.
+fn in_place(cfg: &crate::config::Config, s: &Schedule, track: &Track, prompt: &str, record: impl Fn(&crate::config::AccountCfg, &crate::model::Session) -> Option<PathBuf>) -> (Schedule, String) {
+    let session = s.run.session.trim();
+    // The copy it went on as, where it did: the latest it sent to.
+    let gone = track.thread.clone().filter(|_| track.follows.as_deref() == Some(session)).unwrap_or_else(|| session.to_string());
+    let mut parts = gone.splitn(3, ':');
+    let (harness, account, id) = (parts.next().unwrap_or_default(), parts.next().unwrap_or_default(), parts.next().unwrap_or_default());
+    let theirs = cfg.accounts.iter().find(|a| a.name == account && !a.disabled && a.harness == harness);
+    let kept = theirs.filter(|_| !id.is_empty()).and_then(|a| record(a, &crate::model::Session::new(crate::model::Harness::from_config(harness), account, id)));
+    let said = match kept {
+        Some(path) => format!("This schedule sends to the session {gone}, which is gone, so it started you in its place and sends its later runs to you. That session's conversation is in {}: read what you need of it first.", path.display()),
+        None => format!("This schedule sends to the session {gone}, which is gone, its conversation with it, so it started you in its place and sends its later runs to you."),
+    };
+    let mut fresh = s.clone();
+    if let Some(a) = theirs {
+        fresh.run.account = a.name.clone();
+    }
+    (fresh, format!("{}\n\n{said}", prompt.trim_end()))
 }
 
 /// A new session's start for a run: in its folder (a chat of its own without one), on its
@@ -1061,8 +1125,9 @@ fn fire(engine: &Handle, id: &str, cause: Cause) -> Option<Done> {
     if !cause.by_hand && s.per_day.is_some_and(|most| runs_today(&track, now, &rule::Local) + elsewhere >= most as usize) {
         return skipped(&cause, format!("It has run {} times today, its most.", s.per_day.unwrap_or_default()));
     }
-    // One session kept going whose first start hasn't shown yet: another would be a second one.
-    if s.run.to == To::Thread && track.thread.is_none() && track.runs.iter().any(|r| r.pending.is_some()) {
+    // One session kept going whose first start hasn't shown yet, or one started in place of a
+    // session that's gone: another would be a second one.
+    if s.run.to != To::New && target(&board, &s, Some(&track)).is_none() && track.runs.iter().any(|r| r.pending.is_some()) {
         return skipped(&cause, "Its session is still starting.");
     }
     if s.run.to == To::New && s.overlap == Overlap::Skip {
@@ -1086,11 +1151,13 @@ fn fire(engine: &Handle, id: &str, cause: Cause) -> Option<Done> {
     let files: Vec<String> = file_ref.iter().cloned().collect();
     let prompt = prompt_of(&s, std::slice::from_ref(&cause.said), &files, &todos, &board, now);
     let step = step(&board, &cfg, &s, &track, &prompt, &todos, now);
-    let (rec, went, queued) = act(engine, &board, &cfg, &s, &track, step, &prompt, &cause, file_ref.as_deref());
+    let (rec, to, queued) = act(engine, &board, &cfg, &s, &track, step, &prompt, &cause, file_ref.as_deref());
     Some(Done {
-        thread: (s.run.to != To::New).then(|| went.clone()),
+        thread: (s.run.to != To::New).then(|| to.clone()),
         follows: (s.run.to == To::Session).then(|| s.run.session.trim().to_string()),
         queued: queued.map(Some),
+        // Run now is how one that runs once is tried out, so it doesn't use up its run.
+        finished: s.once && !cause.by_hand && went(&rec),
         record: Some(rec),
         seen: cause.found.iter().filter(|f| !f.id.is_empty()).map(|f| f.id.clone()).collect(),
         fired: cause.fired.clone(),
@@ -1474,6 +1541,79 @@ mod tests {
         let b = Board { lanes: vec![lane("/r", vec![Session { account: "atlas".into(), archived: true, ..session("k") }])], ..board() };
         assert_eq!(target(&b, &s, Some(&track)).as_deref(), Some("k"));
         assert!(matches!(step_in(&b, &atlas(), &s, &track, "Look", &[], 10, std::path::Path::new(HOME)), Step::Send { key } if key == "k"));
+    }
+
+    /// A follow-up sent with `--to me` to a session gone by the time it ran failed, the session
+    /// "isn't on the board" (asked 2026-11-06: a new session in its place).
+    #[test]
+    fn a_session_it_sends_to_thats_gone_has_a_new_one_take_its_place() {
+        let mut cfg = crate::config::Config::default();
+        cfg.accounts = vec![crate::config::AccountCfg { name: "work".into(), harness: "claude".into(), home: "~/.claude-work".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false }];
+        let s = Schedule { run: Run { to: To::Session, session: "claude:work:abc".into(), folder: "/r".into(), prompt: "Did the atlas deploy go out?".into(), ..Run::default() }, ..schedule("a", When::Fired) };
+        let asked = std::cell::RefCell::new(Vec::new());
+        let kept = |a: &crate::config::AccountCfg, was: &Session| {
+            asked.borrow_mut().push((a.name.clone(), was.id.clone()));
+            Some(PathBuf::from("/home/me/.claude-work/projects/r/abc.jsonl"))
+        };
+        let (fresh, prompt) = in_place(&cfg, &s, &armed(1), &s.run.prompt, kept);
+        // On the account it was on, in its worktree, told where its conversation is.
+        assert_eq!((fresh.run.account.as_str(), fresh.run.folder.as_str()), ("work", "/r"));
+        assert_eq!(*asked.borrow(), vec![("work".to_string(), "abc".to_string())]);
+        assert!(prompt.starts_with("Did the atlas deploy go out?\n\nThis schedule sends to the session claude:work:abc, which is gone"));
+        assert!(prompt.contains("conversation is in /home/me/.claude-work/projects/r/abc.jsonl"));
+        // Gone with its record, or from an account turned off: as a new schedule's would start.
+        let (_, prompt) = in_place(&cfg, &s, &armed(1), "Look", |_, _| None);
+        assert!(prompt.ends_with("which is gone, its conversation with it, so it started you in its place and sends its later runs to you."));
+        cfg.accounts[0].disabled = true;
+        let (fresh, _) = in_place(&cfg, &s, &armed(1), "Look", |_, _| None);
+        assert_eq!(fresh.run.account, "");
+        // Once it went on as a copy, it's the copy that's gone.
+        cfg.accounts[0].disabled = false;
+        let copied = Track { thread: Some("claude:work:def".into()), follows: Some("claude:work:abc".into()), ..armed(1) };
+        let (_, prompt) = in_place(&cfg, &s, &copied, "Look", |_, _| None);
+        assert!(prompt.contains("the session claude:work:def, which is gone"));
+        // A start in its place isn't a problem to show, and its session becomes the one it sends to.
+        let b = Board { lanes: vec![lane("/r", Vec::new())], ..board() };
+        assert_eq!(board_problem(&s, &b), None);
+        let z = Fake::utc();
+        let now = ms(&z, 2026, 11, 7, 16, 30);
+        let pending = RunRecord { at: now - 5000, pending: Some(Pending { lane: "/r".into(), account: "work".into(), at: now - 5000 }), ..RunRecord::default() };
+        let runs = Runs { of: [("a".to_string(), Track { runs: vec![pending], follows: Some("claude:work:abc".into()), ..armed(now - DAY_MS) })].into(), ..Runs::default() };
+        let b = Board { lanes: vec![lane("/r", vec![Session { started_at: Some(now - 2000), account: "work".into(), ..session("new") }])], ..board() };
+        let (_, notes) = plan(&File { schedules: vec![s.clone()], ..File::default() }, &runs, &b, &HashSet::new(), now, &z);
+        assert_eq!(notes, vec![Note::Shown { id: "a".into(), run_at: now - 5000, key: "new".into(), thread: true }]);
+        let mut runs = runs;
+        apply(&mut runs, &notes[0]);
+        assert_eq!(target(&b, &s, runs.of.get("a")).as_deref(), Some("new"));
+    }
+
+    /// A one-off follow-up on a deploy (`--watch … --once`) runs for the first deploy, and no
+    /// other; Run now doesn't use it up.
+    #[test]
+    fn a_schedule_that_runs_once_is_finished_after_it_runs() {
+        let z = Fake::utc();
+        let now = ms(&z, 2026, 11, 7, 9, 0);
+        // Every day until its Only if holds, then stop.
+        let s = Schedule { once: true, only_if: "./deployed.sh".into(), ..schedule("a", When::Time { rule: "daily 9:00".into() }) };
+        let b = board();
+        let runs = Runs { of: [("a".to_string(), armed(now - DAY_MS))].into(), ..Runs::default() };
+        let file = |s: &Schedule| File { schedules: vec![s.clone()], ..File::default() };
+        assert!(matches!(plan(&file(&s), &runs, &b, &HashSet::new(), now, &z).0.as_slice(), [Job::Fire { .. }]));
+        // Finished, its times pass without a run, nor does a script's fire run it; Run now does.
+        let done = Schedule { finished_at: Some(now - DAY_MS / 2), ..s.clone() };
+        let (jobs, notes) = plan(&file(&done), &runs, &b, &HashSet::new(), now, &z);
+        assert!(jobs.is_empty());
+        assert_eq!(notes, vec![Note::Passed { id: "a".into(), due: now, missed: false }]);
+        let fired = |by_hand| Runs { fired: vec![Fired { id: "f".into(), schedule: "a".into(), at: now, by_hand, ..Fired::default() }], ..runs.clone() };
+        let (jobs, notes) = plan(&file(&done), &fired(false), &b, &HashSet::new(), now, &z);
+        assert!(jobs.is_empty());
+        assert!(notes.contains(&Note::Dropped { fired: vec!["f".into()] }));
+        assert!(matches!(plan(&file(&done), &fired(true), &b, &HashSet::new(), now, &z).0.as_slice(), [Job::Fire { cause, .. }] if cause.by_hand));
+        // A run that went is one that started or sent, or waits for its session; not one skipped
+        // (its Only if printed nothing) or failed, after which it's still to run.
+        let rec = |outcome| RunRecord { outcome, ..RunRecord::default() };
+        assert!(went(&rec(Outcome::Started)) && went(&rec(Outcome::Queued)) && went(&rec(Outcome::Resumed)));
+        assert!(!went(&rec(Outcome::Skipped)) && !went(&rec(Outcome::Failed)) && !went(&rec(Outcome::Missed)));
     }
 
     #[test]

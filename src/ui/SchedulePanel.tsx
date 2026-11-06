@@ -5,8 +5,9 @@
 // are its buttons; its menu (menus.ts `scheduleMenu`) has those and the rest.
 
 import { absolute, ago, agoPhrase, tildePath } from '../format';
+import { HARNESS_APP, HARNESS_WORD } from '../harness';
 import { nextWords, OUTCOME_ICON, OUTCOME_WORD, whenIcon } from '../schedules';
-import type { Lane, ScheduleItem, Session } from '../types';
+import type { HarnessSchedule, Lane, ScheduleItem, Session } from '../types';
 import { Button, Icon, SessionGlyph, cx, headerMenu } from './primitives';
 
 export interface SchedulePanelProps {
@@ -30,12 +31,66 @@ function settingsWords(s: ScheduleItem): string[] {
     out.push(`On ${on}, ${r.place ? `in ${r.place.replace('-', ' ')}` : 'out of sight'}${r.worktree ? ', in a new worktree each time' : ''}.`);
   }
   if (r.to === 'thread' && r.freshAfter.trim()) out.push(`A new session once its session is ${r.freshAfter.trim()} old.`);
+  if (r.to === 'session') out.push('If that session is gone, a new one starts in its place, told where its conversation is.');
+  if (s.once) out.push('Stops after its first run. Run now doesn’t count.');
   if (s.quiet) out.push('Its sessions are quiet: they wait on you only when they need you.');
   if (s.notes) out.push('Each run reads and adds to its notes.');
   if (r.to === 'new') out.push(s.overlap === 'allow' ? 'Starts another while the last run still works.' : 'Skips a run while the last one still works or waits on you.');
   out.push(s.catchUp === 'once' ? 'A time missed while the Mac slept or Codealong was closed runs once when it’s back.' : 'A time missed while the Mac slept or Codealong was closed is skipped.');
   if (s.perDay) out.push(`At most ${s.perDay} run${s.perDay === 1 ? '' : 's'} a day.`);
   return out;
+}
+
+/** A schedule a harness keeps, beside the list: what it is and where, when it runs, what keeps it
+ *  going, what it's told, and the way to it where it lives. Read only: it's changed there. */
+export function HarnessSchedulePanel({ item: h, now, sessionOf, onShowSession, onOpen }: { item: HarnessSchedule; now: number; sessionOf: SchedulePanelProps['sessionOf']; onShowSession: SchedulePanelProps['onShowSession']; onOpen: () => void }) {
+  const session = h.session ? sessionOf(h.session) : null;
+  const next = h.paused ? 'Paused' : nextWords({ paused: false, nextAt: h.nextAt, when: { kind: 'time', rule: '' } }, now);
+  return (
+    <aside className="ca-insp ca-schedinsp" aria-label="Schedule details">
+      <header>
+        <div className="ca-insp-title">
+          <Icon name="clock" size={14} />
+          <span className="ca-tag">{h.paused ? 'Paused' : 'Active'}</span>
+        </div>
+        <h3 className="ca-schedinsp-name">{h.name}</h3>
+        <div className="ca-schedinsp-meta">
+          <span>
+            {HARNESS_WORD[h.harness]} {h.kind.toLowerCase()}, on {h.account}
+          </span>
+        </div>
+      </header>
+      {(h.link || session) && (
+        <div className="ca-insp-actions">
+          <Button icon="external" title={h.link ? `Open it in ${HARNESS_APP[h.harness]}` : 'Open its session where it runs'} onClick={onOpen}>
+            {h.link ? `Open in ${HARNESS_APP[h.harness]}` : 'Open its session'}
+          </Button>
+        </div>
+      )}
+      <p className="ca-schedinsp-note">{HARNESS_WORD[h.harness]} keeps it, not Codealong: it’s listed here, and changed where it lives.</p>
+      <section className="ca-insp-sec">
+        <h4 className="ca-label">When</h4>
+        <p className="ca-schedinsp-line">
+          {h.whenWords}
+          {next && <span className="ca-schedinsp-next"> · {next}</span>}
+        </p>
+        <p className="ca-schedinsp-note">{h.lasts}</p>
+      </section>
+      <section className="ca-insp-sec">
+        <h4 className="ca-label">Does</h4>
+        {session ? (
+          <button type="button" className="ca-sessinsp-kin" title={`Show “${session.session.title}”`} onClick={() => onShowSession(session.lane, session.session)}>
+            <span className="ca-sessinsp-kin-phrase">{h.kind === 'Automation' ? 'Started' : 'Wakes'}</span>
+            <SessionGlyph s={session.session} size={11} />
+            <span className="ca-sessinsp-kin-title">{session.session.title}</span>
+          </button>
+        ) : (
+          <p className="ca-schedinsp-line">{h.kind === 'Automation' ? `Starts a new thread each run${h.folder ? ` in ${tildePath(h.folder)}` : ''}.` : 'Its session isn’t on the board.'}</p>
+        )}
+        {h.prompt && <div className="ca-schedinsp-prompt">{h.prompt}</div>}
+      </section>
+    </aside>
+  );
 }
 
 export function SchedulePanel({ item, now, sessionOf, onShowSession, onRun, onPause, onEdit, onMenu }: SchedulePanelProps) {
@@ -63,7 +118,7 @@ export function SchedulePanel({ item, now, sessionOf, onShowSession, onRun, onPa
       <header onContextMenu={headerMenu(() => onMenu())}>
         <div className="ca-insp-title">
           <Icon name={whenIcon(s.when)} size={14} />
-          <span className="ca-tag">{s.problem ? 'Can’t run' : s.paused ? 'Paused' : 'Active'}</span>
+          <span className="ca-tag">{s.finished != null ? 'Finished' : s.problem ? 'Can’t run' : s.paused ? 'Paused' : 'Active'}</span>
           <Button variant="ghost" size="sm" icon="dots" aria-label="More" title="Run, pause, change or delete it" onClick={(e) => {
             const r = e.currentTarget.getBoundingClientRect();
             onMenu({ x: r.left, y: r.bottom });
@@ -91,6 +146,11 @@ export function SchedulePanel({ item, now, sessionOf, onShowSession, onRun, onPa
           <Icon name="alert" size={14} />
           <span>{s.problem}</span>
         </div>
+      )}
+      {s.finished != null && (
+        <p className="ca-schedinsp-note" title={absolute(s.finished)}>
+          Finished {agoPhrase(s.finished, now)}: {s.once ? 'it ran once, as it was set to.' : 'its times are over.'} Only Run now runs it, unless you change when it runs.
+        </p>
       )}
       {s.createdBy && <p className="ca-schedinsp-note">An agent made it, so what it sends goes as Codealong’s, not as yours, and the sessions it starts are that agent’s.</p>}
 
@@ -134,7 +194,7 @@ export function SchedulePanel({ item, now, sessionOf, onShowSession, onRun, onPa
       <section className="ca-insp-sec">
         <h4 className="ca-label">Does</h4>
         {s.run.to === 'session' ? (
-          target ? sessionButton(target, 'Sends to') : <p className="ca-schedinsp-line">Sends to a session that’s no longer on the board.</p>
+          target ? sessionButton(target, 'Sends to') : thread ? null : <p className="ca-schedinsp-line">Sends to a session that’s no longer on the board, so its next run starts a new one in its place.</p>
         ) : (
           <p className="ca-schedinsp-line">{s.run.to === 'thread' ? 'Keeps one session going: the first run starts it, and the rest are sent to it. Once it’s archived (Mark as done), the next run starts a new one.' : 'Starts a new session each time.'}</p>
         )}

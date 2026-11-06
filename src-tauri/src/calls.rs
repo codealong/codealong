@@ -815,6 +815,12 @@ calls! {
         Ok(())
     }
 
+    /// The schedules the harnesses keep themselves (schedules/harnesses.rs), for the Schedules view.
+    fn harness_schedules(c) -> Result<Vec<schedules::harnesses::Kept>, String> {
+        let cfg = config::current().map_err(words)?;
+        Ok(schedules::harnesses::list(&cfg, &c.engine.board(), util::now_ms()))
+    }
+
     /// A change to the schedules (schedules.rs `Op`): what it came to.
     fn schedule_op(c, op: schedules::Op) -> Result<Value, String> {
         let cfg = config::current().map_err(words)?;

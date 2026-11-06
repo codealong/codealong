@@ -1655,12 +1655,22 @@ usage until one goes out.
 Any of them can have *Only if*: a command run before each run, which goes ahead only when the
 command succeeds and prints something, and what it printed goes with it.
 
+Any of them can *Run once, then stop*: after its first run that goes (a session started, sent to
+or gone on with, or a run waiting for its session's turn to end) it's finished, and nothing runs it
+again, on any of your machines: a follow-up for when a deploy goes out (a watch), or for the first
+morning a check holds (`daily 9:00` with *Only if*). A run skipped (its *Only if* printed nothing)
+or failed doesn't count, nor does Run now, so it can be tried. Run now still runs a finished one;
+told to run at other times or on something else, or with the box unticked, it runs again.
+
 **What it does.** *New session* starts one each run; *One session* starts one the first time and
 sends each later run to it, starting a new one once it's gone or archived (Mark as done, `session
 done`), for runs that were waiting for its turn to end too (or once it's `fresh_after` old,
 from the command); *A session* sends each run to one that's there, found by typing any of its title, worktree,
 project or account, the latest first and those in the schedule's worktree before the rest; picking
-it makes its worktree the schedule's, where its watch and *Only if* run. A new session starts in
+it makes its worktree the schedule's, where its watch and *Only if* run; when that session has
+gone from the board by the time a run comes, a new one takes its place, in the schedule's worktree
+on the account the session was on, told where that session's conversation is (where its harness
+still keeps it), and the later runs go to the new one. A new session starts in
 the worktree picked (found by typing its name, branch, repo or project), else in a chat of its own, in a new worktree each time if you tick it, on Auto, a
 routing group or an account with its model and effort (the menu the reviewers' box has), picked
 again at each run, so a round-robin or alternate-harness group spreads the runs over its accounts;
@@ -1676,6 +1686,20 @@ notes between runs*, a notes file in the schedule's own folder to read first and
 session each run still knows what the last ones found. What a schedule you made sends goes as
 yours. One an agent made with `codealong schedule add` sends as Codealong's (*What Codealong sends
 by itself*), and the sessions it starts are that agent's own (*Started by*); its panel says so.
+
+**Finished.** A schedule that ran once, and one whose times are over (a `once` time that ran or
+was missed), folds under Finished at the end of the list, the latest to finish first, out of the
+sidebar's count; Show lists them, each with its runs and its sessions, its panel saying when it
+finished and why. Nothing removes one: delete it from its menu, or `codealong schedule remove`.
+
+**Kept by their harnesses.** After Codealong's own, the list shows the schedules the harnesses
+keep themselves, read only: what a running Claude Code session scheduled inside its process (a
+`/loop`'s next tick, or a cron job, `CronCreate`), which goes when the process ends and a
+recurring one after a week, and the Codex app's automations, which run only while the app is open.
+Each says when it runs next and what keeps it going, with the session it wakes set in under it, and
+a panel of its own; Return, or Open in Codex in its panel, opens a Codex one in the app. They're
+changed where they live, and read again every half minute while the view shows (`codealong
+--snapshot --harness-schedules` prints them).
 
 **When a run can't go as it is.** A time missed while the Mac slept or Codealong was closed runs
 once when it's back (the latest of them, within a week), noted as late, unless *Run a missed time
@@ -1722,7 +1746,7 @@ runs it too. Machines on builds from before 2026-10-23 take no part.
 
 `codealong schedule list|show|add|edit|remove|pause|resume|run|fire|times` does the same from a
 terminal or an agent, an agent adding one for itself with `--to me` (a check back on its own work
-every hour, say), `schedule edit <name>` changing one in place with what `add` takes (`--at
+every hour, say, or with `--once` a follow-up that stops once it has run), `schedule edit <name>` changing one in place with what `add` takes (`--at
 "daily 8:00"`, `--prompt-file`, `--quiet=no`), only what it's given, so it keeps its id, its runs
 and its notes, which removing it and adding it again would lose, and `schedule add --runs-on one
 --prefer <machine>` sharing one with your other machines, and `codealong --snapshot --schedule-plan <schedule>` says what a run would do

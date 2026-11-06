@@ -913,6 +913,48 @@ impl crate::harness::Adapter for ClaudeCode {
         wakeups::next_wakeup(&self.records(ctx.account, s), since, now)
     }
 
+    /// What its running sessions scheduled inside their processes (wakeups.rs `upcoming`): a
+    /// session that isn't running holds nothing, as nothing else fires them. When its process
+    /// started isn't known here, so a recurring job past its week stays listed until the process
+    /// that has it fires it once more and lets it go, or the session stops.
+    fn own_schedules(&self, account: &crate::config::AccountCfg, sessions: &[&crate::model::Session], now: i64) -> Vec<crate::schedules::harnesses::Kept> {
+        use crate::schedules::harnesses::{named_by, Kept};
+        let live = sessions.iter().filter(|s| s.live && s.pid.is_some());
+        live.flat_map(|s| {
+            wakeups::upcoming(&s.key, &self.records(account, s), 0, now).into_iter().map(move |w| {
+                let id = w.job.clone().unwrap_or_else(|| "loop".into());
+                let when_words = match (&w.cron, w.recurring) {
+                    (Some(cron), true) => crate::schedules::rule::parse(&format!("cron {cron}")).map(|r| crate::schedules::rule::words(&r)).unwrap_or_else(|_| format!("cron {cron}")),
+                    (Some(_), false) => "Once".to_string(),
+                    (None, _) => "Its loop's next tick".to_string(),
+                };
+                let lasts = match (w.job.is_some(), w.durable, w.recurring) {
+                    (false, _, _) => "Only while its session's process runs: closing it loses the tick.",
+                    (true, true, _) => "Saved in its project: it fires while a Claude Code process runs there.",
+                    (true, false, true) => "Only while its session's process runs, for a week from when it was made.",
+                    (true, false, false) => "Only while its session's process runs: closing it loses the job.",
+                };
+                Kept {
+                    key: format!("{}:{id}", s.key),
+                    harness: crate::model::Harness::Claude,
+                    account: account.name.clone(),
+                    id,
+                    kind: if w.job.is_some() { "Cron job".into() } else { "Loop".into() },
+                    name: Some(named_by(&w.prompt)).filter(|n| !n.is_empty()).unwrap_or_else(|| s.title.clone()),
+                    prompt: w.prompt,
+                    when_words,
+                    next_at: Some(w.next),
+                    paused: false,
+                    session: Some(s.key.clone()),
+                    folder: None,
+                    link: None,
+                    lasts: lasts.into(),
+                }
+            })
+        })
+        .collect()
+    }
+
     /// A Code session the Claude app starts without a folder runs in a scratch workspace it
     /// makes for it.
     fn chats(&self) -> Option<(PathBuf, &'static str)> {

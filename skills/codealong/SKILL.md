@@ -296,6 +296,12 @@ its runs pick an account with room each time, and your user sees it and every ru
 Schedules view. `codealong schedule add "<name>" --at "weekdays 9:00" --prompt "<what to do>"`
 starts a new session each time; `--thread` keeps one going (once its session is archived, by
 Mark as done or `session done`, the next run starts a new one); `--to me` sends each run to you.
+A follow-up on your own work ("check back tomorrow", "once the deploy is out, do this") is
+`--to me`: the run comes back to this session, which knows the work, so a line or two of prompt
+will do (a session that's gone by then has a new one take its place, told where its conversation
+is). Add `--once`, so it stops once it has run rather than staying in the list (`schedule run`
+doesn't use it up), and wait on what it's for rather than a time where you can: `--watch` on the
+deploy, or `--at "daily 9:00" --only-if <check>` for the first day the check holds.
 `--watch "<command>" --every 5m` runs when a command prints a line it hasn't before (a deploy's id;
 its first look only notes what's there), `--on pr-merged|checks-failed|todo-ready` when that
 happens on the board, and `--when-fired` only when a script runs `codealong schedule fire

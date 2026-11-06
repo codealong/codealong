@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ALL_PROJECTS } from './quick';
-import { asksRunsOn, blankSchedule, doesWords, fireCommand, newScheduleFolder, nextWords, preferOptions, scheduleBySession, scheduleLanes, scheduleOf, scheduleProject, scheduleSessions, sessionFolder } from './schedules';
+import { asksRunsOn, blankSchedule, doesWords, fireCommand, newScheduleFolder, nextWords, preferOptions, scheduleBySession, scheduleLanes, scheduleOf, scheduleProject, scheduleSections, scheduleSessions, sessionFolder } from './schedules';
 import * as fx from './testing/fixtures';
 import type { DevicesView, Schedule, ScheduleItem } from './types';
 
@@ -26,7 +26,25 @@ describe('schedules', () => {
     expect(doesWords(item({ run: { ...item({}).run, to: 'thread', account: 'reviewers' } }), title)).toBe('Keeps one session going in northwind-app on reviewers');
     expect(doesWords(item({ run: { ...item({}).run, folder: '', worktree: true } }), title)).toBe('New session in a chat, a new worktree each time, on Auto');
     expect(doesWords(item({ run: { ...item({}).run, to: 'session', session: 'claude:claude:a' } }), title)).toBe('Sends to “Fix the header”');
-    expect(doesWords(item({ run: { ...item({}).run, to: 'session', session: 'gone' } }), title)).toBe('Sends to a session that’s gone');
+    // Gone, a new session takes its place (runner.rs `in_place_of`), and the next runs go to that.
+    expect(doesWords(item({ run: { ...item({}).run, to: 'session', session: 'gone' } }), title)).toBe('Sends to a session that’s gone, so a new one starts in northwind-app');
+    expect(doesWords(item({ run: { ...item({}).run, to: 'session', session: 'gone' }, thread: 'claude:claude:a' }), title)).toBe('Sends to “Fix the header”');
+  });
+
+  it('folds the finished ones apart, the latest to finish first', () => {
+    const a = item({ id: 's-a', name: 'A' });
+    const b = item({ id: 's-b', name: 'B', finished: 100 });
+    const c = item({ id: 's-c', name: 'C', finished: 300, once: true });
+    const { active, finished } = scheduleSections([a, b, c]);
+    expect(active.map((x) => x.id)).toEqual(['s-a']);
+    expect(finished.map((x) => x.id)).toEqual(['s-c', 's-b']);
+    // A finished one runs next never, paused or not.
+    expect(nextWords(item({ finished: 100, nextAt: NOW + HOUR, paused: true }), NOW)).toBe('');
+  });
+
+  it('saves whether it runs once', () => {
+    expect(blankSchedule('/w').once).toBe(false);
+    expect(scheduleOf(item({ once: true, finishedAt: 5 })).once).toBe(true);
   });
 
   it('knows which schedule a session came from', () => {

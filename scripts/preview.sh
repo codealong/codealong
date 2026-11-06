@@ -62,7 +62,8 @@
 #
 # PREVIEW_SCHEDULES=<file> shows the schedules in it (scripts/preview/schedules-sample.json has
 # some) in place of yours, "$lane:N" and "$session:N" as PREVIEW_TODOS has them, and times in
-# minutes from now (`nextIn`, a run's `atAgo`).
+# minutes from now (`nextIn`, a run's `atAgo`, a finished one's `finishedAgo`); its `harness`
+# list is the schedules the harnesses keep themselves.
 #
 # PREVIEW_CANVAS=<file> opens the Canvas view on the document in it (one board's, as
 # boards.json keeps it under a board's canvas) in place of a fresh tidy. PREVIEW_BOARDS=<file>

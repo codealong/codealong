@@ -1383,6 +1383,14 @@ Options:
       --per-day <N>
           The most runs a day
 
+      --once[=<YES|NO>]
+          Then stop: once a run goes (a session started or sent to), it's finished, and
+          nothing runs it again but `schedule run`. For a one-off follow-up on any
+          trigger: `--watch` for when a deploy goes out, `--at "daily 9:00" --only-if
+          <check>` for the first day the check holds, with `--to me` to have it come
+          back to you. `schedule run` doesn't use it up, so it can be tried. Told to run
+          at other times or on something else, or `--once=no`, a finished one runs again
+
       --paused[=<YES|NO>]
           Paused: nothing runs it until it's resumed, and its times that pass meanwhile
           aren't run then
@@ -1557,6 +1565,14 @@ Options:
 
       --per-day <N>
           The most runs a day
+
+      --once[=<YES|NO>]
+          Then stop: once a run goes (a session started or sent to), it's finished, and
+          nothing runs it again but `schedule run`. For a one-off follow-up on any
+          trigger: `--watch` for when a deploy goes out, `--at "daily 9:00" --only-if
+          <check>` for the first day the check holds, with `--to me` to have it come
+          back to you. `schedule run` doesn't use it up, so it can be tried. Told to run
+          at other times or on something else, or `--once=no`, a finished one runs again
 
       --paused[=<YES|NO>]
           Paused: nothing runs it until it's resumed, and its times that pass meanwhile

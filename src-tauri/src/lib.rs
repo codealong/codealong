@@ -821,6 +821,13 @@ async fn open_url(mirror: State<'_, view::Mirror>, url: String) -> Result<(), St
     .await?
 }
 
+/// Opens a schedule a harness keeps (schedules/harnesses.rs `Kept::link`) in its app. It can wait
+/// on the app to come forward.
+#[tauri::command]
+async fn open_harness_link(harness: model::Harness, url: String) -> Result<(), String> {
+    blocking(move || harness::adapter(harness).open_link(&url).map_err(words)).await?
+}
+
 /// Opens one of a PR's changed files in your editor, as a diff or at a line (prdiff.rs). It can
 /// wait on GitHub for the file's two sides.
 #[tauri::command]
@@ -1391,7 +1398,7 @@ fn watch_main_thread(app: tauri::AppHandle) {
 /// it's one of its calls (`forward`).
 macro_rules! app_commands {
     ($($then:tt)*) => {
-        $($then)*![get_board, open_target, open_config, editor_icons, open_from_bar, peek_open, pr_at, session_at, perf_mark, page_unfocused, window_keys, pointer_probe, popup_menu, fit_bar, show_main, peek_ready, peek_fit, peek_focus, peek_hide, peek_resize, peek_drag, keep_session, kept_session, kept_ready, kept_focus, kept_resize, kept_close, side_window, side_windows, terminal_window, terminal_put_back, terminal_windows, kept_terminal, bar_feed, desktop_pins, pin_to_desktop, drag_to_desktop, unpin_from_desktop, desktop_feed, fit_desktop, desktop_hover, lineage_feed, show_quick, hide_quick, quick_ready, show_waiting, waiting_asked, start_from_quick, quick_shortcut, pause_quick_shortcut, bar_on, set_bar_on, bar_mode, notch_shape, notch_drag, set_bar_mode, set_notch_open, notch_keys, keep_notch_session, review_in_codex, open_url, open_pr_file, run_command, play_sound, update_status, check_for_updates, restart_to_update, open_at_login, set_open_at_login, terminal_awake, set_terminal_awake, open_team_file, link_code_qr, start_session, move_session, resume_session, fork_session, sign_in, board_answer, schedule_times, save_attachment, import_attachment, expand_attachments, open_attachment, open_file, reveal_file, edit_file, your_editor, path_kinds, open_project_window]
+        $($then)*![get_board, open_target, open_config, editor_icons, open_from_bar, peek_open, pr_at, session_at, perf_mark, page_unfocused, window_keys, pointer_probe, popup_menu, fit_bar, show_main, peek_ready, peek_fit, peek_focus, peek_hide, peek_resize, peek_drag, keep_session, kept_session, kept_ready, kept_focus, kept_resize, kept_close, side_window, side_windows, terminal_window, terminal_put_back, terminal_windows, kept_terminal, bar_feed, desktop_pins, pin_to_desktop, drag_to_desktop, unpin_from_desktop, desktop_feed, fit_desktop, desktop_hover, lineage_feed, show_quick, hide_quick, quick_ready, show_waiting, waiting_asked, start_from_quick, quick_shortcut, pause_quick_shortcut, bar_on, set_bar_on, bar_mode, notch_shape, notch_drag, set_bar_mode, set_notch_open, notch_keys, keep_notch_session, review_in_codex, open_url, open_harness_link, open_pr_file, run_command, play_sound, update_status, check_for_updates, restart_to_update, open_at_login, set_open_at_login, terminal_awake, set_terminal_awake, open_team_file, link_code_qr, start_session, move_session, resume_session, fork_session, sign_in, board_answer, schedule_times, save_attachment, import_attachment, expand_attachments, open_attachment, open_file, reveal_file, edit_file, your_editor, path_kinds, open_project_window]
     };
 }
 

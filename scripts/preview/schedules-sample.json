@@ -65,6 +65,51 @@
       "run": { "to": "session", "session": "$session:3", "prompt": "A release was tagged: draft its notes from the PRs merged since the last one." },
       "createdBy": "$session:4",
       "runs": [{ "atAgo": 4320, "why": "Fired: v0.4.0", "outcome": "failed", "said": "It isn't running, and its account can't go on with it out of sight." }]
+    },
+    {
+      "name": "Once the atlas deploy is out",
+      "once": true,
+      "when": { "kind": "watch", "command": "gh run list --branch main --status success --json databaseId --jq '.[].databaseId'", "every": "10m", "mode": "lines" },
+      "whenWords": "When `gh run list --branch main --status success --json …` prints new lines, every 10m",
+      "nextIn": 7,
+      "check": { "atAgo": 3, "ok": true, "said": "Nothing new", "failures": 0 },
+      "run": { "to": "session", "session": "$session:2", "folder": "$lane:0", "prompt": "The deploy went out: check the settings page is live, then carry on with the follow-up we agreed." },
+      "createdBy": "$session:2",
+      "runs": []
+    },
+    {
+      "name": "Follow up on the kestrel release",
+      "once": true,
+      "when": { "kind": "time", "rule": "once 2026-11-05 16:30" },
+      "whenWords": "Once, 2026-11-05 at 16:30",
+      "finishedAgo": 1440,
+      "run": { "to": "new", "folder": "$lane:0", "account": "", "prompt": "Check whether the kestrel release went out, and if it did, draft the announcement." },
+      "runs": [{ "atAgo": 1440, "why": "16:30", "outcome": "started", "said": "On claude", "session": "$session:5" }]
+    }
+  ],
+  "harness": [
+    {
+      "harness": "claude",
+      "account": "claude",
+      "kind": "Cron job",
+      "name": "Check the northwind deploy and report",
+      "prompt": "Check the northwind deploy and report what changed.",
+      "whenWords": "Every 15 minutes",
+      "nextIn": 6,
+      "session": "$session:0",
+      "lasts": "Only while its session's process runs, for a week from when it was made."
+    },
+    {
+      "harness": "codex",
+      "account": "codex",
+      "kind": "Automation",
+      "name": "Nightly atlas triage",
+      "prompt": "Triage last night's atlas errors and open issues for new ones.",
+      "whenWords": "Every day at 2:00",
+      "paused": true,
+      "folder": "$lane:0",
+      "link": "codex://automations/nightly-atlas-triage?automationSource=local",
+      "lasts": "The Codex app starts a new thread for it while the app is open."
     }
   ]
 }

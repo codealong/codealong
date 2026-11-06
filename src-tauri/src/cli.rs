@@ -1378,6 +1378,9 @@ struct ScheduleOptions {
     /// The most runs a day.
     #[arg(long, value_name = "N")]
     per_day: Option<String>,
+    /// Then stop: once a run goes (a session started or sent to), it's finished, and nothing runs it again but `schedule run`. For a one-off follow-up on any trigger: `--watch` for when a deploy goes out, `--at "daily 9:00" --only-if <check>` for the first day the check holds, with `--to me` to have it come back to you. `schedule run` doesn't use it up, so it can be tried. Told to run at other times or on something else, or `--once=no`, a finished one runs again.
+    #[arg(long, value_name = "YES|NO", num_args = 0..=1, require_equals = true, default_missing_value = "yes", value_parser = yes_no)]
+    once: Option<bool>,
     /// Paused: nothing runs it until it's resumed, and its times that pass meanwhile aren't run then.
     #[arg(long, value_name = "YES|NO", num_args = 0..=1, require_equals = true, default_missing_value = "yes", value_parser = yes_no)]
     paused: Option<bool>,
@@ -5569,9 +5572,10 @@ fn schedule(cmd: ScheduleCmd, c: &mut Client, json: bool) -> Result<()> {
             let rows = items
                 .iter()
                 .map(|i| {
-                    let next = match (i.schedule.paused, i.next_at) {
-                        (true, _) => "paused".to_string(),
-                        (_, Some(at)) => schedules::clock_text(at, &Local),
+                    let next = match (i.finished, i.schedule.paused, i.next_at) {
+                        (Some(_), _, _) => "finished".to_string(),
+                        (_, true, _) => "paused".to_string(),
+                        (_, _, Some(at)) => schedules::clock_text(at, &Local),
                         _ => String::new(),
                     };
                     let last = i.runs.first().map(|r| format!("{:?} {}", r.outcome, ago(now - r.at)).to_lowercase()).unwrap_or_default();
@@ -5589,7 +5593,10 @@ fn schedule(cmd: ScheduleCmd, c: &mut Client, json: bool) -> Result<()> {
             }
             let board = c.board()?.clone();
             println!("{} ({})", item.schedule.name, item.schedule.id);
-            println!("When: {}{}", item.when_words, if item.schedule.paused { " (paused)" } else { "" });
+            println!("When: {}{}{}", item.when_words, if item.schedule.once { ", then stops" } else { "" }, if item.schedule.paused { " (paused)" } else { "" });
+            if let Some(at) = item.finished {
+                println!("Finished: {}. Only `schedule run` runs it now.", schedules::clock_text(at, &Local));
+            }
             println!("Does: {}", schedules::does_words(&item.schedule, &board));
             if let Some(words) = &item.runs_on_words {
                 println!("Runs on: {words}{}", item.here.as_deref().map(|h| format!(" (not here: {h})")).unwrap_or_default());
@@ -5714,7 +5721,12 @@ fn saved_line(c: &mut Client, name: &str, paused: bool) -> Result<String> {
     let item = schedule_items(c)?.into_iter().find(|i| i.schedule.name == name);
     let next = item.as_ref().and_then(|i| i.next_at).map(|at| format!(" Next: {}.", clock_text(at, &Local))).unwrap_or_default();
     let paused = if paused { " It's paused." } else { "" };
-    Ok(format!("{name}: {}.{next}{paused}", item.map(|i| i.when_words).unwrap_or_default()))
+    let once = match &item {
+        Some(i) if i.finished.is_some() => " It has run, and is finished.",
+        Some(i) if i.schedule.once => " It stops after its first run.",
+        _ => "",
+    };
+    Ok(format!("{name}: {}.{next}{paused}{once}", item.map(|i| i.when_words).unwrap_or_default()))
 }
 
 /// A schedule with what `schedule add` or `schedule edit` said of it: each option given changes
@@ -5854,6 +5866,9 @@ fn with_options(c: &mut Client, mut s: crate::schedules::Schedule, o: ScheduleOp
             "" => None,
             n => Some(n.parse().map_err(|_| anyhow!("Couldn't read “{n}” as how many runs a day: give a number, or \"\" for no limit."))?),
         };
+    }
+    if let Some(once) = o.once {
+        s.once = once;
     }
     if let Some(paused) = o.paused {
         s.paused = paused;

@@ -392,7 +392,9 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   a resumed process brings back from the transcript what's still to come: what the calls'
   results record, how Claude Code reads them back (2.1.310's code) and what each kind lasts:
   `claude/wakeups.rs` (module header), which `codealong hygiene` asks before it ends a quiet
-  session's process (`hygiene.rs`, `Adapter::wakes_at`). Not there: a session resumed after its
+  session's process (`hygiene.rs`, `Adapter::wakes_at`), and which the Schedules view lists for
+  running sessions (`upcoming`, `Adapter::own_schedules`; a `ScheduleWakeup` call's input has
+  `delaySeconds`, `prompt` and `reason`, a `CronCreate`'s `cron`, `prompt` and `recurring`). Not there: a session resumed after its
   wakeup's time is told in a task notification that the wakeup "will not fire", and a recurring
   `/loop` cron isn't cancelled by `ScheduleWakeup({stop: true})`. On this Mac's transcripts
   (2026-10-24) `scheduled_task_fire` lines name the wakeup's `taskId`, `cron` and `prompt`

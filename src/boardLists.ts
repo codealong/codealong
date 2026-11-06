@@ -17,7 +17,7 @@ import { ALL_PROJECTS, hasWords, inProject, queryWords, saidLine, type SaidLine 
 import { isOpen, itemSection, todoIndex, todoInFilter, todoItem, todoSections, type TodoItem, type TodoSectionId, type TodoSort } from './todos';
 import { primaryHere } from './prStatus';
 import { scheduleProject } from './schedules';
-import type { Board, DevicesView, Label, Lane, PrItem, PrSession, ProjectSummary, ScheduleItem, Session, TextHit, Todo } from './types';
+import type { Board, DevicesView, HarnessSchedule, Label, Lane, PrItem, PrSession, ProjectSummary, ScheduleItem, Session, TextHit, Todo } from './types';
 import type { ActionCounts } from './ui/ProjectSwitcher';
 import { prIsOpen, prPlace, prPlaces, prSections, waitsOnReview, type PrRowItem, type PrSort } from './ui/PrsView';
 import { groupedRows, groupSessions, helpersUnder, sessionSections, waitingQueue, type SessionItem, type SessionSort, type StartedPlace } from './ui/SessionsView';
@@ -283,6 +283,15 @@ export function todoLabelOptions(rows: TodoItem[], labels: Label[], f: Facets): 
 export function schedulesIn(items: ScheduleItem[], lanes: Lane[], project: string, query: string): ScheduleItem[] {
   const words = query.trim().toLowerCase();
   return items.filter((x) => (project === ALL_PROJECTS || scheduleProject(x, lanes) === project) && (!words || [x.name, x.whenWords, x.run.prompt].some((t) => t.toLowerCase().includes(words))));
+}
+
+/** The schedules the harnesses keep that the Schedules view lists: in the project shown, by the
+ *  worktree of the session each wakes, or of the folder it starts its own in (every one under All
+ *  projects; under a project, none whose place can't be told), as the find narrows them. */
+export function harnessSchedulesIn(items: HarnessSchedule[], homes: ReadonlyMap<string, Placed>, lanes: Lane[], project: string, query: string): HarnessSchedule[] {
+  const words = query.trim().toLowerCase();
+  const projectOf = (h: HarnessSchedule) => (h.session ? homes.get(h.session)?.lane.project : undefined) ?? (h.folder ? lanes.find((l) => !l.device && l.path === h.folder)?.project : undefined);
+  return items.filter((h) => (project === ALL_PROJECTS || projectOf(h) === project) && (!words || [h.name, h.whenWords, h.prompt, h.kind].some((t) => t.toLowerCase().includes(words))));
 }
 
 /** A session at work, or waiting on you: listed under its schedule whichever run it's from. */

@@ -333,6 +333,9 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
   `fork_point`), by the ids the rollout's `item_completed` lines give them: `codex/rollout.rs`
   (`item_before_turn`), `codex/mod.rs` (`fork_from`). Checked on a two-turn `exec` thread,
   2026-10-20: the copy answered from the turn before the cut.
+- The app's own automations (`<CODEX_HOME>/automations/<id>/automation.toml`, heartbeats and
+  crons), their next runs in its database, their links, and that only the app runs them:
+  `codex/automations.rs` (module header), listed read only in the Schedules view.
 - Links that fill a prompt in (`codex://threads/new?path=<folder>&prompt=<text>`,
   `codex://threads/<uuid>?prompt=`) and the projects a new folder is added to: `codex/mod.rs`
   (`app_link`, `start_in_app`), `codex/ipc.rs` (`InApp`), `codex/rollout.rs`

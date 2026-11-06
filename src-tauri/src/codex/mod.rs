@@ -11,6 +11,7 @@
 mod applog;
 mod appserver;
 mod asks;
+mod automations;
 mod conversation;
 mod draw;
 mod mcp;
@@ -511,6 +512,18 @@ impl crate::harness::Adapter for Codex {
 
     fn app_bundle(&self, action: &str) -> Option<&'static str> {
         (action == "codex").then_some(APP_BUNDLE_ID)
+    }
+
+    /// The Codex app's automations (automations.rs).
+    fn own_schedules(&self, account: &crate::config::AccountCfg, sessions: &[&Session], _now: i64) -> Vec<crate::schedules::harnesses::Kept> {
+        automations::kept(account, sessions)
+    }
+
+    fn open_link(&self, url: &str) -> anyhow::Result<()> {
+        if !url.starts_with("codex://") {
+            anyhow::bail!("Only Codex app links open here.");
+        }
+        crate::launch::open_codex(url)
     }
 
     fn search_files(&self, account: &AccountCfg, since: i64) -> Vec<(PathBuf, String, i64)> {
