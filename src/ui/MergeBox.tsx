@@ -8,8 +8,11 @@
 // the rules for one who may. Merging, like GitHub's, takes a second press: under the row, the
 // commit's title and message as GitHub would write them for that method, to change, the email it
 // goes under, and whether the branch goes with it. ⌘⏎ in them confirms and Escape puts them away.
-// Bringing the branch up to date, taking it out of draft, turning auto-merge off, leaving the
-// queue and deleting a merged branch are a press each, as on GitHub. The commit's fields
+// Confirmed, a merge shows done at once, as though GitHub had merged it (`act`): the commit put
+// away, the box merged and saying what it did, until GitHub answers; one it refuses brings the
+// commit back as it was written, with why. Bringing the branch up to date, taking it out of
+// draft, turning auto-merge off, leaving the queue and deleting a merged branch are a press each,
+// as on GitHub. The commit's fields
 // (`CommitFields`, `useCommit`) and the method kept per repo (`useMethod`) are Merge and done…'s
 // too (MergeDone.tsx).
 //
@@ -21,9 +24,10 @@ import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, 
 import { mergeAhead } from '../ahead';
 import { mergeBox, openUrl } from '../api';
 import { below, showContextMenu, type MenuSpec } from '../contextMenu';
-import { boxKey, commitText, confirmLabel, DELETE_KEY, deletesWith, doneWords, mainMode, METHOD, METHODS_KEY, methodsByRepo, modeLabel, offers, opFor, pickMethod, plainlyReady, rereads, standing, type MergeMode, type Tone } from '../merge';
-import { errorText } from '../report';
+import { boxKey, commitText, confirmLabel, DELETE_KEY, deletesWith, doneWords, mainMode, mergingBox, METHOD, METHODS_KEY, methodsByRepo, modeLabel, offers, opFor, pickMethod, plainlyReady, rereads, standing, type MergeForm, type MergeMode, type Tone } from '../merge';
+import { errorText, type Report } from '../report';
 import { onReload, reloadCount, useReloads } from '../reload';
+import { useLatest } from '../latest';
 import { flag, readStored, writeStored } from '../stored';
 import type { MergeBox as Box, MergeMethod, MergeOp, PrItem } from '../types';
 import { Button, CheckBox, cx, Icon } from './primitives';
@@ -57,6 +61,9 @@ interface Row {
    *  shows at once (ahead.ts `mergeAhead`), so the PR has left what waits on you as it's asked,
    *  and one GitHub refuses comes back with why, on whatever the window shows then. */
   goesOn?: MergeGoesOn;
+  /** How the window says why GitHub refused a merge once the box has gone (another PR shown, the
+   *  card put away); while it's up, the box says it. */
+  report?: Report;
 }
 
 export interface MergeGoesOn {
@@ -77,7 +84,7 @@ function Actions({ lead, trail, children }: Row & { children?: ReactNode }) {
 }
 
 /** One PR's box: its details give each PR one of its own (`key`). */
-export function MergeBox({ pr, lead, trail, goesOn }: { pr: PrItem } & Row) {
+export function MergeBox({ pr, lead, trail, goesOn, report }: { pr: PrItem } & Row) {
   // Read again as the board's word on where the PR stands changes, as when its checks finish,
   // which doesn't update the PR: else it said blocked while its pills said ready to merge.
   const key = boxKey(pr);
@@ -138,12 +145,19 @@ export function MergeBox({ pr, lead, trail, goesOn }: { pr: PrItem } & Row) {
       row
     );
   }
-  return <Loaded pr={pr} box={box} note={note} setNote={setNote} reread={() => setAgain((n) => n + 1)} lead={lead} trail={trail} goesOn={goesOn} />;
+  return <Loaded pr={pr} box={box} note={note} setNote={setNote} reread={() => setAgain((n) => n + 1)} lead={lead} trail={trail} goesOn={goesOn} report={report} />;
 }
 
-function Loaded({ pr, box, note, setNote, reread, lead, trail, goesOn }: { pr: PrItem; box: Box; note: Note; setNote: (n: Note) => void; reread: () => void } & Row) {
-  const can = offers(box);
-  const said = standing(box, pr);
+function Loaded({ pr, box, note, setNote, reread, lead, trail, goesOn, report }: { pr: PrItem; box: Box; note: Note; setNote: (n: Note) => void; reread: () => void } & Row) {
+  const [doing, setDoing] = useState<Doing>(null);
+  // The box as it was read when GitHub said it merged the PR, until it's read again.
+  const [mergedOver, setMergedOver] = useState<Box | null>(null);
+  const boxNow = useLatest(box);
+  // A merge on its way shows the box merged (merge.ts `mergingBox`), whatever GitHub says of the
+  // PR as it's read meanwhile, and once merged, until the box is read again.
+  const shown = doing === 'merge' || mergedOver === box ? mergingBox(box) : box;
+  const can = offers(shown);
+  const said = standing(shown, pr);
   const [bypassing, setBypassing] = useState(false);
   const mode = mainMode(can, bypassing);
   const [picked, pickFor] = useMethod(pr.repoSlug);
@@ -151,21 +165,33 @@ function Loaded({ pr, box, note, setNote, reread, lead, trail, goesOn }: { pr: P
   const [writing, setWriting] = useState(false);
   const commit = useCommit(box);
   const { title, body, email, deleteBranch, fill } = commit;
-  const [doing, setDoing] = useState<Doing>(null);
   const titleBox = useRef<HTMLInputElement>(null);
+  // Whether the box is still up when GitHub answers, to say a refusal itself.
+  const up = useRef(true);
+  useEffect(() => {
+    up.current = true;
+    return () => {
+      up.current = false;
+    };
+  }, []);
 
   const pick = (m: MergeMethod) => {
     pickFor(m);
     if (writing) fill(m);
   };
 
-  /** Does it. A merge shows merged everywhere as it's asked (ahead.ts `mergeAhead`), and in a
-   *  window that goes on, the window goes on to the next PR at once. */
+  /** Does it. A merge shows done as it's asked, here and in every window (ahead.ts
+   *  `mergeAhead`): the commit put away, what it did said and the box merged until GitHub answers.
+   *  One GitHub refuses brings the commit back as it was written, saying why, or where the box
+   *  has gone by then, the window says why. In a window that goes on, the window goes on to the
+   *  next PR at once, and one GitHub refuses comes back there. */
   const act = (op: MergeOp) => {
     if (doing) return;
     setDoing(op.op);
-    setNote(null);
-    const going = op.op === 'merge' ? goesOn : undefined;
+    const merge = op.op === 'merge';
+    setNote(merge ? { text: doneWords(op, pr.number, box.branch) } : null);
+    if (merge) setWriting(false);
+    const going = merge ? goesOn : undefined;
     const done = mergeAhead(pr, box.id, op);
     going?.left();
     done
@@ -173,11 +199,19 @@ function Loaded({ pr, box, note, setNote, reread, lead, trail, goesOn }: { pr: P
         (warning) => {
           setNote(warning ? { text: warning, error: true } : { text: doneWords(op, pr.number, box.branch) });
           setWriting(false);
+          if (merge) setMergedOver(boxNow.current);
           reread();
         },
         (e: unknown) => {
-          if (going) going.failed(errorText(e));
-          else setNote({ text: errorText(e), error: true });
+          const why = errorText(e);
+          if (going) going.failed(why);
+          // Every window that shows a box gives it a way to say this; one without leaves the PR to
+          // show open again.
+          else if (!up.current) report?.error(why);
+          else {
+            setNote({ text: why, error: true });
+            if (merge) setWriting(true);
+          }
         },
       )
       .finally(() => setDoing(null));
@@ -239,9 +273,9 @@ function Loaded({ pr, box, note, setNote, reread, lead, trail, goesOn }: { pr: P
       el,
     );
   const ready = said.tone === 'ok' && mode === 'merge';
-  const busyWord = doing === 'merge' ? 'Merging…' : doing === 'auto' ? 'Turning on…' : doing === 'enqueue' ? 'Queuing…' : null;
-  const tone = box.state === 'MERGED' ? 'merged' : said.tone;
-  const plain = plainlyReady(box, pr);
+  const busyWord = doing === 'auto' ? 'Turning on…' : doing === 'enqueue' ? 'Queuing…' : null;
+  const tone = shown.state === 'MERGED' ? 'merged' : said.tone;
+  const plain = plainlyReady(shown, pr);
 
   const buttons = !writing && (
     <>
@@ -307,7 +341,7 @@ function Loaded({ pr, box, note, setNote, reread, lead, trail, goesOn }: { pr: P
       </Actions>
       {!plain && (
         <div className={cx('ca-merge-standing', `is-${tone}`)}>
-          <Icon name={box.state === 'CLOSED' ? 'pr-closed' : TONE_ICON[said.tone]} size={16} stroke={2} />
+          <Icon name={shown.state === 'CLOSED' ? 'pr-closed' : TONE_ICON[said.tone]} size={16} stroke={2} />
           <div>
             <strong>{said.says}</strong>
             {said.more && <span>{said.more}</span>}
@@ -363,12 +397,12 @@ export function methodItems(box: Pick<Box, 'methods'>, method: MergeMethod | nul
 /** The commit a merge goes in with, as it's written before it's confirmed: its title and message
  *  as GitHub would write them for a method (`fill`; `first`'s from the start), the email it goes
  *  under, and whether the branch goes with it, the last way that was left (`keep`, as a merge is
- *  confirmed). */
-export function useCommit(box: Box, first: MergeMethod | null = null) {
-  const [title, setTitle] = useState(() => (first && commitText(box, first)?.title) ?? '');
-  const [body, setBody] = useState(() => (first && commitText(box, first)?.body) ?? '');
-  const [email, setEmail] = useState<string | null>(box.defaultEmail);
-  const [deleteBranch, setDeleteBranch] = useState(() => readStored(DELETE_KEY, flag, false));
+ *  confirmed). `written` starts it as it was written before, for a merge GitHub refused. */
+export function useCommit(box: Box, first: MergeMethod | null = null, written?: MergeForm) {
+  const [title, setTitle] = useState(() => written?.title ?? (first && commitText(box, first)?.title) ?? '');
+  const [body, setBody] = useState(() => written?.body ?? (first && commitText(box, first)?.body) ?? '');
+  const [email, setEmail] = useState<string | null>(written ? written.email : box.defaultEmail);
+  const [deleteBranch, setDeleteBranch] = useState(() => written?.deleteBranch ?? readStored(DELETE_KEY, flag, false));
   /** The commit as GitHub would write it for `m`, in the fields. */
   const fill = (m: MergeMethod) => {
     const text = commitText(box, m);

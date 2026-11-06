@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { boxKey, commitText, confirmLabel, deletesWith, doneWords, mainMode, methodsByRepo, modeLabel, offers, opFor, pickMethod, plainlyReady, rereads, standing, type MergeForm } from './merge';
+import { boxKey, commitText, confirmLabel, deletesWith, doneWords, mainMode, mergingBox, methodsByRepo, modeLabel, offers, opFor, pickMethod, plainlyReady, rereads, standing, type MergeForm } from './merge';
 import * as fx from './testing/fixtures';
 import type { Checks, MergeBox } from './types';
 
@@ -188,6 +188,13 @@ describe('what a merge asks', () => {
     expect(deletesWith(box(), 'auto')).toBe(false);
     expect(opFor(box(), 'auto', form())).toEqual({ op: 'auto', head: 'abc', method: 'squash', title: 'Add teams (#7)', body: '* Add teams', email: 'ana@work.example' });
     expect(opFor(box(), 'queue', form())).toEqual({ op: 'enqueue', head: 'abc' });
+  });
+
+  it('shows a merge on its way as merged, with nothing to do until GitHub says what’s left', () => {
+    const shown = mergingBox(box({ canBypass: true }));
+    expect(standing(shown, pr())).toEqual({ tone: 'done', says: 'Merged' });
+    expect(Object.values(offers(shown)).some(Boolean)).toBe(false);
+    expect(plainlyReady(shown, pr())).toBe(false);
   });
 
   it('says what was done', () => {

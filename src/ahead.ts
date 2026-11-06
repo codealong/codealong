@@ -12,8 +12,8 @@
 // again a moment later. One the engine turns down goes at once, and the caller says why.
 //
 // A merge shows as you confirm it, before GitHub has done it, and goes back with why if GitHub
-// refuses it; once it has, the engine shows the PR merged at once (ghpoll.rs `on_merged`). A
-// review you submit takes the PR out of what waits on your review the same way, any verdict, as
+// refuses it; once it has, the engine shows the PR merged at once (ghpoll.rs `on_merged`). Merge
+// and done shows its session done with it, as Mark as done does. A review you submit takes the PR out of what waits on your review the same way, any verdict, as
 // GitHub and the engine do (ghpoll.rs `on_approved`).
 //
 // An answer that lets a session go on (a call allowed, questions answered, a deny with words for
@@ -840,23 +840,21 @@ export function mergeAhead(pr: Pick<PrItem, 'key' | 'repoSlug' | 'number'>, id: 
 
 /** Merge and done… (ui/MergeDone.tsx): merges a PR as `mergeAhead` does, and once it's merged
  *  the engine marks the session `key` done, ending work under way too, so that's done even when
- *  the window that asked has gone by then. The session shows seen and archived as the answer says
- *  it's done, as Mark as done does (`doneAhead`). */
+ *  the window that asked has gone by then. The session shows seen and archived as it's asked, as
+ *  Mark as done does (`doneAhead`), and is back as it was where GitHub refuses the merge or the
+ *  engine didn't mark it done. */
 export function mergeDoneAhead(pr: Pick<PrItem, 'key' | 'repoSlug' | 'number'>, id: string, op: MergeOp & { op: 'merge' }, key: string): Promise<MergeDone> {
-  return merging(pr, id, op, key).then((d) => {
-    if (d.done?.done) {
-      const changes: Change[] = [
-        { kind: 'seen', keys: [key] },
-        { kind: 'archive', key, archived: true },
-      ];
-      for (const change of changes) {
-        const a = made(change);
-        put(a, true);
-        answered(a.id, d.done.at ?? null);
-      }
-    }
-    return d;
-  });
+  const shown = doneShown(key);
+  return merging(pr, id, op, key).then(
+    (d) => {
+      shown.answered(d.done);
+      return d;
+    },
+    (e: unknown) => {
+      shown.back();
+      throw e;
+    },
+  );
 }
 
 /** A merge, shown merged in every window as it's asked, and back with why when GitHub refuses it. */
@@ -913,6 +911,23 @@ export function archiveAhead(key: string, archived: boolean): Promise<void> {
  *  couldn't do, which rejects with why. With `after`, the engine is asked once that settles:
  *  several done together all show at once, and their terminals close one after another. */
 export function doneAhead(key: string, stop: boolean, after?: Promise<unknown>): Promise<Done> {
+  const shown = doneShown(key);
+  const asked = after ? after.then(() => sessionDone(key, stop), () => sessionDone(key, stop)) : sessionDone(key, stop);
+  return asked.then(
+    (r) => {
+      shown.answered(r);
+      return r;
+    },
+    (e: unknown) => {
+      shown.back();
+      throw e;
+    },
+  );
+}
+
+/** The session `key` shown done, seen and archived, in every window as it's asked: kept once the
+ *  engine says it's done (`answered`) until a board shows it, back as it was where it isn't. */
+function doneShown(key: string): { answered: (r: Done | undefined) => void; back: () => void } {
   const seen = made({ kind: 'seen', keys: [key] });
   const archived = made({ kind: 'archive', key, archived: true });
   put(seen, true);
@@ -921,20 +936,14 @@ export function doneAhead(key: string, stop: boolean, after?: Promise<unknown>):
     drop(seen.id, true);
     drop(archived.id, true);
   };
-  const asked = after ? after.then(() => sessionDone(key, stop), () => sessionDone(key, stop)) : sessionDone(key, stop);
-  return asked.then(
-    (r) => {
-      if (r.done) {
-        answered(seen.id, r.at ?? null);
-        answered(archived.id, r.at ?? null);
-      } else back();
-      return r;
+  return {
+    answered: (r) => {
+      if (!r?.done) return back();
+      answered(seen.id, r.at ?? null);
+      answered(archived.id, r.at ?? null);
     },
-    (e: unknown) => {
-      back();
-      throw e;
-    },
-  );
+    back,
+  };
 }
 
 /** Names a session where its harness keeps its name, in every window at once. Rejects with why

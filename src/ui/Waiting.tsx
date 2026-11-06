@@ -292,6 +292,7 @@ export function Waiting() {
   // chip does, a session on a PR's card shows here too, and Show in Codealong the PR in the main
   // window.
   usePrLinks(board?.prs, board?.lanes, {
+    report,
     showPr: revealPr,
     followPr: replying ? followPr : undefined,
     showSession: (_lane, s) => show(s.key),

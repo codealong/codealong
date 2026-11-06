@@ -26,7 +26,7 @@ import { absolute, agoPhrase, count } from '../format';
 import { cmd } from '../platform';
 import { prIndex, prRefOf, prTabOf, type PrRef } from '../prLinks';
 import { nudgeWords, primaryHere, primaryWords, reviewersWords } from '../prStatus';
-import { errorText } from '../report';
+import { errorText, type Report } from '../report';
 import { nudgeAboutFor } from '../repoSettings';
 import type { Board, Lane, Pr, PrItem, Session } from '../types';
 import { HoverCard, useHoverCard, type HoverCardState } from './HoverCard';
@@ -53,6 +53,9 @@ export interface PrLinkActions {
   prMenu: (url: string, pr: PrItem | null) => void;
   /** Opens a web link; the quick panel steps aside first. The browser, without it. */
   openLink?: (url: string) => void;
+  /** How the window says what went wrong after a card has gone: a merge from its box that GitHub
+   *  refused once the card was put away (MergeBox.tsx). */
+  report?: Report;
   /** Reads the board, for a window that has none yet (the peek, until the first push): a card
    *  waits for it rather than ask GitHub about a PR the board lists. */
   needBoard?: () => void;
@@ -408,7 +411,7 @@ function PrCard({ card, prRef: ref, url, onBrowse, clickShows }: CardProps) {
       )}
       {merges && pr ? (
         <div className="ca-hovercard-sec ca-prhover-merge">
-          <MergeBox key={pr.key} pr={pr} trail={buttons('md')} />
+          <MergeBox key={pr.key} pr={pr} trail={buttons('md')} report={host.actions?.report} />
         </div>
       ) : (
         <div className="ca-hovercard-foot">{buttons('sm')}</div>

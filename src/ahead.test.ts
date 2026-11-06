@@ -12,10 +12,11 @@ const api = vi.hoisted(() => ({
   reviewPr: vi.fn(),
   snoozeSessions: vi.fn(() => Promise.resolve(null)),
   snoozeReviews: vi.fn(() => Promise.resolve(null)),
+  // What a window tells the others it put ahead or took back.
+  emitAhead: vi.fn(),
 }));
 vi.mock('./api', () => ({
   ...api,
-  emitAhead: () => {},
   onAhead: () => () => {},
   windowLabel: () => 'test',
 }));
@@ -704,6 +705,27 @@ describe('mergeAhead', () => {
     expect(api.mergePr).toHaveBeenCalledWith('o/r', 7, 'PR_7', merge, 'claude:c:1');
     api.mergePr.mockRejectedValueOnce(new Error('Couldn’t merge #7: Head branch was modified.'));
     await expect(mergeDoneAhead(pr, 'PR_7', merge, 'claude:c:1')).rejects.toThrow('Head branch was modified.');
+  });
+
+  it('shows the session done with the PR merged as it’s asked, and both back where GitHub refuses it', async () => {
+    const told = () => (api.emitAhead.mock.calls as unknown as [{ put?: Ahead }][]).map(([e]) => (e.put ? `${e.put.change.kind}${e.put.doneAt ? ' kept' : ''}` : 'back'));
+    const asked = (answer: Promise<unknown>) => {
+      api.emitAhead.mockClear();
+      api.mergePr.mockReturnValueOnce(answer);
+      return mergeDoneAhead(pr, 'PR_7', merge, 'claude:c:1');
+    };
+    let refuse = (_: Error) => {};
+    const refused = asked(new Promise((_, no) => (refuse = no)));
+    expect(told()).toEqual(['seen', 'archive', 'pr-merge']);
+    refuse(new Error('Couldn’t merge #7: Head branch was modified.'));
+    await expect(refused).rejects.toThrow('Head branch was modified.');
+    expect(told().slice(3)).toEqual(['back', 'back', 'back']);
+
+    await asked(Promise.resolve({ note: null, shownAt: NOW, done: { done: true, message: 'Done.', at: NOW } }));
+    expect(told().slice(3)).toEqual(['pr-merge kept', 'seen kept', 'archive kept']);
+    // Merged, but the engine didn't mark it done: only the merge stays.
+    await asked(Promise.resolve({ note: null, shownAt: NOW, doneError: 'That session isn’t on the board any more.' }));
+    expect(told().slice(3)).toEqual(['pr-merge kept', 'back', 'back']);
   });
 
   it('says why GitHub refused it', async () => {

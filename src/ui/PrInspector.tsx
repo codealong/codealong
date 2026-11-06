@@ -459,7 +459,7 @@ export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpe
         )}
         {places.length > 0 && !open && <PanelPlaces {...placesProps} open={false} />}
       </header>
-      <MergeBox key={pr.key} pr={pr} lead={lead} trail={trail} goesOn={goesOn} />
+      <MergeBox key={pr.key} pr={pr} lead={lead} trail={trail} goesOn={goesOn} report={report} />
 
       {open && (
         <dl className="ca-kv ca-prinsp-kv">

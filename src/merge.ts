@@ -236,6 +236,13 @@ export function opFor(box: MergeBox, mode: MergeMode, form: MergeForm): MergeOp 
   return { op: 'merge', head: box.head, deleteBranch: form.deleteBranch && deletesWith(box, mode) ? box.branchRef : null, ...commit };
 }
 
+/** The box while a merge confirmed in it is on its way: merged, as every window shows the PR
+ *  (ahead.ts `mergeAhead`), with nothing to do yet, its branch not offered for deleting as the
+ *  merge may take it. Read again once GitHub has merged it, it says what's left. */
+export function mergingBox(box: MergeBox): MergeBox {
+  return { ...box, state: 'MERGED', mergedBy: null, branchRef: null };
+}
+
 /** What the box says once GitHub has done it. */
 export function doneWords(op: MergeOp, number: number, branch: string): string {
   switch (op.op) {

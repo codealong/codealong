@@ -1391,17 +1391,25 @@ under and whether the branch goes too (⌘⏎ confirms); turn auto-merge on or o
 queue or take it out; merge past the rules where you may; bring its branch up to date by a merge or
 a rebase; mark a draft ready for review; resolve conflicts on GitHub; delete a merged or closed PR's
 branch. A merge names the head commit the box was read at, so GitHub refuses one whose branch has
-moved since.
+moved since. Confirmed, a merge shows at once, without waiting for GitHub: the PR is merged in every
+window and its box says what was done. If GitHub refuses it, the PR is back as it was and the box
+says why, with the commit back as you wrote it to send again; a box that has gone by then (another
+PR shown, a card put away) has its window say why instead.
 
 A PR's primary session (see [PRs](#prs)) can merge it and be done with in one go, once GitHub says
 the PR is ready to merge: Merge and done (⇧⌘M), first on the strip over the session with Seen and
 Done where it has one, and in its right-click menu after Mark as done, asks first in a dialog that says what happens, with the
 method kept for the repo (from its menu), GitHub's commit for it, the email it goes under and
-whether the branch goes too. Confirmed, it merges the PR, and once GitHub has, the session is
-marked done as Mark as done does it, a turn or a command left running in the background ended too,
-as the dialog says; the app does both, so closing the window you asked from meanwhile changes
-nothing. A merge GitHub refuses says why in the dialog and leaves the session as it was; while
-GitHub is still working out whether it can merge, the dialog says so and asks again, and where it
+whether the branch goes too. Confirmed, the dialog goes at once, as though GitHub had merged it: the
+PR shows merged and the session done, and the window goes on as from Mark as done. Behind it the
+app merges the PR, and once GitHub has, marks the session done as Mark as done does it, a turn or a
+command left running in the background ended too, as the dialog said; the app does both, so closing
+the window you asked from meanwhile changes nothing. A merge GitHub refuses puts the PR and the
+session back as they were and brings the dialog back, saying why, with the commit as you wrote it;
+its button doesn't take the keyboard then, so a Return meant for whatever you'd gone on to doesn't
+merge it. A card's window (the notch, the peek, the waiting window) also says why where it says
+things, as it may have put the card away by then. While GitHub is still working out whether it can
+merge, the dialog says so and asks again, and where it
 won't merge it now (the repo merges through a queue, say), the dialog says why and the merge box
 has the rest. In the main window the toast says what was merged and done, and its Undo
 takes the session out of the archive; the PR stays merged.

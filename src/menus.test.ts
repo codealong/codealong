@@ -3,6 +3,7 @@ import { doneAhead, quietAhead, raiseAhead } from './ahead';
 import { getAccounts, moveSession, moveSessionTo, resumeSession, setPrPrimary, type Done, type MergeDone } from './api';
 import type { MenuAction, MenuGroup, MenuSpec } from './contextMenu';
 import { carryOnIn, chordLetter, chordSigns, chorded, CHORDS, DONE_HOLD_MS, SUGGESTION_CHORDS, suggestionChord, doneTitle, fileMenu, keyed, laneActions, laneMenu, lanesActions, lanesMenu, mergesWith, prMenu, prsActions, prsMenu, repoMenu, sessionActions, sessionMenu, sessionsActions, sessionsMenu, todoMenu, todoPanelMenu, todosMenu, toggleWaiting, type MergeDoneAsk, type SessionCan, type SessionsCan, type TodoEdit } from './menus';
+import type { MergeForm } from './merge';
 import { openLabel } from './open';
 import { setPlatform } from './platform';
 import type { Report } from './report';
@@ -592,47 +593,76 @@ describe('Merge and done', () => {
 
   it('asks in the window’s dialog, from the menu, after Mark as done', () => {
     const asked: MergeDoneAsk[] = [];
-    const can: SessionCan = { ...base, mergeDone: { prs: [ready()], ask: (a) => asked.push(a) } };
+    const can: SessionCan = { ...base, mergeDone: { prs: [ready()], ask: (a) => asked.push(a) > 0 } };
     const menu = labels(sessionMenu(lane(), session(), can));
     expect(menu.slice(menu.indexOf('Mark as done'), menu.indexOf('Archive') + 1)).toEqual(['Mark as done', 'Merge #7 and done…', 'Archive']);
     sessionActions(lane(), session(), can).mergeDone?.run();
     expect(asked.map((a) => [a.session.key, a.pr.key])).toEqual([['claude:c:1', 'acme/api#7']]);
     // Not where the window has no dialog for it, nor for a PR that isn't ready.
     expect(sessionActions(lane(), session(), base).mergeDone).toBeUndefined();
-    expect(sessionActions(lane(), session(), { ...can, mergeDone: { prs: [ready({ merge: 'blocked' })], ask: noop } }).mergeDone).toBeUndefined();
+    expect(sessionActions(lane(), session(), { ...can, mergeDone: { prs: [ready({ merge: 'blocked' })], ask: () => true } }).mergeDone).toBeUndefined();
   });
 
-  it('says what the merge and the session’s ending came to, as Mark as done says it', () => {
+  const commit: MergeForm = { method: 'squash', title: 'Add login (#7)', body: '* Add login', email: null, deleteBranch: true };
+  const merged = (done: Partial<MergeDone>): MergeDone => ({ note: null, shownAt: 4, ...done });
+  const flush = () => new Promise((r) => setTimeout(r, 0));
+
+  it('goes on as it’s confirmed, and says what the merge and the session’s ending came to as Mark as done says it', async () => {
     const said: string[] = [];
     const left: string[] = [];
     const undone: string[] = [];
     let asked: MergeDoneAsk | undefined;
-    const can: SessionCan = { ...base, report: { error: (m) => said.push(`error: ${m}`), info: (m) => said.push(m) }, left: (d) => left.push(d), mergeDone: { prs: [ready()], ask: (a) => (asked = a) } };
-    const merged = (done: Partial<MergeDone>): MergeDone => ({ note: null, shownAt: 4, ...done });
+    const can: SessionCan = { ...base, report: { error: (m) => said.push(`error: ${m}`), info: (m) => said.push(m) }, left: (d) => left.push(d), mergeDone: { prs: [ready()], ask: (a) => !!(asked = a) } };
+    /** The dialog the session's action opened, confirmed, GitHub answering `d`. */
+    const confirm = async (c: SessionCan, d: MergeDone) => {
+      sessionActions(lane(), session(), c).mergeDone?.run();
+      asked?.then(Promise.resolve(d), 'Merged #7.', commit);
+      await flush();
+    };
 
-    // The main window: Undo, with what the merge said first.
+    // The main window: gone on before GitHub answers; then Undo, with what the merge said first.
+    let answer = (_: MergeDone) => {};
     sessionActions(lane(), session({ status: 'working' }), { ...can, undoDone: (m) => undone.push(m) }).mergeDone?.run();
-    asked?.then('Squashed and merged #7.', false, merged({ done: { done: true, message: 'Done with “Fix login”: its turn is stopped, its terminal is closed and it’s archived.', at: 5 } }));
+    asked?.then(new Promise((yes) => (answer = yes)), 'Squashed and merged #7.', commit);
     expect(left).toEqual(['done']);
+    expect(undone).toEqual([]);
+    answer(merged({ done: { done: true, message: 'Done with “Fix login”: its turn is stopped, its terminal is closed and it’s archived.', at: 5 } }));
+    await flush();
     expect(undone).toEqual(['Squashed and merged #7. Done with “Fix login”: its turn is stopped, its terminal is closed and it’s archived.']);
     expect(said).toEqual([]);
 
-    // A floating window says only what didn't go as asked: a branch that stayed, a terminal left open.
-    sessionActions(lane(), session(), can).mergeDone?.run();
-    asked?.then('Merged #7, but couldn’t delete its branch: Reference does not exist', true, merged({ done: { done: true, message: 'Done with “Fix login”: it’s archived.', at: 6 } }));
-    sessionActions(lane(), session(), can).mergeDone?.run();
-    asked?.then('Merged #7.', false, merged({ done: { done: true, message: 'Done with “Fix login”: it’s archived. It’s still open in the Claude app.', noted: true, at: 7 } }));
-    sessionActions(lane(), session(), can).mergeDone?.run();
-    asked?.then('Merged #7.', false, merged({ done: { done: true, message: 'Done with “Fix login”: it’s archived.', at: 8 } }));
+    // A floating window says only what didn't go as asked: a branch that stayed, as the engine
+    // says it, and a terminal left open.
+    await confirm(can, merged({ note: 'Merged #7, but couldn’t delete its branch: Reference does not exist', done: { done: true, message: 'Done with “Fix login”: it’s archived.', at: 6 } }));
+    await confirm(can, merged({ done: { done: true, message: 'Done with “Fix login”: it’s archived. It’s still open in the Claude app.', noted: true, at: 7 } }));
+    await confirm(can, merged({ done: { done: true, message: 'Done with “Fix login”: it’s archived.', at: 8 } }));
     expect(said).toEqual(['Merged #7, but couldn’t delete its branch: Reference does not exist Done with “Fix login”: it’s archived.', 'Merged #7. Done with “Fix login”: it’s archived. It’s still open in the Claude app.']);
 
-    // One the engine didn't mark done stays where it was, and says why after the merge that went.
+    // One the engine didn't mark done is back as it was (ahead.ts), and says why after the merge
+    // that went.
     said.length = 0;
-    left.length = 0;
-    sessionActions(lane(), session(), can).mergeDone?.run();
-    asked?.then('Merged #7.', false, merged({ doneError: 'That session isn’t on the board any more.' }));
+    await confirm(can, merged({ doneError: 'That session isn’t on the board any more.' }));
     expect(said).toEqual(['error: Merged #7. That session isn’t on the board any more.']);
-    expect(left).toEqual([]);
+  });
+
+  it('comes back with the commit as written and why where GitHub refuses the merge', async () => {
+    const said: string[] = [];
+    const asks: MergeDoneAsk[] = [];
+    let inFront = true;
+    const can: SessionCan = { ...base, report: { error: (m) => said.push(`error: ${m}`), info: (m) => said.push(m) }, left: noop, mergeDone: { prs: [ready()], ask: (a) => asks.push(a) > 0 && inFront } };
+    sessionActions(lane(), session(), can).mergeDone?.run();
+    asks[0].then(Promise.reject(new Error('Couldn’t merge #7: Head branch was modified. Review and try the merge again.')), 'Merged #7.', commit);
+    await flush();
+    expect(asks[1]).toMatchObject({ pr: { key: 'acme/api#7' }, session: { key: 'claude:c:1' }, refused: { commit, why: 'Couldn’t merge #7: Head branch was modified. Review and try the merge again.' } });
+    // The main window's dialog is in front of you: it says why itself.
+    expect(said).toEqual([]);
+
+    // Refused again, where the window may not show the dialog then (a card's): it says why too.
+    inFront = false;
+    asks[1].then(Promise.reject(new Error('Couldn’t merge #7: Base branch was modified.')), 'Merged #7.', commit);
+    await flush();
+    expect(asks[2].refused?.why).toBe('Couldn’t merge #7: Base branch was modified.');
+    expect(said).toEqual(['error: Couldn’t merge #7: Base branch was modified. “Fix login” isn’t done.']);
   });
 });
 

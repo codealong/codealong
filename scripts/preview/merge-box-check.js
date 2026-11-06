@@ -4,11 +4,11 @@
 // row; pressing it shows the commit GitHub would write for that way, which the caret's menu
 // switches (a rebase writes none), the email it goes under, and whether the branch goes too. ⌘⏎
 // in the fields confirms, and approves nothing; it sends the head the box saw with what was
-// written, and the way picked is kept for the repo. A merge GitHub refuses says why, the commit
-// still there to send again. A merge shows in the list as it's asked, before GitHub answers (the
-// stub takes a moment): the PR's row leaves its section for Merged & closed, folded, while its
-// panel stays on it, and is back where it was once GitHub refuses one; with Merged & closed
-// unfolded the row says Merged there. Escape puts the commit away and leaves the panel up. Then,
+// written, and the way picked is kept for the repo. A merge shows as it's asked, before GitHub
+// answers (the stub takes a moment): the PR's row leaves its section for Merged & closed, folded,
+// while its panel stays on it, its box merged, the commit put away and what it did said; once
+// GitHub refuses one, the row is back where it was and the box says why, the commit back as it
+// was written to send again. With Merged & closed unfolded the row says Merged there. Escape puts the commit away and leaves the panel up. Then,
 // as the box is read again after each act: a blocked PR offers auto-merge, and merging past the
 // rules once its box is ticked, and a branch behind its base Update branch, with how; a draft
 // offers Ready for review; and a merged PR whose branch is still there, deleting it, what was
@@ -196,9 +196,10 @@
       return wait(100);
     })
     .then(function () {
-      check('a merge leaves its section as it’s asked, before GitHub answers', listed() === 'not listed' && merges().length === 1 && !note(), listed());
+      check('a merge leaves its section as it’s asked, before GitHub answers', listed() === 'not listed' && merges().length === 1, listed());
       check('and its panel stays on it', shown() === '#' + pr.number, shown());
-      return until(function () { return !!note(); }, 2000, 'the refusal');
+      check('the box shows it merged meanwhile, the commit put away, saying what it did', says() === 'Merged' && !title() && !main() && note() === 'Squashed and merged #' + pr.number + ' and deleted ' + pr.head + '.', says() + ' / ' + note());
+      return until(function () { return !!q('.ca-merge-note.is-error'); }, 2000, 'the refusal');
     })
     .then(function () {
       check('one GitHub refuses is back where it was', listed() === 'Others', listed());
@@ -214,7 +215,8 @@
       return wait(50);
     })
     .then(function () {
-      check('the merge shows in the list at once, under Merged & closed', listed() === 'Merged & closed · Merged' && !note(), listed());
+      check('the merge shows in the list at once, under Merged & closed', listed() === 'Merged & closed · Merged', listed());
+      check('and in the box, why the last was refused gone', says() === 'Merged' && !title() && !q('.ca-merge-note.is-error'), says() + ' / ' + note());
       check('its panel still on it', shown() === '#' + pr.number, shown());
       return until(function () { return merges().length === 2 && shape === 1 && says() === 'Merging is blocked'; }, 3000, 'the merge, and the box read again');
     })

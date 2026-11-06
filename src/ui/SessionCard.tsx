@@ -18,7 +18,7 @@
 // adds (a queue, a pin that keeps it on the desktop). The card holds Merge and done…'s dialog
 // (MergeDone.tsx) for every one of them, for its menus and its header.
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { openUrl, setPinned, showMain } from '../api';
 import { showContextMenu, type MenuAction, type MenuSpec } from '../contextMenu';
 import { useEditorIcons } from '../editors';
@@ -31,7 +31,7 @@ import { besideOf, ownTerminalFor } from '../terminals';
 import type { Board, Lane, Pr, PrItem, Session, TerminalGlance, Todo } from '../types';
 import { reloadKey, zoomKey } from './cardHost';
 import { dialogUp } from './focusTrap';
-import { MergeDoneDialog } from './MergeDone';
+import { useMergeDone } from './MergeDone';
 import { runFolder } from './RunButton';
 import { SessionPanel, type SessionPanelProps } from './SessionPanel';
 
@@ -93,7 +93,9 @@ export function SessionCard({ lane, session, apps, now, board, can, canFor, outg
   const { report } = can;
   const icons = useEditorIcons(apps);
   const onDesktop = menus.useDesktopPins();
-  const [mergingDone, setMergingDone] = useState<menus.MergeDoneAsk | null>(null);
+  // Merge and done…'s dialog: the card may have gone on, or been put away, by the time a refused
+  // merge brings it back, so the window says why too (menus.ts `SessionCan.mergeDone`).
+  const mergingDone = useMergeDone(false);
   /** A window's part for a session, with the card's: the same menu in every window. */
   const whole = (s: Session, base: WindowCan): menus.SessionCan => ({
     ...base,
@@ -101,7 +103,7 @@ export function SessionCard({ lane, session, apps, now, board, can, canFor, outg
     editors: { apps, icons },
     desktop: onDesktop,
     pin: pinItem(board, s, report),
-    mergeDone: board ? { prs: board.prs, ask: setMergingDone } : undefined,
+    mergeDone: board ? { prs: board.prs, ask: mergingDone.ask } : undefined,
     // Its terminal under its box, for the session shown; another the header names opens its
     // folder in your terminal app, as it has no drawer here. The terminal it runs in isn't in a
     // card's drawer (SessionPanel.tsx), so with only that one, ⌃` opens a shell beside it.
@@ -182,7 +184,7 @@ export function SessionCard({ lane, session, apps, now, board, can, canFor, outg
       onShowSession={onShowSession}
       onSessionMenu={(l, s) => show(menus.sessionMenu(l, s, whole(s, canFor(l, s))))}
       terminals={board?.terminals?.[session.key] ?? NO_TERMINALS}
-      dialog={mergingDone && <MergeDoneDialog ask={mergingDone} onClose={() => setMergingDone(null)} />}
+      dialog={mergingDone.dialog}
     />
   );
 }

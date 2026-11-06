@@ -264,6 +264,7 @@ export function useCardHost({ sessionKey, anchor, live, apps, terminal, away, fo
   };
   const open = (l: Lane, target: string) => openWhere(where(l, target), { report, from: 'panel', before: away });
   usePrLinks(live.board?.prs, live.board?.lanes, {
+    report,
     showPr,
     followPr,
     showSession,

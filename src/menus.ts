@@ -7,7 +7,8 @@
 // says how it went through the window's `Report`: a toast in the main window, a note on the bar.
 // Merge and done…, for a PR's primary session once the PR is ready to merge, asks first in the
 // window's own dialog (ui/MergeDone.tsx), which merges it and has the engine mark the session
-// done; saying how that went is here.
+// done; what happens once it's confirmed (the window going on, saying how it went, the dialog
+// back where GitHub refuses the merge) is here.
 
 import { useEffect, useState } from 'react';
 import { closeSession, desktopPins, expandAttachments, forkSession, getAccounts, inPreview, moveSession, moveSessionTo, onDesktopPins, openUrl, ownSessions, pinToDesktop, resumeSession, sessionCancel, setPrNudge, setPrPrimary, setReusable, showQuick, unpinFromDesktop, type MergeDone } from './api';
@@ -27,6 +28,7 @@ import { accountOf, startAccountsNow } from './startAccounts';
 import { reviewChange, STATUSES, STATUS_WORD, todosPrompt, waitingChange, type TodoOp } from './todos';
 import type { AccountInfo, DesktopPinned, Label, Lane, PathKind, Pr, PrItem, Profile, Schedule, Session, StartAccount, StartPlace, Started, Todo } from './types';
 import { chordKeys as platformKeys, chordSigns as platformSigns, held as modsHeld } from './platform';
+import type { MergeForm } from './merge';
 import { mayApprove, prReady } from './prStatus';
 import { errorText, type Report } from './report';
 
@@ -174,23 +176,28 @@ export interface SessionCan {
   /** Add to board, and Remove from board on the board it's on, where the window has boards. */
   boards?: MenuSpec;
   /** The board's PRs, and this window's dialog that asks before Merge and done… merges a PR
-   *  and marks its primary session done (ui/MergeDone.tsx). Without it there's no such item. */
-  mergeDone?: { prs: readonly PrItem[]; ask: (ask: MergeDoneAsk) => void };
+   *  and marks its primary session done (ui/MergeDone.tsx). Without it there's no such item.
+   *  `ask` opens the dialog, and says whether it's surely in front of you: the main window's is,
+   *  over whatever it shows; a card's may have gone on or been put away since you asked, so a
+   *  refused merge it brings back is said where the window says things too. */
+  mergeDone?: { prs: readonly PrItem[]; ask: (ask: MergeDoneAsk) => boolean };
   /** Shows the main window's keys beside the actions they run (`KEYS`), or its chords (`CHORDS`)
    *  where letters alone do nothing (Sessions). */
   keys?: boolean | 'chords';
 }
 
 /** What a window's Merge and done… dialog asks about: the session, the PR it's the primary
- *  session of, and what's said once the dialog has merged the PR and the engine marked the
- *  session done with it (ahead.ts `mergeDoneAhead`). */
+ *  session of, and what comes of it once confirmed. */
 export interface MergeDoneAsk {
   lane: Lane;
   session: Session;
   pr: PrItem;
-  /** Says how both went, what the merge said (`merged`) first, and whether that was more than it
-   *  merged (a branch that stayed). */
-  then: (merged: string, noted: boolean, d: MergeDone) => void;
+  /** Brought back after GitHub refused the merge: the commit as it was written, and why. */
+  refused?: { commit: MergeForm; why: string };
+  /** Confirmed, and the dialog has gone: `merging` merges the PR and has the engine mark the
+   *  session done with it (ahead.ts `mergeDoneAhead`), `merged` what to say once it has, the
+   *  commit as written for the dialog to come back with where GitHub refuses it. */
+  then: (merging: Promise<MergeDone>, merged: string, commit: MergeForm) => void;
 }
 
 /** The PR that Merge and done… merges for `s`: one it's the primary session of (board.rs
@@ -369,15 +376,28 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
       })
       .catch((e: unknown) => report.error(errorText(e)));
   };
-  // Merged from the window's dialog, and marked done with it: said as Mark as done says it, so a
-  // floating window says only what didn't go as asked, the session leaving its list for the rest.
-  const afterMerge = (merged: string, noted: boolean, d: MergeDone) => {
-    const r = d.done;
-    if (!r?.done) return report.error(`${merged} ${r?.message ?? d.doneError ?? ''}`.trim());
+  // Merged from the window's dialog and marked done with it, ahead of GitHub: the session has left
+  // as the dialog goes, and the window goes on, as from Mark as done. How it went is said as Mark
+  // as done says it, so a floating window says only what didn't go as asked. A merge GitHub
+  // refuses brings the dialog back with the commit as it was written and why, the session as it
+  // was; where the window may not show it (a card's), the window says why too.
+  const askMerge = (pr: PrItem, refused?: MergeDoneAsk['refused']): boolean => can.mergeDone?.ask({ lane, session: s, pr, refused, then: afterMerge(pr) }) ?? false;
+  const afterMerge = (pr: PrItem) => (merging: Promise<MergeDone>, merged: string, commit: MergeForm) => {
     can.left?.('done');
-    const message = `${merged} ${r.message}`;
-    if (can.undoDone) can.undoDone(message);
-    else if (r.noted || noted) report.info(message);
+    merging.then(
+      (d) => {
+        const said = d.note ?? merged;
+        const r = d.done;
+        if (!r?.done) return report.error(`${said} ${r?.message ?? d.doneError ?? ''}`.trim());
+        const message = `${said} ${r.message}`;
+        if (can.undoDone) can.undoDone(message);
+        else if (r.noted || d.note != null) report.info(message);
+      },
+      (e: unknown) => {
+        const why = errorText(e);
+        if (!askMerge(pr, { commit, why })) report.error(`${why} “${s.title}” isn’t done.`);
+      },
+    );
   };
   const merges = can.mergeDone && mergesWith(can.mergeDone.prs, s);
   const ownTerminal = can.ownTerminal && { label: can.ownTerminal.has ? 'Show terminal' : 'New terminal', run: can.ownTerminal.run };
@@ -451,7 +471,7 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
     // still marks it seen and archives it (actions.rs `done_anyway`). An archived one is done
     // with already.
     done: !s.archived ? { label: 'Mark as done', run: done } : undefined,
-    mergeDone: merges ? { label: `Merge #${merges.number} and done…`, run: () => can.mergeDone?.ask({ lane, session: s, pr: merges, then: afterMerge }) } : undefined,
+    mergeDone: merges ? { label: `Merge #${merges.number} and done…`, run: () => void askMerge(merges) } : undefined,
     archive: { label: s.archived ? 'Unarchive' : s.harness === 'codex' ? 'Archive in Codex' : 'Archive', run: () => archive(!s.archived) },
     copyId: copyItem('Copy session ID', s.id, 'session ID', report) as MenuAction,
     copyResume: copyItem('Copy resume command', s.resumeCommand, 'resume command', report),

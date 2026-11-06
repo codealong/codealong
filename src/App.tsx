@@ -38,7 +38,7 @@ import { UsageDialog } from './ui/UsageDialog';
 import { PreviewDialog } from './ui/PreviewBits';
 import { RenameDialog } from './ui/RenameDialog';
 import { SnoozeDialog } from './ui/SnoozeDialog';
-import { MergeDoneDialog } from './ui/MergeDone';
+import { useMergeDone } from './ui/MergeDone';
 import type { HelperActions } from './ui/HelpersCard';
 import { Button, cx, Icon, Kbd, Seg } from './ui/primitives';
 import { ALL_PROJECTS, ProjectSwitcher } from './ui/ProjectSwitcher';
@@ -392,8 +392,9 @@ export function App() {
   const [snoozing, setSnoozing] = useState<SnoozeAsk | null>(null);
   // The worktrees Clean up worktree… asks about (ui/CleanUpDialog.tsx).
   const [cleaning, setCleaning] = useState<Lane[] | null>(null);
-  // The session and PR Merge and done… asks about (ui/MergeDone.tsx).
-  const [mergingDone, setMergingDone] = useState<menus.MergeDoneAsk | null>(null);
+  // Merge and done…'s dialog (ui/MergeDone.tsx), over whatever the window shows, so one GitHub
+  // refused comes back in front of you.
+  const mergingDone = useMergeDone(true);
   useEffect(() => onCloseIdle(() => setCloseIdle(true)), []);
   useEffect(() => onCloseStale(() => setCloseStale(true)), []);
   // ⌘= ⌘- ⌘0 (mainKeys.ts) and View's zoom items zoom every board window: the engine saves the
@@ -1553,7 +1554,7 @@ export function App() {
       // Undo takes it out of the archive; a terminal it closed stays closed, and it resumes as any other.
       undoDone: (message) => setArchivedUndo({ keys: [s.key], title: s.title, message }),
       left: (done) => leftAndOn(s, done),
-      mergeDone: board ? { prs: board.prs, ask: setMergingDone } : undefined,
+      mergeDone: board ? { prs: board.prs, ask: mergingDone.ask } : undefined,
       // Moved from its panel in Sessions, it stays there until its copy takes its place, rather
       // than the panel going on to the next that waits.
       moving: (copy) => {
@@ -2142,6 +2143,7 @@ export function App() {
   // PR links in conversations and descriptions (PrLink.tsx): a click shows the PR as its chip
   // does, and their cards show the PR and its sessions here.
   usePrLinks(board?.prs, lanes, {
+    report,
     showPr: (pr, tab) => reveal.current({ kind: 'pr', key: pr.key, tab: tab ?? undefined }),
     followPr: (pr, tab) => {
       if (tab) showPrTab(pr.key, tab);
@@ -2756,7 +2758,7 @@ export function App() {
       {cleaning && <CleanUpDialog lanes={cleaning} onClose={() => setCleaning(null)} onDone={setToast} />}
       {renamed && <RenameDialog lane={renamed.lane} session={renamed.session} onClose={() => setRenaming(null)} onFailed={setToast} />}
       {snoozing && <SnoozeDialog ask={snoozing} what={askWords(snoozing, (key) => homeOf([...(board?.lanes ?? []), ...deviceLanes], key)?.session.title)} onClose={() => setSnoozing(null)} onFailed={setToast} />}
-      {mergingDone && <MergeDoneDialog ask={mergingDone} onClose={() => setMergingDone(null)} />}
+      {mergingDone.dialog}
       {scheduleEdit && board && <ScheduleDialog schedule={scheduleEdit} board={board} devices={devices} now={now} onClose={() => setScheduleEdit(null)} onSaved={setScheduleId} />}
       {boardEdit && <BoardDialog board={boardEdit.board} project={current} onSave={saveBoard} onClose={() => setBoardEdit(null)} {...ruleChoices} />}
       {columnEdit && <ColumnDialog column={columnEdit.column} onSave={saveColumn} onClose={() => setColumnEdit(null)} {...ruleChoices} />}

@@ -2013,6 +2013,7 @@ export function Quick() {
   // PR links in the list's rows (PrLink.tsx): a PR, or a session on its card, shows in the main
   // window, as ⏎ on a row does.
   usePrLinks(board?.prs, board?.lanes, {
+    report: menuReport,
     showPr: revealPr,
     showSession,
     openSession,

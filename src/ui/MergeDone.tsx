@@ -5,18 +5,24 @@
 // email it goes under and whether the branch goes with it. It reads the box as it opens and says
 // why when GitHub won't merge the PR now; the box itself has the rest (auto-merge, the queue,
 // merging past the rules); while GitHub is still working out whether it can merge, it reads the
-// box again, as the box does. Once GitHub has merged it, the engine marks the session done in the
-// same request (ahead.ts `mergeDoneAhead`), any work under way ended too, as the dialog says, so
-// a window closed meanwhile doesn't leave it half done; menus.ts says how it went. A merge GitHub
-// turns down leaves the session as it was and the dialog up, saying why. The main window holds
-// the dialog (App.tsx), and so does a session's card in the other windows (SessionCard.tsx).
+// box again, as the box does.
+//
+// Confirmed, it goes at once, as though GitHub had merged it: the PR shows merged and the session
+// done in every window, and the window goes on as from Mark as done (menus.ts), while the engine
+// merges it and, once GitHub has, marks the session done in the same request (ahead.ts
+// `mergeDoneAhead`), any work under way ended too, as the dialog says, so a window closed
+// meanwhile doesn't leave it half done. A merge GitHub refuses puts the PR and the session back as
+// they were and brings the dialog back, with the commit as it was written and why; its button
+// doesn't take the keyboard then, so a Return meant for whatever you'd gone on to doesn't merge
+// it. The main window holds the dialog (App.tsx), and so does a session's card in the other
+// windows (SessionCard.tsx), each through `useMergeDone`.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { mergeDoneAhead } from '../ahead';
 import { mergeBox } from '../api';
 import { below, showContextMenu } from '../contextMenu';
 import { middleTruncate } from '../format';
-import { doneWords, METHOD, offers, opFor, pickMethod, rereads, standing } from '../merge';
+import { doneWords, METHOD, offers, opFor, pickMethod, rereads, standing, type MergeForm } from '../merge';
 import { whatDoneDoes, type MergeDoneAsk } from '../menus';
 import { useReloads } from '../reload';
 import { errorText } from '../report';
@@ -39,12 +45,27 @@ export function mergeDoneWords(ask: Pick<MergeDoneAsk, 'pr'> & { session: Sessio
   return `Merges #${pr.number}${into}, then marks “${s.title}” done: ${whatDoneDoes(s)}.${first}`;
 }
 
+/** A window's Merge and done… dialog: `ask` opens it, for the session's menu and keys (menus.ts
+ *  `SessionCan.mergeDone`), and again once GitHub has refused a merge confirmed in it. `inFront`
+ *  is what `ask` answers: whether the window surely shows it to you then. Each ask is a dialog of
+ *  its own, read afresh. */
+export function useMergeDone(inFront: boolean): { ask: (ask: MergeDoneAsk) => boolean; dialog: ReactNode } {
+  const [asked, setAsked] = useState<{ ask: MergeDoneAsk; n: number } | null>(null);
+  const n = useRef(0);
+  const ask = (a: MergeDoneAsk) => {
+    n.current += 1;
+    setAsked({ ask: a, n: n.current });
+    return inFront;
+  };
+  return { ask, dialog: asked && <MergeDoneDialog key={asked.n} ask={asked.ask} onClose={() => setAsked(null)} /> };
+}
+
 interface MergeDoneDialogProps {
   ask: MergeDoneAsk;
   onClose: () => void;
 }
 
-export function MergeDoneDialog({ ask, onClose }: MergeDoneDialogProps) {
+function MergeDoneDialog({ ask, onClose }: MergeDoneDialogProps) {
   const { pr } = ask;
   const [read, setRead] = useState<{ box?: Box; error?: string }>({});
   const [again, setAgain] = useState(0);
@@ -77,6 +98,7 @@ export function MergeDoneDialog({ ask, onClose }: MergeDoneDialogProps) {
       title="Merge and done"
       lede={mergeDoneWords(ask)}
       onClose={onClose}
+      aside={ask.refused ? <p className="ca-form-error ca-mergedonedlg-error">{ask.refused.why}</p> : undefined}
       foot={
         <>
           <Button variant="ghost" size="sm" onClick={onClose}>
@@ -95,42 +117,34 @@ export function MergeDoneDialog({ ask, onClose }: MergeDoneDialogProps) {
 
 /** `checking`: GitHub is still working out whether it can merge, and the box is read again. */
 function Ready({ ask, box, checking, onClose }: { ask: MergeDoneAsk; box: Box; checking: boolean; onClose: () => void }) {
-  const { pr } = ask;
+  const { pr, refused } = ask;
   const [picked, keepMethod] = useMethod(pr.repoSlug);
   const method = pickMethod(box, picked);
-  // The commit as GitHub would write it, for the method it opens on and each picked after.
-  const commit = useCommit(box, method);
+  // The commit as GitHub would write it, for the method it opens on and each picked after; back
+  // after a refusal, as it was written.
+  const commit = useCommit(box, method, refused?.commit);
   const pick = (m: MergeMethod) => {
     keepMethod(m);
     commit.fill(m);
   };
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(refused?.why ?? null);
   // Only a merge now, as GitHub would do it from its box without waiting: the box has the rest.
   const merges = offers(box).merge && method != null;
   const said = standing(box, pr);
 
   const confirm = () => {
-    if (!merges || busy) return;
+    if (!merges) return;
     if (method !== 'rebase' && !commit.title.trim()) {
       setError('The commit needs a title.');
       return;
     }
     commit.keep();
-    const op = opFor(box, 'merge', { method, title: commit.title, body: commit.body, email: commit.email, deleteBranch: commit.deleteBranch });
+    const form: MergeForm = { method, title: commit.title, body: commit.body, email: commit.email, deleteBranch: commit.deleteBranch };
+    const op = opFor(box, 'merge', form);
     if (op.op !== 'merge') return;
-    setBusy(true);
-    setError(null);
-    mergeDoneAhead(pr, box.id, op, ask.session.key).then(
-      (d) => {
-        onClose();
-        ask.then(d.note ?? doneWords(op, pr.number, box.branch), d.note != null, d);
-      },
-      (e: unknown) => {
-        setBusy(false);
-        setError(errorText(e));
-      },
-    );
+    // It goes as GitHub is asked; menus.ts says how it went, or brings it back with `form`.
+    onClose();
+    ask.then(mergeDoneAhead(pr, box.id, op, ask.session.key), doneWords(op, pr.number, box.branch), form);
   };
 
   return (
@@ -138,17 +152,16 @@ function Ready({ ask, box, checking, onClose }: { ask: MergeDoneAsk; box: Box; c
       className="ca-mergedonedlg"
       title="Merge and done"
       lede={mergeDoneWords(ask)}
-      busy={busy}
       onClose={onClose}
       onSubmit={confirm}
       aside={error ? <p className="ca-form-error ca-mergedonedlg-error">{error}</p> : undefined}
       foot={
         <>
-          <Button variant="ghost" size="sm" onClick={onClose} disabled={busy}>
+          <Button variant="ghost" size="sm" onClick={onClose}>
             Cancel
           </Button>
-          <Button variant="primary" size="sm" type="submit" icon="merge" disabled={!merges || busy} autoFocus title={method ? METHOD[method].what : undefined}>
-            {busy ? 'Merging and wrapping up…' : 'Merge and done'}
+          <Button variant="primary" size="sm" type="submit" icon="merge" disabled={!merges} autoFocus={!refused} title={method ? METHOD[method].what : undefined}>
+            Merge and done
           </Button>
         </>
       }
@@ -163,14 +176,13 @@ function Ready({ ask, box, checking, onClose }: { ask: MergeDoneAsk; box: Box; c
                 className="ca-modelmenu-chip"
                 aria-haspopup="menu"
                 title="How it merges: kept for this repo"
-                disabled={busy}
                 onClick={(e) => void showContextMenu(methodItems(box, method, pick), below(e.currentTarget)).catch((err: unknown) => setError(errorText(err)))}
               >
                 <span>{METHOD[method].label}</span>
                 <Icon name="chevron-down" size={12} />
               </button>
             </div>
-            <CommitFields box={box} mode="merge" method={method} commit={commit} busy={busy} onError={setError} />
+            <CommitFields box={box} mode="merge" method={method} commit={commit} busy={false} onError={setError} />
           </>
         ) : (
           <div className={`ca-merge-standing is-${box.state === 'MERGED' ? 'merged' : said.tone}`}>

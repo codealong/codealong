@@ -5,10 +5,12 @@
 // would write for the way kept for the repo (squash, GitHub's pick here) and the keyboard on its
 // button. Cancel merges nothing. ⇧⌘M opens it too, in both windows. While GitHub is still working
 // out whether it can merge, the dialog says so and reads it again, waiting for a read slower than
-// its interval rather than asking over it, its button taking the keyboard once it can. A merge
-// GitHub refuses says why in the dialog and leaves the session alone. Merged, the dialog goes,
-// and the request that merged it had the engine mark the session done, work under way ended
-// too, rather than the window. Once the PR isn't ready (merged, say), neither the strip's button
+// its interval rather than asking over it, its button taking the keyboard once it can. Confirmed,
+// the dialog goes at once, before GitHub answers, the session leaving Sessions with it; a merge
+// GitHub refuses brings the dialog back with the commit as it was written and why, its button
+// not taking the keyboard, and the session as it was, the bar saying why too from the peek.
+// Merged, the dialog stays gone, and the request that merged it had the engine mark the session
+// done, work under way ended too, rather than the window. Once the PR isn't ready (merged, say), neither the strip's button
 // nor the item is there, the strip's other buttons where they were, and ⇧⌘M opens nothing. A real
 // session is made the primary of a real PR, made ready; the peek's card holds the dialog
 // (SessionCard.tsx), the main window's Sessions App.tsx. In Sessions ⇧⌘M works from the session's
@@ -294,15 +296,30 @@
       check('it waited for the slow read rather than asking again over it', calls('merge_box').length - readsBefore === 2, (calls('merge_box').length - readsBefore) + ' reads');
       check('read again, it can, and its button has the keyboard', document.activeElement === go, document.activeElement ? document.activeElement.outerHTML.slice(0, 80) : 'nothing');
 
-      // Refused, then merged.
+      // Refused, then merged. The stub answers a merge after a moment, as GitHub does, so what
+      // shows meanwhile can be seen.
       type(titleField(), 'fail');
+      type(q('.ca-mergedonedlg textarea'), 'Written here');
+      var bySessions = !!rowOf();
       submit();
-      var error = await until(function () { return q('.ca-mergedonedlg .ca-form-error'); }, 5000, 'a refused merge said nothing');
-      check('a merge GitHub refuses says why in the dialog', /Head branch was modified/.test(error.textContent), error.textContent);
-      check('and leaves the session as it was', calls('session_done').length === 0 && !!dialog(), calls('session_done').length + ' done');
+      await wait(50);
+      check('confirmed, the dialog goes at once, before GitHub answers', !dialog() && sent('merge_pr').length === 1, sent('merge_pr').length + ' merges asked, dialog ' + (dialog() ? 'up' : 'gone'));
+      if (bySessions) check('and the session leaves Sessions with it, as Mark as done has it', !rowOf());
+      var error = await until(function () { return q('.ca-mergedonedlg .ca-form-error'); }, 5000, 'a refused merge didn’t bring the dialog back');
+      check('a merge GitHub refuses brings the dialog back, saying why', /Head branch was modified/.test(error.textContent), error.textContent);
+      check('with the commit as it was written', titleField().value === 'fail' && q('.ca-mergedonedlg textarea').value === 'Written here', titleField().value + ' / ' + q('.ca-mergedonedlg textarea').value);
+      check('its button not taking the keyboard, so a Return meant for something else doesn’t merge it', document.activeElement !== confirm(), document.activeElement ? document.activeElement.outerHTML.slice(0, 80) : 'nothing');
+      check('and the session as it was', calls('session_done').length === 0 && (!bySessions || !!rowOf()), calls('session_done').length + ' done' + (bySessions && !rowOf() ? ', its row gone' : ''));
+      if (peek()) {
+        // The peek put itself away as the session left it, so the bar says why by its pill too.
+        var notes = calls('plugin:event|emit_to').filter(function (c) { return c[1] && c[1].event === 'bar-note'; }).map(function (c) { return c[1].payload; });
+        check('the bar says why too, by the session’s pill', notes.some(function (n) { return n.key === key && n.tone === 'error' && /Head branch was modified/.test(n.message); }), JSON.stringify(notes));
+      }
       type(titleField(), 'Ship it (#' + pr.number + ')');
       submit();
       await until(function () { return !dialog(); }, 5000, 'the dialog stayed up');
+      await wait(700);
+      check('merged, it stays gone', !dialog());
       var op = sent('merge_pr').pop();
       check('it merges the PR with what was written', !!op && op.repo === pr.repoSlug && op.number === pr.number && op.op.op === 'merge' && op.op.method === 'squash' && op.op.title === 'Ship it (#' + pr.number + ')', JSON.stringify(op));
       check('and the same request marks the session done, not the window', op.done === key && calls('session_done').length === 0, op.done + ', ' + calls('session_done').length + ' asked by the window');
