@@ -20,7 +20,8 @@
 //!   Code sessions write to their terminals every few minutes (2.1.318, 2026-11-05: every one here
 //!   had within the half hour, some idle for a day). But a resize has every program reread its
 //!   terminal at once, the agents' too, so the time is taken as the engine's looks saw it, a burst
-//!   of them not counted (`stale::Uses::typed`). When it can't be told, it stays;
+//!   of them not counted where the looks saw the time before it (`stale::Uses::typed`). When it
+//!   can't be told, it stays, as it does after a burst the looks didn't see the start of;
 //! - a session it started is still at work, or waits on you, which it may be waiting to hear back
 //!   from;
 //! - it's an automatic review's, which reviewdone.rs ends;
@@ -81,8 +82,9 @@ pub struct Looks<'a> {
     /// look just before closing (`one`).
     pub typed: Option<&'a dyn Fn(u32) -> Option<i64>>,
     /// The processes showing a background job in a tab, by the job's attach command
-    /// (`Session::attach_command`): each a tab to close before the job stops.
-    pub attached: &'a dyn Fn(&str) -> Vec<u32>,
+    /// (`Session::attach_command`): each a tab to close before the job stops. None when that
+    /// can't be told (no process listing).
+    pub attached: &'a dyn Fn(&str) -> Option<Vec<u32>>,
 }
 
 /// What may hibernate on `board` at `now` after `after_ms` idle.
@@ -126,8 +128,10 @@ fn keeps_job(board: &Board, cfg: &Config, c: &Idle, looks: &Looks) -> Option<Str
     if let Some(why) = keeps_session(board, cfg, s) {
         return Some(why);
     }
-    if (looks.attached)(s.attach_command.as_deref().unwrap_or_default()).into_iter().any(|pid| !(looks.closable)(pid)) {
-        return Some("a terminal attached to it can't say whether it's the tab you're in".into());
+    match (looks.attached)(s.attach_command.as_deref().unwrap_or_default()) {
+        None => return Some("couldn't tell which tabs are attached to it".into()),
+        Some(tabs) if tabs.iter().any(|&pid| !(looks.closable)(pid)) => return Some("a terminal attached to it can't say whether it's the tab you're in".into()),
+        Some(_) => {}
     }
     typed_since(looks, s.pid, s.last_prompt_at)
 }
@@ -186,7 +190,7 @@ impl Hibernator {
             return Vec::new();
         }
         self.tried.retain(|_, at| now - *at < RETRY_MS);
-        let looks = Looks { closable: &|_| true, typed: None, attached: &|_| Vec::new() };
+        let looks = Looks { closable: &|_| true, typed: None, attached: &|_| Some(Vec::new()) };
         let due: Vec<String> = plan(board, cfg, now, after_ms, &looks).hibernate.into_iter().map(|c| c.key).filter(|k| !self.tried.contains_key(k)).collect();
         self.tried.extend(due.iter().map(|k| (k.clone(), now)));
         due
@@ -256,7 +260,7 @@ fn close_terminal(engine: &Handle, c: &Idle) -> Result<&'static str, String> {
 /// the job, asked once more, with no tab attached to it since.
 fn stop_job(engine: &Handle, board: &Board, c: &Idle) -> Result<&'static str, String> {
     let (_, s) = board.session(&c.key).ok_or("it isn't on the board any more")?;
-    let tabs = attached_now(s.attach_command.as_deref().unwrap_or_default());
+    let tabs = attached_now(s.attach_command.as_deref().unwrap_or_default()).ok_or("couldn't tell which tabs are attached to it")?;
     if !tabs.is_empty() {
         let shown = |p: u32| tabs.contains(&p);
         let check = || asked_again(engine, &c.key, None, &shown);
@@ -301,7 +305,10 @@ fn still(board: &Board, cfg: &Config, now: i64, key: &str, pid: Option<u32>, loo
 /// terminals' does (`stale::tabs_now`).
 pub fn plan_now(board: &Board, cfg: &Config, after_ms: i64, mut uses: Uses) -> Plan {
     let listed = crate::procs::list(Duration::from_secs(10));
-    uses.on_read_look(crate::util::now_ms(), &crate::stale::device_read_times(&listed.lines));
+    // A listing that fell over lists none, which says nothing of what was read.
+    if !listed.lines.is_empty() {
+        uses.on_read_look(crate::util::now_ms(), &crate::stale::device_read_times(&listed.lines));
+    }
     let closable = |pid: u32| crate::launch::terminal_kind(pid).is_some_and(|t| t.closes_tabs() && t.spares_yours());
     let typed = |pid: u32| typed_at(&uses, pid);
     let attached = |attach: &str| attached_in(&listed.lines, attach);
@@ -317,26 +324,31 @@ fn typed_at(uses: &Uses, pid: u32) -> Option<i64> {
     Some(uses.typed(device.strip_prefix("/dev").ok()?.to_str()?, time))
 }
 
-/// The processes running `attach` (a background job's attach command) now.
-fn attached_now(attach: &str) -> Vec<u32> {
+/// The processes running `attach` (a background job's attach command) now; None when the
+/// processes couldn't be listed.
+fn attached_now(attach: &str) -> Option<Vec<u32>> {
     attached_in(&crate::procs::list(Duration::from_secs(10)).lines, attach)
 }
 
-/// The processes in `lines` that run `attach`: by its arguments (`attach <job>`), since its
-/// program may be named by a path, a wrapper or settings before it.
-fn attached_in(lines: &[PsLine], attach: &str) -> Vec<u32> {
-    let args: Vec<&str> = attach.split_whitespace().skip_while(|w| w.contains('=')).skip(1).collect();
-    if args.is_empty() {
-        return Vec::new();
+/// The processes in `lines` that run `attach`, by its last two words (`attach <job>`): what comes
+/// before them differs (the program by a path or a wrapper, an account's settings ahead of it,
+/// quoted or not). None when there's no listing to look in: one that fell over lists none.
+fn attached_in(lines: &[PsLine], attach: &str) -> Option<Vec<u32>> {
+    if lines.is_empty() {
+        return None;
     }
-    lines
-        .iter()
-        .filter(|l| {
-            let words: Vec<&str> = l.command.split_whitespace().collect();
-            words.len() > args.len() && words.ends_with(&args)
-        })
-        .map(|l| l.pid)
-        .collect()
+    let words: Vec<&str> = attach.split_whitespace().collect();
+    let Some(args) = words.len().checked_sub(2).filter(|&i| i > 0).map(|i| &words[i..]) else { return Some(Vec::new()) };
+    Some(
+        lines
+            .iter()
+            .filter(|l| {
+                let words: Vec<&str> = l.command.split_whitespace().collect();
+                words.len() > args.len() && words.ends_with(args)
+            })
+            .map(|l| l.pid)
+            .collect(),
+    )
 }
 
 #[cfg(test)]
@@ -383,8 +395,8 @@ mod tests {
         cfg
     }
 
-    fn none_attached(_: &str) -> Vec<u32> {
-        Vec::new()
+    fn none_attached(_: &str) -> Option<Vec<u32>> {
+        Some(Vec::new())
     }
 
     /// Typed in long before anything here.
@@ -498,7 +510,7 @@ mod tests {
         let kept = planned(&b, &c, &|pid| Some(if pid == 5 { prompted + 60_000 } else { 0 })).1;
         assert!(kept.contains(&("j1".to_string(), "something was typed in its terminal since its last prompt".to_string())), "{kept:?}");
         // Its tabs must be ones that may close: in tmux, say, it keeps running.
-        let attached = |attach: &str| if attach == "claude attach j1" { vec![70] } else { Vec::new() };
+        let attached = |attach: &str| Some(if attach == "claude attach j1" { vec![70] } else { Vec::new() });
         let with = |closable: &dyn Fn(u32) -> bool| plan(&b, &c, NOW, after_ms(&c), &Looks { closable, typed: Some(&long_ago), attached: &attached });
         assert_eq!(with(&|_| true).hibernate.len(), 1);
         let kept = with(&|pid| pid != 70).kept;
@@ -506,6 +518,9 @@ mod tests {
         // Just before it stops, no tab may be attached any more: one attached since would see it end.
         assert!(still(&b, &c, NOW, "j1", None, &Looks { closable: &|_| false, typed: Some(&long_ago), attached: &none_attached }));
         assert!(!still(&b, &c, NOW, "j1", None, &Looks { closable: &|_| false, typed: Some(&long_ago), attached: &attached }));
+        // Which tabs are attached can't be told (no process listing): it keeps running.
+        let kept = plan(&b, &c, NOW, after_ms(&c), &Looks { closable: &|_| true, typed: Some(&long_ago), attached: &|_| None }).kept;
+        assert!(kept.iter().any(|k| k.key == "j1" && k.why == "couldn't tell which tabs are attached to it"), "{kept:?}");
     }
 
     #[test]
@@ -519,9 +534,12 @@ mod tests {
             line(14, "attach 39719994"),
             line(15, "claude2 attach 39719994"),
         ];
-        assert_eq!(attached_in(&lines, "claude attach 39719994"), [10, 11, 15]);
-        assert_eq!(attached_in(&lines, "CLAUDE_CONFIG_DIR=/Users/me/.claude2 claude attach 39719994"), [10, 11, 15]);
-        assert!(attached_in(&lines, "claude").is_empty());
+        for attach in ["claude attach 39719994", "CLAUDE_CONFIG_DIR=/Users/me/.claude2 claude attach 39719994", "env CLAUDE_CONFIG_DIR=\"/Users/me/my claude\" claude attach 39719994"] {
+            assert_eq!(attached_in(&lines, attach), Some(vec![10, 11, 15]), "{attach}");
+        }
+        assert_eq!(attached_in(&lines, "claude"), Some(Vec::new()));
+        // A listing that fell over lists none: no telling.
+        assert_eq!(attached_in(&[], "claude attach 39719994"), None);
     }
 
     #[test]
