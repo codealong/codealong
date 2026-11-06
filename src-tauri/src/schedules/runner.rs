@@ -169,8 +169,9 @@ struct Done {
     follows: Option<String>,
     /// What waited for a session, going now: counted toward the day as it was taken, not again.
     delivered: bool,
-    /// A run of a schedule that runs once went: it's finished (`Schedule::finished_at`).
-    finished: bool,
+    /// A run of a schedule that runs once went: the schedule as the run read it, which it finishes
+    /// (`Schedule::finished_at`) unless it was told meanwhile to run otherwise (`finishes`).
+    finished: Option<Schedule>,
 }
 
 static POKE: OnceLock<Mutex<Tx<()>>> = OnceLock::new();
@@ -706,25 +707,25 @@ pub fn run(engine: &Handle, job: Job) {
 
 fn finish(id: &str, done: Option<Done>) {
     let Some(done) = done else { return };
-    let finished = done.finished;
+    let finished = done.finished.clone();
     if let Err(e) = change_runs(|r| apply_done(r, id, done)) {
         eprintln!("codealong: couldn't note schedule {id}'s run: {e:#}");
     }
-    if finished {
-        finish_once(id, now_ms());
+    if let Some(ran) = finished {
+        finish_once(&ran, now_ms());
     }
 }
 
-/// Notes a schedule that runs once as finished, now that its run has gone: written to the schedule,
-/// with `updated_at`, so your other machines' copies take it too and none runs it again.
-fn finish_once(id: &str, now: i64) {
-    let noted = change(|file| match file.schedules.iter_mut().find(|s| s.id == id && s.once && s.finished_at.is_none()) {
+/// Notes a schedule that runs once as finished, now that its run of `ran` has gone: written to the
+/// schedule, with `updated_at`, so your other machines' copies take it too and none runs it again.
+fn finish_once(ran: &Schedule, now: i64) {
+    let noted = change(|file| match file.schedules.iter_mut().find(|s| finishes(ran, s)) {
         Some(s) => {
             s.finished_at = Some(now);
             s.updated_at = now;
             Ok(())
         }
-        // Removed meanwhile, or not just once any more: nothing to write.
+        // Removed meanwhile, told to run otherwise, or not just once any more: nothing to write.
         None => bail!("Nothing to finish."),
     });
     if noted.is_ok() {
@@ -1157,7 +1158,7 @@ fn fire(engine: &Handle, id: &str, cause: Cause) -> Option<Done> {
         follows: (s.run.to == To::Session).then(|| s.run.session.trim().to_string()),
         queued: queued.map(Some),
         // Run now is how one that runs once is tried out, so it doesn't use up its run.
-        finished: s.once && !cause.by_hand && went(&rec),
+        finished: (s.once && !cause.by_hand && went(&rec)).then(|| s.clone()),
         record: Some(rec),
         seen: cause.found.iter().filter(|f| !f.id.is_empty()).map(|f| f.id.clone()).collect(),
         fired: cause.fired.clone(),

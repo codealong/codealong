@@ -123,7 +123,11 @@ pub const TABLET: &str = "tablet";
 /// so, since one from before asks the open one or a new copy that knows none of it. `SIDE_FORK`
 /// is a Mac's word that a fork naming a side conversation (`params::Fork::side`) tells the copy
 /// what was said there; a device asks one with `side` only when it says so, since one from before
-/// forks without it. `SESSIONS`
+/// forks without it. `SCHEDULES_ONCE` says a machine keeps a shared schedule's `once` and
+/// `finishedAt` (the engine's schedules/mod.rs `Schedule`), so it stops one after its first run: a
+/// machine that doesn't say it is sent none that runs once, and told any copy it had is gone
+/// (`schedules::for_older`), since a build from before drops them and runs it on every trigger.
+/// `SESSIONS`
 /// says its copy of a feed takes a changed lane with only the sessions that changed in it and
 /// every session's key in order (`FeedMsg::keys`); a device that doesn't say it gets the whole
 /// lane, as the builds before read it.
@@ -139,7 +143,8 @@ pub const SIDES: &str = "sides";
 pub const SIDE_FROM: &str = "side-from";
 pub const SIDE_FORK: &str = "side-fork";
 pub const SESSIONS: &str = "sessions";
-pub const KNOWS: [&str; 12] = [HAVE, WATCH, CURSOR, PRS, PR_DRAFTS, EMBLEM_PICTURES, PEER_ITEMS, SCHEDULES, SIDES, SIDE_FROM, SIDE_FORK, SESSIONS];
+pub const SCHEDULES_ONCE: &str = "schedules-once";
+pub const KNOWS: [&str; 13] = [HAVE, WATCH, CURSOR, PRS, PR_DRAFTS, EMBLEM_PICTURES, PEER_ITEMS, SCHEDULES, SIDES, SIDE_FROM, SIDE_FORK, SESSIONS, SCHEDULES_ONCE];
 
 /// Whether a device of this kind only watches.
 pub fn watches(kind: Option<&str>) -> bool {

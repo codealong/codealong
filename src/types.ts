@@ -2112,8 +2112,8 @@ export interface HarnessSchedule {
   paused: boolean;
   /** The session it wakes, or sends its runs to, by key. */
   session?: string;
-  /** The folder its runs start sessions in, for one that starts its own. */
-  folder?: string;
+  /** The folders its runs start sessions in, for one that starts its own. */
+  folders?: string[];
   /** A link that opens it where it lives (`codex://…`). */
   link?: string;
   /** What keeps it going, in a sentence. */

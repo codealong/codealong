@@ -216,6 +216,9 @@ pub struct Outbox {
     knows_prs: bool,
     /// The other device keeps the schedules your machines share (`proto::SCHEDULES`).
     knows_schedules: bool,
+    /// It keeps a schedule's `once` (`proto::SCHEDULES_ONCE`); one from before gets none that runs
+    /// once (`schedules::for_older`).
+    knows_once: bool,
     /// The other device draws emblems as emoji and pictures (`proto::EMBLEM_PICTURES`); one from
     /// before gets none.
     knows_emblems: bool,
@@ -235,6 +238,7 @@ impl Outbox {
             older: !knows_every_harness(knows),
             knows_prs: says(codealong_peer::proto::PRS),
             knows_schedules: says(codealong_peer::proto::SCHEDULES),
+            knows_once: says(codealong_peer::proto::SCHEDULES_ONCE),
             knows_emblems: says(codealong_peer::proto::EMBLEM_PICTURES),
             knows_sessions: says(codealong_peer::proto::SESSIONS),
             ..Outbox::default()
@@ -243,7 +247,7 @@ impl Outbox {
 
     /// Starts over, so the next feed carries everything, for the same device.
     pub fn restart(&mut self) {
-        *self = Outbox { older: self.older, knows_prs: self.knows_prs, knows_schedules: self.knows_schedules, knows_emblems: self.knows_emblems, knows_sessions: self.knows_sessions, ..Outbox::default() };
+        *self = Outbox { older: self.older, knows_prs: self.knows_prs, knows_schedules: self.knows_schedules, knows_once: self.knows_once, knows_emblems: self.knows_emblems, knows_sessions: self.knows_sessions, ..Outbox::default() };
     }
 
     /// Picks up where the other device's copy leaves off (`Msg::Have`): the lanes it has, by the
@@ -280,7 +284,7 @@ impl Outbox {
             self.prs = Some(snap.prs_hash);
         }
         if self.knows_schedules && self.schedules != Some(snap.schedules_hash) {
-            msg.schedules = Some(snap.schedules.clone());
+            msg.schedules = Some(if self.knows_once { snap.schedules.clone() } else { codealong_peer::schedules::for_older(&snap.schedules) });
             self.schedules = Some(snap.schedules_hash);
         }
         let mut here: HashSet<&str> = HashSet::new();
@@ -561,7 +565,8 @@ mod tests {
         let knows = codealong_peer::proto::KNOWS.map(String::from);
         let lanes = |s2: Status| vec![lane("/a", vec![session("s1", Status::Idle), session("s2", s2), session("s3", Status::Idle)]), lane("/b", vec![session("s4", Status::Idle)])];
         let json = |l: &Vec<Lane>| serde_json::to_value(l).unwrap();
-        let (mut out, mut older) = (Outbox::for_device(&knows), Outbox::for_device(&knows[..knows.len() - 1]));
+        let before: Vec<String> = knows.iter().filter(|k| k.as_str() != codealong_peer::proto::SESSIONS).cloned().collect();
+        let (mut out, mut older) = (Outbox::for_device(&knows), Outbox::for_device(&before));
         let mut replica = Replica::default();
         let b = board(lanes(Status::Idle));
         replica.apply(out.next(&snapshot(&b, info("Mini"))).unwrap());
@@ -708,6 +713,13 @@ mod tests {
         assert_eq!(machine.next(&snapshot(&b("Morning triage"), info("Mini"))).unwrap().schedules, Some(shared("Morning triage")));
         let phone: Vec<String> = codealong_peer::proto::KNOWS.iter().filter(|k| **k != codealong_peer::proto::SCHEDULES).map(|k| k.to_string()).collect();
         assert_eq!(Outbox::for_device(&phone).next(&snapshot(&b("Triage"), info("Mini"))).unwrap().schedules, None);
+        // A machine from before schedules ran once gets none that runs once, and is told it's gone.
+        let once = |name: &str| codealong_peer::schedules::Shared { list: vec![codealong_peer::schedules::SharedSchedule { id: "s-1".into(), schedule: serde_json::json!({ "name": name, "once": true, "updatedAt": 7 }), able: true, ..Default::default() }], gone: Vec::new() };
+        let older: Vec<String> = codealong_peer::proto::KNOWS.iter().filter(|k| **k != codealong_peer::proto::SCHEDULES_ONCE).map(|k| k.to_string()).collect();
+        let sent = Outbox::for_device(&older).next(&snapshot(&Board { shared_schedules: once("Follow-up"), ..board(vec![lane("/a", vec![])]) }, info("Mini"))).unwrap().schedules.unwrap();
+        assert!(sent.list.is_empty() && sent.gone == vec![codealong_peer::schedules::Gone { id: "s-1".into(), at: 6 }]);
+        let sent = Outbox::for_device(&codealong_peer::proto::KNOWS.map(String::from)).next(&snapshot(&Board { shared_schedules: once("Follow-up"), ..board(vec![lane("/a", vec![])]) }, info("Mini"))).unwrap().schedules;
+        assert_eq!(sent, Some(once("Follow-up")));
     }
 
     #[test]

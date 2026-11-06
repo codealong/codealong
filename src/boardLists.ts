@@ -290,8 +290,12 @@ export function schedulesIn(items: ScheduleItem[], lanes: Lane[], project: strin
  *  projects; under a project, none whose place can't be told), as the find narrows them. */
 export function harnessSchedulesIn(items: HarnessSchedule[], homes: ReadonlyMap<string, Placed>, lanes: Lane[], project: string, query: string): HarnessSchedule[] {
   const words = query.trim().toLowerCase();
-  const projectOf = (h: HarnessSchedule) => (h.session ? homes.get(h.session)?.lane.project : undefined) ?? (h.folder ? lanes.find((l) => !l.device && l.path === h.folder)?.project : undefined);
-  return items.filter((h) => (project === ALL_PROJECTS || projectOf(h) === project) && (!words || [h.name, h.whenWords, h.prompt, h.kind].some((t) => t.toLowerCase().includes(words))));
+  const projectsOf = (h: HarnessSchedule) => {
+    const woken = h.session ? homes.get(h.session)?.lane.project : undefined;
+    const started = (h.folders ?? []).map((f) => lanes.find((l) => !l.device && l.path === f)?.project);
+    return [woken, ...started].filter((p): p is string => !!p);
+  };
+  return items.filter((h) => (project === ALL_PROJECTS || projectsOf(h).includes(project)) && (!words || [h.name, h.whenWords, h.prompt, h.kind].some((t) => t.toLowerCase().includes(words))));
 }
 
 /** A session at work, or waiting on you: listed under its schedule whichever run it's from. */

@@ -107,7 +107,7 @@
       "prompt": "Triage last night's atlas errors and open issues for new ones.",
       "whenWords": "Every day at 2:00",
       "paused": true,
-      "folder": "$lane:0",
+      "folders": ["$lane:0"],
       "link": "codex://automations/nightly-atlas-triage?automationSource=local",
       "lasts": "The Codex app starts a new thread for it while the app is open."
     }

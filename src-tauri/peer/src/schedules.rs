@@ -29,6 +29,25 @@ impl Shared {
     }
 }
 
+/// What a machine that doesn't keep `once` (`proto::SCHEDULES_ONCE`) is sent of `shared`: the
+/// schedules that run once left out, and said gone as of just before their latest change, so a
+/// copy it took before one was made to run once goes (a copy goes when it's older than that). Just
+/// before, so the change itself is newer than the word it went: a machine that hears the word back
+/// from it still takes the change in, and drops the word once it has (schedules/machines.rs
+/// `merged`).
+pub fn for_older(shared: &Shared) -> Shared {
+    let once = |x: &SharedSchedule| x.schedule.get("once").and_then(serde_json::Value::as_bool) == Some(true);
+    let mut out = Shared { list: shared.list.iter().filter(|x| !once(x)).cloned().collect(), gone: shared.gone.clone() };
+    for x in shared.list.iter().filter(|x| once(x)) {
+        let at = x.schedule.get("updatedAt").and_then(serde_json::Value::as_i64).unwrap_or_default() - 1;
+        match out.gone.iter_mut().find(|g| g.id == x.id) {
+            Some(g) => g.at = g.at.max(at),
+            None => out.gone.push(Gone { id: x.id.clone(), at }),
+        }
+    }
+    out
+}
+
 /// One schedule, as the machine that sends it has it.
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 #[serde(default, rename_all = "camelCase")]
@@ -107,6 +126,19 @@ pub struct Gone {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_machine_that_doesnt_keep_once_gets_none_that_runs_once() {
+        let copy = |id: &str, schedule: serde_json::Value| SharedSchedule { id: id.into(), schedule, able: true, ..SharedSchedule::default() };
+        let shared = Shared {
+            list: vec![copy("s-1", serde_json::json!({ "id": "s-1", "updatedAt": 50 })), copy("s-2", serde_json::json!({ "id": "s-2", "once": true, "updatedAt": 90 }))],
+            gone: vec![Gone { id: "s-3".into(), at: 10 }],
+        };
+        let sent = for_older(&shared);
+        assert_eq!(sent.list.iter().map(|x| x.id.as_str()).collect::<Vec<_>>(), ["s-1"]);
+        // Its copy from before, older than the change that made it run once, goes.
+        assert_eq!(sent.gone, vec![Gone { id: "s-3".into(), at: 10 }, Gone { id: "s-2".into(), at: 89 }]);
+    }
 
     #[test]
     fn reads_what_a_machine_sends_and_leaves_out_what_it_lacks() {

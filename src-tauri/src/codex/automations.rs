@@ -81,7 +81,7 @@ fn of(text: &str, account: &AccountCfg, sessions: &[&Session], next: &std::colle
         next_at: next.get(&id).copied().filter(|_| !paused),
         paused,
         session,
-        folder: cwds.into_iter().next(),
+        folders: cwds,
         link: Some(if heartbeat { crate::launch::codex_thread_url(&thread) } else { format!("codex://automations/{}?automationSource=local", urlencoding::encode(&id)) }),
         lasts: if heartbeat {
             "The Codex app sends it to its thread while the app is open.".into()
@@ -213,6 +213,9 @@ updated_at = 1789399292341
         // A cron (the kind when none is said) starts a thread in its folder each run.
         let cron = "version = 1\nid = \"nightly\"\nname = \"Nightly triage\"\nprompt = \"Triage\"\nstatus = \"ACTIVE\"\nrrule = \"FREQ=DAILY;BYHOUR=2;BYMINUTE=0\"\ncwds = [\"/Users/me/projects/northwind\"]\n";
         let k = of(cron, &account(), &[], &next).unwrap();
-        assert_eq!((k.kind.as_str(), k.folder.as_deref(), k.link.as_deref()), ("Automation", Some("/Users/me/projects/northwind"), Some("codex://automations/nightly?automationSource=local")));
+        assert_eq!((k.kind.as_str(), k.folders.clone(), k.link.as_deref()), ("Automation", vec!["/Users/me/projects/northwind".to_string()], Some("codex://automations/nightly?automationSource=local")));
+        // One in several folders is in each of their projects.
+        let both = cron.replace("cwds = [\"/Users/me/projects/northwind\"]", "cwds = [\"/Users/me/projects/northwind\", \"/Users/me/projects/atlas\"]");
+        assert_eq!(of(&both, &account(), &[], &next).unwrap().folders.len(), 2);
     }
 }

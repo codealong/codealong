@@ -678,8 +678,7 @@ pub fn check(s: &Schedule, cfg: &Config, now: i64, zone: &dyn Zone) -> std::resu
     match &s.when {
         When::Time { rule } => {
             let parsed = rule::parse_checked(rule)?;
-            // A finished one's time has run: it's kept as it was, to say what it ran at.
-            if s.finished_at.is_none() && rule::next_after(&parsed, now, s.created_at, zone).is_none() {
+            if rule::next_after(&parsed, now, s.created_at, zone).is_none() {
                 return Err("That time has passed.".into());
             }
         }
@@ -846,7 +845,7 @@ pub fn items(file: &File, runs: &Runs, board: &Board, cfg: &Config, now: i64, zo
         .map(|s| {
             let track = runs.of.get(&s.id);
             // Checked as it was when saved: a time once that has since run isn't a problem.
-            let saved = check(s, cfg, s.updated_at.max(s.created_at), zone).err();
+            let saved = check(s, cfg, timed_at(s), zone).err();
             let (problem, here, runs_on_words) = match &s.runs_on {
                 RunsOn::This => (saved.or_else(|| board_problem(s, board)), None, None),
                 // One this machine can't run, the others still do: it's said of this machine alone.
@@ -1076,7 +1075,7 @@ pub fn apply_op(op: Op, by: Option<&str>, board: Option<&Board>, cfg: &Config, n
                 (schedule.checkout, schedule.folder_only) = checkout_for(&schedule, old.map(|i| &file.schedules[i]), board);
                 // Its time is checked as it was saved while it's the same: one whose `once` time has
                 // run can still be renamed or told something else.
-                let checked_at = old.map(|i| &file.schedules[i]).filter(|w| w.when == schedule.when).map_or(now, |w| w.updated_at.max(w.created_at));
+                let checked_at = old.map(|i| &file.schedules[i]).filter(|w| w.when == schedule.when).map_or(now, timed_at);
                 if let Err(why) = check(&schedule, cfg, checked_at, zone) {
                     bail!("{why}");
                 }
@@ -1153,6 +1152,20 @@ pub fn apply_op(op: Op, by: Option<&str>, board: Option<&Board>, cfg: &Config, n
     };
     runner::poke();
     Ok(out)
+}
+
+/// When a schedule's times were last said: as it was made, told to run at other times, or resumed.
+/// Its time is checked as of then (`check`), not as of its latest change, which a rename after its
+/// `once` time ran would have put past it.
+pub fn timed_at(s: &Schedule) -> i64 {
+    s.resumed_at.unwrap_or(0).max(s.created_at)
+}
+
+/// Whether a run of `ran` (the schedule as its run read it) finishes the schedule as it is `now`:
+/// one that runs once and hasn't finished, not told meanwhile to run at other times or on
+/// something else, which a run of the old trigger doesn't use up.
+pub fn finishes(ran: &Schedule, now: &Schedule) -> bool {
+    now.id == ran.id && now.once && now.finished_at.is_none() && !starts_afresh(ran, now)
 }
 
 /// When a schedule saved as `now` where it was `was` finished: finished is the scheduler's to say,
@@ -1422,10 +1435,28 @@ mod tests {
         let item = &items(&file, &runs, &Board::default(), &Config::default(), due + 60_000, &z)[0];
         assert_eq!((item.finished, item.next_at, item.problem.as_deref()), (Some(due + 4000), None, None));
         // One that ran once is finished from when it did, though the scheduler wrote it after its time.
-        let once = Schedule { once: true, finished_at: Some(due + 5000), updated_at: due + 5000, ..s };
+        let once = Schedule { once: true, finished_at: Some(due + 5000), updated_at: due + 5000, ..s.clone() };
         let file = File { schedules: vec![once], ..File::default() };
         let item = &items(&file, &Runs::default(), &Board::default(), &Config::default(), due + 60_000, &z)[0];
         assert_eq!((item.finished, item.next_at, item.problem.as_deref()), (Some(due + 5000), None, None));
+        // Renamed after it ran, and again: its time is checked as of when it was said, not the rename.
+        let renamed = Schedule { name: "Atlas check".into(), updated_at: due + 3_600_000, ..s.clone() };
+        assert_eq!(check(&renamed, &Config::default(), timed_at(&renamed), &z), Ok(()));
+        let file = File { schedules: vec![renamed], ..File::default() };
+        assert_eq!(items(&file, &runs, &Board::default(), &Config::default(), due + 7_200_000, &z)[0].problem, None);
+        // Told another time that has passed, it's said to have.
+        let moved = Schedule { when: When::Time { rule: "once 2026-11-06 9:00".into() }, resumed_at: Some(due + 3_600_000), ..s };
+        assert_eq!(check(&moved, &Config::default(), timed_at(&moved), &z), Err("That time has passed.".into()));
+    }
+
+    /// A run that took a while finished a schedule told meanwhile to run on a watch instead.
+    #[test]
+    fn a_run_finishes_only_the_trigger_it_ran_for() {
+        let ran = Schedule { id: "s-1".into(), once: true, when: When::Time { rule: "daily 9:00".into() }, ..Schedule::default() };
+        assert!(finishes(&ran, &Schedule { name: "Renamed".into(), ..ran.clone() }));
+        assert!(!finishes(&ran, &Schedule { when: When::Watch { command: "./deploys".into(), every: "5m".into(), mode: WatchMode::Lines }, ..ran.clone() }));
+        assert!(!finishes(&ran, &Schedule { once: false, ..ran.clone() }));
+        assert!(!finishes(&ran, &Schedule { finished_at: Some(1), ..ran.clone() }));
     }
 
     #[test]

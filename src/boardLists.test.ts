@@ -1256,14 +1256,20 @@ describe('the Schedules view’s list', () => {
 
   it('lists the harnesses’ own in the project of the session each wakes, or the folder it starts in', () => {
     const kept = (name: string, over: Partial<HarnessSchedule> = {}): HarnessSchedule => ({ key: name, harness: 'claude', account: 'claude', id: name, kind: 'Loop', name, prompt: 'Check the deploy', whenWords: 'Its loop’s next tick', paused: false, lasts: '', ...over });
-    const harness = [kept('Loop', { session: 'claude:claude:a' }), kept('Nightly', { harness: 'codex', kind: 'Automation', folder: '/w/atlas' }), kept('Heartbeat', { harness: 'codex', kind: 'Heartbeat', session: 'codex:codex:gone' })];
+    const harness = [
+      kept('Loop', { session: 'claude:claude:a' }),
+      kept('Nightly', { harness: 'codex', kind: 'Automation', folders: ['/w/atlas'] }),
+      kept('Heartbeat', { harness: 'codex', kind: 'Heartbeat', session: 'codex:codex:gone' }),
+      // One that starts a thread in each of two folders is in both projects.
+      kept('Both', { harness: 'codex', kind: 'Automation', folders: ['/w/app', '/w/atlas'] }),
+    ];
     const homes = sessionHomes(lanes);
     const listed = (project: string, query = '') => harnessSchedulesIn(harness, homes, lanes, project, query).map((h) => h.name);
-    expect(listed('Northwind')).toEqual(['Loop']);
-    expect(listed('Atlas')).toEqual(['Nightly']);
+    expect(listed('Northwind')).toEqual(['Loop', 'Both']);
+    expect(listed('Atlas')).toEqual(['Nightly', 'Both']);
     // Its session gone from the board, only All projects lists it.
-    expect(listed(ALL_PROJECTS)).toEqual(['Loop', 'Nightly', 'Heartbeat']);
-    expect(listed(ALL_PROJECTS, 'automation')).toEqual(['Nightly']);
+    expect(listed(ALL_PROJECTS)).toEqual(['Loop', 'Nightly', 'Heartbeat', 'Both']);
+    expect(listed(ALL_PROJECTS, 'nightly')).toEqual(['Nightly']);
   });
 
   it('lists under a schedule its latest run’s sessions and the ones at work, the rest when asked', () => {

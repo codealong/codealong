@@ -47,7 +47,7 @@ pub const MOST_NOTES: usize = 64 * 1024;
 /// Why this machine can't run a schedule now, past what `check` says of it: its folder or the
 /// session it sends to isn't here, or its account is turned off here.
 pub fn able(s: &Schedule, board: &Board, cfg: &Config, zone: &dyn Zone) -> std::result::Result<(), String> {
-    check(s, cfg, s.updated_at.max(s.created_at), zone)?;
+    check(s, cfg, timed_at(s), zone)?;
     if let Some(why) = board_problem(s, board) {
         return Err(why);
     }
@@ -492,5 +492,27 @@ mod tests {
         let ms = machines(Rank::First, vec![machine("bbbbbbbbbbbb", "Mini", Rank::First, true, vec![x])]);
         let theirs = their_runs("s-1", &ms);
         assert_eq!((theirs[0].machine.as_deref(), theirs[0].session.as_deref()), (Some("Mini"), Some("@bbbbbbbbbb:claude:claude:9f")));
+    }
+
+    /// A machine from before schedules ran once is told one that does went (`schedules::for_older`):
+    /// it drops its copy, and says so on to the others, which mustn't drop theirs.
+    #[test]
+    fn a_schedule_that_runs_once_goes_from_older_machines_alone() {
+        let made_once = Schedule { once: true, ..schedule("s-1", one(""), 90) };
+        let told = codealong_peer::schedules::for_older(&Shared { list: vec![copy(&made_once, true)], gone: Vec::new() });
+        // The older machine's copy, from before it ran once, goes.
+        let older = File { schedules: vec![schedule("s-1", one(""), 50)], gone: Vec::new() };
+        let mini = Machine { schedules: told.clone(), ..machine(MINI, "Mini", Rank::First, true, Vec::new()) };
+        let m = merged(&older, &machines(Rank::Backup, vec![mini]), NOW).unwrap();
+        assert_eq!(m.removed, ["s-1"]);
+        // It says so on: this machine keeps its own, and a third that hadn't the change yet takes it in.
+        let echoed = Machine { schedules: Shared { list: Vec::new(), gone: told.gone.clone() }, ..machine(STUDIO, "Studio", Rank::Backup, true, Vec::new()) };
+        let mine = File { schedules: vec![made_once.clone()], gone: Vec::new() };
+        assert!(merged(&mine, &machines(Rank::First, vec![echoed.clone()]), NOW).is_none_or(|m| m.file.schedules == vec![made_once.clone()]));
+        let third = File { schedules: vec![schedule("s-1", one(""), 50)], gone: Vec::new() };
+        let from_me = machine(ME, "MacBook", Rank::First, true, vec![copy(&made_once, true)]);
+        let m = merged(&third, &machines(Rank::Backup, vec![echoed, from_me]), NOW).unwrap();
+        assert_eq!(m.file.schedules, vec![made_once]);
+        assert!(m.file.gone.is_empty(), "{:?}", m.file.gone);
     }
 }

@@ -32,9 +32,9 @@ pub struct Kept {
     /// The session it wakes, or sends its runs to, where the board has it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session: Option<String>,
-    /// The folder its runs start in, for one that starts sessions of its own: the project it's in.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub folder: Option<String>,
+    /// The folders its runs start sessions in, for one that starts its own: the projects it's in.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub folders: Vec<String>,
     /// A link that opens it where it lives (`Adapter::open_link`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub link: Option<String>,

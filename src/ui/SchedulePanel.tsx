@@ -85,7 +85,7 @@ export function HarnessSchedulePanel({ item: h, now, sessionOf, onShowSession, o
             <span className="ca-sessinsp-kin-title">{session.session.title}</span>
           </button>
         ) : (
-          <p className="ca-schedinsp-line">{h.kind === 'Automation' ? `Starts a new thread each run${h.folder ? ` in ${tildePath(h.folder)}` : ''}.` : 'Its session isn’t on the board.'}</p>
+          <p className="ca-schedinsp-line">{h.kind === 'Automation' ? `Starts a new thread each run${h.folders?.length ? ` in ${h.folders.map(tildePath).join(', ')}` : ''}.` : 'Its session isn’t on the board.'}</p>
         )}
         {h.prompt && <div className="ca-schedinsp-prompt">{h.prompt}</div>}
       </section>

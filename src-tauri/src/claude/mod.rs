@@ -914,14 +914,14 @@ impl crate::harness::Adapter for ClaudeCode {
     }
 
     /// What its running sessions scheduled inside their processes (wakeups.rs `upcoming`): a
-    /// session that isn't running holds nothing, as nothing else fires them. When its process
-    /// started isn't known here, so a recurring job past its week stays listed until the process
-    /// that has it fires it once more and lets it go, or the session stops.
+    /// session that isn't running holds nothing, as nothing else fires them.
     fn own_schedules(&self, account: &crate::config::AccountCfg, sessions: &[&crate::model::Session], now: i64) -> Vec<crate::schedules::harnesses::Kept> {
         use crate::schedules::harnesses::{named_by, Kept};
         let live = sessions.iter().filter(|s| s.live && s.pid.is_some());
         live.flat_map(|s| {
-            wakeups::upcoming(&s.key, &self.records(account, s), 0, now).into_iter().map(move |w| {
+            // A process resumed after a recurring job's week doesn't have it.
+            let since = s.pid.and_then(crate::procs::proc_start_ms).unwrap_or(0);
+            wakeups::upcoming(&s.key, &self.records(account, s), since, now).into_iter().map(move |w| {
                 let id = w.job.clone().unwrap_or_else(|| "loop".into());
                 let when_words = match (&w.cron, w.recurring) {
                     (Some(cron), true) => crate::schedules::rule::parse(&format!("cron {cron}")).map(|r| crate::schedules::rule::words(&r)).unwrap_or_else(|_| format!("cron {cron}")),
@@ -946,7 +946,7 @@ impl crate::harness::Adapter for ClaudeCode {
                     next_at: Some(w.next),
                     paused: false,
                     session: Some(s.key.clone()),
-                    folder: None,
+                    folders: Vec::new(),
                     link: None,
                     lasts: lasts.into(),
                 }

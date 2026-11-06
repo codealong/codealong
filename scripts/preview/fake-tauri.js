@@ -94,7 +94,7 @@ function withSchedules(board, fixture) {
   window.__harnessSchedules = (fixture.harness || []).map(function (h, i) {
     return Object.assign({ key: 'h-' + i, harness: 'claude', account: 'claude', id: 'job-' + i, kind: 'Loop', prompt: '', paused: false, lasts: '' }, h, {
       session: h.session ? at(h.session) || undefined : undefined,
-      folder: h.folder ? at(h.folder) || undefined : undefined,
+      folders: (h.folders || []).map(at).filter(Boolean),
       nextAt: h.nextIn == null ? undefined : now + h.nextIn * 60e3,
     });
   });
