@@ -38,7 +38,9 @@ asks for these, and a pull request without them waits until it has them:
   request: one that reads as unreviewed agent output is closed.
 - **One change per pull request,** with unrelated clean-ups left for another.
 
-A pull request is merged once a maintainer has reviewed it and its checks pass. Maintainers'
+A pull request is merged once a maintainer has reviewed it and its checks pass. A maintainer
+may push to your branch first (a rebase onto `main`, a fix a review found, in commits of their
+own after yours), so leave *Allow edits by maintainers* on. Maintainers'
 own agents land work on `main` directly, as [CLAUDE.md](CLAUDE.md) describes; that path is
 theirs alone.
 

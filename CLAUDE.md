@@ -158,10 +158,11 @@ built from it. Take every finished, checked piece of work that far without askin
 agents work in this repo at the same time, many of them in the main checkout (the first entry of
 `git worktree list`), and whatever sits uncommitted there goes into their commits and builds.
 
-Without write access to github.com/codealong/codealong (working from a fork), the steps below
-aren't yours: a change lands as a pull request, with what CONTRIBUTING.md asks of one, the
-screenshots of every changed UI among them (`scripts/preview.sh`, light and dark, cropped to
-what changed), and the pull request template filled in.
+How a change lands depends on who makes it. First-party, with write access to
+github.com/codealong/codealong: the steps below, straight to `main`. Third-party, working from a
+fork: the steps below aren't yours; a change lands as a pull request, with what CONTRIBUTING.md
+asks of one, the screenshots of every changed UI among them (`scripts/preview.sh`, light and
+dark, cropped to what changed), and the pull request template filled in.
 
 1. Work in a worktree of your own: `git worktree add ../codealong-<topic> -b <topic>
    origin/main`, or the one your harness made for the session. Before building there, `npm ci`,
@@ -203,13 +204,13 @@ what changed), and the pull request template filled in.
 - Ask before anything destructive: force-push, reset, rebasing commits that are already
   pushed, deleting branches. Rebasing your own unpushed branch onto `origin/main` needs no ask,
   nor removing your own worktree and branch once they've landed (step 5).
-- Someone else's pull request that needs more to land (a conflict with `main`, a review's
-  findings, a failing check) is finished here, without asking, when GitHub lets us edit it
-  (`gh pr view <n> --json maintainerCanModify`) and the fix doesn't change what it's for: rebase
-  it onto `origin/main`, its commits still its author's, add yours after them, have it reviewed
-  as any change, push it back to its branch with `--force-with-lease=<branch>:<the head you
-  fetched>` (that push needs no ask), then push the same commits to `main`, which GitHub shows
-  as the PR merged. A fix that would change what it's for goes to your user first.
+- A third-party pull request lands as one: merged through GitHub (`gh pr merge <n> --rebase`)
+  once your user says to, never by pushing its commits to `main`. What it needs to land (a
+  conflict with `main`, a review's findings, a failing check) goes onto its branch without
+  asking, when GitHub lets us edit it (`maintainerCanModify`) and the fix doesn't change what
+  it's for: your commits after its author's, reviewed as any change, and a rebase onto
+  `origin/main` where it conflicts, pushed back with `--force-with-lease=<branch>:<the head you
+  fetched>` (no ask needed). A fix that would change what it's for goes to your user first.
 
 Open the last message of every turn that changed something with the work's status, on one
 short line. Codealong shows a session whose turn has ended by the first line of its last
