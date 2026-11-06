@@ -663,6 +663,18 @@ pub fn note_seen(track: &mut Track, ids: impl IntoIterator<Item = String>) {
     });
 }
 
+/// Drops what's noted of the schedules that are gone, and says whether it dropped any: what
+/// happened to one, and the runs asked of it, are kept while the word it went is (`File::gone`), as
+/// it may come back newer, a word an older machine passed on as it's told of one that runs once
+/// (`schedules::for_older`), and go once that word is forgotten too.
+pub fn kept_runs(runs: &mut Runs, file: &File) -> bool {
+    let here = |id: &str| file.schedules.iter().any(|s| s.id == id) || file.gone.iter().any(|g| g.id == id);
+    let before = (runs.of.len(), runs.fired.len());
+    runs.of.retain(|id, _| here(id));
+    runs.fired.retain(|f| here(&f.schedule));
+    (runs.of.len(), runs.fired.len()) != before
+}
+
 /// Days since 1970 of a time's date on a clock.
 pub fn day_of(ms: i64, zone: &dyn Zone) -> i64 {
     let c = zone.civil(ms);

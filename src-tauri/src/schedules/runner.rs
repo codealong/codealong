@@ -440,8 +440,8 @@ pub fn plan_in(file: &File, runs: &Runs, board: &Board, busy: &HashSet<String>, 
             When::Fired => {}
         }
     }
-    // Runs asked for of schedules that are gone.
-    let gone: Vec<String> = runs.fired.iter().filter(|f| !file.schedules.iter().any(|s| s.id == f.schedule)).map(|f| f.id.clone()).collect();
+    // Runs asked for of schedules that are gone, but those that may come back (`kept_runs`).
+    let gone: Vec<String> = runs.fired.iter().filter(|f| !file.schedules.iter().any(|s| s.id == f.schedule) && !file.gone.iter().any(|g| g.id == f.schedule)).map(|f| f.id.clone()).collect();
     if !gone.is_empty() {
         notes.push(Note::Dropped { fired: gone });
     }
@@ -461,25 +461,20 @@ fn sync(others: &crate::shared::Machines, now: i64) {
     }
     let Ok(file) = load() else { return };
     if machines::merged(&file, others, now).is_some() {
-        let mut removed = Vec::new();
         // Under the lock, from the file as it is then; nothing to write is an error that writes nothing.
         let _ = change(|f| match machines::merged(f, others, now) {
             Some(m) => {
                 *f = m.file;
-                removed = m.removed;
                 Ok(())
             }
             None => bail!("Nothing to take in."),
         });
-        if !removed.is_empty() {
-            let noted = change_runs(|r| {
-                for id in &removed {
-                    r.of.remove(id);
-                    r.fired.retain(|f| &f.schedule != id);
+        // What's noted of one that went goes once the word it went is forgotten too (`kept_runs`).
+        if let (Ok(file), Ok(mut runs)) = (load(), load_runs()) {
+            if kept_runs(&mut runs, &file) {
+                if let Err(e) = change_runs(|r| kept_runs(r, &file)) {
+                    eprintln!("codealong: couldn't note the schedules taken in from your other machines: {e:#}");
                 }
-            });
-            if let Err(e) = noted {
-                eprintln!("codealong: couldn't note the schedules taken in from your other machines: {e:#}");
             }
         }
     }

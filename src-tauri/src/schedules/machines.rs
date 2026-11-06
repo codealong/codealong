@@ -128,23 +128,22 @@ pub fn outgoing(file: &File, runs: &Runs, board: &Board, cfg: &Config, zone: &dy
     Shared { list, gone: file.gone.clone() }
 }
 
-/// Your other machines' copies taken in: what's changed in the schedules, and of them the ones
-/// removed. None when nothing changed. A copy resumed there carries when (`Schedule::resumed_at`),
-/// which the scheduler goes from (runner.rs `Note::Resumed`).
+/// Your other machines' copies taken in: the schedules as they are now. None when nothing changed.
+/// A copy resumed there carries when (`Schedule::resumed_at`), which the scheduler goes from
+/// (runner.rs `Note::Resumed`). What's noted of one that went is kept while the word it went is
+/// (`kept_runs`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Merged {
     pub file: File,
-    pub removed: Vec<String>,
 }
 
 pub fn merged(file: &File, machines: &Machines, now: i64) -> Option<Merged> {
     let mut out = file.clone();
-    let mut removed = Vec::new();
     // What went first, so a copy from before it went isn't taken in from a machine that hasn't
     // heard yet.
     for g in machines.others.iter().flat_map(|m| &m.schedules.gone) {
         if let Some(i) = out.schedules.iter().position(|s| s.id == g.id && s.runs_on.shared() && s.updated_at < g.at) {
-            removed.push(out.schedules.remove(i).id);
+            out.schedules.remove(i);
         }
         // Kept here too, so it goes on to a machine that only hears from this one.
         let later = out.schedules.iter().any(|s| s.id == g.id && s.updated_at >= g.at);
@@ -173,10 +172,7 @@ pub fn merged(file: &File, machines: &Machines, now: i64) -> Option<Merged> {
     let heard = |g: &codealong_peer::schedules::Gone| machines.others.iter().all(|m| m.fed_at.is_some_and(|t| t > g.at) && !copy_before(m, g));
     let gone: Vec<_> = out.gone.iter().filter(|g| !back(g) && (now - g.at < KEEP_GONE_MS || !heard(g))).cloned().collect();
     out.gone = gone;
-    // One that went and came back newer (a word it went that an older machine passed on, as it's
-    // told of one that runs once, `schedules::for_older`) keeps what happened to it.
-    removed.retain(|id| !out.schedules.iter().any(|s| &s.id == id));
-    (out != *file).then_some(Merged { file: out, removed })
+    (out != *file).then_some(Merged { file: out })
 }
 
 /// A machine's place in a schedule's line.
@@ -420,7 +416,7 @@ mod tests {
         let mut mini = machine(MINI, "Mini", Rank::First, false, Vec::new());
         mini.schedules.gone = vec![Gone { id: "s-1".into(), at: at(20) }];
         let m = merged(&file, &machines(Rank::First, vec![mini.clone()]), NOW).unwrap();
-        assert_eq!(m.removed, ["s-1"]);
+        assert_eq!(m.file.schedules.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(), ["s-2"]);
         assert_eq!(m.file.gone, [Gone { id: "s-1".into(), at: at(20) }], "kept, to go on to the others");
         // A copy from before it went, from a machine that hasn't heard, isn't taken in again.
         let studio = machine(STUDIO, "Studio", Rank::First, true, vec![copy(&schedule("s-1", one(""), at(15)), true)]);
@@ -501,30 +497,38 @@ mod tests {
     /// it drops its copy, and says so on to the others, which mustn't drop theirs.
     #[test]
     fn a_schedule_that_runs_once_goes_from_older_machines_alone() {
-        let made_once = Schedule { once: true, ..schedule("s-1", one(""), 90) };
+        // Made to run once a moment ago; the copies from before are older.
+        let made_once = Schedule { once: true, ..schedule("s-1", one(""), NOW - 100) };
         let told = codealong_peer::schedules::for_older(&Shared { list: vec![copy(&made_once, true)], gone: Vec::new() });
         // The older machine's copy, from before it ran once, goes.
-        let older = File { schedules: vec![schedule("s-1", one(""), 50)], gone: Vec::new() };
+        let older = File { schedules: vec![schedule("s-1", one(""), NOW - 500)], gone: Vec::new() };
         let mini = Machine { schedules: told.clone(), ..machine(MINI, "Mini", Rank::First, true, Vec::new()) };
         let m = merged(&older, &machines(Rank::Backup, vec![mini]), NOW).unwrap();
-        assert_eq!(m.removed, ["s-1"]);
+        assert!(m.file.schedules.is_empty());
         // It says so on: this machine keeps its own, and a third that hadn't the change yet takes it in.
         let echoed = Machine { schedules: Shared { list: Vec::new(), gone: told.gone.clone() }, ..machine(STUDIO, "Studio", Rank::Backup, true, Vec::new()) };
         let mine = File { schedules: vec![made_once.clone()], gone: Vec::new() };
         assert!(merged(&mine, &machines(Rank::First, vec![echoed.clone()]), NOW).is_none_or(|m| m.file.schedules == vec![made_once.clone()]));
-        let third = File { schedules: vec![schedule("s-1", one(""), 50)], gone: Vec::new() };
+        let third = File { schedules: vec![schedule("s-1", one(""), NOW - 500)], gone: Vec::new() };
         let from_me = machine(ME, "MacBook", Rank::First, true, vec![copy(&made_once, true)]);
         let m = merged(&third, &machines(Rank::Backup, vec![echoed.clone(), from_me.clone()]), NOW).unwrap();
         assert_eq!(m.file.schedules, vec![made_once.clone()]);
         assert!(m.file.gone.is_empty(), "{:?}", m.file.gone);
-        // Its runs stay: it isn't removed, only changed.
-        assert!(m.removed.is_empty(), "{:?}", m.removed);
-        // The word heard before the change, from a machine it hasn't heard from since: it goes there
-        // until the change comes, and comes back with it, its runs started afresh.
-        let m = merged(&third, &machines(Rank::Backup, vec![echoed.clone()]), NOW).unwrap();
-        assert_eq!((m.removed.as_slice(), m.file.schedules.len()), (["s-1".to_string()].as_slice(), 0));
-        let back = merged(&m.file, &machines(Rank::Backup, vec![echoed, from_me]), NOW).unwrap();
+        // The word heard first, in a read of its own, from a machine it hasn't heard from since: it
+        // goes there until the change comes, and comes back with it, what's noted of it kept
+        // throughout (a run waiting for its session, the session it keeps going, what it ran for).
+        let noted = Track { armed_at: 1, thread: Some("claude:claude:t".into()), queued: Some(Queued { at: 5, why: vec!["its 9:00 run".into()], ..Queued::default() }), seen: vec!["deploy-41".into()], ..Track::default() };
+        let mut runs = Runs { of: [("s-1".to_string(), noted.clone())].into(), fired: vec![Fired { id: "f-1".into(), schedule: "s-1".into(), ..Fired::default() }] };
+        let first = merged(&third, &machines(Rank::Backup, vec![echoed.clone()]), NOW).unwrap();
+        assert!(first.file.schedules.is_empty() && first.file.gone.iter().any(|g| g.id == "s-1"));
+        assert!(!kept_runs(&mut runs, &first.file));
+        let back = merged(&first.file, &machines(Rank::Backup, vec![echoed, from_me]), NOW).unwrap();
         assert_eq!(back.file.schedules, vec![made_once]);
-        assert!(back.removed.is_empty() && back.file.gone.is_empty(), "{:?}", back.file.gone);
+        assert!(back.file.gone.is_empty(), "{:?}", back.file.gone);
+        assert!(!kept_runs(&mut runs, &back.file));
+        assert_eq!((runs.of.get("s-1"), runs.fired.len()), (Some(&noted), 1));
+        // Gone for good, the word forgotten too: what was noted of it goes.
+        assert!(kept_runs(&mut runs, &File::default()));
+        assert!(runs.of.is_empty() && runs.fired.is_empty());
     }
 }
