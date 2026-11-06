@@ -663,16 +663,20 @@ pub fn note_seen(track: &mut Track, ids: impl IntoIterator<Item = String>) {
     });
 }
 
-/// Drops what's noted of the schedules that are gone, and says whether it dropped any: what
-/// happened to one, and the runs asked of it, are kept while the word it went is (`File::gone`), as
-/// it may come back newer, a word an older machine passed on as it's told of one that runs once
-/// (`schedules::for_older`), and go once that word is forgotten too.
-pub fn kept_runs(runs: &mut Runs, file: &File) -> bool {
+/// The schedules whose noted runs have outlived them (`Runs::of`, and the runs asked of them): gone,
+/// and the word they went forgotten too. What happened to one, and what was asked of it, are kept
+/// while the word is (`File::gone`), as it may come back newer, a word an older machine passed on as
+/// it's told of one that runs once (`schedules::for_older`).
+pub fn outlived(runs: &Runs, file: &File) -> std::collections::BTreeSet<String> {
     let here = |id: &str| file.schedules.iter().any(|s| s.id == id) || file.gone.iter().any(|g| g.id == id);
-    let before = (runs.of.len(), runs.fired.len());
-    runs.of.retain(|id, _| here(id));
-    runs.fired.retain(|f| here(&f.schedule));
-    (runs.of.len(), runs.fired.len()) != before
+    runs.of.keys().cloned().chain(runs.fired.iter().map(|f| f.schedule.clone())).filter(|id| !here(id)).collect()
+}
+
+/// Drops what's noted of `ids` alone: a schedule saved since they were found, and what's asked of
+/// it, are under another id.
+pub fn drop_runs(runs: &mut Runs, ids: &std::collections::BTreeSet<String>) {
+    runs.of.retain(|id, _| !ids.contains(id));
+    runs.fired.retain(|f| !ids.contains(&f.schedule));
 }
 
 /// Days since 1970 of a time's date on a clock.

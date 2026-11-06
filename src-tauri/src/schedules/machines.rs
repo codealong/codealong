@@ -131,7 +131,7 @@ pub fn outgoing(file: &File, runs: &Runs, board: &Board, cfg: &Config, zone: &dy
 /// Your other machines' copies taken in: the schedules as they are now. None when nothing changed.
 /// A copy resumed there carries when (`Schedule::resumed_at`), which the scheduler goes from
 /// (runner.rs `Note::Resumed`). What's noted of one that went is kept while the word it went is
-/// (`kept_runs`).
+/// (`outlived`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Merged {
     pub file: File,
@@ -521,14 +521,20 @@ mod tests {
         let mut runs = Runs { of: [("s-1".to_string(), noted.clone())].into(), fired: vec![Fired { id: "f-1".into(), schedule: "s-1".into(), ..Fired::default() }] };
         let first = merged(&third, &machines(Rank::Backup, vec![echoed.clone()]), NOW).unwrap();
         assert!(first.file.schedules.is_empty() && first.file.gone.iter().any(|g| g.id == "s-1"));
-        assert!(!kept_runs(&mut runs, &first.file));
+        assert!(outlived(&runs, &first.file).is_empty());
         let back = merged(&first.file, &machines(Rank::Backup, vec![echoed, from_me]), NOW).unwrap();
         assert_eq!(back.file.schedules, vec![made_once]);
         assert!(back.file.gone.is_empty(), "{:?}", back.file.gone);
-        assert!(!kept_runs(&mut runs, &back.file));
+        assert!(outlived(&runs, &back.file).is_empty());
         assert_eq!((runs.of.get("s-1"), runs.fired.len()), (Some(&noted), 1));
-        // Gone for good, the word forgotten too: what was noted of it goes.
-        assert!(kept_runs(&mut runs, &File::default()));
-        assert!(runs.of.is_empty() && runs.fired.is_empty());
+        // Gone for good, the word forgotten too: what was noted of it goes, and only that. A
+        // schedule saved after it was found, and a run asked of it, stay.
+        let found = outlived(&runs, &File::default());
+        assert_eq!(found.iter().map(String::as_str).collect::<Vec<_>>(), ["s-1"]);
+        runs.of.insert("s-new".into(), Track { armed_at: 2, ..Track::default() });
+        runs.fired.push(Fired { id: "f-2".into(), schedule: "s-new".into(), by_hand: true, ..Fired::default() });
+        drop_runs(&mut runs, &found);
+        assert_eq!(runs.of.keys().map(String::as_str).collect::<Vec<_>>(), ["s-new"]);
+        assert_eq!(runs.fired.iter().map(|f| f.id.as_str()).collect::<Vec<_>>(), ["f-2"]);
     }
 }
