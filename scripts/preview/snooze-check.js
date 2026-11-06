@@ -119,7 +119,7 @@
         check('its menu lists each with when it is back', entries.length === asleep && entries.every(function (e) { return / · until .+/.test(e.text); }), JSON.stringify(texts(menu)));
         check('and wakes them all', texts(menu).slice(-2).join('|') === '-|Wake all', JSON.stringify(texts(menu)));
         var first = entries[0];
-        check('each shows in Codealong first, then opens, wakes or snoozes again', /^Show in Codealong\|(Show|Attach|Resume|Open|Respond).*\|-\|Wake now\|Snooze instead$/.test(texts(first.items).join('|')), texts(first.items).join('|'));
+        check('each opens in the main window first, then where it lives, wakes or snoozes again', /^Open in main window\|(Show|Attach|Resume|Open|Respond).*\|-\|Wake now\|Snooze instead$/.test(texts(first.items).join('|')), texts(first.items).join('|'));
         pick(find(first.items, 'Wake now'));
         return wait(100).then(function () {
           var s = snoozes().pop();

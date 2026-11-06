@@ -1,4 +1,4 @@
-// Checks Show in Codealong on a session the main window's filters leave out (App.tsx `reveal`), as
+// Checks Open in main window on a session the main window's filters leave out (App.tsx `reveal`), as
 // the quick panel asks for one it found: in another project than the window shows, it goes to
 // that project; on a machine the sidebar's devices leave out, this Mac's or another's, they're
 // cleared, rather than nothing happening.

@@ -1,4 +1,4 @@
-// Checks Show in Codealong on a session, asked from another window (the floating bar, the quick
+// Checks Open in main window on a session, asked from another window (the floating bar, the quick
 // panel, a card on the desktop: App.tsx `reveal`): the main window goes to Sessions with that
 // session selected and its conversation in the panel. The session is made five days old, with
 // the age filter at 24 hours, so the filter has to widen as little as lists it

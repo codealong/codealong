@@ -1,6 +1,6 @@
 // Checks the views' keys in the windows that float (mainKeys.ts `useViewKeys`): ⇧⌘P, ⇧⌘T and
 // ⇧⌘S there bring Codealong's window forward on PRs, Todo and Sessions, putting away what goes for
-// it as Show in Codealong does (the quick panel, the peek, the notch's session; the waiting window
+// it as Open in main window does (the quick panel, the peek, the notch's session; the waiting window
 // stays), from a field too, where the quick panel's ⇧⌘P and ⇧⌘T used to open its menus; ⌘P still
 // does. In the board's window, such an ask goes to the view, and one for a view it doesn't have
 // leaves it where it is.

@@ -33,7 +33,7 @@
   };
   var headed = function (el) { return !!el.querySelector(':scope > .ca-thread-meta'); };
   var kindOf = function (el) { return el.classList.contains('is-you') ? 'you' : 'agent'; };
-  var sessionItems = function (labels) { return labels.some(function (l) { return /^(Archive|Snooze|Rename|Show in Codealong)/.test(l); }); };
+  var sessionItems = function (labels) { return labels.some(function (l) { return /^(Archive|Snooze|Rename|Open in main window)/.test(l); }); };
 
   say('copy message check: opening a conversation');
   fetch('./transcript-key.json')

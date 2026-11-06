@@ -1,6 +1,7 @@
 // Checks a session's card (SessionCard.tsx), the same in the bar's peek, a session kept on the
-// desktop and the waiting window: its header leaves snoozing, archiving, pinning and
-// showing it in Codealong to its menu; the ⋯ button and a right-click give that menu, with the
+// desktop and the waiting window: its header leaves snoozing, archiving and pinning to its menu,
+// and has Main window beside the ways to open it, unless its Open button goes to the main window
+// (a session Codealong runs); the ⋯ button and a right-click give that menu, with the
 // Sessions list's shortcuts beside what they run; and the shortcuts run them (⌃⌘P pins, ⌃⌘R
 // renames, ⌘E marks seen, ⌃⌘A archives).
 //   PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/card-check.js
@@ -10,7 +11,9 @@
 (function () {
   var head = function () { return document.querySelector('.ca-reply .ca-sessinsp-head'); };
   var button = function (label) { return document.querySelector('.ca-reply .ca-sessinsp-head button[aria-label="' + label + '"]'); };
-  var key = function (init) { window.dispatchEvent(new KeyboardEvent('keydown', Object.assign({ bubbles: true, cancelable: true }, init))); };
+  // Main window, or an Open button that says it goes to Codealong in its place.
+  var toMain = function () { return !!button('Open in main window') !== /in Codealong/.test(head().querySelector('.ca-sessinsp-tools').textContent); };
+  var key =function (init) { window.dispatchEvent(new KeyboardEvent('keydown', Object.assign({ bubbles: true, cancelable: true }, init))); };
   var chord = function (letter) { key({ key: letter, code: 'Key' + letter.toUpperCase(), metaKey: true, ctrlKey: true }); };
   var menu = function () { var m = calls('plugin:menu|new'); return m.length ? m[m.length - 1][1].options.items : []; };
   var said = function (items) { return items.filter(function (i) { return i.text; }).map(function (i) { return i.text + (i.accelerator ? '=' + i.accelerator : ''); }); };
@@ -20,7 +23,7 @@
   var seenKey = function () { return Array.prototype.filter.call(document.querySelectorAll('.ca-reply .ca-hotkeys .ca-hotkey'), function (b) { return b.textContent.indexOf('Seen') === 0; })[0]; };
   var whole = function (list, seenable) {
     // Snooze reads as Snoozed until … on a session that's snoozed now, as the real board may have.
-    return has(list, 'Show in Codealong') && has(list, 'Pin to desktop') && list.some(function (t) { return /^Snooze(d until .*)?$/.test(t); }) && list.some(function (t) { return /^(Archive|Archive in Codex)=Ctrl\+Cmd\+A$/.test(t); }) && list.some(function (t) { return /^(Pin|Unpin) session=Ctrl\+Cmd\+P$/.test(t); }) && (list.indexOf('Mark as seen=Cmd+E') >= 0) === seenable;
+    return has(list, 'Open in main window') && has(list, 'Pin to desktop') && list.some(function (t) { return /^Snooze(d until .*)?$/.test(t); }) && list.some(function (t) { return /^(Archive|Archive in Codex)=Ctrl\+Cmd\+A$/.test(t); }) && list.some(function (t) { return /^(Pin|Unpin) session=Ctrl\+Cmd\+P$/.test(t); }) && (list.indexOf('Mark as seen=Cmd+E') >= 0) === seenable;
   };
   var seenable = false;
 
@@ -30,7 +33,7 @@
     .then(function () {
       var strip = seenKey();
       seenable = strip ? !strip.disabled : !!button('Mark as seen');
-      check('the header keeps to opening it, the check and ⋯', !button('Snooze') && !button('Snoozed') && !button('Archive') && !button('Show in Codealong') && !!button('More'));
+      check('the header keeps to opening it, Main window, the check and ⋯', !button('Snooze') && !button('Snoozed') && !button('Archive') && toMain() && !!button('More'), head().querySelector('.ca-sessinsp-tools').textContent);
       check('with the strip above, its Seen stands for the check', !strip || !button('Mark as seen'));
       button('More').click();
       return wait(200);

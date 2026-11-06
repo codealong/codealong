@@ -59,7 +59,9 @@
     })
     .then(function (labels) {
       if (!labels) return;
-      check('the ⋯ menu says Open in main window', labels.indexOf('Open in main window') >= 0 && labels.indexOf('Show in Codealong') < 0, labels.join(' | '));
+      // (A session that runs in Codealong opens there by its own item too, its worktree's Show in
+      // Codealong, which stays.)
+      check('the ⋯ menu says Open in main window', labels.indexOf('Open in main window') >= 0, labels.join(' | '));
       var before = calls('show_main').length;
       button().click();
       return until(function () { return calls('show_main').length > before; }, 3000, 'show_main').then(function () {

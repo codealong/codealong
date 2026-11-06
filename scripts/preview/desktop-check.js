@@ -100,10 +100,10 @@
         // its path, branch and links comes after.
         var at = t.indexOf('Remove from desktop');
         var after = t.slice(at + 2);
-        check('its menu has Remove from desktop after the rest, with only copying below it', at > t.indexOf('Show in Codealong') && t.indexOf('Show in Codealong') >= 0 && t.lastIndexOf('Remove from desktop') === at && t[at - 1] === '-' && t[at + 1] === '-' && after.length > 0 && after.every(function (x) { return x.indexOf('Copy ') === 0; }), t.join('|'));
-        pick(find(menu, 'Show in Codealong'));
+        check('its menu has Remove from desktop after the rest, with only copying below it', at > t.indexOf('Open in main window') && t.indexOf('Open in main window') >= 0 && t.lastIndexOf('Remove from desktop') === at && t[at - 1] === '-' && t[at + 1] === '-' && after.length > 0 && after.every(function (x) { return x.indexOf('Copy ') === 0; }), t.join('|'));
+        pick(find(menu, 'Open in main window'));
         var shown = last('show_main');
-        check('Show in Codealong reveals the worktree', shown && shown.reveal.kind === 'worktree' && shown.reveal.laneId === feed.pin.key, JSON.stringify(shown));
+        check('Open in main window reveals the worktree', shown && shown.reveal.kind === 'worktree' && shown.reveal.laneId === feed.pin.key, JSON.stringify(shown));
         pick(find(menu, 'Remove from desktop'));
         var off = last('unpin_from_desktop');
         check('Remove takes it off the desktop', off && off.pin.ref === 'worktree' && off.pin.key === feed.pin.key, JSON.stringify(off));

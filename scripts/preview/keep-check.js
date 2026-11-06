@@ -21,7 +21,7 @@
   until(function () { return !!head(); }, 20000)
     .then(function () { return wait(400); })
     .then(function () {
-      check('the header leaves snoozing, archiving and showing in Codealong to its menu', !button('Snooze') && !button('Snoozed') && !button('Archive') && !button('Show in Codealong') && !!button('More'));
+      check('the header leaves snoozing and archiving to its menu', !button('Snooze') && !button('Snoozed') && !button('Archive') && !!button('More'));
       var w = window.innerWidth, h = window.innerHeight;
       if (!kept) {
         // Its × puts the peek away, as Escape does; it takes nothing off the desktop, so it doesn't

@@ -122,7 +122,7 @@
       return menuOf(document.querySelector('.ca-notch-session .ca-prreview .ca-prinsp-title'));
     })
     .then(function (labels) {
-      check('its menu still shows it in Codealong', labels.indexOf('Show in Codealong') >= 0, labels.join(' | '));
+      check('its menu still opens it in the main window', labels.indexOf('Open in main window') >= 0, labels.join(' | '));
       backLink().click();
       return until(showsSession, 3000, 'the link back');
     })

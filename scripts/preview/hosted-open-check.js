@@ -2,7 +2,7 @@
 // In the main window's panel, which is where it lives, the button doesn't offer to show it there:
 // it leads with Open folder in your editor and opens the folder in it, and its menu has no Show in
 // Codealong. A session that runs elsewhere still leads with its own place. In the peek, the button
-// says Show in Codealong, which brings the panel up.
+// says Show in Codealong, which brings the panel up, so the header has no Main window beside it.
 //   scripts/preview.sh sessions '' scripts/preview/hosted-open-check.js
 //   PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/hosted-open-check.js
 (function () {
@@ -75,6 +75,7 @@
     until(main, 20000)
       .then(function () {
         check('the peek says Show in Codealong', main() === 'Show in Codealong', main());
+        check('with no Main window beside it', !document.querySelector('.ca-sessinsp-head .ca-sessinsp-tomain'));
         document.querySelector('.ca-sessinsp-head .ca-split-main').click();
         return wait(100);
       })
