@@ -69,13 +69,25 @@ export function noteDraftTaken(el: HTMLTextAreaElement | null, from: string, to:
   note(`taking a draft from another window: ${from.length} → ${to.length} long, caret ${el.selectionStart}; box focused ${yes(focused)}, page focused ${yes(document.hasFocus())}`);
 }
 
-/** The trace on while `on`, in a window that shows session boxes. */
+/** How many hooks in this window want the trace now. */
+let wanted = 0;
+
+/** The trace on while `on`, the perf log's flag as the window has it. Several parts of a window
+ *  can ask (its pushes' timing, a card it shows): it's on while any of them does. */
 export function useTypingTrace(on: boolean): void {
-  useEffect(() => traceTyping(on), [on]);
+  useEffect(() => {
+    if (!on) return;
+    wanted++;
+    traceTyping(true);
+    return () => {
+      wanted--;
+      if (wanted === 0) traceTyping(false);
+    };
+  }, [on]);
 }
 
-/** Turns the trace on or off with the perf log. */
-export function traceTyping(on: boolean): void {
+/** Turns the trace on or off. */
+function traceTyping(on: boolean): void {
   if (on === !!installed) return;
   if (!on) {
     installed?.();
