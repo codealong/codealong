@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, type MutableRefObject } from 'react';
 import { perfMark } from './api';
-import { traceTyping } from './typingTrace';
+import { useTypingTrace } from './typingTrace';
 
 /** While `[debug] perf_log` is on, reports to the perf log what this window costs: each board
  *  push (board or bar feed) from arrival to commit and to paint, pointer events that waited in the queue (the
@@ -11,7 +11,7 @@ import { traceTyping } from './typingTrace';
 export function usePerf(source: { perfLog?: boolean } | null, arrived: MutableRefObject<number | null>) {
   const on = source?.perfLog ?? false;
   // What moves the caret in a session's box, too (typingTrace.ts).
-  useEffect(() => traceTyping(on), [on]);
+  useTypingTrace(on);
   useLayoutEffect(() => {
     const at = arrived.current;
     if (!on || at == null) return;

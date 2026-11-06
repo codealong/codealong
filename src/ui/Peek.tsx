@@ -39,6 +39,7 @@ import { homeOf } from '../lanes';
 import { attentionRows, ALL_PROJECTS } from '../quick';
 import type { Board, Lane, PeekOpen, Session } from '../types';
 import { useKeyPerf } from '../perf';
+import { useTypingTrace } from '../typingTrace';
 import { useDevices } from '../useDevices';
 import { useCardHost, useLiveSession } from './cardHost';
 import { ProjectShown } from './ProjectSaid';
@@ -249,6 +250,8 @@ export function Peek({ kept = false, side = false }: { kept?: boolean; side?: bo
 
   // With the perf log on, how long typed keys take to show.
   const keyed = useKeyPerf(open?.perfLog ?? false);
+  // What moves the caret in its box, for the perf log (typingTrace.ts).
+  useTypingTrace(open?.perfLog ?? false);
   useEffect(() => {
     window.addEventListener('keydown', keyed, true);
     return () => window.removeEventListener('keydown', keyed, true);

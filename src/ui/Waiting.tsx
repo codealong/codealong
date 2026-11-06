@@ -28,6 +28,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { PrTab } from '../agentReview';
 import { onReloadMenu, onWaitingHidden, onWaitingOpen, showMain, waitingAsked, type WaitingOpen } from '../api';
 import { boardAhead, renameAhead, sentWorthSaying, useAhead } from '../ahead';
+import { useTypingTrace } from '../typingTrace';
 import { prCardItem } from '../boardLists';
 import { showContextMenu, type MenuSpec } from '../contextMenu';
 import { deviceOf, floatingLanes } from '../devices';
@@ -71,6 +72,8 @@ export function Waiting() {
   // Changes made in any window that the engine hasn't shown yet (ahead.ts), on top of the board.
   const ahead = useAhead();
   const board = useMemo(() => (engineBoard ? boardAhead(engineBoard, ahead) : null), [engineBoard, ahead]);
+  // What moves the caret in its box, for the perf log (typingTrace.ts).
+  useTypingTrace(engineBoard?.perfLog ?? false);
   // Up, or put away: the page follows the board only while it's up.
   const [up, setUp] = useState(true);
   // Counts the times it was brought up after being put away, and the one the board was last read

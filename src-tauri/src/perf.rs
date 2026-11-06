@@ -70,10 +70,12 @@ pub fn log(line: &str) {
     if !enabled() {
         return;
     }
-    let stamp = format!("{} load={:.1} {line}", clock(), loadavg());
+    // One write for the whole line, newline and all: the app and its server both append to the
+    // file, and a line written in pieces could have the other's land in the middle of it.
+    let stamped = format!("{} load={:.1} {line}\n", clock(), loadavg());
     if let Ok(mut slot) = FILE.lock() {
         if let Some(f) = slot.as_mut() {
-            let _ = writeln!(f, "{stamp}");
+            let _ = f.write_all(stamped.as_bytes());
         }
     }
 }

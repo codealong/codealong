@@ -9,6 +9,7 @@
 // the page's own that places the caret (`focus`, `setSelectionRange`, `selectionStart`), with
 // where in the bundle it came from. Lines start `box:`, after the window's `ui[label]`.
 
+import { useEffect } from 'react';
 import { perfMark } from './api';
 
 /** The last caret seen in a box, and its text's length then. */
@@ -19,13 +20,16 @@ interface Seen {
 
 /** How long after a click or a key that moves the caret a move counts as yours. */
 const YOURS_MS = 600;
+/** How long after the page placed the caret a move to that place counts as the call's. */
+const PLACED_MS = 1000;
 
 let installed: (() => void) | null = null;
-const seen = new WeakMap<HTMLTextAreaElement, Seen>();
+let seen = new WeakMap<HTMLTextAreaElement, Seen>();
 /** Boxes taking a draft from another window: the caret's next move is the draft's doing. */
-const taking = new WeakSet<HTMLTextAreaElement>();
-/** Boxes the page placed the caret in, which was said with the call: its next move is that. */
-const placed = new WeakSet<HTMLTextAreaElement>();
+let taking = new WeakSet<HTMLTextAreaElement>();
+/** Where the page last placed the caret in a box, which was said with the call: a move there soon
+ *  after is the call's, and any other move is still said. */
+let placed = new WeakMap<HTMLTextAreaElement, { caret: number; at: number }>();
 let yoursAt = -Infinity;
 
 /** The reply box an element is, if it's one. */
@@ -63,6 +67,11 @@ export function noteDraftTaken(el: HTMLTextAreaElement | null, from: string, to:
   const focused = document.activeElement === el;
   if (focused) taking.add(el);
   note(`taking a draft from another window: ${from.length} → ${to.length} long, caret ${el.selectionStart}; box focused ${yes(focused)}, page focused ${yes(document.hasFocus())}`);
+}
+
+/** The trace on while `on`, in a window that shows session boxes. */
+export function useTypingTrace(on: boolean): void {
+  useEffect(() => traceTyping(on), [on]);
 }
 
 /** Turns the trace on or off with the perf log. */
@@ -108,7 +117,9 @@ export function traceTyping(on: boolean): void {
       note(`caret after the draft: ${now.caret} of ${now.length}`);
       return;
     }
-    if (placed.delete(el)) return;
+    const mark = placed.get(el);
+    placed.delete(el);
+    if (mark && mark.caret === now.caret && performance.now() - mark.at < PLACED_MS) return;
     if (!was || (was.caret === now.caret && was.length === now.length) || performance.now() - yoursAt < YOURS_MS) return;
     note(`caret moved by itself: ${was.caret} of ${was.length} → ${now.caret} of ${now.length}; page focused ${yes(document.hasFocus())}`);
   };
@@ -137,8 +148,10 @@ export function traceTyping(on: boolean): void {
     configurable: true,
     writable: true,
     value: function (this: HTMLTextAreaElement, options?: FocusOptions) {
-      if (box(this)) {
-        placed.add(this);
+      // Focusing a box that hasn't the focus puts back its last selection, which its
+      // `selectionStart` reads until then; one that has it stays as it is.
+      if (box(this) && document.activeElement !== this) {
+        placed.set(this, { caret: this.selectionStart, at: performance.now() });
         note(`focus() called, caret ${this.selectionStart} of ${this.value.length}: ${caller()}`);
       }
       return (focus?.value as HTMLElement['focus']).call(this, options);
@@ -149,7 +162,7 @@ export function traceTyping(on: boolean): void {
     writable: true,
     value: function (this: HTMLTextAreaElement, a: number | null, b: number | null, dir?: 'forward' | 'backward' | 'none') {
       if (box(this)) {
-        placed.add(this);
+        placed.set(this, { caret: Math.min(a ?? 0, this.value.length), at: performance.now() });
         note(`setSelectionRange(${a}, ${b}) called, of ${this.value.length}: ${caller()}`);
       }
       return (setRange?.value as HTMLTextAreaElement['setSelectionRange']).call(this, a, b, dir);
@@ -165,7 +178,7 @@ export function traceTyping(on: boolean): void {
       },
       set(this: HTMLTextAreaElement, v: number) {
         if (box(this)) {
-          placed.add(this);
+          placed.set(this, { caret: Math.min(v, this.value.length), at: performance.now() });
           note(`selectionStart = ${v} set, of ${this.value.length}: ${caller()}`);
         }
         set.call(this, v);
@@ -197,5 +210,10 @@ export function traceTyping(on: boolean): void {
     else delete (proto as { focus?: unknown }).focus;
     if (setRange) Object.defineProperty(proto, 'setSelectionRange', setRange);
     if (start) Object.defineProperty(proto, 'selectionStart', start);
+    // Turned on again later, it starts from nothing it saw before.
+    seen = new WeakMap();
+    taking = new WeakSet();
+    placed = new WeakMap();
+    yoursAt = -Infinity;
   };
 }
