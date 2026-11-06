@@ -528,9 +528,9 @@ fn through_queue(queue: &appserver::Queue, d: &Delivery, prompt: &str, id: Strin
         Ok(true) => None,
         // Started as it was being taken out.
         Ok(false) => went(),
-        // Still held, as far as Codealong can tell, which its conversation shows
-        // (`Session::queued`), to send now or take out from there.
-        Err(_) => Some(Ok(Sent { queued: Some(id), ..sent(format!("Queued for {title} in Codex, which hasn't started it yet.")) })),
+        // Still held, started, or taken out with the answer lost: unsure, and its conversation
+        // shows it held if it is (`Session::queued`).
+        Err(_) => queued_as(Err(MayHaveArrived(format!("Codealong queued this for {title} in Codex and couldn't tell whether it started or was taken back out: look there before sending it again.")).into()), id, &title),
     }
 }
 
@@ -1078,6 +1078,10 @@ mod tests {
         assert_eq!((asked.first().map(String::as_str), asked.last().map(String::as_str)), (Some("thread/queue/add"), Some("thread/queue/delete")));
         let went = through_queue(&queue_started_after(&heard, 99, &deleted(false)), &d, "hello", "u1".into(), Duration::from_millis(700)).unwrap().unwrap();
         assert_eq!(went.message, "Sent to \u{201c}Fix the build\u{201d} in Codex.");
+        // A delete whose answer never came may have taken it out: unsure, not queued for sure.
+        let unsure = through_queue(&queue_started_after(&heard, 99, "exit 1"), &d, "hello", "u1".into(), Duration::from_millis(700)).unwrap().unwrap();
+        assert_eq!((unsure.uncertain, unsure.queued.as_deref()), (true, Some("u1")));
+        assert!(unsure.message.contains("look there before sending it again"), "{}", unsure.message);
         // Codex didn't queue it: nothing went.
         let refused = r#"echo '{"id":2,"error":{"code":-32600,"message":"no such thread"}}'"#;
         let queue = appserver::Queue::through(appserver::stand_in(&heard, &format!(r#"[ "$id" = 1 ] && echo '{{"id":1,"result":{{}}}}' || {refused}"#))).unwrap();
