@@ -573,9 +573,11 @@ pub fn parse(json: &str) -> Result<RepoPrs> {
                     ((pr.said, pr.said_from), pr.changes_asked) = (said_of(n), changes_asked_of(n));
                 }
                 // The open and the done are read apart, and each a page at a time (`paged`), so a
-                // PR merged or updated between two reads can come twice: as it was last updated.
+                // PR merged or updated between two reads can come twice: as it was last updated, and
+                // ended where both say the same second, which is all `updatedAt` tells.
+                let last = |p: &PrRaw| (p.updated_at, !p.state.is_open());
                 match prs.iter_mut().find(|p: &&mut PrRaw| p.number == pr.number) {
-                    Some(had) if had.updated_at < pr.updated_at => *had = pr,
+                    Some(had) if last(had) < last(&pr) => *had = pr,
                     Some(_) => {}
                     None => prs.push(pr),
                 }
@@ -2791,6 +2793,10 @@ mod tests {
         assert_eq!(prs[0].state, PrState::Merged);
         assert_eq!(read(&[&merged], &[&open])[0].state, PrState::Merged);
         assert_eq!(read(&[&open, &open], &[]).len(), 1);
+        // Updated and merged in the same second, it's merged, whichever came first.
+        let merged_then = node("MERGED", "2026-10-28T07:07:05Z");
+        assert_eq!(read(&[&open], &[&merged_then])[0].state, PrState::Merged);
+        assert_eq!(read(&[&merged_then], &[&open])[0].state, PrState::Merged);
     }
 
     #[test]
