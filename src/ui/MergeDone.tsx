@@ -61,6 +61,16 @@ export function comesBack(session: string, here: { up: boolean; open: boolean; s
   return here.up && !here.open && (here.showing === undefined || here.showing === session);
 }
 
+/** What Merge and done… asked afresh on `a`'s session opens with: the commit and why a refused
+ *  merge of the same PR left (taken from `kept`), as now. A session can be the primary of more
+ *  than one PR, and one left for another stays for it. */
+export function freshAsk(a: MergeDoneAsk, kept: Map<string, MergeDoneAsk>): MergeDoneAsk {
+  const left = kept.get(a.session.key);
+  if (!left || left.pr.key !== a.pr.key) return a;
+  kept.delete(a.session.key);
+  return { ...a, refused: left.refused };
+}
+
 /** A window's Merge and done… dialog: `ask` opens it, for the session's menu and keys (menus.ts
  *  `SessionCan.mergeDone`), and again once GitHub has refused a merge confirmed in it, where that
  *  doesn't take the place of another dialog, nor show over another session's card (`showing`, a
@@ -87,10 +97,7 @@ export function useMergeDone(inFront: boolean, showing?: string): { ask: (ask: M
   const ask = (a: MergeDoneAsk) => {
     const key = a.session.key;
     if (!a.refused) {
-      // Asked afresh, as now: with what a refused merge left, where there's one.
-      const left = refusedFor.get(key)?.refused;
-      refusedFor.delete(key);
-      open(left ? { ...a, refused: left } : a);
+      open(freshAsk(a, refusedFor));
       return inFront;
     }
     if (!comesBack(key, { up: up.current, open: !!askedNow.current, showing: showingNow.current })) {
