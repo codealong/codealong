@@ -143,7 +143,7 @@ pub enum Request {
         from: Option<String>,
     },
     /// Brings the main window forward on a session, worktree, PR or todo (`Reveal` in api.ts), as
-    /// the floating bar's Show in Codealong does. The reply is the app's bundle ID, or null when
+    /// the floating bar's Open in main window does. The reply is the app's bundle ID, or null when
     /// it runs outside a bundle: macOS may not let an app come forward when nobody clicked in it,
     /// so the command opens it by that ID too.
     Show { reveal: Value },

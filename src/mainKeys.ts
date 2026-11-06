@@ -65,7 +65,7 @@ const EVERY_VIEW = Object.keys(VIEW_CHORDS).map((id) => ({ id }));
 
 /** A view's chord pressed in a window that floats (the notch, the quick panel, the waiting
  *  window, the peek and a session kept on the desktop) brings Codealong's window forward on that
- *  view, once `away` has put away what has to go for it, as Show in Codealong does. It's taken
+ *  view, once `away` has put away what has to go for it, as Open in main window does. It's taken
  *  before the window's own keys and its fields' (the quick panel has ⌘P and ⌘T with ⇧ too), as
  *  the board's window takes it from any field. */
 export function useViewKeys(away?: () => void): void {

@@ -108,7 +108,7 @@ describe('sessionMenu', () => {
     const common = everywhere.filter((l) => l !== '-');
     for (const menu of [bar, main]) expect(menu.filter((l) => common.includes(l))).toEqual(common);
     expect(bar.slice(0, 2)).toEqual(['Fix login · api', '-']);
-    expect(bar).toEqual(expect.arrayContaining(['Show in Codealong', 'Reply here', 'Pin to desktop']));
+    expect(bar).toEqual(expect.arrayContaining(['Open in main window', 'Reply here', 'Pin to desktop']));
     expect(main).toEqual(expect.arrayContaining(['Add to todo ›', 'Add to board ›', 'Pin session', 'Remove from desktop']));
   });
 
@@ -776,7 +776,7 @@ describe('laneMenu', () => {
       'Open in Ghostty',
       'Reveal in Finder',
       'Open PR #7 on GitHub',
-      'Show in Codealong',
+      'Open in main window',
       'New session here…',
       '-',
       'Reuse for new work',
@@ -806,7 +806,7 @@ describe('prMenu and todoMenu', () => {
     expect(labels(prMenu({ url: 'https://github.com/acme/api/pull/7', number: 7, head: 'fix-login' }, { report, session: s, reveal: noop }))).toEqual([
       'Open on GitHub',
       'Open its session',
-      'Show in Codealong',
+      'Open in main window',
       '-',
       'Copy link',
       'Copy branch name',
@@ -952,7 +952,7 @@ describe('the todo menus', () => {
     const t = fx.todo({ due: '2026-10-02' });
     const ops: TodoOp[] = [];
     const menu = todoMenu(t, { report, start: noop, reveal: noop, edit: { run: (op) => ops.push(op) }, desktop: new Set() });
-    expect(labels(menu)).toEqual(['Start session…', 'Show in Codealong', '-', 'Todo', 'In progress', 'Done', 'Ready for review', '-', 'Due date ›', '-', 'Pin to desktop', '-', 'Copy as prompt', 'Copy todo ID', '-', 'Archive todo']);
+    expect(labels(menu)).toEqual(['Start session…', 'Open in main window', '-', 'Todo', 'In progress', 'Done', 'Ready for review', '-', 'Due date ›', '-', 'Pin to desktop', '-', 'Copy as prompt', 'Copy todo ID', '-', 'Archive todo']);
     // No picker here, and the day it's due is checked.
     expect(labels(submenu(menu, 'Due date'))).toEqual(['Today', 'Tomorrow', 'Monday', 'Next Friday', '-', 'Remove due date']);
     expect(checked(submenu(menu, 'Due date'))).toEqual(['Today']);

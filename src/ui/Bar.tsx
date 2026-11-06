@@ -742,7 +742,7 @@ export function Bar() {
     const menu: MenuSpec = snoozed.map((i) => ({
       label: `${i.title} · ${placeOf(i.project, i.callsign)} · until ${untilWords(i.snoozedUntil, t)}`,
       items: [
-        { label: 'Show in Codealong', run: () => reveal(i) },
+        { label: 'Open in main window', run: () => reveal(i) },
         { label: i.target?.label ?? openWords(i.openTarget, i.terminal ?? terminal), run: () => wakeAndOpen(i) },
         'separator',
         { label: 'Wake now', run: () => snoozeDone([i.key], 'snoozed')(snoozeAhead([i.key], null)) },

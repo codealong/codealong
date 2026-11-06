@@ -228,7 +228,7 @@ export function Waiting() {
   const revealSession = (lane: Lane, s: Session) => void showMain({ kind: 'session', laneId: lane.id, key: s.key });
   const revealPr = (pr: PrItem, tab?: PrTab | null) => void showMain({ kind: 'pr', key: pr.key, tab: tab ?? undefined });
   const revealLane = (lane: Lane) => void showMain({ kind: 'worktree', laneId: lane.id });
-  // A view's keys: Codealong's window comes forward over this one, as Show in Codealong has it.
+  // A view's keys: Codealong's window comes forward over this one, as Open in main window has it.
   useViewKeys();
   // View › Reload with this window in front reloads it as ⌘R on its card does.
   const reportNow = useLatest(report);

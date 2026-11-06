@@ -41,7 +41,7 @@ projects… the list. ⇧⌘S,
 board as Kanban and as Canvas (B for board: ⇧⌘C is often a clipboard manager's), from a text field
 too. In the windows that float (the notch's session, the quick panel, the waiting window, the
 peek and a session kept on the desktop) they bring Codealong's window forward on that view, putting
-the notch's session, the quick panel and the peek away as Show in Codealong does. A view in the
+the notch's session, the quick panel and the peek away as Open in main window does. A view in the
 sidebar shows its keys while you point at it (the folded rail says them; the Board's are those of
 the layout a click on it shows); ⌃Tab and ⌃⇧Tab go through
 the views (`v` too, outside Sessions), ⌥↑ ⌥↓ move along a list as the arrows do, and ⌃⌘↑ ⌃⌘↓ reorder
@@ -2681,7 +2681,7 @@ its details and a box that reviews it (⌘⏎ approves, ⌥⌘⏎ comments, Revi
 review on an account, as below). A click on a session's PR chip, or on a link to a PR in its
 conversation, shows that PR here in the session's place, waiting on your review or not, with a link
 back to the session over its title; once it's merged, reviewed or snoozed, the window goes back to
-the session rather than on, and says there how the PR went. Show in Codealong, in the PR's menu,
+the session rather than on, and says there how the PR went. Open in main window, in the PR's menu,
 still opens it in the main window. The box's other side, Ask (or `/side` and a question on Review), puts
 questions about the PR to an agent on a Claude Code or Codex account (Auto's, on its own model and
 effort, or one picked beside Ask in the agent menu, with a model and effort of its own): Codealong
@@ -2827,8 +2827,10 @@ has the session's menu, as everywhere else. Until you click in it, the peek foll
 pill to pill and closes once the pointer leaves it; pills that shift under a still pointer as
 sessions change groups don't move it. Once you've clicked in it, it stays on its session whatever
 the bar does, until you send, press Escape or click somewhere else. Its header has the ways to open
-the session, the check that marks it seen, the pin and ⋯; snoozing, archiving, pinning, renaming and
-showing it in Codealong are in the ⋯ menu and the right-click menu, and the Sessions list's
+the session, Main window (its icon alone in the peek, where there's less room), which brings
+Codealong's window forward on the session, the check that marks it seen, the pin and ⋯, and the notch's
+session and the waiting window have the same; snoozing, archiving, pinning, renaming and Open in main
+window are in the ⋯ menu and the right-click menu, and the Sessions list's
 shortcuts work on it once it has the keyboard (⌘E seen, ⌃⌘A archive, ⌃⌘R rename, ⌃⌘P pin in
 Sessions). The pin **keeps the session on the desktop**: it gets a window of its own where the peek
 is, which stays up whatever you do, floating over every window as the cards pinned to the desktop
@@ -2990,7 +2992,7 @@ the notch too, in the session's place, whether it waits on your review or not, w
 the session over its title (⌃- goes back as well). Merged, reviewed or snoozed there, the PR goes
 back to the session rather than on, and the session's strip says how the PR went, as a PR shown
 from a session's panel in the main window leads back to it. Snooze is dimmed on the strip while
-your review isn't asked for, and Show in Codealong in the PR's menu still opens it in the main
+your review isn't asked for, and Open in main window in the PR's menu still opens it in the main
 window. One the queue goes on to later, as a review, leads back nowhere, however you come back to it.
 The pill of the one shown is marked. Marked seen, snoozed, closed or archived, a session leaves what
 waits on you and the next takes its place. With none left, the end of what waits does (⌘⏎ goes on
@@ -3126,8 +3128,8 @@ of the editors, Open folder in your terminal: a new terminal in the session's ow
 was started in when that's inside its worktree, else the worktree's), placed as any new terminal is.
 Picking another editor there makes it yours, as Codex's Open button remembers its last. A session
 Codealong runs lives in its panel in the main window: from the bar, the notch, the waiting window or
-a card, Show in Codealong brings that up, and in the panel itself the Open button leads with Open
-folder in your editor. A session's tab that comes forward on another screen than the pointer's is outlined for a moment, and
+a card, its Open button says Show in Codealong and brings that up (so it has no Main window beside
+it), and in the panel itself the Open button leads with Open folder in your editor. A session's tab that comes forward on another screen than the pointer's is outlined for a moment, and
 `move_pointer` moves the pointer to it.
 
 ### Previews

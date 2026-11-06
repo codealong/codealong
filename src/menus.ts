@@ -412,7 +412,7 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
   const merges = can.mergeDone && mergesWith(can.mergeDone.prs, s);
   const ownTerminal = can.ownTerminal && { label: can.ownTerminal.has ? 'Show terminal' : 'New terminal', run: can.ownTerminal.run };
   return {
-    // One on another device opens on its own Mac (peerfeed.rs `shareable`): Show in Codealong reads it.
+    // One on another device opens on its own Mac (peerfeed.rs `shareable`): Open in main window reads it.
     open: s.openTarget ? { label: openLabel(lane, s, can.terminal), run: () => can.open(lane, s.openTarget) } : undefined,
     resume: resumeTo.length > 1 ? { label: cutOff ? 'Carry on in' : 'Resume in', items: resumeTo.map((to) => ({ label: to.label, run: () => void resume(to) })) } : undefined,
     terminal: ownTerminal ?? (opensInEditor(lane) ? { label: `Open folder in ${can.terminal}`, run: () => can.open(lane, terminalTarget(s.key)) } : undefined),
@@ -422,7 +422,7 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
     // Its tab in Chrome, in whichever profile's window has it; Chrome here, so not for a session
     // on another device.
     chrome: here && s.chrome ? { label: chromeLabel(s.chrome), run: () => can.open(lane, `s|${s.key}|chrome`) } : undefined,
-    reveal: can.reveal && { label: 'Show in Codealong', run: can.reveal },
+    reveal: can.reveal && { label: 'Open in main window', run: can.reveal },
     reply: can.reply && { label: 'Reply here', run: can.reply },
     newSession: newSessionItem(lane, can.newSession),
     // Forks open in a terminal, where only sessions that resume in one can go.
@@ -1027,7 +1027,7 @@ export function laneActions(lane: Lane, can: LaneCan): LaneActions {
     finder: other('l|finder'),
     preview: other('l|preview'),
     pr: prItem(lane, report),
-    reveal: can.reveal && { label: 'Show in Codealong', run: can.reveal },
+    reveal: can.reveal && { label: 'Open in main window', run: can.reveal },
     newSession: newSessionItem(lane, can.newSession),
     setPreview: can.setPreview && !lane.device ? { label: lane.preview?.set ? 'Change preview URL…' : 'Set preview URL…', run: can.setPreview } : undefined,
     automation: can.automation && lane.repoSlug && !lane.device ? { label: `Automation for ${lane.repoSlug}…`, run: () => can.automation?.(lane.repoSlug ?? '') } : undefined,
@@ -1314,7 +1314,7 @@ export function prMenu(pr: Pick<Pr, 'url' | 'number'> & { head?: string | null; 
       { label: 'Open on GitHub', run: can.open ?? (() => void openUrl(pr.url).catch((e: unknown) => report.error(errorText(e)))) },
       ...(s ? [{ label: s.session.live ? 'Open its session' : 'Open its latest session', run: s.open }] : []),
       ...(can.review ? [{ label: 'Review with', items: can.review }] : []),
-      ...(can.reveal ? [{ label: 'Show in Codealong', run: can.reveal }] : []),
+      ...(can.reveal ? [{ label: 'Open in main window', run: can.reveal }] : []),
     ],
     [...(can.approve ? [{ label: `Approve #${pr.number}`, run: can.approve }] : []), ...some(can.snooze), ...some(nudgeItem(pr, report)), ...some(primaryItem(pr, can.lanes, report))],
     [...some(can.pin), ...(can.desktop && pr.key ? [desktopItem('pr', pr.key, can.desktop, report)] : [])],
@@ -1497,7 +1497,7 @@ export function todoMenu(t: Todo, can: TodoCan): MenuSpec {
     [
       { label: 'Start session…', run: can.start },
       ...(s ? [{ label: `Open ${s.session.account}: ${s.session.title.slice(0, 48)}`, run: s.open }] : []),
-      ...(can.reveal ? [{ label: 'Show in Codealong', run: can.reveal }] : []),
+      ...(can.reveal ? [{ label: 'Open in main window', run: can.reveal }] : []),
     ],
     edit ? [...statusItems([t], edit), ...waitingItems([t], edit, report), ...reviewItems([t], edit), 'separator', dueItem([t], edit), ...labelsItems(t, edit), ...projectItems(t, edit)] : [],
     can.desktop ? [desktopItem('todo', t.id, can.desktop, report)] : [],

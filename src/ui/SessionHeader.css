@@ -15,6 +15,7 @@
   align-items: flex-start;
   gap: var(--space-1) var(--space-2);
   min-width: 0;
+  container: sessiontop / inline-size;
 }
 .ca-sessinsp-top > .ca-glyph,
 .ca-sessinsp-top > svg {
@@ -47,6 +48,18 @@
 }
 .ca-sessinsp-tools > .ca-btn {
   flex: none;
+}
+/* Main window, in a card: its words while the title keeps room beside them (the notch, a wide
+   waiting window), its icon alone where the card is narrow (the peek), as the buttons beside it
+   are. */
+@container sessiontop (max-width: 520px) {
+  .ca-sessinsp-tomain.ca-btn--sm {
+    width: 24px;
+    padding: 0;
+  }
+  .ca-sessinsp-tomain > span {
+    display: none;
+  }
 }
 /* The Open menu opens under its button toward the panel, not past the window's edge, and keeps
    to a width that fits the narrowest panel: a long title or folder under an item is cut short. */

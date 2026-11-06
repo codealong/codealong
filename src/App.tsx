@@ -1400,7 +1400,7 @@ export function App() {
   });
 
   // A session moved from Sessions' panel (`moving`): once the board lists its copy, the copy is
-  // selected where the list has it, else shown as Show in Codealong shows a session, since the
+  // selected where the list has it, else shown as Open in main window shows a session, since the
   // filters may leave it out. A PR opened from its chip meanwhile stays in the panel, its way
   // back going to the copy. Another row selected or rows picked together let it go, as does a
   // copy that isn't listed within a minute.

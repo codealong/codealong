@@ -591,7 +591,7 @@ enum SessionsCmd {
 enum SessionCmd {
     /// One session in full.
     Show { key: String },
-    /// Show a session in the Codealong app: its window comes forward on the session's row in Sessions, with its conversation in the panel beside it, as Show in Codealong does in the floating bar. Nothing is opened where the session runs (its terminal, the Claude or Codex app). The app opens on it when it isn't open.
+    /// Show a session in the Codealong app: its window comes forward on the session's row in Sessions, with its conversation in the panel beside it, as Open in main window does in the floating bar. Nothing is opened where the session runs (its terminal, the Claude or Codex app). The app opens on it when it isn't open.
     Open {
         /// The session: its key, its id, a unique start of its id, or `me`.
         key: String,

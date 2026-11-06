@@ -1,7 +1,8 @@
 // Checks another device's session in the bar docked in the notch (Bar.tsx, NotchSession.tsx): its
 // pill carries its device's color and says the device in its tooltip, a click opens the notch on
 // it with its conversation read from that device (session_at, which finds it among your devices'
-// worktrees) and its header saying the device, still so after going on to another of that
+// worktrees) and its header saying the device, with Main window though Codealong runs it there
+// (there's no Open button here), still so after going on to another of that
 // device's; a double-click, with nothing to open here, shows it in Codealong; and it can be kept on
 // the desktop and its pill dragged there, as this Mac's can.
 //   PREVIEW_DEVICES=scripts/preview/devices-sample.json PREVIEW_SIZE=1512,980 PREVIEW_WAIT=60000 scripts/preview.sh notch '' scripts/preview/notch-devices-check.js
@@ -18,6 +19,20 @@
     el.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, button: type === 'pointerdown' ? 0 : -1, buttons: 1, screenX: x, screenY: y, clientX: x, clientY: y, pointerType: 'mouse' }));
   };
   var invoke = function (cmd, args) { return window.__TAURI_INTERNALS__.invoke(cmd, args || {}); };
+  var toMain = function () { return document.querySelector('.ca-notch-session .ca-sessinsp-tomain'); };
+  // The device's sessions are ones Codealong runs there: their header has no Open button here,
+  // so Main window stays (SessionHeader.tsx), where one run here leaves it to Open.
+  var real = window.__TAURI_INTERNALS__.invoke;
+  window.__TAURI_INTERNALS__.invoke = function (cmd) {
+    var p = real.apply(this, arguments);
+    if (cmd !== 'devices') return p;
+    return p.then(function (v) {
+      (v.lanes || []).forEach(function (l) {
+        l.sessions = l.sessions.map(function (s) { return Object.assign({}, s, { hosted: true }); });
+      });
+      return v;
+    });
+  };
 
   // One of this Mac's sessions on the bar and one of a connected device's, made from what the
   // board and your devices have, whatever those sessions are doing.
@@ -67,6 +82,7 @@
       check('read through session_at', sent('session_at').some(function (a) { return a.key === theirs.key; }));
       check('it can be kept on the desktop', !!keep());
       check('its header says the device', badge() === 'On ' + theirs.device.name, badge() || 'none');
+      check('run by Codealong there, its header still has Main window', !!toMain());
       pill(next.key).click();
       return until(function () { return is('session') && title().indexOf(next.title.slice(0, 20)) === 0; }, 5000, 'the device’s next session');
     })

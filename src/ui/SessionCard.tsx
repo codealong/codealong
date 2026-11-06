@@ -66,7 +66,7 @@ interface SessionCardProps extends Pick<SessionPanelProps, 'zoom' | 'queue' |'no
   onShowSession: (lane: Lane, session: Session) => void;
   onShowLane: (lane: Lane) => void;
   onShowTodo: (todo: Todo) => void;
-  /** Shows a PR the board lists in the main window: Show in Codealong, in its menu, and a click
+  /** Shows a PR the board lists in the main window: Open in main window, in its menu, and a click
    *  on its chip without `onFollowPr`. */
   onShowPr?: (pr: PrItem) => void;
   /** A click on the chip of a PR the board lists: shows its card in this window, in the session's

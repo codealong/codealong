@@ -1951,9 +1951,9 @@ Commands:
   show        One session in full
   open        Show a session in the Codealong app: its window comes forward on the
               session's row in Sessions, with its conversation in the panel beside it,
-              as Show in Codealong does in the floating bar. Nothing is opened where the
-              session runs (its terminal, the Claude or Codex app). The app opens on it
-              when it isn't open
+              as Open in main window does in the floating bar. Nothing is opened where
+              the session runs (its terminal, the Claude or Codex app). The app opens on
+              it when it isn't open
   send        Send a message to another session where it runs, on any account or
               harness. It's never your user's word: the message starts by saying it's
               from another agent and not the user, which session sent it, and how to
@@ -2152,8 +2152,8 @@ Options:
 
 ```
 Show a session in the Codealong app: its window comes forward on the session's row in
-Sessions, with its conversation in the panel beside it, as Show in Codealong does in the
-floating bar. Nothing is opened where the session runs (its terminal, the Claude or
+Sessions, with its conversation in the panel beside it, as Open in main window does in
+the floating bar. Nothing is opened where the session runs (its terminal, the Claude or
 Codex app). The app opens on it when it isn't open
 
 Usage: codealong session open [OPTIONS] <KEY>

@@ -22,13 +22,16 @@
 //
 // A session Codealong runs lives in the main window's panel, so there its Open button doesn't
 // offer to show what's already showing: it leads with its folder in your editor. Elsewhere it
-// says Show in Codealong, which brings the panel up.
+// says Show in Codealong, which brings the panel up. Any other session shown as a card (the
+// notch, the peek, a kept session, the waiting window) has Main window beside its Open button,
+// which brings that panel up on it as Open in main window in its ⋯ menu does: the menu alone hid
+// it. It's the icon alone where the card is narrow (the peek).
 //
 // A window says what it can do by what it passes: the main window can expand the panel, the peek
 // can keep the session on the desktop and a session kept there can be closed, and Rename in a
 // menu shows the name as a field. The rest of what can be done to it (snoozing, archiving,
-// pinning, showing it in Codealong) is in its ⋯ menu, which a right-click anywhere on the header
-// gives too, so the row of buttons stays short and is the same in every window. A PR and a
+// pinning) is in its ⋯ menu, which a right-click anywhere on the header gives too, so the row of
+// buttons stays short and is the same in every window. A PR and a
 // session the header names keep their own menus, and the name's field its copy and paste. What a
 // window doesn't know (the PRs, the todos, the sessions around it) it leaves out, and that line
 // isn't there.
@@ -367,6 +370,9 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
   // Seen where the window says how, else by the session's own action, when it has a turn to see.
   const seen = seenAbove ? undefined : onSeen ? (seenable(s) ? onSeen : undefined) : actions?.seen?.run;
   const branch = s.branch ?? lane.branch;
+  // Main window, in the windows that show a session as a card: not for a session Codealong runs
+  // here, whose Open button goes there already. One on another device has no Open button.
+  const toMain = !inMain && !(s.hosted && !device) ? actions?.reveal : undefined;
 
   return (
     <header className="ca-sessinsp-head" onContextMenu={headerMenu(onMenu && (() => onMenu()))}>
@@ -392,6 +398,11 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
           ) : shownHere ? null : (
             <Button size="sm" icon="arrow-up-right" onClick={() => onOpen(s.openTarget)}>
               Open in {sessionPlace(s, apps.terminal)}
+            </Button>
+          )}
+          {toMain && (
+            <Button variant="ghost" size="sm" icon="layout-sidebar" aria-label={toMain.label} title={`${toMain.label}: Codealong’s window comes forward on this session`} className="ca-sessinsp-tomain" onClick={toMain.run}>
+              Main window
             </Button>
           )}
           {seen && <Button variant="ghost" size="sm" icon="check" aria-label="Mark as seen" title={keysIn('Mark as seen: it goes idle and leaves the bar (⌘E)')} className="ca-sessinsp-seen" onClick={seen} />}
