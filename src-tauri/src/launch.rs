@@ -1026,9 +1026,10 @@ pub struct Closing<'a> {
     pub hang_up: Vec<u32>,
     /// Set for a close nobody asked for (hibernate.rs), which goes only to a terminal that leaves
     /// the tab you're in (`Terminal::spares_yours`), and only once it's known which tab that is
-    /// (`tabs_youre_in`). It's asked once the tab is found, just before what runs there is hung
-    /// up, whether the tab may still close: the finding can take seconds, waiting its turn behind
-    /// a send into another tab.
+    /// (`tabs_youre_in`). It's asked once the tab is found and which tab you're in has been
+    /// answered, just before what runs there is hung up, whether the tab may still close: finding
+    /// it can take seconds, waiting its turn behind a send into another tab, and so can the answer.
+    /// So it must answer at once, its slow looks (a process listing) taken before the close.
     pub unasked: Option<&'a dyn Fn() -> bool>,
 }
 
@@ -1076,31 +1077,22 @@ pub fn close_terminals(tabs: &[Closing]) -> Vec<Result<()>> {
 /// it, and its TTY is free for a new tab to take, which the script would close in its place.
 fn close_tty_terminals(tabs: &[&Closing], app: &str, bundle: Option<&str>, ttys: fn() -> Result<Vec<String>>, in_front: fn() -> Result<Vec<String>>, close: fn(&[&str]) -> Result<()>) -> Result<Vec<Result<()>>> {
     let listed = ttys()?;
+    let front = tabs_youre_in(tabs, in_front(), bundle);
     let mut out: Vec<Result<()>> = Vec::new();
-    // (index, tty) of the ones found, a close nobody asked for asked first whether it may still go.
-    let mut found = Vec::new();
+    // (index, tty) of the ones to end.
+    let mut ending = Vec::new();
     for (i, tab) in tabs.iter().enumerate() {
         out.push(match tty_of(tab.pid).map(|t| t.to_string_lossy().into_owned()) {
             None => Err(anyhow!("It has no terminal tab.")),
             Some(tty) if !listed.contains(&tty) => Err(anyhow!("Couldn't find its {app} tab.")),
-            Some(tty) => match unasked_used(tab) {
+            Some(tty) => match stays(tab, front.as_deref(), &tty) {
                 Some(why) => Err(why),
                 None => {
-                    found.push((i, tty));
+                    ending.push((i, tty));
                     Ok(())
                 }
             },
         });
-    }
-    // Which tab you're in, after what took a moment and just before the hang-up.
-    let front = tabs_youre_in(tabs, in_front(), bundle);
-    // (index, tty) of the ones to end.
-    let mut ending = Vec::new();
-    for (i, tty) in found {
-        match front_stays(tabs[i], front.as_deref(), &tty) {
-            Some(why) => out[i] = Err(why),
-            None => ending.push((i, tty)),
-        }
     }
     let last: Vec<bool> = ending.iter().map(|(i, _)| tabs[*i].hang_up.contains(&tabs[*i].pid) && shell_of(tabs[*i].pid) == Some(tabs[*i].pid)).collect();
     let stayed = hang_up_tabs(&ending.iter().map(|(i, _)| tabs[*i]).collect::<Vec<_>>());
@@ -1142,22 +1134,18 @@ fn tabs_youre_in(tabs: &[&Closing], asked: Result<Vec<String>>, bundle: Option<&
     }
 }
 
-/// Why a close nobody asked for stays, its tab found (`Closing::unasked`): it says it may no longer
-/// close. None when it goes, and for a close you asked for. Asked before which tab you're in
-/// (`front_stays`), as the asking can take a moment, in which you could come to the tab.
-fn unasked_used(tab: &Closing) -> Option<anyhow::Error> {
+/// Why the tab `id` stays, its tab found and which tab you're in answered (`front`, None when
+/// that isn't known, `tabs_youre_in`), just before the hang-up: it's the one you're in; or it's a
+/// close nobody asked for and that isn't known, or it says it may no longer close
+/// (`Closing::unasked`), asked last, after both slow answers. None when it goes.
+fn stays(tab: &Closing, front: Option<&[String]>, id: &str) -> Option<anyhow::Error> {
+    match front {
+        Some(front) if front.iter().any(|f| f == id) => return Some(anyhow!("It's the tab you're in.")),
+        None if tab.unasked.is_some() => return Some(anyhow!("Couldn't tell whether it's the tab you're in.")),
+        _ => {}
+    }
     let still = tab.unasked?;
     (!still()).then(|| anyhow!("It was used since it was looked at."))
-}
-
-/// Why the tab `id` stays, asked just before the hang-up: it's the one you're in (`front`), or it's
-/// a close nobody asked for and which tab you're in isn't known (`front` None, `tabs_youre_in`).
-fn front_stays(tab: &Closing, front: Option<&[String]>, id: &str) -> Option<anyhow::Error> {
-    match front {
-        Some(front) if front.iter().any(|f| f == id) => Some(anyhow!("It's the tab you're in.")),
-        None if tab.unasked.is_some() => Some(anyhow!("Couldn't tell whether it's the tab you're in.")),
-        _ => None,
-    }
 }
 
 fn hang_up_tabs(tabs: &[&Closing]) -> Vec<Option<u32>> {

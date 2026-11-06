@@ -1367,22 +1367,22 @@ mod tests {
         let p = played(ghostty("\n"), move || close_terminals(&[unasked(IN_GHOSTTY, &|| true)]));
         assert_eq!(said(&p.got), ["Couldn't tell whether it's the tab you're in."]);
 
-        // Come to while it was asked whether it may still go, which can take a moment: which tab
-        // you're in is asked after it, so that one stays.
-        let switched = Rc::new(Cell::new(false));
-        let shows = switched.clone();
+        // A prompt came in while the terminal took its time to say which tab you're in, another:
+        // whether it may still go is asked after that answer, so it stays.
+        let prompted = Rc::new(Cell::new(false));
+        let comes = prompted.clone();
         let answer = move |s: &Sent| match s.what.as_str() {
-            "ITERM_IN_FRONT" => Ok(if shows.get() { "/dev/ttys201\n" } else { "/dev/ttys200\n" }.to_string()),
+            "ITERM_IN_FRONT" => {
+                comes.set(true);
+                Ok("/dev/ttys200\n".to_string())
+            }
             _ => iterm(Ok("/dev/ttys200\n"))(s),
         };
         let p = played(answer, move || {
-            let check = move || {
-                switched.set(true);
-                true
-            };
+            let check = move || !prompted.get();
             close_terminals(&[Closing { pid: IN_ITERM, cwd: dir, hang_up: vec![IN_ITERM], unasked: Some(&check) }])
         });
-        assert_eq!(said(&p.got), ["It's the tab you're in."]);
+        assert_eq!(said(&p.got), ["It was used since it was looked at."]);
         assert!(!hung_up(&p.log), "{:?}", p.log);
 
         // tmux closes a pane without asking which you're in, so it isn't sent one.

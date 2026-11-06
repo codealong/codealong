@@ -631,27 +631,17 @@ fn close_tabs(tabs: &[&Closing], bundle: Option<&str>) -> Result<Vec<Result<()>>
             .unwrap_or_else(|| tabs[*i].cwd.to_string_lossy().into_owned());
         let _ = write_osc7(tty, &real);
     }
-    // (index, terminal id) of the ones found, a close nobody asked for asked first whether it may
-    // still go.
-    let mut found = Vec::new();
-    for (j, (i, _, _)) in marked.iter().enumerate() {
-        match &ids[j] {
-            None => out[*i] = Err(anyhow!("Couldn't find its Ghostty tab.")),
-            Some(id) => match super::unasked_used(tabs[*i]) {
-                Some(why) => out[*i] = Err(why),
-                None => found.push((*i, id.clone())),
-            },
-        }
-    }
-    // Which tab you're in, after what took a moment and just before the hang-up.
     let asked = osascript(GHOSTTY_IN_FRONT, &[]).map(|s| Some(s.trim().to_string()).filter(|id| !id.is_empty()).into_iter().collect());
     let front = super::tabs_youre_in(tabs, asked, bundle);
     // (index, terminal id) of the ones to end.
     let mut ending = Vec::new();
-    for (i, id) in found {
-        match super::front_stays(tabs[i], front.as_deref(), &id) {
-            Some(why) => out[i] = Err(why),
-            None => ending.push((i, id)),
+    for (j, (i, _, _)) in marked.iter().enumerate() {
+        match &ids[j] {
+            None => out[*i] = Err(anyhow!("Couldn't find its Ghostty tab.")),
+            Some(id) => match super::stays(tabs[*i], front.as_deref(), id) {
+                Some(why) => out[*i] = Err(why),
+                None => ending.push((*i, id.clone())),
+            },
         }
     }
     let stayed = hang_up_tabs(&ending.iter().map(|(i, _)| tabs[*i]).collect::<Vec<_>>());

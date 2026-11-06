@@ -33,9 +33,10 @@
 //!
 //! The server looks once a minute on a thread of its own (`spawn`), not as the board changes: a
 //! board that sits still is what a session crossing the wait looks like. Each session is looked at
-//! again, board and keys, before its tab is looked for, and once more after it's found, just
-//! before its agent is hung up or its job stopped (`asked_again`): finding a tab can wait its turn
-//! behind a send.
+//! again, board and keys, before its tab is looked for, and once more after it's found and its
+//! terminal has said which tab you're in, just before its agent is hung up or its job stopped
+//! (`asked_again`): either can wait its turn behind a send. That last look answers at once, the
+//! process listing it needs taken before.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -246,7 +247,8 @@ fn one(engine: &Handle, cfg: &Config, key: &str) {
 fn close_terminal(engine: &Handle, c: &Idle) -> Result<&'static str, String> {
     let pid = c.pid.ok_or("it has no terminal")?;
     let only = |p: u32| p == pid;
-    let check = || asked_again(engine, &c.key, Some(pid), &only);
+    let listed = listing();
+    let check = || asked_again(engine, &c.key, Some(pid), &only, &listed);
     let closing = crate::launch::Closing { pid, cwd: Path::new(&c.cwd), hang_up: vec![pid], unasked: Some(&check) };
     match crate::launch::close_terminals(&[closing]).pop() {
         Some(Ok(())) => Ok("its terminal closed"),
@@ -260,16 +262,18 @@ fn close_terminal(engine: &Handle, c: &Idle) -> Result<&'static str, String> {
 /// the job, asked once more, with no tab attached to it since.
 fn stop_job(engine: &Handle, board: &Board, c: &Idle) -> Result<&'static str, String> {
     let (_, s) = board.session(&c.key).ok_or("it isn't on the board any more")?;
-    let tabs = attached_now(s.attach_command.as_deref().unwrap_or_default()).ok_or("couldn't tell which tabs are attached to it")?;
+    let listed = listing();
+    let tabs = attached_in(&listed, s.attach_command.as_deref().unwrap_or_default()).ok_or("couldn't tell which tabs are attached to it")?;
     if !tabs.is_empty() {
         let shown = |p: u32| tabs.contains(&p);
-        let check = || asked_again(engine, &c.key, None, &shown);
+        let check = || asked_again(engine, &c.key, None, &shown, &listed);
         let closing: Vec<crate::launch::Closing> = tabs.iter().map(|&pid| crate::launch::Closing { pid, cwd: Path::new(&s.cwd), hang_up: vec![pid], unasked: Some(&check) }).collect();
         if let Some(Err(e)) = crate::launch::close_terminals(&closing).into_iter().find(|r| r.is_err()) {
             return Err(format!("a tab attached to it stays: {e:#}"));
         }
     }
-    if !asked_again(engine, &c.key, None, &|_| false) {
+    // The processes listed again now the tabs are closed: one attached since would see it end.
+    if !asked_again(engine, &c.key, None, &|_| false, &listing()) {
         return Err("it changed, or a tab was attached to it, as it was about to stop".into());
     }
     let cfg = crate::config::current().map_err(crate::util::words)?;
@@ -282,13 +286,12 @@ fn stop_job(engine: &Handle, board: &Board, c: &Idle) -> Result<&'static str, St
 /// Whether `key` may still hibernate, asked of the board, the settings and this Mac as they are
 /// now, just before its agent is hung up or its job stopped: the plan's own rules, with
 /// `closable` the tabs about to close, and it named as it was (`pid`, its terminal's process; None
-/// for a job). The processes are listed first, once, and the settings and the board read after:
-/// nothing slow comes between them and the answer. The terminal asks which tab you're in after it
-/// (`launch::front_stays`), just before the hang-up.
-fn asked_again(engine: &Handle, key: &str, pid: Option<u32>, closable: &dyn Fn(u32) -> bool) -> bool {
-    let listed = crate::procs::list(Duration::from_secs(10));
+/// for a job). It answers at once: the processes were listed before (`listed`), and the settings,
+/// the board and what was typed are read now, after the terminal has said which tab you're in
+/// (`launch::Closing::unasked`).
+fn asked_again(engine: &Handle, key: &str, pid: Option<u32>, closable: &dyn Fn(u32) -> bool, listed: &[PsLine]) -> bool {
     let Ok(cfg) = crate::config::current() else { return false };
-    let attached = |attach: &str| attached_in(&listed.lines, attach);
+    let attached = |attach: &str| attached_in(listed, attach);
     still(&engine.board(), &cfg, crate::util::now_ms(), key, pid, &Looks { closable, typed: Some(&typed_at), attached: &attached })
 }
 
@@ -318,10 +321,9 @@ fn typed_at(pid: u32) -> Option<i64> {
     Some(m.atime() * 1000 + m.atime_nsec() / 1_000_000)
 }
 
-/// The processes running `attach` (a background job's attach command) now; None when the
-/// processes couldn't be listed.
-fn attached_now(attach: &str) -> Option<Vec<u32>> {
-    attached_in(&crate::procs::list(Duration::from_secs(10)).lines, attach)
+/// The processes now, each with its command line; none when they couldn't be listed.
+fn listing() -> Vec<PsLine> {
+    crate::procs::list(Duration::from_secs(10)).lines
 }
 
 /// The processes in `lines` that run `attach`, by its last two words (`attach <job>`): what comes
