@@ -1532,11 +1532,12 @@ fn stopping<T, E: std::fmt::Display>(s: &crate::model::Session, who: &str, act: 
 
 /// Ends a session that asked from the command to be ended once its turn ended (agentdone.rs), as
 /// Mark as done ends one, but leaves it unseen and unarchived: its last reply is its user's to
-/// read. With `archive` (its user asked it to close) it's then marked seen and archived, its
-/// helpers with it, as `finish` does, unless ending it didn't go as asked: a terminal left open,
-/// a background job still running or a worktree kept is its user's to see, in Your turn. That
-/// it can't be closed at all (an app's session, a terminal another session shows) is no reason
-/// to keep it, as for Mark as done. Says what happened, or why nothing did.
+/// read. With `archive` (its user asked it to close, and agentdone.rs found its reply asks them
+/// nothing) it's then archived and marked seen, its helpers with it, as `finish` does, unless
+/// ending it didn't go as asked: a terminal left open, a background job still running, a
+/// worktree kept or an archive its harness refused is its user's to see, in Your turn. That it
+/// can't be closed at all (an app's session, a terminal another session shows, one no longer
+/// running) is no reason to keep it, as for Mark as done. Says what happened, or why nothing did.
 pub fn end_after_turn(engine: &Handle, key: &str, archive: bool) -> Result<String, String> {
     let cfg = cfg()?;
     let board = engine.board();
@@ -1553,8 +1554,12 @@ pub fn end_after_turn(engine: &Handle, key: &str, archive: bool) -> Result<Strin
     if archive && went_wrong {
         said.push("It stays in Your turn, not archived, for its user to see.".into());
     } else if archive {
+        // Archived first: one its harness won't archive stays unread, in Your turn.
+        if let Err(e) = engine.archive(key, true) {
+            said.push(format!("It wasn't archived, so it stays in Your turn: {}", words(e)));
+            return Ok(said.join(" "));
+        }
         engine.mark_seen(vec![key.to_string()]);
-        engine.archive(key, true).map_err(words)?;
         said.push("It's marked seen and archived, as its user asked.".into());
         if let (Some(helped), _) = finish_helpers(engine, &board, &cfg, key, false, who) {
             said.push(helped);

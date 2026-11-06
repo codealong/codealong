@@ -125,17 +125,28 @@ pub fn verdict(s: &Session, now: i64, after_ms: i64) -> Result<String, String> {
     if s.status == Status::Unread {
         why.push("last reply unread".into());
     }
-    match s.insight.as_ref().and_then(|i| i.asks_you.map(|p| (p, i.landing.as_deref()))) {
-        Some((p, _)) if p >= ASKS_YOU_KEEP => return Err("last reply may ask you something".into()),
-        Some((_, Some("blocked"))) => return Err("says it's blocked".into()),
-        Some((_, landing)) => why.push(match landing.filter(|l| *l != "none") {
+    let read = s.insight.as_ref().and_then(|i| i.asks_you.map(|_| i.landing.as_deref()));
+    if reply_asks(s) {
+        return Err(if read.is_some() { "last reply may ask you something" } else { "last reply asks a question" }.into());
+    }
+    match read {
+        Some(Some("blocked")) => return Err("says it's blocked".into()),
+        Some(landing) => why.push(match landing.filter(|l| *l != "none") {
             Some(l) => format!("Jev: asks nothing, work {l}"),
             None => "Jev: asks nothing".into(),
         }),
-        None if s.reply_tail.as_deref().is_some_and(|t| t.trim_end().ends_with('?')) => return Err("last reply asks a question".into()),
         None => why.push("last reply asks nothing".into()),
     }
     Ok(why.join(" · "))
+}
+
+/// Whether a session's last reply may ask you something: by Jev's read of it (or an agent's tag)
+/// when there's one, else by its ending in a question.
+pub fn reply_asks(s: &Session) -> bool {
+    match s.insight.as_ref().and_then(|i| i.asks_you) {
+        Some(p) => p >= ASKS_YOU_KEEP,
+        None => s.reply_tail.as_deref().is_some_and(|t| t.trim_end().ends_with('?')),
+    }
 }
 
 /// What would close: every live session on the board. A terminal's sessions are grouped by its

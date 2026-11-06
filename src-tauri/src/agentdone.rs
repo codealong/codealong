@@ -84,23 +84,32 @@ impl Waiting {
     }
 
     /// The sessions whose turn has ended since they asked, to end now, as `board` shows them at
-    /// `now`. A turn ends when the session stops working, and not at a call it waits on you to
-    /// allow, which is still the turn. One whose turn ended asking you something, or with an
-    /// error, is left as it is, unarchived, and so is one that's gone, isn't running, or
-    /// waited too long. The board can lag a turn that just started: a status from before the ask
-    /// isn't the turn's end.
-    pub fn due(&mut self, board: &Board, now: i64) -> Vec<Due> {
+    /// `now`, `jev` saying whether Jev reads sessions (`[jev] sessions`). A turn ends when the
+    /// session stops working, and not at a call it waits on you to allow, which is still the turn.
+    /// One whose turn ended asking you something, or with an error, is left as it is, unarchived,
+    /// and so is one that's gone or waited too long, or isn't running and has nothing to archive.
+    /// One to archive that has stopped running is archived all the same: a Codex app thread runs
+    /// only while it takes a turn. The board can lag a turn that just started: a status from
+    /// before the ask isn't the turn's end.
+    pub fn due(&mut self, board: &Board, now: i64, jev: bool) -> Vec<Due> {
         let mut out = Vec::new();
         self.asked.retain(|key, &mut Asked { at, archive }| {
             let Some((_, s)) = board.session(key) else { return false };
-            if !s.live || now - at > WAIT_MS {
+            if (!s.live && !archive) || now - at > WAIT_MS {
                 return false;
             }
             let in_turn = s.status == Status::Working || (s.status == Status::Needs && !s.asks);
             if in_turn || s.status_since.unwrap_or(s.last_activity) < at {
                 return true;
             }
-            if matches!(s.status, Status::Unread | Status::Idle | Status::Stopped) {
+            if !matches!(s.status, Status::Unread | Status::Idle | Status::Stopped) {
+                return false;
+            }
+            let archive = match archive.then(|| may_archive(s, jev, now)) {
+                Some(None) => return true,
+                may => may.flatten().unwrap_or(false),
+            };
+            if s.live || archive {
                 out.push(Due { key: key.clone(), archive });
             }
             false
@@ -108,6 +117,27 @@ impl Waiting {
         out.sort_by(|a, b| a.key.cmp(&b.key));
         out
     }
+}
+
+/// How long a turn that ended waits for Jev's read of whether its reply asks its user something
+/// before it's archived or not by its question mark alone: a read takes seconds, and one that
+/// failed never comes.
+const READ_WAIT_MS: i64 = 2 * 60 * 1000;
+
+/// Whether a session whose user asked it to close may be archived now that its turn has ended:
+/// not when its harness cut the turn short (a lost connection, a usage limit), whose reply is an
+/// error, nor when its reply may ask its user something (idle.rs `reply_asks`). None while
+/// Jev's read of that is still to come, `jev` saying whether Jev reads sessions.
+fn may_archive(s: &Session, jev: bool, now: i64) -> Option<bool> {
+    if s.connection_lost.is_some() || s.limit.is_some() || s.cut_off.is_some() {
+        return Some(false);
+    }
+    let read = s.insight.as_ref().is_some_and(|i| i.asks_you.is_some());
+    let ended = s.status_since.unwrap_or(s.last_activity);
+    if jev && !read && now - ended < READ_WAIT_MS && crate::insights::ask(s, now).is_some() {
+        return None;
+    }
+    Some(!crate::idle::reply_asks(s))
 }
 
 fn waiting() -> &'static Mutex<Waiting> {
@@ -124,7 +154,13 @@ pub fn wait_for_turn(key: &str, archive: bool) {
 
 /// The sessions to end now, from each board the engine publishes (serve.rs).
 pub fn due(board: &Board) -> Vec<Due> {
-    waiting().lock().map(|mut w| w.due(board, board.generated_at)).unwrap_or_default()
+    let Ok(mut w) = waiting().lock() else { return Vec::new() };
+    if w.asked.is_empty() {
+        return Vec::new();
+    }
+    // Without settings that read, a reply is taken to ask something by its question mark alone.
+    let jev = crate::config::current().is_ok_and(|c| c.jev.sessions);
+    w.due(board, board.generated_at, jev)
 }
 
 #[cfg(test)]
@@ -189,50 +225,115 @@ mod tests {
         };
         w.ask("me", asked, false);
         // Still in its turn, at a call it waits on you to allow too, or the board not caught up.
-        assert!(w.due(&ended(Status::Working, NOW - 60_000, false), NOW).is_empty());
-        assert!(w.due(&ended(Status::Needs, NOW - 10_000, false), NOW).is_empty());
-        assert!(w.due(&ended(Status::Idle, asked - 1, false), NOW).is_empty());
+        assert!(w.due(&ended(Status::Working, NOW - 60_000, false), NOW, false).is_empty());
+        assert!(w.due(&ended(Status::Needs, NOW - 10_000, false), NOW, false).is_empty());
+        assert!(w.due(&ended(Status::Idle, asked - 1, false), NOW, false).is_empty());
         // Its turn ended: once.
-        assert_eq!(w.due(&ended(Status::Unread, NOW - 10_000, false), NOW), [Due { key: "me".into(), archive: false }]);
-        assert!(w.due(&ended(Status::Unread, NOW - 10_000, false), NOW).is_empty());
+        assert_eq!(w.due(&ended(Status::Unread, NOW - 10_000, false), NOW, false), [Due { key: "me".into(), archive: false }]);
+        assert!(w.due(&ended(Status::Unread, NOW - 10_000, false), NOW, false).is_empty());
 
         // A turn that ended asking you something, or failed, is left as it is, and forgotten.
         for (status, asks) in [(Status::Needs, true), (Status::Error, false)] {
             w.ask("me", asked, false);
-            assert!(w.due(&ended(status, NOW - 10_000, asks), NOW).is_empty(), "{status:?}");
-            assert!(w.due(&ended(Status::Unread, NOW - 5_000, false), NOW).is_empty(), "{status:?} is forgotten");
+            assert!(w.due(&ended(status, NOW - 10_000, asks), NOW, false).is_empty(), "{status:?}");
+            assert!(w.due(&ended(Status::Unread, NOW - 5_000, false), NOW, false).is_empty(), "{status:?} is forgotten");
         }
         // As is one that waited too long, or is gone.
         w.ask("me", asked, false);
-        assert!(w.due(&ended(Status::Working, NOW, false), asked + WAIT_MS + 1).is_empty());
-        assert!(w.due(&ended(Status::Unread, NOW, false), NOW).is_empty());
+        assert!(w.due(&ended(Status::Working, NOW, false), asked + WAIT_MS + 1, false).is_empty());
+        assert!(w.due(&ended(Status::Unread, NOW, false), NOW, false).is_empty());
         w.ask("me", asked, false);
-        assert!(w.due(&board(vec![]), NOW).is_empty());
-        assert!(w.due(&ended(Status::Unread, NOW, false), NOW).is_empty());
+        assert!(w.due(&board(vec![]), NOW, false).is_empty());
+        assert!(w.due(&ended(Status::Unread, NOW, false), NOW, false).is_empty());
+    }
+
+    /// A session whose turn ended at NOW - 10 s, replying `reply`, `change`d.
+    fn ended_with(status: Status, reply: &str, change: impl FnOnce(&mut Session)) -> Board {
+        let mut s = session("me", status);
+        s.status_since = Some(NOW - 10_000);
+        s.last_activity = NOW - 10_000;
+        s.reply_tail = Some(reply.into());
+        change(&mut s);
+        board(vec![s])
+    }
+
+    fn due(key: &str, archive: bool) -> Vec<Due> {
+        vec![Due { key: key.into(), archive }]
     }
 
     #[test]
     fn one_its_user_asked_to_close_is_archived_once_its_turn_ends_unless_it_asks_them_something() {
         let asked = NOW - 30_000;
-        let ended = |status: Status, asks: bool| {
-            let mut s = session("me", status);
-            s.status_since = Some(NOW - 10_000);
-            s.asks = asks;
-            board(vec![s])
-        };
+        let done = "Deleted the branch; this session closes now.";
         let mut w = Waiting::default();
         w.ask("me", asked, true);
-        assert!(w.due(&ended(Status::Working, false), NOW).is_empty());
-        assert_eq!(w.due(&ended(Status::Unread, false), NOW), [Due { key: "me".into(), archive: true }]);
+        assert!(w.due(&ended_with(Status::Working, done, |_| {}), NOW, false).is_empty());
+        assert_eq!(w.due(&ended_with(Status::Unread, done, |_| {}), NOW, false), due("me", true));
         // Asked again without it before its turn ends, it's left for its user to read.
         w.ask("me", asked, true);
         w.ask("me", asked, false);
-        assert_eq!(w.due(&ended(Status::Idle, false), NOW), [Due { key: "me".into(), archive: false }]);
+        assert_eq!(w.due(&ended_with(Status::Idle, done, |_| {}), NOW, false), due("me", false));
         // A turn that ended asking its user something, or failed, is neither ended nor archived.
         for (status, asks) in [(Status::Needs, true), (Status::Error, false)] {
             w.ask("me", asked, true);
-            assert!(w.due(&ended(status, asks), NOW).is_empty(), "{status:?}");
-            assert!(w.due(&ended(Status::Unread, false), NOW).is_empty(), "{status:?} is forgotten");
+            assert!(w.due(&ended_with(status, done, |s| s.asks = asks), NOW, false).is_empty(), "{status:?}");
+            assert!(w.due(&ended_with(Status::Unread, done, |_| {}), NOW, false).is_empty(), "{status:?} is forgotten");
         }
+        // A reply that may ask something, or a turn its harness cut short, is ended and left
+        // for its user to see.
+        let cut_short: [(&str, fn(&mut Session)); 3] = [
+            ("asks", |_| {}),
+            ("connection lost", |s| s.connection_lost = Some(Default::default())),
+            ("cut off", |s| s.cut_off = Some(NOW - 10_000)),
+        ];
+        for (what, change) in cut_short {
+            w.ask("me", asked, true);
+            let reply = if what == "asks" { "Want me to remove the worktree too?" } else { done };
+            assert_eq!(w.due(&ended_with(Status::Unread, reply, change), NOW, false), due("me", false), "{what}");
+        }
+    }
+
+    #[test]
+    fn with_jev_on_it_waits_for_jevs_read_of_the_reply_before_archiving() {
+        let asked = NOW - 30_000;
+        let reply = "Deleted the branch; the worktree is next";
+        let read = |asks_you: f64| move |s: &mut Session| s.insight = Some(crate::model::SessionInsight { asks_you: Some(asks_you), ..Default::default() });
+        let mut w = Waiting::default();
+        w.ask("me", asked, true);
+        // Not read yet: it waits, and goes once Jev says it asks nothing.
+        assert!(w.due(&ended_with(Status::Unread, reply, |_| {}), NOW, true).is_empty());
+        assert_eq!(w.due(&ended_with(Status::Unread, reply, read(0.05)), NOW, true), due("me", true));
+        // Jev's read wins over the question mark both ways, at Close idle sessions' bar.
+        w.ask("me", asked, true);
+        assert_eq!(w.due(&ended_with(Status::Unread, reply, read(0.4)), NOW, true), due("me", false));
+        w.ask("me", asked, true);
+        assert_eq!(w.due(&ended_with(Status::Unread, "Done. Anything else?", read(0.1)), NOW, true), due("me", true));
+        // A read that never comes: the question mark decides once the wait is over.
+        w.ask("me", asked, true);
+        assert!(w.due(&ended_with(Status::Unread, reply, |_| {}), NOW + READ_WAIT_MS - 10_001, true).is_empty());
+        assert_eq!(w.due(&ended_with(Status::Unread, reply, |_| {}), NOW + READ_WAIT_MS, true), due("me", true));
+        // Jev doesn't read a helper's reply, so there's nothing to wait for.
+        w.ask("me", asked, true);
+        let helps = |s: &mut Session| s.helper = Some(crate::model::Helper { parent: Some("other".into()), ..Default::default() });
+        assert_eq!(w.due(&ended_with(Status::Unread, reply, helps), NOW, true), due("me", true));
+    }
+
+    #[test]
+    fn one_no_longer_running_is_archived_if_asked_and_otherwise_forgotten() {
+        let asked = NOW - 30_000;
+        let done = "Deleted the branch; this session closes now.";
+        let stopped = |s: &mut Session| s.live = false;
+        let mut w = Waiting::default();
+        // A Codex app thread runs only while its turn does.
+        w.ask("me", asked, true);
+        assert_eq!(w.due(&ended_with(Status::Unread, done, stopped), NOW, false), due("me", true));
+        // Without --archive there's nothing left to do.
+        w.ask("me", asked, false);
+        assert!(w.due(&ended_with(Status::Unread, done, stopped), NOW, false).is_empty());
+        assert!(w.due(&ended_with(Status::Unread, done, |_| {}), NOW, false).is_empty());
+        // Nor when its reply asks something.
+        w.ask("me", asked, true);
+        assert!(w.due(&ended_with(Status::Unread, "Shall I remove it?", stopped), NOW, false).is_empty());
+        assert!(w.due(&ended_with(Status::Unread, done, |_| {}), NOW, false).is_empty());
     }
 }
