@@ -8,6 +8,9 @@
 //! would cut its reply short. It's held (`Waiting`) until the turn ends, and then ended as Mark as
 //! done ends a session (its terminal closes, or its harness exits it), but not marked seen nor
 //! archived: its last reply is for you, and stays in Your turn until you mark it done yourself.
+//! When you asked it to close (`--archive`), you've no reason to read that reply, so it's marked
+//! seen and archived too, as Mark as done does, unless ending it didn't go as asked (actions.rs
+//! `end_after_turn`): a terminal left open or a worktree kept is yours to see (asked 2026-11-06).
 //! A session it started is marked done at once, as from the windows, and the main window says
 //! which session did it, with an Undo.
 
@@ -52,27 +55,43 @@ pub fn may(board: &Board, by: Option<&str>, s: &Session) -> Result<Whose, String
 /// How long a session's own Mark as done waits for its turn to end before it's dropped.
 const WAIT_MS: i64 = 2 * 60 * 60 * 1000;
 
-/// Sessions that asked to be ended once their turn ends, with when they asked.
+/// A session to end once its turn ends: when it asked, and whether its user asked it to close,
+/// so it's archived too (`--archive`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Asked {
+    at: i64,
+    archive: bool,
+}
+
+/// Sessions that asked to be ended once their turn ends.
 #[derive(Debug, Default)]
 pub struct Waiting {
-    asked: HashMap<String, i64>,
+    asked: HashMap<String, Asked>,
+}
+
+/// A session whose turn has ended, to end now.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Due {
+    pub key: String,
+    /// Mark it seen and archive it too, its user having asked it to close.
+    pub archive: bool,
 }
 
 impl Waiting {
-    /// `key` asked at `at` (ms) to be ended once its turn ends.
-    pub fn ask(&mut self, key: &str, at: i64) {
-        self.asked.insert(key.to_string(), at);
+    /// `key` asked at `at` (ms) to be ended once its turn ends, and archived with `archive`.
+    pub fn ask(&mut self, key: &str, at: i64, archive: bool) {
+        self.asked.insert(key.to_string(), Asked { at, archive });
     }
 
     /// The sessions whose turn has ended since they asked, to end now, as `board` shows them at
     /// `now`. A turn ends when the session stops working, and not at a call it waits on you to
     /// allow, which is still the turn. One whose turn ended asking you something, or with an
-    /// error, is left as it is, and so is one that's gone, isn't running, or waited too long.
-    /// The board can lag a turn that just started: a status from before the ask isn't the turn's
-    /// end.
-    pub fn due(&mut self, board: &Board, now: i64) -> Vec<String> {
+    /// error, is left as it is, unarchived, and so is one that's gone, isn't running, or
+    /// waited too long. The board can lag a turn that just started: a status from before the ask
+    /// isn't the turn's end.
+    pub fn due(&mut self, board: &Board, now: i64) -> Vec<Due> {
         let mut out = Vec::new();
-        self.asked.retain(|key, &mut at| {
+        self.asked.retain(|key, &mut Asked { at, archive }| {
             let Some((_, s)) = board.session(key) else { return false };
             if !s.live || now - at > WAIT_MS {
                 return false;
@@ -82,11 +101,11 @@ impl Waiting {
                 return true;
             }
             if matches!(s.status, Status::Unread | Status::Idle | Status::Stopped) {
-                out.push(key.clone());
+                out.push(Due { key: key.clone(), archive });
             }
             false
         });
-        out.sort();
+        out.sort_by(|a, b| a.key.cmp(&b.key));
         out
     }
 }
@@ -96,15 +115,15 @@ fn waiting() -> &'static Mutex<Waiting> {
     WAITING.get_or_init(Default::default)
 }
 
-/// Holds `key` to be ended once its turn ends (actions.rs `done`).
-pub fn wait_for_turn(key: &str) {
+/// Holds `key` to be ended once its turn ends, and archived with `archive` (actions.rs `done`).
+pub fn wait_for_turn(key: &str, archive: bool) {
     if let Ok(mut w) = waiting().lock() {
-        w.ask(key, now_ms());
+        w.ask(key, now_ms(), archive);
     }
 }
 
-/// The sessions to end now, from each board the engine publishes (lib.rs).
-pub fn due(board: &Board) -> Vec<String> {
+/// The sessions to end now, from each board the engine publishes (serve.rs).
+pub fn due(board: &Board) -> Vec<Due> {
     waiting().lock().map(|mut w| w.due(board, board.generated_at)).unwrap_or_default()
 }
 
@@ -168,27 +187,52 @@ mod tests {
             s.asks = asks;
             board(vec![s])
         };
-        w.ask("me", asked);
+        w.ask("me", asked, false);
         // Still in its turn, at a call it waits on you to allow too, or the board not caught up.
         assert!(w.due(&ended(Status::Working, NOW - 60_000, false), NOW).is_empty());
         assert!(w.due(&ended(Status::Needs, NOW - 10_000, false), NOW).is_empty());
         assert!(w.due(&ended(Status::Idle, asked - 1, false), NOW).is_empty());
         // Its turn ended: once.
-        assert_eq!(w.due(&ended(Status::Unread, NOW - 10_000, false), NOW), ["me"]);
+        assert_eq!(w.due(&ended(Status::Unread, NOW - 10_000, false), NOW), [Due { key: "me".into(), archive: false }]);
         assert!(w.due(&ended(Status::Unread, NOW - 10_000, false), NOW).is_empty());
 
         // A turn that ended asking you something, or failed, is left as it is, and forgotten.
         for (status, asks) in [(Status::Needs, true), (Status::Error, false)] {
-            w.ask("me", asked);
+            w.ask("me", asked, false);
             assert!(w.due(&ended(status, NOW - 10_000, asks), NOW).is_empty(), "{status:?}");
             assert!(w.due(&ended(Status::Unread, NOW - 5_000, false), NOW).is_empty(), "{status:?} is forgotten");
         }
         // As is one that waited too long, or is gone.
-        w.ask("me", asked);
+        w.ask("me", asked, false);
         assert!(w.due(&ended(Status::Working, NOW, false), asked + WAIT_MS + 1).is_empty());
         assert!(w.due(&ended(Status::Unread, NOW, false), NOW).is_empty());
-        w.ask("me", asked);
+        w.ask("me", asked, false);
         assert!(w.due(&board(vec![]), NOW).is_empty());
         assert!(w.due(&ended(Status::Unread, NOW, false), NOW).is_empty());
+    }
+
+    #[test]
+    fn one_its_user_asked_to_close_is_archived_once_its_turn_ends_unless_it_asks_them_something() {
+        let asked = NOW - 30_000;
+        let ended = |status: Status, asks: bool| {
+            let mut s = session("me", status);
+            s.status_since = Some(NOW - 10_000);
+            s.asks = asks;
+            board(vec![s])
+        };
+        let mut w = Waiting::default();
+        w.ask("me", asked, true);
+        assert!(w.due(&ended(Status::Working, false), NOW).is_empty());
+        assert_eq!(w.due(&ended(Status::Unread, false), NOW), [Due { key: "me".into(), archive: true }]);
+        // Asked again without it before its turn ends, it's left for its user to read.
+        w.ask("me", asked, true);
+        w.ask("me", asked, false);
+        assert_eq!(w.due(&ended(Status::Idle, false), NOW), [Due { key: "me".into(), archive: false }]);
+        // A turn that ended asking its user something, or failed, is neither ended nor archived.
+        for (status, asks) in [(Status::Needs, true), (Status::Error, false)] {
+            w.ask("me", asked, true);
+            assert!(w.due(&ended(status, asks), NOW).is_empty(), "{status:?}");
+            assert!(w.due(&ended(Status::Unread, false), NOW).is_empty(), "{status:?} is forgotten");
+        }
     }
 }

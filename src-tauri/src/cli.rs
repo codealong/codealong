@@ -610,10 +610,13 @@ enum SessionCmd {
         /// The session: its key, its id, a unique start of its id, or `me`.
         key: String,
     },
-    /// Mark a session done, as Mark as done in Codealong does, from inside a session, which may mark only its own and the ones it started. `me`: this session ends once its current turn does (its terminal closes, or its harness exits it and cleans up a worktree it made), and its last reply stays in Your turn for its user to read and mark done. A session this one started with `codealong start`: it ends now and is marked seen and archived, and Codealong's main window says which session did it, with an Undo. Never a session that's working, waiting on its user, or on another Mac; any other session is its user's to mark done, in Codealong.
+    /// Mark a session done, as Mark as done in Codealong does, from inside a session, which may mark only its own and the ones it started. `me`: this session ends once its current turn does (its terminal closes, or its harness exits it and cleans up a worktree it made), and its last reply stays in Your turn for its user to read and mark done, or with --archive is marked seen and archived too. A session this one started with `codealong start`: it ends now and is marked seen and archived, and Codealong's main window says which session did it, with an Undo. Never a session that's working, waiting on its user, or on another Mac; any other session is its user's to mark done, in Codealong.
     Done {
         /// The session: `me`, or one this session started (its key, its id, or a unique start of its id).
         key: String,
+        /// For `me` (a session you started is archived anyway), and only when your user asked you to close this session or mark it done: once this turn ends it's also marked seen and archived, as Mark as done does, so it leaves their lists rather than waiting in Your turn. It stays there anyway if this turn's reply asks them something or ends in an error, or if it doesn't all end (a terminal left open, a worktree kept), which is theirs to see.
+        #[arg(long)]
+        archive: bool,
     },
     /// Mark the turn this session is taking seen, from inside it, when its user needs to do nothing about it: a loop's tick or a check that found nothing new, a watch with nothing to report. Once the turn ends it's idle rather than Your turn: in no queue, off the floating bar and the mark, and shown as its agent's call (Seen by agent, with --note). Run it as the turn's last step, just before the final reply. It holds only for the turn it's run in, and only if that turn ends as Your turn: one whose reply Jev reads as asking its user something, a call to allow, a question, an error or a turn cut short (a lost connection, a usage limit) still wait on them. A prompt sent after it, or a turn that starts after it (a scheduled wakeup, another session's message), makes it void, and its user's Mark as unread brings it back. Never for a turn that changed code, finished what its user asked for, or says anything they'd want to read. Only `me`: another session's turn is its user's to see.
     Seen {
@@ -1994,7 +1997,7 @@ fn run(cmd: Cmd, c: &mut Client, json: bool) -> Result<()> {
             session_act(c, &a.key, api::SESSION_ANSWER, params::Answer { id: a.id, answer: Some(answer), ..Default::default() }, json)
         }
         Cmd::Session { cmd: SessionCmd::Stop { key } } => session_act(c, &key, api::SESSION_CANCEL, params::Session::default(), json),
-        Cmd::Session { cmd: SessionCmd::Done { key } } => session_done(c, &key, json),
+        Cmd::Session { cmd: SessionCmd::Done { key, archive } } => session_done(c, &key, archive, json),
         Cmd::Session { cmd: SessionCmd::Seen { key, note } } => session_seen(c, &key, note, json),
         Cmd::Session { cmd: SessionCmd::Transcript(a) } => session_transcript(c, &a, json),
         Cmd::Session { cmd: SessionCmd::Wait(a) } => session_wait(c, &a, json),
@@ -3964,13 +3967,13 @@ fn pr_snooze(c: &mut Client, pr: &str, when: &SnoozeWhen, json: bool) -> Result<
 
 /// `session done`: asked as the session running the command, which the app holds to what an
 /// agent may mark done (agentdone.rs). The app keeps watch for the turn to end, so it must be up.
-fn session_done(c: &mut Client, key: &str, json: bool) -> Result<()> {
+fn session_done(c: &mut Client, key: &str, archive: bool, json: bool) -> Result<()> {
     if c.app.is_none() {
         bail!("Marking a session done needs Codealong's server, which couldn't be started here (`codealong server start` says why): it ends the session, and waits for this one's turn to end.");
     }
     let key = resolve_session(c, key)?;
     let me = find_me(c)?.0;
-    let got = c.act(api::SESSION_DONE, &key, params::Done::default(), me)?;
+    let got = c.act(api::SESSION_DONE, &key, params::Done { archive, ..Default::default() }, me)?;
     let said = got.get("message").and_then(Value::as_str).map(String::from);
     let out = ActOut { session: key, said, copy: None };
     if json {
@@ -7650,7 +7653,8 @@ mod tests {
         // Allowing is its user's to do.
         assert!(Cli::try_parse_from(["codealong", "session", "answer", "abc", "toolu_1", "allow"]).is_err());
         assert!(matches!(Cli::try_parse_from(["codealong", "session", "stop", "me"]).unwrap().cmd, Cmd::Session { cmd: SessionCmd::Stop { ref key } } if key == "me"));
-        assert!(matches!(Cli::try_parse_from(["codealong", "session", "done", "me"]).unwrap().cmd, Cmd::Session { cmd: SessionCmd::Done { ref key } } if key == "me"));
+        assert!(matches!(Cli::try_parse_from(["codealong", "session", "done", "me"]).unwrap().cmd, Cmd::Session { cmd: SessionCmd::Done { ref key, archive: false } } if key == "me"));
+        assert!(matches!(Cli::try_parse_from(["codealong", "session", "done", "me", "--archive"]).unwrap().cmd, Cmd::Session { cmd: SessionCmd::Done { archive: true, .. } }));
         assert!(matches!(Cli::try_parse_from(["codealong", "session", "seen", "me", "--note", "Nothing new on the deploy"]).unwrap().cmd, Cmd::Session { cmd: SessionCmd::Seen { ref key, ref note } } if key == "me" && note.as_deref() == Some("Nothing new on the deploy")));
         assert!(matches!(Cli::try_parse_from(["codealong", "session", "seen", "me"]).unwrap().cmd, Cmd::Session { cmd: SessionCmd::Seen { note: None, .. } }));
         assert!(matches!(Cli::try_parse_from(["codealong", "session", "pending", "abc"]).unwrap().cmd, Cmd::Session { cmd: SessionCmd::Pending { .. } }));

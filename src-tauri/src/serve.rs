@@ -216,9 +216,9 @@ pub fn start() -> Result<Ctx, String> {
         // Sessions that asked from the command to be ended once their turn ended (agentdone.rs);
         // closing a terminal takes a moment, so off this thread.
         if let Some(engine) = ends_with.get() {
-            for key in agentdone::due(board) {
+            for agentdone::Due { key, archive } in agentdone::due(board) {
                 let engine = engine.clone();
-                std::thread::spawn(move || match actions::end_after_turn(&engine, &key) {
+                std::thread::spawn(move || match actions::end_after_turn(&engine, &key, archive) {
                     Ok(said) => eprintln!("Ended {key} once its turn did, as it asked: {said}"),
                     Err(e) => eprintln!("Couldn't end {key} once its turn did: {e}"),
                 });

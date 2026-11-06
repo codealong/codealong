@@ -196,7 +196,11 @@ ones your harness's own tools don't list: another Claude Code account, Codex, Op
   down. Only deny: letting a call through, or answering a session's questions, is its user's
   to do.
 - `codealong session done me` ends your own session once this turn ends, when your work has
-  landed and nothing is left for you to do: your last reply stays for your user to read. A
+  landed and nothing is left for you to do: your last reply stays for your user to read. When
+  your user asked you to close this session or mark it done, add `--archive`: it's marked seen
+  and archived too, as Mark as done does, so they don't have to file it after you. It stays in
+  Your turn anyway if your reply asks them something or it doesn't all end (a terminal left
+  open, a worktree kept), so say anything they must still do before running it. A
   session you started with `codealong start` can be marked done the same way once you've read
   its result and its work has landed (`session done <key>`); it closes and leaves your user's
   lists. Any other session, and one that's working or waiting on its user, is your user's to

@@ -307,13 +307,17 @@ pub mod params {
     }
 
     /// `session-done`: whether to end work under way too (a turn, or a command its turn left
-    /// running in the background).
+    /// running in the background), and, for a session the `codealong` command ends once its own
+    /// turn has (`session done me --archive`), whether its user asked it to close, so it's
+    /// marked seen and archived then too. A window's or another device's Done archives anyway.
     #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
     #[serde(default)]
     pub struct Done {
         #[serde(skip_serializing_if = "String::is_empty")]
         pub key: String,
         pub stop: bool,
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        pub archive: bool,
     }
 
     /// `session-rename`.

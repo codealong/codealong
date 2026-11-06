@@ -574,7 +574,7 @@ impl Client {
     /// and archived there. Work under way holds it (`done` false, `message` says what) unless
     /// `stop` ends that too. Macs before 2026-10-07 refuse it as a request they don't know.
     pub fn done(&self, device: &str, key: &str, stop: bool) -> std::result::Result<api::Done, String> {
-        read(self.ask(device, api::SESSION_DONE, of(params::Done { key: key.into(), stop }), DONE_WAIT)?)
+        read(self.ask(device, api::SESSION_DONE, of(params::Done { key: key.into(), stop, ..Default::default() }), DONE_WAIT)?)
     }
 
     /// Asks `device` to send the replies of these sessions (keys there) as they're written, in

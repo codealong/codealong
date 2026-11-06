@@ -1351,23 +1351,28 @@ fn done(engine: &Handle, c: &Call) -> Result<Value, String> {
     let p: params::Done = c.read()?;
     let key = c.session()?;
     if let From::Command(by) = c.from {
-        return done_for_agent(engine, c, by.as_deref(), key);
+        return done_for_agent(engine, c, by.as_deref(), key, p.archive);
     }
     finish(engine, c, key, p.stop, None)
 }
 
 /// Mark as done from the command (agentdone.rs): its own session is ended once its turn ends and
-/// left for its user to read, and a session it started is marked done now, as from a window but
-/// never ending work under way, and saying which session did it.
-fn done_for_agent(engine: &Handle, c: &Call, by: Option<&str>, key: &str) -> Result<Value, String> {
+/// left for its user to read, or archived too with `archive`, its user having asked it to close;
+/// a session it started is marked done now, as from a window but never ending work under way,
+/// and saying which session did it.
+fn done_for_agent(engine: &Handle, c: &Call, by: Option<&str>, key: &str, archive: bool) -> Result<Value, String> {
     use crate::agentdone::{may, wait_for_turn, Whose};
     let cfg = cfg()?;
     let board = engine.board();
     let (s, _) = harness::find(&board, &cfg, key).map_err(words)?;
     match may(&board, by, s)? {
         Whose::Own => {
-            wait_for_turn(key);
-            let message = "This session ends once this turn does: its terminal closes, and its last reply stays in Your turn for its user to read and mark done.";
+            wait_for_turn(key, archive);
+            let message = if archive {
+                "This session ends once this turn does: its terminal closes, and it's marked seen and archived, as Mark as done does. If its reply asks its user something, or it doesn't all end (a terminal left open, a worktree kept), it stays in Your turn for them to see."
+            } else {
+                "This session ends once this turn does: its terminal closes, and its last reply stays in Your turn for its user to read and mark done."
+            };
             to_value(api::Done { done: false, message: message.into(), noted: false })
         }
         Whose::Started => {
@@ -1527,17 +1532,35 @@ fn stopping<T, E: std::fmt::Display>(s: &crate::model::Session, who: &str, act: 
 
 /// Ends a session that asked from the command to be ended once its turn ended (agentdone.rs), as
 /// Mark as done ends one, but leaves it unseen and unarchived: its last reply is its user's to
-/// read. Says what happened, or why nothing did.
-pub fn end_after_turn(engine: &Handle, key: &str) -> Result<String, String> {
+/// read. With `archive` (its user asked it to close) it's then marked seen and archived, its
+/// helpers with it, as `finish` does, unless ending it didn't go as asked: a terminal left open,
+/// a background job still running or a worktree kept is its user's to see, in Your turn. That
+/// it can't be closed at all (an app's session, a terminal another session shows) is no reason
+/// to keep it, as for Mark as done. Says what happened, or why nothing did.
+pub fn end_after_turn(engine: &Handle, key: &str, archive: bool) -> Result<String, String> {
     let cfg = cfg()?;
     let board = engine.board();
     let (s, account) = harness::find(&board, &cfg, key).map_err(words)?;
     let ends = crate::idle::ending(&board, s, false)?;
     let job = matches!(ends, crate::idle::Ending::Job);
+    let can_end = !matches!(ends, crate::idle::Ending::Nothing(_));
     // Its own agent asked, and a turn that has ended has nothing to stop.
-    let (ended, note) = end(s, account, ends, "its own agent, with the codealong command");
-    let worktree = job_worktree(engine, &cfg, s, job && ended.is_some()).map(|(words, _)| words);
-    Ok([ended.map(|e| format!("“{}”: {e}.", s.title)), note, worktree].into_iter().flatten().collect::<Vec<_>>().join(" "))
+    let who = "its own agent, with the codealong command";
+    let (ended, note) = end(s, account, ends, who);
+    let worktree = job_worktree(engine, &cfg, s, job && ended.is_some());
+    let went_wrong = (can_end && note.is_some()) || worktree.as_ref().is_some_and(|(_, partly)| *partly);
+    let mut said: Vec<String> = [ended.map(|e| format!("“{}”: {e}.", s.title)), note, worktree.map(|(words, _)| words)].into_iter().flatten().collect();
+    if archive && went_wrong {
+        said.push("It stays in Your turn, not archived, for its user to see.".into());
+    } else if archive {
+        engine.mark_seen(vec![key.to_string()]);
+        engine.archive(key, true).map_err(words)?;
+        said.push("It's marked seen and archived, as its user asked.".into());
+        if let (Some(helped), _) = finish_helpers(engine, &board, &cfg, key, false, who) {
+            said.push(helped);
+        }
+    }
+    Ok(said.join(" "))
 }
 
 /// Mark as done on a background job that holds the worktree its harness made for it, once the

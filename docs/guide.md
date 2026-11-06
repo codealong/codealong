@@ -3713,7 +3713,9 @@ read|wait|stop|list` read, wait on, interrupt and list those runs; and
 `session pending` and `session answer … deny` what its panel does, except letting a call through or
 answering its questions, which is its user's to do; `codealong session done` is Mark as done for
 what's the agent's own: its own session (`me`), which ends once its turn does and stays in Your turn
-for you to read, and a session it started, never one working or waiting on you, while the main
+for you to read, or, when you asked it to close (`--archive`), is marked seen and archived too
+unless its reply asks you something or it didn't all end (a terminal left open, a worktree kept),
+and a session it started, never one working or waiting on you, while the main
 window says which session did it, with an Undo; `codealong start --todo <id>` starts a session the
 way New session does (`--todo` again for several todos in one session), and `codealong start
 --helper --prompt …` a helper of the session running it (see *Helpers*), whose reply `codealong
