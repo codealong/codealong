@@ -142,7 +142,6 @@
   --font-mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, monospace;
   --type-numeral: 600 40px/40px var(--font-display);
   --type-title: 600 22px/26px var(--font-display);
-  --type-callsign: 600 17px/20px var(--font-display);
   --type-label: 600 11px/14px var(--font-display);
   --type-heading-lg: 600 15px/20px var(--font-sans);
   --type-heading: 600 14px/18px var(--font-sans);

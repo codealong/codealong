@@ -183,10 +183,11 @@
 
 
 /* A group's heading in Sessions (LaneRow.tsx `WorktreeHead`, `RepoHead`): a worktree or a repo,
-   on one line, shaded as the place its sessions under it share. Its name, then where it is, which
-   gives way first, then its chips, which give way from the end, and at the line's end where a
-   worktree stands against the default branch. A repo's isn't selected, so it doesn't light up
-   under the pointer. */
+   on one line, shaded as the place its sessions under it share. Its name, in the type a session's
+   title has so the heading reads as one of the list's rows, then where it is, which gives way
+   first, then its chips, which give way from the end, and at the line's end where a worktree
+   stands against the default branch. A repo's isn't selected, so it doesn't light up under the
+   pointer. */
 .ca-lane.ca-grouphead {
   grid-template-columns: 32px minmax(0, 1fr);
   min-height: 32px;
@@ -217,12 +218,12 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font: var(--type-callsign);
+  font: var(--type-body-strong);
 }
 /* Its project before it, in its type, as close to it as a chip's is (ProjectSaid.tsx). */
 .ca-grouphead-line > .ca-projprefix {
   margin-right: calc(var(--space-1) - var(--space-2));
-  font: var(--type-callsign);
+  font: var(--type-body-strong);
 }
 .ca-grouphead-sub {
   flex: 0 1000000 auto;

@@ -245,7 +245,7 @@ describe('the stylesheets', () => {
     '.ca-projswitch-badge': { font: '600 10px/16px var(--font-mono)', why: "a count in a round 16px badge, on the badge's height (as .ca-nav-badge)" },
     '.ca-rail-badge': { font: '600 9px/14px var(--font-mono)', why: "a count in the rail's 14px badge, on the badge's height, over an icon" },
     '.ca-meter-value': { font: '600 24px/24px var(--font-display)', why: "a usage meter's figure: numeral's face at the size the meter has room for" },
-    '.ca-cv-callsign': { font: '600 15px/18px var(--font-display)', why: "a card's callsign: callsign's face on the card's 18px first line, smaller than a lane's" },
+    '.ca-cv-callsign': { font: '600 15px/18px var(--font-display)', why: "a card's callsign: the display face on the card's 18px first line" },
     '.ca-cv-farlabel': { font: '600 12px/16px var(--font-display)', why: "a card's name over a canvas zoomed far out, scaled with the zoom" },
     '.ca-cv-note': { font: '400 14px/20px var(--font-sans)', why: 'a note on the canvas, written larger than the UI around it so it still reads zoomed out' },
     '.ca-settings-editor': { font: '400 12px/18px var(--font-mono)', why: "config.toml in Settings: code's size, with room between the lines of a whole file you edit" },

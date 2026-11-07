@@ -1,5 +1,5 @@
 /* The Sessions view (SessionsView.tsx): archived rows. Its tools in the bar over the list are
-   ListBar.css's, its headings the other views' (`.ca-bay`, `.ca-bayblock` in styles/rows.css). */
+   ListBar.css's, its headings the other views' (`.ca-bay`, `.ca-bay-lanes` in styles/rows.css). */
 
 .ca-archived .ca-lane {
   opacity: 0.8;

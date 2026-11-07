@@ -1,8 +1,11 @@
 /* List rows (.ca-lane) and their segments, as session rows, group headings, PR rows and todo rows
-   share them; bay headers (.ca-bay) and bay blocks; the grip and the drop line. What a kind of
+   share them; bay headers (.ca-bay) and the rows under them; the grip and the drop line. What a kind of
    row adds is beside its component (LaneRow.css, PrsView.css, TodoView.css). */
 
-.ca-bay { display: flex; align-items: center; gap: 6px; height: 24px; padding: 0 var(--space-3); font: var(--type-label); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); }
+/* A section's header holds the room between it and the section above, its label in the middle
+   of it, as a board column's head is (KanbanView.css). A margin over a shorter header left the
+   label low, with more room above it than below. */
+.ca-bay { display: flex; align-items: center; gap: 6px; height: 32px; padding: 0 var(--space-3); font: var(--type-label); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); }
 .ca-bay--needs { color: var(--attn); }
 .ca-bay-count { font: var(--type-code-sm); letter-spacing: 0; font-variant-numeric: tabular-nums; }
 .ca-bay-action { margin-left: auto; font: var(--type-meta-strong); letter-spacing: 0; text-transform: none; color: var(--ink-3); }
@@ -29,7 +32,6 @@
 .ca-diff { font: var(--type-code-sm); color: var(--ink-3); font-variant-numeric: tabular-nums; white-space: nowrap; min-width: 84px; text-align: right; }
 .ca-seg-age { justify-content: flex-start; align-items: flex-end; padding-top: 7px; font: var(--type-meta); color: var(--ink-3); font-variant-numeric: tabular-nums; }
 
-.ca-bayblock { margin-top: var(--space-2); }
 .ca-bay-lanes { border-top: 1px solid var(--line); }
 
 /* A hint is a note beside the heading, quieter than it: caption's size, and caps no taller than
