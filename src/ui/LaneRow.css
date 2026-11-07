@@ -206,9 +206,12 @@
   padding-left: 0;
   border-left: 0;
 }
+/* Its text sits on one baseline, the mono beside the sans: centered each on its own, the mono
+   sat a pixel above, as the two fonts put their text at different heights in a box of one
+   height (grouphead-baseline-check.js). The chips are boxes, centered on the line. */
 .ca-grouphead-line {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: var(--space-2);
   min-width: 0;
 }
@@ -230,13 +233,14 @@
 }
 .ca-chips.ca-grouphead-chips {
   flex: 0 1 auto;
+  align-self: center;
 }
 .ca-chips.ca-grouphead-chips:empty {
   display: none;
 }
 .ca-grouphead-end {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: var(--space-2);
   flex: none;
   margin-left: auto;
