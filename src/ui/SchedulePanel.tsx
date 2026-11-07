@@ -51,7 +51,7 @@ export function HarnessSchedulePanel({ item: h, now, sessionOf, onShowSession, o
       <header>
         <div className="ca-insp-title">
           <Icon name="clock" size={14} />
-          <span className="ca-tag">{h.paused ? 'Paused' : 'Active'}</span>
+          <span className="ca-tag">{h.problem ? 'Can’t run' : h.paused ? 'Paused' : 'Active'}</span>
         </div>
         <h3 className="ca-schedinsp-name">{h.name}</h3>
         <div className="ca-schedinsp-meta">
@@ -65,6 +65,12 @@ export function HarnessSchedulePanel({ item: h, now, sessionOf, onShowSession, o
           <Button icon="external" title={h.link ? `Open it in ${HARNESS_APP[h.harness]}` : 'Open its session where it runs'} onClick={onOpen}>
             {h.link ? `Open in ${HARNESS_APP[h.harness]}` : 'Open its session'}
           </Button>
+        </div>
+      )}
+      {h.problem && (
+        <div className="ca-schedproblem" role="alert">
+          <Icon name="alert" size={14} />
+          <span>{h.problem}</span>
         </div>
       )}
       <p className="ca-schedinsp-note">{HARNESS_WORD[h.harness]} keeps it, not Codealong: it’s listed here, and changed where it lives.</p>
@@ -84,8 +90,11 @@ export function HarnessSchedulePanel({ item: h, now, sessionOf, onShowSession, o
             <SessionGlyph s={session.session} size={11} />
             <span className="ca-sessinsp-kin-title">{session.session.title}</span>
           </button>
+        ) : h.kind === 'Automation' ? (
+          <p className="ca-schedinsp-line">Starts a new thread each run{h.folders?.length ? ` in ${h.folders.map(tildePath).join(', ')}` : ''}.</p>
         ) : (
-          <p className="ca-schedinsp-line">{h.kind === 'Automation' ? `Starts a new thread each run${h.folders?.length ? ` in ${h.folders.map(tildePath).join(', ')}` : ''}.` : 'Its session isn’t on the board.'}</p>
+          // One whose session is gone says so above.
+          !h.problem && <p className="ca-schedinsp-line">Its session isn’t on the board.</p>
         )}
         {h.prompt && <div className="ca-schedinsp-prompt">{h.prompt}</div>}
       </section>

@@ -949,6 +949,7 @@ impl crate::harness::Adapter for ClaudeCode {
                     folders: Vec::new(),
                     link: None,
                     lasts: lasts.into(),
+                    problem: None,
                 }
             })
         })

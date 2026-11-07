@@ -110,6 +110,17 @@
       "folders": ["$lane:0"],
       "link": "codex://automations/nightly-atlas-triage?automationSource=local",
       "lasts": "The Codex app starts a new thread for it while the app is open."
+    },
+    {
+      "harness": "codex",
+      "account": "codex",
+      "kind": "Heartbeat",
+      "name": "Watch the kestrel rollout",
+      "prompt": "Check the kestrel rollout every five minutes; pause this heartbeat once it's out.",
+      "whenWords": "Every 5 minutes",
+      "link": "codex://automations/watch-kestrel-rollout?automationSource=local",
+      "lasts": "The Codex app sends it to its thread while the app is open.",
+      "problem": "Its thread is gone from Codex, so Codex skips it every time. Open it in Codex to delete it."
     }
   ]
 }

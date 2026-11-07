@@ -208,6 +208,35 @@ pub fn rollout_files(codex_home: &Path, since_ms: i64, keep: &HashSet<String>) -
     out
 }
 
+/// The threads with a rollout, archived or not: the ones Codex still has, since its app-server's
+/// `thread/read` finds a thread by its rollout and answers "no rollout found for thread id" for
+/// one deleted. Codex keeps older rollouts compressed (`rollout-…-<id>.jsonl.zst`: 2,587 of this
+/// Mac's 3,081 on 2026-11-06, all from before 2026-10-17), which nothing else here reads, but
+/// whose thread it still opens.
+pub fn kept_threads(codex_home: &Path) -> HashSet<String> {
+    fn walk(dir: &Path, depth: usize, out: &mut HashSet<String>) {
+        let Ok(entries) = std::fs::read_dir(dir) else { return };
+        for e in entries.flatten() {
+            let path = e.path();
+            if e.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                if depth > 0 {
+                    walk(&path, depth - 1, out);
+                }
+                continue;
+            }
+            let name = file_name(&path);
+            let stem = name.strip_suffix(".zst").unwrap_or(&name).strip_suffix(".jsonl");
+            if let Some(stem) = stem.filter(|s| s.starts_with("rollout-") && s.len() >= 36) {
+                out.insert(stem[stem.len() - 36..].to_string());
+            }
+        }
+    }
+    let mut out = HashSet::new();
+    walk(&codex_home.join("sessions"), 3, &mut out);
+    walk(&codex_home.join("archived_sessions"), 0, &mut out);
+    out
+}
+
 /// Rollouts in `archived_sessions` for the threads in `ids`: the ones archived from Codealong,
 /// shown in its Archived list so they can be unarchived there.
 pub fn archived_rollout_files(codex_home: &Path, ids: &HashSet<String>) -> Vec<(PathBuf, i64)> {
@@ -1097,6 +1126,24 @@ mod tests {
         assert!(parse_rollout(&path, 2, Some(parsed)).unwrap().0.flagged);
         assert!(parse_rollout(&path, 2, None).unwrap().0.flagged);
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A thread Codex still has is one with a rollout: in a day's folder, compressed or not, or
+    /// archived.
+    #[test]
+    fn kept_threads_are_the_ones_with_a_rollout() {
+        let home = crate::fixtures::scratch("codex-kept-threads");
+        let day = home.join("sessions/2026/09/21");
+        std::fs::create_dir_all(&day).unwrap();
+        std::fs::create_dir_all(home.join("archived_sessions")).unwrap();
+        let id = |n: u8| format!("01a0aaaa-0000-7000-8000-0000000000{n:02}");
+        std::fs::write(day.join(format!("rollout-2026-09-21T17-21-08-{}.jsonl", id(1))), "").unwrap();
+        std::fs::write(day.join(format!("rollout-2026-09-21T17-22-08-{}.jsonl.zst", id(2))), "").unwrap();
+        std::fs::write(home.join(format!("archived_sessions/rollout-2026-09-21T17-23-08-{}.jsonl", id(3))), "").unwrap();
+        std::fs::write(day.join(format!("notes-{}.jsonl", id(4))), "").unwrap();
+        let kept = kept_threads(&home);
+        assert_eq!(kept, HashSet::from([id(1), id(2), id(3)]));
+        std::fs::remove_dir_all(home).unwrap();
     }
 
     /// Only a whole first line says a rollout never shows. A parse that looked before Codex wrote

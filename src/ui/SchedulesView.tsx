@@ -194,12 +194,12 @@ export function SchedulesView(props: SchedulesViewProps) {
           id={scheduleRowId(h.key)}
           label={h.name}
           selected={h.key === selectedId && !selectedSession}
-          className={cx('ca-lane', 'is-item', 'ca-schedrow', 'is-harness', h.paused && 'is-paused')}
+          className={cx('ca-lane', 'is-item', 'ca-schedrow', 'is-harness', h.paused && 'is-paused', !!h.problem && 'is-problem')}
           onSelect={() => onSelect(h.key)}
           onOpen={() => onOpenHarness(h)}
         >
           <div className="ca-seg ca-seg-glyph">
-            <Icon name={h.paused ? 'player-pause' : 'clock'} size={14} className="ca-schedrow-glyph" />
+            <Icon name={h.problem ? 'alert' : h.paused ? 'player-pause' : 'clock'} size={14} className="ca-schedrow-glyph" />
           </div>
           <div className="ca-seg ca-seg-main">
             <div className="ca-lane-line1">
@@ -211,6 +211,11 @@ export function SchedulesView(props: SchedulesViewProps) {
                 <Chip className="ca-schedrow-does" title={`${h.lasts}\n\n${h.prompt}`}>
                   {HARNESS_WORD[h.harness]} {h.kind.toLowerCase()}
                 </Chip>
+                {h.problem && (
+                  <Chip className="ca-schedrow-problem" title={h.problem}>
+                    Can’t run
+                  </Chip>
+                )}
                 {/* Its account last, as a session's is. */}
                 <Chip title={`On ${h.account}`}>{h.account}</Chip>
               </span>

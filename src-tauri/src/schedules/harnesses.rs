@@ -40,6 +40,10 @@ pub struct Kept {
     pub link: Option<String>,
     /// What keeps it going, in a sentence: only while a process runs, or an app is open.
     pub lasts: String,
+    /// Why it can't run, where its harness would skip it every time: a Codex heartbeat whose
+    /// thread is gone (codex/automations.rs).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub problem: Option<String>,
 }
 
 /// Every account's, the soonest to run first and the paused last.

@@ -2118,6 +2118,8 @@ export interface HarnessSchedule {
   link?: string;
   /** What keeps it going, in a sentence. */
   lasts: string;
+  /** Why it can't run, where its harness would skip it every time. */
+  problem?: string;
 }
 
 /** A schedule's time as it's being written: in words, and its next few times (`schedule_times`). */

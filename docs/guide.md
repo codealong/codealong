@@ -1701,9 +1701,12 @@ keep themselves, read only: what a running Claude Code session scheduled inside 
 `/loop`'s next tick, or a cron job, `CronCreate`), which goes when the process ends and a
 recurring one after a week, and the Codex app's automations, which run only while the app is open.
 Each says when it runs next and what keeps it going, with the session it wakes set in under it, and
-a panel of its own; Return, or Open in Codex in its panel, opens a Codex one in the app. They're
-changed where they live, and read again every half minute while the view shows (`codealong
---snapshot --harness-schedules` prints them).
+a panel of its own; Return, or Open in Codex in its panel, opens a Codex one in the app. A Codex
+heartbeat whose thread has been deleted says *Can't run*: the app keeps it, skipping it each time it
+comes round, and Open in Codex opens it in the app's Scheduled list, where it can be deleted, since
+its thread no longer opens. Such a heartbeat is listed only under All projects, having no session
+to place it. They're changed where they live, and read again every half minute while the view shows
+(`codealong --snapshot --harness-schedules` prints them).
 
 **When a run can't go as it is.** A time missed while the Mac slept or Codealong was closed runs
 once when it's back (the latest of them, within a week), noted as late, unless *Run a missed time

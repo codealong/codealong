@@ -23,8 +23,15 @@
 //!   time that came while it was closed runs at its next tick (from its code, not tried). Neither
 //!   the `codex` command nor its app-server keeps or runs them.
 //! - `codex://threads/<id>` opens a heartbeat's thread, and in ChatGPT.app
-//!   `codex://automations/<id>?automationSource=local` opens one automation (Codex.app 26.831
-//!   has only `codex://automations`).
+//!   `codex://automations/<id>?automationSource=local` opens one automation, a heartbeat too, on
+//!   the app's Automations page (Codex.app 26.831 has only `codex://automations`).
+//! - A heartbeat whose thread is gone (deleted, so no rollout) stays in its toml, `ACTIVE` too:
+//!   each time it comes round the app reads the thread, finds none, logs "Heartbeat automation
+//!   skipped: thread missing" (`blockReason=thread_missing`) and moves `next_run_at` on, so it
+//!   never runs and never says so; and `codex://threads/<id>` for it opens nothing ("no rollout
+//!   found for thread id", seen in the app's log as the Schedules view opened one, 2026-11-06).
+//!   Two of this Mac's six were so. Codealong says it can't run and opens its automation instead,
+//!   where it can be deleted.
 //! - Not read: an account enrolled to keep its automations at chatgpt.com moves them out of the
 //!   toml files into the database with its `account_id`; none here had.
 
@@ -40,19 +47,22 @@ pub fn kept(account: &AccountCfg, sessions: &[&Session]) -> Vec<Kept> {
     let home = account.home_path();
     let Ok(dirs) = std::fs::read_dir(home.join("automations")) else { return Vec::new() };
     let next = next_runs(&home);
+    // Its rollouts are walked only for a heartbeat whose thread the board hasn't.
+    let threads = std::cell::OnceCell::new();
+    let has_thread = |id: &str| threads.get_or_init(|| super::rollout::kept_threads(&home)).contains(id);
     let mut out: Vec<Kept> = dirs
         .flatten()
         .filter(|d| d.path().is_dir())
         .filter_map(|d| std::fs::read_to_string(d.path().join("automation.toml")).ok())
-        .filter_map(|text| of(&text, account, sessions, &next))
+        .filter_map(|text| of(&text, account, sessions, &next, &has_thread))
         .collect();
     out.sort_by(|a, b| (a.paused, &a.name).cmp(&(b.paused, &b.name)));
     out
 }
 
 /// One automation as its toml says it; none for one the app wouldn't run (deleted, or a heartbeat
-/// with no thread).
-fn of(text: &str, account: &AccountCfg, sessions: &[&Session], next: &std::collections::HashMap<String, i64>) -> Option<Kept> {
+/// with no thread). `has_thread` says whether Codex still has a thread, for a heartbeat's.
+fn of(text: &str, account: &AccountCfg, sessions: &[&Session], next: &std::collections::HashMap<String, i64>, has_thread: &dyn Fn(&str) -> bool) -> Option<Kept> {
     let t: toml::Table = text.parse().ok()?;
     let s = |k: &str| t.get(k).and_then(toml::Value::as_str).unwrap_or_default().trim().to_string();
     let id = s("id");
@@ -68,6 +78,7 @@ fn of(text: &str, account: &AccountCfg, sessions: &[&Session], next: &std::colle
     let paused = status == "PAUSED";
     let cwds: Vec<String> = t.get("cwds").and_then(toml::Value::as_array).map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect()).unwrap_or_default();
     let session = heartbeat.then(|| Session::key_for(Harness::Codex, &account.name, &thread)).filter(|k| sessions.iter().any(|x| &x.key == k));
+    let gone = heartbeat && session.is_none() && !has_thread(&thread);
     let rrule = Some(s("rrule")).filter(|r| !r.is_empty()).unwrap_or_else(|| "FREQ=HOURLY;INTERVAL=24;BYMINUTE=0".into());
     let name = Some(s("name")).filter(|n| !n.is_empty()).unwrap_or_else(|| id.clone());
     Some(Kept {
@@ -78,11 +89,13 @@ fn of(text: &str, account: &AccountCfg, sessions: &[&Session], next: &std::colle
         name,
         prompt: s("prompt"),
         when_words: rrule_words(&rrule),
-        next_at: next.get(&id).copied().filter(|_| !paused),
+        // The app moves a gone thread's heartbeat on each time it skips it, which isn't a run.
+        next_at: next.get(&id).copied().filter(|_| !paused && !gone),
         paused,
         session,
         folders: cwds,
-        link: Some(if heartbeat { crate::launch::codex_thread_url(&thread) } else { format!("codex://automations/{}?automationSource=local", urlencoding::encode(&id)) }),
+        link: Some(if heartbeat && !gone { crate::launch::codex_thread_url(&thread) } else { format!("codex://automations/{}?automationSource=local", urlencoding::encode(&id)) }),
+        problem: gone.then(|| "Its thread is gone from Codex, so Codex skips it every time. Open it in Codex to delete it.".to_string()),
         lasts: if heartbeat {
             "The Codex app sends it to its thread while the app is open.".into()
         } else {
@@ -199,23 +212,35 @@ updated_at = 1789399292341
 "#;
         let thread = Session::new(Harness::Codex, "codex", "01a0-thread");
         let next = std::collections::HashMap::from([("watch-atlas-deploy".to_string(), 1_789_400_000_000)]);
-        let k = of(heartbeat, &account(), &[&thread], &next).unwrap();
+        let kept = |_: &str| true;
+        let k = of(heartbeat, &account(), &[&thread], &next, &kept).unwrap();
         assert_eq!((k.key.as_str(), k.kind.as_str(), k.when_words.as_str(), k.next_at, k.paused), ("codex:codex:watch-atlas-deploy", "Heartbeat", "Every 5 minutes", Some(1_789_400_000_000), false));
         assert_eq!(k.session.as_deref(), Some("codex:codex:01a0-thread"));
         assert_eq!(k.link.as_deref(), Some("codex://threads/01a0-thread"));
+        assert_eq!(k.problem, None);
         // Its thread not on the board: still listed, with its link.
-        assert_eq!(of(heartbeat, &account(), &[], &next).unwrap().session, None);
+        let off_board = of(heartbeat, &account(), &[], &next, &kept).unwrap();
+        assert_eq!((off_board.session, off_board.link.as_deref(), off_board.problem), (None, Some("codex://threads/01a0-thread"), None));
+        // Its thread gone from Codex: the app skips it each time, so it can't run, has no next
+        // time, and opens on its own page, where it can be deleted. A thread the board has is
+        // there, whatever its rollout's name.
+        let gone = |_: &str| false;
+        let k = of(heartbeat, &account(), &[], &next, &gone).unwrap();
+        assert!(k.problem.is_some());
+        assert_eq!((k.next_at, k.link.as_deref()), (None, Some("codex://automations/watch-atlas-deploy?automationSource=local")));
+        assert!(of(&heartbeat.replace("ACTIVE", "PAUSED"), &account(), &[], &next, &gone).unwrap().problem.is_some());
+        assert_eq!(of(heartbeat, &account(), &[&thread], &next, &gone).unwrap().problem, None);
         // Paused: no next time. Deleted, or a heartbeat with no thread: not listed.
-        let paused = of(&heartbeat.replace("ACTIVE", "PAUSED"), &account(), &[], &next).unwrap();
+        let paused = of(&heartbeat.replace("ACTIVE", "PAUSED"), &account(), &[], &next, &kept).unwrap();
         assert_eq!((paused.paused, paused.next_at), (true, None));
-        assert!(of(&heartbeat.replace("ACTIVE", "DELETED"), &account(), &[], &next).is_none());
-        assert!(of(&heartbeat.replace("01a0-thread", ""), &account(), &[], &next).is_none());
+        assert!(of(&heartbeat.replace("ACTIVE", "DELETED"), &account(), &[], &next, &kept).is_none());
+        assert!(of(&heartbeat.replace("01a0-thread", ""), &account(), &[], &next, &kept).is_none());
         // A cron (the kind when none is said) starts a thread in its folder each run.
         let cron = "version = 1\nid = \"nightly\"\nname = \"Nightly triage\"\nprompt = \"Triage\"\nstatus = \"ACTIVE\"\nrrule = \"FREQ=DAILY;BYHOUR=2;BYMINUTE=0\"\ncwds = [\"/Users/me/projects/northwind\"]\n";
-        let k = of(cron, &account(), &[], &next).unwrap();
-        assert_eq!((k.kind.as_str(), k.folders.clone(), k.link.as_deref()), ("Automation", vec!["/Users/me/projects/northwind".to_string()], Some("codex://automations/nightly?automationSource=local")));
+        let k = of(cron, &account(), &[], &next, &gone).unwrap();
+        assert_eq!((k.kind.as_str(), k.folders.clone(), k.link.as_deref(), k.problem), ("Automation", vec!["/Users/me/projects/northwind".to_string()], Some("codex://automations/nightly?automationSource=local"), None));
         // One in several folders is in each of their projects.
         let both = cron.replace("cwds = [\"/Users/me/projects/northwind\"]", "cwds = [\"/Users/me/projects/northwind\", \"/Users/me/projects/atlas\"]");
-        assert_eq!(of(&both, &account(), &[], &next).unwrap().folders.len(), 2);
+        assert_eq!(of(&both, &account(), &[], &next, &kept).unwrap().folders.len(), 2);
     }
 }

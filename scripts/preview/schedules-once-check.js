@@ -3,8 +3,11 @@
 // a finished one is folded under Finished, out of the sidebar's count, and shown with its tag and
 // why; the dialog's Run once, then stop is saved; the schedules the harnesses keep are listed apart,
 // read only, each with the session it wakes, a panel of its own, and Return opening it where it
-// lives (`open_harness_link`).
-//   PREVIEW_SCHEDULES=scripts/preview/schedules-sample.json scripts/preview.sh schedules '' scripts/preview/schedules-once-check.js
+// lives (`open_harness_link`); one that can't run (a Codex heartbeat whose thread is gone) says so,
+// on its row and in its panel, and its Open in Codex opens it on its own page.
+// It runs under All projects, where a harness's schedule whose place can't be told (a heartbeat
+// whose session isn't on the board) is listed too.
+//   PREVIEW_SCHEDULES=scripts/preview/schedules-sample.json scripts/preview.sh schedules 'All projects' scripts/preview/schedules-once-check.js
 (function () {
   var rows = function () { return all('.ca-schedrow'); };
   var named = function (name) { return rows().filter(function (r) { return r.querySelector('.ca-schedrow-name').textContent === name; })[0]; };
@@ -21,7 +24,9 @@
       check('one that runs once says so', !!once && !!once.querySelector('.ca-schedrow-once'), once ? once.textContent : 'no row');
       var finished = heading('Finished');
       check('the finished ones are folded under Finished, counted', !!finished && /Finished\s*1/.test(finished.textContent) && !named('Follow up on the kestrel release'), finished ? finished.textContent : 'no heading');
-      check('and left out of the sidebar’s count', /Schedules\s*5/.test(q('.ca-side').textContent.replace(/\s+/g, ' ')), q('.ca-side').textContent);
+      // The sidebar counts the ones that will run: listed, Codealong's own, neither paused nor finished.
+      var running = rows().filter(function (r) { return !r.classList.contains('is-harness') && !r.classList.contains('is-paused'); }).length;
+      check('and left out of the sidebar’s count', new RegExp('Schedules\\s*' + running + '\\b').test(q('.ca-side').textContent.replace(/\s+/g, ' ')), running + ' running; ' + q('.ca-side').textContent);
       finished.querySelector('button').click();
       return until(function () { return !!named('Follow up on the kestrel release'); }, 3000, 'the finished one listed');
     })
@@ -84,6 +89,23 @@
       var asked = last('open_harness_link');
       check('Return opens it there, by its link', asked.harness === 'codex' && asked.url === 'codex://automations/nightly-atlas-triage?automationSource=local', JSON.stringify(asked));
       check('and opens no dialog', !q('.ca-scheddlg'), '');
+      var gone = named('Watch the kestrel rollout');
+      check('one that can’t run says so on its row', !!gone && gone.classList.contains('is-problem') && !!gone.querySelector('.ca-schedrow-problem') && gone.querySelector('.ca-schedrow-problem').textContent === 'Can’t run', gone ? gone.textContent : 'no row');
+      check('with no next time', !!gone && !gone.querySelector('.ca-schedrow-next'), gone ? gone.textContent : 'no row');
+      press(gone);
+      return until(function () { return q('.ca-schedinsp-name') && q('.ca-schedinsp-name').textContent === 'Watch the kestrel rollout'; }, 3000, 'its panel');
+    })
+    .then(function () {
+      var panel = q('.ca-schedinsp');
+      check('its panel says why it can’t run', panel.querySelector('.ca-tag').textContent === 'Can’t run' && !!panel.querySelector('.ca-schedproblem') && panel.querySelector('.ca-schedproblem').textContent.indexOf('Its thread is gone from Codex') >= 0, panel.textContent.slice(0, 400));
+      check('and not that its session isn’t on the board', panel.textContent.indexOf('isn’t on the board') < 0, panel.textContent.slice(0, 600));
+      var open = all('.ca-insp-actions button').filter(function (b) { return b.textContent === 'Open in Codex'; })[0];
+      var n = sent('open_harness_link').length;
+      open.click();
+      return until(function () { return sent('open_harness_link').length > n; }, 3000, 'the open');
+    })
+    .then(function () {
+      check('its Open in Codex opens it on its own page', last('open_harness_link').url === 'codex://automations/watch-kestrel-rollout?automationSource=local', JSON.stringify(last('open_harness_link')));
     })
     .then(done, stopped);
 })();
