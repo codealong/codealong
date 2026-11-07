@@ -448,12 +448,11 @@ static LAST_ID: AtomicU64 = AtomicU64::new(0);
 pub fn new_id() -> (String, i64) {
     loop {
         let now = now_ms().max(1) as u64;
-        let next = |last: u64| last.max(now - 1) + 1;
-        // `fetch_update`, not `try_update`, which Rust has had only since after 1.91, the
-        // `rust-version` the crate says it builds with.
-        let at = match LAST_ID.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |last| Some(next(last))) {
-            Ok(last) | Err(last) => next(last),
-        };
+        // Raised to just before now, then one past what it holds: each `fetch_add` takes a number
+        // none other takes, and none before now. Not `try_update`, which Rust 1.91 (the crate's
+        // `rust-version`) doesn't have, nor `fetch_update`, which newer ones deprecate for it.
+        LAST_ID.fetch_max(now - 1, Ordering::SeqCst);
+        let at = LAST_ID.fetch_add(1, Ordering::SeqCst) + 1;
         let id = format!("{PREFIX}{}", base36(at));
         if !dir(&id).exists() {
             return (id, at as i64);
@@ -1545,11 +1544,13 @@ mod tests {
 
     #[test]
     fn requests_asked_at_once_never_share_an_id() {
+        let asked_from = now_ms();
         let threads: Vec<_> = (0..8).map(|_| std::thread::spawn(|| (0..200).map(|_| new_id()).collect::<Vec<(String, i64)>>())).collect();
         let asked: Vec<(String, i64)> = threads.into_iter().flat_map(|t| t.join().unwrap()).collect();
         let ids: std::collections::HashSet<&String> = asked.iter().map(|(id, _)| id).collect();
         let times: std::collections::HashSet<i64> = asked.iter().map(|(_, at)| *at).collect();
         assert_eq!((ids.len(), times.len()), (asked.len(), asked.len()), "nor a time, which a panel goes by");
+        assert!(asked.iter().all(|(_, at)| *at >= asked_from), "and none before it was asked");
     }
 
     /// Two requests from one session: answering the first, the session waits on the second from a
