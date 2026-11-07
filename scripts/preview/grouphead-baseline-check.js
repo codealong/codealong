@@ -2,12 +2,14 @@
 // baseline at every zoom: the project and the name (sans), where it is (mono), and at its end
 // the diff and the drift (mono). Pieces each centered on their own put the mono a pixel above
 // the sans (the 2026-11-06 report, at 110% on a Retina screen): the two fonts sit their text at
-// different heights in a box of one height. The chips are boxes centered on the line, so their
-// words are only held to a pixel of the name's. Zoomed with CSS `zoom` as chip-baseline-check.js
+// different heights in a box of one height. The chips, and another machine's badge before where
+// it is, are boxes with their words centered in them, so those are only held to a pixel of the
+// name's. Zoomed with CSS `zoom` as chip-baseline-check.js
 // is, at 200% and 220% too, which round as a Retina screen does at 100% and 110%. A text's
 // baseline is its box's top plus its font's ascent as drawn, read off a probe in that font.
 //   PREVIEW_GROUP=worktree scripts/preview.sh sessions '' scripts/preview/grouphead-baseline-check.js
 //   PREVIEW_GROUP=worktree scripts/preview.sh prs '' scripts/preview/grouphead-baseline-check.js
+//   PREVIEW_GROUP=worktree PREVIEW_DEVICES=scripts/preview/devices-sample.json scripts/preview.sh sessions '' scripts/preview/grouphead-baseline-check.js
 (function () {
   var ZOOMS = [1, 1.1, 1.25, 2, 2.2];
   var ascents = {};
@@ -44,7 +46,8 @@
       // A chip that didn't fit wrapped onto the lane's second line, which is cut off.
       var lane = t.parentElement.closest('.ca-grouphead-chips');
       if (lane && box.top >= lane.getBoundingClientRect().bottom) continue;
-      out.push({ text: t.data.trim().slice(0, 12), y: box.top + ascent(t.parentElement), chip: !!lane });
+      var badge = !lane && !!t.parentElement.closest('.ca-devbadge');
+      out.push({ text: t.data.trim().slice(0, 12), y: box.top + ascent(t.parentElement), chip: !!lane || badge, badge: badge });
     }
     return out;
   };
@@ -58,6 +61,7 @@
     .then(function () {
       var mixed = 0;
       var chipped = 0;
+      var badges = 0;
       ZOOMS.forEach(function (z) {
         document.documentElement.style.zoom = String(z);
         ascents = {};
@@ -75,15 +79,16 @@
           var at = baselines(name)[0];
           b.filter(function (x) { return x.chip; }).forEach(function (x) {
             if (z === 1) chipped++;
+            if (z === 1 && x.badge) badges++;
             if (at && Math.abs(x.y - at.y) > 1) chipsOff.push(x.text + '@' + x.y.toFixed(2) + ' name@' + at.y.toFixed(2));
           });
         });
         var pct = Math.round(z * 100) + '%';
         check('at ' + pct + ' every heading sets its name, where it is and its diff on one baseline', off.length === 0, off.length + ' off: ' + off.slice(0, 3).join(' | '));
-        check('at ' + pct + " every heading's chips say their words within a pixel of its name's baseline", chipsOff.length === 0, chipsOff.length + ' off: ' + chipsOff.slice(0, 3).join(' | '));
+        check('at ' + pct + " every heading's chips and badge say their words within a pixel of its name's baseline", chipsOff.length === 0, chipsOff.length + ' off: ' + chipsOff.slice(0, 3).join(' | '));
       });
       document.documentElement.style.zoom = '';
-      note(mixed + ' headings with more than one run of text, ' + chipped + ' words in their chips');
+      note(mixed + ' headings with more than one run of text, ' + chipped + ' words in their chips and badges (' + badges + ' in badges)');
       check('headings with mono and sans text were measured', mixed > 0);
     })
     .then(done)
