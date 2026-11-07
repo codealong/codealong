@@ -5,10 +5,11 @@
 // read only, each with the session it wakes, a panel of its own, and Return opening it where it
 // lives (`open_harness_link`); one that can't run (a Codex heartbeat whose thread is gone) says so,
 // on its row and in its panel, and its Open in Codex opens it on its own page.
-// It runs under All projects, where a harness's schedule whose place can't be told (a heartbeat
+// It looks under All projects, where a harness's schedule whose place can't be told (a heartbeat
 // whose session isn't on the board) is listed too.
-//   PREVIEW_SCHEDULES=scripts/preview/schedules-sample.json scripts/preview.sh schedules 'All projects' scripts/preview/schedules-once-check.js
+//   PREVIEW_SCHEDULES=scripts/preview/schedules-sample.json scripts/preview.sh schedules '' scripts/preview/schedules-once-check.js
 (function () {
+  localStorage.setItem('codealong.project', 'All projects');
   var rows = function () { return all('.ca-schedrow'); };
   var named = function (name) { return rows().filter(function (r) { return r.querySelector('.ca-schedrow-name').textContent === name; })[0]; };
   var press = function (el) {
