@@ -2966,6 +2966,15 @@ Commands:
           requests for changes ("feedback"), and failing checks and conflicts
           ("feedback-and-checks"), each with a merge too ("feedback-and-merges",
           "feedback-checks-and-merges")
+  watch   Watch a PR: have its primary session told of everything that happens on it,
+          whatever `[pull_requests] nudge_about` or its repo's team keep nudges to. It's
+          `pr nudge`, with an approval, a merge and a close told too, for when what a
+          session does next hangs on what happens to the PR, its approval say. It takes
+          the same options, and run from a session it makes that session the one told in
+          the same way. A PR approved already tells its session that now. A primary
+          session that has stopped is still resumed only with what asks for work, never
+          for an approval, a merge or a close. --off stops the watch and leaves its
+          nudge as it was, telling what its settings say; `pr nudge --off` stops both
   review  Start an agent's review of a PR now, as Review with… does in the app: a round
           of Codealong's own reviews (Settings › Automation), whatever `[reviews] auto`
           says and of a commit reviewed already too, in a session of its own where
@@ -3113,6 +3122,49 @@ conflicts ("feedback-and-checks"), each with a merge too ("feedback-and-merges",
 "feedback-checks-and-merges")
 
 Usage: codealong pr nudge [OPTIONS] <PR>
+
+Arguments:
+  <PR>
+          The PR: its URL, owner/name#number, or a number (#123) in the repo of the
+          current folder's worktree
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --session <SESSION>
+          The session to tell, made the PR's primary: a session key or id. Without it,
+          the session running this command, if it runs in one
+
+      --table
+          Tables, even when piped
+
+      --take
+          Make the session the PR's primary even while another running session is
+
+      --off
+          Turn it off again, for this PR
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong pr watch
+
+```
+Watch a PR: have its primary session told of everything that happens on it, whatever
+`[pull_requests] nudge_about` or its repo's team keep nudges to. It's `pr nudge`, with
+an approval, a merge and a close told too, for when what a session does next hangs on
+what happens to the PR, its approval say. It takes the same options, and run from a
+session it makes that session the one told in the same way. A PR approved already tells
+its session that now. A primary session that has stopped is still resumed only with what
+asks for work, never for an approval, a merge or a close. --off stops the watch and
+leaves its nudge as it was, telling what its settings say; `pr nudge --off` stops both
+
+Usage: codealong pr watch [OPTIONS] <PR>
 
 Arguments:
   <PR>

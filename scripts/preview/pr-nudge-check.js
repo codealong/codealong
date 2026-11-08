@@ -7,7 +7,9 @@
 // with its key) and the card says so at once; a board that says the same keeps it on, and one that
 // says it's on by the setting says that; with its primary session stopped, it says what the board
 // says becomes of the news (`prStopped`): resumed for what asks for work, not beside another of the
-// PR's sessions that runs, or nothing; a second click turns it off. A merged PR's card
+// PR's sessions that runs, or nothing. With nudges kept to less than everything, a box under the
+// words watches it (set_pr_watch), and the words say everything while it does. A second click turns
+// the nudge off, a watch the board hasn't said yet with it. A merged PR's card
 // has no switch. Then the setting, off by default, saves `[pull_requests]` as config.toml has it;
 // what a nudge tells of, a merge apart under Everything and its own box under the others;
 // asking for a re-review once fixes are pushed, off by default, saves `[pull_requests]` too; and
@@ -172,12 +174,49 @@
       flag(false);
       push({});
       await wait(200);
+      // Watching it: nothing to add under Everything; kept to less, a box that has it be everything.
+      var watchBox = function () { return card().querySelector('.ca-prhover-watch input'); };
+      check('with nudges telling everything, there is no box to watch it', !watchBox());
+      board.nudgeAbout = 'feedback-and-checks';
+      push({});
+      await wait(200);
+      check('kept to less, a box to watch it, unticked, under words that leave an approval out', !!watchBox() && !watchBox().checked && /never for an approval or a merge\.$/.test(says()), says());
+      watchBox().click();
+      await wait(100);
+      var watching = calls('set_pr_watch');
+      check('ticked, it watches that PR, and the card says everything at once', watching.length === 1 && watching[0][1].key === picked.pr.key && watching[0][1].on === true && watchBox().checked && /when it’s approved, merged or closed/.test(says()), says());
+      push({ watched: true });
+      await wait(200);
+      check('the board that says so keeps it ticked', watchBox().checked && /when it’s approved, merged or closed/.test(says()), says());
+      watchBox().click();
+      await wait(100);
+      watching = calls('set_pr_watch');
+      check('unticked, it stops watching, the nudge left on', watching.length === 2 && watching[1][1].on === false && on() && /never for an approval or a merge\.$/.test(says()), says());
+      push({ watched: false });
+      await wait(200);
+      // Ticked, then the nudge turned off before the board says either: the store has no watch, so
+      // none comes back with the nudge.
+      watchBox().click();
+      await wait(100);
+      toggle().click();
+      await wait(100);
+      push({ nudge: false, nudgeByDefault: false, watched: false });
+      await wait(200);
+      toggle().click();
+      await wait(100);
+      push({ nudge: true });
+      await wait(200);
+      check('a watch not yet on the board goes with the nudge', !watchBox().checked && /never for an approval or a merge\.$/.test(says()), says());
+      board.nudgeAbout = 'everything';
+      push({});
+      await wait(200);
+      var nudgesSent = calls('set_pr_nudge').length;
       toggle().click();
       await wait(100);
 
       sent = calls('set_pr_nudge');
       a = sent[sent.length - 1][1];
-      check('a second click turns it off for that PR', sent.length === 2 && a.key === picked.pr.key && a.on === false && !on(), JSON.stringify(a));
+      check('a click on the switch turns it off for that PR', sent.length === nudgesSent + 1 && a.key === picked.pr.key && a.on === false && !on(), JSON.stringify(a));
       push({ nudge: false, nudgeByDefault: false, state: 'merged', mergedAt: Date.now(), closedAt: Date.now() });
       await wait(200);
       check('a merged PR has no switch', !card() || !toggle());

@@ -333,6 +333,11 @@ pub struct PrItem {
     /// The nudge is on through `[pull_requests] nudge_by_default`, not turned on for this PR.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub nudge_by_default: bool,
+    /// Watched, from its card or by `codealong pr watch`: its nudge tells of everything, whatever
+    /// `[pull_requests] nudge_about` says (nudges.rs `about_of`). Said after it ended too, so that
+    /// its ending is told.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub watched: bool,
     /// The session that's the PR's own, of `sessions`, by key: the one picked as its primary,
     /// else the one that pushed to its branch most, the one that opened it winning a tie, else
     /// the one that started first (board.rs `pr_primary`). Only it is nudged.

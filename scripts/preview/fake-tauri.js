@@ -1144,7 +1144,7 @@ window.__TAURI_INTERNALS__ = {
     if (cmd === 'waiting_asked') return Promise.resolve(window.__WAITING_ASKED__ || null);
     if (cmd === 'show_waiting') return Promise.resolve(null);
     // A PR's nudge is turned on or off without an answer; the board that follows says so.
-    if (cmd === 'set_pr_nudge') return Promise.resolve(null);
+    if (cmd === 'set_pr_nudge' || cmd === 'set_pr_watch') return Promise.resolve(null);
     // The accounts' order is written without an answer; the usage bar shows it until a board
     // lists them so, which here none does.
     if (cmd === 'order_accounts') return Promise.resolve(null);

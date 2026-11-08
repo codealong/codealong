@@ -380,6 +380,17 @@ worked in a worktree on the PR's branch while the PR was open. So there's usuall
   wants to handle its review themselves. `--off` turns it off;
   `codealong pr show <pr>` says whether it's on (`nudge`) and which session is told
   (`primary`).
+- `codealong pr watch <pr>` is `pr nudge` with nothing left out: you're told of everything that
+  happens on the PR, an approval, a merge and a close included, whatever `nudge_about` or the
+  repo's team keep nudges to, for this PR alone. Use it when what you do next hangs on what happens
+  to the PR, above all when you're waiting on its approval or the user asked you to do something
+  once it's approved or merged, since a plain nudge may never tell you of either. Then end your
+  turn rather than polling GitHub, and take it from there when the message comes. It makes you the
+  one told as `pr nudge` does (`--take`, by the same rule), one approved already says so at once,
+  and an approval in the message still isn't a go-ahead to merge. It reaches you only while your
+  session runs: a session that has stopped is resumed for what asks for work, never for an approval,
+  a merge or a close. `--off` stops the watch and leaves the nudge as it was; `pr show` says whether
+  it's on (`watched`).
 
 ## Accounts
 

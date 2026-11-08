@@ -3,7 +3,8 @@
 //! are kept in `pr-links.json` next to the config; the command writes it under a lock and the
 //! engine watches it. The same file has the PRs whose primary session is told of what happens on
 //! them (nudges.rs), which a PR's card and menu and `codealong pr nudge` turn on and off one by
-//! one, and the sessions picked by hand as their PR's primary (`PrLink::primary`).
+//! one, the ones watched, whose primary session is told of everything (`LinkStore::watched`), and
+//! the sessions picked by hand as their PR's primary (`PrLink::primary`).
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -52,6 +53,11 @@ pub struct LinkStore {
     /// nudge_by_default` is on.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub nudges_off: Vec<String>,
+    /// The PRs watched (`codealong pr watch`, the PR's card): a nudge on one tells of everything,
+    /// whatever `[pull_requests] nudge_about` keeps nudges to. A build from before this field
+    /// drops it when it next writes the file.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub watched: Vec<String>,
 }
 
 impl LinkStore {
@@ -67,9 +73,12 @@ impl LinkStore {
     }
 
     /// Turns telling a PR's primary session what happens on it on or off for this PR, whatever
-    /// `[pull_requests] nudge_by_default` says. True when that changed the file.
+    /// `[pull_requests] nudge_by_default` says; off, it's no longer watched either, since nobody is
+    /// told. True when that changed the file.
     pub fn set_nudge(&mut self, pr: &str, on: bool) -> bool {
         let pr = pr_key(pr);
+        let watch_gone = !on && self.is_watched(&pr);
+        self.watched.retain(|k| on || *k != pr);
         let (add, remove) = if on { (&mut self.nudges, &mut self.nudges_off) } else { (&mut self.nudges_off, &mut self.nudges) };
         let removed = remove.contains(&pr);
         remove.retain(|k| *k != pr);
@@ -77,7 +86,30 @@ impl LinkStore {
         if added {
             add.push(pr);
         }
-        added || removed
+        added || removed || watch_gone
+    }
+
+    /// Whether a nudge on the PR tells of everything (`pr` as `pr_key` writes it).
+    pub fn is_watched(&self, pr: &str) -> bool {
+        self.watched.iter().any(|k| k == pr)
+    }
+
+    /// Starts or stops watching the PR. Starting turns its nudge on, which is what tells; stopping
+    /// leaves that as it is, so what `nudge_about` says goes on being told. True when that changed
+    /// the file.
+    pub fn set_watch(&mut self, pr: &str, on: bool) -> bool {
+        let pr = pr_key(pr);
+        if !on {
+            let was = self.is_watched(&pr);
+            self.watched.retain(|k| *k != pr);
+            return was;
+        }
+        let nudge = self.set_nudge(&pr, true);
+        let added = !self.is_watched(&pr);
+        if added {
+            self.watched.push(pr);
+        }
+        added || nudge
     }
 
     /// Picks the session as the PR's primary, in place of any picked before, and links it. True
@@ -307,6 +339,32 @@ mod tests {
         // Linking again replaces the unlink.
         assert!(store.set("o/r#1", "claude:a:1", true, 4));
         assert_eq!(store.links.len(), 2);
+    }
+
+    #[test]
+    fn watching_a_pr_turns_its_nudge_on_and_a_nudge_turned_off_takes_the_watch_with_it() {
+        let mut store = LinkStore::default();
+        assert!(store.set_watch("O/R#2", true));
+        assert!(!store.set_watch("o/r#2", true), "already watched");
+        assert_eq!((store.watched.clone(), store.nudges.clone()), (vec!["o/r#2".to_string()], vec!["o/r#2".to_string()]));
+        let again: LinkStore = serde_json::from_str(&serde_json::to_string(&store).unwrap()).unwrap();
+        assert!(again.is_watched("o/r#2"));
+        // Stopping the watch leaves the nudge on.
+        assert!(store.set_watch("o/R#2", false));
+        assert!(!store.set_watch("o/r#2", false));
+        assert_eq!((store.watched.is_empty(), store.nudges.len()), (true, 1));
+        // A nudge turned off takes the watch too, and that alone is a change to the file.
+        store.set_watch("o/r#2", true);
+        assert!(store.set_nudge("o/r#2", false));
+        assert!(store.watched.is_empty());
+        assert_eq!(store.nudges_off, vec!["o/r#2".to_string()]);
+        store.watched.push("o/r#2".into());
+        assert!(store.set_nudge("o/r#2", false), "it was off already, and the watch went");
+        // A nudge turned on leaves a watch be, and a watch turns on a nudge that was off.
+        assert!(store.set_watch("o/r#2", true));
+        assert!(store.nudges_off.is_empty());
+        store.set_nudge("o/r#2", true);
+        assert!(store.is_watched("o/r#2"));
     }
 
     #[test]

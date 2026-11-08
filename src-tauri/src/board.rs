@@ -176,6 +176,8 @@ pub struct PrLinks {
     /// each, and the ones turned off.
     pub nudged: HashSet<String>,
     pub not_nudged: HashSet<String>,
+    /// The PRs whose nudge tells of everything (`PrItem::watched`).
+    pub watched: HashSet<String>,
     /// `[pull_requests] nudge_by_default`: every open PR of yours is told, unless turned off.
     pub nudge_by_default: bool,
     /// The same for particular repos, by slug, where your `[repos."github.com/…"]` table says.
@@ -1294,6 +1296,7 @@ fn pr_item(lanes: &[Lane], owners: &HashMap<&Path, &[String]>, slug: &str, (proj
         snoozed_until: None,
         nudge,
         nudge_by_default: nudge && !by_hand,
+        watched: links.watched.contains(&key),
         primary,
         primary_by,
         head: p.head_ref.clone(),
@@ -3431,6 +3434,12 @@ mod tests {
         links.nudged.clear();
         links.not_nudged.insert("sprucehq/spark#1037".into());
         assert_eq!(card(&open, Some("gwen"), &links), (false, false));
+        // Watched stays said as it ends, unlike the nudge, so that the ending is told in full.
+        links.not_nudged.clear();
+        links.watched.insert("sprucehq/spark#1037".into());
+        assert!(pr_card(&seeds, &[], "sprucehq/spark", &HashMap::new(), &pr(PrState::Merged, 0), Some("gwen"), &links).watched);
+        links.watched.clear();
+        assert!(!pr_card(&seeds, &[], "sprucehq/spark", &HashMap::new(), &open, Some("gwen"), &links).watched);
     }
 
     #[test]

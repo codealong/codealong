@@ -1036,6 +1036,15 @@ Also when it's merged, the box under it, adds a merge to either (`"feedback-and-
 nothing more is wanted on it, so it can wrap its work up. Still not a close, nor what came in with
 the merge, and a session that has stopped isn't resumed for it. Everything has its merge already.
 
+Watching a PR has its nudge tell of everything, whatever that setting or the repo's team keep
+nudges to, for that PR alone: for a session whose next step hangs on what happens to it, its
+approval say. A session starts one with `codealong pr watch <pr>`, which turns the PR's nudge on
+and makes that session the one told as `pr nudge` does, and you with the box under the switch on
+the PR's card, there while nudges tell of less than everything. One begun on a PR approved already
+says so at once. `codealong pr watch <pr> --off` or the box stops it and leaves the nudge on,
+telling what the settings say; turning the nudge off stops both. A primary session that has
+stopped is still resumed only for what asks for work, so an approval reaches it only while it runs.
+
 A primary session on this Mac that has stopped (its terminal closed, or Claude Code's background
 service ended it after an hour idle) is resumed out of sight to be told, as a session is resumed
 for another session's message: under its harness's background service, else in Codealong. It

@@ -209,6 +209,7 @@ mod tests {
             snoozed_until: None,
             nudge: false,
             nudge_by_default: false,
+            watched: false,
             primary: Some(A.into()),
             primary_by: None,
             head: "teams".into(),

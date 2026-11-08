@@ -1727,6 +1727,9 @@ export interface PrItem {
   nudge?: boolean;
   /** The nudge is on through `[pull_requests] nudge_by_default`, not turned on for this PR. */
   nudgeByDefault?: boolean;
+  /** Watched, from its card or by `codealong pr watch`: its nudge tells of everything, whatever
+   *  `[pull_requests] nudge_about` says (nudges.rs `about_of`). */
+  watched?: boolean;
   /** The key of its primary session, of `sessions`: the one picked (`codealong pr nudge`, its
    *  menu's Primary session), else the one that pushed to its branch most, the one that opened it
    *  winning a tie, else the one that started first (board.rs `pr_primary`). Only it is nudged. */

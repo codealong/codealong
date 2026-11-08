@@ -831,6 +831,8 @@ enum PrCmd {
     Unlink(PrLinkArgs),
     /// Have a PR's primary session told of what happens on it: while it runs, it gets a message when someone else reviews the PR, asks for changes or comments (with what they wrote), when it's approved, merged or closed, and when its checks fail or its branch comes to conflict with its base, with where the PR stands. One on this Mac that has stopped is resumed out of sight with what asks for work (comments, changes asked for, failing checks, conflicts), unless another of the PR's sessions runs (`[sessions] resume_for_pr_news`). Its primary session is the one that pushed to its branch most, the one that opened it counting as once at least and winning a tie, never an automatic review of it, unless another was made it here or from the PR's menu in the app (Primary session); the PR's other sessions aren't told. What the signed-in user did, which is what its own agent did through gh, isn't told. Run from a session, that session becomes the one told, unless another running session is the PR's primary (--take). Off for a PR until turned on for it, here or from its card in the app, unless `[pull_requests] nudge_by_default` in config.toml turns it on for every PR of yours; one turned on approved already tells its session that now. `[pull_requests] nudge_about` can keep what it tells to comments and requests for changes ("feedback"), and failing checks and conflicts ("feedback-and-checks"), each with a merge too ("feedback-and-merges", "feedback-checks-and-merges").
     Nudge(PrNudgeArgs),
+    /// Watch a PR: have its primary session told of everything that happens on it, whatever `[pull_requests] nudge_about` or its repo's team keep nudges to. It's `pr nudge`, with an approval, a merge and a close told too, for when what a session does next hangs on what happens to the PR, its approval say. It takes the same options, and run from a session it makes that session the one told in the same way. A PR approved already tells its session that now. A primary session that has stopped is still resumed only with what asks for work, never for an approval, a merge or a close. --off stops the watch and leaves its nudge as it was, telling what its settings say; `pr nudge --off` stops both.
+    Watch(PrNudgeArgs),
     /// Start an agent's review of a PR now, as Review with… does in the app: a round of Codealong's own reviews (Settings › Automation), whatever `[reviews] auto` says and of a commit reviewed already too, in a session of its own where `[reviews] start` says, its review posted where `[reviews] post` says (one of a PR of yours is kept and handed back to its primary session). That reviewer's session for the PR is asked again when it has one. Not while a round of it is under way. The answer names the round's session: `codealong session wait <key>` waits for its turn, and `codealong pr show <pr>` says where the review stands.
     Review(PrReviewArgs),
     /// Snooze your review of a PR that asks for it, as Snooze review in its menu in Codealong does: it leaves Review requested, the floating bar's reviews and the mark until WHEN, waiting under Snoozed, and is back then if it still asks for your review. --wake ends it now. WHEN as `session snooze` takes it: 30m, 5pm, tomorrow, fri 17:00.
@@ -2020,7 +2022,8 @@ fn run(cmd: Cmd, c: &mut Client, json: bool) -> Result<()> {
         Cmd::Pr { cmd: PrCmd::Show { pr } } => pr_show(c, &pr, json),
         Cmd::Pr { cmd: PrCmd::Link(a) } => pr_link(c, &a, true, json),
         Cmd::Pr { cmd: PrCmd::Unlink(a) } => pr_link(c, &a, false, json),
-        Cmd::Pr { cmd: PrCmd::Nudge(a) } => pr_nudge(c, &a, json),
+        Cmd::Pr { cmd: PrCmd::Nudge(a) } => pr_nudge(c, &a, false, json),
+        Cmd::Pr { cmd: PrCmd::Watch(a) } => pr_nudge(c, &a, true, json),
         Cmd::Pr { cmd: PrCmd::Review(a) } => pr_review(c, &a, json),
         Cmd::Pr { cmd: PrCmd::Snooze { pr, when } } => pr_snooze(c, &pr, &when, json),
         Cmd::Preview { cmd: PreviewCmd::Show(a) } => preview_show(c, &a.worktree, json),
@@ -4441,7 +4444,9 @@ fn pr_show(c: &mut Client, pr: &str, json: bool) -> Result<()> {
     if rows.is_empty() {
         println!("No session is linked. `codealong pr link {} --session <key>` links one.", p.key);
     }
-    if p.nudge {
+    if p.nudge && p.watched {
+        println!("Its primary session is told of everything that happens on it while it runs (`codealong pr watch {} --off` goes back to what its settings tell of).", p.key);
+    } else if p.nudge {
         let why = if p.nudge_by_default { "[pull_requests] nudge_by_default; " } else { "" };
         println!("Its primary session is told of what happens on it while it runs ({why}`codealong pr nudge {} --off` stops that).", p.key);
     }
@@ -4576,6 +4581,8 @@ struct PrNudgeOut {
     pr: String,
     /// Whether its primary session is told of what happens on it, now.
     nudge: bool,
+    /// Whether that's everything, whatever its settings keep nudges to (`pr watch`).
+    watched: bool,
     /// The session told: the PR's primary, when that's known.
     #[serde(skip_serializing_if = "Option::is_none")]
     session: Option<String>,
@@ -4586,11 +4593,12 @@ struct PrNudgeOut {
 /// Turns telling a PR's primary session what happens on it on or off (nudges.rs), in
 /// pr-links.json, which the app watches. Turning it on from a session, or for one named, makes
 /// that session the PR's primary, unless another running session is (`--take`). A PR the board
-/// doesn't list yet has none: one just opened, whose opener is the one asking.
-fn pr_nudge(c: &mut Client, a: &PrNudgeArgs, json: bool) -> Result<()> {
+/// doesn't list yet has none: one just opened, whose opener is the one asking. With `watch`
+/// (`pr watch`) it's a watch that's started or stopped (prlinks.rs `set_watch`), the rest alike.
+fn pr_nudge(c: &mut Client, a: &PrNudgeArgs, watch: bool, json: bool) -> Result<()> {
     let key = resolve_pr(c, &a.pr)?;
     let on = !a.off;
-    let listed = if on && c.app.is_some() { find_pr(c.board()?, &key).cloned() } else { None };
+    let listed = if (on || watch) && c.app.is_some() { find_pr(c.board()?, &key).cloned() } else { None };
     if on && c.app.is_some() {
         match &listed {
             None => eprintln!("Note: Codealong doesn't read {key} yet (it's new or old, or in a repo no project covers that no session here worked on), so nobody is told until it does."),
@@ -4622,26 +4630,32 @@ fn pr_nudge(c: &mut Client, a: &PrNudgeArgs, json: bool) -> Result<()> {
         None => None,
     };
     let mut changed = false;
-    crate::prlinks::change(|store| {
-        let nudge = store.set_nudge(&key, on);
+    let store = crate::prlinks::change(|store| {
+        let told = if watch { store.set_watch(&key, on) } else { store.set_nudge(&key, on) };
         let primary = pick.as_ref().is_some_and(|w| store.set_primary(&key, w, now_ms()));
-        changed = nudge || primary;
+        changed = told || primary;
         changed
     })?;
     let session = pick.clone().or(current).filter(|_| on);
-    let out = PrNudgeOut { pr: crate::prlinks::pr_key(&key), nudge: on, session: session.clone(), changed };
+    let pr = crate::prlinks::pr_key(&key);
+    // Stopping a watch leaves the nudge as it was: turned on for the PR, or as the board has it.
+    let nudge = if watch && !on { store.nudges.contains(&pr) || listed.as_ref().is_some_and(|p| p.nudge) } else { on };
+    let out = PrNudgeOut { watched: store.is_watched(&pr), pr, nudge, session: session.clone(), changed };
     if let Some(k) = &held {
         let who = session_words(c, k);
-        eprintln!("Note: {key}'s primary session is {who}, which is running, so it's the one told. `codealong pr nudge {key} --take` has this session told instead: for when you've taken the PR over.");
+        let verb = if watch { "watch" } else { "nudge" };
+        eprintln!("Note: {key}'s primary session is {who}, which is running, so it's the one told. `codealong pr {verb} {key} --take` has this session told instead: for when you've taken the PR over.");
     }
     if json {
         return print_json(&out);
     }
     let already = if changed { "" } else { " (it already was)" };
+    let what = if out.watched { "everything that happens" } else { "what happens" };
     match (on, &session) {
+        (false, _) if watch => println!("{key} isn't watched, so its nudge tells only what its settings say{already}."),
         (false, _) => println!("Nobody is told of what happens on {key}{already}."),
-        (true, Some(k)) => println!("{} is told of what happens on {key} while it runs{already}.", session_words(c, k)),
-        (true, None) => println!("{key}'s primary session is told of what happens on it while it runs{already}."),
+        (true, Some(k)) => println!("{} is told of {what} on {key} while it runs{already}.", session_words(c, k)),
+        (true, None) => println!("{key}'s primary session is told of {what} on it while it runs{already}."),
     }
     Ok(())
 }
@@ -7631,6 +7645,12 @@ mod tests {
         assert!(Cli::try_parse_from(["codealong", "pr", "nudge", "#12", "--off"]).is_ok());
         assert!(Cli::try_parse_from(["codealong", "pr", "nudge", "#12", "--off", "--take"]).is_err());
         assert!(Cli::try_parse_from(["codealong", "pr", "nudge", "#12", "--off", "--session", "me"]).is_err());
+        // Watching takes the same.
+        let cli = Cli::try_parse_from(["codealong", "pr", "watch", "#12", "--take"]).unwrap();
+        let Cmd::Pr { cmd: PrCmd::Watch(n) } = cli.cmd else { panic!() };
+        assert_eq!((n.pr.as_str(), n.session, n.take, n.off), ("#12", None, true, false));
+        assert!(Cli::try_parse_from(["codealong", "pr", "watch", "#12", "--off"]).is_ok());
+        assert!(Cli::try_parse_from(["codealong", "pr", "watch", "#12", "--off", "--take"]).is_err());
         // A review by hand names its account, or goes on the one Settings names.
         let cli = Cli::try_parse_from(["codealong", "pr", "review", "acme/app#12", "--account", "cursor"]).unwrap();
         let Cmd::Pr { cmd: PrCmd::Review(r) } = cli.cmd else { panic!() };

@@ -16,7 +16,8 @@
 //! told nothing. What you did to the PR yourself, which is what its agent did through `gh` too, is
 //! never told back. `[pull_requests] nudge_about` can keep it to what asks for work (`keep`):
 //! comments and reviews that ask for changes or say something, and failing checks and conflicts or
-//! a merge if it says so, never an approval or a close. An agent's review that Codealong posted from someone's
+//! a merge if it says so, never an approval or a close, unless the PR is watched (`codealong pr
+//! watch`, its card), which has its nudge tell of everything (`about_of`). An agent's review that Codealong posted from someone's
 //! account (autoreview.rs `signed`), as a comment or submitted as their review, is told as their
 //! agent's, never as their own word (`agent_wrote`): the session would otherwise take it for
 //! that person's say.
@@ -45,6 +46,7 @@ struct Seen {
     failed: bool,
     /// GitHub last said its branch conflicts with its base (`Merge::Conflicts`).
     conflicts: bool,
+    watched: bool,
 }
 
 /// What's new on a PR since the last board, or since a session was last told, to tell it.
@@ -191,6 +193,16 @@ fn goes_to(copies: &HashMap<String, (String, i64)>, key: &str) -> String {
 /// past the copy's showing on the board and becoming its PRs' primary (`follow`).
 const COPY_MS: i64 = 10 * 60_000;
 
+/// What a nudge on `pr` tells of: everything where it's watched (`PrItem::watched`), else what
+/// `[pull_requests] nudge_about` says for its repo.
+fn about_of(board: &Board, pr: &PrItem) -> NudgeAbout {
+    if pr.watched {
+        NudgeAbout::Everything
+    } else {
+        board.repo_settings.nudge_about(board.nudge_about, pr)
+    }
+}
+
 /// What of `why` a nudge tells of, as `[pull_requests] nudge_about` says: everything; or only
 /// what asks for work, the reviews and comments its detail has (`since`, which `words` sorts) and
 /// changes asked for, with failing checks and conflicts where it says `checks`. Never then an
@@ -264,7 +276,7 @@ impl Nudger {
                 Merge::Unknown => was.is_some_and(|w| w.conflicts),
                 _ => false,
             };
-            let seen = Seen { on: pr.nudge, updated_at: pr.updated_at, state: pr.state, failed: pr.checks.failed > 0, conflicts };
+            let seen = Seen { on: pr.nudge, updated_at: pr.updated_at, state: pr.state, failed: pr.checks.failed > 0, conflicts, watched: pr.watched };
             seen_now.insert(key.clone(), seen);
             for ((pr_key, _), owed) in self.owed.iter_mut() {
                 if *pr_key == key {
@@ -282,15 +294,19 @@ impl Nudger {
             if !(pr.nudge || ended) {
                 continue;
             }
+            // A watch begun on a PR approved already says so at once, as a nudge turned on for one
+            // does, whatever its nudge tells of: that may not have reached the session, if it was
+            // approved while the session had stopped or before the PR was first seen.
+            let watch_begun = pr.watched && !was.watched;
             let why = Why {
                 since: (was.on && pr.updated_at > was.updated_at).then_some(was.updated_at),
-                approved: pr.state == PrState::Approved && (was.state != PrState::Approved || (!was.on && !pr.nudge_by_default)),
+                approved: pr.state == PrState::Approved && (was.state != PrState::Approved || (!was.on && !pr.nudge_by_default) || watch_begun),
                 changes: was.on && pr.state == PrState::Changes && was.state != PrState::Changes,
                 ended: ended.then_some(pr.state),
                 failed: if was.on && seen.failed && !was.failed { pr.checks.failing.clone() } else { Vec::new() },
                 conflicts: was.on && conflicts && !was.conflicts,
             };
-            let about = board.repo_settings.nudge_about(board.nudge_about, pr);
+            let about = about_of(board, pr);
             let why = keep(about, pr.state.is_open(), why);
             if why == Why::default() {
                 continue;
@@ -349,7 +365,7 @@ impl Nudger {
             busy.insert(s.clone());
             let why = std::mem::take(&mut o.why);
             o.sending = Some(why.clone());
-            let (about, stopped) = (board.repo_settings.nudge_about(board.nudge_about, &o.pr), !runs_here(s));
+            let (about, stopped) = (about_of(board, &o.pr), !runs_here(s));
             out.push(Job { pr: o.pr.clone(), why, session: s.clone(), last: o.failures + 1 >= TRIES, about: if stopped { for_stopped(about) } else { about }, stopped });
         }
         out.sort_by(|a, b| (&a.pr.key, &a.session).cmp(&(&b.pr.key, &b.session)));
@@ -736,6 +752,7 @@ mod tests {
             snoozed_until: None,
             nudge: state.is_open(),
             nudge_by_default: false,
+            watched: false,
             primary: sessions.first().map(|k| k.to_string()),
             primary_by: None,
             head: "photos".into(),
@@ -1281,6 +1298,59 @@ mod tests {
         sent(&mut nudger, &in_repo(vec![open], Some(NudgeAbout::Everything)));
         let jobs = sent(&mut nudger, &in_repo(vec![approved], Some(NudgeAbout::Everything)));
         assert_eq!((jobs[0].why.approved, jobs[0].about), (true, NudgeAbout::Everything), "yours for the repo goes over the team's");
+    }
+
+    /// A watched PR's nudge tells of everything, whatever the setting or its repo's team keep nudges
+    /// to, and a watch begun on one approved already says so at once, once.
+    #[test]
+    fn a_watched_pr_tells_of_everything_whatever_nudges_are_kept_to() {
+        let narrow = |prs: Vec<PrItem>, sessions: Vec<Session>| {
+            let mut b = Board { nudge_about: NudgeAbout::FeedbackAndChecks, ..resuming(prs, sessions) };
+            b.repo_settings.team.insert(("o/r".into(), "main".into()), crate::teamfile::TeamCfg { nudge_about: Some(NudgeAbout::Feedback), ..Default::default() });
+            b
+        };
+        let open = pr("o/r#1", PrState::Open, &[A]);
+        let approved = PrItem { state: PrState::Approved, updated_at: UPDATED + 1, ..open.clone() };
+        let ken = detail(vec![PrReview { author: "ken".into(), state: "APPROVED".into(), at: Some(UPDATED + 1), mine: false }], vec![]);
+
+        // Not watched: the approval comes up, and there's nothing to say of it.
+        let mut nudger = Nudger::default();
+        sent(&mut nudger, &narrow(vec![open.clone()], vec![live(A)]));
+        let jobs = sent(&mut nudger, &narrow(vec![approved.clone()], vec![live(A)]));
+        assert_eq!(message(&jobs[0], Some(Ok(&ken)), Some("me")).unwrap(), None);
+
+        // Watched: told who approved it, then that it was merged.
+        let mut nudger = Nudger::default();
+        let watched = |p: &PrItem| PrItem { watched: true, ..p.clone() };
+        sent(&mut nudger, &narrow(vec![watched(&open)], vec![live(A)]));
+        let jobs = sent(&mut nudger, &narrow(vec![watched(&approved)], vec![live(A)]));
+        assert_eq!((jobs[0].why.approved, jobs[0].about), (true, NudgeAbout::Everything));
+        assert!(message(&jobs[0], Some(Ok(&ken)), Some("me")).unwrap().unwrap().contains("- ken approved it.\n"));
+        let merged = off(PrItem { state: PrState::Merged, ..watched(&approved) });
+        let jobs = sent(&mut nudger, &narrow(vec![merged], vec![live(A)]));
+        assert_eq!((jobs[0].why.ended, jobs[0].about), (Some(PrState::Merged), NudgeAbout::Everything));
+        assert!(message(&jobs[0], None, Some("me")).unwrap().unwrap().contains("- It was merged.\n"));
+
+        // Begun on a PR approved already: told at once, once, and not what came before.
+        let mut nudger = Nudger::default();
+        let before = PrItem { state: PrState::Approved, ..open.clone() };
+        sent(&mut nudger, &narrow(vec![before.clone()], vec![live(A)]));
+        let jobs = sent(&mut nudger, &narrow(vec![watched(&before)], vec![live(A)]));
+        assert_eq!(jobs[0].why, Why { approved: true, ..Why::default() });
+        assert!(sent(&mut nudger, &narrow(vec![watched(&before)], vec![live(A)])).is_empty());
+        // Nudges telling of everything may not have told it, approved before the PR was first seen.
+        let mut nudger = Nudger::default();
+        sent(&mut nudger, &board(vec![before.clone()], vec![live(A)]));
+        assert_eq!(sent(&mut nudger, &board(vec![watched(&before)], vec![live(A)]))[0].why, Why { approved: true, ..Why::default() });
+
+        // A session that stopped is still resumed only for what asks for work.
+        let mut nudger = Nudger::default();
+        sent(&mut nudger, &narrow(vec![watched(&open)], vec![stopped(A)]));
+        let still = PrItem { state: PrState::Approved, ..watched(&open) };
+        assert!(sent(&mut nudger, &narrow(vec![still.clone()], vec![stopped(A)])).is_empty());
+        let jobs = sent(&mut nudger, &narrow(vec![PrItem { updated_at: UPDATED + 1, ..still }], vec![stopped(A)]));
+        assert_eq!((jobs[0].stopped, jobs[0].about), (true, NudgeAbout::FeedbackAndChecks));
+        assert_eq!(message(&jobs[0], Some(Ok(&ken)), Some("me")).unwrap(), None, "ken's approval alone");
     }
 
     /// An agent's review Codealong posted from someone's account is told as their agent's when

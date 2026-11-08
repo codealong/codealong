@@ -8,7 +8,8 @@
 // ⌘-click always does. A right-click has the PR's menu (menus.ts). A PR's chip in a session's
 // panel (`PrChipCard`) has the same card, less Show in Codealong, which a click on the chip does.
 // For an open PR the board lists, the card has the switch that has its primary session, listed
-// first, told of what happens on it (nudges.rs). An open PR's card ends in GitHub's merge box
+// first, told of what happens on it (nudges.rs), with a box to watch it, which has that be everything
+// where its settings keep nudges to less. An open PR's card ends in GitHub's merge box
 // (MergeBox.tsx), as its panel has it, so a session's PR merges from the session: it stays once
 // the PR has merged, saying so and offering to delete the branch.
 //
@@ -21,7 +22,7 @@
 
 import { useEffect, useLayoutEffect, useState, useSyncExternalStore, type ReactNode } from 'react';
 import type { PrTab } from '../agentReview';
-import { openUrl, prCard, setPrNudge } from '../api';
+import { openUrl, prCard, setPrNudge, setPrWatch } from '../api';
 import { absolute, agoPhrase, count } from '../format';
 import { cmd } from '../platform';
 import { prIndex, prRefOf, prTabOf, type PrRef } from '../prLinks';
@@ -34,7 +35,7 @@ import { MergeBox } from './MergeBox';
 import { PanelSession } from './PanelSession';
 import { PrLabels } from './PrLabels';
 import { PrPills } from './PrPills';
-import { Button, cx, Icon, PR_ICON, PR_WORD, PrChip } from './primitives';
+import { Button, CheckBox, cx, Icon, PR_ICON, PR_WORD, PrChip } from './primitives';
 
 /** What a window does with a PR link's card: showing and opening what's on it, and menus. */
 export interface PrLinkActions {
@@ -262,6 +263,24 @@ interface CardProps {
   clickShows: boolean;
 }
 
+/** A switch for what the board says of a PR, set by its key: shown as just set until the board says
+ *  so too, and as the board says again when setting it failed, which `failed` is told. */
+function useBoardSwitch(said: boolean, send: (key: string, on: boolean) => Promise<void>, failed: (error: string | null) => void): [boolean, (key: string, on: boolean) => void, () => void] {
+  const [wanted, setWanted] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (wanted !== null && said === wanted) setWanted(null);
+  }, [said, wanted]);
+  const set = (key: string, on: boolean) => {
+    setWanted(on);
+    failed(null);
+    send(key, on).catch((e: unknown) => {
+      setWanted(null);
+      failed(errorText(e));
+    });
+  };
+  return [wanted ?? said, set, () => setWanted(null)];
+}
+
 function PrCard({ card, prRef: ref, url, onBrowse, clickShows }: CardProps) {
   const listed = useSyncExternalStore(subscribe, () => host.index.get(ref.key));
   const lanes = useSyncExternalStore(subscribe, lanesNow);
@@ -295,22 +314,12 @@ function PrCard({ card, prRef: ref, url, onBrowse, clickShows }: CardProps) {
   // The merge box, from when the PR shows open: kept as it merges, so what was done stays said.
   const [merges, setMerges] = useState(false);
   if (open && !merges) setMerges(true);
-  // The nudge, for an open PR the board lists: shown as just set until the board says so too.
-  const [wanted, setWanted] = useState<boolean | null>(null);
+  // The nudge and the watch, for an open PR the board lists.
   const [nudgeError, setNudgeError] = useState<string | null>(null);
   const canNudge = !!listed && open;
-  const nudges = wanted ?? !!listed?.nudge;
-  useEffect(() => {
-    if (wanted !== null && !!listed?.nudge === wanted) setWanted(null);
-  }, [listed?.nudge, wanted]);
-  const setNudge = (key: string, on: boolean) => {
-    setWanted(on);
-    setNudgeError(null);
-    setPrNudge(key, on).catch((e: unknown) => {
-      setWanted(null);
-      setNudgeError(errorText(e));
-    });
-  };
+  const [nudges, setNudge] = useBoardSwitch(!!listed?.nudge, setPrNudge, setNudgeError);
+  const [watches, setWatch, forgetWatch] = useBoardSwitch(!!listed?.watched, setPrWatch, setNudgeError);
+  const nudgeAbout = listed ? nudgeAboutFor(host.nudges, listed) : undefined;
   // Doing something from the card closes it first.
   const act = (f: (a: PrLinkActions) => void) => {
     card.close();
@@ -399,13 +408,29 @@ function PrCard({ card, prRef: ref, url, onBrowse, clickShows }: CardProps) {
       )}
       {canNudge && listed && (
         <div className="ca-hovercard-sec">
-          <button type="button" className="ca-prhover-nudge" role="switch" aria-checked={nudges} onClick={() => setNudge(listed.key, !nudges)}>
+          <button
+            type="button"
+            className="ca-prhover-nudge"
+            role="switch"
+            aria-checked={nudges}
+            onClick={() => {
+              // Off, it takes the watch with it (prlinks.rs `set_nudge`), a tick the board hasn't said yet too.
+              if (nudges) forgetWatch();
+              setNudge(listed.key, !nudges);
+            }}
+          >
             <span>Nudge {sessions.length > 1 ? 'its primary session' : 'its session'} on updates</span>
             <span className={cx('ca-switch', nudges && 'is-on')} aria-hidden="true" />
           </button>
           <p className="ca-hovercard-meta">
-            {nudgeWords(listed, nudges, primary ? { title: primary.session.title, runs: primary.session.live && !primary.lane.device, stopped: host.nudges.prStopped?.[listed.key], blocked: !!primary.session.flagged && (host.nudges.sessions?.block_flagged_sessions ?? true) } : null, nudgeAboutFor(host.nudges, listed))}
+            {nudgeWords(listed, nudges, primary ? { title: primary.session.title, runs: primary.session.live && !primary.lane.device, stopped: host.nudges.prStopped?.[listed.key], blocked: !!primary.session.flagged && (host.nudges.sessions?.block_flagged_sessions ?? true) } : null, watches ? 'everything' : nudgeAbout)}
           </p>
+          {nudges && (watches || nudgeAbout !== 'everything') && (
+            <label className="ca-check ca-prhover-watch">
+              <CheckBox checked={watches} onChange={(on) => setWatch(listed.key, on)} />
+              <span>Watch this PR: tell it everything, approvals too</span>
+            </label>
+          )}
           {nudgeError && <p className="ca-hovercard-error">{nudgeError}</p>}
         </div>
       )}

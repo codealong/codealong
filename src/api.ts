@@ -162,6 +162,13 @@ export async function setPrNudge(key: string, on: boolean): Promise<void> {
   await invoke('set_pr_nudge', { key, on });
 }
 
+/** Starts or stops watching a PR, by its key: its nudge then tells of everything (prlinks.rs
+ *  `set_watch`). The board that follows says so (`PrItem.watched`). */
+export async function setPrWatch(key: string, on: boolean): Promise<void> {
+  if (!inTauri) return;
+  await invoke('set_pr_watch', { key, on });
+}
+
 /** Makes a session the PR's primary one, the one a nudge tells (prlinks.rs `set_primary`), by
  *  their keys. The board that follows says so (`PrItem.primary`). */
 export async function setPrPrimary(key: string, session: string): Promise<void> {

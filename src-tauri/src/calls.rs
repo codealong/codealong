@@ -170,6 +170,14 @@ calls! {
         Ok(())
     }
 
+    /// Starts or stops watching the PR `owner/name#number`, from its card: its nudge then tells of
+    /// everything (prlinks.rs `set_watch`).
+    fn set_pr_watch(c, key: String, on: bool) -> Result<(), String> {
+        prlinks::change(|store| store.set_watch(&key, on)).map_err(words)?;
+        c.engine.pr_links_changed();
+        Ok(())
+    }
+
     /// Makes a session the PR's primary one, the one a nudge tells, from the PR's menu.
     fn set_pr_primary(c, key: String, session: String) -> Result<(), String> {
         prlinks::change(|store| store.set_primary(&key, &session, util::now_ms())).map_err(words)?;

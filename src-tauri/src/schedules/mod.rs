@@ -1340,6 +1340,7 @@ mod tests {
             snoozed_until: None,
             nudge: false,
             nudge_by_default: false,
+            watched: false,
             primary: None,
             primary_by: None,
             head: "teams".into(),
