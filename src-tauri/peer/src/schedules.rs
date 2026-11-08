@@ -82,6 +82,10 @@ pub struct SharedSchedule {
     /// The notes its runs keep, as they are there.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub notes: Option<Notes>,
+    /// What its sessions show beside their titles, as the engine keeps it (emblems.rs `Kept`), so
+    /// your machines show one emblem for it. None until one of them picks it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub emblem: Option<serde_json::Value>,
 }
 
 /// The runs a machine made on one day (days since 1970 on its clock).

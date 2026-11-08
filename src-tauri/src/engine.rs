@@ -1653,9 +1653,10 @@ impl Engine {
 
     /// Gives this Mac's current sessions emblems of the kind that's on (emblems.rs): asks Jev
     /// for the emoji of each that has none, at most a few new questions per board as for
-    /// insights, or starts drawing the newest that has no picture, one at a time. Another Mac's
-    /// sessions come with the emblems that Mac gave them.
-    fn look_emblems(&mut self, board: &Board) {
+    /// insights, or starts drawing the newest that has no picture, one at a time, the schedules
+    /// before them, whose sessions take theirs. Another Mac's sessions come with the emblems that
+    /// Mac gave them. True when a session took its schedule's, which the board doesn't show yet.
+    fn look_emblems(&mut self, board: &Board) -> bool {
         use crate::config::EmblemKind;
         const PER_BOARD: usize = 20;
         let kind = self.cfg.emblems.kind;
@@ -1663,9 +1664,22 @@ impl Engine {
             self.emblem_warning = None;
         }
         if kind == EmblemKind::Off || self.passing {
-            return;
+            return false;
         }
         let now = now_ms();
+        self.emblems.heard(crate::schedules::machines::their_emblems(&board.machines, now).map(|(_, id, kept)| (id, kept)), crate::schedules::machines::picture_here, now);
+        let mut own = crate::schedules::own_sessions(&self.schedules, &self.schedule_runs, board);
+        let scheduled: Vec<crate::emblems::Scheduled> = board
+            .schedules
+            .iter()
+            .filter(|i| i.schedule.run.to != crate::schedules::To::Session)
+            .map(|i| {
+                let sessions = own.remove(&i.schedule.id).unwrap_or_default();
+                let asks = crate::schedules::asks_emblem(i, &sessions, board, &self.cfg, now, &crate::schedules::rule::Local);
+                crate::emblems::Scheduled { id: &i.schedule.id, project: crate::schedules::place(&i.schedule, board).map_or("", |l| l.project.as_str()), sessions, asks }
+            })
+            .collect();
+        let took = self.emblems.inherit(&scheduled, now);
         let sessions = board.lanes.iter().filter(|l| l.device.is_none()).flat_map(|l| l.sessions.iter().filter(|s| s.visitor.is_none()).map(move |s| (l.project.as_str(), s)));
         let wanting = self.emblems.look(sessions, kind, now);
         if kind == EmblemKind::Emoji {
@@ -1675,25 +1689,26 @@ impl Engine {
                 if asked >= PER_BOARD {
                     break;
                 }
-                let Some((_, s)) = board.session(&key).filter(|_| !self.jev_pending.contains(&id)) else { continue };
-                self.ask_jev(jev::Feature::Emblems, id, crate::emblems::emoji_request(s, &self.cfg.jev.model));
+                let Some(subject) = crate::emblems::subject(board, &key).filter(|_| !self.jev_pending.contains(&id)) else { continue };
+                self.ask_jev(jev::Feature::Emblems, id, crate::emblems::emoji_request(subject, &self.cfg.jev.model));
                 asked += 1;
             }
         } else if let Some(key) = wanting.into_iter().next().filter(|_| self.emblems.can_draw(now)) {
             self.draw_emblem(board, key);
         }
         self.emblems.save(now);
+        took
     }
 
-    /// Starts drawing a session's emblem on the account that draws them, on a background
-    /// thread (emblems.rs `draw`).
+    /// Starts drawing a session's or a schedule's emblem on the account that draws them, on a
+    /// background thread (emblems.rs `draw`).
     fn draw_emblem(&mut self, board: &Board, key: String) {
-        let Some((_, s)) = board.session(&key) else { return };
+        let Some(subject) = crate::emblems::subject(board, &key) else { return };
         let Some(account) = config::drawing_account(&self.cfg).cloned() else {
             self.emblem_warning = Some("No account can draw emblems: add a Codex account in Settings › Accounts, or have Jev pick emoji in Settings › General.".into());
             return;
         };
-        let prompt = crate::emblems::draw_prompt(s, &self.emblems.taken(&key, config::EmblemKind::Drawn), &self.cfg.emblems.prompt);
+        let prompt = crate::emblems::draw_prompt(subject, &self.emblems.taken(&key, config::EmblemKind::Drawn), &self.cfg.emblems.prompt);
         self.emblems.drawing = Some(key.clone());
         let tx = self.tx.clone();
         // `on_emblem_drawn` hears that it's over however it ends, so the next one can start.
@@ -3991,7 +4006,9 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         }
         board.machines = self.machines.clone();
         board.schedules = crate::schedules::items(&self.schedules, &self.schedule_runs, &board, &self.cfg, now, &crate::schedules::rule::Local);
+        board.schedules.iter_mut().for_each(|i| i.emblem = self.emblems.of_schedule(&i.schedule.id, self.cfg.emblems.kind));
         board.shared_schedules = crate::schedules::machines::outgoing(&self.schedules, &self.schedule_runs, &board, &self.cfg, &crate::schedules::rule::Local);
+        board.shared_schedules.list.iter_mut().for_each(|x| x.emblem = self.emblems.shared(&x.id));
         board.schedules_problem = self.schedules_problem.clone();
         board
     }
@@ -4031,7 +4048,10 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         self.forget_stale_tags(&board);
         self.forget_spent_agent_seen(&board);
         self.jev_look(&board);
-        self.look_emblems(&board);
+        // Rare too: a schedule's emblem coming, or a session of it showing.
+        if self.look_emblems(&board) {
+            board = self.compose();
+        }
         let composed = t.elapsed();
         self.dirty = false;
         self.dirty_git = false;

@@ -1,6 +1,6 @@
 // The Schedules view's list (App.tsx): a row for each schedule, laid out as todo and PR rows are
-// (rows.css .is-item): what watches for its time, its name and when it runs, what it does, when it
-// runs next, and how long ago it last ran. Under it, set in as a session's helpers are in
+// (rows.css .is-item): what watches for its time, the emblem its sessions show, its name and when it
+// runs, what it does, when it runs next, and how long ago it last ran. Under it, set in as a session's helpers are in
 // Sessions, the sessions its runs started or sent to (boardLists.ts `scheduleSessions`): the
 // latest run's and the ones at work, the rest a click away. The box at the top makes one
 // (ScheduleDialog.tsx); a row's menu is menus.ts `scheduleMenu`, and its panel (SchedulePanel.tsx)
@@ -15,7 +15,7 @@ import type { Placed } from '../lanes';
 import { doesWords, nextWords, OUTCOME_WORD, scheduleSections, whenIcon } from '../schedules';
 import type { HarnessSchedule, ScheduleItem } from '../types';
 import { AgentRow } from './LaneRow';
-import { Chip, cx, Icon, Row, SectionHeader } from './primitives';
+import { Chip, cx, Icon, Row, SectionHeader, SessionEmblem } from './primitives';
 
 export interface SchedulesViewProps {
   items: ScheduleItem[];
@@ -133,6 +133,7 @@ export function SchedulesView(props: SchedulesViewProps) {
           </div>
           <div className="ca-seg ca-seg-main">
             <div className="ca-lane-line1">
+              <SessionEmblem emblem={s.emblem} of={s.id} />
               <span className="ca-lane-headline ca-schedrow-name">{s.name}</span>
               <span className="ca-lane-detail">{s.whenWords}</span>
             </div>

@@ -169,6 +169,12 @@ function emblemOf(key) {
 }
 function withEmblems(board) {
   board.lanes.forEach(function (l) { l.sessions.forEach(function (s) { s.emblem = emblemOf(s.key); }); });
+  // A schedule that starts sessions has one, which they show in place of their own.
+  (board.schedules || []).filter(function (s) { return s.run.to !== 'session'; }).forEach(function (s) {
+    s.emblem = emblemOf(s.id);
+    var own = s.runs.map(function (r) { return r.session; }).concat(s.thread);
+    board.lanes.forEach(function (l) { l.sessions.forEach(function (x) { if (own.indexOf(x.key) >= 0) x.emblem = s.emblem; }); });
+  });
   return board;
 }
 function optionalJson(file) {

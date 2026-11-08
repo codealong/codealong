@@ -122,6 +122,8 @@ pub fn outgoing(file: &File, runs: &Runs, board: &Board, cfg: &Config, zone: &dy
                 seen: t.filter(|_| one).map(|t| t.seen[t.seen.len().saturating_sub(SHARE_SEEN)..].to_vec()).unwrap_or_default(),
                 watch: t.filter(|t| one && t.seeded && matches!(s.when, When::Watch { .. })).map(|t| Watch { looked: t.looked.clone(), value: t.value.clone(), seeded: true, changed_at: t.changed_at.unwrap_or_default(), since: t.armed_at }),
                 notes: t.filter(|_| one && s.notes).and_then(|t| t.notes.as_ref()).map(|n| Notes { text: n.text.clone(), at: n.at }),
+                // The engine's to fill in, from what it keeps of emblems.
+                emblem: None,
             }
         })
         .collect();
@@ -242,6 +244,24 @@ pub fn their_watches<'a>(machines: &'a Machines, id: &str) -> Vec<&'a Watch> {
 /// The latest notes another machine has of a schedule.
 pub fn their_notes<'a>(machines: &'a Machines, id: &str) -> Option<&'a Notes> {
     machines.others.iter().filter_map(|m| m.schedules.get(id)?.notes.as_ref()).max_by_key(|n| n.at)
+}
+
+/// What your other machines that are around keep of each schedule's emblem, by the machine and the
+/// schedule's id. A picture named as no kept image is reads as none. A machine that's gone says
+/// nothing, so a picture it can't send isn't waited for.
+pub fn their_emblems(machines: &Machines, now: i64) -> impl Iterator<Item = (&crate::shared::Machine, &str, crate::emblems::Kept)> {
+    machines.others.iter().filter(move |m| m.around(now)).flat_map(|m| {
+        m.schedules.list.iter().filter_map(move |x| {
+            let mut kept: crate::emblems::Kept = serde_json::from_value(x.emblem.clone()?).ok()?;
+            kept.picture = kept.picture.filter(|p| crate::attachments::valid_image(p));
+            Some((m, x.id.as_str(), kept))
+        })
+    })
+}
+
+/// Whether a picture of a schedule's emblem is kept here.
+pub fn picture_here(name: &str) -> bool {
+    crate::attachments::locate(&format!("{}{name}", crate::attachments::IMAGES)).is_some_and(|f| f.is_file())
 }
 
 /// How many runs the other machines made of a schedule on `day`.

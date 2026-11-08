@@ -17,6 +17,12 @@
 //! the newest sessions are given theirs first. A helper shows the emblem of the session it works
 //! for and gets none of its own. The engine asks (`engine.rs` `look_emblems`, `draw_emblem`);
 //! `Store::emblem_of` is what each session shows.
+//!
+//! A schedule that starts sessions has one emblem, picked as a session's is from its name and
+//! prompt and kept under `schedule_key`, which each of its sessions takes (`Store::inherit`) in
+//! place of one of its own: its runs read as one thing, and a schedule that starts a session a
+//! day costs one question or one drawing, not one for each run. One your machines share has one
+//! emblem on all of them (`Store::heard`).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -27,7 +33,8 @@ use serde_json::{json, Map, Value};
 
 use crate::config::{AccountCfg, EmblemKind};
 use crate::jev;
-use crate::model::{Emblem, Session};
+use crate::model::{Board, Emblem, Session};
+use crate::schedules::Schedule;
 use crate::util::DAY_MS;
 
 /// The emoji Jev picks from: a name, the emoji, and what it stands for, which is what Jev reads.
@@ -317,8 +324,60 @@ const RETRY_MS: i64 = 5 * 60_000;
 /// else the latest where its harness keeps only that (OpenCode). None while it has been sent
 /// nothing: its title then is its harness's word for an empty one ("Codex thread"), which an
 /// emblem kept for its life mustn't be picked from.
-fn about(s: &Session) -> Option<&str> {
+pub fn about(s: &Session) -> Option<&str> {
     [s.first_prompt.as_deref(), s.last_prompt.as_deref()].into_iter().flatten().map(str::trim).find(|p| !p.is_empty())
+}
+
+/// What an emblem is picked for: a session, or a schedule, whose sessions show what it's given.
+pub struct Subject<'a> {
+    title: &'a str,
+    /// What it's asked to do, for what the title doesn't say.
+    prompt: Option<&'a str>,
+    /// The prompt is only the latest it was given, where its harness keeps only that.
+    latest: bool,
+    color: Option<&'a str>,
+}
+
+impl<'a> From<&'a Session> for Subject<'a> {
+    fn from(s: &'a Session) -> Subject<'a> {
+        let prompt = about(s);
+        let latest = prompt.is_some_and(|p| s.first_prompt.as_deref().is_none_or(|f| f.trim() != p));
+        Subject { title: &s.title, prompt, latest, color: s.color.as_deref() }
+    }
+}
+
+impl<'a> From<&'a Schedule> for Subject<'a> {
+    fn from(s: &'a Schedule) -> Subject<'a> {
+        Subject { title: s.name.trim(), prompt: Some(s.run.prompt.trim()).filter(|p| !p.is_empty()), latest: false, color: None }
+    }
+}
+
+/// What the key the engine asked under stands for: a schedule (`schedule_key`) or a session.
+pub fn subject<'a>(board: &'a Board, key: &str) -> Option<Subject<'a>> {
+    match key.strip_prefix(SCHEDULE) {
+        Some(id) => board.schedules.iter().find(|i| i.schedule.id == id).map(|i| Subject::from(&i.schedule)),
+        None => board.session(key).map(|(_, s)| Subject::from(s)),
+    }
+}
+
+/// How a schedule's key starts, which no session's does (`harness:account:id`).
+const SCHEDULE: &str = "schedule:";
+
+/// A schedule's key among the sessions' in emblems.json.
+pub fn schedule_key(id: &str) -> String {
+    format!("{SCHEDULE}{id}")
+}
+
+/// A schedule that starts sessions, as the emblems go by it. One that only sends to a session
+/// isn't one: that session was there before it, and goes on being itself.
+pub struct Scheduled<'a> {
+    pub id: &'a str,
+    /// The project of the worktree it runs in.
+    pub project: &'a str,
+    /// Its own sessions on this Mac's board, by key (schedules/mod.rs `own_sessions`).
+    pub sessions: Vec<String>,
+    /// This Mac asks for its emblem while it has none (schedules/mod.rs `asks_emblem`).
+    pub asks: bool,
 }
 
 /// Whether the session counts among those it's set apart from: not archived and active lately,
@@ -347,11 +406,12 @@ fn emoji_named(name: &str) -> Option<&'static (&'static str, &'static str, &'sta
 }
 
 /// Jev's question: which emoji stands for what the session works on.
-pub fn emoji_request(s: &Session, model: &str) -> Value {
+pub fn emoji_request<'a>(s: impl Into<Subject<'a>>, model: &str) -> Value {
+    let s = s.into();
     let mut state = Map::new();
-    state.insert("session title".into(), json!(jev::clip(&s.title, 200)));
-    if let Some(p) = about(s) {
-        let said = if s.first_prompt.as_deref().is_some_and(|f| f.trim() == p) { "first prompt" } else { "latest prompt" };
+    state.insert("session title".into(), json!(jev::clip(s.title, 200)));
+    if let Some(p) = s.prompt {
+        let said = if s.latest { "latest prompt" } else { "first prompt" };
         state.insert(said.into(), json!(jev::clip(p, 600)));
     }
     jev::body(
@@ -379,17 +439,18 @@ pub fn pick_emoji(ranking: &[(String, f64)], taken: &[String]) -> Option<&'stati
 /// What the account that draws is asked: one thing that stands for what the session works on,
 /// not what the sessions beside it show (`taken`), mostly in the color its harness gives it,
 /// drawn as `style` says (`DRAWN_STYLE` when it says nothing), and its name after.
-pub fn draw_prompt(s: &Session, taken: &[String], style: &str) -> String {
+pub fn draw_prompt<'a>(s: impl Into<Subject<'a>>, taken: &[String], style: &str) -> String {
+    let s = s.into();
     let mut p = String::from("Draw an emblem for a coding session with your image generation tool: one picture. Use the tool directly; don't read any files or skills, and don't write code.\n\n");
-    p.push_str(&format!("The session is called “{}”.", jev::clip(&s.title, 200)));
-    if let Some(asked) = about(s).filter(|a| a.trim() != s.title.trim()) {
+    p.push_str(&format!("The session is called “{}”.", jev::clip(s.title, 200)));
+    if let Some(asked) = s.prompt.filter(|a| a.trim() != s.title.trim()) {
         p.push_str(&format!(" It was asked: “{}”", jev::clip(asked, 600)));
     }
     p.push_str("\n\nPick one thing you can name in a word or two (an object, an animal, a plant, a place) that stands for what it works on; a pun is welcome. Draw only that thing, big, filling most of a square picture. It's shown at 16 to 20 pixels, so: one bold shape, no text or letters, no fine detail.");
     if !taken.is_empty() {
         p.push_str(&format!(" The sessions beside it show {}, so pick something else.", crate::util::listed(taken, "and")));
     }
-    if let Some(color) = s.color.as_deref() {
+    if let Some(color) = s.color {
         p.push_str(&format!(" Make it mostly {color}."));
     }
     let style = if style.trim().is_empty() { DRAWN_STYLE } else { style.trim() };
@@ -603,6 +664,10 @@ pub struct Kept {
     pub drawn: Option<String>,
     /// When the session was last seen, to drop old ones.
     pub seen_at: i64,
+    /// The schedule it took this from (`Store::inherit`), by its key: it asks for none of its own,
+    /// though its run has long gone from what the schedule keeps of its runs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schedule: Option<String>,
 }
 
 impl Kept {
@@ -629,15 +694,29 @@ impl Kept {
             EmblemKind::Drawn => self.picture.is_some(),
         }
     }
+
+    /// Whether it shows what `other` shows, whenever each was seen and wherever it came from.
+    fn shows_as(&self, other: &Kept) -> bool {
+        (&self.emoji, &self.picture, &self.drawn) == (&other.emoji, &other.picture, &other.drawn)
+    }
 }
 
 /// Emblems by session key, as emblems.json keeps them.
 #[derive(Default)]
 pub struct Store {
     pub kept: HashMap<String, Kept>,
-    /// Each current session's project, as the last look found them: what the sessions beside
-    /// one show is asked of these.
+    /// Each current session's project, as the last look found them, and each schedule's: what
+    /// the sessions beside one show is asked of these.
     projects: HashMap<String, String>,
+    /// The sessions that show a schedule's emblem rather than one of their own, each with its
+    /// schedule's key.
+    schedule_of: HashMap<String, String>,
+    /// The schedules that start sessions, by key, each with its project and whether this Mac asks
+    /// for its emblem.
+    schedules: Vec<(String, String, bool)>,
+    /// The schedules whose picture another of your machines drew and this Mac is still fetching
+    /// (`heard`): none is drawn here in its place.
+    coming: std::collections::HashSet<String>,
     /// Sessions whose emblem failed, and when: tried again only after a while.
     failed: HashMap<String, i64>,
     /// The session whose picture is being drawn.
@@ -668,13 +747,101 @@ impl Store {
         self.kept.get(parent.unwrap_or(&s.key))?.shown(kind)
     }
 
-    /// What the other current sessions of the session's project show, by name.
+    /// What a schedule shows, as a session of it would.
+    pub fn of_schedule(&self, id: &str, kind: EmblemKind) -> Option<Emblem> {
+        self.kept.get(&schedule_key(id))?.shown(kind)
+    }
+
+    /// What a schedule's sessions show, for your other machines (`SharedSchedule::emblem`).
+    pub fn shared(&self, id: &str) -> Option<Value> {
+        let kept = self.kept.get(&schedule_key(id)).filter(|m| m.emoji.is_some() || m.picture.is_some())?;
+        serde_json::to_value(Kept { seen_at: 0, ..kept.clone() }).ok()
+    }
+
+    /// What your other machines keep of the schedules you share, by id, so you show one emblem:
+    /// what this Mac hasn't got and, where each picked before hearing of the other's, the lesser,
+    /// which is the same on every machine in whatever order they hear. A picture counts once it's
+    /// here (`here`; runner.rs `fetch_pictures` has it fetched), so whatever asks this Mac for it,
+    /// from a window to your iPhone, finds it.
+    pub fn heard<'a>(&mut self, theirs: impl IntoIterator<Item = (&'a str, Kept)>, here: impl Fn(&str) -> bool, now: i64) {
+        self.coming.clear();
+        for (id, theirs) in theirs {
+            let key = schedule_key(id);
+            let mine = self.kept.get(&key);
+            let emoji = theirs.emoji.filter(|e| mine.and_then(|m| m.emoji.as_ref()).is_none_or(|mine| e < mine));
+            let picture = theirs.picture.filter(|p| mine.and_then(|m| m.picture.as_ref()).is_none_or(|mine| p < mine));
+            let (picture, coming): (Option<String>, bool) = match picture {
+                Some(p) if here(&p) => (Some(p), false),
+                Some(_) => (None, true),
+                None => (None, false),
+            };
+            if coming {
+                self.coming.insert(key.clone());
+            }
+            if emoji.is_none() && picture.is_none() {
+                continue;
+            }
+            let m = self.kept.entry(key).or_default();
+            if emoji.is_some() {
+                m.emoji = emoji;
+            }
+            if picture.is_some() {
+                m.picture = picture;
+                m.drawn = theirs.drawn;
+            }
+            m.seen_at = now;
+            self.dirty = true;
+        }
+    }
+
+    /// Each schedule's sessions take what it has, in place of what they were given, and wait for
+    /// what it hasn't yet: those its runs name, and those that took from it before (`Kept::schedule`),
+    /// whose runs it no longer keeps. Sessions of one this Mac won't ask for (`Scheduled::asks`:
+    /// finished, say) that has none keep to their own. True when a session took something, for
+    /// the board to show.
+    pub fn inherit(&mut self, schedules: &[Scheduled], now: i64) -> bool {
+        self.schedule_of.clear();
+        self.schedules.clear();
+        for sch in schedules {
+            let key = schedule_key(sch.id);
+            self.seen(&key, now);
+            self.schedules.push((key.clone(), sch.project.to_string(), sch.asks));
+            if sch.asks || self.kept.contains_key(&key) {
+                self.schedule_of.extend(sch.sessions.iter().map(|s| (s.clone(), key.clone())));
+            }
+        }
+        for (session, m) in &self.kept {
+            if let Some(key) = &m.schedule {
+                self.schedule_of.entry(session.clone()).or_insert_with(|| key.clone());
+            }
+        }
+        let changes: Vec<(String, Kept, bool)> = self
+            .schedule_of
+            .iter()
+            .filter_map(|(session, key)| {
+                let (from, had) = (self.kept.get(key)?, self.kept.get(session));
+                let shown = had.is_some_and(|m| m.shows_as(from));
+                let noted = had.is_some_and(|m| m.schedule.as_ref() == Some(key));
+                // One no longer on the board isn't made to look seen by taking it.
+                (!shown || !noted).then(|| (session.clone(), Kept { seen_at: had.map_or(now, |m| m.seen_at), schedule: Some(key.clone()), ..from.clone() }, !shown))
+            })
+            .collect();
+        let took = changes.iter().any(|(.., shows)| *shows);
+        self.dirty |= !changes.is_empty();
+        self.kept.extend(changes.into_iter().map(|(session, kept, _)| (session, kept)));
+        took
+    }
+
+    /// What the other current sessions of the session's project show, by name. A schedule is set
+    /// apart from the other schedules too, which their view lists together, and not from its own
+    /// sessions, whatever they were given before it had one.
     pub fn taken(&self, key: &str, kind: EmblemKind) -> Vec<String> {
         let Some(project) = self.projects.get(key) else { return Vec::new() };
+        let schedule = key.starts_with(SCHEDULE);
         let mut names: Vec<String> = self
             .projects
             .iter()
-            .filter(|(k, p)| *p == project && k.as_str() != key)
+            .filter(|(k, p)| k.as_str() != key && (*p == project || (schedule && k.starts_with(SCHEDULE))) && self.schedule_of.get(k.as_str()).is_none_or(|of| of != key))
             .filter_map(|(k, _)| self.kept.get(k))
             .filter_map(|m| match kind {
                 EmblemKind::Emoji => m.emoji.clone(),
@@ -689,25 +856,27 @@ impl Store {
 
     /// Looks over the board's sessions, each with its project, and says which want an emblem of
     /// `kind`, by key, the newest first: current ones with a prompt and an emblem of their own,
-    /// not given one yet, and not failed lately. Each session once, however many lanes list it.
+    /// not given one yet, and not failed lately, after the schedules that want one (`inherit`
+    /// says which), which sessions wait on. Each session once, however many lanes list it.
     pub fn look<'a>(&mut self, sessions: impl IntoIterator<Item = (&'a str, &'a Session)>, kind: EmblemKind, now: i64) -> Vec<String> {
+        let wants = |k: &str, kept: &HashMap<String, Kept>, failed: &HashMap<String, i64>| !kept.get(k).is_some_and(|m| m.has(kind)) && failed.get(k).is_none_or(|at| now - at > RETRY_MS);
         let mut by_key: HashMap<&str, (&str, &Session)> = HashMap::new();
         for (project, s) in sessions {
             by_key.entry(s.key.as_str()).or_insert((project, s));
         }
         self.projects = by_key.iter().filter(|(_, (_, s))| current(s, now)).map(|(k, (p, _))| (k.to_string(), p.to_string())).collect();
+        self.projects.extend(self.schedules.iter().map(|(k, p, _)| (k.clone(), p.clone())));
         for k in by_key.keys() {
             self.seen(k, now);
         }
         let mut keys: Vec<&str> = by_key
             .iter()
-            .filter(|(k, (_, s))| {
-                current(s, now) && has_own(s) && about(s).is_some() && !self.kept.get(**k).is_some_and(|m| m.has(kind)) && self.failed.get(**k).is_none_or(|at| now - at > RETRY_MS)
-            })
+            .filter(|(k, (_, s))| current(s, now) && has_own(s) && about(s).is_some() && !self.schedule_of.contains_key(**k) && wants(k, &self.kept, &self.failed))
             .map(|(k, _)| *k)
             .collect();
         keys.sort_by_key(|k| (std::cmp::Reverse(by_key[k].1.last_prompt_at.max(by_key[k].1.started_at.unwrap_or(0))), *k));
-        keys.into_iter().map(String::from).collect()
+        let schedules = self.schedules.iter().filter(|(k, _, asks)| *asks && !(kind == EmblemKind::Drawn && self.coming.contains(k)) && wants(k, &self.kept, &self.failed)).map(|(k, ..)| k.clone());
+        schedules.chain(keys.into_iter().map(String::from)).collect()
     }
 
     /// Jev's ranking for a session's emoji: it gets the one `pick_emoji` picks. False when Jev
@@ -902,6 +1071,128 @@ mod tests {
         // From an emblems.json that didn't read, no picture can be told from an unused one.
         store.unread = true;
         assert_eq!(store.pictures(), None);
+    }
+
+    /// A schedule that wants an emblem comes before the sessions; its sessions wait for it rather
+    /// than being given their own, then take it in place of any they had, and a helper of one
+    /// shows it too. One this Mac won't ask for, with none, leaves its sessions to their own.
+    #[test]
+    fn a_schedules_sessions_show_its_emblem() {
+        let mut store = Store::default();
+        let run = session("run", "Triage the logs");
+        let older = Session { last_activity: NOW - 3 * DAY_MS, ..session("older", "Triage the logs") };
+        let helper = Session { helper: Some(Helper { parent: Some(run.key.clone()), ..Default::default() }), ..session("help", "Check it") };
+        let other = session("other", "Other work");
+        let board = [("A", &run), ("A", &older), ("A", &helper), ("A", &other)];
+        store.answered_emoji(&older.key, &ranked(&[("owl", 0.9)]), NOW);
+        let scheduled = |asks| vec![Scheduled { id: "s-1", project: "A", sessions: vec![run.key.clone(), older.key.clone()], asks }];
+        assert!(!store.inherit(&scheduled(true), NOW), "nothing to take yet");
+        let key = schedule_key("s-1");
+        assert_eq!(store.look(board, EmblemKind::Emoji, NOW), vec![key.clone(), other.key.clone()], "the schedule first, and not its sessions");
+        assert!(store.answered_emoji(&key, &ranked(&[("scroll", 0.9)]), NOW));
+        assert!(store.inherit(&scheduled(true), NOW), "they take it");
+        let scroll = Some("📜".to_string());
+        assert_eq!(store.emblem_of(&run, EmblemKind::Emoji).and_then(|e| e.emoji), scroll);
+        assert_eq!(store.emblem_of(&older, EmblemKind::Emoji).and_then(|e| e.emoji), scroll, "in place of the one it had");
+        assert_eq!(store.emblem_of(&helper, EmblemKind::Emoji).and_then(|e| e.emoji), scroll);
+        assert_eq!(store.of_schedule("s-1", EmblemKind::Emoji).and_then(|e| e.emoji), scroll);
+        assert!(!store.inherit(&scheduled(true), NOW + 1), "and have it from then on");
+        // Drawn: the schedule is drawn once, its sessions showing its emoji until then.
+        assert_eq!(store.look(board, EmblemKind::Drawn, NOW), vec![key.clone(), other.key.clone()]);
+        store.drawn(&key, "scroll.png".into(), "scroll".into(), NOW);
+        assert!(store.inherit(&scheduled(true), NOW));
+        assert_eq!(store.emblem_of(&run, EmblemKind::Drawn).and_then(|e| e.picture).as_deref(), Some("scroll.png"));
+        // It's kept for the session once the schedule is gone, and its run forgotten.
+        assert!(!store.inherit(&[], NOW));
+        assert_eq!(store.emblem_of(&run, EmblemKind::Drawn).and_then(|e| e.picture).as_deref(), Some("scroll.png"));
+        // Its run gone from what the schedule keeps, a session still doesn't ask for its own, when
+        // another kind is turned on, say.
+        let mut rolled = Store::default();
+        rolled.answered_emoji(&schedule_key("s-3"), &ranked(&[("scroll", 0.9)]), NOW);
+        rolled.inherit(&[Scheduled { id: "s-3", project: "A", sessions: vec![run.key.clone()], asks: true }], NOW);
+        rolled.inherit(&[Scheduled { id: "s-3", project: "A", sessions: Vec::new(), asks: false }], NOW);
+        assert!(!rolled.look([("A", &run)], EmblemKind::Drawn, NOW).contains(&run.key));
+        // And takes what the schedule is drawn, or given, after that.
+        rolled.drawn(&schedule_key("s-3"), "scroll.png".into(), "scroll".into(), NOW);
+        assert!(rolled.inherit(&[], NOW));
+        assert_eq!(rolled.emblem_of(&run, EmblemKind::Drawn).and_then(|e| e.picture).as_deref(), Some("scroll.png"));
+        // One that happened to have what the schedule has is its session all the same.
+        let mut same = Store::default();
+        same.answered_emoji(&run.key, &ranked(&[("scroll", 0.9)]), NOW);
+        same.answered_emoji(&schedule_key("s-3"), &ranked(&[("scroll", 0.9)]), NOW);
+        assert!(!same.inherit(&[Scheduled { id: "s-3", project: "A", sessions: vec![run.key.clone()], asks: true }], NOW), "it shows nothing new");
+        assert!(!same.inherit(&[], NOW));
+        assert!(!same.look([("A", &run)], EmblemKind::Drawn, NOW).contains(&run.key));
+        // A finished schedule with none: its sessions are as any others.
+        let mut none = Store::default();
+        assert!(!none.inherit(&[Scheduled { id: "s-2", project: "A", sessions: vec![run.key.clone()], asks: false }], NOW));
+        assert_eq!(none.look([("A", &run)], EmblemKind::Emoji, NOW), vec![run.key.clone()]);
+    }
+
+    /// A schedule's emblem is picked from its name and prompt, as a session's from its title and
+    /// first prompt, set apart from the other schedules and its project's other sessions, and not
+    /// from what its own sessions were given before it had one.
+    #[test]
+    fn picks_a_schedules_emblem_from_its_name_and_prompt() {
+        let s = Schedule { id: "s-1".into(), name: " Morning queue ".into(), run: crate::schedules::Run { prompt: "Order the open PRs".into(), ..Default::default() }, ..Default::default() };
+        let body = emoji_request(&s, "m");
+        assert_eq!((body["state"]["session title"].as_str(), body["state"]["first prompt"].as_str()), (Some("Morning queue"), Some("Order the open PRs")));
+        assert!(draw_prompt(&s, &[], "").contains("“Morning queue”. It was asked: “Order the open PRs”"));
+        let mut store = Store::default();
+        let (own, beside, elsewhere) = (session("own", "Order them"), session("beside", "Other"), session("far", "Far"));
+        for (k, name) in [(&own.key, "owl"), (&beside.key, "bug"), (&elsewhere.key, "crab"), (&schedule_key("s-2"), "fox"), (&schedule_key("s-3"), "cat")] {
+            store.answered_emoji(k, &ranked(&[(name, 0.9)]), NOW);
+        }
+        store.inherit(&[Scheduled { id: "s-1", project: "A", sessions: vec![own.key.clone()], asks: true }, Scheduled { id: "s-2", project: "B", sessions: vec![], asks: true }, Scheduled { id: "s-3", project: "A", sessions: vec![], asks: true }], NOW);
+        store.look([("A", &own), ("A", &beside), ("B", &elsewhere)], EmblemKind::Emoji, NOW);
+        assert_eq!(store.taken(&schedule_key("s-1"), EmblemKind::Emoji), ["bug", "cat", "fox"]);
+        assert_eq!(store.taken(&beside.key, EmblemKind::Emoji), ["cat", "owl"], "a session is set apart from a schedule of its project");
+    }
+
+    /// Your machines come to one emblem for a schedule they share, in whatever order they hear:
+    /// a machine takes what it hasn't got, the lesser where both picked. A picture counts once
+    /// it's here; until then the schedule's left alone, for it's on its way.
+    #[test]
+    fn machines_come_to_one_emblem_for_a_schedule_they_share() {
+        let kept = |emoji: Option<&str>, picture: Option<&str>| Kept { emoji: emoji.map(String::from), picture: picture.map(String::from), drawn: picture.map(|_| "kite".to_string()), ..Default::default() };
+        let (mut a, mut b) = (Store::default(), Store::default());
+        let key = schedule_key("s-1");
+        a.kept.insert(key.clone(), kept(Some("owl"), Some("1.png")));
+        b.kept.insert(key.clone(), kept(Some("bug"), Some("2.png")));
+        let (from_a, from_b) = (serde_json::from_value::<Kept>(a.shared("s-1").unwrap()).unwrap(), serde_json::from_value::<Kept>(b.shared("s-1").unwrap()).unwrap());
+        a.heard([("s-1", from_b)], |_| true, NOW);
+        b.heard([("s-1", from_a.clone())], |_| true, NOW);
+        let shows = |s: &Store| (s.kept[&key].emoji.clone(), s.kept[&key].picture.clone());
+        assert_eq!(shows(&a), (Some("bug".to_string()), Some("1.png".to_string())));
+        assert_eq!(shows(&a), shows(&b));
+        // A machine with nothing, the picture not here yet: the emoji now, and it waits for the
+        // picture rather than drawing one.
+        let mut c = Store::default();
+        let run = session("run", "Triage");
+        let scheduled = [Scheduled { id: "s-1", project: "A", sessions: vec![run.key.clone()], asks: true }];
+        c.heard([("s-1", from_a.clone())], |_| false, NOW);
+        assert_eq!((c.kept[&key].emoji.as_deref(), c.kept[&key].picture.as_deref()), (Some("owl"), None));
+        c.inherit(&scheduled, NOW);
+        assert_eq!(c.look([("A", &run)], EmblemKind::Drawn, NOW), Vec::<String>::new());
+        // Where emoji are on, a picture on its way is no reason to go without one.
+        let mut emoji = Store::default();
+        emoji.heard([("s-1", kept(None, Some("1.png")))], |_| false, NOW);
+        emoji.inherit(&scheduled, NOW);
+        assert_eq!(emoji.look([("A", &run)], EmblemKind::Emoji, NOW), vec![key.clone()]);
+        // Once it's here, it's taken, and its sessions show it.
+        c.heard([("s-1", from_a.clone())], |_| true, NOW);
+        assert!(c.inherit(&scheduled, NOW));
+        assert_eq!(c.emblem_of(&run, EmblemKind::Drawn).and_then(|e| e.picture).as_deref(), Some("1.png"));
+        // No word of it from a machine that's around any more, and it's this Mac's to draw.
+        let mut d = Store::default();
+        d.heard([("s-1", from_a)], |_| false, NOW);
+        d.heard([], |_| false, NOW);
+        d.inherit(&scheduled, NOW);
+        assert_eq!(d.look([("A", &run)], EmblemKind::Drawn, NOW), vec![key.clone()]);
+        // Nothing heard of leaves nothing behind, and nothing to pass on.
+        let mut e = Store::default();
+        e.heard([("s-1", Kept::default())], |_| true, NOW);
+        assert!(e.kept.is_empty() && e.shared("s-1").is_none());
     }
 
     /// What the sessions beside one show is what its project's other current sessions show.

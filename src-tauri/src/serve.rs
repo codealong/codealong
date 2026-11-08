@@ -221,7 +221,7 @@ pub fn start() -> Result<Ctx, String> {
     });
     let _ = engine_slot.set(engine.clone());
     // Schedules (schedules/runner.rs): what's due, every few seconds.
-    schedules::runner::spawn(engine.clone());
+    schedules::runner::spawn(engine.clone(), peers.clone());
     // Automatic reviews' sessions once they're done with (reviewdone.rs).
     reviewdone::spawn(engine.clone());
     // Sessions left idle long enough to hibernate, where config.toml says to (hibernate.rs), on a

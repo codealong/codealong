@@ -234,7 +234,8 @@ its title, so the sessions beside each other read apart at a glance and you can 
 A session gets its emblem once it has a prompt, and only while it's recent: one quiet for two days
 or archived keeps the one it had, and a run nobody is at (`claude -p`, `codex exec`) gets none. A
 helper shows the emblem of the session it works for. What a session is given stays for its life,
-however its title changes; changing the prompt changes only the sessions drawn after. The emblem
+however its title changes; changing the prompt changes only the sessions drawn after. A schedule
+that starts sessions has an emblem of its own, and its sessions show that instead (see *Schedules*). The emblem
 shows wherever the session's title does: its rows, its header, the floating bar's and the notch's
 pills, cards on the canvas and the desktop, the list of what waits on you, and the quick panel's
 rows and Jev's suggestions to send to it there, with what it is as its tooltip. Emblems are kept in `emblems.json`, the pictures with the kept images, and your other
@@ -1629,6 +1630,19 @@ session it keeps going, and its latest runs, each with why it ran and how it wen
 went on, waiting, skipped, missed, failed) and its session a click away. Run now, Pause and Edit
 are its buttons; its right-click menu has those, Copy schedule ID and Delete schedule. A session a
 run started says *From the schedule* and its name over its title, a click from the schedule.
+
+**Its sessions look like it.** With session emblems on (see *Emblems*), a schedule that starts
+sessions has one emblem, picked or drawn once from its name and prompt, shown on its row and panel.
+Every session of its runs shows it, those from before it had one too, in place of one of its own,
+so its runs read as one thing and a schedule that runs daily costs one question or one drawing
+rather than one a day. A session of a schedule your machines share shows the same emblem on each
+of them. A session its run started is also named after the schedule, once it's had its first
+prompt, where its harness can be renamed (Claude Code, Codex, OpenCode), in place of the title its
+harness makes up from the same prompt each time; with a new session each time and one thing it's
+for (the PR that merged, the todo that's ready, the watch's new line), that comes after the name:
+`Fix failed checks: #12 Dark mode`. It's named once, so a name you give it later stays, and
+sessions from before this was added keep theirs. A schedule that sends to a session that's already
+there leaves that session's name and emblem as they are.
 
 What a schedule watches is watched without an agent: a time, a command's output, the board. An
 agent runs only once something has happened, so a schedule that watches a deploy all day costs no

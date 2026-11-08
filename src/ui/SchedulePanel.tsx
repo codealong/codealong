@@ -8,7 +8,7 @@ import { absolute, ago, agoPhrase, tildePath } from '../format';
 import { HARNESS_APP, HARNESS_WORD } from '../harness';
 import { nextWords, OUTCOME_ICON, OUTCOME_WORD, whenIcon } from '../schedules';
 import type { HarnessSchedule, Lane, ScheduleItem, Session } from '../types';
-import { Button, Icon, SessionGlyph, cx, headerMenu } from './primitives';
+import { Button, Icon, SessionEmblem, SessionGlyph, cx, headerMenu } from './primitives';
 
 export interface SchedulePanelProps {
   item: ScheduleItem | null;
@@ -133,7 +133,10 @@ export function SchedulePanel({ item, now, sessionOf, onShowSession, onRun, onPa
             onMenu({ x: r.left, y: r.bottom });
           }} />
         </div>
-        <h3 className="ca-schedinsp-name">{s.name}</h3>
+        <h3 className="ca-schedinsp-name">
+          <SessionEmblem emblem={s.emblem} of={s.id} size={20} />
+          <span>{s.name}</span>
+        </h3>
         <div className="ca-schedinsp-meta">
           <span title={absolute(s.createdAt)}>Added {agoPhrase(s.createdAt, now)}</span>
           {maker ? <span>by an agent, “{maker.session.title}”</span> : s.createdBy ? <span>by an agent</span> : null}

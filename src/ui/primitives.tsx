@@ -145,8 +145,8 @@ export function Mark({ size = 16, status = 'idle' }: { size?: number; status?: L
  *  last again and again: that Mac may have been away. */
 const EMBLEM_AGAIN_MS = [15_000, 60_000, 300_000];
 
-/** A session's emblem (emblems.rs): the emoji Jev picked, or the picture an account drew, which
- *  loads from the Mac the session is on (`of`, its key). Its name is its tooltip; it says
+/** A session's or a schedule's emblem (emblems.rs): the emoji Jev picked, or the picture an account
+ *  drew, which loads from the Mac the session is on (`of`, its key). Its name is its tooltip; it says
  *  nothing a row doesn't, so a reader passes over it. Nothing when it has none, and a picture
  *  that doesn't load gives way to its emoji, when it has one, until it's asked for again. */
 export function SessionEmblem({ emblem, of, size = 16 }: { emblem?: Emblem; of: string; size?: number }) {

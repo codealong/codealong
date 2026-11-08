@@ -485,6 +485,10 @@ pub struct RunRecord {
     /// A start whose session isn't known yet.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pending: Option<Pending>,
+    /// What the session it started is to be called, until it's been named (runner.rs `Job::Name`):
+    /// once, so a name you or its agent give it later stays.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
     /// The machine it ran on, when that's another of yours: as the Schedules view shows it, never
     /// kept.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -572,6 +576,9 @@ pub struct Item {
     /// or one whose times are over, a `once <date>` time run or missed (`spent`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub finished: Option<i64>,
+    /// What its sessions show beside their titles (emblems.rs), which the engine fills in.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub emblem: Option<crate::model::Emblem>,
 }
 
 /// The schedules, or why schedules.json doesn't read. No file is no schedules.
@@ -860,6 +867,42 @@ pub fn clock_text(ms: i64, zone: &dyn Zone) -> String {
     format!("{} {}-{:02}-{:02} {}", DAYS[wday], c.year, c.month, c.day, rule::clock(c.hour * 60 + c.minute))
 }
 
+/// Each schedule's own sessions on this machine's board, by its id: those its runs started, the one
+/// it keeps going, each followed to where it moved, and the one a start waiting for its session
+/// would take. Not a session it sends to, or sent to before it was told otherwise: that one was
+/// there before it, and goes on being itself.
+pub fn own_sessions(file: &File, runs: &Runs, board: &Board) -> BTreeMap<String, Vec<String>> {
+    let here: std::collections::HashSet<&str> = board.lanes.iter().filter(|l| l.device.is_none()).flat_map(|l| &l.sessions).map(|s| s.key.as_str()).collect();
+    let origins = crate::origins::current();
+    let claimed = || runs.of.values().flat_map(|t| t.runs.iter().filter_map(|r| r.session.clone())).collect();
+    let claimed: std::collections::HashSet<String> = if runs.of.values().any(|t| t.runs.iter().any(|r| r.pending.is_some())) { claimed() } else { Default::default() };
+    file.schedules
+        .iter()
+        .filter(|s| s.run.to != To::Session)
+        .filter_map(|s| {
+            let t = runs.of.get(&s.id)?;
+            let noted = t.runs.iter().filter(|r| r.outcome == Outcome::Started).filter_map(|r| r.session.clone().or_else(|| runner::shown(board, r.pending.as_ref()?, &claimed)));
+            let thread = t.thread.clone().filter(|_| s.run.to == To::Thread && t.follows.is_none());
+            let mut keys: Vec<String> = noted.chain(thread).chain(t.started.clone()).map(|k| origins.moved_to(&k, |m| here.contains(m)).unwrap_or(k)).filter(|k| here.contains(k.as_str())).collect();
+            keys.sort();
+            keys.dedup();
+            Some((s.id.clone(), keys))
+        })
+        .collect()
+}
+
+/// Whether this machine asks for a schedule's emblem while it has none. Not for a finished one, or
+/// a paused one with no sessions here, which nothing shows it for. Of your machines that share
+/// one, the one to run it next asks, so they don't each spend a drawing on it, and any with a
+/// session of it, which that one may not be able to give it.
+pub fn asks_emblem(item: &Item, own: &[String], board: &Board, cfg: &Config, now: i64, zone: &dyn Zone) -> bool {
+    let s = &item.schedule;
+    if item.finished.is_some() {
+        return false;
+    }
+    !own.is_empty() || (!s.paused && (!s.runs_on.shared() || machines::line(s, &board.machines, machines::able(s, board, cfg, zone).is_ok(), now).first().is_some_and(|seat| seat.me)))
+}
+
 /// The schedules as the Schedules view shows them: one your machines share with where it runs,
 /// and with their runs of it among its own.
 pub fn items(file: &File, runs: &Runs, board: &Board, cfg: &Config, now: i64, zone: &dyn Zone) -> Vec<Item> {
@@ -920,6 +963,7 @@ pub fn items(file: &File, runs: &Runs, board: &Board, cfg: &Config, now: i64, zo
                 here,
                 runs_in: place(s, board).map(|l| l.path.clone()).filter(|p| std::path::Path::new(p) != crate::util::expand(s.run.folder.trim())),
                 finished,
+                emblem: None,
             }
         })
         .collect()
@@ -1546,6 +1590,63 @@ mod tests {
         assert_eq!(check(&s, &cfg, now, &z), Err("A watch looks at most once a minute.".into()));
         s.when = When::Fired;
         assert_eq!(check(&s, &cfg, now, &z), Err("Pick the session it sends to.".into()));
+    }
+
+    /// A schedule's own sessions: what its runs started, the one it keeps going, the one a start
+    /// waiting for its session would take. Not those another machine's runs name, gone from the
+    /// board, or a session it only sends to.
+    #[test]
+    fn a_schedules_own_sessions_are_those_it_started_or_keeps_going() {
+        use crate::fixtures::{lane, session};
+        let now = 1_800_000_000_000;
+        let sched = |id: &str, to| Schedule { id: id.into(), name: id.into(), run: Run { to, prompt: "Look".into(), ..Run::default() }, ..Schedule::default() };
+        let file = File { schedules: vec![sched("new", To::New), sched("thread", To::Thread), sched("send", To::Session), sched("idle", To::New), sched("changed", To::New)], ..File::default() };
+        let run = |key: &str| RunRecord { session: Some(key.into()), ..RunRecord::default() };
+        let pending = RunRecord { pending: Some(Pending { lane: "/r".into(), account: "claude".into(), at: now - 5000 }), ..RunRecord::default() };
+        let runs = Runs {
+            of: [
+                ("new".to_string(), Track { runs: vec![run("one"), run("gone"), pending], started: Some("two".into()), ..Track::default() }),
+                ("thread".to_string(), Track { runs: vec![run("kept")], thread: Some("kept".into()), ..Track::default() }),
+                ("send".to_string(), Track { runs: vec![run("theirs")], thread: Some("theirs".into()), ..Track::default() }),
+                // Told to start sessions, it had been sending to one.
+                ("changed".to_string(), Track { runs: vec![RunRecord { outcome: Outcome::Sent, ..run("theirs") }], thread: Some("theirs".into()), follows: Some("theirs".into()), ..Track::default() }),
+            ]
+            .into(),
+            ..Runs::default()
+        };
+        let sessions = ["one", "two", "kept", "theirs"].map(session).into_iter().chain([crate::model::Session { started_at: Some(now - 2000), account: "claude".into(), ..session("shown") }]).collect();
+        let board = Board { lanes: vec![lane("/r", sessions)], ..Board::default() };
+        let own = own_sessions(&file, &runs, &board);
+        assert_eq!(own["new"], ["one", "shown", "two"]);
+        assert_eq!(own["thread"], ["kept"]);
+        assert!(!own.contains_key("send") && !own.contains_key("idle"));
+        assert_eq!(own["changed"], Vec::<String>::new());
+    }
+
+    /// A schedule's emblem is asked for while something would show it, and on one machine of
+    /// those that share it: the next to run it, or one with a session of it.
+    #[test]
+    fn asks_for_a_schedules_emblem_where_its_needed() {
+        let now = 1_800_000_000_000;
+        let account = crate::config::AccountCfg { name: "atlas".into(), harness: "claude".into(), home: "/Users/me/.atlas".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let cfg = Config { accounts: vec![account], ..Config::default() };
+        let board = Board::default();
+        let item = |s: Schedule| Item { schedule: Schedule { id: "s".into(), name: "S".into(), when: When::Fired, run: Run { prompt: "Look".into(), ..Run::default() }, ..s }, ..Item::default() };
+        let z = rule::tests::Fake::utc();
+        let asks = |i: &Item, own: &[String]| asks_emblem(i, own, &board, &cfg, now, &z);
+        let session = ["k".to_string()];
+        assert!(asks(&item(Schedule::default()), &[]));
+        assert!(!asks(&Item { finished: Some(now), ..item(Schedule::default()) }, &session), "finished, its sessions keep what they have");
+        assert!(!asks(&item(Schedule { paused: true, ..Schedule::default() }), &[]));
+        assert!(asks(&item(Schedule { paused: true, ..Schedule::default() }), &session));
+        // This machine alone can run it, so it's next in line: shared, it asks as well.
+        let shared = item(Schedule { runs_on: RunsOn::Every, ..Schedule::default() });
+        assert!(asks(&shared, &[]));
+        // Another machine is next, so it waits to hear from that one, but for a session of its own.
+        let other = crate::shared::Machine { key: "aa".into(), name: "Mini".into(), rank: Default::default(), online: true, last_seen: Some(now), fed_at: Some(now), prs: Vec::new(), schedules: codealong_peer::schedules::Shared { list: vec![codealong_peer::schedules::SharedSchedule { id: "s".into(), able: true, ..Default::default() }], gone: Vec::new() } };
+        let board = Board { machines: crate::shared::Machines { me: Some(crate::shared::Me { key: "bb".into(), rank: Default::default() }), others: vec![other] }.into(), ..Board::default() };
+        assert!(!asks_emblem(&shared, &[], &board, &cfg, now, &z));
+        assert!(asks_emblem(&shared, &session, &board, &cfg, now, &z));
     }
 
     #[test]

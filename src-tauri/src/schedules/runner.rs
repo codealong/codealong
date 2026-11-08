@@ -43,6 +43,8 @@ use super::*;
 
 /// How often the scheduler looks.
 const TICK: Duration = Duration::from_secs(5);
+/// How long a picture another machine drew for a schedule waits to be asked for again.
+const PICTURE_AGAIN_MS: i64 = 5 * 60_000;
 /// A time run this much after it came is late: the Mac slept, or Codealong was closed.
 const GRACE_MS: i64 = 2 * 60_000;
 /// A missed time older than this isn't run at all.
@@ -88,13 +90,15 @@ pub enum Job {
     Deliver { id: String, queued: Queued },
     /// Quiet the sessions its starts made, now that they've shown.
     Quiet { keys: Vec<String> },
+    /// Name a session its start made, now that it has somewhere to keep it (`run_name`).
+    Name { key: String, name: String },
 }
 
 impl Job {
     fn id(&self) -> Option<&str> {
         match self {
             Job::Fire { id, .. } | Job::Check { id } | Job::Deliver { id, .. } => Some(id),
-            Job::Quiet { .. } => None,
+            Job::Quiet { .. } | Job::Name { .. } => None,
         }
     }
 }
@@ -146,6 +150,8 @@ pub enum Note {
     Shown { id: String, run_at: i64, key: String, thread: bool },
     /// A start's session never showed.
     NeverShown { id: String, run_at: i64 },
+    /// A start's session is named, or won't be: it never had a prompt.
+    Named { id: String, run_at: i64 },
     /// Runs asked for that won't go: their schedule is paused or gone.
     Dropped { fired: Vec<String> },
     /// It was resumed since this machine's record of it was (`Schedule::resumed_at`), here or on
@@ -186,10 +192,11 @@ pub fn poke() {
 }
 
 /// Starts the scheduler, for the life of the app.
-pub fn spawn(engine: Handle) {
+pub fn spawn(engine: Handle, peers: crate::peers::Peers) {
     let (tx, rx): (Tx<()>, Receiver<()>) = channel();
     let _ = POKE.set(Mutex::new(tx));
     let scheduler = Arc::new(Mutex::new(Scheduler::default()));
+    let mut pictures = HashMap::new();
     std::thread::Builder::new()
         .name("codealong-schedules".into())
         .spawn(move || loop {
@@ -200,6 +207,7 @@ pub fn spawn(engine: Handle) {
             if board.loading {
                 continue;
             }
+            fetch_pictures(&engine, &peers, &board, &mut pictures, now_ms());
             let jobs = match scheduler.lock() {
                 Ok(mut s) => s.due(&board, now_ms(), &rule::Local),
                 Err(_) => continue,
@@ -220,6 +228,25 @@ pub fn spawn(engine: Handle) {
             }
         })
         .expect("the scheduler's thread");
+}
+
+/// The pictures your other machines drew for schedules you share and this Mac hasn't got, asked for
+/// so it has them before its sessions show them (emblems.rs `Store::heard`), and tried again after
+/// a while, its sessions showing the emoji or nothing meanwhile. Only where pictures are shown.
+fn fetch_pictures(engine: &Handle, peers: &crate::peers::Peers, board: &Board, asked: &mut HashMap<String, i64>, now: i64) {
+    if crate::config::current().map_or(true, |c| c.emblems.kind != crate::config::EmblemKind::Drawn) {
+        return;
+    }
+    for (machine, _, kept) in machines::their_emblems(&board.machines, now) {
+        let Some(name) = kept.picture.filter(|p| !machines::picture_here(p)) else { continue };
+        if asked.get(&name).is_some_and(|at| now - at < PICTURE_AGAIN_MS) {
+            continue;
+        }
+        asked.insert(name.clone(), now);
+        let (engine, peers, device) = (engine.clone(), peers.clone(), machine.short().to_string());
+        // What didn't come is asked for again above.
+        crate::throttle::background("codealong-emblem-picture", move || crate::actions::image_from(&engine, &peers, &device, &format!("{}{name}", crate::attachments::IMAGES)), |_| {});
+    }
 }
 
 impl Scheduler {
@@ -303,6 +330,21 @@ pub fn plan_in(file: &File, runs: &Runs, board: &Board, busy: &HashSet<String>, 
             }
             None if now - p.at > PENDING_MS => notes.push(Note::NeverShown { id: s.id.clone(), run_at: r.at }),
             None => {}
+        }
+    }
+    // Its session named once it's had a prompt: a harness keeps a name with its conversation,
+    // which it starts then (claude/mod.rs `rename`). Noted first, so it's once, whatever comes of
+    // it; a session the name doesn't reach goes by the title its harness gave it.
+    for s in &file.schedules {
+        for r in runs.of.get(&s.id).map_or(&[][..], |t| t.runs.as_slice()) {
+            let Some(name) = &r.name else { continue };
+            let session = r.session.as_deref().and_then(|k| board.session(k)).map(|(_, session)| session);
+            if let Some(session) = session.filter(|session| crate::emblems::about(session).is_some()) {
+                jobs.push(Job::Name { key: session.key.clone(), name: name.clone() });
+                notes.push(Note::Named { id: s.id.clone(), run_at: r.at });
+            } else if now - r.at > PENDING_MS {
+                notes.push(Note::Named { id: s.id.clone(), run_at: r.at });
+            }
         }
     }
     for s in &file.schedules {
@@ -555,7 +597,7 @@ fn next_watch(every: &str, track: &Track) -> Option<i64> {
 
 /// The session a start made, now it's shown: the first of its account in its worktree that
 /// started after it, and isn't another run's.
-fn shown(board: &Board, p: &Pending, claimed: &HashSet<String>) -> Option<String> {
+pub(super) fn shown(board: &Board, p: &Pending, claimed: &HashSet<String>) -> Option<String> {
     let lane = board.lanes.iter().find(|l| l.id == p.lane)?;
     lane.sessions
         .iter()
@@ -633,6 +675,11 @@ pub fn apply(runs: &mut Runs, note: &Note) {
                 r.said = "Its session never showed: its terminal or app may be waiting on you to answer something first.".into();
             }
         }
+        Note::Named { id, run_at } => {
+            if let Some(r) = runs.of.get_mut(id).and_then(|t| t.runs.iter_mut().find(|r| r.at == *run_at && r.name.is_some())) {
+                r.name = None;
+            }
+        }
         Note::Dropped { fired } => runs.fired.retain(|f| !fired.contains(&f.id)),
         Note::Resumed { id, at } => resumed(runs.of.entry(id.clone()).or_default(), *at),
     }
@@ -704,6 +751,11 @@ pub fn run(engine: &Handle, job: Job) {
         Job::Deliver { id, queued } => finish(&id, deliver_queued(engine, &id, queued)),
         Job::Quiet { keys } => {
             engine.quiet(keys, true);
+        }
+        Job::Name { key, name } => {
+            if let Err(e) = engine.rename(&key, &name) {
+                eprintln!("codealong: couldn't name a schedule's session: {e:#}");
+            }
         }
     }
 }
@@ -934,12 +986,27 @@ fn runs_today(track: &Track, now: i64, zone: &dyn Zone) -> usize {
 }
 
 fn record(cause: &Cause, outcome: Outcome, said: impl Into<String>, session: Option<String>) -> RunRecord {
-    RunRecord { at: now_ms(), due: cause.due, why: cause.why.clone(), outcome, said: said.into(), session, pending: None, machine: None }
+    RunRecord { at: now_ms(), due: cause.due, why: cause.why.clone(), outcome, said: said.into(), session, pending: None, name: None, machine: None }
 }
 
 /// A run that didn't go, noted as having been handled.
 fn skipped(cause: &Cause, why: impl Into<String>) -> Option<Done> {
     Some(Done { record: Some(record(cause, Outcome::Skipped, why, None)), seen: cause.found.iter().map(|f| f.id.clone()).collect(), fired: cause.fired.clone(), due: cause.due, ..Done::default() })
+}
+
+/// What a session a run starts is called: the schedule's name, which you wrote, where its harness
+/// would put its own words on the same prompt each time. A new session each time that's for one
+/// thing has what that is after it, so two at once read apart. None where it starts in place of a
+/// session the schedule sends to, which went by a name of its own.
+fn run_name(s: &Schedule, cause: &Cause) -> Option<String> {
+    let name = s.name.trim();
+    if s.run.to == To::Session || name.is_empty() {
+        return None;
+    }
+    Some(match cause.found.as_slice() {
+        [one] if s.run.to == To::New && !one.title.trim().is_empty() => format!("{name}: {}", one.title.trim()),
+        _ => name.to_string(),
+    })
 }
 
 /// What a run does, decided before it's done (`step`): what `--snapshot --schedule-plan` prints.
@@ -1139,6 +1206,8 @@ fn fire(engine: &Handle, id: &str, cause: Cause) -> Option<Done> {
             return skipped(&cause, format!("Its last run, {}, is still {}.", title_of(&board, key), if board.session(key).is_some_and(|(_, s)| s.status == crate::model::Status::Needs) { "waiting on you" } else { "at work" }));
         }
     }
+    // Before what its check printed joins what it's for, which isn't one of the things it's for.
+    let name = run_name(&s, &cause);
     let mut cause = cause;
     if !s.only_if.trim().is_empty() {
         match run_command(&s, &s.only_if, track.runs.last().map(|r| r.at), &command_dir(&s, &board)) {
@@ -1155,7 +1224,8 @@ fn fire(engine: &Handle, id: &str, cause: Cause) -> Option<Done> {
     let files: Vec<String> = file_ref.iter().cloned().collect();
     let prompt = prompt_of(&s, std::slice::from_ref(&cause.said), &files, &todos, &board, now);
     let step = step(&board, &cfg, &s, &track, &prompt, &todos, now);
-    let (rec, to, queued) = act(engine, &board, &cfg, &s, &track, step, &prompt, &cause, file_ref.as_deref());
+    let (mut rec, to, queued) = act(engine, &board, &cfg, &s, &track, step, &prompt, &cause, file_ref.as_deref());
+    rec.name = name.filter(|_| rec.outcome == Outcome::Started);
     Some(Done {
         thread: (s.run.to != To::New).then(|| to.clone()),
         follows: (s.run.to == To::Session).then(|| s.run.session.trim().to_string()),
@@ -1255,7 +1325,8 @@ fn deliver_queued(engine: &Handle, id: &str, q: Queued) -> Option<Done> {
         Step::Wait { key, .. } => Step::Fail { why: format!("{} was busy for a day, so what waited for it was dropped.", title_of(&board, &key)) },
         other => other,
     };
-    let (rec, went, _) = act(engine, &board, &cfg, &s, &track, step, &prompt, &cause, None);
+    let (mut rec, went, _) = act(engine, &board, &cfg, &s, &track, step, &prompt, &cause, None);
+    rec.name = run_name(&s, &cause).filter(|_| rec.outcome == Outcome::Started);
     Some(Done { record: Some(rec), thread: (s.run.to != To::New).then_some(went), follows: (s.run.to == To::Session).then(|| s.run.session.trim().to_string()), delivered: true, ..Done::default() })
 }
 
@@ -1589,6 +1660,52 @@ mod tests {
         let mut runs = runs;
         apply(&mut runs, &notes[0]);
         assert_eq!(target(&b, &s, runs.of.get("a")).as_deref(), Some("new"));
+    }
+
+    /// A run's session goes by the schedule's name, with what it's for where it's one thing of a
+    /// new session each time. One kept going is for whatever comes; one that sends has its own.
+    #[test]
+    fn a_runs_session_is_called_what_the_schedule_is() {
+        let s = |to| Schedule { name: "  Deploys ".into(), run: Run { to, prompt: "Look".into(), ..Run::default() }, ..schedule("a", When::Fired) };
+        let found = |title: &str| Found { id: title.into(), title: title.into(), ..Found::default() };
+        let cause = |found: Vec<Found>| Cause { found, ..Cause::default() };
+        assert_eq!(run_name(&s(To::New), &cause(vec![])).as_deref(), Some("Deploys"));
+        assert_eq!(run_name(&s(To::New), &cause(vec![found("#12 Dark mode merged")])).as_deref(), Some("Deploys: #12 Dark mode merged"));
+        assert_eq!(run_name(&s(To::New), &cause(vec![found("a"), found("b")])).as_deref(), Some("Deploys"));
+        assert_eq!(run_name(&s(To::New), &cause(vec![found("  ")])).as_deref(), Some("Deploys"));
+        assert_eq!(run_name(&s(To::Thread), &cause(vec![found("a")])).as_deref(), Some("Deploys"));
+        assert_eq!(run_name(&s(To::Session), &cause(vec![])), None);
+    }
+
+    /// Its session is named once, and only once it's had a prompt to keep a name with. A run from
+    /// before there were names, or one whose session never had a prompt, names nothing.
+    #[test]
+    fn a_runs_session_is_named_once_its_had_a_prompt() {
+        let z = Fake::utc();
+        let now = ms(&z, 2026, 11, 7, 16, 30);
+        let file = File { schedules: vec![Schedule { run: Run { prompt: "Look".into(), ..Run::default() }, ..schedule("a", When::Fired) }], ..File::default() };
+        let rec = |at, name: Option<&str>| RunRecord { at, session: Some("new".into()), name: name.map(String::from), ..RunRecord::default() };
+        let runs = |r: RunRecord| Runs { of: [("a".to_string(), Track { runs: vec![r], ..armed(now - DAY_MS) })].into(), ..Runs::default() };
+        let on = |prompt: Option<&str>| Board { lanes: vec![lane("/r", vec![Session { first_prompt: prompt.map(String::from), ..session("new") }])], ..board() };
+        let named = Job::Name { key: "new".into(), name: "Deploys".into() };
+        let note = Note::Named { id: "a".into(), run_at: now - 5000 };
+        let plan_of = |runs: &Runs, b: &Board| plan(&file, runs, b, &HashSet::new(), now, &z);
+        // No prompt yet, it waits.
+        let (jobs, notes) = plan_of(&runs(rec(now - 5000, Some("Deploys"))), &on(None));
+        assert!(!jobs.contains(&named) && !notes.contains(&note));
+        // With one, it's named, and noted so it's once.
+        let mut went = runs(rec(now - 5000, Some("Deploys")));
+        let (jobs, notes) = plan_of(&went, &on(Some("Look")));
+        assert!(jobs.contains(&named) && notes.contains(&note));
+        apply(&mut went, &note);
+        assert_eq!(went.of["a"].runs[0].name, None);
+        assert!(!plan_of(&went, &on(Some("Look"))).0.contains(&named));
+        // From before, nothing.
+        assert!(!plan_of(&runs(rec(now - 5000, None)), &on(Some("Look"))).0.iter().any(|j| matches!(j, Job::Name { .. })));
+        // Past when it might have shown, it's given up on.
+        let old = now - PENDING_MS - 1;
+        let (jobs, notes) = plan_of(&runs(rec(old, Some("Deploys"))), &on(None));
+        assert!(!jobs.iter().any(|j| matches!(j, Job::Name { .. })) && notes.contains(&Note::Named { id: "a".into(), run_at: old }));
     }
 
     /// A one-off follow-up on a deploy (`--watch … --once`) runs for the first deploy, and no

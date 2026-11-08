@@ -2092,6 +2092,9 @@ export interface ScheduleItem extends Schedule {
   runsIn?: string;
   /** When it finished: one that runs once and has, or one whose times are over (schedules/mod.rs `spent`). */
   finished?: number;
+  /** What its sessions show beside their titles (emblems.rs). Missing until it has one, and for
+   *  one that sends to a session, which has its own. */
+  emblem?: Emblem;
 }
 
 /** A schedule a harness keeps itself, outside Codealong (schedules/harnesses.rs `Kept`): a Claude
