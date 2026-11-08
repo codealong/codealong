@@ -66,7 +66,7 @@ qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 # its build compiles from Ghostty's source with Zig (docs/development.md says which). Pinned to a
 # revision of the Rust bindings, which have no release on 1.0 yet; a newer one is taken on
 # purpose, with terminals.rs's tests run against it. They need Rust 1.96, hence rust-version.
-libghostty-vt = { git = "https://github.com/Uzaaft/libghostty-rs", rev = "d26066899107754fe319d07c830108e77322e4ad" }
+libghostty-vt = { git = "https://github.com/Uzaaft/libghostty-rs", rev = "9b598d6528c08c013407052767bb2e885ba869ba" }
 
 # The floating bar, the quick panel and the focus outline (flash.rs): panels, window occlusion, placement and Spaces, which
 # Tauri doesn't expose; and the sounds for what comes to wait on you (sounds.rs).

@@ -489,12 +489,8 @@ impl Screen {
 
     /// The selection's text, as copying it gives it.
     pub fn selection_text(&self) -> Option<String> {
-        let sel = self.term.selection().ok().flatten()?;
-        let mut f = Formatter::new(&self.term).ok()?;
+        let mut f = Formatter::new_selection(&self.term).ok().flatten()?;
         f.set_format(Format::Plain).ok()?.set_unwrap(true).ok()?.set_trim(true).ok()?;
-        // SAFETY: the selection was just read from this formatter's own terminal, on its active
-        // screen, and nothing changes the terminal before the formatter is done with it.
-        unsafe { f.set_selection(Some(&sel)) }.ok()?;
         let text = f.format_alloc(None).ok()?;
         Some(String::from_utf8_lossy(&text).into_owned()).filter(|t| !t.is_empty())
     }

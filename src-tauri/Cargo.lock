@@ -859,7 +859,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d045de693cb712d0b22c6a64be5b953f67b3ce00ab5ad3dd5d8b441886ab8e1a"
 dependencies = [
  "quote",
- "syn 3.0.9",
+ "syn 2.0.119",
 ]
 
 [[package]]
@@ -972,7 +972,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c54e03a951783e8b327515db3f2a2fd0e3bed362a96b066f341ce66ed49b4ead"
 dependencies = [
  "data-encoding",
- "syn 3.0.9",
+ "syn 1.0.109",
 ]
 
 [[package]]
@@ -2796,7 +2796,7 @@ dependencies = [
 [[package]]
 name = "libghostty-vt"
 version = "0.2.1"
-source = "git+https://github.com/Uzaaft/libghostty-rs?rev=d26066899107754fe319d07c830108e77322e4ad#d26066899107754fe319d07c830108e77322e4ad"
+source = "git+https://github.com/Uzaaft/libghostty-rs?rev=9b598d6528c08c013407052767bb2e885ba869ba#9b598d6528c08c013407052767bb2e885ba869ba"
 dependencies = [
  "bitflags 2.13.2",
  "int-enum",
@@ -2806,7 +2806,7 @@ dependencies = [
 [[package]]
 name = "libghostty-vt-sys"
 version = "0.2.1"
-source = "git+https://github.com/Uzaaft/libghostty-rs?rev=d26066899107754fe319d07c830108e77322e4ad#d26066899107754fe319d07c830108e77322e4ad"
+source = "git+https://github.com/Uzaaft/libghostty-rs?rev=9b598d6528c08c013407052767bb2e885ba869ba#9b598d6528c08c013407052767bb2e885ba869ba"
 
 [[package]]
 name = "libloading"
@@ -5110,6 +5110,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72b64191b275b66ffe2469e8af2c1cfe3bafa67b529ead792a6d0160888b4237"
 dependencies = [
  "proc-macro2",
+ "quote",
  "unicode-ident",
 ]
 
