@@ -6,7 +6,7 @@ edition = "2021"
 license = "Apache-2.0"
 homepage = "https://www.codealong.com"
 repository = "https://github.com/codealong/codealong"
-rust-version = "1.91"
+rust-version = "1.96"
 publish = false
 
 # The engine, and codealong-peer (peer/): the part of it other devices' apps build on.
@@ -62,11 +62,11 @@ data-encoding = "2"
 png = "0.18"
 # Link codes as QR codes, for the phone app to scan (Settings › Devices).
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
-# Codealong's own terminals (terminals.rs): Ghostty's terminal emulator, libghostty-vt, which its
-# build compiles from Ghostty's source with Zig (docs/development.md says which). Pinned to a
-# revision: the library is before 1.0, and a newer one is taken on purpose, with terminals.rs's
-# tests run against it.
-libghostty-vt = { git = "https://github.com/Uzaaft/libghostty-rs", rev = "575ed6b8ceb79ffaf247ecf7e34333876b0d5be4" }
+# Codealong's own terminals (terminals.rs): Ghostty's terminal emulator, libghostty-vt 1.0, which
+# its build compiles from Ghostty's source with Zig (docs/development.md says which). Pinned to a
+# revision of the Rust bindings, which have no release on 1.0 yet; a newer one is taken on
+# purpose, with terminals.rs's tests run against it. They need Rust 1.96, hence rust-version.
+libghostty-vt = { git = "https://github.com/Uzaaft/libghostty-rs", rev = "d26066899107754fe319d07c830108e77322e4ad" }
 
 # The floating bar, the quick panel and the focus outline (flash.rs): panels, window occlusion, placement and Spaces, which
 # Tauri doesn't expose; and the sounds for what comes to wait on you (sounds.rs).

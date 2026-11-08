@@ -886,7 +886,7 @@ npm install
 npm run tauri dev
 ```
 
-You'll need Rust 1.91 or later (`rustup`) and Node 22.13 or later (not 23), with Xcode's command line tools
+You'll need Rust 1.96 or later (`rustup`) and Node 22.13 or later (not 23), with Xcode's command line tools
 on macOS, or on Linux the packages [On Linux](#on-linux) names. Builds go to `codealong-target`, a
 folder beside the clone, which every checkout and worktree of it shares. A development build uses
 the same settings and todos as an installed Codealong, and quits it while it runs.

@@ -16,7 +16,7 @@ devices is its own crate, codealong-peer (`src-tauri/peer/`), which the
 ## Requirements
 
 - macOS 13 or later, with Xcode's command line tools (`xcode-select --install`)
-- Rust 1.91 or later (`rustup`) and Node 22.13 or later
+- Rust 1.96 or later (`rustup`) and Node 22.13 or later
 - Zig 0.17 (`brew install zig`), which builds Ghostty's terminal library for Codealong's own
   terminals (*Ghostty's terminal library*, below)
 - `gh` signed in (`gh auth login`) for PRs
@@ -134,16 +134,18 @@ pins and builds it with Zig, so a first build takes a few minutes and needs the 
 compiles once into the shared build directory after that. `GHOSTTY_SOURCE_DIR` builds it from a
 checkout of Ghostty instead, for building offline.
 
-The crate is pinned to a git revision in `src-tauri/Cargo.toml`, since libghostty has no stable
-version yet, and that revision fixes the Ghostty commit and so the Zig it needs (its
-`build.zig.zon`'s `minimum_zig_version`): 0.17 today, which CI installs too
-(`.github/workflows/`, `scripts/linux/lima.yaml`). Taking a newer one is a change of its own:
-move the revision, match the Zig version everywhere it's named, and run `cargo test terminals`,
-whose tests feed the emulator escape sequences and check the screens, keys and pastes that come
-of them. `.claude/rules/libghostty.md` has what the library does and doesn't do that the code
-relies on.
+The library is at 1.0 (Ghostty's `vt-1.0.0` tag), whose C API keeps its promises across 1.x, but
+the Rust crate has no release on it yet, so it's pinned to a git revision in `src-tauri/Cargo.toml`.
+That revision fixes the Ghostty commit and so the Zig it needs (its `build.zig.zon`'s
+`minimum_zig_version`): 0.17 today, which CI installs too (`.github/workflows/`,
+`scripts/linux/lima.yaml`). Taking a newer one is a change of its own: move the revision, match
+the Zig version everywhere it's named, and run `cargo test terminals`, whose tests feed the
+emulator escape sequences and check the screens, keys, mouse and pastes that come of them.
+`.claude/rules/libghostty.md` has what the library does and doesn't do that the code relies on.
 
-A newer revision may write snapshots (`Terminal::encode_snapshot`) its older builds can't read:
+The snapshot format isn't among 1.0's promises: it's versioned apart from the library, and its
+version 1 has no binary-compatibility guarantee yet. So a newer revision may write snapshots
+(`Terminal::encode_snapshot`) its older builds can't read:
 a server handing its terminals to a new build (`serve.rs` `hand_over`) writes them with the old
 library and the new build reads them with its own. One it can't read leaves its program to draw
 the screen again (`terminals.rs` `run`), its scrollback lost, so a revision that changes the

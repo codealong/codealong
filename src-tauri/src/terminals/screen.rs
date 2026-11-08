@@ -12,7 +12,7 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use libghostty_vt::fmt::{Format, Formatter, FormatterOptions};
+use libghostty_vt::fmt::{Extras, Format, Formatter};
 use libghostty_vt::key::{self, Mods};
 use libghostty_vt::mouse;
 use libghostty_vt::paste;
@@ -475,7 +475,7 @@ impl Screen {
     /// could run commands as it's pasted (a line break where pastes aren't bracketed) is refused
     /// unless `unsafe_ok`: false then, and nothing is written.
     pub fn paste(&mut self, text: &str, unsafe_ok: bool) -> bool {
-        let mime = [ClipboardMime::new("text/plain")];
+        let mime = [ClipboardMime::new(b"text/plain")];
         let options = paste::Options::new().with_allow_unsafe(unsafe_ok);
         let pasted = self.term.paste(options, &mime, |_, w| w.write_all(text.as_bytes()));
         match pasted {
@@ -490,8 +490,12 @@ impl Screen {
     /// The selection's text, as copying it gives it.
     pub fn selection_text(&self) -> Option<String> {
         let sel = self.term.selection().ok().flatten()?;
-        let opts = FormatterOptions::new().with_format(Format::Plain).with_unwrap(true).with_trim(true).with_selection(&sel);
-        let text = Formatter::new(&self.term, opts).ok()?.format_alloc(None).ok()?;
+        let mut f = Formatter::new(&self.term).ok()?;
+        f.set_format(Format::Plain).ok()?.set_unwrap(true).ok()?.set_trim(true).ok()?;
+        // SAFETY: the selection was just read from this formatter's own terminal, on its active
+        // screen, and nothing changes the terminal before the formatter is done with it.
+        unsafe { f.set_selection(Some(&sel)) }.ok()?;
+        let text = f.format_alloc(None).ok()?;
         Some(String::from_utf8_lossy(&text).into_owned()).filter(|t| !t.is_empty())
     }
 
@@ -502,30 +506,35 @@ impl Screen {
     /// and the cursor where it is. What the program prints next goes on from there.
     pub fn vt(&self) -> Vec<u8> {
         let mut out = b"\x1b[!p\x1b[H\x1b[2J\x1b[3J".to_vec();
-        let opts = FormatterOptions::new()
-            .with_format(Format::Vt)
-            .with_modes(true)
-            .with_keyboard(true)
-            .with_kitty_keyboard(true)
-            .with_scrolling_region(true)
-            .with_tabstops(true)
-            .with_pwd(true)
-            .with_charsets(true)
-            .with_hyperlink(true)
-            .with_style(true)
-            .with_cursor(true);
-        if let Ok(mut f) = Formatter::new(&self.term, opts) {
-            if let Ok(bytes) = f.format_alloc(None) {
-                out.extend_from_slice(&bytes);
-            }
+        // Untrimmed: VT output then keeps the blank rows at the screen's end, and fills the rows
+        // the screen does.
+        let extras = Extras::MODES
+            | Extras::KEYBOARD
+            | Extras::KITTY_KEYBOARD
+            | Extras::SCROLLING_REGION
+            | Extras::TABSTOPS
+            | Extras::PWD
+            | Extras::CHARSETS
+            | Extras::HYPERLINK
+            | Extras::STYLE
+            | Extras::CURSOR;
+        let bytes = Formatter::new(&self.term).and_then(|mut f| {
+            f.set_format(Format::Vt)?.set_trim(false)?.set_extras(extras)?;
+            f.format_alloc(None)
+        });
+        if let Ok(bytes) = bytes {
+            out.extend_from_slice(&bytes);
         }
         out
     }
 
     /// Everything the terminal holds as text, scrollback included: what a command printed.
     pub fn text(&self) -> String {
-        let opts = FormatterOptions::new().with_format(Format::Plain).with_unwrap(true).with_trim(true);
-        Formatter::new(&self.term, opts).and_then(|mut f| f.format_alloc(None).map(|b| String::from_utf8_lossy(&b).into_owned())).unwrap_or_default()
+        let bytes = Formatter::new(&self.term).and_then(|mut f| {
+            f.set_format(Format::Plain)?.set_unwrap(true)?.set_trim(true)?;
+            f.format_alloc(None)
+        });
+        bytes.map(|b| String::from_utf8_lossy(&b).into_owned()).unwrap_or_default()
     }
 
     /// Something was typed: the view goes back to the bottom and the selection goes, as in
@@ -649,21 +658,12 @@ impl Screen {
         if !tracking {
             return;
         }
-        let s = self.size.get();
-        self.mouse_encoder
+        let _ = self
+            .mouse_encoder
             .set_options_from_terminal(&self.term)
-            .set_size(mouse::EncoderSize {
-                screen_width: u32::from(s.cols) * u32::from(s.cell_width),
-                screen_height: u32::from(s.rows) * u32::from(s.cell_height),
-                cell_width: u32::from(s.cell_width),
-                cell_height: u32::from(s.cell_height),
-                padding_top: 0,
-                padding_bottom: 0,
-                padding_left: 0,
-                padding_right: 0,
-            })
             .set_any_button_pressed(!self.held.is_empty())
-            .set_track_last_cell(true);
+            .set_track_last_cell(true)
+            .set_size(encoder_size(self.size.get()));
         let button = match action {
             MouseAction::Move => self.held.first().copied(),
             _ => button,
@@ -693,17 +693,7 @@ impl Screen {
             for _ in 0..steps.unsigned_abs().min(10) {
                 for action in [MouseAction::Down, MouseAction::Up] {
                     self.held.clear();
-                    let s = self.size.get();
-                    self.mouse_encoder.set_options_from_terminal(&self.term).set_size(mouse::EncoderSize {
-                        screen_width: u32::from(s.cols) * u32::from(s.cell_width),
-                        screen_height: u32::from(s.rows) * u32::from(s.cell_height),
-                        cell_width: u32::from(s.cell_width),
-                        cell_height: u32::from(s.cell_height),
-                        padding_top: 0,
-                        padding_bottom: 0,
-                        padding_left: 0,
-                        padding_right: 0,
-                    });
+                    let _ = self.mouse_encoder.set_options_from_terminal(&self.term).set_size(encoder_size(self.size.get()));
                     self.mouse_event
                         .set_mods(mods4.mods())
                         .set_position(mouse::Position { x: x as f32, y: y as f32 })
@@ -854,6 +844,22 @@ impl Looks {
                 (self.list.len() - 1) as u16
             }
         }
+    }
+}
+
+/// The screen's size in pixels, as the mouse encoder places a click in a cell by it. The encoder
+/// refuses a cell with no width or height and keeps the size it had, but a terminal's size never
+/// has one (terminals.rs `sane`), so the refusal is left unsaid where it's set.
+fn encoder_size(s: Size) -> mouse::EncoderSize {
+    mouse::EncoderSize {
+        screen_width: u32::from(s.cols) * u32::from(s.cell_width),
+        screen_height: u32::from(s.rows) * u32::from(s.cell_height),
+        cell_width: u32::from(s.cell_width),
+        cell_height: u32::from(s.cell_height),
+        padding_top: 0,
+        padding_bottom: 0,
+        padding_left: 0,
+        padding_right: 0,
     }
 }
 
@@ -1176,6 +1182,22 @@ mod tests {
         let selected: String = f.lines[0].runs.iter().filter(|r| f.looks[usize::from(r.look)].flags & SELECTED != 0).flat_map(|r| r.cells.clone()).collect();
         assert_eq!(selected, "two");
         assert!(s.take_out().is_empty(), "nothing went to the program");
+    }
+
+    /// A program that asks for the mouse (htop, vim with `mouse=a`) is sent clicks and the wheel
+    /// at the cell they happened in, in the SGR encoding it asked for, and nothing is selected.
+    #[test]
+    fn a_program_that_asks_for_the_mouse_is_sent_clicks_and_the_wheel_where_they_were() {
+        let (mut s, _) = screen();
+        s.feed(b"one two three\x1b[?1000h\x1b[?1006h");
+        // 8×16 cells: x 33, y 20 is the fifth column of the second row.
+        s.input(&Input::Mouse { action: MouseAction::Down, button: Some(MouseButton::Left), x: 33.0, y: 20.0, mods: Mods4::default() });
+        s.input(&Input::Mouse { action: MouseAction::Up, button: Some(MouseButton::Left), x: 33.0, y: 20.0, mods: Mods4::default() });
+        assert_eq!(String::from_utf8_lossy(&s.take_out()), "\x1b[<0;5;2M\x1b[<0;5;2m");
+        assert_eq!(s.selection_text(), None);
+        s.input(&Input::Wheel { rows: 1.0, x: 33.0, y: 20.0, mods: Mods4::default() });
+        let wheel = String::from_utf8_lossy(&s.take_out()).into_owned();
+        assert!(wheel.starts_with("\x1b[<65;5;2M"), "the wheel down, as button 5: {wheel:?}");
     }
 
     #[test]
