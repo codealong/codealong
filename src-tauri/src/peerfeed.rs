@@ -132,7 +132,7 @@ fn auto_review_card(r: &crate::model::AutoReview) -> codealong_peer::pr::AutoRev
         S::Skipped => ReviewStage::Skipped,
         S::Failed => ReviewStage::Failed,
     };
-    codealong_peer::pr::AutoReview { stage, head: r.head.clone(), suggests: r.suggests.map(Into::into), submitted: r.submitted.map(Into::into), at: r.at }
+    codealong_peer::pr::AutoReview { stage, head: r.head.clone(), suggests: r.suggests.map(Into::into), submitted: r.submitted.map(Into::into), at: r.at, approves: r.approves.clone(), holds: r.holds }
 }
 
 /// Whether every device's build reads the harness: the ones there were before a device's hello
@@ -497,10 +497,18 @@ mod tests {
         p.auto_review = Some(serde_json::from_value(serde_json::json!({ "stage": "drafted", "head": "abc1234def", "at": 5, "rounds": 2, "holds": true, "suggests": "request-changes" })).expect("a review"));
         let snap = snapshot(&Board { generated_at: 10, prs: vec![p.clone()], ..board(vec![]) }, info("Mini"));
         let sent = snap.prs[0].auto_review.clone();
-        assert_eq!(sent, Some(AutoReview { stage: ReviewStage::Drafted, head: "abc1234def".into(), suggests: Some(Verdict::RequestChanges), submitted: None, at: 5 }));
+        assert_eq!(sent, Some(AutoReview { stage: ReviewStage::Drafted, head: "abc1234def".into(), suggests: Some(Verdict::RequestChanges), submitted: None, at: 5, approves: None, holds: true }));
         // The card's is the engine's own, cut down: the same shape reads the same.
         let engines: AutoReview = serde_json::from_value(serde_json::to_value(&p.auto_review).unwrap()).unwrap();
         assert_eq!(Some(engines), sent);
+        // What the agent approved goes with it, for a phone's Agent approves (prStatus.ts
+        // `agentApproves`); a phone from before reads the rest as it did.
+        p.auto_review.as_mut().unwrap().approves = Some("abc1234def".into());
+        let snap = snapshot(&Board { generated_at: 10, prs: vec![p.clone()], ..board(vec![]) }, info("Mini"));
+        assert_eq!(snap.prs[0].auto_review.as_ref().and_then(|r| r.approves.as_deref()), Some("abc1234def"));
+        let before: serde_json::Value = serde_json::json!({ "stage": "posted", "head": "h", "at": 1 });
+        let read: AutoReview = serde_json::from_value(before).unwrap();
+        assert_eq!((read.approves, read.holds), (None, false));
         // A stage a later Mac names doesn't lose a device the whole list.
         let later: AutoReview = serde_json::from_value(serde_json::json!({ "stage": "pondering", "head": "h" })).unwrap();
         assert_eq!(later.stage, ReviewStage::Other);

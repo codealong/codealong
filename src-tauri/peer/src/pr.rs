@@ -179,6 +179,17 @@ pub struct AutoReview {
     /// says which of them goes on reviewing it. 0 from machines before 2026-10-22.
     #[serde(default)]
     pub at: i64,
+    /// The commit the agent's latest written review approved, while someone else's PR still waits
+    /// on your review (the engine's `AutoReview::approves`): your sign-off is what's asked once
+    /// it's the PR's commit, and one of an earlier commit is what the agent made of it while it
+    /// reviews the commits since (the Mac's prStatus.ts `agentApproves`, `approvedBefore`). None
+    /// from Macs before 2026-11-09.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approves: Option<String>,
+    /// Its review of the PR's commit isn't done, so the PR is held out of what waits on you until
+    /// it is (the engine's `AutoReview::holds`). False from Macs before 2026-11-09.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub holds: bool,
 }
 
 /// Where a round of the automatic review stands.
