@@ -9,7 +9,7 @@
 import { refId, type RefKind } from '../canvas/model';
 import { AGENT_BAY, sessionPrs } from '../lanes';
 import { itemSection, type TodoItem } from '../todos';
-import type { Lane, Pr, PrItem, Session, Todo } from '../types';
+import type { Label, Lane, Pr, PrItem, Session, Todo } from '../types';
 import type { SessionItem } from '../ui/SessionsView';
 import { takesAll, type Active, type BoardColumn, type BoardDoc, type Rule, type Stage, type StatusPick } from './model';
 
@@ -86,8 +86,15 @@ export function todoSubject(item: TodoItem, todos: Todo[]): Subject {
   };
 }
 
-/** `on`: the todos it's linked to, whose labels go with its own. */
-export function sessionSubject(r: SessionItem, prs: PrItem[], on: Todo[]): Subject {
+/** A session's own labels by this Mac's ids, as rules name them: one on another device wears that
+ *  Mac's labels, so each goes by the one of its name here (`labels`), else by its own id. */
+export function ownLabels(s: Pick<Session, 'labels'>, labels: readonly Label[]): string[] {
+  return (s.labels ?? []).map((l) => labels.find((x) => x.name.toLowerCase() === l.name.toLowerCase())?.id ?? l.id);
+}
+
+/** `on`: the todos it's linked to, whose labels go with its own; `labels`, this Mac's
+ *  (`ownLabels`). */
+export function sessionSubject(r: SessionItem, prs: PrItem[], on: Todo[], labels: readonly Label[] = []): Subject {
   const s = r.session;
   return {
     card: refId('session', s.key),
@@ -96,14 +103,15 @@ export function sessionSubject(r: SessionItem, prs: PrItem[], on: Todo[]): Subje
     activity: s.lastActivity,
     stage: sessionStage(r, prs),
     statuses: statusesOf([s]),
-    labels: uniq([...on.flatMap((t) => t.labels), ...(s.labels ?? []).map((l) => l.id)]),
+    labels: uniq([...on.flatMap((t) => t.labels), ...ownLabels(s, labels)]),
     repos: [repoOf(r.lane)],
     accounts: [s.account],
   };
 }
 
-/** `on`: the todos linked to it or to a session in it, whose labels go with its sessions' own. */
-export function laneSubject(lane: Lane, on: Todo[]): Subject {
+/** `on`: the todos linked to it or to a session in it, whose labels go with its sessions' own;
+ *  `labels`, this Mac's (`ownLabels`). */
+export function laneSubject(lane: Lane, on: Todo[], labels: readonly Label[] = []): Subject {
   return {
     card: refId('worktree', lane.id),
     ref: 'worktree',
@@ -111,7 +119,7 @@ export function laneSubject(lane: Lane, on: Todo[]): Subject {
     activity: lane.lastActivity,
     stage: prStage(lane.pr?.state),
     statuses: statusesOf(lane.sessions),
-    labels: uniq([...on.flatMap((t) => t.labels), ...lane.sessions.flatMap((s) => (s.labels ?? []).map((l) => l.id))]),
+    labels: uniq([...on.flatMap((t) => t.labels), ...lane.sessions.flatMap((s) => ownLabels(s, labels))]),
     repos: [repoOf(lane)],
     accounts: uniq(lane.sessions.map((s) => s.account)),
   };
@@ -138,10 +146,13 @@ export interface SubjectsInput {
   sessionItems: SessionItem[];
   lanes: Lane[];
   prs: PrItem[];
+  /** The labels todos wear on this Mac, which rules name: another device's sessions' go by them
+   *  (`ownLabels`). */
+  labels?: readonly Label[];
 }
 
 /** Everything a board in the project can hold, by card id. */
-export function subjectsOf({ todoItems, todos, sessionItems, lanes, prs }: SubjectsInput): Map<string, Subject> {
+export function subjectsOf({ todoItems, todos, sessionItems, lanes, prs, labels = [] }: SubjectsInput): Map<string, Subject> {
   const bySession = new Map<string, Todo[]>();
   const byLane = new Map<string, Todo[]>();
   const add = (m: Map<string, Todo[]>, k: string, t: Todo) => {
@@ -161,8 +172,8 @@ export function subjectsOf({ todoItems, todos, sessionItems, lanes, prs }: Subje
   const out = new Map<string, Subject>();
   const put = (s: Subject) => out.set(s.card, s);
   todoItems.forEach((r) => put(todoSubject(r, todos)));
-  sessionItems.forEach((r) => put(sessionSubject(r, prs, bySession.get(r.session.key) ?? [])));
-  lanes.forEach((l) => put(laneSubject(l, byLane.get(l.id) ?? [])));
+  sessionItems.forEach((r) => put(sessionSubject(r, prs, bySession.get(r.session.key) ?? [], labels)));
+  lanes.forEach((l) => put(laneSubject(l, byLane.get(l.id) ?? [], labels)));
   const sessionByKey = new Map(sessionItems.map((r) => [r.session.key, r.session]));
   prs.forEach((p) => put(prSubject(p, p.sessions.flatMap((x) => sessionByKey.get(x.key) ?? []))));
   return out;

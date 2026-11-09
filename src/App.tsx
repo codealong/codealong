@@ -574,6 +574,7 @@ export function App() {
     allHomes,
     labelById,
     facetOptions,
+    kanbanFacetOptions,
     projectTodos,
     todoItems,
     todoSecs,
@@ -2149,7 +2150,8 @@ export function App() {
   ];
   const ageApplies = view !== 'todo' && view !== 'canvas' && view !== 'schedules';
   // The facets the view offers, and the picks among them that narrow it now, by their names.
-  const sideFacets = facetsIn(view).map((id) => ({ id, label: FACET_WORD[id], options: facetOptions[id], picked: facets[id] ?? NO_PICKS }));
+  // The Kanban's labels count its sessions too (boardLists.ts `todoLabelOptions`).
+  const sideFacets = facetsIn(view).map((id) => ({ id, label: FACET_WORD[id], options: (view === 'kanban' ? kanbanFacetOptions : facetOptions)[id], picked: facets[id] ?? NO_PICKS }));
   const facetsNow = Object.fromEntries(facetsOn(facets, view).map((id) => [id, facets[id]])) as Facets;
   const pickNames = sideFacets.flatMap((f) => f.picked.map((p) => f.options.find((o) => o.id === p)?.label ?? p));
   const sideFilters = [

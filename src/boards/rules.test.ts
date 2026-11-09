@@ -4,7 +4,7 @@ import { sessionHomes } from '../lanes';
 import * as fx from '../testing/fixtures';
 import { NOW } from '../testing/fixtures';
 import { todoItem } from '../todos';
-import type { Lane, Todo } from '../types';
+import type { Label, Lane, Todo } from '../types';
 import type { BoardColumn, BoardDoc } from './model';
 import { columnOf, matches, memberTest, subjectsOf, type Subject } from './rules';
 
@@ -45,6 +45,15 @@ describe('what a thing on a board is to its rules', () => {
     expect(at(subjects, 'session:claude:claude:o').labels).toEqual(['l-rel', 'l-ui']);
     expect(at(subjects, 'worktree:/r/web').labels).toEqual(['l-rel', 'l-ui']);
     expect(matches({ labels: ['l-ui'], kinds: ['session'] }, at(subjects, 'session:claude:claude:o'), NOW)).toBe(true);
+  });
+
+  it('takes another Mac’s label for this one’s of its name, since rules name this Mac’s', () => {
+    const here: Label[] = [{ id: 'l-bug', name: 'Bug', color: 'red' }];
+    const there = fx.session({ key: '@a1b2c3d4e5:claude:claude:t', labels: [{ id: 'l-their-bug', name: 'bug', color: 'teal' }, { id: 'l-only-there', name: 'Spike', color: 'blue' }] });
+    const lane: Lane = fx.lane({ id: '@a1b2c3d4e5:/r/web', sessions: [there] });
+    const subjects = subjectsOf({ todoItems: [], todos: [], sessionItems: sessionItemsOf([lane]), lanes: [lane], prs: [], labels: here });
+    expect(at(subjects, 'session:@a1b2c3d4e5:claude:claude:t').labels).toEqual(['l-bug', 'l-only-there']);
+    expect(at(subjects, 'worktree:@a1b2c3d4e5:/r/web').labels).toEqual(['l-bug', 'l-only-there']);
   });
 
   it('takes in a thing when every part of a rule holds, and any pick within one', () => {

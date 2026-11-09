@@ -2112,8 +2112,7 @@ Commands:
               --label`). Unlike a tag (`session tag`), which is a read of one turn and
               goes when the next starts, a label stays until it's taken off; put one on
               only when your user asked, or an orchestrator's labelling is what they set
-              it to do. A session on another device is labelled on its Mac, with that
-              Mac's labels. Prints the labels it has now; `session show`, `sessions`
+              it to do. Prints the labels it has now; `session show`, `sessions`
               (`--label` to list only those with one) say them too
   snooze      Snooze a session, as Snooze in its menu in Codealong does: it leaves Needs
               you and Your turn on every device, and the mark stops counting it, until
@@ -2698,9 +2697,9 @@ next color. They sort the work for your user: they show on its row, its Sessions
 filters by them, and a board whose rule names a label takes in the sessions with it
 (`board rule --label`). Unlike a tag (`session tag`), which is a read of one turn and
 goes when the next starts, a label stays until it's taken off; put one on only when your
-user asked, or an orchestrator's labelling is what they set it to do. A session on
-another device is labelled on its Mac, with that Mac's labels. Prints the labels it has
-now; `session show`, `sessions` (`--label` to list only those with one) say them too
+user asked, or an orchestrator's labelling is what they set it to do. Prints the labels
+it has now; `session show`, `sessions` (`--label` to list only those with one) say them
+too
 
 Usage: codealong session label [OPTIONS] <KEY>
 

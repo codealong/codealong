@@ -320,6 +320,20 @@ describe('the sidebar’s facets', () => {
     expect(sessionInQuery(rows[0], 'releas')).toBe(true);
   });
 
+  it('counts the Kanban’s sessions in its labels, so one only sessions wear is there to pick', () => {
+    const labels: Label[] = [
+      { id: 'l-bug', name: 'Bug', color: 'red' },
+      { id: 'l-spike', name: 'Spike', color: 'blue' },
+    ];
+    const s = session('claude:claude:k', { labels: [{ id: 'l-their-bug', name: 'BUG', color: 'teal' }, labels[1]] });
+    const sessions = [item(lane('/r/k', [s]), s)];
+    expect(todoLabelOptions([todo('a', ['l-bug'])], labels, {}).map((o) => [o.id, o.count])).toEqual([['l-bug', 1]]);
+    expect(todoLabelOptions([todo('a', ['l-bug'])], labels, {}, sessions).map((o) => [o.id, o.count])).toEqual([
+      ['l-bug', 2],
+      ['l-spike', 1],
+    ]);
+  });
+
   it('counts each option, the most first, keeping one picked that has none left', () => {
     const rows = [agent('codex', 1), agent('claude', 2), agent('codex', 3)];
     expect(agentOptions(rows, { agents: ['cursor'] }).map((o) => [o.id, o.count])).toEqual([

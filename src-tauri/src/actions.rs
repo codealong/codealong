@@ -384,13 +384,15 @@ pub const STILL_READING: &str = "Codealong is still reading its sessions after a
 /// the window hears of the change from that device's feed, and one the table keeps on the
 /// session's Mac (`only_here`) isn't sent. Returns this device's answer, if any were here.
 pub fn run_keys(engine: &Handle, peers: &Peers, name: &str, keys: Vec<String>, params: impl Serialize) -> Option<Value> {
-    each_device(engine, peers, name, keys, params).and_then(|(answer, _)| answer)
+    each_device(engine, peers, name, keys, params).and_then(|(answer, _)| answer?.ok())
 }
 
 /// `run_keys`, waiting for the other devices' answers too, for a window that says when one
-/// didn't do it: it isn't connected, or its Codealong is from before the request.
+/// didn't do it: it isn't connected, or its Codealong is from before the request; or why this one
+/// didn't (a label to make when todos.json doesn't read).
 pub fn run_keys_heard(engine: &Handle, peers: &Peers, name: &str, keys: Vec<String>, params: impl Serialize) -> Result<Option<Value>, String> {
     let (answer, there) = each_device(engine, peers, name, keys, params).ok_or_else(|| format!("Codealong doesn't know how to {name}."))?;
+    let answer = answer.transpose()?;
     for (device, asked) in there {
         let why = match asked.join() {
             Ok(Ok(_)) => continue,
@@ -406,7 +408,7 @@ pub fn run_keys_heard(engine: &Handle, peers: &Peers, name: &str, keys: Vec<Stri
 type Asked = (String, std::thread::JoinHandle<Result<Value, String>>);
 
 /// `run_keys`'s requests: this device's answer, and each other device's as it comes.
-fn each_device(engine: &Handle, peers: &Peers, name: &str, keys: Vec<String>, params: impl Serialize) -> Option<(Option<Value>, Vec<Asked>)> {
+fn each_device(engine: &Handle, peers: &Peers, name: &str, keys: Vec<String>, params: impl Serialize) -> Option<(Option<Result<Value, String>>, Vec<Asked>)> {
     let req = find(name)?;
     let params = to_value(params).ok()?;
     let mut answer = None;
@@ -417,7 +419,7 @@ fn each_device(engine: &Handle, peers: &Peers, name: &str, keys: Vec<String>, pa
             m.insert("keys".into(), json!(keys));
         }
         match device {
-            None => answer = (req.here)(engine, &Call { key: "", params: &params, from: &From::Here }).ok(),
+            None => answer = Some((req.here)(engine, &Call { key: "", params: &params, from: &From::Here })),
             Some(device) if elsewhere(req, &From::Here).is_ok() => {
                 let peers = peers.clone();
                 let asking = device.clone();
@@ -2097,6 +2099,9 @@ mod tests {
         let snooze = |keys: &[&str]| run_keys_heard(&engine, &peers, api::SESSION_SNOOZE, keys.iter().map(|k| k.to_string()).collect(), json!({ "until": 1 }));
         assert!(snooze(&["@a1b2c3d4e5:claude:claude:abc"]).unwrap_err().contains("isn't linked"));
         assert_eq!(snooze(&["claude:claude:def"]), Ok(Some(Value::Null)));
+        // And why this device's own weren't, as a label that couldn't be made.
+        let label = run_keys_heard(&engine, &peers, api::SESSION_LABEL, vec!["claude:claude:def".into()], json!({ "add": ["Bug"] }));
+        assert_eq!(label, Err("Codealong's engine stopped.".to_string()));
     }
 
     #[test]

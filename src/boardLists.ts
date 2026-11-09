@@ -12,7 +12,7 @@ import { AGENT_BAY, bySession, byStatusTime, filterByAge, homeOf, type HelperGla
 import type { Pins } from './pins';
 import type { RefKind } from './canvas/model';
 import { columnsOf, stageOfColumn, type BoardColumn, type BoardDoc, type Stage } from './boards/model';
-import { columnOf, memberTest, sessionStage, subjectsOf, todoStage, type Subject } from './boards/rules';
+import { columnOf, memberTest, ownLabels, sessionStage, subjectsOf, todoStage, type Subject } from './boards/rules';
 import { ALL_PROJECTS, hasWords, inProject, queryWords, saidLine, type SaidLine } from './quick';
 import { isOpen, itemSection, todoIndex, todoInFilter, todoItem, todoSections, type TodoItem, type TodoSectionId, type TodoSort } from './todos';
 import { primaryHere } from './prStatus';
@@ -294,12 +294,15 @@ export function prFacetOptions(rows: PrRowItem[], f: Facets): { repos: FacetOpti
   };
 }
 
-/** Todos' labels, in your labels' order, each counting the open todos among `rows` that have it.
- *  One picked that's since been deleted (in another window, say) is still offered, so it can be
+/** Todos' labels, in your labels' order, each counting the open todos among `rows` that have it,
+ *  and with `sessions` (the Kanban's), the sessions you put it on (rules.ts `ownLabels`). One
+ *  picked that's since been deleted (in another window, say) is still offered, so it can be
  *  unpicked. */
-export function todoLabelOptions(rows: TodoItem[], labels: Label[], f: Facets): FacetOption[] {
+export function todoLabelOptions(rows: TodoItem[], labels: Label[], f: Facets, sessions: SessionItem[] = []): FacetOption[] {
   const counts = new Map<string, number>();
-  for (const r of rows) if (isOpen(r.todo)) for (const id of r.todo.labels) counts.set(id, (counts.get(id) ?? 0) + 1);
+  const count = (id: string) => counts.set(id, (counts.get(id) ?? 0) + 1);
+  for (const r of rows) if (isOpen(r.todo)) r.todo.labels.forEach(count);
+  for (const r of sessions) new Set(ownLabels(r.session, labels)).forEach(count);
   const known = labels.filter((l) => counts.has(l.id) || f.labels?.includes(l.id)).map((l) => ({ id: l.id, label: l.name, count: counts.get(l.id) ?? 0, color: l.color }));
   const gone = (f.labels ?? []).filter((id) => !labels.some((l) => l.id === id)).map((id) => ({ id, label: 'Deleted label', count: 0 }));
   return [...known, ...gone];
@@ -952,7 +955,7 @@ export function kanbanOf(board: Board, rawLanes: Lane[], doc: BoardDoc, now: num
   const homes = sessionHomes(lanes);
   const todoItems = board.todos.filter((t) => project === ALL_PROJECTS || t.project === project).map((t) => todoItem(t, laneById, homes, labelById));
   const prs = board.prs.filter((p) => project === ALL_PROJECTS || p.project === project);
-  const subjects = subjectsOf({ todoItems, todos: board.todos, sessionItems, lanes: projectLanes, prs });
+  const subjects = subjectsOf({ todoItems, todos: board.todos, sessionItems, lanes: projectLanes, prs, labels: board.labels });
   const member = memberTest(doc, subjects, now);
   const sessions = shownSessionsOf(sessionItems, 0, NO_PINS, '', []);
   const columns = kanbanColumns({ todoRows: todoItems, todos: board.todos, sessions, prs: board.prs, doneSince: now - DONE_SPAN, board: doc, subjects, member, now });
@@ -1191,25 +1194,26 @@ export function useBoardLists(input: ListsInput) {
   );
   const boardArchived = useMemo(() => (shownBoard ? archivedOn(rawLanes, shownBoard) : []), [rawLanes, shownBoard]);
   const boardSessions = useMemo(() => (boardArchived.length > 0 ? [...part.sessions, ...boardArchived] : part.sessions), [part.sessions, boardArchived]);
-  const subjects = useMemo(() => subjectsOf({ todoItems: part.todoItems, todos, sessionItems: boardSessions, lanes: part.lanes, prs: part.prs }), [part.todoItems, todos, boardSessions, part.lanes, part.prs]);
+  const subjects = useMemo(() => subjectsOf({ todoItems: part.todoItems, todos, sessionItems: boardSessions, lanes: part.lanes, prs: part.prs, labels }), [part.todoItems, todos, boardSessions, part.lanes, part.prs, labels]);
   const member = useMemo(() => (shownBoard ? memberTest(shownBoard, subjects, now) : onNoBoard), [shownBoard, subjects, now]);
   // What the rules ask of everything the window shows, for whether another board holds a thing
   // (Add to board ›): under All projects the shown board's are of its own project alone, so the
   // window's go in beside them.
   const allSubjects = useMemo(
-    () => (boardProject === current ? subjects : new Map([...subjectsOf({ todoItems, todos, sessionItems, lanes: projectLanes, prs: projectPrs }), ...subjects])),
-    [boardProject, current, subjects, todoItems, todos, sessionItems, projectLanes, projectPrs],
+    () => (boardProject === current ? subjects : new Map([...subjectsOf({ todoItems, todos, sessionItems, lanes: projectLanes, prs: projectPrs, labels }), ...subjects])),
+    [boardProject, current, subjects, todoItems, todos, sessionItems, projectLanes, projectPrs, labels],
   );
   // Its Kanban: the board's todos listed, and its sessions listed that no open todo's card shows,
   // in its columns, those it has by hand whatever their age. A label picked shows the todos with
   // it and the sessions you put it on.
   const handSessions = useMemo(() => (shownBoard ? addedSessions(shownBoard) : new Set<string>()), [shownBoard]);
+  const boardShown = useMemo(() => (shownBoard ? shownSessionsOf(boardSessions, cutoff, handSessions, query, filter, said) : []), [shownBoard, boardSessions, cutoff, handSessions, query, filter, said]);
   const cardSessions = useMemo(() => {
-    if (!shownBoard) return [];
-    const shown = shownSessionsOf(boardSessions, cutoff, handSessions, query, filter, said);
     const picks = facets.labels ?? [];
-    return picks.length > 0 ? shown.filter((r) => (r.session.labels ?? []).some((l) => picks.includes(l.id))) : shown;
-  }, [facets.labels, shownBoard, boardSessions, cutoff, handSessions, query, filter, said]);
+    return picks.length > 0 ? boardShown.filter((r) => ownLabels(r.session, labels).some((id) => picks.includes(id))) : boardShown;
+  }, [facets.labels, boardShown, labels]);
+  // Its Labels count the sessions too, so one you put only on sessions is there to pick.
+  const kanbanLabels = useMemo(() => todoLabelOptions(listedTodos, labels, facets, boardShown), [listedTodos, labels, facets, boardShown]);
   const doneSince = cutoff || now - DONE_SPAN;
   const kanbanCols = useMemo(
     () => (shownBoard ? kanbanColumns({ todoRows: part.todoRows, todos, sessions: cardSessions, prs: board?.prs ?? [], doneSince, board: shownBoard, subjects, member, now }) : []),
@@ -1226,6 +1230,7 @@ export function useBoardLists(input: ListsInput) {
 
   // The sidebar's and the switcher's counts, and what each facet offers.
   const facetOptions = useMemo<Record<FacetId, FacetOption[]>>(() => ({ agents, sessionLabels, repos: prFacets.repos, prLabels: prFacets.prLabels, authors: prFacets.authors, labels: todoLabels }), [agents, sessionLabels, prFacets, todoLabels]);
+  const kanbanFacetOptions = useMemo<Record<FacetId, FacetOption[]>>(() => ({ ...facetOptions, labels: kanbanLabels }), [facetOptions, kanbanLabels]);
   const counts = useMemo(() => inboxCounts(recentLanes), [recentLanes]);
   const totalLanes = useMemo(() => lanes.filter((l) => !l.hidden).length, [lanes]);
   const actions = useMemo(() => projectActions(lanes, projects, cutoff, lanePins.set, since), [lanes, projects, cutoff, lanePins.set, since]);
@@ -1263,6 +1268,7 @@ export function useBoardLists(input: ListsInput) {
     allHomes,
     labelById,
     facetOptions,
+    kanbanFacetOptions,
     projectTodos,
     todoItems,
     todoSecs,
