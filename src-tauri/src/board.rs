@@ -5089,7 +5089,7 @@ mod tests {
         assert_eq!((s.open_target.as_str(), s.resume_command.as_deref()), ("s|cursor:cursor:c2|focus", Some("cursor-agent --resume c2")));
         // Its terminal shows a permission prompt, which nothing else says: it waits on you, as an
         // approval and not a question of its reply's.
-        let asked = crate::cursor::Asked { question: "Allow this web search?".into(), what: "🔍 Web Search: northwind traders".into(), why: None, always: None, tells: false, queue: None };
+        let asked = crate::cursor::Asked { question: "Allow this web search?".into(), what: "🔍 Web Search: northwind traders".into(), why: None, always: None, tells: false, waiting: 1 };
         let s = cursor_session(&a, &c, Some(&ui), Some(&asked), false, 0, NOW);
         assert_eq!((s.status, s.asks, s.excerpt.as_deref()), (Status::Needs, false, Some("Web search · northwind traders")));
         assert_eq!(session_headline(&s).0, "`cursor` asks for approval · Fix the build");

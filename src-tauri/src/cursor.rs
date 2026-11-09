@@ -1468,13 +1468,13 @@ impl Reader {
 }
 
 /// The command line chats at work in a terminal that have written nothing for
-/// `PROMPT_QUIET_MS`, each with its terminal's process and its folder: those whose terminal may
-/// show a permission prompt.
-fn quiet_in_terminals(chats: &[Chat], held: impl Fn(&str) -> Option<u32>, now: i64) -> Vec<(String, u32, PathBuf)> {
+/// `PROMPT_QUIET_MS`, each with its session key, its terminal's process and its folder: those whose
+/// terminal may show a permission prompt.
+fn quiet_in_terminals(chats: &[Chat], account: &str, held: impl Fn(&str) -> Option<u32>, now: i64) -> Vec<(String, String, u32, PathBuf)> {
     chats
         .iter()
         .filter(|c| c.cli && c.tail.turn_open && now - c.last_updated >= PROMPT_QUIET_MS)
-        .filter_map(|c| Some((c.id.clone(), held(&c.id)?, PathBuf::from(c.cwd.as_deref()?))))
+        .filter_map(|c| Some((c.id.clone(), Session::key_for(Harness::Cursor, account, &c.id), held(&c.id)?, PathBuf::from(c.cwd.as_deref()?))))
         .collect()
 }
 
@@ -1564,7 +1564,7 @@ impl crate::harness::Reader for Reader {
     fn poll(&mut self, _accounts: &[AccountCfg]) {
         let now = crate::util::now_ms();
         let held = |id: &str| self.held(id).filter(|p| p.terminal).map(|p| p.pid);
-        let quiet: Vec<(String, u32, PathBuf)> = self.chats.values().flat_map(|rows| quiet_in_terminals(rows, held, now)).collect();
+        let quiet: Vec<(String, String, u32, PathBuf)> = self.chats.iter().flat_map(|(account, rows)| quiet_in_terminals(rows, account, &held, now)).collect();
         {
             let mut prompts = self.prompts.lock().unwrap_or_else(|e| e.into_inner());
             if prompts.reading || (quiet.is_empty() && prompts.asked.is_empty()) {
@@ -1577,7 +1577,14 @@ impl crate::harness::Reader for Reader {
             "cursor prompts",
             move || {
                 crate::os::system::utility_thread();
-                quiet.into_iter().filter_map(|(id, pid, cwd)| Some((id, (asked_in(pid, &cwd)?, crate::util::now_ms())))).collect::<HashMap<_, _>>()
+                quiet
+                    .into_iter()
+                    .filter_map(|(id, key, pid, cwd)| {
+                        let text = screen_in(pid, &cwd)?;
+                        seen(&key, &text);
+                        Some((id, (asked_on(&text)?, crate::util::now_ms())))
+                    })
+                    .collect::<HashMap<_, _>>()
             },
             move |read| {
                 let mut prompts = prompts.lock().unwrap_or_else(|e| e.into_inner());
@@ -1650,52 +1657,74 @@ static ANSWERING: std::sync::Mutex<Answered> = std::sync::Mutex::new(Answered(Ve
 /// How long an answer waits for the screen to move off the prompt it answered (`Answered`).
 const SETTLE_WAIT: Duration = Duration::from_secs(2);
 
-/// An answer Codealong pressed into session `session`'s prompt `id`, at its place among prompts
-/// waiting together (`queue`), that wasn't seen taken, with the length its transcript was then.
+/// An answer Codealong pressed into session `session`'s prompt `id`, with `waiting` prompts up
+/// together, that wasn't seen taken.
 struct Unsettled {
     session: String,
     id: String,
-    queue: Option<String>,
-    transcript: Option<u64>,
+    waiting: usize,
+}
+
+impl Unsettled {
+    /// A screen showing `shown` (None: no prompt) says this answer was taken: the prompt is gone,
+    /// another is up, or fewer wait (the next of two alike is up). One more waiting, or the text
+    /// reflowed by a resize, says nothing: the command line adds a call to those waiting without
+    /// settling the one shown.
+    fn settled_by(&self, shown: Option<&Asked>) -> bool {
+        shown.is_none_or(|a| a.id() != self.id || a.waiting < self.waiting)
+    }
 }
 
 /// The answers Codealong pressed that weren't seen taken (`Unsettled`), held with `ANSWERING`. A
 /// terminal takes a key in its own time (Codealong's own hands it to a writer, and reads its
 /// screen at once), so a prompt can still show after it was answered, and an answer read off that
-/// screen would land on the prompt after it. An answer is seen taken when the screen shows no
-/// such prompt, another, or the same at another place in its queue (the next of two alike); not
-/// when the text merely changes, as a resize reflows it. Until then that chat's prompt isn't
-/// answered again, however long that is, since a stalled terminal can take the first key later
-/// still, unless the chat's transcript has grown since: the command line writes each call there
-/// before asking about it, so the same prompt after that is a new request. The transcript is read
-/// from the disk, never from the board, which can be behind.
+/// screen would land on the prompt after it. So that chat's prompt isn't answered again until a
+/// screen read since shows it settled (`Unsettled::settled_by`), however long that is, since a
+/// stalled terminal can take the first key later still: an answer's own wait, an answer or a
+/// look at what it waits on after, or the reader's look at a quiet chat's terminal
+/// (`Reader::poll`). Nothing else counts: not the time, nor the chat's records, which grow with
+/// another call waiting too. A screen that can't be read says nothing. The same request asked
+/// again with no look between is held too, and answered in its terminal.
 #[derive(Default)]
 struct Answered(Vec<Unsettled>);
 
 impl Answered {
-    /// Whether `session`'s prompt `asked`, its transcript `transcript` bytes long now, may be
-    /// answered: no answer pressed into it is unaccounted for.
-    fn open(&mut self, session: &str, asked: &Asked, transcript: Option<u64>) -> bool {
-        self.0.retain(|u| u.session != session || u.transcript == transcript);
-        !self.0.iter().any(|u| u.session == session && u.id == asked.id() && u.queue == asked.queue)
+    /// `session`'s terminal was read, showing `shown` (None: no prompt): its answers that says
+    /// were taken are let go.
+    fn seen(&mut self, session: &str, shown: Option<&Asked>) {
+        self.0.retain(|u| u.session != session || !u.settled_by(shown));
     }
 
-    /// `session`'s prompt `asked` was answered, its transcript `transcript` bytes long: waits up to
-    /// `wait` for `read` to show the screen without it (None: it couldn't be read, which says
-    /// nothing), and holds it from another answer if it never does.
-    fn answered(&mut self, session: &str, asked: &Asked, transcript: Option<u64>, read: impl Fn() -> Option<String>, wait: Duration) {
+    /// Whether `session`'s prompt `asked`, as its terminal shows it now, may be answered: no
+    /// answer pressed into it is unaccounted for.
+    fn open(&mut self, session: &str, asked: &Asked) -> bool {
+        self.seen(session, Some(asked));
+        !self.0.iter().any(|u| u.session == session)
+    }
+
+    /// `session`'s prompt `asked` was answered: waits up to `wait` for `read` to show it settled
+    /// (None: it couldn't be read, which says nothing), and holds it from another answer if it
+    /// never does.
+    fn answered(&mut self, session: &str, asked: &Asked, read: impl Fn() -> Option<String>, wait: Duration) {
+        let held = Unsettled { session: session.to_string(), id: asked.id(), waiting: asked.waiting };
         let started = Instant::now();
         loop {
-            if read().is_some_and(|text| asked_on(&text).is_none_or(|now| now.id() != asked.id() || now.queue != asked.queue)) {
+            if read().is_some_and(|text| held.settled_by(asked_on(&text).as_ref())) {
                 return;
             }
             if started.elapsed() >= wait {
-                self.0.push(Unsettled { session: session.to_string(), id: asked.id(), queue: asked.queue.clone(), transcript });
+                self.0.push(held);
                 return;
             }
             std::thread::sleep(Duration::from_millis(100));
         }
     }
+}
+
+/// `session`'s terminal was read showing `text`: what it says of answers held for it
+/// (`Answered::seen`).
+fn seen(session: &str, text: &str) {
+    ANSWERING.lock().unwrap_or_else(|e| e.into_inner()).seen(session, asked_on(text).as_ref());
 }
 
 /// The text a chat's terminal shows at its foot now (`launch::screen_of`), if it can be read.
@@ -1732,8 +1761,8 @@ pub struct Asked {
     /// Its skip (`n`) asks what to do instead, in a box Enter sends (a command's, a write's),
     /// where a web search's skips at once.
     pub tells: bool,
-    /// Where it stands among prompts waiting together: "Approval 1 of 2". None when it's alone.
-    pub queue: Option<String>,
+    /// How many prompts wait together, this one among them: 2 under "Approval 1 of 2", else 1.
+    pub waiting: usize,
 }
 
 impl Asked {
@@ -1790,7 +1819,7 @@ pub fn asked_on(screen: &str) -> Option<Asked> {
     let counter = |l: &&&str| l.starts_with("Approval ") && l.contains(" of ");
     let what: Vec<&str> = lines[top + 1..q].iter().filter(|l| !l.is_empty() && !counter(l)).copied().collect();
     Some(Asked {
-        queue: lines[top + 1..q].iter().find(counter).map(|l| l.to_string()),
+        waiting: lines[top + 1..q].iter().find(counter).and_then(|l| l.rsplit(" of ").next()?.trim().parse().ok()).unwrap_or(1),
         question: lines[q].to_string(),
         what: what.join(" "),
         why: Some(why.join(" ")).filter(|w| !w.is_empty()),
@@ -1853,11 +1882,6 @@ fn asked_now(s: &Session, id: &str) -> anyhow::Result<(u32, Asked)> {
         Some(_) => anyhow::bail!("It asks something else now: look again."),
         None => anyhow::bail!("It no longer waits on that."),
     }
-}
-
-/// How long the chat's transcript is on the disk now (`Answered`).
-fn transcript_len(account: &AccountCfg, s: &Session) -> Option<u64> {
-    Cursor.transcript(account, s).ok().and_then(|p| std::fs::metadata(p).ok()).map(|m| m.len())
 }
 
 /// Skips the prompt, with `words` for what to do instead where it takes them: `n`, then, for a
@@ -2480,7 +2504,9 @@ impl crate::harness::Adapter for Cursor {
     /// its keys (`answer`).
     fn pending(&self, ctx: &Ctx, s: &Session) -> Option<crate::harness::Pending> {
         if s.surface == Surface::Cli {
-            return asked_in(s.pid?, Path::new(&s.cwd)).map(|a| a.pending());
+            let text = screen_in(s.pid?, Path::new(&s.cwd))?;
+            seen(&s.key, &text);
+            return asked_on(&text).map(|a| a.pending());
         }
         let open = self.app_open(ctx.account, s);
         let c = open.iter().find(|c| c.waits).or(open.first())?.clone();
@@ -2490,13 +2516,12 @@ impl crate::harness::Adapter for Cursor {
     /// The command line's prompt, with its keys, once it's still the one up: `y` runs it once,
     /// Tab adds it to the allowlist where the prompt offers that, and `n` skips it
     /// (`skip`). The turn goes on after a skip, the agent told the call was rejected.
-    fn answer(&self, ctx: &Ctx, s: &Session, id: &str, answer: crate::harness::Answer) -> anyhow::Result<String> {
+    fn answer(&self, _ctx: &Ctx, s: &Session, id: &str, answer: crate::harness::Answer) -> anyhow::Result<String> {
         use crate::harness::Answer;
         use crate::launch::{press_all, Key, Press};
         let mut answered = ANSWERING.lock().unwrap_or_else(|e| e.into_inner());
         let (pid, asked) = asked_now(s, id)?;
-        let transcript = transcript_len(ctx.account, s);
-        if !answered.open(&s.key, &asked, transcript) {
+        if !answered.open(&s.key, &asked) {
             anyhow::bail!("It's still taking the answer it was just given: look again in a moment.");
         }
         let cwd = Path::new(&s.cwd);
@@ -2506,7 +2531,7 @@ impl crate::harness::Adapter for Cursor {
             Answer::Always => anyhow::bail!("Cursor's prompt offers no allowing from now on for this: allow it once."),
             Answer::Deny => skip(pid, cwd, &asked, None)?,
         }
-        answered.answered(&s.key, &asked, transcript, || screen_in(pid, cwd), SETTLE_WAIT);
+        answered.answered(&s.key, &asked, || screen_in(pid, cwd), SETTLE_WAIT);
         Ok(match answer {
             Answer::Deny => format!("Skipped {}; it goes on without it.", asked.label()),
             Answer::Always => format!("Allowed {}, and calls like it from now on.", asked.label()),
@@ -2521,32 +2546,30 @@ impl crate::harness::Adapter for Cursor {
 
     /// A command's prompt takes words with its skip; a web search's skips at once, so words for
     /// it are sent after.
-    fn deny_saying(&self, ctx: &Ctx, s: &Session, id: &str, words: &str) -> anyhow::Result<Option<String>> {
+    fn deny_saying(&self, _ctx: &Ctx, s: &Session, id: &str, words: &str) -> anyhow::Result<Option<String>> {
         let mut answered = ANSWERING.lock().unwrap_or_else(|e| e.into_inner());
         let (pid, asked) = asked_now(s, id)?;
-        let transcript = transcript_len(ctx.account, s);
         if !asked.tells {
             return Ok(None);
         }
-        if !answered.open(&s.key, &asked, transcript) {
+        if !answered.open(&s.key, &asked) {
             anyhow::bail!("It's still taking the answer it was just given: look again in a moment.");
         }
         let cwd = Path::new(&s.cwd);
         skip(pid, cwd, &asked, Some(words))?;
-        answered.answered(&s.key, &asked, transcript, || screen_in(pid, cwd), SETTLE_WAIT);
+        answered.answered(&s.key, &asked, || screen_in(pid, cwd), SETTLE_WAIT);
         Ok(Some(format!("Skipped {} and told it what to do instead.", asked.label())))
     }
 
     /// A web search, which reviews look things up with: the command line asks before each,
     /// whatever its approval mode short of Run Everything.
-    fn allow_for_review(&self, ctx: &Ctx, s: &Session) -> anyhow::Result<Option<String>> {
+    fn allow_for_review(&self, _ctx: &Ctx, s: &Session) -> anyhow::Result<Option<String>> {
         let mut answered = ANSWERING.lock().unwrap_or_else(|e| e.into_inner());
         let Some(pid) = s.pid.filter(|_| s.surface == Surface::Cli) else { return Ok(None) };
         let cwd = Path::new(&s.cwd);
-        let transcript = transcript_len(ctx.account, s);
-        let Some(asked) = asked_in(pid, cwd).filter(|a| a.searches() && answered.open(&s.key, a, transcript)) else { return Ok(None) };
+        let Some(asked) = asked_in(pid, cwd).filter(|a| a.searches() && answered.open(&s.key, a)) else { return Ok(None) };
         crate::launch::press_all(pid, cwd, &[crate::launch::Press::Key(crate::launch::Key::Keys("y"))])?;
-        answered.answered(&s.key, &asked, transcript, || screen_in(pid, cwd), SETTLE_WAIT);
+        answered.answered(&s.key, &asked, || screen_in(pid, cwd), SETTLE_WAIT);
         Ok(Some(format!("Allowed {}.", asked.label())))
     }
 
@@ -3256,7 +3279,7 @@ mod tests {
     #[test]
     fn a_permission_prompt_is_read_off_the_terminal() {
         let search = asked_on(SEARCH_SCREEN).unwrap();
-        assert_eq!(search, Asked { question: "Allow this web search?".into(), what: "🔍 Web Search: northwind traders sample database".into(), why: None, always: None, tells: false, queue: Some("Approval 1 of 2".into()) });
+        assert_eq!(search, Asked { question: "Allow this web search?".into(), what: "🔍 Web Search: northwind traders sample database".into(), why: None, always: None, tells: false, waiting: 2 });
         assert_eq!(search.label(), "Web search · northwind traders sample database");
         assert!(search.searches());
         let p = search.pending();
@@ -3292,41 +3315,52 @@ mod tests {
 
     /// A key is taken in the terminal's own time, so its screen can still show the prompt it
     /// answered: that prompt isn't answered again (a `y` read off it would go to the prompt after
-    /// it) until the screen is seen without it, or the chat's transcript grows with a new call,
-    /// however long that is. A screen that couldn't be read says nothing, nor does a resize.
+    /// it) until a screen read since shows it settled, however long that is. A screen that
+    /// couldn't be read says nothing, nor does a resize, nor another call joining the queue.
     #[test]
-    fn a_prompt_answered_isnt_answered_again_until_its_answer_is_seen_taken() {
+    fn a_prompt_answered_isnt_answered_again_until_a_screen_shows_it_settled() {
         let search = asked_on(SEARCH_SCREEN).unwrap();
-        let held = |transcript: Option<u64>| {
+        let held = |read: &str| {
             let mut answered = Answered::default();
-            answered.answered("one", &search, transcript, || Some(SEARCH_SCREEN.to_string()), Duration::from_millis(50));
+            let read = read.to_string();
+            answered.answered("one", &search, move || Some(read.clone()), Duration::from_millis(50));
             answered
         };
-        let mut answered = held(Some(900));
-        assert!(!answered.open("one", &search, Some(900)), "not again while it may still be taking it");
-        assert!(!answered.open("one", &search, Some(900)), "however long it's been");
-        assert!(answered.open("two", &search, Some(900)), "the same prompt in another chat is answered");
-        assert!(answered.open("one", &asked_on(COMMAND_SCREEN).unwrap(), Some(900)), "another prompt of its is answered");
-        // Its transcript grew, a new call written: the same question now is a new request.
-        assert!(answered.open("one", &search, Some(1_200)));
-        assert!(answered.open("one", &search, Some(900)), "and the hold is gone");
-        // A resize reflows the text, with the same prompt up: still held.
-        let mut answered = Answered::default();
+        let mut answered = held(SEARCH_SCREEN);
+        assert!(!answered.open("one", &search), "not again while it may still be taking it");
+        assert!(!answered.open("one", &search), "however long it's been");
+        assert!(answered.open("two", &search), "the same prompt in another chat is answered");
+        // Its terminal read since without the prompt: the key was taken, and the same question
+        // asked again is answered.
+        answered.seen("two", None);
+        assert!(!answered.open("one", &search), "another chat's look says nothing of this one");
+        answered.seen("one", None);
+        assert!(answered.open("one", &search));
+        // Another prompt of its up: this one was taken.
+        let mut answered = held(SEARCH_SCREEN);
+        assert!(answered.open("one", &asked_on(COMMAND_SCREEN).unwrap()));
+        assert!(answered.open("one", &search), "and the hold is gone");
+        // A resize reflows the text with the same prompt up, and another call joins the queue
+        // with the same prompt shown: still held.
         let resized = SEARCH_SCREEN.replace("\n\n Allow this web search?", "\n\n\n\n Allow this web search?");
-        answered.answered("one", &search, Some(900), || Some(resized.clone()), Duration::from_millis(50));
-        assert!(!answered.open("one", &asked_on(&resized).unwrap(), Some(900)));
-        // A screen that couldn't be read, or a transcript that can't, doesn't say it was taken.
+        let mut answered = held(&resized);
+        assert!(!answered.open("one", &asked_on(&resized).unwrap()));
+        let three = SEARCH_SCREEN.replace("Approval 1 of 2", "Approval 1 of 3");
+        assert_eq!(asked_on(&three).unwrap().waiting, 3);
+        let mut answered = held(&three);
+        assert!(!answered.open("one", &asked_on(&three).unwrap()));
+        // A screen that couldn't be read doesn't say it was taken.
         let mut answered = Answered::default();
-        answered.answered("one", &search, None, || None, Duration::from_millis(50));
-        assert!(!answered.open("one", &search, None));
-        // Taken a moment later, the next of two prompts alike up now, at another place in the
-        // queue: nothing's held, and that one is answered.
+        answered.answered("one", &search, || None, Duration::from_millis(50));
+        assert!(!answered.open("one", &search));
+        // Taken a moment later, the next of two prompts alike up now, one fewer waiting: nothing's
+        // held, and that one is answered.
         let mut answered = Answered::default();
         let reads = std::cell::Cell::new(0);
         let next = SEARCH_SCREEN.replace(" Approval 1 of 2\n", "");
-        answered.answered("one", &search, Some(900), || { reads.set(reads.get() + 1); Some(if reads.get() < 3 { SEARCH_SCREEN.to_string() } else { next.clone() }) }, Duration::from_secs(5));
+        answered.answered("one", &search, || { reads.set(reads.get() + 1); Some(if reads.get() < 3 { SEARCH_SCREEN.to_string() } else { next.clone() }) }, Duration::from_secs(5));
         assert_eq!(reads.get(), 3);
-        assert!(answered.open("one", &asked_on(&next).unwrap(), Some(900)));
+        assert!(answered.open("one", &asked_on(&next).unwrap()));
     }
 
     /// Enter after a skip only once the box for what to do instead is at the foot, for that call:
