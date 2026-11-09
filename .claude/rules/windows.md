@@ -254,6 +254,12 @@ under `src-tauri/src/`.
   open that unfolds it, and that the caret comes back where it was; that ⌥⌘/ unfolds it from
   another app; that × puts it away without unfolding first; and that the chip follows onto
   another app's full-screen Space. The preview shows the page's side (`quick-fold-check.js`).
+- Not yet checked by hand (2026-11-09): a session popped out of the main window's panel (kept.rs
+  `pop_session`) in the real app: where its window opens beside the main window, or over its
+  panel's side when there's no room (`beside`, `SESSION_SIZE`), that it takes the keyboard in its
+  box, that Put it back here and its Main window close it, and that the main window's panel
+  follows (`session-windows`). The preview shows the pages and the commands they send
+  (`session-window-check.js`).
 - Not yet checked by hand (2026-10-07): a side conversation popped out (kept.rs `pop_side`) in
   the real app: where its window opens beside the main window, the peek, the notch and the
   waiting window (`side_frame`), that it takes the keyboard as it shows, that its strip's top
