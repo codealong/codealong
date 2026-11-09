@@ -58,7 +58,10 @@
 //! (`Tracked::take_up`), so a review it wrote is still read and posted.
 //!
 //! A few rounds run at once at most; one whose session waits on you doesn't hold a place, nor one
-//! whose reviewer has written nothing for twenty minutes (`SILENT_MS`), which goes on all the same. A round
+//! whose reviewer has written nothing for twenty minutes (`SILENT_MS`), which goes on all the same.
+//! What a reviewer waits on you to allow is offered to its harness first (`Job::Allow`,
+//! `Adapter::allow_for_review`), which allows a web search, as a review looks things up and Cursor's
+//! command line asks before every one; the rest stays yours to answer. A round
 //! that didn't get done isn't tried again for the same commit (but the one an error ended, above);
 //! the next push tries again, and so
 //! does Try again on the PR's card and on its notice (`again`), which posts a review that was
@@ -715,12 +718,16 @@ pub enum Job {
     /// when only the draft would do).
     /// `by_hand` when it's the PR's box that submits it (`submit_now`), not `[reviews] submit`.
     Submit { pr: PrItem, head: String, verdict: Verdict, text: Option<String>, by_hand: bool },
+    /// The round's reviewer in `session` waits on you to allow something: allow it, where it's
+    /// what Codealong allows a reviewer itself (`Adapter::allow_for_review`, a web search). What
+    /// else it waits on stays yours, and isn't looked at again for `RETRY_MS`.
+    Allow { pr: PrItem, session: String },
 }
 
 impl Job {
     fn pr(&self) -> &PrItem {
         match self {
-            Job::Review { pr, .. } | Job::Read { pr, .. } | Job::CarryOn { pr, .. } | Job::Post { pr, .. } | Job::Send { pr, .. } | Job::Submit { pr, .. } => pr,
+            Job::Review { pr, .. } | Job::Read { pr, .. } | Job::CarryOn { pr, .. } | Job::Post { pr, .. } | Job::Send { pr, .. } | Job::Submit { pr, .. } | Job::Allow { pr, .. } => pr,
         }
     }
 }
@@ -767,6 +774,8 @@ pub enum Went {
     Submitted,
     /// It wasn't submitted, and won't be for this round: why.
     NotSubmitted(String),
+    /// What its reviewer waited on was allowed, as this says; None when it was left to you.
+    Allowed(Option<String>),
 }
 
 /// What a job that went wrong says as a notice (`Reviewer::told`), and the PR (its key as the
@@ -1164,6 +1173,7 @@ fn next(r: &mut Round, board: &Board, pr: &PrItem, head: &str, wanted: bool, now
                 fail(p, &format!("Its turn was cut off partway again after it was told to carry on {CARRY_ONS} times."));
                 changed = true;
             }
+            Some((_, s)) if s.status == Status::Needs && !s.asks => return Next::Job(Job::Allow { pr: pr.clone(), session: k }),
             None if now - p.at > SHOW_MS => {
                 fail(p, "Its session is gone.");
                 changed = true;
@@ -1581,6 +1591,12 @@ impl Reviewer {
                 said = Err(Said::from(format!("Codealong couldn't {} {} for you: {why}", verdict.verb(), pr.key)));
             }
             (Job::Submit { .. }, _) => {}
+            // Allowed or not, what it waits on is looked at again only after a while: what's
+            // left to you stays until you answer it.
+            (Job::Allow { .. }, _) => {
+                self.next_at.insert(key, now + RETRY_MS);
+                return Ok(());
+            }
             (Job::Post { .. }, Went::NotYet) => {
                 self.next_at.insert(key, now + RETRY_MS);
                 return Ok(());
@@ -2623,6 +2639,18 @@ fn carry_on(engine: &Handle, pr: &PrItem, session: &str, model: Option<&str>, ef
     }
 }
 
+/// Allows what the reviewer in `session` waits on, where it's what Codealong allows a reviewer
+/// itself (`Job::Allow`). A failure leaves it waiting on you, as it was.
+fn allow(engine: &Handle, session: &str) -> Went {
+    let board = engine.board();
+    let Ok(cfg) = crate::config::current() else { return Went::Allowed(None) };
+    let Ok((s, account)) = crate::harness::find(&board, &cfg, session) else { return Went::Allowed(None) };
+    match crate::harness::adapter(s.harness).allow_for_review(&crate::harness::Ctx { account }, s) {
+        Ok(allowed) => Went::Allowed(allowed),
+        Err(e) => Went::Failed(format!("{e:#}")),
+    }
+}
+
 /// Posts a round's review where config.toml says, unless the PR ended or moved on before it was
 /// done.
 fn post(engine: &Handle, pr: &PrItem, head: &str, review: &str, agent: &str, round: i64, by_hand: bool) -> Went {
@@ -3053,6 +3081,7 @@ pub fn run(engine: &Handle, reviewer: &Mutex<Reviewer>, job: Job) {
         Job::Post { pr, head, review, agent, round, by_hand } => post(engine, pr, head, review, agent, *round, *by_hand),
         Job::Send { .. } => send(engine, &job, false),
         Job::Submit { pr, head, verdict, text, .. } => submit(engine, pr, head, *verdict, text.as_deref()),
+        Job::Allow { session, .. } => allow(engine, session),
     }))
     .unwrap_or_else(|_| Went::Failed("It stopped partway.".into()));
     let said = reviewer.lock().unwrap_or_else(|e| e.into_inner()).told(&job, went, now_ms());
@@ -3150,6 +3179,7 @@ mod tests {
                 Job::Post { pr, review, agent, .. } => format!("post {} {review:?} by {agent}", pr.number),
                 Job::Send { pr, head, session, agent, .. } => format!("send {} {} by {agent} to {session}", pr.number, short(head)),
                 Job::Submit { pr, head, verdict, text, .. } => format!("{} {} {}{}", verdict.verb(), pr.number, short(head), text.as_deref().map(|t| format!(" saying {t:?}")).unwrap_or_default()),
+                Job::Allow { pr, session } => format!("allow {} in {session}", pr.number),
             })
             .collect()
     }
@@ -4003,9 +4033,33 @@ mod tests {
         r.told(&jobs[1], Went::Started(vec![started(AUTO, "claude:claude:two", NOW)]), NOW).unwrap();
         let two = at("claude:claude:two", Status::Working, NOW);
         assert!(r.due(&board(prs.clone(), vec![session(Status::Working, NOW), two.clone()]), &on(), NOW + 1).is_empty());
-        // One waits on you to allow something: the third starts.
+        // One waits on you to allow something: the third starts, and what it waits on is offered
+        // to its harness to allow (`Job::Allow`).
         let waits = Session { asks: false, ..session(Status::Needs, NOW + 5) };
-        assert_eq!(kinds(&r.due(&board(prs, vec![waits, two]), &on(), NOW + 6)), ["review 3 1111111 since None by auto"]);
+        assert_eq!(kinds(&r.due(&board(prs, vec![waits, two]), &on(), NOW + 6)), [format!("allow 1 in {S}"), "review 3 1111111 since None by auto".into()]);
+    }
+
+    /// What a reviewer waits on is offered to its harness to allow (a web search, which Cursor's
+    /// command line asks about every time), then left to you a while, allowed or not.
+    #[test]
+    fn a_reviewer_waiting_on_you_is_offered_to_its_harness_then_left_a_while() {
+        let mut r = Reviewer::default();
+        let jobs = r.due(&board(vec![pr(7, HEAD)], vec![]), &on(), NOW);
+        r.told(&jobs[0], Went::Started(vec![started(AUTO, S, NOW)]), NOW).unwrap();
+        let waits = board(vec![pr(7, HEAD)], vec![Session { asks: false, ..session(Status::Needs, NOW + 5) }]);
+        let job = r.due(&waits, &on(), NOW + 6).pop().unwrap();
+        assert_eq!(kinds(std::slice::from_ref(&job)), [format!("allow 7 in {S}")]);
+        assert!(r.due(&waits, &on(), NOW + 7).is_empty(), "one at a time");
+        r.told(&job, Went::Allowed(None), NOW + 8).unwrap();
+        assert!(r.due(&waits, &on(), NOW + 9).is_empty(), "left to you a while");
+        assert_eq!(kinds(&r.due(&waits, &on(), NOW + 9 + RETRY_MS)), [format!("allow 7 in {S}")]);
+        // A reply that asks you something is its turn's end, not something to allow.
+        let asks = board(vec![pr(7, HEAD)], vec![Session { asks: true, ..session(Status::Needs, NOW + 5) }]);
+        let mut r2 = Reviewer::default();
+        let jobs = r2.due(&board(vec![pr(7, HEAD)], vec![]), &on(), NOW);
+        r2.told(&jobs[0], Went::Started(vec![started(AUTO, S, NOW)]), NOW).unwrap();
+        assert!(kinds(&r2.due(&asks, &on(), NOW + 6)).iter().all(|k| !k.starts_with("allow")));
+        assert_eq!(r.store.prs["o/r#7"].rounds[0].stage, ReviewStage::Reviewing);
     }
 
     /// Cursor's command line at its permission prompt writes nothing and reads as working: two

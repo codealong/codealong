@@ -1341,6 +1341,20 @@ pub fn processes(listed: &[procs::PsLine]) -> (Vec<Process>, bool) {
 
 /* ---- Reading chats for the board ---- */
 
+/// How long a command line chat at work in a terminal goes without writing before its terminal is
+/// read for a permission prompt (`Reader::poll`): the command line writes the call it asks about
+/// before its prompt goes up, then nothing until it's answered.
+const PROMPT_QUIET_MS: i64 = 5_000;
+
+/// The permission prompts the command line's chats have up, read off their terminals on each
+/// tick (`Reader::poll`): by chat, the prompt and when the screen was read. A chat that wrote
+/// after its screen was read has moved on from it.
+#[derive(Default)]
+struct Prompts {
+    asked: HashMap<String, (Asked, i64)>,
+    reading: bool,
+}
+
 /// Cursor's chats for the board (`harness::Reader`): each account's chats as last read, newest
 /// first, the command line's processes, and whether the app is running.
 #[derive(Default)]
@@ -1349,6 +1363,8 @@ pub struct Reader {
     marks: crate::harness::DatabaseMarks,
     processes: Vec<Process>,
     app_running: bool,
+    prompts: std::sync::Arc<std::sync::Mutex<Prompts>>,
+    wake: Option<crate::harness::Wake>,
     /// The app's auto-run setting, by account, as last read.
     auto_run: HashMap<String, AutoRun>,
     /// Cursor's names for its models (`model_names`), and when they were read: again only for
@@ -1443,6 +1459,23 @@ impl Reader {
     fn held(&self, id: &str) -> Option<&Process> {
         self.processes.iter().find(|p| p.chat.as_deref() == Some(id))
     }
+
+    /// The prompt chat `c` has up, as its terminal was last read, unless it wrote since.
+    fn prompt_of(&self, c: &Chat) -> Option<Asked> {
+        let prompts = self.prompts.lock().unwrap_or_else(|e| e.into_inner());
+        prompts.asked.get(&c.id).filter(|(_, read_at)| c.last_updated <= *read_at).map(|(a, _)| a.clone())
+    }
+}
+
+/// The command line chats at work in a terminal that have written nothing for
+/// `PROMPT_QUIET_MS`, each with its terminal's process and its folder: those whose terminal may
+/// show a permission prompt.
+fn quiet_in_terminals(chats: &[Chat], held: impl Fn(&str) -> Option<u32>, now: i64) -> Vec<(String, u32, PathBuf)> {
+    chats
+        .iter()
+        .filter(|c| c.cli && c.tail.turn_open && now - c.last_updated >= PROMPT_QUIET_MS)
+        .filter_map(|c| Some((c.id.clone(), held(&c.id)?, PathBuf::from(c.cwd.as_deref()?))))
+        .collect()
 }
 
 /// Whether a chat as read now may need a lane made for it (`Applied::added`): it's new, or it's
@@ -1525,12 +1558,47 @@ impl crate::harness::Reader for Reader {
         out
     }
 
+    /// The terminals of the command line's chats that have gone quiet at work, read on a thread
+    /// of its own for a permission prompt (`Asked`), which the command line writes nothing about.
+    /// The engine is woken when what's up changed.
+    fn poll(&mut self, _accounts: &[AccountCfg]) {
+        let now = crate::util::now_ms();
+        let held = |id: &str| self.held(id).filter(|p| p.terminal).map(|p| p.pid);
+        let quiet: Vec<(String, u32, PathBuf)> = self.chats.values().flat_map(|rows| quiet_in_terminals(rows, held, now)).collect();
+        {
+            let mut prompts = self.prompts.lock().unwrap_or_else(|e| e.into_inner());
+            if prompts.reading || (quiet.is_empty() && prompts.asked.is_empty()) {
+                return;
+            }
+            prompts.reading = true;
+        }
+        let (prompts, wake) = (self.prompts.clone(), self.wake.clone());
+        crate::throttle::background(
+            "cursor prompts",
+            move || {
+                crate::os::system::utility_thread();
+                quiet.into_iter().filter_map(|(id, pid, cwd)| Some((id, (asked_in(pid, &cwd)?, crate::util::now_ms())))).collect::<HashMap<_, _>>()
+            },
+            move |read| {
+                let mut prompts = prompts.lock().unwrap_or_else(|e| e.into_inner());
+                prompts.reading = false;
+                let read = read.unwrap_or_default();
+                let changed = read.len() != prompts.asked.len() || read.iter().any(|(id, (a, _))| prompts.asked.get(id).map(|(was, _)| was) != Some(a));
+                prompts.asked = read;
+                drop(prompts);
+                if let Some(wake) = wake.filter(|_| changed) {
+                    wake();
+                }
+            },
+        );
+    }
+
     fn sessions(&self, account: &AccountCfg, look: &Look) -> Vec<Session> {
         let rows = self.chats.get(&account.name).map(|v| v.as_slice()).unwrap_or(&[]);
         rows.iter()
             .map(|c| {
                 let key = Session::key_for(Harness::Cursor, &account.name, &c.id);
-                let mut s = crate::board::cursor_session(account, c, self.held(&c.id), self.app_running, look.seen.seen_at(&key), look.now);
+                let mut s = crate::board::cursor_session(account, c, self.held(&c.id), self.prompt_of(c).as_ref(), self.app_running, look.seen.seen_at(&key), look.now);
                 s.archived |= look.archived_here(&key, s.last_activity);
                 s.mode = chat_mode(c, self.auto_run.get(&account.name).unwrap_or(&AutoRun::default()));
                 s.model = c.model.as_deref().map(|m| model_name(m, &self.names));
@@ -1541,6 +1609,175 @@ impl crate::harness::Reader for Reader {
 
     fn cwds(&self) -> Vec<String> {
         self.chats.values().flatten().filter_map(|c| c.cwd.clone()).collect()
+    }
+}
+
+/* ---- The command line's permission prompt ---- */
+
+/// The questions the terminal UI's permission prompt asks, one a kind of call (2026.11.05's
+/// bundle), with the word a session's line names that call by.
+const ASKS: [(&str, &str); 9] = [
+    ("Run this command?", "Shell"),
+    ("Run this command outside the sandbox?", "Shell"),
+    ("Run this MCP tool?", "MCP"),
+    ("Delete this file?", "Delete"),
+    ("Write to this file?", "Write"),
+    ("Read this file?", "Read"),
+    ("Allow this web search?", "Web search"),
+    ("Allow this web fetch?", "Web fetch"),
+    ("Proceed with this edit?", "Edit"),
+];
+
+/// The web search's question, which an automatic review's session has allowed for it
+/// (`Adapter::allow_for_review`).
+const WEB_SEARCH: &str = "Allow this web search?";
+
+/// What the box under a skipped command says while it waits for words to go with the skip, which
+/// Enter sends (empty, a plain skip).
+const TELL_INSTEAD: &str = "Tell the agent what to do instead";
+
+/// How long a skip waits for that box to show before Enter is pressed: an Enter that came first
+/// would answer the prompt with its highlighted choice, which runs the command.
+const TELL_WAIT: Duration = Duration::from_secs(3);
+
+/// How many lines at a screen's foot a prompt's question is looked for in.
+const PROMPT_LINES: usize = 40;
+
+/// A permission prompt the command line's terminal UI has up, read off its terminal
+/// (`launch::screen_of`), since the command line writes nothing down while it waits: the call
+/// isn't in the transcript or the chat's store until it's answered. Seen in tmux on 2026.11.05
+/// (2026-11-09): a rule of `─` across the terminal, what it asks about (`$  <command> in .`,
+/// `🔍 Web Search: <words>`), an `Approval 1 of 2` over it when two wait, the question, a
+/// `⚠  Auto-review: …` reason that can wrap, then its choices, each with its keys in brackets
+/// (`→ Run (once) (y)`, `Add Shell(rm) to allowlist? (tab)`, `Run Everything (shift+tab)`,
+/// `Skip & tell the agent what to do instead (esc or n)`), and `←/→ to switch approval` under
+/// them when two wait. Nothing else is under it, so a question with anything else below is an
+/// old one scrolled up.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Asked {
+    /// The question its box asks: "Run this command?".
+    pub question: String,
+    /// What it asks about, as the box shows it: "$  rm -rf build in .".
+    pub what: String,
+    /// Why it asks, when it says: "Auto-review: The command deletes files…".
+    pub why: Option<String>,
+    /// Its choice that allows calls like this one from now on (Tab), as the box words it:
+    /// "Add Shell(rm) to allowlist?". A web search's has none.
+    pub always: Option<String>,
+    /// Its skip asks what to do instead, in a box Enter sends (a command's), where a web
+    /// search's skips at once.
+    pub tells: bool,
+}
+
+impl Asked {
+    /// An id for it, the same for as long as it's up: what it asks and about what.
+    pub fn id(&self) -> String {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        (&self.question, &self.what).hash(&mut h);
+        format!("cursor-prompt-{:016x}", h.finish())
+    }
+
+    /// The call as a session's line names it: "Shell · `rm -rf build`", "Web search · rust
+    /// enums".
+    pub fn label(&self) -> String {
+        let word = ASKS.iter().find(|(q, _)| *q == self.question).map_or("Call", |(_, w)| w);
+        let what = self.what.as_str();
+        match what.strip_prefix('$') {
+            Some(command) => format!("{word} · {}", code(command.trim().strip_suffix(" in .").unwrap_or(command.trim()))),
+            None => format!("{word} · {}", what.split_once(": ").map_or(what, |(_, rest)| rest).trim()),
+        }
+    }
+
+    pub fn searches(&self) -> bool {
+        self.question == WEB_SEARCH
+    }
+
+    pub fn pending(&self) -> crate::harness::Pending {
+        let input = [Some(self.what.as_str()), self.why.as_deref()].into_iter().flatten().collect::<Vec<_>>().join("\n\n");
+        // "Add Shell(rm), Shell(echo) to allowlist?" says what Always adds.
+        let always_rule = self.always.as_deref().map(|a| match a.strip_prefix("Add ").and_then(|a| a.strip_suffix(" to allowlist?")) {
+            Some(rules) => format!("Adds {rules} to Cursor's allowlist, for every chat of yours."),
+            None => a.trim_end_matches('?').to_string(),
+        });
+        crate::harness::Pending { id: self.id(), label: self.label(), input: Some(input), always: self.always.is_some(), always_rule, ..Default::default() }
+    }
+}
+
+/// The prompt up at the foot of a terminal UI's `screen`, if one is (`Asked`).
+pub fn asked_on(screen: &str) -> Option<Asked> {
+    let lines: Vec<&str> = screen.lines().map(str::trim).collect();
+    let end = lines.iter().rposition(|l| !l.is_empty())? + 1;
+    let start = end.saturating_sub(PROMPT_LINES);
+    let q = (start..end).rev().find(|&i| ASKS.iter().any(|(ask, _)| lines[i] == *ask))?;
+    let (mut why, mut choices) = (Vec::new(), Vec::new());
+    for line in lines[q + 1..end].iter().filter(|l| !l.is_empty() && !l.starts_with("←/→")) {
+        match choice(line) {
+            Some(c) => choices.push(c),
+            None if choices.is_empty() => why.push(line.trim_start_matches('⚠').trim()),
+            None => return None,
+        }
+    }
+    choices.iter().find(|(_, keys)| keys == "y")?;
+    let top = (start..q).rev().find(|&i| lines[i].chars().count() >= 10 && lines[i].chars().all(|c| c == '─'))?;
+    let counter = |l: &&&str| l.starts_with("Approval ") && l.contains(" of ");
+    let what: Vec<&str> = lines[top + 1..q].iter().filter(|l| !l.is_empty() && !counter(l)).copied().collect();
+    Some(Asked {
+        question: lines[q].to_string(),
+        what: what.join(" "),
+        why: Some(why.join(" ")).filter(|w| !w.is_empty()),
+        always: choices.iter().find(|(_, keys)| keys == "tab").map(|(label, _)| label.clone()),
+        tells: choices.iter().any(|(label, keys)| keys.ends_with('n') && label.to_lowercase().contains("tell the agent")),
+    })
+}
+
+/// A choice's words and the keys in brackets at its end: "→ Run (once) (y)" is ("Run (once)",
+/// "y"); "Skip (esc or n)" is ("Skip", "esc or n").
+fn choice(line: &str) -> Option<(String, String)> {
+    let line = line.trim_start_matches('→').trim();
+    let open = line.rfind(" (")?;
+    let keys = line[open + 2..].strip_suffix(')')?;
+    let keyish = !keys.is_empty() && keys.len() <= 12 && keys.chars().all(|c| c.is_ascii_lowercase() || c == '+' || c == ' ');
+    keyish.then(|| (line[..open].trim().to_string(), keys.to_string()))
+}
+
+/// The prompt a command line chat's terminal shows now, if it can be read (`launch::screen_of`).
+fn asked_in(pid: u32, cwd: &Path) -> Option<Asked> {
+    crate::launch::screen_of(pid, cwd).ok().flatten().as_deref().and_then(asked_on)
+}
+
+/// The prompt `id` the chat's terminal shows now, with the terminal's process: an error once it
+/// isn't the one up.
+fn asked_now(s: &Session, id: &str) -> anyhow::Result<(u32, Asked)> {
+    let Some(pid) = s.pid.filter(|_| s.surface == Surface::Cli) else { anyhow::bail!("It isn't in a terminal Codealong can read.") };
+    match asked_in(pid, Path::new(&s.cwd)) {
+        Some(a) if a.id() == id => Ok((pid, a)),
+        Some(_) => anyhow::bail!("It asks something else now: look again."),
+        None => anyhow::bail!("It no longer waits on that."),
+    }
+}
+
+/// Skips the prompt, with `words` for what to do instead where it takes them: `n`, then, for a
+/// prompt that asks what to do instead, Enter once that box shows, the words typed first.
+fn skip(pid: u32, cwd: &Path, asked: &Asked, words: Option<&str>) -> anyhow::Result<()> {
+    use crate::launch::{press_all, terminal_type_session, Key, Press, Submit, Typed};
+    press_all(pid, cwd, &[Press::Key(Key::Keys("n"))])?;
+    if !asked.tells {
+        return Ok(());
+    }
+    let started = Instant::now();
+    while !crate::launch::screen_of(pid, cwd).ok().flatten().is_some_and(|t| t.contains(TELL_INSTEAD)) {
+        if started.elapsed() >= TELL_WAIT {
+            anyhow::bail!("Cursor didn't ask what to do instead, so nothing more was pressed: finish it in its terminal.");
+        }
+        std::thread::sleep(Duration::from_millis(150));
+    }
+    match words.map(str::trim).filter(|w| !w.is_empty()) {
+        Some(w) => match terminal_type_session(pid, cwd, w, false, Submit::Return, false)? {
+            Typed::Nowhere(why) => anyhow::bail!("Your words couldn't be typed into it: {why}. Finish it in its terminal."),
+            _ => Ok(()),
+        },
+        None => press_all(pid, cwd, &[Press::Key(Key::Return)]),
     }
 }
 
@@ -2134,15 +2371,63 @@ impl crate::harness::Adapter for Cursor {
         matches!(place, Place::Terminal | Place::Background)
     }
 
-    /// What an app chat waits on you to allow or answer. It's answered in the app: nothing
-    /// outside takes an answer, and the command line writes nothing down while its prompt is up.
+    /// What a chat waits on you to allow or answer. An app chat's is answered in the app:
+    /// nothing outside takes an answer. The command line writes nothing down while its prompt is
+    /// up, so a command line chat's is read off its terminal (`Asked`), and answered there with
+    /// its keys (`answer`).
     fn pending(&self, ctx: &Ctx, s: &Session) -> Option<crate::harness::Pending> {
-        if s.surface != Surface::App {
-            return None;
+        if s.surface == Surface::Cli {
+            return asked_in(s.pid?, Path::new(&s.cwd)).map(|a| a.pending());
         }
         let open = self.app_open(ctx.account, s);
         let c = open.iter().find(|c| c.waits).or(open.first())?.clone();
         Some(crate::harness::Pending { id: c.id, label: c.label, input: Some(c.input).filter(|i| !i.is_empty()), cannot: Some("Cursor asks in its own window; answer it there.".into()), always: false, no_once: false, plan: false, message: false, always_rule: None, questions: Vec::new(), unwritten: false, terminal: None })
+    }
+
+    /// The command line's prompt, with its keys, once it's still the one up: `y` runs it once,
+    /// Tab adds it to the allowlist where the prompt offers that, and `n` skips it
+    /// (`skip`). The turn goes on after a skip, the agent told the call was rejected.
+    fn answer(&self, _ctx: &Ctx, s: &Session, id: &str, answer: crate::harness::Answer) -> anyhow::Result<String> {
+        use crate::harness::Answer;
+        use crate::launch::{press_all, Key, Press};
+        let (pid, asked) = asked_now(s, id)?;
+        let cwd = Path::new(&s.cwd);
+        match answer {
+            Answer::Allow => press_all(pid, cwd, &[Press::Key(Key::Keys("y"))])?,
+            Answer::Always if asked.always.is_some() => press_all(pid, cwd, &[Press::Key(Key::Tab)])?,
+            Answer::Always => anyhow::bail!("Cursor's prompt offers no allowing from now on for this: allow it once."),
+            Answer::Deny => skip(pid, cwd, &asked, None)?,
+        }
+        Ok(match answer {
+            Answer::Deny => format!("Skipped {}; it goes on without it.", asked.label()),
+            Answer::Always => format!("Allowed {}, and calls like it from now on.", asked.label()),
+            Answer::Allow => format!("Allowed {}.", asked.label()),
+        })
+    }
+
+    /// A skip goes on with its turn, the agent told the call was rejected.
+    fn deny_stops(&self, _id: &str) -> bool {
+        false
+    }
+
+    /// A command's prompt takes words with its skip; a web search's skips at once, so words for
+    /// it are sent after.
+    fn deny_saying(&self, _ctx: &Ctx, s: &Session, id: &str, words: &str) -> anyhow::Result<Option<String>> {
+        let (pid, asked) = asked_now(s, id)?;
+        if !asked.tells {
+            return Ok(None);
+        }
+        skip(pid, Path::new(&s.cwd), &asked, Some(words))?;
+        Ok(Some(format!("Skipped {} and told it what to do instead.", asked.label())))
+    }
+
+    /// A web search, which reviews look things up with: the command line asks before each,
+    /// whatever its approval mode short of Run Everything.
+    fn allow_for_review(&self, _ctx: &Ctx, s: &Session) -> anyhow::Result<Option<String>> {
+        let Some(pid) = s.pid.filter(|_| s.surface == Surface::Cli) else { return Ok(None) };
+        let Some(asked) = asked_in(pid, Path::new(&s.cwd)).filter(Asked::searches) else { return Ok(None) };
+        crate::launch::press_all(pid, Path::new(&s.cwd), &[crate::launch::Press::Key(crate::launch::Key::Keys("y"))])?;
+        Ok(Some(format!("Allowed {}.", asked.label())))
     }
 
     fn open_calls(&self, ctx: &Ctx, s: &Session) -> Vec<String> {
@@ -2157,8 +2442,8 @@ impl crate::harness::Adapter for Cursor {
         &[STATE_DB, STORE_DB]
     }
 
-    fn reader(&self, _wake: crate::harness::Wake) -> Box<dyn crate::harness::Reader> {
-        Box::new(Reader::default())
+    fn reader(&self, wake: crate::harness::Wake) -> Box<dyn crate::harness::Reader> {
+        Box::new(Reader { wake: Some(wake), ..Reader::default() })
     }
 }
 
@@ -2733,7 +3018,7 @@ mod tests {
         println!("{} chats ({app_ms} ms for the app's), the app {}running, {} command line processes", chats.len(), if app_running { "" } else { "not " }, procs.len());
         let now = crate::util::now_ms();
         for c in &chats {
-            let s = crate::board::cursor_session(&account, c, None, app_running, 0, now);
+            let s = crate::board::cursor_session(&account, c, None, None, app_running, 0, now);
             println!("{:8} {:3} {:40} {:50} | {} | {:?} {:?}", format!("{:?}", s.status), if c.cli { "cli" } else { "app" }, one_line(&s.title, 40), one_line(&s.cwd, 50), one_line(s.excerpt.as_deref().unwrap_or(""), 60), s.model, s.branch);
         }
         let newest = chats.iter().find(|c| !c.cli).expect("an app chat");
@@ -2841,5 +3126,47 @@ mod tests {
         std::fs::write(dir.join("auth.json"), r#"{"accessToken": " tok ", "refreshToken": "r", "apiKey": null}"#).unwrap();
         assert_eq!(api_token(&dir).as_deref(), Some("tok"));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The terminal UI's prompts as 2026.11.05 drew them in tmux (2026-11-09), a web search's with
+    /// a second waiting behind it, and a command's with auto-review's reason wrapped.
+    const SEARCH_SCREEN: &str = "  I'll look it up.\n\n    Explored available MCP tools cursor · WebSearch\n\n    WebSearch northwind traders sample database\n\n────────────────────────────────────────────────────────────────\n Approval 1 of 2\n\n 🔍 Web Search: northwind traders sample database\n\n Allow this web search?\n  → Allow search (y)\n    Run Everything (shift+tab)\n    Skip (esc or n)\n\n ←/→ to switch approval\n\n";
+    const COMMAND_SCREEN: &str = "  $ rm -rf /tmp/lab/page.html && sudo -n true; echo ok Waiting for approval...\n────────────────────────────────────────────────────────────────\n $  rm -rf /tmp/lab/page.html && sudo -n true; echo ok in .\n Run this command?\n ⚠  Auto-review: The command combines file deletion with a sudo privilege check and\n    execution of a second instruction.\n  → Run (once) (y)\n    Add Shell(rm), Shell(sudo), Shell(echo) to allowlist? (tab)\n    Run Everything (shift+tab)\n    Skip & tell the agent what to do instead (esc or n)\n";
+
+    #[test]
+    fn a_permission_prompt_is_read_off_the_terminal() {
+        let search = asked_on(SEARCH_SCREEN).unwrap();
+        assert_eq!(search, Asked { question: "Allow this web search?".into(), what: "🔍 Web Search: northwind traders sample database".into(), why: None, always: None, tells: false });
+        assert_eq!(search.label(), "Web search · northwind traders sample database");
+        assert!(search.searches());
+        let p = search.pending();
+        assert_eq!((p.id.as_str(), p.always, p.cannot.as_deref()), (search.id().as_str(), false, None));
+
+        let command = asked_on(COMMAND_SCREEN).unwrap();
+        assert_eq!(command.label(), "Shell · `rm -rf /tmp/lab/page.html && sudo -n true; echo ok`");
+        assert_eq!(command.why.as_deref(), Some("Auto-review: The command combines file deletion with a sudo privilege check and execution of a second instruction."));
+        assert_eq!(command.always.as_deref(), Some("Add Shell(rm), Shell(sudo), Shell(echo) to allowlist?"));
+        assert!(command.tells && !command.searches());
+        let p = command.pending();
+        assert!(p.always);
+        assert_eq!(p.always_rule.as_deref(), Some("Adds Shell(rm), Shell(sudo), Shell(echo) to Cursor's allowlist, for every chat of yours."));
+        assert_eq!(p.input.as_deref(), Some("$  rm -rf /tmp/lab/page.html && sudo -n true; echo ok in .\n\nAuto-review: The command combines file deletion with a sudo privilege check and execution of a second instruction."));
+        // The id stays while the prompt's the same, and another prompt has another.
+        assert_eq!(asked_on(COMMAND_SCREEN).unwrap().id(), command.id());
+        assert_ne!(command.id(), search.id());
+    }
+
+    #[test]
+    fn a_prompt_answered_or_scrolled_up_isnt_one_thats_up() {
+        // Answered: what came after it is under it.
+        let answered = format!("{SEARCH_SCREEN}    WebSearch northwind traders sample database User Rejected\n  DONE\n\n  → Add a follow-up\n\n  Auto · 5.2%   Auto-review\n");
+        assert_eq!(asked_on(&answered), None);
+        // The box asking what to do instead of a skipped command.
+        let telling = " ┌──────────┐\n │ $  rm -rf build in . │\n └──────────┘\n  → Tell the agent what to do instead (Enter to send, empty to skip, Esc to cancel)\n";
+        assert_eq!(asked_on(telling), None);
+        // A question with no box over it, or no choice that allows it, is only words.
+        assert_eq!(asked_on(" Run this command?\n  → Run (once) (y)\n"), None);
+        assert_eq!(asked_on("──────────────────\n $ ls\n Run this command?\n  → Skip (esc or n)\n"), None);
+        assert_eq!(asked_on(""), None);
     }
 }

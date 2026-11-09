@@ -332,6 +332,14 @@ pub trait Adapter: Sync {
         Ok(None)
     }
 
+    /// Allows what an automatic review's session `session` waits on, where it's something
+    /// Codealong allows a reviewer itself (autoreview.rs `Job::Allow`): a web search, which a
+    /// review looks things up with, and which Cursor's command line asks about every time.
+    /// Says what it allowed; None when it waits on something else, which stays yours to answer.
+    fn allow_for_review(&self, _ctx: &Ctx, _session: &Session) -> Result<Option<String>> {
+        Ok(None)
+    }
+
     /// Answers the questions of the pending request `id` (`Pending::questions`): `answers` has
     /// each answered question's text for a key, and a choice's label, several for a question
     /// that takes more, or words of your own. Returns what happened, in a sentence.

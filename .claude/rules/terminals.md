@@ -320,6 +320,15 @@ say the rest.
   `write_screen_file` and `write_scrollback_file` actions go through the clipboard or a file it
   opens). iTerm2's session `contents` and `text` are its visible screen only; Terminal's tab
   `history` is its whole scrollback (`contents` is the tab itself). Checked 2026-10-12.
+- What a session's tab shows at its foot, for a prompt its harness writes nothing about
+  (Cursor's command line): `launch.rs` (`Terminal::screen`, `screen_of`, `SCREEN_TAIL`), read from
+  Rex (`launch/rex.rs` `SCREEN`), tmux (`capture-pane -p -J`) and Codealong's own terminals
+  (`terminals::text`); not yet from iTerm2's `contents` or Terminal's `history`, and never from
+  Ghostty. Not said there: Rex's `format` with `trim` and `unwrap` set gave the screen and
+  scrollback of a block that had run for an hour and a half as 10 KB of plain text, its box-drawing
+  lines kept (Rex 0.1.0, 2026-11-09); `blob_read` with an offset partway through a long result
+  gave the rest from there, and `max_bytes` counts the text as a JSON string, so the part asked for
+  is twice what's wanted.
 - So a command an agent runs in your terminal (`codealong terminal run`) runs under
   `/usr/bin/script -q -F <file>` in its tab, which keeps what it prints in any terminal:
   `terminal.rs` (module header, `wrapper`). macOS's `script` exits with the command's status, and

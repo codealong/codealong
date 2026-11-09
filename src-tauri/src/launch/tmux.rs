@@ -100,6 +100,13 @@ impl Terminal for Tmux {
         Ok(pane_of(pid).map(|p| p.at()))
     }
 
+    /// The pane's screen as it shows now (`capture-pane -p`), wrapped lines joined.
+    fn screen(&self, pid: u32, _cwd: &Path) -> Result<Option<String>> {
+        let Some(at) = pane_of(pid).map(|p| p.at()) else { return Ok(None) };
+        let (server, pane) = Server::at(&at);
+        Ok(Some(server.run(&["capture-pane", "-p", "-J", "-t", pane])?))
+    }
+
     fn press(&self, at: &str, key: Key) -> Result<()> {
         let (server, pane) = Server::at(at);
         let name = match key {

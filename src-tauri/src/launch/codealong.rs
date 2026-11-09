@@ -149,6 +149,13 @@ impl Terminal for Own {
         terminals::write_to(at, key.typed().into()).map_err(|e| anyhow!(e))
     }
 
+    /// The end of all its text, which its own emulator holds.
+    fn screen(&self, pid: u32, _cwd: &Path) -> Result<Option<String>> {
+        let Some(g) = hosting(pid) else { return Ok(None) };
+        let text = terminals::text(&g.id).map_err(|e| anyhow!(e))?;
+        Ok(Some(super::screen_tail(&text)))
+    }
+
     fn closes_tabs(&self) -> bool {
         true
     }

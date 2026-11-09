@@ -822,7 +822,15 @@ it waits on ("Waiting for approval?"). An Antigravity command line conversation
 in a terminal is answered the same way, by a keypress there while its database says the call
 waits: Allow is its prompt's first choice (run the command, read the file) and Deny cancels the
 prompt, which ends its turn; its other choices (always, for the conversation or in its settings)
-are left to its terminal, since they're numbered differently from one prompt to another.
+are left to its terminal, since they're numbered differently from one prompt to another. A Cursor
+command line chat (`cursor-agent`) writes nothing down while its prompt is up, so Codealong reads
+the prompt off its Rex, Codealong or tmux tab once the chat has been quiet at work for a few
+seconds, every ten seconds or so: it shows *Needs approval* with what it asks about (a command, a
+web search or fetch, a file) and auto-review's reason. Allow presses `y` (run it once), Always
+presses Tab where the prompt offers to add the call to Cursor's allowlist (its button says what
+that adds), and Deny skips it: the agent is told it was rejected and its turn goes on, with your
+words as what to do instead where you wrote some for a command. In Ghostty, iTerm2 and Terminal,
+whose text Codealong doesn't read, such a chat shows as working all the while.
 The Claude app asks some approvals itself, inside a call Claude Code is still making: its built-in
 browser's, before it opens a site or reads one on a private network, and computer use's. Codealong
 reads them from the app's log, so the session shows *Needs approval* with what the app asks (the
@@ -1230,7 +1238,11 @@ review the agent wrote when only posting failed, takes the review from a session
 after its round gave up on it, and otherwise reviews the PR again as Review with… does on the
 reviewer Settings names, in its session for the PR while that can go on (after an error, in a new
 one, on another account where one can). Two run at once at most;
-a session waiting on you holds no place. Until the agent's review of the PR's latest commit is done,
+a session waiting on you holds no place, nor does one that has written nothing for twenty minutes,
+which goes on all the same (a reviewer at a prompt Codealong can't read, say, or at a long
+command). A reviewer waiting on you to allow a web search is allowed by Codealong itself, since a
+review looks things up: Cursor's command line asks before each one, whatever its approval mode
+short of Run Everything. Anything else a reviewer asks stays yours. Until the agent's review of the PR's latest commit is done,
 or didn't get done (two hours at most), the PR is out of what waits on you (the floating bar, the
 notch, the waiting window and the mark), as a snoozed review is, so you review it after the agent;
 it stays under Review requested, saying Agent reviewing, and its Reviews tab has a dot. Once the

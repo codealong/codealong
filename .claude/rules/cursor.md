@@ -155,8 +155,28 @@ chunks) and this Mac's files (2026-10-09). Paths are under `src-tauri/src/`.
   `~/.cursor/cli-config.json` holds the defaults (3.22.7's and 2026.08.11's code, 2026-10-13).
 - The terminal UI's permission prompt takes `y`, `n` or Escape (skip and say what to do
   instead), `p`, Tab (allow from now on), Shift+Tab (run everything) and arrows with Return; a
-  call waiting there isn't written anywhere, so Codealong shows no prompt for the command line's
-  chats.
+  call waiting there isn't written anywhere (the transcript has its `tool_use` line, then nothing
+  until it's answered; the session reads as working), so Codealong reads the prompt off the
+  chat's terminal: `cursor.rs` (`Asked`, `asked_on`, `Reader::poll`), `launch.rs`
+  (`Terminal::screen`). What its box looks like and how it ends: `Asked`. Not said there
+  (2026.11.05 in tmux, 2026-11-09): under auto-review a `curl` to example.com ran without asking
+  while a `rm -rf … && sudo -n true` was asked about ("Retrying with approval so you can authorize
+  that exact command", then the box); `n` on a web search's skips it at once ("User Rejected" on
+  its line, the turn going on), where `n` on a command's opens a box ("Tell the agent what to do
+  instead (Enter to send, empty to skip, Esc to cancel)") whose empty Enter skips it ("Rejected",
+  "The command was blocked and approval was declined, so it did not run"). A Return before that box
+  is drawn would answer the prompt with its highlighted choice, Run (once), so Codealong waits for
+  the box on screen first (`skip`).
+- A web search asks every time, whatever the approval mode short of Run Everything: the policy
+  (2026.11.05's `requestWebSearchApproval`) approves one only for `forceApprove`, Run Everything
+  (`-f`, `--yolo`) or `autoAcceptWebSearch` in `cli-config.json`, which is every chat's; there's no
+  flag for it alone, and `preToolUse` hooks run for every tool before the server decides whether
+  to ask, so they can't tell which calls will prompt. A web fetch is approved for a domain in
+  `permissions.allow` (`WebFetch(<domain>)`), Run Everything, or a fetch the server marks
+  `skipApproval` (one of a search's results went through so). Two automatic reviews sat at a web
+  search's prompt in Rex for an hour and a half (2026-11-09), so Codealong allows an automatic
+  review's web search itself (`Adapter::allow_for_review`, autoreview.rs `Job::Allow`), and
+  nothing else of a reviewer's.
 - Sign-in: the app keeps it in its ItemTable (`cursorAuth/accessToken`, `cursorAuth/cachedEmail`,
   `cursorAuth/stripeMembershipType`…); the command line in the keychain (account `cursor-user`,
   services `cursor-access-token`, `cursor-refresh-token`) or, with

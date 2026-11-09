@@ -751,7 +751,9 @@ pub fn antigravity_session(account: &AccountCfg, c: &Conversation, process: Opti
 /// its chats never show so, but one that hasn't written its chat a while after it started waits
 /// on what it asks first (`Chat::unwritten`). A turn that ended on an error shows as one until
 /// it's seen.
-pub fn cursor_session(account: &AccountCfg, c: &crate::cursor::Chat, process: Option<&crate::cursor::Process>, app_running: bool, seen_at: i64, now: i64) -> Session {
+/// `asked`: the permission prompt a command line chat's terminal shows, which nothing else says
+/// (`cursor::Asked`).
+pub fn cursor_session(account: &AccountCfg, c: &crate::cursor::Chat, process: Option<&crate::cursor::Process>, asked: Option<&crate::cursor::Asked>, app_running: bool, seen_at: i64, now: i64) -> Session {
     let under_way = match (c.cli, process) {
         // Its database comes a few seconds before its transcript has the prompt it was started
         // on, which it's taking a turn on all the same: for as long as a start takes, at most.
@@ -760,7 +762,8 @@ pub fn cursor_session(account: &AccountCfg, c: &crate::cursor::Chat, process: Op
         (false, _) => c.generating() && app_running && now - c.last_updated < CURSOR_STALE_MS,
     };
     let held_up = c.unwritten && process.is_some_and(|p| p.terminal) && now - c.created_at >= CURSOR_STARTING_MS;
-    let waiting = held_up || under_way && !c.cli && (c.blocking || c.tail.open.iter().any(|call| call.waits));
+    let asked = asked.filter(|_| c.cli && under_way);
+    let waiting = held_up || asked.is_some() || under_way && !c.cli && (c.blocking || c.tail.open.iter().any(|call| call.waits));
     let news = c.last_updated > seen_at;
     let status = if waiting {
         Status::Needs
@@ -776,6 +779,7 @@ pub fn cursor_session(account: &AccountCfg, c: &crate::cursor::Chat, process: Op
     let title = c.title.clone().or_else(|| c.tail.first_prompt.clone()).unwrap_or_else(|| "Cursor chat".to_string());
     let excerpt = match status {
         Status::Needs if held_up => Some("Cursor asks something in its terminal before it starts".to_string()),
+        Status::Needs if asked.is_some() => asked.map(|a| a.label()),
         Status::Needs => c.tail.open.iter().find(|call| call.waits).or(c.tail.open.first()).map(|call| call.label.clone()).or_else(|| Some("Something waits for you in Cursor".to_string())),
         Status::Working => c.tail.last_tool.clone().or_else(|| c.tail.first_prompt.clone()),
         Status::Error => c.tail.error.clone(),
@@ -5040,37 +5044,37 @@ mod tests {
         c.tail.last_tool = Some("Run · `cargo test`".into());
         c.tail.last_text = Some("The tests pass now.".into());
         c.tail.last_prompt_at = Some(NOW - 5_000);
-        let s = cursor_session(&a, &c, None, true, 0, NOW);
+        let s = cursor_session(&a, &c, None, None, true, 0, NOW);
         assert_eq!((s.status, s.live, s.surface, s.excerpt.as_deref()), (Status::Working, true, Surface::App, Some("Run · `cargo test`")));
         assert_eq!((s.open_target.as_str(), s.resume_command.as_deref(), s.status_since), ("s|cursor:cursor:c1|cursor", None, Some(NOW - 5_000)));
         assert_eq!((s.model.as_deref(), s.branch.as_deref(), s.cwd.as_str()), (Some("gpt-5.5"), Some("fix"), "/r"));
         // With the app quit, or nothing written for a long while, nothing runs it, whatever the
         // app left saying.
-        assert_eq!(cursor_session(&a, &c, None, false, 0, NOW).status, Status::Unread);
+        assert_eq!(cursor_session(&a, &c, None, None, false, 0, NOW).status, Status::Unread);
         c.last_updated = NOW - CURSOR_STALE_MS - 1;
-        assert!(!cursor_session(&a, &c, None, true, 0, NOW).live);
+        assert!(!cursor_session(&a, &c, None, None, true, 0, NOW).live);
         c.last_updated = NOW - 1_000;
         // A call waiting to be allowed needs you, and says what waits.
         c.blocking = true;
         c.tail.open = vec![Call { label: "Run · `rm -rf target`".into(), open: true, waits: true, ..Default::default() }];
-        let s = cursor_session(&a, &c, None, true, 0, NOW);
+        let s = cursor_session(&a, &c, None, None, true, 0, NOW);
         assert_eq!((s.status, s.excerpt.as_deref()), (Status::Needs, Some("Run · `rm -rf target`")));
         assert_eq!(session_headline(&s).0, format!("`cursor` asks for approval · {}", s.title));
         // Waiting is only while it runs: an aborted chat often keeps the app's flag.
         c.status = "aborted".into();
-        assert_eq!(cursor_session(&a, &c, None, true, NOW, NOW).status, Status::Idle);
+        assert_eq!(cursor_session(&a, &c, None, None, true, NOW, NOW).status, Status::Idle);
         c.blocking = false;
         c.tail.open.clear();
         // Done: its reply is news until you've seen it; an error says so until then.
         c.status = "completed".into();
-        let s = cursor_session(&a, &c, None, true, NOW - 2_000, NOW);
+        let s = cursor_session(&a, &c, None, None, true, NOW - 2_000, NOW);
         assert_eq!((s.status, s.live, s.excerpt.as_deref()), (Status::Unread, false, Some("The tests pass now.")));
-        assert_eq!(cursor_session(&a, &c, None, true, NOW, NOW).status, Status::Idle);
+        assert_eq!(cursor_session(&a, &c, None, None, true, NOW, NOW).status, Status::Idle);
         c.tail.error = Some("Connection failed".into());
-        let s = cursor_session(&a, &c, None, true, NOW - 2_000, NOW);
+        let s = cursor_session(&a, &c, None, None, true, NOW - 2_000, NOW);
         assert_eq!((s.status, s.excerpt.as_deref()), (Status::Error, Some("Connection failed")));
         c.archived = true;
-        assert!(cursor_session(&a, &c, None, true, 0, NOW).archived);
+        assert!(cursor_session(&a, &c, None, None, true, 0, NOW).archived);
     }
 
     #[test]
@@ -5080,44 +5084,50 @@ mod tests {
         let mut c = Chat { id: "c2".into(), cli: true, title: Some("Fix the build".into()), created_at: NOW - 9_000, last_updated: NOW - 2_000, ..Default::default() };
         c.tail.turn_open = true;
         let ui = Process { pid: 41, chat: Some("c2".into()), terminal: true, prompt: None };
-        let s = cursor_session(&a, &c, Some(&ui), false, 0, NOW);
+        let s = cursor_session(&a, &c, Some(&ui), None, false, 0, NOW);
         assert_eq!((s.status, s.live, s.surface, s.pid), (Status::Working, true, Surface::Cli, Some(41)));
         assert_eq!((s.open_target.as_str(), s.resume_command.as_deref()), ("s|cursor:cursor:c2|focus", Some("cursor-agent --resume c2")));
+        // Its terminal shows a permission prompt, which nothing else says: it waits on you, as an
+        // approval and not a question of its reply's.
+        let asked = crate::cursor::Asked { question: "Allow this web search?".into(), what: "🔍 Web Search: northwind traders".into(), why: None, always: None, tells: false };
+        let s = cursor_session(&a, &c, Some(&ui), Some(&asked), false, 0, NOW);
+        assert_eq!((s.status, s.asks, s.excerpt.as_deref()), (Status::Needs, false, Some("Web search · northwind traders")));
+        assert_eq!(session_headline(&s).0, "`cursor` asks for approval · Fix the build");
         // At its prompt, its turn over: still running, and yours to read.
         c.tail.turn_open = false;
-        let s = cursor_session(&a, &c, Some(&ui), false, 0, NOW);
+        let s = cursor_session(&a, &c, Some(&ui), None, false, 0, NOW);
         assert_eq!((s.status, s.live), (Status::Unread, true));
         // A print run has no terminal to show, and works until it ends.
         let print = Process { terminal: false, ..ui.clone() };
-        let s = cursor_session(&a, &c, Some(&print), false, 0, NOW);
+        let s = cursor_session(&a, &c, Some(&print), None, false, 0, NOW);
         assert_eq!((s.status, s.pid, s.open_target.as_str()), (Status::Working, None, "s|cursor:cursor:c2|resume"));
         // Gone: what it left is yours to read, and a new terminal resumes it.
-        let s = cursor_session(&a, &c, None, true, 0, NOW);
+        let s = cursor_session(&a, &c, None, None, true, 0, NOW);
         assert_eq!((s.status, s.live, s.open_target.as_str()), (Status::Unread, false, "s|cursor:cursor:c2|resume"));
         // At rest since its transcript's last write: a mode switched later writes only its
         // database, which is activity but no new status.
         let switched = Chat { last_updated: NOW - 1_000, transcript_at: Some(NOW - 2_000), ..c.clone() };
-        let s = cursor_session(&a, &switched, None, true, 0, NOW);
+        let s = cursor_session(&a, &switched, None, None, true, 0, NOW);
         assert_eq!((s.status_since, s.last_activity), (Some(NOW - 2_000), NOW - 1_000));
         // Started, with its chat not written yet: starting, then waiting on what it asks first in
         // its terminal, where it's opened, and with no chat to resume.
         let review = Chat { id: "c3".into(), cli: true, unwritten: true, created_at: NOW - 5_000, last_updated: NOW - 5_000, ..Default::default() };
         let ui = Process { pid: 42, chat: Some("c3".into()), terminal: true, prompt: Some("Review pull request #7".into()) };
-        let s = cursor_session(&a, &review, Some(&ui), false, 0, NOW);
+        let s = cursor_session(&a, &review, Some(&ui), None, false, 0, NOW);
         assert_eq!((s.status, s.live, s.pid, s.resume_command.as_deref()), (Status::Working, true, Some(42), None));
-        let s = cursor_session(&a, &review, Some(&ui), false, 0, NOW + CURSOR_STARTING_MS);
+        let s = cursor_session(&a, &review, Some(&ui), None, false, 0, NOW + CURSOR_STARTING_MS);
         assert_eq!((s.status, s.excerpt.as_deref(), s.open_target.as_str()), (Status::Needs, Some("Cursor asks something in its terminal before it starts"), "s|cursor:cursor:c3|focus"));
         assert_eq!(session_headline(&s).0, "`cursor` asks for approval · Cursor chat");
         // A print run asks nothing: it works until it writes its chat.
-        let s = cursor_session(&a, &review, Some(&Process { terminal: false, ..ui.clone() }), false, 0, NOW + CURSOR_STARTING_MS);
+        let s = cursor_session(&a, &review, Some(&Process { terminal: false, ..ui.clone() }), None, false, 0, NOW + CURSOR_STARTING_MS);
         assert_eq!(s.status, Status::Working);
         // Written, before its transcript has the prompt it was started on: at work on it. Started
         // with none, it waits at its box.
         let written = Chat { unwritten: false, ..review.clone() };
-        assert_eq!(cursor_session(&a, &written, Some(&ui), false, 0, NOW).status, Status::Working);
-        assert_eq!(cursor_session(&a, &written, Some(&Process { prompt: None, ..ui.clone() }), false, NOW, NOW).status, Status::Idle);
+        assert_eq!(cursor_session(&a, &written, Some(&ui), None, false, 0, NOW).status, Status::Working);
+        assert_eq!(cursor_session(&a, &written, Some(&Process { prompt: None, ..ui.clone() }), None, false, NOW, NOW).status, Status::Idle);
         // A transcript that never gets it doesn't keep it at work for good.
-        assert_eq!(cursor_session(&a, &written, Some(&ui), false, NOW, NOW + CURSOR_STARTING_MS).status, Status::Idle);
+        assert_eq!(cursor_session(&a, &written, Some(&ui), None, false, NOW, NOW + CURSOR_STARTING_MS).status, Status::Idle);
     }
 
     #[test]

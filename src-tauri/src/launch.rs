@@ -150,6 +150,15 @@ pub trait Terminal: Sync {
         bail!("{} can't press a single key for Codealong.", self.name())
     }
 
+    /// What the tab a session's process runs in shows at its foot, as text: at least its last
+    /// `SCREEN_TAIL` bytes or its screen, where a terminal UI draws what it asks you (a prompt
+    /// whose harness writes nothing while it's up: Cursor's command line). None where it can't
+    /// be read without a mark of its own (Ghostty, whose scripts read no text either), or the tab
+    /// isn't found. Cheap enough to ask every few seconds: nothing comes forward.
+    fn screen(&self, _pid: u32, _cwd: &Path) -> Result<Option<String>> {
+        Ok(None)
+    }
+
     /// The title of the window the tab a session's process runs in is drawn in, which finds it
     /// among its app's windows for a picture of it (`tab_window`), waiting no longer than
     /// `within` for the tab. None where the tab isn't found, or where a window draws only the
@@ -1268,6 +1277,33 @@ fn kind_by(pid: u32, step: impl Fn(u32) -> Option<(u32, String)>) -> Option<Host
     None
 }
 
+/// How much of a tab's text `Terminal::screen` gives at least, from its end: a terminal UI's
+/// prompt with what it asks about, its reasons and its choices fits many times over.
+pub const SCREEN_TAIL: usize = 8_192;
+
+/// What the tab a session's process `pid` runs in shows at its foot (`Terminal::screen`). None
+/// where its terminal can't say.
+pub fn screen_of(pid: u32, cwd: &Path) -> Result<Option<String>> {
+    match terminal_kind(pid) {
+        Some(terminal) => terminal.screen(pid, cwd),
+        None => Ok(None),
+    }
+}
+
+/// The end of `text`: its last `SCREEN_TAIL` bytes or so, from the start of a line.
+pub fn screen_tail(text: &str) -> String {
+    let text = text.trim_end();
+    let mut from = text.len().saturating_sub(SCREEN_TAIL);
+    while !text.is_char_boundary(from) {
+        from += 1;
+    }
+    let tail = &text[from..];
+    match tail.find('\n') {
+        Some(i) if from > 0 => tail[i + 1..].to_string(),
+        _ => tail.to_string(),
+    }
+}
+
 /// The tab a session's process runs in, found (for Ghostty, marked) now, to press keys in.
 /// An error for Terminal, which can't press one key alone.
 pub fn terminal_host(pid: u32, cwd: &Path) -> Result<Option<TerminalHost>> {
@@ -1580,6 +1616,15 @@ mod tests {
         drop(held);
         assert!(turns.lock_by(Some(Instant::now())).is_some());
         assert!(turns.lock_by(None).is_some());
+    }
+
+    /// A tab's text is cut to its end from the start of a line, never partway through a
+    /// character; a short one comes whole, without the blank lines under it.
+    #[test]
+    fn a_screens_tail_starts_on_a_line() {
+        assert_eq!(screen_tail("one\ntwo\n\n\n"), "one\ntwo");
+        let long = format!("{}\n─── box ───\n Allow this web search?\n", "─".repeat(SCREEN_TAIL));
+        assert_eq!(screen_tail(&long), "─── box ───\n Allow this web search?");
     }
 
     #[test]

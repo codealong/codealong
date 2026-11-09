@@ -166,6 +166,13 @@ impl Terminal for Rex {
         press(at, key)
     }
 
+    fn screen(&self, pid: u32, _cwd: &Path) -> Result<Option<String>> {
+        let Some(tty) = tty_of(pid) else { return Ok(None) };
+        let Some(b) = block_on(&tty.to_string_lossy())? else { return Ok(None) };
+        let text = script(SCREEN, json!({ "session": b.session, "block": b.block, "room": super::SCREEN_TAIL }), false)?;
+        Ok(Some(super::screen_tail(text.as_str().unwrap_or_default())))
+    }
+
     fn closes_tabs(&self) -> bool {
         true
     }
@@ -327,6 +334,27 @@ if a.after ~= "" then
   if err then error(err, 0) end
 end
 return "ok"
+"#;
+
+/// `{session, block, room}`: the end of the block's text, screen and scrollback, at least `room`
+/// bytes of it, as one string. `format` with `max_bytes` set keeps the whole text on the server
+/// for a while and answers with its length and an id, and `blob_read` reads it from an offset,
+/// so a long scrollback doesn't all come back. An offset partway through a character is moved on
+/// to the next. Rex 0.1.0, 2026-11-09.
+const SCREEN: &str = r#"
+local a = rex.args
+local terminal = "com.superlogical.terminal"
+rex.session.attach{ session_id = a.session }
+local at = { session_id = a.session, block_id = a.block, format = "text", trim = true, max_bytes = 1 }
+local whole, err = rex.block.call(terminal, "format", at)
+if err then error(tostring(err), 0) end
+if not whole.id then return whole.content or "" end
+local from = math.max(0, (whole.total or 0) - a.room)
+for step = 0, 3 do
+  local part = rex.block.call(terminal, "blob_read", { session_id = a.session, block_id = a.block, id = whole.id, offset = from + step, max_bytes = a.room * 2 })
+  if part then return part.data or "" end
+end
+error("Rex didn't give the end of its text.", 0)
 "#;
 
 /// `{blocks: [{session, block}]}`: closes them, ending what runs there without asking. Fails
@@ -683,6 +711,8 @@ mod tests {
         assert!(Rex.tabs().unwrap().iter().any(|t| t.id == block.tty));
         assert!(type_text(&block.tty, "echo typed >> out", Submit::Return).unwrap());
         assert!(holds(&out, "typed\n"), "a paste and Return ran there");
+        let shown = Rex.screen(block.pid, &dir).unwrap().unwrap_or_default();
+        assert!(shown.contains("echo typed >> out"), "its text, read back: {shown:?}");
         press(&block.tty, Key::CtrlC).unwrap();
 
         // Named for its folder, its session is found by that name as a project's, whatever the
