@@ -1863,7 +1863,7 @@ impl Client {
         if crate::peerfeed::split_remote(key).is_none() {
             return Ok(all_sessions(self.board()?).into_iter().find(|(s, _)| s.key == key).map(|(s, l)| (s.clone(), l.clone())));
         }
-        Ok(sessions_in(self.elsewhere()).find(|(s, _)| s.key == key).map(|(s, l)| (s.clone(), l.clone())))
+        Ok(all_in(self.elsewhere()).into_iter().find(|(s, _)| s.key == key).map(|(s, l)| (s.clone(), l.clone())))
     }
 
     /// Both read again, for a look that goes on (`session wait`).
@@ -3511,16 +3511,21 @@ fn session_row(s: &Session, lane: &Lane, todos: &[Todo]) -> SessionRow {
 
 /// Every session once, with the lane it's listed under as its own (not as a visitor).
 fn all_sessions(board: &Board) -> Vec<(&Session, &Lane)> {
+    all_in(&board.lanes)
+}
+
+/// `all_sessions` of these worktrees: one listed only where it visited, under that one.
+fn all_in(lanes: &[Lane]) -> Vec<(&Session, &Lane)> {
     let mut seen = HashSet::new();
     let mut out = Vec::new();
-    for lane in &board.lanes {
+    for lane in lanes {
         for s in lane.sessions.iter().filter(|s| s.visitor.is_none()) {
             if seen.insert(s.key.clone()) {
                 out.push((s, lane));
             }
         }
     }
-    for lane in &board.lanes {
+    for lane in lanes {
         for s in lane.sessions.iter().filter(|s| s.visitor.is_some()) {
             if seen.insert(s.key.clone()) {
                 out.push((s, lane));
@@ -3540,7 +3545,7 @@ fn sessions(c: &mut Client, f: &SessionFilter, query: &[String], json: bool) -> 
     let wanted = Wanted { status, worktree, since, words, said, me, now: now_ms() };
     let elsewhere = if f.devices { c.elsewhere().to_vec() } else { Vec::new() };
     let board = c.board()?;
-    let mut found: Vec<(&Session, &Lane)> = all_sessions(board).into_iter().chain(sessions_in(&elsewhere)).filter(|(s, lane)| wanted.lists(f, s, lane)).collect();
+    let mut found: Vec<(&Session, &Lane)> = all_sessions(board).into_iter().chain(all_in(&elsewhere)).filter(|(s, lane)| wanted.lists(f, s, lane)).collect();
     wanted.sort(&mut found);
     found.truncate(f.limit);
     let rows: Vec<SessionRow> = found.into_iter().map(|(s, lane)| SessionRow { said: wanted.said.get(&s.key).cloned(), ..session_row(s, lane, &board.todos) }).collect();
@@ -3762,7 +3767,9 @@ fn session_show(c: &mut Client, key: &str, json: bool) -> Result<()> {
     let board = c.board()?;
     let (s, lane) = found.as_ref().map(|(s, l)| (s, l)).ok_or_else(|| no_session(board, &key))?;
     let row = session_row(s, lane, &board.todos);
-    let account = cfg.accounts.iter().find(|a| a.name == s.account);
+    // Another Mac's session: its records, and where it moved to, are that Mac's to say.
+    let here = crate::peerfeed::split_remote(&key).is_none();
+    let account = cfg.accounts.iter().find(|a| here && a.name == s.account);
     let out = SessionDetail {
         detail: s.detail.clone(),
         name: s.name.clone(),
@@ -3776,7 +3783,7 @@ fn session_show(c: &mut Client, key: &str, json: bool) -> Result<()> {
         records: account.map(|a| records_for(a, s)).unwrap_or_default(),
         linked_todos: board.todos.iter().filter(|t| t.sessions.contains(&s.key)).map(|t| todo_row(t, &store_of(board), &board.lanes, false)).collect(),
         prs: board.prs.iter().filter(|p| p.sessions.iter().any(|x| x.key == s.key)).map(|p| p.key.clone()).collect(),
-        moved_to: crate::origins::current().moved_to(&s.key, |k| board.session(k).is_some()),
+        moved_to: if here { crate::origins::current().moved_to(&s.key, |k| board.session(k).is_some()) } else { None },
         row,
     };
     if json {
@@ -4429,9 +4436,9 @@ fn session_label(c: &mut Client, a: LabelArgs, json: bool) -> Result<()> {
     // Another device's session is labelled there, by the key its Mac knows it by.
     let own = crate::peerfeed::split_remote(&key).map_or(key.as_str(), |(_, own)| own).to_string();
     let me = find_me(c)?.0;
-    c.act(api::SESSION_LABEL, &key, params::Label { keys: vec![own], add: a.add, remove: a.remove }, me)?;
-    c.forget();
-    let labels = c.session_anywhere(&key)?.map(|(s, _)| s.labels.iter().map(|l| l.name.clone()).collect()).unwrap_or_default();
+    let got = c.act(api::SESSION_LABEL, &key, params::Label { keys: vec![own.clone()], add: a.add, remove: a.remove }, me)?;
+    // As the session's Mac says it now: another Mac's reaches this one's board a moment later.
+    let labels = got.get("labels").and_then(|m| m.get(&own)).and_then(|v| serde_json::from_value(v.clone()).ok()).unwrap_or_default();
     let out = LabelOut { session: key, labels };
     if json {
         return print_json(&out);
@@ -5471,7 +5478,7 @@ fn session_named_anywhere(board: &Board, elsewhere: &[Lane], k: &str) -> Result<
     if !named(all_sessions(board).into_iter().map(|(s, _)| s), k).is_empty() {
         return session_named(board, k);
     }
-    let there = named(sessions_in(elsewhere).map(|(s, _)| s), k);
+    let there = named(all_in(elsewhere).into_iter().map(|(s, _)| s), k);
     match there.len() {
         0 => Err(no_session(board, k)),
         1 => Ok(there[0].key.clone()),
@@ -5490,11 +5497,6 @@ fn named<'a>(all: impl Iterator<Item = &'a Session>, k: &str) -> Vec<&'a Session
     all.into_iter().filter(|s| (s.id.starts_with(k) || s.key.starts_with(k) || s.short_id == k) && seen.insert(s.key.as_str())).collect()
 }
 
-/// Your other Macs' sessions, each with the worktree it's listed under, a visitor left out for
-/// the worktree it runs in.
-fn sessions_in(lanes: &[Lane]) -> impl Iterator<Item = (&Session, &Lane)> {
-    lanes.iter().flat_map(|l| l.sessions.iter().filter(|s| s.visitor.is_none()).map(move |s| (s, l)))
-}
 
 /// Why `board` has no session `k`: there's none, or the board is the app's before its first scan
 /// after a start has ended, which lists none yet. An agent told the key is wrong drops the
@@ -8659,13 +8661,16 @@ mod tests {
     fn a_session_on_another_mac_is_named_after_this_macs() {
         let with_id = |key: &str, id: &str| Session { id: id.into(), short_id: id[..4].into(), ..crate::fixtures::session(key) };
         let here = Board { lanes: vec![lane("/work/atlas", vec![with_id("claude:claude:abc123", "abc123")])], ..Board::default() };
-        let there = vec![lane("@a1b2c3d4e5:/work/kestrel", vec![with_id("@a1b2c3d4e5:claude:claude:abd999", "abd999"), with_id("@a1b2c3d4e5:codex:codex:fff111", "fff111")])];
+        let visiting = Session { visitor: Some("@a1b2c3d4e5:/work/home".into()), ..with_id("@a1b2c3d4e5:claude:claude:vvv222", "vvv222") };
+        let there = vec![lane("@a1b2c3d4e5:/work/kestrel", vec![with_id("@a1b2c3d4e5:claude:claude:abd999", "abd999"), with_id("@a1b2c3d4e5:codex:codex:fff111", "fff111"), visiting])];
         let mut c = Client { app: None, verbose: false, cfg: None, board: Some(here), from_app: false, started: false, said: false, me: Some((None, None)), elsewhere: Some(there) };
         assert_eq!(resolve_any_session(&mut c, "@a1b2c3d4e5:claude:claude:abd999").unwrap(), "@a1b2c3d4e5:claude:claude:abd999");
         assert_eq!(resolve_any_session(&mut c, "fff1").unwrap(), "@a1b2c3d4e5:codex:codex:fff111");
         // One here goes first: a start that names this Mac's never names another's instead.
         assert_eq!(resolve_any_session(&mut c, "ab").unwrap(), "claude:claude:abc123");
-        assert_eq!(resolve_any_session(&mut c, "@a1b2c3d4e5:").unwrap_err().to_string(), "2 sessions on your other Macs start with @a1b2c3d4e5:; give more of the id.");
+        assert_eq!(resolve_any_session(&mut c, "@a1b2c3d4e5:").unwrap_err().to_string(), "3 sessions on your other Macs start with @a1b2c3d4e5:; give more of the id.");
+        // One listed there only under a worktree it visited is named all the same.
+        assert_eq!(resolve_any_session(&mut c, "vvv2").unwrap(), "@a1b2c3d4e5:claude:claude:vvv222");
         assert_eq!(resolve_any_session(&mut c, "nope").unwrap_err().to_string(), "There's no session nope. `codealong sessions` lists them.");
         // The commands that work on this Mac alone don't look there.
         assert!(resolve_session(&mut c, "fff1").is_err());

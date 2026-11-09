@@ -1890,10 +1890,18 @@ fn quiet(engine: &Handle, c: &Call) -> Result<Value, String> {
 }
 
 /// Puts labels on sessions (`keys`), by name or id, making a label of a name that's none yet, and
-/// takes others off.
+/// takes others off. A window here is answered as `shown_at` says; anyone else with the names of
+/// the labels each wears now, by its key here (`labels`), which the command says: another Mac's
+/// board shows them only with this one's next feed.
 fn label(engine: &Handle, c: &Call) -> Result<Value, String> {
     let p: params::Label = c.read()?;
-    Ok(shown_at(c, engine.label(p.keys, p.add, p.remove)?))
+    let keys = p.keys.clone();
+    let at = engine.label(p.keys, p.add, p.remove)?;
+    if *c.from == From::Here {
+        return Ok(json!(at));
+    }
+    let worn: BTreeMap<String, Vec<String>> = engine.read(|b| keys.iter().map(|k| (k.clone(), b.session(k).map(|(_, s)| s.labels.iter().map(|l| l.name.clone()).collect()).unwrap_or_default())).collect());
+    Ok(json!({ "labels": worn }))
 }
 
 /// Pins sessions (`keys`) at the top of the pinned ones, or unpins them with `pinned` false.
@@ -2127,6 +2135,18 @@ mod tests {
         // And why this device's own weren't, as a label that couldn't be made.
         let label = run_keys_heard(&engine, &peers, api::SESSION_LABEL, vec!["claude:claude:def".into()], json!({ "add": ["Bug"] }));
         assert_eq!(label, Err("Codealong's engine stopped.".to_string()));
+    }
+
+    #[test]
+    fn a_label_answers_the_command_with_the_labels_a_session_wears_now() {
+        let mut s = crate::fixtures::session("claude:claude:a");
+        s.labels = vec![crate::model::Label { id: "l1".into(), name: "Bug".into(), color: "red".into() }];
+        let engine = Handle::over(crate::model::Board { lanes: vec![crate::fixtures::lane("/r/a", vec![s])], ..Default::default() });
+        let params = json!({ "keys": ["claude:claude:a", "claude:claude:gone"], "add": ["Bug"] });
+        let ask = |from: &From| label(&engine, &Call { key: "", params: &params, from });
+        assert_eq!(ask(&From::Command(None)), Ok(json!({ "labels": { "claude:claude:a": ["Bug"], "claude:claude:gone": [] } })));
+        assert_eq!(ask(&From::Device), ask(&From::Command(None)), "another Mac's command is answered the same, through this one");
+        assert_eq!(ask(&From::Here), Ok(Value::Null), "a window waits for the board instead");
     }
 
     #[test]
