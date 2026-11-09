@@ -3759,7 +3759,11 @@ session there: ⌘D in the quick panel picks the Mac, and `codealong start
 --device <name> --prompt …` has that Mac pick the worktree (a folder there, a path under your home
 being the same path under its home, or by default its main checkout of the repo you're in), the
 account and the place as `codealong start` run there would. A start there takes no todo and makes no
-helper, as both are this Mac's. The images you paste into a message or a start for another device go there with it, and
+helper, as both are this Mac's. The command sees your other Macs' sessions as the windows do:
+`codealong sessions --devices` lists them, their keys starting with `@<short>:`, and `session show`,
+`transcript`, `wait`, `pending`, `label`, `snooze`, `tag` and the rest take one of those keys or its
+id and ask that Mac, as the windows ask it (a message to it, or marking it done, isn't the
+command's to do there). The images you paste into a message or a start for another device go there with it, and
 the images in another device's conversations come from it as they show; any other file you attach
 stays on the Mac you attached it on, so a message with one for another device isn't sent. Devices
 find each other on your tailnet when Tailscale runs, and reach linked devices
@@ -3812,8 +3816,8 @@ headless run; `codealong todo
 add|start|done|update|move|wait|ready|link` work the todo list, dependencies, waits and order
 included (`todo list --ready` is what can start now, `--waiting` what's under Waiting), and starting
 or finishing a todo links the session that ran the command, unless `--no-link` says it closes a
-todo for you that other sessions worked on; `codealong sessions [find <words>]`,
-`session show`, `worktrees` and `accounts --usage` answer what else is running, what it did, where
+todo for you that other sessions worked on; `codealong sessions [find <words>]` (with `--devices`, your
+other Macs' too), `session show`, `worktrees` and `accounts --usage` answer what else is running, what it did, where
 it lives, and which account has room; `codealong session open` brings the main window up on a
 session's conversation; `codealong session transcript` reads a session's conversation whatever its
 harness, `codealong sessions --waiting` lists what waits on you, and `codealong session suggest`

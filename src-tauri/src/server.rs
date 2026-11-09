@@ -116,6 +116,11 @@ pub enum Request {
     /// Your other devices (peers.rs) as Settings › Devices shows them, with how many worktrees and
     /// sessions each has in place of the worktrees themselves.
     Devices,
+    /// Your other Macs' worktrees with their sessions, as the windows show them beside the board
+    /// (shown.rs): each lane id and session key with `@<short>:` in front, and a Mac that's away
+    /// as it was last seen. The command names their sessions by them (cli.rs
+    /// `resolve_any_session`), and what it asks of one goes to its Mac (actions.rs `On::Key`).
+    Elsewhere,
     /// Asks one of your devices on your tailnet to link; the reply is the code both show.
     DeviceLink { key: String },
     /// Says yes, or no, to a device asking to link.
@@ -595,6 +600,7 @@ fn handle_request(ctx: &Ctx, req: serde_json::Result<Request>) -> Reply {
         Request::Start { spec } => answered(crate::start::start_here(engine, &spec).map_err(crate::util::words)),
         Request::PrReview { pr, account } => answered(crate::autoreview::review_now(engine, &ctx.reviews, &pr, account.as_deref()).map(|()| crate::autoreview::begun(&ctx.reviews, &pr))),
         Request::Devices => Reply::ok(DevicesSummary::of(peers.view())),
+        Request::Elsewhere => Reply::ok(peers.view().lanes),
         Request::DeviceLink { key } => answered(peers.link(&key)),
         Request::DeviceAnswer { key, accept } => answered(peers.answer_link(&key, accept)),
         Request::DeviceUnlink { key } => answered(peers.unlink(&key)),

@@ -65,14 +65,18 @@ Commands:
              its Schedules view with each one's runs. What's watched costs no usage: an
              agent runs only once something happens
   sessions   Sessions on the board: every agent, live or not, with its status and where
-             it works. Lists by default; `find` searches
+             it works. Lists by default; `find` searches. This Mac's, and with --devices
+             your other Macs' too
   session    One session: in full (`show`: status, excerpt, folder, branch, PR, how to
              resume it, and where its own records are), its conversation (`transcript`),
              replies suggested for its user to send with a click (`suggest`), in the
              Codealong app (`open`), a message to it where it runs (`send`), what it
              waits on its user for (`pending`) and denying it (`answer`), stopping its
              turn (`stop`), naming it (`rename`) and forking it into the background
-             (`fork`)
+             (`fork`). A session on another of your Macs is named by its key as
+             `sessions --devices` lists it (`@<short>:…`) or by its id, and what's asked
+             of it is asked of that Mac, as Codealong's windows ask it; a message to it,
+             or marking it done, isn't the command's to do there
   worktrees  Worktrees the board knows: each with its branch, PR, status, and the agents
              running in it now (`agents`: sessions a process has open, or that are
              working or waiting on you; `working`: those working or waiting on you).
@@ -1770,7 +1774,7 @@ Options:
 
 ```
 Sessions on the board: every agent, live or not, with its status and where it works.
-Lists by default; `find` searches
+Lists by default; `find` searches. This Mac's, and with --devices your other Macs' too
 
 Usage: codealong sessions [OPTIONS] [COMMAND]
 
@@ -1828,6 +1832,12 @@ Options:
       --label <NAME>
           Only sessions with this label (by name, any case), as `session label` puts one
           on. Repeatable: those with any of them
+
+      --devices
+          Your other Macs' sessions too, as Codealong's windows show them beside this
+          Mac's: each key starts with `@<short>:`, the Mac's short id (`devices` lists
+          them), and a session command given one asks that Mac. One that's away shows as
+          it was last seen
 
       --since <SINCE>
           Active within this long: 90m, 24h, 3d, 7d (the default), or all
@@ -1900,6 +1910,12 @@ Options:
           Only sessions with this label (by name, any case), as `session label` puts one
           on. Repeatable: those with any of them
 
+      --devices
+          Your other Macs' sessions too, as Codealong's windows show them beside this
+          Mac's: each key starts with `@<short>:`, the Mac's short id (`devices` lists
+          them), and a session command given one asks that Mac. One that's away shows as
+          it was last seen
+
       --since <SINCE>
           Active within this long: 90m, 24h, 3d, 7d (the default), or all
           
@@ -1969,7 +1985,10 @@ where its own records are), its conversation (`transcript`), replies suggested f
 user to send with a click (`suggest`), in the Codealong app (`open`), a message to it
 where it runs (`send`), what it waits on its user for (`pending`) and denying it
 (`answer`), stopping its turn (`stop`), naming it (`rename`) and forking it into the
-background (`fork`)
+background (`fork`). A session on another of your Macs is named by its key as `sessions
+--devices` lists it (`@<short>:…`) or by its id, and what's asked of it is asked of that
+Mac, as Codealong's windows ask it; a message to it, or marking it done, isn't the
+command's to do there
 
 Usage: codealong session [OPTIONS] <COMMAND>
 
@@ -2112,7 +2131,8 @@ Commands:
               --label`). Unlike a tag (`session tag`), which is a read of one turn and
               goes when the next starts, a label stays until it's taken off; put one on
               only when your user asked, or an orchestrator's labelling is what they set
-              it to do. Prints the labels it has now; `session show`, `sessions`
+              it to do. A session on another of your Macs is labelled there, with that
+              Mac's labels. Prints the labels it has now; `session show`, `sessions`
               (`--label` to list only those with one) say them too
   snooze      Snooze a session, as Snooze in its menu in Codealong does: it leaves Needs
               you and Your turn on every device, and the mark stops counting it, until
@@ -2697,9 +2717,9 @@ next color. They sort the work for your user: they show on its row, its Sessions
 filters by them, and a board whose rule names a label takes in the sessions with it
 (`board rule --label`). Unlike a tag (`session tag`), which is a read of one turn and
 goes when the next starts, a label stays until it's taken off; put one on only when your
-user asked, or an orchestrator's labelling is what they set it to do. Prints the labels
-it has now; `session show`, `sessions` (`--label` to list only those with one) say them
-too
+user asked, or an orchestrator's labelling is what they set it to do. A session on
+another of your Macs is labelled there, with that Mac's labels. Prints the labels it has
+now; `session show`, `sessions` (`--label` to list only those with one) say them too
 
 Usage: codealong session label [OPTIONS] <KEY>
 

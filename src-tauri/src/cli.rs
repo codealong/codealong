@@ -109,9 +109,9 @@ enum Cmd {
         #[command(subcommand)]
         cmd: ScheduleCmd,
     },
-    /// Sessions on the board: every agent, live or not, with its status and where it works. Lists by default; `find` searches.
+    /// Sessions on the board: every agent, live or not, with its status and where it works. Lists by default; `find` searches. This Mac's, and with --devices your other Macs' too.
     Sessions(SessionsArgs),
-    /// One session: in full (`show`: status, excerpt, folder, branch, PR, how to resume it, and where its own records are), its conversation (`transcript`), replies suggested for its user to send with a click (`suggest`), in the Codealong app (`open`), a message to it where it runs (`send`), what it waits on its user for (`pending`) and denying it (`answer`), stopping its turn (`stop`), naming it (`rename`) and forking it into the background (`fork`).
+    /// One session: in full (`show`: status, excerpt, folder, branch, PR, how to resume it, and where its own records are), its conversation (`transcript`), replies suggested for its user to send with a click (`suggest`), in the Codealong app (`open`), a message to it where it runs (`send`), what it waits on its user for (`pending`) and denying it (`answer`), stopping its turn (`stop`), naming it (`rename`) and forking it into the background (`fork`). A session on another of your Macs is named by its key as `sessions --devices` lists it (`@<short>:…`) or by its id, and what's asked of it is asked of that Mac, as Codealong's windows ask it; a message to it, or marking it done, isn't the command's to do there.
     Session {
         #[command(subcommand)]
         cmd: SessionCmd,
@@ -545,6 +545,9 @@ struct SessionFilter {
     /// Only sessions with this label (by name, any case), as `session label` puts one on. Repeatable: those with any of them.
     #[arg(long = "label", value_name = "NAME")]
     labels: Vec<String>,
+    /// Your other Macs' sessions too, as Codealong's windows show them beside this Mac's: each key starts with `@<short>:`, the Mac's short id (`devices` lists them), and a session command given one asks that Mac. One that's away shows as it was last seen.
+    #[arg(long)]
+    devices: bool,
     /// Active within this long: 90m, 24h, 3d, 7d (the default), or all.
     #[arg(long, default_value = "7d")]
     since: String,
@@ -637,7 +640,7 @@ enum SessionCmd {
     Suggest(SuggestArgs),
     /// Tag a session with your read of where it stands, in the words Codealong's rows use, after reading its conversation (`session transcript`): whether its last reply asks its user something, how far its code change got, whether what was asked for is done, how risky the call it waits on looks, and what a command it left running in the background does. Each shows on the session in Codealong as Jev's read does (Asks you, Landed, Pushed, Destructive, Looks finished…), over Jev's for the same moment, with who tagged it and the note; an orchestrator going over its sessions tags them so the user sees at a glance where each stands, with `[jev] sessions` on or off. Say only what you read: a field left out stays Jev's. Give --prompt-at the session's `lastPromptAt` as you read it: the tag is turned down if the user replied since, or while it takes a turn, and goes once anything is sent to it or a turn of its starts (`changes` says which, as `untagged`); tagging again replaces it, and --clear takes it away. The session's `insight` in `session show` and `sessions` is the read it shows now, Jev's, yours (`by`) or both.
     Tag(TagArgs),
-    /// Put labels on a session, or take them off, as Labels in its menu in Codealong does: the labels todos wear (`todo labels`), by name, any case, a new name made a label in the next color. They sort the work for your user: they show on its row, its Sessions view filters by them, and a board whose rule names a label takes in the sessions with it (`board rule --label`). Unlike a tag (`session tag`), which is a read of one turn and goes when the next starts, a label stays until it's taken off; put one on only when your user asked, or an orchestrator's labelling is what they set it to do. Prints the labels it has now; `session show`, `sessions` (`--label` to list only those with one) say them too.
+    /// Put labels on a session, or take them off, as Labels in its menu in Codealong does: the labels todos wear (`todo labels`), by name, any case, a new name made a label in the next color. They sort the work for your user: they show on its row, its Sessions view filters by them, and a board whose rule names a label takes in the sessions with it (`board rule --label`). Unlike a tag (`session tag`), which is a read of one turn and goes when the next starts, a label stays until it's taken off; put one on only when your user asked, or an orchestrator's labelling is what they set it to do. A session on another of your Macs is labelled there, with that Mac's labels. Prints the labels it has now; `session show`, `sessions` (`--label` to list only those with one) say them too.
     Label(LabelArgs),
     /// Snooze a session, as Snooze in its menu in Codealong does: it leaves Needs you and Your turn on every device, and the mark stops counting it, until WHEN, when it's back as it is then (as Your turn when nothing else would bring it). A prompt sent to it ends the snooze, and --wake ends it now. WHEN is on this Mac's clock: a span from now (30m, 2h, 3d), a time (5pm, 17:30: the next one), a day (tomorrow, fri, next week, 2026-11-03: at 9 AM) or a day and a time (tomorrow 2pm, fri 17:00, 2026-11-03 15:00). A session on another device is snoozed on its Mac.
     Snooze {
@@ -1730,6 +1733,8 @@ struct Client {
     said: bool,
     /// The session running this command and how it was found, once `find_me` has looked.
     me: Option<(Option<String>, Option<&'static str>)>,
+    /// Your other Macs' worktrees with their sessions, once `elsewhere` has asked the server.
+    elsewhere: Option<Vec<Lane>>,
 }
 
 impl Client {
@@ -1754,7 +1759,7 @@ impl Client {
                 Err(_) => {}
             }
         }
-        Client { app, verbose, cfg: None, board: None, from_app: false, started, said: false, me: None }
+        Client { app, verbose, cfg: None, board: None, from_app: false, started, said: false, me: None, elsewhere: None }
     }
 
     fn note(&mut self) {
@@ -1833,6 +1838,38 @@ impl Client {
             true => self.board().map(|b| b.lanes.clone()).unwrap_or_default(),
             false => Vec::new(),
         }
+    }
+
+    /// Your other Macs' worktrees with their sessions, as the windows show them beside the board
+    /// (server.rs `Elsewhere`): every key with `@<short>:` in front. None without the server, or
+    /// from a server from before it said them.
+    fn elsewhere(&mut self) -> &[Lane] {
+        if self.elsewhere.is_none() {
+            let lanes = match self.app.is_some() {
+                true => match server::ask(&Request::Elsewhere) {
+                    Some(Ok(v)) => serde_json::from_value(v).unwrap_or_default(),
+                    _ => Vec::new(),
+                },
+                false => Vec::new(),
+            };
+            self.elsewhere = Some(lanes);
+        }
+        self.elsewhere.as_deref().unwrap_or_default()
+    }
+
+    /// The session `key` names, and the worktree it's listed under, on this Mac's board or, for a
+    /// key of another Mac's, on that Mac's.
+    fn session_anywhere(&mut self, key: &str) -> Result<Option<(Session, Lane)>> {
+        if crate::peerfeed::split_remote(key).is_none() {
+            return Ok(all_sessions(self.board()?).into_iter().find(|(s, _)| s.key == key).map(|(s, l)| (s.clone(), l.clone())));
+        }
+        Ok(sessions_in(self.elsewhere()).find(|(s, _)| s.key == key).map(|(s, l)| (s.clone(), l.clone())))
+    }
+
+    /// Both read again, for a look that goes on (`session wait`).
+    fn forget(&mut self) {
+        self.board = None;
+        self.elsewhere = None;
     }
 
     /// The board read again, for a decision that mustn't go by one read a while ago.
@@ -3501,8 +3538,9 @@ fn sessions(c: &mut Client, f: &SessionFilter, query: &[String], json: bool) -> 
     let said = if words.is_empty() { HashMap::new() } else { c.search_text(&words) };
     let me = if words.is_empty() { None } else { find_me(c)?.0 };
     let wanted = Wanted { status, worktree, since, words, said, me, now: now_ms() };
+    let elsewhere = if f.devices { c.elsewhere().to_vec() } else { Vec::new() };
     let board = c.board()?;
-    let mut found: Vec<(&Session, &Lane)> = all_sessions(board).into_iter().filter(|(s, lane)| wanted.lists(f, s, lane)).collect();
+    let mut found: Vec<(&Session, &Lane)> = all_sessions(board).into_iter().chain(sessions_in(&elsewhere)).filter(|(s, lane)| wanted.lists(f, s, lane)).collect();
     wanted.sort(&mut found);
     found.truncate(f.limit);
     let rows: Vec<SessionRow> = found.into_iter().map(|(s, lane)| SessionRow { said: wanted.said.get(&s.key).cloned(), ..session_row(s, lane, &board.todos) }).collect();
@@ -3719,9 +3757,10 @@ struct SessionDetail {
 
 fn session_show(c: &mut Client, key: &str, json: bool) -> Result<()> {
     let cfg = c.cfg()?.clone();
-    let key = resolve_session(c, key)?;
+    let key = resolve_any_session(c, key)?;
+    let found = c.session_anywhere(&key)?;
     let board = c.board()?;
-    let (s, lane) = all_sessions(board).into_iter().find(|(s, _)| s.key == key).ok_or_else(|| no_session(board, &key))?;
+    let (s, lane) = found.as_ref().map(|(s, l)| (s, l)).ok_or_else(|| no_session(board, &key))?;
     let row = session_row(s, lane, &board.todos);
     let account = cfg.accounts.iter().find(|a| a.name == s.account);
     let out = SessionDetail {
@@ -3801,9 +3840,10 @@ fn session_open(c: &mut Client, key: &str, json: bool) -> Result<()> {
     if c.app.is_none() {
         bail!("Codealong isn't running, so there's no window to show a session in.");
     }
-    let key = resolve_session(c, key)?;
+    let key = resolve_any_session(c, key)?;
+    let found = c.session_anywhere(&key)?;
     let board = c.board()?;
-    let (s, lane) = all_sessions(board).into_iter().find(|(s, _)| s.key == key).ok_or_else(|| no_session(board, &key))?;
+    let (s, lane) = found.as_ref().map(|(s, l)| (s, l)).ok_or_else(|| no_session(board, &key))?;
     let out = OpenOut { shown: s.key.clone(), title: session_row(s, lane, &board.todos).title, worktree: lane.path.clone() };
     let reveal = json!({ "kind": "session", "laneId": lane.id, "key": s.key });
     c.show(reveal)?;
@@ -3826,7 +3866,7 @@ struct SendOut {
 }
 
 fn session_send(c: &mut Client, a: SendArgs, json: bool) -> Result<()> {
-    let to = resolve_session(c, &a.key)?;
+    let to = resolve_any_session(c, &a.key)?;
     let from = find_me(c)?.0;
     if from.as_deref() == Some(to.as_str()) {
         bail!("{to} is the session running this command.");
@@ -3851,7 +3891,7 @@ struct PendingOut {
 }
 
 fn session_pending(c: &mut Client, key: &str, json: bool) -> Result<()> {
-    let key = resolve_session(c, key)?;
+    let key = resolve_any_session(c, key)?;
     let pending = serde_json::from_value(c.act(api::SESSION_PENDING, &key, params::Session::default(), None)?).context("reading what it waits on")?;
     let out = PendingOut { session: key, pending };
     if json {
@@ -3895,7 +3935,7 @@ struct ActOut {
 /// Stops, renames, forks or denies, through the app's own action (actions.rs), and says what
 /// happened.
 fn session_act(c: &mut Client, key: &str, name: &str, params: impl Serialize, json: bool) -> Result<()> {
-    let key = resolve_session(c, key)?;
+    let key = resolve_any_session(c, key)?;
     let got = c.act(name, &key, params, None)?;
     let (said, copy) = match got {
         Value::String(s) => (Some(s), None),
@@ -3950,7 +3990,7 @@ fn session_snooze(c: &mut Client, key: &str, when: &SnoozeWhen, json: bool) -> R
     if c.app.is_none() {
         bail!("Snoozing needs Codealong's server, which couldn't be started here (`codealong server start` says why): it keeps the snooze, and brings the session back when it ends.");
     }
-    let key = resolve_session(c, key)?;
+    let key = resolve_any_session(c, key)?;
     // Another device's session is snoozed there, by the key its Mac knows it by.
     let own = crate::peerfeed::split_remote(&key).map_or(key.as_str(), |(_, own)| own).to_string();
     c.act(api::SESSION_SNOOZE, &key, params::Snooze { keys: vec![own], until }, None)?;
@@ -3963,7 +4003,7 @@ fn session_raise(c: &mut Client, a: RaiseArgs, json: bool) -> Result<()> {
     if c.app.is_none() {
         bail!("Moving a session to the top needs Codealong's server, which couldn't be started here (`codealong server start` says why): it keeps the move, and its windows go by it.");
     }
-    let key = resolve_session(c, &a.key)?;
+    let key = resolve_any_session(c, &a.key)?;
     let me = find_me(c)?.0;
     let by_title = me.as_deref().and_then(|k| all_sessions(c.board().ok()?).into_iter().find(|(s, _)| s.key == k).map(|(s, _)| s.title.clone())).filter(|t| !t.is_empty());
     // Another device's session is moved there, by the key its Mac knows it by.
@@ -4042,11 +4082,11 @@ const TRANSCRIPT_CUT: usize = 600;
 /// `session transcript`: a page of the conversation, as a window's panel reads it (the
 /// session-page request), on whichever device the session is on.
 fn session_transcript(c: &mut Client, a: &TranscriptArgs, json: bool) -> Result<()> {
-    let key = resolve_session(c, &a.key)?;
+    let key = resolve_any_session(c, &a.key)?;
     // Taken before the page is read, so a prompt sent meanwhile makes it older than what was read,
     // never newer: replies suggested for it are then turned down, not put on a turn they didn't
     // see.
-    let prompt_at = c.board()?.session(&key).map(|(_, s)| s.last_prompt_at);
+    let prompt_at = c.session_anywhere(&key)?.map(|(s, _)| s.last_prompt_at);
     let got = c.act(api::SESSION_PAGE, &key, params::Page { before: a.before, ..Default::default() }, None)?;
     let mut page: api::Page = serde_json::from_value(got).context("The conversation didn't read")?;
     if !a.full {
@@ -4233,7 +4273,7 @@ fn wait_since(a: &SessionWaitArgs) -> Result<Option<i64>> {
 fn session_wait(c: &mut Client, a: &SessionWaitArgs, json: bool) -> Result<()> {
     // A helper just started may not be on the board yet: its whole key, as `start` printed it, is
     // waited for until it shows up.
-    let key = match resolve_session(c, &a.key) {
+    let key = match resolve_any_session(c, &a.key) {
         Ok(k) => k,
         Err(_) if a.key.matches(':').count() >= 2 => a.key.clone(),
         Err(e) => return Err(e),
@@ -4249,10 +4289,8 @@ fn session_wait(c: &mut Client, a: &SessionWaitArgs, json: bool) -> Result<()> {
         Ok(serde_json::from_value::<api::Page>(got).context("The conversation didn't read")?.items)
     };
     loop {
-        let (found, loading) = {
-            let board = c.board()?;
-            (board.session(&key).map(|(_, s)| s.clone()), board.loading)
-        };
+        let found = c.session_anywhere(&key)?.map(|(s, _)| s);
+        let loading = c.board()?.loading;
         // The app answered as the wait began and doesn't now, or answers with the empty board it
         // has before its first scan: it's restarting (another session's relaunch, an update). A
         // board read from the files has nothing of a session it runs but its record, which ends a
@@ -4294,7 +4332,7 @@ fn session_wait(c: &mut Client, a: &SessionWaitArgs, json: bool) -> Result<()> {
             bail!("{key} is still at it after {}: `codealong session wait {key}` waits on.", a.timeout);
         }
         std::thread::sleep(WAIT_EVERY);
-        c.board = None;
+        c.forget();
     }
 }
 
@@ -4349,7 +4387,7 @@ fn insight_words(i: &crate::model::SessionInsight) -> String {
 /// whichever device the session is on. The app's windows show it at once; without the app, it's
 /// kept for it.
 fn session_tag(c: &mut Client, a: TagArgs, json: bool) -> Result<()> {
-    let key = resolve_session(c, &a.key)?;
+    let key = resolve_any_session(c, &a.key)?;
     let me = find_me(c)?.0;
     let by_title = me.as_deref().and_then(|k| all_sessions(c.board().ok()?).into_iter().find(|(s, _)| s.key == k).map(|(s, _)| s.title.clone())).filter(|t| !t.is_empty());
     let unit = |b: Option<bool>| b.map(|b| if b { 1.0 } else { 0.0 });
@@ -4387,13 +4425,13 @@ fn session_label(c: &mut Client, a: LabelArgs, json: bool) -> Result<()> {
     if c.app.is_none() {
         bail!("Labelling a session needs Codealong's server, which couldn't be started here (`codealong server start` says why): it keeps the labels.");
     }
-    let key = resolve_session(c, &a.key)?;
+    let key = resolve_any_session(c, &a.key)?;
     // Another device's session is labelled there, by the key its Mac knows it by.
     let own = crate::peerfeed::split_remote(&key).map_or(key.as_str(), |(_, own)| own).to_string();
     let me = find_me(c)?.0;
     c.act(api::SESSION_LABEL, &key, params::Label { keys: vec![own], add: a.add, remove: a.remove }, me)?;
-    c.board = None;
-    let labels = all_sessions(c.board()?).into_iter().find(|(s, _)| s.key == key).map(|(s, _)| s.labels.iter().map(|l| l.name.clone()).collect()).unwrap_or_default();
+    c.forget();
+    let labels = c.session_anywhere(&key)?.map(|(s, _)| s.labels.iter().map(|l| l.name.clone()).collect()).unwrap_or_default();
     let out = LabelOut { session: key, labels };
     if json {
         return print_json(&out);
@@ -4409,7 +4447,7 @@ fn session_label(c: &mut Client, a: LabelArgs, json: bool) -> Result<()> {
 /// whichever device the session is on. The app's windows show them at once; without the app,
 /// they're kept for it.
 fn session_suggest(c: &mut Client, a: SuggestArgs, json: bool) -> Result<()> {
-    let key = resolve_session(c, &a.key)?;
+    let key = resolve_any_session(c, &a.key)?;
     let me = find_me(c)?.0;
     let by_title = me.as_deref().and_then(|k| all_sessions(c.board().ok()?).into_iter().find(|(s, _)| s.key == k).map(|(s, _)| s.title.clone())).filter(|t| !t.is_empty());
     let (replies, picks, mut why) = if a.clear { (Vec::new(), Vec::new(), Vec::new()) } else { (a.replies, a.picks, a.why) };
@@ -5406,18 +5444,56 @@ fn resolve_session(c: &mut Client, k: &str) -> Result<String> {
     session_named(c.loaded_board()?, k)
 }
 
+/// `resolve_session`, then among your other Macs' sessions (`session_named_anywhere`), for a
+/// command whose request goes to the Mac the session is on (actions.rs `run_as`).
+fn resolve_any_session(c: &mut Client, k: &str) -> Result<String> {
+    if k == "me" || k.trim().is_empty() {
+        return resolve_session(c, k);
+    }
+    let elsewhere = c.elsewhere().to_vec();
+    session_named_anywhere(c.loaded_board()?, &elsewhere, k)
+}
+
 /// The key of the session `k` names on `board`: its key or id, or the start of only one's.
 fn session_named(board: &Board, k: &str) -> Result<String> {
-    let all = all_sessions(board);
-    if let Some((s, _)) = all.iter().find(|(s, _)| s.key == k || s.id == k) {
-        return Ok(s.key.clone());
-    }
-    let hits: Vec<&Session> = all.iter().map(|(s, _)| *s).filter(|s| s.id.starts_with(k) || s.key.starts_with(k) || s.short_id == k).collect();
+    let hits = named(all_sessions(board).into_iter().map(|(s, _)| s), k);
     match hits.len() {
         1 => Ok(hits[0].key.clone()),
         0 => Err(no_session(board, k)),
         n => bail!("{n} sessions start with {k}; give more of the id."),
     }
+}
+
+/// `session_named`, and where `board` has none that `k` names, the one among your other Macs'
+/// sessions (`elsewhere`) that it names: by its key there (`@<short>:…`), its id or their start.
+/// One here goes first, so a start that names several here never names one there instead.
+fn session_named_anywhere(board: &Board, elsewhere: &[Lane], k: &str) -> Result<String> {
+    if !named(all_sessions(board).into_iter().map(|(s, _)| s), k).is_empty() {
+        return session_named(board, k);
+    }
+    let there = named(sessions_in(elsewhere).map(|(s, _)| s), k);
+    match there.len() {
+        0 => Err(no_session(board, k)),
+        1 => Ok(there[0].key.clone()),
+        n => bail!("{n} sessions on your other Macs start with {k}; give more of the id."),
+    }
+}
+
+/// The sessions `k` names among `all`: the one whose key or id it is, else those whose id or key
+/// starts with it, each once.
+fn named<'a>(all: impl Iterator<Item = &'a Session>, k: &str) -> Vec<&'a Session> {
+    let all: Vec<&Session> = all.collect();
+    if let Some(s) = all.iter().find(|s| s.key == k || s.id == k) {
+        return vec![*s];
+    }
+    let mut seen = HashSet::new();
+    all.into_iter().filter(|s| (s.id.starts_with(k) || s.key.starts_with(k) || s.short_id == k) && seen.insert(s.key.as_str())).collect()
+}
+
+/// Your other Macs' sessions, each with the worktree it's listed under, a visitor left out for
+/// the worktree it runs in.
+fn sessions_in(lanes: &[Lane]) -> impl Iterator<Item = (&Session, &Lane)> {
+    lanes.iter().flat_map(|l| l.sessions.iter().filter(|s| s.visitor.is_none()).map(move |s| (s, l)))
 }
 
 /// Why `board` has no session `k`: there's none, or the board is the app's before its first scan
@@ -8513,7 +8589,7 @@ mod tests {
             other => panic!("{other:?}"),
         };
         let board = Board { lanes: vec![lane("/work/atlas", vec![crate::fixtures::session("claude:claude:kestrel")]), lane("/work/northwind", vec![])], ..Board::default() };
-        let mut c = Client { app: None, verbose: false, cfg: None, board: Some(board), from_app: false, started: false, said: false, me: Some((Some("claude:claude:kestrel".into()), Some("environment"))) };
+        let mut c = Client { app: None, verbose: false, cfg: None, board: Some(board), from_app: false, started: false, said: false, me: Some((Some("claude:claude:kestrel".into()), Some("environment"))), elsewhere: None };
         let daily = Schedule {
             id: "s-1".into(),
             name: "standup".into(),
@@ -8577,13 +8653,35 @@ mod tests {
         assert!(table_text(&["A"], vec![]).contains("(none)"));
     }
 
+    /// The command names your other Macs' sessions as the windows show them, by their key there or
+    /// their id, after this Mac's own, for the commands whose request goes to the session's Mac.
+    #[test]
+    fn a_session_on_another_mac_is_named_after_this_macs() {
+        let with_id = |key: &str, id: &str| Session { id: id.into(), short_id: id[..4].into(), ..crate::fixtures::session(key) };
+        let here = Board { lanes: vec![lane("/work/atlas", vec![with_id("claude:claude:abc123", "abc123")])], ..Board::default() };
+        let there = vec![lane("@a1b2c3d4e5:/work/kestrel", vec![with_id("@a1b2c3d4e5:claude:claude:abd999", "abd999"), with_id("@a1b2c3d4e5:codex:codex:fff111", "fff111")])];
+        let mut c = Client { app: None, verbose: false, cfg: None, board: Some(here), from_app: false, started: false, said: false, me: Some((None, None)), elsewhere: Some(there) };
+        assert_eq!(resolve_any_session(&mut c, "@a1b2c3d4e5:claude:claude:abd999").unwrap(), "@a1b2c3d4e5:claude:claude:abd999");
+        assert_eq!(resolve_any_session(&mut c, "fff1").unwrap(), "@a1b2c3d4e5:codex:codex:fff111");
+        // One here goes first: a start that names this Mac's never names another's instead.
+        assert_eq!(resolve_any_session(&mut c, "ab").unwrap(), "claude:claude:abc123");
+        assert_eq!(resolve_any_session(&mut c, "@a1b2c3d4e5:").unwrap_err().to_string(), "2 sessions on your other Macs start with @a1b2c3d4e5:; give more of the id.");
+        assert_eq!(resolve_any_session(&mut c, "nope").unwrap_err().to_string(), "There's no session nope. `codealong sessions` lists them.");
+        // The commands that work on this Mac alone don't look there.
+        assert!(resolve_session(&mut c, "fff1").is_err());
+        let found = c.session_anywhere("@a1b2c3d4e5:codex:codex:fff111").unwrap().map(|(s, l)| (s.key, l.id));
+        assert_eq!(found, Some(("@a1b2c3d4e5:codex:codex:fff111".to_string(), "@a1b2c3d4e5:/work/kestrel".to_string())));
+        let Cmd::Sessions(s) = Cli::try_parse_from(["codealong", "sessions", "--devices", "--label", "release"]).unwrap().cmd else { panic!() };
+        assert!(s.filter.devices && s.filter.labels == ["release"]);
+    }
+
     /// Right after a relaunch the app's board lists nothing until its first scan ends, and an
     /// orchestrator told "There's no session" for one `codealong changes` had just listed dropped
     /// it (2026-10-16 to 10-22). A board still loading says so; a whole one says there's none.
     #[test]
     fn a_lookup_tells_the_app_still_reading_from_no_such_session() {
         let listed = Board { lanes: vec![lane("/work/atlas", vec![crate::fixtures::session("claude:claude:abc123")])], ..Board::default() };
-        let client = |board: Board| Client { app: None, verbose: false, cfg: None, board: Some(board), from_app: false, started: false, said: false, me: Some((None, None)) };
+        let client = |board: Board| Client { app: None, verbose: false, cfg: None, board: Some(board), from_app: false, started: false, said: false, me: Some((None, None)), elsewhere: None };
         let mut c = client(listed.clone());
         assert_eq!(resolve_session(&mut c, "claude:claude:abc").unwrap(), "claude:claude:abc123");
         assert_eq!(resolve_session(&mut c, "claude:claude:nope").unwrap_err().to_string(), "There's no session claude:claude:nope. `codealong sessions` lists them.");
@@ -8655,7 +8753,7 @@ mod tests {
         let mut b = Board::default();
         b.lanes = vec![lane("/work/a", vec![crate::fixtures::session("claude:claude:abc123")])];
         b.todos = vec![todo("t-abc", TodoStatus::Todo, &[], &[])];
-        let mut c = Client { app: None, verbose: false, cfg: None, board: Some(b), from_app: false, started: false, said: false, me: None };
+        let mut c = Client { app: None, verbose: false, cfg: None, board: Some(b), from_app: false, started: false, said: false, me: None, elsewhere: None };
         let plan = |v: Value| serde_json::from_value::<CanvasPlan>(v);
         let card = |kind, key: &str| boards::Card { kind, key: key.into() };
         let good = plan(json!({ "frames": [{ "title": " Billing ", "color": "teal", "note": "Invoices", "prs": ["https://github.com/acme/app/pull/7"], "todos": ["t-a"], "sessions": ["claude:claude:abc"], "worktrees": ["/work/a"] }] })).unwrap();
