@@ -1227,22 +1227,45 @@ fn fork(engine: &Handle, c: &Call) -> Result<Value, String> {
         Some(id) => crate::side::fork_prompt(key, id, &p.prompt).map_err(words)?,
         None => p.prompt,
     };
-    to_value(crate::start::fork_background(&board, &cfg()?, key, &prompt).map_err(words)?)
+    forked(engine, &board, key, crate::start::fork_background(&board, &cfg()?, key, &prompt).map_err(words)?)
+}
+
+/// What a fork started, its copy wearing the session's labels, when its harness said which
+/// session the copy is at once: it carries on the same work.
+fn forked(engine: &Handle, board: &crate::model::Board, key: &str, started: crate::start::Started) -> Result<Value, String> {
+    if let Some(copy) = started.key.as_deref().filter(|k| *k != key) {
+        labels_follow(engine, board, key, copy);
+    }
+    to_value(started)
+}
+
+/// Puts a session's labels on the copy that goes on with its work (a move's, a fork's), by their
+/// ids here.
+fn labels_follow(engine: &Handle, board: &crate::model::Board, key: &str, copy: &str) {
+    let ids: Vec<String> = board.session(key).map(|(_, s)| s.labels.iter().map(|l| l.id.clone()).collect()).unwrap_or_default();
+    if ids.is_empty() {
+        return;
+    }
+    if let Err(e) = engine.label(vec![copy.to_string()], ids, Vec::new()) {
+        eprintln!("Couldn't put {key}'s labels on {copy}: {e}");
+    }
 }
 
 /// Forks it from before a prompt of yours, your edit of it in its place (`start::fork_from`).
 fn fork_from(engine: &Handle, c: &Call) -> Result<Value, String> {
     let p: params::Edit = c.read()?;
     let board = engine.board();
-    ensure_fork_not_blocked(&board, c.session()?, c.from)?;
-    to_value(crate::start::fork_from(&board, &cfg()?, c.session()?, p.cursor, &p.prompt).map_err(words)?)
+    let key = c.session()?;
+    ensure_fork_not_blocked(&board, key, c.from)?;
+    forked(engine, &board, key, crate::start::fork_from(&board, &cfg()?, key, p.cursor, &p.prompt).map_err(words)?)
 }
 
 /// Forks it into a new terminal in its folder (`start::fork`).
 fn fork_terminal(engine: &Handle, c: &Call) -> Result<Value, String> {
     let board = engine.board();
-    ensure_fork_not_blocked(&board, c.session()?, c.from)?;
-    to_value(crate::start::fork(&board, &cfg()?, c.session()?).map_err(words)?)
+    let key = c.session()?;
+    ensure_fork_not_blocked(&board, key, c.from)?;
+    forked(engine, &board, key, crate::start::fork(&board, &cfg()?, key).map_err(words)?)
 }
 
 /// Moves it to another account of its harness, `account` (`start::move_to`): the copy goes on
@@ -1289,7 +1312,8 @@ fn move_session(engine: &Handle, c: &Call) -> Result<Value, String> {
 }
 
 /// The copy a session moved into takes its place: the todos it was on, as their primary session
-/// where it was theirs, and its place among the pinned sessions. The session itself is archived.
+/// where it was theirs, its labels, and its place among the pinned sessions. The session itself is
+/// archived.
 fn hand_over(engine: &Handle, board: &crate::model::Board, key: &str, copy: &str) {
     for t in board.todos.iter().filter(|t| t.sessions.iter().any(|s| s == key)) {
         // The session stays on it too, as one that worked on it.
@@ -1301,6 +1325,7 @@ fn hand_over(engine: &Handle, board: &crate::model::Board, key: &str, copy: &str
             eprintln!("Moved {key}, but couldn't put {copy} on todo {}: {e}", t.id);
         }
     }
+    labels_follow(engine, board, key, copy);
     // Before it's archived, which unpins it and closes its terminals: those go with the copy.
     if board.pinned.iter().any(|k| k == key) {
         engine.set_pinned(board.pinned.iter().map(|k| if k == key { copy.to_string() } else { k.clone() }).collect());
