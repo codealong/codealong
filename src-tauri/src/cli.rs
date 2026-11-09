@@ -4422,8 +4422,16 @@ fn session_tag(c: &mut Client, a: TagArgs, json: bool) -> Result<()> {
 #[serde(rename_all = "camelCase")]
 struct LabelOut {
     session: String,
-    /// The names of the labels it has now, in the order they were put on.
-    labels: Vec<String>,
+    /// The names of the labels it has now, in the order they were put on; null when its Mac
+    /// didn't say (`labels_said`).
+    labels: Option<Vec<String>>,
+}
+
+/// The labels the session `own` wears now, as its Mac answered the label request (actions.rs
+/// `label`): another Mac's reaches this one's board a moment later. None when it didn't say: a
+/// Codealong from before it did, or an engine too busy to show the change in time.
+fn labels_said(got: &Value, own: &str) -> Option<Vec<String>> {
+    serde_json::from_value(got.get("labels")?.get(own)?.clone()).ok()
 }
 
 /// `session label`: asked of whichever device the session is on, whose labels they are, through
@@ -4437,15 +4445,15 @@ fn session_label(c: &mut Client, a: LabelArgs, json: bool) -> Result<()> {
     let own = crate::peerfeed::split_remote(&key).map_or(key.as_str(), |(_, own)| own).to_string();
     let me = find_me(c)?.0;
     let got = c.act(api::SESSION_LABEL, &key, params::Label { keys: vec![own.clone()], add: a.add, remove: a.remove }, me)?;
-    // As the session's Mac says it now: another Mac's reaches this one's board a moment later.
-    let labels = got.get("labels").and_then(|m| m.get(&own)).and_then(|v| serde_json::from_value(v.clone()).ok()).unwrap_or_default();
+    let labels = labels_said(&got, &own);
     let out = LabelOut { session: key, labels };
     if json {
         return print_json(&out);
     }
-    match out.labels.is_empty() {
-        true => println!("It has no labels."),
-        false => println!("Labels: {}", out.labels.join(", ")),
+    match out.labels.as_deref() {
+        Some([]) => println!("It has no labels."),
+        Some(names) => println!("Labels: {}", names.join(", ")),
+        None => println!("Labelled. Its Codealong didn't say which labels it has now: `codealong session show {}` does once it's there.", out.session),
     }
     Ok(())
 }
@@ -8678,6 +8686,12 @@ mod tests {
         assert_eq!(found, Some(("@a1b2c3d4e5:codex:codex:fff111".to_string(), "@a1b2c3d4e5:/work/kestrel".to_string())));
         let Cmd::Sessions(s) = Cli::try_parse_from(["codealong", "sessions", "--devices", "--label", "release"]).unwrap().cmd else { panic!() };
         assert!(s.filter.devices && s.filter.labels == ["release"]);
+        // What `session label` says it wears: what its Mac answered, or nothing it didn't say.
+        assert_eq!(labels_said(&json!({ "labels": { "claude:claude:a": ["Bug"] } }), "claude:claude:a"), Some(vec!["Bug".to_string()]));
+        assert_eq!(labels_said(&json!({ "labels": { "claude:claude:a": [] } }), "claude:claude:a"), Some(vec![]));
+        for unsaid in [Value::Null, json!({ "labels": null }), json!({ "labels": {} })] {
+            assert_eq!(labels_said(&unsaid, "claude:claude:a"), None, "{unsaid}");
+        }
     }
 
     /// Right after a relaunch the app's board lists nothing until its first scan ends, and an

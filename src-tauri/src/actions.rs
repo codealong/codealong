@@ -1892,7 +1892,8 @@ fn quiet(engine: &Handle, c: &Call) -> Result<Value, String> {
 /// Puts labels on sessions (`keys`), by name or id, making a label of a name that's none yet, and
 /// takes others off. A window here is answered as `shown_at` says; anyone else with the names of
 /// the labels each wears now, by its key here (`labels`), which the command says: another Mac's
-/// board shows them only with this one's next feed.
+/// board shows them only with this one's next feed. Null when the engine didn't show the change
+/// in time, as a busy one may not: the board would still have the labels from before.
 fn label(engine: &Handle, c: &Call) -> Result<Value, String> {
     let p: params::Label = c.read()?;
     let keys = p.keys.clone();
@@ -1900,8 +1901,12 @@ fn label(engine: &Handle, c: &Call) -> Result<Value, String> {
     if *c.from == From::Here {
         return Ok(json!(at));
     }
-    let worn: BTreeMap<String, Vec<String>> = engine.read(|b| keys.iter().map(|k| (k.clone(), b.session(k).map(|(_, s)| s.labels.iter().map(|l| l.name.clone()).collect()).unwrap_or_default())).collect());
-    Ok(json!({ "labels": worn }))
+    Ok(json!({ "labels": at.map(|_| engine.read(|b| worn_by(b, &keys))) }))
+}
+
+/// The names of the labels each of `keys` wears on `board`, none for one it doesn't list.
+fn worn_by(board: &crate::model::Board, keys: &[String]) -> BTreeMap<String, Vec<String>> {
+    keys.iter().map(|k| (k.clone(), board.session(k).map(|(_, s)| s.labels.iter().map(|l| l.name.clone()).collect()).unwrap_or_default())).collect()
 }
 
 /// Pins sessions (`keys`) at the top of the pinned ones, or unpins them with `pinned` false.
@@ -2138,15 +2143,20 @@ mod tests {
     }
 
     #[test]
-    fn a_label_answers_the_command_with_the_labels_a_session_wears_now() {
+    fn a_label_answers_the_command_with_the_labels_a_session_wears_once_shown() {
         let mut s = crate::fixtures::session("claude:claude:a");
-        s.labels = vec![crate::model::Label { id: "l1".into(), name: "Bug".into(), color: "red".into() }];
-        let engine = Handle::over(crate::model::Board { lanes: vec![crate::fixtures::lane("/r/a", vec![s])], ..Default::default() });
-        let params = json!({ "keys": ["claude:claude:a", "claude:claude:gone"], "add": ["Bug"] });
+        s.labels = vec![crate::model::Label { id: "l1".into(), name: "Bug".into(), color: "red".into() }, crate::model::Label { id: "l2".into(), name: "Release".into(), color: "blue".into() }];
+        let board = crate::model::Board { lanes: vec![crate::fixtures::lane("/r/a", vec![s])], ..Default::default() };
+        let keys = ["claude:claude:a".to_string(), "claude:claude:gone".to_string()];
+        assert_eq!(json!(worn_by(&board, &keys)), json!({ "claude:claude:a": ["Bug", "Release"], "claude:claude:gone": [] }));
+        // An engine that doesn't show the change in time (this handle's never does) says no labels,
+        // rather than the board's from before; a window is answered the time it waits for.
+        let engine = Handle::over(board);
+        let params = json!({ "keys": keys, "add": ["UI"] });
         let ask = |from: &From| label(&engine, &Call { key: "", params: &params, from });
-        assert_eq!(ask(&From::Command(None)), Ok(json!({ "labels": { "claude:claude:a": ["Bug"], "claude:claude:gone": [] } })));
+        assert_eq!(ask(&From::Command(None)), Ok(json!({ "labels": null })));
         assert_eq!(ask(&From::Device), ask(&From::Command(None)), "another Mac's command is answered the same, through this one");
-        assert_eq!(ask(&From::Here), Ok(Value::Null), "a window waits for the board instead");
+        assert_eq!(ask(&From::Here), Ok(Value::Null));
     }
 
     #[test]
