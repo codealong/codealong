@@ -27,8 +27,9 @@
 //
 // The main window's panel pops the session out into a window of its own (its header's button, or
 // Open in its own window in its menu): the window the peek's Keep makes (kept.rs). While it's out
-// the panel keeps its strip and header and says where its conversation went, with the ways to its
-// window and back (`KeptAway`), as the drawer does for a terminal popped out.
+// the panel keeps its strip, its header and the terminal it runs in (a card doesn't show that
+// one), and says where its conversation went, with the ways to its window and back (`KeptAway`),
+// as the drawer does for a terminal popped out.
 
 import { useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { runCommand, sessionPutBack, sessionWindow } from '../api';
@@ -431,15 +432,15 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
   const view = useSessionView(key);
   const inTerminal = !!home && view === 'terminal';
   const toBox = () => document.querySelector<HTMLTextAreaElement>(`[data-shows-session="${CSS.escape(key)}"] .ca-composer-field textarea`)?.focus();
-  // Kept in a window of its own (kept.rs), it's read and answered there, and the main window's
-  // panel says so; a card is such a window, or shows one only for a moment.
+  // Kept in a window of its own (kept.rs), its conversation, box and drawer are there, and the
+  // main window's panel says so in their place; a card is such a window, or shows one only for a
+  // moment. The terminal it runs in stays here, where alone it's shown.
   const away = useKeptSessions(variant === 'panel').has(key);
   const popOut = variant === 'panel' && !away ? header.actions?.window?.run : undefined;
   const body = (
     <>
           <QueueStrip queue={queue} notice={notice} hotkeys={hotkeys} session={s} actions={header.actions} onSeen={header.onSeen} />
           <SessionHeader {...header} seenAbove={!!hotkeys} compact={variant === 'card'} accountBelow={replies} inMain={variant === 'panel'} onMove={moves && (() => ask(null))} onPopOut={popOut} />
-          {away ? <KeptAway sessionKey={key} /> : <>
           {home && <SessionViewSwitch sessionKey={key} home={home} view={view} />}
           {inTerminal && home && (
             <SessionTerminal
@@ -452,7 +453,8 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
               }}
             />
           )}
-          {!inTerminal && <SessionThread
+          {!inTerminal && away && <KeptAway sessionKey={key} />}
+          {!inTerminal && !away && <SessionThread
             key={s.key}
             session={s}
             now={now}
@@ -473,7 +475,7 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
               ) : null
             }
           />}
-          {inTerminal ? null : device && !device.online ? (
+          {inTerminal || away ? null : device && !device.online ? (
             <p className="ca-sessinsp-remote" role="status">
               {device.name} isn't connected, so nothing can reach this session from here right now.
             </p>
@@ -484,7 +486,7 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
           ) : (
             <Reply session={s} terminal={terminal} runIn={folder ?? undefined} runsUnder={apps.runIn !== 'terminal'} onOpen={openIt} autoFocus={autoFocus && !renaming} keys={keys} onSending={onSending} onSent={onSent} onFailed={onFailed} onAnswered={onAnswered} onNext={goesOn ? onDone : undefined} sayKeys={!!hotkeys} moves={moves} onMove={ask} />
           )}
-          {folder !== null && terminals && (
+          {folder !== null && terminals && !away && (
             <TerminalDrawer
               sessionKey={key}
               folder={folder}
@@ -497,7 +499,6 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
               }}
             />
           )}
-          </>}
           {moves && moving?.key === key && <MoveDialog session={s} moves={moves} to={moving.to} terminal={terminal} onClose={() => setMoving(null)} />}
           {edit && editing?.key === key && <EditDialog session={s} prompt={editing.prompt} onEdit={edit} onClose={() => setEditing(null)} />}
           {dialog}

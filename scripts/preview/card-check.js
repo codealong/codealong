@@ -1,7 +1,7 @@
 // Checks a session's card (SessionCard.tsx), the same in the bar's peek, a session kept on the
 // desktop and the waiting window: its header leaves snoozing, archiving and pinning to its menu,
-// and has Main window beside the ways to open it, unless its Open button goes to the main window
-// (a session Codealong runs); the ⋯ button and a right-click give that menu, with the
+// and has Main window beside the ways to open it (in a kept session, Put back in main window), unless
+// its Open button goes to the main window (a session Codealong runs); the ⋯ button and a right-click give that menu, with the
 // Sessions list's shortcuts beside what they run; and the shortcuts run them (⌃⌘P pins, ⌃⌘R
 // renames, ⌘E marks seen, ⌃⌘A archives).
 //   PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/card-check.js
@@ -11,8 +11,10 @@
 (function () {
   var head = function () { return document.querySelector('.ca-reply .ca-sessinsp-head'); };
   var button = function (label) { return document.querySelector('.ca-reply .ca-sessinsp-head button[aria-label="' + label + '"]'); };
-  // Main window, or an Open button that says it goes to Codealong in its place.
-  var toMain = function () { return !!button('Open in main window') !== /in Codealong/.test(head().querySelector('.ca-sessinsp-tools').textContent); };
+  // Main window, or an Open button that says it goes to Codealong in its place. A kept session's
+  // puts it back there, as the main window's panel leaves a kept session to its window.
+  var mainLabel = window.__CODEALONG_KEPT__ ? 'Put back in main window' : 'Open in main window';
+  var toMain = function () { return !!button(mainLabel) !== /in Codealong/.test(head().querySelector('.ca-sessinsp-tools').textContent); };
   var key =function (init) { window.dispatchEvent(new KeyboardEvent('keydown', Object.assign({ bubbles: true, cancelable: true }, init))); };
   var chord = function (letter) { key({ key: letter, code: 'Key' + letter.toUpperCase(), metaKey: true, ctrlKey: true }); };
   var menu = function () { var m = calls('plugin:menu|new'); return m.length ? m[m.length - 1][1].options.items : []; };
@@ -23,7 +25,7 @@
   var seenKey = function () { return Array.prototype.filter.call(document.querySelectorAll('.ca-reply .ca-hotkeys .ca-hotkey'), function (b) { return b.textContent.indexOf('Seen') === 0; })[0]; };
   var whole = function (list, seenable) {
     // Snooze reads as Snoozed until … on a session that's snoozed now, as the real board may have.
-    return has(list, 'Open in main window') && has(list, 'Pin to desktop') && list.some(function (t) { return /^Snooze(d until .*)?$/.test(t); }) && list.some(function (t) { return /^(Archive|Archive in Codex)=Ctrl\+Cmd\+A$/.test(t); }) && list.some(function (t) { return /^(Pin|Unpin) session=Ctrl\+Cmd\+P$/.test(t); }) && (list.indexOf('Mark as seen=Cmd+E') >= 0) === seenable;
+    return has(list, mainLabel) && has(list, 'Pin to desktop') && list.some(function (t) { return /^Snooze(d until .*)?$/.test(t); }) && list.some(function (t) { return /^(Archive|Archive in Codex)=Ctrl\+Cmd\+A$/.test(t); }) && list.some(function (t) { return /^(Pin|Unpin) session=Ctrl\+Cmd\+P$/.test(t); }) && (list.indexOf('Mark as seen=Cmd+E') >= 0) === seenable;
   };
   var seenable = false;
 

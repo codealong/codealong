@@ -1157,15 +1157,28 @@ export async function sessionWindows(): Promise<string[]> {
   return invoke<string[]>('session_windows');
 }
 
-/** Calls `cb` with the sessions kept in windows of their own, as one pops out or closes. */
-export function onSessionWindows(cb: (keys: string[]) => void): () => void {
-  if (!inTauri) return () => {};
+/** Calls `cb` with the sessions kept in windows of their own, as one pops out or closes;
+ *  `listening` once it's heard, so a read made then misses no change (as `onBoard`). */
+export function onSessionWindows(cb: (keys: string[]) => void, listening?: () => void): () => void {
+  if (!inTauri) {
+    listening?.();
+    return () => {};
+  }
   let cancelled = false;
   let unlisten: (() => void) | undefined;
-  void listen<string[]>('session-windows', (e) => cb(e.payload)).then((u) => {
-    if (cancelled) u();
-    else unlisten = u;
-  });
+  void listen<string[]>('session-windows', (e) => cb(e.payload)).then(
+    (u) => {
+      if (cancelled) u();
+      else {
+        unlisten = u;
+        listening?.();
+      }
+    },
+    // Not heard: the window still reads which are kept once.
+    () => {
+      if (!cancelled) listening?.();
+    },
+  );
   return () => {
     cancelled = true;
     unlisten?.();

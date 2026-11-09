@@ -14,7 +14,8 @@ let following = false;
 const listeners = new Set<() => void>();
 
 /** Starts following, once: what the engine says as one pops out or closes, and what it says now,
- *  unless it's said more since. */
+ *  asked once that's heard so no change falls between the two, and dropped when it's said more
+ *  since it was asked. */
 function follow(): void {
   if (following) return;
   following = true;
@@ -23,17 +24,21 @@ function follow(): void {
     kept = new Set(keys);
     for (const l of listeners) l();
   };
-  onSessionWindows((keys) => {
-    heard += 1;
-    take(keys);
-  });
-  const before = heard;
-  sessionWindows().then(
+  onSessionWindows(
     (keys) => {
-      if (heard === before) take(keys);
+      heard += 1;
+      take(keys);
     },
-    // None read: none kept, as far as this window knows, until one pops out and the engine says so.
-    () => {},
+    () => {
+      const before = heard;
+      sessionWindows().then(
+        (keys) => {
+          if (heard === before) take(keys);
+        },
+        // None read: none kept, as far as this window knows, until one pops out and the engine says so.
+        () => {},
+      );
+    },
   );
 }
 
