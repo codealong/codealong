@@ -11,7 +11,8 @@
 #   scripts/check-release.sh 0.3.0
 #
 # It downloads the release (about 70 MB) into a temporary folder it removes, mounts nothing it
-# leaves mounted, and runs nothing it downloaded but `--version` of the app's command.
+# leaves mounted, and runs nothing it downloaded but `--version` of the app's command, with a time
+# limit and the quarantine off (see there).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -95,7 +96,14 @@ echo "$signed" | grep -q 'flags=.*runtime'; check "with the hardened runtime" $?
 codesign -d --entitlements - --xml "$app" 2>/dev/null | grep -q 'com.apple.security.automation.apple-events'; check "and may drive terminals (Apple Events)" $?
 said="$(plutil -extract CFBundleShortVersionString raw "$app/Contents/Info.plist" 2>/dev/null || true)"
 holds "it says it's $version" "it says $said" test "$said" = "$version"
-said="$("$app/Contents/MacOS/codealong" --version 2>&1 || true)"
+# Run with its quarantine on, this waits before any of the app's code runs, for as long as it takes
+# someone to answer macOS's "downloaded from the Internet" prompt: 0.17.0's check sat here for ten
+# hours overnight until someone clicked Open. Gatekeeper's verdict is spctl's above, which asks
+# nobody, and a person opening it is the release skill's to check, so this copy's quarantine comes
+# off first. The limit is for whatever else could hold it: a hang fails this line and the rest of
+# the checks still run, rather than the release stalling here.
+xattr -dr com.apple.quarantine "$app"
+said="$(scripts/within.sh 120 "$app/Contents/MacOS/codealong" --version 2>&1 || true)"
 holds "its command says so too" "$said" test "$said" = "codealong $version"
 # What latest.json offers both kinds of Mac, so both halves must be there (release.sh's `lipo`).
 archs="$(lipo -archs "$app/Contents/MacOS/codealong" 2>/dev/null || true)"

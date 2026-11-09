@@ -401,7 +401,7 @@ its adapter, and add what you find to it, not here.
   `libghostty.md`: Ghostty's terminal library, under Codealong's own terminals. `chrome.md`:
   Chrome's profiles and tabs, Claude in Chrome.
 - `windows.md`: Tauri, AppKit and WebKit (panels and their levels, the notch, the keyboard,
-  events). `macos-privacy.md`: macOS's privacy prompts. `linux.md`: Linux, its desktops and
+  events). `macos-privacy.md`: macOS's privacy prompts and Gatekeeper's. `linux.md`: Linux, its desktops and
   the harnesses there, and trying it in the VM.
 - `github.md`: `gh`, GraphQL points and polling. `jev.md`: TypeSafe. `devices.md`: Tailscale,
   iroh and testing linked devices.

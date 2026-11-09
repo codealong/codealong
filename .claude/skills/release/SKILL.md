@@ -148,6 +148,9 @@ It downloads the draft as GitHub serves it, marks it as downloaded the way a bro
 checks every file, Gatekeeper and notarization, the signature and entitlements, the version, the
 license files, and the update and `latest.json`. Every line must be ok.
 
+It takes about a minute, most of it the download. One still going after ten minutes is stuck or
+has a bad network: see what it's waiting on with `ps`, rather than waiting on with it.
+
 What it can't check is a person opening it: the first-open prompt, the setup wizard on a first
 run, the permission prompts. The routine (`design/plans/releases.md`) has the user install the
 draft on a Mac or user account that has never had Codealong before it's published: give them the

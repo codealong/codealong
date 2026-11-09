@@ -7811,6 +7811,17 @@ mod tests {
         }
     }
 
+    // It ends at the parse, before `main` makes a client, so no server, socket or window can hold
+    // it up: check-release.sh asks a downloaded app for its version beside a running one.
+    #[test]
+    fn the_version_is_said_before_anything_can_wait() {
+        let line = ["codealong", "--version"].map(String::from);
+        assert!(is_cli(&line));
+        let Err(said) = parse_from(&line) else { panic!("--version went on to run") };
+        assert_eq!(said.kind(), clap::error::ErrorKind::DisplayVersion);
+        assert!(!said.use_stderr(), "it exits 0");
+    }
+
     #[test]
     fn global_flags_before_the_subcommand_still_mean_the_command() {
         let line = |a: &[&str]| std::iter::once("codealong").chain(a.iter().copied()).map(String::from).collect::<Vec<_>>();
