@@ -1580,8 +1580,9 @@ impl crate::harness::Reader for Reader {
                 quiet
                     .into_iter()
                     .filter_map(|(id, key, pid, cwd)| {
+                        let read_at = Instant::now();
                         let text = screen_in(pid, &cwd)?;
-                        seen(&key, &text);
+                        seen(&key, &text, read_at);
                         Some((id, (asked_on(&text)?, crate::util::now_ms())))
                     })
                     .collect::<HashMap<_, _>>()
@@ -1658,11 +1659,12 @@ static ANSWERING: std::sync::Mutex<Answered> = std::sync::Mutex::new(Answered(Ve
 const SETTLE_WAIT: Duration = Duration::from_secs(2);
 
 /// An answer Codealong pressed into session `session`'s prompt `id`, with `waiting` prompts up
-/// together, that wasn't seen taken.
+/// together, that wasn't seen taken by the time it was held, `at`.
 struct Unsettled {
     session: String,
     id: String,
     waiting: usize,
+    at: Instant,
 }
 
 impl Unsettled {
@@ -1689,16 +1691,18 @@ impl Unsettled {
 struct Answered(Vec<Unsettled>);
 
 impl Answered {
-    /// `session`'s terminal was read, showing `shown` (None: no prompt): its answers that says
-    /// were taken are let go.
-    fn seen(&mut self, session: &str, shown: Option<&Asked>) {
-        self.0.retain(|u| u.session != session || !u.settled_by(shown));
+    /// `session`'s terminal was read from `read_at` on, showing `shown` (None: no prompt): its
+    /// answers held before that which that says were taken are let go. One held after the read
+    /// began is newer than what it saw.
+    fn seen(&mut self, session: &str, shown: Option<&Asked>, read_at: Instant) {
+        self.0.retain(|u| u.session != session || u.at > read_at || !u.settled_by(shown));
     }
 
-    /// Whether `session`'s prompt `asked`, as its terminal shows it now, may be answered: no
-    /// answer pressed into it is unaccounted for.
+    /// Whether `session`'s prompt `asked`, as its terminal shows it in a read made holding
+    /// `ANSWERING`, may be answered: no answer pressed into it is unaccounted for. Every answer
+    /// held was held before that lock was taken, so before that read.
     fn open(&mut self, session: &str, asked: &Asked) -> bool {
-        self.seen(session, Some(asked));
+        self.seen(session, Some(asked), Instant::now());
         !self.0.iter().any(|u| u.session == session)
     }
 
@@ -1706,10 +1710,11 @@ impl Answered {
     /// (None: it couldn't be read, which says nothing), and holds it from another answer if it
     /// never does.
     fn answered(&mut self, session: &str, asked: &Asked, read: impl Fn() -> Option<String>, wait: Duration) {
-        let held = Unsettled { session: session.to_string(), id: asked.id(), waiting: asked.waiting };
         let started = Instant::now();
         loop {
-            if read().is_some_and(|text| held.settled_by(asked_on(&text).as_ref())) {
+            let shown = read();
+            let held = Unsettled { session: session.to_string(), id: asked.id(), waiting: asked.waiting, at: Instant::now() };
+            if shown.is_some_and(|text| held.settled_by(asked_on(&text).as_ref())) {
                 return;
             }
             if started.elapsed() >= wait {
@@ -1721,10 +1726,10 @@ impl Answered {
     }
 }
 
-/// `session`'s terminal was read showing `text`: what it says of answers held for it
-/// (`Answered::seen`).
-fn seen(session: &str, text: &str) {
-    ANSWERING.lock().unwrap_or_else(|e| e.into_inner()).seen(session, asked_on(text).as_ref());
+/// `session`'s terminal was read from `read_at` on, showing `text`: what it says of answers held
+/// for it (`Answered::seen`).
+fn seen(session: &str, text: &str, read_at: Instant) {
+    ANSWERING.lock().unwrap_or_else(|e| e.into_inner()).seen(session, asked_on(text).as_ref(), read_at);
 }
 
 /// The text a chat's terminal shows at its foot now (`launch::screen_of`), if it can be read.
@@ -2504,8 +2509,9 @@ impl crate::harness::Adapter for Cursor {
     /// its keys (`answer`).
     fn pending(&self, ctx: &Ctx, s: &Session) -> Option<crate::harness::Pending> {
         if s.surface == Surface::Cli {
+            let read_at = Instant::now();
             let text = screen_in(s.pid?, Path::new(&s.cwd))?;
-            seen(&s.key, &text);
+            seen(&s.key, &text, read_at);
             return asked_on(&text).map(|a| a.pending());
         }
         let open = self.app_open(ctx.account, s);
@@ -3330,11 +3336,18 @@ mod tests {
         assert!(!answered.open("one", &search), "not again while it may still be taking it");
         assert!(!answered.open("one", &search), "however long it's been");
         assert!(answered.open("two", &search), "the same prompt in another chat is answered");
+        // A read begun before the answer was held, showing it gone, then let in: older than the
+        // hold, it says nothing.
+        let mut answered = Answered::default();
+        let early = Instant::now();
+        answered.answered("one", &search, || Some(SEARCH_SCREEN.to_string()), Duration::from_millis(50));
+        answered.seen("one", None, early);
+        assert!(!answered.open("one", &search), "a read from before the hold");
         // Its terminal read since without the prompt: the key was taken, and the same question
         // asked again is answered.
-        answered.seen("two", None);
+        answered.seen("two", None, Instant::now());
         assert!(!answered.open("one", &search), "another chat's look says nothing of this one");
-        answered.seen("one", None);
+        answered.seen("one", None, Instant::now());
         assert!(answered.open("one", &search));
         // Another prompt of its up: this one was taken.
         let mut answered = held(SEARCH_SCREEN);
