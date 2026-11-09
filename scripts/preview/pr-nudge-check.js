@@ -7,8 +7,8 @@
 // with its key) and the card says so at once; a board that says the same keeps it on, and one that
 // says it's on by the setting says that; with its primary session stopped, it says what the board
 // says becomes of the news (`prStopped`): resumed for what asks for work, not beside another of the
-// PR's sessions that runs, or nothing. With nudges kept to less than everything, a box under the
-// words watches it (set_pr_watch), and the words say everything while it does. A second click turns
+// PR's sessions that runs, or nothing. A box under the words watches it (set_pr_watch), and the
+// words say everything while it does, whatever nudges are kept to. A second click turns
 // the nudge off, a watch the board hasn't said yet with it. A merged PR's card
 // has no switch. Then the setting, off by default, saves `[pull_requests]` as config.toml has it;
 // what a nudge tells of, a merge apart under Everything and its own box under the others;
@@ -174,9 +174,9 @@
       flag(false);
       push({});
       await wait(200);
-      // Watching it: nothing to add under Everything; kept to less, a box that has it be everything.
+      // Watching it: a box under Everything too, where it still wakes a session that stopped.
       var watchBox = function () { return card().querySelector('.ca-prhover-watch input'); };
-      check('with nudges telling everything, there is no box to watch it', !watchBox());
+      check('with nudges telling everything, there is still a box to watch it, unticked', !!watchBox() && !watchBox().checked);
       board.nudgeAbout = 'feedback-and-checks';
       push({});
       await wait(200);
@@ -188,6 +188,13 @@
       push({ watched: true });
       await wait(200);
       check('the board that says so keeps it ticked', watchBox().checked && /when it’s approved, merged or closed/.test(says()), says());
+      running(false);
+      stopped('resumes');
+      await wait(200);
+      check('watched, a primary that stopped is resumed for all of it', /resumed out of sight to be told when someone else reviews it, asks for changes or comments, when it’s approved, merged or closed/.test(says()), says());
+      running(true);
+      stopped(null);
+      await wait(200);
       watchBox().click();
       await wait(100);
       watching = calls('set_pr_watch');

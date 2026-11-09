@@ -393,9 +393,10 @@ function forStopped(about: NudgeAbout): NudgeAbout {
 /** What a PR's card says under its nudge switch (nudges.rs): whether it's on and why, and who's
  *  told of what (`about`, `[pull_requests] nudge_about`). `primary` is its primary session's
  *  title, whether it runs on this Mac and what becomes of the news while it doesn't
- *  (`Board.prStopped`), when the card has it; only that session is ever told. */
-export function nudgeWords(pr: Pick<PrItem, 'state' | 'nudgeByDefault'>, on: boolean, primary: { title: string; runs: boolean; stopped?: PrStopped; blocked?: boolean } | null, about: NudgeAbout = 'everything'): string {
-  const said = NUDGED_WHEN[about] ?? NUDGED_WHEN.everything;
+ *  (`Board.prStopped`), when the card has it; only that session is ever told. A watched PR
+ *  (`PrItem.watched`) tells of everything, a primary session that stopped too. */
+export function nudgeWords(pr: Pick<PrItem, 'state' | 'nudgeByDefault'>, on: boolean, primary: { title: string; runs: boolean; stopped?: PrStopped; blocked?: boolean } | null, about: NudgeAbout = 'everything', watched = false): string {
+  const said = NUDGED_WHEN[watched ? 'everything' : about] ?? NUDGED_WHEN.everything;
   if (primary?.blocked) {
     const lead = on ? (pr.nudgeByDefault ? 'On for every PR of yours, by Settings.' : 'On for this PR.') : 'Off for this PR.';
     return `${lead} “${primary.title}”, its primary session, was flagged by its provider. PR notifications are blocked in Settings › Automation.`;
@@ -404,7 +405,7 @@ export function nudgeWords(pr: Pick<PrItem, 'state' | 'nudgeByDefault'>, on: boo
     const lead = pr.nudgeByDefault ? 'On for every PR of yours, by Settings.' : 'On for this PR.';
     if (!primary) return `${lead} No session of it is known here, so nobody is told.`;
     if (!primary.runs && primary.stopped === 'resumes') {
-      const work = NUDGED_WHEN[forStopped(about)] ?? NUDGED_WHEN['feedback-and-checks'];
+      const work = NUDGED_WHEN[watched ? 'everything' : forStopped(about)] ?? NUDGED_WHEN['feedback-and-checks'];
       return `${lead} “${primary.title}”, its primary session, isn’t running here, so it’s resumed out of sight to be told ${work.when}.`;
     }
     if (!primary.runs && primary.stopped === 'beside') return `${lead} “${primary.title}”, its primary session, isn’t running here, and another of the PR’s sessions is, so it isn’t resumed beside that one: nobody is told until it runs.`;

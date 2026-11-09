@@ -2972,8 +2972,12 @@ Commands:
           session does next hangs on what happens to the PR, its approval say. It takes
           the same options, and run from a session it makes that session the one told in
           the same way. A PR approved already tells its session that now. A primary
-          session that has stopped is still resumed only with what asks for work, never
-          for an approval, a merge or a close. --off stops the watch and leaves its
+          session on this Mac that has stopped is resumed out of sight to be told all of
+          this, spending its account's usage, unless you archived it, another of the
+          PR's sessions runs, or `[sessions] resume_for_pr_news` is off. Archiving the
+          session ends the watch; the session that takes the PR over next isn't
+          watching. Run where there's no session to tell (outside one, on a PR with
+          none), it says so and changes nothing. --off stops the watch and leaves its
           nudge as it was, telling what its settings say; `pr nudge --off` stops both
   review  Start an agent's review of a PR now, as Review with… does in the app: a round
           of Codealong's own reviews (Settings › Automation), whatever `[reviews] auto`
@@ -3160,9 +3164,13 @@ Watch a PR: have its primary session told of everything that happens on it, what
 an approval, a merge and a close told too, for when what a session does next hangs on
 what happens to the PR, its approval say. It takes the same options, and run from a
 session it makes that session the one told in the same way. A PR approved already tells
-its session that now. A primary session that has stopped is still resumed only with what
-asks for work, never for an approval, a merge or a close. --off stops the watch and
-leaves its nudge as it was, telling what its settings say; `pr nudge --off` stops both
+its session that now. A primary session on this Mac that has stopped is resumed out of
+sight to be told all of this, spending its account's usage, unless you archived it,
+another of the PR's sessions runs, or `[sessions] resume_for_pr_news` is off. Archiving
+the session ends the watch; the session that takes the PR over next isn't watching. Run
+where there's no session to tell (outside one, on a PR with none), it says so and
+changes nothing. --off stops the watch and leaves its nudge as it was, telling what its
+settings say; `pr nudge --off` stops both
 
 Usage: codealong pr watch [OPTIONS] <PR>
 

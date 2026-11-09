@@ -1040,10 +1040,14 @@ Watching a PR has its nudge tell of everything, whatever that setting or the rep
 nudges to, for that PR alone: for a session whose next step hangs on what happens to it, its
 approval say. A session starts one with `codealong pr watch <pr>`, which turns the PR's nudge on
 and makes that session the one told as `pr nudge` does, and you with the box under the switch on
-the PR's card, there while nudges tell of less than everything. One begun on a PR approved already
-says so at once. `codealong pr watch <pr> --off` or the box stops it and leaves the nudge on,
-telling what the settings say; turning the nudge off stops both. A primary session that has
-stopped is still resumed only for what asks for work, so an approval reaches it only while it runs.
+the PR's card, for its primary session. It's refused where there's no session to tell. One begun
+on a PR approved already says so at once. `codealong pr watch <pr> --off` or the box stops it and leaves the nudge on,
+telling what the settings say; turning the nudge off stops both. A watch is for the session told,
+which starting it picks as the PR's primary: a primary session that has stopped is resumed to be
+told all of it, an approval, a merge and a close too, which nudges telling everything don't do.
+Archiving that session ends the watch, since the session that takes the PR over next never asked
+to watch it, and unarchived it's watching again. Moved to another account, its copy goes on
+watching.
 
 A primary session on this Mac that has stopped (its terminal closed, or Claude Code's background
 service ended it after an hour idle) is resumed out of sight to be told, as a session is resumed
@@ -1052,7 +1056,7 @@ starts with a line saying it had stopped and Codealong resumed it to tell it thi
 thread, which the app takes a message for while it isn't running, is sent it there. Only news
 that asks for work goes to one that isn't running: someone else's comments and reviews that say
 something, changes asked for, failing checks and a conflict, never an approval, a merge or a close,
-whatever the nudge tells of while it runs. It isn't resumed while another of the PR's sessions runs
+whatever the nudge tells of while it runs, unless the PR is watched. It isn't resumed while another of the PR's sessions runs
 on this Mac, or a session runs in a worktree on the PR's branch on another of your devices that's
 connected, unless that one is a helper or a review, since the work may have gone on there and two
 agents on one branch get in each other's way; then nobody is told until it runs. Nor is one you archived or marked done, or one on an account you turned off, and a

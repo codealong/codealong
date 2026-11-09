@@ -1270,6 +1270,7 @@ fn pr_item(lanes: &[Lane], owners: &HashMap<&Path, &[String]>, slug: &str, (proj
     let (primary, primary_by) = pr_primary(lanes, &sessions, &key, links).unzip();
     let mine = login.is_some() && p.author.as_deref() == login;
     let by_hand = links.nudged.contains(&key);
+    let watched = links.watched.contains(&key) && primary_by == Some(PrimaryBy::Picked);
     let by_default = links.nudge_by_default_in.get(slug).copied().unwrap_or(links.nudge_by_default);
     let nudge = p.state.is_open() && !links.not_nudged.contains(&key) && (by_hand || (by_default && mine));
     // Assigned to you since your last review: it waits on your review as a request does, asked
@@ -1296,7 +1297,7 @@ fn pr_item(lanes: &[Lane], owners: &HashMap<&Path, &[String]>, slug: &str, (proj
         snoozed_until: None,
         nudge,
         nudge_by_default: nudge && !by_hand,
-        watched: links.watched.contains(&key),
+        watched,
         primary,
         primary_by,
         head: p.head_ref.clone(),
@@ -3434,12 +3435,32 @@ mod tests {
         links.nudged.clear();
         links.not_nudged.insert("sprucehq/spark#1037".into());
         assert_eq!(card(&open, Some("gwen"), &links), (false, false));
-        // Watched stays said as it ends, unlike the nudge, so that the ending is told in full.
-        links.not_nudged.clear();
-        links.watched.insert("sprucehq/spark#1037".into());
-        assert!(pr_card(&seeds, &[], "sprucehq/spark", &HashMap::new(), &pr(PrState::Merged, 0), Some("gwen"), &links).watched);
+    }
+
+    /// A watch is the session's picked as the PR's primary: archived, the next takes over the PR
+    /// without it, and it's back with the session. It stays said as the PR ends, unlike the nudge,
+    /// so that the ending is told in full.
+    #[test]
+    fn a_watch_goes_with_the_session_picked_for_it() {
+        let s = |key: &str, archived: bool| Session { cwd: "/r/spark-portal".into(), branch: Some("portal".into()), started_at: Some(NOW - 1_000), last_activity: NOW, archived, ..crate::fixtures::session(key) };
+        let lanes = |archived: bool| vec![Lane { repo_slug: Some("sprucehq/spark".into()), branch: Some("portal".into()), ..crate::fixtures::lane("/r/spark-portal", vec![s("watcher", archived), s("other", false)]) }];
+        let seeds = vec![seed("/r/spark-portal", "portal")];
+        let key = "sprucehq/spark#1037".to_string();
+        let card = |p: PrRaw, archived: bool, links: &PrLinks| {
+            let item = pr_card(&seeds, &lanes(archived), "sprucehq/spark", &HashMap::new(), &p, Some("gwen"), links);
+            (item.watched, item.primary.unwrap_or_default())
+        };
+        let mut links = PrLinks { watched: HashSet::from([key.clone()]), picked: HashMap::from([(key.clone(), "watcher".to_string())]), worked: HashMap::from([(key.clone(), vec!["watcher".to_string()])]), ..Default::default() };
+        assert_eq!(card(pr(PrState::Open, 0), false, &links), (true, "watcher".to_string()));
+        assert_eq!(card(pr(PrState::Merged, 0), false, &links), (true, "watcher".to_string()));
+        assert_eq!(card(pr(PrState::Open, 0), true, &links), (false, "other".to_string()));
+        // Nobody picked, as with a file written before a watch picked one: nobody is watching.
+        links.picked.clear();
+        assert!(!card(pr(PrState::Open, 0), false, &links).0);
+        // Picked, and no watch.
+        links.picked.insert(key, "watcher".into());
         links.watched.clear();
-        assert!(!pr_card(&seeds, &[], "sprucehq/spark", &HashMap::new(), &open, Some("gwen"), &links).watched);
+        assert!(!card(pr(PrState::Open, 0), false, &links).0);
     }
 
     #[test]

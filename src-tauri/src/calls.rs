@@ -171,9 +171,19 @@ calls! {
     }
 
     /// Starts or stops watching the PR `owner/name#number`, from its card: its nudge then tells of
-    /// everything (prlinks.rs `set_watch`).
+    /// everything (prlinks.rs `set_watch`), and the session it's for, its primary now, is picked as
+    /// such, so that the watch ends with it (`PrItem::watched`).
     fn set_pr_watch(c, key: String, on: bool) -> Result<(), String> {
-        prlinks::change(|store| store.set_watch(&key, on)).map_err(words)?;
+        let primary = c.engine.board().prs.iter().find(|p| p.key == key).and_then(|p| p.primary.clone()).filter(|_| on);
+        if on && primary.is_none() {
+            return Err(format!("{key} has no session here to tell, so nothing would watch it."));
+        }
+        prlinks::change(|store| {
+            let watch = store.set_watch(&key, on);
+            let picked = primary.as_ref().is_some_and(|s| store.set_primary(&key, s, util::now_ms()));
+            watch || picked
+        })
+        .map_err(words)?;
         c.engine.pr_links_changed();
         Ok(())
     }

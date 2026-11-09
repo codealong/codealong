@@ -3581,9 +3581,16 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
     /// What pr-links.json and the sessions' records say of PRs, for the board, a moved
     /// conversation's records going on in its copy (`prlinks::carry_moves`).
     fn pr_links(&self) -> board::PrLinks {
-        let moves = origins::current().moves();
-        let (worked, unlinked, made) = prlinks::resolve(&prlinks::carry_moves(&self.pr_marks, &moves, prlinks::add_mark), &self.pr_store);
-        let picked = self.pr_store.links.iter().filter(|l| l.linked && l.primary).map(|l| (prlinks::pr_key(&l.pr), l.session.clone())).collect();
+        let origins = origins::current();
+        let moves = origins.moves();
+        let (mut worked, unlinked, made) = prlinks::resolve(&prlinks::carry_moves(&self.pr_marks, &moves, prlinks::add_mark), &self.pr_store);
+        // By the board before this one, as sends and schedules follow a session. With none yet,
+        // every copy is taken to be there, or a watch would seem to begin with the next board.
+        let picked = {
+            let board = self.board.read();
+            let exists = |k: &str| board.as_ref().map_or(true, |b| b.lanes.is_empty() || b.session(k).is_some());
+            prlinks::picks_after_moves(&self.pr_store, |k| origins.moved_to(k, exists), &mut worked)
+        };
         board::PrLinks {
             worked,
             unlinked,

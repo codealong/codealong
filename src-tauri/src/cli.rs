@@ -831,7 +831,7 @@ enum PrCmd {
     Unlink(PrLinkArgs),
     /// Have a PR's primary session told of what happens on it: while it runs, it gets a message when someone else reviews the PR, asks for changes or comments (with what they wrote), when it's approved, merged or closed, and when its checks fail or its branch comes to conflict with its base, with where the PR stands. One on this Mac that has stopped is resumed out of sight with what asks for work (comments, changes asked for, failing checks, conflicts), unless another of the PR's sessions runs (`[sessions] resume_for_pr_news`). Its primary session is the one that pushed to its branch most, the one that opened it counting as once at least and winning a tie, never an automatic review of it, unless another was made it here or from the PR's menu in the app (Primary session); the PR's other sessions aren't told. What the signed-in user did, which is what its own agent did through gh, isn't told. Run from a session, that session becomes the one told, unless another running session is the PR's primary (--take). Off for a PR until turned on for it, here or from its card in the app, unless `[pull_requests] nudge_by_default` in config.toml turns it on for every PR of yours; one turned on approved already tells its session that now. `[pull_requests] nudge_about` can keep what it tells to comments and requests for changes ("feedback"), and failing checks and conflicts ("feedback-and-checks"), each with a merge too ("feedback-and-merges", "feedback-checks-and-merges").
     Nudge(PrNudgeArgs),
-    /// Watch a PR: have its primary session told of everything that happens on it, whatever `[pull_requests] nudge_about` or its repo's team keep nudges to. It's `pr nudge`, with an approval, a merge and a close told too, for when what a session does next hangs on what happens to the PR, its approval say. It takes the same options, and run from a session it makes that session the one told in the same way. A PR approved already tells its session that now. A primary session that has stopped is still resumed only with what asks for work, never for an approval, a merge or a close. --off stops the watch and leaves its nudge as it was, telling what its settings say; `pr nudge --off` stops both.
+    /// Watch a PR: have its primary session told of everything that happens on it, whatever `[pull_requests] nudge_about` or its repo's team keep nudges to. It's `pr nudge`, with an approval, a merge and a close told too, for when what a session does next hangs on what happens to the PR, its approval say. It takes the same options, and run from a session it makes that session the one told in the same way. A PR approved already tells its session that now. A primary session on this Mac that has stopped is resumed out of sight to be told all of this, spending its account's usage, unless you archived it, another of the PR's sessions runs, or `[sessions] resume_for_pr_news` is off. Archiving the session ends the watch; the session that takes the PR over next isn't watching. Run where there's no session to tell (outside one, on a PR with none), it says so and changes nothing. --off stops the watch and leaves its nudge as it was, telling what its settings say; `pr nudge --off` stops both.
     Watch(PrNudgeArgs),
     /// Start an agent's review of a PR now, as Review with… does in the app: a round of Codealong's own reviews (Settings › Automation), whatever `[reviews] auto` says and of a commit reviewed already too, in a session of its own where `[reviews] start` says, its review posted where `[reviews] post` says (one of a PR of yours is kept and handed back to its primary session). That reviewer's session for the PR is asked again when it has one. Not while a round of it is under way. The answer names the round's session: `codealong session wait <key>` waits for its turn, and `codealong pr show <pr>` says where the review stands.
     Review(PrReviewArgs),
@@ -4629,10 +4629,16 @@ fn pr_nudge(c: &mut Client, a: &PrNudgeArgs, watch: bool, json: bool) -> Result<
         },
         None => None,
     };
+    // A watch is the session's picked as the PR's primary, so that it ends with that session
+    // (`PrItem::watched`): the one told picked, though it's its primary already.
+    let picks = pick.clone().or_else(|| current.clone().filter(|_| watch && on));
+    if watch && on && picks.is_none() {
+        bail!("{key} has no session here to tell, and this command doesn't run in one, so nothing would watch it. Name one with --session.");
+    }
     let mut changed = false;
     let store = crate::prlinks::change(|store| {
         let told = if watch { store.set_watch(&key, on) } else { store.set_nudge(&key, on) };
-        let primary = pick.as_ref().is_some_and(|w| store.set_primary(&key, w, now_ms()));
+        let primary = picks.as_ref().is_some_and(|w| store.set_primary(&key, w, now_ms()));
         changed = told || primary;
         changed
     })?;

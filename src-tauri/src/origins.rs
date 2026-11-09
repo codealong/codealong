@@ -535,6 +535,17 @@ mod tests {
     }
 
     #[test]
+    fn a_session_moved_twice_goes_on_in_its_newest_copy_still_there() {
+        let mut store = Store::default();
+        let mut entry = |key: &str, at| store.sessions.insert(key.into(), Entry { from: "claude:claude:a".into(), how: OriginHow::Fork, at, helper: false, report: false, known: false });
+        entry("claude:claude2:b", 10);
+        entry("claude:claude3:c", 20);
+        assert_eq!(store.moved_to("claude:claude:a", |_| true).as_deref(), Some("claude:claude3:c"));
+        assert_eq!(store.moved_to("claude:claude:a", |k| k != "claude:claude3:c").as_deref(), Some("claude:claude2:b"));
+        assert_eq!(store.moved_to("claude:claude:a", |k| k != "claude:claude2:b").as_deref(), Some("claude:claude3:c"));
+    }
+
+    #[test]
     fn a_session_moved_to_another_account_names_where_it_went() {
         let mut store = Store::default();
         let mut entry = |key: &str, from: &str, how, at| store.sessions.insert(key.into(), Entry { from: from.into(), how, at, helper: false, report: false, known: false });

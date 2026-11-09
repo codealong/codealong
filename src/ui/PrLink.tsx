@@ -8,8 +8,8 @@
 // ⌘-click always does. A right-click has the PR's menu (menus.ts). A PR's chip in a session's
 // panel (`PrChipCard`) has the same card, less Show in Codealong, which a click on the chip does.
 // For an open PR the board lists, the card has the switch that has its primary session, listed
-// first, told of what happens on it (nudges.rs), with a box to watch it, which has that be everything
-// where its settings keep nudges to less. An open PR's card ends in GitHub's merge box
+// first, told of what happens on it (nudges.rs), with a box to watch it, which has that be everything,
+// waking it if it has stopped. An open PR's card ends in GitHub's merge box
 // (MergeBox.tsx), as its panel has it, so a session's PR merges from the session: it stays once
 // the PR has merged, saying so and offering to delete the branch.
 //
@@ -423,12 +423,12 @@ function PrCard({ card, prRef: ref, url, onBrowse, clickShows }: CardProps) {
             <span className={cx('ca-switch', nudges && 'is-on')} aria-hidden="true" />
           </button>
           <p className="ca-hovercard-meta">
-            {nudgeWords(listed, nudges, primary ? { title: primary.session.title, runs: primary.session.live && !primary.lane.device, stopped: host.nudges.prStopped?.[listed.key], blocked: !!primary.session.flagged && (host.nudges.sessions?.block_flagged_sessions ?? true) } : null, watches ? 'everything' : nudgeAbout)}
+            {nudgeWords(listed, nudges, primary ? { title: primary.session.title, runs: primary.session.live && !primary.lane.device, stopped: host.nudges.prStopped?.[listed.key], blocked: !!primary.session.flagged && (host.nudges.sessions?.block_flagged_sessions ?? true) } : null, nudgeAbout, watches)}
           </p>
-          {nudges && (watches || nudgeAbout !== 'everything') && (
+          {nudges && listed.primary && (
             <label className="ca-check ca-prhover-watch">
               <CheckBox checked={watches} onChange={(on) => setWatch(listed.key, on)} />
-              <span>Watch this PR: tell it everything, approvals too</span>
+              <span>Watch this PR: tell it everything, even if it has stopped</span>
             </label>
           )}
           {nudgeError && <p className="ca-hovercard-error">{nudgeError}</p>}

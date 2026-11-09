@@ -334,8 +334,10 @@ pub struct PrItem {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub nudge_by_default: bool,
     /// Watched, from its card or by `codealong pr watch`: its nudge tells of everything, whatever
-    /// `[pull_requests] nudge_about` says (nudges.rs `about_of`). Said after it ended too, so that
-    /// its ending is told.
+    /// `[pull_requests] nudge_about` says (nudges.rs `about_of`), and wakes its primary session for
+    /// it. Starting a watch picks that session as the PR's primary, and it's said only while one
+    /// picked is: archived, a session isn't listed and the next takes over, which never asked to
+    /// watch. Said after it ended too, so that its ending is told.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub watched: bool,
     /// The session that's the PR's own, of `sessions`, by key: the one picked as its primary,

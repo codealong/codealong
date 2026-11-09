@@ -213,6 +213,9 @@ describe('nudgeWords', () => {
       'On for this PR. “marketing email broadcast”, its primary session, isn’t running here, so it’s resumed out of sight to be told when someone else asks for changes or comments and when its checks fail or its branch conflicts with its base, never for an approval or a merge.',
     );
     expect(nudgeWords(item({}), true, { ...stopped, stopped: 'resumes' }, 'feedback')).toMatch(/resumed out of sight to be told when someone else asks for changes or comments, never for an approval or a merge\.$/);
+    // Watched, a session that stopped is resumed for all of it, whatever nudges are kept to.
+    expect(nudgeWords(item({}), true, { ...stopped, stopped: 'resumes' }, 'feedback-and-checks', true)).toMatch(/resumed out of sight to be told when someone else reviews it, asks for changes or comments, when it’s approved, merged or closed, and when its checks fail/);
+    expect(nudgeWords(item({}), true, { ...stopped, runs: true }, 'feedback', true)).toMatch(/when it’s approved, merged or closed/);
     expect(nudgeWords(item({}), true, { ...stopped, stopped: 'beside' })).toBe('On for this PR. “marketing email broadcast”, its primary session, isn’t running here, and another of the PR’s sessions is, so it isn’t resumed beside that one: nobody is told until it runs.');
     expect(nudgeWords(item({}), true, { ...stopped, stopped: 'never' })).toMatch(/isn’t running here, so nobody is told until it is\.$/);
   });

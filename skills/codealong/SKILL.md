@@ -387,10 +387,10 @@ worked in a worktree on the PR's branch while the PR was open. So there's usuall
   once it's approved or merged, since a plain nudge may never tell you of either. Then end your
   turn rather than polling GitHub, and take it from there when the message comes. It makes you the
   one told as `pr nudge` does (`--take`, by the same rule), one approved already says so at once,
-  and an approval in the message still isn't a go-ahead to merge. It reaches you only while your
-  session runs: a session that has stopped is resumed for what asks for work, never for an approval,
-  a merge or a close. `--off` stops the watch and leaves the nudge as it was; `pr show` says whether
-  it's on (`watched`).
+  and an approval in the message still isn't a go-ahead to merge. Your session may stop while you
+  wait: it's resumed to be told, unless the user archived it, another of the PR's sessions runs, or
+  they turned that off in Settings, and archiving it ends the watch. `--off` stops the watch and
+  leaves the nudge as it was; `pr show` says whether it's on (`watched`).
 
 ## Accounts
 

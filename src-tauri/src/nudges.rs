@@ -10,8 +10,9 @@
 //! what happened, as Codealong's own (send.rs `tell`: its harness's way in for other sessions'
 //! messages, else typed into its terminal), on a thread of its own, since reading GitHub and a
 //! send take a moment. One here that isn't running is resumed out of sight with it
-//! (`send::tell_waking`) by `[sessions] resume_for_pr_news`, and told then only what asks for work
-//! (`for_stopped`), unless another of the PR's sessions runs (`stopped_primaries`). The PR's other
+//! (`send::tell_waking`) by `[sessions] resume_for_pr_news`, and told then only what asks for work,
+//! or everything where the PR is watched (`for_stopped`), unless another of the PR's sessions runs
+//! or you archived it (`stopped_primaries`). The PR's other
 //! sessions (helpers, reviewers, ones that came to its branch) are
 //! told nothing. What you did to the PR yourself, which is what its agent did through `gh` too, is
 //! never told back. `[pull_requests] nudge_about` can keep it to what asks for work (`keep`):
@@ -97,7 +98,7 @@ pub struct Job {
     /// rather than nothing.
     pub last: bool,
     /// What it's told of (`[pull_requests] nudge_about`), as the board said when it was due, and
-    /// only what asks for work where it isn't running (`for_stopped`).
+    /// where it isn't running, only what it's resumed for (`for_stopped`).
     pub about: NudgeAbout,
     /// Its session isn't running, so it's resumed to be told (`Board::pr_stopped`,
     /// `send::tell_waking`).
@@ -106,9 +107,11 @@ pub struct Job {
 
 /// What a nudge tells a session that isn't running, which it's resumed for: what asks for work,
 /// as `feedback-and-checks` has it, or less where `about` says less. An approval, a merge or a
-/// close is no reason to start a session that stopped.
-fn for_stopped(about: NudgeAbout) -> NudgeAbout {
+/// close is no reason to start a session that stopped, unless it's watching the PR: it asked to
+/// hear of them, and may well have stopped while it waited.
+fn for_stopped(pr: &PrItem, about: NudgeAbout) -> NudgeAbout {
     match about {
+        _ if pr.watched => about,
         NudgeAbout::Everything | NudgeAbout::FeedbackChecksAndMerges => NudgeAbout::FeedbackAndChecks,
         NudgeAbout::FeedbackAndMerges => NudgeAbout::Feedback,
         about => about,
@@ -153,7 +156,8 @@ pub fn stopped_primaries(board: &Board, elsewhere: &BTreeSet<String>, on: bool, 
             Stopped::Never
         })
     };
-    board.prs.iter().filter(|pr| pr.nudge).filter_map(|pr| Some((pr.key.clone(), stopped(pr)?))).collect()
+    // A watched PR's ending wakes it too, though the board says the nudge only while a PR is open.
+    board.prs.iter().filter(|pr| pr.nudge || pr.watched).filter_map(|pr| Some((pr.key.clone(), stopped(pr)?))).collect()
 }
 
 /// The PRs another of your devices runs a session on, by `prlinks::pr_key`: a worktree there on
@@ -314,12 +318,12 @@ impl Nudger {
             let Some(primary) = pr.primary.as_deref() else { continue };
             let s = goes_to(&self.copies, primary);
             if board.automation_blocked(&s) { continue; }
-            // One that isn't running is resumed only for what asks for work; the copy one went on
+            // One that isn't running is resumed only for what it's resumed for; the copy one went on
             // as is told as it runs, once the board has it.
             let why = if runs_here(board, &s) || s != primary {
                 why
             } else if resumes(pr) {
-                keep(for_stopped(about), pr.state.is_open(), why)
+                keep(for_stopped(pr, about), pr.state.is_open(), why)
             } else {
                 continue;
             };
@@ -366,7 +370,7 @@ impl Nudger {
             let why = std::mem::take(&mut o.why);
             o.sending = Some(why.clone());
             let (about, stopped) = (about_of(board, &o.pr), !runs_here(s));
-            out.push(Job { pr: o.pr.clone(), why, session: s.clone(), last: o.failures + 1 >= TRIES, about: if stopped { for_stopped(about) } else { about }, stopped });
+            out.push(Job { pr: o.pr.clone(), why, session: s.clone(), last: o.failures + 1 >= TRIES, about: if stopped { for_stopped(&o.pr, about) } else { about }, stopped });
         }
         out.sort_by(|a, b| (&a.pr.key, &a.session).cmp(&(&b.pr.key, &b.session)));
         out
@@ -1343,14 +1347,35 @@ mod tests {
         sent(&mut nudger, &board(vec![before.clone()], vec![live(A)]));
         assert_eq!(sent(&mut nudger, &board(vec![watched(&before)], vec![live(A)]))[0].why, Why { approved: true, ..Why::default() });
 
-        // A session that stopped is still resumed only for what asks for work.
+        // A session that stopped is resumed for all of it: who approved it, then its merge.
         let mut nudger = Nudger::default();
         sent(&mut nudger, &narrow(vec![watched(&open)], vec![stopped(A)]));
-        let still = PrItem { state: PrState::Approved, ..watched(&open) };
-        assert!(sent(&mut nudger, &narrow(vec![still.clone()], vec![stopped(A)])).is_empty());
-        let jobs = sent(&mut nudger, &narrow(vec![PrItem { updated_at: UPDATED + 1, ..still }], vec![stopped(A)]));
-        assert_eq!((jobs[0].stopped, jobs[0].about), (true, NudgeAbout::FeedbackAndChecks));
-        assert_eq!(message(&jobs[0], Some(Ok(&ken)), Some("me")).unwrap(), None, "ken's approval alone");
+        let jobs = sent(&mut nudger, &narrow(vec![watched(&approved)], vec![stopped(A)]));
+        assert_eq!((jobs[0].stopped, jobs[0].about, jobs[0].why.approved), (true, NudgeAbout::Everything, true));
+        assert!(message(&jobs[0], Some(Ok(&ken)), Some("me")).unwrap().unwrap().contains("- ken approved it.\n"));
+        let merged = off(PrItem { state: PrState::Merged, ..watched(&approved) });
+        let jobs = sent(&mut nudger, &narrow(vec![merged.clone()], vec![stopped(A)]));
+        assert_eq!((jobs[0].stopped, jobs[0].about, jobs[0].why.ended), (true, NudgeAbout::Everything, Some(PrState::Merged)));
+        // And told at once of a watch begun on one approved already.
+        let mut nudger = Nudger::default();
+        sent(&mut nudger, &narrow(vec![before.clone()], vec![stopped(A)]));
+        let jobs = sent(&mut nudger, &narrow(vec![watched(&before)], vec![stopped(A)]));
+        assert_eq!((jobs[0].stopped, jobs[0].why.clone()), (true, Why { approved: true, ..Why::default() }));
+
+        // Not one you archived, of an approval or an ending.
+        let archived = Session { archived: true, ..stopped(A) };
+        let mut nudger = Nudger::default();
+        sent(&mut nudger, &narrow(vec![watched(&open)], vec![archived.clone()]));
+        assert!(sent(&mut nudger, &narrow(vec![watched(&approved)], vec![archived.clone()])).is_empty());
+        assert!(sent(&mut nudger, &narrow(vec![merged.clone()], vec![archived])).is_empty());
+        // Nor beside another of its sessions that runs, nor with resuming turned off.
+        let both = |p: &PrItem| PrItem { sessions: pr("o/r#1", PrState::Open, &[A, B]).sessions, ..watched(p) };
+        let mut nudger = Nudger::default();
+        sent(&mut nudger, &narrow(vec![both(&open)], vec![stopped(A), live(B)]));
+        assert!(sent(&mut nudger, &narrow(vec![both(&approved)], vec![stopped(A), live(B)])).is_empty());
+        let mut nudger = Nudger::default();
+        sent(&mut nudger, &board(vec![watched(&open)], vec![stopped(A)]));
+        assert!(sent(&mut nudger, &board(vec![watched(&approved)], vec![stopped(A)])).is_empty());
     }
 
     /// An agent's review Codealong posted from someone's account is told as their agent's when
@@ -1446,7 +1471,7 @@ mod tests {
         let mut nudger = Nudger::default();
         sent(&mut nudger, &with(vec![open], vec![stopped(A)], NudgeAbout::FeedbackChecksAndMerges));
         assert!(sent(&mut nudger, &with(vec![merged], vec![stopped(A)], NudgeAbout::FeedbackChecksAndMerges)).is_empty());
-        assert_eq!(for_stopped(NudgeAbout::FeedbackAndMerges), NudgeAbout::Feedback);
+        assert_eq!(for_stopped(&pr("o/r#1", PrState::Open, &[A]), NudgeAbout::FeedbackAndMerges), NudgeAbout::Feedback);
     }
 
     #[test]

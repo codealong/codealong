@@ -792,7 +792,7 @@ function LimitsField({ cfg, disabled, onSave }: PaneProps) {
         <CheckBox checked={resumesForPrs} onChange={(on) => saveSessions({ resume_for_pr_news: on })} />
         <span>Resume a stopped session for its pull request’s news</span>
         <small>
-          When a pull request’s nudge (above) has news that asks for work (someone else’s comments or review, changes asked for, failing checks, a conflict) and the session it tells has stopped, Codealong resumes that session out of sight with it. Not for an approval, a merge or a close, nor a session you archived or marked done, nor while another of the pull request’s sessions is running, which may have taken the work on.
+          When a pull request’s nudge (above) has news that asks for work (someone else’s comments or review, changes asked for, failing checks, a conflict) and the session it tells has stopped, Codealong resumes that session out of sight with it. Not for an approval, a merge or a close unless the pull request is watched, nor a session you archived or marked done, nor while another of the pull request’s sessions is running, which may have taken the work on.
         </small>
       </label>
       <div className="ca-field">

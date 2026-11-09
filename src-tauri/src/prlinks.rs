@@ -54,8 +54,9 @@ pub struct LinkStore {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub nudges_off: Vec<String>,
     /// The PRs watched (`codealong pr watch`, the PR's card): a nudge on one tells of everything,
-    /// whatever `[pull_requests] nudge_about` keeps nudges to. A build from before this field
-    /// drops it when it next writes the file.
+    /// whatever `[pull_requests] nudge_about` keeps nudges to, for as long as the session picked as
+    /// its primary, which starting a watch picks, is listed (`PrItem::watched`). A build from before
+    /// this field drops it when it next writes the file.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub watched: Vec<String>,
 }
@@ -244,6 +245,25 @@ pub fn carry_moves(by_session: &HashMap<String, Vec<(String, i64)>>, moves: &[(S
     out
 }
 
+/// The session picked as each PR's primary, by PR, followed to the copy it went on as (`moved_to`,
+/// origins.rs `Store::moved_to`), which goes in `worked` for a pick its records don't show: the
+/// original is archived as the copy takes over, which would otherwise end the pick, and a watch
+/// with it (`PrItem::watched`), at a move to another account or a usage limit's own.
+pub fn picks_after_moves(store: &LinkStore, moved_to: impl Fn(&str) -> Option<String>, worked: &mut HashMap<String, Vec<String>>) -> HashMap<String, String> {
+    let mut picked = HashMap::new();
+    for l in store.links.iter().filter(|l| l.linked && l.primary) {
+        let copy = moved_to(&l.session);
+        if let Some(copy) = &copy {
+            let listed = worked.entry(pr_key(&l.pr)).or_default();
+            if !listed.contains(copy) {
+                listed.push(copy.clone());
+            }
+        }
+        picked.insert(pr_key(&l.pr), copy.unwrap_or_else(|| l.session.clone()));
+    }
+    picked
+}
+
 /// PR key → session keys, from what each session's records show and the links made by hand;
 /// the pairs unlinked by hand; and PR key → the sessions whose records show it, each with the
 /// time of its first mark, which says who opened it.
@@ -339,6 +359,24 @@ mod tests {
         // Linking again replaces the unlink.
         assert!(store.set("o/r#1", "claude:a:1", true, 4));
         assert_eq!(store.links.len(), 2);
+    }
+
+    #[test]
+    fn a_pick_follows_a_session_to_the_copy_it_went_on_as() {
+        let mut store = LinkStore::default();
+        store.set_primary("O/R#1", "claude:a:s", 1);
+        store.set_primary("o/r#2", "claude:a:other", 1);
+        store.set("o/r#3", "claude:a:s", true, 1);
+        let moved_to = |k: &str| (k == "claude:a:s").then(|| "claude:c:s".to_string());
+        let mut worked = HashMap::new();
+        let picked = picks_after_moves(&store, moved_to, &mut worked);
+        assert_eq!(picked["o/r#1"], "claude:c:s");
+        assert_eq!(picked["o/r#2"], "claude:a:other", "one that didn't move");
+        assert_eq!(picked.get("o/r#3"), None, "linked, not picked");
+        // The copy is listed on the PR though its records don't show it, and once.
+        assert_eq!(worked, HashMap::from([("o/r#1".to_string(), vec!["claude:c:s".to_string()])]));
+        picks_after_moves(&store, moved_to, &mut worked);
+        assert_eq!(worked["o/r#1"].len(), 1);
     }
 
     #[test]

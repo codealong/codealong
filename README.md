@@ -645,7 +645,7 @@ continue_after_network_error = true  # tell a session a lost connection stopped 
 continue_after_restart = true  # tell a session Codealong runs to carry on when Codealong quitting cut off its turn (Settings › Automation)
 resume_for_sessions_it_started = true  # resume a session that isn't running, out of sight, when one it started, or the one that started it, sends it a message (Settings › Automation)
 resume_for_any_session = true  # the same for any session's message, telling it it had stopped; the line above is part of it while it's on (Settings › Automation)
-resume_for_pr_news = true      # resume a PR's primary session that isn't running, out of sight, when its nudge has news that asks for work, unless another of the PR's sessions runs (Settings › Automation)
+resume_for_pr_news = true      # resume a PR's primary session that isn't running, out of sight, when its nudge has news that asks for work, or any news of a PR it watches, unless another of the PR's sessions runs (Settings › Automation)
 live_replies = false           # Claude Code sessions hand Codealong a reply as their terminal shows it, so Codealong shows it as it's written; their terminals then show a reply a paragraph at a time; new sessions only (Settings › Agents)
 hibernate_after = 0            # minutes a session in a terminal, or a Claude Code background job, sits idle, wanting nothing from you, before its tab closes or its job stops to free what its agent holds; opening it or replying resumes it; 0 is off (Settings › Automation)
 
