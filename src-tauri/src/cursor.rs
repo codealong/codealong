@@ -1632,13 +1632,19 @@ const ASKS: [(&str, &str); 9] = [
 /// (`Adapter::allow_for_review`).
 const WEB_SEARCH: &str = "Allow this web search?";
 
-/// What the box under a skipped command says while it waits for words to go with the skip, which
-/// Enter sends (empty, a plain skip).
+/// What the box under a skipped command or write says while it waits for words to go with the
+/// skip, which Enter sends (empty, a plain skip).
 const TELL_INSTEAD: &str = "Tell the agent what to do instead";
 
 /// How long a skip waits for that box to show before Enter is pressed: an Enter that came first
 /// would answer the prompt with its highlighted choice, which runs the command.
 const TELL_WAIT: Duration = Duration::from_secs(3);
+
+/// Held while Codealong reads a prompt and presses its keys, so its own answers never cross: an
+/// automatic review's allowing of a web search read before your skip of it would otherwise press
+/// `y` into the prompt after it, a command's perhaps. Keys typed in the terminal itself can still
+/// come between a read and a press, as with every harness answered by keys.
+static ANSWERING: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// How many lines at a screen's foot a prompt's question is looked for in.
 const PROMPT_LINES: usize = 40;
@@ -1652,7 +1658,9 @@ const PROMPT_LINES: usize = 40;
 /// (`→ Run (once) (y)`, `Add Shell(rm) to allowlist? (tab)`, `Run Everything (shift+tab)`,
 /// `Skip & tell the agent what to do instead (esc or n)`), and `←/→ to switch approval` under
 /// them when two wait. Nothing else is under it, so a question with anything else below is an
-/// old one scrolled up.
+/// old one scrolled up. The choices by kind, from the bundle: `n` on a command's or a write's
+/// (`Reject & propose changes (esc or n or p)`) opens a box for what to do instead, and on an MCP
+/// tool's, a delete's (`Keep (n)`) or a web search's skips it at once.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Asked {
     /// The question its box asks: "Run this command?".
@@ -1664,8 +1672,8 @@ pub struct Asked {
     /// Its choice that allows calls like this one from now on (Tab), as the box words it:
     /// "Add Shell(rm) to allowlist?". A web search's has none.
     pub always: Option<String>,
-    /// Its skip asks what to do instead, in a box Enter sends (a command's), where a web
-    /// search's skips at once.
+    /// Its skip (`n`) asks what to do instead, in a box Enter sends (a command's, a write's),
+    /// where a web search's skips at once.
     pub tells: bool,
 }
 
@@ -1711,7 +1719,7 @@ pub fn asked_on(screen: &str) -> Option<Asked> {
     let start = end.saturating_sub(PROMPT_LINES);
     let q = (start..end).rev().find(|&i| ASKS.iter().any(|(ask, _)| lines[i] == *ask))?;
     let (mut why, mut choices) = (Vec::new(), Vec::new());
-    for line in lines[q + 1..end].iter().filter(|l| !l.is_empty() && !l.starts_with("←/→")) {
+    for line in lines[q + 1..end].iter().filter(|l| !l.is_empty() && !key_hint(l)) {
         match choice(line) {
             Some(c) => choices.push(c),
             None if choices.is_empty() => why.push(line.trim_start_matches('⚠').trim()),
@@ -1727,18 +1735,48 @@ pub fn asked_on(screen: &str) -> Option<Asked> {
         what: what.join(" "),
         why: Some(why.join(" ")).filter(|w| !w.is_empty()),
         always: choices.iter().find(|(_, keys)| keys == "tab").map(|(label, _)| label.clone()),
-        tells: choices.iter().any(|(label, keys)| keys.ends_with('n') && label.to_lowercase().contains("tell the agent")),
+        tells: choices.iter().find(|(_, keys)| keys.split(" or ").any(|k| k == "n")).is_some_and(|(label, _)| {
+            let label = label.to_lowercase();
+            label.contains("tell the agent") || label.contains("propose")
+        }),
     })
 }
 
+/// A line the terminal UI draws to say what a key does, under a prompt's choices too: `←/→ to
+/// switch approval` when two wait, `ctrl+r to review changed files` once the chat has edited a
+/// file (seen under a command's prompt, 2026-11-09), `ctrl+o to expand`.
+fn key_hint(line: &str) -> bool {
+    let first = line.split_whitespace().next().unwrap_or_default();
+    let keyed = first == "←/→" || first == "esc" || first == "tab" || ["ctrl+", "shift+", "alt+", "cmd+"].iter().any(|k| first.starts_with(k));
+    keyed && line.contains(" to ")
+}
+
 /// A choice's words and the keys in brackets at its end: "→ Run (once) (y)" is ("Run (once)",
-/// "y"); "Skip (esc or n)" is ("Skip", "esc or n").
+/// "y"); "Reject & propose changes (esc or n or p)" is ("Reject & propose changes", "esc or n or
+/// p").
 fn choice(line: &str) -> Option<(String, String)> {
     let line = line.trim_start_matches('→').trim();
     let open = line.rfind(" (")?;
     let keys = line[open + 2..].strip_suffix(')')?;
-    let keyish = !keys.is_empty() && keys.len() <= 12 && keys.chars().all(|c| c.is_ascii_lowercase() || c == '+' || c == ' ');
+    let keyish = !keys.is_empty() && keys.len() <= 24 && keys.chars().all(|c| c.is_ascii_lowercase() || c == '+' || c == ' ');
     keyish.then(|| (line[..open].trim().to_string(), keys.to_string()))
+}
+
+/// The box asking what to do instead of `asked`'s call is up, at the screen's foot, and its prompt
+/// gone: only then does Enter send a skip rather than answer the prompt with its highlighted
+/// choice. Seen for a command: the call in a box of its own (`┌`, `│ $  <command> in . │`, `└`),
+/// then `→ Tell the agent what to do instead (Enter to send, empty to skip, Esc to cancel)` with
+/// `ctrl+c to stop` at the line's end. Where that box is there, it must hold the call.
+fn telling(screen: &str, asked: &Asked) -> bool {
+    let lines: Vec<&str> = screen.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+    let Some((last, above)) = lines.split_last() else { return false };
+    if !last.trim_start_matches('→').trim().starts_with(TELL_INSTEAD) || asked_on(screen).is_some() {
+        return false;
+    }
+    let squash = |t: &str| t.chars().filter(|c| !c.is_whitespace() && !"│┌┐└┘─".contains(*c)).collect::<String>();
+    let boxed: Vec<&str> = above.iter().rev().take_while(|l| l.starts_with(['┌', '│', '└'])).copied().collect();
+    let call: String = squash(&asked.what).chars().take(40).collect();
+    boxed.is_empty() || squash(&boxed.into_iter().rev().collect::<Vec<_>>().join("")).contains(&call)
 }
 
 /// The prompt a command line chat's terminal shows now, if it can be read (`launch::screen_of`).
@@ -1766,7 +1804,7 @@ fn skip(pid: u32, cwd: &Path, asked: &Asked, words: Option<&str>) -> anyhow::Res
         return Ok(());
     }
     let started = Instant::now();
-    while !crate::launch::screen_of(pid, cwd).ok().flatten().is_some_and(|t| t.contains(TELL_INSTEAD)) {
+    while !crate::launch::screen_of(pid, cwd).ok().flatten().is_some_and(|t| telling(&t, asked)) {
         if started.elapsed() >= TELL_WAIT {
             anyhow::bail!("Cursor didn't ask what to do instead, so nothing more was pressed: finish it in its terminal.");
         }
@@ -2390,6 +2428,7 @@ impl crate::harness::Adapter for Cursor {
     fn answer(&self, _ctx: &Ctx, s: &Session, id: &str, answer: crate::harness::Answer) -> anyhow::Result<String> {
         use crate::harness::Answer;
         use crate::launch::{press_all, Key, Press};
+        let _turn = ANSWERING.lock().unwrap_or_else(|e| e.into_inner());
         let (pid, asked) = asked_now(s, id)?;
         let cwd = Path::new(&s.cwd);
         match answer {
@@ -2413,6 +2452,7 @@ impl crate::harness::Adapter for Cursor {
     /// A command's prompt takes words with its skip; a web search's skips at once, so words for
     /// it are sent after.
     fn deny_saying(&self, _ctx: &Ctx, s: &Session, id: &str, words: &str) -> anyhow::Result<Option<String>> {
+        let _turn = ANSWERING.lock().unwrap_or_else(|e| e.into_inner());
         let (pid, asked) = asked_now(s, id)?;
         if !asked.tells {
             return Ok(None);
@@ -2424,6 +2464,7 @@ impl crate::harness::Adapter for Cursor {
     /// A web search, which reviews look things up with: the command line asks before each,
     /// whatever its approval mode short of Run Everything.
     fn allow_for_review(&self, _ctx: &Ctx, s: &Session) -> anyhow::Result<Option<String>> {
+        let _turn = ANSWERING.lock().unwrap_or_else(|e| e.into_inner());
         let Some(pid) = s.pid.filter(|_| s.surface == Surface::Cli) else { return Ok(None) };
         let Some(asked) = asked_in(pid, Path::new(&s.cwd)).filter(Asked::searches) else { return Ok(None) };
         crate::launch::press_all(pid, Path::new(&s.cwd), &[crate::launch::Press::Key(crate::launch::Key::Keys("y"))])?;
@@ -3154,6 +3195,38 @@ mod tests {
         // The id stays while the prompt's the same, and another prompt has another.
         assert_eq!(asked_on(COMMAND_SCREEN).unwrap().id(), command.id());
         assert_ne!(command.id(), search.id());
+        // Once the chat has edited a file, a hint goes under the choices (2026-11-09).
+        let edited = format!("{COMMAND_SCREEN}                                                  ctrl+r to review changed files\n");
+        assert_eq!(asked_on(&edited), Some(command));
+    }
+
+    /// A write's and an MCP tool's, their choices as 2026.11.05's bundle words them; the lines over
+    /// the question weren't seen (auto-review let every write tried run unasked).
+    #[test]
+    fn a_writes_skip_asks_what_to_do_instead_and_an_mcp_tools_doesnt() {
+        let write = asked_on("──────────────────\n ✎ notes.txt\n Write to this file?\n in /tmp/lab/notes.txt\n  → Proceed (y)\n    Reject & propose changes (esc or n or p)\n    Add Write(/tmp/lab/notes.txt) to allowlist? (tab)\n").unwrap();
+        assert_eq!((write.label().as_str(), write.why.as_deref(), write.tells), ("Write · ✎ notes.txt", Some("in /tmp/lab/notes.txt"), true));
+        assert_eq!(write.always.as_deref(), Some("Add Write(/tmp/lab/notes.txt) to allowlist?"));
+        let mcp = asked_on("──────────────────\n linear · create_issue\n Run this MCP tool?\n  → Run (once) (y)\n    Allowlist MCP Tool (tab)\n    Reject & propose changes (p)\n    Skip (esc or n)\n").unwrap();
+        assert_eq!((mcp.tells, mcp.always.as_deref()), (false, Some("Allowlist MCP Tool")));
+    }
+
+    /// Enter after a skip only once the box for what to do instead is at the foot, for that call:
+    /// an Enter at the prompt runs its highlighted choice.
+    #[test]
+    fn enter_follows_a_skip_only_once_its_box_is_up() {
+        let command = asked_on(COMMAND_SCREEN).unwrap();
+        let tell = format!("  $ rm -rf /tmp/lab/page.html && sudo -n true; echo ok Waiting for approval...\n ┌────────────────────────────────────┐\n │ $  rm -rf /tmp/lab/page.html && sudo -n true; echo ok in . │\n └────────────────────────────────────┘\n  → {TELL_INSTEAD} (Enter to send, empty to skip, Esc to cancel)        ctrl+c to stop\n");
+        assert!(telling(&tell, &command));
+        // The prompt still up: no, though the words are on the screen, even in the command itself.
+        assert!(!telling(COMMAND_SCREEN, &command));
+        let worded = COMMAND_SCREEN.replace("echo ok", &format!("echo '{TELL_INSTEAD}'"));
+        let worded_asked = asked_on(&worded).unwrap();
+        assert!(!telling(&worded, &worded_asked));
+        // Another call's box, or one answered and gone on from.
+        let other = asked_on(&COMMAND_SCREEN.replace("page.html", "other.html")).unwrap();
+        assert!(!telling(&tell, &other));
+        assert!(!telling(&format!("{tell}  The command was blocked.\n  → Add a follow-up\n"), &command));
     }
 
     #[test]
