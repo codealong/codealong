@@ -57,7 +57,8 @@
 //! which is taken up again should it show later with the PR still at that commit
 //! (`Tracked::take_up`), so a review it wrote is still read and posted.
 //!
-//! A few rounds run at once at most; one whose session waits on you doesn't hold a place. A round
+//! A few rounds run at once at most; one whose session waits on you doesn't hold a place, nor one
+//! whose reviewer has written nothing for twenty minutes (`SILENT_MS`), which goes on all the same. A round
 //! that didn't get done isn't tried again for the same commit (but the one an error ended, above);
 //! the next push tries again, and so
 //! does Try again on the PR's card and on its notice (`again`), which posts a review that was
@@ -129,6 +130,12 @@ const WHAT: &str = "a list of reviews";
 
 /// How many rounds run at once, at most.
 const AT_ONCE: usize = 2;
+/// How long a round's working reviewer can go without writing anything before its round stops
+/// holding one of the `AT_ONCE` places (`Part::silent`). It keeps its round: it may be at a long
+/// command, or at a prompt its records don't show, as Cursor's command line writes nothing while
+/// its permission prompt is up (two reviews sat at a web search's for an hour and a half,
+/// 2026-11-09, holding both places while other PRs waited).
+const SILENT_MS: i64 = 20 * 60_000;
 /// New commits are reviewed once the PR's branch has held still this long.
 const QUIET_MS: i64 = 5 * 60_000;
 /// How long after a turn's end whose review isn't written yet it's read again, and the first
@@ -329,6 +336,12 @@ impl Part {
     /// turn is starting, whatever a board from before it shows (a cut that it answers, say).
     fn starting(&self, now: i64) -> bool {
         !self.begun() && now - self.last_asked() < SHOW_MS
+    }
+
+    /// Its session `s` has written nothing for `SILENT_MS`, since it was last asked or since its
+    /// last activity, whichever came later.
+    fn silent(&self, s: &Session, now: i64) -> bool {
+        now - self.last_asked().max(s.last_activity) > SILENT_MS
     }
 }
 
@@ -1263,11 +1276,11 @@ impl Reviewer {
         let before = self.store.prs.len();
         self.store.prs.retain(|k, t| listed.get(k).is_some_and(|p| wanted(&settings.reviews(cfg, p), &board.lanes, p)) || t.rounds.last().is_some_and(|r| now - r.ended_at.unwrap_or(r.at) < KEEP_MS) || self.busy.contains(k));
         changed |= self.store.prs.len() != before;
-        // A round holds a place while one of its sessions works, is starting, or was cut off
-        // partway, to be told to carry on or just told.
+        // A round holds a place while one of its sessions works and has written something lately
+        // (`SILENT_MS`), is starting, or was cut off partway, to be told to carry on or just told.
         let holds_place = |r: &Round| {
             r.stage == ReviewStage::Reviewing
-                && r.parts.iter().any(|p| p.reviewing() && match &p.session { Some(k) => board.session(k).is_none_or(|(_, s)| s.status == Status::Working || (!board.automation_blocked(k) && (p.cut_off_in(s) || p.starting(now)))), None => p.pending.is_some() })
+                && r.parts.iter().any(|p| p.reviewing() && match &p.session { Some(k) => board.session(k).is_none_or(|(_, s)| (s.status == Status::Working && !p.silent(s, now)) || (!board.automation_blocked(k) && (p.cut_off_in(s) || p.starting(now)))), None => p.pending.is_some() })
         };
         let mut running = self.busy.len() + self.store.prs.iter().filter(|(k, t)| !self.busy.contains(*k) && t.rounds.last().is_some_and(holds_place)).count();
         let mut jobs = Vec::new();
@@ -3993,6 +4006,25 @@ mod tests {
         // One waits on you to allow something: the third starts.
         let waits = Session { asks: false, ..session(Status::Needs, NOW + 5) };
         assert_eq!(kinds(&r.due(&board(prs, vec![waits, two]), &on(), NOW + 6)), ["review 3 1111111 since None by auto"]);
+    }
+
+    /// Cursor's command line at its permission prompt writes nothing and reads as working: two
+    /// reviews sat so for an hour and a half, holding both places (2026-11-09).
+    #[test]
+    fn a_working_reviewer_that_writes_nothing_for_a_while_holds_no_place() {
+        let mut r = Reviewer::default();
+        let prs = vec![pr(3, HEAD), pr(1, HEAD), pr(2, HEAD)];
+        let jobs = r.due(&board(prs.clone(), vec![]), &on(), NOW);
+        r.told(&jobs[0], Went::Started(vec![started(AUTO, S, NOW)]), NOW).unwrap();
+        r.told(&jobs[1], Went::Started(vec![started(AUTO, "claude:claude:two", NOW)]), NOW).unwrap();
+        let two = |activity: i64| at("claude:claude:two", Status::Working, activity);
+        let late = NOW + SILENT_MS + 1_000;
+        // Both wrote something lately: both hold their places.
+        assert!(r.due(&board(prs.clone(), vec![session(Status::Working, late - 1_000), two(late - 1_000)]), &on(), late).is_empty());
+        // One has been silent since it was asked: the third starts, and the silent one's round
+        // goes on.
+        assert_eq!(kinds(&r.due(&board(prs.clone(), vec![session(Status::Working, NOW + 5), two(late - 1_000)]), &on(), late)), ["review 3 1111111 since None by auto"]);
+        assert_eq!(r.store.prs["o/r#1"].rounds[0].stage, ReviewStage::Reviewing);
     }
 
     #[test]
