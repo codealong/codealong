@@ -4,9 +4,12 @@
 // The project has no types for node (the tests are the only code that runs there).
 // @ts-expect-error no @types/node
 import { spawn } from 'node:child_process';
+// @ts-expect-error no @types/node
+import { fileURLToPath } from 'node:url';
 import { expect, test } from 'vitest';
 
-const script: string = new URL('../scripts/within.sh', import.meta.url).pathname;
+// Decoded, for a checkout whose path has a space in it: a URL's pathname keeps it as %20.
+const script: string = fileURLToPath(new URL('../scripts/within.sh', import.meta.url));
 
 type Run = { status: number | null; out: string; err: string };
 
@@ -34,6 +37,10 @@ function within(args: string[], deadline = 30_000): Promise<Run> {
       killGroup();
       fail(new Error(`within.sh ${args.join(' ')} held its output past ${deadline} ms`));
     }, deadline);
+    child.on('error', (e: Error) => {
+      clearTimeout(timer);
+      fail(e);
+    });
     child.on('close', (status: number | null) => {
       clearTimeout(timer);
       killGroup();
