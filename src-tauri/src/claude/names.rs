@@ -26,6 +26,14 @@ pub fn name_transcript(transcript: &Path, name: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// The name kept beside a transcript (`name_transcript`), for when its `custom-title` line is too
+/// far back to read. Claude Code's `/resume` goes by the end of the transcript, then this (2.1.319).
+pub fn kept_name(transcript: &Path) -> Option<String> {
+    let (dir, id) = (transcript.parent()?, transcript.file_stem()?);
+    let kept: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.join(id).join("custom-title.json")).ok()?).ok()?;
+    kept["customTitle"].as_str().map(str::trim).filter(|name| !name.is_empty()).map(String::from)
+}
+
 /// The file's last line has no newline yet.
 fn ends_mid_line(path: &Path) -> bool {
     let Ok(mut f) = File::open(path) else { return false };
@@ -35,9 +43,11 @@ fn ends_mid_line(path: &Path) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use super::name_transcript;
     use crate::claude::ClaudeCode;
-    use crate::claude::transcript::{parse_lines, HEAD};
+    use crate::claude::transcript::{parse_lines, parse_transcript, HEAD};
     use crate::model::{Harness, Session};
+    use std::io::Write;
 
     #[test]
     fn names_a_session_where_claude_code_keeps_it() {
@@ -70,5 +80,34 @@ mod tests {
         assert_eq!(std::fs::metadata(dir.join(from)).unwrap().permissions().mode() & 0o777, 0o700);
         // A session that hasn't written a transcript yet has nowhere to keep a name.
         assert!(ClaudeCode.rename(&ctx, &session("0f5e1d2c", None), name).is_err());
+    }
+
+    /// As a scheduled run went on 2.1.319: named just after its first prompt, then written to so
+    /// fast that the process never read the line, so it never stamped it again, and stamped its own
+    /// title instead. On a first read the line is beyond the tail, and the name still stands.
+    #[test]
+    fn a_name_the_session_never_took_up_outlives_the_tail() {
+        let dir = crate::fixtures::scratch("kept-name").join("projects/-x");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("25b09e0e.jsonl");
+        let own = |title: &str| format!("{{\"type\":\"ai-title\",\"aiTitle\":\"{title}\"}}\n{{\"type\":\"agent-name\",\"agentName\":\"{title}\"}}\n");
+        let filler = format!("{{\"type\":\"attachment\",\"note\":\"{}\"}}\n", "x".repeat(300 * 1024));
+        let append = |text: &str| std::fs::OpenOptions::new().append(true).open(&path).unwrap().write_all(text.as_bytes()).unwrap();
+        let read = || parse_transcript(&path, 1, None).unwrap().1;
+        std::fs::write(&path, format!("{HEAD}{}", own("Sync the northwind reports"))).unwrap();
+        name_transcript(&path, "Nightly digest").unwrap();
+        // Its line is the last for now, then far behind what the process goes on writing.
+        append(&format!("{filler}{}", own("Northwind report sync")));
+        let info = read();
+        assert_eq!((info.title.as_deref(), info.agent_name.as_deref(), info.ai_title.as_deref()), (Some("Nightly digest"), Some("Northwind report sync"), Some("Northwind report sync")));
+        // A name later in the transcript is the latest, as `/resume` has it.
+        append("{\"type\":\"custom-title\",\"customTitle\":\"Weekly digest\"}\n");
+        assert_eq!(read().title.as_deref(), Some("Weekly digest"));
+        // With no name kept and none in reach, there's only its own.
+        append(&filler);
+        std::fs::remove_file(dir.join("25b09e0e/custom-title.json")).unwrap();
+        append(&own("Northwind report sync"));
+        let info = read();
+        assert_eq!((info.title, info.agent_name.as_deref()), (None, Some("Northwind report sync")));
     }
 }

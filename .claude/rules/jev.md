@@ -75,3 +75,10 @@ docs.typesafe.ai, 2026-09-25, and its models and images pages with requests trie
   and the others stayed right (0.98 to 1.00, 0.90 to 0.97, the schedule watch 0.75 to 0.96, 0.94
   to 0.93). A request was 1,000 to
   5,000 tokens more (33,000 to 35,000–38,000); the search took 85 to 410 ms in a debug build.
+- Which todo a new session is for (todojev.rs `link_request`, 1.14, 2026-11-09): with the session's
+  worktree and each todo's in the question, a todo noted in the worktree a session ran in was taken
+  for its work when the session said little of its own ("Carry on with this branch": 0.79, a link;
+  the first 140 characters of a review's prompt: 0.49), and without them the same sessions were none
+  at 0.73 and 0.75, the todo at 0.1 and 0.13. Sessions that said what they were for were their todos
+  at 1.0 either way. The ledger's `jev` table (feature `todos`) has an answer 2 ms before such a
+  todo's `updatedAt`, within a second of a helper's start.

@@ -3877,6 +3877,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                     harness: s.harness.config(),
                     account: &s.account,
                     started: s.started_at.unwrap_or(s.last_activity),
+                    helper: s.helper.is_some(),
                 })
             })
             .collect();

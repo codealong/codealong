@@ -18,6 +18,10 @@ use crate::todos::{is_open, Label, Todo};
 
 /// A session is offered for linking while it's this new.
 const LINK_WITHIN_MS: i64 = 2 * 3600 * 1000;
+/// And once it's this old. A start notes that it made a helper only as it returns, after the
+/// session may have shown, and in its first seconds a session has little to say of what it's for:
+/// Jev linked a helper to a todo within a second of its start (2026-11-09).
+const LINK_AFTER_MS: i64 = 30 * 1000;
 /// Linking needs the todo this likely…
 const LINK_AT: f64 = 0.75;
 /// …and this far ahead of the next likeliest answer (none included).
@@ -138,7 +142,9 @@ fn pr_words(state: PrState) -> &'static str {
 /* ---- Linking a new session ---- */
 
 /// Sessions to ask about: live, new, their own lane's, not linked to a todo and not asked
-/// before, in a lane no start from a todo is waiting on, and saying enough about themselves.
+/// before, in a lane no start from a todo is waiting on, and saying enough about themselves. Not a
+/// helper: it works for the session that started it, on whatever that's on, and a review's prompt
+/// says only "this branch".
 pub fn link_candidates<'a>(board: &'a Board, todos: &[Todo], asked: &BTreeSet<String>, now: i64) -> Vec<(&'a Lane, &'a Session)> {
     let linked: HashSet<&str> = todos.iter().flat_map(|t| t.sessions.iter().map(String::as_str)).collect();
     let pending: HashSet<&str> = todos.iter().flat_map(|t| t.pending.iter().map(|p| p.lane.as_str())).collect();
@@ -150,7 +156,8 @@ pub fn link_candidates<'a>(board: &'a Board, todos: &[Todo], asked: &BTreeSet<St
             s.visitor.is_none()
                 && !s.archived
                 && s.live
-                && now - s.started_at.unwrap_or(s.last_prompt_at) < LINK_WITHIN_MS
+                && s.helper.is_none()
+                && (LINK_AFTER_MS..LINK_WITHIN_MS).contains(&(now - s.started_at.unwrap_or(s.last_prompt_at)))
                 && !linked.contains(s.key.as_str())
                 && !asked.contains(&s.key)
                 && !pending.contains(l.id.as_str())
@@ -164,6 +171,10 @@ fn open_todos<'a>(todos: &'a [Todo], project: &'a str) -> impl Iterator<Item = &
     todos.iter().filter(move |t| is_open(t) && t.project == project)
 }
 
+/// A todo as the question has it. Only the repos of its worktrees, not the worktrees: sharing one
+/// says nothing of what a session is for, and Jev took it to. With a worktree named on both sides,
+/// "Carry on with this branch" was the todo noted there at 0.79, and 0.1 without (1.14, 2026-11-09),
+/// where a session that said what it was for was its todo at 1.0 either way.
 fn todo_card(t: &Todo, board: &Board) -> Value {
     let mut card = Map::new();
     card.insert("title".into(), json!(clip(&t.title, 200)));
@@ -171,9 +182,9 @@ fn todo_card(t: &Todo, board: &Board) -> Value {
     if !d.is_empty() {
         card.insert("description".into(), json!(d));
     }
-    let worktrees: Vec<String> = t.worktrees.iter().filter_map(|w| board.lanes.iter().find(|l| &l.id == w)).map(|l| format!("{} ({})", l.callsign, l.repo)).collect();
-    if !worktrees.is_empty() {
-        card.insert("worktrees".into(), json!(worktrees));
+    let repos: BTreeSet<&str> = t.worktrees.iter().filter_map(|w| board.lanes.iter().find(|l| &l.id == w)).map(|l| l.repo.as_str()).collect();
+    if !repos.is_empty() {
+        card.insert("repos".into(), json!(repos));
     }
     Value::Object(card)
 }
@@ -192,7 +203,6 @@ pub fn link_request(model: &str, board: &Board, lane: &Lane, s: &Session, todos:
         session.insert("first prompt".into(), json!(clip(p, 600)));
     }
     session.insert("repo".into(), json!(lane.repo));
-    session.insert("worktree".into(), json!(lane.callsign));
     if let Some(b) = s.branch.as_deref().or(lane.branch.as_deref()) {
         session.insert("branch".into(), json!(b));
     }
@@ -444,10 +454,12 @@ mod tests {
     fn offers_new_unlinked_sessions_in_projects_with_open_todos() {
         let mut old = session("c:old", "Old work", Status::Idle, NOW - 5 * 3600 * 1000);
         old.live = true;
+        let started = NOW - 60_000;
+        let helper = Session { helper: Some(crate::model::Helper { parent: Some("c:new".into()), ..Default::default() }), ..session("c:helper", "Review this branch", Status::Working, started) };
         let b = board(vec![
-            lane("/a", "Acme", vec![session("c:new", "Stream the export", Status::Working, NOW - 60_000), session("c:linked", "Linked", Status::Working, NOW), session("c:asked", "Asked", Status::Working, NOW), old], None),
-            lane("/b", "Blog", vec![session("c:blog", "Write a post", Status::Working, NOW)], None),
-            lane("/c", "Acme", vec![session("c:pending", "Pending start", Status::Working, NOW), session("c:unnamed", "Session 1a2b3c4d", Status::Working, NOW)], None),
+            lane("/a", "Acme", vec![session("c:new", "Stream the export", Status::Working, started), session("c:linked", "Linked", Status::Working, started), session("c:asked", "Asked", Status::Working, started), session("c:just", "Just started", Status::Working, NOW - 1_000), helper, old], None),
+            lane("/b", "Blog", vec![session("c:blog", "Write a post", Status::Working, started)], None),
+            lane("/c", "Acme", vec![session("c:pending", "Pending start", Status::Working, started), session("c:unnamed", "Session 1a2b3c4d", Status::Working, started)], None),
         ]);
         let mut linked = todo("t1", "Acme", "Export streaming");
         linked.sessions = vec!["c:linked".into()];
@@ -455,8 +467,12 @@ mod tests {
         waiting.pending = vec![serde_json::from_value(json!({ "lane": "/c", "harness": "claude", "account": "claude", "at": NOW })).unwrap()];
         let asked: BTreeSet<String> = ["c:asked".to_string()].into();
         let got: Vec<&str> = link_candidates(&b, &[linked, waiting], &asked, NOW).iter().map(|(_, s)| s.key.as_str()).collect();
-        // The blog has no todos; old, linked, asked, pending-lane and unnamed sessions stay out.
+        // The blog has no todos; old, just started, linked, asked, a helper, pending-lane and
+        // unnamed sessions stay out.
         assert_eq!(got, vec!["c:new"]);
+        // One just started is asked about once it's had time to say what it's for.
+        let later: Vec<&str> = link_candidates(&b, &[todo("t1", "Acme", "Export streaming")], &asked, NOW + LINK_AFTER_MS).iter().map(|(_, s)| s.key.as_str()).collect();
+        assert!(later.contains(&"c:just"), "{later:?}");
     }
 
     #[test]
@@ -476,6 +492,20 @@ mod tests {
         assert_eq!(link_pick(&answer(0.9, 0.05, 0.05), &ids).as_deref(), Some("t1"));
         assert_eq!(link_pick(&answer(0.7, 0.1, 0.2), &ids), None, "not sure enough");
         assert_eq!(link_pick(&answer(0.1, 0.1, 0.8), &ids), None, "none");
+    }
+
+    /// Sharing a worktree is no reason for a session to be a todo's: the question names none.
+    #[test]
+    fn the_question_goes_by_what_a_session_says_not_the_worktree_it_shares() {
+        let b = board(vec![Lane { callsign: "quiet-river".into(), ..lane("/a", "Acme", vec![], None) }]);
+        let s = session("c:new", "Carry on with this branch", Status::Working, NOW);
+        let mut noted = todo("t1", "Acme", "Export streaming");
+        noted.worktrees = vec!["/a".into()];
+        let (body, _) = link_request("m", &b, &b.lanes[0], &s, &[noted]);
+        let asked = body.to_string();
+        assert!(!asked.contains("quiet-river") && !asked.contains("worktree"), "{asked}");
+        assert_eq!(body["questions"]["todo"]["criteria"]["t1"]["repos"], json!(["api"]));
+        assert_eq!(body["state"]["session"]["repo"], "api");
     }
 
     #[test]

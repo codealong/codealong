@@ -187,7 +187,15 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   and the registry's `name` with `nameSource: "user"`, the name other sessions message it by. A
   running session reads the last 64 KB of its transcript for the latest `custom-title`, and a
   re-stamp skips a line equal to the last of its type within 32 KB. The adapter never writes the
-  registry, which the running process owns.
+  registry, which the running process owns. So a name is written again only by a process that read
+  it. A first prompt's writes come in a burst (over 190 KB in 15 s, with re-stamps 40 to 110 KB apart
+  after it): of three scheduled runs named just after their first prompt on 2.1.319 (2026-11-09),
+  the one whose next re-stamp was 14 KB on took the name up, and the two at 194 KB and 281 KB never
+  did, so the line fell out of the board's tail and the title went back. That's why `schedules`
+  (`NAME_AFTER_MS`) names a run late, and `names.rs` (`kept_name`) reads the sidecar. `/resume` goes
+  by a `custom-title` in the last 64 KB, then the sidecar, then the head (2.1.319's code), and an
+  empty one deletes the sidecar. On 2.1.319 an `agent-name` line is also Claude Code's own title
+  (`nameSource: "auto"` in the registry and `state.json`), re-stamped with its `ai-title`.
 - `--resume <id> --fork-session` copies a conversation as far as it's written, the original
   carrying on, and takes `--session-id` for the copy only alongside `--fork-session`
   ("--session-id can only be used with --continue or --resume if --fork-session is also

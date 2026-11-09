@@ -333,13 +333,14 @@ pub fn plan_in(file: &File, runs: &Runs, board: &Board, busy: &HashSet<String>, 
         }
     }
     // Its session named once it's had a prompt: a harness keeps a name with its conversation,
-    // which it starts then (claude/mod.rs `rename`). Noted first, so it's once, whatever comes of
-    // it; a session the name doesn't reach goes by the title its harness gave it.
+    // which it starts then (claude/mod.rs `rename`), and once what that prompt set off has been
+    // written (`NAME_AFTER_MS`). Noted first, so it's once, whatever comes of it; a session the
+    // name doesn't reach goes by the title its harness gave it.
     for s in &file.schedules {
         for r in runs.of.get(&s.id).map_or(&[][..], |t| t.runs.as_slice()) {
             let Some(name) = &r.name else { continue };
             let session = r.session.as_deref().and_then(|k| board.session(k)).map(|(_, session)| session);
-            if let Some(session) = session.filter(|session| crate::emblems::about(session).is_some()) {
+            if let Some(session) = session.filter(|session| now - r.at >= NAME_AFTER_MS && crate::emblems::about(session).is_some()) {
                 jobs.push(Job::Name { key: session.key.clone(), name: name.clone() });
                 notes.push(Note::Named { id: s.id.clone(), run_at: r.at });
             } else if now - r.at > PENDING_MS {
@@ -1688,20 +1689,24 @@ mod tests {
         let runs = |r: RunRecord| Runs { of: [("a".to_string(), Track { runs: vec![r], ..armed(now - DAY_MS) })].into(), ..Runs::default() };
         let on = |prompt: Option<&str>| Board { lanes: vec![lane("/r", vec![Session { first_prompt: prompt.map(String::from), ..session("new") }])], ..board() };
         let named = Job::Name { key: "new".into(), name: "Deploys".into() };
-        let note = Note::Named { id: "a".into(), run_at: now - 5000 };
+        let at = now - NAME_AFTER_MS;
+        let note = Note::Named { id: "a".into(), run_at: at };
         let plan_of = |runs: &Runs, b: &Board| plan(&file, runs, b, &HashSet::new(), now, &z);
         // No prompt yet, it waits.
-        let (jobs, notes) = plan_of(&runs(rec(now - 5000, Some("Deploys"))), &on(None));
+        let (jobs, notes) = plan_of(&runs(rec(at, Some("Deploys"))), &on(None));
         assert!(!jobs.contains(&named) && !notes.contains(&note));
-        // With one, it's named, and noted so it's once.
-        let mut went = runs(rec(now - 5000, Some("Deploys")));
+        // With one, it waits for what that prompt set off to be written.
+        let (jobs, notes) = plan_of(&runs(rec(at + 1, Some("Deploys"))), &on(Some("Look")));
+        assert!(!jobs.contains(&named) && !notes.contains(&Note::Named { id: "a".into(), run_at: at + 1 }));
+        // Then it's named, and noted so it's once.
+        let mut went = runs(rec(at, Some("Deploys")));
         let (jobs, notes) = plan_of(&went, &on(Some("Look")));
         assert!(jobs.contains(&named) && notes.contains(&note));
         apply(&mut went, &note);
         assert_eq!(went.of["a"].runs[0].name, None);
         assert!(!plan_of(&went, &on(Some("Look"))).0.contains(&named));
         // From before, nothing.
-        assert!(!plan_of(&runs(rec(now - 5000, None)), &on(Some("Look"))).0.iter().any(|j| matches!(j, Job::Name { .. })));
+        assert!(!plan_of(&runs(rec(at, None)), &on(Some("Look"))).0.iter().any(|j| matches!(j, Job::Name { .. })));
         // Past when it might have shown, it's given up on.
         let old = now - PENDING_MS - 1;
         let (jobs, notes) = plan_of(&runs(rec(old, Some("Deploys"))), &on(None));

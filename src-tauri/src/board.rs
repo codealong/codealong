@@ -349,7 +349,7 @@ pub fn claude_session(
         .and_then(|r| r.name.clone());
     // The order Claude Code titles its terminal tab in, so rows and tabs read the same.
     let title = tr
-        .and_then(|t| t.title.clone())
+        .and_then(|t| t.title.clone().or_else(|| t.agent_name.clone()))
         .or(user_named)
         .or_else(|| tr.and_then(|t| t.ai_title.clone()))
         .or_else(|| tr.and_then(|t| t.first_prompt.clone()))
@@ -3792,6 +3792,15 @@ mod tests {
         assert_eq!(stopped.resume_command.as_deref(), Some("claude2 --resume abc1234567"));
         assert_eq!(stopped.open_target, "s|claude:claude2:abc1234567|resume");
         assert_eq!(stopped.title, "Portal daily log + photo sync");
+    }
+
+    #[test]
+    fn a_name_given_a_session_comes_before_the_ones_claude_code_gives_it() {
+        let a = acct("claude2");
+        let title = |t: &TranscriptInfo| claude_session(&a, None, Some(t), NOW - 10, NOW, &Quiet::default()).unwrap().title;
+        let own = TranscriptInfo { title: None, agent_name: Some("Atlas nightly sync".into()), ai_title: Some("Atlas sync, nightly".into()), ..tr() };
+        assert_eq!(title(&own), "Atlas nightly sync");
+        assert_eq!(title(&TranscriptInfo { title: Some("Nightly digest".into()), ..own }), "Nightly digest");
     }
 
     #[test]

@@ -61,8 +61,11 @@ pub struct TranscriptInfo {
     pub cwd: String,
     pub git_branch: Option<String>,
     pub entrypoint: Option<String>,
-    /// From `custom-title` or `agent-name` lines.
+    /// The name given it: from `custom-title` lines, or on a first read from what's kept beside
+    /// the transcript (`names::kept_name`), for a line further back than the tail.
     pub title: Option<String>,
+    /// From `agent-name` lines, which `/rename` writes and, on 2.1.319, Claude Code's own titles.
+    pub agent_name: Option<String>,
     /// The title Claude Code generates and shows in the terminal tab, from `ai-title` lines.
     /// They repeat every few dozen lines, so the tail always has the current one.
     pub ai_title: Option<String>,
@@ -285,6 +288,10 @@ pub fn parse_transcript(path: &Path, mtime: i64, prev: Option<Parsed>) -> Option
     };
     // Only whole lines are read; a line still being written is read next time.
     apply_tail(&mut info, &mut state, &tail.text());
+    // A name is written again only by a process that took it up, so it can be far behind by now.
+    if fresh && info.title.is_none() {
+        info.title = super::names::kept_name(path).map(|name| one_line(&name, 90));
+    }
     // One turn can write far more than the tail holds, so the prompt that started it may be
     // further back. A first read looks back for it once; later reads carry it forward.
     if fresh && info.last_prompt_at.is_none() {
@@ -541,8 +548,8 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
                 info.color = str_of(&v, "agentColor").map(|c| c.trim().to_lowercase()).filter(|c| !c.is_empty() && c != "default");
             }
             Some("agent-name") => {
-                if info.title.is_none() {
-                    info.title = str_of(&v, "agentName").filter(|t| !t.trim().is_empty()).map(|t| one_line(&t, 90));
+                if let Some(t) = str_of(&v, "agentName").filter(|t| !t.trim().is_empty()) {
+                    info.agent_name = Some(one_line(&t, 90));
                 }
             }
             Some("last-prompt") => {

@@ -595,9 +595,10 @@ impl crate::harness::Adapter for ClaudeCode {
     /// Names it as Claude Code's `/rename` does (`name_transcript`). A running session reads the
     /// name back the next time it reads the end of its transcript, after about 32 KB of its own
     /// writes, at a compaction or as it exits, and goes by it from then on, its terminal's title
-    /// too (2.1.285's code, which says other processes may write it). A job with no conversation
-    /// of its own yet gets it in the transcript it goes on from as well, which the board reads
-    /// for it until then.
+    /// too (2.1.285's code, which says other processes may write it). It reads the last 64 KB, so
+    /// a name further back by then isn't taken up: that session goes on by its own title, and the
+    /// board by the name (`names::kept_name`). A job with no conversation of its own yet gets it in
+    /// the transcript it goes on from as well, which the board reads for it until then.
     fn rename(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, name: &str) -> anyhow::Result<Vec<PathBuf>> {
         let dirs: Vec<PathBuf> = std::fs::read_dir(ctx.account.home_path().join("projects")).map(|d| d.flatten().map(|e| e.path()).collect()).unwrap_or_default();
         let ids = std::iter::once(s.id.as_str()).chain(s.continues.as_deref());

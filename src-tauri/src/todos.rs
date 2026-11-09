@@ -906,7 +906,7 @@ impl TodoStore {
     /// Links the sessions that starts in the apps were waiting for, and forgets starts that
     /// waited too long. A start takes the earliest new session of its account and harness in
     /// its worktree, else in another worktree of the same repo (the apps can make their own),
-    /// that no todo has yet. A start for several todos put the same pending start on each, and
+    /// that no todo has yet and that isn't a helper. A start for several todos put the same pending start on each, and
     /// they all take the session the first one takes. Returns whether anything changed.
     pub fn resolve_pending(&mut self, sessions: &[SessionRef], lanes: &dyn Lanes, now: i64) -> bool {
         if self.todos.iter().all(|t| t.pending.is_empty()) {
@@ -935,7 +935,7 @@ impl TodoStore {
                 let repo = lanes.repo_of(&p.lane);
                 let pick = sessions
                     .iter()
-                    .filter(|s| s.harness == p.harness && s.account == p.account && s.started >= p.at - PENDING_SLACK_MS && !taken.contains(s.key))
+                    .filter(|s| !s.helper && s.harness == p.harness && s.account == p.account && s.started >= p.at - PENDING_SLACK_MS && !taken.contains(s.key))
                     .filter(|s| s.lane == p.lane || (repo.is_some() && lanes.repo_of(s.lane) == repo))
                     .min_by_key(|s| (s.lane != p.lane, s.started));
                 match pick {
@@ -1065,6 +1065,8 @@ pub struct SessionRef<'a> {
     pub account: &'a str,
     /// When it started, or its first activity.
     pub started: i64,
+    /// An agent's helper (`Session::helper`), which no start in an app made.
+    pub helper: bool,
 }
 
 pub fn path() -> PathBuf {
@@ -1787,7 +1789,7 @@ mod tests {
     }
 
     fn session<'a>(key: &'a str, lane: &'a str, harness: &'a str, account: &'a str, started: i64) -> SessionRef<'a> {
-        SessionRef { key, lane, harness, account, started }
+        SessionRef { key, lane, harness, account, started, helper: false }
     }
 
     #[test]
@@ -1815,10 +1817,12 @@ mod tests {
             session("codex:codex2:x", "/r/app", "codex", "codex2", at + 5_000),
             session("codex:codex:spur", "/r/spur", "codex", "codex", at + 5_000),
             session("claude:claude:c", "/r/app", "claude", "claude", at + 5_000),
+            // An agent's helper that showed first, in the start's own worktree: not it either.
+            SessionRef { helper: true, ..session("codex:codex:helper", "/r/app", "codex", "codex", at + 5_000) },
             // Codex made a worktree of its own for the thread.
             session("codex:codex:new", "/u/.codex/worktrees/e8e5/app", "codex", "codex", at + 20_000),
         ];
-        assert!(!s.resolve_pending(&board[..4], &lanes(), at + 30_000));
+        assert!(!s.resolve_pending(&board[..5], &lanes(), at + 30_000));
         assert_eq!(s.todos[0].pending.len(), 1);
         assert!(s.resolve_pending(&board, &lanes(), at + 30_000));
         assert_eq!(s.todos[0].sessions, vec!["codex:codex:new".to_string()]);
