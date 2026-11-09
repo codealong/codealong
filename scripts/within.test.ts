@@ -23,7 +23,7 @@ test("a command that finishes says what it said and ends as it ended", { timeout
 test("a command still running at the limit is stopped and fails", { timeout: 90_000 }, () => {
   const run = within("1", "sleep", "600");
   expect(run.status).toBe(124);
-  expect(run.err).toContain("sleep was still running after 1 seconds");
+  expect(run.err).toBe("sleep was still running after 1 seconds, so it was stopped.\n");
   expect(run.took).toBeLessThan(60_000);
 });
 

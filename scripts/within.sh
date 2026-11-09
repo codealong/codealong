@@ -23,6 +23,8 @@ run=$!
 SECONDS=0
 while kill -0 "$run" 2>/dev/null; do
   if [ "$SECONDS" -ge "$limit" ]; then
+    # Disowned first, or bash notes "Killed: 9" among the output it's about to print.
+    disown "$run" 2>/dev/null
     kill -KILL "$run" 2>/dev/null
     cat "$out"
     echo "$1 was still running after $limit seconds, so it was stopped." >&2
