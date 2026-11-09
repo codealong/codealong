@@ -86,6 +86,19 @@ pub struct SeenState {
     /// autoreview.rs `hand`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub talking: Vec<String>,
+    /// Labels you put on sessions, the sessions in the order they were first labelled. Each holds
+    /// the ids of todo labels (todos.json); one deleted from the labels stays, so undoing the
+    /// delete brings it back, and shows on none (`board::apply_labels`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub labels: Vec<SessionLabels>,
+}
+
+/// The labels on a session, in the order you put them.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionLabels {
+    pub key: String,
+    pub labels: Vec<String>,
 }
 
 fn set_up_before() -> bool {
@@ -299,6 +312,33 @@ impl SeenState {
         self.talking.iter().any(|k| k == key)
     }
 
+    /// Puts labels on a session, after the ones it has, and takes others off, by id. True when
+    /// that changed its labels.
+    pub fn label(&mut self, key: &str, add: &[String], remove: &[String]) -> bool {
+        let before = self.labels_of(key).to_vec();
+        let mut now: Vec<String> = before.iter().filter(|l| !remove.contains(l)).cloned().collect();
+        for l in add {
+            if !now.contains(l) && !remove.contains(l) {
+                now.push(l.clone());
+            }
+        }
+        if now == before {
+            return false;
+        }
+        if now.is_empty() {
+            self.labels.retain(|e| e.key != key);
+        } else if let Some(e) = self.labels.iter_mut().find(|e| e.key == key) {
+            e.labels = now;
+        } else {
+            self.labels.push(SessionLabels { key: key.to_string(), labels: now });
+        }
+        true
+    }
+
+    pub fn labels_of(&self, key: &str) -> &[String] {
+        self.labels.iter().find(|e| e.key == key).map_or(&[], |e| e.labels.as_slice())
+    }
+
     /// Snoozes your review of a PR until `until`, in place of any snooze it had.
     pub fn snooze_review(&mut self, key: &str, at: i64, until: i64) {
         snooze_in(&mut self.review_snoozes, key, at, until);
@@ -410,6 +450,19 @@ fn unique(keys: Vec<String>) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn labels_go_on_in_order_and_come_off() {
+        let mut s = SeenState::default();
+        let ids = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+        assert!(s.label("a", &ids(&["l1", "l2"]), &[]));
+        assert!(!s.label("a", &ids(&["l2"]), &[]), "one it has already changes nothing");
+        assert!(s.label("a", &ids(&["l3"]), &ids(&["l1"])));
+        assert_eq!(s.labels_of("a"), ids(&["l2", "l3"]).as_slice());
+        assert!(s.label("a", &[], &ids(&["l2", "l3"])));
+        assert!(s.labels.is_empty(), "a session with none left isn't kept");
+        assert!(s.labels_of("b").is_empty());
+    }
 
     #[test]
     fn knows_account_folders_once() {

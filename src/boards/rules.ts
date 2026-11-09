@@ -1,7 +1,7 @@
 // What a board's rule and its columns' rules take in (model.ts `Rule`), as pure functions. Each
 // thing a board can hold (a todo, a session, a worktree, a PR) is read once into a `Subject`: what
 // a rule asks of it, however it's a part of it. A todo's labels go for the sessions and worktrees
-// on it too; a todo's statuses and accounts are its sessions'. A board holds what its rule takes in
+// on it too, and a session's own (`Session.labels`) for it and its worktree; a todo's statuses and accounts are its sessions'. A board holds what its rule takes in
 // and what was added by hand, less what was taken off (`memberTest`), and a card goes in the first
 // column whose rule takes it, else in the column it was put in by hand, else in the first column
 // without a rule (`columnOf`).
@@ -86,7 +86,7 @@ export function todoSubject(item: TodoItem, todos: Todo[]): Subject {
   };
 }
 
-/** `on`: the todos it's linked to. */
+/** `on`: the todos it's linked to, whose labels go with its own. */
 export function sessionSubject(r: SessionItem, prs: PrItem[], on: Todo[]): Subject {
   const s = r.session;
   return {
@@ -96,13 +96,13 @@ export function sessionSubject(r: SessionItem, prs: PrItem[], on: Todo[]): Subje
     activity: s.lastActivity,
     stage: sessionStage(r, prs),
     statuses: statusesOf([s]),
-    labels: uniq(on.flatMap((t) => t.labels)),
+    labels: uniq([...on.flatMap((t) => t.labels), ...(s.labels ?? []).map((l) => l.id)]),
     repos: [repoOf(r.lane)],
     accounts: [s.account],
   };
 }
 
-/** `on`: the todos linked to it or to a session in it. */
+/** `on`: the todos linked to it or to a session in it, whose labels go with its sessions' own. */
 export function laneSubject(lane: Lane, on: Todo[]): Subject {
   return {
     card: refId('worktree', lane.id),
@@ -111,7 +111,7 @@ export function laneSubject(lane: Lane, on: Todo[]): Subject {
     activity: lane.lastActivity,
     stage: prStage(lane.pr?.state),
     statuses: statusesOf(lane.sessions),
-    labels: uniq(on.flatMap((t) => t.labels)),
+    labels: uniq([...on.flatMap((t) => t.labels), ...lane.sessions.flatMap((s) => (s.labels ?? []).map((l) => l.id))]),
     repos: [repoOf(lane)],
     accounts: uniq(lane.sessions.map((s) => s.account)),
   };

@@ -15,7 +15,7 @@ import * as menus from './menus';
 import { usePicks, type SelectHow } from './picks';
 import type { Pins } from './pins';
 import type { Report } from './report';
-import type { Lane, PrItem } from './types';
+import type { Label, Lane, PrItem } from './types';
 import type { PrRowItem } from './ui/PrsView';
 import type { SessionItem } from './ui/SessionsView';
 import type { Archived } from './ui/Toasts';
@@ -48,6 +48,8 @@ export interface ListPicksInput {
   cleanUp: (lanes: Lane[]) => void;
   /** Add to board › for these, as one's menu has it. */
   boardItems: (ref: RefKind, keys: string[]) => MenuSpec;
+  /** The labels todos wear, for the sessions' Labels ›, as one's menu has them. */
+  labels: readonly Label[];
 }
 
 /** One list's picks: the rows, in the list's order, and what's done to them. */
@@ -74,7 +76,7 @@ export interface ListPicksKeys {
 }
 
 export function useListPicks(input: ListPicksInput) {
-  const { view, loading, selected, setSelectedKey, sessionRows, prVisible, showArchived, report, setToast, sessionPins, lanePins, prPins, archive, undoArchive, approve, cleanUp, boardItems } = input;
+  const { view, loading, selected, setSelectedKey, sessionRows, prVisible, showArchived, report, setToast, sessionPins, lanePins, prPins, archive, undoArchive, approve, cleanUp, boardItems, labels } = input;
   const sessionItems = useMemo(() => (view === 'sessions' && !loading ? sessionRows.filter((r): r is SessionItem => r.kind === 'agent') : null), [view, loading, sessionRows]);
   const laneItems = useMemo(() => (view === 'sessions' && !loading ? sessionRows.filter((r): r is LaneItem => r.kind === 'lane') : null), [view, loading, sessionRows]);
   const prItems = useMemo(() => (view === 'prs' && !loading ? prVisible.filter((r): r is PrRowItem => r.kind === 'pr') : null), [view, loading, prVisible]);
@@ -102,6 +104,7 @@ export function useListPicks(input: ListPicksInput) {
     pin: pinItem(sessionPins, rows.filter((r) => !r.session.archived).map((r) => r.session.key), 'session'),
     // Not one shown in a worktree it doesn't run in (a visitor), which one's menu leaves out too.
     boards: boardItems('session', rows.filter((r) => !r.session.visitor).map((r) => r.session.key)),
+    labels,
     archive: (keys, archived) => archive(keys, archived, rows.find((r) => r.session.key === keys[0])?.session.title ?? ''),
     // Undo takes them out of the archive, as it does one.
     undoDone: (keys, message) => undoArchive({ keys, title: '', message }),

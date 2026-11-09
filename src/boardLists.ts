@@ -77,7 +77,7 @@ export function laneInQuery(lane: Lane, q: string, said: Said = NO_HITS): boolea
  *  worktree and PR. */
 function sessionDescribed(r: SessionItem, q: string): boolean {
   const { lane, session: s } = r;
-  return described([s.title, s.account, s.excerpt ?? '', lane.callsign, lane.repo, lane.branch ?? '', lane.pr ? `#${lane.pr.number} ${lane.pr.title}` : ''], q);
+  return described([s.title, s.account, s.excerpt ?? '', lane.callsign, lane.repo, lane.branch ?? '', lane.pr ? `#${lane.pr.number} ${lane.pr.title}` : '', ...(s.labels ?? []).map((l) => l.name)], q);
 }
 
 /** Search in the Sessions view: what describes the session, or what was said in it. */
@@ -166,18 +166,19 @@ export function prIn(r: PrRowItem, f: Filter): boolean {
   }
 }
 
-/** What the sidebar narrows a view to beside its statuses: Sessions to agents (accounts), PRs to
- *  repos, their labels and who opened them, Todo and Kanban to todos' labels. Each takes any
- *  number of picks, none showing everything; a row shows when it has any of a facet's picks and
- *  every facet holds. */
-export type FacetId = 'agents' | 'repos' | 'prLabels' | 'authors' | 'labels';
+/** What the sidebar narrows a view to beside its statuses: Sessions to agents (accounts) and the
+ *  labels you put on them, PRs to repos, their labels and who opened them, Todo and Kanban to
+ *  todos' labels. Each takes any number of picks, none showing everything; a row shows when it has
+ *  any of a facet's picks and every facet holds. A session's labels are picked by name in any case
+ *  (`labelPick`), since a session on another device wears that Mac's labels; todos' by id. */
+export type FacetId = 'agents' | 'sessionLabels' | 'repos' | 'prLabels' | 'authors' | 'labels';
 export type Facets = Partial<Record<FacetId, readonly string[]>>;
 
-export const FACET_WORD: Record<FacetId, string> = { agents: 'Agents', repos: 'Repos', prLabels: 'Labels', authors: 'Authors', labels: 'Labels' };
+export const FACET_WORD: Record<FacetId, string> = { agents: 'Agents', sessionLabels: 'Labels', repos: 'Repos', prLabels: 'Labels', authors: 'Authors', labels: 'Labels' };
 
 /** The facets the sidebar offers in each view. */
 export function facetsIn(view: string): FacetId[] {
-  return view === 'sessions' ? ['agents'] : view === 'prs' ? ['repos', 'prLabels', 'authors'] : view === 'todo' || view === 'kanban' ? ['labels'] : [];
+  return view === 'sessions' ? ['agents', 'sessionLabels'] : view === 'prs' ? ['repos', 'prLabels', 'authors'] : view === 'todo' || view === 'kanban' ? ['labels'] : [];
 }
 
 /** One pick a facet offers, with how many of the view's rows it would show. */
@@ -210,8 +211,11 @@ export function facetsOn(f: Facets, view: string): FacetId[] {
   return facetsIn(view).filter((id) => (f[id]?.length ?? 0) > 0);
 }
 
+/** A session label's pick: its name in lower case. */
+export const labelPick = (l: Pick<Label, 'name'>) => l.name.toLowerCase();
+
 export function sessionInFacets(r: SessionItem, f: Facets): boolean {
-  return holds(f.agents, (a) => r.session.account === a);
+  return holds(f.agents, (a) => r.session.account === a) && holds(f.sessionLabels, (name) => (r.session.labels ?? []).some((l) => labelPick(l) === name));
 }
 
 export function prInFacets(r: PrRowItem, f: Facets): boolean {
@@ -233,9 +237,32 @@ function optionsOf<T>(rows: T[], keys: (r: T) => string[], picked: readonly stri
     .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
 }
 
-/** Sessions' agents: each account with how many of `rows` it has. */
+/** Sessions' agents: each account with how many of `rows` it has, of those the labels picked let
+ *  through. */
 export function agentOptions(rows: SessionItem[], f: Facets): FacetOption[] {
-  return optionsOf(rows, (r) => [r.session.account], f.agents, (id) => ({ label: id }));
+  return optionsOf(
+    rows.filter((r) => sessionInFacets(r, { ...f, agents: [] })),
+    (r) => [r.session.account],
+    f.agents,
+    (id) => ({ label: id }),
+  );
+}
+
+/** The labels on sessions: each with how many of `rows` wear it, of those the agents picked let
+ *  through, named and colored as the first of them wears it. */
+export function sessionLabelOptions(rows: SessionItem[], f: Facets): FacetOption[] {
+  const through = rows.filter((r) => sessionInFacets(r, { ...f, sessionLabels: [] }));
+  const worn = new Map<string, Label>();
+  for (const r of through) for (const l of r.session.labels ?? []) if (!worn.has(labelPick(l))) worn.set(labelPick(l), l);
+  return optionsOf(
+    through,
+    (r) => (r.session.labels ?? []).map(labelPick),
+    f.sessionLabels,
+    (pick) => {
+      const l = worn.get(pick);
+      return l ? { label: l.name, color: l.color, title: `Sessions you labelled ${l.name}` } : { label: pick };
+    },
+  );
 }
 
 /** PRs' repos, labels and authors, each counting the open PRs among `rows` that the other facets
@@ -1033,8 +1060,9 @@ export function useBoardLists(input: ListsInput) {
   // The agents a session runs on narrow it after the rest, so each agent's count is of what it
   // would show.
   const listedSessions = useMemo(() => placeHelpers(shownSessionsOf(sessionItems, cutoff, sessionPins.set, query, filter, said), !!query, helpersShown, sessionItems), [sessionItems, cutoff, sessionPins.set, query, filter, said, helpersShown]);
-  const shownSessions = useMemo(() => (facets.agents?.length ? listedSessions.filter((r) => sessionInFacets(r, facets)) : listedSessions), [listedSessions, facets]);
+  const shownSessions = useMemo(() => (facets.agents?.length || facets.sessionLabels?.length ? listedSessions.filter((r) => sessionInFacets(r, facets)) : listedSessions), [listedSessions, facets]);
   const agents = useMemo(() => agentOptions(listedSessions, facets), [listedSessions, facets]);
+  const sessionLabels = useMemo(() => sessionLabelOptions(listedSessions, facets), [listedSessions, facets]);
   // A session found only by what was said in it shows the line that has the words.
   const saidLines = useMemo(() => saidLinesOf([...sessionItems, ...archivedItems], query, said), [sessionItems, archivedItems, query, said]);
   const saidOf = useCallback((k: string) => saidLines.get(k), [saidLines]);
@@ -1173,11 +1201,15 @@ export function useBoardLists(input: ListsInput) {
     [boardProject, current, subjects, todoItems, todos, sessionItems, projectLanes, projectPrs],
   );
   // Its Kanban: the board's todos listed, and its sessions listed that no open todo's card shows,
-  // in its columns, those it has by hand whatever their age. Sessions have no labels, so a label
-  // shows only todos.
-  const labelled = !!facets.labels?.length;
+  // in its columns, those it has by hand whatever their age. A label picked shows the todos with
+  // it and the sessions you put it on.
   const handSessions = useMemo(() => (shownBoard ? addedSessions(shownBoard) : new Set<string>()), [shownBoard]);
-  const cardSessions = useMemo(() => (labelled || !shownBoard ? [] : shownSessionsOf(boardSessions, cutoff, handSessions, query, filter, said)), [labelled, shownBoard, boardSessions, cutoff, handSessions, query, filter, said]);
+  const cardSessions = useMemo(() => {
+    if (!shownBoard) return [];
+    const shown = shownSessionsOf(boardSessions, cutoff, handSessions, query, filter, said);
+    const picks = facets.labels ?? [];
+    return picks.length > 0 ? shown.filter((r) => (r.session.labels ?? []).some((l) => picks.includes(l.id))) : shown;
+  }, [facets.labels, shownBoard, boardSessions, cutoff, handSessions, query, filter, said]);
   const doneSince = cutoff || now - DONE_SPAN;
   const kanbanCols = useMemo(
     () => (shownBoard ? kanbanColumns({ todoRows: part.todoRows, todos, sessions: cardSessions, prs: board?.prs ?? [], doneSince, board: shownBoard, subjects, member, now }) : []),
@@ -1193,7 +1225,7 @@ export function useBoardLists(input: ListsInput) {
   const openCardCount = useMemo(() => kanbanCols.reduce((n, c) => (c.column?.folded ? n : n + c.cards.length), 0), [kanbanCols]);
 
   // The sidebar's and the switcher's counts, and what each facet offers.
-  const facetOptions = useMemo<Record<FacetId, FacetOption[]>>(() => ({ agents, repos: prFacets.repos, prLabels: prFacets.prLabels, authors: prFacets.authors, labels: todoLabels }), [agents, prFacets, todoLabels]);
+  const facetOptions = useMemo<Record<FacetId, FacetOption[]>>(() => ({ agents, sessionLabels, repos: prFacets.repos, prLabels: prFacets.prLabels, authors: prFacets.authors, labels: todoLabels }), [agents, sessionLabels, prFacets, todoLabels]);
   const counts = useMemo(() => inboxCounts(recentLanes), [recentLanes]);
   const totalLanes = useMemo(() => lanes.filter((l) => !l.hidden).length, [lanes]);
   const actions = useMemo(() => projectActions(lanes, projects, cutoff, lanePins.set, since), [lanes, projects, cutoff, lanePins.set, since]);

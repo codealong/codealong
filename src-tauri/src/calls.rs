@@ -146,6 +146,12 @@ calls! {
         actions::run_keys_heard(&c.engine, &c.peers, api::SESSION_QUIET, keys, actions::params::Quiet { keys: Vec::new(), quiet }).map(|v| v.and_then(shown_at))
     }
 
+    /// Puts labels on sessions, by name (a new one is made) or id, and takes others off, each on
+    /// the device it's on, whose labels they are.
+    fn label_sessions(c, keys: Vec<String>, add: Vec<String>, remove: Vec<String>) -> Result<Option<i64>, String> {
+        actions::run_keys_heard(&c.engine, &c.peers, api::SESSION_LABEL, keys, actions::params::Label { keys: Vec::new(), add, remove }).map(|v| v.and_then(shown_at))
+    }
+
     /// Moves sessions to the top of what waits on you, or back to their places with `raised`
     /// false, each on the device it's on.
     fn raise_sessions(c, keys: Vec<String>, raised: bool) -> Result<Option<i64>, String> {

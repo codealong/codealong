@@ -21,11 +21,11 @@ vi.mock('./api', () => ({
   windowLabel: () => 'test',
 }));
 
-import { answerAhead, barAhead, boardAhead, boardView, CONFIRM_MS, heldWords, inRecord, lanesAhead, logoOf, mergeAhead, mergeDoneAhead, renameAhead, reviewAhead, sendAhead, sentWorthSaying, settled, snoozeAhead, snoozedFrom, snoozeReviewsAhead, steerAhead, unqueueAhead, type Ahead, type View } from './ahead';
+import { answerAhead, barAhead, boardAhead, boardView, CONFIRM_MS, withLabels, heldWords, inRecord, lanesAhead, logoOf, mergeAhead, mergeDoneAhead, renameAhead, reviewAhead, sendAhead, sentWorthSaying, settled, snoozeAhead, snoozedFrom, snoozeReviewsAhead, steerAhead, unqueueAhead, type Ahead, type View } from './ahead';
 import { readDraft, writeDraft } from './drafts';
 import { bayOf, stuckMidTurn } from './lanes';
 import * as fx from './testing/fixtures';
-import type { BarFeed, BarItem, BarRecent, BarSnoozed, Lane, Session, TranscriptItem, Verdict } from './types';
+import type { BarFeed, BarItem, BarRecent, BarSnoozed, Label, Lane, Session, TranscriptItem, Verdict } from './types';
 
 const NOW = 1_790_200_000_000;
 
@@ -162,6 +162,21 @@ describe('lanesAhead', () => {
     expect([heard.sessions[0].status, heard.sessions[0].quiet]).toEqual(['idle', false]);
     const quiet = [lane([session('q', 'idle', { quiet: true })])];
     expect(lanesAhead(quiet, [change({ kind: 'quiet', keys: ['q'], quiet: true })])).toBe(quiet);
+  });
+
+  it('labels sessions at once, by name, a label already on one not put on twice', () => {
+    const bug: Label = { id: 'l1', name: 'Bug', color: 'red' };
+    const release: Label = { id: 'l2', name: 'Release', color: 'blue' };
+    const lanes = [lane([session('a', 'idle', { labels: [bug] }), session('b', 'idle')])];
+    const [l] = lanesAhead(lanes, [change({ kind: 'label', keys: ['a', 'b'], add: [{ ...bug, id: 'other' }, release], remove: [] })]);
+    expect(l.sessions.map((s) => (s.labels ?? []).map((x) => x.id))).toEqual([
+      ['l1', 'l2'],
+      ['other', 'l2'],
+    ]);
+    const [off] = lanesAhead(lanes, [change({ kind: 'label', keys: ['a'], add: [], remove: ['BUG'] })]);
+    expect(off.sessions[0].labels).toEqual([]);
+    expect(lanesAhead(lanes, [change({ kind: 'label', keys: ['a'], add: [bug], remove: [] })])).toBe(lanes);
+    expect(withLabels([bug, release], [bug], ['release'])).toEqual([bug]);
   });
 
   it('moves a session to the top at once, bringing back one whose turn you saw, until it’s seen', () => {
@@ -310,6 +325,13 @@ describe('settled', () => {
     const q = change({ kind: 'quiet', keys: ['a'], quiet: true }, { doneAt: NOW + 100 });
     expect(settled(q, view(NOW, { status: 'unread' }), NOW + 200)).toBe(q);
     expect(settled(q, view(NOW, { status: 'idle', quiet: true }), NOW + 200)).toBeNull();
+    const bug: Label = { id: 'l1', name: 'Bug', color: 'red' };
+    const l = change({ kind: 'label', keys: ['a'], add: [bug], remove: ['ui'] }, { doneAt: NOW + 100 });
+    const labelled = (labels: Label[] | undefined): View => ({ boardAt: NOW, find: () => ({ ...view(NOW, { status: 'idle' }).find('a')!, labels }) });
+    expect(settled(l, labelled([{ id: 'l9', name: 'UI', color: 'teal' }]), NOW + 200)).toBe(l);
+    expect(settled(l, labelled([{ ...bug, id: 'there' }]), NOW + 200)).toBeNull();
+    // The bar, which doesn't see labels, has nothing to wait for.
+    expect(settled(l, labelled(undefined), NOW + 200)).toBeNull();
   });
 
   it('keeps an answer until the board shows the session past the call it was for', () => {

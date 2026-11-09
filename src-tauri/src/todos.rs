@@ -42,7 +42,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use crate::board::ELSEWHERE;
 use crate::config::support_dir;
 use crate::model::Lane;
-use crate::util::{civil_from_days, days_from_civil};
+use crate::util::{base36, civil_from_days, days_from_civil};
 
 /// How long a start in an app waits for its session to show up before it's forgotten.
 pub const PENDING_MS: i64 = 30 * 60 * 1000;
@@ -334,17 +334,8 @@ pub struct Todo {
     pub archived_at: Option<i64>,
 }
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
-#[serde(rename_all = "camelCase")]
-pub struct Label {
-    #[serde(default)]
-    pub id: String,
-    #[serde(default)]
-    pub name: String,
-    /// One of `LABEL_COLORS`; any other is gray.
-    #[serde(default)]
-    pub color: String,
-}
+/// A label, which sessions wear too, so it's defined with them in codealong-peer.
+pub use crate::model::Label;
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
 #[serde(rename_all = "camelCase")]
@@ -651,6 +642,46 @@ fn link(t: &mut Todo, worktree: Option<&str>, session: Option<&str>, lanes: &dyn
         }
     }
     changed
+}
+
+/// `labels` with one made for each of `names` that names none, in the next color not taken but
+/// gray, as the windows pick it (todos.ts `nextColor`), and
+/// the ids of the labels `names` name, in their order, each once. A name names a label by its id or
+/// by its name, whatever its case. What `todo update --add-label` and `codealong session label`
+/// put on, where a label is asked for by name.
+pub fn named(labels: &[Label], names: &[String], now: i64) -> (Vec<Label>, Vec<String>) {
+    let mut out = labels.to_vec();
+    let mut ids: Vec<String> = Vec::new();
+    for name in names {
+        let name = one_line(name, MAX_LABEL);
+        if name.is_empty() {
+            continue;
+        }
+        let id = match out.iter().find(|l| l.id == name || l.name.eq_ignore_ascii_case(&name)) {
+            Some(l) => l.id.clone(),
+            None => {
+                let used: HashSet<&str> = out.iter().map(|l| l.color.as_str()).collect();
+                let color = LABEL_COLORS.iter().find(|c| **c != "gray" && !used.contains(*c)).unwrap_or(&LABEL_COLORS[out.len() % LABEL_COLORS.len()]).to_string();
+                let mut n = now.max(0) as u64 + out.len() as u64;
+                while out.iter().any(|l| l.id == format!("l-{}", base36(n))) {
+                    n += 1;
+                }
+                let id = format!("l-{}", base36(n));
+                out.push(Label { id: id.clone(), name, color });
+                id
+            }
+        };
+        if !ids.contains(&id) {
+            ids.push(id);
+        }
+    }
+    (out, ids)
+}
+
+/// The ids of the labels `names` name, by id or by name whatever its case; a name that names none
+/// is taken for the id of one since deleted.
+pub fn named_ids(labels: &[Label], names: &[String]) -> Vec<String> {
+    names.iter().map(|n| labels.iter().find(|l| &l.id == n || l.name.eq_ignore_ascii_case(n.trim())).map_or_else(|| n.clone(), |l| l.id.clone())).collect()
 }
 
 fn clean_labels(labels: Vec<Label>) -> Vec<Label> {
@@ -1673,6 +1704,16 @@ mod tests {
         assert!(s.apply(TodoOp::Labels { labels }, &lanes(), 1).unwrap());
         let names: Vec<(&str, &str)> = s.labels.iter().map(|l| (l.name.as_str(), l.color.as_str())).collect();
         assert_eq!(names, vec![("Bug", "red"), ("UI", "gray")]);
+    }
+
+    #[test]
+    fn labels_named_are_found_or_made() {
+        let have = vec![Label { id: "l1".into(), name: "Bug".into(), color: "gray".into() }];
+        let (labels, ids) = named(&have, &["bug".into(), " Release ".into(), "l1".into(), "release".into(), "  ".into()], 100);
+        assert_eq!(ids, vec!["l1".to_string(), labels[1].id.clone()], "by name whatever its case, or by id, each once");
+        assert_eq!((labels.len(), labels[1].name.as_str(), labels[1].color.as_str()), (2, "Release", "red"), "a new one in the next color not taken");
+        assert_eq!(named(&labels, &["Bug".into()], 100).0, labels, "nothing made when every name is a label");
+        assert_eq!(named_ids(&labels, &["RELEASE".into(), "l-gone".into()]), vec![labels[1].id.clone(), "l-gone".to_string()]);
     }
 
     fn pending(lane: &str, harness: &str, account: &str, at: i64) -> PendingStart {

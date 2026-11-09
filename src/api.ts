@@ -136,6 +136,15 @@ export async function quietSessions(keys: string[], quiet: boolean): Promise<num
   return (await invoke<number | null>('quiet_sessions', { keys, quiet })) ?? null;
 }
 
+/** Puts labels on sessions and takes others off, by name, each on the device it's on, whose labels
+ *  they are: a name that's no label there yet is made one. Returns the time of the board that shows
+ *  it, as `markSeen` does, and rejects with why when a device didn't; windows label through
+ *  ahead.ts. */
+export async function labelSessions(keys: string[], add: string[], remove: string[]): Promise<number | null> {
+  if (!inTauri || keys.length === 0) return null;
+  return (await invoke<number | null>('label_sessions', { keys, add, remove })) ?? null;
+}
+
 /** Moves sessions to the top of what waits on you, or back to their places with false, each on
  *  the device it's on: every queue goes to them first until you take them up. Returns the time of
  *  the board that shows it, as `markSeen` does, and rejects with why when a device didn't; windows

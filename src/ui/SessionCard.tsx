@@ -36,7 +36,7 @@ import { runFolder } from './RunButton';
 import { SessionPanel, type SessionPanelProps } from './SessionPanel';
 
 /** What the card reads from the board: what's around the session, and what's pinned in Sessions. */
-export type CardBoard = Pick<Board, 'prs' | 'lanes' | 'todos' | 'sides' | 'nudgeAbout' | 'reviews' | 'repos' | 'teamFiles' | 'terminals'> & { pinned?: string[] };
+export type CardBoard = Pick<Board, 'prs' | 'lanes' | 'todos' | 'sides' | 'nudgeAbout' | 'reviews' | 'repos' | 'teamFiles' | 'terminals'> & { pinned?: string[]; labels?: Board['labels'] };
 
 const NO_TERMINALS: TerminalGlance[] = [];
 
@@ -105,6 +105,7 @@ export function SessionCard({ lane, session, apps, now, board, can, canFor, outg
     desktop: onDesktop,
     pin: pinItem(board, s, report),
     mergeDone: board ? { prs: board.prs, ask: mergingDone.ask } : undefined,
+    labels: board?.labels,
     // Its terminal under its box, for the session shown; another the header names opens its
     // folder in your terminal app, as it has no drawer here. The terminal it runs in isn't in a
     // card's drawer (SessionPanel.tsx), so with only that one, ⌃` opens a shell beside it.

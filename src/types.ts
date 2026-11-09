@@ -218,6 +218,10 @@ export interface Session {
    *  box to send with a click, while they still answer where it stands: nothing sent to it since,
    *  no turn of its started since (board::suggestions_hold). Missing from older Macs. */
   suggestions?: Suggestions;
+  /** Labels you put on it, from the labels todos wear on its device, in the order you put them
+   *  (board.rs `apply_labels`). Unlike its `insight`, a read of one turn, they stay until taken
+   *  off. Missing when it has none, and from older Macs. */
+  labels?: Label[];
   /** It worked in a reusable worktree before that worktree last took new work: listed after the
    *  current work's sessions, and out of the worktree's status (board::earlier). */
   earlier?: boolean;

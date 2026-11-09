@@ -218,6 +218,9 @@ const REQUESTS: &[Request] = &[
     Request { name: api::SESSION_SNOOZE, here: snooze, ..ANY },
     // So is quiet, which is the session's for as long as it lasts, and a helper made your own.
     Request { name: api::SESSION_QUIET, here: quiet, ..ANY },
+    // Labels too, which only say how you sort your sessions, so an agent may put them on through
+    // the command (an orchestrator sorting the work for you), as it may tag one.
+    Request { name: api::SESSION_LABEL, here: label, ..ANY },
     // A move to the top is kept there too. An agent may ask for one through the command, since it
     // only changes the order you're shown what waits on you in, and says it was the agent's.
     Request { name: api::SESSION_RAISE, here: raise, ..ANY },
@@ -1857,6 +1860,13 @@ fn raise(engine: &Handle, c: &Call) -> Result<Value, String> {
 fn quiet(engine: &Handle, c: &Call) -> Result<Value, String> {
     let p: params::Quiet = c.read()?;
     Ok(shown_at(c, engine.quiet(p.keys, p.quiet)))
+}
+
+/// Puts labels on sessions (`keys`), by name or id, making a label of a name that's none yet, and
+/// takes others off.
+fn label(engine: &Handle, c: &Call) -> Result<Value, String> {
+    let p: params::Label = c.read()?;
+    Ok(shown_at(c, engine.label(p.keys, p.add, p.remove)?))
 }
 
 /// Pins sessions (`keys`) at the top of the pinned ones, or unpins them with `pinned` false.

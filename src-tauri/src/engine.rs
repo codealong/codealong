@@ -108,6 +108,9 @@ pub enum Msg {
     /// Sessions quieted, or made heard again. The reply is the time of the board that shows it,
     /// published at once.
     Quiet(Vec<String>, bool, Sender<i64>),
+    /// Labels put on sessions, by name or id, and taken off. The reply is the time of the board
+    /// that shows it, published at once, or why it couldn't be done.
+    Label(Vec<String>, Vec<String>, Vec<String>, Sender<std::result::Result<i64, String>>),
     /// Sessions moved to the top, or back to their places with false, and who by and why (its
     /// time is the engine's). The reply is the time of the board that shows it, published at
     /// once, or why an agent's move was turned down.
@@ -371,6 +374,15 @@ impl Handle {
         let (tx, rx) = channel();
         self.tx.send(Msg::Quiet(keys, quiet, tx)).ok()?;
         rx.recv_timeout(SHOWN_WAIT).ok()
+    }
+
+    /// Puts labels on sessions, by name or id, and takes others off (`board::apply_labels`): a
+    /// name that's no label yet is made one, as `todo update --add-label` makes it. Returns the
+    /// time of the board that shows it, as `quiet` does, or why it couldn't be done.
+    pub fn label(&self, keys: Vec<String>, add: Vec<String>, remove: Vec<String>) -> std::result::Result<Option<i64>, String> {
+        let (tx, rx) = channel();
+        self.tx.send(Msg::Label(keys, add, remove, tx)).map_err(|_| "Codealong's engine stopped.".to_string())?;
+        rx.recv_timeout(SHOWN_WAIT).map_or(Ok(None), |r| r.map(Some))
     }
 
     /// Moves sessions to the top of what waits on you, or back to their places with `raised`
@@ -2053,15 +2065,41 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         Ok(!keys.is_empty())
     }
 
+    /// Puts labels on sessions and takes others off, making a label of each name to put on that's
+    /// none yet. True when that changed the labels or what a session wears.
+    fn on_label(&mut self, keys: &[String], add: &[String], remove: &[String]) -> std::result::Result<bool, String> {
+        let mut made = false;
+        let add = if add.is_empty() {
+            Vec::new()
+        } else {
+            // Under the lock the command takes too, against the file as it is now, as a todo's
+            // change is (`change_todos`).
+            let lanes = self.lane_index();
+            let _lock = self.lock_todos()?;
+            self.reload_todos();
+            if self.todos_unreadable {
+                return Err(self.todos_warning.clone().unwrap_or_default());
+            }
+            let (labels, ids) = todos::named(&self.todos.labels, add, now_ms());
+            if labels != self.todos.labels {
+                made = self.todos.apply(TodoOp::Labels { labels }, &lanes, now_ms()).map_err(|e| format!("{e:#}"))?;
+                self.save_todos();
+            }
+            ids
+        };
+        let remove = todos::named_ids(&self.todos.labels, remove);
+        Ok(keys.iter().fold(made, |changed, k| self.seen.label(k, &add, &remove) | changed))
+    }
+
     /// Sessions with quiet, helpers' and headless runs' rules, their agents' marks of seen, what
-    /// their side conversations answered, their marks of unread, their snoozes and their moves to
-    /// the top applied (board::apply_quiet, board::apply_helper, board::apply_headless,
-    /// board::apply_agent_seen, board::apply_side_answer, board::apply_unread, board::apply_snooze,
-    /// board::apply_raise). A snooze's time coming changes nothing on disk: the 30-second
+    /// their side conversations answered, their marks of unread, their snoozes, their moves to
+    /// the top and their labels applied (board::apply_quiet, board::apply_helper,
+    /// board::apply_headless, board::apply_agent_seen, board::apply_side_answer,
+    /// board::apply_unread, board::apply_snooze, board::apply_raise, board::apply_labels). A snooze's time coming changes nothing on disk: the 30-second
     /// heartbeat's publish brings it back.
     fn with_snoozes(&self, mut sessions: Vec<Session>, sides: &std::collections::BTreeMap<String, Vec<crate::side::Glance>>, now: i64) -> Vec<Session> {
         let unattended = sessions.iter().any(|s| s.helper.is_some() || s.headless);
-        if self.seen.snoozed.is_empty() && self.seen.unread.is_empty() && self.seen.quiet.is_empty() && self.seen.raised.is_empty() && self.seen.agent_seen.is_empty() && sides.is_empty() && !unattended {
+        if self.seen.snoozed.is_empty() && self.seen.unread.is_empty() && self.seen.quiet.is_empty() && self.seen.raised.is_empty() && self.seen.agent_seen.is_empty() && self.seen.labels.is_empty() && sides.is_empty() && !unattended {
             return sessions;
         }
         for s in &mut sessions {
@@ -2078,6 +2116,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             board::apply_snooze(s, self.seen.snooze_of(&s.key), self.seen.seen_at(&s.key), now);
             board::apply_raise(s, self.seen.raise_of(&s.key));
             board::settle_agent_seen(s);
+            board::apply_labels(s, self.seen.labels_of(&s.key), &self.todos.labels);
         }
         sessions
     }
@@ -2651,6 +2690,14 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                         self.publish();
                     }
                     let _ = reply.send(self.board.read().map(|b| b.generated_at).unwrap_or(0));
+                }
+                Ok(Msg::Label(keys, add, remove, reply)) => {
+                    let answer = self.on_label(&keys, &add, &remove);
+                    if answer == Ok(true) {
+                        self.save_state();
+                        self.publish();
+                    }
+                    let _ = reply.send(answer.map(|_| self.board.read().map(|b| b.generated_at).unwrap_or(0)));
                 }
                 Ok(Msg::Raise(keys, raised, by, reply)) => {
                     let answer = self.on_raise(&keys, raised, by, now_ms());
@@ -5071,6 +5118,48 @@ mod tests {
         e.change_todos(labels("second")).unwrap();
         assert!(std::fs::read_to_string(todos::path()).unwrap().contains("second"));
         assert_eq!(said(&e), None);
+        std::fs::write(home().join("ran"), "").unwrap();
+    }
+
+    /// A label put on a session by a name that's none yet is made, with the todos' labels, and one
+    /// taken off by its name comes off.
+    #[test]
+    fn a_session_is_labelled_by_name_and_a_new_name_made_a_label() {
+        use super::*;
+
+        let Some(own) = std::env::var_os("CODEALONG_TEST_HOME") else {
+            let home = std::env::temp_dir().join(format!("codealong-session-labels-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&home);
+            std::fs::create_dir_all(&home).unwrap();
+            let run = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["engine::tests::a_session_is_labelled_by_name_and_a_new_name_made_a_label", "--exact", "--nocapture"])
+                .env("HOME", &home)
+                .env("CODEALONG_TEST_HOME", &home)
+                .output()
+                .unwrap();
+            let ran = home.join("ran").exists();
+            std::fs::remove_dir_all(&home).unwrap();
+            assert!(run.status.success() && ran, "{}{}", String::from_utf8_lossy(&run.stdout), String::from_utf8_lossy(&run.stderr));
+            return;
+        };
+        assert_eq!(home(), PathBuf::from(own), "never the real home folder");
+
+        config::write(&Config { scan: vec![], ..Config::default() }).unwrap();
+        let (tx, _rx) = channel();
+        let mut e = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
+        e.load_config();
+        e.load_todos();
+        e.change_todos(TodoOp::Labels { labels: vec![todos::Label { id: "l1".into(), name: "Bug".into(), color: "red".into() }] }).unwrap();
+        let key = "claude:claude:a".to_string();
+        assert_eq!(e.on_label(std::slice::from_ref(&key), &["bug".into(), "Release".into()], &[]), Ok(true));
+        let release = e.todos.labels.iter().find(|l| l.name == "Release").expect("made").id.clone();
+        assert_eq!(e.seen.labels_of(&key), ["l1".to_string(), release.clone()].as_slice());
+        assert!(std::fs::read_to_string(todos::path()).unwrap().contains("Release"), "kept with the todos' labels");
+        assert_eq!(e.on_label(std::slice::from_ref(&key), &["Bug".into()], &[]), Ok(false), "nothing new");
+        assert_eq!(e.on_label(std::slice::from_ref(&key), &[], &["BUG".into()]), Ok(true));
+        assert_eq!(e.seen.labels_of(&key), [release].as_slice());
+        let s = e.with_snoozes(vec![crate::fixtures::session(&key)], &Default::default(), now_ms());
+        assert_eq!(s[0].labels.iter().map(|l| l.name.as_str()).collect::<Vec<_>>(), ["Release"]);
         std::fs::write(home().join("ran"), "").unwrap();
     }
 

@@ -33,7 +33,7 @@ use crate::server::{self, Request};
 use crate::start::{self, lane_for_path, Place, StartSpec};
 use crate::todos::{self, Label, Todo, TodoOp, TodoPatch, TodoReview, TodoStatus, TodoStore, Waiting, LABEL_COLORS};
 use crate::usage;
-use crate::util::{self, expand, now_ms, one_line, tilde, truncate};
+use crate::util::{self, base36, expand, now_ms, one_line, tilde, truncate};
 
 const ABOUT: &str = "Codealong from the command line: the todo list, every agent session on this Mac, the worktrees they run in, and the accounts they run on.";
 const LONG_ABOUT: &str = "Codealong from the command line: the todo list, every agent session on this Mac, the worktrees they run in, and the accounts they run on.
@@ -542,6 +542,9 @@ struct SessionFilter {
     /// Only sessions with a running process.
     #[arg(long)]
     live: bool,
+    /// Only sessions with this label (by name, any case), as `session label` puts one on. Repeatable: those with any of them.
+    #[arg(long = "label", value_name = "NAME")]
+    labels: Vec<String>,
     /// Active within this long: 90m, 24h, 3d, 7d (the default), or all.
     #[arg(long, default_value = "7d")]
     since: String,
@@ -634,6 +637,8 @@ enum SessionCmd {
     Suggest(SuggestArgs),
     /// Tag a session with your read of where it stands, in the words Codealong's rows use, after reading its conversation (`session transcript`): whether its last reply asks its user something, how far its code change got, whether what was asked for is done, how risky the call it waits on looks, and what a command it left running in the background does. Each shows on the session in Codealong as Jev's read does (Asks you, Landed, Pushed, Destructive, Looks finished…), over Jev's for the same moment, with who tagged it and the note; an orchestrator going over its sessions tags them so the user sees at a glance where each stands, with `[jev] sessions` on or off. Say only what you read: a field left out stays Jev's. Give --prompt-at the session's `lastPromptAt` as you read it: the tag is turned down if the user replied since, or while it takes a turn, and goes once anything is sent to it or a turn of its starts (`changes` says which, as `untagged`); tagging again replaces it, and --clear takes it away. The session's `insight` in `session show` and `sessions` is the read it shows now, Jev's, yours (`by`) or both.
     Tag(TagArgs),
+    /// Put labels on a session, or take them off, as Labels in its menu in Codealong does: the labels todos wear (`todo labels`), by name, any case, a new name made a label in the next color. They sort the work for your user: they show on its row, its Sessions view filters by them, and a board whose rule names a label takes in the sessions with it (`board rule --label`). Unlike a tag (`session tag`), which is a read of one turn and goes when the next starts, a label stays until it's taken off; put one on only when your user asked, or an orchestrator's labelling is what they set it to do. A session on another device is labelled on its Mac, with that Mac's labels. Prints the labels it has now; `session show`, `sessions` (`--label` to list only those with one) say them too.
+    Label(LabelArgs),
     /// Snooze a session, as Snooze in its menu in Codealong does: it leaves Needs you and Your turn on every device, and the mark stops counting it, until WHEN, when it's back as it is then (as Your turn when nothing else would bring it). A prompt sent to it ends the snooze, and --wake ends it now. WHEN is on this Mac's clock: a span from now (30m, 2h, 3d), a time (5pm, 17:30: the next one), a day (tomorrow, fri, next week, 2026-11-03: at 9 AM) or a day and a time (tomorrow 2pm, fri 17:00, 2026-11-03 15:00). A session on another device is snoozed on its Mac.
     Snooze {
         /// The session: its key, its id, a unique start of its id, or `me`.
@@ -771,6 +776,18 @@ struct TagArgs {
     /// Take the session's tag away.
     #[arg(long, conflicts_with_all = ["asks_you", "landing", "finished", "risk", "background", "note", "prompt_at"])]
     clear: bool,
+}
+
+#[derive(Args, Debug)]
+struct LabelArgs {
+    /// The session: its key, its id, a unique start of its id, or `me`.
+    key: String,
+    /// A label to put on it, by name (made if new). Repeatable.
+    #[arg(long, value_name = "NAME", required_unless_present = "remove")]
+    add: Vec<String>,
+    /// A label to take off it, by name. Repeatable.
+    #[arg(long, value_name = "NAME")]
+    remove: Vec<String>,
 }
 
 #[derive(Args, Debug)]
@@ -2008,6 +2025,7 @@ fn run(cmd: Cmd, c: &mut Client, json: bool) -> Result<()> {
         Cmd::Session { cmd: SessionCmd::Wait(a) } => session_wait(c, &a, json),
         Cmd::Session { cmd: SessionCmd::Suggest(a) } => session_suggest(c, a, json),
         Cmd::Session { cmd: SessionCmd::Tag(a) } => session_tag(c, a, json),
+        Cmd::Session { cmd: SessionCmd::Label(a) } => session_label(c, a, json),
         Cmd::Session { cmd: SessionCmd::Raise(a) } => session_raise(c, a, json),
         Cmd::Session { cmd: SessionCmd::Snooze { key, when } } => session_snooze(c, &key, &when, json),
         Cmd::Session { cmd: SessionCmd::Rename { key, name } } => session_act(c, &key, api::SESSION_RENAME, params::Rename { name, ..Default::default() }, json),
@@ -3398,6 +3416,9 @@ struct SessionRow {
     attach_command: Option<String>,
     /// Ids of todos linked to it.
     todos: Vec<String>,
+    /// The names of the labels on it (`session label`), in the order they were put on.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    labels: Vec<String>,
     /// Replies suggested for its user to send (`session suggest`), while it has them.
     #[serde(skip_serializing_if = "Option::is_none")]
     suggestions: Option<crate::model::Suggestions>,
@@ -3442,6 +3463,7 @@ fn session_row(s: &Session, lane: &Lane, todos: &[Todo]) -> SessionRow {
         resume_command: s.resume_command.clone(),
         attach_command: s.attach_command.clone(),
         todos: todos.iter().filter(|t| t.sessions.contains(&s.key)).map(|t| t.id.clone()).collect(),
+        labels: s.labels.iter().map(|l| l.name.clone()).collect(),
         suggestions: s.suggestions.clone(),
         insight: s.insight.clone(),
         helper: s.helper.clone(),
@@ -3521,6 +3543,7 @@ impl Wanted {
             && f.project.as_deref().map_or(true, |p| p.eq_ignore_ascii_case(&lane.project))
             && self.worktree.as_deref().map_or(true, |w| w == lane.id)
             && (!f.live || s.live)
+            && (f.labels.is_empty() || f.labels.iter().any(|n| s.labels.iter().any(|l| l.name.eq_ignore_ascii_case(n.trim()))))
             && self.since.map_or(true, |ms| self.now - s.last_activity <= ms)
             && (self.words.is_empty() || self.rank(s, lane) < Match::Said || self.said.contains_key(&s.key))
     }
@@ -3742,6 +3765,9 @@ fn session_show(c: &mut Client, key: &str, json: bool) -> Result<()> {
     }
     if let Some(i) = &r.insight {
         println!("Read: {}", insight_words(i));
+    }
+    if !r.labels.is_empty() {
+        println!("Labels: {}", r.labels.join(", "));
     }
     println!("Worktree: {} ({}{})", tilde(Path::new(&r.worktree)), out.worktree_callsign, r.branch.as_deref().map(|b| format!(", {b}")).unwrap_or_default());
     if let Some(n) = r.pr {
@@ -4343,6 +4369,38 @@ fn session_tag(c: &mut Client, a: TagArgs, json: bool) -> Result<()> {
     }
     if let Some(said) = &out.said {
         println!("{said}");
+    }
+    Ok(())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LabelOut {
+    session: String,
+    /// The names of the labels it has now, in the order they were put on.
+    labels: Vec<String>,
+}
+
+/// `session label`: asked of whichever device the session is on, whose labels they are, through
+/// the server, which keeps them.
+fn session_label(c: &mut Client, a: LabelArgs, json: bool) -> Result<()> {
+    if c.app.is_none() {
+        bail!("Labelling a session needs Codealong's server, which couldn't be started here (`codealong server start` says why): it keeps the labels.");
+    }
+    let key = resolve_session(c, &a.key)?;
+    // Another device's session is labelled there, by the key its Mac knows it by.
+    let own = crate::peerfeed::split_remote(&key).map_or(key.as_str(), |(_, own)| own).to_string();
+    let me = find_me(c)?.0;
+    c.act(api::SESSION_LABEL, &key, params::Label { keys: vec![own], add: a.add, remove: a.remove }, me)?;
+    c.board = None;
+    let labels = all_sessions(c.board()?).into_iter().find(|(s, _)| s.key == key).map(|(s, _)| s.labels.iter().map(|l| l.name.clone()).collect()).unwrap_or_default();
+    let out = LabelOut { session: key, labels };
+    if json {
+        return print_json(&out);
+    }
+    match out.labels.is_empty() {
+        true => println!("It has no labels."),
+        false => println!("Labels: {}", out.labels.join(", ")),
     }
     Ok(())
 }
@@ -5510,41 +5568,12 @@ fn new_todo_id() -> String {
     format!("t-{}{}", base36(now), base36(u32::from_le_bytes(b) as u64 % 36u64.pow(4)))
 }
 
-fn base36(mut n: u64) -> String {
-    const DIGITS: &[u8] = b"0123456789abcdefghijklmnopqrstuvwxyz";
-    if n == 0 {
-        return "0".into();
-    }
-    let mut s = Vec::new();
-    while n > 0 {
-        s.push(DIGITS[(n % 36) as usize]);
-        n /= 36;
-    }
-    s.reverse();
-    String::from_utf8(s).unwrap_or_default()
-}
-
 /// Ids for the label names, making any that don't exist (through a Labels change).
 fn label_ids(c: &mut Client, store: &mut TodoStore, names: &[String]) -> Result<Vec<String>> {
-    let mut ids = Vec::new();
-    let mut new_labels = store.labels.clone();
-    let mut added = false;
-    for name in names {
-        let name = one_line(name, 40);
-        if let Some(l) = new_labels.iter().find(|l| l.name.eq_ignore_ascii_case(&name)) {
-            ids.push(l.id.clone());
-            continue;
-        }
-        let used: HashSet<&str> = new_labels.iter().map(|l| l.color.as_str()).collect();
-        let color = LABEL_COLORS.iter().find(|c| !used.contains(*c)).unwrap_or(&LABEL_COLORS[new_labels.len() % LABEL_COLORS.len()]);
-        let id = format!("l-{}", base36(now_ms() as u64 + new_labels.len() as u64));
-        new_labels.push(Label { id: id.clone(), name, color: color.to_string() });
-        ids.push(id);
-        added = true;
-    }
-    if added {
-        c.apply(TodoOp::Labels { labels: new_labels.clone() })?;
-        store.labels = new_labels;
+    let (labels, ids) = todos::named(&store.labels, names, now_ms());
+    if labels != store.labels {
+        c.apply(TodoOp::Labels { labels: labels.clone() })?;
+        store.labels = labels;
     }
     Ok(ids)
 }
@@ -7721,6 +7750,8 @@ mod tests {
         assert!(Cli::try_parse_from(["codealong", "session", "tag", "abc", "--finished", "maybe", "--prompt-at", "4"]).is_err());
         assert!(Cli::try_parse_from(["codealong", "session", "tag", "abc", "--finished", "yes"]).is_err(), "it needs the prompt that was read");
         assert!(matches!(Cli::try_parse_from(["codealong", "session", "tag", "abc", "--clear"]).unwrap().cmd, Cmd::Session { cmd: SessionCmd::Tag(ref a) } if a.clear));
+        assert!(matches!(Cli::try_parse_from(["codealong", "session", "label", "abc", "--add", "release", "--add", "Bug", "--remove", "ui"]).unwrap().cmd, Cmd::Session { cmd: SessionCmd::Label(ref a) } if a.add == ["release", "Bug"] && a.remove == ["ui"]));
+        assert!(Cli::try_parse_from(["codealong", "session", "label", "abc"]).is_err(), "a label to put on or take off");
         assert!(Cli::try_parse_from(["codealong", "session", "tag", "abc", "--clear", "--finished", "yes"]).is_err());
         // Picks stand in for replies, never beside them.
         let cli = parse_from(["codealong", "session", "suggest", "abc", "--pick", "Read only first", "--pending", "toolu_1", "--prompt-at", "4"]).unwrap();

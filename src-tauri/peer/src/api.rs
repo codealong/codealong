@@ -26,6 +26,11 @@ pub const SESSION_SNOOZE: &str = "session-snooze";
 /// don't wait on you, there and everywhere, and it waits on you only when it needs you. Macs
 /// before 2026-10-09 refuse it as a request they don't know.
 pub const SESSION_QUIET: &str = "session-quiet";
+/// Puts labels on sessions (`keys`) and takes others off, there and everywhere: `add` by name (a
+/// name the device's labels don't have is made one) or id, `remove` by id or name. The labels are
+/// the ones todos wear on that device. Macs before 2026-11-09 refuse it as a request they don't
+/// know.
+pub const SESSION_LABEL: &str = "session-label";
 /// Moves sessions (`keys`) to the top of what waits on you, or back to their places with `raised`
 /// false: every queue goes to them first, there and everywhere, until you take them up. Macs
 /// before 2026-10-29 refuse it as a request they don't know.
@@ -496,6 +501,17 @@ pub mod params {
         pub quiet: bool,
     }
 
+    /// `session-label`: labels put on, by name or id, and taken off, by id or name.
+    #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+    #[serde(default)]
+    pub struct Label {
+        pub keys: Vec<String>,
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        pub add: Vec<String>,
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        pub remove: Vec<String>,
+    }
+
     /// `session-raise`: moved to the top, or back to their places. An agent's (`agent`, or one
     /// asked through the command) says who it was and why, and goes after the ones you moved.
     #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
@@ -610,7 +626,7 @@ pub enum Reach {
 }
 
 /// Every request, with who may make it. A request missing here is one a device doesn't know.
-pub const REQUESTS: [(&str, Reach); 48] = [
+pub const REQUESTS: [(&str, Reach); 49] = [
     (SESSION_PAGE, Reach::Read),
     (SESSION_NEWER, Reach::Read),
     (SESSION_PENDING, Reach::Read),
@@ -631,6 +647,7 @@ pub const REQUESTS: [(&str, Reach); 48] = [
     (MARK_UNREAD, Reach::Organize),
     (SESSION_SNOOZE, Reach::Organize),
     (SESSION_QUIET, Reach::Organize),
+    (SESSION_LABEL, Reach::Organize),
     (SESSION_RAISE, Reach::Organize),
     (SESSION_PIN, Reach::Organize),
     (SESSION_OWN, Reach::Organize),

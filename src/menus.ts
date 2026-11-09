@@ -12,7 +12,7 @@
 
 import { useEffect, useState } from 'react';
 import { closeSession, desktopPins, expandAttachments, forkSession, getAccounts, inPreview, moveSession, moveSessionTo, onDesktopPins, openUrl, ownSessions, pinToDesktop, resumeSession, sessionCancel, sessionWindow, setPrNudge, setPrPrimary, setReusable, showQuick, unpinFromDesktop, type MergeDone } from './api';
-import { archiveAhead, doneAhead, quietAhead, raiseAhead, seenAhead, unreadAhead } from './ahead';
+import { archiveAhead, doneAhead, labelAhead, quietAhead, raiseAhead, seenAhead, unreadAhead } from './ahead';
 import type { MenuAction, MenuGroup, MenuImage, MenuSpec } from './contextMenu';
 import { shortOf } from './devices';
 import { dueChoices } from './due';
@@ -187,6 +187,9 @@ export interface SessionCan {
   moving?: (copy: Promise<string | null>) => void;
   /** Add to board, and Remove from board on the board it's on, where the window has boards. */
   boards?: MenuSpec;
+  /** The labels todos wear, for Labels, where the window has them. Without them it offers only
+   *  the ones the session wears, to take off. */
+  labels?: readonly Label[];
   /** The board's PRs, and this window's dialog that asks before Merge and done… merges a PR
    *  and marks its primary session done (ui/MergeDone.tsx). Without it there's no such item.
    *  `ask` opens the dialog, and says whether it's surely in front of you: the main window's is,
@@ -276,6 +279,12 @@ export interface SessionActions {
   /** A helper (Session.helper) made a session of your own, for good: listed and waiting on you
    *  as any of yours. */
   own?: MenuAction;
+  /** Its labels: each one checked while it wears it (`labelsMenu`). */
+  labels?: MenuGroup;
+  /** Puts labels on it and takes others off, by name (ahead.ts `labelAhead`), from the labels
+   *  todos wear: its header's chips and their picker (SessionHeader.tsx `SessionLabels`). Missing
+   *  where the window doesn't have the labels. */
+  relabel?: { labels: readonly Label[]; run: (add: Label[], remove: string[]) => void };
   close?: MenuAction;
   /** Done with it: it ends as far as Codealong can end it, and is marked seen and archived. */
   done?: MenuAction;
@@ -477,6 +486,9 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
             else act.catch((e: unknown) => report.error(errorText(e)));
           },
         },
+    // Kept on the Mac it runs on too, with that Mac's labels.
+    labels: s.visitor ? undefined : labelsMenu([s], can.labels ?? [], report),
+    relabel: s.visitor || !can.labels ? undefined : { labels: can.labels, run: (add, remove) => void labelAhead([s.key], add, remove).catch((e: unknown) => report.error(errorText(e))) },
     // Kept on the Mac it runs on too, for good: its agent can still read it and send to it.
     own: s.helper && !s.archived ? { label: 'Make it my own', run: () => void said(`Making ${s.title} your own…`, ownSessions([s.key]).then(() => `“${s.title}” is a session of your own now.`)) } : undefined,
     // Closed, it's done with for now, as one marked seen is: a window working through what
@@ -592,12 +604,12 @@ export function folderMoves(from: Lane, worktrees: Lane[], run: (to: Lane) => vo
 
 /** The order of a session's menu, in groups with a line between: opening it (where it lives,
  *  its folder, its PR, its tabs in Chrome), showing or answering it in Codealong and starting from it; the window's
- *  todos; what it is to you (its turn, its name, seen, pinned, snoozed, quiet, closed, archived);
+ *  todos, its boards and its labels; what it is to you (its turn, its name, seen, pinned, snoozed, quiet, closed, archived);
  *  copying it. */
 const SESSION_MENU = [
   ['heading'],
   ['open', 'resume', 'folder', 'ownTerminal', 'pr', 'chrome', 'reveal', 'window', 'reply', 'newSession', 'fork', 'move', 'moveFolder'],
-  ['todos', 'boards'],
+  ['todos', 'boards', 'labels'],
   ['stop', 'rename', 'seen', 'unread', 'pin', 'desktop', 'raise', 'snooze', 'quiet', 'own', 'close', 'done', 'mergeDone', 'archive'],
   ['copyId', 'copyResume'],
 ] as const;
@@ -626,6 +638,8 @@ export interface SessionsCan {
   left?: (done: Left, keys: string[]) => void;
   /** Add them to a board, where the window has boards. */
   boards?: MenuSpec;
+  /** The labels todos wear, for Labels, as one session's menu has them (`SessionCan.labels`). */
+  labels?: readonly Label[];
   keys?: boolean | 'chords';
 }
 
@@ -645,6 +659,9 @@ export interface SessionsActions {
   snooze?: MenuGroup;
   /** Checked while every one of them is quiet, which it makes heard again; else it quiets them. */
   quiet?: MenuAction;
+  /** Each label checked while every one of them wears it, which takes it off them all; else it
+   *  puts it on the ones without it (`labelsMenu`). */
+  labels?: MenuGroup;
   close?: MenuAction;
   done?: MenuAction;
   archive?: MenuAction;
@@ -838,17 +855,22 @@ export function sessionsActions(picked: { lane: Lane; session: Session }[], can:
         : all.length > 0
           ? { label: `Unarchive ${count(all.length, 'session')}`, run: () => archive(keysOf(all), false) }
           : undefined,
+    labels: labelsMenu(
+      all.filter((s) => !s.visitor),
+      can.labels ?? [],
+      report,
+    ),
     copyId: copyItem('Copy session IDs', all.map((s) => s.id).join(' '), 'session IDs', report),
     takes: { carryOn: carryOn.length, stop: stop.length, seen: seen.length, unread: unread.length, snooze: snooze.length, close: close.length, done: done.length, archive: toArchive.length || all.length },
   };
 }
 
 /** The order of the menu of several sessions picked together: carrying on the ones cut off, the
- *  boards, what they are to you, then copying them. Opening them, and what's done to one at a time
+ *  boards and labels, what they are to you, then copying them. Opening them, and what's done to one at a time
  *  (rename, move, fork), aren't. */
 const SESSIONS_MENU = [
   ['carryOn'],
-  ['boards'],
+  ['boards', 'labels'],
   ['stop', 'seen', 'unread', 'pin', 'raise', 'snooze', 'quiet', 'close', 'done', 'archive'],
   ['copyId'],
 ] as const;
@@ -1431,6 +1453,24 @@ function dueItem(ts: Todo[], edit: TodoEdit): MenuGroup {
       ...(ts.some((t) => t.due) ? ['separator' as const, { label: ts.length === 1 ? 'Remove due date' : 'Remove due dates', run: () => set(null) }] : []),
     ],
   };
+}
+
+/** A session's Labels, or several's: each label, checked where every one of them wears it, which
+ *  takes it off them all, else puts it on the ones without it. A label goes by its name, since a
+ *  session on another device wears that Mac's labels (actions.rs `label`), and the ones they wear
+ *  that `labels` doesn't name come after. None when there's no label to offer: the session's
+ *  header makes the first (SessionHeader.tsx `SessionLabels`). */
+export function labelsMenu(ss: readonly Session[], labels: readonly Label[], report: Report): MenuGroup | undefined {
+  const same = (a: Label, b: Label) => a.name.toLowerCase() === b.name.toLowerCase();
+  const worn = ss.flatMap((s) => s.labels ?? []);
+  const offered = [...labels, ...worn.filter((w, i) => !labels.some((l) => same(l, w)) && worn.findIndex((x) => same(x, w)) === i)];
+  if (ss.length === 0 || offered.length === 0) return undefined;
+  const keys = ss.map((s) => s.key);
+  const items = offered.map((l) => {
+    const all = ss.every((s) => (s.labels ?? []).some((x) => same(x, l)));
+    return { label: l.name, checked: all, run: () => void labelAhead(keys, all ? [] : [l], all ? [l.name] : []).catch((e: unknown) => report.error(errorText(e))) };
+  });
+  return { label: 'Labels', items };
 }
 
 /** Labels: each one, checked where the todo wears it, putting it on or taking it off. */

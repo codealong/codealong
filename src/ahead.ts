@@ -1,5 +1,5 @@
 // Changes you make that the engine takes a moment to show: sessions marked seen or unread, snoozed,
-// quieted, moved to the top, archived, renamed, sent a message or let go on past a call they waited on, reviews asked
+// quieted, moved to the top, labelled, archived, renamed, sent a message or let go on past a call they waited on, reviews asked
 // of you snoozed, and PRs reviewed or merged.
 // The engine takes them in its own loop, which waits behind scans and git on a
 // busy Mac (half a second typically, seconds at worst), and only then does every window get a
@@ -7,7 +7,7 @@
 // tells the other windows (the `ahead` event): the bar's pill goes as you mark its session seen in
 // the peek, and the main window shows the session working as you send it something from the bar.
 //
-// A seen, unread, snooze, quiet, move to the top, archive, rename or merge goes once a board at least as new as the one the engine says
+// A seen, unread, snooze, quiet, move to the top, label, archive, rename or merge goes once a board at least as new as the one the engine says
 // shows it arrives. Going by whether the board looks right instead would hide a session that turned unread
 // again a moment later. One the engine turns down goes at once, and the caller says why.
 //
@@ -34,12 +34,12 @@
 // the thread.
 
 import { useSyncExternalStore } from 'react';
-import { archiveSession, emitAhead, markSeen, markUnread, mergePr, onAhead, quietSessions, raiseSessions, renameSession, resumeSession, reviewPr, sendToSession, sessionAnswer, sessionDone, sessionSteer, sessionUnqueue, snoozeReviews, snoozeSessions, windowLabel, type Done, type MergeDone } from './api';
+import { archiveSession, emitAhead, labelSessions, markSeen, markUnread, mergePr, onAhead, quietSessions, raiseSessions, renameSession, resumeSession, reviewPr, sendToSession, sessionAnswer, sessionDone, sessionSteer, sessionUnqueue, snoozeReviews, snoozeSessions, windowLabel, type Done, type MergeDone } from './api';
 import { readDraft, writeDraft } from './drafts';
 import { nameShown } from './harness';
 import { heldForAgent } from './prStatus';
 import { byRaise, relaned, sessionHeadline, stuckMidTurn, unreadable } from './lanes';
-import type { Answers, BarFeed, BarItem, BarRecent, BarSnoozed, Board, Lane, LastReview, LogoStatus, MergeOp, PrItem, QueuedMessage, ResumeIn, Reviewed, Sent, Session, Status, TranscriptItem, Verdict } from './types';
+import type { Answers, BarFeed, BarItem, BarRecent, BarSnoozed, Board, Label, Lane, LastReview, LogoStatus, MergeOp, PrItem, QueuedMessage, ResumeIn, Reviewed, Sent, Session, Status, TranscriptItem, Verdict } from './types';
 
 /** A message the board shows no sign of this long after it went stops showing its session as
  *  working; if the session isn't working either, the thread says it may not have reached it. */
@@ -73,6 +73,8 @@ export type Change =
   | { kind: 'quiet'; keys: string[]; quiet: boolean }
   /** Moved to the top of what waits on you, or back to their places with false. */
   | { kind: 'raise'; keys: string[]; raised: boolean }
+  /** Labels put on, as they'll show (a new one in the color it'll get), and taken off by name. */
+  | { kind: 'label'; keys: string[]; add: Label[]; remove: string[] }
   /** Your review of these PRs (by PR key) snoozed until then, or woken now with null; `picked`
    *  as a session's snooze is. */
   | { kind: 'review-snooze'; keys: string[]; until: number | null; picked?: boolean }
@@ -152,6 +154,8 @@ export interface Shown {
   /** Stuck mid-turn (lanes.ts `stuckMidTurn`), so a message waits for the step it's on, as it
    *  does while it works. Unknown to the bar. */
   stuck?: boolean;
+  /** The labels on it (`Session.labels`). Unknown to the bar, which shows none. */
+  labels?: Label[];
 }
 
 /** What a window shows: the time of its board (null with none yet) and its sessions. */
@@ -197,7 +201,7 @@ function byKey(changes: Ahead[]): Map<string, Ahead[]> {
   for (const a of changes) {
     // A review's snooze, a review and a merge are a PR's, not a session's.
     if (a.change.kind === 'review-snooze' || a.change.kind === 'pr-merge' || a.change.kind === 'pr-review') continue;
-    if (a.change.kind === 'seen' || a.change.kind === 'unread' || a.change.kind === 'snooze' || a.change.kind === 'quiet' || a.change.kind === 'raise') for (const k of a.change.keys) add(k, a);
+    if (a.change.kind === 'seen' || a.change.kind === 'unread' || a.change.kind === 'snooze' || a.change.kind === 'quiet' || a.change.kind === 'raise' || a.change.kind === 'label') for (const k of a.change.keys) add(k, a);
     else add(a.change.key, a);
   }
   return m;
@@ -218,6 +222,7 @@ export function sessionAhead(s: Session, changes: Ahead[] | undefined): Session 
     // Quieted, a finished turn is idle (board.rs, `apply_quiet`). Made heard again, one you
     // haven't seen is Your turn again, which only the engine knows: the board brings it.
     else if (c.kind === 'quiet' && !!out.quiet !== c.quiet) out = { ...out, quiet: c.quiet, ...(c.quiet && out.status === 'unread' ? { status: 'idle' as const } : {}) };
+    else if (c.kind === 'label' && !labelled(out, c)) out = { ...out, labels: withLabels(out.labels ?? [], c.add, c.remove) };
     // Moved to the top, it's first until you take it up, and one whose turn you've seen waits on
     // you again (board.rs `apply_raise`); it's woken from a snooze, the two being opposites.
     else if (c.kind === 'raise' && !out.archived && !!out.raised !== c.raised) {
@@ -506,7 +511,7 @@ export function boardView(boardAt: number | null, laneLists: Lane[][]): View {
       for (const lanes of laneLists) {
         for (const l of lanes) {
           const s = l.sessions.find((x) => x.key === key && !x.visitor);
-          if (s) return { title: s.title, status: s.status, statusSince: s.statusSince, lastPromptAt: s.lastPromptAt, archived: s.archived, asks: !!s.asks, snoozedUntil: s.snoozedUntil ?? null, quiet: !!s.quiet, raised: !!s.raised, queuedAt: s.queuedAt ?? null, queued: s.queued?.map((m) => m.id), stuck: stuckMidTurn(s) };
+          if (s) return { title: s.title, status: s.status, statusSince: s.statusSince, lastPromptAt: s.lastPromptAt, archived: s.archived, asks: !!s.asks, snoozedUntil: s.snoozedUntil ?? null, quiet: !!s.quiet, raised: !!s.raised, queuedAt: s.queuedAt ?? null, queued: s.queued?.map((m) => m.id), stuck: stuckMidTurn(s), labels: s.labels ?? [] };
         }
       }
       return undefined;
@@ -558,6 +563,7 @@ export function settled(a: Ahead, v: View, now: number): Ahead | null {
       if (c.kind === 'snooze') return s.snoozedUntil === c.until;
       if (c.kind === 'quiet') return s.quiet === c.quiet;
       if (c.kind === 'raise') return !!s.raised === c.raised;
+      if (c.kind === 'label') return s.labels === undefined || labelled(s, c);
       if (c.kind === 'rename') return s.title === c.title;
       return s.archived === c.archived;
     });
@@ -756,6 +762,41 @@ export function quietAhead(keys: string[], quiet: boolean): Promise<void> {
   const a = made({ kind: 'quiet', keys, quiet });
   put(a, true);
   return quietSessions(keys, quiet).then(
+    (shownAt) => answered(a.id, shownAt),
+    (e: unknown) => {
+      drop(a.id, true);
+      throw e;
+    },
+  );
+}
+
+const named = (l: Label, name: string) => l.name.toLowerCase() === name.trim().toLowerCase();
+
+/** `labels` with those named in `remove` taken off, and those in `add` put on after the rest, a
+ *  label by its name, whatever its case: the engine puts them on by name (`labelSessions`). */
+export function withLabels(labels: readonly Label[], add: readonly Label[], remove: readonly string[]): Label[] {
+  const kept = labels.filter((l) => !remove.some((r) => named(l, r)));
+  return [...kept, ...add.filter((a) => !remove.some((r) => named(a, r)) && !kept.some((l) => named(l, a.name)))];
+}
+
+/** Whether a session shows a label change: it has each put on, and none taken off. */
+function labelled(s: Pick<Session, 'labels'>, c: { add: Label[]; remove: string[] }): boolean {
+  const has = s.labels ?? [];
+  return c.add.every((a) => has.some((l) => named(l, a.name))) && !c.remove.some((r) => has.some((l) => named(l, r)));
+}
+
+/** Puts labels on sessions and takes others off, by name, in every window at once: `add` as each
+ *  will show, a new one in the color its device will give it (todos.ts `nextColor`). Rejects with
+ *  why when a device didn't. */
+export function labelAhead(keys: string[], add: Label[], remove: string[]): Promise<void> {
+  if (keys.length === 0 || (add.length === 0 && remove.length === 0)) return Promise.resolve();
+  const a = made({ kind: 'label', keys, add, remove });
+  put(a, true);
+  return labelSessions(
+    keys,
+    add.map((l) => l.name),
+    remove,
+  ).then(
     (shownAt) => answered(a.id, shownAt),
     (e: unknown) => {
       drop(a.id, true);

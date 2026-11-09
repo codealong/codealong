@@ -278,6 +278,11 @@ status, over Jev's for the same moment.
    to the session or a turn of its starts, so a session with none has moved on: read it again
    before tagging more.
 
+A tag is a read of one turn. To sort sessions for good, as the user asked (by release, by area),
+put labels on them: `codealong session label <key> --add <name>` (a new name is made a label, the
+labels todos wear), `--remove <name>` to take one off. A label stays until it's taken off, so put
+one on only when the user asked for it; `codealong sessions --label <name>` lists the ones with it.
+
 ## Orchestrating
 
 When your user asks you to run as their orchestrator, keeping watch over all their sessions on a

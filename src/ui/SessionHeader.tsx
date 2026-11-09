@@ -51,11 +51,12 @@ import { showSide } from '../side';
 import { untilWords } from '../snooze';
 import { sessionTokens } from '../api';
 import { cacheShare, money, tokenCount, totalTokens } from '../spend';
-import type { Board, DeviceView, Lane, Pr, Session, SessionSpent, SideGlance, Target, Todo } from '../types';
-import { closedWord, isOpen, panelTodos, STATUS_WORD as TODO_WORD } from '../todos';
+import type { Board, DeviceView, Label, Lane, Pr, Session, SessionSpent, SideGlance, Target, Todo } from '../types';
+import { closedWord, isOpen, newId, nextColor, panelTodos, STATUS_WORD as TODO_WORD } from '../todos';
 import { ArtifactChip, ArtifactList } from './ArtifactBits';
 import { DeviceBadge } from './DeviceBadge';
 import { InsightChips } from './InsightBits';
+import { LabelPicker } from './LabelPicker';
 import { ModeLabel } from './ModeLabel';
 import { OpenInMenu } from './Inspector';
 import { PreviewChip } from './PreviewBits';
@@ -63,7 +64,7 @@ import { ProjectPrefix } from './ProjectSaid';
 import { PrChipCard } from './PrLink';
 import { AccountLabel, BranchLabel, Button, HarnessChip, headerMenu, Icon, PanelBack, STATUS_WORD, SessionEmblem, SessionGlyph, type PanelBackTo } from './primitives';
 import { runFolder } from './RunButton';
-import { TodoGlyph } from './TodoBits';
+import { AddChip, LabelChip, TodoGlyph } from './TodoBits';
 import { keysIn } from '../platform';
 
 /** PRs shown before a "+N": a long session can have made many. */
@@ -337,6 +338,46 @@ function SessionCost({ sessionKey }: { sessionKey: string }) {
   );
 }
 
+const sameName = (l: Label, name: string) => l.name.toLowerCase() === name.toLowerCase();
+
+/** The labels you put on a session, each with a ✕ that takes it off, and with `adds`, a chip that
+ *  puts one on or makes a new one (LabelPicker.tsx), where the window has the labels todos wear
+ *  (`relabel`). A label goes by its name, since one on another device wears that Mac's: the ones
+ *  it wears that this Mac has none of are offered too, to take off. A card short of room leaves
+ *  adding to the session's menu (menus.ts `labelsMenu`). */
+function SessionLabels({ session: s, relabel, adds }: { session: Session; relabel: SessionActions['relabel']; adds: boolean }) {
+  const [picking, setPicking] = useState(false);
+  const worn = s.labels ?? [];
+  const wears = (l: Label) => worn.some((w) => sameName(w, l.name));
+  const offered = relabel ? [...relabel.labels, ...worn.filter((w) => !relabel.labels.some((l) => sameName(l, w.name)))] : worn;
+  const toggle = (id: string) => {
+    const l = offered.find((x) => x.id === id);
+    if (l) relabel?.run(wears(l) ? [] : [l], wears(l) ? [l.name] : []);
+  };
+  return (
+    <>
+      {worn.map((l) => (
+        <LabelChip key={l.id} label={l} title={`Labelled ${l.name}: it stays until you take it off`} remove={relabel && (() => relabel.run([], [l.name]))} />
+      ))}
+      {relabel && adds && (
+        <span className="ca-labelpick-anchor">
+          <AddChip icon="tag" label={worn.length ? 'Label' : 'Add label'} title="Put a label on it, or make a new one" open={picking} onToggle={() => setPicking(!picking)} />
+          {picking && (
+            <LabelPicker
+              labels={offered}
+              chosen={offered.filter(wears).map((l) => l.id)}
+              onToggle={toggle}
+              // As its device will make it, in the next color not taken (todos.rs `named`).
+              onCreate={(name) => relabel.run([{ id: newId('l'), name, color: nextColor([...relabel.labels]) }], [])}
+              onClose={() => setPicking(false)}
+            />
+          )}
+        </span>
+      )}
+    </>
+  );
+}
+
 export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane, prs = [], onShowPr, onOpenPr, onPrMenu, todos, onShowTodo, lineage, schedule, onShowSchedule, onShowSession, onSessionMenu, onMenu, onSeen, actions, seenAbove, onKeep, keepTitle, onPopOut, onClose, closeTitle, renaming, onRename, device, back, maximized, onMaximize, compact, accountBelow, inMain, onMove }: SessionHeaderProps) {
   const [details, setDetails] = useState(false);
   const [allPrs, setAllPrs] = useState(false);
@@ -556,6 +597,7 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
         )}
         <PreviewChip preview={lane.preview} now={now} onOpen={() => onOpen('l|preview')} />
         <InsightChips session={s} />
+        <SessionLabels session={s} relabel={actions?.relabel} adds={!compact} />
         {!allTodos && current && (
           <button type="button" className="ca-sessinsp-todo" title={`${current.title || 'Untitled'} · ${TODO_WORD[current.status]}.${onShowTodo ? ' Show the todo.' : ''}`} onClick={() => onShowTodo?.(current)}>
             <TodoGlyph status={current.status} />

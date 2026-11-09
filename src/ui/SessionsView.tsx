@@ -29,7 +29,7 @@ import { bySession, byStatusTime, foldsOf, listedUnder, runsShownKey, sidesListe
 import type { SelectHow } from '../picks';
 import type { HelperCount, RunCount, SideCount } from '../boardLists';
 import type { SaidLine } from '../quick';
-import type { Bay, DesktopPinned, Lane, Session, SideGlance, Status, Todo } from '../types';
+import type { Bay, DesktopPinned, Label, Lane, Session, SideGlance, Status, Todo } from '../types';
 import type { HelperActions } from './HelpersCard';
 import { GroupBlock, PinnedGroups, useGroupDrag, type GroupActs } from './Groups';
 import { AgentRow, FoldRow, SideRow } from './LaneRow';
@@ -343,6 +343,8 @@ interface SessionsViewProps {
   /** What a helpers chip's card does with a helper (HelpersCard.tsx). */
   helperActions?: HelperActions;
   onShowTodo?: (todo: Todo) => void;
+  /** Shows only the sessions with a label: a double-click on its chip on a row. */
+  onFilterLabel?: (label: Label) => void;
   /** The line a session the search found by what was said in it shows (boardLists.ts
    *  `saidLinesOf`). */
   saidOf?: (sessionKey: string) => SaidLine | undefined;
@@ -351,7 +353,7 @@ interface SessionsViewProps {
 const NO_KEYS: ReadonlySet<string> = new Set();
 
 export function SessionsView(props: SessionsViewProps) {
-  const { pinned, pinnedHelpers, sections, groups, groupActs, sort, lines, now, selectedKey, picked, domId, onSelect, onOpen, onContextMenu, onPrMenu, onPrShow, onPrOpen, onPlacePinned, onUnpin, desktop, archived, showArchived, onToggleArchived, todosFor, helpersOf, helpersShown, onToggleHelpers, runsOf, onToggleRuns, sidesOf, sideGlancesOf, onToggleSides, onShowSide, helperActions, onShowTodo, saidOf } = props;
+  const { pinned, pinnedHelpers, sections, groups, groupActs, sort, lines, now, selectedKey, picked, domId, onSelect, onOpen, onContextMenu, onPrMenu, onPrShow, onPrOpen, onPlacePinned, onUnpin, desktop, archived, showArchived, onToggleArchived, todosFor, helpersOf, helpersShown, onToggleHelpers, runsOf, onToggleRuns, sidesOf, sideGlancesOf, onToggleSides, onShowSide, helperActions, onShowTodo, onFilterLabel, saidOf } = props;
   const shown = helpersShown ?? NO_KEYS;
   const allGroups = groups ? groupsOf(groups) : [];
   const listed = groups ? allGroups.flatMap((g) => g.rows) : sections.flatMap((s) => s.rows);
@@ -406,6 +408,7 @@ export function SessionsView(props: SessionsViewProps) {
       elsewhere={r.elsewhere}
       inWorktree={inWorktree}
       onShowTodo={onShowTodo}
+      onFilterLabel={onFilterLabel}
       said={saidOf?.(r.session.key)}
       drag={held}
     />

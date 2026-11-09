@@ -36,6 +36,17 @@ describe('what a thing on a board is to its rules', () => {
     expect(at(s, 'pr:acme/app#7')).toMatchObject({ stage: 'review', accounts: ['codex'], repos: ['acme/app'] });
   });
 
+  it('gives a session the labels you put on it, and its worktree too', () => {
+    const own = fx.session({ key: 'claude:claude:o', labels: [{ id: 'l-ui', name: 'UI', color: 'teal' }] });
+    const lane: Lane = fx.lane({ id: '/r/web', sessions: [own] });
+    const todos: Todo[] = [fx.todo({ id: 'rel', labels: ['l-rel'], sessions: [own.key] })];
+    const todoItems = todos.map((t) => todoItem(t, new Map([[lane.id, lane]]), sessionHomes([lane]), new Map()));
+    const subjects = subjectsOf({ todoItems, todos, sessionItems: sessionItemsOf([lane]), lanes: [lane], prs: [] });
+    expect(at(subjects, 'session:claude:claude:o').labels).toEqual(['l-rel', 'l-ui']);
+    expect(at(subjects, 'worktree:/r/web').labels).toEqual(['l-rel', 'l-ui']);
+    expect(matches({ labels: ['l-ui'], kinds: ['session'] }, at(subjects, 'session:claude:claude:o'), NOW)).toBe(true);
+  });
+
   it('takes in a thing when every part of a rule holds, and any pick within one', () => {
     const w = at(s, 'session:claude:claude:w');
     expect(matches({}, w, NOW)).toBe(true);

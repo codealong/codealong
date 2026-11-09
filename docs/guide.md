@@ -111,8 +111,8 @@ the day they were last active (Today, Yesterday, Last 7 days, Older), the one yo
 first. Started puts the newest session first, under the day it started, and each row's age then
 says when it started. A row leads with the session's title, then what it's doing or said last; one
 that needs you has a label beside its title for what it waits on (Asks you, Needs approval,
-Message, Stuck, Error). Its second line says where and why: its worktree, its todo and Jev's read,
-then its account, with the worktree's PR and diff at the right: that's on two lines (Rows, the
+Message, Stuck, Error). Its second line says where and why: its worktree, its todo, its
+[labels](#labels) and Jev's read, then its account, with the worktree's PR and diff at the right: that's on two lines (Rows, the
 last group). On one line, as it starts, a row is its title, then its status, worktree and PR chips at
 the line's end, and its status says its account when you point at it. A snoozed session's row says how long until it's
 back, and a quiet one's says Quiet. Here letters alone do nothing, so a word typed on the list by
@@ -250,6 +250,24 @@ shows it too: a Claude Code session's transcript, which `/resume` lists it by an
 takes up, in its terminal's title too, the next time it reads its transcript's end; a Codex thread,
 which the Codex app shows the next time it reads its threads (not an archived one); an OpenCode
 session, through its service, so OpenCode must be running. Antigravity's can't be renamed here.
+
+#### Labels
+
+Put labels on a session to sort the work your way: Labels › in its right-click menu, here or
+wherever a session has one, checks the ones it wears and puts on or takes off the one you pick (for
+several picked together, on the ones without it, or off them all once they all wear it); in the main
+window its panel's header shows them, each with a ✕, and a Label chip whose picker puts one on or
+makes a new one as you type it. They're the labels todos wear, one set on each Mac: renaming one
+or changing its color in a todo's panel changes it on sessions too, and one deleted shows on none.
+A row shows its labels, and a double-click on one shows only the sessions with it, as Labels in
+the sidebar does; the find finds a session by a label's name; a board whose rule names a label
+takes in the sessions you put it on, and their worktrees, as it takes in its todos'.
+
+A label isn't Jev's read nor an agent's tag (Landed, Pushed, Asks you…), which say where one turn
+left things and go once the next starts: a label stays until you take it off. An agent puts one on
+with `codealong session label <key> --add <name>` when you ask it to sort sessions. Labels are kept
+on the session's Mac with what you've pinned and snoozed, so a session on another device wears that
+Mac's labels: Labels › offers this Mac's by name, and one that Mac doesn't have yet is made there.
 
 #### Stop a turn
 
@@ -1827,8 +1845,8 @@ own project's.
 
 A board holds what its rule takes in, as the work moves on, and what you add by hand, less what
 you take off. A rule picks by kind (todos, sessions, worktrees, PRs), stage (To do, In progress, In
-review, Done), status (Needs you, Your turn, Working; a todo or a worktree by its sessions), todo
-label (the todos with it and the sessions and worktrees on them), repo, account, how recently the
+review, Done), status (Needs you, Your turn, Working; a todo or a worktree by its sessions), label
+(the todos with it, the sessions you put it on, and the sessions and worktrees on either), repo, account, how recently the
 work moved on, and words in the title: each part picked must hold, and within one any pick does.
 Everything takes in the whole project; Only what you add takes in nothing by itself. Add to board ›
 in any session's, worktree's, todo's or PR's right-click menu puts it on a board (checked where
@@ -1863,8 +1881,8 @@ and In review list what needs you first, the longest wait first, then your turns
 working, then the rest, the one you last sent a prompt first; Done, the latest first, is folded to
 a rail with its count until you open it. Done's todos go back as far as the age filter does (two
 weeks under All), which narrows the sessions too, but not what you added to the board; the list's
-find, the statuses and the devices narrow it as they do the other views, and a label shows only
-todos.
+find, the statuses and the devices narrow it as they do the other views, and a label shows the
+todos with it and the sessions you put it on.
 
 Select a card for its panel: a todo's, or a session's with its conversation and its box. The
 arrows go up and down a column and across to the next one that has cards; Return opens a card
@@ -1972,9 +1990,10 @@ about the one the project has, and say so when it has none or several. `codealon
 Picks the view (Sessions, PRs, Todo, Board) and the board it shows, and narrows it: to the devices you
 pick, to what was active in the last 24h, 3d or 7d, and to the statuses you pick (Needs you, Your
 turn, Working, In review, PR needs work; any of them). Some views have more to narrow by, each pick
-with its count: Sessions its agents (the accounts sessions run on), PRs their repos, their labels
-on GitHub and who opened them (you first), Todo and Kanban the todos' labels (a double-click on a label's chip on a todo shows only
-that label, as a repo's does in PRs). A long list shows its first eight and the rest under "more".
+with its count: Sessions its agents (the accounts sessions run on) and the [labels](#labels) you put
+on them, PRs their repos, their labels on GitHub and who opened them (you first), Todo and Kanban
+the todos' labels (a double-click on a label's chip on a session or a todo shows only that label,
+as a repo's does in PRs). A long list shows its first eight and the rest under "more".
 Each view keeps its picks while another shows, and showing a row from elsewhere (a link, the quick
 panel) clears what would hide it. Devices, statuses and these toggle; within one section any of the
 picks shows, none picked shows all, and Clear unpicks them. Save the view as it is under a name to
@@ -1996,7 +2015,7 @@ its × clears it and puts it away. Left with nothing typed it goes away by itsel
 stays, the list narrowed, as you change views, and ⌘F gives it the keyboard back with the words
 selected. It finds by every word typed, in any order (a word of one
 or two letters among others counts only whole, as in the quick panel): in what describes a row (a
-session's title, account and latest line, its worktree, branch and PR; a worktree's name, branch,
+session's title, account, latest line and labels, its worktree, branch and PR; a worktree's name, branch,
 path and PR; a PR's number, title, author, branch and repo; a todo's title, description, labels and
 what it's linked to), or, from three letters on, in what was said in a session (your prompts and its
 replies, for sessions active in the last `[search] days`, your other devices' sessions too, each
@@ -3305,7 +3324,8 @@ another session's message, Codealong's, a background command's report or a sched
 Claude Code compacting a conversation left idle isn't one, though the session shows as working
 for the minute it takes: its tag and suggested replies stay. Tags are kept in tags.json, and so is what moved a session on when its tag went, which `codealong
 changes` gives as `untagged` until it's tagged again (suggested replies the same way, as
-`unsuggested`). A session on another device keeps its tag on its Mac.
+`unsuggested`). A session on another device keeps its tag on its Mac. What stays until it's taken
+off is a [label](#labels).
 
 ### Commands left running
 
@@ -3895,8 +3915,8 @@ Everything lives in `~/Library/Application Support/Codealong/`, beside `config.t
 in `~/.config/codealong/` (`$XDG_CONFIG_HOME`), with the logs in `~/.local/state/codealong/` and
 caches in `~/.cache/codealong/`.
 
-What you've seen (for Your turn), what you've pinned, snoozed and archived in Codealong are kept in
-`state.json` next to it; whether the bar is on, floating or in the notch, where you left it
+What you've seen (for Your turn), what you've pinned, snoozed, labelled and archived in Codealong are
+kept in `state.json` next to it; whether the bar is on, floating or in the notch, where you left it
 floating and the screen you dragged the notch to, in `bar.json`; where the main window was left in
 `window.json` and the waiting window in `waiting.json`; what's pinned to the desktop, and where each card was left, in
 `desktop.json`; the sessions kept there from the peek, and their windows' frames, in `kept.json`;

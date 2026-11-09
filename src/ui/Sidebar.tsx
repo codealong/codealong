@@ -301,7 +301,7 @@ function SideFacetChips({ facet: f, loading, onPick, onClear }: { facet: SideFac
               {f.id === 'repos' && <Icon name="book" size={12} />}
               {f.id === 'authors' && <Icon name="user" size={12} />}
               {f.id === 'prLabels' && <i className="ca-labeldot ca-prlabel-dot" style={o.color ? ({ '--prlabel': `#${o.color}` } as CSSProperties) : undefined} aria-hidden="true" />}
-              {f.id === 'labels' && <LabelDot label={{ id: o.id, name: o.label, color: (o.color ?? 'gray') as LabelColor }} />}
+              {(f.id === 'labels' || f.id === 'sessionLabels') && <LabelDot label={{ id: o.id, name: o.label, color: (o.color ?? 'gray') as LabelColor }} />}
               <span>{o.label}</span>
               {!loading && <span className="ca-side-chip-count">{o.count}</span>}
             </PickChip>

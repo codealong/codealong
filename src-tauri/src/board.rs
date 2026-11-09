@@ -1556,6 +1556,12 @@ pub fn apply_quiet(s: &mut Session, quiet: bool) {
     }
 }
 
+/// Puts on a session the labels you gave it (state.rs `labels`), by their ids among the todos'
+/// labels, in the order you gave them. One since deleted from the labels shows on none.
+pub fn apply_labels(s: &mut Session, ids: &[String], labels: &[Label]) {
+    s.labels = ids.iter().filter_map(|id| labels.iter().find(|l| &l.id == id)).cloned().collect();
+}
+
 /// Applies a mark of seen from a session's own agent (`codealong session seen me`), after quiet
 /// and before what you do to it yourself: a turn whose agent said it needs nothing from you is
 /// idle rather than Your turn, and says so (`Session::agent_seen`). Only a turn that ended as
@@ -4208,6 +4214,17 @@ mod tests {
         assert_eq!(pinnable(&lanes, &keys, true), [&keys[1]]);
         // Any key comes off.
         assert_eq!(pinnable(&lanes, &keys, false).len(), 4);
+    }
+
+    #[test]
+    fn a_session_wears_the_labels_it_was_given_that_still_are() {
+        let label = |id: &str, name: &str| Label { id: id.into(), name: name.into(), color: "blue".into() };
+        let labels = vec![label("l1", "Release"), label("l2", "Bug")];
+        let mut s = crate::fixtures::session("claude:claude:a");
+        apply_labels(&mut s, &["l2".into(), "l-gone".into(), "l1".into()], &labels);
+        assert_eq!(s.labels, vec![label("l2", "Bug"), label("l1", "Release")], "in the order given, a deleted one left out");
+        apply_labels(&mut s, &[], &labels);
+        assert!(s.labels.is_empty());
     }
 
     #[test]

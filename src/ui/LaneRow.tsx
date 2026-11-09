@@ -17,7 +17,7 @@ import { untilWords } from '../snooze';
 import type { HelperCount, RunCount, SideCount } from '../boardLists';
 import type { RepoName } from '../groups';
 import type { SaidLine } from '../quick';
-import type { AgentSeen, GitInfo, Lane, Raised, Session, SideGlance, Suggestions, Todo } from '../types';
+import type { AgentSeen, GitInfo, Label, Lane, Raised, Session, SideGlance, Suggestions, Todo } from '../types';
 import { Chip, cx, Drift, HarnessChip, Icon, PrChip, Rich, Row, SaidText, STATUS_WORD, SessionEmblem, SessionGlyph, WorktreeChip } from './primitives';
 import type { DragProps } from './useRowDrag';
 import { FlagChip, InsightChips, LooksFinished } from './InsightBits';
@@ -25,7 +25,7 @@ import { HelpersCard, type HelperActions } from './HelpersCard';
 import { useHoverCard } from './HoverCard';
 import { PreviewChip } from './PreviewBits';
 import { ProjectPrefix } from './ProjectSaid';
-import { TodoChips } from './TodoBits';
+import { LabelChip, TodoChips } from './TodoBits';
 import { cmd } from '../platform';
 
 /** `web · billing`: the repo, and the branch when the worktree's name doesn't already say it. */
@@ -236,6 +236,8 @@ interface SessionLinesProps {
   end?: ReactNode;
   todos?: Todo[];
   onShowTodo?: (todo: Todo) => void;
+  /** Shows only the sessions with a label: a double-click on its chip. */
+  onFilterLabel?: (label: Label) => void;
   /** Opens it where it lives: a double-click on its account's chip. */
   onOpen: () => void;
   /** The helpers its agent started, and whether all of them are listed under it, which
@@ -262,10 +264,10 @@ interface SessionLinesProps {
 /**
  * A session on two lines, wherever a list gives it two: what it's about first (its title, what it
  * waits on you for, and what it's doing or said last), then where and why (`where`, its move to
- * the top, snooze, quiet, its agent's seen, todo and Jev's read, then its account), with `end` at the second line's end. A search
+ * the top, snooze, quiet, its agent's seen, todo, labels and Jev's read, then its account), with `end` at the second line's end. A search
  * that found it by what was said puts the line that has the words between them.
  */
-function SessionLines({ s, now, where, end, todos, onShowTodo, onOpen, helpers, helpersShown, onToggleHelpers, helperActions, runs, runsShown, onToggleRuns, sides, sidesShown, onToggleSides, sideActions, said }: SessionLinesProps) {
+function SessionLines({ s, now, where, end, todos, onShowTodo, onFilterLabel, onOpen, helpers, helpersShown, onToggleHelpers, helperActions, runs, runsShown, onToggleRuns, sides, sidesShown, onToggleSides, sideActions, said }: SessionLinesProps) {
   return (
     <>
       <div className="ca-agentrow-line1">
@@ -285,6 +287,7 @@ function SessionLines({ s, now, where, end, todos, onShowTodo, onOpen, helpers, 
           <AgentSeenChip seen={s.agentSeen} />
           <SuggestedChip suggestions={s.suggestions} />
           <TodoChips todos={todos} onShow={onShowTodo} inRow />
+          <SessionLabelChips labels={s.labels} onFilter={onFilterLabel} />
           <InsightChips session={s} />
           <HarnessChip session={s} withStatus={false} onOpen={onOpen} inRow />
         </span>
@@ -321,6 +324,8 @@ interface AgentRowProps {
   /** Todos the session is linked to. */
   todos?: Todo[];
   onShowTodo?: (todo: Todo) => void;
+  /** Shows only the sessions with a label: a double-click on its chip. */
+  onFilterLabel?: (label: Label) => void;
   /** The helpers its agent started (boardLists.ts `helperCounts`), and whether all of them are
    *  listed under it, which its chip's double-click turns on and off (`onToggleHelpers`); what
    *  their chip's card does with one. */
@@ -518,6 +523,18 @@ export function HelpersChip({ helpers: h, now, shown = false, onToggle, actions 
   );
 }
 
+/** The labels you put on a session, on its row: unlike the read beside them (InsightChips), they
+ *  stay until you take them off. A double-click shows only the sessions with one (`onFilter`). */
+function SessionLabelChips({ labels, onFilter }: { labels: Label[] | undefined; onFilter?: (label: Label) => void }) {
+  return (
+    <>
+      {(labels ?? []).map((l) => (
+        <LabelChip key={l.id} label={l} title={onFilter ? `Labelled ${l.name}. Double-click to show only “${l.name}”.` : `Labelled ${l.name}`} onClick={onFilter && (() => onFilter(l))} inRow />
+      ))}
+    </>
+  );
+}
+
 /** A chip for the replies another session suggested you send it, which its box shows: its tooltip
  *  says who suggested them and what they are. */
 export function SuggestedChip({ suggestions: g }: { suggestions: Suggestions | undefined }) {
@@ -545,7 +562,7 @@ export function SuggestedChip({ suggestions: g }: { suggestions: Suggestions | u
  * Under its worktree's heading (`inWorktree`) it leaves those to the heading too. A search that
  * found it by what was said in it adds the line that has the words, under the first.
  */
-function AgentRowView({ lane, session: s, domId, now, age, slim = false, selected, onSelect, onOpen, pinned, onContextMenu, onPrMenu, onPrShow, onPrOpen, drag, todos, onShowTodo, helpers, helpersShown, onToggleHelpers, helperActions, runs, runsShown, onToggleRuns, sides, sidesShown, onToggleSides, sideActions, nested, elsewhere, inWorktree = false, said }: AgentRowProps) {
+function AgentRowView({ lane, session: s, domId, now, age, slim = false, selected, onSelect, onOpen, pinned, onContextMenu, onPrMenu, onPrShow, onPrOpen, drag, todos, onShowTodo, onFilterLabel, helpers, helpersShown, onToggleHelpers, helperActions, runs, runsShown, onToggleRuns, sides, sidesShown, onToggleSides, sideActions, nested, elsewhere, inWorktree = false, said }: AgentRowProps) {
   const started = age === 'started';
   const oneLine = slim || nested;
   // Where it works, said where neither its session's row nor its heading says it.
@@ -583,6 +600,7 @@ function AgentRowView({ lane, session: s, domId, now, age, slim = false, selecte
               <QuietChip quiet={s.quiet} />
               <AgentSeenChip seen={s.agentSeen} />
               <SuggestedChip suggestions={s.suggestions} />
+              <SessionLabelChips labels={s.labels} onFilter={onFilterLabel} />
               <InsightChips session={s} />
               {where && <WorktreeChip lane={lane} short />}
             </span>
@@ -606,6 +624,7 @@ function AgentRowView({ lane, session: s, domId, now, age, slim = false, selecte
             }
             todos={todos}
             onShowTodo={onShowTodo}
+            onFilterLabel={onFilterLabel}
             onOpen={onOpen}
             helpers={helpers}
             helpersShown={helpersShown}

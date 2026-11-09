@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { doneAhead, quietAhead, raiseAhead } from './ahead';
+import { doneAhead, labelAhead, quietAhead, raiseAhead } from './ahead';
 import { getAccounts, moveSession, moveSessionTo, resumeSession, setPrPrimary, type Done, type MergeDone } from './api';
 import type { MenuAction, MenuGroup, MenuSpec } from './contextMenu';
 import { carryOnIn, chordLetter, chordSigns, chorded, CHORDS, DONE_HOLD_MS, SUGGESTION_CHORDS, suggestionChord, doneTitle, fileMenu, keyed, laneActions, laneMenu, lanesActions, lanesMenu, mergesWith, prMenu, prsActions, prsMenu, repoMenu, sessionActions, sessionMenu, sessionsActions, sessionsMenu, todoMenu, todoPanelMenu, todosMenu, toggleWaiting, type MergeDoneAsk, type SessionCan, type SessionsCan, type TodoEdit } from './menus';
@@ -13,7 +13,7 @@ import type { TodoOp } from './todos';
 import type { Label, Lane, PrItem, Session, Todo } from './types';
 
 // What the engine says to Mark as done: done, unless a test says otherwise.
-vi.mock('./ahead', async (original) => ({ ...(await original<typeof import('./ahead')>()), doneAhead: vi.fn(), quietAhead: vi.fn(() => Promise.resolve()), raiseAhead: vi.fn(() => Promise.resolve()) }));
+vi.mock('./ahead', async (original) => ({ ...(await original<typeof import('./ahead')>()), doneAhead: vi.fn(), labelAhead: vi.fn(() => Promise.resolve()), quietAhead: vi.fn(() => Promise.resolve()), raiseAhead: vi.fn(() => Promise.resolve()) }));
 // No accounts to move to, unless a test says otherwise; what a move gives back, as a test says.
 vi.mock('./api', async (original) => ({ ...(await original<typeof import('./api')>()), getAccounts: vi.fn(() => Promise.resolve([])), moveSession: vi.fn(), moveSessionTo: vi.fn(), resumeSession: vi.fn(), setPrPrimary: vi.fn(() => Promise.resolve()) }));
 // No accounts to resume in, unless a test says otherwise.
@@ -386,6 +386,33 @@ describe('several sessions picked together', () => {
     const chords = sessionsMenu([a, b], { report, keys: 'chords' }).flatMap((i) => (i !== 'separator' && !('items' in i) && i.accelerator ? [i.accelerator] : []));
     expect(chords).toEqual(['Cmd+E', 'Ctrl+Cmd+U', 'Ctrl+Cmd+0', 'Ctrl+Cmd+W', 'Shift+Cmd+E', 'Ctrl+Cmd+A']);
     expect(keyed(acts, 'u', true)?.action).toBe(acts.unread);
+  });
+
+  it('puts a label on the ones without it, or takes it off them all once every one wears it', () => {
+    const label = vi.mocked(labelAhead);
+    label.mockClear();
+    const bug: Label = { id: 'l1', name: 'Bug', color: 'red' };
+    const ui: Label = { id: 'l2', name: 'UI', color: 'teal' };
+    // One on another Mac wears its own Mac's label of that name, and one this Mac has none of.
+    const there: Label = { id: 'l-there', name: 'bug', color: 'blue' };
+    const docs: Label = { id: 'l-docs', name: 'Docs', color: 'green' };
+    const one = { ...a, session: { ...a.session, labels: [bug] } };
+    const other = { ...b, session: { ...b.session, labels: [there, docs] } };
+    const menu = sessionsActions([one, other], { report, labels: [bug, ui] }).labels;
+    expect(menu?.items.map((i) => (i === 'separator' ? '-' : [i.label, !!('checked' in i && i.checked)]))).toEqual([
+      ['Bug', true],
+      ['UI', false],
+      ['Docs', false],
+    ]);
+    const run = (name: string) => menu?.items.forEach((i) => i !== 'separator' && i.label === name && 'run' in i && i.run());
+    run('Bug');
+    expect(label).toHaveBeenLastCalledWith(['claude:c:1', 'claude:c:2'], [], ['Bug']);
+    run('UI');
+    expect(label).toHaveBeenLastCalledWith(['claude:c:1', 'claude:c:2'], [ui], []);
+    // No labels and none worn: nothing to offer, as one's header makes the first.
+    expect(sessionsActions([a], { report }).labels).toBeUndefined();
+    expect(sessionActions(lane(), one.session, { ...base, labels: [] }).labels?.items).toHaveLength(1);
+    expect(sessionActions(lane(), one.session, base).relabel).toBeUndefined();
   });
 
   it('quiets them all, or makes them all heard again once every one is quiet', () => {

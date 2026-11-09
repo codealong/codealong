@@ -1825,6 +1825,10 @@ Options:
       --live
           Only sessions with a running process
 
+      --label <NAME>
+          Only sessions with this label (by name, any case), as `session label` puts one
+          on. Repeatable: those with any of them
+
       --since <SINCE>
           Active within this long: 90m, 24h, 3d, 7d (the default), or all
           
@@ -1891,6 +1895,10 @@ Options:
 
       --live
           Only sessions with a running process
+
+      --label <NAME>
+          Only sessions with this label (by name, any case), as `session label` puts one
+          on. Repeatable: those with any of them
 
       --since <SINCE>
           Active within this long: 90m, 24h, 3d, 7d (the default), or all
@@ -2096,6 +2104,17 @@ Commands:
               `untagged`); tagging again replaces it, and --clear takes it away. The
               session's `insight` in `session show` and `sessions` is the read it shows
               now, Jev's, yours (`by`) or both
+  label       Put labels on a session, or take them off, as Labels in its menu in
+              Codealong does: the labels todos wear (`todo labels`), by name, any case,
+              a new name made a label in the next color. They sort the work for your
+              user: they show on its row, its Sessions view filters by them, and a board
+              whose rule names a label takes in the sessions with it (`board rule
+              --label`). Unlike a tag (`session tag`), which is a read of one turn and
+              goes when the next starts, a label stays until it's taken off; put one on
+              only when your user asked, or an orchestrator's labelling is what they set
+              it to do. A session on another device is labelled on its Mac, with that
+              Mac's labels. Prints the labels it has now; `session show`, `sessions`
+              (`--label` to list only those with one) say them too
   snooze      Snooze a session, as Snooze in its menu in Codealong does: it leaves Needs
               you and Your turn on every device, and the mark stops counting it, until
               WHEN, when it's back as it is then (as Your turn when nothing else would
@@ -2665,6 +2684,45 @@ Options:
 
       --clear
           Take the session's tag away
+
+  -h, --help
+          Print help
+```
+
+## codealong session label
+
+```
+Put labels on a session, or take them off, as Labels in its menu in Codealong does: the
+labels todos wear (`todo labels`), by name, any case, a new name made a label in the
+next color. They sort the work for your user: they show on its row, its Sessions view
+filters by them, and a board whose rule names a label takes in the sessions with it
+(`board rule --label`). Unlike a tag (`session tag`), which is a read of one turn and
+goes when the next starts, a label stays until it's taken off; put one on only when your
+user asked, or an orchestrator's labelling is what they set it to do. A session on
+another device is labelled on its Mac, with that Mac's labels. Prints the labels it has
+now; `session show`, `sessions` (`--label` to list only those with one) say them too
+
+Usage: codealong session label [OPTIONS] <KEY>
+
+Arguments:
+  <KEY>
+          The session: its key, its id, a unique start of its id, or `me`
+
+Options:
+      --add <NAME>
+          A label to put on it, by name (made if new). Repeatable
+
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --remove <NAME>
+          A label to take off it, by name. Repeatable
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
 
   -h, --help
           Print help

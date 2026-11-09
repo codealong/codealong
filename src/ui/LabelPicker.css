@@ -1,0 +1,53 @@
+/* The label picker and the box the todo panel's pickers drop in (LabelPicker.tsx). */
+
+.ca-labelpick-anchor {
+  position: relative;
+  display: inline-flex;
+}
+.ca-menu.ca-labelpick {
+  min-width: 240px;
+  max-width: 300px;
+}
+.ca-labelpick-input,
+.ca-labelpick-rename {
+  box-sizing: border-box;
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: var(--type-body);
+  outline: none;
+}
+.ca-labelpick-input {
+  margin-bottom: var(--space-1);
+}
+.ca-labelpick-input:focus,
+.ca-labelpick-rename:focus {
+  border-color: var(--focus);
+}
+.ca-labelpick-rename {
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+}
+.ca-labelpick-list {
+  max-height: 240px;
+  overflow: auto;
+}
+.ca-labelpick .ca-menu-item {
+  gap: var(--space-2);
+}
+.ca-labelpick-check {
+  display: inline-flex;
+  flex: none;
+  width: 14px;
+  color: var(--ink-2);
+}
+.ca-labelpick-note {
+  margin: 4px 8px 2px;
+  font: var(--type-caption);
+  color: var(--ink-3);
+}

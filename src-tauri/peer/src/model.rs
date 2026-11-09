@@ -318,6 +318,12 @@ pub struct Session {
     /// (`board::suggestions_hold`). None from Macs before 2026-10-09.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub suggestions: Option<Suggestions>,
+    /// Labels you put on it, from the labels todos wear on its device, in the order you put them
+    /// (`board::apply_labels`), each with its name and color so another device shows it as that
+    /// one does. Unlike its `insight`, which is a read of one turn, they stay until you take them
+    /// off. None from Macs before 2026-11-09.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub labels: Vec<Label>,
     /// Its place among the sessions pinned on the device it's on, the first 0, in what that device
     /// tells the others (peerfeed.rs `snapshot`); none when it isn't pinned. The device's own
     /// windows go by the board's list (`Board::pinned`). None from Macs before 2026-10-13.
@@ -584,6 +590,7 @@ impl Session {
             agent_seen: None,
             side_answer: None,
             suggestions: None,
+            labels: Vec::new(),
             pin: None,
             earlier: false,
             chrome: None,
@@ -910,6 +917,20 @@ pub struct Checks {
     pub skipped: u32,
     /// Names of failing checks.
     pub failing: Vec<String>,
+}
+
+/// A label of yours, which todos and sessions wear: kept with the todos on each device
+/// (todos.json), by an id of its own so it can be renamed.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct Label {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    /// One of the label colors (todos.rs `LABEL_COLORS`); any other is gray.
+    #[serde(default)]
+    pub color: String,
 }
 
 /// A label on a PR, as its repo on GitHub defines it.

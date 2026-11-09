@@ -53,6 +53,7 @@ import {
   prFacetOptions,
   prInFacets,
   sessionInFacets,
+  sessionLabelOptions,
   todoInFacets,
   todoLabelOptions,
   togglePick,
@@ -68,7 +69,7 @@ import { blankSchedule } from './schedules';
 import { todoItem, type TodoItem } from './todos';
 import * as fx from './testing/fixtures';
 import { prSections } from './ui/PrsView';
-import type { Board, HarnessSchedule, Lane, Pr, PrItem, ProjectSummary, ScheduleItem, Session, SideGlance, TextHit, Todo } from './types';
+import type { Board, HarnessSchedule, Label, Lane, Pr, PrItem, ProjectSummary, ScheduleItem, Session, SideGlance, TextHit, Todo } from './types';
 import { familiesOf, groupedRows, groupSessions, helpersUnder, sessionSections, type SessionItem } from './ui/SessionsView';
 import { GROUP_SHOWN, type GroupOptions } from './groups';
 
@@ -268,7 +269,7 @@ describe('the sidebar’s facets', () => {
   });
 
   it('offers each view its own, and counts as narrowing only the picks of the view showing', () => {
-    expect(facetsIn('sessions')).toEqual(['agents']);
+    expect(facetsIn('sessions')).toEqual(['agents', 'sessionLabels']);
     expect(facetsIn('prs')).toEqual(['repos', 'prLabels', 'authors']);
     expect(facetsIn('todo')).toEqual(['labels']);
     expect(facetsIn('kanban')).toEqual(['labels']);
@@ -289,6 +290,34 @@ describe('the sidebar’s facets', () => {
     expect(prInFacets(pr('o/a', 1, [], { author: null }), { authors: ['bo'] })).toBe(false);
     expect(todoInFacets(todo('a', ['l1', 'l2']), { labels: ['l2'] })).toBe(true);
     expect(todoInFacets(todo('a', []), { labels: ['l2'] })).toBe(false);
+  });
+
+  it('narrows sessions to the labels you put on them, by name whatever its case', () => {
+    const bug: Label = { id: 'l1', name: 'Bug', color: 'red' };
+    const theirs: Label = { id: 'l-other-mac', name: 'bug', color: 'teal' };
+    const release: Label = { id: 'l2', name: 'Release', color: 'blue' };
+    const labelled = (account: string, n: number, labels: Label[]) => {
+      const s = session(`${account}:${account}:s${n}`, { account, labels });
+      return item(lane(`/r/${n}`, [s]), s);
+    };
+    const rows = [labelled('codex', 1, [bug, release]), labelled('claude', 2, [theirs]), labelled('codex', 3, []), labelled('claude', 4, [release])];
+    expect(rows.filter((r) => sessionInFacets(r, { sessionLabels: ['bug'] })).map((r) => r.session.key)).toEqual(['codex:codex:s1', 'claude:claude:s2']);
+    expect(rows.filter((r) => sessionInFacets(r, { agents: ['claude'], sessionLabels: ['release'] })).map((r) => r.session.key)).toEqual(['claude:claude:s4']);
+    // One option for a name another Mac's sessions wear too, as the first wears it.
+    expect(sessionLabelOptions(rows, {}).map((o) => [o.id, o.label, o.color, o.count])).toEqual([
+      ['bug', 'Bug', 'red', 2],
+      ['release', 'Release', 'blue', 2],
+    ]);
+    // Agents picked narrow the labels' counts, and labels picked the agents'.
+    expect(sessionLabelOptions(rows, { agents: ['codex'] }).map((o) => [o.id, o.count])).toEqual([
+      ['bug', 1],
+      ['release', 1],
+    ]);
+    expect(agentOptions(rows, { sessionLabels: ['release'] }).map((o) => [o.id, o.count])).toEqual([
+      ['claude', 1],
+      ['codex', 1],
+    ]);
+    expect(sessionInQuery(rows[0], 'releas')).toBe(true);
   });
 
   it('counts each option, the most first, keeping one picked that has none left', () => {

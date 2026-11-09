@@ -102,7 +102,7 @@ import { canvasPicked, MainPanel, type Drill } from './ui/MainPanel';
 import { showPrTab } from './ui/PrInspector';
 import type { FindAsk } from './ui/ThreadFind';
 import { Toasts, useToasts } from './ui/Toasts';
-import { ageListingChain, ageListingPr, chainOf, currentProject, FACET_WORD, facetsIn, facetsOn, harnessSchedulesIn, laneInQuery, onlyPick, prInDone, prInFilter, prInQuery, projectOfCard, revealing, unarchived, scheduleSessions, schedulesIn, sessionInFacets, sessionInFilter, sessionInQuery, sessionItemOf, sessionItemsOf, showingHelper, todoInQuery, togglePick, toggleShown, useBoardLists, projectsOf, type Facets } from './boardLists';
+import { ageListingChain, ageListingPr, chainOf, currentProject, FACET_WORD, facetsIn, facetsOn, harnessSchedulesIn, labelPick, laneInQuery, onlyPick, prInDone, prInFilter, prInQuery, projectOfCard, revealing, unarchived, scheduleSessions, schedulesIn, sessionInFacets, sessionInFilter, sessionInQuery, sessionItemOf, sessionItemsOf, showingHelper, todoInQuery, togglePick, toggleShown, useBoardLists, projectsOf, type Facets } from './boardLists';
 import { inProject, QUICK_PLACEHOLDER, queryWords, shortcutKeys, shortcutLabel } from './quick';
 import { findFor } from './threadFind';
 import { CODEALONG_REPO, improveTitle } from './improve';
@@ -238,8 +238,8 @@ export function App() {
   // A project window keeps its choice to itself; the main window's is remembered.
   const [project, setProject] = useStored(WINDOW_PROJECT ? null : PROJECT_KEY, asText, WINDOW_PROJECT);
   const [bayFilter, setBayFilter] = useState<readonly Filter[]>([]);
-  // What else the sidebar narrows a view to: agents in Sessions, repos and labels in PRs, labels
-  // in Todo and Kanban (boardLists.ts `Facets`). Each view keeps its own while another shows.
+  // What else the sidebar narrows a view to: agents and labels in Sessions, repos and labels in PRs,
+  // labels in Todo and Kanban (boardLists.ts `Facets`). Each view keeps its own while another shows.
   const [facets, setFacets] = useState<Facets>({});
   /** Nothing in the sidebar hides anything: for showing a row wherever it is. */
   const clearFilters = useCallback(() => {
@@ -1432,6 +1432,7 @@ export function App() {
     approve: approveAll,
     cleanUp: setCleaning,
     boardItems,
+    labels: todoStore.labels,
   });
 
   // A session moved from Sessions' panel (`moving`): once the board lists its copy, the copy is
@@ -1606,6 +1607,7 @@ export function App() {
         void copy.then((to) => setMoving((m) => (m?.from !== from ? m : to ? { from, to } : null)));
       },
       boards: boardItems('session', [s.key]),
+      labels: todoStore.labels,
   });
   const sessionMenuSpec = (lane: Lane, s: Session, pin: 'session' | 'worktree'): MenuSpec => menus.sessionMenu(lane, s, sessionCan(lane, s, pin));
   const sessionMenu = (lane: Lane, s: Session, pin: 'session' | 'worktree') => void showContextMenu(sessionMenuSpec(lane, s, pin)).catch((e: unknown) => setToast(String(e)));
@@ -1626,10 +1628,11 @@ export function App() {
     showSide(key, side);
     focusBox();
   };
-  /** A helper shown from its session's chip runs on an account Agents may leave out: then it
-   *  shows them all, as showing a row from elsewhere clears what would hide it. */
+  /** A helper shown from its session's chip runs on an account Agents may leave out, or wears none
+   *  of the labels picked: then it shows them all, as showing a row from elsewhere clears what
+   *  would hide it. */
   const unhide = (r: SessionItem) => {
-    if (!sessionInFacets(r, facets)) setFacets((f) => ({ ...f, agents: [] }));
+    if (!sessionInFacets(r, facets)) setFacets((f) => ({ ...f, agents: [], sessionLabels: [] }));
   };
   const helperActions: HelperActions = {
     show: (key) => {
@@ -2692,6 +2695,7 @@ export function App() {
                 onShowSide={showSideOf}
                 helperActions={helperActions}
                 onShowTodo={showTodo}
+                onFilterLabel={(l) => setFacets((f) => onlyPick(f, 'sessionLabels', labelPick(l)))}
                 saidOf={saidOf}
               />
             )}

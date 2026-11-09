@@ -1229,6 +1229,7 @@ export function Quick() {
       reveal: () => revealSession(lane, s),
       reply: () => answerSession(lane, s),
       rename: inWaiting(lane) ? () => answerIn(s.key, true) : undefined,
+      labels: board?.labels,
       worktrees: board?.lanes,
       editors: board ? { apps: board.apps, icons } : undefined,
       desktop: onDesktop,

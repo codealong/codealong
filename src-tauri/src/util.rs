@@ -388,6 +388,21 @@ pub fn unescape_html(s: &str) -> String {
 /// `max` characters with an ellipsis. A line that only opens or closes a block a directive wraps
 /// (`:::writing{variant="email" id="83147"}`, `:::`, as Codex wraps a piece of writing) isn't
 /// one: the window draws it as a card's edge, not as words.
+/// A number in base 36, for short ids.
+pub fn base36(mut n: u64) -> String {
+    const DIGITS: &[u8] = b"0123456789abcdefghijklmnopqrstuvwxyz";
+    if n == 0 {
+        return "0".into();
+    }
+    let mut s = Vec::new();
+    while n > 0 {
+        s.push(DIGITS[(n % 36) as usize]);
+        n /= 36;
+    }
+    s.reverse();
+    String::from_utf8(s).unwrap_or_default()
+}
+
 pub fn one_line(s: &str, max: usize) -> String {
     let fence = |l: &str| l.strip_prefix(":::").is_some_and(|r| r.is_empty() || r.starts_with(|c: char| c.is_ascii_alphabetic()));
     let line = s.lines().map(str::trim).find(|l| !l.is_empty() && !fence(l)).unwrap_or("");
