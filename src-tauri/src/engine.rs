@@ -4044,12 +4044,14 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         let t = Instant::now();
         self.store_warnings = crate::store::problems(&config::support_dir());
         let mut board = self.compose();
-        if self.link_pending(&board) {
-            board.todos = self.todos.todos.clone();
-        }
-        // Rare, so the board is composed again rather than patched.
+        // Rare, so the board is composed again rather than patched. Before the todos' starts take
+        // their sessions, so that a helper whose start an app made is known for one and isn't
+        // taken (`todos::SessionRef::helper`).
         if self.link_origins(&board) {
             board = self.compose();
+        }
+        if self.link_pending(&board) {
+            board.todos = self.todos.todos.clone();
         }
         self.keep_run_origins(&board);
         // The board already leaves them out.

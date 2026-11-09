@@ -1650,8 +1650,8 @@ sessions has one emblem, picked or drawn once from its name and prompt, shown on
 Every session of its runs shows it, those from before it had one too, in place of one of its own,
 so its runs read as one thing and a schedule that runs daily costs one question or one drawing
 rather than one a day. A session of a schedule your machines share shows the same emblem on each
-of them. A session its run started is also named after the schedule, half a minute in, once it's
-had its first prompt, where its harness can be renamed (Claude Code, Codex, OpenCode), in place of the title its
+of them. A session its run started is also named after the schedule, half a minute after its first
+prompt, where its harness can be renamed (Claude Code, Codex, OpenCode), in place of the title its
 harness makes up from the same prompt each time; with a new session each time and one thing it's
 for (the PR that merged, the todo that's ready, the watch's new line), that comes after the name:
 `Fix failed checks: #12 Dark mode`. It's named once, so a name you give it later stays, and

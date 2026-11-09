@@ -334,17 +334,21 @@ pub fn plan_in(file: &File, runs: &Runs, board: &Board, busy: &HashSet<String>, 
     }
     // Its session named once it's had a prompt: a harness keeps a name with its conversation,
     // which it starts then (claude/mod.rs `rename`), and once what that prompt set off has been
-    // written (`NAME_AFTER_MS`). Noted first, so it's once, whatever comes of it; a session the
-    // name doesn't reach goes by the title its harness gave it.
+    // written (`NAME_AFTER_MS`), counted from the prompt, which can come long after the start (an
+    // app's waits for you to send it). Noted first, so it's once, whatever comes of it; a session
+    // the name doesn't reach goes by the title its harness gave it.
     for s in &file.schedules {
         for r in runs.of.get(&s.id).map_or(&[][..], |t| t.runs.as_slice()) {
             let Some(name) = &r.name else { continue };
             let session = r.session.as_deref().and_then(|k| board.session(k)).map(|(_, session)| session);
-            if let Some(session) = session.filter(|session| now - r.at >= NAME_AFTER_MS && crate::emblems::about(session).is_some()) {
-                jobs.push(Job::Name { key: session.key.clone(), name: name.clone() });
-                notes.push(Note::Named { id: s.id.clone(), run_at: r.at });
-            } else if now - r.at > PENDING_MS {
-                notes.push(Note::Named { id: s.id.clone(), run_at: r.at });
+            match session.filter(|session| crate::emblems::about(session).is_some()) {
+                Some(session) if now - session.last_prompt_at.max(r.at) >= NAME_AFTER_MS => {
+                    jobs.push(Job::Name { key: session.key.clone(), name: name.clone() });
+                    notes.push(Note::Named { id: s.id.clone(), run_at: r.at });
+                }
+                Some(_) => {}
+                None if now - r.at > PENDING_MS => notes.push(Note::Named { id: s.id.clone(), run_at: r.at }),
+                None => {}
             }
         }
     }
@@ -1688,6 +1692,7 @@ mod tests {
         let rec = |at, name: Option<&str>| RunRecord { at, session: Some("new".into()), name: name.map(String::from), ..RunRecord::default() };
         let runs = |r: RunRecord| Runs { of: [("a".to_string(), Track { runs: vec![r], ..armed(now - DAY_MS) })].into(), ..Runs::default() };
         let on = |prompt: Option<&str>| Board { lanes: vec![lane("/r", vec![Session { first_prompt: prompt.map(String::from), ..session("new") }])], ..board() };
+        let prompted_at = |at: i64| Board { lanes: vec![lane("/r", vec![Session { first_prompt: Some("Look".into()), last_prompt_at: at, ..session("new") }])], ..board() };
         let named = Job::Name { key: "new".into(), name: "Deploys".into() };
         let at = now - NAME_AFTER_MS;
         let note = Note::Named { id: "a".into(), run_at: at };
@@ -1707,6 +1712,14 @@ mod tests {
         assert!(!plan_of(&went, &on(Some("Look"))).0.contains(&named));
         // From before, nothing.
         assert!(!plan_of(&runs(rec(at, None)), &on(Some("Look"))).0.iter().any(|j| matches!(j, Job::Name { .. })));
+        // Its prompt sent long after the start, as an app's waits for you to send it: half a
+        // minute after that, and not given up on meanwhile however late it came.
+        let late = runs(rec(now - PENDING_MS - 1, Some("Deploys")));
+        let late_note = Note::Named { id: "a".into(), run_at: now - PENDING_MS - 1 };
+        let (jobs, notes) = plan_of(&late, &prompted_at(now - 1000));
+        assert!(!jobs.contains(&named) && !notes.contains(&late_note));
+        let (jobs, notes) = plan_of(&late, &prompted_at(at));
+        assert!(jobs.contains(&named) && notes.contains(&late_note));
         // Past when it might have shown, it's given up on.
         let old = now - PENDING_MS - 1;
         let (jobs, notes) = plan_of(&runs(rec(old, Some("Deploys"))), &on(None));
