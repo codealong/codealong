@@ -11,7 +11,7 @@
 // back where GitHub refuses the merge) is here.
 
 import { useEffect, useState } from 'react';
-import { closeSession, desktopPins, expandAttachments, forkSession, getAccounts, inPreview, moveSession, moveSessionTo, onDesktopPins, openUrl, ownSessions, pinToDesktop, resumeSession, sessionCancel, setPrNudge, setPrPrimary, setReusable, showQuick, unpinFromDesktop, type MergeDone } from './api';
+import { closeSession, desktopPins, expandAttachments, forkSession, getAccounts, inPreview, moveSession, moveSessionTo, onDesktopPins, openUrl, ownSessions, pinToDesktop, resumeSession, sessionCancel, sessionWindow, setPrNudge, setPrPrimary, setReusable, showQuick, unpinFromDesktop, type MergeDone } from './api';
 import { archiveAhead, doneAhead, quietAhead, raiseAhead, seenAhead, unreadAhead } from './ahead';
 import type { MenuAction, MenuGroup, MenuImage, MenuSpec } from './contextMenu';
 import { shortOf } from './devices';
@@ -139,6 +139,13 @@ export interface SessionCan {
   heading?: boolean;
   /** Shows it in the main window, from the other windows. */
   reveal?: () => void;
+  /** Puts it back in the main window from the window it's kept in, which closes (kept.rs): in
+   *  place of `reveal`, as the main window's panel leaves a kept session to its window. */
+  putBack?: () => void;
+  /** The sessions kept in windows of their own (kept.ts), for Open in its own window, which pops
+   *  it out of the main window (kept.rs `pop_session`), or Show its window once it's out. Without
+   *  it there's no such item. */
+  windows?: ReadonlySet<string>;
   /** Answers it where this window does: the peek from the bar, the waiting window from the others. */
   reply?: () => void;
   editors?: Editors;
@@ -231,7 +238,10 @@ export interface SessionActions {
   ownTerminal?: MenuAction;
   pr?: MenuAction;
   chrome?: MenuAction;
+  /** Open in main window, or from the window it's kept in, Put back in main window. */
   reveal?: MenuAction;
+  /** Open in its own window, out of the main window's panel, or Show its window once it's out. */
+  window?: MenuAction;
   reply?: MenuAction;
   newSession?: MenuAction;
   fork?: MenuAction;
@@ -422,7 +432,10 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
     // Its tab in Chrome, in whichever profile's window has it; Chrome here, so not for a session
     // on another device.
     chrome: here && s.chrome ? { label: chromeLabel(s.chrome), run: () => can.open(lane, `s|${s.key}|chrome`) } : undefined,
-    reveal: can.reveal && { label: 'Open in main window', run: can.reveal },
+    reveal: can.putBack ? { label: 'Put back in main window', run: can.putBack } : can.reveal && { label: 'Open in main window', run: can.reveal },
+    // The window the peek's Keep makes, beside the window asking: it takes the keyboard, so you go
+    // on there.
+    window: can.windows ? { label: can.windows.has(s.key) ? 'Show its window' : 'Open in its own window', run: () => void sessionWindow(s.key, true).catch((e: unknown) => report.error(errorText(e))) } : undefined,
     reply: can.reply && { label: 'Reply here', run: can.reply },
     newSession: newSessionItem(lane, can.newSession),
     // Forks open in a terminal, where only sessions that resume in one can go.
@@ -583,7 +596,7 @@ export function folderMoves(from: Lane, worktrees: Lane[], run: (to: Lane) => vo
  *  copying it. */
 const SESSION_MENU = [
   ['heading'],
-  ['open', 'resume', 'folder', 'ownTerminal', 'pr', 'chrome', 'reveal', 'reply', 'newSession', 'fork', 'move', 'moveFolder'],
+  ['open', 'resume', 'folder', 'ownTerminal', 'pr', 'chrome', 'reveal', 'window', 'reply', 'newSession', 'fork', 'move', 'moveFolder'],
   ['todos', 'boards'],
   ['stop', 'rename', 'seen', 'unread', 'pin', 'desktop', 'raise', 'snooze', 'quiet', 'own', 'close', 'done', 'mergeDone', 'archive'],
   ['copyId', 'copyResume'],

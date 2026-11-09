@@ -259,6 +259,35 @@
   cursor: text;
 }
 
+/* Where a session kept in a window of its own was, in the main window's panel (`KeptAway`): in
+   its conversation's place, what it is and the ways to its window and back. */
+.ca-sessinsp-away {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  color: var(--ink-3);
+  font: var(--type-meta);
+  text-align: center;
+}
+
+.ca-sessinsp-away-said,
+.ca-sessinsp-away-failed {
+  margin: 0;
+}
+
+.ca-sessinsp-away-acts {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.ca-sessinsp-away-failed {
+  color: var(--alert);
+}
+
 /* Where the reply box would be, for a session on another Mac that can't take one from here. */
 .ca-sessinsp-remote {
   margin: 0;

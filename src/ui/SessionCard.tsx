@@ -43,7 +43,7 @@ const NO_TERMINALS: TerminalGlance[] = [];
 /** What a window does for a session's actions (menus.ts `SessionCan`), less what the card knows
  *  for every window: the apps, what's on the desktop, the pin and the shortcuts. A window that has
  *  the board gives its worktrees, for Move to worktree. */
-export type WindowCan = Pick<menus.SessionCan, 'report' | 'open' | 'reveal' | 'reply' | 'rename' | 'left' | 'failed' | 'worktrees'>;
+export type WindowCan = Pick<menus.SessionCan, 'report' | 'open' | 'reveal' | 'putBack' | 'reply' | 'rename' | 'left' | 'failed' | 'worktrees'>;
 
 interface SessionCardProps extends Pick<SessionPanelProps, 'zoom' | 'queue' |'notice' | 'hotkeys' | 'autoFocus' | 'keys' | 'renaming' | 'onRename' | 'onKeep' | 'keepTitle' | 'onClose' | 'closeTitle' | 'onSending' | 'onSent' | 'onFailed' | 'onAnswered' | 'onDone' | 'onLoaded' | 'device'> {
   lane: Lane;

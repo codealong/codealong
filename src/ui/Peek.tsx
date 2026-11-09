@@ -17,7 +17,9 @@
 // bigger, or dragging it somewhere else by its header: the session gets a window of its own where
 // the peek is let go (kept.rs), which this page draws too (`kept`). There it stays up whatever
 // you do: sending leaves it open, its header drags it, its edges size it, and its × (or ⌘W)
-// takes it off the desktop. It comes back at launch where it was left.
+// takes it off the desktop. It comes back at launch where it was left. The main window's panel
+// pops a session out into the same window (SessionPanel.tsx), and leaves a kept one to it, so its
+// Main window puts the session back there, the window closing.
 //
 // A session's side conversation popped out (kept.rs `pop_side`) is a kept window too, which this
 // page draws (`side`) as the side conversation and the box that asks it (`SideReply`), dragged by
@@ -26,7 +28,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { barNote, getBoard, getDevices, inPreview, keepSession, keptClose, keptFocus, keptReady, keptResize, keptSession, onKeptKeys, onPeekHidden, onPeekOpen, onPeekShown, peekDrag, peekFit, peekFocus, peekHide, peekOpen, peekReady, peekResize, sideClose } from '../api';
+import { barNote, getBoard, getDevices, inPreview, keepSession, keptClose, keptFocus, keptReady, keptResize, keptSession, onKeptKeys, onPeekHidden, onPeekOpen, onPeekShown, peekDrag, peekFit, peekFocus, peekHide, peekOpen, peekReady, peekResize, sessionPutBack, sideClose } from '../api';
 import { renameAhead, sentWorthSaying } from '../ahead';
 import { BAR_PROJECT_KEY } from '../bar';
 import { shortOf } from '../devices';
@@ -396,8 +398,11 @@ export function Peek({ kept = false, side = false }: { kept?: boolean; side?: bo
   };
 
   /** What the peek does for its session's actions (SessionCard.tsx has the rest): whatever takes
-   *  the session off the bar puts the peek away. */
-  const can: WindowCan = { report, open: host.open, reveal: () => host.showSession(lane, session), rename: () => setRenameAsked(session.key), left: away };
+   *  the session off the bar puts the peek away. A kept session goes back to the main window
+   *  rather than showing there too, as the main window's panel leaves it to this window: its
+   *  window closes as the main window comes forward on it. */
+  const putBack = kept ? () => void sessionPutBack(session.key, { kind: 'session', laneId: lane.id, key: session.key }).catch((e: unknown) => report.error(errorText(e))) : undefined;
+  const can: WindowCan = { report, open: host.open, reveal: () => host.showSession(lane, session), putBack, rename: () => setRenameAsked(session.key), left: away };
   /** A session it came from, or that came of it, takes the peek's place; from a kept session it
    *  shows in Codealong, and the kept one stays. Its menu is its own. */
   const showKin = (l: Lane, s: Session) => (kept ? host.showSession(l, s) : void peekOpen(s.key, null, engaged).catch((e: unknown) => report.error(errorText(e))));
@@ -462,7 +467,7 @@ export function Peek({ kept = false, side = false }: { kept?: boolean; side?: bo
           can={can}
           // A session it came from, or that came of it: its menu shows it in Codealong. What's
           // done to it leaves the peek up, which is on another session.
-          canFor={(l, s) => ({ ...can, reveal: () => host.showSession(l, s), rename: undefined, left: undefined })}
+          canFor={(l, s) => ({ ...can, reveal: () => host.showSession(l, s), putBack: undefined, rename: undefined, left: undefined })}
           onShowSession={showKin}
           onShowLane={host.showLane}
           onShowTodo={host.showTodo}

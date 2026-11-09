@@ -24,11 +24,17 @@
 // `QUEUE_CHORDS`. In Sessions, ⇧⌘F
 // expands it to the whole window, so the list is out of the way while you do. Rename in a pill's
 // or a row's menu shows it with its name ready to change.
+//
+// The main window's panel pops the session out into a window of its own (its header's button, or
+// Open in its own window in its menu): the window the peek's Keep makes (kept.rs). While it's out
+// the panel keeps its strip and header and says where its conversation went, with the ways to its
+// window and back (`KeptAway`), as the drawer does for a terminal popped out.
 
 import { useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
-import { runCommand } from '../api';
+import { runCommand, sessionPutBack, sessionWindow } from '../api';
 import { below, showContextMenu, type MenuAction, type MenuGroup, type MenuSpec } from '../contextMenu';
 import { shortOf } from '../devices';
+import { useKeptSessions } from '../kept';
 import { seenable } from '../lanes';
 import { CHORDS, chordSigns, doneTitle, type SessionActions } from '../menus';
 import { AWAY_CHORD, QUEUE_CHORDS, type QueueAction } from '../queue';
@@ -47,6 +53,7 @@ import { Reply } from './SessionReply';
 import { SessionThread } from './SessionThread';
 import type { FindAsk } from './ThreadFind';
 import { keysSaid } from '../platform';
+import { errorText } from '../report';
 
 /** Working through what waits on you: the next after this one. */
 export interface Queue {
@@ -73,7 +80,7 @@ export interface Hotkeys {
 /** How the one before went: sent, or why it didn't go. */
 export type Notice = { text: string; error: boolean };
 
-export interface SessionPanelProps extends Omit<SessionHeaderProps, 'seenAbove' | 'compact' | 'accountBelow' | 'inMain' | 'onMove'> {
+export interface SessionPanelProps extends Omit<SessionHeaderProps, 'seenAbove' | 'compact' | 'accountBelow' | 'inMain' | 'onMove' | 'onPopOut'> {
   /** A panel in the main window, or a card of its own (the bar's peek, the waiting
    *  window), where a right-click anywhere but the box gives the session's menu. */
   variant?: 'panel' | 'card';
@@ -370,6 +377,32 @@ export function QueueStrip({ queue, notice, hotkeys, session, actions, onSeen, b
   );
 }
 
+/** Where a session kept in a window of its own was, in the main window's panel: what it is, and
+ *  the ways to its window and back, as the drawer has them for a terminal popped out. */
+function KeptAway({ sessionKey }: { sessionKey: string }) {
+  const [error, setError] = useState<string | null>(null);
+  const onError = (e: unknown) => setError(errorText(e));
+  return (
+    <section className="ca-sessinsp-away" aria-label="Its conversation">
+      <Icon name="picture-in-picture-on" size={20} />
+      <p className="ca-sessinsp-away-said">It’s in a window of its own.</p>
+      <div className="ca-sessinsp-away-acts">
+        <Button size="sm" variant="ghost" onClick={() => void sessionWindow(sessionKey, true).catch(onError)}>
+          Show its window
+        </Button>
+        <Button size="sm" onClick={() => void sessionPutBack(sessionKey).catch(onError)}>
+          Put it back here
+        </Button>
+      </div>
+      {error && (
+        <p className="ca-sessinsp-away-failed" role="status">
+          {error}
+        </p>
+      )}
+    </section>
+  );
+}
+
 export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, autoFocus, keys, onSending, onSent, onFailed, onAnswered, onDone, onLoaded, onThreadMenu, find, dialog, terminals, ...header }: SessionPanelProps) {
   const { lane, session: s, apps, now, onOpen, onMenu, device, renaming } = header;
   const terminal = apps.terminal;
@@ -398,10 +431,15 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
   const view = useSessionView(key);
   const inTerminal = !!home && view === 'terminal';
   const toBox = () => document.querySelector<HTMLTextAreaElement>(`[data-shows-session="${CSS.escape(key)}"] .ca-composer-field textarea`)?.focus();
+  // Kept in a window of its own (kept.rs), it's read and answered there, and the main window's
+  // panel says so; a card is such a window, or shows one only for a moment.
+  const away = useKeptSessions(variant === 'panel').has(key);
+  const popOut = variant === 'panel' && !away ? header.actions?.window?.run : undefined;
   const body = (
     <>
           <QueueStrip queue={queue} notice={notice} hotkeys={hotkeys} session={s} actions={header.actions} onSeen={header.onSeen} />
-          <SessionHeader {...header} seenAbove={!!hotkeys} compact={variant === 'card'} accountBelow={replies} inMain={variant === 'panel'} onMove={moves && (() => ask(null))} />
+          <SessionHeader {...header} seenAbove={!!hotkeys} compact={variant === 'card'} accountBelow={replies} inMain={variant === 'panel'} onMove={moves && (() => ask(null))} onPopOut={popOut} />
+          {away ? <KeptAway sessionKey={key} /> : <>
           {home && <SessionViewSwitch sessionKey={key} home={home} view={view} />}
           {inTerminal && home && (
             <SessionTerminal
@@ -459,6 +497,7 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
               }}
             />
           )}
+          </>}
           {moves && moving?.key === key && <MoveDialog session={s} moves={moves} to={moving.to} terminal={terminal} onClose={() => setMoving(null)} />}
           {edit && editing?.key === key && <EditDialog session={s} prompt={editing.prompt} onEdit={edit} onClose={() => setEditing(null)} />}
           {dialog}

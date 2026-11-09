@@ -1045,6 +1045,17 @@ window.__TAURI_INTERNALS__ = {
       }
       return Promise.resolve(null);
     }
+    // A session popped out of the main window into a window of its own (kept.rs `pop_session`),
+    // and put back: no window opens in the preview, but every window hears which are out, as the
+    // engine tells them (`session-windows`). A check can set `window.__keptSessions` for a window
+    // that opens with one out.
+    if (cmd === 'session_windows') return Promise.resolve((window.__keptSessions || []).slice());
+    if (cmd === 'session_window' || cmd === 'session_put_back') {
+      var keptNow = (window.__keptSessions || []).filter(function (k) { return k !== args.key; });
+      window.__keptSessions = cmd === 'session_window' ? keptNow.concat([args.key]) : keptNow;
+      setTimeout(function () { window.__emit('session-windows', window.__keptSessions.slice()); }, 0);
+      return Promise.resolve(null);
+    }
     if (cmd === 'send_to_session') return Promise.resolve({ message: 'Sent (in the preview nothing is typed anywhere).', opened: false });
     if (cmd === 'dismiss_suggestions') return Promise.resolve(null);
     if (cmd === 'resume_session') return Promise.resolve({ message: 'Resumed (in the preview nothing starts anywhere).', opened: false });

@@ -921,6 +921,14 @@ clear of the panel. ⇧⌘F (or the button beside the check) expands the panel t
 whole window, the list and sidebar out of the way while you work through them, and stays so until
 you press it again; Escape in the box then leaves the keys with the window.
 
+The picture-in-picture button beside it **pops the session out** into a window of its own beside
+Codealong's, or over the panel's side of it when there's no room beside it, with the keyboard in
+its box: the same window the bar's peek keeps a session in (*Floating bar*), floating over your
+other apps until you close it. Open in its own window in a session's menu does the same from any
+list, the canvas or a board. While it's out, the panel keeps its strip and header and says, where
+its conversation was, that it's in a window of its own, with Show its window to bring that forward
+(Show its window in its menu too) and Put it back here to close it and read it here again.
+
 #### The strip
 
 A strip at the top of the panel says how the last one went, at its left, on one line beside its
@@ -2901,7 +2909,9 @@ is, which stays up whatever you do, floating over every window as the cards pinn
 do. Dragging the peek's right edge, its far edge or the corner between them to make it bigger keeps
 it too, at that size, when you let go, and so does dragging it by its header, where you let it go. A
 kept session is dragged by its header and sized by the same edges; sending leaves it open; its × (or
-⌘W) takes it off the desktop; and it comes back at launch where it was left. A pill whose session is
+⌘W) takes it off the desktop; and it comes back at launch where it was left. Its Main window
+button (Put back in main window in its menu) closes it and shows the session in Codealong's panel
+again, which leaves a kept session to its window. A pill whose session is
 kept brings that window up in place of a peek. Click a pill to show its session in Codealong,
 selected in Sessions, and double-click it to open the session where it lives; drag it off the bar
 (floating or in the notch) to pin its card to the desktop where you let go; right-click it for the

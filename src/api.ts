@@ -1137,6 +1137,41 @@ export function onTerminalFrame(cb: (frame: TerminalFrame) => void): () => void 
   };
 }
 
+/** Pops a session out of this window's panel into a window of its own beside it (kept.rs
+ *  `pop_session`), or brings the one it has forward; with `keys` it takes the keyboard. */
+export async function sessionWindow(key: string, keys: boolean): Promise<void> {
+  if (!inTauri) throw new Error('A session’s window needs the app.');
+  await invoke('session_window', { key, keys });
+}
+
+/** Puts a session kept in a window of its own back: the window closes, and with `reveal` the main
+ *  window comes forward on it, as `showMain` brings it. */
+export async function sessionPutBack(key: string, reveal: Reveal | null = null): Promise<void> {
+  if (!inTauri) return;
+  await invoke('session_put_back', { key, reveal });
+}
+
+/** The sessions kept in windows of their own. */
+export async function sessionWindows(): Promise<string[]> {
+  if (!inTauri) return [];
+  return invoke<string[]>('session_windows');
+}
+
+/** Calls `cb` with the sessions kept in windows of their own, as one pops out or closes. */
+export function onSessionWindows(cb: (keys: string[]) => void): () => void {
+  if (!inTauri) return () => {};
+  let cancelled = false;
+  let unlisten: (() => void) | undefined;
+  void listen<string[]>('session-windows', (e) => cb(e.payload)).then((u) => {
+    if (cancelled) u();
+    else unlisten = u;
+  });
+  return () => {
+    cancelled = true;
+    unlisten?.();
+  };
+}
+
 /** Pops a session's side conversation out into a window of its own beside this one (kept.rs
  *  `pop_side`), or brings the one it has forward; with `keys` it takes the keyboard. */
 export async function sideWindow(key: string, keys: boolean): Promise<void> {

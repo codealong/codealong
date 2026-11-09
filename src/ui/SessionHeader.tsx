@@ -25,10 +25,13 @@
 // says Show in Codealong, which brings the panel up. Any other session shown as a card (the
 // notch, the peek, a kept session, the waiting window) has Main window beside its Open button,
 // which brings that panel up on it as Open in main window in its ⋯ menu does: the menu alone hid
-// it. It's the icon alone where the card is narrow (the peek).
+// it. It's the icon alone where the card is narrow (the peek). In a kept session's window it puts
+// the session back there (Put back in main window), its window closing, since the main window's
+// panel leaves a kept session to its window.
 //
-// A window says what it can do by what it passes: the main window can expand the panel, the peek
-// can keep the session on the desktop and a session kept there can be closed, and Rename in a
+// A window says what it can do by what it passes: the main window can expand the panel and pop
+// the session out into a window of its own, the peek can keep the session on the desktop (the
+// same window) and a session kept there can be closed, and Rename in a
 // menu shows the name as a field. The rest of what can be done to it (snoozing, archiving,
 // pinning) is in its ⋯ menu, which a right-click anywhere on the header gives too, so the row of
 // buttons stays short and is the same in every window. A PR and a
@@ -111,6 +114,9 @@ export interface SessionHeaderProps {
    *  says how, where it isn't the peek's way. */
   onKeep?: () => void;
   keepTitle?: string;
+  /** Pops it out of the main window's panel into a window of its own (kept.rs `pop_session`), the
+   *  window the peek's Keep makes: the panel's way to what Keep does. */
+  onPopOut?: () => void;
   /** Puts the card away: the peek, or a session kept on the desktop, which leaves it.
    *  `closeTitle` says how, where it isn't a kept session's way. */
   onClose?: () => void;
@@ -331,7 +337,7 @@ function SessionCost({ sessionKey }: { sessionKey: string }) {
   );
 }
 
-export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane, prs = [], onShowPr, onOpenPr, onPrMenu, todos, onShowTodo, lineage, schedule, onShowSchedule, onShowSession, onSessionMenu, onMenu, onSeen, actions, seenAbove, onKeep, keepTitle, onClose, closeTitle, renaming, onRename, device, back, maximized, onMaximize, compact, accountBelow, inMain, onMove }: SessionHeaderProps) {
+export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane, prs = [], onShowPr, onOpenPr, onPrMenu, todos, onShowTodo, lineage, schedule, onShowSchedule, onShowSession, onSessionMenu, onMenu, onSeen, actions, seenAbove, onKeep, keepTitle, onPopOut, onClose, closeTitle, renaming, onRename, device, back, maximized, onMaximize, compact, accountBelow, inMain, onMove }: SessionHeaderProps) {
   const [details, setDetails] = useState(false);
   const [allPrs, setAllPrs] = useState(false);
   const [allTodos, setAllTodos] = useState(false);
@@ -407,6 +413,7 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
           )}
           {seen && <Button variant="ghost" size="sm" icon="check" aria-label="Mark as seen" title={keysIn('Mark as seen: it goes idle and leaves the bar (⌘E)')} className="ca-sessinsp-seen" onClick={seen} />}
           {onKeep && <Button variant="ghost" size="sm" icon="pin" aria-label="Keep on the desktop" title={keepTitle ?? 'Keep on the desktop: it stays up, here, until you close it. Dragging it by its header, or its edge to make it bigger, keeps it too.'} onClick={onKeep} />}
+          {onPopOut && <Button variant="ghost" size="sm" icon="picture-in-picture-on" aria-label="Pop out" title="Pop out into a window of its own, which floats over your other apps until you close it or put it back" className="ca-sessinsp-popout" onClick={onPopOut} />}
           {onMaximize && (
             <Button
               variant="ghost"

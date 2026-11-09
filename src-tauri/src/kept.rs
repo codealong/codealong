@@ -15,6 +15,11 @@
 //! goes back to the session. Every window hears which sessions' side conversations have one
 //! (`side-windows`), and leaves those out of the place above the box. Closing the window says
 //! nothing to the copy: its page ends the copy first when that's what you asked for.
+//!
+//! A session's panel in the main window pops out the same way (`pop_session`), into the window
+//! the peek's Keep makes, beside the window it left. Every window hears which sessions are kept
+//! (`session-windows`), and the main window's panel shows a kept session's place, with the ways to
+//! its window and back (`put_back_session`), rather than a second copy of its conversation and box.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
@@ -41,6 +46,9 @@ const READY_WAIT: Duration = Duration::from_millis(2500);
 const SIDE_SIZE: (f64, f64) = (480.0, 600.0);
 /// The size a terminal's window opens at: about 90 columns by 24 rows in the terminal's font.
 const TERMINAL_SIZE: (f64, f64) = (720.0, 460.0);
+/// The size a session popped out of the main window opens at: a little bigger than the peek it
+/// could have been kept from, as it was read in a panel with more room.
+const SESSION_SIZE: (f64, f64) = (600.0, 760.0);
 /// How far a side conversation's window opens from the window it popped out of.
 const SIDE_GAP: f64 = 8.0;
 /// How far down a side conversation's window opens over the window it popped out of, when
@@ -139,6 +147,11 @@ impl Inner {
     /// The window a terminal popped out into.
     fn label_of_terminal(&self, id: &str) -> Option<String> {
         self.windows.iter().find(|(_, k)| k.terminal.as_deref() == Some(id)).map(|(l, _)| l.clone())
+    }
+
+    /// The sessions kept in windows of their own.
+    fn sessions(&self) -> Vec<String> {
+        self.windows.iter().filter(|(_, k)| k.kind() == Kind::Session).map(|(_, k)| k.key.clone()).collect()
     }
 
     /// The sessions whose side conversations have windows of their own.
@@ -278,7 +291,50 @@ pub fn keep(app: &AppHandle, key: String, card: Rect, keys: bool) -> Result<bool
     }
     let label = add(app, Kept { key, frame: crate::peek::window_for(card), side: false, terminal: None }, keys);
     open(app, label, Kind::Session);
+    tell_sessions(app);
     Ok(false)
+}
+
+/// Pops a session out of the window it's shown in, `from` (its panel in the main window), into a
+/// window of its own beside it: the window the peek's Keep makes. One kept already comes forward
+/// where it is. With `keys` it takes the keyboard as it shows. On the main thread.
+pub fn pop_session(app: &AppHandle, key: String, from: Option<Rect>, keys: bool) -> Result<()> {
+    let state = app.try_state::<State>().ok_or_else(|| anyhow!("Kept sessions aren't ready yet."))?;
+    let already = state.inner.lock().map_err(|_| anyhow!("Kept sessions are unavailable."))?.label_of(&key, false);
+    if let Some(label) = already {
+        raise(app, &label, keys);
+        return Ok(());
+    }
+    let frame = beside(from, visible_from(from)?, SESSION_SIZE);
+    let label = add(app, Kept { key, frame, side: false, terminal: None }, keys);
+    open(app, label, Kind::Session);
+    tell_sessions(app);
+    Ok(())
+}
+
+/// Puts a session kept in a window of its own back: its window closes, and the main window's
+/// panel shows it again.
+pub fn put_back_session(app: &AppHandle, key: &str) {
+    let label = app.try_state::<State>().and_then(|s| s.inner.lock().ok().and_then(|i| i.label_of(key, false)));
+    if let Some(label) = label {
+        close(app, &label);
+    }
+}
+
+/// The sessions kept in windows of their own.
+pub fn sessions(app: &AppHandle) -> Vec<String> {
+    app.try_state::<State>().and_then(|s| s.inner.lock().ok().map(|i| i.sessions())).unwrap_or_default()
+}
+
+/// Tells every window which sessions are kept in windows of their own.
+fn tell_sessions(app: &AppHandle) {
+    let _ = app.emit("session-windows", sessions(app));
+}
+
+/// The part of a screen a window popped out of `from` opens on: `from`'s, or the first one's.
+fn visible_from(from: Option<Rect>) -> Result<Rect> {
+    let screens = panel::screens();
+    from.and_then(|f| screen_for(f, &screens)).or_else(|| screens.first().map(|s| s.visible)).ok_or_else(|| anyhow!("There's no screen to show it on."))
 }
 
 /// Pops a session's side conversation out into a window of its own, beside `from`, the window it
@@ -291,9 +347,7 @@ pub fn pop_side(app: &AppHandle, key: String, from: Option<Rect>, keys: bool) ->
         raise(app, &label, keys);
         return Ok(());
     }
-    let screens = panel::screens();
-    let visible = from.and_then(|f| screen_for(f, &screens)).or_else(|| screens.first().map(|s| s.visible)).ok_or_else(|| anyhow!("There's no screen to show it on."))?;
-    let frame = side_frame(from, visible);
+    let frame = side_frame(from, visible_from(from)?);
     let label = add(app, Kept { key, frame, side: true, terminal: None }, keys);
     open(app, label, Kind::Side);
     tell_sides(app);
@@ -311,9 +365,7 @@ pub fn pop_terminal(app: &AppHandle, key: String, id: String, from: Option<Rect>
         raise(app, &label, keys);
         return Ok(());
     }
-    let screens = panel::screens();
-    let visible = from.and_then(|f| screen_for(f, &screens)).or_else(|| screens.first().map(|s| s.visible)).ok_or_else(|| anyhow!("There's no screen to show it on."))?;
-    let frame = beside(from, visible, TERMINAL_SIZE);
+    let frame = beside(from, visible_from(from)?, TERMINAL_SIZE);
     let label = add(app, Kept { key, frame, side: false, terminal: Some(id) }, keys);
     open(app, label, Kind::Terminal);
     tell_terminals(app);
@@ -413,12 +465,12 @@ fn open(app: &AppHandle, label: String, kind: Kind) {
     });
 }
 
-/// Tells the windows of a change to which side conversations or terminals have windows.
+/// Tells the windows of a change to which sessions, side conversations or terminals have windows.
 fn tell(app: &AppHandle, kind: Kind) {
     match kind {
         Kind::Side => tell_sides(app),
         Kind::Terminal => tell_terminals(app),
-        Kind::Session => {}
+        Kind::Session => tell_sessions(app),
     }
 }
 
@@ -682,6 +734,22 @@ mod tests {
         assert_eq!(inner.label_of("a", true).as_deref(), Some("kept-2"));
         assert_eq!(inner.label_of("b", false), None);
         assert_eq!(inner.sides(), ["a", "b"]);
+        // Only the session's own window says it's kept, which the main window's panel leaves to it.
+        assert_eq!(inner.sessions(), ["a"]);
+    }
+
+    /// A session popped out of the main window opens beside it where there's room, else over its
+    /// right side, where its panel was, clear of the title bar.
+    #[test]
+    fn a_session_pops_out_beside_the_main_window() {
+        let (w, h) = SESSION_SIZE;
+        let v = SCREEN.visible;
+        let narrow = r(0.0, 100.0, 700.0, 760.0);
+        let f = beside(Some(narrow), v, SESSION_SIZE);
+        assert_eq!((f.x, f.top(), f.w, f.h), (narrow.right() + SIDE_GAP, narrow.top(), w, h));
+        let full = r(0.0, 60.0, 1500.0, 815.0);
+        let f = beside(Some(full), v, SESSION_SIZE);
+        assert_eq!((f.right(), f.top(), f.w, f.h), (full.right() - SIDE_GAP, full.top() - SIDE_DROP, w, h));
     }
 
     /// A terminal popped out of a session's drawer is a window of its own, which neither the

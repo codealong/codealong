@@ -28,6 +28,7 @@ import { repoReviews } from './repoSettings';
 import type { HarnessSchedule, Lane, Pr, PrItem, Schedule, ScheduleItem, Session, SideGlance, StartOptions, TeamFile, Theme, Todo } from './types';
 import { showSide } from './side';
 import { allTerminals, ownTerminalFor, placeOf, setDrawer, setSessionView, TERMINAL_WAIT_MS, usePoppedTerminals } from './terminals';
+import { useKeptSessions } from './kept';
 import { shortOf, type DeviceFilter } from './devices';
 import { NEW_PROJECT, SettingsDialog, type SettingsSection } from './ui/SettingsDialog';
 import { CleanUpDialog } from './ui/CleanUpDialog';
@@ -803,6 +804,9 @@ export function App() {
   );
   // What's pinned to the desktop, so menus offer to take it off (desktop.rs).
   const onDesktop = menus.useDesktopPins();
+  // The sessions kept in windows of their own, so a session's menu offers to pop it out or show
+  // its window (kept.rs `pop_session`).
+  const keptSessions = useKeptSessions();
 
   // Nothing is listed until the board is read, so nothing can be selected: not the other devices'
   // rows that come first.
@@ -1576,6 +1580,7 @@ export function App() {
           ? { label: sessionPins.set.has(s.key) ? 'Unpin session' : 'Pin session', run: () => sessionPins.toggle(s.key) }
           : { label: lanePins.set.has(lane.id) ? 'Unpin worktree' : 'Pin worktree', run: () => toggleLanePin(lane) },
       desktop: onDesktop,
+      windows: keptSessions,
       rename: () => setRenaming(s.key),
       worktrees: board?.lanes,
       archive: (archived) => {
