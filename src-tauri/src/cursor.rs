@@ -1640,11 +1640,50 @@ const TELL_INSTEAD: &str = "Tell the agent what to do instead";
 /// would answer the prompt with its highlighted choice, which runs the command.
 const TELL_WAIT: Duration = Duration::from_secs(3);
 
-/// Held while Codealong reads a prompt and presses its keys, so its own answers never cross: an
-/// automatic review's allowing of a web search read before your skip of it would otherwise press
-/// `y` into the prompt after it, a command's perhaps. Keys typed in the terminal itself can still
-/// come between a read and a press, as with every harness answered by keys.
-static ANSWERING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+/// Held while Codealong reads a prompt, presses its keys and waits for the screen to move off it,
+/// so its own answers never cross: an automatic review's allowing of a web search read before
+/// your skip of it would otherwise press `y` into the prompt after it, a command's perhaps. Keys
+/// typed in the terminal itself can still come between a read and a press, as with every harness
+/// answered by keys.
+static ANSWERING: std::sync::Mutex<Answered> = std::sync::Mutex::new(Answered(Vec::new()));
+
+/// How long an answer waits for the screen to move off the prompt it answered (`Answered`).
+const SETTLE_WAIT: Duration = Duration::from_secs(2);
+
+/// How long a prompt answered whose screen hadn't moved off it is kept from being answered again.
+const ANSWERED_FOR: Duration = Duration::from_secs(30);
+
+/// The prompts Codealong answered whose screen still showed them when it stopped waiting, by id,
+/// with when (`ANSWERING`). A terminal takes a key in its own time (Codealong's own hands it to a
+/// writer, and reads its screen at once), so a prompt can still show a moment after it was
+/// answered, and an answer read off that screen would land on the prompt after it.
+#[derive(Default)]
+struct Answered(Vec<(String, Instant)>);
+
+impl Answered {
+    /// Whether prompt `id` may be answered: it isn't one answered lately whose screen showed it
+    /// still.
+    fn open(&mut self, id: &str) -> bool {
+        self.0.retain(|(_, at)| at.elapsed() < ANSWERED_FOR);
+        !self.0.iter().any(|(answered, _)| answered == id)
+    }
+
+    /// Prompt `id` was answered: waits up to `wait` for `read` to show something else, and keeps
+    /// it from another answer a while if it never does.
+    fn answered(&mut self, id: &str, read: impl Fn() -> Option<Asked>, wait: Duration) {
+        let started = Instant::now();
+        loop {
+            if read().is_none_or(|a| a.id() != id) {
+                return;
+            }
+            if started.elapsed() >= wait {
+                self.0.push((id.to_string(), Instant::now()));
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    }
+}
 
 /// How many lines at a screen's foot a prompt's question is looked for in.
 const PROMPT_LINES: usize = 40;
@@ -2428,8 +2467,11 @@ impl crate::harness::Adapter for Cursor {
     fn answer(&self, _ctx: &Ctx, s: &Session, id: &str, answer: crate::harness::Answer) -> anyhow::Result<String> {
         use crate::harness::Answer;
         use crate::launch::{press_all, Key, Press};
-        let _turn = ANSWERING.lock().unwrap_or_else(|e| e.into_inner());
+        let mut answered = ANSWERING.lock().unwrap_or_else(|e| e.into_inner());
         let (pid, asked) = asked_now(s, id)?;
+        if !answered.open(id) {
+            anyhow::bail!("It's still taking the answer it was just given: look again in a moment.");
+        }
         let cwd = Path::new(&s.cwd);
         match answer {
             Answer::Allow => press_all(pid, cwd, &[Press::Key(Key::Keys("y"))])?,
@@ -2437,6 +2479,7 @@ impl crate::harness::Adapter for Cursor {
             Answer::Always => anyhow::bail!("Cursor's prompt offers no allowing from now on for this: allow it once."),
             Answer::Deny => skip(pid, cwd, &asked, None)?,
         }
+        answered.answered(id, || asked_in(pid, cwd), SETTLE_WAIT);
         Ok(match answer {
             Answer::Deny => format!("Skipped {}; it goes on without it.", asked.label()),
             Answer::Always => format!("Allowed {}, and calls like it from now on.", asked.label()),
@@ -2452,22 +2495,29 @@ impl crate::harness::Adapter for Cursor {
     /// A command's prompt takes words with its skip; a web search's skips at once, so words for
     /// it are sent after.
     fn deny_saying(&self, _ctx: &Ctx, s: &Session, id: &str, words: &str) -> anyhow::Result<Option<String>> {
-        let _turn = ANSWERING.lock().unwrap_or_else(|e| e.into_inner());
+        let mut answered = ANSWERING.lock().unwrap_or_else(|e| e.into_inner());
         let (pid, asked) = asked_now(s, id)?;
         if !asked.tells {
             return Ok(None);
         }
-        skip(pid, Path::new(&s.cwd), &asked, Some(words))?;
+        if !answered.open(id) {
+            anyhow::bail!("It's still taking the answer it was just given: look again in a moment.");
+        }
+        let cwd = Path::new(&s.cwd);
+        skip(pid, cwd, &asked, Some(words))?;
+        answered.answered(id, || asked_in(pid, cwd), SETTLE_WAIT);
         Ok(Some(format!("Skipped {} and told it what to do instead.", asked.label())))
     }
 
     /// A web search, which reviews look things up with: the command line asks before each,
     /// whatever its approval mode short of Run Everything.
     fn allow_for_review(&self, _ctx: &Ctx, s: &Session) -> anyhow::Result<Option<String>> {
-        let _turn = ANSWERING.lock().unwrap_or_else(|e| e.into_inner());
+        let mut answered = ANSWERING.lock().unwrap_or_else(|e| e.into_inner());
         let Some(pid) = s.pid.filter(|_| s.surface == Surface::Cli) else { return Ok(None) };
-        let Some(asked) = asked_in(pid, Path::new(&s.cwd)).filter(Asked::searches) else { return Ok(None) };
-        crate::launch::press_all(pid, Path::new(&s.cwd), &[crate::launch::Press::Key(crate::launch::Key::Keys("y"))])?;
+        let cwd = Path::new(&s.cwd);
+        let Some(asked) = asked_in(pid, cwd).filter(|a| a.searches() && answered.open(&a.id())) else { return Ok(None) };
+        crate::launch::press_all(pid, cwd, &[crate::launch::Press::Key(crate::launch::Key::Keys("y"))])?;
+        answered.answered(&asked.id(), || asked_in(pid, cwd), SETTLE_WAIT);
         Ok(Some(format!("Allowed {}.", asked.label())))
     }
 
@@ -3209,6 +3259,28 @@ mod tests {
         assert_eq!(write.always.as_deref(), Some("Add Write(/tmp/lab/notes.txt) to allowlist?"));
         let mcp = asked_on("──────────────────\n linear · create_issue\n Run this MCP tool?\n  → Run (once) (y)\n    Allowlist MCP Tool (tab)\n    Reject & propose changes (p)\n    Skip (esc or n)\n").unwrap();
         assert_eq!((mcp.tells, mcp.always.as_deref()), (false, Some("Allowlist MCP Tool")));
+    }
+
+    /// A key is taken in the terminal's own time, so its screen can still show the prompt it
+    /// answered: that prompt isn't answered again (a `y` read off it would go to the prompt after
+    /// it), until it's been gone from the screen, or a while has passed.
+    #[test]
+    fn a_prompt_answered_isnt_answered_again_off_a_screen_that_still_shows_it() {
+        let search = asked_on(SEARCH_SCREEN).unwrap();
+        let id = search.id();
+        let mut answered = Answered::default();
+        assert!(answered.open(&id));
+        // The key's queued and the screen hasn't changed when the wait's over.
+        answered.answered(&id, || Some(search.clone()), Duration::from_millis(50));
+        assert!(!answered.open(&id), "not again while it may still be taking it");
+        assert!(answered.open(&asked_on(COMMAND_SCREEN).unwrap().id()), "another prompt is answered");
+        // The screen moved on a moment later: nothing's kept, and the same question asked again
+        // after is answered.
+        let mut answered = Answered::default();
+        let reads = std::cell::Cell::new(0);
+        answered.answered(&id, || { reads.set(reads.get() + 1); (reads.get() < 3).then(|| search.clone()) }, Duration::from_secs(5));
+        assert_eq!(reads.get(), 3);
+        assert!(answered.open(&id));
     }
 
     /// Enter after a skip only once the box for what to do instead is at the foot, for that call:
