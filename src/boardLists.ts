@@ -885,6 +885,12 @@ export function kanbanColumns({ todoRows, todos, sessions, prs, doneSince, board
   return out;
 }
 
+/** The sessions among `sessions` that a board's Kanban shows as cards of their own
+ *  (`kanbanColumns`). */
+export function kanbanSessionCards(input: Omit<KanbanInput, 'subjects' | 'now'>): SessionItem[] {
+  return boardCards(input, false).sessionCards;
+}
+
 /** A board's todos among `todoRows` and its sessions among `sessions`, as `kanbanColumns` says,
  *  but `withTodos`: then the sessions an open todo's card lists, which the board has with the
  *  todo, are cards of their own too. */
@@ -1212,14 +1218,18 @@ export function useBoardLists(input: ListsInput) {
     const picks = facets.labels ?? [];
     return picks.length > 0 ? boardShown.filter((r) => ownLabels(r.session, labels).some((id) => picks.includes(id))) : boardShown;
   }, [facets.labels, boardShown, labels]);
-  // Its Labels count the sessions too, so one you put only on sessions is there to pick.
-  const kanbanLabels = useMemo(() => todoLabelOptions(listedTodos, labels, facets, boardShown), [listedTodos, labels, facets, boardShown]);
   const doneSince = cutoff || now - DONE_SPAN;
   const kanbanCols = useMemo(
     () => (shownBoard ? kanbanColumns({ todoRows: part.todoRows, todos, sessions: cardSessions, prs: board?.prs ?? [], doneSince, board: shownBoard, subjects, member, now }) : []),
     [part.todoRows, todos, cardSessions, board?.prs, doneSince, shownBoard, subjects, member, now],
   );
   const kanbanVisible = useMemo<ListRow[]>(() => kanbanCols.flatMap((c) => (columnOpen(c) ? c.cards : [])), [kanbanCols, columnOpen]);
+  // Its Labels count the sessions it shows as cards of their own too, whatever label is picked, so
+  // one you put only on sessions is there to pick.
+  const kanbanLabels = useMemo(() => {
+    const cards = shownBoard ? kanbanSessionCards({ todoRows: part.todoRows, todos, sessions: boardShown, prs: board?.prs ?? [], doneSince, board: shownBoard, member }) : [];
+    return todoLabelOptions(listedTodos, labels, facets, cards);
+  }, [shownBoard, part.todoRows, todos, boardShown, board?.prs, doneSince, member, listedTodos, labels, facets]);
   // What its canvas shows, whatever the search and the filters, which fade cards there instead.
   const canvasShows = useMemo(
     () => (shownBoard ? canvasCards({ todoItems: part.todoItems, todos, sessions: boardSessions, prs: part.prs, board: shownBoard, member }) : new Set<string>()),

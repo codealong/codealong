@@ -17,6 +17,7 @@ import {
   boardPart,
   projectOfCard,
   kanbanColumns,
+  kanbanSessionCards,
   kanbanOf,
   laneInQuery,
   placeHelpers,
@@ -911,6 +912,17 @@ describe('the Kanban view’s columns', () => {
     expect(cols(rows, todos, sessionItemsOf([l]), [], 0, { ...hand, removed: ['session:claude:claude:out'] }).progress).toEqual(['/r/app::claude:claude:in']);
     // Nor on a board that takes in everything, which holds every worktree.
     expect(cols(rows, todos, sessionItemsOf([l]), [], 0, { ...everything, removed: ['session:claude:claude:in'] }).progress).toEqual(['/r/app::claude:claude:out']);
+  });
+
+  it('counts in its labels only the sessions it shows as cards of their own', () => {
+    const bug: Label = { id: 'l-bug', name: 'Bug', color: 'red' };
+    const l = lane('/r/app', [session('claude:claude:on', { status: 'working', labels: [bug] }), session('claude:claude:seen', { status: 'idle', live: false, labels: [bug] }), session('claude:claude:off', { status: 'working', labels: [bug] })]);
+    const sessions = sessionItemsOf([l]);
+    const board: BoardDoc = { ...everything, removed: ['session:claude:claude:off'] };
+    const member = memberTest(board, subjectsOf({ todoItems: [], todos: [], sessionItems: sessions, lanes: [l], prs: [] }), NOW);
+    const cards = kanbanSessionCards({ todoRows: [], todos: [], sessions, prs: [], doneSince: 0, board, member });
+    // Not one whose turn ended that you've seen, nor one taken off the board.
+    expect(todoLabelOptions([], [bug], {}, cards).map((o) => [o.id, o.count])).toEqual([['l-bug', 1]]);
   });
 
   it('shows each card put on a board by hand, as `board show` sees it: an archived session in Done, a helper, a todo done long ago', () => {

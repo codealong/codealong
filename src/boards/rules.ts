@@ -86,10 +86,12 @@ export function todoSubject(item: TodoItem, todos: Todo[]): Subject {
   };
 }
 
-/** A session's own labels by this Mac's ids, as rules name them: one on another device wears that
- *  Mac's labels, so each goes by the one of its name here (`labels`), else by its own id. */
+/** A session's own labels by this Mac's ids, as rules name them: one of this Mac's is itself, even
+ *  where another here has its name too; one on another device wears that Mac's labels, so each of
+ *  those goes by the one of its name here (`labels`), else by its own id. */
 export function ownLabels(s: Pick<Session, 'labels'>, labels: readonly Label[]): string[] {
-  return (s.labels ?? []).map((l) => labels.find((x) => x.name.toLowerCase() === l.name.toLowerCase())?.id ?? l.id);
+  const here = (id: string) => labels.some((x) => x.id === id);
+  return (s.labels ?? []).map((l) => (here(l.id) ? l.id : (labels.find((x) => x.name.toLowerCase() === l.name.toLowerCase())?.id ?? l.id)));
 }
 
 /** `on`: the todos it's linked to, whose labels go with its own; `labels`, this Mac's

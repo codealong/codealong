@@ -6,7 +6,7 @@ import { NOW } from '../testing/fixtures';
 import { todoItem } from '../todos';
 import type { Label, Lane, Todo } from '../types';
 import type { BoardColumn, BoardDoc } from './model';
-import { columnOf, matches, memberTest, subjectsOf, type Subject } from './rules';
+import { columnOf, matches, memberTest, ownLabels, subjectsOf, type Subject } from './rules';
 
 const DAY = 86_400_000;
 
@@ -54,6 +54,9 @@ describe('what a thing on a board is to its rules', () => {
     const subjects = subjectsOf({ todoItems: [], todos: [], sessionItems: sessionItemsOf([lane]), lanes: [lane], prs: [], labels: here });
     expect(at(subjects, 'session:@a1b2c3d4e5:claude:claude:t').labels).toEqual(['l-bug', 'l-only-there']);
     expect(at(subjects, 'worktree:@a1b2c3d4e5:/r/web').labels).toEqual(['l-bug', 'l-only-there']);
+    // One of this Mac's stays itself, though another here was renamed to its name.
+    const twice: Label[] = [...here, { id: 'l-spike', name: 'Bug', color: 'blue' }];
+    expect(ownLabels({ labels: [twice[1]] }, twice)).toEqual(['l-spike']);
   });
 
   it('takes in a thing when every part of a rule holds, and any pick within one', () => {
