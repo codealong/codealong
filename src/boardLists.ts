@@ -1114,8 +1114,8 @@ export function useBoardLists(input: ListsInput) {
   const waitingRows = useMemo(() => waitingQueue(shownSessions), [shownSessions]);
 
   // The PRs view: the project's PRs with the worktrees that hold them and the sessions that
-  // worked on them.
-  const sessionIndex = useMemo(() => sessionIndexOf(lanes), [lanes]);
+  // worked on them, archived ones too, which the engine lists there with the rest.
+  const sessionIndex = useMemo(() => sessionIndexOf(rawLanes), [rawLanes]);
   const laneById = useMemo(() => new Map(lanes.map((l) => [l.id, l])), [lanes]);
   const elsewhere = devices?.enabled ? devices.prSessions : NO_PR_SESSIONS;
   const prRow = useCallback((pr: PrItem): PrRowItem => prRowOf(pr, laneById, sessionIndex, elsewhere), [laneById, sessionIndex, elsewhere]);

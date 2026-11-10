@@ -21,7 +21,9 @@
 .ca-places-group > .ca-chip.ca-wtchip {
   max-width: 100%;
 }
-.ca-places-group > .ca-chip.is-visitor > span {
+/* A visitor, and an archived session (listed on a PR it worked on), say less than the rest. */
+.ca-places-group > .ca-chip.is-visitor > span,
+.ca-places-group > .ca-chip.is-archived > span {
   color: var(--ink-3);
 }
 /* The todo's or PR's primary session says so in its chip. */
@@ -100,7 +102,8 @@
   flex: none;
   align-self: center;
 }
-.ca-psess.is-visitor .ca-psess-title {
+.ca-psess.is-visitor .ca-psess-title,
+.ca-psess.is-archived .ca-psess-title {
   color: var(--ink-3);
 }
 .ca-psess-open {

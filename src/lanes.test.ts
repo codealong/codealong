@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ageFiltered, bayOf, branchLabel, bySession, raisedBy, closable, connectionLostWords, cutOffWords, exitsItsOwnWay, filterByAge, foldsOf, foldWords, helperLine, helperName, helperStands, homeOf, inboxCounts, laneWaits, limitWords, liveOrLatest, narrowed, relaned, runsShownKey, seenable, sessionFlag, sessionHeadline, sessionPrs, sidesListed, sidesShownKey, stoppable, unattended, waitsInBackground, withoutAccount, workingFor, workingSince } from './lanes';
+import { ageFiltered, archivedShows, bayOf, branchLabel, bySession, raisedBy, closable, connectionLostWords, cutOffWords, exitsItsOwnWay, filterByAge, foldsOf, foldWords, helperLine, helperName, helperStands, homeOf, inboxCounts, laneWaits, limitWords, liveOrLatest, narrowed, relaned, runsShownKey, seenable, sessionFlag, sessionHeadline, sessionPrs, sidesListed, sidesShownKey, stoppable, unattended, waitsInBackground, withoutAccount, workingFor, workingSince } from './lanes';
 import * as fx from './testing/fixtures';
 import type { Lane, Pr, PrItem, Session, SideGlance } from './types';
 
@@ -282,6 +282,12 @@ describe('an archived session', () => {
     expect(inboxCounts([l])).toEqual({ needs: 0, working: 1, unread: 0, review: 0, work: 0 });
     expect(narrowed(l, ['needs'], '')).toBeNull();
     expect(narrowed(l, ['needs', 'working'], '')!.sessions.map((s) => s.key)).toEqual(['current']);
+  });
+
+  it('shows that it is archived as its status, unless it still works, waits on you or failed', () => {
+    for (const status of ['idle', 'stopped', 'unread'] as const) expect(archivedShows({ ...session('done', status, NOW), archived: true })).toBe(true);
+    for (const status of ['working', 'needs', 'error'] as const) expect(archivedShows({ ...session('going', status, NOW), archived: true })).toBe(false);
+    expect(archivedShows(session('kept', 'stopped', NOW))).toBe(false);
   });
 });
 

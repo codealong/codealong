@@ -37,7 +37,7 @@ export function PanelSession({ lane, session: s, now, onShow, onOpen, onMenu, pr
   return (
     <div
       role="treeitem"
-      className={cx('ca-psess', s.visitor && 'is-visitor')}
+      className={cx('ca-psess', s.visitor && 'is-visitor', s.archived && 'is-archived')}
       onContextMenu={(e) => {
         e.preventDefault();
         onMenu(lane, s);
@@ -185,7 +185,7 @@ export function PanelPlaces({ places: given, open, label, project, now, onShowLa
                 key={s.key}
                 session={s}
                 named
-                className={cx(s.visitor && 'is-visitor')}
+                className={cx(s.visitor && 'is-visitor', s.archived && 'is-archived')}
                 detail={`${s.visitor ?? sessionWhy(s.detail, s.headline, now)}${main ? `\nPrimary: ${primary.means}` : ''}`}
                 onShow={() => onShowSession(lane, s)}
                 onMenu={() => onSessionMenu(lane, s)}

@@ -1272,7 +1272,7 @@ fn pr_item(lanes: &[Lane], owners: &HashMap<&Path, &[String]>, slug: &str, (proj
         });
         let pushers = here.iter().flat_map(|&l| l.sessions.iter().filter(move |s| s.visitor.is_none() && during(s) && pushes(l, &s.key) > 0).map(move |s| (l, s)));
         for (l, s) in own.chain(guests).chain(pushers) {
-            if !s.archived && !sessions.iter().any(|x| x.key == s.key) {
+            if !sessions.iter().any(|x| x.key == s.key) {
                 sessions.push(PrSession { key: s.key.clone(), lane: l.id.clone(), pushes: pushes(l, &s.key), primary: None });
             }
         }
@@ -1283,8 +1283,7 @@ fn pr_item(lanes: &[Lane], owners: &HashMap<&Path, &[String]>, slug: &str, (proj
             continue;
         }
         // The lane it's in, else one it visited.
-        let found = home(lanes, k);
-        if let Some((l, s)) = found.filter(|(_, s)| !s.archived) {
+        if let Some((l, s)) = home(lanes, k) {
             sessions.push(PrSession { key: s.key.clone(), lane: l.id.clone(), pushes: pushes(l, &s.key), primary: None });
         }
     }
@@ -1420,17 +1419,19 @@ pub fn turn_of(p: &PrRaw, mine: bool, login: Option<&str>, agent_posts: &HashSet
 /// tie: a session that pushes a fix or two to another's PR doesn't take it over, and one that
 /// goes on with the work does. Without pushes that's the one that opened it. A copy of a
 /// conversation (a fork, a move to another account) carries its marks and pushes with their
-/// times, so the one that started first wins a tie. An archived session isn't listed, so the
-/// next takes over. Nor is an automatic review (`Helper::pr`), unless picked: it reads the work
+/// times, so the one that started first wins a tie. An archived session is listed but never the
+/// primary, picked or not: the next takes over. Nor is an automatic review (`Helper::pr`), unless picked: it reads the work
 /// and says what it found, and runs in the PR's worktree on its branch, so with the session
 /// that opened it gone it took over as the one that started first, and was told of what
 /// happened on the PR in place of the work's own session.
 fn pr_primary(lanes: &[Lane], sessions: &[PrSession], key: &str, links: &PrLinks) -> Option<(String, PrimaryBy)> {
+    let archived = |k: &str| home(lanes, k).is_some_and(|(_, s)| s.archived);
+    let sessions: Vec<&PrSession> = sessions.iter().filter(|s| !archived(&s.key)).collect();
     if let Some(k) = links.picked.get(key).filter(|k| sessions.iter().any(|s| &s.key == *k)) {
         return Some((k.clone(), PrimaryBy::Picked));
     }
     let reviews = |k: &str| home(lanes, k).is_some_and(|(_, s)| s.helper.as_ref().is_some_and(|h| h.pr.is_some()));
-    let sessions: Vec<&PrSession> = sessions.iter().filter(|s| !reviews(&s.key)).collect();
+    let sessions: Vec<&PrSession> = sessions.into_iter().filter(|s| !reviews(&s.key)).collect();
     let started = |k: &str| home(lanes, k).map_or(i64::MAX, |(_, s)| s.started_at.unwrap_or(s.last_activity));
     // When its records first show it.
     let mark = |k: &str| links.made.get(key).into_iter().flatten().find(|(m, _)| m == k).map(|(_, at)| crate::prlinks::mark_order(*at));
@@ -3576,6 +3577,38 @@ mod tests {
         links.picked.insert(key, "watcher".into());
         links.watched.clear();
         assert!(!card(pr(PrState::Open, 0), false, &links).0);
+    }
+
+    /// A session archived once its PR is done with (Mark as done, say) is still listed on it, by
+    /// its branch or by its records, as one that made the PR from another repo's checkout is; but
+    /// it's never the PR's primary, even picked: the next takes over, or none does.
+    #[test]
+    fn an_archived_session_stays_listed_on_its_pr_but_isnt_its_primary() {
+        let s = |key: &str, cwd: &str, branch: &str, archived: bool| Session { cwd: cwd.into(), branch: Some(branch.into()), started_at: Some(NOW - 3 * 3_600_000), last_activity: NOW, archived, ..crate::fixtures::session(key) };
+        // The maker opened the PR from the app's checkout, as its records say; the fixer worked
+        // on the PR's branch.
+        let lanes = |maker: bool, fixer: bool| {
+            vec![
+                Lane { repo_slug: Some("sprucehq/spark".into()), branch: Some("portal".into()), ..crate::fixtures::lane("/r/spark-portal", vec![s("fixer", "/r/spark-portal", "portal", fixer)]) },
+                Lane { repo_slug: Some("sprucehq/app".into()), branch: Some("main".into()), ..crate::fixtures::lane("/r/app", vec![s("maker", "/r/app", "main", maker)]) },
+            ]
+        };
+        let seeds = vec![seed("/r/spark-portal", "portal")];
+        let key = "sprucehq/spark#1037".to_string();
+        let mut links = PrLinks { worked: HashMap::from([(key.clone(), vec!["maker".to_string()])]), made: HashMap::from([(key.clone(), vec![("maker".to_string(), NOW - 2 * 86_400_000)])]), ..Default::default() };
+        let card = |lanes: &[Lane], links: &PrLinks| {
+            let item = pr_card(&seeds, lanes, "sprucehq/spark", &HashMap::new(), &pr(PrState::Merged, 0), Some("gwen"), links);
+            (item.sessions.into_iter().map(|x| (x.key, x.lane)).collect::<Vec<_>>(), item.primary)
+        };
+        let both = vec![("fixer".to_string(), "/r/spark-portal".to_string()), ("maker".to_string(), "/r/app".to_string())];
+        assert_eq!(card(&lanes(false, false), &links), (both.clone(), Some("maker".to_string())));
+        assert_eq!(card(&lanes(true, false), &links), (both.clone(), Some("fixer".to_string())));
+        assert_eq!(card(&lanes(true, true), &links), (both.clone(), None));
+        links.picked.insert(key.clone(), "maker".into());
+        assert_eq!(card(&lanes(true, false), &links), (both.clone(), Some("fixer".to_string())));
+        // Unlinked by hand, it goes as an unarchived one does.
+        links.unlinked.insert((key, "maker".into()));
+        assert_eq!(card(&lanes(true, false), &links).0, both[..1]);
     }
 
     #[test]

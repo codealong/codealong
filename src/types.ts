@@ -1918,7 +1918,8 @@ export interface PrItem {
   closedAt: number | null;
   /** Worktrees (lane ids) that hold the PR: the ones the Worktrees view shows it on. */
   lanes: string[];
-  /** The sessions that worked on the PR while it was open, each with the worktree it's listed under. */
+  /** The sessions that worked on the PR while it was open, each with the worktree it's listed
+   *  under: archived ones too, which are never its primary. */
   sessions: PrSession[];
   /** The commit its branch is at, when GitHub says. */
   headOid?: string;

@@ -182,7 +182,8 @@ Terminal or Rex tab, closes that tab whatever the session is doing, and End back
 Code background job; either way its conversation is kept and resumes. Mark as done (⇧⌘E, or Done on
 the strip) is for a session you're finished with: it closes the session's terminal or ends its
 background job, as Close does, and marks it seen and archives it, so it leaves every list but
-Archived. It closes nothing that would take more than the session with it: a terminal that shows
+Archived. It stays listed on the PRs it worked on (see *PRs*), and wherever an archived session
+shows, its status glyph is an archive box, unless it's still at work, waiting on you or failed. It closes nothing that would take more than the session with it: a terminal that shows
 other sessions too stays open, and a session in the Claude or Codex app is only archived, since the
 app has no way for another program to close it. A background job that holds the worktree Claude
 Code made for it is stopped, and the worktree is removed after it, as Clean up worktree… does (see
@@ -1011,6 +1012,12 @@ and in its panel, whose tooltip says why it's the one:
   harness that records none), and wins a tie: a session that pushes a fix or two to another's PR
   doesn't take it over, but one that goes on with the work does;
 - else the one that started first.
+
+A session you archived (marked done, say) stays listed on the PRs it worked on, so a merged PR
+still says which session made it: its status glyph is an archive box (unless it's still at work,
+waiting on you or failed, which shows instead) and its title is dimmed. It's never the PR's primary
+session, even picked: the next one takes over, and with no other the PR has none. Unarchived, it's
+the primary again where it was.
 
 The sessions on your other machines that worked on a PR are listed on it too (see *Your other
 devices*), after this machine's, each under its worktree there with that machine's badge, as

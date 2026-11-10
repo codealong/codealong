@@ -8,7 +8,7 @@ import { fieldAt, typingIn } from '../contextMenu';
 import { deviceLabel, shortOf } from '../devices';
 import { middleTruncate, withTimes } from '../format';
 import { HARNESS_WORD, sessionPlace } from '../harness';
-import { branchLabel, laneWaits, waitsInBackground } from '../lanes';
+import { archivedShows, branchLabel, laneWaits, waitsInBackground } from '../lanes';
 import { hearingShows } from '../listening';
 import { chipWord, reviewMark } from '../prStatus';
 import type { Bay, Emblem, GitInfo, Lane, LogoStatus, Pr, PrItem, PrState, Session, Status, Surface } from '../types';
@@ -220,14 +220,22 @@ export function StatusGlyph({ status, size = 12, title, waiting = false }: { sta
 }
 
 /** A session's status glyph, a clock while it waits on a command left running in the background,
- *  and a recording light while it's hearing a meeting (`Session.listening`, listening.ts
- *  `hearingShows`), wherever the session shows. */
-export function SessionGlyph({ s, size = 12, title }: { s: Pick<Session, 'status' | 'background' | 'listening'>; size?: number; title?: string }) {
+ *  a recording light while it's hearing a meeting (`Session.listening`, listening.ts
+ *  `hearingShows`), and a box once it's archived (`archivedShows`), wherever the session shows. */
+export function SessionGlyph({ s, size = 12, title }: { s: Pick<Session, 'status' | 'background' | 'listening'> & Partial<Pick<Session, 'archived'>>; size?: number; title?: string }) {
   if (s.listening && hearingShows(s.status)) {
     return (
       <svg className="ca-glyph ca-glyph--listening" width={size} height={size} viewBox="0 0 12 12" role="img" aria-label={title === '' ? '' : 'Listening'}>
         <circle className="ca-g-hearing-ring" cx="6" cy="6" r="4.5" />
         <circle className="ca-g-hearing" cx="6" cy="6" r="2.5" />
+      </svg>
+    );
+  }
+  if (archivedShows(s)) {
+    // Tabler's archive icon (icons.ts), at half its size.
+    return (
+      <svg className="ca-glyph ca-glyph--archived" width={size} height={size} viewBox="0 0 12 12" role="img" aria-label={title ?? 'Archived'}>
+        <path className="ca-g-archived" d="M1.5 3a1 1 0 0 1 1-1h7a1 1 0 0 1 0 2h-7a1 1 0 0 1-1-1M2.5 4v5a1 1 0 0 0 1 1h5a1 1 0 0 0 1-1v-5M5 6h2" />
       </svg>
     );
   }
@@ -727,9 +735,8 @@ export function MoreChip({ names, className }: { names: string[]; className?: st
  *  `named` says its title instead, with the account on hover, where the chip stands for the
  *  session: on a PR's or a todo's row and in their panels, where nothing else names it. */
 export function HarnessChip({ session, withStatus = true, named = false, onOpen, onShow, onMenu, inRow = false, className, detail, children }: { session: Session; withStatus?: boolean; named?: boolean; onOpen?: () => void; onShow?: () => void; onMenu?: () => void; inRow?: boolean; className?: string; detail?: string; children?: ReactNode }) {
-  const said = named
-    ? `${session.title}\n${session.account} (${HARNESS_WORD[session.harness]}) · ${STATUS_WORD[session.status]}`
-    : `${session.account} · ${session.title} · ${STATUS_WORD[session.status]}`;
+  const status = archivedShows(session) ? 'Archived' : STATUS_WORD[session.status];
+  const said = named ? `${session.title}\n${session.account} (${HARNESS_WORD[session.harness]}) · ${status}` : `${session.account} · ${session.title} · ${status}`;
   return (
     <Chip
       className={cx(named && 'ca-sesschip', className)}

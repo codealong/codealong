@@ -371,7 +371,8 @@ pub struct PrItem {
     pub closed_at: Option<i64>,
     /// Worktrees that hold the PR: the ones whose heading in Sessions shows it.
     pub lanes: Vec<String>,
-    /// The sessions that worked on the PR, each with the worktree it's listed under.
+    /// The sessions that worked on the PR, each with the worktree it's listed under: archived
+    /// ones too, which are never its primary (board.rs `pr_primary`).
     pub sessions: Vec<PrSession>,
     /// The commit its branch is at, when GitHub says.
     #[serde(default, skip_serializing_if = "Option::is_none")]

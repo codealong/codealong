@@ -226,6 +226,13 @@ export function unreadable(s: Pick<Session, 'status' | 'asks' | 'archived'>): bo
   return !s.archived && !s.asks && (s.status === 'idle' || s.status === 'stopped');
 }
 
+/** Whether an archived session shows that as its status (ui/primitives.tsx `SessionGlyph`), where
+ *  it's listed with the rest: on a PR, a todo, a link to it. Archiving ends nothing, so one at
+ *  work, waiting on you or failing still shows that. */
+export function archivedShows(s: Pick<Session, 'status'> & Partial<Pick<Session, 'archived'>>): boolean {
+  return !!s.archived && (s.status === 'idle' || s.status === 'stopped' || s.status === 'unread');
+}
+
 /** Whether Codealong can close a session from its menu (idle.rs `close_one`): one running on
  *  this device in a terminal of its own, whose tab closes, or as a background job, which stops.
  *  The apps' sessions and the ones Codealong runs itself have no terminal to close. */
