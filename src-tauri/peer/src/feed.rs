@@ -92,8 +92,8 @@ pub struct FeedMsg {
 /// 7: `Session::queued`; 8: `Session::flagged`; 9: `Pr::stale_approval`; 10: `Helper::yours`;
 /// 11: `SessionMode::expected`; 12: `Session::emblem` as an emoji or a picture; 13:
 /// `Session::raised`; 14: `Session::side_answer`; 15: `Session::agent_seen`; 16: `Session::running`;
-/// 17: `Session::labels`.
-pub const READS: u32 = 17;
+/// 17: `Session::labels`; 18: `Session::need`.
+pub const READS: u32 = 18;
 
 /// What this device knows of a linked device's board, kept up to date by its feeds, and kept on disk
 /// so a device that's asleep still shows as it was when last seen.
@@ -175,6 +175,8 @@ impl Replica {
         }
         let mut at: HashMap<String, usize> = self.lanes.iter().enumerate().map(|(i, l)| (l.id.clone(), i)).collect();
         for mut l in msg.lanes {
+            // A device from before `Session::need` sends none: this one reads it from the rest.
+            l.sessions.iter_mut().for_each(Session::settle_need);
             if let Some(keys) = msg.keys.get(&l.id) {
                 let had = at.get(&l.id).map(|&i| std::mem::take(&mut self.lanes[i].sessions)).unwrap_or_default();
                 let mut had: HashMap<String, Session> = had.into_iter().map(|s| (s.key.clone(), s)).collect();

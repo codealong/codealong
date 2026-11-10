@@ -260,7 +260,7 @@ pub fn listed_after_shells(listed_at: Option<i64>, t: &TranscriptInfo) -> bool {
 
 /// How a session's excerpt starts while it holds another session's message for you to allow
 /// (`claude::held`): the sender follows.
-pub const HELD_MESSAGE: &str = "Held message from ";
+pub use crate::model::HELD_MESSAGE;
 
 /// A session's excerpt while it waits on your answers to its questions: the first of them, as
 /// the windows know it (`lanes.ts` reads the start).
@@ -2111,7 +2111,7 @@ pub fn looks_finished(origin: Origin, pr: Option<&Pr>, sessions: &[Session]) -> 
 /// A session's own sentence. See *The model*, Headlines.
 pub fn session_headline(s: &Session) -> (String, Option<String>) {
     let acct = code(&s.account);
-    if s.stalled_since.is_some() {
+    if s.need() == Some(Need::Stuck) {
         return (format!("{acct} is stuck · {}", s.title), s.excerpt.clone());
     }
     let title = &s.title;
@@ -2119,16 +2119,12 @@ pub fn session_headline(s: &Session) -> (String, Option<String>) {
         // Every headline names the session: its title after what it's doing. A question, whether
         // its reply ends in one or it's held through the plugin (`claude::asked_label`), says so
         // up front and leaves the question itself below.
-        Status::Needs if s.asks || s.excerpt.as_deref().is_some_and(|e| e.starts_with("Asks you")) => {
-            (format!("{acct} asks you · {title}"), s.excerpt.as_deref().and_then(|e| e.strip_prefix("Asks you · ")).map(str::to_string))
-        }
-        Status::Needs if s.excerpt.as_deref().is_some_and(|e| e.starts_with(HELD_MESSAGE)) => {
-            (format!("{acct} holds a message for you · {title}"), s.excerpt.as_deref().and_then(|e| e.strip_prefix("Held message ")).map(str::to_string))
-        }
-        Status::Needs => match (&s.excerpt, s.harness) {
-            (Some(ex), Harness::Claude) => (format!("{acct} is waiting for approval · {title}"), Some(ex.clone())),
-            (Some(ex), Harness::Codex | Harness::Opencode | Harness::Antigravity | Harness::Cursor) => (format!("{acct} asks for approval · {title}"), Some(ex.clone())),
-            (None, _) => (format!("{acct} needs you · {title}"), None),
+        Status::Needs => match (s.need(), s.harness) {
+            (Some(Need::Reply | Need::Question), _) => (format!("{acct} asks you · {title}"), s.excerpt.as_deref().and_then(|e| e.strip_prefix("Asks you · ")).map(str::to_string)),
+            (Some(Need::Message), _) => (format!("{acct} holds a message for you · {title}"), s.excerpt.as_deref().and_then(|e| e.strip_prefix("Held message ")).map(str::to_string)),
+            (Some(Need::Approval), Harness::Claude) => (format!("{acct} is waiting for approval · {title}"), s.excerpt.clone()),
+            (Some(Need::Approval), Harness::Codex | Harness::Opencode | Harness::Antigravity | Harness::Cursor) => (format!("{acct} asks for approval · {title}"), s.excerpt.clone()),
+            (Some(Need::Stuck | Need::Other) | None, _) => (format!("{acct} needs you · {title}"), None),
         },
         Status::Error if s.limit.is_some() => (format!("{acct} hit its usage limit · {title}"), s.excerpt.clone()),
         Status::Error if s.cut_off.is_some() => (format!("{acct} was cut off · {title}"), s.excerpt.clone()),

@@ -832,7 +832,7 @@ pub(crate) fn sent_unsure(e: anyhow::Error) -> Result<Sent> {
 /// prompt (board.rs `claude_busy_since`). Either takes a message in its own terminal, so it
 /// takes one from Codealong too (asked 2026-10-18).
 pub(crate) fn waits_on_you(session: &Session) -> bool {
-    session.status == Status::Needs && !session.asks && session.stalled_since.is_none()
+    session.waits_at_a_prompt()
 }
 
 /// A session waiting on you is never typed into: what's typed would answer its prompt. One that

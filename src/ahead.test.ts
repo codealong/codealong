@@ -110,10 +110,12 @@ describe('lanesAhead', () => {
   });
 
   it('shows a session whose call was answered as working, until it waits on another', () => {
-    const lanes = [lane([session('a', 'needs', { excerpt: 'Bash: npm test', stalledSince: NOW - 5_000 })])];
+    const lanes = [lane([session('a', 'needs', { excerpt: 'Bash: npm test', stalledSince: NOW - 5_000, need: 'stuck' })])];
     const answer = change({ kind: 'answer', key: 'a', since: NOW - 60_000 });
     const [l] = lanesAhead(lanes, [answer]);
     expect([l.sessions[0].status, l.sessions[0].statusSince, l.sessions[0].stalledSince]).toEqual(['working', NOW, null]);
+    // What it waited on goes with the status that said so.
+    expect(l.sessions[0].need).toBeUndefined();
     expect([l.bay, l.headline, l.detail]).toEqual(['working', '`claude` · Task a', `{for:${NOW}} · Bash: npm test`]);
     // A call asked after the one answered is another, and a reply that asks something isn't a call.
     expect(lanesAhead([lane([session('a', 'needs', { statusSince: NOW + 2_000 })])], [answer])[0].sessions[0].status).toBe('needs');
