@@ -113,10 +113,14 @@ func transcriber(_ locale: Locale) -> SpeechTranscriber {
 final class Pipeline: @unchecked Sendable {
     let name: String
     private let lock = NSLock()
-    /// Audio heard before the model was ready, with when: at most `KEPT` seconds of it.
+    /// Audio heard before the model was ready, with when: at most `kept` seconds of it, which is
+    /// far more than a model takes to load. What's live can't be asked to wait, so past that the
+    /// oldest goes; a file can, and waits for the model instead (`whenReady`).
     private var waiting: [(buffer: AVAudioPCMBuffer, at: Double)] = []
     private var waitingSeconds = 0.0
     private static let kept = 120.0
+    /// Let go of once the model is ready, or the pipeline is finished without one.
+    private let gate = DispatchSemaphore(value: 0)
     private var analyzer: SpeechAnalyzer?
     private var format: AVAudioFormat?
     private var input: AsyncStream<AnalyzerInput>.Continuation?
@@ -187,6 +191,15 @@ final class Pipeline: @unchecked Sendable {
             give(buffer, heardAt: at)
         }
         waiting = []
+        gate.signal()
+    }
+
+    /// Waits until the model is ready to be given audio, or there'll be none to give it to. For a
+    /// source that can wait (a file), on a thread of its own.
+    func whenReady() {
+        gate.wait()
+        // Left open for whoever else waits.
+        gate.signal()
     }
 
     private var isFinished: Bool {
@@ -201,6 +214,7 @@ final class Pipeline: @unchecked Sendable {
         defer { lock.unlock() }
         let already = finished
         finished = true
+        if !already { gate.signal() }
         return already
     }
 
@@ -427,19 +441,27 @@ final class Mic: Capture {
     }
 }
 
-/// A sound file, read as fast as it can be or at the speed it plays: what the checks listen to,
-/// since they have no microphone.
+/// A sound file, read at the speed it plays or a good deal faster: a recording to hear, and
+/// what the checks listen to, since they have no microphone. Unlike what's live it can wait, so
+/// none of it is read until the model is ready (`ready` returns then), however long that takes:
+/// a download, the first time. And it isn't read faster than the model can take it for long, or
+/// an hour's recording would sit in memory waiting its turn.
 final class FileSource: Capture {
     private let path: String
     private let paced: Bool
+    private let ready: () -> Void
     private let sink: (AVAudioPCMBuffer) -> Void
     private let ended: () -> Void
     private var stopped = false
     private let lock = NSLock()
+    /// How long a tenth of a second of an unpaced file takes to hand over: twenty-five times
+    /// the speed it plays, about what the model keeps up with.
+    private static let unpaced = 0.004
 
-    init(path: String, paced: Bool, sink: @escaping (AVAudioPCMBuffer) -> Void, ended: @escaping () -> Void) {
+    init(path: String, paced: Bool, ready: @escaping () -> Void, sink: @escaping (AVAudioPCMBuffer) -> Void, ended: @escaping () -> Void) {
         self.path = path
         self.paced = paced
+        self.ready = ready
         self.sink = sink
         self.ended = ended
     }
@@ -454,11 +476,12 @@ final class FileSource: Capture {
         let format = file.processingFormat
         let chunk = AVAudioFrameCount(format.sampleRate / 10)
         Thread.detachNewThread { [self] in
+            ready()
             while !isStopped, let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: chunk) {
                 do { try file.read(into: buffer, frameCount: chunk) } catch { break }
                 if buffer.frameLength == 0 { break }
                 sink(buffer)
-                if paced { Thread.sleep(forTimeInterval: 0.1) }
+                Thread.sleep(forTimeInterval: paced ? 0.1 : FileSource.unpaced)
             }
             if !isStopped { ended() }
         }
@@ -817,7 +840,7 @@ actor Listening {
                     guard let path = source["path"] as? String else {
                         throw Refusal(code: "bad-request", message: "No file to listen to.")
                     }
-                    capture = FileSource(path: path, paced: source["paced"] as? Bool ?? false, sink: sink) { [weak self] in
+                    capture = FileSource(path: path, paced: source["paced"] as? Bool ?? false, ready: { pipeline.whenReady() }, sink: sink) { [weak self] in
                         Task { await self?.ended(pipeline) }
                     }
                 case let kind:

@@ -33,7 +33,7 @@
 //! Only this Mac's sessions listen, and nothing of a listening goes to your other devices: the
 //! board's list of them (`Board::listenings`) is this Mac's own.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, OnceLock};
@@ -288,10 +288,14 @@ pub enum Step {
 }
 
 /// What to do about `l` at `now`, its session being `hearer` (None when the board has it no
-/// more) and `every_ms` the least time between two tellings.
-pub fn step(l: &Listening, hearer: Option<Hearer>, now: i64, every_ms: i64) -> Step {
+/// more), `every_ms` the least time between two tellings, and `on` whether voice is turned on:
+/// turned off, nothing goes on hearing, whoever started it and whenever.
+pub fn step(l: &Listening, hearer: Option<Hearer>, now: i64, every_ms: i64, on: bool) -> Step {
     if l.done {
         return Step::Wait;
+    }
+    if l.hearing() && !on {
+        return Step::End("voice was turned off".into());
     }
     let Some(hearer) = hearer else { return Step::Drop };
     if l.hearing() {
@@ -482,6 +486,11 @@ struct State {
     running: HashMap<String, Running>,
     /// When each listening's notes were last written, as last looked at, for those not done.
     notes: HashMap<String, Option<SystemTime>>,
+    /// The listenings whose hearing was ended here. A look that read the file before one was
+    /// ended still has it as hearing, and must not start its helper again (`plan`): a helper
+    /// started for a listening nothing lists any more would go on hearing with nothing to show
+    /// it or stop it.
+    ended: HashSet<String>,
 }
 
 fn state() -> MutexGuard<'static, State> {
@@ -735,9 +744,6 @@ pub fn start(engine: &Handle, key: &str, ask: &Ask) -> Result<Listening> {
     if send::waits_on_you(session) {
         bail!("{} waits on you to answer something. Answer it first, then have it listen.", send::quoted(&session.title));
     }
-    if list().iter().any(|l| l.session == key && l.hearing()) {
-        bail!("{} is listening already.", send::quoted(&session.title));
-    }
     let now = util::now_ms();
     let l = Listening {
         id: new_id(now),
@@ -759,39 +765,71 @@ pub fn start(engine: &Handle, key: &str, ask: &Ask) -> Result<Listening> {
     // has and it doesn't know (`revive`). What its session last said was said before this, and
     // is no cue.
     state().running.insert(l.id.clone(), Running { reply: Some(session.reply_tail.clone()), ..Running::of(&l, now) });
-    let begun = change(|all| {
-        all.retain(|old| old.hearing() || !old.done || now - old.ended_at.unwrap_or(now) < KEPT_MS);
-        all.push(l.clone());
-    })
-    .and_then(|()| start_ear(&l).map_err(refusal))
-    .and_then(|ear| {
-        if let Some(running) = state().running.get_mut(&l.id) {
-            running.ear = Some(ear);
+    let begun = change(|all| reserve(all, &l, now))
+        .and_then(|free| match free {
+            true => Ok(()),
+            false => Err(anyhow!("{} is listening already.", send::quoted(&session.title))),
+        })
+        .and_then(|()| start_ear(&l).map_err(refusal))
+        .and_then(|ear| {
+            if let Some(running) = state().running.get_mut(&l.id) {
+                running.ear = Some(ear);
+            }
+            // Its session is told while it works too: the harness holds it for the turn's end.
+            tell(engine, &board, &l, &brief(&l))
+        });
+    let moved = match begun {
+        Ok(moved) => moved,
+        Err(e) => {
+            let ear = state().running.remove(&l.id).and_then(|r| r.ear);
+            drop(ear);
+            let _ = change(|all| all.retain(|old| old.id != l.id));
+            let _ = std::fs::remove_dir_all(folder(&l.id));
+            return Err(e);
         }
-        // Its session is told while it works too: the harness holds it for the turn's end.
-        tell(engine, &board, &l, &brief(&l))
-    });
-    if let Err(e) = begun {
-        let ear = state().running.remove(&l.id).and_then(|r| r.ear);
-        drop(ear);
-        let _ = change(|all| all.retain(|old| old.id != l.id));
-        let _ = std::fs::remove_dir_all(folder(&l.id));
-        return Err(e);
-    }
+    };
+    let l = match moved {
+        Some(key) => goes_on_as(&l.id, &key).unwrap_or(l),
+        None => l,
+    };
     changed();
     Ok(l)
 }
 
+/// Files a new listening, unless its session is hearing already: looked for and filed in one
+/// change of the file, so two asked for at once don't both start. An old one that's done with is
+/// dropped as it goes in.
+fn reserve(all: &mut Vec<Listening>, l: &Listening, now: i64) -> bool {
+    if all.iter().any(|old| old.session == l.session && old.hearing()) {
+        return false;
+    }
+    all.retain(|old| old.hearing() || !old.done || now - old.ended_at.unwrap_or(now) < KEPT_MS);
+    all.push(l.clone());
+    true
+}
+
+/// A listening's session goes on under another key: one that had stopped was resumed as a copy
+/// (`send::tell_waking`). What's heard from here on is told to the copy, and the board lists the
+/// listening under it.
+fn goes_on_as(id: &str, key: &str) -> Option<Listening> {
+    if let Some(running) = state().running.get_mut(id) {
+        running.session = key.to_string();
+    }
+    let now = update(id, |l| l.session = key.to_string());
+    changed();
+    now
+}
+
 /// Tells a listening's session something, resuming one that had stopped where it can go on out
-/// of sight.
-fn tell(engine: &Handle, board: &Board, l: &Listening, text: &str) -> Result<()> {
+/// of sight. Says the key it goes on under, when resuming it made a copy with another.
+fn tell(engine: &Handle, board: &Board, l: &Listening, text: &str) -> Result<Option<String>> {
     let live = board.session(&l.session).is_some_and(|(_, s)| s.live);
     if live {
         send::tell(engine, &l.session, text)?;
-        return Ok(());
+        return Ok(None);
     }
     match send::tell_waking(engine, &l.session, text)? {
-        Some(_) => Ok(()),
+        Some(resumed) => Ok(resumed.key.filter(|key| key != &l.session)),
         None => bail!("Its session has stopped, and can't be resumed without you."),
     }
 }
@@ -799,7 +837,13 @@ fn tell(engine: &Handle, board: &Board, l: &Listening, text: &str) -> Result<()>
 /// Stops the hearing of listening `id`, its last words written first. Its session is told on
 /// the next look (`step`). `why` when it wasn't the person who ended it.
 fn end(id: &str, why: Option<String>) -> Option<Listening> {
-    let running = state().running.remove(id);
+    // Marked ended in the same breath as its helper is taken, under the lock a look plans its
+    // helpers under: from here on none is started for it (`plan`).
+    let running = {
+        let mut state = state();
+        state.ended.insert(id.to_string());
+        state.running.remove(id)
+    };
     // Outside the lock: the helper's last words come through `heard`, which takes it.
     if let Some(ear) = running.and_then(|r| r.ear) {
         ear.stop();
@@ -836,15 +880,16 @@ fn look(engine: &Handle) {
     }
     let now = util::now_ms();
     let every_ms = i64::from(cfg.voice.tell_every.max(crate::config::TELL_EVERY_MIN)) * 1000;
+    let on = cfg.experimental.voice;
     for l in all.iter().filter(|l| !l.done) {
-        if l.hearing() {
+        if l.hearing() && on {
             revive(l, now);
             if let Some((_, session)) = board.session(&l.session) {
                 cue(l, session, now);
             }
         }
         written(l);
-        match step(l, hearer(&board, &l.session), now, every_ms) {
+        match step(l, hearer(&board, &l.session), now, every_ms, on) {
             Step::Wait => {}
             Step::Drop => {
                 end(&l.id, Some("its session is gone".into()));
@@ -864,7 +909,7 @@ fn look(engine: &Handle) {
                 let after = update(&l.id, |l| {
                     l.told_at = util::now_ms();
                     match went {
-                        Ok(()) => {
+                        Ok(_) => {
                             l.told = l.told.max(to);
                             l.failures = 0;
                             l.done = last;
@@ -879,11 +924,14 @@ fn look(engine: &Handle) {
                 if let Some(after) = after.filter(|_| went.is_ok()) {
                     crate::views::emit(HEARING, &Hearing { session: after.session, told: Some(after.told), ..Hearing::default() });
                 }
+                if let Ok(Some(key)) = &went {
+                    goes_on_as(&l.id, key);
+                }
                 if !last {
                     say(&l.id, |r| match &went {
                         Err(e) if l.failures >= 2 => r.problem = Some(format!("Its session isn't taking what's heard ({e:#}). The transcript goes on.")),
                         Err(_) => {}
-                        Ok(()) => {
+                        Ok(_) => {
                             if r.problem.as_deref().is_some_and(|p| p.starts_with("Its session isn't taking")) {
                                 r.problem = None;
                             }
@@ -893,7 +941,10 @@ fn look(engine: &Handle) {
             }
         }
     }
-    state().notes.retain(|id, _| all.iter().any(|l| &l.id == id && !l.done));
+    let mut state = state();
+    state.notes.retain(|id, _| all.iter().any(|l| &l.id == id && !l.done));
+    // Once the file says it ended, no look takes it for hearing any more.
+    state.ended.retain(|id| all.iter().any(|l| &l.id == id && l.hearing()));
 }
 
 /// Notes what a listening's session said since the last look, once its turn is over: a reply
@@ -926,34 +977,46 @@ fn written(l: &Listening) {
     }
 }
 
+/// What a look does about a hearing listening's helper.
+#[derive(Debug, PartialEq, Eq)]
+enum Do {
+    Nothing,
+    /// Say the Mac's own audio has given nothing at all for a while.
+    Silent,
+    /// Start its helper: it has none, and it's time.
+    Start,
+    /// Its helper keeps dying: end the listening.
+    GiveUp,
+}
+
+/// What to do about the helper of `l`, which the look that asks read from the file as hearing. One
+/// that was ended here since is left alone, whatever that look read: this is the lock `end`
+/// marks it under.
+fn plan(state: &mut State, l: &Listening, now: i64) -> Do {
+    if state.ended.contains(&l.id) {
+        return Do::Nothing;
+    }
+    let running = state.running.entry(l.id.clone()).or_insert_with(|| Running { again_at: Some(now), ..Running::of(l, now) });
+    if running.silent_since.is_some_and(|since| now - since >= SILENT_MS) && running.problem.is_none() {
+        running.problem = Some(SILENT.into());
+        return Do::Silent;
+    }
+    if running.ear.is_some() || running.again_at.is_none_or(|at| now < at) {
+        return Do::Nothing;
+    }
+    running.restarts.retain(|at| now - at < RESTART_WINDOW_MS);
+    if running.restarts.len() >= RESTARTS {
+        return Do::GiveUp;
+    }
+    running.restarts.push(now);
+    running.again_at = None;
+    Do::Start
+}
+
 /// Keeps a hearing listening's helper going: one taken up from the last server, one that died,
 /// and says so when the Mac's own audio has given nothing at all for a while.
 fn revive(l: &Listening, now: i64) {
-    enum Do {
-        Nothing,
-        Silent,
-        Start,
-        GiveUp,
-    }
-    let what = {
-        let mut state = state();
-        let running = state.running.entry(l.id.clone()).or_insert_with(|| Running { again_at: Some(now), ..Running::of(l, now) });
-        if running.silent_since.is_some_and(|since| now - since >= SILENT_MS) && running.problem.is_none() {
-            running.problem = Some(SILENT.into());
-            Do::Silent
-        } else if running.ear.is_some() || running.again_at.is_none_or(|at| now < at) {
-            Do::Nothing
-        } else {
-            running.restarts.retain(|at| now - at < RESTART_WINDOW_MS);
-            if running.restarts.len() >= RESTARTS {
-                Do::GiveUp
-            } else {
-                running.restarts.push(now);
-                running.again_at = None;
-                Do::Start
-            }
-        }
-    };
+    let what = plan(&mut state(), l, now);
     match what {
         Do::Nothing => {}
         Do::Silent => changed(),
@@ -1041,54 +1104,109 @@ mod tests {
     #[test]
     fn a_session_is_told_of_new_lines_at_a_pause_and_not_more_often_than_asked() {
         let l = Listening { lines: 4, told: 1, heard_at: NOW - 2000, ..hearing() };
-        assert_eq!(step(&l, IDLE, NOW, EVERY), Step::Tell { from: 2, to: 4, last: false });
+        assert_eq!(step(&l, IDLE, NOW, EVERY, true), Step::Tell { from: 2, to: 4, last: false });
         // Nothing new, nothing to tell.
-        assert_eq!(step(&Listening { told: 4, ..l.clone() }, IDLE, NOW, EVERY), Step::Wait);
+        assert_eq!(step(&Listening { told: 4, ..l.clone() }, IDLE, NOW, EVERY, true), Step::Wait);
         // Told a moment ago: not yet.
-        assert_eq!(step(&Listening { told_at: NOW - 5000, ..l.clone() }, IDLE, NOW, EVERY), Step::Wait);
+        assert_eq!(step(&Listening { told_at: NOW - 5000, ..l.clone() }, IDLE, NOW, EVERY, true), Step::Wait);
         // Mid-sentence: not yet, until it's been twice as long as asked.
         let talking = Listening { heard_at: NOW - 200, told_at: NOW - 25_000, ..l.clone() };
-        assert_eq!(step(&talking, IDLE, NOW, EVERY), Step::Wait);
-        assert_eq!(step(&Listening { told_at: NOW - 41_000, ..talking }, IDLE, NOW, EVERY), Step::Tell { from: 2, to: 4, last: false });
+        assert_eq!(step(&talking, IDLE, NOW, EVERY, true), Step::Wait);
+        assert_eq!(step(&Listening { told_at: NOW - 41_000, ..talking }, IDLE, NOW, EVERY, true), Step::Tell { from: 2, to: 4, last: false });
     }
 
     #[test]
     fn a_session_in_its_turn_is_told_everything_at_once_when_the_turn_is_over() {
         let l = Listening { lines: 9, told: 3, heard_at: NOW - 2000, ..hearing() };
-        assert_eq!(step(&l, BUSY, NOW, EVERY), Step::Wait);
-        assert_eq!(step(&l, IDLE, NOW, EVERY), Step::Tell { from: 4, to: 9, last: false });
+        assert_eq!(step(&l, BUSY, NOW, EVERY, true), Step::Wait);
+        assert_eq!(step(&l, IDLE, NOW, EVERY, true), Step::Tell { from: 4, to: 9, last: false });
     }
 
     #[test]
     fn the_last_telling_comes_once_hearing_has_ended_whether_or_not_anything_is_new() {
         let ended = Listening { ended_at: Some(NOW - 100), lines: 5, told: 5, told_at: NOW - 100, ..hearing() };
-        assert_eq!(step(&ended, IDLE, NOW, EVERY), Step::Tell { from: 6, to: 5, last: true });
-        assert_eq!(step(&Listening { lines: 7, ..ended.clone() }, IDLE, NOW, EVERY), Step::Tell { from: 6, to: 7, last: true });
-        assert_eq!(step(&ended, BUSY, NOW, EVERY), Step::Wait);
-        assert_eq!(step(&Listening { done: true, ..ended }, IDLE, NOW, EVERY), Step::Wait);
+        assert_eq!(step(&ended, IDLE, NOW, EVERY, true), Step::Tell { from: 6, to: 5, last: true });
+        assert_eq!(step(&Listening { lines: 7, ..ended.clone() }, IDLE, NOW, EVERY, true), Step::Tell { from: 6, to: 7, last: true });
+        assert_eq!(step(&ended, BUSY, NOW, EVERY, true), Step::Wait);
+        assert_eq!(step(&Listening { done: true, ..ended }, IDLE, NOW, EVERY, true), Step::Wait);
     }
 
     #[test]
     fn a_telling_that_failed_is_tried_again_later_and_later() {
         let l = Listening { lines: 4, told: 1, heard_at: NOW - 5000, failures: 2, ..hearing() };
-        assert_eq!(step(&Listening { told_at: NOW - 50_000, ..l.clone() }, IDLE, NOW, EVERY), Step::Wait);
-        assert_eq!(step(&Listening { told_at: NOW - 61_000, ..l.clone() }, IDLE, NOW, EVERY), Step::Tell { from: 2, to: 4, last: false });
+        assert_eq!(step(&Listening { told_at: NOW - 50_000, ..l.clone() }, IDLE, NOW, EVERY, true), Step::Wait);
+        assert_eq!(step(&Listening { told_at: NOW - 61_000, ..l.clone() }, IDLE, NOW, EVERY, true), Step::Tell { from: 2, to: 4, last: false });
         let ended = Listening { ended_at: Some(NOW), ..l };
-        assert_eq!(step(&Listening { told_at: NOW - 50_000, ..ended.clone() }, IDLE, NOW, EVERY), Step::Wait);
-        assert_eq!(step(&Listening { told_at: NOW - 61_000, ..ended }, IDLE, NOW, EVERY), Step::Tell { from: 2, to: 4, last: true });
+        assert_eq!(step(&Listening { told_at: NOW - 50_000, ..ended.clone() }, IDLE, NOW, EVERY, true), Step::Wait);
+        assert_eq!(step(&Listening { told_at: NOW - 61_000, ..ended }, IDLE, NOW, EVERY, true), Step::Tell { from: 2, to: 4, last: true });
     }
 
     #[test]
     fn a_listening_ends_by_itself_when_its_session_is_gone_or_nothing_is_said_or_its_gone_on_all_day() {
-        assert_eq!(step(&hearing(), None, NOW, EVERY), Step::Drop);
+        assert_eq!(step(&hearing(), None, NOW, EVERY, true), Step::Drop);
         let quiet = Listening { started_at: NOW - QUIET_ENDS_MS - 60_000, heard_at: NOW - QUIET_ENDS_MS, ..hearing() };
-        assert_eq!(step(&quiet, IDLE, NOW, EVERY), Step::End("nothing had been said for half an hour".into()));
+        assert_eq!(step(&quiet, IDLE, NOW, EVERY, true), Step::End("nothing had been said for half an hour".into()));
         // Even while its session works: it's the hearing that ends.
-        assert_eq!(step(&quiet, BUSY, NOW, EVERY), Step::End("nothing had been said for half an hour".into()));
+        assert_eq!(step(&quiet, BUSY, NOW, EVERY, true), Step::End("nothing had been said for half an hour".into()));
         let long = Listening { started_at: NOW - LONGEST_MS, heard_at: NOW - 1000, ..hearing() };
-        assert_eq!(step(&long, IDLE, NOW, EVERY), Step::End("it had gone on for eight hours".into()));
+        assert_eq!(step(&long, IDLE, NOW, EVERY, true), Step::End("it had gone on for eight hours".into()));
         // One that's ended isn't ended again.
-        assert_eq!(step(&Listening { ended_at: Some(NOW), done: true, ..quiet }, IDLE, NOW, EVERY), Step::Wait);
+        assert_eq!(step(&Listening { ended_at: Some(NOW), done: true, ..quiet }, IDLE, NOW, EVERY, true), Step::Wait);
+    }
+
+    #[test]
+    fn voice_turned_off_ends_what_was_hearing_and_still_says_so_to_its_session() {
+        let l = Listening { lines: 4, told: 1, heard_at: NOW - 2000, ..hearing() };
+        assert_eq!(step(&l, IDLE, NOW, EVERY, false), Step::End("voice was turned off".into()));
+        assert_eq!(step(&l, BUSY, NOW, EVERY, false), Step::End("voice was turned off".into()));
+        assert_eq!(step(&l, None, NOW, EVERY, false), Step::End("voice was turned off".into()));
+        // Ended, its session is told the last of it as after any ending.
+        let ended = Listening { ended_at: Some(NOW), why_ended: Some("voice was turned off".into()), ..l };
+        assert_eq!(step(&ended, IDLE, NOW, EVERY, false), Step::Tell { from: 2, to: 4, last: true });
+    }
+
+    #[test]
+    fn a_listening_ended_here_gets_no_helper_from_a_look_that_read_it_as_hearing() {
+        let l = Listening { sources: Ask { mic: true, ..Ask::default() }.sources().unwrap(), ..hearing() };
+        // Taken up from the last server: it has no helper, and gets one.
+        let mut state = State::default();
+        assert_eq!(plan(&mut state, &l, NOW), Do::Start);
+        assert!(state.running.contains_key(&l.id));
+        // Its helper is being started: not a second.
+        assert_eq!(plan(&mut state, &l, NOW + 500), Do::Nothing);
+        // Ended, as `end` marks it, while a look still holds it as hearing: nothing is started,
+        // and nothing is left that would show a helper as running.
+        let mut state = State::default();
+        state.ended.insert(l.id.clone());
+        assert_eq!(plan(&mut state, &l, NOW), Do::Nothing);
+        assert!(state.running.is_empty());
+        // A helper that keeps dying is given up on.
+        let mut state = State::default();
+        state.running.insert(l.id.clone(), Running { again_at: Some(NOW), restarts: vec![NOW - 4000, NOW - 3000, NOW - 2000, NOW - 1000, NOW - 500], ..Running::of(&l, NOW) });
+        assert_eq!(plan(&mut state, &l, NOW), Do::GiveUp);
+        // The Mac's own audio giving nothing at all for a while is said, once.
+        let them = Listening { sources: Ask { system: true, ..Ask::default() }.sources().unwrap(), ..hearing() };
+        let mut state = State::default();
+        state.running.insert(them.id.clone(), Running { silent_since: Some(NOW - SILENT_MS), ..Running::default() });
+        assert_eq!(plan(&mut state, &them, NOW), Do::Silent);
+        assert_eq!(plan(&mut state, &them, NOW + 500), Do::Nothing);
+    }
+
+    #[test]
+    fn a_session_listens_once_at_a_time() {
+        let l = hearing();
+        let mut all = Vec::new();
+        assert!(reserve(&mut all, &l, NOW));
+        // Asked again while it hears, whichever asked first: not a second.
+        assert!(!reserve(&mut all, &Listening { id: "b".into(), ..hearing() }, NOW));
+        assert_eq!(all.len(), 1);
+        // Another session's is its own.
+        assert!(reserve(&mut all, &Listening { id: "c".into(), session: "other".into(), ..hearing() }, NOW));
+        // Once it's ended it can listen again, and one long done with is dropped as the next goes in.
+        all[0].ended_at = Some(NOW - KEPT_MS - 1);
+        all[0].done = true;
+        assert!(reserve(&mut all, &Listening { id: "d".into(), ..hearing() }, NOW));
+        assert_eq!(all.iter().map(|l| l.id.as_str()).collect::<Vec<_>>(), ["c", "d"]);
     }
 
     #[test]

@@ -2170,7 +2170,8 @@ pub fn check(cfg: &Config) -> std::result::Result<(), String> {
     if crate::launch::terminal_app(&cfg.apps.terminal).is_none() {
         return Err(format!("[apps] terminal is {:?}; use {}.", cfg.apps.terminal, crate::launch::profile_names()));
     }
-    let shortcuts = &cfg.shortcuts;
+    // The ones in use: an experiment's that's off take no keys, so they clash with nothing.
+    let shortcuts = &cfg.shortcuts_in_use();
     let mut taken: Vec<(&str, tauri_plugin_global_shortcut::Shortcut)> = Vec::new();
     for (key, text) in [("quick_panel", &shortcuts.quick_panel), ("chat", &shortcuts.chat), ("waiting", &shortcuts.waiting), ("improve", &shortcuts.improve), ("main_window", &shortcuts.main_window), ("talk", &shortcuts.talk), ("talk_orchestrator", &shortcuts.talk_orchestrator)] {
         let Some(shortcut) = crate::quick::parse_shortcut(text).map_err(|e| format!("[shortcuts] {key}: {e}"))? else { continue };
@@ -3558,6 +3559,11 @@ mod tests {
         assert!(out.find("\n[voice]\n").unwrap() < out.find("[[accounts]]").unwrap(), "{out}");
         assert_eq!(parse(&out).unwrap(), set);
         assert_eq!(parse(&render(&set)).unwrap(), set);
+        // The keys held to talk take nothing while voice is off: another shortcut can have them.
+        let talk = default_shortcuts().talk;
+        let taken = |voice: bool| Config { shortcuts: ShortcutsCfg { quick_panel: talk.into(), ..ShortcutsCfg::default() }, experimental: ExperimentalCfg { voice, ..Default::default() }, ..full() };
+        assert_eq!(check(&taken(false)), Ok(()));
+        assert_eq!(check(&taken(true)).unwrap_err(), "[shortcuts] talk is the same keys as quick_panel; one press can only do one of them.");
         // A session told more often than its turns take only queues what it's told.
         let err = check(&Config { voice: VoiceCfg { tell_every: 1, ..VoiceCfg::default() }, ..full() }).unwrap_err();
         assert_eq!(err, "[voice] tell_every is 1; it's in seconds, 5 at the least.");

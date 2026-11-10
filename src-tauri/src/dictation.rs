@@ -217,7 +217,7 @@ fn begin(app: &AppHandle, id: u64, to: To) {
             return;
         }
     };
-    let finish_now = {
+    let released = {
         let mut live = live();
         match live.as_mut().filter(|l| l.id == id) {
             Some(l) => {
@@ -228,14 +228,28 @@ fn begin(app: &AppHandle, id: u64, to: To) {
             None => return,
         }
     };
-    if finish_now {
-        finish(app, id);
+    if released {
+        finish_in_turn(app, take(id));
         return;
     }
-    // A key that never comes up is let go of for it.
-    std::thread::sleep(LONGEST);
-    if live().as_ref().is_some_and(|l| l.id == id) {
-        finish(app, id);
+    // A key that never comes up is let go of for it. This thread goes as soon as the key does.
+    let until = Instant::now() + LONGEST;
+    while live().as_ref().is_some_and(|l| l.id == id) {
+        if Instant::now() >= until {
+            finish_in_turn(app, take(id));
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(250));
+    }
+}
+
+/// Takes press `id` out of `LIVE`, if it's still the one there: it's over, and the next can begin.
+fn take(id: u64) -> Option<Live> {
+    let mut live = live();
+    if live.as_ref().is_some_and(|l| l.id == id) {
+        live.take()
+    } else {
+        None
     }
 }
 
@@ -248,7 +262,7 @@ fn hints(cfg: &crate::config::Config) -> Vec<String> {
 
 /// The key came up. On the main thread.
 pub fn release(app: &AppHandle) {
-    let id = {
+    let over = {
         let mut live = live();
         let Some(l) = live.as_mut() else { return };
         l.shift = crate::os::windows::shift_down();
@@ -257,25 +271,42 @@ pub fn release(app: &AppHandle) {
             l.released = true;
             return;
         }
-        l.id
+        live.take()
     };
-    let app = app.clone();
-    std::thread::spawn(move || finish(&app, id));
+    finish_in_turn(app, over);
 }
 
-/// Ends press `id`: the last words settle, and what was said goes where it's for. Off the main
-/// thread: the helper takes a moment.
-fn finish(app: &AppHandle, id: u64) {
-    let Some(l) = ({
-        let mut live = live();
-        if live.as_ref().is_some_and(|l| l.id == id) {
-            live.take()
-        } else {
-            None
+/// Finishes a press that's over after the ones before it, on the one thread that finishes them.
+/// A press is out of `LIVE` as soon as its key comes up, so the next can begin at once; its words
+/// take a moment more to settle, and two said one after the other go where they're for in the
+/// order they were said, since they're handed over here in the order their keys came up.
+fn finish_in_turn(app: &AppHandle, over: Option<Live>) {
+    static TURNS: std::sync::OnceLock<Mutex<std::sync::mpsc::Sender<(AppHandle, Live)>>> = std::sync::OnceLock::new();
+    let Some(over) = over else { return };
+    let turns = TURNS.get_or_init(|| {
+        let (tx, rx) = std::sync::mpsc::channel::<(AppHandle, Live)>();
+        let started = std::thread::Builder::new().name("codealong-dictation".into()).spawn(move || {
+            for (app, over) in rx {
+                if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| finish(&app, over))).is_err() {
+                    eprintln!("Voice: finishing what was said panicked");
+                }
+            }
+        });
+        if let Err(e) = started {
+            eprintln!("Voice: the thread that finishes what's said didn't start: {e}");
         }
-    }) else {
-        return;
-    };
+        Mutex::new(tx)
+    });
+    // Only a thread that didn't start leaves nobody to take it; then it's finished here.
+    if let Err(unsent) = lock(turns).send((app.clone(), over)) {
+        finish(app, unsent.0 .1);
+    }
+}
+
+/// Ends a press that's over: its last words settle, and what was said goes where it's for. Off
+/// the main thread, the helper taking a moment, and one press at a time (`finish_in_turn`).
+fn finish(app: &AppHandle, l: Live) {
+    let id = l.id;
     let to = word(l.to);
     show(app, &Talk { id, phase: "settling", to, text: lock(&l.heard).text(), ..Talk::default() });
     if let Some(ear) = l.ear {

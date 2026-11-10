@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { onTalk } from '../api';
 import { clock } from '../listening';
-import { saidNow, saidUntil, talkSays, type Said } from '../said';
+import { latestTalk, saidNow, saidUntil, talkSays, type Said } from '../said';
 import type { BarListening, Talk } from '../types';
 import { cx, Icon } from './primitives';
 
@@ -21,10 +21,13 @@ export function useSaid(listenings: readonly BarListening[] | undefined): { said
   const [, setTick] = useState(0);
   useEffect(
     () =>
-      onTalk((t) => {
-        talkedAt.current = Date.now();
-        setTalk(t);
-      }),
+      onTalk((t) =>
+        setTalk((shown) => {
+          const next = latestTalk(shown, t);
+          if (next === t) talkedAt.current = Date.now();
+          return next;
+        }),
+      ),
     [],
   );
   const said = saidNow(talk, talkedAt.current, listenings ?? NONE, dismissed, Date.now());

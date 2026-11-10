@@ -3291,7 +3291,7 @@ up first.
 
 A listening ends when you stop it (the strip's Stop, *Stop listening* in the session's menu, or
 `codealong listen stop`), when its session is gone, when nothing has been said for half an hour,
-or after eight hours. Codealong's server runs them, so one goes on with the app closed or
+after eight hours, or when voice is turned off, which ends every one and starts none again. Codealong's server runs them, so one goes on with the app closed or
 relaunched; a server that restarts takes it up again, and the transcript has a line where some of
 what was said is missing, as it does where the helper stopped and was started again. Transcripts
 and notes stay in `listenings/` beside config.toml until you remove them.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CUE_SHOWS, lingers, saidNow, saidUntil, talkSays } from './said';
+import { CUE_SHOWS, latestTalk, lingers, saidNow, saidUntil, talkSays } from './said';
 import type { BarListening, Talk } from './types';
 
 const talk = (over: Partial<Talk> = {}): Talk => ({ id: 1, phase: 'listening', to: 'looking', text: '', level: 0, ...over });
@@ -40,6 +40,16 @@ describe('what the bar shows of voice', () => {
     const cue = listening({ cue: 'Ask when they renew.', cueAt: NOW - 3000 });
     expect(saidNow(talk(), NOW, [cue], 0, NOW)?.kind).toBe('talk');
     expect(saidNow(talk({ phase: 'sent' }), NOW - 3000, [cue], 0, NOW)?.kind).toBe('cue');
+  });
+
+  it('keeps showing the press under way when an earlier one settles', () => {
+    const second = talk({ id: 2, text: 'And then' });
+    expect(latestTalk(null, second)).toBe(second);
+    expect(latestTalk(second, talk({ id: 1, phase: 'typed', text: 'First.' }))).toBe(second);
+    const more = talk({ id: 2, text: 'And then the tests' });
+    expect(latestTalk(second, more)).toBe(more);
+    const third = talk({ id: 3 });
+    expect(latestTalk(second, third)).toBe(third);
   });
 
   it('knows when what shows runs out', () => {

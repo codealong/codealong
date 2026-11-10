@@ -27,6 +27,13 @@ export function lingers(phase: Talk['phase']): number | null {
   }
 }
 
+/** The key held to talk to show, when the engine says something of one: the one it's about,
+ *  unless a later press is showing already. An earlier press's words settle after the next has
+ *  begun, and what they came to isn't news over what's being said now. */
+export function latestTalk(shown: Talk | null, told: Talk): Talk {
+  return shown && told.id < shown.id ? shown : told;
+}
+
 /** How long a cue stays up: three short lines, read at a glance from a meeting. */
 export const CUE_SHOWS = 12_000;
 
