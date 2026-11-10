@@ -855,11 +855,7 @@ calls! {
     /// What this Mac can hear with (ear.rs `status`), and the apps that record or play now, for
     /// the window that sets a listening up. Nothing here asks the person for anything.
     fn hearing(c) -> Result<Value, String> {
-        let cfg = config::current().map_err(words)?;
-        crate::listen::turned_on(&cfg).map_err(words)?;
-        let status = crate::ear::status(&cfg.voice.locale);
-        let apps = if status.available { crate::ear::apps().unwrap_or_default() } else { Vec::new() };
-        Ok(serde_json::json!({ "status": status, "apps": apps }))
+        actions::run(&c.engine, &c.peers, actions::HEARING, "", Value::Null)
     }
 
     /// The session to talk to as your orchestrator (board.rs `orchestrator`): its key and title,

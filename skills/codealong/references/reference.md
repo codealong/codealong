@@ -5167,10 +5167,10 @@ Commands:
           many its session has been told of, and where the transcript and the session's
           notes are
   start   Has a session hear a recording: a sound file (anything macOS plays: m4a, mp3,
-          wav, aiff), transcribed on this Mac as fast as it can be, its words filed as
-          Them's. The session is told what's going on and then which lines are new, as
-          it would be of a meeting as it's said, and that it's over when the recording
-          runs out
+          wav, aiff), transcribed on this Mac as fast as it can be, or with --at-speed
+          at the speed it plays, its words filed as Them's. The session is told what's
+          going on and then what was heard, as it would be of a meeting as it's said,
+          and that it's over when the recording runs out
   stop    Ends a session's listening. Its session is told the last lines and that it's
           over
   status  What this Mac can hear with: whether it can transcribe speech and in which
@@ -5220,9 +5220,10 @@ Options:
 
 ```
 Has a session hear a recording: a sound file (anything macOS plays: m4a, mp3, wav,
-aiff), transcribed on this Mac as fast as it can be, its words filed as Them's. The
-session is told what's going on and then which lines are new, as it would be of a
-meeting as it's said, and that it's over when the recording runs out
+aiff), transcribed on this Mac as fast as it can be, or with --at-speed at the speed it
+plays, its words filed as Them's. The session is told what's going on and then what was
+heard, as it would be of a meeting as it's said, and that it's over when the recording
+runs out
 
 Usage: codealong listen start [OPTIONS] --file <PATH> <SESSION>
 
@@ -5237,6 +5238,14 @@ Options:
       --json
           JSON output. The default when stdout isn't a terminal
 
+      --at-speed
+          Hear it at the speed it plays, as a meeting is heard, the session told as it
+          goes: for trying a coach on a meeting you recorded. Without it the recording
+          is read as fast as it can be, and the session is told once it's all in
+
+      --table
+          Tables, even when piped
+
       --as <ROLE>
           What the session makes of it: notes it keeps in a file, a few lines of
           coaching each time it's told what was heard, or a todo for each thing asked
@@ -5250,15 +5259,12 @@ Options:
           
           [default: notes]
 
-      --table
-          Tables, even when piped
+      --verbose
+          Say on stderr whether the app or the files answered
 
       --start-sessions
           With `--as requests`: a session is started on each todo as it's filed, in a
           worktree of its own, as the listening session's helper
-
-      --verbose
-          Say on stderr whether the app or the files answered
 
       --prompt <PROMPT>
           Something to add to what the session is asked to do, or with `--as custom` all

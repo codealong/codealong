@@ -3298,7 +3298,9 @@ and notes stay in `listenings/` beside config.toml until you remove them.
 
 Starting one through the microphone or the Mac's audio is yours to do, in Codealong's windows:
 an agent's `codealong listen` can list them, end one, say what this Mac can hear with (`status`),
-and have a session hear a recording (`start --file`), which is transcribed as fast as it can be.
+and have a session hear a recording (`start --file`), which is transcribed as fast as it can be,
+or with `--at-speed` at the speed it plays, the session told as it goes: a way to try a coach on a
+meeting you recorded.
 
 Not yet checked by hand: the microphone and the Mac's audio themselves, which wait on macOS's
 prompts (a recording has been heard end to end through the same helper); what a listening does

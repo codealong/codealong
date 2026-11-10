@@ -1477,13 +1477,16 @@ enum ScheduleEventArg {
 enum ListenCmd {
     /// The listenings, the latest first: the session each is for, whether it's still hearing or when and why it ended, how many lines its transcript has and how many its session has been told of, and where the transcript and the session's notes are.
     List,
-    /// Has a session hear a recording: a sound file (anything macOS plays: m4a, mp3, wav, aiff), transcribed on this Mac as fast as it can be, its words filed as Them's. The session is told what's going on and then which lines are new, as it would be of a meeting as it's said, and that it's over when the recording runs out.
+    /// Has a session hear a recording: a sound file (anything macOS plays: m4a, mp3, wav, aiff), transcribed on this Mac as fast as it can be, or with --at-speed at the speed it plays, its words filed as Them's. The session is told what's going on and then what was heard, as it would be of a meeting as it's said, and that it's over when the recording runs out.
     Start {
         /// The session's key, or `me` for the one running this command.
         session: String,
         /// The recording to hear.
         #[arg(long, value_name = "PATH")]
         file: String,
+        /// Hear it at the speed it plays, as a meeting is heard, the session told as it goes: for trying a coach on a meeting you recorded. Without it the recording is read as fast as it can be, and the session is told once it's all in.
+        #[arg(long)]
+        at_speed: bool,
         /// What the session makes of it: notes it keeps in a file, a few lines of coaching each time it's told what was heard, or a todo for each thing asked for (a bug, a fix, a feature).
         #[arg(long = "as", value_enum, default_value_t = RoleArg::Notes)]
         role: RoleArg,
@@ -2262,10 +2265,19 @@ fn listen(cmd: ListenCmd, c: &mut Client, json: bool) -> Result<()> {
             Ok(())
         }
         ListenCmd::Status => {
-            let status = crate::ear::status(&cfg.voice.locale);
-            let apps = if status.available { crate::ear::apps().unwrap_or_default() } else { Vec::new() };
+            // Asked of the server, which does the hearing: macOS answers for whoever asks whether
+            // the microphone may be used, and this shell isn't Codealong. With no server it's this
+            // shell that's asked, which is said.
+            let served = c.app.is_some();
+            let me = find_me(c)?.0;
+            let heard = c.act(actions::HEARING, "", serde_json::json!({}), me)?;
+            let status: crate::ear::Status = serde_json::from_value(heard["status"].clone())?;
+            let apps: Vec<crate::ear::App> = serde_json::from_value(heard["apps"].clone()).unwrap_or_default();
             if json {
-                return print_json(&serde_json::json!({ "status": status, "apps": apps }));
+                return print_json(&heard);
+            }
+            if !served {
+                println!("Codealong's server isn't running, so this is what this shell's terminal can hear with; the microphone's answer is the terminal's, not Codealong's.");
             }
             match &status.why {
                 Some(why) => println!("{why}"),
@@ -2292,7 +2304,7 @@ fn listen(cmd: ListenCmd, c: &mut Client, json: bool) -> Result<()> {
             }
             Ok(())
         }
-        ListenCmd::Start { session, file, role, start_sessions, prompt } => {
+        ListenCmd::Start { session, file, at_speed, role, start_sessions, prompt } => {
             needs_server(c)?;
             let key = resolve_session(c, &session)?;
             let path = std::fs::canonicalize(crate::util::expand(&file)).with_context(|| format!("{file} isn't there to hear."))?;
@@ -2305,7 +2317,7 @@ fn listen(cmd: ListenCmd, c: &mut Client, json: bool) -> Result<()> {
             if start_sessions && role != Role::Requests {
                 bail!("--start-sessions goes with --as requests.");
             }
-            let ask = Ask { file: Some(path.to_string_lossy().into_owned()), role, start: start_sessions, prompt: prompt.unwrap_or_default(), ..Ask::default() };
+            let ask = Ask { file: Some(path.to_string_lossy().into_owned()), paced: at_speed, role, start: start_sessions, prompt: prompt.unwrap_or_default(), ..Ask::default() };
             let me = find_me(c)?.0;
             let l: Listening = serde_json::from_value(c.act(actions::LISTEN, &key, params::Listen { on: true, ask }, me)?)?;
             if json {

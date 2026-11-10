@@ -33,6 +33,7 @@ pub const PREVIEW: &str = "worktree-preview";
 pub const REUSABLE: &str = "worktree-reusable";
 pub const RUN_COMMAND: &str = "session-run-command";
 pub const LISTEN: &str = "session-listen";
+pub const HEARING: &str = "hearing";
 /// A session's own agent marking the turn it's taking seen (`codealong session seen me`), which
 /// no other device runs.
 pub const AGENT_SEEN: &str = "session-agent-seen";
@@ -303,6 +304,8 @@ const REQUESTS: &[Request] = &[
     // its user's to turn on, at that Mac: the command may end a listening, and start one only on
     // a recording.
     Request { name: LISTEN, only_here: Some("A session listens on the Mac it runs on; have it listen there."), here: listen, command: listening_is_yours, ..ANY },
+    // What this Mac can hear with, about no session: asked of the server, whose hearing it is.
+    Request { name: HEARING, only_here: Some("What a Mac can hear with is asked on that Mac."), here: hearing, ..ANY },
     // A worktree goes only when nothing in it would be lost, checked again on its Mac, so an
     // agent may clean one up too. Can't be undone, so another device needs remote control. A
     // repo's own teardown can take a minute or more (cleanup.rs).
@@ -1971,6 +1974,13 @@ fn set_preview(engine: &Handle, c: &Call) -> Result<Value, String> {
 
 /// Marks the worktree reusable or not (`reusable::mark`). Says whether that changed it, and the
 /// time of the board that shows it, as `set_preview` does.
+/// What this Mac can hear with, and the apps that record or play now (listen.rs `hearing`).
+fn hearing(_: &Handle, _: &Call) -> Result<Value, String> {
+    let cfg = crate::config::current().map_err(words)?;
+    crate::listen::turned_on(&cfg).map_err(words)?;
+    Ok(crate::listen::hearing(&cfg))
+}
+
 /// Starts or ends a session's listening: the listening as it is now.
 fn listen(engine: &Handle, c: &Call) -> Result<Value, String> {
     let p: params::Listen = c.read()?;

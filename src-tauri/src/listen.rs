@@ -129,9 +129,12 @@ pub struct Ask {
     pub prompt: String,
     /// For `Role::Requests`: a session is started on each todo as it's filed.
     pub start: bool,
-    /// A sound file in place of all of the above, for the checks: its words are Them's.
+    /// A recording in place of all of the above: its words are Them's.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub file: Option<String>,
+    /// The recording is heard at the speed it plays, as a meeting is, rather than as fast as it
+    /// can be read: its session is told as it goes.
+    pub paced: bool,
 }
 
 impl Ask {
@@ -141,7 +144,7 @@ impl Ask {
             bail!("Say what the session should do with what it hears.");
         }
         if let Some(path) = &self.file {
-            return Ok(vec![Source { name: THEM.into(), from: ear::From::File { path: path.clone(), paced: false } }]);
+            return Ok(vec![Source { name: THEM.into(), from: ear::From::File { path: path.clone(), paced: self.paced } }]);
         }
         let mut sources = Vec::new();
         let apps: Vec<String> = self.apps.iter().map(|a| a.trim().to_string()).filter(|a| !a.is_empty()).collect();
@@ -719,6 +722,15 @@ pub fn refusal(refused: ear::Refused) -> anyhow::Error {
     } else {
         anyhow!(refused.message)
     }
+}
+
+/// What this Mac can hear with (ear.rs `status`), and the apps that record or play now. Asked
+/// of the server, which is what does the hearing: whether macOS lets the microphone be used is
+/// answered for whoever asks, and a command's shell isn't Codealong. Asks the person nothing.
+pub fn hearing(cfg: &crate::config::Config) -> serde_json::Value {
+    let status = ear::status(&cfg.voice.locale);
+    let apps = if status.available { ear::apps().unwrap_or_default() } else { Vec::new() };
+    serde_json::json!({ "status": status, "apps": apps })
 }
 
 /// That voice is turned on, or the words that say where to turn it on.
@@ -1375,8 +1387,9 @@ mod tests {
         assert_eq!(sources(Ask { system: true, apps: vec![" us.example.meet ".into(), String::new()], ..Ask::default() }).unwrap(), vec![(THEM.to_string(), From::Apps { bundles: vec!["us.example.meet".into()] })]);
         assert_eq!(sources(Ask::default()).unwrap_err(), "Pick something to listen to: the microphone, this Mac's audio, or both.");
         assert_eq!(sources(Ask { mic: true, role: Role::Custom, ..Ask::default() }).unwrap_err(), "Say what the session should do with what it hears.");
-        // A recording's words are Them's.
+        // A recording's words are Them's, heard as fast as it reads or at the speed it plays.
         assert_eq!(sources(Ask { file: Some("/tmp/call.m4a".into()), mic: true, ..Ask::default() }).unwrap(), vec![(THEM.to_string(), From::File { path: "/tmp/call.m4a".into(), paced: false })]);
+        assert_eq!(sources(Ask { file: Some("/tmp/call.m4a".into()), paced: true, ..Ask::default() }).unwrap()[0].1, From::File { path: "/tmp/call.m4a".into(), paced: true });
     }
 
     #[test]
