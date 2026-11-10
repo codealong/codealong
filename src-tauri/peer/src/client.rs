@@ -1102,8 +1102,13 @@ fn save_linked(dir: &Path, linked: &[Linked]) {
     write_json(&dir.join("devices.json"), &LinkedFile { linked: linked.to_vec() });
 }
 
+/// The feeds kept from the last launch. One kept by a build from before `Session::need` says
+/// none, and is shown before its device connects again: it's read from the rest
+/// (`Replica::fill_needs`).
 fn load_cache(dir: &Path) -> HashMap<String, Cached> {
-    std::fs::read(dir.join("device-feeds.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+    let mut cache: HashMap<String, Cached> = std::fs::read(dir.join("device-feeds.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+    cache.values_mut().for_each(|c| c.replica.fill_needs());
+    cache
 }
 
 /// Writes a file whole or not at all: to a temporary file first, then renamed over the old one.
@@ -1131,6 +1136,8 @@ mod tests {
         let mut replica = Replica::default();
         replica.device.name = "Gwen's Mac mini".into();
         replica.device.remote_control = true;
+        let waits = crate::model::Session { status: crate::model::Status::Needs, excerpt: Some("Bash · `make`".into()), ..crate::fixtures::session("claude:claude:a") };
+        replica.lanes = vec![crate::fixtures::lane("/Users/me/projects/northwind-app", vec![waits])];
         write_json(&dir.join("device-feeds.json"), &HashMap::from([(hex.clone(), Cached { last_seen: 5, replica })]));
 
         let c = Client::new(dir.clone(), SecretKey::generate(), "iPhone".into(), "0.1.0".into(), proto::PHONE, Box::new(|| {}));
@@ -1138,6 +1145,8 @@ mod tests {
         assert_eq!(d.len(), 1);
         assert_eq!((d[0].name.as_str(), d[0].online, d[0].remote_control, d[0].last_seen), ("Gwen's Mac mini", false, true, Some(5)));
         assert_eq!(d[0].short, &hex[..10]);
+        // A feed kept from before a session said why it needs you says so once it's loaded.
+        assert_eq!(c.with_feeds(|f| f[0].1.lanes[0].sessions[0].need), Some(crate::model::Need::Approval));
         assert!(c.ask(&hex[..10], "session-page", Value::Null, Duration::from_millis(10)).unwrap_err().contains("isn't connected"));
         c.unlink(&hex).unwrap();
         assert!(Client::new(dir.clone(), SecretKey::generate(), "iPhone".into(), "0.1.0".into(), proto::PHONE, Box::new(|| {})).devices().is_empty());

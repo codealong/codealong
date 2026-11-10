@@ -1961,6 +1961,21 @@ mod tests {
         dir: PathBuf,
     }
 
+    /// What a device said last is shown before it connects again, so a copy kept by a build from
+    /// before `Session::need` says why its sessions need you as it's loaded.
+    #[test]
+    fn a_kept_feed_from_before_needs_reads_them_as_its_loaded() {
+        let dir = std::env::temp_dir().join(format!("codealong-peers-{}-kept-needs", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let waits = Session { status: Status::Needs, excerpt: Some("Bash · `make`".into()), ..crate::fixtures::session("claude:claude:s2") };
+        let kept = Cached { replica: Replica { lanes: vec![crate::fixtures::lane("/Users/sam/app", vec![waits])], ..Replica::default() }, ..Cached::default() };
+        save_cache(&dir, &HashMap::from([("mini".to_string(), kept)]));
+        assert!(!std::fs::read_to_string(cache_path(&dir)).unwrap().contains("\"need\""));
+        assert_eq!(load_cache(&dir)["mini"].replica.lanes[0].sessions[0].need, Some(crate::model::Need::Approval));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     fn device(name: &str, lanes: Vec<Lane>) -> Device {
         device_where(name, lanes, |_| {})
     }
