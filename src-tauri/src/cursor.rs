@@ -1222,6 +1222,9 @@ pub struct Process {
     pub terminal: bool,
     /// The prompt it was started with, as `ps` joins its words.
     pub prompt: Option<String>,
+    /// When it began, as the kernel has it: a turn its chat's transcript left open before then
+    /// isn't one it's taking (`board::cursor_turn_under_way`).
+    pub started: Option<i64>,
 }
 
 /// What a `cursor-agent` process's arguments say (`cli_args`).
@@ -1333,7 +1336,7 @@ pub fn processes(listed: &[procs::PsLine]) -> (Vec<Process>, bool) {
         app |= is_app(&p.command);
         if let Some(args) = cli_args(&p.command) {
             let chat = args.chat.or_else(|| procs::open_files(p.pid).and_then(|files| held_chat(&files)));
-            found.push(Process { pid: p.pid, chat, terminal: args.interactive && !p.tty.starts_with('?'), prompt: args.prompt });
+            found.push(Process { pid: p.pid, chat, terminal: args.interactive && !p.tty.starts_with('?'), prompt: args.prompt, started: procs::proc_start_ms(p.pid) });
         }
     }
     (found, app)
@@ -1432,7 +1435,7 @@ impl Reader {
             .iter()
             .filter(|p| p.chat.as_deref().is_some_and(|id| !rows.iter().any(|c| c.id == id) && cli_chat_dir(&home, id).is_none()) && config_dir_of(p.pid) == home)
             .map(|p| {
-                let started = procs::proc_start_ms(p.pid).unwrap_or(look.now);
+                let started = p.started.unwrap_or(look.now);
                 let first_prompt = p.prompt.as_deref().map(|t| one_line(t, 140)).filter(|t| !t.is_empty());
                 // Where it is now: it goes into a folder `--workspace` or `--worktree` names as it starts.
                 let cwd = procs::cwd_of(p.pid).map(|d| d.to_string_lossy().into_owned()).or_else(|| before.get(p.chat.as_deref().unwrap_or_default()).and_then(|old| old.cwd.clone()));
@@ -1469,12 +1472,16 @@ impl Reader {
 
 /// The command line chats at work in a terminal that have written nothing for
 /// `PROMPT_QUIET_MS`, each with its session key, its terminal's process and its folder: those whose
-/// terminal may show a permission prompt.
-fn quiet_in_terminals(chats: &[Chat], account: &str, held: impl Fn(&str) -> Option<u32>, now: i64) -> Vec<(String, String, u32, PathBuf)> {
+/// terminal may show a permission prompt. `held`: the process in a terminal that has a chat. One
+/// resumed after its turn was cut off is at its box, not at work (`board::cursor_turn_under_way`).
+fn quiet_in_terminals<'a>(chats: &[Chat], account: &str, held: impl Fn(&str) -> Option<&'a Process>, now: i64) -> Vec<(String, String, u32, PathBuf)> {
     chats
         .iter()
-        .filter(|c| c.cli && c.tail.turn_open && now - c.last_updated >= PROMPT_QUIET_MS)
-        .filter_map(|c| Some((c.id.clone(), Session::key_for(Harness::Cursor, account, &c.id), held(&c.id)?, PathBuf::from(c.cwd.as_deref()?))))
+        .filter(|c| c.cli && now - c.last_updated >= PROMPT_QUIET_MS)
+        .filter_map(|c| {
+            let p = held(&c.id).filter(|p| crate::board::cursor_turn_under_way(c, p, now))?;
+            Some((c.id.clone(), Session::key_for(Harness::Cursor, account, &c.id), p.pid, PathBuf::from(c.cwd.as_deref()?)))
+        })
         .collect()
 }
 
@@ -1563,7 +1570,7 @@ impl crate::harness::Reader for Reader {
     /// The engine is woken when what's up changed.
     fn poll(&mut self, _accounts: &[AccountCfg]) {
         let now = crate::util::now_ms();
-        let held = |id: &str| self.held(id).filter(|p| p.terminal).map(|p| p.pid);
+        let held = |id: &str| self.held(id).filter(|p| p.terminal);
         let quiet: Vec<(String, String, u32, PathBuf)> = self.chats.iter().flat_map(|(account, rows)| quiet_in_terminals(rows, account, &held, now)).collect();
         {
             let mut prompts = self.prompts.lock().unwrap_or_else(|e| e.into_inner());

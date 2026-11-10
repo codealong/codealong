@@ -743,6 +743,23 @@ pub fn antigravity_session(account: &AccountCfg, c: &Conversation, process: Opti
     }
 }
 
+/// Whether the turn a command line chat's transcript leaves open is one `p`, the process that has
+/// the chat, is taking. One left open before that process began isn't: what ran it ended partway
+/// (its terminal closed on it), so its end was never written, and the chat was resumed since,
+/// where it waits at its box. Resuming writes the chat's database but not its transcript, and a
+/// reviewer resumed so read as working for as long as its tab stayed open (2026-11-10). A turn of
+/// the process's own is in the transcript within moments of its prompt, and one it was started
+/// on counts until then, for as long as a start takes.
+pub fn cursor_turn_under_way(c: &crate::cursor::Chat, p: &crate::cursor::Process, now: i64) -> bool {
+    if !c.tail.turn_open {
+        return false;
+    }
+    match p.started.zip(c.transcript_at) {
+        Some((started, written)) => written >= started || (p.prompt.is_some() && now - started < CURSOR_STARTING_MS),
+        None => true,
+    }
+}
+
 /// A Cursor chat, from its record and the end of its messages. `process` is the command line
 /// process that has a command line chat open, when one does, and `app_running` whether the app
 /// is. The app's chat is under way while the app says it's generating and the app is there to
@@ -757,7 +774,7 @@ pub fn cursor_session(account: &AccountCfg, c: &crate::cursor::Chat, process: Op
     let under_way = match (c.cli, process) {
         // Its database comes a few seconds before its transcript has the prompt it was started
         // on, which it's taking a turn on all the same: for as long as a start takes, at most.
-        (true, Some(p)) => c.tail.turn_open || !p.terminal || c.unwritten || (p.prompt.is_some() && c.tail.first_prompt.is_none() && now - c.created_at < CURSOR_STARTING_MS),
+        (true, Some(p)) => cursor_turn_under_way(c, p, now) || !p.terminal || c.unwritten || (p.prompt.is_some() && c.tail.first_prompt.is_none() && now - c.created_at < CURSOR_STARTING_MS),
         (true, None) => false,
         (false, _) => c.generating() && app_running && now - c.last_updated < CURSOR_STALE_MS,
     };
@@ -5221,7 +5238,7 @@ mod tests {
         let a = AccountCfg { name: "cursor".into(), harness: "cursor".into(), home: "~/.cursor".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
         let mut c = Chat { id: "c2".into(), cli: true, title: Some("Fix the build".into()), created_at: NOW - 9_000, last_updated: NOW - 2_000, ..Default::default() };
         c.tail.turn_open = true;
-        let ui = Process { pid: 41, chat: Some("c2".into()), terminal: true, prompt: None };
+        let ui = Process { pid: 41, chat: Some("c2".into()), terminal: true, prompt: None, started: None };
         let s = cursor_session(&a, &c, Some(&ui), None, false, 0, NOW);
         assert_eq!((s.status, s.live, s.surface, s.pid), (Status::Working, true, Surface::Cli, Some(41)));
         assert_eq!((s.open_target.as_str(), s.resume_command.as_deref()), ("s|cursor:cursor:c2|focus", Some("cursor-agent --resume c2")));
@@ -5250,7 +5267,7 @@ mod tests {
         // Started, with its chat not written yet: starting, then waiting on what it asks first in
         // its terminal, where it's opened, and with no chat to resume.
         let review = Chat { id: "c3".into(), cli: true, unwritten: true, created_at: NOW - 5_000, last_updated: NOW - 5_000, ..Default::default() };
-        let ui = Process { pid: 42, chat: Some("c3".into()), terminal: true, prompt: Some("Review pull request #7".into()) };
+        let ui = Process { pid: 42, chat: Some("c3".into()), terminal: true, prompt: Some("Review pull request #7".into()), started: None };
         let s = cursor_session(&a, &review, Some(&ui), None, false, 0, NOW);
         assert_eq!((s.status, s.live, s.pid, s.resume_command.as_deref()), (Status::Working, true, Some(42), None));
         let s = cursor_session(&a, &review, Some(&ui), None, false, 0, NOW + CURSOR_STARTING_MS);
@@ -5266,6 +5283,43 @@ mod tests {
         assert_eq!(cursor_session(&a, &written, Some(&Process { prompt: None, ..ui.clone() }), None, false, NOW, NOW).status, Status::Idle);
         // A transcript that never gets it doesn't keep it at work for good.
         assert_eq!(cursor_session(&a, &written, Some(&ui), None, false, NOW, NOW + CURSOR_STARTING_MS).status, Status::Idle);
+    }
+
+    /// A reviewer's terminal was closed with its turn under way, so its transcript never got the
+    /// turn's end; resumed the next day, the chat sat at its box and read as working for as long
+    /// as its tab stayed open (2026-11-10). The turn the transcript leaves open isn't the
+    /// process's that resumed it: that one began after the transcript was last written.
+    #[test]
+    fn a_cursor_chat_resumed_after_its_turn_was_cut_off_waits_at_its_box() {
+        use crate::cursor::{Chat, Process};
+        let a = AccountCfg { name: "cursor".into(), harness: "cursor".into(), home: "~/.cursor".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        const HOUR: i64 = 3_600_000;
+        // The transcript stopped an hour ago; resuming touched only the chat's database, a minute ago.
+        let mut cut = Chat { id: "c4".into(), cli: true, title: Some("Review PR 7".into()), created_at: NOW - 2 * HOUR, last_updated: NOW - 60_000, transcript_at: Some(NOW - HOUR), ..Default::default() };
+        cut.tail.turn_open = true;
+        cut.tail.last_prompt_at = Some(NOW - HOUR - 60_000);
+        let resumed = Process { pid: 43, chat: Some("c4".into()), terminal: true, prompt: None, started: Some(NOW - 61_000) };
+        let s = cursor_session(&a, &cut, Some(&resumed), None, false, 0, NOW);
+        assert_eq!((s.status, s.live, s.pid), (Status::Unread, true, Some(43)));
+        assert_eq!(cursor_session(&a, &cut, Some(&resumed), None, false, NOW, NOW).status, Status::Idle, "seen");
+        // A prompt its terminal showed before isn't its wait now.
+        let asked = crate::cursor::Asked { question: "Allow this web search?".into(), what: "🔍 Web Search: northwind traders".into(), why: None, always: None, tells: false, waiting: 1 };
+        assert_eq!(cursor_session(&a, &cut, Some(&resumed), Some(&asked), false, NOW, NOW).status, Status::Idle);
+        // Sent a prompt, it writes its transcript within moments: at work on a turn of its own.
+        let prompted = Chat { last_updated: NOW - 1_000, transcript_at: Some(NOW - 1_000), ..cut.clone() };
+        assert_eq!(cursor_session(&a, &prompted, Some(&resumed), None, false, 0, NOW).status, Status::Working);
+        // Resumed on a prompt (a review's next round), it's at work from the start, for as long
+        // as a start takes without the transcript saying so.
+        let on_prompt = Process { prompt: Some("It has new commits".into()), started: Some(NOW - 5_000), ..resumed.clone() };
+        assert_eq!(cursor_session(&a, &cut, Some(&on_prompt), None, false, 0, NOW).status, Status::Working);
+        assert_eq!(cursor_session(&a, &cut, Some(&on_prompt), None, false, NOW + CURSOR_STARTING_MS, NOW + CURSOR_STARTING_MS).status, Status::Idle);
+        // One that has run since before its transcript's last write is taking that turn, and a
+        // process whose start the kernel doesn't say is taken to be.
+        let since = Process { started: Some(NOW - 2 * HOUR), ..resumed.clone() };
+        assert_eq!(cursor_session(&a, &cut, Some(&since), None, false, 0, NOW).status, Status::Working);
+        assert_eq!(cursor_session(&a, &cut, Some(&Process { started: None, ..resumed.clone() }), None, false, 0, NOW).status, Status::Working);
+        // A print run works until it ends, whatever its transcript says.
+        assert_eq!(cursor_session(&a, &cut, Some(&Process { terminal: false, ..resumed }), None, false, 0, NOW).status, Status::Working);
     }
 
     #[test]

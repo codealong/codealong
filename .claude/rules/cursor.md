@@ -167,6 +167,14 @@ chunks) and this Mac's files (2026-10-09). Paths are under `src-tauri/src/`.
   "The command was blocked and approval was declined, so it did not run"). A Return before that box
   is drawn would answer the prompt with its highlighted choice, Run (once), so Codealong waits for
   the box on screen first (`skip`).
+- A turn cut off partway (its terminal closed while a call sat at the prompt) never gets a
+  `turn_ended` line, so its transcript leaves it open for good. Resuming the chat (`--resume <id>`
+  with no prompt) writes its database's `-wal` and `-shm` as it opens and nothing else: the
+  transcript and `meta.json` stay as they were, the terminal UI shows the conversation up to where
+  it stopped, and it waits at `→ Add a follow-up` without asking again (2026.11.05, a reviewer
+  resumed 16 hours after it was closed at a web search's prompt, 2026-11-10). So an open turn is
+  the process's only when the transcript was written since that process began: `board.rs`
+  (`cursor_turn_under_way`), `cursor.rs` (`Process::started`).
 - A web search asks every time, whatever the approval mode short of Run Everything: the policy
   (2026.11.05's `requestWebSearchApproval`) approves one only for `forceApprove`, Run Everything
   (`-f`, `--yolo`) or `autoAcceptWebSearch` in `cli-config.json`, which is every chat's; there's no
