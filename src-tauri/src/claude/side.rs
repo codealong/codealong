@@ -165,7 +165,7 @@ mod tests {
         let r = ClaudeCode.side(&crate::harness::Ctx { account: &usual }, &s, Path::new("/w")).unwrap();
         assert_eq!(r.program, PathBuf::from("claude"));
         // A session whose mode isn't written anywhere gets the usual one, where what would ask is refused.
-        assert_eq!(r.args.join(" "), "-p --input-format stream-json --output-format stream-json --verbose --include-partial-messages --resume abc --fork-session --no-session-persistence --permission-mode default");
+        assert_eq!(r.args.join(" "), "-p --input-format stream-json --output-format stream-json --verbose --include-partial-messages --resume abc --fork-session --no-session-persistence --permission-mode default --allowedTools=Bash(codealong session send claude:c:abc *)");
         assert_eq!(side_mode(Some("bypassPermissions")), "bypassPermissions");
         assert_eq!((side_mode(Some("acceptEdits")), side_mode(Some("auto"))), ("acceptEdits", "auto"));
         assert_eq!((side_mode(Some("plan")), side_mode(Some("default")), side_mode(Some("manual")), side_mode(None)), ("default", "default", "default", "default"));

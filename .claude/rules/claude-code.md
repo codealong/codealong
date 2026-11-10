@@ -318,7 +318,12 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   commands: a `/fork` sent to the copy as a follow-up is answered at once, with no call to the
   model, "/fork isn't available in this environment.", and nothing is started (2.1.314, Haiku,
   2026-10-30). So `/fork` in a side conversation's box is Codealong's, forking the session told
-  what was said on the side (`side::fork_prompt`).
+  what was said on the side (`side::fork_prompt`). The copy is told its session's key and may tell
+  it something when asked (`side::rules`, `SIDE_OF_VAR`), and `--allowedTools=Bash(codealong
+  session send <key> *)` lets that command run in `default` mode with nobody to ask: on 2.1.321
+  (Haiku, 2026-11-09) a copy asked a plain question ran nothing, and one asked to tell the main
+  conversation ran the command once, unrefused, with the variable in its environment, writing the
+  decision out for a conversation that hadn't seen the side one.
 - A conversation of its own about a PR (`claude/mod.rs` `fresh_side`, `side.rs` `ask_pr`): the
   same headless run without `--resume`, which works and writes no transcript. In `default` mode
   with nobody to ask, `gh pr diff` and `gh pr view` were refused as needing approval while

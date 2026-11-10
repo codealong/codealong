@@ -429,8 +429,8 @@ place as a move to another account's does.
 #### Side conversations
 
 `/side <question>` (or `/btw`) asks something about a Claude Code or Codex session on the side: a
-throwaway copy of its conversation answers above the box, and the session carries on and never hears
-of it. The copy reads files and runs commands to answer, and is told to change nothing unless your
+throwaway copy of its conversation answers above the box, and the session carries on and hears
+nothing of it unless you ask the copy to tell it something (below). The copy reads files and runs commands to answer, and is told to change nothing unless your
 question asks for that change in so many words, as Codex's own `/side` is; then it can do what the
 session itself can without asking (a Claude Code session that skips permission prompts, a Codex
 thread's sandbox), and what would have to ask you is refused. The harness keeps nothing of the copy:
@@ -481,6 +481,17 @@ Neither harness's own `/fork` can be used there: Claude Code's isn't available t
 without a terminal, and Codex's own `/side` won't fork while it's open. For a session on another
 machine, that machine needs a build of Codealong from 2026-10-30 or later; an earlier one isn't
 asked, and says to update Codealong on it.
+
+To have the session itself act on what was said on the side, ask the side conversation to tell it
+("tell the main session to go with option 2"): the copy sends the session a message with `codealong
+session send`, written for it to act on, since the session never saw the side conversation, and says
+that it did. The copy is told the session's key, and to send only when it's asked to. The message
+comes as another agent's does, but saying it's from the session's side conversation, and it's taken in
+as what you send is: a Claude Code session that skips permission prompts doesn't hold it for you.
+Codealong believes it's the side conversation's only while a copy of that session's runs. A Claude
+Code copy may run that one command in any permission mode; a Codex copy only where its thread's
+sandbox lets its commands reach Codealong. Nothing is sent to a session waiting on you to answer a
+prompt (answer it first), and a session that isn't running isn't resumed for it.
 
 Once a side conversation has answered all it was asked (or its copy stopped before it could), its
 session waits on you as it does for a finished turn. One whose turn you'd seen is Your turn from

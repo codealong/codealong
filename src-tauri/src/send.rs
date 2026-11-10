@@ -84,6 +84,20 @@ pub enum Sender {
     /// Codealong itself, by a setting of yours: a PR's news, a review handed back, a helper's
     /// news, carrying on after a lost connection (`tell`).
     Codealong,
+    /// The session's own side conversation (side.rs): its copy ran `codealong session send`, told
+    /// there by you to tell the session something, while it ran (actions.rs `sender_for`). The
+    /// copy wrote the words, so it goes as an agent's message does, but it runs in the session's
+    /// own permission mode and sends only when asked to (`side::rules`), so its message claims the
+    /// session's class, as yours does, rather than being held for you.
+    Side,
+}
+
+impl Sender {
+    /// An agent wrote it: another session's, or the copy in a side conversation. It never runs as
+    /// a command in the session's shell, never resumes a session, and never answers a prompt.
+    fn agent(&self) -> bool {
+        matches!(self, Sender::Agent(_) | Sender::Side)
+    }
 }
 
 /// The line what Codealong sends by itself starts with (`Sender::Codealong`), as the session
@@ -232,8 +246,16 @@ fn byline(board: &Board, from: Option<&str>) -> Byline {
 /// message whole, as a `peer` item.
 pub const FROM_ANOTHER_SESSION: &str = "From another session";
 
-/// How an agent's message begins, for each way `byline` words it.
-const AGENT_BYLINES: [&str; 2] = ["This message is from another agent, ", "This message was sent with `codealong session send`"];
+/// How a message from a session's side conversation begins (`Sender::Side`): what it is, that
+/// the copy wrote it, and that an answer goes in the session's reply, there being no session to
+/// send one to.
+const FROM_ITS_SIDE: &str = "This message is from your side conversation: a copy of this conversation that your user asked questions on the side in Codealong, which you never saw. Your user asked it there to tell you this, and it wrote these words, so they aren't your user's own. Anything you'd say about it goes in your reply here, where your user reads it.";
+
+/// The name a side conversation's message goes by (`Sender::Side`).
+const SIDE_NAME: &str = "Side conversation";
+
+/// How an agent's message begins, for each way `byline` words it, and a side conversation's.
+const AGENT_BYLINES: [&str; 3] = ["This message is from another agent, ", "This message was sent with `codealong session send`", "This message is from your side conversation: "];
 
 /// An agent's message without the byline it starts with, as the conversation shows it
 /// (claude/conversation.rs `peer_item`, transcript.rs `shown`): the byline says whose it is,
@@ -275,6 +297,9 @@ fn past_resumed(text: &str) -> &str {
 /// The session an agent's message is from, by the title its byline quotes; None where the byline
 /// names no session the board knew.
 pub fn sender_of(text: &str) -> Option<&str> {
+    if past_resumed(text).starts_with(AGENT_BYLINES[2]) {
+        return Some(SIDE_NAME);
+    }
     let who = past_resumed(text).strip_prefix(AGENT_BYLINES[0])?.strip_prefix('“')?;
     who.split_once('”').map(|(title, _)| title.trim()).filter(|t| !t.is_empty())
 }
@@ -302,6 +327,11 @@ impl<'a> Message<'a> {
                 let bypasses = from.as_deref().and_then(|k| crate::harness::find(board, cfg, k).ok()).is_some_and(|(s, account)| s.live && crate::harness::adapter(s.harness).skips_permission_prompts(&crate::harness::Ctx { account }, s));
                 Message { text: Cow::Owned(format!("{}\n\n{}", b.intro, text.trim())), sender, now, byline: Some(b), bypasses }
             }
+            // Asked for there, by a copy in the session's own mode: it claims the session's class.
+            Sender::Side => {
+                let b = Byline { intro: FROM_ITS_SIDE.into(), name: SIDE_NAME.into() };
+                Message { text: Cow::Owned(format!("{}\n\n{}", b.intro, text.trim())), sender, now, byline: Some(b), bypasses: true }
+            }
             // Your setting sends it, so it claims the session's class as what you send does.
             Sender::Codealong => {
                 let b = Byline { intro: FROM_CODEALONG_ITSELF.into(), name: "Codealong".into() };
@@ -312,7 +342,7 @@ impl<'a> Message<'a> {
     }
 
     fn from_agent(&self) -> bool {
-        matches!(self.sender, Sender::Agent(_))
+        self.sender.agent()
     }
 
     /// The message as one of a harness's own ways in gets it.
@@ -531,7 +561,7 @@ pub fn tell_by_hand(engine: &crate::engine::Handle, key: &str, text: &str) -> Re
 /// A flag stops messages from Codealong and other agents before any delivery path, including
 /// hosted sessions and automatic resumes. A person can still reply or resume deliberately.
 pub fn ensure_not_flagged(cfg: &Config, s: &Session, sender: &Sender) -> Result<()> {
-    if cfg.sessions.blocks(s) && matches!(sender, Sender::Codealong | Sender::Agent(_)) {
+    if cfg.sessions.blocks(s) && (*sender == Sender::Codealong || sender.agent()) {
         bail!("“{}” was flagged by its provider. Automatic messages and resumes are blocked in Settings › Automation; nothing was sent.", s.title);
     }
     Ok(())
@@ -776,7 +806,7 @@ pub(crate) fn waits_on_you(session: &Session) -> bool {
 pub(crate) fn ensure_not_waiting(session: &Session, sender: &Sender) -> Result<()> {
     if waits_on_you(session) {
         match sender {
-            Sender::Agent(_) => bail!("{} is waiting on its user to answer a prompt, so nothing was sent. Try again once they have.", quoted(&session.title)),
+            Sender::Agent(_) | Sender::Side => bail!("{} is waiting on its user to answer a prompt, so nothing was sent. Try again once they have.", quoted(&session.title)),
             _ => bail!("{} is waiting on you; open it to answer.", quoted(&session.title)),
         }
     }
@@ -794,7 +824,7 @@ pub(crate) const NOT_STARTED_AGAIN: &str = "isn't running, and a message from an
 /// Whether `sender` may start the session `title` names again where it isn't running (start.rs
 /// `resume`): you may, from a window here or another of your devices; an agent never does.
 pub(crate) fn ensure_may_resume(sender: &Sender, title: &str) -> Result<()> {
-    if matches!(sender, Sender::Agent(_)) {
+    if sender.agent() {
         bail!("{} {NOT_STARTED_AGAIN}", quoted(title));
     }
     Ok(())
@@ -1522,6 +1552,31 @@ mod tests {
         let msg = Message::new(&board, &cfg, "hi", &Sender::You, false);
         let Tried::Sent(went) = attempt(&Stand(Way::Message).into(), &board, &s, &account, &cfg, &msg, None, false).unwrap() else { panic!("it passed") };
         assert_eq!(went.message, "Stood in for “Fix the build”.");
+    }
+
+    /// What a session's side conversation tells it says so first, goes under its name, claims
+    /// what you would (the copy runs in the session's own mode, asked to send it), and is
+    /// otherwise an agent's: shown as the side conversation's, never run in the session's shell,
+    /// never answering a prompt, never resuming the session, stopped by a provider's flag.
+    #[test]
+    fn a_side_conversations_message_says_so_and_claims_what_you_would() {
+        let account: AccountCfg = serde_json::from_value(json!({ "name": "claude", "harness": "claude", "home": "/h" })).unwrap();
+        let (cfg, board) = (Config::default(), Board::default());
+        let s = session(Harness::Claude, Surface::Cli, Status::Unread, true, Some(42));
+        static SIDE: Sender = Sender::Side;
+        let msg = Message::new(&board, &cfg, " ! Go with option 2. ", &SIDE, false);
+        assert_eq!(msg.text, format!("{FROM_ITS_SIDE}\n\n! Go with option 2."));
+        let d = msg.delivery(&s, &account, None);
+        assert_eq!((d.agent, d.bypasses, d.from_agent()), (Some(SIDE_NAME), true, true));
+        assert_eq!((from_an_agent(&msg.text), without_byline(&msg.text), sender_of(&msg.text)), (Some("! Go with option 2."), "! Go with option 2.", Some(SIDE_NAME)));
+        assert_eq!(past_sender_lines(&msg.text), "! Go with option 2.");
+        // A message led by `!` that an agent wrote is words, never a command in its shell.
+        assert!(msg.from_agent());
+        let asking = Session { status: Status::Needs, ..s.clone() };
+        assert_eq!(ensure_not_waiting(&asking, &SIDE).unwrap_err().to_string(), format!("{} is waiting on its user to answer a prompt, so nothing was sent. Try again once they have.", quoted(&s.title)));
+        assert!(ensure_may_resume(&SIDE, &s.title).unwrap_err().to_string().contains(NOT_STARTED_AGAIN));
+        let flagged = Session { flagged: true, ..s };
+        assert!(ensure_not_flagged(&cfg, &flagged, &SIDE).is_err());
     }
 
     /// What Codealong sends by itself says so first, goes under its name, claims what you would,

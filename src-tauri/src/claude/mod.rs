@@ -546,14 +546,18 @@ impl crate::harness::Adapter for ClaudeCode {
     /// conversation again: a 35,000-token haiku session's copy read 35,120 tokens from the cache
     /// and wrote 594. A session on another model than the account's usual one gets its answers
     /// from the usual one: a transcript names the model without its context size, so the
-    /// session's own can't be asked for by name.
+    /// session's own can't be asked for by name. The one command it may run whatever the mode is
+    /// the one that tells the session something (`side::rules`), which it's told to run only when
+    /// asked to: with nobody to ask, the usual mode would refuse it as a command that changes
+    /// things.
     fn side(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, _cwd: &Path) -> anyhow::Result<crate::side::Recipe> {
         let id = resume_from(ctx.account, s);
         let home = ctx.account.home_path();
         let registry = session_entry(&home, s);
         let mode = side_mode(permission_mode(registry.as_ref(), &self.records(ctx.account, s)).as_deref());
-        let args = ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--resume", &id, "--fork-session", "--no-session-persistence", "--permission-mode", mode];
-        Ok(headless(&home, &args, SideCopy::default()))
+        let tells = format!("--allowedTools=Bash(codealong session send {} *)", s.key);
+        let args = ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--resume", &id, "--fork-session", "--no-session-persistence", "--permission-mode", mode, &tells];
+        Ok(headless(&home, &args, SideCopy::told(&crate::side::rules(&s.key))))
     }
 
     /// The same headless Claude Code with nothing to resume: a conversation of its own that

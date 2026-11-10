@@ -92,6 +92,12 @@ impl SideThread {
         SideThread { thread: Some(thread.to_string()), rules: crate::side::RULES.to_string(), cwd: cwd.to_string_lossy().into_owned(), ran, copy: None, ready: false, waiting: None, next: Self::INJECT, said: false, effort: None }
     }
 
+    /// The same copy, told `rules` in place of the usual ones: a session's, which say how to tell
+    /// it something (`side::rules`).
+    pub fn told(self, rules: &str) -> SideThread {
+        SideThread { rules: rules.to_string(), ..self }
+    }
+
     /// A thread of its own in `cwd`, told `rules`, that may only look (`Adapter::fresh_side`): on the
     /// model and effort in `on`, else the account's usual ones, read-only, asking nothing.
     pub fn fresh(cwd: &Path, rules: &str, on: crate::side::RunsOn) -> SideThread {

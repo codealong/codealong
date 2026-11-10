@@ -827,6 +827,17 @@ fn sender_of(from: &From) -> send::Sender {
     }
 }
 
+/// Who a message is from (`sender_of`), unless the command that sent it says a copy answering in
+/// the session's own side conversation ran it (`params::Send::side`), which is believed while one
+/// runs (`copy_runs`): then it's the side conversation's, told there to send it. Only the command
+/// says so; a window is you whatever it says.
+fn sender_for(from: &From, side: bool, copy_runs: impl FnOnce() -> bool) -> send::Sender {
+    match from {
+        From::Command(_) if side && copy_runs() => send::Sender::Side,
+        _ => sender_of(from),
+    }
+}
+
 /// Sends it a prompt where it runs (send.rs), into its running turn at once with `now`: yours
 /// from a window, an agent's from the command. From another device, one that would only open
 /// with the prompt ready to send is refused: that needs someone here.
@@ -834,7 +845,8 @@ fn send_prompt(engine: &Handle, c: &Call) -> Result<Value, String> {
     let p: params::Send = c.read()?;
     let key = c.session()?;
     unarchive_to_send(engine, c, key);
-    let sent = send::send_here(engine, key, &p.text, sender_of(c.from), p.now).map_err(words)?;
+    let sender = sender_for(c.from, p.side, || crate::side::copy_runs(key));
+    let sent = send::send_here(engine, key, &p.text, sender, p.now).map_err(words)?;
     note_talking(engine, c, key);
     if matches!(c.from, From::Device | From::Phone) && sent.opened {
         return Err(format!("It needs someone at this device: {}", sent.message));
@@ -2364,6 +2376,20 @@ mod tests {
         assert_eq!(sender_of(&From::Phone), send::Sender::You);
         assert_eq!(sender_of(&From::Device), send::Sender::Elsewhere);
         assert_eq!(sender_of(&From::Command(None)), send::Sender::Agent(None));
+    }
+
+    /// A side conversation's copy tells its session something as the side conversation, while a
+    /// copy of that session runs; said with none running, or by anything but the command, it's
+    /// believed no more than any other message.
+    #[test]
+    fn a_side_conversations_message_is_believed_while_its_copy_runs() {
+        let copy = From::Command(None);
+        assert_eq!(sender_for(&copy, true, || true), send::Sender::Side);
+        assert_eq!(sender_for(&copy, true, || false), send::Sender::Agent(None));
+        assert_eq!(sender_for(&copy, false, || panic!("asked for no reason")), send::Sender::Agent(None));
+        assert_eq!(sender_for(&From::Command(Some("claude:c:other".into())), true, || false), send::Sender::Agent(Some("claude:c:other".into())));
+        assert_eq!(sender_for(&From::Here, true, || true), send::Sender::You);
+        assert_eq!(sender_for(&From::Device, true, || true), send::Sender::Elsewhere);
     }
 
     #[test]

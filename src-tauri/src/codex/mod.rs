@@ -251,7 +251,7 @@ impl crate::harness::Adapter for Codex {
             args: ["app-server", "--listen", "stdio://"].iter().map(|a| a.to_string()).collect(),
             env: vec![("CODEX_HOME".into(), ctx.account.home_path().to_string_lossy().into_owned())],
             unset: Vec::new(),
-            dialect: Box::new(SideThread::new(&s.id, cwd, turn)),
+            dialect: Box::new(SideThread::new(&s.id, cwd, turn).told(&crate::side::rules(&s.key))),
         })
     }
 

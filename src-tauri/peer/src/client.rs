@@ -424,7 +424,7 @@ impl Client {
     /// Sends a session on `device` a prompt, where it runs there; with `now`, into the turn it's
     /// taking at once (one whose feed says `steerable`).
     pub fn send(&self, device: &str, key: &str, text: &str, now: bool) -> std::result::Result<api::Sent, String> {
-        read(self.ask(device, api::SESSION_SEND, of(params::Send { key: key.into(), text: text.into(), now }), ACT_WAIT)?)
+        read(self.ask(device, api::SESSION_SEND, of(params::Send { key: key.into(), text: text.into(), now, ..Default::default() }), ACT_WAIT)?)
     }
 
     /// How a message sent to a session on `device` would reach it, or None for one Codealong runs
