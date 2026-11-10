@@ -48,6 +48,7 @@ import { SessionCard, type WindowCan } from './SessionCard';
 import { SideReply } from './SessionReply';
 import { useTheme } from './ThemeSwitch';
 import { useNow } from './useNow';
+import { useSizeGrips } from './useSizeGrips';
 import { errorText } from '../report';
 import { asText, readStored } from '../stored';
 import { cardZoom, zoomFactor } from '../zoom';
@@ -60,13 +61,8 @@ import { chordMod, held } from '../platform';
 const MARGIN = 20;
 const FAR = 32;
 const NEAR = 8;
-/** How far an edge moves with the button down before it sizes the card rather than clicks. */
-const SIZE_AFTER = 3;
 /** How far the header moves with the button down before it drags the window. */
 const DRAG_AFTER = 4;
-/** The edges that size the card: its right edge, its far edge (the one away from the bar), and
- *  the corner between them. */
-type Edge = 'side' | 'far' | 'corner';
 /** How long an open waits for the conversation before showing what it has. */
 const LOAD_WAIT_MS = 250;
 /** Where a preview (scripts/preview.sh) says which session to peek at. */
@@ -299,42 +295,21 @@ export function Peek({ kept = false, side = false }: { kept?: boolean; side?: bo
   };
   useViewKeys(away);
 
-  // An edge being dragged: where the pointer went down, and the window's size then.
-  const sizing = useRef<{ edge: Edge; x: number; y: number; w: number; h: number; moved: boolean; frame: number; to: [number, number] } | null>(null);
   const below = open?.below ?? true;
-  const startSize = (edge: Edge) => (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    e.stopPropagation();
-    e.currentTarget.setPointerCapture(e.pointerId);
+  // Its edges size it, the far one being the bottom under the bar and in a kept window, the top
+  // over the bar. Letting go of an edge that made the peek bigger keeps it on the desktop at that
+  // size.
+  const grip = useSizeGrips('ca-peek-grip', {
+    up: !below,
     // With the keyboard it stays up while the pointer runs ahead of its edge, where a peek up
     // from a hover would take the pointer for gone.
-    if (!engaged) void (kept ? keptFocus() : peekFocus());
-    sizing.current = { edge, x: e.screenX, y: e.screenY, w: window.innerWidth, h: window.innerHeight, moved: false, frame: 0, to: [window.innerWidth, window.innerHeight] };
-  };
-  const moveSize = (e: ReactPointerEvent<HTMLDivElement>) => {
-    const d = sizing.current;
-    if (!d) return;
-    const [dx, dy] = [e.screenX - d.x, e.screenY - d.y];
-    if (!d.moved && Math.abs(dx) + Math.abs(dy) < SIZE_AFTER) return;
-    if (!d.moved) setSized(true);
-    d.moved = true;
-    // The far edge is the bottom under the bar and in a kept window, the top over the bar.
-    d.to = [d.edge === 'far' ? d.w : d.w + dx, d.edge === 'side' ? d.h : d.h + (below ? dy : -dy)];
-    if (d.frame) return;
-    d.frame = requestAnimationFrame(() => {
-      d.frame = 0;
-      void (kept ? keptResize(d.to[0], d.to[1]) : peekResize(d.to[0], d.to[1]));
-    });
-  };
-  /** Letting go of an edge that made the peek bigger keeps it on the desktop at that size. */
-  const endSize = () => {
-    const d = sizing.current;
-    sizing.current = null;
-    if (!d?.moved) return;
-    cancelAnimationFrame(d.frame);
-    void (kept ? keptResize(d.to[0], d.to[1]) : peekResize(d.to[0], d.to[1]).then(keepSession)).catch((e: unknown) => host.report.error(errorText(e)));
-  };
+    onStart: () => {
+      if (!engaged) void (kept ? keptFocus() : peekFocus());
+    },
+    onMoved: () => setSized(true),
+    size: (w, h) => void (kept ? keptResize(w, h) : peekResize(w, h)),
+    done: (w, h) => void (kept ? keptResize(w, h) : peekResize(w, h).then(keepSession)).catch((e: unknown) => host.report.error(errorText(e))),
+  });
 
   // The header drags the window, as a card's face drags a card: a kept session's as any window
   // is dragged, and the peek's by the engine (peek.rs), which takes it where the pointer goes and
@@ -414,7 +389,6 @@ export function Peek({ kept = false, side = false }: { kept?: boolean; side?: bo
 
   // The card fills its window once the window has a size of its own: kept, or dragged to one.
   const filled = kept || sized;
-  const grip = (edge: Edge) => <div className={`ca-peek-grip is-${edge}`} onPointerDown={startSize(edge)} onPointerMove={moveSize} onPointerUp={endSize} onPointerCancel={endSize} />;
   if (side) {
     return (
       <div className="ca-peek-root is-kept is-filled" style={{ padding: `${NEAR}px ${MARGIN}px ${FAR}px` }}>

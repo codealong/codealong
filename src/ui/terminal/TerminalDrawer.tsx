@@ -143,7 +143,7 @@ export function TerminalDrawer({ sessionKey, folder, terminals, onLeave }: Termi
           </Button>
         </div>
       )}
-      {open && shown && !away && <TerminalView key={shown.id} id={shown.id} focusAt={drawer.focusAt} onLeave={onLeave} />}
+      {open && shown && !away && <TerminalView key={shown.id} id={shown.id} focusAt={drawer.focusAt} onLeave={onLeave} session={shown.hosts ? undefined : sessionKey} />}
     </section>
   );
 }

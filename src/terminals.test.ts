@@ -71,3 +71,34 @@ describe('whether this window has the keyboard, for a terminal’s size and colo
     expect(t.hasKeys()).toBe(true);
   });
 });
+
+describe('a terminal’s text in a session’s box', () => {
+  it('goes in a code block, without the blank lines at its ends, its fence longer than its backticks', async () => {
+    const { boxedText } = await import('./terminals');
+    expect(boxedText('\n\n  $ ls\n  a  b\n\n')).toEqual({ block: '```\n  $ ls\n  a  b\n```' });
+    expect(boxedText('echo ```hi``` and ````')).toEqual({ block: '`````\necho ```hi``` and ````\n`````' });
+    expect(boxedText(' \n\n')).toBeNull();
+  });
+
+  it('goes as a file past the lines a box takes', async () => {
+    const { boxedText, BOX_LINES } = await import('./terminals');
+    const lines = (n: number) => Array.from({ length: n }, (_, i) => `line ${i}`).join('\n');
+    expect(boxedText(lines(BOX_LINES))).toHaveProperty('block');
+    expect(boxedText(lines(BOX_LINES + 1))).toEqual({ file: `${lines(BOX_LINES + 1)}\n` });
+  });
+
+  it('is added to the end of what’s written to the session, a long one as an attached file', async () => {
+    const { addToBox, BOX_LINES } = await import('./terminals');
+    const api = await import('./api');
+    const drafts = await import('./drafts');
+    const saved = vi.spyOn(api, 'saveAttachment').mockResolvedValue({ kind: 'file', path: 'files/abc/terminal.txt', name: 'terminal.txt' });
+    const added = vi.spyOn(drafts, 'addToDraft').mockImplementation(() => {});
+    expect(await addToBox('s1', 'ok\n')).toBe(true);
+    expect(added).toHaveBeenLastCalledWith('s1', '```\nok\n```');
+    expect(await addToBox('s1', Array.from({ length: BOX_LINES + 5 }, () => 'x').join('\n'))).toBe(true);
+    expect(saved).toHaveBeenCalledWith(expect.any(Blob), 'terminal.txt');
+    expect(added).toHaveBeenLastCalledWith('s1', '[terminal.txt](files/abc/terminal.txt)');
+    expect(await addToBox('s1', '\n')).toBe(false);
+    expect(added).toHaveBeenCalledTimes(2);
+  });
+});

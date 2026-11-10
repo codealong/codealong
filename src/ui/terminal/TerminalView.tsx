@@ -1,10 +1,13 @@
 // One terminal of Codealong's own, drawn and typed into (controller.ts does the work): a canvas
 // for the screen and, over it, a text field nobody sees that holds the keyboard, so an input
 // method composes in it and a paste lands in it with the clipboard's text. It takes the keyboard
-// when its drawer asks (`focusAt`), as a terminal just opened does.
+// when its drawer asks (`focusAt`), as a terminal just opened does. Its right-click menu copies,
+// and for a terminal beside a session, adds the selection or all its text to the session's box
+// (terminals.ts `addToBox`).
 
 import { useEffect, useRef, useState } from 'react';
 import { showContextMenu } from '../../contextMenu';
+import { addToBox } from '../../terminals';
 import { Button } from '../primitives';
 import { TerminalController } from './controller';
 
@@ -14,9 +17,14 @@ export interface TerminalViewProps {
   focusAt: number;
   /** ⌃` in the terminal: the keyboard goes back. */
   onLeave: () => void;
+  /** The session whose box its text can be added to: the one it's beside, not one it hosts. */
+  session?: string;
 }
 
-export function TerminalView({ id, focusAt, onLeave }: TerminalViewProps) {
+/** How long the note that text went into the box stays. */
+const ADDED_MS = 4000;
+
+export function TerminalView({ id, focusAt, onLeave, session }: TerminalViewProps) {
   const wrap = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const field = useRef<HTMLTextAreaElement>(null);
@@ -26,6 +34,12 @@ export function TerminalView({ id, focusAt, onLeave }: TerminalViewProps) {
   const [unsafe, setUnsafe] = useState<string | null>(null);
   const [cursor, setCursor] = useState('text');
   const [failed, setFailed] = useState<string | null>(null);
+  const [added, setAdded] = useState<string | null>(null);
+  useEffect(() => {
+    if (!added) return;
+    const t = window.setTimeout(() => setAdded(null), ADDED_MS);
+    return () => window.clearTimeout(t);
+  }, [added]);
 
   useEffect(() => {
     if (!wrap.current || !canvas.current) return;
@@ -71,12 +85,19 @@ export function TerminalView({ id, focusAt, onLeave }: TerminalViewProps) {
             const c = control.current;
             // A program that takes the mouse gets the right-click itself (`pointer`).
             if (!c || c.takesRightClick(e.nativeEvent)) return;
+            // What it reads goes into the box's text as the session's draft; a selection of
+            // nothing adds nothing, as Copy copies nothing.
+            const toBox = (key: string, all: boolean) =>
+              c.read(all, async (text) => {
+                if (text && (await addToBox(key, text))) setAdded(all ? 'Added all its text to the session’s box.' : 'Added the selection to the session’s box.');
+              });
             void showContextMenu(
               [
                 { label: 'Copy', run: () => c.copy() },
                 { label: 'Select all', run: () => c.selectAll() },
                 'separator',
                 { label: 'Copy all text', run: () => c.copyAll() },
+                ...(session ? (['separator', { label: 'Add to the session’s box', run: () => toBox(session, false) }, { label: 'Add all text to the session’s box', run: () => toBox(session, true) }] as const) : []),
               ],
               { x: e.clientX, y: e.clientY },
             ).catch(() => {
@@ -146,6 +167,11 @@ export function TerminalView({ id, focusAt, onLeave }: TerminalViewProps) {
       {failed && (
         <p className="ca-term-failed" role="status">
           {failed}
+        </p>
+      )}
+      {added && !failed && (
+        <p className="ca-term-added" role="status">
+          {added}
         </p>
       )}
     </div>

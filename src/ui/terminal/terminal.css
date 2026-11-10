@@ -214,6 +214,13 @@
   color: var(--alert);
   font: var(--type-meta);
 }
+/* Where text added to the session's box went, for a moment. */
+.ca-term-added {
+  margin: 0;
+  padding: var(--space-1) var(--space-3);
+  color: var(--ink-2);
+  font: var(--type-meta);
+}
 
 /* Where a terminal popped out into a window of its own was: what it is, and the ways to it. */
 .ca-term-away {
@@ -237,6 +244,33 @@
   border-radius: var(--radius-lg);
   background: var(--surface-sunken);
   box-shadow: var(--shadow-peek);
+}
+/* The edges that size the window (useSizeGrips.tsx): in the room around the card and a little
+   into it, over the margin the terminal keeps inside its edges rather than over the terminal. */
+.ca-termwin-grip {
+  position: fixed;
+  z-index: var(--z-grip);
+}
+.ca-termwin-grip.is-side {
+  top: 24px;
+  right: 2px;
+  bottom: 24px;
+  width: 12px;
+  cursor: ew-resize;
+}
+.ca-termwin-grip.is-far {
+  right: 24px;
+  bottom: 2px;
+  left: 24px;
+  height: 12px;
+  cursor: ns-resize;
+}
+.ca-termwin-grip.is-corner {
+  right: 2px;
+  bottom: 2px;
+  width: 18px;
+  height: 18px;
+  cursor: nwse-resize;
 }
 .ca-termwin-bar {
   flex: none;

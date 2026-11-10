@@ -51,6 +51,13 @@ terminal (`example/ghostling_rs`, the best map of the API), checked by `cargo te
   cells, and a formatter made with `Formatter::new_selection` (None while nothing's selected)
   gives its text (`screen.rs` `selection_text`). The formatter's own `set_selection`, for a
   selection from elsewhere, is `unsafe`: nothing checks it came from that terminal's active screen.
+- A drag whose position is within a pixel of the top of the screen, or past it, or past the
+  bottom (the `Geometry`'s `screen_height`), sets `Gesture::autoscroll` to Up or Down. The library
+  has no timer: each `AutoscrollTickEvent` scrolls exactly one row that way and goes on with the
+  drag at the viewport cell it's given, returning no selection when there's no direction, and
+  resetting the gesture when the cell first pressed has left the active screen. Ghostty ticks
+  every 15 ms (its termio thread's `selection_scroll_ms`) at the pointer's place; release ends it.
+  The terminal's thread ticks here (`screen.rs` `autoscroll`, `AUTOSCROLL_EVERY`).
 - A program that marks a redraw as one (synchronized output, DEC mode 2026, which Claude Code and
   Codex wrap every draw in) calls `on_render_hold` with true as it starts and false as it ends (or
   on a reset or a resize); a renderer keeps the last finished frame meanwhile and gives up after a
@@ -78,6 +85,12 @@ terminal (`example/ghostling_rs`, the best map of the API), checked by `cargo te
   targets it passes `-Dtarget` (x86_64 macOS builds from an arm64 Mac, 2026-11-03).
 
 ## Unchecked
+
+- 2026-11-09, in the real app: a drag past a terminal's top or bottom scrolling on (that WKWebView
+  sends the canvas the moves outside it while the button's held, in the drawer and a popped-out
+  window), and a popped-out terminal's window sized by its edges. The preview shows the move sent
+  from past the edge, the sizes asked for and the menu's Add to the session's box
+  (`terminal-box-check.js`); the scrolling itself is tested in the engine (`screen.rs`).
 
 - 2026-11-04, in the real app: a session started and resumed in Codealong's terminal
   (`[apps] terminal = "codealong"`) shown in its panel, Show in and the waiting window's answers

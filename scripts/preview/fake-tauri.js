@@ -916,6 +916,9 @@ window.__TAURI_INTERNALS__ = {
       return Promise.resolve(!pasted);
     }
     if (cmd === 'terminal_copy') return Promise.resolve('npm test');
+    // Everything a terminal holds, scrollback included: what a check put in `__terminalText`,
+    // else a short one.
+    if (cmd === 'terminal_text') return Promise.resolve(window.__terminalText != null ? window.__terminalText : '$ npm test\n\n  12 passed\n');
     // Popping one out into a window of its own (kept.rs `pop_terminal`), and putting it back.
     if (cmd === 'terminal_window') {
       window.__poppedTerminals = (window.__poppedTerminals || []).filter(function (id) { return id !== (args || {}).id; }).concat([(args || {}).id]);

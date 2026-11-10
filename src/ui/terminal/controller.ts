@@ -38,8 +38,9 @@ export interface Hooks {
   onPointer: (cursor: string) => void;
 }
 
-/** What waits to go to the server, in order: inputs that go together, or a paste. */
-type Sending = { kind: 'inputs'; inputs: TerminalInput[] } | { kind: 'paste'; text: string; force: boolean } | { kind: 'copy'; all: boolean };
+/** What waits to go to the server, in order: inputs that go together, a paste, or a read of the
+ *  selection's text (everything's with `all`) for `then`, whose failure is said as a call's is. */
+type Sending = { kind: 'inputs'; inputs: TerminalInput[] } | { kind: 'paste'; text: string; force: boolean } | { kind: 'read'; all: boolean; then: (text: string | null) => unknown };
 
 interface Measured extends Metrics {
   font: Font;
@@ -250,7 +251,7 @@ export class TerminalController {
           ? terminalPaste(this.id, next.text, next.force).then((pasted) => {
               if (!pasted) this.hooks.onUnsafePaste(next.text);
             })
-          : (next.all ? terminalText(this.id) : terminalCopy(this.id)).then((text) => (text ? navigator.clipboard.writeText(text) : undefined));
+          : (next.all ? terminalText(this.id) : terminalCopy(this.id)).then(next.then);
     sent
       .catch((e: unknown) => this.hooks.onError(String(e)))
       .finally(() => {
@@ -297,17 +298,21 @@ export class TerminalController {
     }
   }
 
-  /** Copies the selection, as it is once what came before (a click, Select all) has reached the
-   *  terminal. */
-  copy(): void {
-    this.queue.push({ kind: 'copy', all: false });
+  /** The selection's text, or with `all` everything the terminal holds, scrollback included, for
+   *  `then`: as it is once what came before (a click, Select all) has reached the terminal. */
+  read(all: boolean, then: (text: string | null) => unknown): void {
+    this.queue.push({ kind: 'read', all, then });
     this.flush();
   }
 
-  /** Copies everything the terminal holds, scrollback included. */
+  /** Copies the selection. */
+  copy(): void {
+    this.read(false, (text) => (text ? navigator.clipboard.writeText(text) : undefined));
+  }
+
+  /** Copies everything the terminal holds. */
   copyAll(): void {
-    this.queue.push({ kind: 'copy', all: true });
-    this.flush();
+    this.read(true, (text) => (text ? navigator.clipboard.writeText(text) : undefined));
   }
 
   selectAll(): void {

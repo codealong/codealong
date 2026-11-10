@@ -18,7 +18,7 @@ use libghostty_vt::mouse;
 use libghostty_vt::paste;
 use libghostty_vt::render::{CellIterator, CursorVisualStyle, Dirty, RenderState, RowIterator};
 use libghostty_vt::screen::CellWide;
-use libghostty_vt::selection::gesture::{DragEvent, Geometry, Gesture, PressEvent, ReleaseEvent};
+use libghostty_vt::selection::gesture::{Autoscroll, AutoscrollTickEvent, DragEvent, Geometry, Gesture, PressEvent, ReleaseEvent};
 use libghostty_vt::style::{Palette, RgbColor, StyleColor, Underline};
 use libghostty_vt::terminal::{ClipboardMime, ColorScheme, Mode, Point, PointCoordinate, ScrollViewport, SizeReportSize, Terminal};
 use serde::{Deserialize, Serialize};
@@ -32,6 +32,12 @@ pub const TERM: &str = "xterm-256color";
 const SCROLLBACK_LINES: usize = 10_000;
 /// How long two clicks may be apart to count as a double click, as macOS's default.
 const CLICK_INTERVAL: Duration = Duration::from_millis(500);
+/// How often a selection dragged past the top or bottom scrolls the view a row on, as Ghostty
+/// does (its termio thread's `selection_scroll_ms`).
+pub const AUTOSCROLL_EVERY: Duration = Duration::from_millis(15);
+/// The most rows a selection dragged far past the edge scrolls in one tick: a row more for each
+/// two rows' height the pointer is beyond it, so a long way back comes quicker than Ghostty's one.
+const AUTOSCROLL_MOST: u32 = 8;
 
 /// The most of a sequence still being read that a snapshot keeps: more than any a program sends
 /// whole (a long title, a hyperlink), so one cut partway goes on in the server it's handed to.
@@ -282,6 +288,11 @@ pub struct Screen {
     press: PressEvent<'static>,
     release: ReleaseEvent<'static>,
     drag: DragEvent<'static>,
+    tick: AutoscrollTickEvent<'static>,
+    /// Where the pointer was as a selection was last dragged, and whether Option made it a
+    /// rectangle: a selection dragged past the top or bottom goes on from there as the view
+    /// scrolls (`autoscroll`).
+    dragged_at: Option<(f64, f64, bool)>,
     /// When the screen was made: a click's time is counted from it.
     born: Instant,
     /// The buttons held, which a drag goes by.
@@ -361,6 +372,8 @@ impl Screen {
             press,
             release: ReleaseEvent::new()?,
             drag: DragEvent::new()?,
+            tick: AutoscrollTickEvent::new()?,
+            dragged_at: None,
             born: Instant::now(),
             held: Vec::new(),
             selecting: false,
@@ -593,10 +606,61 @@ impl Screen {
     }
 
     fn point(&self, x: f64, y: f64) -> Point {
+        Point::Viewport(self.cell(x, y))
+    }
+
+    /// The cell of the view at a pointer's position, the nearest one when it's outside.
+    fn cell(&self, x: f64, y: f64) -> PointCoordinate {
         let s = self.size.get();
         let col = (x / f64::from(s.cell_width.max(1))).floor().clamp(0.0, f64::from(s.cols.saturating_sub(1)));
         let row = (y / f64::from(s.cell_height.max(1))).floor().clamp(0.0, f64::from(s.rows.saturating_sub(1)));
-        Point::Viewport(PointCoordinate { x: col as u16, y: row as u32 })
+        PointCoordinate { x: col as u16, y: row as u32 }
+    }
+
+    /// The screen as a selection's drag measures it: past its height, the drag scrolls.
+    fn geometry(&self) -> Geometry {
+        let s = self.size.get();
+        Geometry { columns: s.cols.into(), cell_width: u32::from(s.cell_width), padding_left: 0, screen_height: u32::from(s.rows) * u32::from(s.cell_height) }
+    }
+
+    /// Whether a selection is being dragged past the top or bottom, which scrolls the view on
+    /// (`autoscroll`) for as long as the button's held there, as in Ghostty.
+    pub fn autoscrolling(&self) -> bool {
+        self.selecting && self.dragged_at.is_some() && matches!(self.gesture.autoscroll(&self.term), Ok(Autoscroll::Up | Autoscroll::Down))
+    }
+
+    /// Scrolls the view toward where a selection is being dragged past the top or bottom, and
+    /// takes the selection on to the row that comes into view there: a row, and a row more for
+    /// each two rows' height the pointer is beyond the edge. libghostty has no timer of its own:
+    /// the terminal's thread calls this every `AUTOSCROLL_EVERY` while `autoscrolling`. Once the
+    /// view is as far as it goes, it stops until the pointer moves again, so a button let go
+    /// where no window heard it (a window closed mid-drag) doesn't tick on for good.
+    pub fn autoscroll(&mut self) {
+        let Some((x, y, rectangle)) = self.dragged_at else { return };
+        let offset = |term: &Terminal| term.scrollbar().map(|s| s.offset).ok();
+        let was = offset(&self.term);
+        let s = self.size.get();
+        let height = f64::from(s.rows) * f64::from(s.cell_height);
+        let beyond = if y < 0.0 { -y } else { (y - height).max(0.0) };
+        let rows = (1 + (beyond / (2.0 * f64::from(s.cell_height.max(1)))) as u32).min(AUTOSCROLL_MOST);
+        let (at, geometry) = (self.cell(x, y), self.geometry());
+        for _ in 0..rows {
+            let Ok(tick) = self.tick.set_rectangle(rectangle).and_then(|t| t.set_position(x, y)) else { return };
+            match tick.apply(&mut self.gesture, &self.term, at, geometry) {
+                Ok(Some(sel)) => {
+                    let _ = self.term.set_selection(Some(&sel));
+                }
+                // Nothing to scroll toward any more, or the row the drag began on has gone from
+                // the screen (a program cleared it): the selection stays as it was.
+                _ => {
+                    self.dragged_at = None;
+                    return;
+                }
+            }
+        }
+        if offset(&self.term) == was {
+            self.dragged_at = None;
+        }
     }
 
     fn mouse(&mut self, action: MouseAction, button: Option<MouseButton>, x: f64, y: f64, mods4: Mods4) {
@@ -613,6 +677,7 @@ impl Screen {
                 }
                 if button == Some(MouseButton::Left) && selects {
                     self.selecting = true;
+                    self.dragged_at = None;
                     let s = self.size.get();
                     let point = self.point(x, y);
                     if let Ok(grid) = self.term.grid_ref(point) {
@@ -630,6 +695,7 @@ impl Screen {
                 self.held.retain(|b| Some(*b) != button);
                 if button == Some(MouseButton::Left) && self.selecting {
                     self.selecting = false;
+                    self.dragged_at = None;
                     let grid = self.term.grid_ref(self.point(x, y)).ok();
                     let _ = self.release.apply(&mut self.gesture, &self.term, grid);
                     return;
@@ -637,11 +703,14 @@ impl Screen {
             }
             MouseAction::Move => {
                 if self.selecting {
-                    let s = self.size.get();
+                    let geometry = self.geometry();
+                    // Option drags a rectangle, as in Ghostty on macOS.
+                    let rectangle = mods.contains(Mods::ALT);
+                    // Past the top or bottom (the window keeps sending moves there while the
+                    // button's held), the drag scrolls on from here (`autoscroll`).
+                    self.dragged_at = Some((x, y, rectangle));
                     if let Ok(grid) = self.term.grid_ref(self.point(x, y)) {
-                        let geometry = Geometry { columns: s.cols.into(), cell_width: u32::from(s.cell_width), padding_left: 0, screen_height: u32::from(s.rows) * u32::from(s.cell_height) };
-                        // Option drags a rectangle, as in Ghostty on macOS.
-                        if let Ok(drag) = self.drag.set_rectangle(mods.contains(Mods::ALT)).and_then(|d| d.set_position(x, y)) {
+                        if let Ok(drag) = self.drag.set_rectangle(rectangle).and_then(|d| d.set_position(x, y)) {
                             if let Ok(sel) = drag.apply(&mut self.gesture, &self.term, grid, geometry) {
                                 let _ = self.term.set_selection(sel.as_ref());
                             }
@@ -1177,6 +1246,39 @@ mod tests {
         let f = s.frame("t", true).unwrap();
         let selected: String = f.lines[0].runs.iter().filter(|r| f.looks[usize::from(r.look)].flags & SELECTED != 0).flat_map(|r| r.cells.clone()).collect();
         assert_eq!(selected, "two");
+        assert!(s.take_out().is_empty(), "nothing went to the program");
+    }
+
+    /// A selection dragged past the top scrolls back through the scrollback as the terminal's
+    /// thread ticks, a row and more the farther past it is, and stops once there's no more.
+    #[test]
+    fn a_drag_past_the_top_scrolls_and_selects_what_comes_into_view() {
+        let (mut s, _) = screen();
+        for i in 0..20 {
+            s.feed(format!("line {i}\r\n").as_bytes());
+        }
+        // 4 rows of 16 px: the view shows lines 17 to 19 and the prompt's empty row.
+        let mouse = |action, y: f64| Input::Mouse { action, button: Some(MouseButton::Left), x: 1.0, y, mods: Mods4::default() };
+        s.input(&mouse(MouseAction::Down, 40.0));
+        s.input(&mouse(MouseAction::Move, 20.0));
+        assert!(!s.autoscrolling(), "inside the screen, nothing scrolls");
+        s.input(&mouse(MouseAction::Move, -2.0));
+        assert!(s.autoscrolling());
+        s.autoscroll();
+        assert_eq!(s.selection_text().as_deref(), Some("line 16\nline 17\nline 18"), "a row just past the top scrolls one");
+        // Four rows' height past it scrolls three a tick.
+        s.input(&mouse(MouseAction::Move, -64.0));
+        s.autoscroll();
+        assert!(s.selection_text().unwrap().starts_with("line 13\n"), "{:?}", s.selection_text());
+        let mut ticks = 0;
+        while s.autoscrolling() && ticks < 50 {
+            s.autoscroll();
+            ticks += 1;
+        }
+        assert!(!s.autoscrolling(), "it stops at the top of the scrollback");
+        s.input(&mouse(MouseAction::Up, -64.0));
+        let text = s.selection_text().unwrap();
+        assert!(text.starts_with("line 0\n") && text.ends_with("line 18"), "{text:?}");
         assert!(s.take_out().is_empty(), "nothing went to the program");
     }
 

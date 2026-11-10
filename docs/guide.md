@@ -2821,9 +2821,15 @@ when it failed. Drag the drawer's top edge to make it taller; it stays that tall
 The terminal is a real one: your login shell, with your profile, aliases and sign-ins, full-screen
 programs, colors, the mouse where a program asks for it (Shift selects anyway), and Ghostty's own
 emulator underneath, so what runs in Ghostty runs here. Drag to select, double-click a word,
-triple-click a line; ⌘C copies the selection, ⌘V pastes (a paste with line breaks into a shell
-that would run each line asks first), ⌘A selects everything, and ⌘-click opens a web address.
-A right-click has Copy, Select all and Copy all text, which copies its scrollback too. ⌘ keys stay
+triple-click a line; dragging past the top or bottom scrolls on and keeps selecting, faster the
+farther past it you hold the pointer, as in Ghostty. ⌘C copies the selection, ⌘V pastes (a paste
+with line breaks into a shell that would run each line asks first), ⌘A selects everything, and
+⌘-click opens a web address. A right-click has Copy, Select all and Copy all text, which copies its
+scrollback too, and Add to the session's box and Add all text to the session's box, which put the
+selection or everything it holds at the end of what you're writing to the session, for you to say
+what it's for and send: what you ran yourself in a tab an agent's command opened, say. Up to 40
+lines go in as a code block; more go as a text file attached to the box, which the agent reads.
+Nothing goes to the session until you send it. ⌘ keys stay
 Codealong's; ⌃ and ⌥ go to the program. On Linux copy and paste are Ctrl+Shift+C and V, and Ctrl
 alone goes to the program. So in the notch, with a terminal holding the keyboard, Escape goes to
 the program (Claude Code's interrupt, say) rather than putting the notch away: ⌘W puts it away,
@@ -2834,7 +2840,8 @@ takes from the window you're in; the other draws it as it is until you come back
 The picture-in-picture button beside the chevron pops the terminal shown out into a window of its
 own, beside the main window, floating over every window as a kept session does; the drawer then
 says where it is, with a way to show its window or put it back. The window's strip drags it and
-has the same ways back. Terminals are drawn in Codealong's colors, light or dark as the app is,
+has the same ways back, and its right and bottom edges and the corner between them size it; it
+opens at that size and place again after a relaunch. Terminals are drawn in Codealong's colors, light or dark as the app is,
 and programs that ask for the colors are told them.
 
 A terminal belongs to its session: marking the session done or archiving it closes its

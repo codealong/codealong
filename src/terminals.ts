@@ -6,10 +6,16 @@
 //
 // A terminal is drawn in the window's own colors, the `term-*` tokens, which the server is told
 // (`themeOf`) so programs that ask for the colors get them.
+//
+// What a terminal beside a session shows can go to the session: its selection, or all its text,
+// into the session's box (`addToBox`), for you to say what it's for and send. It's never sent
+// without you: the shell there is yours, and so is what it printed.
 
 import { useSyncExternalStore } from 'react';
-import { inTauri, onTerminalWindows, onWindowKeys, terminalOpen, terminalWindows, windowKeys } from './api';
+import { inTauri, onTerminalWindows, onWindowKeys, saveAttachment, terminalOpen, terminalWindows, windowKeys } from './api';
 import { shortOf } from './devices';
+import { addToDraft } from './drafts';
+import { attachmentRef } from './todos';
 import type { TerminalGlance, TerminalSize, TerminalTheme } from './types';
 
 /** A session's drawer: open or folded to its tabs, the tab shown, and when it last asked for the
@@ -242,6 +248,33 @@ export function ownTerminalFor(key: string, folder: string, runIn: string | unde
   if (runIn === 'terminal' || shortOf(key)) return undefined;
   const list = terminals ?? [];
   return { has: list.length > 0, run: () => void showTerminal(key, folder, list).catch(failed) };
+}
+
+/** The most lines of a terminal's text that go into a session's box as they are; more go as a
+ *  file attached to it, which keeps the box short, and which the agent reads whole. */
+export const BOX_LINES = 40;
+
+/** How a terminal's text goes into a session's box (`addToBox`): in a code block whose fence is
+ *  longer than any run of backticks in it, or past `BOX_LINES` as a file's text. Blank lines at
+ *  either end are left out; null when nothing's left. */
+export function boxedText(text: string): { block: string } | { file: string } | null {
+  const t = text.replace(/^(?:[ \t]*\n)+/, '').trimEnd();
+  if (!t) return null;
+  if (t.split('\n').length > BOX_LINES) return { file: `${t}\n` };
+  const longest = Math.max(0, ...(t.match(/`+/g) ?? []).map((run) => run.length));
+  const fence = '`'.repeat(Math.max(3, longest + 1));
+  return { block: `${fence}\n${t}\n${fence}` };
+}
+
+/** Adds a terminal's text to the end of a session's box: the box in this window takes the
+ *  cursor, and the session's box shows it in every other window (drafts.ts). False when there was
+ *  nothing to add. */
+export async function addToBox(key: string, text: string): Promise<boolean> {
+  const boxed = boxedText(text);
+  if (!boxed) return false;
+  const words = 'block' in boxed ? boxed.block : attachmentRef(await saveAttachment(new Blob([boxed.file], { type: 'text/plain' }), 'terminal.txt'));
+  addToDraft(key, words);
+  return true;
 }
 
 /** Opens a terminal for a session in `folder`, a shell or `command`, and shows it in the session's

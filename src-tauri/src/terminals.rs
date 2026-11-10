@@ -867,6 +867,7 @@ fn run(id: &str, pid: u32, master: OwnedFd, how: How, rx: Receiver<Msg>, out: Se
     let mut dirty = true;
     let mut last_frame = Instant::now() - FRAME_EVERY;
     let mut last_look = Instant::now();
+    let mut last_scroll = Instant::now();
     let mut running = true;
     loop {
         let now = Instant::now();
@@ -877,6 +878,8 @@ fn run(id: &str, pid: u32, master: OwnedFd, how: How, rx: Receiver<Msg>, out: Se
         } else {
             LOOK_EVERY
         };
+        // A selection dragged past the top or bottom scrolls the view on a timer of this loop's.
+        let wait = if screen.autoscrolling() { wait.min(screen::AUTOSCROLL_EVERY.saturating_sub(last_scroll.elapsed())) } else { wait };
         let first = match rx.recv_timeout(wait) {
             Ok(m) => Some(m),
             Err(RecvTimeoutError::Timeout) => None,
@@ -1088,6 +1091,11 @@ fn run(id: &str, pid: u32, master: OwnedFd, how: How, rx: Receiver<Msg>, out: Se
             let front = pty::foreground(master.as_raw_fd()).filter(|g| *g != pid);
             let program = front.and_then(|g| crate::procs::parent_and_name(g).map(|(_, name)| name));
             update(id, |g| g.program = program);
+        }
+        if screen.autoscrolling() && last_scroll.elapsed() >= screen::AUTOSCROLL_EVERY {
+            last_scroll = Instant::now();
+            screen.autoscroll();
+            dirty = true;
         }
         let now = Instant::now();
         watchers.retain(|_, until| *until > now);
