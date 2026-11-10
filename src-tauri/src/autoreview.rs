@@ -506,6 +506,18 @@ impl Tracked {
         self.sessions.values().map(String::as_str).chain(parts)
     }
 
+    /// The sessions its rounds asked that none goes to again: another session has the reviewer's
+    /// place since (`ask` started one afresh where this one couldn't be sent a round, as one left
+    /// at a prompt of its harness's can't, or was at its limit), and its latest round wasn't
+    /// theirs, which a round taken up again goes back to (`take_up`). Nothing of theirs is read
+    /// or waited on, so they're marked done (reviewdone.rs), for the PR's card (`apply`).
+    fn replaced(&self) -> Vec<String> {
+        let latest = self.rounds.last().into_iter().flat_map(|r| &r.parts).filter_map(|p| p.session.as_deref());
+        let kept: HashSet<&str> = self.sessions.values().map(String::as_str).chain(latest).collect();
+        let gone: BTreeSet<&str> = self.rounds.iter().flat_map(|r| &r.parts).filter_map(|p| p.session.as_deref()).filter(|k| !kept.contains(k)).collect();
+        gone.into_iter().map(String::from).collect()
+    }
+
     /// The commit its last review that got done was of, for what changed since.
     fn done_head(&self) -> Option<&str> {
         self.rounds.iter().rev().find(|r| matches!(r.stage, ReviewStage::Posted | ReviewStage::Drafted | ReviewStage::Kept)).map(|r| r.head.as_str())
@@ -1891,8 +1903,9 @@ pub fn apply(prs: &mut [PrItem], store: &Store, global: &ReviewsCfg, sessions: &
                 sent_at: r.sent.as_ref().filter(|s| s.failed.is_none()).map(|s| s.at),
                 sendable: (own && r.stage == ReviewStage::Kept).then(|| origin(lanes, pr)).flatten().filter(|(_, s)| can_take(s)).map(|(_, s)| s.key.clone()),
                 machine: None,
+                replaced: t.replaced(),
             }),
-            None if wants_review => Some(AutoReview { stage: if blocked { ReviewStage::Skipped } else { ReviewStage::Queued }, head, parts: Vec::new(), at: since, comment: None, note: blocked.then(|| FLAGGED_REVIEW.into()), rounds: 0, behind: false, holds, own, sent: None, sent_at: None, sendable: None, suggests: None, approves: None, submitted: None, submitted_at: None, machine: None }),
+            None if wants_review => Some(AutoReview { stage: if blocked { ReviewStage::Skipped } else { ReviewStage::Queued }, head, parts: Vec::new(), at: since, comment: None, note: blocked.then(|| FLAGGED_REVIEW.into()), rounds: 0, behind: false, holds, own, sent: None, sent_at: None, sendable: None, suggests: None, approves: None, submitted: None, submitted_at: None, machine: None, replaced: Vec::new() }),
             None => None,
         };
     }
@@ -1940,6 +1953,7 @@ fn elsewhere(head: &str, m: &Machine, r: Option<&codealong_peer::pr::AutoReview>
         submitted: r.and_then(|r| r.submitted).map(Into::into),
         submitted_at: None,
         machine: Some(m.name.clone()),
+        replaced: Vec::new(),
     }
 }
 
@@ -4175,6 +4189,43 @@ mod tests {
         assert!(r.due(&waits(NEXT), &on(), NOW + 8).is_empty());
         assert!(r.due(&waits(NEXT), &on(), NOW + 8 + RETRY_MS).is_empty());
         assert_eq!(r.store.prs["o/r#7"].rounds[0].stage, ReviewStage::Failed);
+    }
+
+    /// A session another took the reviewer's place of is one no round goes to again, which the
+    /// PR's card has for it to be marked done (reviewdone.rs): the next round started afresh where
+    /// it couldn't be sent to it. Not the one the place is kept for, another reviewer's beside it,
+    /// nor the latest round's, which a round taken up again goes back to.
+    #[test]
+    fn a_session_another_took_the_reviewers_place_of_is_replaced() {
+        const AFRESH: &str = "cursor:cursor:afresh";
+        let round = |head: &str, who: &str, key: &str, stage: ReviewStage, at: i64| Round { parts: vec![started(who, key, at)], ..Round::new(head, stage, at) };
+        let mut t = Tracked::default();
+        t.rounds.push(round(HEAD, AUTO, S, ReviewStage::Kept, NOW));
+        t.sessions.insert(AUTO.into(), S.into());
+        assert!(t.replaced().is_empty());
+        // Asked by hand of another reviewer, in a session of its own: both keep their places.
+        t.rounds.push(round(HEAD, "codex", "codex:codex:hand", ReviewStage::Kept, NOW + 1));
+        t.sessions.insert("codex".into(), "codex:codex:hand".into());
+        assert!(t.replaced().is_empty());
+        // The next round started afresh.
+        t.rounds.push(round(NEXT, AUTO, AFRESH, ReviewStage::Reviewing, NOW + 2));
+        t.sessions.insert(AUTO.into(), AFRESH.into());
+        assert_eq!(t.replaced(), [S]);
+        let mut r = Reviewer::default();
+        r.store.prs.insert("o/r#7".into(), t.clone());
+        let b = board(vec![pr(7, NEXT)], vec![]);
+        let mut prs = b.prs.clone();
+        apply(&mut prs, &r.store, &on(), &b.sessions, &Default::default(), &b.lanes, &Default::default(), NOW + 3);
+        assert_eq!(prs[0].auto_review.as_ref().unwrap().replaced, [S]);
+        // A start that named no session yet has no one's place: the one kept for it still has it.
+        let mut starting = t.clone();
+        starting.rounds.push(Round { parts: vec![Part::asked(AUTO, None, None, NOW + 4)], ..Round::new(NEXT, ReviewStage::Reviewing, NOW + 4) });
+        assert_eq!(starting.replaced(), [S]);
+        // Its latest round's session isn't replaced while the round is its own.
+        let mut latest = Tracked::default();
+        latest.rounds.push(round(HEAD, AUTO, S, ReviewStage::Failed, NOW));
+        latest.sessions.insert(AUTO.into(), AFRESH.into());
+        assert!(latest.replaced().is_empty());
     }
 
     /// Cursor's command line at its permission prompt writes nothing and reads as working: two

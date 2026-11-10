@@ -519,6 +519,11 @@ pub struct AutoReview {
     /// on one of them (autoreview.rs `reviewer_of`), and the others show its round.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub machine: Option<String>,
+    /// The sessions its earlier rounds asked that no round goes to again, another having the
+    /// reviewer's place since (autoreview.rs `Tracked::replaced`): they're done with
+    /// (reviewdone.rs). The engine's own, which no window is sent.
+    #[serde(skip)]
+    pub replaced: Vec<String>,
 }
 
 /// Where the reviewer's part in a round stands (autoreview.rs).

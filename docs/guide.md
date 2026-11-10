@@ -1230,8 +1230,10 @@ starts, is closed). Nobody marks a review's session done, so Codealong does: onc
 or closed, it's marked done as Mark as done does (ended where it runs, and archived), and so is one
 whose PR the board no longer lists (a repo whose PRs aren't read hears only of those waiting on your
 review) once it has sat unused six hours; while the PR is open, one that has sat unused six hours
-with no round of the PR under way or due is ended, for the next round to go on with. Neither touches one you've sent a message to or made your
-own, one at work, or one waiting on you. A review whose turn is cut
+with no round of the PR under way or due is ended, for the next round to go on with. One a new
+session took the place of (it couldn't be handed the new commits, or its account was at its limit)
+is marked done too, since no round goes to it again. None of this touches one you've sent a message to or made your
+own, one at work, or one waiting on you where it runs. A review whose turn is cut
 off partway (see *Cut off*: Codealong restarting cuts off the reviews it runs) is told to carry on
 the same way, four times at most before its round is given up on; one you stop ends its round
 without a review. One whose turn stops on an error its harness recorded (Cursor's agent giving up

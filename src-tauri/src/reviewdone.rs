@@ -19,6 +19,11 @@
 //!   marked done once no round of its PR is under way or due, without waiting for another to
 //!   start: no round goes to it again, and none may start (a PR whose request you answered asks
 //!   for no more).
+//! - once its PR's rounds go to another session (autoreview.rs `Tracked::replaced`: one started
+//!   in its place where it couldn't be sent a round, as one left at a prompt of its harness's
+//!   can't, or was at its limit), it's marked done the same way: no round goes to it again. Left
+//!   as it was, one whose terminal was closed at its prompt stayed listed under the session it
+//!   reviewed for, and brought that one into Needs you once it was tagged as asking.
 //!
 //! None touches one you've taken up (`Helper::yours`; one made your own is no helper), one at
 //! work or with a command left running, or one waiting on you, and each is judged again on the
@@ -60,7 +65,8 @@ pub enum Why {
     Unlisted,
     /// It sat unused while its PR is open: ended, and kept for its PR's next round.
     Idle,
-    /// Its turn stopped on an error, and its review went on in another session: marked done.
+    /// Its review went on in another session, after its turn stopped on an error or where it
+    /// couldn't be sent a round: marked done.
     Replaced,
     /// Its turn stopped on an error its harness recorded, and no round of its PR is under way or
     /// due: no round goes to it again (autoreview.rs `past_error`), so it's marked done.
@@ -83,14 +89,20 @@ pub struct Due {
 
 /// What a review's PR says of its sessions, as the board lists it.
 #[derive(Debug, Clone, Copy, PartialEq)]
-struct PrNow {
+struct PrNow<'a> {
     ended: bool,
     /// A round of it is under way, or due for commits its review hasn't seen.
     round: bool,
+    /// The sessions its rounds no longer go to (`AutoReview::replaced`).
+    replaced: &'a [String],
 }
 
-fn pr_now(p: &PrItem) -> PrNow {
-    PrNow { ended: !p.state.is_open(), round: p.auto_review.as_ref().is_some_and(|a| a.stage == ReviewStage::Reviewing || a.behind) }
+fn pr_now(p: &PrItem) -> PrNow<'_> {
+    PrNow {
+        ended: !p.state.is_open(),
+        round: p.auto_review.as_ref().is_some_and(|a| a.stage == ReviewStage::Reviewing || a.behind),
+        replaced: p.auto_review.as_ref().map_or(&[], |a| a.replaced.as_slice()),
+    }
 }
 
 /// The sessions last asked to end, with when, so one is asked once until `AGAIN_MS` is up.
@@ -129,7 +141,9 @@ impl Finisher {
 /// PR is gone only once `read`), is done with now, if it is.
 fn why(board: &Board, s: &Session, pr: Option<PrNow>, read: bool, now: i64) -> Option<Why> {
     let h = s.helper.as_ref()?;
-    let replaced = s.status == Status::Error && replaced(board, s);
+    // Its PR's rounds go to another session now, as autoreview.rs has it, or one took over the
+    // round its turn stopped in on an error, as the board shows it.
+    let replaced = pr.is_some_and(|p| p.replaced.contains(&s.key)) || s.status == Status::Error && replaced(board, s);
     // A round under way may be the one its turn stopped in, which autoreview.rs fails, or retries
     // elsewhere, on its next look. One due may be kept from it only by the error it shows
     // (`past_error`, after a round that made way for new commits before its turn stopped), which
@@ -238,8 +252,8 @@ mod tests {
         Board { lanes: vec![fixtures::lane("/r", sessions)], ..Board::default() }
     }
 
-    fn prs(ended: bool, round: bool) -> HashMap<String, PrNow> {
-        HashMap::from([(PR.to_string(), PrNow { ended, round })])
+    fn prs(ended: bool, round: bool) -> HashMap<String, PrNow<'static>> {
+        HashMap::from([(PR.to_string(), PrNow { ended, round, replaced: &[] })])
     }
 
     fn due(b: &Board, prs: &HashMap<String, PrNow>) -> Vec<(String, Why)> {
@@ -337,6 +351,33 @@ mod tests {
         assert!(replaced(yours).is_empty(), "taken up");
         assert!(replaced(Session { background: Some("npm test".into()), ..errored.clone() }).is_empty(), "a command left running");
         assert!(replaced(Session { status: Status::Idle, ..errored }).is_empty(), "no error: the usual rules");
+    }
+
+    /// One its PR's rounds no longer go to is marked done, whatever its PR and whether or not it
+    /// still runs: Codealong closed a reviewer's terminal at a prompt it couldn't be sent a round
+    /// past and started another in its place, and the old one stayed listed under the session it
+    /// reviewed for, bringing that into Needs you once it was tagged as asking (2026-11-10). Not
+    /// while it's at work or waits on you where it runs, nor once you've taken it up.
+    #[test]
+    fn a_review_its_pr_no_longer_goes_to_is_done() {
+        let gone = ["rev-a".to_string()];
+        let passed = |round: bool| HashMap::from([(PR.to_string(), PrNow { ended: false, round, replaced: &gone })]);
+        let closed = Session { live: false, status: Status::Unread, ..review("rev-a", 60_000) };
+        let b = board(vec![closed.clone(), review("rev-b", 0)]);
+        assert_eq!(due(&b, &passed(false)), keys(&[("rev-a", Why::Replaced)]));
+        assert_eq!(due(&b, &passed(true)), keys(&[("rev-a", Why::Replaced)]), "a round under way or due is the other's");
+        assert!(due(&b, &prs(false, false)).is_empty(), "its PR's rounds still go to it");
+        let tagged = Session { status: Status::Needs, asks: true, ..closed.clone() };
+        assert_eq!(due(&board(vec![tagged]), &passed(false)), keys(&[("rev-a", Why::Replaced)]), "tagged as asking, with nothing running it");
+        assert_eq!(due(&board(vec![review("rev-a", 60_000)]), &passed(false)), keys(&[("rev-a", Why::Replaced)]), "still running, at rest");
+        assert!(due(&board(vec![Session { archived: true, ..closed.clone() }]), &passed(false)).is_empty(), "done with already");
+
+        for (status, what) in [(Status::Working, "at work"), (Status::Needs, "waiting on you where it runs")] {
+            assert!(due(&board(vec![Session { status, ..review("rev-a", 60_000) }]), &passed(false)).is_empty(), "{what}");
+        }
+        let mut yours = closed;
+        yours.helper.as_mut().unwrap().yours = true;
+        assert!(due(&board(vec![yours]), &passed(false)).is_empty(), "taken up");
     }
 
     /// One whose turn stopped on an error its harness recorded is marked done once no round of its

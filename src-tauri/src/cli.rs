@@ -8733,7 +8733,7 @@ mod tests {
     fn says_where_a_prs_agent_review_stands_as_its_card_does() {
         use crate::model::{AutoReview, PartState, ReviewPart, ReviewStage};
         let part = ReviewPart { who: "reviewers".into(), session: Some("cursor:cursor:c1".into()), state: PartState::Done, note: None };
-        let r = AutoReview { stage: ReviewStage::Drafted, head: "1c1706be2657c978".into(), parts: vec![part], at: 0, comment: None, note: None, rounds: 1, behind: false, holds: false, own: false, sent: None, sent_at: None, sendable: None, suggests: None, approves: None, submitted: None, submitted_at: None, machine: None };
+        let r = AutoReview { stage: ReviewStage::Drafted, head: "1c1706be2657c978".into(), parts: vec![part], at: 0, comment: None, note: None, rounds: 1, behind: false, holds: false, own: false, sent: None, sent_at: None, sendable: None, suggests: None, approves: None, submitted: None, submitted_at: None, machine: None, replaced: Vec::new() };
         let at = Some("1c1706be2657c978");
         assert_eq!(review_line(&r, at), "Agent drafted a review of 1c1706b, reviewers in cursor:cursor:c1");
         // A draft submitted for you keeps its stage, and says what it went as.
