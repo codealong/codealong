@@ -22,7 +22,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use crate::model::{Board, Harness, Lane, Session, Status, Surface};
+use crate::model::{Board, Harness, Lane, Runs, Session, Status};
 use crate::util::DAY_MS;
 
 /// Jev's likelihood that a reply asks you something, from which the session stays. Lower than
@@ -163,18 +163,15 @@ pub fn plan(board: &Board, now: i64, after_ms: i64, archive: bool, closable: imp
             if s.visitor.is_some() || !s.live || !seen.insert(s.key.as_str()) {
                 continue;
             }
-            if s.attach_command.is_some() {
-                match verdict(s, now, after_ms) {
+            match s.runs() {
+                Runs::Job => match verdict(s, now, after_ms) {
                     Ok(why) => out.close.push(idle(s, lane, Ends::Job, why)),
                     Err(why) => out.kept.push(kept(s, why)),
-                }
-                continue;
-            }
-            match (s.surface, s.pid) {
-                (Surface::Cli, Some(pid)) if !s.hosted => by_pid.entry(pid).or_default().push((s, lane)),
-                (Surface::App, _) => out.stays(s, lane, now, format!("in {}", crate::harness::adapter(s.harness).app())),
-                _ if s.hosted => out.stays(s, lane, now, "in Codealong".into()),
-                _ => out.stays(s, lane, now, NO_TAB.into()),
+                },
+                Runs::Tab(pid) => by_pid.entry(pid).or_default().push((s, lane)),
+                Runs::App => out.stays(s, lane, now, format!("in {}", crate::harness::adapter(s.harness).app())),
+                Runs::Hosted => out.stays(s, lane, now, "in Codealong".into()),
+                Runs::NoTab | Runs::Nowhere => out.stays(s, lane, now, NO_TAB.into()),
             }
         }
     }
@@ -337,17 +334,13 @@ pub fn close_on(engine: &crate::engine::Handle, keys: &[String], after_ms: i64, 
 pub fn close_one(board: &Board, cfg: &crate::config::Config, key: &str) -> anyhow::Result<String> {
     use anyhow::{anyhow, bail};
     let (s, account) = crate::harness::find(board, cfg, key)?;
-    if !s.live {
-        bail!("It isn't running.");
-    }
-    if s.attach_command.is_some() {
-        return crate::harness::adapter(s.harness).stop(&crate::harness::Ctx { account }, s);
-    }
-    let pid = match (s.surface, s.pid) {
-        (Surface::Cli, Some(pid)) if !s.hosted => pid,
-        _ if s.hosted => bail!("Codealong runs it itself, in no terminal."),
-        (Surface::App, _) => bail!("It runs in {}; close it there.", crate::harness::adapter(s.harness).app()),
-        _ => bail!("It has no terminal Codealong can close."),
+    let pid = match s.runs() {
+        Runs::Nowhere => bail!("It isn't running."),
+        Runs::Job => return crate::harness::adapter(s.harness).stop(&crate::harness::Ctx { account }, s),
+        Runs::Tab(pid) => pid,
+        Runs::Hosted => bail!("Codealong runs it itself, in no terminal."),
+        Runs::App => bail!("It runs in {}; close it there.", crate::harness::adapter(s.harness).app()),
+        Runs::NoTab => bail!("It has no terminal Codealong can close."),
     };
     let result = crate::launch::close_session_terminals(&[(pid, std::path::Path::new(&s.cwd))]).pop().unwrap_or_else(|| Err(anyhow!("Nothing was closed.")));
     result.map(|()| format!("Closed the terminal of “{}”. Its conversation is kept and resumes like any other.", s.title))
@@ -390,24 +383,19 @@ pub fn ending(board: &Board, s: &Session, stop: bool) -> Result<Ending, String> 
             return Err(format!("“{}” left {what} running in the background.", s.title));
         }
     }
-    if s.hosted {
-        return Ok(if s.status == Status::Working { Ending::Turn } else { Ending::Nothing(None) });
-    }
-    if s.attach_command.is_some() {
-        return Ok(Ending::Job);
-    }
-    match (s.surface, s.pid) {
-        (Surface::App, _) => Ok(Ending::Nothing(Some(format!("It's still open in {}.", crate::harness::adapter(s.harness).app())))),
-        (Surface::Cli, Some(pid)) => {
-            let other = board.lanes.iter().flat_map(|l| &l.sessions).find(|o| o.key != s.key && o.live && o.pid == Some(pid));
-            Ok(match other {
-                Some(o) => Ending::Nothing(Some(format!("Its terminal stays open: it shows “{}” too.", o.title))),
-                None if exits_its_own_way(s) => Ending::Exit(pid),
-                None => Ending::Terminal(pid),
-            })
-        }
-        _ => Ok(Ending::Nothing(Some("It has no terminal Codealong can close.".into()))),
-    }
+    Ok(match s.runs() {
+        Runs::Nowhere => Ending::Nothing(None),
+        Runs::Hosted if s.status == Status::Working => Ending::Turn,
+        Runs::Hosted => Ending::Nothing(None),
+        Runs::Job => Ending::Job,
+        Runs::App => Ending::Nothing(Some(format!("It's still open in {}.", crate::harness::adapter(s.harness).app()))),
+        Runs::Tab(pid) => match board.lanes.iter().flat_map(|l| &l.sessions).find(|o| o.key != s.key && o.live && o.pid == Some(pid)) {
+            Some(o) => Ending::Nothing(Some(format!("Its terminal stays open: it shows “{}” too.", o.title))),
+            None if exits_its_own_way(s) => Ending::Exit(pid),
+            None => Ending::Terminal(pid),
+        },
+        Runs::NoTab => Ending::Nothing(Some("It has no terminal Codealong can close.".into())),
+    })
 }
 
 /// Whether being done with `s` types its harness's exit command rather than hanging it up: it
@@ -514,7 +502,7 @@ pub fn parse_after(s: &str) -> Option<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::SessionInsight;
+    use crate::model::{SessionInsight, Surface};
 
     const NOW: i64 = 100 * DAY_MS;
 
