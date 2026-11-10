@@ -39,11 +39,14 @@ use crate::start::Place;
 use crate::{panel, perf};
 
 pub const LABEL: &str = "quick";
-/// The window's width: the page's card and the room its shadow needs on each side.
-const WIDTH: f64 = 760.0;
+/// The room the page leaves round its card for the card's shadow (useQuickSize.ts `MARGIN`),
+/// which is drawn to fit it (`--shadow-quick`).
+const MARGIN: f64 = 20.0;
+/// The window's width: the page's card and the room for its shadow on each side.
+const WIDTH: f64 = 720.0 + 2.0 * MARGIN;
 /// Its height before the page has said its own: the card's (useQuickSize.ts `HEIGHT`, which
 /// doesn't change with what it lists) and the room for its shadow.
-const START_HEIGHT: f64 = 680.0;
+const START_HEIGHT: f64 = 640.0 + 2.0 * MARGIN;
 /// Where its top edge sits: this far down the usable part of the screen, as Spotlight's does.
 const TOP: f64 = 0.18;
 /// How long an open waits for the page before showing anyway.
@@ -700,6 +703,17 @@ mod tests {
         // The page returns its height; a page that isn't up keeps the open for when it is.
         assert!(script.contains("return typeof h === 'number' && isFinite(h) ? h : null;"));
         assert!(script.contains("window.__quickPending = [context, board]; return null;"));
+    }
+
+    #[test]
+    fn the_shadow_fits_the_window() {
+        // The card and the chip it folds to keep `MARGIN` round them in their window; a shadow
+        // reaching further ended there in a hard edge (it was shadow-popover's, 44 under the card).
+        for (what, reach) in crate::geometry::shadow_reach("shadow-quick") {
+            assert!(reach.side <= MARGIN, "{what} reaches past the sides");
+            assert!(reach.over <= MARGIN, "{what} reaches past the top");
+            assert!(reach.under <= MARGIN, "{what} reaches past the bottom");
+        }
     }
 
     #[test]

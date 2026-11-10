@@ -143,6 +143,36 @@ pub(crate) fn screen_for(r: Rect, screens: &[Screen]) -> Option<Rect> {
     screen_at(r.center(), screens).map(|s| s.visible)
 }
 
+/// How far each layer of a shadow token (design/tokens.json) reaches past its card, in both
+/// schemes: by its offset, spread and blur, on the sides, over the card and under it (CSS's y
+/// grows down). A window that keeps less room than this round its card ends the shadow in a hard
+/// edge, so each window drawn to fit its shadow tests it with this. Each comes with the layer, to
+/// say which one doesn't fit.
+#[cfg(test)]
+pub(crate) fn shadow_reach(name: &str) -> Vec<(String, ShadowReach)> {
+    let tokens: serde_json::Value = serde_json::from_str(include_str!("../../design/tokens.json")).unwrap();
+    let token = tokens["shadow"]["tokens"].as_array().unwrap().iter().find(|t| t["name"] == name).unwrap_or_else(|| panic!("no token {name}"));
+    let mut reaches = vec![];
+    for scheme in ["light", "dark"] {
+        let value = token["value"][scheme].as_str().unwrap();
+        for layer in value.split("),") {
+            let n: Vec<f64> = layer.split("rgba").next().unwrap().split_whitespace().map(|v| v.trim_end_matches("px").parse().unwrap()).collect();
+            let (x, y, blur, spread) = (n[0], n[1], n.get(2).copied().unwrap_or(0.0), n.get(3).copied().unwrap_or(0.0));
+            let reach = |offset: f64| offset + spread + blur;
+            reaches.push((format!("{name} ({scheme}): {layer}"), ShadowReach { side: reach(x.abs()), over: reach(-y), under: reach(y) }));
+        }
+    }
+    reaches
+}
+
+/// How far one layer of a shadow reaches past its card on each side, in points (`shadow_reach`).
+#[cfg(test)]
+pub(crate) struct ShadowReach {
+    pub side: f64,
+    pub over: f64,
+    pub under: f64,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

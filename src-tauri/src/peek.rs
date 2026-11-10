@@ -640,24 +640,13 @@ mod tests {
 
     #[test]
     fn the_shadow_fits_the_window() {
-        // A box shadow reaches past the card by its offset, spread and blur; the window keeps that
-        // much room on every side, or the shadow ends in a hard edge. Under the bar the far side is
-        // the bottom (CSS's y grows down), over it the top.
-        let tokens: serde_json::Value = serde_json::from_str(include_str!("../../design/tokens.json")).unwrap();
-        let shadows = tokens["shadow"]["tokens"].as_array().unwrap();
+        // The window keeps as much room round the card as its shadow reaches on every side
+        // (`geometry::shadow_reach`). Under the bar the far side is the bottom, over it the top.
         for (name, top, bottom) in [("shadow-peek", NEAR, FAR), ("shadow-peek-over", FAR, NEAR)] {
-            let token = shadows.iter().find(|t| t["name"] == name).unwrap();
-            for scheme in ["light", "dark"] {
-                let value = token["value"][scheme].as_str().unwrap();
-                for layer in value.split("),") {
-                    let n: Vec<f64> = layer.split("rgba").next().unwrap().split_whitespace().map(|v| v.trim_end_matches("px").parse().unwrap()).collect();
-                    let (x, y, blur, spread) = (n[0], n[1], n.get(2).copied().unwrap_or(0.0), n.get(3).copied().unwrap_or(0.0));
-                    let reach = |offset: f64| offset + spread + blur;
-                    let what = format!("{name} ({scheme}): {layer}");
-                    assert!(reach(x.abs()) <= MARGIN, "{what} reaches past the sides");
-                    assert!(reach(-y) <= top, "{what} reaches past the top");
-                    assert!(reach(y) <= bottom, "{what} reaches past the bottom");
-                }
+            for (what, reach) in crate::geometry::shadow_reach(name) {
+                assert!(reach.side <= MARGIN, "{what} reaches past the sides");
+                assert!(reach.over <= top, "{what} reaches past the top");
+                assert!(reach.under <= bottom, "{what} reaches past the bottom");
             }
         }
     }

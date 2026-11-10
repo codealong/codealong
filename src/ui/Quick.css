@@ -1,5 +1,5 @@
 /* The quick panel: its own window (quick.rs), transparent. The card fills it but for 20px on
-   each side for its shadow, and keeps one height (useQuickSize.ts): what it lists scrolls, and its
+   each side for its shadow (--shadow-quick, drawn to fit), and keeps one height (useQuickSize.ts): what it lists scrolls, and its
    menus open within it. The input, the lists of sessions and todos, the compose row, the agent and
    place bars. */
 
@@ -18,7 +18,7 @@ html.is-quick body {
   flex-direction: column;
   background: var(--surface-raised);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-popover);
+  box-shadow: var(--shadow-quick);
   color: var(--ink);
 }
 .ca-quick-head {
@@ -106,7 +106,7 @@ html.is-quick body {
   padding: var(--space-1);
   background: var(--surface-raised);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-popover);
+  box-shadow: var(--shadow-quick);
   color: var(--ink);
 }
 .ca-quick-fold-open {

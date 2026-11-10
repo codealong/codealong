@@ -8,7 +8,8 @@
 import { useLayoutEffect, type MutableRefObject, type RefObject } from 'react';
 import { quickReady } from '../api';
 
-/** Room around the card for its shadow. The window (quick.rs) is the card and this on each side. */
+/** Room around the card for its shadow, which is drawn to fit it (`--shadow-quick`, held to it by
+ *  quick.rs's tests). The window (quick.rs `MARGIN`) is the card and this on each side. */
 export const MARGIN = 20;
 /** The card's height: what it reached with the list at its tallest, before it was fixed. */
 export const HEIGHT = 640;
