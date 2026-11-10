@@ -92,6 +92,8 @@ pub struct BarFeed {
 #[serde(rename_all = "camelCase")]
 pub struct BarListening {
     pub key: String,
+    /// The worktree its session is in, to show it there.
+    pub lane_id: String,
     pub title: String,
     #[serde(flatten)]
     pub listening: crate::listen::Glance,
@@ -218,6 +220,12 @@ pub fn feed(shown: Shown) -> BarFeed {
                 None if board.generated_at - s.started_at.unwrap_or(s.last_activity) <= RECENT_MS => Group::Recent,
                 None => continue,
             };
+            // A session that's hearing has a pill of its own for as long (`listenings`), which
+            // stays put while its turns come and go every few seconds: it's among the others
+            // only while it needs you, or is snoozed.
+            if matches!(group, Group::Working | Group::Recent) && board.listenings.contains_key(&s.key) {
+                continue;
+            }
             let target = lane.targets.iter().find(|t| t.id == s.open_target).map(|t| BarTarget {
                 label: t.label.clone(),
                 detail: t.detail.clone(),
@@ -307,7 +315,7 @@ pub fn feed(shown: Shown) -> BarFeed {
         devices,
         // By when each began, so the one the bar names first stays the same one.
         listenings: {
-            let mut listenings: Vec<BarListening> = board.listenings.iter().filter_map(|(key, l)| board.session(key).map(|(_, s)| BarListening { key: key.clone(), title: s.title.clone(), listening: l.clone() })).collect();
+            let mut listenings: Vec<BarListening> = board.listenings.iter().filter_map(|(key, l)| board.session(key).map(|(lane, s)| BarListening { key: key.clone(), lane_id: lane.id.clone(), title: s.title.clone(), listening: l.clone() })).collect();
             listenings.sort_by_key(|l| l.listening.started_at);
             listenings
         },
@@ -381,6 +389,7 @@ mod tests {
         use crate::listen::{Glance, Role};
         let mut b = board(vec![lane("/a", vec![session("coach", Status::Idle, NOW - 20), session("notes", Status::Idle, NOW - 10)], false)], vec![]);
         assert!(feed(Shown::here(&b)).listenings.is_empty());
+        assert_eq!(feed(Shown::here(&b)).recent.len(), 2);
         b.listenings.insert("notes".into(), Glance { id: "n".into(), started_at: NOW - 900, ..Glance::default() });
         b.listenings.insert("coach".into(), Glance { id: "c".into(), started_at: NOW - 300, role: Role::Coach, cue: Some("Ask when they renew.".into()), cue_at: NOW - 5, ..Glance::default() });
         // One whose session the board has no more isn't named.
@@ -391,6 +400,17 @@ mod tests {
         // As the bar's page reads it: the glance's own fields beside the session's.
         let sent = serde_json::to_value(&f.listenings[1]).unwrap();
         assert_eq!((sent["key"].as_str(), sent["role"].as_str(), sent["cue"].as_str(), sent["cueAt"].as_i64()), (Some("coach"), Some("coach"), Some("Ask when they renew."), Some(NOW - 5)));
+        // With where its session is, to show it there.
+        assert_eq!(sent["laneId"].as_str(), Some(b.lanes[0].id.as_str()));
+        // One that's hearing has that pill for its own: it isn't among the recent ones too, nor
+        // the working ones as its turns come and go, but it is while it needs you.
+        assert!(f.recent.is_empty() && f.items.is_empty());
+        let mut b = board(vec![lane("/a", vec![session("busy", Status::Working, NOW - 20), session("asks", Status::Needs, NOW - 10), session("other", Status::Working, NOW - 5)], false)], vec![]);
+        b.listenings.insert("busy".into(), Glance::default());
+        b.listenings.insert("asks".into(), Glance::default());
+        let f = feed(Shown::here(&b));
+        assert_eq!(f.items.iter().map(|i| i.key.as_str()).collect::<Vec<_>>(), vec!["asks", "other"]);
+        assert_eq!(f.listenings.len(), 2);
     }
 
     #[test]

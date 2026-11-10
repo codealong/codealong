@@ -1,7 +1,8 @@
 // Checks what the bar docked in the notch shows of voice (src/said.ts, ui/Said.tsx): a key held
 // to talk opens under the pills with the words as they're heard and to whom, without taking the
 // keyboard, says where they went when it comes up, and goes away by itself; while a session
-// listens the notch's own mark has its center red, closed too, and says which; and a coach's cue
+// listens the notch's own mark has its center red, closed too, and says which, and open, the
+// session has a pill of its own, the first, that shows it under the pills; and a coach's cue
 // opens the same way, is put away with a click, and stays away until the next one.
 //   PREVIEW_SIZE=1512,720 PREVIEW_WAIT=60000 scripts/preview.sh notch '' scripts/preview/voice-notch-check.js
 (function () {
@@ -20,6 +21,8 @@
   // The notch's own mark while it says a session hears, and the red it should be: the alert color
   // as the page has it, read off a probe.
   var hearingMark = function () { return q('.ca-notch .ca-hud-mark .ca-lmark[data-hearing]'); };
+  var keysTaken = 0;
+  var hearingPill = function () { return q('.ca-notch .ca-hud-pill.is-hearing'); };
   var centerOf = function (mark) { return getComputedStyle(mark.querySelector('.ca-lmark-node')).fill; };
   var redOf = function (el) {
     var probe = document.createElement('span');
@@ -32,7 +35,7 @@
   var talk = function (over) { window.__emit('talk', Object.assign({ id: 1, phase: 'listening', to: 'orchestrator', text: '', level: 0 }, over)); };
   var feed;
   var listening = function (over) {
-    return Object.assign({ key: feed.items[0].key, title: 'Renewal call', id: 'a', startedAt: Date.now() - 247e3, role: 'coach', mic: true, playback: true, transcript: '', notes: '', cueAt: 0 }, over);
+    return Object.assign({ key: feed.items[0].key, laneId: feed.items[0].laneId, title: 'Renewal call', id: 'a', startedAt: Date.now() - 247e3, role: 'coach', mic: true, playback: true, transcript: '', notes: '', cueAt: 0 }, over);
   };
   var hears = function (listenings) { window.__emit('bar-feed', Object.assign({}, feed, { listenings: listenings })); };
 
@@ -90,6 +93,29 @@
       check('while a session listens the mark’s center is red, closed too', !!mark && !is('end') && !is('pills') && mark.getBoundingClientRect().width > 0 && centerOf(mark) === redOf(mark), mark ? centerOf(mark) + ' / ' + redOf(mark) : 'no mark says it hears');
       var title = mark.closest('.ca-hud-mark').getAttribute('title') || '';
       check('and it says which session', title.indexOf('Renewal call is listening') === 0, title);
+      // Open, it has a pill of its own, first: a click shows its session under the pills.
+      window.__emit('notch-pointer', true);
+      return until(function () { return is('pills') && hearingPill(); }, 3000, 'the pill of the session that hears');
+    })
+    .then(function (pill) {
+      var first = q('.ca-notch .ca-hud-pill');
+      check('open, the session that hears has a pill, the first', pill === first && pill.textContent.trim() === 'Renewal call' && !!pill.querySelector('.ca-live-dot'), first ? first.textContent : 'no pill');
+      pill.click();
+      return until(function () { return is('session'); }, 5000, 'its session under the pills').catch(function () { return null; });
+    })
+    .then(function () {
+      check('a click on it shows its session in the notch', is('session') && hearingPill().getAttribute('aria-pressed') === 'true', notch().className);
+      hearingPill().click();
+      return until(function () { return !is('session'); }, 3000, 'a second click to put it away');
+    })
+    .then(function () {
+      check('and a click on it again puts the session away', !is('session'));
+      window.__emit('notch-pointer', false);
+      return until(function () { return !is('pills'); }, 3000, 'the notch to close');
+    })
+    .then(function () {
+      // The session shown took the keyboard, as one does; what follows shouldn't.
+      keysTaken = sent('notch_keys').filter(function (a) { return a.on; }).length;
       hears([listening({ cue: 'Ask when they renew.\nNo budget owner yet.', cueAt: Date.now() })]);
       return until(function () { return is('end') && q('.ca-notch-session .ca-spoken.is-cue'); }, 3000, 'the cue');
     })
@@ -98,7 +124,7 @@
       check('a coach’s cue opens under the pills', text('.ca-spoken-cue').indexOf('Ask when they renew.') === 0, text('.ca-spoken-cue'));
       check('all of it inside the notch’s shape too', inShape() === '', inShape());
       check('named for its session', text('.ca-spoken-title') === 'Renewal call', text('.ca-spoken-title'));
-      check('without taking the keyboard either', sent('notch_keys').filter(function (a) { return a.on; }).length === 0);
+      check('without taking the keyboard either', sent('notch_keys').filter(function (a) { return a.on; }).length === keysTaken);
       q('.ca-notch-session .ca-spoken.is-cue').click();
       return until(function () { return !card(); }, 2000, 'a click to put it away');
     })

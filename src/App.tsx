@@ -104,7 +104,8 @@ import { showPrTab } from './ui/PrInspector';
 import type { FindAsk } from './ui/ThreadFind';
 import { Toasts, useToasts } from './ui/Toasts';
 import { NewSessionPanel } from './ui/NewSession';
-import { ListenHost } from './ui/Listening';
+import { ListenHost, ListeningNow } from './ui/Listening';
+import { hearingNow } from './listening';
 import { ageListingChain, ageListingPr, chainOf, currentProject, FACET_WORD, facetsIn, facetsOn, harnessSchedulesIn, labelPick, laneInQuery, onlyPick, prInDone, prInFilter, prInQuery, projectOfCard, revealing, unarchived, scheduleSessions, schedulesIn, sessionInFacets, sessionInFilter, sessionInQuery, sessionItemOf, sessionItemsOf, showingHelper, todoInQuery, togglePick, toggleShown, useBoardLists, projectsOf, type Facets } from './boardLists';
 import { inProject, QUICK_PLACEHOLDER, queryWords, shortcutKeys, shortcutLabel } from './quick';
 import { findFor } from './threadFind';
@@ -2321,6 +2322,8 @@ export function App() {
           <Kbd keys={quickKeys ?? ['⌘', 'K']} />
         </button>
         <div className="ca-win-bar-end" data-tauri-drag-region>
+          {/* The sessions hearing now (listen.rs), whatever the window shows: a click shows one. */}
+          <ListeningNow listenings={hearingNow(board?.lanes ?? [], board?.listenings)} onShow={(l) => reveal.current({ kind: 'session', laneId: l.laneId, key: l.key })} />
           <Seg
             className="ca-barplace"
             label="Agents bar"

@@ -8,7 +8,8 @@
 // here: the two change together, and the tests on both sides hold the same lines.
 
 import { useSyncExternalStore } from 'react';
-import type { Board, ListenAsk, ListeningGlance, ListenRole } from './types';
+import { homeOf } from './lanes';
+import type { BarListening, Board, HearingStatus, Lane, ListenAsk, ListeningGlance, ListenRole } from './types';
 
 /** Voice as the last board had it: whether it's turned on, and the sessions hearing now. */
 export interface Voice {
@@ -43,6 +44,18 @@ export function useVoice(): Voice {
   return useSyncExternalStore(watch, voiceNow);
 }
 
+/** The sessions hearing now with where each is, the first to begin first, as the bar's feed names
+ *  them (barfeed.rs `listenings`): what the main window's recording light shows. One whose
+ *  session the board doesn't list is left out. */
+export function hearingNow(lanes: Lane[], listenings: Voice['listenings'] | undefined): BarListening[] {
+  const out: BarListening[] = [];
+  for (const [key, l] of Object.entries(listenings ?? {})) {
+    const home = homeOf(lanes, key);
+    if (home) out.push({ ...l, key, laneId: home.lane.id, title: home.session.title });
+  }
+  return out.sort((a, b) => a.startedAt - b.startedAt || a.key.localeCompare(b.key));
+}
+
 /** A session's listening while it's hearing, as the board has it. */
 export function useListening(key: string): ListeningGlance | undefined {
   return useVoice().listenings[key];
@@ -68,6 +81,19 @@ export function askProblem(ask: ListenAsk): string | null {
 }
 
 /** What a listening hears, in a few words: "You and this Mac’s audio". */
+/** What the dialog says, before a listening starts, of what macOS has to allow for what's picked
+ *  (ear.rs `Status`): that it isn't letting Codealong, with where that's turned on, or that it
+ *  will ask. Nothing when all of it is allowed, or isn't known. */
+export function macSays(status: HearingStatus['status'] | undefined, ask: Pick<ListenAsk, 'mic' | 'system' | 'apps'>): string {
+  if (!status) return '';
+  const mic = ask.mic ? status.microphone : 'allowed';
+  const plays = ask.system || ask.apps.length > 0 ? (status.systemAudio ?? '') : 'allowed';
+  if (mic === 'denied' || mic === 'restricted') return 'macOS isn’t letting Codealong use the microphone: turn Codealong on in System Settings › Privacy & Security › Microphone.';
+  if (plays === 'denied') return 'macOS isn’t letting Codealong hear what this Mac plays: turn Codealong on in System Settings › Privacy & Security › Screen & System Audio Recording, under System Audio Recording Only.';
+  const asks = [...(mic === 'unasked' ? ['use the microphone'] : []), ...(plays === 'unasked' ? ['hear what this Mac plays'] : [])];
+  return asks.length ? `macOS will ask whether Codealong may ${asks.join(', and whether it may ')}.` : '';
+}
+
 export function hears(l: Pick<ListeningGlance, 'mic' | 'playback' | 'apps'>, names: Record<string, string> = {}): string {
   const them = l.apps?.length ? l.apps.map((a) => names[a] ?? a).join(', ') : 'this Mac’s audio';
   if (l.mic && l.playback) return `You and ${them}`;

@@ -124,6 +124,15 @@ html.is-bar body {
   background: var(--alert-tint);
   color: var(--alert);
 }
+/* A session that's hearing (ListeningPill): the color of a recording light, with the strip's. */
+.ca-hud-pill.is-hearing {
+  background: var(--alert-tint);
+  color: var(--alert);
+}
+.ca-hud-pill.is-hearing > .ca-live-dot {
+  width: 6px;
+  height: 6px;
+}
 /* A failed open, in the place of the pill it came from: room for most of the message. */
 .ca-hud-pill.is-failed {
   max-width: 380px;

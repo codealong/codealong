@@ -2,7 +2,8 @@
 // config.toml has it, a session's menu has no Listen…. On, it has: its dialog asks what the
 // session does with what it hears and what it hears, won't start with nothing to hear, says why
 // a start failed and stays, and asks the engine as picked. A session that listens wears a chip
-// on its row, has Stop listening in its menu, and shows the meeting in its conversation (what was
+// on its row, is named in the window's bar with how long it has listened (a click shows it), has
+// Stop listening in its menu, and shows the meeting in its conversation (what was
 // heard as lines, its agent's answers between them with a cue's lines kept apart, an answer that
 // says nothing not at all) and a strip over its box with what it hasn't been told yet, the words
 // being said, its notes and Stop. And what's said with a key held to talk is typed where the
@@ -124,6 +125,15 @@
     })
     .then(function () {
       check('a session that listens wears a chip on its row', !!q('.ca-listeningchip', row(0)) && !q('.ca-listeningchip', row(1)));
+      // The window's bar has it too, whatever the window shows: a click shows the session.
+      var now = all('.ca-win-bar .ca-hearing-now');
+      check('and the window’s bar says which session is hearing, and for how long', now.length === 1 && !!q('.ca-live-dot', now[0]) && q('.ca-hearing-now-title', now[0]).textContent === 'Voice A' && /^4:\d\d$/.test(q('.ca-hearing-now-clock', now[0]).textContent), now.map(function (n) { return n.textContent; }).join(' | '));
+      check('nothing shown yet', !strip());
+      now[0].click();
+      return until(strip, 5000, 'a click on it to show the session');
+    })
+    .then(function () {
+      check('a click on it shows the session', q('.ca-sessinsp').textContent.indexOf('Voice A') >= 0);
       return menuOf(row(0));
     })
     .then(function (labels) {
@@ -205,6 +215,7 @@
     })
     .then(function () {
       check('ended, the chip and the strip go, and the meeting stays in its conversation', !q('.ca-listeningchip', row(0)) && !strip() && all('.ca-thread .ca-heard-line').length === 5);
+      check('and the window’s bar says no more that one is hearing', !q('.ca-hearing-now'));
     })
     .then(done)
     .catch(stopped);

@@ -11,9 +11,10 @@
 
 import { useEffect, useState } from 'react';
 import { askMainToListen, hearingStatus, listeningOf, onHearing, onListenAsk, onListeningNotes, startListening, stopListening } from '../api';
-import { ASK, askProblem, clock, heardLine, hears, onAskedToListen, ROLES, type HeardLine, type ListenAsked, type Told as ToldWhat } from '../listening';
+import { ASK, askProblem, clock, heardLine, hears, macSays, onAskedToListen, ROLES, type HeardLine, type ListenAsked, type Told as ToldWhat } from '../listening';
 import { errorText } from '../report';
-import type { HearingStatus, ListenAsk, ListeningGlance } from '../types';
+import { hearingSays } from '../said';
+import type { BarListening, HearingStatus, ListenAsk, ListeningGlance } from '../types';
 import { Markdown } from './Markdown';
 import { Button, CheckBox, Chip, cx, Dialog, Icon, Seg } from './primitives';
 import { useNow } from './useNow';
@@ -192,6 +193,33 @@ export function ListeningChip({ listening }: { listening: ListeningGlance | unde
   );
 }
 
+/** The sessions hearing now, in the main window's bar whatever it shows: a recording light with
+ *  the session's name and how long it has listened, and a click shows the session. Nothing while
+ *  none hears. On the bar that floats it's a pill (Bar.tsx `ListeningPill`). */
+export function ListeningNow({ listenings, onShow }: { listenings: readonly BarListening[]; onShow: (l: BarListening) => void }) {
+  return (
+    <>
+      {listenings.map((l) => (
+        <HearingNow key={l.key} listening={l} onShow={() => onShow(l)} />
+      ))}
+    </>
+  );
+}
+
+/** One of them: a part of its own, so a clock runs by the second only while one hears. */
+function HearingNow({ listening: l, onShow }: { listening: BarListening; onShow: () => void }) {
+  const now = useNow(1000);
+  const says = hearingSays([l]) ?? '';
+  return (
+    <button type="button" className={cx('ca-hearing-now', l.problem && 'is-troubled')} title={`${says}\nShow it`} aria-label={`${says}. Show it`} onClick={onShow}>
+      <span className="ca-live-dot" aria-hidden="true" />
+      <span className="ca-hearing-now-title">{l.title}</span>
+      <span className="ca-hearing-now-clock">{clock(now - l.startedAt)}</span>
+      {l.problem && <Icon name="alert" size={12} />}
+    </button>
+  );
+}
+
 /** The dialog that sets a session's listening up. */
 function ListenDialog({ asked, onClose }: { asked: ListenAsked; onClose: () => void }) {
   const [ask, setAsk] = useState<ListenAsk>(ASK);
@@ -234,7 +262,7 @@ function ListenDialog({ asked, onClose }: { asked: ListenAsked; onClose: () => v
       busy={busy}
       onClose={onClose}
       onSubmit={start}
-      aside={<span className="ca-listendlg-aside">{error ?? problem ?? (hearing?.status.microphone === 'unasked' && ask.mic ? 'macOS will ask whether Codealong may use the microphone.' : '')}</span>}
+      aside={<span className="ca-listendlg-aside">{error ?? problem ?? macSays(hearing?.status, ask)}</span>}
       foot={
         <>
           <Button variant="ghost" size="sm" onClick={onClose} disabled={busy}>

@@ -572,7 +572,10 @@ window.__TAURI_INTERNALS__ = {
         // The session that listens (PREVIEW_VOICE, `window.__LISTENS__`), as the bar names it.
         if (window.__PREVIEW_VOICE__ && window.__LISTENS__) {
           var named = (feed.items || []).concat(feed.recent || []).filter(function (i) { return i.key === window.__LISTENS__; })[0];
-          feed.listenings = [Object.assign({ key: window.__LISTENS__, title: named ? named.title : 'Northwind renewal' }, listeningSample(window.__LISTENS__)[window.__LISTENS__])];
+          feed.listenings = [Object.assign({ key: window.__LISTENS__, laneId: named ? named.laneId : '', title: named ? named.title : 'Northwind renewal' }, listeningSample(window.__LISTENS__)[window.__LISTENS__])];
+          // It has that pill for its own while it hears, but when it needs you (barfeed.rs `feed`).
+          feed.items = (feed.items || []).filter(function (i) { return i.key !== window.__LISTENS__ || i.group !== 'working'; });
+          feed.recent = (feed.recent || []).filter(function (i) { return i.key !== window.__LISTENS__; });
         }
         if (window.__PREVIEW_EMBLEMS__) (feed.items || []).forEach(function (i) { i.emblem = emblemOf(i.key); });
         if (!all[1] || all[1].cfg.in_bar === false) return feed;

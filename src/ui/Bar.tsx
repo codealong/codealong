@@ -29,7 +29,7 @@ import { useViewKeys } from '../mainKeys';
 import { barAhead, barView, observe, seenAhead, snoozeAhead, useAhead } from '../ahead';
 import { ALL_PROJECTS, inProject } from '../quick';
 import { snoozeMenu, untilWords } from '../snooze';
-import type { BarFeed, BarItem, BarRecent, BarReview, BarSnoozed, BarTodo, PeekShown, Status } from '../types';
+import type { BarFeed, BarItem, BarListening, BarRecent, BarReview, BarSnoozed, BarTodo, PeekShown, Status } from '../types';
 import { MarkLive } from './MarkLive';
 import { cx, Icon, SessionEmblem, STATUS_WORD, StatusGlyph } from './primitives';
 import { applyTheme } from './ThemeSwitch';
@@ -196,6 +196,26 @@ function ReviewsPill({ prs, peeked, onOpen, measure }: { prs: BarReview[]; peeke
  *  when Codealong's agent approves it. */
 function reviewLabel(p: BarReview, place: PlaceWords): string {
   return [`#${p.number} ${p.title}`, place(p.project, p.repo), p.requestedBy ? `asked by ${p.requestedBy}` : '', p.approves ? 'agent approves' : ''].filter(Boolean).join(' · ');
+}
+
+/** A session that's hearing, first on the bar for as long as it does, whatever project the bar
+ *  shows: a click shows it, as a click on a session's pill does. It's this pill's alone while it
+ *  listens, but when it needs you (barfeed.rs `feed`): its turns come and go every few seconds. */
+function ListeningPill({ listening: l, peeked, onOpen, measure }: { listening: BarListening; peeked?: boolean; onOpen?: () => void; measure?: boolean }) {
+  return (
+    <button
+      type="button"
+      className={cx('ca-hud-pill is-hearing', peeked && 'is-peeked')}
+      title={measure || peeked ? undefined : `${hearingSays([l])}\nShow it`}
+      aria-pressed={measure ? undefined : peeked}
+      data-listening={measure ? '' : undefined}
+      data-key={measure ? undefined : l.key}
+      onClick={onOpen}
+    >
+      <span className="ca-live-dot" aria-hidden="true" />
+      <span>{l.title}</span>
+    </button>
+  );
 }
 
 /** The rest of the sessions started in the last day, as one pill: a click drops a menu of them. */
@@ -469,7 +489,8 @@ export function Bar() {
 
   // Docked in the notch, the session shown under the pills (NotchSession.tsx), in place of the
   // peek: which one, what it works through, and its keys.
-  const onBar = useMemo(() => new Set([...allItems, ...(feed?.recent ?? []), ...(feed?.snoozed ?? [])].map((i) => i.key)), [allItems, feed]);
+  const listenings = useMemo(() => feed?.listenings ?? [], [feed]);
+  const onBar = useMemo(() => new Set([...allItems, ...(feed?.recent ?? []), ...(feed?.snoozed ?? []), ...listenings].map((i) => i.key)), [allItems, feed, listenings]);
   const stage = useNotchStage(items, reviews, (key) => onBar.has(key) || reviews.some((r) => r.key === key), notch !== null);
   // A key held to talk, or a listening session's cue (said.ts): under the pills while nothing
   // else is there, without the keyboard, which stays with whatever you're in.
@@ -501,6 +522,7 @@ export function Bar() {
     const pills: Record<Group, number[]> = { needs: [], unread: [], working: [] };
     el.querySelectorAll<HTMLElement>('[data-pill]').forEach((p) => pills[p.dataset.pill as Group].push(p.getBoundingClientRect().width));
     const fold = { needs: width('[data-fold="needs"]'), unread: width('[data-fold="unread"]'), working: width('[data-fold="working"]') };
+    const hearing = Array.from(el.querySelectorAll<HTMLElement>('[data-listening]'), (p) => p.getBoundingClientRect().width);
     const room = Math.min(MAX_WIDTH, window.screen.availWidth - SCREEN_ROOM);
     setFits(
       fitGroups(
@@ -509,6 +531,7 @@ export function Bar() {
           fold,
           mark: MARK,
           project: picking ? width('[data-project]') : 0,
+          hearing,
           snoozed: snoozed.length ? width('[data-snoozed]') : 0,
           recent: recent.length ? width('[data-recent]') : 0,
           reviews: reviews.length ? width('[data-reviews]') : 0,
@@ -520,7 +543,7 @@ export function Bar() {
         room,
       ),
     );
-  }, [items, snoozed, recent, reviews, todos, picking, current, others, fontsReady]);
+  }, [items, listenings, snoozed, recent, reviews, todos, picking, current, others, fontsReady]);
 
   // The window follows the bar's size: after every render, since WebKit holds back resize
   // notifications while the window is hidden, and on resizes renders don't cause (fonts).
@@ -620,7 +643,7 @@ export function Bar() {
 
   /** Shows the session in Codealong's window: what a click on its pill, or an item in the bar's
    *  menus, does. */
-  const reveal = (i: BarItem | BarRecent | BarSnoozed) => {
+  const reveal = (i: Pick<BarItem, 'laneId' | 'key'>) => {
     away();
     void showMain({ kind: 'session', laneId: i.laneId, key: i.key });
   };
@@ -654,6 +677,14 @@ export function Bar() {
       clickTimer.current = null;
       reveal(i);
     }, CLICK_WAIT_MS);
+  };
+
+  /** A click on the pill of a session that's hearing: docked, it shows in the notch, and a click
+   *  on the pill of the one shown puts it away; floating, it shows in Codealong's window. */
+  const clickHearing = (l: BarListening) => {
+    stopHover();
+    if (notch) stage.toggle(l.key);
+    else reveal(l);
   };
 
   const pressPill = (i: BarItem, e: PointerEvent<HTMLElement>) => {
@@ -848,7 +879,7 @@ export function Bar() {
         Reading sessions…
       </span>,
     ]);
-  } else if (items.length === 0 && snoozed.length === 0 && recent.length === 0 && reviews.length === 0 && todos.length === 0) {
+  } else if (items.length === 0 && snoozed.length === 0 && recent.length === 0 && reviews.length === 0 && todos.length === 0 && listenings.length === 0) {
     sections.push([
       <span key="note" className="ca-hud-note">
         {current === ALL_PROJECTS ? 'No agents running' : `No agents running in ${current}`}
@@ -894,11 +925,17 @@ export function Bar() {
       ...(todos.length ? [<TodosPill key="todos" todos={todos} onOpen={openTodos} onMenu={todosMenu} />] : []),
     ];
     if (last.length) sections.push(last);
+    // The sessions that are hearing go first, whatever project the bar shows: what's being heard
+    // is never out of sight.
+    if (listenings.length) sections.unshift(listenings.map((l) => <ListeningPill key={`hearing-${l.key}`} listening={l} peeked={shownKey === l.key} onOpen={() => clickHearing(l)} />));
   }
   if (failed && !failedShown) sections.push([failedPill()]);
 
   const measured = (
     <div ref={measure} className="ca-hud-measure" aria-hidden="true">
+      {listenings.map((l) => (
+        <ListeningPill key={l.key} listening={l} measure />
+      ))}
       {items.map((i) => (
         <SessionPill key={i.key} item={i} now={now} measure />
       ))}

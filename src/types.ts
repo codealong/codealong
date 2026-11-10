@@ -950,13 +950,15 @@ export interface Hearing {
 
 /** What this Mac can hear with (ear.rs `Status`), and the apps that record or play now. */
 export interface HearingStatus {
-  status: { available: boolean; why?: string; microphone: string; locale?: string; installed: boolean };
+  status: { available: boolean; why?: string; microphone: string; systemAudio?: string; locale?: string; installed: boolean };
   apps: { bundle: string; name: string; recording: boolean; playing: boolean }[];
 }
 
 /** A session that's listening, as the bar shows it (barfeed.rs `BarListening`). */
 export interface BarListening extends ListeningGlance {
   key: string;
+  /** The worktree its session is in, to show it there. */
+  laneId: string;
   title: string;
 }
 

@@ -3,7 +3,7 @@ import { CUE_SHOWS, hearingSays, latestTalk, lingers, saidNow, saidUntil, talkSa
 import type { BarListening, Talk } from './types';
 
 const talk = (over: Partial<Talk> = {}): Talk => ({ id: 1, phase: 'listening', to: 'looking', text: '', level: 0, ...over });
-const listening = (over: Partial<BarListening> = {}): BarListening => ({ key: 'k', title: 'Renewal call', id: 'a', startedAt: 0, role: 'coach', mic: true, playback: true, transcript: '', notes: '', cueAt: 0, ...over });
+const listening = (over: Partial<BarListening> = {}): BarListening => ({ key: 'k', laneId: '/w', title: 'Renewal call', id: 'a', startedAt: 0, role: 'coach', mic: true, playback: true, transcript: '', notes: '', cueAt: 0, ...over });
 
 const NOW = 1_000_000;
 

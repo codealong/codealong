@@ -1,9 +1,10 @@
 //! The bar in the menu bar (bar.rs `Mode::MenuBar`): an item there in place of the bar's window,
 //! picked as the bar's third place beside floating and the notch. Its mark is dimmed while the
 //! app isn't connected to Codealong's server (view.rs), with the number of sessions that need you
-//! beside it. Its menu lists what the bar shows: the sessions that need you, the PRs waiting on
-//! your review, the sessions whose turn ended and the ones working, each shown in the waiting
-//! window (waiting.rs) to read and answer. Below them it says how the server is, starts it again
+//! beside it. Its menu lists what the bar shows: the sessions that are hearing a meeting
+//! (listen.rs), the sessions that need you, the PRs waiting on your review, the sessions whose
+//! turn ended and the ones working, each shown in the waiting window (waiting.rs) to read and
+//! answer. Below them it says how the server is, starts it again
 //! (serve.rs `restart`), and quits: the app alone, which leaves the server running with the
 //! sessions it runs, or the app and its server, as `codealong server stop` does.
 //!
@@ -60,6 +61,8 @@ const QUIT_WAIT: Duration = Duration::from_secs(15);
 /// What the menu lists of the bar's feed: each group in the bar's order.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Listed {
+    /// The sessions that are hearing, which the feed lists apart (`BarFeed::listenings`).
+    listening: Vec<Row>,
     needs: Vec<Row>,
     reviews: Vec<Row>,
     unread: Vec<Row>,
@@ -111,6 +114,7 @@ pub fn listed(feed: &BarFeed) -> Listed {
             .collect()
     };
     Listed {
+        listening: feed.listenings.iter().map(|l| Row { key: l.key.clone(), label: label(&l.title, "", None, false) }).collect(),
         needs: rows(Group::Needs),
         reviews: feed.reviews.iter().map(|r| Row { key: r.key.clone(), label: label(&format!("#{} {}", r.number, r.title), &r.repo, None, false) }).collect(),
         unread: rows(Group::Unread),
@@ -145,7 +149,7 @@ fn note(label: impl Into<String>) -> Line {
 /// server and quitting. `hosted` is how many sessions the server runs.
 pub fn lines(listed: &Listed, hosted: usize, server: Server) -> Vec<Line> {
     let mut out = Vec::new();
-    let groups = [("Needs you", &listed.needs), ("Review requested", &listed.reviews), ("Your turn", &listed.unread), ("Working", &listed.working)];
+    let groups = [("Listening", &listed.listening), ("Needs you", &listed.needs), ("Review requested", &listed.reviews), ("Your turn", &listed.unread), ("Working", &listed.working)];
     for (heading, rows) in groups.into_iter().filter(|(_, rows)| !rows.is_empty()) {
         if !out.is_empty() {
             out.push(Line::Separator);
@@ -184,6 +188,7 @@ pub fn lines(listed: &Listed, hosted: usize, server: Server) -> Vec<Line> {
 pub fn face(listed: &Listed, connected: bool, name: &str) -> Face {
     let needs = listed.needs.len();
     let counts = [
+        (listed.listening.len(), "listening"),
         (needs, "need you"),
         (listed.reviews.len(), if listed.reviews.len() == 1 { "PR to review" } else { "PRs to review" }),
         (listed.unread.len(), "done"),
@@ -433,6 +438,7 @@ mod tests {
     #[test]
     fn the_menu_lists_each_group_under_its_heading_then_the_app_and_its_server() {
         let listed = Listed {
+            listening: vec![row("claude:l", "Renewal call")],
             needs: vec![row("claude:a", "Answer me · northwind")],
             reviews: vec![row("pr:atlas/web#12", "#12 Tidy the header · web")],
             unread: vec![],
@@ -442,6 +448,9 @@ mod tests {
         assert_eq!(
             ids(&lines),
             [
+                "Listening",
+                "Renewal call [show:claude:l]",
+                "--",
                 "Needs you",
                 "Answer me · northwind [show:claude:a]",
                 "--",
@@ -488,11 +497,15 @@ mod tests {
     #[test]
     fn the_item_counts_what_needs_you_and_dims_without_its_server() {
         let listed = Listed {
+            listening: vec![],
             needs: vec![row("a", "A"), row("b", "B")],
             reviews: vec![row("pr", "#1 P")],
             unread: vec![row("c", "C")],
             working: vec![],
         };
+        // A session that's hearing is said first, and isn't something that waits on you.
+        let hearing = Listed { listening: vec![row("l", "L")], ..Listed::default() };
+        assert_eq!(face(&hearing, true, "Codealong"), Face { title: None, tooltip: "Codealong: 1 listening".into(), dimmed: false });
         assert_eq!(face(&listed, true, "Codealong"), Face { title: Some("2".into()), tooltip: "Codealong: 2 need you, 1 PR to review, 1 done".into(), dimmed: false });
         assert_eq!(face(&Listed::default(), true, "Codealong Dev"), Face { title: None, tooltip: "Codealong Dev: nothing waits on you".into(), dimmed: false });
         assert_eq!(face(&listed, false, "Codealong"), Face { title: Some("2".into()), tooltip: "Codealong: starting its server".into(), dimmed: true });

@@ -17,6 +17,7 @@ describe('fitGroups', () => {
     fold: { needs: 30, unread: 30, working: 30 },
     mark: 24,
     project: 0,
+    hearing: [],
     snoozed: 0,
     recent: 0,
     reviews,
@@ -31,6 +32,8 @@ describe('fitGroups', () => {
     // padding 10 + mark 24 + divider 1 + pills 100 + 50, with 3 gaps between 4 children.
     expect(barWidth(fitGroups(metrics([100, 50], [], []), 10_000), metrics([100, 50], [], []))).toBe(10 + 24 + 1 + 150 + 3 * 4);
     expect(barWidth([], metrics([], [], []))).toBe(10 + 24);
+    // A session that's hearing has a pill in a section of its own, after the mark.
+    expect(barWidth([], metrics([], [], [], 0, { hearing: [80] }))).toBe(10 + 24 + 1 + 80 + 2 * 4);
   });
 
   it('folds nothing when there is room', () => {

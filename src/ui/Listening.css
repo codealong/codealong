@@ -153,6 +153,46 @@
   font: var(--type-meta);
 }
 
+/* In the main window's bar: a session that's hearing now, a click away (ListeningNow). */
+.ca-hearing-now {
+  appearance: none;
+  flex: 0 1 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  max-width: 240px;
+  height: 24px;
+  padding: 0 var(--space-3);
+  box-sizing: border-box;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--alert-tint);
+  color: var(--alert);
+  font: var(--type-meta-strong);
+  white-space: nowrap;
+  cursor: default;
+}
+.ca-hearing-now:hover {
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+.ca-hearing-now:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+.ca-hearing-now-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ca-hearing-now-clock {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+.ca-hearing-now > svg {
+  flex: none;
+}
+
 /* Its chip, with the other things a row says of a session. */
 .ca-chip.ca-listeningchip {
   padding: 0 7px 0 6px;

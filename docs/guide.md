@@ -3246,7 +3246,8 @@ you say and nothing of the other side of a call, and its strip says so, with whi
 isn't letting Codealong hear what the Mac plays (said at once, with where to turn it on), macOS is
 still asking, or it's allowed and nothing has played yet (said after 45 seconds of nothing).
 Turned on while a session listens, it's heard from then on, without starting again.
-`codealong listen status` says where both stand. Linux has none of this yet.
+`codealong listen status` says where both stand, and so does the dialog that starts a listening,
+for what's picked in it. Linux has none of this yet.
 
 **Talking to a session.** Hold ⌥⌘[ and talk; let go, and what you said is typed where your caret
 is in the Codealong window you're in: a session's box, the quick panel, a todo's description, a
@@ -3296,9 +3297,18 @@ all. Over its box a strip says it's listening, for how long (a clock that goes o
 and to what, with the lines heard that it hasn't been told of yet, the words being said right
 now, its notes, and Stop. Its row wears a Listening chip. A coach's latest answer, or a call's requests as they're filed, opens
 under the notch's pills for a few seconds, beside your camera, without taking the keyboard; a
-click puts it away. For as long as any session is hearing, Codealong's mark in the bar has a red
-center that beats slowly, docked in the notch or floating, as a recording light does; point at it
-and it says which session listens, and what's wrong when something is.
+click puts it away.
+
+What's being heard is never out of sight, and the session hearing it is a click away. For as long
+as any session is hearing, Codealong's mark in the bar has a red center that beats slowly, docked
+in the notch or floating, as a recording light does; point at it and it says which session
+listens, and what's wrong when something is. The session has a pill of its own on the bar, the
+first, with the same light, whatever project the bar shows: a click shows the session, under the
+notch's pills or, from the floating bar, in Codealong's window. It's that pill's alone while it
+listens (its turns come and go every few seconds, so it isn't among the working sessions or the
+recent ones), but when it needs you; the menu bar item's menu lists it first, under Listening.
+And the main window's bar names it, with how long it has listened, whatever the window shows: a
+click there shows it too.
 
 While it hears, a listening session's finished turns aren't Your turn: it ends one every few
 seconds, none of them yours to answer, so they make no sound and count nowhere. A call it asks

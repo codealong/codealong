@@ -36,6 +36,8 @@ export interface Metrics {
   /** The bar's mark, and the project menu's button beside it (0 when there is none). */
   mark: number;
   project: number;
+  /** The pills of the sessions that are hearing, each its own width, first after those. */
+  hearing: number[];
   /** The snoozed, recent, reviews and todos pills at the end, side by side (0 for one that isn't
    *  there). */
   snoozed: number;
@@ -51,6 +53,7 @@ export interface Metrics {
 /** The bar's width with the groups laid out as `fits` say. Sections sit apart by dividers. */
 export function barWidth(fits: GroupFit[], m: Metrics): number {
   const sections: number[][] = [[m.mark, m.project].filter((w) => w > 0)];
+  if (m.hearing.length) sections.push(m.hearing);
   for (const f of fits) {
     const widths = [...m.pills[f.group].slice(0, f.shown), ...(f.folded > 0 ? [m.fold[f.group]] : [])];
     if (widths.length) sections.push(widths);

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { asCue, ASK, askProblem, clock, cuesYou, heardLine, hears, noteVoice, saysNothing, toldIn, voiceNow } from './listening';
+import { asCue, ASK, askProblem, clock, cuesYou, heardLine, hearingNow, hears, macSays, noteVoice, saysNothing, toldIn, voiceNow } from './listening';
+import * as fx from './testing/fixtures';
 import type { ListeningGlance } from './types';
 
 const glance = (over: Partial<ListeningGlance> = {}): ListeningGlance => ({ id: 'a', startedAt: 0, role: 'notes', mic: true, playback: true, transcript: '/t/transcript.md', notes: '/t/notes.md', cueAt: 0, ...over });
@@ -69,6 +70,46 @@ describe('a reply that says nothing', () => {
     expect(cuesYou('coach')).toBe(true);
     expect(cuesYou('requests')).toBe(true);
     expect(cuesYou('notes')).toBe(false);
+  });
+});
+
+describe('the sessions hearing now', () => {
+  it('are named with where each is, the first to begin first', () => {
+    const lanes = [fx.lane({ id: '/a', sessions: [fx.session({ key: 'coach', title: 'Renewal call' }), fx.session({ key: 'quiet', title: 'Other work' })] }), fx.lane({ id: '/b', sessions: [fx.session({ key: 'notes', title: 'Standup' })] })];
+    expect(hearingNow(lanes, undefined)).toEqual([]);
+    expect(hearingNow(lanes, {})).toEqual([]);
+    const got = hearingNow(lanes, { coach: glance({ id: 'c', startedAt: 900 }), notes: glance({ id: 'n', startedAt: 300 }), gone: glance({ id: 'g' }) });
+    expect(got.map((l) => [l.key, l.laneId, l.title, l.id])).toEqual([
+      ['notes', '/b', 'Standup', 'n'],
+      ['coach', '/a', 'Renewal call', 'c'],
+    ]);
+  });
+});
+
+describe('what macOS has to allow, before a listening starts', () => {
+  const status = (over: { microphone?: string; systemAudio?: string } = {}) => ({ available: true, installed: true, microphone: 'allowed', systemAudio: 'allowed', ...over });
+  const settings = 'System Settings › Privacy & Security › Screen & System Audio Recording, under System Audio Recording Only.';
+
+  it('says nothing when it’s all allowed, or not known', () => {
+    expect(macSays(undefined, ASK)).toBe('');
+    expect(macSays(status(), ASK)).toBe('');
+    expect(macSays({ available: true, installed: true, microphone: 'allowed' }, ASK)).toBe('');
+    expect(macSays(status({ systemAudio: 'unknown' }), ASK)).toBe('');
+  });
+
+  it('says what it will ask, of what’s picked', () => {
+    expect(macSays(status({ microphone: 'unasked' }), ASK)).toBe('macOS will ask whether Codealong may use the microphone.');
+    expect(macSays(status({ systemAudio: 'unasked' }), ASK)).toBe('macOS will ask whether Codealong may hear what this Mac plays.');
+    expect(macSays(status({ microphone: 'unasked', systemAudio: 'unasked' }), ASK)).toBe('macOS will ask whether Codealong may use the microphone, and whether it may hear what this Mac plays.');
+    expect(macSays(status({ microphone: 'unasked', systemAudio: 'unasked' }), { ...ASK, system: false })).toBe('macOS will ask whether Codealong may use the microphone.');
+    expect(macSays(status({ systemAudio: 'unasked' }), { ...ASK, system: false, apps: ['com.example.meet'] })).toBe('macOS will ask whether Codealong may hear what this Mac plays.');
+  });
+
+  it('says what it isn’t letting Codealong do, with where that’s turned on', () => {
+    expect(macSays(status({ systemAudio: 'denied' }), ASK)).toBe(`macOS isn’t letting Codealong hear what this Mac plays: turn Codealong on in ${settings}`);
+    expect(macSays(status({ systemAudio: 'denied' }), { ...ASK, system: false })).toBe('');
+    expect(macSays(status({ microphone: 'denied', systemAudio: 'denied' }), ASK)).toBe('macOS isn’t letting Codealong use the microphone: turn Codealong on in System Settings › Privacy & Security › Microphone.');
+    expect(macSays(status({ microphone: 'denied' }), { ...ASK, mic: false })).toBe('');
   });
 });
 
