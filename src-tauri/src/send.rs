@@ -640,13 +640,35 @@ fn way_of(route: &Route, terminal: &dyn Fn(u32) -> Option<&'static str>, resume_
 struct Flight {
     key: String,
     text: String,
-    outcome: Mutex<Option<std::result::Result<Sent, String>>>,
+    outcome: Mutex<Option<std::result::Result<Sent, Unsent>>>,
     landed: Condvar,
     /// How many sends joined it.
     joined: std::sync::atomic::AtomicUsize,
 }
 
 static FLIGHTS: Mutex<Vec<Arc<Flight>>> = Mutex::new(Vec::new());
+
+/// How a send that others joined failed, as each of them gets it: what it said, and that the
+/// session waits on its user, for which the server holds an agent's message (outbox.rs) whichever
+/// send of it was first.
+#[derive(Clone)]
+struct Unsent {
+    said: String,
+    waits: Option<WaitsOnItsUser>,
+}
+
+impl Unsent {
+    fn of(e: &anyhow::Error) -> Unsent {
+        Unsent { said: format!("{e:#}"), waits: e.downcast_ref::<WaitsOnItsUser>().cloned() }
+    }
+
+    fn error(self) -> anyhow::Error {
+        match self.waits {
+            Some(w) => w.into(),
+            None => anyhow!(self.said),
+        }
+    }
+}
 
 /// Runs `send` unless the same text is on its way to the same session already, in which case
 /// it waits for that one and says how it went.
@@ -669,13 +691,13 @@ fn join(key: &str, text: &str, send: impl FnOnce() -> Result<Sent>) -> Result<Se
         while out.is_none() {
             out = flight.landed.wait(out).unwrap_or_else(|e| e.into_inner());
         }
-        return out.clone().expect("landed").map_err(|e| anyhow!(e));
+        return out.clone().expect("landed").map_err(Unsent::error);
     }
     /// Lands the flight however the send ends, a panic included, so no one waits on it forever.
-    struct Landing<'a>(&'a Arc<Flight>, Option<std::result::Result<Sent, String>>);
+    struct Landing<'a>(&'a Arc<Flight>, Option<std::result::Result<Sent, Unsent>>);
     impl Drop for Landing<'_> {
         fn drop(&mut self) {
-            let outcome = self.1.take().unwrap_or_else(|| Err("The send stopped partway.".to_string()));
+            let outcome = self.1.take().unwrap_or_else(|| Err(Unsent { said: "The send stopped partway.".to_string(), waits: None }));
             *self.0.outcome.lock().unwrap_or_else(|e| e.into_inner()) = Some(outcome);
             self.0.landed.notify_all();
             FLIGHTS.lock().unwrap_or_else(|e| e.into_inner()).retain(|f| !Arc::ptr_eq(f, self.0));
@@ -683,7 +705,7 @@ fn join(key: &str, text: &str, send: impl FnOnce() -> Result<Sent>) -> Result<Se
     }
     let mut landing = Landing(&flight, None);
     let result = send();
-    landing.1 = Some(result.as_ref().map(Sent::clone).map_err(|e| format!("{e:#}")));
+    landing.1 = Some(result.as_ref().map(Sent::clone).map_err(Unsent::of));
     result
 }
 
@@ -827,7 +849,7 @@ pub(crate) fn ensure_not_waiting(session: &Session, sender: &Sender) -> Result<(
 /// Why nothing was sent to a session: it waits on its user to answer a prompt (`waits_on_you`).
 /// `agent` says the message was an agent's or a side conversation's, which is told it's the
 /// session's user who answers; you're told to answer it yourself.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct WaitsOnItsUser {
     pub(crate) title: String,
     pub(crate) agent: bool,
@@ -1978,5 +2000,34 @@ mod tests {
         // A send that fails lands too, so trying again sends it.
         assert!(join("k-fail", "x", || Err(anyhow!("Ghostty said no."))).unwrap_err().to_string().contains("Ghostty said no."));
         assert_eq!(join("k-fail", "x", || sent("Sent.")).unwrap().message, "Sent.");
+    }
+
+    #[test]
+    fn a_send_that_joined_one_turned_away_for_a_waiting_session_is_told_so_as_it_was() {
+        use std::sync::atomic::Ordering;
+        use std::sync::mpsc;
+        let (started, on_way) = mpsc::channel();
+        let (go, wait) = mpsc::channel::<()>();
+        let first = std::thread::spawn(move || {
+            join("k-waits", "hello", || {
+                started.send(()).unwrap();
+                wait.recv().unwrap();
+                Err(WaitsOnItsUser { title: "Fix it".into(), agent: true }.into())
+            })
+        });
+        on_way.recv().unwrap();
+        let second = std::thread::spawn(|| join("k-waits", "hello", || panic!("sent twice")));
+        let flight = FLIGHTS.lock().unwrap().iter().find(|f| f.key == "k-waits").cloned().unwrap();
+        let t = Instant::now();
+        while flight.joined.load(Ordering::SeqCst) == 0 {
+            assert!(t.elapsed() < Duration::from_secs(30), "the second send never joined");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        go.send(()).unwrap();
+        // Each gets it as the error it was, which the server holds an agent's message on.
+        for e in [first.join().unwrap().unwrap_err(), second.join().unwrap().unwrap_err()] {
+            let w = e.downcast_ref::<WaitsOnItsUser>().expect("a WaitsOnItsUser");
+            assert_eq!((w.title.as_str(), w.agent), ("Fix it", true));
+        }
     }
 }

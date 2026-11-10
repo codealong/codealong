@@ -241,6 +241,19 @@ impl Outbox {
     pub fn take_dropped(&mut self) -> Vec<String> {
         std::mem::take(&mut self.dropped)
     }
+
+    /// What to tell the engine once a batch is done, `sent` saying whether any of it went: what
+    /// was dropped since it last asked, as a notice, whatever else went, so a drop and a send
+    /// in one batch still leave the notice up; with none dropped, a message that went clears one;
+    /// else nothing.
+    pub fn verdict(&mut self, sent: bool) -> Option<std::result::Result<(), String>> {
+        let dropped = self.take_dropped();
+        match (dropped.is_empty(), sent) {
+            (false, _) => Some(Err(dropped.join(" "))),
+            (true, true) => Some(Ok(())),
+            (true, false) => None,
+        }
+    }
 }
 
 /// A new held message's id: when it was sent, and a count, so two sent in the same millisecond
@@ -297,14 +310,11 @@ pub fn start(engine: Handle) {
     }
 }
 
-/// Tells the engine what was dropped since it last asked, as a notice, or that a held message
-/// went with none dropped, which clears one (`Handle::held_sent`).
+/// Tells the engine how a batch went (`Outbox::verdict`, `Handle::held_sent`), once for the
+/// batch: a notice set and cleared within one look would never reach a board.
 fn report(engine: &Handle, out: &mut Outbox, sent: bool) {
-    let dropped = out.take_dropped();
-    if !dropped.is_empty() {
-        engine.held_sent(Err(dropped.join(" ")));
-    } else if sent {
-        engine.held_sent(Ok(()));
+    if let Some(verdict) = out.verdict(sent) {
+        engine.held_sent(verdict);
     }
 }
 
@@ -362,9 +372,13 @@ pub fn send_due(engine: &Handle, board: &Board, now: i64) {
         Ok(mut out) if !out.held.is_empty() => {
             if out.expire(now) {
                 let _ = save(&out);
+            }
+            let due = out.due(board, now);
+            // What expired is said now when nothing goes, else with how the batch went.
+            if due.is_empty() {
                 report(engine, &mut out, false);
             }
-            out.due(board, now)
+            due
         }
         _ => return,
     };
@@ -379,6 +393,7 @@ pub fn send_due(engine: &Handle, board: &Board, now: i64) {
 /// doesn't go, the ones after it are held on as they were, so none goes ahead of it.
 fn send_now(engine: &Handle, due: Vec<Held>) {
     let mut stopped: HashSet<String> = HashSet::new();
+    let mut sent_any = false;
     for h in due {
         if stopped.contains(&h.to) {
             outbox().lock().unwrap_or_else(|e| e.into_inner()).went(&h.id, Went::Waits, crate::util::now_ms());
@@ -399,15 +414,16 @@ fn send_now(engine: &Handle, due: Vec<Held>) {
             Went::Failed(why) => eprintln!("Couldn't send {} the message held for it: {why}", h.to),
             Went::Waits => {}
         }
-        let sent = went == Went::Sent;
-        if !sent {
+        if went == Went::Sent {
+            sent_any = true;
+        } else {
             stopped.insert(h.to.clone());
         }
         let mut out = outbox().lock().unwrap_or_else(|e| e.into_inner());
         out.went(&h.id, went, crate::util::now_ms());
         let _ = save(&out);
-        report(engine, &mut out, sent);
     }
+    report(engine, &mut outbox().lock().unwrap_or_else(|e| e.into_inner()), sent_any);
 }
 
 #[cfg(test)]
@@ -542,6 +558,21 @@ mod tests {
         }
         assert!(out.held.is_empty());
         assert_eq!(out.take_dropped(), ["Codealong couldn't tell the session claude:claude2:from that a message it sent wasn't sent: gone."]);
+    }
+
+    #[test]
+    fn a_drop_and_a_send_in_one_batch_leave_the_notice_up() {
+        let mut out = Outbox::default();
+        out.hold(Held { failures: TRIES - 1, ..held("first", NOW) });
+        out.hold(Held { to: "claude:claude:else".into(), ..held("second", NOW) });
+        let free = board(vec![session(TO, Status::Idle), session("claude:claude:else", Status::Idle)]);
+        let due = out.due(&free, NOW + 1);
+        out.went(&due[0].id, Went::Failed("the terminal didn't answer".into()), NOW + 2);
+        out.went(&due[1].id, Went::Sent, NOW + 3);
+        assert!(matches!(out.verdict(true), Some(Err(said)) if said.contains("wasn't sent: the terminal didn't answer.")));
+        // A later batch that only sends clears it; one where nothing happened says nothing.
+        assert_eq!(out.verdict(true), Some(Ok(())));
+        assert_eq!(out.verdict(false), None);
     }
 
     #[test]
