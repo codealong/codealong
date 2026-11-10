@@ -11,7 +11,9 @@
 //! on the line of one that differs, saying which names only one side has. A test here keeps
 //! that file current, as windowfeed.rs keeps its fixture. What differs on purpose is listed
 //! with why (`APART`), and has to stay true. Every struct in the model's files (`FILES`) is
-//! paired or said to have no interface (`UNMIRRORED`), so a new one has to say which.
+//! paired or said to have no interface (`UNMIRRORED`), so a new one has to say which. What the
+//! windows are sent besides the board is paired too, as far as that's been done (`others`):
+//! a type added there is held from then on.
 //!
 //! Names only: what type each field is, and whether it may be missing, is still kept in step by
 //! hand. The names are the ones serde writes, read from a value as it's written (`written`),
@@ -60,11 +62,50 @@ fn pairs() -> Vec<Pair> {
     macro_rules! same {
         ($($t:ident),* $(,)?) => { vec![$(pair::<model::$t>(stringify!($t))),*] };
     }
-    same![
+    let mut pairs = same![
         Session, Emblem, Artifact, Helper, SessionMode, ContextUse, QueuedMessage, SessionLimit, ConnectionLost, Suggestions, SideAnswer, Raised, AgentSeen, RunningIn, SessionOrigin, ChromeTabs,
         SessionInsight, Checks, Label, PrLabel, Pr, StaleApproval, GitInfo, Target, Lane, Cleanup, Preview, PreviewServer, DeviceTag, Meter, Usage, ProjectSummary, AccountInfo, Notice, Board,
         TodoHint, PrItem, LastReview, AutoReview, ReviewPart, PrSession,
+    ];
+    pairs.extend(others());
+    pairs
+}
+
+/// What the windows are sent besides the board, where it's made: each with the interface that
+/// mirrors it.
+fn others() -> Vec<Pair> {
+    macro_rules! of {
+        ($module:path: $($t:ident),* $(,)?) => {{
+            use $module as from;
+            vec![$(pair::<from::$t>(stringify!($t))),*]
+        }};
+    }
+    [
+        of!(crate::todos: Todo),
+        // Its `when` is a tagged enum, which no plain value reads as: its default stands in.
+        vec![pair_of("Schedule", &crate::schedules::Schedule::default())],
+        of!(crate::ledger: JevReport, JevUsed, SessionSpent, Spent),
+        of!(crate::teamfile: TeamCfg, TeamFile),
+        of!(crate::listen: Listening),
+        of!(crate::mcp: Mcp),
+        of!(crate::improve: Improve),
+        of!(crate::training: Training),
+        of!(crate::peers: DeviceView, ProjectThere),
+        of!(
+            crate::config: AccountCfg, Config, DevicesCfg, EmblemsCfg, ExperimentalCfg, GroupMemberCfg, JevCfg, OwnReviewsCfg, Profile, ProjectCfg, PullRequestsCfg, RepoCfg, ReviewsCfg, ReviewsPatch,
+            RoutingCfg, RoutingGroupCfg, SessionsCfg, SoundsCfg, VoiceCfg
+        ),
+        of!(
+            codealong_peer::api: GroupMember, ModeSwitched, Pending, Question, ResumeIn, Route, RoutingGroup, Sent, Side, SideKept, SideTurn, StartAccount, StartOptions, Started, Unqueued
+        ),
+        of!(codealong_peer::pr: CommitText, MergeBox, Turn),
+        // Not among codealong-peer's: `StartSpec`, which reads a field by two names, so no plain
+        // value of it can be made (one made by hand would pair it); and `TerminalRun`, whose
+        // namesake in types.ts is a run of a terminal's drawing.
     ]
+    .into_iter()
+    .flatten()
+    .collect()
 }
 
 /// The model's structs no interface mirrors, each with why.
@@ -83,12 +124,15 @@ struct Apart {
     why: &'static str,
 }
 
-const APART: [Apart; 1] = [Apart {
-    rust: "Target",
-    engine: &[],
-    windows: &["image"],
-    why: "An editor's own icon, which the windows put on its target from the icons they ask for apart (src/editors.ts).",
-}];
+const APART: [Apart; 2] = [
+    Apart {
+        rust: "Target",
+        engine: &[],
+        windows: &["image"],
+        why: "An editor's own icon, which the windows put on its target from the icons they ask for apart (src/editors.ts).",
+    },
+    Apart { rust: "StartAccount", engine: &["preferred"], windows: &[], why: "Kept for devices of older builds that read it here; no window does." },
+];
 
 const NOT_A_STRUCT: &str = "it isn't written as a struct with named fields (a flattened field writes it as a map)";
 

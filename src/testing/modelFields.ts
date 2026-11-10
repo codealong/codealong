@@ -23,6 +23,7 @@ export type Helpers = [
   Holds<Same<"id", Names<{ id: string; more?: string }>>>,
 ];
 type Has<Theirs, Name> = Name extends Theirs ? true : { theWindowsNoLongerName: Name };
+type Lacks<Theirs, Name> = Name extends Theirs ? { theWindowsNowName: Name } : true;
 
 export type Session = Holds<Same<
   | "account"
@@ -578,4 +579,571 @@ export type PrSession = Holds<Same<
   | "primary"
   | "pushes",
   Names<Types.PrSession>
+>>;
+
+export type Todo = Holds<Same<
+  | "archivedAt"
+  | "createdAt"
+  | "dependsOn"
+  | "description"
+  | "doneAt"
+  | "due"
+  | "id"
+  | "labels"
+  | "pending"
+  | "primary"
+  | "project"
+  | "review"
+  | "sessions"
+  | "status"
+  | "title"
+  | "updatedAt"
+  | "waiting"
+  | "worktrees",
+  Names<Types.Todo>
+>>;
+
+export type Schedule = Holds<Same<
+  | "catchUp"
+  | "checkout"
+  | "createdAt"
+  | "createdBy"
+  | "finishedAt"
+  | "folderOnly"
+  | "id"
+  | "name"
+  | "notes"
+  | "once"
+  | "onlyIf"
+  | "overlap"
+  | "paused"
+  | "perDay"
+  | "quiet"
+  | "resumedAt"
+  | "run"
+  | "runsOn"
+  | "updatedAt"
+  | "when",
+  Names<Types.Schedule>
+>>;
+
+export type JevReport = Holds<Same<
+  | "days"
+  | "since",
+  Names<Types.JevReport>
+>>;
+
+export type JevUsed = Holds<Same<
+  | "cost"
+  | "requests"
+  | "tokens",
+  Names<Types.JevUsed>
+>>;
+
+export type SessionSpent = Holds<Same<
+  | "models"
+  | "total",
+  Names<Types.SessionSpent>
+>>;
+
+export type Spent = Holds<Same<
+  | "account"
+  | "api"
+  | "calls"
+  | "folder"
+  | "key"
+  | "lastAt"
+  | "paid"
+  | "tokens"
+  | "unpriced",
+  Names<Types.Spent>
+>>;
+
+export type TeamCfg = Holds<Same<
+  | "neverSubmit"
+  | "nudgeAbout"
+  | "ownReviewInstructions"
+  | "reviewInstructions"
+  | "suggests",
+  Names<Types.TeamCfg>
+>>;
+
+export type TeamFile = Holds<Same<
+  | "branch"
+  | "commit"
+  | "default"
+  | "error"
+  | "offers"
+  | "repo"
+  | "settings"
+  | "skipped",
+  Names<Types.TeamFile>
+>>;
+
+export type Listening = Holds<Same<
+  | "done"
+  | "endedAt"
+  | "failures"
+  | "heardAt"
+  | "id"
+  | "lines"
+  | "locale"
+  | "prompt"
+  | "role"
+  | "session"
+  | "sources"
+  | "start"
+  | "startedAt"
+  | "told"
+  | "toldAt"
+  | "whyEnded",
+  Names<Types.Listening>
+>>;
+
+export type Mcp = Holds<Same<
+  | "account"
+  | "asOf"
+  | "note"
+  | "servers"
+  | "stale",
+  Names<Types.Mcp>
+>>;
+
+export type Improve = Holds<Same<
+  | "installed"
+  | "laneId"
+  | "project"
+  | "source",
+  Names<Types.Improve>
+>>;
+
+export type Training = Holds<Same<
+  | "account"
+  | "asOf"
+  | "canStop"
+  | "note"
+  | "stale"
+  | "state"
+  | "url",
+  Names<Types.Training>
+>>;
+
+export type DeviceView = Holds<Same<
+  | "app"
+  | "automations"
+  | "color"
+  | "key"
+  | "kind"
+  | "lastSeen"
+  | "linkedBack"
+  | "loading"
+  | "name"
+  | "online"
+  | "projects"
+  | "remoteControl"
+  | "short"
+  | "since"
+  | "usage"
+  | "via",
+  Names<Types.DeviceView>
+>>;
+
+export type ProjectThere = Holds<Same<
+  | "name"
+  | "repos",
+  Names<Types.ProjectThere>
+>>;
+
+export type AccountCfg = Holds<Same<
+  | "acp"
+  | "command"
+  | "disabled"
+  | "harness"
+  | "home"
+  | "monthly"
+  | "name"
+  | "per_token"
+  | "start"
+  | "usage_cap",
+  Names<Types.AccountCfg>
+>>;
+
+export type Config = Holds<Same<
+  | "accounts"
+  | "appearance"
+  | "apps"
+  | "debug"
+  | "devices"
+  | "emblems"
+  | "experimental"
+  | "jev"
+  | "limits"
+  | "prices"
+  | "projects"
+  | "pull_requests"
+  | "repos"
+  | "reviews"
+  | "routing"
+  | "scan"
+  | "search"
+  | "sessions"
+  | "shortcuts"
+  | "sounds"
+  | "updates"
+  | "voice",
+  Names<Types.Config>
+>>;
+
+export type DevicesCfg = Holds<Same<
+  | "automations"
+  | "enabled"
+  | "in_bar"
+  | "iroh"
+  | "name"
+  | "port"
+  | "remote_control"
+  | "tailscale",
+  Names<Types.DevicesCfg>
+>>;
+
+export type EmblemsCfg = Holds<Same<
+  | "account"
+  | "kind"
+  | "prompt",
+  Names<Types.EmblemsCfg>
+>>;
+
+export type ExperimentalCfg = Holds<Same<
+  | "boards"
+  | "voice",
+  Names<Types.ExperimentalCfg>
+>>;
+
+export type GroupMemberCfg = Holds<Same<
+  | "account"
+  | "effort"
+  | "model",
+  Names<Types.GroupMemberCfg>
+>>;
+
+export type JevCfg = Holds<Same<
+  | "model"
+  | "pull_requests"
+  | "quick_panel"
+  | "sessions"
+  | "todos",
+  Names<Types.JevCfg>
+>>;
+
+export type OwnReviewsCfg = Holds<Same<
+  | "account"
+  | "auto"
+  | "drafts"
+  | "effort"
+  | "model"
+  | "other_harness"
+  | "prompt"
+  | "send",
+  Names<Types.OwnReviewsCfg>
+>>;
+
+export type Profile = Holds<Same<
+  | "id"
+  | "name",
+  Names<Types.Profile>
+>>;
+
+export type ProjectCfg = Holds<Same<
+  | "chrome_profile"
+  | "folders"
+  | "name"
+  | "repos",
+  Names<Types.ProjectCfg>
+>>;
+
+export type PullRequestsCfg = Holds<Same<
+  | "nudge_about"
+  | "nudge_by_default"
+  | "rerequest_after_fixes",
+  Names<Types.PullRequestsCfg>
+>>;
+
+export type RepoCfg = Holds<Same<
+  | "pull_requests"
+  | "reviews",
+  Names<Types.RepoCfg>
+>>;
+
+export type ReviewsCfg = Holds<Same<
+  | "account"
+  | "auto"
+  | "drafts"
+  | "effort"
+  | "model"
+  | "other_harness"
+  | "own"
+  | "post"
+  | "prompt"
+  | "start"
+  | "submit",
+  Names<Types.ReviewsCfg>
+>>;
+
+export type ReviewsPatch = Holds<Same<
+  | "account"
+  | "auto"
+  | "drafts"
+  | "effort"
+  | "model"
+  | "other_harness"
+  | "own"
+  | "post"
+  | "prompt"
+  | "submit",
+  Names<Types.ReviewsPatch>
+>>;
+
+export type RoutingCfg = Holds<Same<
+  | "auto"
+  | "buffer"
+  | "groups"
+  | "prompt",
+  Names<Types.RoutingCfg>
+>>;
+
+export type RoutingGroupCfg = Holds<Same<
+  | "members"
+  | "name"
+  | "strategy",
+  Names<Types.RoutingGroupCfg>
+>>;
+
+export type SessionsCfg = Holds<Same<
+  | "block_flagged_sessions"
+  | "continue_after_network_error"
+  | "continue_after_restart"
+  | "hibernate_after"
+  | "live_replies"
+  | "resume_for_any_session"
+  | "resume_for_pr_news"
+  | "resume_for_sessions_it_started",
+  Names<Types.SessionsCfg>
+>>;
+
+export type SoundsCfg = Holds<Same<
+  | "needs_you"
+  | "review_requested"
+  | "volume"
+  | "your_turn",
+  Names<Types.SoundsCfg>
+>>;
+
+export type VoiceCfg = Holds<Same<
+  | "locale"
+  | "send_on_release"
+  | "tell_every",
+  Names<Types.VoiceCfg>
+>>;
+
+export type GroupMember = Holds<Same<
+  | "account"
+  | "effort"
+  | "model",
+  Names<Types.GroupMember>
+>>;
+
+export type ModeSwitched = Holds<Same<
+  | "message"
+  | "mode",
+  Names<Types.ModeSwitched>
+>>;
+
+export type Pending = Holds<Same<
+  | "always"
+  | "alwaysRule"
+  | "cannot"
+  | "id"
+  | "input"
+  | "label"
+  | "message"
+  | "noOnce"
+  | "plan"
+  | "questions"
+  | "terminal"
+  | "unwritten",
+  Names<Types.Pending>
+>>;
+
+export type Question = Holds<Same<
+  | "header"
+  | "multiSelect"
+  | "options"
+  | "question",
+  Names<Types.Question>
+>>;
+
+export type ResumeIn = Holds<Same<
+  | "effort"
+  | "model"
+  | "place",
+  Names<Types.ResumeIn>
+>>;
+
+export type Route = Holds<Same<
+  | "action"
+  | "actions"
+  | "agents"
+  | "duplicate"
+  | "habit"
+  | "inputTokens"
+  | "lanes"
+  | "model"
+  | "ms"
+  | "needs"
+  | "noRepo"
+  | "noSession"
+  | "ownWorktree"
+  | "ownWorktreeAsked"
+  | "repos"
+  | "sessions",
+  Names<Types.Route>
+>>;
+
+export type RoutingGroup = Holds<Same<
+  | "members"
+  | "name"
+  | "strategy",
+  Names<Types.RoutingGroup>
+>>;
+
+export type Sent = Holds<Same<
+  | "fellBack"
+  | "message"
+  | "opened"
+  | "queued"
+  | "uncertain",
+  Names<Types.Sent>
+>>;
+
+export type Side = Holds<Same<
+  | "account"
+  | "closed"
+  | "effort"
+  | "ended"
+  | "id"
+  | "key"
+  | "model"
+  | "running"
+  | "turns",
+  Names<Types.Side>
+>>;
+
+export type SideKept = Holds<Same<
+  | "answeredAt"
+  | "answering"
+  | "id"
+  | "key"
+  | "lastAt"
+  | "startedAt"
+  | "title"
+  | "turns",
+  Names<Types.SideKept>
+>>;
+
+export type SideTurn = Holds<Same<
+  | "answer"
+  | "at"
+  | "done"
+  | "error"
+  | "question"
+  | "tool"
+  | "tools",
+  Names<Types.SideTurn>
+>>;
+
+export type StartAccount = Holds<Same<
+  | "buffer"
+  | "chosen"
+  | "defaultModel"
+  | "efforts"
+  | "harness"
+  | "models"
+  | "name"
+  | "places"
+  | "resumes"
+  | "switchesEffort"
+  | "switchesInApp"
+  | "switchesModel"
+  | "unavailable"
+  | "usageCap"
+  | "worktree",
+  Names<Types.StartAccount>
+>>;
+/** Kept for devices of older builds that read it here; no window does. */
+export type StartAccountApart = [Holds<Lacks<Names<Types.StartAccount>, "preferred">>];
+
+export type StartOptions = Holds<Same<
+  | "accounts"
+  | "autoGroup"
+  | "claudeEfforts"
+  | "claudeModels"
+  | "codexProjects"
+  | "groups",
+  Names<Types.StartOptions>
+>>;
+
+export type Started = Holds<Same<
+  | "key"
+  | "message",
+  Names<Types.Started>
+>>;
+
+export type Unqueued = Holds<Same<
+  | "message"
+  | "requeued",
+  Names<Types.Unqueued>
+>>;
+
+export type CommitText = Holds<Same<
+  | "body"
+  | "title",
+  Names<Types.CommitText>
+>>;
+
+export type MergeBox = Holds<Same<
+  | "auto"
+  | "branch"
+  | "branchRef"
+  | "canAuto"
+  | "canBypass"
+  | "canMerge"
+  | "canReady"
+  | "canStopAuto"
+  | "canUpdateBranch"
+  | "defaultEmail"
+  | "defaultMethod"
+  | "deletesBranch"
+  | "draft"
+  | "emails"
+  | "head"
+  | "id"
+  | "mergeState"
+  | "mergeText"
+  | "mergeable"
+  | "mergedBy"
+  | "methods"
+  | "queue"
+  | "queued"
+  | "reviewDecision"
+  | "squashText"
+  | "state",
+  Names<Types.MergeBox>
+>>;
+
+export type Turn = Holds<Same<
+  | "also"
+  | "kind"
+  | "since"
+  | "who",
+  Names<Types.Turn>
 >>;

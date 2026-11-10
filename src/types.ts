@@ -841,6 +841,9 @@ export interface Config {
   /** Voice's settings, which matter once `experimental.voice` is on. Older files have none. */
   voice?: VoiceCfg;
   debug: { perf_log: boolean };
+  /** `[prices."<model>"]`: API prices for models Codealong has none or the wrong ones for
+   *  (prices.rs `Price`). Settings leaves them as config.toml has them. */
+  prices?: Record<string, unknown>;
 }
 
 /** `[experimental]` (config.rs `ExperimentalCfg`): features still being tried out, each off until
@@ -902,12 +905,23 @@ export interface ListeningGlance {
 export interface Listening {
   id: string;
   session: string;
+  /** What it hears from, by who's taken to be speaking (ear.rs `Source`). No window reads it. */
+  sources: { name: string; from: unknown }[];
   role: ListenRole;
+  /** What was asked of it (`ListenAsk.prompt`, `ListenAsk.start`), and the language it hears. */
+  prompt: string;
+  start?: boolean;
+  locale: string;
   startedAt: number;
   endedAt?: number;
   whyEnded?: string;
   lines: number;
   told: number;
+  /** When its session was last told, or last tried to be, and when the last line was said. */
+  toldAt: number;
+  heardAt: number;
+  /** Tries to tell its session that failed, since the last that went through. */
+  failures: number;
   done: boolean;
 }
 
@@ -2195,6 +2209,15 @@ export interface Schedule {
   once?: boolean;
   /** When the scheduler noted a `once` schedule finished. Saves keep the engine's, whatever they send. */
   finishedAt?: number;
+  /** When it was last resumed, or changed to run at other times or on something else: what was
+   *  due before then isn't run, on any machine. */
+  resumedAt?: number;
+  /** The repo its folder is a checkout of, and a linked worktree's branch, for your other
+   *  machines, which run it in a checkout of their own (schedules/mod.rs `Checkout`). */
+  checkout?: { repo: string; branch?: string };
+  /** Its folder was picked where its worktree had no repo another machine could tell: it goes
+   *  by its folder alone. */
+  folderOnly?: boolean;
 }
 
 /** Which of your machines run a schedule (schedules/mod.rs `RunsOn`): this one alone; one of them
@@ -3147,6 +3170,9 @@ export interface SideKept {
   turns: SideTurn[];
   /** It was closed while its copy answered, and the copy is answering still: read as it is. */
   answering?: boolean;
+  /** When it finished answering, until it's asked again or closed with nothing left to answer:
+   *  what its session waits on you for (`Session.sideAnswer`). */
+  answeredAt?: number;
 }
 
 /** The reply a session is writing, ahead of its record: one Codealong runs (acp.rs), or a Claude
