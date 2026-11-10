@@ -1014,7 +1014,9 @@ and in its panel, whose tooltip says why it's the one:
 - else the one that started first.
 
 A session you archived (marked done, say) stays listed on the PRs it worked on, so a merged PR
-still says which session made it: its status glyph is an archive box (unless it's still at work,
+still says which session made it, where its records, its branch, its pushes or a link by hand tie
+it to the PR; not where only its visit to the PR's worktree does, or its making it in its scratch
+folder, since an archived session visits no worktree but its own. Its status glyph is an archive box (unless it's still at work,
 waiting on you or failed, which shows instead) and its title is dimmed. It's never the PR's primary
 session, even picked: the next one takes over, and with no other the PR has none. Unarchived, it's
 the primary again where it was.
