@@ -420,6 +420,13 @@ stage, a repo, what needs you) and what you add from any row's menu. A board's K
 columns of your own, and agents can put their work on a board with `codealong board add`. Boards
 are an experiment, off until you turn them on in Settings › Experimental.
 
+Voice is an experiment too (macOS 26, Settings › Experimental). Hold ⌥⌘[ and talk, and what you
+said is typed where your caret is in Codealong; hold ⌥⌘] to talk to your orchestrator from any
+app. And a session can listen to a meeting (Listen… in its menu): it keeps notes, coaches you a
+few words at a time beside your camera, or files a todo for each thing a customer asks for. Speech
+becomes text on your Mac, with macOS's own model, and no audio is kept
+([the guide](docs/guide.md#voice) has the rest).
+
 ### Open anything where it lives
 
 Double-click a session to bring forward its exact terminal tab in Ghostty, iTerm2, Terminal or Rex,
@@ -610,6 +617,8 @@ chat = "Option+Cmd+'"               # the quick panel set to start a chat of its
 waiting = "Option+Cmd+."            # the first session that waits on you: the notch, or the waiting window
 improve = "Option+Cmd+,"            # the quick panel to improve Codealong itself, with pictures of its windows
 main_window = "Option+Cmd+;"        # Codealong's window you were in last; pressed there, hides Codealong
+talk = "Option+Cmd+["               # with voice on: held while you talk to the session you're looking at (Settings › Experimental)
+talk_orchestrator = "Option+Cmd+]"  # with voice on: held while you talk to your orchestrator
 
 [jev]                          # TypeSafe's Jev, each feature off until turned on (Settings › Jev)
 model = "jev-preview"          # TypeSafe's newest release; jev-latest its newest stable one, or a version (jev-1.14.0)
@@ -701,6 +710,12 @@ check = true                   # look for a new version by itself (Settings › 
 
 [experimental]                 # features still being tried out, each off until it's turned on (Settings › Experimental)
 boards = false                 # the Board view, as Kanban and as Canvas, Add to board in the menus, and `codealong board`
+voice = false                  # the keys held to talk, sessions that listen to a meeting (Listen… in a session's menu), and `codealong listen`
+
+[voice]                        # once [experimental] voice is on (Settings › Experimental)
+locale = ""                    # the language spoken, such as "en-US"; "" for this Mac's own
+send_on_release = false        # what you say to your orchestrator is sent as you let go of the key, not put in its box first
+tell_every = 20                # how often, in seconds, a session that listens is told what's new, at most (5 at the least)
 
 [debug]
 perf_log = false               # true logs timings to ~/Library/Logs/Codealong/perf.log, on Linux ~/.local/state/codealong/perf.log (Settings › Advanced)

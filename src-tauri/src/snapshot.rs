@@ -107,6 +107,8 @@ const MODES: &[Mode] = &[
     Mode { flag: "--tokens", takes: "[days] [--account <name>] [--session <key>] [--into <ledger file>]", run: tokens },
     Mode { flag: "--jev-usage", takes: "[days]", run: jev_usage },
     Mode { flag: "--stale-terminals", takes: "[how long unused: 90m, 24h, 3d, 1w]", run: stale_terminals },
+    Mode { flag: "--hearing", takes: "", run: hearing },
+    Mode { flag: "--transcribe", takes: "<sound file> [locale]", run: transcribe },
     Mode { flag: "--hibernate", takes: "[how long idle: 30m, 2h, 1d]", run: hibernating },
     Mode { flag: "--schedules", takes: "", run: schedules },
     Mode { flag: "--harness-schedules", takes: "", run: harness_schedules },
@@ -139,6 +141,51 @@ fn stale_terminals(_: &Args, rest: &[String]) -> Done {
         None => util::DAY_MS,
     };
     Ok(pretty(&crate::stale::plan_now(&engine::snapshot(false, false), crate::stale::Uses::load(), after_ms)))
+}
+
+/// `codealong --snapshot --hearing`: what this Mac can hear with, and the apps that record or play
+/// now (ear.rs), asking the person for nothing.
+fn hearing(_: &Args, _: &[String]) -> Done {
+    let cfg = config::current().map_err(failed)?;
+    let status = crate::ear::status(&cfg.voice.locale);
+    let apps = crate::ear::apps().map_err(|e| e.message);
+    Ok(pretty(&serde_json::json!({ "status": status, "apps": apps.as_ref().ok(), "appsError": apps.as_ref().err() })))
+}
+
+/// `codealong --snapshot --transcribe <sound file> [locale]`: a recording's words as a listening
+/// would write them to its transcript (listen.rs `line`), through the helper as a meeting goes
+/// through it, the file in place of the microphone.
+fn transcribe(_: &Args, rest: &[String]) -> Done {
+    use crate::ear::{Ear, Event, From, Source, Spec};
+    let path = rest.first().ok_or(Stop::Usage)?;
+    let path = std::fs::canonicalize(path).map_err(|e| Stop::Failed(format!("{path}: {e}")))?;
+    let spec = Spec { sources: vec![Source { name: crate::listen::THEM.into(), from: From::File { path: path.to_string_lossy().into_owned(), paced: false } }], locale: rest.get(1).cloned().unwrap_or_default(), hints: Vec::new() };
+    let (tx, rx) = std::sync::mpsc::channel();
+    let ear = Ear::start(&spec, move |event| {
+        let _ = tx.send(event);
+    })
+    .map_err(|e| Stop::Failed(e.message))?;
+    let mut out = String::new();
+    let mut failed = None;
+    // A minute of nothing at all is a helper that's stuck; a long recording goes on saying things.
+    while let Ok(event) = rx.recv_timeout(std::time::Duration::from_secs(60)) {
+        match event {
+            Event::Final { source, text, .. } => out.push_str(&crate::listen::line("00:00:00", &source, &text)),
+            Event::Failed(refused) => failed = Some(refused.message),
+            Event::Lost { message, .. } => failed = Some(message),
+            Event::Closed { last_words } => failed = Some(crate::ear::stopped(&last_words)),
+            Event::Ended { .. } => break,
+            _ => continue,
+        }
+        if failed.is_some() {
+            break;
+        }
+    }
+    drop(ear);
+    match failed {
+        Some(why) => Err(Stop::Failed(why)),
+        None => Ok(out.trim_end().to_string()),
+    }
 }
 
 /// `codealong --snapshot --hibernate [wait]`: the sessions that would hibernate now and why the

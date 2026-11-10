@@ -153,6 +153,24 @@ export function addToDraft(key: string, text: string, focus = true, store: Draft
   tell(key, next, focus);
 }
 
+/** `said` as it goes on after `before`: a space between, unless there's nothing before or it ends
+ *  in white space already. Empty when nothing was said. */
+export function saidAfter(before: string, said: string): string {
+  const words = said.trim();
+  if (!words) return '';
+  return before === '' || /\s$/.test(before) ? words : ` ${words}`;
+}
+
+/** Adds what was said aloud (talk.ts) to what's written to a session, and to its box, which takes
+ *  the cursor: on the same line, as typing on would be, where `addToDraft` starts a paragraph. */
+export function addSpoken(key: string, said: string, store: DraftStorage | null = storage(), now = Date.now()): void {
+  const draft = readDraft(key, store);
+  const next = draft + saidAfter(draft, said);
+  if (next === draft) return;
+  writeDraft(key, next, store, now);
+  tell(key, next, true);
+}
+
 /** A prompt the session took back before its agent saw it, put back in its box as Claude Code
  *  puts it back in its own (claude/conversation.rs): once for each prompt (`id` names it), and only when the
  *  box is empty, unless you asked for it (`asked`), which adds it after what's there. Says

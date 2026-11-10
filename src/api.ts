@@ -4,8 +4,9 @@
 import { invoke } from '@tauri-apps/api/core';
 import { emit, emitTo, listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import type { AccountCfg, AccountInfo, AgentsStatus, Answers, AtLogin, Attachment, BarFeed, BarNote, Board, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, DevicesView, EditorIcon, FolderLook, FoundAccount, Harness, HarnessSchedule, HostedStream, IdlePlan, JevReport, LabelColor, Lane, LineageFeed, MergeBox, MergeOp, ModeSwitched, Notice, PathKind, PeekOpen, PeekShown, Pending, Profile, PointerProbe, PrAt, PrDetail, PrItem, ResumeIn, Reviewed, Route, RouteNote, ScheduleOp, ScheduleTimes, Sent, Session, SessionSpent, Since, SetupView, ShortcutStatus, Side, SideKept, SkillsListed, StalePlan, StaleOutcome, Started, StartOptions, StartPlace, StartSpec, TerminalFrame, TerminalGlance, TerminalInput, TerminalSize, TerminalTheme, TextFound, Theme, TodoSuggested, TokenReport, Training, TranscriptPage, Unqueued, UpdateView, Verdict, Way, WrittenReview, YourReview } from './types';
+import type { AccountCfg, AccountInfo, AgentsStatus, Answers, AtLogin, Attachment, BarFeed, BarNote, Board, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, DevicesView, EditorIcon, FolderLook, FoundAccount, Harness, HarnessSchedule, Hearing, HearingStatus, HostedStream, IdlePlan, JevReport, LabelColor, Lane, LineageFeed, ListenAsk, ListeningTail, MergeBox, MergeOp, ModeSwitched, Notice, PathKind, PeekOpen, PeekShown, Pending, Profile, PointerProbe, PrAt, PrDetail, PrItem, ResumeIn, Reviewed, Route, RouteNote, ScheduleOp, ScheduleTimes, Sent, Session, SessionSpent, Since, SetupView, ShortcutStatus, Side, SideKept, SkillsListed, StalePlan, StaleOutcome, Started, StartOptions, StartPlace, StartSpec, Talk, Talked, TerminalFrame, TerminalGlance, TerminalInput, TerminalSize, TerminalTheme, TextFound, Theme, TodoSuggested, TokenReport, Training, TranscriptPage, Unqueued, UpdateView, Verdict, Way, WrittenReview, YourReview } from './types';
 import type { PrTab } from './agentReview';
+import type { ListenAsked } from './listening';
 import type { AgentTask } from './agentTasks';
 import type { BoardDoc, BoardOp } from './boards/model';
 import type { TodoOp } from './todos';
@@ -2086,7 +2087,7 @@ export function windowLabel(): string | null {
 /** One of the shortcuts that work in every app, the quick panel's unless `which` says, and
  *  whether it works. */
 export async function quickShortcut(which: ShortcutStatus['which'] = 'quick'): Promise<ShortcutStatus> {
-  const preview: ShortcutStatus = { which, shortcut: { quick: 'Option+Cmd+/', chat: "Option+Cmd+'", waiting: 'Option+Cmd+.', improve: 'Option+Cmd+,', main: 'Option+Cmd+;' }[which], error: null };
+  const preview: ShortcutStatus = { which, shortcut: { quick: 'Option+Cmd+/', chat: "Option+Cmd+'", waiting: 'Option+Cmd+.', improve: 'Option+Cmd+,', main: 'Option+Cmd+;', talk: 'Option+Cmd+[', talkorchestrator: 'Option+Cmd+]' }[which], error: null };
   if (!inTauri) return preview;
   return (await invoke<ShortcutStatus | null>('quick_shortcut', { which })) ?? preview;
 }
@@ -2237,6 +2238,80 @@ export async function sessionSteer(key: string, id: string): Promise<string> {
 export async function sessionUnqueue(key: string, id: string): Promise<Unqueued> {
   if (!inTauri) throw new Error('Removing a queued message needs the app.');
   return invoke<Unqueued>('session_unqueue', { key, id });
+}
+
+/** Has a session listen to what `ask` names (listen.rs), on the Mac it runs on. Rejects with why
+ *  when it can't: the microphone isn't allowed, the session waits on you, voice is off. */
+export async function startListening(key: string, ask: ListenAsk): Promise<void> {
+  if (!inTauri) return;
+  await invoke('listen', { key, on: true, ask });
+}
+
+/** Ends a session's listening. Its session is told the last of it. */
+export async function stopListening(key: string): Promise<void> {
+  if (!inTauri) return;
+  await invoke('listen', { key, on: false });
+}
+
+/** Where a session's listening stands, the one that's hearing or else its latest; null for a
+ *  session that never listened. */
+export async function listeningOf(key: string): Promise<ListeningTail | null> {
+  if (!inTauri) return null;
+  return (await invoke<ListeningTail | null>('listening', { key })) ?? null;
+}
+
+/** What this Mac can hear with, and the apps that record or play now. Asks the person nothing. */
+export async function hearingStatus(): Promise<HearingStatus | null> {
+  if (!inTauri) return null;
+  return (await invoke<HearingStatus | null>('hearing')) ?? null;
+}
+
+/** Hands a session's Listen… to the main window, brought forward on the session: it has the room
+ *  for the dialog, which a card floating over another app doesn't. */
+export async function askMainToListen(asked: ListenAsked): Promise<void> {
+  if (!inTauri) return;
+  await invoke('show_main', { reveal: { kind: 'session', laneId: asked.laneId, key: asked.key } });
+  await emitTo('main', 'listen-ask', asked);
+}
+
+/** Calls `cb` when another window hands this one a session's Listen…. */
+export function onListenAsk(cb: (asked: ListenAsked) => void): () => void {
+  return onWindowEvent<ListenAsked>('listen-ask', cb);
+}
+
+/** An event the server sends every window (views.rs `emit`). */
+function onServerEvent<T>(name: string, cb: (payload: T) => void): () => void {
+  if (!inTauri) return () => {};
+  let cancelled = false;
+  let unlisten: (() => void) | undefined;
+  void listen<T>(name, (e) => cb(e.payload)).then((u) => {
+    if (cancelled) u();
+    else unlisten = u;
+  });
+  return () => {
+    cancelled = true;
+    unlisten?.();
+  };
+}
+
+/** What the listenings hear, as they hear it: every session's, so a window takes its own. */
+export function onHearing(cb: (h: Hearing) => void): () => void {
+  return onServerEvent<Hearing>('hearing', cb);
+}
+
+/** Calls `cb` with a session's key when the notes its listening keeps were written. */
+export function onListeningNotes(cb: (session: string) => void): () => void {
+  return onServerEvent<{ session: string }>('listening-notes', (p) => cb(p.session));
+}
+
+/** What a key held to talk hears and where it went, for the bar. */
+export function onTalk(cb: (talk: Talk) => void): () => void {
+  return onWindowEvent<Talk>('talk', cb);
+}
+
+/** What was said for this window to put where its caret is (talk.ts). */
+export function onTalked(cb: (talked: Talked) => void): () => void {
+  return onWindowEvent<Talked>('talked', cb);
 }
 
 /** Replies as sessions write them, ahead of their records: from sessions Codealong runs, and

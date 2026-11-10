@@ -72,6 +72,10 @@
 # and the Board view says how to make one.
 # Boards are on whatever config.toml's `[experimental] boards` says; PREVIEW_BOARDS_OFF=1 renders
 # them off, as a new config.toml has them.
+# PREVIEW_VOICE=1 renders with voice on (`[experimental] voice`), which is off otherwise as a new
+# config.toml has it; PREVIEW_VOICE=<session key> also has that session listening, a coach a few
+# minutes into a call, its conversation the meeting it heard. scripts/preview/voice-init.js has the
+# first session listed listen instead, and shows it.
 # PREVIEW_USAGE=<file> shows the plan usage in it (scripts/preview/usage-sample.json has some) in
 # place of the snapshot's, which has no Claude numbers: reading them rate-limits.
 #
@@ -241,6 +245,10 @@ else
   setup="$setup localStorage.setItem('codealong.boardsOn','1');"
 fi
 [ -n "${PREVIEW_PLATFORM:-}" ] && setup="$setup window.__CODEALONG_PLATFORM__='$PREVIEW_PLATFORM';"
+if [ -n "${PREVIEW_VOICE:-}" ]; then
+  setup="$setup window.__PREVIEW_VOICE__=true;"
+  [ "$PREVIEW_VOICE" = 1 ] || setup="$setup window.__LISTENS__='$PREVIEW_VOICE';"
+fi
 size="${PREVIEW_SIZE:-1440,900}"
 # The windows that float over the desktop render on a stand-in for it: `on_desktop <the page's
 # class> [a layer over it]`.

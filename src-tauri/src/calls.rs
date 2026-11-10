@@ -839,6 +839,35 @@ calls! {
         Ok(())
     }
 
+    /// Has a session listen (listen.rs) to what `ask` names, or with `on` false ends its
+    /// listening: the listening as it is now.
+    fn listen(c, key: String, on: bool, ask: Option<crate::listen::Ask>) -> Result<Value, String> {
+        actions::run(&c.engine, &c.peers, actions::LISTEN, &key, actions::params::Listen { on, ask: ask.unwrap_or_default() })
+    }
+
+    /// Where a session's listening stands (listen.rs `tail`): the listening, what its session
+    /// hasn't been told yet and its notes, for a window that starts showing it. Nothing for a
+    /// session that never listened.
+    fn listening(c, key: String) -> Result<Option<crate::listen::Tail>, String> {
+        Ok(crate::listen::tail(&key))
+    }
+
+    /// What this Mac can hear with (ear.rs `status`), and the apps that record or play now, for
+    /// the window that sets a listening up. Nothing here asks the person for anything.
+    fn hearing(c) -> Result<Value, String> {
+        let cfg = config::current().map_err(words)?;
+        crate::listen::turned_on(&cfg).map_err(words)?;
+        let status = crate::ear::status(&cfg.voice.locale);
+        let apps = if status.available { crate::ear::apps().unwrap_or_default() } else { Vec::new() };
+        Ok(serde_json::json!({ "status": status, "apps": apps }))
+    }
+
+    /// The session to talk to as your orchestrator (board.rs `orchestrator`): its key and title,
+    /// or nothing when none runs.
+    fn orchestrator(c) -> Result<Option<(String, String)>, String> {
+        Ok(c.engine.read(|b| crate::board::orchestrator(&b.lanes).map(|s| (s.key.clone(), s.title.clone()))))
+    }
+
     /// The schedules the harnesses keep themselves (schedules/harnesses.rs), for the Schedules view.
     fn harness_schedules(c) -> Result<Vec<schedules::harnesses::Kept>, String> {
         let cfg = config::current().map_err(words)?;

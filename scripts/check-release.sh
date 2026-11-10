@@ -94,6 +94,7 @@ signed="$(codesign -dvv "$app" 2>&1 || true)"
 echo "$signed" | grep -q '^Authority=Developer ID Application:'; check "signed with a Developer ID" $?
 echo "$signed" | grep -q 'flags=.*runtime'; check "with the hardened runtime" $?
 codesign -d --entitlements - --xml "$app" 2>/dev/null | grep -q 'com.apple.security.automation.apple-events'; check "and may drive terminals (Apple Events)" $?
+codesign -d --entitlements - --xml "$app/Contents/MacOS/codealong-ear" 2>/dev/null | grep -q 'com.apple.security.device.audio-input'; check "and its hearing may use the microphone" $?
 said="$(plutil -extract CFBundleShortVersionString raw "$app/Contents/Info.plist" 2>/dev/null || true)"
 holds "it says it's $version" "it says $said" test "$said" = "$version"
 # Run with its quarantine on, this waits before any of the app's code runs, for as long as it takes

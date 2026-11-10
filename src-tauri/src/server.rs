@@ -546,6 +546,8 @@ fn handle_request(ctx: &Ctx, req: serde_json::Result<Request>) -> Reply {
                 std::thread::sleep(Duration::from_millis(200));
                 eprintln!("Codealong's server quitting, as asked.");
                 crate::views::quit_all(Duration::from_secs(5), None);
+                // What the listenings were in the middle of hearing is written first.
+                crate::listen::shut_down();
                 std::process::exit(0);
             });
             Reply::ok(std::process::id())

@@ -102,6 +102,7 @@ import { canvasPicked, MainPanel, type Drill } from './ui/MainPanel';
 import { showPrTab } from './ui/PrInspector';
 import type { FindAsk } from './ui/ThreadFind';
 import { Toasts, useToasts } from './ui/Toasts';
+import { ListenHost } from './ui/Listening';
 import { ageListingChain, ageListingPr, chainOf, currentProject, FACET_WORD, facetsIn, facetsOn, harnessSchedulesIn, labelPick, laneInQuery, onlyPick, prInDone, prInFilter, prInQuery, projectOfCard, revealing, unarchived, scheduleSessions, schedulesIn, sessionInFacets, sessionInFilter, sessionInQuery, sessionItemOf, sessionItemsOf, showingHelper, todoInQuery, togglePick, toggleShown, useBoardLists, projectsOf, type Facets } from './boardLists';
 import { inProject, QUICK_PLACEHOLDER, queryWords, shortcutKeys, shortcutLabel } from './quick';
 import { findFor } from './threadFind';
@@ -2825,6 +2826,7 @@ export function App() {
       {scheduleEdit && board && <ScheduleDialog schedule={scheduleEdit} board={board} devices={devices} now={now} onClose={() => setScheduleEdit(null)} onSaved={setScheduleId} />}
       {boardEdit && <BoardDialog board={boardEdit.board} project={current} onSave={saveBoard} onClose={() => setBoardEdit(null)} {...ruleChoices} />}
       {columnEdit && <ColumnDialog column={columnEdit.column} onSave={saveColumn} onClose={() => setColumnEdit(null)} {...ruleChoices} />}
+      <ListenHost here />
       <Toasts state={toasts} anchor={toastAnchor} onUnarchive={(u) => setArchived(u.keys, false, u.title)} />
     </div>
   );

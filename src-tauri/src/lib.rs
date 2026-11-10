@@ -34,6 +34,8 @@ mod config;
 mod detect;
 mod desktop;
 mod devicekey;
+mod dictation;
+mod ear;
 mod editors;
 mod engine;
 // The tests' sessions, lanes and scratch folders are codealong-peer's, compiled here too: one
@@ -68,6 +70,7 @@ mod kept;
 mod launch;
 mod ledger;
 mod limits;
+mod listen;
 mod newfolder;
 mod nudges;
 mod lineage;
@@ -1490,6 +1493,8 @@ pub fn run() {
             app.manage(floating.clone());
             let shortcuts = config::shortcuts();
             let shortcut = std::sync::Mutex::new(quick::Keys::ALL.map(|which| which.in_config(&shortcuts).to_string()));
+            // Whether voice was on at the last board: on at launch, its model is loaded then.
+            let voice = std::sync::atomic::AtomicBool::new(config::experimental().voice);
             // The board the server publishes, and what the app does with each: the Dock icon, the
             // theme, the zoom and the shortcuts, the windows' feed, and the windows that float.
             let mirror = view::Mirror::new();
@@ -1523,6 +1528,13 @@ pub fn run() {
                 zoom::follow(&emitter, board.zoom);
                 // Registering waits on the main thread, so it gets a thread of its own: this one
                 // may hold what a command on the main thread is waiting for.
+                // Voice turned on: its speech model is loaded (and downloaded, the first time),
+                // so the first words said aren't kept waiting on it.
+                if board.experimental.voice && !voice.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                    std::thread::spawn(dictation::warm);
+                } else if !board.experimental.voice {
+                    voice.store(false, std::sync::atomic::Ordering::SeqCst);
+                }
                 if let Ok(mut shortcut) = shortcut.lock() {
                     for (which, was) in quick::Keys::ALL.into_iter().zip(shortcut.iter_mut()) {
                         let now = which.on_board(board);
@@ -1627,6 +1639,8 @@ pub fn run() {
                 for which in quick::Keys::ALL {
                     quick::apply_shortcut(&handle, which, which.in_config(&shortcuts));
                 }
+                // The speech model, so the first words said aren't kept waiting on it.
+                dictation::warm();
             });
             if let Err(e) = add_settings_menu(app.handle()) {
                 eprintln!("Couldn't add Settings to the menu: {e:#}");
@@ -1652,8 +1666,10 @@ pub fn run() {
         })
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_global_shortcut::Builder::new().with_handler(|app, shortcut, event| {
-            if event.state == tauri_plugin_global_shortcut::ShortcutState::Pressed {
-                quick::pressed(app, shortcut);
+            // Only the keys held to talk do anything as they come up (dictation.rs).
+            match event.state {
+                tauri_plugin_global_shortcut::ShortcutState::Pressed => quick::pressed(app, shortcut),
+                tauri_plugin_global_shortcut::ShortcutState::Released => quick::released(app, shortcut),
             }
         }).build())
         .on_window_event(|window, event| {

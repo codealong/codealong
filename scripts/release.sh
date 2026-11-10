@@ -248,6 +248,18 @@ for f in THIRD_PARTY_LICENSES.txt LICENSE NOTICE; do
   [ -s "$app/Contents/Resources/$f" ] || fail "The app was built without its $f (Contents/Resources)."
 done
 
+# Its hearing (scripts/ear.sh) isn't cargo's or Tauri's to build, so it goes in here, beside the
+# engine, for the same processors. That breaks the seal Tauri just put on the app, so both are
+# signed again the way Tauri signs: what's inside first, then the app, each with the hardened
+# runtime, a timestamp and the entitlements.
+# shellcheck disable=SC2086
+ear="$(scripts/ear.sh $archs)" || fail "codealong-ear couldn't be built (above): it needs Xcode 26."
+cp "$ear" "$app/Contents/MacOS/codealong-ear"
+for signed in "$app/Contents/MacOS/codealong-ear" "$app"; do
+  codesign --force --options runtime --timestamp --entitlements src-tauri/Entitlements.plist --sign "$identity" "$signed" ||
+    fail "Couldn't sign $signed."
+done
+
 # The checks Gatekeeper makes, before anything goes to Apple.
 codesign --verify --deep --strict "$app" || fail "The app's signature doesn't verify."
 signature="$(codesign -dvv "$app" 2>&1)"
@@ -256,9 +268,17 @@ grep -q "flags=.*runtime" <<<"$signature" || fail "The app isn't signed with the
 grep -q "^Timestamp=" <<<"$signature" || fail "The app's signature has no secure timestamp, which notarizing requires."
 codesign -d --entitlements - --xml "$app" 2>/dev/null | grep -q "com.apple.security.automation.apple-events" ||
   fail "The app's signature is missing its entitlements (Entitlements.plist): it couldn't script Ghostty."
-built_archs="$(lipo -archs "$app/Contents/MacOS/codealong")"
-for a in $archs; do
-  grep -qw "$a" <<<"$built_archs" || fail "The app is built for $built_archs, not $archs."
+for signed in "$app" "$app/Contents/MacOS/codealong-ear"; do
+  codesign -d --entitlements - --xml "$signed" 2>/dev/null | grep -q "com.apple.security.device.audio-input" ||
+    fail "$signed is signed without the microphone's entitlement (Entitlements.plist): it couldn't hear."
+done
+codesign -dvv "$app/Contents/MacOS/codealong-ear" 2>&1 | grep -q "flags=.*runtime" ||
+  fail "codealong-ear isn't signed with the hardened runtime, which notarizing requires."
+for binary in codealong codealong-ear; do
+  built_archs="$(lipo -archs "$app/Contents/MacOS/$binary")"
+  for a in $archs; do
+    grep -qw "$a" <<<"$built_archs" || fail "$binary is built for $built_archs, not $archs."
+  done
 done
 
 # Submits a file to Apple's notary service and waits; on a refusal, prints Apple's log of why.

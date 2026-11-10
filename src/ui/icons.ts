@@ -3,6 +3,18 @@
 // `notch` and `menu-bar` are drawn in their style: a screen with the notch at its top, for the bar
 // docked there, and one with an item in its menu bar, for the bar in the menu bar.
 export const ICONS: Record<string, string[]> = {
+ "microphone": [
+  "M9 5a3 3 0 0 1 3 -3a3 3 0 0 1 3 3v5a3 3 0 0 1 -3 3a3 3 0 0 1 -3 -3l0 -5",
+  "M5 10a7 7 0 0 0 14 0",
+  "M8 21l8 0",
+  "M12 17l0 4"
+ ],
+ "notes": [
+  "M5 5a2 2 0 0 1 2 -2h10a2 2 0 0 1 2 2v14a2 2 0 0 1 -2 2h-10a2 2 0 0 1 -2 -2l0 -14",
+  "M9 7l6 0",
+  "M9 11l6 0",
+  "M9 15l4 0"
+ ],
  "slash": [
   "M17 5l-10 14"
  ],

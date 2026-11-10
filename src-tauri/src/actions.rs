@@ -32,6 +32,7 @@ pub const OPEN: &str = "open-target";
 pub const PREVIEW: &str = "worktree-preview";
 pub const REUSABLE: &str = "worktree-reusable";
 pub const RUN_COMMAND: &str = "session-run-command";
+pub const LISTEN: &str = "session-listen";
 /// A session's own agent marking the turn it's taking seen (`codealong session seen me`), which
 /// no other device runs.
 pub const AGENT_SEEN: &str = "session-agent-seen";
@@ -76,6 +77,15 @@ pub mod params {
     #[serde(default)]
     pub struct Reusable {
         pub on: bool,
+    }
+
+    /// `session-listen`: has the session listen to what `ask` names (listen.rs), or with `on`
+    /// false ends its listening.
+    #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+    #[serde(default)]
+    pub struct Listen {
+        pub on: bool,
+        pub ask: crate::listen::Ask,
     }
 
     /// `session-run-command`: a command you ran for the session, and the folder it runs in. It's
@@ -289,6 +299,10 @@ const REQUESTS: &[Request] = &[
     // tab of yours on its Mac, as you, and the session is told what it printed. Not the command's:
     // its agent asks with `codealong terminal run`, which you allow.
     Request { name: RUN_COMMAND, only_here: Some("Run it on the Mac the session runs on."), here: run_command, command: run_is_yours, ..ANY },
+    // A session listens through the microphone and the audio of the Mac it runs on, which are
+    // its user's to turn on, at that Mac: the command may end a listening, and start one only on
+    // a recording.
+    Request { name: LISTEN, only_here: Some("A session listens on the Mac it runs on; have it listen there."), here: listen, command: listening_is_yours, ..ANY },
     // A worktree goes only when nothing in it would be lost, checked again on its Mac, so an
     // agent may clean one up too. Can't be undone, so another device needs remote control. A
     // repo's own teardown can take a minute or more (cleanup.rs).
@@ -326,6 +340,18 @@ fn resume_is_its_users(_: &Value) -> Result<(), String> {
 /// session does without asking is its user's to say, as allowing a call is (`deny_only`).
 fn mode_is_its_users(_: &Value) -> Result<(), String> {
     Err("A session's mode is its user's to switch, in Codealong or where the session runs.".into())
+}
+
+/// The command never turns on the microphone or hears what the Mac plays: an agent may have typed
+/// it. It may end a listening, and have a session hear a recording, which is a file like any
+/// other it could read.
+fn listening_is_yours(params: &Value) -> Result<(), String> {
+    let on = params.get("on").and_then(Value::as_bool).unwrap_or(false);
+    let recording = params.pointer("/ask/file").is_some_and(|f| !f.is_null());
+    if on && !recording {
+        return Err("Listening through this Mac's microphone or to what it plays is its user's to start, in Codealong's windows. The command can have a session hear a recording (--file), and end a listening.".into());
+    }
+    Ok(())
 }
 
 fn run_is_yours(_: &Value) -> Result<(), String> {
@@ -1945,6 +1971,14 @@ fn set_preview(engine: &Handle, c: &Call) -> Result<Value, String> {
 
 /// Marks the worktree reusable or not (`reusable::mark`). Says whether that changed it, and the
 /// time of the board that shows it, as `set_preview` does.
+/// Starts or ends a session's listening: the listening as it is now.
+fn listen(engine: &Handle, c: &Call) -> Result<Value, String> {
+    let p: params::Listen = c.read()?;
+    let key = c.session()?;
+    let listening = if p.on { crate::listen::start(engine, key, &p.ask) } else { crate::listen::stop(key) }.map_err(words)?;
+    serde_json::to_value(listening).map_err(|e| e.to_string())
+}
+
 fn set_reusable(engine: &Handle, c: &Call) -> Result<Value, String> {
     let (changed, at) = engine.set_reusable(c.key, c.read::<params::Reusable>()?.on).map_err(words)?;
     Ok(json!({ "at": shown_at(c, at), "changed": changed }))
@@ -2309,6 +2343,17 @@ mod tests {
         // whose usage the conversation spends.
         for name in [api::SIDE_ASK, api::SIDE_CLOSE, api::SIDE_FORGET, MOVE] {
             assert!(ask(name, json!({ "text": "what changed?", "account": "claude2" })).unwrap_err().contains("in Codealong's windows"), "{name}");
+        }
+        // Turning on the microphone, or hearing what the Mac plays, is its user's to do at a
+        // window: the command may have a session hear a recording, and end a listening, which
+        // get as far as looking (voice is off here, and says so).
+        for ask_for in [json!({ "mic": true }), json!({ "system": true }), json!({ "apps": ["us.example.meet"] })] {
+            let err = ask(LISTEN, json!({ "on": true, "ask": ask_for })).unwrap_err();
+            assert!(err.contains("is its user's to start, in Codealong's windows"), "{ask_for}: {err}");
+        }
+        for params in [json!({ "on": true, "ask": { "file": "/tmp/call.m4a" } }), json!({ "on": false })] {
+            let err = ask(LISTEN, params.clone()).unwrap_err();
+            assert!(!err.contains("its user's to start"), "{params}: {err}");
         }
         // A command led by `!` runs in a terminal of its user's only as they ran it: an agent asks
         // with `codealong terminal run`, which they allow.

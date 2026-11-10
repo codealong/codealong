@@ -229,6 +229,8 @@ pub enum Msg {
     /// A terminal of Codealong's own opened, closed or changed in a way the board lists
     /// (terminals.rs `glances`).
     Terminals,
+    /// A listening started, ended, or has something new to say of itself (listen.rs `glances`).
+    Listenings,
     /// A read of a folder's files came back after the scan that asked for it went on (held.rs).
     Landed,
     /// The servers listening in worktrees changed (previews.rs).
@@ -455,6 +457,11 @@ impl Handle {
     /// What the board lists of Codealong's own terminals may have changed (terminals.rs `init`).
     pub fn terminals_changed(&self) {
         let _ = self.tx.send(Msg::Terminals);
+    }
+
+    /// What the board lists of the listenings may have changed (listen.rs).
+    pub fn listenings_changed(&self) {
+        let _ = self.tx.send(Msg::Listenings);
     }
 
     pub fn refresh_usage(&self) {
@@ -950,6 +957,8 @@ pub fn starting_board() -> Board {
         waiting_shortcut: shortcuts.waiting,
         improve_shortcut: shortcuts.improve,
         main_window_shortcut: shortcuts.main_window,
+        talk_shortcut: shortcuts.talk,
+        talk_orchestrator_shortcut: shortcuts.talk_orchestrator,
         ..Default::default()
     }
 }
@@ -2109,8 +2118,8 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
     /// board::apply_headless, board::apply_agent_seen, board::apply_side_answer,
     /// board::apply_unread, board::apply_snooze, board::apply_raise, board::apply_labels). A snooze's time coming changes nothing on disk: the 30-second
     /// heartbeat's publish brings it back.
-    fn with_snoozes(&self, mut sessions: Vec<Session>, sides: &std::collections::BTreeMap<String, Vec<crate::side::Glance>>, now: i64) -> Vec<Session> {
-        let unattended = sessions.iter().any(|s| s.helper.is_some() || s.headless);
+    fn with_snoozes(&self, mut sessions: Vec<Session>, sides: &std::collections::BTreeMap<String, Vec<crate::side::Glance>>, listenings: &std::collections::BTreeMap<String, crate::listen::Glance>, now: i64) -> Vec<Session> {
+        let unattended = sessions.iter().any(|s| s.helper.is_some() || s.headless) || !listenings.is_empty();
         if self.seen.snoozed.is_empty() && self.seen.unread.is_empty() && self.seen.quiet.is_empty() && self.seen.raised.is_empty() && self.seen.agent_seen.is_empty() && self.seen.labels.is_empty() && sides.is_empty() && !unattended {
             return sessions;
         }
@@ -2121,6 +2130,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             board::apply_quiet(s, self.seen.is_quiet(&s.key));
             board::apply_helper(s);
             board::apply_headless(s);
+            board::apply_listening(s, listenings.contains_key(&s.key));
             board::apply_agent_seen(s, self.seen.agent_seen_of(&s.key));
             board::apply_side_answer(s, sides.get(&s.key).map_or(&[], Vec::as_slice), self.seen.seen_at(&s.key));
             // A mark of unread next: a snooze keeps a session marked unread off the bar too.
@@ -2374,6 +2384,10 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         rest.sessions.block_flagged_sessions = before.sessions.block_flagged_sessions;
         // Sounds are read as each one plays (sounds.rs).
         rest.sounds = before.sounds.clone();
+        // Voice is read as a key goes down and as a listening is looked at (dictation.rs,
+        // listen.rs), and the experiments only show and hide what's there.
+        rest.voice = before.voice.clone();
+        rest.experimental = before.experimental.clone();
         if rest == before {
             self.dirty = true;
             return;
@@ -2541,7 +2555,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                     self.load_reviews();
                     self.dirty = true;
                 }
-                Ok(Msg::Hosted) | Ok(Msg::Read) | Ok(Msg::Sides) | Ok(Msg::Terminals) => self.dirty = true,
+                Ok(Msg::Hosted) | Ok(Msg::Read) | Ok(Msg::Sides) | Ok(Msg::Terminals) | Ok(Msg::Listenings) => self.dirty = true,
                 Ok(Msg::SetArchived(keys, archived, reply)) => {
                     let now = now_ms();
                     for key in &keys {
@@ -3998,11 +4012,12 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         let pr_links = self.pr_links();
         let repo_settings = self.team_files.settings(&self.cfg.repos);
         let sides = crate::side::glances();
+        let listenings = crate::listen::glances();
         let mut board = board::compose(board::Inputs {
             now,
             apps: &apps,
             seeds: &self.seeds,
-            sessions: self.with_connections(self.with_limits(self.with_snoozes(self.with_suggestions(with_runs(self.with_insights(self.with_emblems(self.with_artifacts(self.with_chrome(self.with_run_origins(self.with_origins(with_terminals(self.build_sessions(now))))))), now), now)), &sides, now), &usage, now)),
+            sessions: self.with_connections(self.with_limits(self.with_snoozes(self.with_suggestions(with_runs(self.with_insights(self.with_emblems(self.with_artifacts(self.with_chrome(self.with_run_origins(self.with_origins(with_terminals(self.build_sessions(now))))))), now), now)), &sides, &listenings, now), &usage, now)),
             git: &self.git,
             prs: self.github.prs(),
             requested: self.github.requested(),
@@ -4032,6 +4047,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         board.sides = sides;
         adopt_terminals(&board.lanes, |pid| crate::procs::tty(pid).map(|t| t.to_string_lossy().into_owned()));
         board.terminals = crate::terminals::glances();
+        board.listenings = listenings;
         board.github_polled = self.github.polled();
         board.github_current = self.github.current();
         board.when_limited = self.cfg.limits.when_hit;
@@ -4059,6 +4075,9 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         board.waiting_shortcut = self.cfg.shortcuts.waiting.clone();
         board.improve_shortcut = self.cfg.shortcuts.improve.clone();
         board.main_window_shortcut = self.cfg.shortcuts.main_window.clone();
+        let in_use = self.cfg.shortcuts_in_use();
+        board.talk_shortcut = in_use.talk;
+        board.talk_orchestrator_shortcut = in_use.talk_orchestrator;
         // Codealong's own source's worktrees, and where a session that improves it goes.
         let sources: HashSet<PathBuf> = self.codealong_sources.iter().map(|(root, _)| root.clone()).collect();
         crate::improve::mark(&mut board.lanes, &self.lane_checkout, &sources);
@@ -5175,7 +5194,7 @@ mod tests {
         assert_eq!(e.on_label(std::slice::from_ref(&key), &["Bug".into()], &[]), Ok(false), "nothing new");
         assert_eq!(e.on_label(std::slice::from_ref(&key), &[], &["BUG".into()]), Ok(true));
         assert_eq!(e.seen.labels_of(&key), [release].as_slice());
-        let s = e.with_snoozes(vec![crate::fixtures::session(&key)], &Default::default(), now_ms());
+        let s = e.with_snoozes(vec![crate::fixtures::session(&key)], &Default::default(), &Default::default(), now_ms());
         assert_eq!(s[0].labels.iter().map(|l| l.name.as_str()).collect::<Vec<_>>(), ["Release"]);
         std::fs::write(home().join("ran"), "").unwrap();
     }

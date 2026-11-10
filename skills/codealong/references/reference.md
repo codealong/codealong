@@ -191,6 +191,19 @@ Commands:
              until your user turns them on in Settings › Experimental (`[experimental]
              boards = true` in config.toml); until then every board command says so and
              does nothing
+  listen     Listenings: a session that listens to a meeting. Codealong hears it on this
+             Mac (the microphone, what the Mac plays, or only some apps), writes what's
+             said to a transcript, a line for each thing said (`You` for the microphone,
+             `Them` for what the Mac plays), and every so often tells the session which
+             lines are new, as data rather than instructions; the session keeps notes of
+             it or coaches its user through it. No audio is kept. Starting one through
+             the microphone or the Mac's audio is its user's to do, in Codealong's
+             windows (a session's menu, Listen…): the command lists them (`list`), ends
+             one (`stop`), says what this Mac can hear with (`status`), and has a
+             session hear a recording (`start --file`). Voice is an experiment, off
+             until your user turns it on in Settings › Experimental (`[experimental]
+             voice = true` in config.toml); until then every listen command says so and
+             does nothing
   help       Print this message or the help of the given subcommand(s)
 
 Options:
@@ -5120,6 +5133,178 @@ Options:
       --project <PROJECT>
           The project, as the app names it, or `all` for All projects. Without it, the
           project of the worktree the current folder is in
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong listen
+
+```
+Listenings: a session that listens to a meeting. Codealong hears it on this Mac (the
+microphone, what the Mac plays, or only some apps), writes what's said to a transcript,
+a line for each thing said (`You` for the microphone, `Them` for what the Mac plays),
+and every so often tells the session which lines are new, as data rather than
+instructions; the session keeps notes of it or coaches its user through it. No audio is
+kept. Starting one through the microphone or the Mac's audio is its user's to do, in
+Codealong's windows (a session's menu, Listen…): the command lists them (`list`), ends
+one (`stop`), says what this Mac can hear with (`status`), and has a session hear a
+recording (`start --file`). Voice is an experiment, off until your user turns it on in
+Settings › Experimental (`[experimental] voice = true` in config.toml); until then every
+listen command says so and does nothing
+
+Usage: codealong listen [OPTIONS] <COMMAND>
+
+Commands:
+  list    The listenings, the latest first: the session each is for, whether it's still
+          hearing or when and why it ended, how many lines its transcript has and how
+          many its session has been told of, and where the transcript and the session's
+          notes are
+  start   Has a session hear a recording: a sound file (anything macOS plays: m4a, mp3,
+          wav, aiff), transcribed on this Mac as fast as it can be, its words filed as
+          Them's. The session is told what's going on and then which lines are new, as
+          it would be of a meeting as it's said, and that it's over when the recording
+          runs out
+  stop    Ends a session's listening. Its session is told the last lines and that it's
+          over
+  status  What this Mac can hear with: whether it can transcribe speech and in which
+          language, whether that language's model is on it yet, whether Codealong may
+          use the microphone, and the apps that record or play right now. Asks the user
+          for nothing
+  help    Print this message or the help of the given subcommand(s)
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong listen list
+
+```
+The listenings, the latest first: the session each is for, whether it's still hearing or
+when and why it ended, how many lines its transcript has and how many its session has
+been told of, and where the transcript and the session's notes are
+
+Usage: codealong listen list [OPTIONS]
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong listen start
+
+```
+Has a session hear a recording: a sound file (anything macOS plays: m4a, mp3, wav,
+aiff), transcribed on this Mac as fast as it can be, its words filed as Them's. The
+session is told what's going on and then which lines are new, as it would be of a
+meeting as it's said, and that it's over when the recording runs out
+
+Usage: codealong listen start [OPTIONS] --file <PATH> <SESSION>
+
+Arguments:
+  <SESSION>
+          The session's key, or `me` for the one running this command
+
+Options:
+      --file <PATH>
+          The recording to hear
+
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --as <ROLE>
+          What the session makes of it: notes it keeps in a file, a few lines of
+          coaching each time it's told what was heard, or a todo for each thing asked
+          for (a bug, a fix, a feature)
+
+          Possible values:
+          - notes
+          - coach
+          - requests
+          - custom:   What `--prompt` says, and nothing else
+          
+          [default: notes]
+
+      --table
+          Tables, even when piped
+
+      --start-sessions
+          With `--as requests`: a session is started on each todo as it's filed, in a
+          worktree of its own, as the listening session's helper
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+      --prompt <PROMPT>
+          Something to add to what the session is asked to do, or with `--as custom` all
+          of it
+
+  -h, --help
+          Print help (see a summary with '-h')
+```
+
+## codealong listen stop
+
+```
+Ends a session's listening. Its session is told the last lines and that it's over
+
+Usage: codealong listen stop [OPTIONS] <SESSION>
+
+Arguments:
+  <SESSION>
+          The session's key, or `me` for the one running this command
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong listen status
+
+```
+What this Mac can hear with: whether it can transcribe speech and in which language,
+whether that language's model is on it yet, whether Codealong may use the microphone,
+and the apps that record or play right now. Asks the user for nothing
+
+Usage: codealong listen status [OPTIONS]
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
 
       --table
           Tables, even when piped

@@ -20,6 +20,8 @@ devices is its own crate, codealong-peer (`src-tauri/peer/`), which the
 - Zig 0.17 (`brew install zig`), which builds Ghostty's terminal library for Codealong's own
   terminals (*Ghostty's terminal library*, below)
 - `gh` signed in (`gh auth login`) for PRs
+- For voice (an experiment): macOS 26 and Xcode 26, whose Swift compiler builds `codealong-ear`
+  (`scripts/ear.sh`). Without them everything else builds, and Codealong says it can't hear
 - A terminal: Ghostty 1.3+, iTerm2, Terminal or Rex (a new config.toml picks the first of those installed)
 
 ## Build and run
@@ -285,6 +287,9 @@ as the engine always was.
 | `src-tauri/src/codex/` | Codex, in its app and its terminal UI: the adapter and reader (`mod.rs`), rollouts and the thread index, the conversation a rollout holds, its app-server (archiving, renaming, new threads), the socket the app's windows talk on (starting, steering and stopping a turn), its terminal UIs, side conversations and plan usage |
 | `src-tauri/src/opencode.rs`, `antigravity.rs`, `cursor.rs` | Harness adapters: OpenCode's database and background service; Antigravity's app and command line (`agy`), their conversation summaries, transcripts and processes; Cursor's app (its chats in its state database) and command line (`cursor-agent`), their transcripts and processes |
 | `src-tauri/src/acp.rs` | Sessions Codealong runs itself: an Agent Client Protocol adapter process per account, turns, permission requests, the streamed reply |
+| `src-tauri/ear/main.swift`, `src-tauri/src/ear.rs`, `scripts/ear.sh` | Hearing: `codealong-ear`, a helper in Swift (Apple's speech recognition has no other interface) that captures the microphone, what the Mac plays or what some apps play, and says what it heard as JSON lines; the engine's way to it; and the script that builds it, since cargo doesn't. relaunch.sh, release.sh and engine.sh put it beside the engine |
+| `src-tauri/src/listen.rs`, `src/listening.ts`, `src/ui/Listening.tsx` | Sessions that listen to a meeting: the transcript, when a session is told what's new and in what words, the roles (notes, coach, requests), taking one up again after a restart; in the windows, the meeting drawn in the session's conversation, the strip over its box, its chip and the dialog that sets one up |
+| `src-tauri/src/dictation.rs`, `src/talk.ts`, `src/said.ts`, `src/ui/Said.tsx` | A key held to talk: hearing while it's down, then what was said typed where the caret is, into a session's box, or sent to the orchestrator; what the bar shows of it, and of a listening session's cue |
 | `src-tauri/src/side.rs`, `src/side.ts`, `src/ui/SideStrip.tsx` | Side conversations: a throwaway copy of a session's conversation, run by its harness (`Adapter::side`), asked from the reply box with `/side` and shown above it, or popped out into a window of its own (kept.rs); what was asked and answered, kept to read later (`sides.json`) |
 | `src-tauri/src/suggestions.rs`, `src/ui/SuggestedReplies.tsx` | Suggested replies: what another session suggested a session's user send it (`codealong session suggest`, `suggestions.json`), kept until the session moves on (`board::suggestions_hold`), and the list above the reply box that sends one with a click; for questions a session asks, choices of their own picked in its question box (`suggestions::picked`) |
 | `src-tauri/src/repos.rs`, `git.rs`, `github.rs`, `ghpoll.rs` | Repo discovery, callsigns, worktrees, git status, PRs, and when GitHub is asked for them |

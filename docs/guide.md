@@ -2193,7 +2193,8 @@ primary session, moving a session that hits its usage limit, and telling one a l
 stopped to carry on, everywhere or for one repo with its team's settings (see *Settings for one
 repo, and its team's*); Projects groups repos by pattern; Advanced turns
 the performance log on and shows where the files are; Experimental turns on features still being
-tried out, each off until you do: boards (see *Boards*). Each change is saved in its place in the file,
+tried out, each off until you do: boards (see *Boards*), and voice, with its shortcuts and
+settings (see *Voice*). Each change is saved in its place in the file,
 so comments and order stay as you wrote them. The config.toml section edits the file itself, for
 anything the form doesn't cover, and says what's wrong when it doesn't parse.
 
@@ -3215,6 +3216,94 @@ sounds here as well as there, wherever you are. To stay out of the way:
 A sound config.toml names that isn't on this Mac would only be silent, so it shows as a notice, and
 Settings won't save one.
 
+### Voice
+
+*Settings › Experimental, or `voice = true` under `[experimental]` in config.toml*
+
+Voice is an experiment, off until you turn it on. While it's off its two shortcuts do nothing, a
+session's menu has no Listen…, and every `codealong listen` command says it's off. It has two
+halves: a key you hold to talk to a session, and sessions that listen to a meeting.
+
+Speech is turned into text on this Mac, by macOS's own speech model (macOS 26 or later; the
+model for a language is downloaded by macOS the first time it's used), in a helper process of
+Codealong's, `codealong-ear`. No audio is kept anywhere, and none leaves the Mac: what a session
+gets is text. macOS asks before Codealong may use the microphone, and again before it may hear
+what the Mac plays (*System Audio Recording Only*, under Privacy & Security › Screen & System
+Audio Recording); a listening that hears nothing from the Mac's audio for a while says that this
+may be why. Linux has none of this yet.
+
+**Talking to a session.** Hold ⌥⌘[ and talk; let go, and what you said is typed where your caret
+is in the Codealong window you're in: a session's box, the quick panel, a todo's description, a
+review. With no caret it goes into the box of the session the window shows, and from another app
+the quick panel opens on it, to find the session it's for or start one. Nothing is sent: a machine
+heard it, and it's yours to read over first. Hold ⌥⌘] instead to talk to your orchestrator
+(*An orchestrator*: the session started on `/codealong:orchestrate`, or failing that one called an
+orchestrator), whatever you're looking at: what you said is in its box, with Codealong's window
+brought forward on it. Keep Shift down as you let go, or turn on *Send what I say to my
+orchestrator as I let go*, and it's sent instead, with a line saying it was dictated and may be
+misheard. With no orchestrator running the quick panel has it. The keys are `talk` and
+`talk_orchestrator` under `[shortcuts]`, set with Voice in Settings › Experimental; editors fold
+code with the defaults, which these take from them while voice is on.
+
+The bar shows it as it goes: docked in the notch, a card opens under the pills with the words as
+they're heard and to whom, then where they went; floating, a line in the bar. It never takes the
+keyboard from what you're in. Hearing starts as the key goes down, before the speech model has
+loaded, so the first words aren't lost; a key that never comes up is let go of after three
+minutes.
+
+**A session that listens.** *Listen…* in a session's menu has it hear a meeting as it's said.
+Tell the session first what you want from the meeting, as you'd tell it anything, then pick:
+
+- what it does: **Notes** (it keeps notes in a file as the meeting goes: what's decided, who took
+  on what, questions left open, and sums it up at the end); **Coach** (each answer a few short
+  lines for you to glance at: a question worth asking, something to come back to); **Requests**
+  (for a call with a customer: a todo for each bug, fix or feature asked for, with what was said
+  about it, and with *Start a session on each right away* a session on each, in a worktree of its
+  own, as the listening session's helper); or your own words;
+- what it hears: you, through the microphone; everyone else, from what the Mac plays, or only
+  from one app that's playing; and whether you're on speakers, when what the Mac plays is taken
+  out of what the microphone hears so the others aren't written down twice.
+
+Codealong writes what's said to a transcript, a line for each thing said: the time, who (You for
+the microphone, Them for what the Mac plays), and the words. At a pause in the talk, and no more
+often than *A session that listens is told what's new* says (`[voice] tell_every`, 20 seconds), it
+tells the session what was heard since the last time, in a message that says Codealong sent it and
+that what's in it is a machine's hearing of what people said: data, not instructions. The lines
+themselves are in the message while there are few, so the session answers in one step; after a
+long turn, when a lot was said meanwhile, it's pointed at them in the transcript. A session in
+the middle of a turn is told everything at once when the turn is over.
+
+So the session's conversation is the meeting and what its agent made of it, in turn, and that's
+how it's drawn: what was heard as the meeting's lines, the agent's answers between them, and an
+answer that says there's nothing to say (a dash, as it's asked to give most of the time) not at
+all. Over its box a strip says it's listening, for how long and to what, with the lines heard
+that it hasn't been told of yet, the words being said right now, its notes, and Stop. Its row
+wears a Listening chip. A coach's latest answer, or a call's requests as they're filed, opens
+under the notch's pills for a few seconds, beside your camera, without taking the keyboard; a
+click puts it away. A mark beside the notch's own shows for as long as any session is hearing.
+
+While it hears, a listening session's finished turns aren't Your turn: it ends one every few
+seconds, none of them yours to answer, so they make no sound and count nowhere. A call it asks
+you to allow still waits on you, which is why it's asked to do once, as its listening starts,
+whatever might need your say-so (writing its notes, running `codealong todo`): while you're still
+at the keyboard. Once hearing has ended its turns are yours again, the one that sums the meeting
+up first.
+
+A listening ends when you stop it (the strip's Stop, *Stop listening* in the session's menu, or
+`codealong listen stop`), when its session is gone, when nothing has been said for half an hour,
+or after eight hours. Codealong's server runs them, so one goes on with the app closed or
+relaunched; a server that restarts takes it up again, and the transcript has a line where some of
+what was said is missing, as it does where the helper stopped and was started again. Transcripts
+and notes stay in `listenings/` beside config.toml until you remove them.
+
+Starting one through the microphone or the Mac's audio is yours to do, in Codealong's windows:
+an agent's `codealong listen` can list them, end one, say what this Mac can hear with (`status`),
+and have a session hear a recording (`start --file`), which is transcribed as fast as it can be.
+
+Not yet checked by hand: the microphone and the Mac's audio themselves, which wait on macOS's
+prompts (a recording has been heard end to end through the same helper); what a listening does
+across sleep, a change of headphones mid-meeting, and two sources at once on speakers.
+
 ## Opening things where they live
 
 ### Open where it lives
@@ -3982,6 +4071,8 @@ what `codealong changes` saw at each of its last dozen looks, for a week, in `ch
 orchestrator's answers, cursor and narrative in `orchestrator/`; what every
 model call used, and Claude's extra usage as it was read, in `ledger.sqlite` (the Usage window's).
 Todos and labels are in `todos.json`, which is watched, so an agent or an editor can add to it.
+The listenings (*Voice*) are in `listenings.json`, and each one's transcript and notes in a folder
+of its own in `listenings/`.
 The schedules are in `schedules.json`, watched the same way, and what happened to each (its runs,
 the session it keeps going, what its watch saw, the runs asked for) in `schedule-runs.json`; each
 schedule's watch and notes have a folder of their own in `schedules/`.

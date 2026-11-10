@@ -14,7 +14,7 @@ import { REUSE_WORDS } from '../reusable';
 import { groupReviewWords, reviewsRunIn } from '../review';
 import { type Field, mineOf, offerWords, pullRequestsFor, repoChoices, reviewsEverywhere, reviewsFor, type Reviews, sourceOf, type Source, teamFileOf, withOwn, withPullRequests, withRepo, withReviews, without, PULL_REQUESTS_OFF } from '../repoSettings';
 import { BUFFER, modelName, withLists } from '../start';
-import type { AtLogin, ChromeProfile, Config, ConfigView, EmblemKind, EmblemsCfg, ExperimentalCfg, GroupMemberCfg, JevCfg, Lane, Mcp, NewTerminal, NudgeAbout, OwnReviewsCfg, Profile, ProjectCfg, PullRequestsCfg, RepoCfg, Reuse, ReviewPost, ReviewsCfg, ReviewStart, ReviewSubmit, RoutingCfg, RoutingGroup, RoutingGroupCfg, RoutingStrategy, SessionsCfg, ShortcutStatus, SoundsCfg, StartAccount, TeamCfg, TeamFile, Theme, TmuxUse, Training, Usage, Verdict, WhenLimited } from '../types';
+import type { AtLogin, ChromeProfile, Config, ConfigView, EmblemKind, EmblemsCfg, ExperimentalCfg, GroupMemberCfg, JevCfg, Lane, Mcp, NewTerminal, NudgeAbout, OwnReviewsCfg, Profile, ProjectCfg, PullRequestsCfg, RepoCfg, Reuse, ReviewPost, ReviewsCfg, ReviewStart, ReviewSubmit, RoutingCfg, RoutingGroup, RoutingGroupCfg, RoutingStrategy, SessionsCfg, ShortcutStatus, SoundsCfg, StartAccount, TeamCfg, TeamFile, Theme, TmuxUse, Training, Usage, Verdict, VoiceCfg, WhenLimited } from '../types';
 import { AccountsSection } from './AccountsSection';
 import { AgentMenu, type AgentPick } from './AgentMenu';
 import { AgentPromptBox } from './AgentPromptBox';
@@ -234,7 +234,7 @@ export function SettingsDialog({ section, onSection, focus, usage, training, mcp
       case 'advanced':
         return <AdvancedPane cfg={cfg} view={view} disabled={!!broken} onSave={save} />;
       case 'experimental':
-        return <ExperimentalPane cfg={cfg} disabled={!!broken} onSave={save} />;
+        return <ExperimentalPane cfg={cfg} view={view} disabled={!!broken} onSave={save} />;
     }
   };
 
@@ -2279,10 +2279,59 @@ function AdvancedPane({ cfg, view, disabled, onSave }: PaneProps & { view: Confi
 /* ---- Experimental ---- */
 
 /** `[experimental]` as a file without the table has it: every experiment off. */
-const EXPERIMENTS_OFF: ExperimentalCfg = { boards: false };
+const EXPERIMENTS_OFF: Required<ExperimentalCfg> = { boards: false, voice: false };
 
-function ExperimentalPane({ cfg, disabled, onSave }: PaneProps) {
+/** `[voice]` as a file without the table has it (config.rs `VoiceCfg`). */
+export const VOICE_DEFAULT: VoiceCfg = { locale: '', send_on_release: false, tell_every: 20 };
+
+/** The two shortcuts held to talk, as `SHORTCUTS` has the others. They're Voice's, so they're set
+ *  with it, not in General. */
+const TALK_SHORTCUTS: typeof SHORTCUTS = [
+  {
+    which: 'talk',
+    key: 'talk',
+    title: 'Talk to what you’re looking at',
+    name: 'Shortcut held to talk',
+    called: 'the shortcut held to talk',
+    says: 'Hold it and talk; let go and what you said is typed where your caret is in Codealong: a session’s box, the quick panel, a todo. From another app it opens the quick panel on what you said. Nothing is sent until you send it.',
+  },
+  {
+    which: 'talkorchestrator',
+    key: 'talk_orchestrator',
+    title: 'Talk to your orchestrator',
+    name: 'Shortcut held to talk to your orchestrator',
+    called: 'the shortcut held to talk to your orchestrator',
+    says: 'Hold it and talk, from any app; let go and what you said is in your orchestrator’s box, with Codealong’s window brought forward on it. Keep Shift down as you let go to send it instead.',
+  },
+];
+
+/** The languages offered for what's spoken. macOS has a speech model for each of these on a Mac
+ *  that can transcribe at all, downloaded at the first use; another can be written in config.toml. */
+const SPOKEN: Profile[] = [
+  { id: '', name: 'This Mac’s language' },
+  { id: 'en-US', name: 'English (US)' },
+  { id: 'en-GB', name: 'English (UK)' },
+  { id: 'en-AU', name: 'English (Australia)' },
+  { id: 'en-IN', name: 'English (India)' },
+  { id: 'es-ES', name: 'Spanish (Spain)' },
+  { id: 'es-MX', name: 'Spanish (Mexico)' },
+  { id: 'fr-FR', name: 'French' },
+  { id: 'de-DE', name: 'German' },
+  { id: 'it-IT', name: 'Italian' },
+  { id: 'pt-BR', name: 'Portuguese (Brazil)' },
+  { id: 'ja-JP', name: 'Japanese' },
+  { id: 'ko-KR', name: 'Korean' },
+  { id: 'zh-CN', name: 'Chinese (Mandarin, simplified)' },
+];
+
+/** How often a listening session can be told what's new, in seconds. */
+const TELL_EVERY: Profile[] = [5, 10, 15, 20, 30, 45, 60].map((s) => ({ id: String(s), name: `Every ${s} seconds, at most` }));
+
+function ExperimentalPane({ cfg, view, disabled, onSave }: PaneProps & { view: ConfigView }) {
   const experimental = { ...EXPERIMENTS_OFF, ...cfg.experimental };
+  const voice = { ...VOICE_DEFAULT, ...cfg.voice };
+  const setVoice = (next: Partial<VoiceCfg>) => void onSave({ ...cfg, voice: { ...voice, ...next } });
+  const shortcut = (key: keyof Config['shortcuts']) => cfg.shortcuts?.[key] ?? view.defaultShortcuts?.[key] ?? '';
   return (
     <>
       <div className="ca-settings-intro">
@@ -2297,6 +2346,46 @@ function ExperimentalPane({ cfg, disabled, onSave }: PaneProps) {
             The Board view: a project's work as Kanban columns or laid out on a canvas, and boards of your own for a release or a fix. Add to board in the menus, and <code className="ca-ic">codealong board</code> for agents.
           </small>
         </label>
+        <label className="ca-field ca-settings-check">
+          <CheckBox checked={experimental.voice} onChange={(on) => void onSave({ ...cfg, experimental: { ...experimental, voice: on } })} />
+          <span>Voice</span>
+          <small>
+            Talk to a session by holding a key, and have a session listen to a meeting: it keeps notes, coaches you as it goes, or files a todo for each thing a customer asks for (Listen… in a session’s menu). Speech is turned into text on this Mac, by macOS 26’s own model, and no audio is kept. macOS asks before Codealong may use the microphone or hear what the Mac plays.
+          </small>
+        </label>
+        {experimental.voice && (
+          <>
+            {TALK_SHORTCUTS.map((field) => (
+              <div className="ca-field" key={field.which}>
+                <span>{field.title}</span>
+                <ShortcutField
+                  which={field.which}
+                  name={field.name}
+                  fallback={view.defaultShortcuts?.[field.key] ?? ''}
+                  value={shortcut(field.key)}
+                  others={[...SHORTCUTS, ...TALK_SHORTCUTS].filter((o) => o !== field).map((o) => ({ value: shortcut(o.key), name: o.called }))}
+                  onChange={(keys) => void onSave({ ...cfg, shortcuts: { ...cfg.shortcuts, [field.key]: keys } })}
+                />
+                <small>{keysIn(typeof field.says === 'string' ? field.says : field.says[platform()])}</small>
+              </div>
+            ))}
+            <label className="ca-field ca-settings-check">
+              <CheckBox checked={voice.send_on_release} onChange={(on) => setVoice({ send_on_release: on })} />
+              <span>Send what I say to my orchestrator as I let go</span>
+              <small>Without reading it over first, so it goes with a line saying it was dictated and may be misheard. Off, it waits in the orchestrator’s box for you to send.</small>
+            </label>
+            <label className="ca-field">
+              <span>Language spoken</span>
+              <ProfileSelect value={voice.locale} profiles={SPOKEN} onChange={(locale) => setVoice({ locale })} />
+              <small>One language at a time. Its speech model is downloaded by macOS the first time it’s used.</small>
+            </label>
+            <label className="ca-field">
+              <span>A session that listens is told what’s new</span>
+              <ProfileSelect value={String(voice.tell_every)} profiles={TELL_EVERY} onChange={(s) => setVoice({ tell_every: Number(s) })} />
+              <small>At a pause in what’s said, and never while its last answer is still being written. Sooner makes a coach quicker and uses more of the account’s plan: each telling is a turn.</small>
+            </label>
+          </>
+        )}
       </fieldset>
     </>
   );

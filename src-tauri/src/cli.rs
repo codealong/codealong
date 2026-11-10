@@ -166,6 +166,11 @@ enum Cmd {
         #[command(subcommand)]
         cmd: BoardCmd,
     },
+    /// Listenings: a session that listens to a meeting. Codealong hears it on this Mac (the microphone, what the Mac plays, or only some apps), writes what's said to a transcript, a line for each thing said (`You` for the microphone, `Them` for what the Mac plays), and every so often tells the session which lines are new, as data rather than instructions; the session keeps notes of it or coaches its user through it. No audio is kept. Starting one through the microphone or the Mac's audio is its user's to do, in Codealong's windows (a session's menu, Listen…): the command lists them (`list`), ends one (`stop`), says what this Mac can hear with (`status`), and has a session hear a recording (`start --file`). Voice is an experiment, off until your user turns it on in Settings › Experimental (`[experimental] voice = true` in config.toml); until then every listen command says so and does nothing.
+    Listen {
+        #[command(subcommand)]
+        cmd: ListenCmd,
+    },
     /// `board show --as canvas` and `board arrange` on the one board a project has, by the names they had before boards.
     #[command(hide = true)]
     Canvas {
@@ -1468,6 +1473,45 @@ enum ScheduleEventArg {
     TodoReady,
 }
 
+#[derive(Subcommand, Debug)]
+enum ListenCmd {
+    /// The listenings, the latest first: the session each is for, whether it's still hearing or when and why it ended, how many lines its transcript has and how many its session has been told of, and where the transcript and the session's notes are.
+    List,
+    /// Has a session hear a recording: a sound file (anything macOS plays: m4a, mp3, wav, aiff), transcribed on this Mac as fast as it can be, its words filed as Them's. The session is told what's going on and then which lines are new, as it would be of a meeting as it's said, and that it's over when the recording runs out.
+    Start {
+        /// The session's key, or `me` for the one running this command.
+        session: String,
+        /// The recording to hear.
+        #[arg(long, value_name = "PATH")]
+        file: String,
+        /// What the session makes of it: notes it keeps in a file, a few lines of coaching each time it's told what was heard, or a todo for each thing asked for (a bug, a fix, a feature).
+        #[arg(long = "as", value_enum, default_value_t = RoleArg::Notes)]
+        role: RoleArg,
+        /// With `--as requests`: a session is started on each todo as it's filed, in a worktree of its own, as the listening session's helper.
+        #[arg(long, requires = "role")]
+        start_sessions: bool,
+        /// Something to add to what the session is asked to do, or with `--as custom` all of it.
+        #[arg(long)]
+        prompt: Option<String>,
+    },
+    /// Ends a session's listening. Its session is told the last lines and that it's over.
+    Stop {
+        /// The session's key, or `me` for the one running this command.
+        session: String,
+    },
+    /// What this Mac can hear with: whether it can transcribe speech and in which language, whether that language's model is on it yet, whether Codealong may use the microphone, and the apps that record or play right now. Asks the user for nothing.
+    Status,
+}
+
+#[derive(ValueEnum, Clone, Copy, Debug, PartialEq)]
+enum RoleArg {
+    Notes,
+    Coach,
+    Requests,
+    /// What `--prompt` says, and nothing else.
+    Custom,
+}
+
 #[derive(ValueEnum, Clone, Copy, Debug, PartialEq)]
 enum PlaceArg {
     Terminal,
@@ -2099,6 +2143,7 @@ fn run(cmd: Cmd, c: &mut Client, json: bool) -> Result<()> {
         Cmd::Changes(args) => changes(c, &args, json),
         Cmd::Hygiene(args) => hygiene(c, &args, json),
         Cmd::Board { cmd } => board(cmd, c, json),
+        Cmd::Listen { cmd } => listen(cmd, c, json),
         Cmd::Canvas { cmd: CanvasCmd::Show(at) } => board(BoardCmd::Show(BoardShowArgs { board: None, at, layout: boards::Layout::Canvas }), c, json),
         Cmd::Canvas { cmd: CanvasCmd::Arrange(a) } => board(BoardCmd::Arrange(BoardArrangeArgs { board: None, at: a.at, plan: a.plan, rest: a.rest, show: a.show }), c, json),
         Cmd::Reference => {
@@ -2181,6 +2226,106 @@ fn boards_on(cfg: &Config) -> Result<()> {
         bail!("Boards are an experiment, and they're turned off. Turn them on in Settings › Experimental, or with `boards = true` under `[experimental]` in config.toml.");
     }
     Ok(())
+}
+
+/// `codealong listen`. The server keeps the listenings and runs their hearing, so everything but
+/// the list needs it.
+fn listen(cmd: ListenCmd, c: &mut Client, json: bool) -> Result<()> {
+    use crate::listen::{self, Ask, Listening, Role};
+    let cfg = c.cfg()?.clone();
+    listen::turned_on(&cfg)?;
+    let needs_server = |c: &Client| match c.app {
+        Some(_) => Ok(()),
+        None => Err(anyhow!("A listening needs Codealong's server, which couldn't be started here (`codealong server start` says why): it does the hearing.")),
+    };
+    match cmd {
+        ListenCmd::List => {
+            let all = listen::list();
+            if json {
+                return print_json(&all);
+            }
+            let board = c.board()?.clone();
+            let now = now_ms();
+            let rows = all
+                .iter()
+                .map(|l| {
+                    let title = board.session(&l.session).map_or_else(|| l.session.clone(), |(_, s)| s.title.clone());
+                    let state = match (l.ended_at, &l.why_ended) {
+                        (None, _) => format!("hearing, {}", ago(now - l.started_at).replace(" ago", "")),
+                        (Some(at), Some(why)) => format!("ended {} ({why})", ago(now - at)),
+                        (Some(at), None) => format!("ended {}", ago(now - at)),
+                    };
+                    vec![title, state, format!("{} of {} told", l.told, l.lines), crate::util::tilde(&l.transcript())]
+                })
+                .collect();
+            print!("{}", table_text(&["SESSION", "STATE", "LINES", "TRANSCRIPT"], rows));
+            Ok(())
+        }
+        ListenCmd::Status => {
+            let status = crate::ear::status(&cfg.voice.locale);
+            let apps = if status.available { crate::ear::apps().unwrap_or_default() } else { Vec::new() };
+            if json {
+                return print_json(&serde_json::json!({ "status": status, "apps": apps }));
+            }
+            match &status.why {
+                Some(why) => println!("{why}"),
+                None => {
+                    let locale = status.locale.as_deref().unwrap_or_default();
+                    println!("Speech is transcribed on this Mac, in {locale}{}.", if status.installed { "" } else { " once its model has been downloaded, at the first use" });
+                    println!(
+                        "{}",
+                        match status.microphone.as_str() {
+                            "allowed" => "Codealong may use the microphone.",
+                            "unasked" => "macOS hasn't asked yet whether Codealong may use the microphone: it will at the first use.",
+                            _ => "Codealong isn't allowed to use the microphone: System Settings › Privacy & Security › Microphone.",
+                        }
+                    );
+                    for app in &apps {
+                        let does = match (app.recording, app.playing) {
+                            (true, true) => "records and plays",
+                            (true, false) => "records",
+                            _ => "plays",
+                        };
+                        println!("{} ({}) {does}.", app.name, app.bundle);
+                    }
+                }
+            }
+            Ok(())
+        }
+        ListenCmd::Start { session, file, role, start_sessions, prompt } => {
+            needs_server(c)?;
+            let key = resolve_session(c, &session)?;
+            let path = std::fs::canonicalize(crate::util::expand(&file)).with_context(|| format!("{file} isn't there to hear."))?;
+            let role = match role {
+                RoleArg::Notes => Role::Notes,
+                RoleArg::Coach => Role::Coach,
+                RoleArg::Requests => Role::Requests,
+                RoleArg::Custom => Role::Custom,
+            };
+            if start_sessions && role != Role::Requests {
+                bail!("--start-sessions goes with --as requests.");
+            }
+            let ask = Ask { file: Some(path.to_string_lossy().into_owned()), role, start: start_sessions, prompt: prompt.unwrap_or_default(), ..Ask::default() };
+            let me = find_me(c)?.0;
+            let l: Listening = serde_json::from_value(c.act(actions::LISTEN, &key, params::Listen { on: true, ask }, me)?)?;
+            if json {
+                return print_json(&l);
+            }
+            println!("It's hearing {}. The transcript: {}", crate::util::tilde(&path), crate::util::tilde(&l.transcript()));
+            Ok(())
+        }
+        ListenCmd::Stop { session } => {
+            needs_server(c)?;
+            let key = resolve_session(c, &session)?;
+            let me = find_me(c)?.0;
+            let l: Listening = serde_json::from_value(c.act(actions::LISTEN, &key, params::Listen { on: false, ask: Ask::default() }, me)?)?;
+            if json {
+                return print_json(&l);
+            }
+            println!("Ended. Its session is told the last of it. The transcript: {}", crate::util::tilde(&l.transcript()));
+            Ok(())
+        }
+    }
 }
 
 /// What a change to a board says: the board as JSON, or a line.
@@ -8297,7 +8442,7 @@ mod tests {
     fn board_commands_are_turned_down_until_boards_are_turned_on() {
         let err = boards_on(&Config::default()).unwrap_err().to_string();
         assert!(err.contains("Settings › Experimental") && err.contains("[experimental]"), "{err}");
-        let on = Config { experimental: crate::config::ExperimentalCfg { boards: true }, ..Config::default() };
+        let on = Config { experimental: crate::config::ExperimentalCfg { boards: true, ..Default::default() }, ..Config::default() };
         assert!(boards_on(&on).is_ok());
     }
 

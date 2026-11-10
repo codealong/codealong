@@ -1,0 +1,215 @@
+/* A session that listens (Listening.tsx): what it heard, drawn in its conversation as a meeting;
+   the strip over its box while it hears; its chip; and the dialog that sets one up. */
+
+/* What was heard: the meeting's lines, set apart from what anyone said to the session. */
+.ca-heard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  align-self: stretch;
+}
+.ca-heard-lines {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  column-gap: var(--space-2);
+  row-gap: 2px;
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-left: 2px solid var(--line);
+  list-style: none;
+  font: var(--type-meta);
+  color: var(--ink-2);
+}
+.ca-heard-line {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  align-items: baseline;
+}
+.ca-heard-at {
+  font: var(--type-code);
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+.ca-heard-who {
+  font: var(--type-meta-strong);
+  color: var(--ink-3);
+}
+/* You, among everyone else. */
+.ca-heard-line.is-you .ca-heard-who {
+  color: var(--unread);
+}
+.ca-heard-text {
+  overflow-wrap: anywhere;
+}
+/* The words still being made up: they change until they settle. */
+.ca-heard-line.is-live .ca-heard-text {
+  color: var(--ink-3);
+  font-style: italic;
+}
+.ca-heard-aside,
+.ca-heard-many {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--ink-3);
+  font: var(--type-caption);
+}
+.ca-heard-began {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  align-self: stretch;
+}
+.ca-heard-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  border: 0;
+  cursor: pointer;
+}
+.ca-heard-toggle:hover {
+  color: var(--ink);
+}
+.ca-heard-brief {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-left: 2px solid var(--line);
+  color: var(--ink-3);
+  font: var(--type-meta);
+  white-space: pre-wrap;
+}
+
+/* The strip over the box. */
+.ca-live {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0 var(--space-3) var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+.ca-live-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+/* It's on: the one thing here that's the color of a recording light. */
+.ca-live-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: var(--alert-solid);
+  animation: ca-live-pulse var(--dur-ellipsis) ease-in-out infinite;
+}
+@keyframes ca-live-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ca-live-dot {
+    animation: none;
+  }
+}
+.ca-live-title {
+  font: var(--type-meta-strong);
+}
+.ca-live-meta {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-3);
+  font: var(--type-meta);
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ca-live-problem,
+.ca-live-waiting {
+  margin: 0;
+  font: var(--type-caption);
+}
+.ca-live-problem {
+  color: var(--attn);
+}
+.ca-live-waiting {
+  color: var(--ink-3);
+}
+.ca-live-lines {
+  padding: 0 0 0 var(--space-3);
+}
+.ca-live-notes {
+  max-height: 240px;
+  overflow-y: auto;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  font: var(--type-meta);
+}
+
+/* Its chip, with the other things a row says of a session. */
+.ca-chip.ca-listeningchip {
+  padding: 0 7px 0 6px;
+  font: var(--type-caption-heading);
+  color: var(--alert);
+}
+.ca-chip.ca-listeningchip.is-troubled {
+  color: var(--attn);
+}
+
+/* The dialog. */
+.ca-dialog.ca-listendlg {
+  width: min(500px, 100%);
+}
+.ca-listendlg-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--ink-2);
+  font: var(--type-meta-strong);
+}
+.ca-listendlg-field .ca-segctl {
+  align-self: flex-start;
+}
+.ca-listendlg-field small,
+.ca-listendlg-check small {
+  color: var(--ink-3);
+  font: var(--type-caption);
+}
+.ca-listendlg-check {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: var(--space-2);
+  align-items: center;
+  color: var(--ink);
+  font: var(--type-body);
+}
+.ca-listendlg-check small {
+  grid-column: 2;
+}
+.ca-listendlg-apps {
+  padding-left: var(--space-6);
+}
+.ca-listendlg-prompt {
+  resize: vertical;
+  padding: var(--space-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: var(--type-body);
+}
+.ca-listendlg-prompt:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+.ca-listendlg-aside {
+  color: var(--attn);
+  font: var(--type-caption);
+}

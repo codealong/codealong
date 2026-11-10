@@ -938,6 +938,24 @@ pub fn home<'a>(lanes: &'a [Lane], key: &str) -> Option<(&'a Lane, &'a Session)>
     find(true).or_else(|| find(false))
 }
 
+/// The prompt a session is started on to run as your orchestrator (the plugin's
+/// /codealong:orchestrate; its scheduled ticks say `tick` after it, in the same session).
+const ORCHESTRATES: &str = "/codealong:orchestrate";
+
+/// The session that runs as your orchestrator, for talking to it (dictation.rs): one of this
+/// Mac's that was started on the orchestrator's prompt, or failing that is called an
+/// orchestrator, and isn't archived or some session's helper. A running one before a stopped one,
+/// then the latest to do anything.
+pub fn orchestrator(lanes: &[Lane]) -> Option<&Session> {
+    let started_as = |s: &Session| s.first_prompt.as_deref().is_some_and(|p| p.trim_start().starts_with(ORCHESTRATES));
+    let called = |s: &Session| s.name.as_deref().unwrap_or(&s.title).to_lowercase().contains("orchestrator");
+    lanes
+        .iter()
+        .flat_map(|l| &l.sessions)
+        .filter(|s| !s.archived && s.helper.is_none() && s.visitor.is_none() && (started_as(s) || called(s)))
+        .max_by_key(|s| (s.live, started_as(s), s.last_activity))
+}
+
 /// When a session began waiting on you, for one that needs you: the list of those is a queue,
 /// the longest wait first, so a new one can't keep pushing an old one down.
 pub fn waiting_since(s: &Session) -> Option<i64> {
@@ -1647,6 +1665,21 @@ pub fn helpers_of<'a>(lanes: &'a [Lane], key: &str) -> Vec<&'a Session> {
 pub fn apply_helper(s: &mut Session) {
     if s.helps_an_agent() && s.status == Status::Unread {
         s.status = Status::Idle;
+    }
+}
+
+/// Applies a listening session's rule to it (listen.rs), with a helper's: while it hears, a turn
+/// it ends is idle rather than Your turn. It ends one every few seconds, each an answer to what
+/// was just heard, which the windows show as it comes; none waits on you. Nor does one whose
+/// answer reads as a question for you (`apply_insight`): what a coach says is often a question,
+/// to put to the meeting, and it's shown where its answers are, not as something to answer. One
+/// that needs you at a prompt (a call to allow) or stopped on an error still does, and your own
+/// Mark as unread still brings it back. Once hearing has ended its turns are yours again, the one
+/// that sums the meeting up first.
+pub fn apply_listening(s: &mut Session, hearing: bool) {
+    if hearing && (s.status == Status::Unread || (s.status == Status::Needs && s.asks)) {
+        s.status = Status::Idle;
+        s.asks = false;
     }
 }
 
@@ -2559,6 +2592,7 @@ pub fn compose(inp: Inputs) -> Board {
         mcp: Vec::new(),
         sides: Default::default(),
         terminals: Default::default(),
+        listenings: Default::default(),
         pinned: pinned.to_vec(),
         pinned_worktrees: Vec::new(),
         pinned_prs: Vec::new(),
@@ -2576,6 +2610,8 @@ pub fn compose(inp: Inputs) -> Board {
         waiting_shortcut: String::new(),
         improve_shortcut: String::new(),
         main_window_shortcut: String::new(),
+        talk_shortcut: String::new(),
+        talk_orchestrator_shortcut: String::new(),
         improve: Default::default(),
         jev: Default::default(),
         experimental: Default::default(),
@@ -2696,6 +2732,70 @@ mod tests {
 
     fn acct(name: &str) -> AccountCfg {
         AccountCfg { name: name.into(), harness: "claude".into(), home: format!("~/.{name}"), command: Some(name.into()), start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false }
+    }
+
+    #[test]
+    fn the_orchestrator_is_the_session_started_as_one_and_running_before_stopped() {
+        use crate::fixtures::{lane, session};
+        let with = |key: &str, f: fn(&mut Session)| {
+            let mut s = session(key);
+            f(&mut s);
+            s
+        };
+        let found = |sessions: Vec<Session>| orchestrator(&[lane("/chats", sessions)]).map(|s| s.key.clone());
+        assert_eq!(found(vec![session("plain")]), None);
+        // Started on the plugin's prompt, whatever it's called since.
+        let started = with("started", |s| s.first_prompt = Some("/codealong:orchestrate".into()));
+        assert_eq!(found(vec![session("plain"), started.clone()]), Some("started".into()));
+        // Failing that, one that's called an orchestrator.
+        let called = with("called", |s| s.title = "Orchestrator".into());
+        assert_eq!(found(vec![session("plain"), called.clone()]), Some("called".into()));
+        let named = with("named", |s| s.name = Some("my-orchestrator".into()));
+        assert_eq!(found(vec![named]), Some("named".into()));
+        // A running one before a stopped one, however lately that did anything; then the one
+        // started as one before one only called it.
+        let stopped = with("stopped", |s| {
+            s.first_prompt = Some("/codealong:orchestrate".into());
+            s.live = false;
+            s.last_activity = 9_000;
+        });
+        assert_eq!(found(vec![stopped.clone(), called.clone()]), Some("called".into()));
+        assert_eq!(found(vec![called.clone(), started.clone()]), Some("started".into()));
+        assert_eq!(found(vec![stopped.clone()]), Some("stopped".into()));
+        // Not one put away, a helper, or another worktree's session only visiting.
+        let archived = with("archived", |s| {
+            s.title = "Orchestrator".into();
+            s.archived = true;
+        });
+        let helper = with("helper", |s| {
+            s.title = "Review the orchestrator".into();
+            s.helper = Some(crate::model::Helper { parent: Some("boss".into()), pr: None, report: false, yours: false });
+        });
+        let visitor = with("visitor", |s| {
+            s.title = "Orchestrator".into();
+            s.visitor = Some("worked here".into());
+        });
+        assert_eq!(found(vec![archived, helper, visitor]), None);
+    }
+
+    #[test]
+    fn a_listening_sessions_finished_turns_arent_yours_while_it_hears() {
+        let of = |status: Status, hearing: bool| {
+            let mut s = Session { status, ..crate::fixtures::session("k") };
+            apply_listening(&mut s, hearing);
+            s.status
+        };
+        assert_eq!(of(Status::Unread, true), Status::Idle);
+        // An answer that reads as a question for you is a cue, shown as its answers are.
+        let mut asks = Session { status: Status::Needs, asks: true, ..crate::fixtures::session("k") };
+        apply_listening(&mut asks, true);
+        assert_eq!((asks.status, asks.asks), (Status::Idle, false));
+        // What needs you at a prompt still does, and a turn under way still shows as one.
+        for status in [Status::Needs, Status::Error, Status::Working, Status::Idle] {
+            assert_eq!(of(status, true), status);
+        }
+        // Once hearing has ended, its turns are yours again.
+        assert_eq!(of(Status::Unread, false), Status::Unread);
     }
 
     fn reg(status: &str, updated: i64) -> RegistryEntry {

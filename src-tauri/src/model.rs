@@ -160,6 +160,10 @@ pub struct Board {
     /// order they were opened. This Mac's own: not sent to other devices.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub terminals: std::collections::BTreeMap<String, Vec<crate::terminals::Glance>>,
+    /// The sessions that are listening (listen.rs `glances`), by session key. This Mac's own: not
+    /// sent to other devices.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub listenings: std::collections::BTreeMap<String, crate::listen::Glance>,
     /// Pinned session keys, in order.
     pub pinned: Vec<String>,
     /// Pinned worktrees (lane ids), in order.
@@ -203,6 +207,12 @@ pub struct Board {
     /// The shortcut that brings the board's window forward, from config.toml; empty when it's off.
     #[serde(default)]
     pub main_window_shortcut: String,
+    /// The shortcuts held to talk, to the session you're looking at and to your orchestrator,
+    /// from config.toml; empty when they're off, as they are until `experimental.voice` is on.
+    #[serde(default)]
+    pub talk_shortcut: String,
+    #[serde(default)]
+    pub talk_orchestrator_shortcut: String,
     /// Where a session that improves Codealong goes: its project and worktree, or its source in
     /// no project yet (improve.rs).
     #[serde(default)]

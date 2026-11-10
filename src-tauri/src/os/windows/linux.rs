@@ -189,6 +189,12 @@ fn monitor_id(display: &gdk::Display, i: i32) -> String {
     unsafe { GString::from_glib_full(name) }.to_string()
 }
 
+/// Whether Shift is down is known here only from the key events of a window that has the
+/// keyboard, and it's asked as a shortcut's key comes up in another app: never, then.
+pub fn shift_down() -> bool {
+    false
+}
+
 /// Where the pointer is, in screen points.
 pub fn pointer() -> Option<(f64, f64)> {
     let (root, device) = root_and_pointer()?;

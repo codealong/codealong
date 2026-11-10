@@ -11,6 +11,7 @@
 // this way. The quick panel doesn't: the script that opens it hands it the board (Quick.tsx).
 
 import { getBoard, onBoard } from './api';
+import { noteVoice } from './listening';
 import type { Board } from './types';
 
 /** Whether a board read on asking is taken, by when the engine made it: not when the board taken
@@ -36,6 +37,7 @@ export function followBoard(take: (board: Board, how: 'push' | 'read') => void, 
       (b) => {
         if (over || !readWins(lastAt, b.generatedAt)) return;
         lastAt = b.generatedAt;
+        noteVoice(b);
         take(b, 'read');
       },
       (e: unknown) => {
@@ -47,6 +49,8 @@ export function followBoard(take: (board: Board, how: 'push' | 'read') => void, 
     (b) => {
       if (over) return;
       lastAt = b.generatedAt;
+      // Which sessions listen, for every menu, row and panel in this window (listening.ts).
+      noteVoice(b);
       take(b, 'push');
     },
     () => {

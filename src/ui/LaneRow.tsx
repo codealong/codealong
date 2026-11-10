@@ -27,6 +27,8 @@ import { PreviewChip } from './PreviewBits';
 import { ProjectPrefix } from './ProjectSaid';
 import { LabelChip, TodoChips } from './TodoBits';
 import { cmd } from '../platform';
+import { useListening } from '../listening';
+import { ListeningChip } from './Listening';
 
 /** `web · billing`: the repo, and the branch when the worktree's name doesn't already say it. */
 function laneSub(lane: Lane): { sub: string; branch: string | null } {
@@ -284,6 +286,7 @@ function SessionLines({ s, now, where, end, todos, onShowTodo, onFilterLabel, on
           <RaisedChip raised={s.raised} />
           <SnoozeChip until={s.snoozedUntil} now={now} />
           <QuietChip quiet={s.quiet} />
+<Listens sessionKey={s.key} />
           <AgentSeenChip seen={s.agentSeen} />
           <SuggestedChip suggestions={s.suggestions} />
           <TodoChips todos={todos} onShow={onShowTodo} inRow />
@@ -381,6 +384,12 @@ export function RaisedChip({ raised }: { raised: Raised | undefined }) {
       Top
     </Chip>
   );
+}
+
+/** A listening session's chip. It reads which sessions listen itself (listening.ts), so a row
+ *  that's otherwise the same isn't drawn again when one starts or stops. */
+function Listens({ sessionKey }: { sessionKey: string }) {
+  return <ListeningChip listening={useListening(sessionKey)} />;
 }
 
 /** Quiet's chip: the session's turns don't wait on you, and its tooltip says what still does. */
@@ -598,6 +607,7 @@ function AgentRowView({ lane, session: s, domId, now, age, slim = false, selecte
               <RaisedChip raised={s.raised} />
               <SnoozeChip until={s.snoozedUntil} now={now} />
               <QuietChip quiet={s.quiet} />
+<Listens sessionKey={s.key} />
               <AgentSeenChip seen={s.agentSeen} />
               <SuggestedChip suggestions={s.suggestions} />
               <SessionLabelChips labels={s.labels} onFilter={onFilterLabel} />

@@ -59,6 +59,8 @@ pub struct Config {
     #[serde(default)]
     pub experimental: ExperimentalCfg,
     #[serde(default)]
+    pub voice: VoiceCfg,
+    #[serde(default)]
     pub debug: DebugCfg,
     /// API prices for models prices.json doesn't have or has wrong, `[prices."<model>"]`, in
     /// dollars per million tokens (prices.rs).
@@ -89,6 +91,7 @@ impl Default for Config {
             repos: BTreeMap::new(),
             sounds: SoundsCfg::default(),
             experimental: ExperimentalCfg::default(),
+            voice: VoiceCfg::default(),
             debug: DebugCfg::default(),
             prices: BTreeMap::new(),
         }
@@ -1072,7 +1075,54 @@ pub struct ExperimentalCfg {
     /// the menus, and `codealong board`.
     #[serde(default)]
     pub boards: bool,
+    /// Voice (dictation.rs, listen.rs): a key held to talk to the session you're looking at or to
+    /// your orchestrator, and sessions that listen to a meeting. `[voice]` has its settings.
+    #[serde(default)]
+    pub voice: bool,
 }
+
+impl Config {
+    /// The shortcuts to register: those of an experiment that's off are off with it, whatever
+    /// the file has them as.
+    pub fn shortcuts_in_use(&self) -> ShortcutsCfg {
+        let mut shortcuts = self.shortcuts.clone();
+        if !self.experimental.voice {
+            shortcuts.talk.clear();
+            shortcuts.talk_orchestrator.clear();
+        }
+        shortcuts
+    }
+}
+
+/// Voice's settings, which matter once `[experimental] voice` is on (Settings › Experimental).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct VoiceCfg {
+    /// The language spoken, as a locale macOS has a speech model for ("en-US"). Empty for the
+    /// Mac's own.
+    #[serde(default)]
+    pub locale: String,
+    /// What you say to your orchestrator is sent as you let go of the key, rather than put in
+    /// its box for you to read over first.
+    #[serde(default)]
+    pub send_on_release: bool,
+    /// How often, in seconds, a session that listens is told what's new, at most.
+    #[serde(default = "default_tell_every")]
+    pub tell_every: u32,
+}
+
+impl Default for VoiceCfg {
+    fn default() -> Self {
+        VoiceCfg { locale: String::new(), send_on_release: false, tell_every: default_tell_every() }
+    }
+}
+
+fn default_tell_every() -> u32 {
+    20
+}
+
+/// The least `[voice] tell_every` can be: a session told more often than its turns take only
+/// queues what it's told.
+pub const TELL_EVERY_MIN: u32 = 5;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct DebugCfg {
@@ -1122,11 +1172,18 @@ pub struct ShortcutsCfg {
     /// the one you're in (front.rs `toggle_board`).
     #[serde(default = "default_main_window")]
     pub main_window: String,
+    /// Held to talk to the session you're looking at: what you say goes into its box as you let
+    /// go (dictation.rs). It does nothing until `[experimental] voice` is on.
+    #[serde(default = "default_talk")]
+    pub talk: String,
+    /// Held to talk to your orchestrator, whatever you're looking at.
+    #[serde(default = "default_talk_orchestrator")]
+    pub talk_orchestrator: String,
 }
 
 impl Default for ShortcutsCfg {
     fn default() -> Self {
-        ShortcutsCfg { quick_panel: default_quick_panel(), chat: default_chat(), waiting: default_waiting(), improve: default_improve(), main_window: default_main_window() }
+        ShortcutsCfg { quick_panel: default_quick_panel(), chat: default_chat(), waiting: default_waiting(), improve: default_improve(), main_window: default_main_window(), talk: default_talk(), talk_orchestrator: default_talk_orchestrator() }
     }
 }
 
@@ -1139,6 +1196,8 @@ pub struct DefaultShortcuts {
     pub waiting: &'static str,
     pub improve: &'static str,
     pub main_window: &'static str,
+    pub talk: &'static str,
+    pub talk_orchestrator: &'static str,
 }
 
 /// On macOS ⌥⌘ and the keys right of the letters, which sit together: ⌥⌘/ the quick panel, / for
@@ -1149,16 +1208,26 @@ pub struct DefaultShortcuts {
 /// text apps). ⌥⌘ and a letter is mostly taken (⌥⌘M minimizes every window, ⌥⌘H hides the other
 /// apps, the Finder's and Chrome's menus have most of the rest), and ⌥⌘0 to ⌥⌘9 switch projects in
 /// Codealong's own windows; no macOS shortcut or common app's uses these. On Linux the same keys
-/// with Ctrl and Alt, which desktops leave to apps; Super and a key is the desktop's own.
+/// with Ctrl and Alt, which desktops leave to apps; Super and a key is the desktop's own. The two
+/// held to talk are the brackets beside them, a pair under one hand: editors fold code with ⌥⌘[
+/// and ⌥⌘], which these take from them while voice is on.
 pub fn default_shortcuts() -> DefaultShortcuts {
     match crate::os::current() {
-        crate::os::Os::MacOs => DefaultShortcuts { quick_panel: "Option+Cmd+/", chat: "Option+Cmd+'", waiting: "Option+Cmd+.", improve: "Option+Cmd+,", main_window: "Option+Cmd+;" },
-        crate::os::Os::Linux => DefaultShortcuts { quick_panel: "Ctrl+Alt+/", chat: "Ctrl+Alt+'", waiting: "Ctrl+Alt+.", improve: "Ctrl+Alt+,", main_window: "Ctrl+Alt+;" },
+        crate::os::Os::MacOs => DefaultShortcuts { quick_panel: "Option+Cmd+/", chat: "Option+Cmd+'", waiting: "Option+Cmd+.", improve: "Option+Cmd+,", main_window: "Option+Cmd+;", talk: "Option+Cmd+[", talk_orchestrator: "Option+Cmd+]" },
+        crate::os::Os::Linux => DefaultShortcuts { quick_panel: "Ctrl+Alt+/", chat: "Ctrl+Alt+'", waiting: "Ctrl+Alt+.", improve: "Ctrl+Alt+,", main_window: "Ctrl+Alt+;", talk: "Ctrl+Alt+[", talk_orchestrator: "Ctrl+Alt+]" },
     }
 }
 
 fn default_main_window() -> String {
     default_shortcuts().main_window.to_string()
+}
+
+fn default_talk() -> String {
+    default_shortcuts().talk.to_string()
+}
+
+fn default_talk_orchestrator() -> String {
+    default_shortcuts().talk_orchestrator.to_string()
 }
 
 fn default_chat() -> String {
@@ -1479,7 +1548,7 @@ pub fn zoom() -> u32 {
 /// The shortcuts config.toml asks for: the defaults when there's no file yet or it has an error,
 /// as the theme is, since the app registers them before its engine has read the settings.
 pub fn shortcuts() -> ShortcutsCfg {
-    load().ok().flatten().map(|c| c.shortcuts).unwrap_or_default()
+    load().ok().flatten().unwrap_or_default().shortcuts_in_use()
 }
 
 /// Whether config.toml lets Codealong look for updates by itself: yes when there's no file yet or
@@ -1827,7 +1896,8 @@ const OWN_REVIEWS_COMMENT: &str = "# [reviews.own] auto: an agent reviews each o
 # review to the PR's primary session, once it runs and doesn't wait on you. drafts: review your draft PRs too.
 # Nothing goes on GitHub.
 ";
-const EXPERIMENTAL_COMMENT: &str = "# Features still being tried out, each off until it's turned on. boards: the main window's Board view, as\n# Kanban and as Canvas, Add to board in the menus, and `codealong board`.\n";
+const EXPERIMENTAL_COMMENT: &str = "# Features still being tried out, each off until it's turned on. boards: the main window's Board view, as\n# Kanban and as Canvas, Add to board in the menus, and `codealong board`. voice: a key held to talk to the\n# session you're looking at or to your orchestrator, and sessions that listen to a meeting ([voice]).\n";
+const VOICE_COMMENT: &str = "# Voice, once [experimental] voice is on. locale: the language spoken, such as \"en-US\"; \"\" for this Mac's own.\n# send_on_release: what you say to your orchestrator is sent as you let go of the key, not put in its box\n# first. tell_every: how often, in seconds, a session that listens is told what's new, at most.\n";
 const REPOS_COMMENT: &str = "# Your settings for one repo's pull requests, over [reviews] and [pull_requests] and over what the repo's\n# .codealong/config.toml sets for its team. Settings › Automation sets them with the repo picked.\n";
 /// What config.toml says above `[sounds]`: where the OS keeps the sounds it can name.
 fn sounds_comment() -> String {
@@ -1845,7 +1915,7 @@ fn shortcuts_comment() -> String {
         crate::os::Os::MacOs => ("Option+Cmd+/", "Cmd+Ctrl+K"),
         crate::os::Os::Linux => ("Ctrl+Alt+/", "Ctrl+Shift+K"),
     };
-    format!("# Shortcuts that work in any app, such as \"{a}\" or \"{b}\". \"\" turns one off.\n# quick_panel opens the quick panel: find a session, or start one.\n# chat opens the quick panel set to start a chat of its own, in no project.\n# waiting opens the first session that waits on you, to answer one after another: in the notch\n# when the bar is docked there, else in the waiting window.\n# improve opens the quick panel to improve Codealong itself, with pictures of its windows.\n# main_window brings Codealong's window forward, or hides Codealong when it's the window you're in.\n")
+    format!("# Shortcuts that work in any app, such as \"{a}\" or \"{b}\". \"\" turns one off.\n# quick_panel opens the quick panel: find a session, or start one.\n# chat opens the quick panel set to start a chat of its own, in no project.\n# waiting opens the first session that waits on you, to answer one after another: in the notch\n# when the bar is docked there, else in the waiting window.\n# improve opens the quick panel to improve Codealong itself, with pictures of its windows.\n# main_window brings Codealong's window forward, or hides Codealong when it's the window you're in.\n# talk and talk_orchestrator, with [experimental] voice on, are held while you talk: to the session\n# you're looking at, and to your orchestrator.\n")
 }
 
 /// Sets `[apps] editor` in config.toml and keeps everything else as written: an editor picked
@@ -1921,7 +1991,7 @@ fn ensure_appearance(doc: &mut toml_edit::DocumentMut) {
 
 /// Sets `[shortcuts]`. A file from before there were shortcuts gets the table after
 /// `[appearance]`, commented as a new file would be.
-fn set_shortcuts(doc: &mut toml_edit::DocumentMut, shortcuts: &ShortcutsCfg) {
+fn set_shortcuts(doc: &mut toml_edit::DocumentMut, shortcuts: &ShortcutsCfg, voice: bool) {
     use toml_edit::{Item, Table, Value};
     if !doc.get("shortcuts").is_some_and(Item::is_table_like) {
         let mut t = Table::new();
@@ -1941,6 +2011,11 @@ fn set_shortcuts(doc: &mut toml_edit::DocumentMut, shortcuts: &ShortcutsCfg) {
     set_value(&mut doc["shortcuts"]["waiting"], Value::from(shortcuts.waiting.trim()));
     set_value(&mut doc["shortcuts"]["improve"], Value::from(shortcuts.improve.trim()));
     set_value(&mut doc["shortcuts"]["main_window"], Value::from(shortcuts.main_window.trim()));
+    // A file from before voice gets these only once they're not the defaults, or voice is on.
+    if shortcuts.talk != default_talk() || shortcuts.talk_orchestrator != default_talk_orchestrator() || voice || doc["shortcuts"].get("talk").is_some() {
+        set_value(&mut doc["shortcuts"]["talk"], Value::from(shortcuts.talk.trim()));
+        set_value(&mut doc["shortcuts"]["talk_orchestrator"], Value::from(shortcuts.talk_orchestrator.trim()));
+    }
 }
 
 /// Moves a table just added to right before `before` in the file's map, as `place_after` does.
@@ -2097,12 +2172,15 @@ pub fn check(cfg: &Config) -> std::result::Result<(), String> {
     }
     let shortcuts = &cfg.shortcuts;
     let mut taken: Vec<(&str, tauri_plugin_global_shortcut::Shortcut)> = Vec::new();
-    for (key, text) in [("quick_panel", &shortcuts.quick_panel), ("chat", &shortcuts.chat), ("waiting", &shortcuts.waiting), ("improve", &shortcuts.improve), ("main_window", &shortcuts.main_window)] {
+    for (key, text) in [("quick_panel", &shortcuts.quick_panel), ("chat", &shortcuts.chat), ("waiting", &shortcuts.waiting), ("improve", &shortcuts.improve), ("main_window", &shortcuts.main_window), ("talk", &shortcuts.talk), ("talk_orchestrator", &shortcuts.talk_orchestrator)] {
         let Some(shortcut) = crate::quick::parse_shortcut(text).map_err(|e| format!("[shortcuts] {key}: {e}"))? else { continue };
         if let Some((other, _)) = taken.iter().find(|(_, s)| *s == shortcut) {
             return Err(format!("[shortcuts] {key} is the same keys as {other}; one press can only do one of them."));
         }
         taken.push((key, shortcut));
+    }
+    if cfg.voice.tell_every < TELL_EVERY_MIN {
+        return Err(format!("[voice] tell_every is {}; it's in seconds, {TELL_EVERY_MIN} at the least.", cfg.voice.tell_every));
     }
     check_sounds(&cfg.sounds)
 }
@@ -2168,7 +2246,7 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
     }
 
     set_theme(&mut doc, cfg.appearance.theme);
-    set_shortcuts(&mut doc, &cfg.shortcuts);
+    set_shortcuts(&mut doc, &cfg.shortcuts, cfg.experimental.voice);
 
     // Only a file that has the table, or turns something on, gets it: it's opt-in. An old
     // `[router]` gives way to it.
@@ -2402,6 +2480,22 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
             place_after(&mut doc, "experimental", after);
         }
         set_value(&mut doc["experimental"]["boards"], Value::from(cfg.experimental.boards));
+        if cfg.experimental.voice || doc["experimental"].get("voice").is_some() {
+            set_value(&mut doc["experimental"]["voice"], Value::from(cfg.experimental.voice));
+        }
+    }
+    // Only a file that has the table, or changes one of its settings, gets it.
+    if cfg.voice != VoiceCfg::default() || doc.get("voice").is_some() {
+        if !doc.get("voice").is_some_and(toml_edit::Item::is_table_like) {
+            let mut t = Table::new();
+            t.decor_mut().set_prefix(format!("\n{VOICE_COMMENT}"));
+            doc.insert("voice", Item::Table(t));
+            let after = ["experimental", "sounds", "pull_requests", "reviews", "sessions", "routing", "limits", "updates", "devices", "search", "jev", "shortcuts"].into_iter().find(|k| doc.get(k).is_some()).unwrap_or("shortcuts");
+            place_after(&mut doc, "voice", after);
+        }
+        set_value(&mut doc["voice"]["locale"], Value::from(cfg.voice.locale.trim()));
+        set_value(&mut doc["voice"]["send_on_release"], Value::from(cfg.voice.send_on_release));
+        set_value(&mut doc["voice"]["tell_every"], Value::from(cfg.voice.tell_every as i64));
     }
 
     set_repos(&mut doc, &cfg.repos);
@@ -2750,6 +2844,10 @@ pub fn render(cfg: &Config) -> String {
     s.push_str(&format!("waiting = {}\n", q(&cfg.shortcuts.waiting)));
     s.push_str(&format!("improve = {}\n", q(&cfg.shortcuts.improve)));
     s.push_str(&format!("main_window = {}\n", q(&cfg.shortcuts.main_window)));
+    if cfg.experimental.voice || cfg.shortcuts.talk != default_talk() || cfg.shortcuts.talk_orchestrator != default_talk_orchestrator() {
+        s.push_str(&format!("talk = {}\n", q(&cfg.shortcuts.talk)));
+        s.push_str(&format!("talk_orchestrator = {}\n", q(&cfg.shortcuts.talk_orchestrator)));
+    }
     if cfg.jev != JevCfg::default() {
         s.push('\n');
         s.push_str(JEV_COMMENT);
@@ -2891,6 +2989,17 @@ pub fn render(cfg: &Config) -> String {
         s.push_str(EXPERIMENTAL_COMMENT);
         s.push_str("[experimental]\n");
         s.push_str(&format!("boards = {}\n", cfg.experimental.boards));
+        if cfg.experimental.voice {
+            s.push_str("voice = true\n");
+        }
+    }
+    if cfg.voice != VoiceCfg::default() {
+        s.push('\n');
+        s.push_str(VOICE_COMMENT);
+        s.push_str("[voice]\n");
+        s.push_str(&format!("locale = {}\n", q(&cfg.voice.locale)));
+        s.push_str(&format!("send_on_release = {}\n", cfg.voice.send_on_release));
+        s.push_str(&format!("tell_every = {}\n", cfg.voice.tell_every));
     }
     s.push_str("\n# Harness accounts. `name` is what you type and what the board shows.\n# `start` is where new sessions start: \"terminal\", \"background\", \"claude-app\", \"codex-app\" or \"codealong\". A start from the quick panel sets it.\n# `acp`: the command that runs the account's Agent Client Protocol adapter, for sessions Codealong runs itself.\n# `usage_cap`: where Auto and routing groups pass over this account for one with more room (1 to 100 percent; default 90).\n# `monthly`: what its plan costs you a month, in dollars; `per_token = true`: it pays for each token\n# at API prices. The Usage window counts both as paid.\n# `disabled = true`: Codealong starts nothing on it and leaves it out of the usage bar; its sessions still show.\n");
     for a in &cfg.accounts {
@@ -2979,7 +3088,7 @@ mod tests {
             scan: vec!["~/projects".into()],
             apps: AppsCfg::default(),
             appearance: AppearanceCfg { theme: Theme::Dark, ..AppearanceCfg::default() },
-            shortcuts: ShortcutsCfg { quick_panel: "Cmd+Ctrl+K".into(), chat: "Cmd+Ctrl+C".into(), waiting: "Ctrl+Option+N".into(), improve: "Ctrl+Option+I".into(), main_window: "Ctrl+Option+M".into() },
+            shortcuts: ShortcutsCfg { quick_panel: "Cmd+Ctrl+K".into(), chat: "Cmd+Ctrl+C".into(), waiting: "Ctrl+Option+N".into(), improve: "Ctrl+Option+I".into(), main_window: "Ctrl+Option+M".into(), talk: "Ctrl+Option+T".into(), talk_orchestrator: "Ctrl+Option+O".into() },
             accounts: vec![
                 AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, acp: None, monthly: None, per_token: false, usage_cap: Some(85), disabled: false },
                 AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false },
@@ -3012,7 +3121,8 @@ mod tests {
             pull_requests: PullRequestsCfg { nudge_by_default: true, nudge_about: NudgeAbout::FeedbackAndChecks, rerequest_after_fixes: false },
             repos: BTreeMap::from([("github.com/sprucehq/web".to_string(), RepoCfg { reviews: ReviewsPatch { auto: Some(true), account: Some("codex".into()), post: Some(ReviewPost::Draft), own: OwnReviewsPatch { send: Some(false), ..OwnReviewsPatch::default() }, ..ReviewsPatch::default() }, pull_requests: PullRequestsPatch { nudge_about: Some(NudgeAbout::Feedback), ..PullRequestsPatch::default() } })]),
             sounds: SoundsCfg { needs_you: "Tink".into(), your_turn: String::new(), review_requested: "Purr".into(), volume: 35 },
-            experimental: ExperimentalCfg { boards: true },
+            experimental: ExperimentalCfg { boards: true, voice: true },
+            voice: VoiceCfg { locale: "en-GB".into(), send_on_release: true, tell_every: 45 },
             debug: DebugCfg::default(),
             prices: BTreeMap::new(),
         };
@@ -3355,6 +3465,7 @@ mod tests {
             repos: BTreeMap::new(),
             sounds: SoundsCfg::default(),
             experimental: ExperimentalCfg::default(),
+            voice: VoiceCfg::default(),
             debug: DebugCfg { perf_log: true },
             prices: BTreeMap::new(),
         }
@@ -3406,19 +3517,50 @@ mod tests {
     fn experiments_are_off_until_the_file_turns_one_on() {
         assert!(!toml::from_str::<Config>("").unwrap().experimental.boards);
         let old = render(&full());
-        assert!(!old.contains("[experimental]"), "{old}");
-        assert!(!with_config(&old, &full()).unwrap().contains("[experimental]"));
-        let on = Config { experimental: ExperimentalCfg { boards: true }, ..full() };
+        // The table itself: the shortcuts' comment names it.
+        assert!(!old.contains("\n[experimental]\n"), "{old}");
+        assert!(!with_config(&old, &full()).unwrap().contains("\n[experimental]\n"));
+        let on = Config { experimental: ExperimentalCfg { boards: true, voice: false }, ..full() };
         let out = with_config(&old, &on).unwrap();
         assert!(out.contains(&format!("{EXPERIMENTAL_COMMENT}[experimental]\nboards = true\n")), "{out}");
-        assert!(out.find("[sounds]").unwrap() < out.find("[experimental]").unwrap(), "{out}");
-        assert!(out.find("[experimental]").unwrap() < out.find("[[accounts]]").unwrap(), "{out}");
+        assert!(out.find("[sounds]").unwrap() < out.find("\n[experimental]\n").unwrap(), "{out}");
+        assert!(out.find("\n[experimental]\n").unwrap() < out.find("[[accounts]]").unwrap(), "{out}");
         assert_eq!(parse(&out).unwrap(), on);
         assert_eq!(parse(&render(&on)).unwrap(), on);
         // Turned off again, the table stays, saying so.
         let off = with_config(&out, &full()).unwrap();
         assert!(off.contains("[experimental]\nboards = false"), "{off}");
         assert_eq!(parse(&off).unwrap(), full());
+    }
+
+    #[test]
+    fn voice_is_off_until_the_file_turns_it_on_and_brings_its_settings_and_keys() {
+        let none = toml::from_str::<Config>("").unwrap();
+        assert!(!none.experimental.voice);
+        assert_eq!(none.voice, VoiceCfg { locale: String::new(), send_on_release: false, tell_every: 20 });
+        let old = render(&full());
+        assert!(!old.contains("\n[voice]\n") && !old.contains("\ntalk = ") && !old.contains("voice = "), "{old}");
+        // Turned on in a file from before it: the flag, and the keys held to talk, which the
+        // file didn't have.
+        let on = Config { experimental: ExperimentalCfg { voice: true, ..Default::default() }, ..full() };
+        let out = with_config(&old, &on).unwrap();
+        assert!(out.contains("[experimental]\nboards = false\nvoice = true\n"), "{out}");
+        let talk = default_shortcuts().talk;
+        assert!(out.contains(&format!("talk = \"{talk}\"\ntalk_orchestrator = ")), "{out}");
+        assert!(!out.contains("\n[voice]\n"), "{out}");
+        assert_eq!(parse(&out).unwrap(), on);
+        assert_eq!(parse(&render(&on)).unwrap(), on);
+        // Its settings get their table once one isn't the default, after the experiments.
+        let set = Config { voice: VoiceCfg { locale: "en-GB".into(), send_on_release: true, tell_every: 45 }, ..on.clone() };
+        let out = with_config(&out, &set).unwrap();
+        assert!(out.contains(&format!("{VOICE_COMMENT}[voice]\nlocale = \"en-GB\"\nsend_on_release = true\ntell_every = 45\n")), "{out}");
+        assert!(out.find("\n[experimental]\n").unwrap() < out.find("\n[voice]\n").unwrap(), "{out}");
+        assert!(out.find("\n[voice]\n").unwrap() < out.find("[[accounts]]").unwrap(), "{out}");
+        assert_eq!(parse(&out).unwrap(), set);
+        assert_eq!(parse(&render(&set)).unwrap(), set);
+        // A session told more often than its turns take only queues what it's told.
+        let err = check(&Config { voice: VoiceCfg { tell_every: 1, ..VoiceCfg::default() }, ..full() }).unwrap_err();
+        assert_eq!(err, "[voice] tell_every is 1; it's in seconds, 5 at the least.");
     }
 
     #[test]
@@ -4151,7 +4293,7 @@ mod tests {
         cfg.shortcuts.main_window = default_shortcuts().main_window.into();
         cfg.shortcuts.chat = "Option+Cmd+;".into();
         assert!(check(&cfg).unwrap_err().starts_with("[shortcuts] main_window is the same keys as chat"));
-        cfg.shortcuts = ShortcutsCfg { quick_panel: String::new(), chat: String::new(), waiting: String::new(), improve: String::new(), main_window: String::new() };
+        cfg.shortcuts = ShortcutsCfg { quick_panel: String::new(), chat: String::new(), waiting: String::new(), improve: String::new(), main_window: String::new(), talk: String::new(), talk_orchestrator: String::new() };
         assert!(check(&cfg).is_ok());
     }
 
@@ -4161,7 +4303,7 @@ mod tests {
         assert!(linux.contains("[shortcuts]\nquick_panel = \"Ctrl+Alt+/\"\nchat = \"Ctrl+Alt+'\"\n"), "{linux}");
         let _mac = crate::os::AsIf::new(crate::os::Os::MacOs);
         let cfg: Config = toml::from_str("[shortcuts]\nquick_panel = \"Cmd+Ctrl+K\"\n").unwrap();
-        assert_eq!(cfg.shortcuts, ShortcutsCfg { quick_panel: "Cmd+Ctrl+K".into(), chat: default_shortcuts().chat.into(), waiting: default_shortcuts().waiting.into(), improve: default_shortcuts().improve.into(), main_window: default_shortcuts().main_window.into() });
+        assert_eq!(cfg.shortcuts, ShortcutsCfg { quick_panel: "Cmd+Ctrl+K".into(), chat: default_shortcuts().chat.into(), waiting: default_shortcuts().waiting.into(), improve: default_shortcuts().improve.into(), main_window: default_shortcuts().main_window.into(), talk: default_shortcuts().talk.into(), talk_orchestrator: default_shortcuts().talk_orchestrator.into() });
         let text = render(&Config::default());
         assert!(text.contains("[shortcuts]\nquick_panel = \"Option+Cmd+/\"\nchat = \"Option+Cmd+'\"\nwaiting = \"Option+Cmd+.\"\nimprove = \"Option+Cmd+,\"\nmain_window = \"Option+Cmd+;\"\n"), "{text}");
     }

@@ -56,6 +56,13 @@ for _ in 1 2 3; do
   # (lib.rs CHECKOUT); one that isn't this one is built again.
   if [ "$("$own/codealong.new" --snapshot --checkout 2>/dev/null)" -ef . ]; then
     mv "$own/codealong.new" "$own/codealong"
+    # Its hearing goes beside it, where the engine looks for it (ear.rs `binary`). A Mac that
+    # can't build it (no Xcode 26, or Linux) has an engine that says it can't hear.
+    if ear="$(scripts/ear.sh 2>/dev/null)"; then
+      cp -c "$ear" "$own/codealong-ear" 2>/dev/null || cp "$ear" "$own/codealong-ear"
+    else
+      rm -f "$own/codealong-ear"
+    fi
     echo "$state" >"$own/state"
     echo "$PWD/$own/codealong"
     exit 0

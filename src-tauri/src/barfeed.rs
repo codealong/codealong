@@ -81,6 +81,20 @@ pub struct BarFeed {
     /// wasn't on the feed before has just come back, and what it brings isn't news to sound or
     /// knock for (sounds.rs, src/mark.ts).
     pub devices: Vec<String>,
+    /// The sessions that are listening (listen.rs), each with its title: the bar shows that one
+    /// is, for as long as it is, and what it last said that wasn't nothing (`Glance::cue`).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub listenings: Vec<BarListening>,
+}
+
+/// A session that's listening, as the bar shows it.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct BarListening {
+    pub key: String,
+    pub title: String,
+    #[serde(flatten)]
+    pub listening: crate::listen::Glance,
 }
 
 /// One session on the bar, with what its pill, tooltip and menu need.
@@ -291,6 +305,12 @@ pub fn feed(shown: Shown) -> BarFeed {
         reviews,
         todos: ready,
         devices,
+        // By when each began, so the one the bar names first stays the same one.
+        listenings: {
+            let mut listenings: Vec<BarListening> = board.listenings.iter().filter_map(|(key, l)| board.session(key).map(|(_, s)| BarListening { key: key.clone(), title: s.title.clone(), listening: l.clone() })).collect();
+            listenings.sort_by_key(|l| l.listening.started_at);
+            listenings
+        },
     }
 }
 
@@ -354,6 +374,23 @@ mod tests {
         let b = board(vec![lane("/a", vec![visitor, archived], false), elsewhere, lane("/b", vec![session("ok", Status::Working, NOW)], false)], vec![]);
         let got: Vec<(String, String, bool)> = feed(Shown::here(&b)).items.into_iter().map(|i| (i.key, i.project, i.hidden)).collect();
         assert_eq!(got, vec![("h".to_string(), "Elsewhere".to_string(), true), ("ok".to_string(), "P".to_string(), false)]);
+    }
+
+    #[test]
+    fn names_the_sessions_that_listen_the_first_to_begin_first() {
+        use crate::listen::{Glance, Role};
+        let mut b = board(vec![lane("/a", vec![session("coach", Status::Idle, NOW - 20), session("notes", Status::Idle, NOW - 10)], false)], vec![]);
+        assert!(feed(Shown::here(&b)).listenings.is_empty());
+        b.listenings.insert("notes".into(), Glance { id: "n".into(), started_at: NOW - 900, ..Glance::default() });
+        b.listenings.insert("coach".into(), Glance { id: "c".into(), started_at: NOW - 300, role: Role::Coach, cue: Some("Ask when they renew.".into()), cue_at: NOW - 5, ..Glance::default() });
+        // One whose session the board has no more isn't named.
+        b.listenings.insert("gone".into(), Glance::default());
+        let f = feed(Shown::here(&b));
+        let got: Vec<(&str, &str, Option<&str>)> = f.listenings.iter().map(|l| (l.key.as_str(), l.title.as_str(), l.listening.cue.as_deref())).collect();
+        assert_eq!(got, vec![("notes", "Title notes", None), ("coach", "Title coach", Some("Ask when they renew."))]);
+        // As the bar's page reads it: the glance's own fields beside the session's.
+        let sent = serde_json::to_value(&f.listenings[1]).unwrap();
+        assert_eq!((sent["key"].as_str(), sent["role"].as_str(), sent["cue"].as_str(), sent["cueAt"].as_i64()), (Some("coach"), Some("coach"), Some("Ask when they renew."), Some(NOW - 5)));
     }
 
     #[test]

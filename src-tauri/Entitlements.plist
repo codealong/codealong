@@ -8,5 +8,9 @@
        once for each. -->
   <key>com.apple.security.automation.apple-events</key>
   <true/>
+  <!-- And lets it use the microphone only with this: hold-to-talk and listenings, through
+       codealong-ear, which is signed with the same entitlements. macOS still asks the person. -->
+  <key>com.apple.security.device.audio-input</key>
+  <true/>
 </dict>
 </plist>

@@ -22,7 +22,8 @@
         "tailscale": true
       },
       "experimental": {
-        "boards": false
+        "boards": false,
+        "voice": false
       },
       "generatedAt": 1000,
       "githubAt": null,
@@ -327,6 +328,8 @@
         "resume_for_sessions_it_started": true
       },
       "sides": {},
+      "talkOrchestratorShortcut": "",
+      "talkShortcut": "",
       "teamFiles": [],
       "theme": "system",
       "todoHints": {},
@@ -360,7 +363,8 @@
           "tailscale": true
         },
         "experimental": {
-          "boards": false
+          "boards": false,
+          "voice": false
         },
         "generatedAt": 1000,
         "githubAt": null,
@@ -665,6 +669,8 @@
           "resume_for_sessions_it_started": true
         },
         "sides": {},
+        "talkOrchestratorShortcut": "",
+        "talkShortcut": "",
         "teamFiles": [],
         "theme": "system",
         "todoHints": {},
@@ -701,7 +707,8 @@
         "tailscale": true
       },
       "experimental": {
-        "boards": false
+        "boards": false,
+        "voice": false
       },
       "generatedAt": 2000,
       "githubAt": null,
@@ -1006,6 +1013,8 @@
         "resume_for_sessions_it_started": true
       },
       "sides": {},
+      "talkOrchestratorShortcut": "",
+      "talkShortcut": "",
       "teamFiles": [],
       "theme": "system",
       "todoHints": {},
@@ -1080,7 +1089,8 @@
         "tailscale": true
       },
       "experimental": {
-        "boards": false
+        "boards": false,
+        "voice": false
       },
       "generatedAt": 3000,
       "githubAt": null,
@@ -1385,6 +1395,8 @@
         "resume_for_sessions_it_started": true
       },
       "sides": {},
+      "talkOrchestratorShortcut": "",
+      "talkShortcut": "",
       "teamFiles": [],
       "theme": "system",
       "todoHints": {},
@@ -1458,7 +1470,8 @@
         "tailscale": true
       },
       "experimental": {
-        "boards": false
+        "boards": false,
+        "voice": false
       },
       "generatedAt": 4000,
       "githubAt": null,
@@ -1763,6 +1776,8 @@
         "resume_for_sessions_it_started": true
       },
       "sides": {},
+      "talkOrchestratorShortcut": "",
+      "talkShortcut": "",
       "teamFiles": [],
       "theme": "system",
       "todoHints": {},
@@ -1905,7 +1920,8 @@
         "tailscale": true
       },
       "experimental": {
-        "boards": false
+        "boards": false,
+        "voice": false
       },
       "generatedAt": 5000,
       "githubAt": null,
@@ -2207,6 +2223,8 @@
         "resume_for_sessions_it_started": true
       },
       "sides": {},
+      "talkOrchestratorShortcut": "",
+      "talkShortcut": "",
       "teamFiles": [],
       "theme": "system",
       "todoHints": {},
@@ -2324,7 +2342,8 @@
         "tailscale": true
       },
       "experimental": {
-        "boards": false
+        "boards": false,
+        "voice": false
       },
       "generatedAt": 6000,
       "githubAt": null,
@@ -2626,6 +2645,8 @@
         "resume_for_sessions_it_started": true
       },
       "sides": {},
+      "talkOrchestratorShortcut": "",
+      "talkShortcut": "",
       "teamFiles": [],
       "theme": "system",
       "todoHints": {},

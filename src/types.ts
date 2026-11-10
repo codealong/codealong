@@ -788,7 +788,7 @@ export interface Config {
   /** `zoom` is a percent; Settings leaves it as config.toml has it. */
   appearance: { theme: Theme; zoom?: number };
   /** Shortcuts that work in any app, as config.toml writes them (`Option+Cmd+/`); empty is off. */
-  shortcuts: { quick_panel: string; chat?: string; waiting: string; improve?: string; main_window?: string };
+  shortcuts: { quick_panel: string; chat?: string; waiting: string; improve?: string; main_window?: string; talk?: string; talk_orchestrator?: string };
   /** What Codealong asks TypeSafe's Jev, feature by feature. Older files have none: all off. */
   jev?: JevCfg;
   /** Session emblems. Older files have none: off. */
@@ -820,13 +820,128 @@ export interface Config {
   sounds?: SoundsCfg;
   /** Features still being tried out. Older files have none: all off. */
   experimental?: ExperimentalCfg;
+  /** Voice's settings, which matter once `experimental.voice` is on. Older files have none. */
+  voice?: VoiceCfg;
   debug: { perf_log: boolean };
 }
 
 /** `[experimental]` (config.rs `ExperimentalCfg`): features still being tried out, each off until
- *  it's turned on. `boards`: the Board view, as Kanban and as Canvas, and Add to board. */
+ *  it's turned on. `boards`: the Board view, as Kanban and as Canvas, and Add to board. `voice`:
+ *  the keys held to talk, and sessions that listen. Missing from files and boards before it: off. */
 export interface ExperimentalCfg {
   boards: boolean;
+  voice?: boolean;
+}
+
+/** `[voice]` (config.rs `VoiceCfg`). */
+export interface VoiceCfg {
+  /** The language spoken, as a locale ("en-US"); empty for the Mac's own. */
+  locale: string;
+  /** What's said to the orchestrator is sent as the key comes up, not put in its box first. */
+  send_on_release: boolean;
+  /** How often a session that listens is told what's new, at most, in seconds. */
+  tell_every: number;
+}
+
+/** What a listening session makes of what it hears (listen.rs `Role`). */
+export type ListenRole = 'notes' | 'coach' | 'requests' | 'custom';
+
+/** What to listen to and what for (listen.rs `Ask`). */
+export interface ListenAsk {
+  mic: boolean;
+  system: boolean;
+  /** Only what these apps play, by bundle id, in place of everything the Mac plays. */
+  apps: string[];
+  /** On speakers: what the Mac plays is taken out of what the microphone hears. */
+  speakers: boolean;
+  role: ListenRole;
+  /** For `custom`, what to do with what's heard; for the others, anything to add. */
+  prompt: string;
+  /** For `requests`: a session is started on each todo as it's filed. */
+  start: boolean;
+}
+
+/** A listening as the board lists it, under its session's key (listen.rs `Glance`). */
+export interface ListeningGlance {
+  id: string;
+  startedAt: number;
+  role: ListenRole;
+  mic: boolean;
+  playback: boolean;
+  apps?: string[];
+  transcript: string;
+  notes: string;
+  /** Something wrong that it goes on through. */
+  problem?: string;
+  /** Something it waits on that passes: the speech model downloading. */
+  waiting?: string;
+  /** The latest thing its session said that wasn't nothing, and when. */
+  cue?: string;
+  cueAt: number;
+}
+
+/** A listening as its file keeps it (listen.rs `Listening`). */
+export interface Listening {
+  id: string;
+  session: string;
+  role: ListenRole;
+  startedAt: number;
+  endedAt?: number;
+  whyEnded?: string;
+  lines: number;
+  told: number;
+  done: boolean;
+}
+
+/** Where a session's listening stands (listen.rs `Tail`): what its session hasn't been told
+ *  yet, `first` the number of the first of those lines, and its notes as they are. */
+export interface ListeningTail {
+  listening: Listening;
+  first: number;
+  untold: string[];
+  notes?: string;
+}
+
+/** What a listening hears, as it's heard (listen.rs `Hearing`): the words being said (`who`,
+ *  `text`, empty once settled), a line written to the transcript (`line`, `said`), or how far its
+ *  session has been told (`told`). */
+export interface Hearing {
+  session: string;
+  who?: string;
+  text?: string;
+  line?: number;
+  said?: string;
+  told?: number;
+}
+
+/** What this Mac can hear with (ear.rs `Status`), and the apps that record or play now. */
+export interface HearingStatus {
+  status: { available: boolean; why?: string; microphone: string; locale?: string; installed: boolean };
+  apps: { bundle: string; name: string; recording: boolean; playing: boolean }[];
+}
+
+/** A session that's listening, as the bar shows it (barfeed.rs `BarListening`). */
+export interface BarListening extends ListeningGlance {
+  key: string;
+  title: string;
+}
+
+/** A key held to talk, as the notch is told of it (dictation.rs `Talk`). */
+export interface Talk {
+  id: number;
+  phase: 'listening' | 'settling' | 'typed' | 'sent' | 'asked' | 'nothing' | 'failed';
+  to: 'looking' | 'orchestrator';
+  title?: string;
+  text: string;
+  level: number;
+  message?: string;
+}
+
+/** What a window is handed to put where its caret is (dictation.rs `Talked`): `key` when it's
+ *  for one session's box whatever the window shows. */
+export interface Talked {
+  text: string;
+  key?: string;
 }
 
 /** `[pull_requests]` (config.rs `PullRequestsCfg`). */
@@ -1355,6 +1470,9 @@ export interface Board {
   /** Codealong's own terminals (terminals.rs `glances`), by the key of the session each is for,
    *  in the order they were opened. Absent from engines of older builds, and when there are none. */
   terminals?: Record<string, TerminalGlance[]>;
+  /** The sessions that are listening (listen.rs `glances`), by session key. This Mac's own.
+   *  Absent from engines of older builds, and when there are none. */
+  listenings?: Record<string, ListeningGlance>;
   /** Pinned session keys, in order. */
   pinned: string[];
   /** Pinned worktrees (lane ids), in order. */
@@ -1393,6 +1511,11 @@ export interface Board {
   improveShortcut?: string;
   /** The shortcut that brings the board's window forward, as config.toml writes it; empty when off. Missing on older boards. */
   mainWindowShortcut?: string;
+  /** The shortcuts held to talk, to the session you're looking at and to your orchestrator, as
+   *  config.toml writes them; empty when off, as they are until voice is turned on. Missing on
+   *  older boards. */
+  talkShortcut?: string;
+  talkOrchestratorShortcut?: string;
   /** Where a session that improves Codealong goes (improve.ts). Missing on older boards. */
   improve?: Improve;
   /** What Codealong asks Jev, from `[jev]` in config.toml. Missing on older boards. */
@@ -2293,8 +2416,9 @@ export interface StartSpec {
 /** The quick panel's shortcut, and why it isn't working when it isn't (src-tauri/src/quick.rs). */
 export interface ShortcutStatus {
   /** The quick panel's, the one that opens it set to a chat, the one that goes through what waits
-   *  on you, Improve Codealong's, or the one that brings the board's window forward. */
-  which: 'quick' | 'chat' | 'waiting' | 'improve' | 'main';
+   *  on you, Improve Codealong's, the one that brings the board's window forward, or one of the
+   *  two held to talk. */
+  which: 'quick' | 'chat' | 'waiting' | 'improve' | 'main' | 'talk' | 'talkorchestrator';
   /** As config.toml writes it; empty when it's off. */
   shortcut: string;
   error: string | null;
@@ -2341,6 +2465,9 @@ export interface BarFeed {
    *  now. What one that wasn't on the feed before brings isn't news (mark.ts). Missing from a feed
    *  an older app sent. */
   devices?: string[];
+  /** The sessions that are listening, the first to begin first. Missing while there are none,
+   *  and from a feed an older app sent. */
+  listenings?: BarListening[];
 }
 
 export interface BarItem {

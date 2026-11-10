@@ -5,6 +5,8 @@ import { watchCaret } from './caret';
 import { drawNoticesHere } from './notices';
 import { platform } from './platform';
 import { Bar } from './ui/Bar';
+import { ListenHost } from './ui/Listening';
+import { typeWhatsSaid } from './talk';
 import { DesktopLines } from './ui/DesktopLines';
 import { DesktopPin } from './ui/DesktopPin';
 import { Peek } from './ui/Peek';
@@ -63,7 +65,17 @@ if (platform() === 'linux') document.documentElement.classList.add('is-linux');
 // other windows hand on.
 if (!isBar && !isQuick && !isWaiting && !isPeek && !isDesktop && !isLineage) drawNoticesHere();
 
-createRoot(document.getElementById('root')!).render(<StrictMode>{isBar ? <Bar /> : isQuick ? <Quick /> : isWaiting ? <Waiting /> : isTerminal ? <TerminalWindow /> : isPeek ? <Peek kept={isKept} side={isSide} /> : isDesktop ? <DesktopPin /> : isLineage ? <DesktopLines /> : <App />}</StrictMode>);
+// A session's Listen… asked in a window that floats is handed to the main window, which has the
+// room for its dialog (ui/Listening.tsx `ListenHost`; the board's windows mount their own).
+const floats = isBar || isWaiting || isPeek;
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    {isBar ? <Bar /> : isQuick ? <Quick /> : isWaiting ? <Waiting /> : isTerminal ? <TerminalWindow /> : isPeek ? <Peek kept={isKept} side={isSide} /> : isDesktop ? <DesktopPin /> : isLineage ? <DesktopLines /> : <App />}
+    {floats && <ListenHost here={false} />}
+  </StrictMode>,
+);
+// What's said with a key held to talk is typed where this window's caret is (talk.ts).
+if (!isBar && !isDesktop && !isLineage) typeWhatsSaid();
 
 watchCaret();
 

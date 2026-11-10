@@ -123,6 +123,7 @@ with `--usage`, and its endpoint rate-limits: don't loop it.
   `--snapshot --tab-picture <key> <file>`: a session's terminal tab, as it pictures it.
   `--snapshot --stale-terminals [wait]`: the tabs Close stale terminals would list, closing none.
   `--snapshot --hibernate [wait]`: what would hibernate now (`[sessions] hibernate_after`), closing none.
+  `--snapshot --hearing`: what this Mac hears with; `--snapshot --transcribe <file>`: a recording's words (ear.rs).
 - `--snapshot --schedules`: the schedules as their view lists them;
   `--snapshot --harness-schedules`: the ones the harnesses keep themselves (schedules/harnesses.rs);
   `--snapshot --schedule-plan
@@ -406,6 +407,7 @@ its adapter, and add what you find to it, not here.
 - `github.md`: `gh`, GraphQL points and polling. `jev.md`: TypeSafe. `devices.md`: Tailscale,
   iroh and testing linked devices.
 - `preview.md`: writing browser checks. `performance.md`: the timing log and benches.
+  `voice.md`: macOS's speech recognition and audio capture (codealong-ear).
 
 ## Testing against real data
 

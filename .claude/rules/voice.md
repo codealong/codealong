@@ -1,0 +1,95 @@
+---
+paths:
+  - "src-tauri/ear/**"
+  - "src-tauri/src/ear.rs"
+  - "src-tauri/src/listen.rs"
+  - "src-tauri/src/dictation.rs"
+  - "scripts/ear.sh"
+---
+
+# Voice
+
+What macOS's speech recognition and audio capture take and give, as codealong-ear
+(`src-tauri/ear/main.swift`) relies on them: from the SDK's own interfaces (Xcode 26.5,
+`Speech.framework/Modules/Speech.swiftmodule/*.swiftinterface`, `CoreAudio`'s
+`AudioHardwareTapping.h` and `CATapDescription.h`) and runs on this Mac (macOS 26.6.2,
+2026-11-09). What was run is marked so; the rest is read, not run, and listed under *Unchecked*.
+
+## Speech
+
+- SpeechAnalyzer and SpeechTranscriber (macOS 26) have a Swift interface only: actors and async
+  sequences, nothing Objective-C can call, so objc2 can't reach them. That's why hearing is a
+  helper process in Swift, and why the engine needs nothing of Swift to build.
+- Run: a recording goes through `SpeechAnalyzer(inputSequence:modules:options:analysisContext:)`
+  fed `AnalyzerInput(buffer:)` in the format `SpeechAnalyzer.bestAvailableAudioFormat(
+  compatibleWith:)` names, with `reportingOptions: [.volatileResults, .fastResults]`. Results
+  come from `transcriber.results`: several that aren't final for a stretch (`isFinal` false, each
+  the whole stretch so far, about a second behind the audio), then one that is, punctuated and
+  capitalized, and then the next stretch's begin. A stretch is a sentence or so.
+- Run: the model loads once for the system, not for the process. The first helper after a while
+  took 5.6 s from `start` to ready; one right after took 70 ms. `modelRetention: .lingering`
+  asks the system to keep it; `ear::warm` loads it as the app launches. Audio fed before the
+  model is ready isn't lost when it's kept and given after (`Pipeline.waiting`): a stop 60 ms
+  after a start still transcribed all six seconds of a file.
+- Run: `finalizeAndFinishThroughEndOfInput()` after the input sequence ends settles the last
+  words in about 60 ms; the results sequence then ends.
+- Run: `AssetInventory.status(forModules:)` said not installed for a locale
+  `SpeechTranscriber.installedLocales` listed, and `assetInstallationRequest(supporting:)` gave a
+  request whose `downloadAndInstall()` returned at once. So "downloading" is said only once that
+  has taken a moment (`ready`).
+- Run: no authorization prompt for speech recognition itself: SpeechAnalyzer isn't behind
+  `SFSpeechRecognizer.requestAuthorization`, and the helper asks for none. Transcribing a file
+  needs no permission at all.
+- `AnalysisContext.contextualStrings[.general]` takes words the model wouldn't guess (project
+  names). "main" was still heard as "Maine" in a text-to-speech sample without them.
+- The helper is built with Swift 5's rules (`-swift-version 5`): under Swift 6's, handing an
+  `AVAudioPCMBuffer` from an audio thread to the transcriber needs `Sendable` proofs AVFAudio's
+  types don't give.
+
+## The microphone and the Mac's audio
+
+- The microphone is `AVAudioEngine`'s input node with a tap. macOS asks through
+  `AVCaptureDevice.requestAccess(for: .audio)`; `authorizationStatus` says where it stands without
+  asking. The prompt is attributed to the responsible process, which for a helper is whatever
+  started it: Codealong's app, or its server (the app's own binary, run by launchd), so the
+  usage text is `NSMicrophoneUsageDescription` in `src-tauri/Info.plist`, and a helper started
+  from a terminal or an agent's shell asks as that terminal (Run: `status` from an agent's shell
+  under Rex said `unasked`, for Rex).
+- Under the hardened runtime (a Developer ID build) the microphone also needs the
+  `com.apple.security.device.audio-input` entitlement. It's on the app and on the helper, which
+  release.sh signs itself after Tauri's build, since the helper isn't Tauri's to bundle.
+- What the Mac plays comes from a Core Audio process tap (macOS 14.2): `CATapDescription`
+  (`stereoGlobalTapButExcludeProcesses: []` for everything, `stereoMixdownOfProcesses:` for some),
+  `AudioHardwareCreateProcessTap`, then a private aggregate device with the tap in its
+  `kAudioAggregateDeviceTapListKey`, read with `AudioDeviceCreateIOProcIDWithBlock`. The tap's
+  format is `kAudioTapPropertyFormat`. It asks for *System Audio Recording Only* (Privacy &
+  Security › Screen & System Audio Recording), with `NSAudioCaptureUsageDescription`; this is not
+  Screen Recording, and puts no recording mark on the screen.
+- Nothing says whether that permission was given: a tap that isn't allowed gives silence, as one
+  is given when nothing plays. So a listening says so itself when the Mac's audio has given
+  nothing at all for a while (`listen.rs` `SILENT`).
+- A tap takes the processes it was made with, by their Core Audio object ids
+  (`kAudioHardwarePropertyProcessObjectList`, each with `kAudioProcessPropertyPID`,
+  `…BundleID`, `…IsRunningInput`, `…IsRunningOutput`). An app's audio often comes from a helper
+  of its own (a browser's, and Safari's from a WebKit process not named after it), so the app a
+  process's audio counts as is the one macOS holds responsible for it
+  (`responsibility_get_pid_responsible_for_pid`, by `dlsym`). Run: the list on this Mac named
+  the iOS Simulator as playing and Core Speech as recording.
+
+## Unchecked
+
+- Not yet run (2026-11-09): the microphone and the tap themselves, which wait on macOS's
+  prompts, answered by a person. Nor which name the prompts carry when the server starts the
+  helper, though the server is the app's own binary; nor that the entitlement is needed on the
+  helper as well as the app, which is why both have it.
+- Not yet run: voice processing on the input node (`setVoiceProcessingEnabled(true)`, for *I'm on
+  speakers*), which should take what the Mac plays out of the microphone, may give more than two
+  channels (the first is taken), and ducks other audio unless told not to
+  (`voiceProcessingOtherAudioDuckingConfiguration`, set to the least).
+- Not yet run: an aggregate device across a change of output (headphones plugged in), sleep and
+  wake, and whether a tap's IO proc is called while nothing plays. The helper rebuilds the tap
+  when the default output or an app's processes change, and when nothing was handed over for ten
+  seconds while something plays; the microphone's engine is made again when it stops, its
+  configuration changes, or nothing comes from it for four seconds.
+- Not yet run: an Intel Mac, where `SpeechTranscriber.isAvailable` may be false; the helper is
+  built for both processors and says it can't transcribe where it can't.

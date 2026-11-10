@@ -497,6 +497,11 @@ pub fn button_down() -> bool {
     NSEvent::pressedMouseButtons() & 1 != 0
 }
 
+/// Shift is down, whichever app has the keyboard.
+pub fn shift_down() -> bool {
+    NSEvent::modifierFlags_class().contains(objc2_app_kit::NSEventModifierFlags::Shift)
+}
+
 // ---- What AppKit and WebKit are asked of any window ----
 
 fn yes(b: bool) -> &'static str {

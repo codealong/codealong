@@ -4,5 +4,9 @@
 <dict>
   <key>NSAppleEventsUsageDescription</key>
   <string>Codealong opens terminal sessions in Ghostty, iTerm2 or Terminal and brings the right window to the front.</string>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Codealong turns what you say into text for the session you're talking to, on this Mac. No audio is kept.</string>
+  <key>NSAudioCaptureUsageDescription</key>
+  <string>Codealong turns what a meeting says into text for the session you asked to listen, on this Mac. No audio is kept.</string>
 </dict>
 </plist>

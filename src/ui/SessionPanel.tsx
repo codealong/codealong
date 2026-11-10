@@ -52,6 +52,8 @@ import { runFolder } from './RunButton';
 import { SessionHeader, type SessionHeaderProps } from './SessionHeader';
 import { Reply } from './SessionReply';
 import { SessionThread } from './SessionThread';
+import { LiveStrip } from './Listening';
+import { useListening } from '../listening';
 import type { FindAsk } from './ThreadFind';
 import { keysSaid } from '../platform';
 import { errorText } from '../report';
@@ -406,6 +408,7 @@ function KeptAway({ sessionKey }: { sessionKey: string }) {
 
 export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, autoFocus, keys, onSending, onSent, onFailed, onAnswered, onDone, onLoaded, onThreadMenu, find, dialog, terminals, ...header }: SessionPanelProps) {
   const { lane, session: s, apps, now, onOpen, onMenu, device, renaming } = header;
+  const listening = useListening(s.key);
   const terminal = apps.terminal;
   const openIt = () => onOpen(s.openTarget);
   // Sending and marking seen go on to the next only from a session that waits on you itself.
@@ -475,6 +478,7 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
               ) : null
             }
           />}
+          {!inTerminal && !away && listening && <LiveStrip sessionKey={s.key} listening={listening} now={now} />}
           {inTerminal || away ? null : device && !device.online ? (
             <p className="ca-sessinsp-remote" role="status">
               {device.name} isn't connected, so nothing can reach this session from here right now.

@@ -86,7 +86,19 @@ CODEALONG_COMMIT="$built" npx tauri build --config src-tauri/tauri.dev.conf.json
 identity="${CODEALONG_SIGNING_IDENTITY:-}"
 [ -n "$identity" ] ||
   identity="$(security find-identity -v -p codesigning | sed -n 's/.*"\(Apple Development: .*\)"$/\1/p' | head -1)"
+# Its hearing goes in beside the engine before the app is signed, so the signature covers it. It's
+# signed first, as the app is: what's inside a bundle is signed before the bundle. A Mac that can't
+# build it (no Xcode 26) gets an app that says it can't hear.
+if ear="$(scripts/ear.sh)"; then
+  cp "$ear" "$app/Contents/MacOS/codealong-ear"
+  [ -z "$identity" ] || codesign --force --timestamp=none --sign "$identity" "$app/Contents/MacOS/codealong-ear" 2>/dev/null ||
+    codesign --force --sign - "$app/Contents/MacOS/codealong-ear"
+else
+  echo "codealong-ear couldn't be built (above): this build can't hear."
+fi
 if [ -z "$identity" ]; then
+  # Signed ad hoc again all the same: the helper went in after Tauri sealed the bundle.
+  codesign --force --sign - "$app" 2>/dev/null || true
   echo "No Apple Development certificate in the keychain: the build keeps its ad-hoc signature, and macOS asks again for what it had allowed."
 elif signed="$(codesign --force --timestamp=none --sign "$identity" "$app" 2>&1)" &&
   codesign --verify --strict "$app" 2>/dev/null; then

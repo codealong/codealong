@@ -105,11 +105,13 @@ export interface NotchShellProps {
   onKeepOpen: (keep: boolean) => void;
   onMark: () => void;
   onMenu: () => void;
+  /** Beside the mark, closed too: that a session is hearing (Said.tsx `HearingMark`). */
+  hearing?: ReactNode;
   /** The bar's pills, shown below while it's open. */
   children: ReactNode;
 }
 
-export function NotchShell({ notch, logoStatus, moment, counts, room, screen, zoom, project, held, session, sessionOpen, sessionEnd, sessionKeys, onSessionLeft, onCount, onPress, onMove, keepOpen, onKeepOpen, onMark, onMenu, children }: NotchShellProps) {
+export function NotchShell({ notch, logoStatus, moment, counts, room, screen, zoom, project, held, session, sessionOpen, sessionEnd, sessionKeys, onSessionLeft, onCount, onPress, onMove, keepOpen, onKeepOpen, onMark, onMenu, hearing, children }: NotchShellProps) {
   // The pills show, under the pointer or pinned; a session shows under them.
   const [open, setOpen] = useState(keepOpen);
   // The pointer is on the shape.
@@ -433,6 +435,7 @@ export function NotchShell({ notch, logoStatus, moment, counts, room, screen, zo
               <button type="button" className="ca-hud-mark" title="Show Codealong" tabIndex={open ? 0 : -1} onClick={(e) => (open ? onMark() : e.preventDefault())}>
                 <MarkLive size={16} status={logoStatus} moment={moment} />
               </button>
+              {hearing}
               {project && <span className="ca-notch-extra">{project}</span>}
             </div>
           </div>

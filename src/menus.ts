@@ -11,7 +11,7 @@
 // back where GitHub refuses the merge) is here.
 
 import { useEffect, useState } from 'react';
-import { closeSession, desktopPins, expandAttachments, forkSession, getAccounts, inPreview, moveSession, moveSessionTo, onDesktopPins, openUrl, ownSessions, pinToDesktop, resumeSession, sessionCancel, sessionWindow, setPrNudge, setPrPrimary, setReusable, showQuick, unpinFromDesktop, type MergeDone } from './api';
+import { closeSession, desktopPins, expandAttachments, forkSession, getAccounts, inPreview, moveSession, moveSessionTo, onDesktopPins, openUrl, ownSessions, pinToDesktop, resumeSession, sessionCancel, sessionWindow, stopListening, setPrNudge, setPrPrimary, setReusable, showQuick, unpinFromDesktop, type MergeDone } from './api';
 import { archiveAhead, doneAhead, labelAhead, quietAhead, raiseAhead, seenAhead, unreadAhead } from './ahead';
 import type { MenuAction, MenuGroup, MenuImage, MenuSpec } from './contextMenu';
 import { shortOf } from './devices';
@@ -31,6 +31,7 @@ import { chordKeys as platformKeys, chordSigns as platformSigns, held as modsHel
 import type { MergeForm } from './merge';
 import { mayApprove, prReady } from './prStatus';
 import { errorText, type Report } from './report';
+import { askToListen, voiceNow } from './listening';
 
 /** The editors installed here and their icons, for Open folder in and Open in. */
 export interface Editors {
@@ -263,6 +264,9 @@ export interface SessionActions {
    *  (`Session.cutOff`, start.rs `CARRY_ON`). */
   carryOn?: MenuAction;
   stop?: MenuAction;
+  /** Listen…, which asks what to listen to and what for, or Stop listening while it hears
+   *  (listen.rs): for a session on this Mac, while voice is turned on. */
+  listen?: MenuAction;
   rename?: MenuAction;
   seen?: MenuAction;
   /** Your turn again, until it's seen or prompted: for one whose turn you've seen. */
@@ -462,6 +466,7 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
     carryOn: carryTo ? { label: 'Carry on', run: () => void resume(carryTo) } : undefined,
     // The session carries on, waiting for you.
     stop: stoppable(s) ? { label: 'Stop turn', run: () => void said(`Stopping ${s.title}…`, sessionCancel(s.key)) } : undefined,
+    listen: listenItem(lane, s, report),
     rename: can.rename && renames(s) ? { label: 'Rename…', run: can.rename } : undefined,
     seen: seenable(s) ? { label: 'Mark as seen', run: () => settle('marked seen')(seenAhead([s.key])) } : undefined,
     // It joins what waits on you rather than leaving it, so a window working through that stays.
@@ -610,9 +615,19 @@ const SESSION_MENU = [
   ['heading'],
   ['open', 'resume', 'folder', 'ownTerminal', 'pr', 'chrome', 'reveal', 'window', 'reply', 'newSession', 'fork', 'move', 'moveFolder'],
   ['todos', 'boards', 'labels'],
-  ['stop', 'rename', 'seen', 'unread', 'pin', 'desktop', 'raise', 'snooze', 'quiet', 'own', 'close', 'done', 'mergeDone', 'archive'],
+  ['stop', 'listen', 'rename', 'seen', 'unread', 'pin', 'desktop', 'raise', 'snooze', 'quiet', 'own', 'close', 'done', 'mergeDone', 'archive'],
   ['copyId', 'copyResume'],
 ] as const;
+
+/** A session's Listen…, or Stop listening while it hears: for one of this Mac's that isn't put
+ *  away or some session's helper, while voice is turned on (listening.ts, from the board). A
+ *  session listens on the Mac it runs on, so another device's has neither. */
+function listenItem(lane: Lane, s: Session, report: Report): MenuAction | undefined {
+  const voice = voiceNow();
+  if (voice.listenings[s.key]) return { label: 'Stop listening', run: () => void stopListening(s.key).catch((e: unknown) => report.error(errorText(e))) };
+  if (!voice.on || s.archived || s.visitor || s.helper || lane.device) return undefined;
+  return { label: 'Listen…', run: () => askToListen({ key: s.key, title: s.title, laneId: lane.id }) };
+}
 
 /** A session's menu, as every window has it. */
 export function sessionMenu(lane: Lane, s: Session, can: SessionCan): MenuSpec {

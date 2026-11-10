@@ -69,11 +69,15 @@ struct Quick {
     waiting_shortcut: Mutex<ShortcutState>,
     improve_shortcut: Mutex<ShortcutState>,
     main_shortcut: Mutex<ShortcutState>,
+    talk_shortcut: Mutex<ShortcutState>,
+    talk_orchestrator_shortcut: Mutex<ShortcutState>,
 }
 
 /// Codealong's shortcuts that work in every app: the quick panel's, the one that opens it set to a
 /// chat in no project, the one that goes through what waits on you, Improve Codealong's
-/// (improve.rs), and the one that brings the board's window forward (front.rs `toggle_board`).
+/// (improve.rs), the one that brings the board's window forward (front.rs `toggle_board`), and the
+/// two held while you talk, to the session you're looking at and to your orchestrator
+/// (dictation.rs), which are off until voice is turned on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Keys {
@@ -82,10 +86,12 @@ pub enum Keys {
     Waiting,
     Improve,
     Main,
+    Talk,
+    TalkOrchestrator,
 }
 
 impl Keys {
-    pub const ALL: [Keys; 5] = [Keys::Quick, Keys::Chat, Keys::Waiting, Keys::Improve, Keys::Main];
+    pub const ALL: [Keys; 7] = [Keys::Quick, Keys::Chat, Keys::Waiting, Keys::Improve, Keys::Main, Keys::Talk, Keys::TalkOrchestrator];
 
     /// Its shortcut as `[shortcuts]` in config.toml has it.
     pub fn in_config(self, cfg: &crate::config::ShortcutsCfg) -> &str {
@@ -95,6 +101,8 @@ impl Keys {
             Keys::Waiting => &cfg.waiting,
             Keys::Improve => &cfg.improve,
             Keys::Main => &cfg.main_window,
+            Keys::Talk => &cfg.talk,
+            Keys::TalkOrchestrator => &cfg.talk_orchestrator,
         }
     }
 
@@ -106,6 +114,8 @@ impl Keys {
             Keys::Waiting => &board.waiting_shortcut,
             Keys::Improve => &board.improve_shortcut,
             Keys::Main => &board.main_window_shortcut,
+            Keys::Talk => &board.talk_shortcut,
+            Keys::TalkOrchestrator => &board.talk_orchestrator_shortcut,
         }
     }
 }
@@ -118,6 +128,8 @@ impl Quick {
             Keys::Waiting => &self.waiting_shortcut,
             Keys::Improve => &self.improve_shortcut,
             Keys::Main => &self.main_shortcut,
+            Keys::Talk => &self.talk_shortcut,
+            Keys::TalkOrchestrator => &self.talk_orchestrator_shortcut,
         }
     }
 }
@@ -474,6 +486,20 @@ pub fn pressed(app: &AppHandle, shortcut: &Shortcut) {
         crate::improve::toggle(app);
     } else if is(Keys::Main) {
         crate::front::toggle_board(app);
+    } else if is(Keys::Talk) {
+        crate::dictation::press(app, crate::dictation::To::Looking);
+    } else if is(Keys::TalkOrchestrator) {
+        crate::dictation::press(app, crate::dictation::To::Orchestrator);
+    }
+}
+
+/// One of Codealong's shortcuts came up: the keys held to talk end what they began. On the main
+/// thread.
+pub fn released(app: &AppHandle, shortcut: &Shortcut) {
+    let Some(state) = app.try_state::<Quick>() else { return };
+    let is = |which: Keys| state.slot(which).lock().ok().is_some_and(|s| s.registered.as_ref() == Some(shortcut));
+    if is(Keys::Talk) || is(Keys::TalkOrchestrator) {
+        crate::dictation::release(app);
     }
 }
 

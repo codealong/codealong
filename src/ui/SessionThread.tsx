@@ -85,6 +85,8 @@ import { FindContext, ThreadFind, type FindAsk } from './ThreadFind';
 import { Reading } from './Tip';
 import { Waiting, Working } from './Working';
 import { held, keysIn } from '../platform';
+import { asCue, saysNothing, toldIn } from '../listening';
+import { Told } from './Listening';
 
 /** Loads the page before once you're this close to the top. */
 const NEAR_TOP = 240;
@@ -1064,6 +1066,10 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
 
 
   const rows = useMemo(() => rowsOf(items), [items]);
+  // A session that listens (listen.rs): what Codealong told it is drawn as what it is (the
+  // meeting's lines, that it began, that it ended), and an answer that says there's nothing to
+  // say, a dash, as it's asked to give most of the time, isn't drawn at all.
+  const told = useMemo(() => new Map(items.filter((it) => it.kind === 'codealong').flatMap((it) => [toldIn(it.text)].flatMap((t) => (t ? [[it, t] as const] : [])))), [items]);
   const headings = useMemo(() => headingsOf(items), [items]);
   const editable = useMemo(() => editablePrompts(items, before == null), [items, before]);
   // Your messages to it still on their way, less the ones its record has now.
@@ -1217,11 +1223,15 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
                     </div>
                   );
                 }
+                const heard = told.get(it);
+                if (heard) return <Told key={keyOf(it)} told={heard} />;
+                if (told.size > 0 && it.kind === 'agent' && saysNothing(it.text)) return null;
+                const shown = told.size > 0 && it.kind === 'agent' ? { ...it, text: asCue(it.text) } : it;
                 const again = it.withdrawn && answeredBelow ? () => putBack(s.key, keyOf(it), it.text, true) : undefined;
                 // What Codealong or another session sent says so, apart from yours and the agent's.
                 const label = it.kind === 'you' ? 'You' : it.kind === 'codealong' ? 'Codealong' : it.kind === 'peer' ? peerLabel(it) : s.account;
                 const edit = onEdit && editable.has(keyOf(it)) ? () => onEdit(it) : undefined;
-                return <Said key={keyOf(it)} item={it} result={r.result} now={now} label={label} head={headings.headed.get(keyOf(it))} onPutBack={again} onMenu={onMenu} onEdit={edit} />;
+                return <Said key={keyOf(it)} item={shown} result={r.result} now={now} label={label} head={headings.headed.get(keyOf(it))} onPutBack={again} onMenu={onMenu} onEdit={edit} />;
               })}
               {showing.map((a) => (
                 <Unsaid key={a.id} ahead={a} onOpen={onOpen} />

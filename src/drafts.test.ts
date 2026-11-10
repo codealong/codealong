@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addToDraft, answersDraft, draftChange, pruneDrafts, putBack, readAnswers, readDraft, sideDraft, writeDraft, writtenAnswers, type DraftStorage } from './drafts';
+import { addSpoken, addToDraft, answersDraft, draftChange, pruneDrafts, putBack, readAnswers, readDraft, sideDraft, saidAfter, writeDraft, writtenAnswers, type DraftStorage } from './drafts';
 
 /** Local storage as the app's windows share it, in memory. */
 function memoryStorage(): DraftStorage & { items: Map<string, string> } {
@@ -81,6 +81,25 @@ describe('drafts', () => {
     writeDraft(key, 'Do not run tests yet  \n', store);
     addToDraft(key, 'run tests', true, store);
     expect(readDraft(key, store)).toBe('Do not run tests yet\n\nrun tests');
+  });
+
+  it('adds what was said aloud on the same line, as typing on would be', () => {
+    const store = memoryStorage();
+    const key = 'claude:claude:c';
+    addSpoken(key, ' Rebase onto main. ', store);
+    expect(readDraft(key, store)).toBe('Rebase onto main.');
+    addSpoken(key, 'Then run the tests.', store);
+    expect(readDraft(key, store)).toBe('Rebase onto main. Then run the tests.');
+    // After a line you ended yourself, it starts the next without a space.
+    writeDraft(key, 'First:\n', store);
+    addSpoken(key, 'rebase.', store);
+    expect(readDraft(key, store)).toBe('First:\nrebase.');
+    // Nothing said changes nothing.
+    addSpoken(key, '   ', store);
+    expect(readDraft(key, store)).toBe('First:\nrebase.');
+    expect(saidAfter('', ' hello ')).toBe('hello');
+    expect(saidAfter('so', 'hello')).toBe(' hello');
+    expect(saidAfter('so ', 'hello')).toBe('hello');
   });
 
   it('puts a prompt the session took back in an empty box, once', () => {

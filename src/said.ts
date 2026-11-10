@@ -1,0 +1,73 @@
+// What the bar says of voice (ui/Said.tsx): a key held to talk, as it's heard and where it went
+// (src-tauri/src/dictation.rs `Talk`), and a listening session's latest cue (listen.rs
+// `Glance::cue`), the thing a coach wants you to see now. One shows at a time, under the notch's
+// pills or in the floating bar, for as long as it's of use and no longer: the notch is over
+// whatever you're doing.
+
+import { cuesYou } from './listening';
+import type { BarListening, Talk } from './types';
+
+/** What the bar shows of voice now. */
+export type Said = { kind: 'talk'; talk: Talk } | { kind: 'cue'; listening: BarListening };
+
+/** How long a key held to talk stays up once it's over, by how it ended: long enough to read
+ *  where it went, longer for what went wrong. None while it's still going. */
+export function lingers(phase: Talk['phase']): number | null {
+  switch (phase) {
+    case 'listening':
+    case 'settling':
+      return null;
+    case 'failed':
+      return 8000;
+    case 'nothing':
+    case 'asked':
+      return 4000;
+    default:
+      return 2500;
+  }
+}
+
+/** How long a cue stays up: three short lines, read at a glance from a meeting. */
+export const CUE_SHOWS = 12_000;
+
+/** What shows now: the key held to talk while it's going and for a moment after (`talkedAt` is
+ *  when its last word came), else the newest cue that's fresh and wasn't put away (`dismissed`
+ *  is the time of the last one that was). */
+export function saidNow(talk: Talk | null, talkedAt: number, listenings: readonly BarListening[], dismissed: number, now: number): Said | null {
+  if (talk) {
+    const stays = lingers(talk.phase);
+    if (stays === null || now - talkedAt < stays) return { kind: 'talk', talk };
+  }
+  const fresh = listenings.filter((l) => l.cue && cuesYou(l.role) && l.cueAt > dismissed && now - l.cueAt < CUE_SHOWS).sort((a, b) => b.cueAt - a.cueAt)[0];
+  return fresh ? { kind: 'cue', listening: fresh } : null;
+}
+
+/** When what shows now stops showing by itself, for a timer to draw again then; null when it
+ *  stays until something changes. */
+export function saidUntil(said: Said | null, talkedAt: number): number | null {
+  if (!said) return null;
+  if (said.kind === 'cue') return said.listening.cueAt + CUE_SHOWS;
+  const stays = lingers(said.talk.phase);
+  return stays === null ? null : talkedAt + stays;
+}
+
+/** What a key held to talk says of itself, over the words: who's listening, and where they went. */
+export function talkSays(talk: Talk): string {
+  const whom = talk.title ?? (talk.to === 'orchestrator' ? 'your orchestrator' : null);
+  switch (talk.phase) {
+    case 'listening':
+      return talk.to === 'orchestrator' ? 'Listening, for your orchestrator' : 'Listening';
+    case 'settling':
+      return 'Got it';
+    case 'typed':
+      return whom ? `In ${whom}’s box` : 'Typed';
+    case 'sent':
+      return whom ? `Sent to ${whom}` : 'Sent';
+    case 'asked':
+      return 'In the quick panel';
+    case 'nothing':
+      return 'Nothing heard';
+    case 'failed':
+      return 'Couldn’t listen';
+  }
+}

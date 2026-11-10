@@ -45,6 +45,7 @@ import { errorText, type Report } from '../report';
 import { openWhere, openWords } from '../open';
 import { dueWords } from '../due';
 import { asText, readStored, writeStored } from '../stored';
+import { HearingMark, SaidCard, SaidLine, useSaid } from './Said';
 
 /** Room around the bar for its shadow: the window is this much bigger on every side. */
 const MARGIN = 12;
@@ -469,6 +470,10 @@ export function Bar() {
   // peek: which one, what it works through, and its keys.
   const onBar = useMemo(() => new Set([...allItems, ...(feed?.recent ?? []), ...(feed?.snoozed ?? [])].map((i) => i.key)), [allItems, feed]);
   const stage = useNotchStage(items, reviews, (key) => onBar.has(key) || reviews.some((r) => r.key === key), notch !== null);
+  // A key held to talk, or a listening session's cue (said.ts): under the pills while nothing
+  // else is there, without the keyboard, which stays with whatever you're in.
+  const { said, dismiss: dismissSaid } = useSaid(feed?.listenings);
+  const saying = stage.open ? null : said;
   // The shortcut that goes through what waits on you, docked in the notch: the notch opens on the
   // session that waits (or puts it away), and with nothing waiting, on the end of what waits,
   // which says so, even with sessions running, where a click on the notch would open one. The
@@ -948,6 +953,8 @@ export function Bar() {
               />
             ) : stage.key && stage.kind === 'end' ? (
               <QueueEnd key={stage.endOpens} said={stage.ended} className="ca-notch-end" />
+            ) : saying ? (
+              <SaidCard said={saying} now={Date.now()} onDismiss={dismissSaid} />
             ) : stage.key ? (
               <NotchSession
                 sessionKey={stage.key}
@@ -973,9 +980,10 @@ export function Bar() {
               />
             ) : null
           }
-          sessionOpen={stage.open}
-          sessionEnd={stage.kind === 'end'}
-          sessionKeys={stage.keys}
+          sessionOpen={stage.open || saying !== null}
+          sessionEnd={stage.open ? stage.kind === 'end' : saying !== null}
+          sessionKeys={stage.open && stage.keys}
+          hearing={<HearingMark listenings={feed?.listenings} />}
           onSessionLeft={stage.close}
           onPress={stage.press}
           onMove={stage.close}
@@ -1040,7 +1048,9 @@ export function Bar() {
           <MarkLive size={16} status={logoStatus} moment={moment} />
         </button>
         {picking && <ProjectButton name={current} others={others} open={projectMenuOpen} onOpen={projectMenu} />}
-        {sections.flatMap((section, i) => [<span key={`divider-${i}`} className="ca-hud-divider" aria-hidden="true" />, ...section])}
+        {/* What's said takes the pills' place while it shows: beside them, the bar would outgrow
+            the room the pills were fitted to. */}
+        {said ? <SaidLine said={said} /> : sections.flatMap((section, i) => [<span key={`divider-${i}`} className="ca-hud-divider" aria-hidden="true" />, ...section])}
       </div>
       {measured}
     </ProjectShown.Provider>

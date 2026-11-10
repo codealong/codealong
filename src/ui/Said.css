@@ -1,0 +1,124 @@
+/* What the bar shows of voice (Said.tsx): a key held to talk and a listening session's cue, as a
+   card under the notch's pills and as a line in the floating bar; and the mark that a session is
+   hearing, beside the notch's own. */
+
+.ca-spoken {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  box-sizing: border-box;
+  width: 100%;
+  margin: 0;
+  padding: var(--space-3) var(--space-5) var(--space-4);
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: var(--type-body);
+  text-align: left;
+}
+.ca-spoken.is-cue {
+  cursor: pointer;
+}
+.ca-spoken-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  color: var(--ink-3);
+  font: var(--type-caption-heading);
+}
+.ca-spoken-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ca-spoken-meta {
+  font: var(--type-caption);
+  font-variant-numeric: tabular-nums;
+}
+/* A coach's words: the biggest thing here, to take in at a glance. */
+.ca-spoken-cue {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 6;
+  font: var(--type-lead);
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+}
+/* The words as they're heard: the latest stay in sight as they grow. */
+.ca-spoken-text {
+  display: flex;
+  flex-direction: column-reverse;
+  max-height: 88px;
+  overflow: hidden;
+  font: var(--type-reading);
+  overflow-wrap: anywhere;
+}
+.ca-spoken.is-listening .ca-spoken-text,
+.ca-spoken.is-settling .ca-spoken-text {
+  color: var(--ink-2);
+}
+.ca-spoken-message {
+  color: var(--ink-3);
+  font: var(--type-meta);
+}
+.ca-spoken.is-failed .ca-spoken-head,
+.ca-spoken.is-nothing .ca-spoken-head {
+  color: var(--attn);
+}
+.ca-spoken-level {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 12px;
+}
+.ca-spoken-bar {
+  width: 3px;
+  height: 4px;
+  border-radius: var(--radius-xs);
+  background: var(--line-strong);
+  transition: height var(--dur-fast) ease-out;
+}
+.ca-spoken-bar:nth-child(2) {
+  height: 8px;
+}
+.ca-spoken-bar:nth-child(3) {
+  height: 12px;
+}
+.ca-spoken-bar.is-on {
+  background: var(--alert-solid);
+}
+
+.ca-hud-spoken {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 520px;
+  padding: 0 var(--space-2);
+  font: var(--type-meta);
+}
+.ca-hud-spoken-title {
+  flex: none;
+  color: var(--ink-3);
+  font: var(--type-meta-strong);
+}
+.ca-hud-spoken-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ca-hearing-mark {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--alert-solid);
+}
+.ca-hearing-mark.is-troubled {
+  background: var(--attn-solid);
+}
