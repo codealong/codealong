@@ -1868,7 +1868,8 @@ pub fn apply(prs: &mut [PrItem], store: &Store, global: &ReviewsCfg, sessions: &
         pr.shared_review = shared_review(t, &head, wanted && !own && has_checkout(lanes, pr));
         // Another machine of yours reviews it: its round shows here, and none starts here (`due`).
         if let Some((m, r)) = wants(cfg, pr).then(|| reviewer_of(pr, &pr.shared_review, machines, now)).flatten() {
-            pr.auto_review = Some(elsewhere(&head, m, r, since, now));
+            // What this machine's own rounds replaced before is still this machine's to finish.
+            pr.auto_review = Some(AutoReview { replaced: t.map(Tracked::replaced).unwrap_or_default(), ..elsewhere(&head, m, r, since, now) });
             continue;
         }
         let approves = t.filter(|_| wants(cfg, pr)).and_then(approved);
@@ -4198,17 +4199,17 @@ mod tests {
     #[test]
     fn a_session_another_took_the_reviewers_place_of_is_replaced() {
         const AFRESH: &str = "cursor:cursor:afresh";
-        let round = |head: &str, who: &str, key: &str, stage: ReviewStage, at: i64| Round { parts: vec![started(who, key, at)], ..Round::new(head, stage, at) };
+        let asked_in = |head: &str, who: &str, key: &str, stage: ReviewStage, at: i64| Round { parts: vec![started(who, key, at)], ..Round::new(head, stage, at) };
         let mut t = Tracked::default();
-        t.rounds.push(round(HEAD, AUTO, S, ReviewStage::Kept, NOW));
+        t.rounds.push(asked_in(HEAD, AUTO, S, ReviewStage::Kept, NOW));
         t.sessions.insert(AUTO.into(), S.into());
         assert!(t.replaced().is_empty());
         // Asked by hand of another reviewer, in a session of its own: both keep their places.
-        t.rounds.push(round(HEAD, "codex", "codex:codex:hand", ReviewStage::Kept, NOW + 1));
+        t.rounds.push(asked_in(HEAD, "codex", "codex:codex:hand", ReviewStage::Kept, NOW + 1));
         t.sessions.insert("codex".into(), "codex:codex:hand".into());
         assert!(t.replaced().is_empty());
         // The next round started afresh.
-        t.rounds.push(round(NEXT, AUTO, AFRESH, ReviewStage::Reviewing, NOW + 2));
+        t.rounds.push(asked_in(NEXT, AUTO, AFRESH, ReviewStage::Reviewing, NOW + 2));
         t.sessions.insert(AUTO.into(), AFRESH.into());
         assert_eq!(t.replaced(), [S]);
         let mut r = Reviewer::default();
@@ -4217,13 +4218,22 @@ mod tests {
         let mut prs = b.prs.clone();
         apply(&mut prs, &r.store, &on(), &b.sessions, &Default::default(), &b.lanes, &Default::default(), NOW + 3);
         assert_eq!(prs[0].auto_review.as_ref().unwrap().replaced, [S]);
+        // Another machine of yours has the PR's review since, at a commit this one had no round
+        // of: what this one's rounds replaced is still this one's to finish.
+        const THIRD: &str = "3333333cccc";
+        let them = studio(Rank::First, vec![(pr(7, THIRD), true, round("reviewing", THIRD, NOW + 5))]);
+        let lanes = vec![Lane { repo_slug: Some("o/r".into()), ..fixtures::lane("/r", vec![]) }];
+        let mut prs = vec![pr(7, THIRD)];
+        apply(&mut prs, &r.store, &on(), &Default::default(), &Default::default(), &lanes, &machines(Rank::Backup, vec![them]), NOW + 6);
+        let theirs = prs[0].auto_review.as_ref().unwrap();
+        assert_eq!((theirs.machine.as_deref(), theirs.replaced.as_slice()), (Some("Studio"), [S.to_string()].as_slice()));
         // A start that named no session yet has no one's place: the one kept for it still has it.
         let mut starting = t.clone();
         starting.rounds.push(Round { parts: vec![Part::asked(AUTO, None, None, NOW + 4)], ..Round::new(NEXT, ReviewStage::Reviewing, NOW + 4) });
         assert_eq!(starting.replaced(), [S]);
         // Its latest round's session isn't replaced while the round is its own.
         let mut latest = Tracked::default();
-        latest.rounds.push(round(HEAD, AUTO, S, ReviewStage::Failed, NOW));
+        latest.rounds.push(asked_in(HEAD, AUTO, S, ReviewStage::Failed, NOW));
         latest.sessions.insert(AUTO.into(), AFRESH.into());
         assert!(latest.replaced().is_empty());
     }
