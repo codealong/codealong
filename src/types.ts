@@ -905,8 +905,10 @@ export interface ListeningGlance {
 export interface Listening {
   id: string;
   session: string;
-  /** What it hears from, by who's taken to be speaking (ear.rs `Source`). No window reads it. */
-  sources: { name: string; from: unknown }[];
+  /** What it hears from: who's taken to be speaking (`name`), and where the sound comes from,
+   *  by `kind` with whatever that kind carries beside it (ear.rs `Source`, whose `From` is
+   *  written flat). No window reads it. */
+  sources: ({ name: string; kind: string } & Record<string, unknown>)[];
   role: ListenRole;
   /** What was asked of it (`ListenAsk.prompt`, `ListenAsk.start`), and the language it hears. */
   prompt: string;
