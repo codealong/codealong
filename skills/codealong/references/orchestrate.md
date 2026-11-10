@@ -72,8 +72,9 @@ tick*. Otherwise start at *Starting*.
    `waiting`, every session that waits on your user now, each saying whether it has suggestions
    or a tag, why Codealong took away ones you gave it (`untagged`, `unsuggested`: it was sent
    something, or a turn of its started, which another session's message, Codealong's, a
-   background command's report or a scheduled wakeup can start without moving `lastPromptAt`), and
-   whether it's a `helper` (*Reading, tagging and suggesting*); `prs` opened,
+   background command's report or a scheduled wakeup can start without moving `lastPromptAt`),
+   whether it's a `helper`, and whether it's `finished`, with nothing left for them but to read
+   it (*Reading, tagging and suggesting*); `prs` opened,
    approved, sent back, merged or closed; `todos`; `shared`, worktrees a second agent started
    working in; and `headless`, how many headless runs (`claude -p`, `codex exec`, which a
    script or an agent ran and reads itself) changed in each folder. Those aren't sessions to read
@@ -103,15 +104,29 @@ Go over each session in `waiting` that `changed` this tick or has neither `sugge
   transcript <key>`, and `codealong session pending <key>` for a call it waits to have allowed or
   questions it asks. Look at the worktree, the PR or the code only as far as the answer needs.
   Use the `lastPromptAt` that came with what you read, never a fresher one.
-- Tag it with what you read: `codealong session tag <key> --asks-you yes|no --landing <…>
-  --finished yes|no --prompt-at <lastPromptAt> --note "<the one fact that decides it>"`.
-- `--asks-you yes` only when its reply asks your user something it waits on before it can go
-  on: a question, a choice, a go-ahead, or something only they can do (signing in). It puts the
-  session in Needs you with what it asks, so it's for the session that's stuck without them. An
-  offer of more work ("say if you want X", "I can also do Y"), next steps for your user to take
-  ("merge it when you're ready"), a wait on what it started itself ("waiting on CI; I'll report
-  when it finishes") and a report are `--asks-you no`, even when you suggest a reply for them: a
-  suggestion is for what your user might decide, a tag for what the session waits on.
+- Tag it with what you read: `codealong session tag <key> --ending <how its reply ends>
+  --landing <…> --finished yes|no --prompt-at <lastPromptAt> --note "<the one fact that decides
+  it>"`.
+- `--ending` says how its reply leaves things with your user, and so whether it asks them
+  (`--asks-you yes|no` says only that much, and isn't needed with it). `question` or `blocked`
+  only when the reply asks your user something it waits on before it can go on: a question, a
+  choice, a go-ahead, or something only they can do (signing in). Either puts the session in
+  Needs you with what it asks, so it's for the session that's stuck without them. The rest ask
+  nothing, even when you suggest a reply for them (a suggestion is for what your user might
+  decide, a tag for what the session waits on): `offer` for an offer of more work ("say if you
+  want X", "I can also do Y"), `handoff` for next steps your user takes themselves ("merge it
+  when you're ready"), `waiting` for a wait on what it started itself ("waiting on CI; I'll
+  report when it finishes") and `report` for one that only reports. A handoff shows as *Next
+  step is yours* and a wait as *Waits on its own work*, so your user sees which finished turns
+  want something of them.
+- A row in `waiting` with `finished` is only your user's to read: Codealong worked out that its
+  work is done and nothing is left for them (its PRs merged, its todos done, a reply that asks
+  nothing; `why` says which, and `sure` is false when only the read of its reply says so), and
+  lists it after the turns that want something. Don't read it again or suggest for it. When
+  you've read one and it isn't done after all, tag it `--finished no` with why, which takes
+  Finished off it; `--finished yes` on one that reads as done but that Codealong knows nothing
+  else of makes it *Looks finished*. Never one with an open PR, an open todo or a next step
+  left: those keep it from being finished whatever its tag says.
 - A row with `helper` works for another agent or a PR (`start --helper`, an automatic review),
   not for your user. It waits on them for a call to allow, a question it put to them or an
   error: read and suggest for that as for any session. Its reply is for that agent or PR to

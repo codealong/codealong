@@ -6,7 +6,7 @@
 // window passes only what differs: its rows, how it shows a session, and what's its own to do.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { seenable } from './lanes';
+import { seenable, waitsFinished } from './lanes';
 import type { Left } from './menus';
 import * as rules from './queue';
 import type { Handled, Place, QueueAction, QueueView, Reads, Shown, Step, Went } from './queue';
@@ -30,6 +30,7 @@ export const SESSION_READS: Reads<{ session: Session; lane?: Lane }> = {
   sinceOf: (r) => statusTime(r.session),
   waitsOf: (r) => rules.statusWaits(r.session.status),
   raisedOf: (r) => r.session.raised,
+  finishedOf: (r) => waitsFinished(r.session),
   titleOf: (r) => r.session.title,
 };
 

@@ -1833,6 +1833,16 @@ Options:
           Only the sessions that wait on you, as Codealong's queue has them: needs,
           error and unread, less the snoozed ones
 
+      --finished
+          Only the sessions whose work is finished, with nothing left for their user
+          (`finished` on each, with `why`): a PR of its merged, a todo of its done or
+          its own status line says so (`sure`), or only the read of its last reply does
+          (it looks finished). Never one whose reply may ask something, hands its user a
+          next step or waits on what it started, one with an open PR or an open todo, or
+          one whose own worktree holds uncommitted or unpushed work. With --waiting, the
+          ones still in Your turn, which Codealong lists after the turns that want
+          something: the ones to read last, and to file with Mark as done
+
       --project <PROJECT>
           Only this project
 
@@ -1909,6 +1919,16 @@ Options:
       --waiting
           Only the sessions that wait on you, as Codealong's queue has them: needs,
           error and unread, less the snoozed ones
+
+      --finished
+          Only the sessions whose work is finished, with nothing left for their user
+          (`finished` on each, with `why`): a PR of its merged, a todo of its done or
+          its own status line says so (`sure`), or only the read of its last reply does
+          (it looks finished). Never one whose reply may ask something, hands its user a
+          next step or waits on what it started, one with an open PR or an open todo, or
+          one whose own worktree holds uncommitted or unpushed work. With --waiting, the
+          ones still in Your turn, which Codealong lists after the turns that want
+          something: the ones to read last, and to file with Mark as done
 
       --project <PROJECT>
           Only this project
@@ -2678,6 +2698,23 @@ Options:
       --json
           JSON output. The default when stdout isn't a terminal
 
+      --ending <ENDING>
+          How its last reply leaves things with its user, which says whether it asks too
+          (so --asks-you can be left out): question (it asks them something, or for a
+          decision, and won't go on without it), blocked (it can't go on until they do
+          something only they can, such as signing in), offer (its work is done and it
+          offers more), handoff (its work is done and it leaves them a next step to take
+          themselves: merging, deploying, sending, reviewing), waiting (it isn't done
+          and goes on by itself, waiting on something it started) or report (it reports
+          what was done or found, and asks nothing). A handoff shows as Next step is
+          yours and one that waits as Waits on its own work; a session that hands its
+          user a step or still waits isn't Finished, whatever else is known of it
+          
+          [possible values: question, blocked, offer, handoff, waiting, report]
+
+      --table
+          Tables, even when piped
+
       --landing <LANDING>
           How far its code change got, going by what you read: landed (merged, or on the
           main branch), pushed (on a branch or PR not merged), committed (not pushed),
@@ -2686,15 +2723,12 @@ Options:
           
           [possible values: landed, pushed, committed, uncommitted, blocked, none]
 
-      --table
-          Tables, even when piped
+      --verbose
+          Say on stderr whether the app or the files answered
 
       --finished <YES|NO>
           Whether the task its user asked for is complete, with nothing left for it to
           do. A worktree whose sessions are all finished and quiet says Looks finished
-
-      --verbose
-          Say on stderr whether the app or the files answered
 
       --risk <0-3>
           How risky the call it waits on its user to allow looks: 0 reads only, 1

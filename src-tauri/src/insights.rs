@@ -3,8 +3,9 @@
 //!
 //! - A turn that ended: how the reply leaves things with you (`ENDINGS`: it asks you something or
 //!   is blocked on you, or it offers more, hands you next steps, waits on what it started or just
-//!   reports), how far did the work get (landed, pushed, committed…), and is what you asked for
-//!   done. The work's landing isn't asked when the reply's first line says it in the words
+//!   reports; the chance of the first two is whether it asks you, and the likeliest of the six is
+//!   kept too, `SessionInsight::ending`), how far did the work get (landed, pushed, committed…),
+//!   and is what you asked for done. The work's landing isn't asked when the reply's first line says it in the words
 //!   CLAUDE.md's *Landing work* asks agents for (`landing_said`): that's exact, and free.
 //! - A busy Claude session gone quiet on a command: is the command waiting for typing, or is it
 //!   long work.
@@ -167,9 +168,14 @@ pub const ENDINGS: [(&str, &str); 6] = [
 /// together.
 const ASKING: [&str; 2] = ["question", "blocked"];
 
+/// Whether an ending, by its name, waits on the user's answer.
+pub fn asking(ending: &str) -> bool {
+    ASKING.contains(&ending)
+}
+
 /// What a turn is asked, by name, in its signature: a change to the questions makes each recent
 /// turn a moment to ask about again, so what the board shows follows the new questions.
-const TURN_QUESTIONS: &str = "endings with waiting";
+const TURN_QUESTIONS: &str = "endings with waiting, the likeliest kept";
 
 /// What a command left running in the background can be doing, by name, with what each means.
 pub const BACKGROUND: [(&str, &str); 4] = [
@@ -289,6 +295,7 @@ pub fn read(kind: Kind, response: &Value) -> SessionInsight {
         Kind::Turn => {
             let endings = jev::choice(response, "asks_you");
             out.asks_you = (!endings.is_empty()).then(|| endings.iter().filter(|(k, _)| ASKING.contains(&k.as_str())).map(|(_, p)| p).sum());
+            out.ending = endings.first().map(|(k, _)| k.clone());
             out.landing = jev::choice(response, "landing").first().map(|(k, _)| k.clone());
             out.finished = jev::noul(response, "finished");
             &["asks_you", "landing", "finished"]
@@ -326,6 +333,13 @@ pub fn merged(jev: Option<&SessionInsight>, said: Option<&str>, tag: Option<&Ses
         let o = out.get_or_insert_with(Default::default);
         if t.asks_you.is_some() {
             o.asks_you = t.asks_you;
+            // Jev's ending stays under an agent's word on whether the reply asks only where the
+            // two agree: which way a reply that asks nothing ends is still Jev's to say.
+            let asks = t.asks_you.is_some_and(|p| p >= 0.5);
+            o.ending = o.ending.take().filter(|e| asking(e) == asks);
+        }
+        if t.ending.is_some() {
+            o.ending = t.ending.clone();
         }
         if t.landing.is_some() {
             o.landing = t.landing.clone();
@@ -612,11 +626,13 @@ mod tests {
         let i = read(Kind::Turn, &v);
         assert_eq!((i.asks_you, i.landing.as_deref(), i.finished), (Some(0.75), Some("pushed"), Some(0.3)), "a question or being blocked on you is asking");
         assert_eq!(i.confidence, Some(0.6), "the least sure answer");
+        assert_eq!(i.ending.as_deref(), Some("question"), "the likeliest way it ends is kept");
         let offer = read(Kind::Turn, &json!({ "answers": { "asks_you": { "probabilities": { "offer": 0.75, "question": 0.125, "report": 0.125 } } } }));
-        assert_eq!(offer.asks_you, Some(0.125), "offering more isn't asking");
+        assert_eq!((offer.asks_you, offer.ending.as_deref()), (Some(0.125), Some("offer")), "offering more isn't asking");
         let waiting = read(Kind::Turn, &json!({ "answers": { "asks_you": { "probabilities": { "waiting": 0.99, "question": 0.01 } } } }));
-        assert_eq!(waiting.asks_you, Some(0.01), "waiting on what it started isn't asking");
-        assert_eq!(read(Kind::Turn, &json!({ "answers": {} })).asks_you, None, "no answer, no read");
+        assert_eq!((waiting.asks_you, waiting.ending.as_deref()), (Some(0.01), Some("waiting")), "waiting on what it started isn't asking");
+        let none = read(Kind::Turn, &json!({ "answers": {} }));
+        assert_eq!((none.asks_you, none.ending), (None, None), "no answer, no read");
         let bg = read(Kind::Background, &json!({ "answers": { "background": { "probabilities": { "polling": 0.8, "job": 0.15, "stalled": 0.05 } } } }));
         assert_eq!((bg.background.as_deref(), bg.background_p, bg.confidence), (Some("polling"), Some(0.8), None));
         assert_eq!(read(Kind::Approval, &json!({ "answers": { "risk": { "score": 2.6 } } })).risk, Some(2.6));
@@ -636,6 +652,16 @@ mod tests {
         let bg = SessionInsight { background: Some("server".into()), ..Default::default() };
         assert_eq!(merged(None, None, Some(&bg)).unwrap().background_p, Some(1.0), "an agent's word is sure");
         assert_eq!(merged(None, None, None), None);
+        // How the reply ends is Jev's to say under an agent's word on whether it asks, while the
+        // two agree; the agent's own ending stands over both.
+        let ends = |ending: &str| SessionInsight { asks_you: Some(0.1), ending: Some(ending.into()), ..Default::default() };
+        let asks = |p: f64| SessionInsight { asks_you: Some(p), by: Some("claude:claude:boss".into()), ..Default::default() };
+        assert_eq!(merged(Some(&ends("handoff")), None, Some(&asks(0.0))).unwrap().ending.as_deref(), Some("handoff"));
+        assert_eq!(merged(Some(&ends("handoff")), None, Some(&asks(1.0))).unwrap().ending, None, "it asks, the agent says: Jev's handoff doesn't stand");
+        assert_eq!(merged(Some(&ends("question")), None, Some(&asks(0.0))).unwrap().ending, None);
+        assert_eq!(merged(Some(&ends("handoff")), None, Some(&tag)).unwrap().ending.as_deref(), Some("handoff"), "a tag that doesn't say whether it asks leaves it");
+        let said = SessionInsight { ending: Some("waiting".into()), ..asks(0.0) };
+        assert_eq!(merged(Some(&ends("report")), None, Some(&said)).unwrap().ending.as_deref(), Some("waiting"));
     }
 
     #[test]

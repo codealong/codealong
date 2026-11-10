@@ -141,6 +141,10 @@ pub struct BarItem {
     /// notch's queue.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub raised: Option<crate::model::Raised>,
+    /// Your turn only to be read, its work being finished (`Session::waits_finished`): last in
+    /// its group, and in the notch's queue.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub finished: bool,
     /// Its turn is running and Codealong can stop it: its menu offers Stop.
     pub stoppable: bool,
     /// Its emblem (`Session::emblem`), drawn on its pill beside its title.
@@ -253,6 +257,7 @@ pub fn feed(shown: Shown) -> BarFeed {
                 snoozed_until: s.snoozed_until,
                 quiet: s.quiet,
                 raised: s.raised.clone(),
+                finished: s.waits_finished(),
                 stoppable: s.stoppable,
                 emblem: s.emblem.clone(),
                 device: lane.device.clone(),
@@ -267,8 +272,9 @@ pub fn feed(shown: Shown) -> BarFeed {
     // Each group is a queue, the longest first: a new one joins the end, where the group folds,
     // and can't push an old one down or out of sight. A turn that ended again after you answered
     // it goes behind the ones that waited longer, so working through them is first come, first
-    // served. Only one moved to the top goes ahead (`board::raised_order`).
-    items.sort_by(|(a_at, a), (b_at, b)| a.group.cmp(&b.group).then(crate::board::raised_order(a.raised.as_ref(), b.raised.as_ref())).then(a_at.cmp(b_at)).then_with(|| a.key.cmp(&b.key)));
+    // served. Only one moved to the top goes ahead (`board::raised_order`), and the finished
+    // turns that are only yours to read come after the rest of theirs (`Session::waits_finished`).
+    items.sort_by(|(a_at, a), (b_at, b)| a.group.cmp(&b.group).then(crate::board::raised_order(a.raised.as_ref(), b.raised.as_ref())).then(a.finished.cmp(&b.finished)).then(a_at.cmp(b_at)).then_with(|| a.key.cmp(&b.key)));
     recent.sort_by(|(a_at, a), (b_at, b)| b_at.cmp(a_at).then_with(|| a.key.cmp(&b.key)));
     recent.truncate(RECENT_MAX);
     snoozed.sort_by(|(a_at, a), (b_at, b)| a_at.cmp(b_at).then_with(|| a.key.cmp(&b.key)));
@@ -430,6 +436,21 @@ mod tests {
         let b = board(vec![lane("/a", vec![session("early", Status::Unread, NOW - 50), raised, session("needs", Status::Needs, NOW - 5)], false)], vec![]);
         let got: Vec<(String, Group)> = feed(Shown::here(&b)).items.into_iter().map(|i| (i.key, i.group)).collect();
         assert_eq!(got, vec![("needs".to_string(), Group::Needs), ("late".to_string(), Group::Unread), ("early".to_string(), Group::Unread)]);
+    }
+
+    #[test]
+    fn a_finished_turn_comes_after_the_turns_that_want_something() {
+        let finished = Some(crate::model::Finished { sure: true, why: vec!["#12 merged".into()] });
+        // It has waited longest, but it's only yours to read; one you've seen isn't on the bar
+        // for being finished, and one moved to the top still goes first.
+        let done = Session { finished: finished.clone(), ..session("done", Status::Unread, NOW - 90) };
+        let top = Session { finished: finished.clone(), raised: Some(crate::model::Raised { at: NOW, ..Default::default() }), ..session("top", Status::Unread, NOW - 20) };
+        let b = board(vec![lane("/a", vec![done, session("open", Status::Unread, NOW - 50), session("late", Status::Unread, NOW - 10), top], false)], vec![]);
+        let got: Vec<(String, bool)> = feed(Shown::here(&b)).items.into_iter().map(|i| (i.key, i.finished)).collect();
+        assert_eq!(got, vec![("top".to_string(), true), ("open".to_string(), false), ("late".to_string(), false), ("done".to_string(), true)]);
+        let working = Session { finished, ..session("working", Status::Working, NOW - 90) };
+        let b = board(vec![lane("/a", vec![working], false)], vec![]);
+        assert!(!feed(Shown::here(&b)).items[0].finished, "only a turn that's yours to read");
     }
 
     #[test]

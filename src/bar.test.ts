@@ -297,9 +297,15 @@ describe('what the notch works through', () => {
     const session = fx.session({ key: 'claude:claude:u', status: 'unread', statusSince: 30 });
     const row = queueRows(fx.board({ lanes: [fx.lane({ sessions: [session] })] }), ALL_PROJECTS)[0];
     const pill = notchRows([fx.barItem({ key: session.key, group: 'unread', status: 'unread', since: 30 })], [])[0];
-    expect(placeOf(pill, ROW_READS)).toEqual({ key: session.key, waits: 'unread', since: 30 });
+    expect(placeOf(pill, ROW_READS)).toEqual({ key: session.key, waits: 'unread', since: 30, finished: false });
     expect(placeOf(row, QUEUE_READS)).toEqual(placeOf(pill, ROW_READS));
     expect(placeOf({ session }, SESSION_READS)).toEqual(placeOf(pill, ROW_READS));
+    // And a finished turn, which is only yours to read, as one that comes after the rest.
+    const done = { ...session, finished: { sure: true, why: ['#12 merged'] } };
+    const donePill = notchRows([fx.barItem({ key: done.key, group: 'unread', status: 'unread', since: 30, finished: true })], [])[0];
+    expect(placeOf(donePill, ROW_READS)).toEqual({ key: done.key, waits: 'unread', since: 30, finished: true });
+    expect(placeOf(queueRows(fx.board({ lanes: [fx.lane({ sessions: [done] })] }), ALL_PROJECTS)[0], QUEUE_READS)).toEqual(placeOf(donePill, ROW_READS));
+    expect(placeOf({ session: done }, SESSION_READS)).toEqual(placeOf(donePill, ROW_READS));
     const pr = fx.prItem({ key: 'acme/app#7', reviewRequested: true, state: 'open', requestedAt: 15, project: 'Acme' });
     const reviewRow = queueRows(fx.board({ prs: [pr] }), ALL_PROJECTS)[0];
     expect(placeOf(reviewRow, QUEUE_READS)).toEqual(placeOf(notchRows([], [fx.barReview({ key: pr.key, since: 15 })])[0], ROW_READS));

@@ -249,6 +249,8 @@ export const ROW_READS: Reads<NotchRow> = {
   sinceOf: (r) => (r.kind === 'session' ? r.item.since : r.review.since),
   waitsOf: (r) => (r.kind === 'session' ? statusWaits(r.item.status) : 'reviews'),
   raisedOf: (r) => (r.kind === 'session' ? r.item.raised : undefined),
+  // While it's still Your turn: a pill a window set working ahead of the engine keeps the rest.
+  finishedOf: (r) => r.kind === 'session' && r.item.status === 'unread' && !!r.item.finished,
   titleOf: (r) => (r.kind === 'session' ? r.item.title : reviewTitle(r.review)),
 };
 

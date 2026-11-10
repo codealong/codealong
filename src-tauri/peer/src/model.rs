@@ -316,6 +316,12 @@ pub struct Session {
     /// agent tagged it (`codealong session tag`, tags.rs): `by` names the agent's session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub insight: Option<SessionInsight>,
+    /// Its work is done and nothing is left for you, and why (`board::finished_of`): what the
+    /// engine knows of it (its PRs merged, its todos done, what its status line says) with the
+    /// read of its last reply. It stays Your turn until you've seen it, after the turns that
+    /// want something of you. None while it isn't, and from Macs before 2026-11-10.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finished: Option<Finished>,
     /// Needs you only because its last reply asks you something (`board::apply_insight`): its
     /// turn ended and it sits at its prompt, so what you type is the answer. A session waiting on
     /// a permission prompt isn't one: what's typed there would answer the prompt.
@@ -643,6 +649,13 @@ impl Session {
         (self.helps_an_agent() || self.headless) && !matches!(self.status, Status::Needs | Status::Error)
     }
 
+    /// Your turn only to be read: its turn ended, you haven't seen it, and its work is finished
+    /// (`finished`). It comes after the turns that want something of you wherever Your turn is
+    /// listed or worked through. `src/lanes.ts` `waitsFinished` says the same for the windows.
+    pub fn waits_finished(&self) -> bool {
+        self.status == Status::Unread && self.finished.is_some()
+    }
+
     /// A session of which only whose it is is known: in a terminal, idle, not running, with no
     /// title, folder or times. Whatever builds a session says what it knows and takes the rest
     /// from here (`..Session::new(…)`), so a new field's neutral value goes here and nowhere
@@ -695,6 +708,7 @@ impl Session {
             queued_at: None,
             queued: Vec::new(),
             insight: None,
+            finished: None,
             asks: false,
             hosted: false,
             stoppable: false,
@@ -1022,6 +1036,24 @@ pub struct SessionInsight {
     /// Why, or what to weigh, in a sentence or two, when the agent said.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
+    /// How its last reply leaves things with you, by the likeliest of the ways a reply can end
+    /// (insights.rs `ENDINGS`): question, blocked, offer, handoff, waiting or report. `asks_you`
+    /// is the chance of the first two together; this says which of the rest a reply that asks
+    /// nothing is. None where it wasn't read, and from Macs before 2026-11-10.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ending: Option<String>,
+}
+
+/// That a session's work is done with nothing left for you, and why (`Session::finished`).
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Finished {
+    /// Something besides its last reply says so: a PR of its merged, a todo of its done, or its
+    /// own status line. False when only a read of that reply does (Jev's, or an agent's tag):
+    /// it looks finished.
+    pub sure: bool,
+    /// Why, each in a few words, what's known first: `#12 merged`, `todo done`.
+    pub why: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]

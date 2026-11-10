@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ageFiltered, archivedShows, bayOf, branchLabel, bySession, raisedBy, closable, connectionLostWords, cutOffWords, exitsItsOwnWay, filterByAge, foldsOf, foldWords, helperLine, helperName, helperStands, homeOf, inboxCounts, laneWaits, limitWords, liveOrLatest, narrowed, relaned, runsShownKey, seenable, sessionFlag, sessionHeadline, sessionPrs, sidesListed, sidesShownKey, stoppable, unattended, waitsInBackground, withoutAccount, workingFor, workingSince } from './lanes';
+import { ageFiltered, archivedShows, bayOf, branchLabel, bySession, byStatusTime, waitsFinished, raisedBy, closable, connectionLostWords, cutOffWords, exitsItsOwnWay, filterByAge, foldsOf, foldWords, helperLine, helperName, helperStands, homeOf, inboxCounts, laneWaits, limitWords, liveOrLatest, narrowed, relaned, runsShownKey, seenable, sessionFlag, sessionHeadline, sessionPrs, sidesListed, sidesShownKey, stoppable, unattended, waitsInBackground, withoutAccount, workingFor, workingSince } from './lanes';
 import * as fx from './testing/fixtures';
 import type { Lane, Pr, PrItem, Session, SideGlance } from './types';
 
@@ -132,6 +132,23 @@ describe('bySession', () => {
     const needs = session('needs', 'needs', NOW - 60_000, NOW - 60_000);
     const done = session('done', 'unread', NOW - 60_000, NOW - 60_000);
     expect([done, top, needs].sort(bySession).map((s) => s.key)).toEqual(['needs', 'top', 'done']);
+  });
+
+  it('lists the finished turns that are only yours to read after the ones that want something', () => {
+    const finished = { sure: true, why: ['#12 merged'] };
+    // You prompted `wrapped` last and it has waited longest, but nothing is left for you there.
+    const wrapped = { ...session('wrapped', 'unread', NOW - 3_600_000, NOW), finished };
+    const open = session('open', 'unread', NOW - 60_000, NOW - 600_000);
+    expect([wrapped, open].sort(bySession).map((s) => s.key)).toEqual(['open', 'wrapped']);
+    expect([wrapped, open].sort(byStatusTime).map((s) => s.key)).toEqual(['open', 'wrapped']);
+    // One moved to the top still goes first, and one you've seen keeps its place among the idle.
+    const top = { ...wrapped, key: 'top', raised: { at: NOW } };
+    expect([open, top].sort(bySession).map((s) => s.key)).toEqual(['top', 'open']);
+    expect([open, top].sort(byStatusTime).map((s) => s.key)).toEqual(['top', 'open']);
+    const seen = { ...session('seen', 'idle', NOW, NOW), finished };
+    const idle = session('idle', 'idle', NOW - 60_000, NOW - 60_000);
+    expect([idle, seen].sort(bySession).map((s) => s.key)).toEqual(['seen', 'idle']);
+    expect(waitsFinished(wrapped) && !waitsFinished(seen) && !waitsFinished(open)).toBe(true);
   });
 
   it('lists Needs you as a queue, the longest wait first, as the engine does', () => {

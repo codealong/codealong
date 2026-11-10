@@ -57,6 +57,8 @@ export interface ListPick<R, A> {
   rows: R[];
   keys: ReadonlySet<string>;
   select: (row: R, how: SelectHow) => void;
+  /** Picks just the rows with these keys, as a heading that picks some of its rows does. */
+  these: (keys: string[]) => void;
   /** Goes back to one, leaving the selection where it is. */
   clear: () => void;
   actions: () => A;
@@ -122,6 +124,7 @@ export function useListPicks(input: ListPicksInput) {
     rows: sessions.picked,
     keys: sessions.keys,
     select: sessions.select,
+    these: sessions.these,
     clear: sessions.clear,
     actions: () => menus.sessionsActions(sessions.picked, sessionsOf(sessions.picked)),
     menu: (at) => showMenu(menus.sessionsMenu(sessions.picked, sessionsOf(sessions.picked)), at),
@@ -130,6 +133,7 @@ export function useListPicks(input: ListPicksInput) {
     rows: worktrees.picked,
     keys: worktrees.keys,
     select: worktrees.select,
+    these: worktrees.these,
     clear: worktrees.clear,
     actions: () => menus.lanesActions(lanes, lanesOf(worktrees.picked)),
     menu: (at) => showMenu(menus.lanesMenu(lanes, lanesOf(worktrees.picked)), at),
@@ -138,6 +142,7 @@ export function useListPicks(input: ListPicksInput) {
     rows: prs.picked,
     keys: prs.keys,
     select: prs.select,
+    these: prs.these,
     clear: prs.clear,
     actions: () => menus.prsActions(pickedPrs, prsOf(prs.picked)),
     menu: (at) => showMenu(menus.prsMenu(pickedPrs, prsOf(prs.picked)), at),

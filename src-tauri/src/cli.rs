@@ -538,6 +538,9 @@ struct SessionFilter {
     /// Only the sessions that wait on you, as Codealong's queue has them: needs, error and unread, less the snoozed ones.
     #[arg(long)]
     waiting: bool,
+    /// Only the sessions whose work is finished, with nothing left for their user (`finished` on each, with `why`): a PR of its merged, a todo of its done or its own status line says so (`sure`), or only the read of its last reply does (it looks finished). Never one whose reply may ask something, hands its user a next step or waits on what it started, one with an open PR or an open todo, or one whose own worktree holds uncommitted or unpushed work. With --waiting, the ones still in Your turn, which Codealong lists after the turns that want something: the ones to read last, and to file with Mark as done.
+    #[arg(long)]
+    finished: bool,
     /// Only this project.
     #[arg(long)]
     project: Option<String>,
@@ -763,6 +766,9 @@ struct TagArgs {
     /// Whether its last reply ends by asking the user something it waits on before it can go on: a question, a choice, a go-ahead, information, or something only they can do, such as signing in. Not an offer of more work ("say if you want X", "I can also do Y"), next steps the user takes on their own (merging a ready PR, sending a draft), or a report: those are no, however much the user has to decide. Yes turns Your turn into Needs you, with the question.
     #[arg(long, value_name = "YES|NO", value_parser = yes_no)]
     asks_you: Option<bool>,
+    /// How its last reply leaves things with its user, which says whether it asks too (so --asks-you can be left out): question (it asks them something, or for a decision, and won't go on without it), blocked (it can't go on until they do something only they can, such as signing in), offer (its work is done and it offers more), handoff (its work is done and it leaves them a next step to take themselves: merging, deploying, sending, reviewing), waiting (it isn't done and goes on by itself, waiting on something it started) or report (it reports what was done or found, and asks nothing). A handoff shows as Next step is yours and one that waits as Waits on its own work; a session that hands its user a step or still waits isn't Finished, whatever else is known of it.
+    #[arg(long, value_name = "ENDING", value_parser = clap::builder::PossibleValuesParser::new(insights::ENDINGS.map(|(k, _)| k)))]
+    ending: Option<String>,
     /// How far its code change got, going by what you read: landed (merged, or on the main branch), pushed (on a branch or PR not merged), committed (not pushed), uncommitted (changed files, nothing committed), blocked (it couldn't finish) or none (no code change: an answer, research, a review).
     #[arg(long, value_name = "LANDING", value_parser = clap::builder::PossibleValuesParser::new(insights::LANDING.map(|(k, _)| k)))]
     landing: Option<String>,
@@ -782,7 +788,7 @@ struct TagArgs {
     #[arg(long, value_name = "MS", required_unless_present = "clear")]
     prompt_at: Option<i64>,
     /// Take the session's tag away.
-    #[arg(long, conflicts_with_all = ["asks_you", "landing", "finished", "risk", "background", "note", "prompt_at"])]
+    #[arg(long, conflicts_with_all = ["asks_you", "ending", "landing", "finished", "risk", "background", "note", "prompt_at"])]
     clear: bool,
 }
 
@@ -3631,6 +3637,11 @@ struct SessionRow {
     /// `finished` are 0 to 1, `risk` 0 to 3, `landing` and `background` by name.
     #[serde(skip_serializing_if = "Option::is_none")]
     insight: Option<crate::model::SessionInsight>,
+    /// Its work is done and nothing is left for its user, and `why`: `sure` when something
+    /// besides its last reply says so (a PR of its merged, a todo of its done, its status line),
+    /// not when only the read of that reply does. Left out while it isn't.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    finished: Option<crate::model::Finished>,
     /// What it helps, when it's a helper (`start --helper`, or an automatic review): `parent`,
     /// the session whose agent started it, or `pr`, the PR it reviews. Its turns are for that
     /// agent, not its user.
@@ -3670,6 +3681,7 @@ fn session_row(s: &Session, lane: &Lane, todos: &[Todo]) -> SessionRow {
         labels: s.labels.iter().map(|l| l.name.clone()).collect(),
         suggestions: s.suggestions.clone(),
         insight: s.insight.clone(),
+        finished: s.finished.clone(),
         helper: s.helper.clone(),
         headless: s.headless,
         said: None,
@@ -3719,9 +3731,14 @@ fn sessions(c: &mut Client, f: &SessionFilter, query: &[String], json: bool) -> 
     if json {
         return print_json(&rows);
     }
+    // A finished one says so beside its status, as its row in Codealong does.
+    let status = |r: &SessionRow| match &r.finished {
+        Some(f) => format!("{}, {}", r.status, if f.sure { "finished" } else { "looks finished" }),
+        None => r.status.clone(),
+    };
     let table: Vec<Vec<String>> = rows
         .iter()
-        .map(|r| vec![r.status.clone(), r.account.clone(), ago(wanted.now - r.last_activity), r.worktree_short(), truncate(&r.title, 50), truncate(r.said.as_deref().or(r.excerpt.as_deref()).unwrap_or(""), 60), r.key.clone()])
+        .map(|r| vec![status(r), r.account.clone(), ago(wanted.now - r.last_activity), r.worktree_short(), truncate(&r.title, 50), truncate(r.said.as_deref().or(r.excerpt.as_deref()).unwrap_or(""), 60), r.key.clone()])
         .collect();
     print!("{}", table_text(&["STATUS", "ACCOUNT", "AGO", "WORKTREE", "TITLE", "EXCERPT", "KEY"], table));
     Ok(())
@@ -3750,6 +3767,7 @@ impl Wanted {
             && f.account.as_deref().map_or(true, |a| a == s.account)
             && self.status.map_or(true, |st| st == s.status)
             && (!f.waiting || (matches!(s.status, Status::Needs | Status::Error | Status::Unread) && s.snoozed_until.is_none()))
+            && (!f.finished || s.finished.is_some())
             && f.project.as_deref().map_or(true, |p| p.eq_ignore_ascii_case(&lane.project))
             && self.worktree.as_deref().map_or(true, |w| w == lane.id)
             && (!f.live || s.live)
@@ -3978,6 +3996,9 @@ fn session_show(c: &mut Client, key: &str, json: bool) -> Result<()> {
     }
     if let Some(i) = &r.insight {
         println!("Read: {}", insight_words(i));
+    }
+    if let Some(f) = &r.finished {
+        println!("{}: {}", if f.sure { "Finished" } else { "Looks finished" }, f.why.join(", "));
     }
     if !r.labels.is_empty() {
         println!("Labels: {}", r.labels.join(", "));
@@ -4541,6 +4562,9 @@ fn insight_words(i: &crate::model::SessionInsight) -> String {
     if let Some(p) = i.asks_you {
         parts.push(format!("asks you {p:.2}"));
     }
+    if let Some(e) = &i.ending {
+        parts.push(format!("ending {e}"));
+    }
     if let Some(r) = i.risk {
         parts.push(format!("risk {r:.1}"));
     }
@@ -4571,10 +4595,13 @@ fn session_tag(c: &mut Client, a: TagArgs, json: bool) -> Result<()> {
     let params = if a.clear {
         params::Tag::default()
     } else {
-        if a.asks_you.is_none() && a.landing.is_none() && a.finished.is_none() && a.risk.is_none() && a.background.is_none() {
-            bail!("Say something about it (--asks-you, --landing, --finished, --risk or --background), or --clear to take its tag away.");
+        if a.asks_you.is_none() && a.ending.is_none() && a.landing.is_none() && a.finished.is_none() && a.risk.is_none() && a.background.is_none() {
+            bail!("Say something about it (--asks-you, --ending, --landing, --finished, --risk or --background), or --clear to take its tag away.");
         }
-        params::Tag { asks_you: unit(a.asks_you), landing: a.landing, finished: unit(a.finished), risk: a.risk.map(f64::from), background: a.background, note: a.note, prompt_at: a.prompt_at, ..Default::default() }
+        // An ending says whether the reply asks, and that goes with it: a Mac from before endings
+        // reads only that, and would take a tag that says nothing else for one taking its tag away.
+        let asks_you = unit(a.asks_you).or_else(|| a.ending.as_deref().map(|e| if insights::asking(e) { 1.0 } else { 0.0 }));
+        params::Tag { asks_you, ending: a.ending, landing: a.landing, finished: unit(a.finished), risk: a.risk.map(f64::from), background: a.background, note: a.note, prompt_at: a.prompt_at, ..Default::default() }
     };
     let params = params::Tag { by: me.clone(), by_title, ..params };
     let got = c.act(api::SESSION_TAG, &key, params, me)?;
@@ -8030,6 +8057,12 @@ mod tests {
         // A tag says each thing by the board's names, and needs the prompt that was read.
         let cli = parse_from(["codealong", "session", "tag", "abc", "--landing", "pushed", "--finished", "yes", "--asks-you", "no", "--risk", "2", "--background", "polling", "--prompt-at", "4", "--note", "PR #12 is up"]).unwrap();
         assert!(matches!(cli.cmd, Cmd::Session { cmd: SessionCmd::Tag(ref a) } if a.landing.as_deref() == Some("pushed") && a.finished == Some(true) && a.asks_you == Some(false) && a.risk == Some(2) && a.background.as_deref() == Some("polling") && a.prompt_at == Some(4)));
+        let cli = parse_from(["codealong", "session", "tag", "abc", "--ending", "handoff", "--prompt-at", "4"]).unwrap();
+        assert!(matches!(cli.cmd, Cmd::Session { cmd: SessionCmd::Tag(ref a) } if a.ending.as_deref() == Some("handoff") && a.asks_you.is_none()));
+        assert!(Cli::try_parse_from(["codealong", "session", "tag", "abc", "--ending", "done", "--prompt-at", "4"]).is_err());
+        // The finished ones, alone or among what waits.
+        let cli = parse_from(["codealong", "sessions", "--finished", "--waiting"]).unwrap();
+        assert!(matches!(cli.cmd, Cmd::Sessions(ref a) if a.filter.finished && a.filter.waiting));
         assert!(Cli::try_parse_from(["codealong", "session", "tag", "abc", "--landing", "merged", "--prompt-at", "4"]).is_err());
         assert!(Cli::try_parse_from(["codealong", "session", "tag", "abc", "--risk", "4", "--prompt-at", "4"]).is_err());
         assert!(Cli::try_parse_from(["codealong", "session", "tag", "abc", "--finished", "maybe", "--prompt-at", "4"]).is_err());

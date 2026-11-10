@@ -285,6 +285,10 @@ pub struct WaitingRow {
     /// reply is for that agent or its PR to read, not a question for them.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub helper: bool,
+    /// Its work is done and nothing is left for its user, and why (`Session::finished`): it's
+    /// theirs only to read, and needs no reply. Left out while it isn't.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finished: Option<crate::model::Finished>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -450,6 +454,7 @@ pub fn compare(sight: &Sight, earlier: Option<&Look>, since: i64, now: i64) -> (
             raised: s.raised.clone(),
             changed: changed.contains(s.key.as_str()),
             helper: s.helper.is_some(),
+            finished: s.finished.clone(),
         })
         .collect();
     out.waiting.sort_by_key(|w| w.since);

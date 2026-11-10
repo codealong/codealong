@@ -46,6 +46,7 @@ export type Session = Holds<Same<
   | "effort"
   | "emblem"
   | "excerpt"
+  | "finished"
   | "flagged"
   | "harness"
   | "headless"
@@ -219,12 +220,19 @@ export type SessionInsight = Holds<Same<
   | "by"
   | "byTitle"
   | "confidence"
+  | "ending"
   | "finished"
   | "landing"
   | "note"
   | "risk"
   | "waitsForInput",
   Names<Types.SessionInsight>
+>>;
+
+export type Finished = Holds<Same<
+  | "sure"
+  | "why",
+  Names<Types.Finished>
 >>;
 
 export type Checks = Holds<Same<

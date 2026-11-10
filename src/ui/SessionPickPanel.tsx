@@ -8,6 +8,7 @@
 import { below, showContextMenu } from '../contextMenu';
 import { count } from '../format';
 import { CHORDS, chordSigns, type SessionsActions } from '../menus';
+import { FinishedChip } from './InsightBits';
 import { PickKeys, PickList, PickPanel, PickRow } from './PickPanel';
 import { AccountLabel, SessionGlyph, STATUS_WORD, WorktreeChip } from './primitives';
 import { Hotkey, snoozeKeys, snoozeRange } from './SessionPanel';
@@ -85,6 +86,7 @@ export function SessionPickPanel({ items, actions, onShow, onLeaveOut, onMoreMen
             dim={r.session.archived}
           >
             <span className="ca-chips ca-pick-chips">
+              <FinishedChip session={r.session} />
               <WorktreeChip lane={r.lane} short />
             </span>
             <AccountLabel session={r.session} />

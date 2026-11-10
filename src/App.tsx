@@ -2779,6 +2779,10 @@ export function App() {
                   picks.sessions.select(r, how);
                   if (how === 'one') focusBox();
                 }}
+                onPickThese={(rows) => {
+                  picks.worktrees.clear();
+                  picks.sessions.these(rows.map((r) => r.key));
+                }}
                 onOpen={(r) => {
                   picks.sessions.select(r, 'one');
                   openRow(r);

@@ -11,7 +11,7 @@
 import { shortOf } from './devices';
 import { agoPhrase, middleTruncate } from './format';
 import { heldForAgent } from './prStatus';
-import { branchLabel, byStatusTime, sessionHomes, snoozedApart, unattended } from './lanes';
+import { branchLabel, byStatusTime, sessionHomes, snoozedApart, unattended, waitsFinished } from './lanes';
 import { inQueueOrder, statusWaits, type Reads } from './queue';
 import { itemSection, sectionOf, todoItem, type TodoItem, type TodoSectionId } from './todos';
 import { prFlag } from './prStatus';
@@ -142,6 +142,7 @@ export const QUEUE_READS: Reads<QueueRow> = {
   sinceOf: (r) => (r.kind === 'session' ? statusTime(r.session) : reviewSince(r.pr)),
   waitsOf: (r) => (r.kind === 'session' ? statusWaits(r.session.status) : 'reviews'),
   raisedOf: (r) => (r.kind === 'session' ? r.session.raised : undefined),
+  finishedOf: (r) => r.kind === 'session' && waitsFinished(r.session),
   titleOf: (r) => (r.kind === 'session' ? r.session.title : `#${r.pr.number} ${r.pr.title}`),
 };
 

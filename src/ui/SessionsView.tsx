@@ -25,7 +25,7 @@
 import { Fragment } from 'react';
 import { byDay, newestFirst } from '../days';
 import { groupOptions, groupRows, groupsOf, placeIn, type GroupBy, type Grouped, type GroupOptions, type ListGroup, type ListGroupBy } from '../groups';
-import { bySession, byStatusTime, foldsOf, listedUnder, runsShownKey, sidesListed, sidesShownKey, snoozedApart, startedOf, waitingSince, workingFor, type Fold, type LaneItem } from '../lanes';
+import { bySession, byStatusTime, foldsOf, listedUnder, runsShownKey, sidesListed, sidesShownKey, snoozedApart, startedOf, waitingSince, waitsFinished, workingFor, type Fold, type LaneItem } from '../lanes';
 import type { SelectHow } from '../picks';
 import type { HelperCount, RunCount, SideCount } from '../boardLists';
 import type { SaidLine } from '../quick';
@@ -299,6 +299,8 @@ interface SessionsViewProps {
   /** A row pressed with the primary button, alone or with ⌘ or ⇧: a right-click leaves the
    *  selection alone. */
   onSelect: (row: SessionItem, how: SelectHow) => void;
+  /** Picks just these rows: Your turn's heading picks its finished ones, to mark as done together. */
+  onPickThese?: (rows: SessionItem[]) => void;
   onOpen: (row: SessionItem) => void;
   /** Right-click on a row. */
   onContextMenu: (row: SessionItem) => void;
@@ -353,7 +355,7 @@ interface SessionsViewProps {
 const NO_KEYS: ReadonlySet<string> = new Set();
 
 export function SessionsView(props: SessionsViewProps) {
-  const { pinned, pinnedHelpers, sections, groups, groupActs, sort, lines, now, selectedKey, picked, domId, onSelect, onOpen, onContextMenu, onPrMenu, onPrShow, onPrOpen, onPlacePinned, onUnpin, desktop, archived, showArchived, onToggleArchived, todosFor, helpersOf, helpersShown, onToggleHelpers, runsOf, onToggleRuns, sidesOf, sideGlancesOf, onToggleSides, onShowSide, helperActions, onShowTodo, onFilterLabel, saidOf } = props;
+  const { pinned, pinnedHelpers, sections, groups, groupActs, sort, lines, now, selectedKey, picked, domId, onSelect, onPickThese, onOpen, onContextMenu, onPrMenu, onPrShow, onPrOpen, onPlacePinned, onUnpin, desktop, archived, showArchived, onToggleArchived, todosFor, helpersOf, helpersShown, onToggleHelpers, runsOf, onToggleRuns, sidesOf, sideGlancesOf, onToggleSides, onShowSide, helperActions, onShowTodo, onFilterLabel, saidOf } = props;
   const shown = helpersShown ?? NO_KEYS;
   const allGroups = groups ? groupsOf(groups) : [];
   const listed = groups ? allGroups.flatMap((g) => g.rows) : sections.flatMap((s) => s.rows);
@@ -447,6 +449,17 @@ export function SessionsView(props: SessionsViewProps) {
     );
   };
   const listedRow = (x: SessionItem) => drag.rowProps(x.session.key, null, pinned.length);
+  // Your turn's heading picks its finished turns, which are only yours to read (lanes.ts
+  // `waitsFinished`): what's done to several picked together then marks them all as done.
+  const pickFinished = (bay: Bay, rows: SessionItem[]) => {
+    const finished = bay === 'unread' && onPickThese ? rows.filter((r) => waitsFinished(r.session)) : [];
+    if (finished.length === 0) return undefined;
+    return (
+      <button type="button" className="ca-linkbtn" title="Select the finished ones, which are only yours to read, to mark them as done together" onClick={() => onPickThese?.(finished)}>
+        Select {finished.length} finished
+      </button>
+    );
+  };
 
   /** A group: its heading, a row of its own for a worktree, its sessions, and the way to the ones
    *  folded away. `index` is its place among the pinned groups. */
@@ -480,7 +493,7 @@ export function SessionsView(props: SessionsViewProps) {
               )}
               {groups.sections.map((s) => (
                 <section key={s.id} className="ca-bayblock">
-                  {s.bay ? <BayHeader bay={s.bay} count={s.count} /> : <SectionHeader icon={s.icon} label={s.label} count={s.count} />}
+                  {s.bay ? <BayHeader bay={s.bay} count={s.count} action={pickFinished(s.bay, s.groups.flatMap((g) => g.rows))} /> : <SectionHeader icon={s.icon} label={s.label} count={s.count} />}
                   <div className="ca-bay-lanes">{s.groups.map((g) => group(g, null, groupActs, groups.pinned.length))}</div>
                 </section>
               ))}
@@ -488,7 +501,7 @@ export function SessionsView(props: SessionsViewProps) {
           ) : (
             sections.map((s) => (
               <section key={s.id} className="ca-bayblock">
-                {s.bay ? <BayHeader bay={s.bay} count={s.rows.length} /> : <SectionHeader icon={s.icon} label={s.label} count={s.rows.length} />}
+                {s.bay ? <BayHeader bay={s.bay} count={s.rows.length} action={pickFinished(s.bay, s.rows)} /> : <SectionHeader icon={s.icon} label={s.label} count={s.rows.length} />}
                 <div className="ca-bay-lanes">{familiesOf(s.rows).map(({ head, kids }) => family(head, kids, null, listedRow))}</div>
               </section>
             ))

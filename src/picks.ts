@@ -110,5 +110,13 @@ export function usePicks<R extends { key: string }>(rows: R[] | null, selected: 
     setPick({ focus, anchor: rows[0].key, keys: rows.map((r) => r.key) });
     setSelectedKey(focus);
   };
-  return { picked, keys, select, leave, all, clear: () => setPick(null) };
+  /** Picks just these rows, the keyboard on the first of them the list has; one alone is
+   *  selected, as a click selects it. */
+  const these = (wanted: string[]) => {
+    const found = (rows ?? []).map((x) => x.key).filter((k) => wanted.includes(k));
+    if (found.length === 0) return;
+    setPick(found.length > 1 ? { focus: found[0], anchor: found[0], keys: found } : null);
+    setSelectedKey(found[0]);
+  };
+  return { picked, keys, select, leave, all, these, clear: () => setPick(null) };
 }

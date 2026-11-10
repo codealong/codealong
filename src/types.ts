@@ -193,6 +193,10 @@ export interface Session {
   running?: RunningIn;
   /** Jev's read of how its turn ended, when `[jev] sessions` is on (insights.rs). */
   insight?: SessionInsight;
+  /** Its work is done and nothing is left for you, and why (board.rs `finished_of`). It stays
+   *  Your turn until you've seen it, after the turns that want something of you. Missing while
+   *  it isn't, and from a board an older app sent. */
+  finished?: Finished;
   /** Needs you only because its last reply asks you something: it sits at its prompt, so a
    *  reply is the answer. Not set while it waits on a permission prompt. */
   asks?: boolean;
@@ -1664,6 +1668,22 @@ export interface SessionInsight {
   byTitle?: string;
   /** Why, in a sentence or two, when the agent said. */
   note?: string;
+  /** How its last reply leaves things with you, by the likeliest way a reply can end
+   *  (insights.rs `ENDINGS`). `asksYou` is the chance of the first two together. */
+  ending?: Ending;
+}
+
+/** How a reply can leave things with you: it asks you something, can't go on until you do
+ *  something, offers more, hands you a next step, waits on what it started, or only reports. */
+export type Ending = 'question' | 'blocked' | 'offer' | 'handoff' | 'waiting' | 'report';
+
+/** That a session's work is done with nothing left for you (`Session.finished`). */
+export interface Finished {
+  /** Something besides its last reply says so: a PR of its merged, a todo of its done, or its
+   *  own status line. False when only a read of that reply does: it looks finished. */
+  sure: boolean;
+  /** Why, each in a few words, what's known first. */
+  why: string[];
 }
 
 export type RouteAction = 'send' | 'start' | 'find' | 'todo';
@@ -2559,6 +2579,9 @@ export interface BarItem {
   /** Moved to the top of what waits on you (`Session.raised`): first in its group and the
    *  notch's queue. */
   raised?: Raised;
+  /** Your turn only to be read, its work being finished (`Session.finished`): last in its group
+   *  and in the notch's queue. */
+  finished?: boolean;
   /** Its turn is running and Codealong can stop it. Missing from a feed an older app sent. */
   stoppable?: boolean;
   /** The device it's on, when that's another of yours: its key starts `@<short>:`. */

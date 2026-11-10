@@ -36,35 +36,40 @@ export interface Reads<T> {
   waitsOf: (row: T) => Waits;
   /** Moved to the top of what waits on you (`Session.raised`), for a row that was. */
   raisedOf: (row: T) => Raised | undefined;
+  /** A finished turn that's only yours to read (lanes.ts `waitsFinished`): after the rest of
+   *  its kind. */
+  finishedOf: (row: T) => boolean;
   titleOf: (row: T) => string;
 }
 
-/** Where a row stands in the queue: whether it was moved to the top, what it waits as, since
- *  when, and its key, for a tie. */
+/** Where a row stands in the queue: whether it was moved to the top, what it waits as, whether
+ *  it's only yours to read, since when, and its key, for a tie. */
 export interface Place {
   key: string;
   waits: Waits;
   since: number;
   raised?: Raised;
+  finished?: boolean;
 }
 
 /** What the queue reads of a row to place it. */
-export type PlaceReads<T> = Pick<Reads<T>, 'keyOf' | 'sinceOf' | 'waitsOf' | 'raisedOf'>;
+export type PlaceReads<T> = Pick<Reads<T>, 'keyOf' | 'sinceOf' | 'waitsOf' | 'raisedOf' | 'finishedOf'>;
 
 export function placeOf<T>(row: T, reads: PlaceReads<T>): Place {
-  return { key: reads.keyOf(row), waits: reads.waitsOf(row), since: reads.sinceOf(row), raised: reads.raisedOf(row) };
+  return { key: reads.keyOf(row), waits: reads.waitsOf(row), since: reads.sinceOf(row), raised: reads.raisedOf(row), finished: reads.finishedOf(row) };
 }
 
 /**
  * The order every window works through what waits on you in: the ones moved to the top first,
  * whatever they wait as (lanes.ts `byRaise`); then the most urgent kind first (`WAITS`), each
- * first come, first served, the longest wait first. One that comes to wait, or comes back after
+ * first come, first served, the longest wait first, with the finished turns that are only yours
+ * to read after the ones that want something of you. One that comes to wait, or comes back after
  * you answered it, joins the end of its kind and never goes ahead of the ones that have waited
  * longer, unless it's moved to the top. Its wait isn't moved for that: what's been dealt with is
  * kept by it (`Handled`), and the windows say how long it's waited.
  */
 export function byPlace(a: Place, b: Place): number {
-  return byRaise(a.raised, b.raised) || WAITS.indexOf(a.waits) - WAITS.indexOf(b.waits) || a.since - b.since || a.key.localeCompare(b.key);
+  return byRaise(a.raised, b.raised) || WAITS.indexOf(a.waits) - WAITS.indexOf(b.waits) || Number(!!a.finished) - Number(!!b.finished) || a.since - b.since || a.key.localeCompare(b.key);
 }
 
 /** A window's rows in the queue's order (`byPlace`), whatever order it lists them in. */

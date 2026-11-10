@@ -205,8 +205,10 @@ where that's fewer, a right-click on one of them is the menu for all (Pin, Quiet
 sessions to board › and Copy session IDs too), and the same chords act on all of them; Esc goes back
 to one. Archive and Mark as done have one Undo for the lot. Where any of them was cut off (a
 restart leaves many so), Carry on leads: each cut off resumes where its own Carry on would take it,
-one after another, told to carry on. With a search typed, Sessions' Archived fold lists the archived
-sessions it finds, so its count says how many match.
+one after another, told to carry on. Your turn's heading picks its finished sessions for you
+(**Select N finished**; see [Finished sessions](#finished-sessions)), each saying Finished or Looks
+finished in the panel, with why in its tooltip. With a search typed, Sessions' Archived fold lists
+the archived sessions it finds, so its count says how many match.
 
 #### Emblems
 
@@ -3115,7 +3117,8 @@ session on another device keeps them on its Mac.
 
 Needs you, Your turn and Working are queues, the longest first, so a new one joins the end instead
 of pushing an old one down, and the notch works through them first come, first served; only a
-session moved to the top goes ahead (*Move to top*). Pills that
+session moved to the top goes ahead (*Move to top*), and in Your turn the finished ones, which are
+only yours to read, come after the rest (see [Finished sessions](#finished-sessions)). Pills that
 don't fit fold into one per group that lists them, and a session picked from that list, or from the
 recent pill's, shows in Codealong's window. The mark brings Codealong forward; drag the bar by it or
 by its gaps. Its node, the part that carries the status color, moves as things happen: it breathes
@@ -3497,18 +3500,53 @@ whether it polls for something, runs a job, is a server or watcher left running 
 turn is over. Rows show how far the work got (Landed, Pushed,
 Committed, Not committed, Blocked) and how risky a command waiting for approval looks, judged from
 the whole call where its harness shows it (the arguments, not just the command's name); a worktree
-whose sessions all read as done says *Looks finished*. A reply whose first line opens with the
+whose sessions all read as done says *Looks finished*. A turn that's yours to read also says how
+it leaves things with you, where that says more than Your turn does: *Next step is yours* (its
+work is done and it leaves you a step to take yourself, such as merging or deploying), *Waits on
+its own work* (it isn't done, and goes on by itself once what it started ends) or *Offers more*;
+one that only reports says nothing more. A reply whose first line opens with the
 status line CLAUDE.md asks agents for (`Landed:`, `Pushed:`, `Committed:`, `Not committed:`) says
 its landing itself, exactly, and Jev isn't asked it. A turn its harness ended (the connection lost,
 a usage limit, cut off) isn't read: its reply is an error. Answers are kept in insights.json, with
 how sure Jev was, so a turn is asked about once.
 
+#### Finished sessions
+
+A session whose turn ended says *Finished* when its work is done and nothing is left for you, so a
+turn that's only yours to read is told from one that wants something. Codealong works it out from
+what it knows of the session's work and from the read of its last reply (Jev's, or an agent's
+tag), neither alone:
+
+- Never while its reply may ask you something, hands you a next step or waits on what it started;
+  while it says its change is uncommitted, committed but not pushed, or blocked; or while its
+  reply reads as not done.
+- Never while a PR it worked on is open, a todo linked to it isn't done, or a worktree that's its
+  alone holds uncommitted files or commits on no remote (a main checkout, or a worktree another
+  session of the same work is in, isn't weighed: whose those changes are isn't known).
+- Never with something still to come: a command left running, a message waiting to go in, a
+  snooze, or a turn its harness cut short. Not for helpers and headless runs, which aren't yours
+  to read.
+- Then it's *Finished* when something besides the reply says so: a PR it worked on merged, a todo
+  linked to it is done, or its reply's status line says the change landed. With none of those it
+  *Looks finished* when the read of its reply says what you asked for is done, and otherwise
+  says nothing: a session nothing is known of is no more finished than not.
+
+The chip's tooltip says why (`#12 merged, its todo is done`), and it takes the place of how far the
+work got, which is among its reasons. A finished session stays Your turn until you've seen it,
+and is counted there, but comes after the turns that want something of you: in Sessions, on the
+floating bar, in the notch and in the waiting window, and so last as you work through what waits.
+Mark as done files it, and in Sessions the Your turn heading's **Select N finished** picks them
+all, so one Mark as done files them together (see [Picking several](#picking-several)).
+`codealong sessions --finished` lists them, and each session's `finished` in `sessions`, `session
+show` and `changes` says whether it's sure and why.
+
 #### Tags from an agent
 
 An agent that reads a session can say the same things itself, with `[jev] sessions` on or off: an
 orchestrator going over the sessions it started (`codealong sessions`, then `codealong session
-transcript` for each) tags each one with `codealong session tag` (asks you, how far the work got,
-finished, how risky the waiting call is, what a background command does, and why in a note). A tag
+transcript` for each) tags each one with `codealong session tag` (asks you or how its reply ends,
+how far the work got, finished, how risky the waiting call is, what a background command does, and
+why in a note). A tag
 shows exactly as Jev's read does, in the same chips and status, and stands over Jev's for the
 same moment where the agent said; a field it left out stays Jev's. The chip's tooltip says who
 tagged it and the note. A tag is for the reply the agent read: one written after you'd replied

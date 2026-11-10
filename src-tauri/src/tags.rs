@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::board::MovedOn;
 use crate::config::support_dir;
-use crate::insights::{BACKGROUND, LANDING};
+use crate::insights::{BACKGROUND, ENDINGS, LANDING};
 use crate::model::{Session, SessionInsight};
 use crate::store;
 use crate::util::DAY_MS;
@@ -96,13 +96,25 @@ pub fn read(p: &crate::actions::params::Tag) -> Result<Option<SessionInsight>> {
         bail!("The note is at most {NOTE_LONGEST} characters: a sentence or two on why.");
     }
     let background = named(p.background.clone(), &BACKGROUND, "background")?;
+    // How a reply ends says whether it asks: an ending given alone says that too, and one given
+    // with the opposite is two reads of one reply.
+    let ending = named(p.ending.clone(), &ENDINGS, "ending")?;
+    let asks_you = unit(p.asks_you, "asks_you")?;
+    let asks_you = match (&ending, asks_you) {
+        (Some(e), Some(p)) if crate::insights::asking(e) != (p >= 0.5) => {
+            bail!("The ending “{e}” {} its user something, and asks_you says the reply {}: say one, or two that agree.", if crate::insights::asking(e) { "asks" } else { "doesn't ask" }, if p >= 0.5 { "does" } else { "doesn't" })
+        }
+        (Some(e), None) => Some(if crate::insights::asking(e) { 1.0 } else { 0.0 }),
+        (_, asks) => asks,
+    };
     let tag = SessionInsight {
-        asks_you: unit(p.asks_you, "asks_you")?,
+        asks_you,
         landing: named(p.landing.clone(), &LANDING, "landing")?,
         finished: unit(p.finished, "finished")?,
         risk,
         background_p: background.as_ref().map(|_| 1.0),
         background,
+        ending,
         ..Default::default()
     };
     if tag == SessionInsight::default() {
@@ -213,6 +225,14 @@ mod tests {
         assert!(read(&params::Tag { risk: Some(4.0), ..Default::default() }).unwrap_err().to_string().contains("risk is 0"));
         assert!(read(&params::Tag { asks_you: Some(1.5), ..Default::default() }).unwrap_err().to_string().contains("asks_you is 0"));
         assert!(read(&params::Tag { finished: Some(1.0), note: Some("x".repeat(NOTE_LONGEST + 1)), ..Default::default() }).is_err());
+        // An ending says whether the reply asks, and the two can't disagree.
+        let ends = |ending: &str, asks_you: Option<f64>| read(&params::Tag { ending: Some(ending.into()), asks_you, ..Default::default() });
+        let i = ends("Handoff", None).unwrap().unwrap();
+        assert_eq!((i.ending.as_deref(), i.asks_you), (Some("handoff"), Some(0.0)));
+        assert_eq!(ends("blocked", None).unwrap().unwrap().asks_you, Some(1.0));
+        assert_eq!(ends("question", Some(1.0)).unwrap().unwrap().asks_you, Some(1.0));
+        assert!(ends("report", Some(1.0)).unwrap_err().to_string().contains("doesn't ask"));
+        assert!(ends("done", None).unwrap_err().to_string().contains("ending is one of question, blocked"));
     }
 
     #[test]

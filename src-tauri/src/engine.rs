@@ -4122,6 +4122,8 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         board.todos = self.todos.todos.clone();
         board.todos_unreadable = self.todos_unreadable;
         board.labels = self.todos.labels.clone();
+        // Once the board has the PRs and the todos a session's work is known by.
+        board::settle_finished(&mut board.lanes, &board.prs, &board.todos);
         if self.cfg.jev.todos {
             board.todo_hints = self.jev_todos.hints(&board, &self.todos.todos);
         }

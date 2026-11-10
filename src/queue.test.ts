@@ -12,12 +12,15 @@ interface Row {
   /** A finished turn, or a reply that asks you something. */
   seenable?: boolean;
   raised?: Raised;
+  /** A finished turn that's only yours to read. */
+  finished?: boolean;
 }
 const READS: Reads<Row> = {
   keyOf: (r) => r.key,
   sinceOf: (r) => r.since,
   waitsOf: (r) => r.waits ?? 'unread',
   raisedOf: (r) => r.raised,
+  finishedOf: (r) => !!r.finished,
   titleOf: (r) => `Queue ${r.key}`,
 };
 const NOW = 1_000;
@@ -106,6 +109,15 @@ describe('the queue’s order', () => {
     // A key settles a tie.
     const twin: Row = { ...C, key: 'C2' };
     expect(keys(inQueueOrder([twin, C], READS))).toEqual(['C', 'C2']);
+  });
+
+  it('leaves the finished turns that are only yours to read for after the ones that want something', () => {
+    // C has waited longer than D, but nothing is left for you there; it's still ahead of nothing
+    // that needs you, and one moved to the top goes first all the same.
+    const wrapped: Row = { ...C, finished: true };
+    expect(keys(inQueueOrder([wrapped, D, B, A], READS))).toEqual(['A', 'B', 'D', 'C']);
+    expect(keys(leftAfter([A, B, wrapped, D], 'B', new Map(), READS))).toEqual(['D', 'C', 'A']);
+    expect(keys(inQueueOrder([{ ...wrapped, raised: { at: 100 } }, D, A], READS))).toEqual(['C', 'A', 'D']);
   });
 
   it('puts one that waits again after you answered it behind the ones that waited longer', () => {

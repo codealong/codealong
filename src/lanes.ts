@@ -147,6 +147,16 @@ export function sidesListed(list: readonly SideGlance[] | undefined, key: string
   if (!list || list.length === 0) return NO_SIDES;
   return shown.has(sidesShownKey(key)) ? list : list.filter((g) => g.running);
 }
+/** Your turn only to be read: its turn ended, you haven't seen it, and its work is finished
+ *  (`Session.finished`). It comes after the turns that want something of you wherever Your turn
+ *  is listed or worked through. The engine's `Session::waits_finished` says the same. */
+export function waitsFinished(s: Pick<Session, 'status' | 'finished'>): boolean {
+  return s.status === 'unread' && !!s.finished;
+}
+
+/** Two sessions, the finished turns that are only yours to read after the others. */
+const finishedLast = (a: Session, b: Session) => Number(waitsFinished(a)) - Number(waitsFinished(b));
+
 const NO_SIDES: readonly SideGlance[] = [];
 
 /** What a fold says: what leaves the list, and whose when it isn't the family's head. */
@@ -190,22 +200,32 @@ export function raisedBy(r: Raised): string {
 
 /**
  * Two sessions of one of the floating bar's groups, in its order (barfeed.rs): one moved to the
- * top first (`byRaise`), then each is a queue, the longest first, so a new one joins the end, and
+ * top first (`byRaise`), then the finished turns that are only yours to read after the others
+ * (`waitsFinished`), then each is a queue, the longest first, so a new one joins the end, and
  * what waits on you is worked through first come, first served (queue.ts `byPlace`). A status's
  * time doesn't move while it lasts, so rows hold their places.
  */
 export function byStatusTime(a: Session, b: Session): number {
-  return byRaise(a.raised, b.raised) || statusAt(a) - statusAt(b);
+  return byRaise(a.raised, b.raised) || finishedLast(a, b) || statusAt(a) - statusAt(b);
 }
 
 /**
  * Most urgent first, the ones moved to the top first among their kind (`byRaise`), as the engine
  * sorts a lane's sessions; those that need you by how long they've waited, the rest by the one
- * you last sent a prompt. Activity would reorder working agents with every tool call; your
- * prompts only move one when you do something. The key settles a tie, as it does there.
+ * you last sent a prompt, the finished turns that are only yours to read after the others
+ * (`waitsFinished`). Activity would reorder working agents with every tool call; your prompts
+ * only move one when you do something. The key settles a tie, as it does there.
  */
 export function bySession(a: Session, b: Session): number {
-  return URGENCY[a.status] - URGENCY[b.status] || byRaise(a.raised, b.raised) || (waitingSince(a) ?? 0) - (waitingSince(b) ?? 0) || b.lastPromptAt - a.lastPromptAt || b.lastActivity - a.lastActivity || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
+  return (
+    URGENCY[a.status] - URGENCY[b.status] ||
+    byRaise(a.raised, b.raised) ||
+    finishedLast(a, b) ||
+    (waitingSince(a) ?? 0) - (waitingSince(b) ?? 0) ||
+    b.lastPromptAt - a.lastPromptAt ||
+    b.lastActivity - a.lastActivity ||
+    (a.key < b.key ? -1 : a.key > b.key ? 1 : 0)
+  );
 }
 
 /** When a session started, or when you last prompted it where its record doesn't say. */

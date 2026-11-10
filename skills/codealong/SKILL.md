@@ -275,11 +275,14 @@ status, over Jev's for the same moment.
 2. Read its end: `codealong session transcript <key>`, and `codealong session pending <key>` for
    a call it waits on the user to allow. Keep the `lastPromptAt` the transcript printed.
 3. `codealong session tag <key> --landing <landed|pushed|committed|uncommitted|blocked|none>
-   --finished <yes|no> --asks-you <yes|no> --prompt-at <lastPromptAt> --note "<why, in a
-   sentence>"`, saying only what you read: a field left out stays Jev's. `--asks-you yes` turns
-   its Your turn into Needs you, with its question, so it's only for a reply that asks something
-   it waits on (a question, a choice, a go-ahead, a sign-in), never for an offer of more work or
-   next steps the user takes on their own; `--risk 0-3` for a call it waits on the user
+   --finished <yes|no> --ending <question|blocked|offer|handoff|waiting|report> --prompt-at
+   <lastPromptAt> --note "<why, in a sentence>"`, saying only what you read: a field left out
+   stays Jev's. `--ending` is how its reply leaves things with the user. `question` and
+   `blocked` turn its Your turn into Needs you, with its question, so they're only for a reply
+   that asks something it waits on (a question, a choice, a go-ahead, a sign-in); an offer of
+   more work is `offer`, next steps the user takes on their own `handoff` (shown as Next step is
+   yours), a wait on what it started itself `waiting`, and anything else `report`
+   (`--asks-you yes|no` says only whether it asks). `--risk 0-3` for a call it waits on the user
    to allow (0 reads only, 3 destructive); `--background polling|job|server|stalled` for a
    command its turn left running. Give the `lastPromptAt` from step 2: a tag is turned down if
    the user replied since you read it, or while the session takes a turn. Read it again and tag
@@ -287,6 +290,14 @@ status, over Jev's for the same moment.
 4. Tag again to replace it; `--clear` takes it away. A tag goes by itself once anything is sent
    to the session or a turn of its starts, so a session with none has moved on: read it again
    before tagging more.
+
+Codealong says a session is finished by itself (`finished` on it in `sessions` and `session
+show`, with `why`; `codealong sessions --finished` lists them): its turn ended, its reply asks
+nothing and leaves no next step, no PR it worked on is open, no todo linked to it is open, and
+either something says the work is done (a PR of its merged, a todo of its done, a `Landed:`
+status line: `sure`) or only the read of its reply does. Your `--finished` and `--ending` are
+that read; what Codealong knows of the work stands whatever a tag says. A finished session
+needs nothing from the user but a look, so there's nothing to suggest for it.
 
 A tag is a read of one turn. To sort sessions for good, as the user asked (by release, by area),
 put labels on them: `codealong session label <key> --add <name>` (a new name is made a label, the

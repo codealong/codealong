@@ -25,10 +25,6 @@ use serde::{Deserialize, Serialize};
 use crate::model::{Board, Harness, Lane, Runs, Session, Status};
 use crate::util::DAY_MS;
 
-/// Jev's likelihood that a reply asks you something, from which the session stays. Lower than
-/// the board's Needs you mark: a reply that might ask something is worth keeping open.
-const ASKS_YOU_KEEP: f64 = 0.3;
-
 /// How a session the plan lists ends.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -126,7 +122,7 @@ pub fn verdict(s: &Session, now: i64, after_ms: i64) -> Result<String, String> {
         why.push("last reply unread".into());
     }
     let read = s.insight.as_ref().and_then(|i| i.asks_you.map(|_| i.landing.as_deref()));
-    if reply_asks(s) {
+    if crate::board::reply_asks(s) {
         return Err(if read.is_some() { "last reply may ask you something" } else { "last reply asks a question" }.into());
     }
     match read {
@@ -138,15 +134,6 @@ pub fn verdict(s: &Session, now: i64, after_ms: i64) -> Result<String, String> {
         None => why.push("last reply asks nothing".into()),
     }
     Ok(why.join(" · "))
-}
-
-/// Whether a session's last reply may ask you something: by Jev's read of it (or an agent's tag)
-/// when there's one, else by its having a question in it, Markdown's or one with more after it.
-pub fn reply_asks(s: &Session) -> bool {
-    match s.insight.as_ref().and_then(|i| i.asks_you) {
-        Some(p) => p >= ASKS_YOU_KEEP,
-        None => s.reply_tail.as_deref().is_some_and(crate::board::has_question),
-    }
 }
 
 /// What would close: every live session on the board. A terminal's sessions are grouped by its
