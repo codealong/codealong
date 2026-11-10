@@ -827,13 +827,14 @@ fn sender_of(from: &From) -> send::Sender {
     }
 }
 
-/// Who a message is from (`sender_of`), unless the command that sent it says a copy answering in
-/// the session's own side conversation ran it (`params::Send::side`), which is believed while one
-/// runs (`copy_runs`): then it's the side conversation's, told there to send it. Only the command
-/// says so; a window is you whatever it says.
-fn sender_for(from: &From, side: bool, copy_runs: impl FnOnce() -> bool) -> send::Sender {
+/// Who a message is from (`sender_of`), unless the command that sent it was run by a copy
+/// answering in the session's own side conversation: it found no session running it (a copy is
+/// none of the board's) and handed on that copy's secret (`params::Send::side`, side.rs
+/// `sent_by_copy`). Then it's the side conversation's, told there to send it. A window is you
+/// whatever it says, and a session the command found is that session's agent.
+fn sender_for(from: &From, by_its_copy: impl FnOnce() -> bool) -> send::Sender {
     match from {
-        From::Command(_) if side && copy_runs() => send::Sender::Side,
+        From::Command(None) if by_its_copy() => send::Sender::Side,
         _ => sender_of(from),
     }
 }
@@ -845,7 +846,7 @@ fn send_prompt(engine: &Handle, c: &Call) -> Result<Value, String> {
     let p: params::Send = c.read()?;
     let key = c.session()?;
     unarchive_to_send(engine, c, key);
-    let sender = sender_for(c.from, p.side, || crate::side::copy_runs(key));
+    let sender = sender_for(c.from, || crate::side::sent_by_copy(key, &p.side));
     let sent = send::send_here(engine, key, &p.text, sender, p.now).map_err(words)?;
     note_talking(engine, c, key);
     if matches!(c.from, From::Device | From::Phone) && sent.opened {
@@ -2378,18 +2379,18 @@ mod tests {
         assert_eq!(sender_of(&From::Command(None)), send::Sender::Agent(None));
     }
 
-    /// A side conversation's copy tells its session something as the side conversation, while a
-    /// copy of that session runs; said with none running, or by anything but the command, it's
-    /// believed no more than any other message.
+    /// A side conversation's copy tells its session something as the side conversation, with the
+    /// secret it was given; without it the message is no more than any other agent's, and another
+    /// session's agent is that session's, whatever it hands on.
     #[test]
-    fn a_side_conversations_message_is_believed_while_its_copy_runs() {
+    fn a_side_conversations_message_is_its_copys_alone() {
         let copy = From::Command(None);
-        assert_eq!(sender_for(&copy, true, || true), send::Sender::Side);
-        assert_eq!(sender_for(&copy, true, || false), send::Sender::Agent(None));
-        assert_eq!(sender_for(&copy, false, || panic!("asked for no reason")), send::Sender::Agent(None));
-        assert_eq!(sender_for(&From::Command(Some("claude:c:other".into())), true, || false), send::Sender::Agent(Some("claude:c:other".into())));
-        assert_eq!(sender_for(&From::Here, true, || true), send::Sender::You);
-        assert_eq!(sender_for(&From::Device, true, || true), send::Sender::Elsewhere);
+        assert_eq!(sender_for(&copy, || true), send::Sender::Side);
+        assert_eq!(sender_for(&copy, || false), send::Sender::Agent(None));
+        let other = From::Command(Some("claude:c:other".into()));
+        assert_eq!(sender_for(&other, || panic!("another session's agent is never the copy")), send::Sender::Agent(Some("claude:c:other".into())));
+        assert_eq!(sender_for(&From::Here, || panic!("a window is you")), send::Sender::You);
+        assert_eq!(sender_for(&From::Device, || panic!("another device's request is no copy's")), send::Sender::Elsewhere);
     }
 
     #[test]

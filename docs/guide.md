@@ -488,9 +488,10 @@ session send`, written for it to act on, since the session never saw the side co
 that it did. The copy is told the session's key, and to send only when it's asked to. The message
 comes as another agent's does, but saying it's from the session's side conversation, and it's taken in
 as what you send is: a Claude Code session that skips permission prompts doesn't hold it for you.
-Codealong believes it's the side conversation's only while a copy of that session's runs. A Claude
-Code copy may run that one command in any permission mode; a Codex copy only where its thread's
-sandbox lets its commands reach Codealong. Nothing is sent to a session waiting on you to answer a
+Codealong believes it's the side conversation's only from that copy: each copy is given a secret of
+its own, which the command hands on, and a message without it is any agent's. A Claude Code copy
+may run that one command in any permission mode; a Codex copy only where its thread's sandbox lets
+its commands reach Codealong. Nothing is sent to a session waiting on you to answer a
 prompt (answer it first), and a session that isn't running isn't resumed for it.
 
 Once a side conversation has answered all it was asked (or its copy stopped before it could), its

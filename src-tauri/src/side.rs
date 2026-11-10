@@ -60,16 +60,17 @@ use crate::util::{now_ms, truncate};
 pub const RULES: &str = "This is a side conversation. Everything before this is a copy of a conversation that carries on elsewhere without you: it's here for reference only. Don't continue, finish or repeat any task, plan or tool call from it. Answer what's asked from here on, briefly. You may read files and run commands that only look, to answer well. Don't change files, git state, settings or anything else unless what's asked here asks for that change in so many words; then make only that change, keep it small, and keep out of the way of the work the main conversation is doing. When what's asked is more than that, such as carrying out a plan or work of many steps, don't start it here: say in a line that /fork, then what to do, typed in this box, has another copy of the conversation do it in the background, told what was said here, or that you can tell the main conversation to. Don't start subagents. Nothing said here reaches the main conversation unless what's asked here asks you to tell it something: then send it that, written for it to act on, since it never saw what was said here, and say in a line that you did.";
 
 /// The rules a copy of session `key` is told (`RULES`), with how to tell that session something:
-/// the `codealong` command, which says it's from the session's side conversation (`SIDE_OF_VAR`).
+/// the `codealong` command, which says it's from the session's side conversation (`SIDE_VAR`).
 pub fn rules(key: &str) -> String {
     format!("{RULES} The main conversation is Codealong session {key}; `codealong session send {key} \"<the message>\"`, run as a command of its own, tells it, saying it comes from its side conversation.")
 }
 
-/// Set on a session's copy to the session's key (`recipe`), for what the copy runs to say it's
-/// the copy's: `codealong session send` to that session says its message comes from the side
-/// conversation (cli.rs `session_send`), which the engine believes while a copy of the session
-/// runs (`copy_runs`). A PR's conversation has no session to tell.
-pub const SIDE_OF_VAR: &str = "CODEALONG_SIDE_OF";
+/// Set on every copy to a secret of its own (`spawn`), which `codealong session send` run by the
+/// copy hands on (cli.rs `session_send`): a message to its session that carries it is the side
+/// conversation's (`sent_by_copy`). A secret rather than the session's key, which any other
+/// session's agent could name to have its message claim what the side conversation's may. A PR's
+/// conversation has one too, and no session to tell.
+pub const SIDE_VAR: &str = "CODEALONG_SIDE";
 
 /// How long a copy that isn't answering is kept running for a follow-up.
 const IDLE: Duration = Duration::from_secs(15 * 60);
@@ -153,6 +154,8 @@ struct Proc {
     /// The lines to write to it, a batch at a time, in the order they're made: its writer
     /// (`writer`) writes them, and ends once this goes.
     out: Sender<Vec<Value>>,
+    /// What its environment has in `SIDE_VAR`.
+    secret: String,
 }
 
 struct Open {
@@ -310,12 +313,12 @@ pub fn runs(pid: u32) -> bool {
     st.open.values().chain(&st.closing).any(|o| o.proc.as_ref().is_some_and(|p| p.pid == pid))
 }
 
-/// Whether a copy of session `key` runs: its open side conversation's, or a closed one's still
-/// answering. Only then is a message to the session that says it's from its side conversation
-/// believed (`SIDE_OF_VAR`): the variable outlives the copy in whatever it left running.
-pub fn copy_runs(key: &str) -> bool {
+/// Whether `secret` is that of a copy of session `key` that runs (`SIDE_VAR`): its open side
+/// conversation's, or a closed one's still answering. A copy that has ended sends nothing, though
+/// what it left running still has the variable.
+pub fn sent_by_copy(key: &str, secret: &str) -> bool {
     let st = state();
-    st.open.get(key).into_iter().chain(&st.closing).any(|o| o.side.key == key && o.proc.is_some())
+    !secret.is_empty() && st.open.get(key).into_iter().chain(&st.closing).any(|o| o.side.key == key && o.proc.as_ref().is_some_and(|p| p.secret == secret))
 }
 
 /// Asks the session's copy `text`, making the copy when there's none, and returns the side
@@ -778,8 +781,7 @@ fn recipe(board: &Board, cfg: &Config, key: &str) -> Result<(Recipe, PathBuf, St
         Some(l) if Path::new(&l.path).is_dir() => PathBuf::from(&l.path),
         _ => bail!("Its folder is gone, so a copy of it has nowhere to run."),
     };
-    let mut recipe = crate::harness::adapter(s.harness).side(&crate::harness::Ctx { account }, s, &cwd)?;
-    recipe.env.push((SIDE_OF_VAR.to_string(), key.to_string()));
+    let recipe = crate::harness::adapter(s.harness).side(&crate::harness::Ctx { account }, s, &cwd)?;
     Ok((recipe, cwd, s.title.clone()))
 }
 
@@ -871,6 +873,10 @@ fn spawn(key: &str, id: u64, recipe: Recipe, cwd: &Path) -> Result<Proc> {
     for k in &recipe.unset {
         cmd.env_remove(k);
     }
+    let mut bytes = [0u8; 16];
+    crate::os::system::random_bytes(&mut bytes);
+    let secret: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+    cmd.env(SIDE_VAR, &secret);
     // Every line it writes is the dialect's to make sense of, the answers to what the dialect
     // asked too: nothing is asked through the client, which only carries the lines.
     let of = key.to_string();
@@ -881,7 +887,7 @@ fn spawn(key: &str, id: u64, recipe: Recipe, cwd: &Path) -> Result<Proc> {
     })
     .with_context(failed)?;
     let out = writer(client.link());
-    let mut proc = Proc { id, pid: client.pid(), client, dialect: recipe.dialect, out };
+    let mut proc = Proc { id, pid: client.pid(), client, dialect: recipe.dialect, out, secret };
     let lines = proc.dialect.open();
     write(&mut proc, &lines);
     Ok(proc)
@@ -1162,12 +1168,27 @@ mod tests {
         assert_eq!(side.turns.iter().map(|t| t.answer.as_str()).collect::<Vec<_>>(), ["You asked: one", "You asked: two"]);
         assert!(side.turns.iter().all(|t| t.done && t.tool.is_none() && t.error.is_none()));
         assert!(get(key).is_some());
-        let pid = state().open.get(key).unwrap().proc.as_ref().unwrap().pid;
+        let (pid, secret) = state().open.get(key).unwrap().proc.as_ref().map(|p| (p.pid, p.secret.clone())).unwrap();
         assert!(runs(pid));
-        // While it runs, what it says to its session is believed to be the side conversation's.
-        assert!(copy_runs(key) && !copy_runs("test:side:another"));
+        // While it runs, what it says to its session with its secret is the side conversation's;
+        // without it, or to another session, it's anyone's.
+        assert_eq!(secret.len(), 32);
+        assert!(sent_by_copy(key, &secret) && !sent_by_copy(key, "") && !sent_by_copy(key, "0123") && !sent_by_copy("test:side:another", &secret));
         close(key);
-        assert!(get(key).is_none() && !runs(pid) && !copy_runs(key));
+        assert!(get(key).is_none() && !runs(pid) && !sent_by_copy(key, &secret));
+    }
+
+    /// Each copy has its secret in its environment, for what it runs to hand on (`SIDE_VAR`):
+    /// this one answers with it.
+    #[test]
+    fn a_copy_has_its_secret_in_its_environment() {
+        let key = "test:side:secret";
+        open_with(key, "/bin/sh", &["-c", "read -r a; read -r b; read -r c; printf '{\"say\":\"%s\"}\\n{\"done\":true}\\n' \"$CODEALONG_SIDE\"; cat"]);
+        let secret = state().open.get(key).unwrap().proc.as_ref().unwrap().secret.clone();
+        put(key, "What's yours?");
+        let side = wait_for(key, |s| !s.running);
+        assert_eq!(side.turns[0].answer, secret);
+        close(key);
     }
 
     /// A session's copy is told how to tell that session something, and that it's to only when

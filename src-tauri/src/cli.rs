@@ -3882,9 +3882,9 @@ fn session_send(c: &mut Client, a: SendArgs, json: bool) -> Result<()> {
     if text.trim().is_empty() {
         bail!("Give a message, --message-file or --attach.");
     }
-    // Run by a copy answering in one of `to`'s own side conversations, which is no session of the
-    // board's: the engine believes it only while such a copy runs (side.rs `copy_runs`).
-    let side = std::env::var(crate::side::SIDE_OF_VAR).is_ok_and(|of| of == to);
+    // Run by a copy answering in a side conversation, which is no session of the board's: its
+    // secret, which the engine checks is that of a copy of `to` (side.rs `sent_by_copy`).
+    let side = std::env::var(crate::side::SIDE_VAR).unwrap_or_default();
     let sent = serde_json::from_value(c.act(api::SESSION_SEND, &to, params::Send { text, side, ..Default::default() }, from.clone())?).context("reading what the send said")?;
     if json {
         return print_json(&SendOut { to, from, sent });

@@ -85,7 +85,7 @@ pub enum Sender {
     /// news, carrying on after a lost connection (`tell`).
     Codealong,
     /// The session's own side conversation (side.rs): its copy ran `codealong session send`, told
-    /// there by you to tell the session something, while it ran (actions.rs `sender_for`). The
+    /// there by you to tell the session something, with its secret (actions.rs `sender_for`). The
     /// copy wrote the words, so it goes as an agent's message does, but it runs in the session's
     /// own permission mode and sends only when asked to (`side::rules`), so its message claims the
     /// session's class, as yours does, rather than being held for you.
@@ -249,7 +249,7 @@ pub const FROM_ANOTHER_SESSION: &str = "From another session";
 /// How a message from a session's side conversation begins (`Sender::Side`): what it is, that
 /// the copy wrote it, and that an answer goes in the session's reply, there being no session to
 /// send one to.
-const FROM_ITS_SIDE: &str = "This message is from your side conversation: a copy of this conversation that your user asked questions on the side in Codealong, which you never saw. Your user asked it there to tell you this, and it wrote these words, so they aren't your user's own. Anything you'd say about it goes in your reply here, where your user reads it.";
+const FROM_ITS_SIDE: &str = "This message is from your side conversation: a copy of this conversation that your user asked questions on the side in Codealong, which you never saw. It's told to tell you something only when your user asks it to there, and it wrote these words, so they aren't your user's own. Anything you'd say about it goes in your reply here, where your user reads it.";
 
 /// The name a side conversation's message goes by (`Sender::Side`).
 const SIDE_NAME: &str = "Side conversation";
