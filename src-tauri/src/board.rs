@@ -2193,8 +2193,10 @@ pub struct Work {
     /// the worktree is its alone: no main checkout or plain folder, which hold others' work too,
     /// and no other session of the work the worktree holds now.
     pub unsaved: bool,
-    /// The first line of its last reply says its change landed (`insights::landing_said`).
-    pub said_landed: bool,
+    /// How far its change got by the first line of its last reply, where that says
+    /// (`insights::landing_said`): the session's own word, read whether or not Jev reads
+    /// sessions, which is the only time `SessionInsight::landing` has it.
+    pub said: Option<&'static str>,
 }
 
 /// Whether a session's work is done with nothing left for you, and why: for a session of yours
@@ -2202,9 +2204,9 @@ pub struct Work {
 ///
 /// Not when its reply may ask you something (`reply_asks`), hands you a next step or waits on
 /// what it started (`SessionInsight::ending`: only a report or an offer of more leaves nothing),
-/// says its change didn't land or that it couldn't finish (`landing`), or reads as not done
-/// (`NOT_FINISHED`); nor while a PR it worked on is open, a todo linked to it isn't done, or its
-/// own worktree holds what would be lost.
+/// says its change didn't land or that it couldn't finish (the read's `landing`, else its own
+/// status line, `Work::said`), or reads as not done (`NOT_FINISHED`); nor while a PR it worked on
+/// is open, a todo linked to it isn't done, or its own worktree holds what would be lost.
 ///
 /// Then it's finished for sure when something besides the reply says so: a PR it worked on
 /// merged, a todo linked to it done, or its status line saying the change landed. With none of
@@ -2222,7 +2224,10 @@ pub fn finished_of(s: &Session, work: &Work) -> Option<Finished> {
     }
     let read = s.insight.as_ref();
     let leaves_a_step = read.and_then(|i| i.ending.as_deref()).is_some_and(|e| !matches!(e, "report" | "offer"));
-    let not_landed = read.and_then(|i| i.landing.as_deref()).is_some_and(|l| matches!(l, "blocked" | "uncommitted" | "committed"));
+    // The read's landing has the status line under an agent's tag of it; with no read of it, the
+    // line itself.
+    let landing = read.and_then(|i| i.landing.as_deref()).or(work.said);
+    let not_landed = landing.is_some_and(|l| matches!(l, "blocked" | "uncommitted" | "committed"));
     let done = read.and_then(|i| i.finished);
     if leaves_a_step || not_landed || done.is_some_and(|p| p < NOT_FINISHED) {
         return None;
@@ -2244,7 +2249,7 @@ pub fn finished_of(s: &Session, work: &Work) -> Option<Finished> {
         n => why.push(format!("its {n} todos are done")),
     }
     // A status line an agent's tag reads otherwise isn't its last word on the change.
-    if work.said_landed && read.and_then(|i| i.landing.as_deref()).is_none_or(|l| l == "landed") {
+    if work.said == Some("landed") && landing == Some("landed") {
         why.push("it says its change landed".to_string());
     }
     let sure = !why.is_empty();
@@ -2286,7 +2291,7 @@ pub fn settle_finished(lanes: &mut [Lane], prs: &[PrItem], todos: &[crate::todos
                 prs: worked.get(s.key.as_str()).cloned().unwrap_or_default(),
                 todos: linked.get(s.key.as_str()).cloned().unwrap_or_default(),
                 unsaved: holds && own(&s),
-                said_landed: crate::insights::landing_said(s) == Some("landed"),
+                said: crate::insights::landing_said(s),
             };
             if let Some(f) = finished_of(s, &work) {
                 found.insert(s.key.clone(), f);
@@ -4900,14 +4905,22 @@ mod tests {
         assert_eq!(said(&unread, &merged), Some((true, "#12 merged".into())));
         assert_eq!(said(&ended(|i| i.finished = Some(0.9)), &merged), Some((true, "#12 merged, its reply reads as done".into())));
         // So does a todo linked to it that's done, and its own status line.
-        let all = Work { prs: vec![(12, PrState::Merged), (13, PrState::Merged), (9, PrState::Closed)], todos: vec![true], said_landed: true, ..Default::default() };
+        let all = Work { prs: vec![(12, PrState::Merged), (13, PrState::Merged), (9, PrState::Closed)], todos: vec![true], said: Some("landed"), ..Default::default() };
         assert_eq!(said(&unread, &all), Some((true, "#12 and #13 merged, its todo is done, it says its change landed".into())));
         let many = Work { prs: (1..=3).map(|n| (n, PrState::Merged)).collect(), todos: vec![true, true], ..Default::default() };
         assert_eq!(said(&unread, &many), Some((true, "3 PRs merged, its 2 todos are done".into())));
         // A status line an agent's tag reads otherwise isn't the last word on the change.
-        let line = Work { said_landed: true, ..Default::default() };
+        let line = Work { said: Some("landed"), ..Default::default() };
         assert_eq!(said(&ended(|i| i.landing = Some("landed".into())), &line), Some((true, "it says its change landed".into())));
         assert_eq!(said(&ended(|i| i.landing = Some("pushed".into())), &line), None);
+        // The line is the session's own word with nothing reading sessions (`[jev] sessions` off,
+        // no tag): one that says the change didn't land holds it, whatever merged; one that only
+        // says it's pushed doesn't, its PR having merged since.
+        assert_eq!(said(&unread, &line), Some((true, "it says its change landed".into())));
+        for held in ["uncommitted", "committed"] {
+            assert_eq!(said(&unread, &Work { said: Some(held), ..merged.clone() }), None, "{held}");
+        }
+        assert_eq!(said(&unread, &Work { said: Some("pushed"), ..merged.clone() }), Some((true, "#12 merged".into())));
         // Seen or stopped, it's as finished as unread: the lists of what to clear go by it too.
         for status in [Status::Idle, Status::Stopped] {
             assert!(finished_of(&Session { status, ..unread.clone() }, &merged).is_some(), "{status:?}");
@@ -4930,7 +4943,7 @@ mod tests {
     #[test]
     fn a_session_with_anything_left_is_not_finished() {
         const MIN: i64 = 60_000;
-        let merged = Work { prs: vec![(12, PrState::Merged)], todos: vec![true], said_landed: true, ..Default::default() };
+        let merged = Work { prs: vec![(12, PrState::Merged)], todos: vec![true], said: Some("landed"), ..Default::default() };
         let done = || ended(|i| i.finished = Some(1.0));
         assert!(finished_of(&done(), &merged).is_some());
         let left = |what: &str, s: Session| assert_eq!(finished_of(&s, &merged), None, "{what}");
@@ -5019,10 +5032,21 @@ mod tests {
         // goes once it no longer is.
         let visitor = Session { visitor: Some("worked here".into()), finished: None, ..done.clone() };
         let stale = Session { finished: Some(Finished::default()), ..open.clone() };
-        let mut both = vec![own(vec![done.clone(), stale], GitInfo::default()), Lane { id: "/r/v".into(), ..own(vec![visitor], GitInfo::default()) }];
+        let mut both = vec![own(vec![done.clone(), stale], GitInfo::default()), Lane { id: "/r/v".into(), bay: Bay::Idle, ..own(vec![visitor], GitInfo::default()) }];
         settle_finished(&mut both, &[pr(8, PrState::Merged, &done)], &[]);
         assert_eq!(both[1].sessions[0].finished.as_ref().map(|f| f.why.join(", ")).as_deref(), Some("#8 merged, its reply reads as done"));
         assert_eq!(both[0].sessions.iter().map(|s| (name(s), s.finished.is_some())).collect::<Vec<_>>(), [("open".to_string(), false), ("done".to_string(), true)]);
+        // Its status line is read with nothing reading sessions (`[jev] sessions` off, no tag):
+        // one that says the change isn't committed holds a session whose PR merged, in a main
+        // checkout too, where git says nothing of whose the changes are; one that says it landed
+        // is why it's finished.
+        let says = |line: &str| Session { insight: None, reply_head: Some(line.into()), ..done.clone() };
+        let mut held = vec![Lane { origin: Origin::Main, ..own(vec![says("Not committed: edits in /r/w; the tests fail.")], GitInfo::default()) }];
+        settle_finished(&mut held, &[pr(9, PrState::Merged, &done)], &[]);
+        assert_eq!(held[0].sessions[0].finished, None);
+        let mut landed = vec![own(vec![says("Landed: 1a2b3c4 is in origin/main.")], GitInfo::default())];
+        settle_finished(&mut landed, &[], &[]);
+        assert_eq!(landed[0].sessions[0].finished.as_ref().map(|f| (f.sure, f.why.join(", "))), Some((true, "it says its change landed".to_string())));
     }
 
     #[test]
