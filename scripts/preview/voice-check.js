@@ -144,7 +144,13 @@
       check('a cue’s lines stay lines', lines.length === 2 && lines[1] === 'They haven’t named a budget owner yet.', lines.join(' / '));
       check('the strip says it’s listening, for how long and to what', /^Listening\s*4:\d\d · You and this Mac’s audio/.test(q('.ca-live-head', strip()).textContent), q('.ca-live-head', strip()).textContent);
       check('with what it hasn’t been told yet', stripLines().join(' / ') === 'Could Dana join us Thursday? / I’ll ask her today.', stripLines().join(' / '));
-      return hearing({ who: 'Them', text: 'and one more' });
+      // Its clock goes on by the second, whatever the panel's own does.
+      var clockSays = function () { return (/\d+:\d\d/.exec(q('.ca-live-meta', strip()).textContent) || [''])[0]; };
+      var was = clockSays();
+      return until(function () { return clockSays() !== was; }, 2500, 'the strip’s clock to tick within two seconds').then(function () {
+        check('how long it’s listened goes on by the second', true);
+        return hearing({ who: 'Them', text: 'and one more' });
+      });
     })
     .then(function () {
       check('and the words being said', live() === 'Them: and one more', live());

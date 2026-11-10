@@ -58,6 +58,13 @@ export function saidUntil(said: Said | null, talkedAt: number): number | null {
   return stays === null ? null : talkedAt + stays;
 }
 
+/** What the mark says while sessions hear (ui/Said.tsx, the bar's mark with its center red):
+ *  which, and what's wrong with any, a line each. Nothing while none does. */
+export function hearingSays(listenings: readonly BarListening[] | undefined): string | null {
+  if (!listenings?.length) return null;
+  return listenings.map((l) => `${l.title} is listening${l.problem ? `: ${l.problem}` : ''}`).join('\n');
+}
+
 /** What a key held to talk says of itself, over the words: who's listening, and where they went. */
 export function talkSays(talk: Talk): string {
   const whom = talk.title ?? (talk.to === 'orchestrator' ? 'your orchestrator' : null);

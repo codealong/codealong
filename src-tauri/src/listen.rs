@@ -463,6 +463,9 @@ struct Running {
     /// Since when a source of the Mac's own audio has given nothing at all; None once it's
     /// given something.
     silent_since: Option<i64>,
+    /// Whether macOS lets the Mac's own audio be heard, as its helper last said
+    /// (`ear::Status::system_audio`); empty until it has.
+    may_hear: String,
     /// Something wrong that it goes on through.
     problem: Option<String>,
     /// Something it waits on that passes: the speech model downloading.
@@ -670,7 +673,7 @@ fn heard(id: &str, event: Event) {
             // Only the Mac's own audio is silent when macOS isn't letting it be heard.
             if source != YOU && level > 0.0 {
                 say(id, |r| {
-                    if r.silent_since.take().is_some() && r.problem.as_deref() == Some(SILENT) {
+                    if r.silent_since.take().is_some() && r.problem.as_deref().is_some_and(|p| p.contains(SILENT)) {
                         r.problem = None;
                     }
                 });
@@ -679,6 +682,16 @@ fn heard(id: &str, event: Event) {
         Event::Ready => say(id, |r| r.waiting = None),
         Event::Waiting { message } => say(id, |r| r.waiting = Some(message)),
         Event::Lost { source, message } => say(id, |r| r.problem = Some(format!("{source} can't be heard: {message}"))),
+        Event::Permission { state, .. } => {
+            // What's said of the silence goes by it, so what's showing is said again.
+            let mic = list().iter().find(|l| l.id == id).is_some_and(with_mic);
+            say(id, |r| {
+                if r.problem.as_deref().is_some_and(|p| p.contains(SILENT)) {
+                    r.problem = Some(silent(mic, &state));
+                }
+                r.may_hear = state;
+            });
+        }
         // Ended on a thread of its own: ending asks the helper to stop, and this is the thread
         // that reads its answer.
         Event::Failed(refused) => end_soon(id, refused.message),
@@ -704,7 +717,38 @@ fn end_soon(id: &str, why: String) {
     });
 }
 
-const SILENT: &str = "Nothing has come from this Mac's audio yet. If something is playing, macOS may not be letting Codealong hear it: allow it in System Settings › Privacy & Security › Screen & System Audio Recording, under System Audio Recording Only.";
+/// What every way of saying the Mac's own audio has given nothing has in it (`silent`): what it's
+/// known by, to take it back once something comes.
+const SILENT: &str = "Nothing has come from what this Mac plays";
+
+fn with_mic(l: &Listening) -> bool {
+    l.sources.iter().any(|s| matches!(s.from, ear::From::Mic { .. }))
+}
+
+/// What a listening says while the Mac's own audio has given nothing at all. It's about that
+/// source alone, and says so: with a microphone too (`mic`) the transcript is filling with what
+/// you say, and "no audio" would read as wrong (it did, the first time this was used). What the
+/// Mac plays is silent when nothing has played and when macOS isn't letting Codealong hear it:
+/// `may_hear` is which, as the helper has it from macOS, and where it couldn't say, both are said.
+fn silent(mic: bool, may_hear: &str) -> String {
+    let settings = "System Settings › Privacy & Security › Screen & System Audio Recording, under System Audio Recording Only";
+    let yet = match mic {
+        true => format!("Your microphone is heard. {SILENT} yet, which is where the other side of a call comes from"),
+        false => format!("{SILENT} yet"),
+    };
+    match may_hear {
+        "allowed" => format!("{yet}."),
+        "denied" => format!("{yet}: macOS isn't letting Codealong hear it. Turn Codealong on in {settings}."),
+        "unasked" => format!("{yet}: macOS is asking whether Codealong may hear it. Say yes there, or turn Codealong on in {settings}."),
+        _ => format!("{yet}. If {}, macOS may not be letting Codealong hear it: turn Codealong on in {settings}.", if mic { "someone there has spoken" } else { "something is playing" }),
+    }
+}
+
+/// Whether it's time to say the Mac's own audio is silent: after a while of it, or at once when
+/// macOS says it isn't letting Codealong hear, which no wait will mend.
+fn silent_long(running: &Running, now: i64) -> bool {
+    running.silent_since.is_some_and(|since| now - since >= SILENT_MS || matches!(running.may_hear.as_str(), "denied" | "unasked"))
+}
 
 fn spec(l: &Listening) -> ear::Spec {
     ear::Spec { sources: l.sources.clone(), locale: l.locale.clone(), hints: Vec::new() }
@@ -725,8 +769,9 @@ pub fn refusal(refused: ear::Refused) -> anyhow::Error {
 }
 
 /// What this Mac can hear with (ear.rs `status`), and the apps that record or play now. Asked
-/// of the server, which is what does the hearing: whether macOS lets the microphone be used is
-/// answered for whoever asks, and a command's shell isn't Codealong. Asks the person nothing.
+/// of the server, which is what does the hearing: whether macOS lets the microphone be used, or
+/// what the Mac plays be heard, is answered for whoever asks, and a command's shell isn't
+/// Codealong. Asks the person nothing.
 pub fn hearing(cfg: &crate::config::Config) -> serde_json::Value {
     let status = ear::status(&cfg.voice.locale);
     let apps = if status.available { ear::apps().unwrap_or_default() } else { Vec::new() };
@@ -1049,8 +1094,8 @@ fn plan(state: &mut State, l: &Listening, now: i64) -> Do {
         return Do::Nothing;
     }
     let running = state.running.entry(l.id.clone()).or_insert_with(|| Running { again_at: Some(now), ..Running::of(l, now) });
-    if running.silent_since.is_some_and(|since| now - since >= SILENT_MS) && running.problem.is_none() {
-        running.problem = Some(SILENT.into());
+    if silent_long(running, now) && running.problem.is_none() {
+        running.problem = Some(silent(with_mic(l), &running.may_hear));
         return Do::Silent;
     }
     if running.ear.is_some() || running.again_at.is_none_or(|at| now < at) {
@@ -1241,7 +1286,27 @@ mod tests {
         let mut state = State::default();
         state.running.insert(them.id.clone(), Running { silent_since: Some(NOW - SILENT_MS), ..Running::default() });
         assert_eq!(plan(&mut state, &them, NOW), Do::Silent);
+        assert_eq!(state.running[&them.id].problem.as_deref(), Some("Nothing has come from what this Mac plays yet. If something is playing, macOS may not be letting Codealong hear it: turn Codealong on in System Settings › Privacy & Security › Screen & System Audio Recording, under System Audio Recording Only."));
         assert_eq!(plan(&mut state, &them, NOW + 500), Do::Nothing);
+        // With a microphone too, it says the microphone is heard: the transcript is filling with
+        // what you say, and it's the other side that's missing.
+        let both = Listening { sources: Ask { mic: true, system: true, ..Ask::default() }.sources().unwrap(), ..hearing() };
+        assert!(with_mic(&both) && !with_mic(&them));
+        assert_eq!(silent(true, ""), "Your microphone is heard. Nothing has come from what this Mac plays yet, which is where the other side of a call comes from. If someone there has spoken, macOS may not be letting Codealong hear it: turn Codealong on in System Settings › Privacy & Security › Screen & System Audio Recording, under System Audio Recording Only.");
+        // What macOS says of it, when the helper could ask, is said in place of the guess.
+        assert_eq!(silent(false, "allowed"), "Nothing has come from what this Mac plays yet.");
+        assert_eq!(silent(true, "denied"), "Your microphone is heard. Nothing has come from what this Mac plays yet, which is where the other side of a call comes from: macOS isn't letting Codealong hear it. Turn Codealong on in System Settings › Privacy & Security › Screen & System Audio Recording, under System Audio Recording Only.");
+        assert!(silent(false, "unasked").starts_with("Nothing has come from what this Mac plays yet: macOS is asking whether Codealong may hear it. Say yes there, or turn Codealong on in System Settings"));
+        for may_hear in ["", "unknown", "allowed", "denied", "unasked"] {
+            assert!(silent(true, may_hear).contains(SILENT) && silent(false, may_hear).contains(SILENT), "{may_hear}");
+        }
+        // Not allowed is said at once: no wait will mend it. Allowed, or not known, waits to see.
+        for (may_hear, at_once) in [("denied", true), ("unasked", true), ("allowed", false), ("unknown", false), ("", false)] {
+            let mut state = State::default();
+            state.running.insert(them.id.clone(), Running { silent_since: Some(NOW), may_hear: may_hear.into(), ..Running::default() });
+            assert_eq!(plan(&mut state, &them, NOW + 1000) == Do::Silent, at_once, "{may_hear}");
+            assert_eq!(plan(&mut state, &them, NOW + SILENT_MS), if at_once { Do::Nothing } else { Do::Silent }, "{may_hear}");
+        }
     }
 
     #[test]

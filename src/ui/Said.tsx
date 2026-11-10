@@ -8,6 +8,7 @@ import { clock } from '../listening';
 import { latestTalk, saidNow, saidUntil, talkSays, type Said } from '../said';
 import type { BarListening, Talk } from '../types';
 import { cx, Icon } from './primitives';
+import { useNow } from './useNow';
 
 const NONE: readonly BarListening[] = [];
 
@@ -55,7 +56,9 @@ function Level({ level }: { level: number }) {
 }
 
 /** The card under the notch's pills. */
-export function SaidCard({ said, now, onDismiss }: { said: Said; now: number; onDismiss: () => void }) {
+export function SaidCard({ said, onDismiss }: { said: Said; onDismiss: () => void }) {
+  // How long the session has listened, by the second while the card is up.
+  const now = useNow(1000);
   if (said.kind === 'cue') {
     const l = said.listening;
     return (
@@ -109,11 +112,3 @@ export function SaidLine({ said }: { said: Said }) {
   );
 }
 
-/** That a session is hearing now, beside the notch's mark for as long as one is: nothing is ever
- *  heard without it showing. */
-export function HearingMark({ listenings }: { listenings: readonly BarListening[] | undefined }) {
-  if (!listenings?.length) return null;
-  const troubled = listenings.some((l) => l.problem);
-  const title = listenings.map((l) => `${l.title} is listening${l.problem ? `: ${l.problem}` : ''}`).join('\n');
-  return <span className={cx('ca-hearing-mark', troubled && 'is-troubled')} title={title} role="img" aria-label={title} />;
-}

@@ -62,6 +62,23 @@
   animation: ca-mark-breath 3600ms cubic-bezier(0.37, 0, 0.63, 1) infinite;
   will-change: transform, opacity;
 }
+/* While a session listens (MarkLive's `hearing`) the node is a recording light: red whatever the
+   status, which the counts beside the mark still say, and beating slowly in place of the breath.
+   Only the node: a moment's ring and run keep the status's color. */
+@keyframes ca-mark-hearing {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+.ca-lmark[data-hearing] .ca-lmark-node {
+  fill: var(--alert-solid);
+  animation: ca-mark-hearing 1600ms ease-in-out infinite;
+  will-change: opacity;
+}
 /* Ripple, as a turn ends: the node beats, a ring leaves it and crosses the gap, and the C swells
    a hair as it takes it in. Knock, for what needs you, beats twice first. */
 .ca-lmark > .ca-lmark-ring {
@@ -286,7 +303,8 @@
 /* With Reduce Motion on, the node changes color and nothing moves. */
 @media (prefers-reduced-motion: reduce) {
   .ca-lmark *,
-  .ca-lmark[data-status="working"] .ca-lmark-node {
+  .ca-lmark[data-status="working"] .ca-lmark-node,
+  .ca-lmark[data-hearing] .ca-lmark-node {
     animation: none !important;
     will-change: auto;
   }

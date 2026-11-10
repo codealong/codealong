@@ -1,6 +1,6 @@
 /* What the bar shows of voice (Said.tsx): a key held to talk and a listening session's cue, as a
-   card under the notch's pills and as a line in the floating bar; and the mark that a session is
-   hearing, beside the notch's own. */
+   card under the notch's pills and as a line in the floating bar. That a session is hearing is
+   the bar's own mark, its center red (MarkLive.css). */
 
 .ca-spoken {
   display: flex;
@@ -110,15 +110,4 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.ca-hearing-mark {
-  flex: none;
-  width: 6px;
-  height: 6px;
-  border-radius: var(--radius-pill);
-  background: var(--alert-solid);
-}
-.ca-hearing-mark.is-troubled {
-  background: var(--attn-solid);
 }

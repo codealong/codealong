@@ -1502,7 +1502,7 @@ enum ListenCmd {
         /// The session's key, or `me` for the one running this command.
         session: String,
     },
-    /// What this Mac can hear with: whether it can transcribe speech and in which language, whether that language's model is on it yet, whether Codealong may use the microphone, and the apps that record or play right now. Codealong's server answers (`answeredBy: server` in the JSON); with no server it's this command's own shell that's asked, whose microphone is its terminal's (`shell`). Asks the user for nothing.
+    /// What this Mac can hear with: whether it can transcribe speech and in which language, whether that language's model is on it yet, whether Codealong may use the microphone and hear what this Mac plays, and the apps that record or play right now. Codealong's server answers (`answeredBy: server` in the JSON); with no server it's this command's own shell that's asked, whose answers on the two are its terminal's (`shell`). Asks the user for nothing.
     Status,
 }
 
@@ -2280,7 +2280,7 @@ fn listen(cmd: ListenCmd, c: &mut Client, json: bool) -> Result<()> {
                 return print_json(&heard);
             }
             if !served {
-                println!("Codealong's server isn't running, so this is what this shell's terminal can hear with; the microphone's answer is the terminal's, not Codealong's.");
+                println!("Codealong's server isn't running, so this is what this shell's terminal can hear with; what it says of the microphone and of what this Mac plays is the terminal's answer, not Codealong's.");
             }
             match &status.why {
                 Some(why) => println!("{why}"),
@@ -2295,6 +2295,13 @@ fn listen(cmd: ListenCmd, c: &mut Client, json: bool) -> Result<()> {
                             _ => "Codealong isn't allowed to use the microphone: System Settings › Privacy & Security › Microphone.",
                         }
                     );
+                    // Nothing is said where macOS couldn't be asked (or the helper is an older one).
+                    match status.system_audio.as_str() {
+                        "allowed" => println!("Codealong may hear what this Mac plays."),
+                        "unasked" => println!("macOS hasn't asked yet whether Codealong may hear what this Mac plays: it will the first time a session listens to it."),
+                        "denied" => println!("Codealong isn't allowed to hear what this Mac plays: System Settings › Privacy & Security › Screen & System Audio Recording, under System Audio Recording Only."),
+                        _ => {}
+                    }
                     for app in &apps {
                         let does = match (app.recording, app.playing) {
                             (true, true) => "records and plays",

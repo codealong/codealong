@@ -3229,8 +3229,12 @@ model for a language is downloaded by macOS the first time it's used), in a help
 Codealong's, `codealong-ear`. No audio is kept anywhere, and none leaves the Mac: what a session
 gets is text. macOS asks before Codealong may use the microphone, and again before it may hear
 what the Mac plays (*System Audio Recording Only*, under Privacy & Security › Screen & System
-Audio Recording); a listening that hears nothing from the Mac's audio for a while says that this
-may be why. Linux has none of this yet.
+Audio Recording). The two are separate: a listening allowed only the microphone writes down what
+you say and nothing of the other side of a call, and its strip says so, with which it is: macOS
+isn't letting Codealong hear what the Mac plays (said at once, with where to turn it on), macOS is
+still asking, or it's allowed and nothing has played yet (said after 45 seconds of nothing).
+Turned on while a session listens, it's heard from then on, without starting again.
+`codealong listen status` says where both stand. Linux has none of this yet.
 
 **Talking to a session.** Hold ⌥⌘[ and talk; let go, and what you said is typed where your caret
 is in the Codealong window you're in: a session's box, the quick panel, a todo's description, a
@@ -3276,11 +3280,13 @@ the middle of a turn is told everything at once when the turn is over.
 So the session's conversation is the meeting and what its agent made of it, in turn, and that's
 how it's drawn: what was heard as the meeting's lines, the agent's answers between them, and an
 answer that says there's nothing to say (a dash, as it's asked to give most of the time) not at
-all. Over its box a strip says it's listening, for how long and to what, with the lines heard
-that it hasn't been told of yet, the words being said right now, its notes, and Stop. Its row
-wears a Listening chip. A coach's latest answer, or a call's requests as they're filed, opens
+all. Over its box a strip says it's listening, for how long (a clock that goes on by the second)
+and to what, with the lines heard that it hasn't been told of yet, the words being said right
+now, its notes, and Stop. Its row wears a Listening chip. A coach's latest answer, or a call's requests as they're filed, opens
 under the notch's pills for a few seconds, beside your camera, without taking the keyboard; a
-click puts it away. A mark beside the notch's own shows for as long as any session is hearing.
+click puts it away. For as long as any session is hearing, Codealong's mark in the bar has a red
+center that beats slowly, docked in the notch or floating, as a recording light does; point at it
+and it says which session listens, and what's wrong when something is.
 
 While it hears, a listening session's finished turns aren't Your turn: it ends one every few
 seconds, none of them yours to answer, so they make no sound and count nowhere. A call it asks

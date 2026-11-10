@@ -65,9 +65,21 @@ What macOS's speech recognition and audio capture take and give, as codealong-ea
   format is `kAudioTapPropertyFormat`. It asks for *System Audio Recording Only* (Privacy &
   Security › Screen & System Audio Recording), with `NSAudioCaptureUsageDescription`; this is not
   Screen Recording, and puts no recording mark on the screen.
-- Nothing says whether that permission was given: a tap that isn't allowed gives silence, as one
-  is given when nothing plays. So a listening says so itself when the Mac's audio has given
-  nothing at all for a while (`listen.rs` `SILENT`).
+- A tap that isn't allowed gives silence, as one is given when nothing plays, and Core Audio
+  says nothing of which. The privacy database does: `TCCAccessPreflight("kTCCServiceAudioCapture",
+  nil)` in the private `TCC.framework` (found by `dlsym`; 0 allowed, 1 denied, 2 not asked yet),
+  answered for the responsible app as the tap is judged, without asking anyone; and
+  `TCCAccessRequest(service, nil, block)` puts the prompt up and calls the block with the answer.
+  Run (macOS 26.6.2): from a shell under Rex the preflight said 2 for audio capture and for the
+  microphone, where `AVCaptureDevice` said not determined, and 0 for screen capture, which Rex
+  has; the request for screen capture called its block back with true and showed nothing. The
+  helper asks when it's 2, tells the engine what it is until the first sound (`permission`), and
+  makes the tap again once it turns to allowed; `listen.rs` `silent` words what a listening says
+  of it, and `codealong listen status` says it (`systemAudio`).
+- First real meeting (2026-11-10, a video call, the microphone and the Mac's audio): every line was
+  You for a quarter of an hour while the call's app played, and the tap's IO proc was being called all the
+  while (a `sample` of the helper), so a tap that gives nothing still hands over buffers, of
+  silence. That build couldn't say whether it was allowed.
 - A tap takes the processes it was made with, by their Core Audio object ids
   (`kAudioHardwarePropertyProcessObjectList`, each with `kAudioProcessPropertyPID`,
   `…BundleID`, `…IsRunningInput`, `…IsRunningOutput`). An app's audio often comes from a helper
@@ -78,10 +90,12 @@ What macOS's speech recognition and audio capture take and give, as codealong-ea
 
 ## Unchecked
 
-- Not yet run (2026-11-09): the microphone and the tap themselves, which wait on macOS's
-  prompts, answered by a person. Nor which name the prompts carry when the server starts the
-  helper, though the server is the app's own binary; nor that the entitlement is needed on the
-  helper as well as the app, which is why both have it.
+- The microphone ran for real on 2026-11-10, under the server (Codealong Dev was asked and
+  allowed). Not yet seen: the tap giving anything but silence; whether making a tap asks the
+  person by itself (the helper asks through `TCCAccessRequest` either way); whether a tap made
+  before the person said yes hears once they have, or only one made after (the helper makes it
+  again, which covers both), and whether coreaudiod needs a new process for it; nor that the
+  entitlement is needed on the helper as well as the app, which is why both have it.
 - Not yet run: voice processing on the input node (`setVoiceProcessingEnabled(true)`, for *I'm on
   speakers*), which should take what the Mac plays out of the microphone, may give more than two
   channels (the first is taken), and ducks other audio unless told not to

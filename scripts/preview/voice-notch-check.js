@@ -1,7 +1,7 @@
 // Checks what the bar docked in the notch shows of voice (src/said.ts, ui/Said.tsx): a key held
 // to talk opens under the pills with the words as they're heard and to whom, without taking the
-// keyboard, says where they went when it comes up, and goes away by itself; a session that
-// listens shows the mark that it's hearing beside the notch's own, closed too; and a coach's cue
+// keyboard, says where they went when it comes up, and goes away by itself; while a session
+// listens the notch's own mark has its center red, closed too, and says which; and a coach's cue
 // opens the same way, is put away with a click, and stays away until the next one.
 //   PREVIEW_SIZE=1512,720 PREVIEW_WAIT=60000 scripts/preview.sh notch '' scripts/preview/voice-notch-check.js
 (function () {
@@ -16,6 +16,18 @@
     var c = card().getBoundingClientRect();
     var s = last('notch_shape');
     return c.left >= s.x - 1 && c.right <= s.x + s.w + 1 && c.bottom <= s.y + s.h + 1 ? '' : JSON.stringify({ card: [Math.round(c.left), Math.round(c.right), Math.round(c.bottom)], shape: s });
+  };
+  // The notch's own mark while it says a session hears, and the red it should be: the alert color
+  // as the page has it, read off a probe.
+  var hearingMark = function () { return q('.ca-notch .ca-hud-mark .ca-lmark[data-hearing]'); };
+  var centerOf = function (mark) { return getComputedStyle(mark.querySelector('.ca-lmark-node')).fill; };
+  var redOf = function (el) {
+    var probe = document.createElement('span');
+    probe.style.color = 'var(--alert-solid)';
+    el.appendChild(probe);
+    var red = getComputedStyle(probe).color;
+    probe.remove();
+    return red;
   };
   var talk = function (over) { window.__emit('talk', Object.assign({ id: 1, phase: 'listening', to: 'orchestrator', text: '', level: 0 }, over)); };
   var feed;
@@ -34,7 +46,7 @@
       return wait(300);
     })
     .then(function () {
-      check('starts closed, with no mark that anything hears', !is('end') && !is('session') && !q('.ca-hearing-mark'));
+      check('starts closed, its mark not saying anything hears', !is('end') && !is('session') && !hearingMark());
       talk({ text: 'Check which sessions', level: 0.3 });
       return until(function () { return is('end') && card(); }, 3000, 'the card under the pills');
     })
@@ -70,11 +82,14 @@
     .then(function () {
       // A session that listens: the mark, closed, and nothing opening for one with no cue.
       hears([listening({})]);
-      return until(function () { return q('.ca-hearing-mark'); }, 2000, 'the mark that it hears');
+      // Its color crosses over from the status's, so it's waited for.
+      return until(function () { var mark = hearingMark(); return mark && centerOf(mark) === redOf(mark) && mark; }, 2000, 'the mark’s center to turn red')
+        .catch(function () { return hearingMark(); });
     })
     .then(function (mark) {
-      check('a session that listens is marked, closed too', !is('end') && !is('pills') && mark.getBoundingClientRect().width > 0);
-      check('saying which', (mark.getAttribute('title') || '').indexOf('Renewal call is listening') === 0, mark.getAttribute('title'));
+      check('while a session listens the mark’s center is red, closed too', !!mark && !is('end') && !is('pills') && mark.getBoundingClientRect().width > 0 && centerOf(mark) === redOf(mark), mark ? centerOf(mark) + ' / ' + redOf(mark) : 'no mark says it hears');
+      var title = mark.closest('.ca-hud-mark').getAttribute('title') || '';
+      check('and it says which session', title.indexOf('Renewal call is listening') === 0, title);
       hears([listening({ cue: 'Ask when they renew.\nNo budget owner yet.', cueAt: Date.now() })]);
       return until(function () { return is('end') && q('.ca-notch-session .ca-spoken.is-cue'); }, 3000, 'the cue');
     })
@@ -88,7 +103,7 @@
       return until(function () { return !card(); }, 2000, 'a click to put it away');
     })
     .then(function () {
-      check('a click puts it away, and opens nothing else', !card() && !is('session') && !is('end') && !!q('.ca-hearing-mark'));
+      check('a click puts it away, and opens nothing else', !card() && !is('session') && !is('end') && !!hearingMark());
       // The same cue again doesn't bring it back; the next one does.
       hears([listening({ cue: 'Ask when they renew.\nNo budget owner yet.', cueAt: Date.now() - 500 })]);
       return wait(400);
@@ -107,9 +122,9 @@
     .then(function () {
       check('a note-taker’s lines open nothing', !card());
       hears([]);
-      return until(function () { return !q('.ca-hearing-mark'); }, 2000, 'the mark to go');
+      return until(function () { return !hearingMark(); }, 2000, 'the mark to go back');
     })
-    .then(function () { check('the mark goes when nothing hears', true); })
+    .then(function () { check('the mark is its usual self when nothing hears', true); })
     .then(done)
     .catch(stopped);
 })();

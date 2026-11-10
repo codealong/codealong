@@ -16,6 +16,7 @@ import { errorText } from '../report';
 import type { HearingStatus, ListenAsk, ListeningGlance } from '../types';
 import { Markdown } from './Markdown';
 import { Button, CheckBox, Chip, cx, Dialog, Icon, Seg } from './primitives';
+import { useNow } from './useNow';
 
 /** One line of a meeting: when, who, the words. One with nobody's name is Codealong's own, about
  *  the transcript (its hearing stopped and started again). */
@@ -121,7 +122,10 @@ function useHeard(key: string, id: string) {
 const SHOWN = 4;
 
 /** Over a listening session's box while it hears. */
-export function LiveStrip({ sessionKey, listening, now }: { sessionKey: string; listening: ListeningGlance; now: number }) {
+export function LiveStrip({ sessionKey, listening }: { sessionKey: string; listening: ListeningGlance }) {
+  // How long it's been listening goes on by the second, as a recording's clock does: on a clock
+  // of the strip's own, since the panel's is for words like "5 minutes ago" and ticks far slower.
+  const now = useNow(1000);
   const { lines, saying, notes } = useHeard(sessionKey, listening.id);
   const [showNotes, setShowNotes] = useState(false);
   const [stopping, setStopping] = useState(false);

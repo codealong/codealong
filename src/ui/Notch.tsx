@@ -105,8 +105,9 @@ export interface NotchShellProps {
   onKeepOpen: (keep: boolean) => void;
   onMark: () => void;
   onMenu: () => void;
-  /** Beside the mark, closed too: that a session is hearing (Said.tsx `HearingMark`). */
-  hearing?: ReactNode;
+  /** Which sessions are hearing, in words, while any is (said.ts `hearingSays`): the mark's center
+   *  is red for as long, closed too, and its tooltip says this. */
+  hearing?: string | null;
   /** The bar's pills, shown below while it's open. */
   children: ReactNode;
 }
@@ -432,10 +433,9 @@ export function NotchShell({ notch, logoStatus, moment, counts, room, screen, zo
         <div className="ca-notch-top">
           <div className="ca-notch-side is-left">
             <div ref={left} className="ca-notch-side-in">
-              <button type="button" className="ca-hud-mark" title="Show Codealong" tabIndex={open ? 0 : -1} onClick={(e) => (open ? onMark() : e.preventDefault())}>
-                <MarkLive size={16} status={logoStatus} moment={moment} />
+              <button type="button" className="ca-hud-mark" title={hearing ? `${hearing}\nShow Codealong` : 'Show Codealong'} tabIndex={open ? 0 : -1} onClick={(e) => (open ? onMark() : e.preventDefault())}>
+                <MarkLive size={16} status={logoStatus} moment={moment} hearing={!!hearing} />
               </button>
-              {hearing}
               {project && <span className="ca-notch-extra">{project}</span>}
             </div>
           </div>

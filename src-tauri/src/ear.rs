@@ -150,6 +150,9 @@ pub enum Event {
     Waiting { message: String },
     /// A source went wrong and nothing more comes from it; the others carry on.
     Lost { source: String, message: String },
+    /// Whether macOS lets a source of the Mac's own audio be heard, as `Status::system_audio` has
+    /// it: said as the source starts and when it changes, until the source has given a sound.
+    Permission { source: String, state: String },
     /// A source that ends by itself (a file) has, its last words settled.
     Ended { source: String },
     /// The speech model can't be had: nothing will be heard.
@@ -170,6 +173,7 @@ pub fn event(line: &Value) -> Option<Event> {
         "ready" => Event::Ready,
         "state" => Event::Waiting { message: text("message") },
         "lost" => Event::Lost { source: text("source"), message: text("message") },
+        "permission" => Event::Permission { source: text("source"), state: text("state") },
         "ended" => Event::Ended { source: text("source") },
         "failed" => Event::Failed(Refused { code: text("code"), message: text("message") }),
         _ => return None,
@@ -249,10 +253,14 @@ pub struct Status {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub why: Option<String>,
     /// Whether Codealong may use the microphone: "allowed", "denied", "restricted", or
-    /// "unasked" when macOS has yet to ask the person. Nothing says the same of the Mac's own
-    /// audio: macOS gives silence until it's allowed, and no way to ask which it is.
+    /// "unasked" when macOS has yet to ask the person.
     #[serde(default)]
     pub microphone: String,
+    /// Whether Codealong may hear what the Mac plays: "allowed", "denied", "unasked", or
+    /// "unknown" (and empty from a helper that doesn't say) where macOS has no way to tell, when
+    /// all there is to go by is that what isn't allowed is silent.
+    #[serde(default, rename = "systemAudio")]
+    pub system_audio: String,
     /// The locale speech is transcribed in, for the one asked about. None when macOS has no
     /// model for it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -332,8 +340,14 @@ mod tests {
         assert_eq!(event(&line(r#"{"method":"ready","params":{"locale":"en_US"}}"#)), Some(Event::Ready));
         assert_eq!(event(&line(r#"{"method":"state","params":{"state":"downloading","message":"Downloading"}}"#)), Some(Event::Waiting { message: "Downloading".into() }));
         assert_eq!(event(&line(r#"{"method":"lost","params":{"source":"you","message":"gone"}}"#)), Some(Event::Lost { source: "you".into(), message: "gone".into() }));
+        assert_eq!(event(&line(r#"{"method":"permission","params":{"source":"them","state":"denied"}}"#)), Some(Event::Permission { source: "them".into(), state: "denied".into() }));
         assert_eq!(event(&line(r#"{"method":"ended","params":{"source":"file"}}"#)), Some(Event::Ended { source: "file".into() }));
         assert_eq!(event(&line(r#"{"method":"failed","params":{"code":"no-locale","message":"none"}}"#)), Some(Event::Failed(Refused { code: "no-locale".into(), message: "none".into() })));
+        // What the helper says of itself, as it words it; an older one says nothing of the Mac's audio.
+        let status: Status = serde_json::from_value(json!({ "available": true, "microphone": "allowed", "systemAudio": "unasked", "locale": "en_US", "installed": true })).unwrap();
+        assert_eq!((status.microphone.as_str(), status.system_audio.as_str()), ("allowed", "unasked"));
+        assert_eq!(serde_json::to_value(&status).unwrap()["systemAudio"], "unasked");
+        assert_eq!(serde_json::from_value::<Status>(json!({ "available": true })).unwrap().system_audio, "");
         // A newer helper's line, and an answer nobody waits for any more.
         assert_eq!(event(&line(r#"{"method":"something-new","params":{}}"#)), None);
         assert_eq!(event(&line(r#"{"id":4,"result":{}}"#)), None);

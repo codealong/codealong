@@ -1,6 +1,6 @@
 // Shows a listening session's cue in the bar, as its feed brings it (barfeed.rs `listenings`), for
 // a screenshot: the first session on the bar listens, a coach with something to say, under the
-// notch's pills (preview.sh's notch view) with the mark that it's hearing beside the notch's own.
+// notch's pills (preview.sh's notch view), the notch's mark with its center red while it hears.
 //   PREVIEW_SIZE=1512,420 PREVIEW_NAME=voice-cue PREVIEW_INIT=scripts/preview/voice-cue-init.js scripts/preview.sh notch
 (function () {
   window.__PREVIEW_VOICE__ = true;

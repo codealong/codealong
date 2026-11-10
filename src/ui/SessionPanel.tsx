@@ -478,7 +478,7 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
               ) : null
             }
           />}
-          {!inTerminal && !away && listening && <LiveStrip sessionKey={s.key} listening={listening} now={now} />}
+          {!inTerminal && !away && listening && <LiveStrip sessionKey={s.key} listening={listening} />}
           {inTerminal || away ? null : device && !device.online ? (
             <p className="ca-sessinsp-remote" role="status">
               {device.name} isn't connected, so nothing can reach this session from here right now.

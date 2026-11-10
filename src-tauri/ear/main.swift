@@ -568,15 +568,59 @@ func app(of process: AudioProcess) -> (bundle: String, name: String)? {
     return process.bundle.isEmpty ? nil : (process.bundle, process.bundle)
 }
 
+/// Whether macOS lets Codealong hear what the Mac plays (System Audio Recording Only). No public
+/// call says: these are the privacy database's own, the ones its prompt comes from, looked up by
+/// name so that a macOS without them only leaves it unknown. They answer for the app that's
+/// responsible for this process, as the tap itself is judged.
+enum SystemAudio {
+    private typealias Preflight = @convention(c) (CFString, CFDictionary?) -> Int
+    private typealias Request = @convention(c) (CFString, CFDictionary?, @escaping @convention(block) (Bool) -> Void) -> Void
+    private static let service = "kTCCServiceAudioCapture" as CFString
+    private static let tcc = dlopen("/System/Library/PrivateFrameworks/TCC.framework/Versions/A/TCC", RTLD_NOW)
+
+    /// "allowed", "denied", "unasked" when the person has yet to be asked, or "unknown". Asks
+    /// nobody anything.
+    static var state: String {
+        guard let tcc, let symbol = dlsym(tcc, "TCCAccessPreflight") else { return "unknown" }
+        switch unsafeBitCast(symbol, to: Preflight.self)(service, nil) {
+        case 0: return "allowed"
+        case 1: return "denied"
+        case 2: return "unasked"
+        default: return "unknown"
+        }
+    }
+
+    /// Has macOS ask the person, when it hasn't yet, and doesn't wait for their answer: a tap
+    /// made meanwhile gives silence, and is made again once they've said yes (`Tap.look`). Making
+    /// a tap is meant to ask by itself; this is so that it's asked whatever that does.
+    static func ask() {
+        guard state == "unasked", let tcc, let symbol = dlsym(tcc, "TCCAccessRequest") else { return }
+        let request = unsafeBitCast(symbol, to: Request.self)
+        DispatchQueue.global().async { request(service, nil) { _ in } }
+    }
+}
+
+/// Whether a buffer list holds anything but silence: any byte of it that isn't zero.
+func sounds(_ list: UnsafePointer<AudioBufferList>) -> Bool {
+    for buffer in UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: list)) {
+        guard let data = buffer.mData else { continue }
+        let bytes = UnsafeRawBufferPointer(start: data, count: Int(buffer.mDataByteSize))
+        if bytes.contains(where: { $0 != 0 }) { return true }
+    }
+    return false
+}
+
 /// What the Mac plays, or what some apps play, through a Core Audio tap: a private device that
-/// carries the tap's audio and nothing else, read on a queue of ours. Asking for one is what
-/// makes macOS ask the person whether Codealong may record the Mac's audio; until they've said
-/// yes the tap gives silence, and nothing says which it is.
+/// carries the tap's audio and nothing else, read on a queue of ours. The person is asked whether
+/// Codealong may record the Mac's audio as it starts; until they've said yes the tap gives
+/// silence, as it does when nothing plays, so the engine is told which it is (`permission`).
 final class Tap: Capture {
     /// The apps whose audio is wanted, by bundle id. Empty for everything the Mac plays.
     private let bundles: [String]
     private let sink: (AVAudioPCMBuffer) -> Void
     private let lost: (String) -> Void
+    /// Told whether macOS lets the Mac's audio be heard (`SystemAudio.state`), as it changes.
+    private let permission: (String) -> Void
     private let queue = DispatchQueue(label: "codealong.ear.tap")
     private var tap = AudioObjectID(kAudioObjectUnknown)
     private var device = AudioObjectID(kAudioObjectUnknown)
@@ -585,10 +629,11 @@ final class Tap: Capture {
     private var timer: DispatchSourceTimer?
     private var stopped = false
 
-    init(bundles: [String], sink: @escaping (AVAudioPCMBuffer) -> Void, lost: @escaping (String) -> Void) {
+    init(bundles: [String], sink: @escaping (AVAudioPCMBuffer) -> Void, lost: @escaping (String) -> Void, permission: @escaping (String) -> Void) {
         self.bundles = bundles
         self.sink = sink
         self.lost = lost
+        self.permission = permission
     }
 
     /// The processes to tap for the apps asked for: an app's own, and those it answers for.
@@ -600,7 +645,11 @@ final class Tap: Capture {
     }
 
     func start() throws {
-        try queue.sync { try self.build() }
+        SystemAudio.ask()
+        try queue.sync {
+            try self.build()
+            self.allowedNow()
+        }
         // An app's helpers come and go (a call started in another tab, a meeting's window opened
         // after the app), and a tap takes the processes it was made with. So the list is read
         // again every so often, and the tap rebuilt when it changed. The output device changing
@@ -620,6 +669,24 @@ final class Tap: Capture {
     private var builtOn: String?
     /// When the tap last handed anything over, silence included. Read and set on `queue`.
     private var lastRead = Date()
+    /// Whether it has handed over anything but silence yet, what macOS said of hearing the Mac's
+    /// audio when the tap was made, and what the engine was last told of it. A tap made before
+    /// the person allowed it gives silence, and whether it goes on to after they have isn't
+    /// known: it's made again once they do (`look`). None of it matters after the first sound.
+    private var heard = false
+    private var allowedWhenBuilt = ""
+    private var told = ""
+
+    /// Whether macOS lets the Mac's audio be heard now, telling the engine when that's changed.
+    @discardableResult
+    private func allowedNow() -> String {
+        let allowed = SystemAudio.state
+        if allowed != told {
+            told = allowed
+            permission(allowed)
+        }
+        return allowed
+    }
 
     private func look() {
         if stopped { return }
@@ -629,7 +696,11 @@ final class Tap: Capture {
         // A tap that hands over nothing at all while something plays has lost its device without
         // the default changing (the Mac slept): the same rebuild.
         let stalled = device != kAudioObjectUnknown && Date().timeIntervalSince(lastRead) > 10 && audioProcesses().contains { $0.playing }
-        if processes == tapped && outputDevice == builtOn && (device != kAudioObjectUnknown || idle) && !stalled { return }
+        // Until the first sound the engine is kept told whether macOS lets it be heard. Allowed
+        // since the tap was made, which has given only silence: made again, to hear.
+        let may = heard ? "" : allowedNow()
+        let allowed = may == "allowed" && allowedWhenBuilt != "allowed" && device != kAudioObjectUnknown
+        if processes == tapped && outputDevice == builtOn && (device != kAudioObjectUnknown || idle) && !stalled && !allowed { return }
         tearDown()
         do {
             try build()
@@ -644,6 +715,7 @@ final class Tap: Capture {
         let processes = bundles.isEmpty ? [] : wanted()
         tapped = processes
         builtOn = outputDevice
+        allowedWhenBuilt = SystemAudio.state
         // None of the apps asked for plays or records yet: nothing to tap until one does (`look`).
         if !bundles.isEmpty && processes.isEmpty { return }
         let description = bundles.isEmpty
@@ -688,6 +760,7 @@ final class Tap: Capture {
         status = AudioDeviceCreateIOProcIDWithBlock(&proc, device, queue) { [weak self, sink] _, input, _, _, _ in
             self?.lastRead = Date()
             guard let buffer = AVAudioPCMBuffer(pcmFormat: format, bufferListNoCopy: input, deallocator: nil) else { return }
+            if self?.heard == false, sounds(input) { self?.heard = true }
             sink(buffer)
         }
         if status == noErr { status = AudioDeviceStart(device, proc) }
@@ -826,16 +899,17 @@ actor Listening {
                 pipelines.append(pipeline)
                 let sink: (AVAudioPCMBuffer) -> Void = { pipeline.feed($0) }
                 let lost: (String) -> Void = { note("lost", ["source": name, "message": $0]) }
+                let permission: (String) -> Void = { note("permission", ["source": name, "state": $0]) }
                 let capture: Capture
                 switch source["kind"] as? String ?? "" {
                 case "mic":
                     capture = Mic(cancelEcho: source["cancel_echo"] as? Bool ?? false, sink: sink, lost: lost)
                 case "system":
-                    capture = Tap(bundles: [], sink: sink, lost: lost)
+                    capture = Tap(bundles: [], sink: sink, lost: lost, permission: permission)
                 case "apps":
                     let bundles = source["bundles"] as? [String] ?? []
                     if bundles.isEmpty { throw Refusal(code: "bad-request", message: "No app to listen to.") }
-                    capture = Tap(bundles: bundles, sink: sink, lost: lost)
+                    capture = Tap(bundles: bundles, sink: sink, lost: lost, permission: permission)
                 case "file":
                     guard let path = source["path"] as? String else {
                         throw Refusal(code: "bad-request", message: "No file to listen to.")
@@ -912,7 +986,7 @@ func warm(_ params: [String: Any]) async throws -> [String: Any] {
 
 /// What this Mac can hear with, without asking anyone anything.
 func status(_ params: [String: Any]) async -> [String: Any] {
-    var answer: [String: Any] = ["available": SpeechTranscriber.isAvailable, "microphone": microphoneState()]
+    var answer: [String: Any] = ["available": SpeechTranscriber.isAvailable, "microphone": microphoneState(), "systemAudio": SystemAudio.state]
     let asked = (params["locale"] as? String).map(Locale.init(identifier:)) ?? Locale.current
     if SpeechTranscriber.isAvailable, let locale = await SpeechTranscriber.supportedLocale(equivalentTo: asked) {
         answer["locale"] = locale.identifier
