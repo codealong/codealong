@@ -223,6 +223,9 @@ pub fn feed(shown: Shown) -> BarFeed {
             let group = match group_of(s.status) {
                 Some(Group::Working) => Group::Working,
                 _ if s.snoozed_until.is_some() => Group::Snoozed,
+                // Set aside, its side conversation is at work for it: with what's working, drawn
+                // waiting, until that's done and it needs you again.
+                _ if s.aside.is_some() => Group::Working,
                 Some(g) => g,
                 None if board.generated_at - s.started_at.unwrap_or(s.last_activity) <= RECENT_MS => Group::Recent,
                 None => continue,
@@ -238,12 +241,13 @@ pub fn feed(shown: Shown) -> BarFeed {
                 detail: t.detail.clone(),
                 disabled: t.disabled,
             });
-            let at = s.status_since.unwrap_or(s.last_activity);
+            // One set aside has been waiting on its side conversation since you set it aside.
+            let at = s.aside.unwrap_or(s.status_since.unwrap_or(s.last_activity));
             let item = BarItem {
                 key: s.key.clone(),
                 group,
-                status: s.status,
-                waiting: s.waits_in_background(),
+                status: if s.aside.is_some() { Status::Working } else { s.status },
+                waiting: s.waits_in_background() || s.aside.is_some(),
                 asks: s.asks,
                 cut_off: s.cut_off,
                 title: s.title.clone(),
@@ -520,6 +524,17 @@ mod tests {
         let got: Vec<(&str, Group)> = f.snoozed.iter().map(|i| (i.key.as_str(), i.group)).collect();
         assert_eq!(got, vec![("soon", Group::Snoozed), ("idle", Group::Snoozed), ("later", Group::Snoozed)]);
         assert!(f.recent.is_empty());
+    }
+
+    #[test]
+    fn lists_a_session_set_aside_with_what_works_drawn_waiting_since_it_was_set_aside() {
+        let mut aside = session("aside", Status::Needs, NOW - 600_000);
+        aside.aside = Some(NOW - 60_000);
+        let mut b = board(vec![lane("/a", vec![aside, session("n", Status::Needs, NOW)], false)], vec![]);
+        b.generated_at = NOW;
+        let f = feed(Shown::here(&b));
+        let got: Vec<(&str, Group, Status, bool, i64)> = f.items.iter().map(|i| (i.key.as_str(), i.group, i.status, i.waiting, i.since)).collect();
+        assert_eq!(got, vec![("n", Group::Needs, Status::Needs, false, NOW), ("aside", Group::Working, Status::Working, true, NOW - 60_000)]);
     }
 
     /// A worktree of another device's, as peers.rs hands it to the windows.

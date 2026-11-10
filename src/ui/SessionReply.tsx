@@ -226,6 +226,9 @@ interface ComposerProps {
   onFailed?: (why: string) => void;
   /** ⌘⏎ sends, then goes on to the next session that waits on you, saying what was done. */
   onNext?: (done: string) => void;
+  /** ⌘⏎ asking its side conversation, once the question's asked: the session leaves what waits
+   *  on you until the side conversation answers, and the window goes on (SessionPanel.tsx). */
+  onAsked?: () => void;
   /** The window's keyboard works through what waits on you (the notch, the waiting window): the
    *  keys of the replies suggested for it work from anywhere in it, not only from the box. */
   keyed?: boolean;
@@ -363,7 +366,7 @@ function land(key: string, note: Note): boolean {
   return true;
 }
 
-function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting, onSending, onSent, onFailed, onNext, keyed = false, onAllow, onDeny, onDenySaying, asked = false, runIn, runsUnder = false, sayKeys = false, moves, onMove }: ComposerProps) {
+function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting, onSending, onSent, onFailed, onNext, onAsked, keyed = false, onAllow, onDeny, onDenySaying, asked = false, runIn, runsUnder = false, sayKeys = false, moves, onMove }: ComposerProps) {
   // A side conversation shows above the box, in this window and every other, so the box is its.
   const aside = useAside(s.key) || onlyAside;
   // Out in a window of its own, where what's asked of it here shows.
@@ -744,9 +747,9 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
   // `/side`, and the question after it. The box clears at once and the question shows above it
   // as soon as its copy is started; one that can't be asked is back in the box, which stays the
   // side conversation's, with why. With no question it shows the side conversations kept from
-  // before.
+  // before. `then` runs once the copy has it (⌘⏎'s `onAsked`).
   const [asking, setAsking] = useState(false);
-  const askAside = (question: string) => {
+  const askAside = (question: string, then?: () => void) => {
     if (asking) return;
     const key = s.key;
     const full = withAttachments(question, attached);
@@ -769,29 +772,33 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
     // The question shows as the engine tells of it (side.ts), as its answer does: what this
     // resolves with can be behind what's been heard since.
     sideAsk(key, full, from)
-      .catch((e: unknown) => {
-        const why = errorText(e);
-        const side = sideDraft(key);
-        writeDraft(side, [full, readDraft(side)].filter((t) => t.trim()).join('\n\n'));
-        notAsked(key);
-        if (!land(key, { text: why, error: true })) onFailed?.(why);
-      })
+      .then(
+        () => then?.(),
+        (e: unknown) => {
+          const why = errorText(e);
+          const side = sideDraft(key);
+          writeDraft(side, [full, readDraft(side)].filter((t) => t.trim()).join('\n\n'));
+          notAsked(key);
+          if (!land(key, { text: why, error: true })) onFailed?.(why);
+        },
+      )
       .finally(() => setAsking(false));
   };
 
   /** Runs what's in the box when it's one of Codealong's commands, else sends it: to the session,
-   *  or to its side conversation while that shows. */
-  const submit = (): boolean => {
+   *  or to its side conversation while that shows. A question asked on the side runs `asked`
+   *  once the copy has it. */
+  const submit = (asked?: () => void): boolean => {
     if (runs) return runOwn();
     const command = slashCommand(text, s);
     if (!command && aside) {
       if (empty) return false;
-      askAside(text.trim());
+      askAside(text.trim(), asked);
       return true;
     }
     if (!command) return send();
     if (command.command.name === 'fork') fork(command.rest);
-    if (command.command.name === 'side') askAside(command.rest);
+    if (command.command.name === 'side') askAside(command.rest, command.rest.trim() ? asked : undefined);
     return true;
   };
 
@@ -944,7 +951,7 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
           : onlyAside
           ? said(SESSION_SIDES.open)
           : aside
-          ? said(`To the side conversation, not ${s.account}. Close it or pop it out above to message ${s.account}.`)
+          ? said(`To the side conversation, not ${s.account}.${onAsked ? keysIn(' ⌘⏎ asks and goes on: the session’s back once it answers.') : ''} Close it or pop it out above to message ${s.account}.`)
           : keys
           ? said(keys, true)
           : null;
@@ -1058,10 +1065,11 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
             }
             // To the side conversation, or a command run here (`/fork`, one led by `!`), whatever
             // the keys: none of the session's own (send now, send and go on to the next, allow)
-            // apply to it.
+            // apply to it. ⌘⏎ asking on the side goes on once it has asked, the session out of
+            // what waits on you until the side conversation answers (`onAsked`).
             if (command || aside || runs) {
               e.preventDefault();
-              submit();
+              submit(cmd(e) ? onAsked : undefined);
               return;
             }
             // ⌃⏎ sends it now; the engine sends it as usual where it can't, or the turn has ended.
@@ -1845,6 +1853,8 @@ export interface ReplyProps {
   /** Going on to the next session that waits on you: ⌘⏎ in the box sends, or allows the call this
    *  one waits on, then goes on, saying what was done. */
   onNext?: (done: string) => void;
+  /** ⌘⏎ in its side conversation's box, once asked (`ComposerProps.onAsked`). */
+  onAsked?: () => void;
   /** The box says its own keys too, where the window says its keys on a strip
    *  (`ComposerProps.sayKeys`). */
   sayKeys?: boolean;
@@ -1868,7 +1878,7 @@ export function SideReply({ session, terminal, inWindow }: { session: Session; t
 /** The bottom of a session's panel: what it waits on you for, if anything, its side conversation
  *  while it has one, and the box that sends it a message. The box is the same one throughout, so
  *  it keeps what's in it as the session starts and stops waiting. */
-export function Reply({ session, terminal, runIn, runsUnder, onOpen, autoFocus, keys, onSending, onSent, onFailed, onAnswered, onNext, sayKeys, moves, onMove }: ReplyProps) {
+export function Reply({ session, terminal, runIn, runsUnder, onOpen, autoFocus, keys, onSending, onSent, onFailed, onAnswered, onNext, onAsked, sayKeys, moves, onMove }: ReplyProps) {
   const waiting = !takesReply(session);
   // What the box's ⌘⏎ and ⌘⌫ do, once there's a call to answer here.
   const [call, setCall] = useState<CallKeys | null>(null);
@@ -1880,7 +1890,7 @@ export function Reply({ session, terminal, runIn, runsUnder, onOpen, autoFocus, 
       {waiting && <Approval key={`wait:${session.key}`} session={session} terminal={terminal} onOpen={onOpen} onAnswered={onAnswered} keys={keys} onKeys={takeKeys} onNext={onNext} />}
       <SideStrip key={`side:${session.key}`} sideKey={session.key} words={SESSION_SIDES} />
       {/* A session Codealong runs takes a message while it waits, after its current turn. */}
-      <Composer key={`box:${session.key}`} session={session} terminal={terminal} autoFocus={autoFocus} waiting={waiting && !session.hosted} onSending={onSending} onSent={onSent} onFailed={onFailed} onNext={onNext} keyed={keys} onAllow={callKeys?.allow} onDeny={callKeys?.deny} onDenySaying={callKeys?.denySaying} asked={callKeys?.asked} runIn={runIn} runsUnder={runsUnder} sayKeys={sayKeys} moves={moves} onMove={onMove} />
+      <Composer key={`box:${session.key}`} session={session} terminal={terminal} autoFocus={autoFocus} waiting={waiting && !session.hosted} onSending={onSending} onSent={onSent} onFailed={onFailed} onNext={onNext} onAsked={onAsked} keyed={keys} onAllow={callKeys?.allow} onDeny={callKeys?.deny} onDenySaying={callKeys?.denySaying} asked={callKeys?.asked} runIn={runIn} runsUnder={runsUnder} sayKeys={sayKeys} moves={moves} onMove={onMove} />
     </>
   );
 }

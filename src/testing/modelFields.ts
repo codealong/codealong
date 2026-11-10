@@ -31,6 +31,7 @@ export type Session = Holds<Same<
   | "appAccount"
   | "archived"
   | "artifacts"
+  | "aside"
   | "asks"
   | "attachCommand"
   | "background"

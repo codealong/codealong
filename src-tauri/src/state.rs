@@ -8,7 +8,9 @@
 //! until you make it heard again: it waits on you only when it needs you (`board::apply_quiet`).
 //! A session moved to the top of what waits on you is first in every queue until you take it up
 //! (`board::apply_raise`), and a turn a session's own agent marked seen is idle rather than Your
-//! turn (`board::apply_agent_seen`). Stored in `state.json` next to the config.
+//! turn (`board::apply_agent_seen`). A session that needs you, set aside while its side
+//! conversation answers, waits on that first (`board::apply_aside`). Stored in `state.json` next
+//! to the config.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -72,6 +74,10 @@ pub struct SeenState {
     /// of each, which a prompt sent after it makes void.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub agent_seen: Vec<AgentSeenMark>,
+    /// Sessions that need you set aside until their side conversation answers, and when: the
+    /// latest of each, forgotten once it no longer holds (`board::apply_aside`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub aside: Vec<AsideMark>,
     /// Sessions you quieted, by key, in the order you quieted them. One stays quiet until you make
     /// it heard again, whatever it does meanwhile: answering it, or archiving it, doesn't end it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -109,6 +115,15 @@ fn set_up_before() -> bool {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct UnreadMark {
+    pub key: String,
+    pub at: i64,
+}
+
+/// A session that needs you, set aside from Codealong while its side conversation answers
+/// (`board::apply_aside`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AsideMark {
     pub key: String,
     pub at: i64,
 }
@@ -185,6 +200,7 @@ impl SeenState {
         self.review_snoozes.retain(|z| z.until >= cutoff);
         self.unread.retain(|u| u.at >= cutoff);
         self.agent_seen.retain(|m| m.seen.at >= cutoff);
+        self.aside.retain(|m| m.at >= cutoff);
         self.raised.retain(|r| r.lowered.unwrap_or(r.raised.at) >= cutoff);
         // Through a temporary file: Settings reads this while the engine writes it.
         store::save(path, self)
@@ -266,6 +282,23 @@ impl SeenState {
     /// Forgets a session's mark of seen from its agent, once its session has moved on from it.
     pub fn forget_agent_seen(&mut self, key: &str) {
         self.agent_seen.retain(|m| m.key != key);
+    }
+
+    /// Sets a session aside until its side conversation answers, in place of any time it was set
+    /// aside before.
+    pub fn set_aside(&mut self, key: &str, at: i64) {
+        self.aside.retain(|m| m.key != key);
+        self.aside.push(AsideMark { key: key.to_string(), at });
+    }
+
+    /// When a session was set aside for its side conversation, while that's still noted.
+    pub fn aside_of(&self, key: &str) -> Option<i64> {
+        self.aside.iter().find(|m| m.key == key).map(|m| m.at)
+    }
+
+    /// Forgets that a session was set aside, once that no longer holds (`board::apply_aside`).
+    pub fn forget_aside(&mut self, key: &str) {
+        self.aside.retain(|m| m.key != key);
     }
 
     /// Quiets a session, or makes it heard again. True when that changed anything.

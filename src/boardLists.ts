@@ -8,7 +8,7 @@
 import { useCallback, useMemo } from 'react';
 import type { DeviceFilter } from './devices';
 import { needsOn, withDevices, workingOn } from './devices';
-import { AGENT_BAY, bySession, byStatusTime, filterByAge, homeOf, type HelperGlance, inboxCounts, keptCopy, listedUnder, prNeedsWork, runsShownKey, sessionHomes, sideTitle, snoozedApart, unattended, workingFor, worktreeName, type BoardRow, type Filter, type LaneCopies, type Placed } from './lanes';
+import { AGENT_BAY, bySession, byStatusTime, filterByAge, homeOf, type HelperGlance, inboxCounts, keptCopy, listedStatus, listedUnder, prNeedsWork, runsShownKey, sessionHomes, sideTitle, snoozedApart, unattended, workingFor, worktreeName, type BoardRow, type Filter, type LaneCopies, type Placed } from './lanes';
 import type { Pins } from './pins';
 import type { RefKind } from './canvas/model';
 import { columnsOf, stageOfColumn, type BoardColumn, type BoardDoc, type Stage } from './boards/model';
@@ -157,7 +157,7 @@ export function prIn(r: PrRowItem, f: Filter): boolean {
       // As on the board, a session from another lane doesn't lend its status: one agent that
       // made many worktrees would otherwise put all of their PRs in Working. Nor does an
       // archived one, listed on the PR as having worked on it.
-      return r.sessions.some(({ session }) => !session.visitor && !session.archived && AGENT_BAY[session.status] === f);
+      return r.sessions.some(({ session }) => !session.visitor && !session.archived && AGENT_BAY[listedStatus(session)] === f);
     case 'review':
       return prIsOpen(p);
     case 'work':
@@ -787,10 +787,11 @@ const DONE_SPAN = 14 * 86_400_000;
 const NO_PINS: Set<string> = new Set();
 
 /** How a card's session stands in its column, as Sessions sorts by status: Needs you, Your turn,
- *  Working, then the rest; a snoozed one that isn't working waits with the rest. */
+ *  Working, then the rest; a snoozed one that isn't working waits with the rest, and one set aside
+ *  for its side conversation is with what's working. */
 function standing(s: Session | null): number {
   if (!s || snoozedApart(s)) return 3;
-  return AGENT_RANK[s.status] ?? 3;
+  return AGENT_RANK[listedStatus(s)] ?? 3;
 }
 const AGENT_RANK: Partial<Record<Session['status'], number>> = { needs: 0, error: 0, unread: 1, working: 2 };
 

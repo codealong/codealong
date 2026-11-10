@@ -3797,7 +3797,7 @@ impl Wanted {
             && self.me.as_deref() != Some(s.key.as_str())
             && f.account.as_deref().map_or(true, |a| a == s.account)
             && self.status.map_or(true, |st| st == s.status)
-            && (!f.waiting || (matches!(s.status, Status::Needs | Status::Error | Status::Unread) && s.snoozed_until.is_none()))
+            && (!f.waiting || (matches!(s.status, Status::Needs | Status::Error | Status::Unread) && !s.held_back()))
             && (!f.finished || s.finished.is_some())
             && f.project.as_deref().map_or(true, |p| p.eq_ignore_ascii_case(&lane.project))
             && self.worktree.as_deref().map_or(true, |w| w == lane.id)

@@ -284,6 +284,16 @@ mod tests {
     }
 
     #[test]
+    fn a_session_set_aside_sounds_as_it_needs_you_again() {
+        // Set aside for its side conversation it's with what works, and back once that's done.
+        let needs = session("a", Status::Needs, NOW - 3_600_000);
+        let mut c = after(vec![needs.clone()]);
+        let aside = Session { aside: Some(NOW - 600_000), ..needs.clone() };
+        assert_eq!(due(&mut c, &board_at(NOW - 600_000, vec![aside]), &cfg()), None);
+        assert_eq!(due(&mut c, &board(vec![needs]), &cfg()), Some(Kind::NeedsYou));
+    }
+
+    #[test]
     fn going_back_to_work_counts_from_when_a_board_saw_it_not_the_turns_start() {
         // A Codex turn keeps its start through a call you allow: back at work 5 seconds before it
         // ended, it began an hour ago.

@@ -57,6 +57,18 @@ describe('sortSessions by status', () => {
     ];
     expect(keys(sortSessions(rows, 'status', now))).toEqual(['blocked', 'busy', 'soon', 'quiet', 'later', 'idle']);
   });
+
+  it('lists one set aside for its side conversation with what works, out of Needs you', () => {
+    const now = new Date(2026, 8, 24, 15, 0).getTime();
+    const at = (d: number, h: number) => new Date(2026, 8, d, h, 0).getTime();
+    const aside = item('aside', at(24, 12), 'needs', at(24, 11), at(24, 10));
+    const rows = [item('blocked', at(24, 12), 'needs', at(24, 11), at(24, 12)), { ...aside, session: { ...aside.session, aside: at(24, 14) } }, item('busy', at(24, 14), 'working', at(24, 14), at(24, 14)), item('idle', at(24, 14))];
+    const sections = sessionSections(rows, 'status', now);
+    expect(sections.slice(0, 2).map((s) => [s.label, keys(s.rows)])).toEqual([
+      ['Needs you', ['blocked']],
+      ['Working', ['aside', 'busy']],
+    ]);
+  });
 });
 
 describe('sortSessions by start', () => {

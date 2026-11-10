@@ -1007,10 +1007,10 @@ fn lane_prompt_at(sessions: &[Session], last_activity: i64) -> i64 {
 }
 
 /// How long a lane in Needs you has waited: since the longest wait of its own agents that need
-/// you and aren't snoozed. None when it needs you only through agents you've snoozed, which come
-/// after the ones waiting.
+/// you and aren't snoozed or set aside. None when it needs you only through agents you've snoozed
+/// or set aside, which come after the ones waiting.
 fn lane_waiting_since(sessions: &[Session]) -> Option<i64> {
-    sessions.iter().filter(|s| s.visitor.is_none() && !s.archived && s.snoozed_until.is_none()).filter_map(waiting_since).min()
+    sessions.iter().filter(|s| s.visitor.is_none() && !s.archived && !s.held_back()).filter_map(waiting_since).min()
 }
 
 /// The first of a lane's own agents moved to the top (`Session::raised`), in the queues' order.
@@ -1894,6 +1894,9 @@ pub fn raise_refused(s: &Session, raise: Option<&Raise>, raised: bool) -> Option
     if s.snoozed_until.is_some() {
         return Some("Your user snoozed it. Leave it until it's back.".to_string());
     }
+    if s.aside.is_some() {
+        return Some("Your user set it aside until its side conversation answers. Leave it until then.".to_string());
+    }
     let lowered = raise.and_then(|r| r.lowered)?;
     let moved_on = s.last_prompt_at > lowered || s.status_since.is_some_and(|t| t > lowered);
     (!moved_on).then(|| "Your user moved it back to its place after it was moved to the top. Leave it there until it moves on.".to_string())
@@ -1929,6 +1932,40 @@ pub fn apply_side_answer(s: &mut Session, sides: &[crate::side::Glance], seen_at
         s.excerpt = Some(format!("Answered on the side · {}", g.question));
     }
     s.side_answer = Some(SideAnswer { id: g.id.clone(), open: g.open, at });
+}
+
+/// Applies a side conversation you set a session aside for (state.rs `aside`), after what its
+/// side conversations answered and before a mark of unread and a snooze. A session that needs you
+/// (a call to allow, a question, a held message) set aside while its side conversation answers
+/// waits on that first: it carries `Session::aside` and says what it asked on the side, and the
+/// windows list it with what's working, out of every queue, off the pills and the mark. Once the
+/// side conversation is done (answered, closed or gone) it needs you again as it did, where it
+/// waited, with the answer kept for when you come to it (`apply_side_answer`). Only the need it
+/// was set aside from, and only until something's sent it (`aside_holds`).
+pub fn apply_aside(s: &mut Session, at: Option<i64>, sides: &[crate::side::Glance]) {
+    let Some(at) = at.filter(|at| aside_holds(s, *at, sides)) else { return };
+    s.aside = Some(at);
+    if let Some(g) = sides.iter().find(|g| g.running) {
+        s.excerpt = Some(format!("{ASKING_ON_THE_SIDE}{}", g.question));
+    }
+}
+
+/// What a session set aside says, before what it asked on the side (`apply_aside`), which its
+/// headline leaves below (`session_headline`).
+const ASKING_ON_THE_SIDE: &str = "Asking on the side · ";
+
+/// Whether a session set aside at `at` still waits on its side conversation: it needs you as it
+/// did then (none of its own since: no new need began, nothing was sent it), and a side
+/// conversation of its is still answering, none having finished since. Once it doesn't, the
+/// engine forgets it (`Engine::forget_spent_aside`), so a side conversation asked later doesn't
+/// set it aside again.
+pub fn aside_holds(s: &Session, at: i64, sides: &[crate::side::Glance]) -> bool {
+    s.status == Status::Needs
+        && !s.archived
+        && s.status_since.unwrap_or(s.last_activity) <= at
+        && s.last_prompt_at <= at
+        && sides.iter().any(|g| g.running)
+        && !sides.iter().any(|g| g.answered_at.is_some_and(|t| t > at))
 }
 
 /// Applies Jev's read of a session to what the board shows, before bays and headlines are
@@ -2327,6 +2364,8 @@ pub fn session_headline(s: &Session) -> (String, Option<String>) {
         // Every headline names the session: its title after what it's doing. A question, whether
         // its reply ends in one or it's held through the plugin (`claude::asked_label`), says so
         // up front and leaves the question itself below.
+        // Set aside, it waits on its side conversation before it waits on you (`apply_aside`).
+        Status::Needs if s.aside.is_some() => (format!("{acct} waits on its side conversation · {title}"), s.excerpt.as_deref().and_then(|e| e.strip_prefix(ASKING_ON_THE_SIDE)).map(str::to_string)),
         Status::Needs => match (s.need(), s.harness) {
             (Some(Need::Reply | Need::Question), _) => (format!("{acct} asks you · {title}"), s.excerpt.as_deref().and_then(|e| e.strip_prefix("Asks you · ")).map(str::to_string)),
             (Some(Need::Message), _) => (format!("{acct} holds a message for you · {title}"), s.excerpt.as_deref().and_then(|e| e.strip_prefix("Held message ")).map(str::to_string)),
@@ -2815,8 +2854,10 @@ pub fn logo_status<'a>(lanes: impl IntoIterator<Item = &'a Lane>, prs: &[PrItem]
         .filter(|s| !s.archived && s.visitor.is_none() && !s.unattended())
         .map(|s| match s.status {
             Status::Working => LogoStatus::Working,
-            // Snoozed, it's off the bar's Needs you and Your turn, so off the mark too.
+            // Snoozed, it's off the bar's Needs you and Your turn, so off the mark too. Set aside,
+            // its side conversation is at work for it, as the bar lists it.
             _ if s.snoozed_until.is_some() => LogoStatus::Idle,
+            _ if s.aside.is_some() => LogoStatus::Working,
             Status::Error => LogoStatus::Error,
             Status::Needs => LogoStatus::Needs,
             Status::Unread => LogoStatus::Unread,
@@ -3375,6 +3416,9 @@ mod tests {
         assert_eq!(logo_status(&b.lanes, &b.prs), LogoStatus::Idle);
         b.lanes[0].sessions[0].snoozed_until = None;
         assert_eq!(logo_status(&b.lanes, &b.prs), LogoStatus::Needs);
+        // Set aside for its side conversation, that's at work for it.
+        b.lanes[0].sessions[0].aside = Some(NOW - 60_000);
+        assert_eq!(logo_status(&b.lanes, &b.prs), LogoStatus::Working);
     }
 
     #[test]
@@ -4831,6 +4875,50 @@ mod tests {
         // Of several, the latest shows.
         let s = applied(&idle, &[side("first", false, Some(answered - MIN)), side("last", false, Some(answered)), side("seen", false, Some(NOW - 20 * MIN))], NOW - 10 * MIN);
         assert_eq!(s.side_answer, Some(SideAnswer { id: "last".into(), open: false, at: answered }));
+    }
+
+    #[test]
+    fn a_session_set_aside_waits_on_its_side_conversation_then_needs_you_again() {
+        const MIN: i64 = 60_000;
+        let a = acct("claude2");
+        let base = claude_session(&a, Some(&reg("waiting", NOW - 20 * MIN)), Some(&tr()), NOW - 30 * MIN, NOW, &Quiet::default()).unwrap();
+        let asked = NOW - 20 * MIN;
+        let needs = Session { status: Status::Needs, need: Some(Need::Question), status_since: Some(asked), last_prompt_at: NOW - 40 * MIN, excerpt: Some("Restore test?".into()), ..base };
+        let side = |running: bool, answered_at: Option<i64>| crate::side::Glance { id: "a".into(), question: "Are we restoring for real?".into(), running, open: true, answered_at, ..Default::default() };
+        let set = NOW - 5 * MIN;
+        let applied = |s: &Session, at: Option<i64>, sides: &[crate::side::Glance]| {
+            let mut s = s.clone();
+            apply_aside(&mut s, at, sides);
+            s
+        };
+
+        // Set aside while its side conversation answers: still needing you underneath, but set
+        // aside since then, saying what it asked on the side, and out of the lane's wait.
+        let s = applied(&needs, Some(set), &[side(true, None)]);
+        assert_eq!((s.status, s.aside, s.excerpt.as_deref()), (Status::Needs, Some(set), Some("Asking on the side · Are we restoring for real?")));
+        assert!(s.held_back());
+        assert_eq!(lane_waiting_since(std::slice::from_ref(&s)), None);
+        assert!(raise_refused(&s, None, true).is_some());
+
+        // Once it has answered, or nothing answers any more, it needs you again as it did.
+        for sides in [vec![side(false, Some(NOW - MIN))], vec![side(false, None)], vec![], vec![side(true, Some(NOW - MIN))]] {
+            let s = applied(&needs, Some(set), &sides);
+            assert_eq!((s.status, s.aside, s.excerpt.as_deref()), (Status::Needs, None, Some("Restore test?")), "{sides:?}");
+        }
+        // An answer from before it was set aside doesn't end it.
+        assert_eq!(applied(&needs, Some(set), &[side(true, Some(set - MIN))]).aside, Some(set));
+
+        // Only the need it was set aside from, and only until something's sent it.
+        let later = Session { status_since: Some(set + MIN), ..needs.clone() };
+        assert_eq!(applied(&later, Some(set), &[side(true, None)]).aside, None);
+        let prompted = Session { last_prompt_at: set + MIN, ..needs.clone() };
+        assert_eq!(applied(&prompted, Some(set), &[side(true, None)]).aside, None);
+        // Not needing you, or archived, there's nothing to set aside; nor without a mark.
+        for status in [Status::Working, Status::Unread, Status::Idle, Status::Error] {
+            assert_eq!(applied(&Session { status, ..needs.clone() }, Some(set), &[side(true, None)]).aside, None, "{status:?}");
+        }
+        assert_eq!(applied(&Session { archived: true, ..needs.clone() }, Some(set), &[side(true, None)]).aside, None);
+        assert_eq!(applied(&needs, None, &[side(true, None)]).aside, None);
     }
 
     #[test]
@@ -6660,6 +6748,8 @@ mod tests {
             Session { harness: Harness::Codex, account: "codex".into(), ..said(at("needs", "codex-approval", Status::Needs, 60, 25), "Waiting for approval · `make`") },
             Session { excerpt: Some(asks_you("Which color?")), status_since: Some(NOW - 20 * MIN), ..at("needs", "question", Status::Needs, 40, 14) },
             Session { excerpt: Some(format!("{HELD_MESSAGE}“Review 12”")), ..at("needs", "message", Status::Needs, 16, 15) },
+            // Set aside while its side conversation answers: still needing you, listed apart.
+            Session { aside: Some(NOW - 5 * MIN), excerpt: Some(format!("{ASKING_ON_THE_SIDE}Are we restoring for real?")), status_since: Some(NOW - 22 * MIN), ..at("needs", "aside", Status::Needs, 41, 22) },
             Session { asks: true, ..said(at("needs", "reply", Status::Needs, 90, 10), "Asks you · Want the PR?") },
             Session { stalled_since: Some(NOW - 45 * MIN), excerpt: Some(format!("Stuck on `cargo build` for {{for:{}}}", NOW - 45 * MIN)), ..at("needs", "stuck", Status::Needs, 50, 45) },
             at("needs", "unsaid", Status::Needs, 6, 5),

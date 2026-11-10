@@ -25,7 +25,7 @@
 import { Fragment } from 'react';
 import { byDay, newestFirst } from '../days';
 import { groupOptions, groupRows, groupsOf, placeIn, type GroupBy, type Grouped, type GroupOptions, type ListGroup, type ListGroupBy } from '../groups';
-import { bySession, byStatusTime, foldsOf, listedUnder, runsShownKey, sidesListed, sidesShownKey, snoozedApart, startedOf, waitingSince, waitsFinished, workingFor, type Fold, type LaneItem } from '../lanes';
+import { bySession, byStatusTime, foldsOf, heldBack, listedStatus, listedUnder, runsShownKey, sidesListed, sidesShownKey, snoozedApart, startedOf, waitingSince, waitsFinished, workingFor, type Fold, type LaneItem } from '../lanes';
 import type { SelectHow } from '../picks';
 import type { HelperCount, RunCount, SideCount } from '../boardLists';
 import type { SaidLine } from '../quick';
@@ -127,11 +127,12 @@ const ATTENTION: { bay: Bay; statuses: Status[]; queue: boolean }[] = [
   { bay: 'working', statuses: ['working'], queue: false },
 ];
 
-const inGroup = (statuses: Status[]) => (r: SessionItem) => statuses.includes(r.session.status) && !snoozedApart(r.session);
+// One set aside for its side conversation is listed with what's working (lanes.ts `listedStatus`).
+const inGroup = (statuses: Status[]) => (r: SessionItem) => statuses.includes(listedStatus(r.session)) && !snoozedApart(r.session);
 const byGroupTime = (a: SessionItem, b: SessionItem) => byStatusTime(a.session, b.session) || a.key.localeCompare(b.key);
 /** Which of the bar's groups a session is in, the most urgent 0; past them all when it's in none. */
 const urgency = (s: Session) => {
-  const i = ATTENTION.findIndex(({ statuses }) => statuses.includes(s.status) && !snoozedApart(s));
+  const i = ATTENTION.findIndex(({ statuses }) => statuses.includes(listedStatus(s)) && !snoozedApart(s));
   return i < 0 ? ATTENTION.length : i;
 };
 
@@ -162,11 +163,11 @@ export function sessionSections(rows: SessionItem[], sort: SessionSort, now: num
   const { top, under } = families(rows, place === 'under');
   // What a session's place goes by: itself, the helper under it that has waited on you longest, or
   // the session it started that's furthest up the bar's groups when that's further than itself. A
-  // snoozed one waits its time only when nothing under it is further up.
+  // snoozed or set aside one waits only when nothing under it is further up.
   const lead = (r: SessionItem): Session => {
-    if (waitingSince(r.session) != null && r.session.snoozedUntil == null) return r.session;
+    if (waitingSince(r.session) != null && !heldBack(r.session)) return r.session;
     const kids = under.get(r.session.key) ?? [];
-    const waiting = kids.filter((k) => waitingSince(k.session) != null && k.session.snoozedUntil == null).sort(byGroupTime);
+    const waiting = kids.filter((k) => waitingSince(k.session) != null && !heldBack(k.session)).sort(byGroupTime);
     if (waiting.length > 0) return waiting[0].session;
     const ahead = kids.filter((k) => !workingFor(k.session) && urgency(k.session) < urgency(r.session)).sort((a, b) => urgency(a.session) - urgency(b.session) || byGroupTime(a, b));
     return ahead[0]?.session ?? r.session;
@@ -183,7 +184,7 @@ export function sessionSections(rows: SessionItem[], sort: SessionSort, now: num
   const attention = ATTENTION.map(({ bay, statuses }) => ({ id: bay, label: BAY_WORD[bay], bay, rows: rowsOf(ranked.filter(inGroup(statuses)).sort(byGroupTime)) }));
   const until = (r: SessionItem) => r.session.snoozedUntil ?? 0;
   const snoozed = { id: 'snoozed', label: 'Snoozed', icon: 'zzz', rows: rowsOf(ranked.filter((r) => snoozedApart(r.session)).sort((a, b) => until(a) - until(b) || a.key.localeCompare(b.key))) };
-  const rest = rowsOf(ranked.filter((r) => !snoozedApart(r.session) && !ATTENTION.some((g) => g.statuses.includes(r.session.status))).sort((a, b) => bySession(a.session, b.session)));
+  const rest = rowsOf(ranked.filter((r) => !snoozedApart(r.session) && !ATTENTION.some((g) => g.statuses.includes(listedStatus(r.session)))).sort((a, b) => bySession(a.session, b.session)));
   return [...attention, snoozed, ...byDay(rest, (r) => r.session.lastActivity, now)].filter((s) => s.rows.length > 0).map(withHelpers);
 }
 

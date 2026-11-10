@@ -207,6 +207,9 @@ export interface Shown {
   since?: number;
   /** It's a finished turn, or a reply that asks you something: ⌘E marks it seen. */
   seenable: boolean;
+  /** It needs you for something else (a call to allow, a question) while its side conversation
+   *  answers: ⌘E sets it aside until that's done (board.rs `apply_aside`). */
+  asides?: boolean;
   /** It waits on you with nothing to mark seen and nothing ⌘E could answer (a PR waiting on
    *  your review): ⌘E skips it, as it skips one running, rather than staying as it does on a
    *  call to allow. */
@@ -268,6 +271,8 @@ export interface KeyStep<T> extends Step<T> {
   taken: boolean;
   /** The session to mark seen, before the window goes on. */
   markSeen?: string;
+  /** The session to set aside until its side conversation answers, before the window goes on. */
+  setAside?: string;
   /** Back or forward through the window's history, which says where that is. */
   travel?: 'back' | 'forward';
 }
@@ -293,17 +298,18 @@ export function answered<T>(view: QueueView<T>, handled: Handled, from: string, 
 }
 
 /**
- * The session `from` left what waits on you: marked seen, snoozed, closed or archived. The window
- * goes on as `leftGoesOn` says. A snoozed one isn't kept as dealt with: the snooze shows at once
- * and ends by itself, and when its time comes the session waits on you again, with the status it
- * had.
+ * The session `from` left what waits on you: marked seen, snoozed, set aside, closed or archived.
+ * The window goes on as `leftGoesOn` says. A snoozed one isn't kept as dealt with: the snooze
+ * shows at once and ends by itself, and when its time comes the session waits on you again, with
+ * the status it had. Nor is one set aside, which comes back the same way once its side
+ * conversation has answered (board.rs `apply_aside`).
  */
 export function left<T>(view: QueueView<T>, handled: Handled, from: string, done: Left, now: number): Step<T> {
   const s = view.shown;
   if (!s || s.key !== from) return { went: 'away', handled };
   if (!leftGoesOn(waits(view.waiting, s.key, view.reads.keyOf), !!view.leftStays)) return { went: 'stay', handled };
   const step = dealt(view, handled, s, `${done}.`, now);
-  if (done === 'snoozed') step.handled.delete(s.key);
+  if (done === 'snoozed' || done === 'set aside') step.handled.delete(s.key);
   return step;
 }
 
@@ -319,6 +325,7 @@ export function keyStep<T>(view: QueueView<T>, handled: Handled, action: QueueAc
   const hand = (to: T | null): KeyStep<T> => (to ? { taken: true, went: 'on', to, words: null, handled } : { taken: true, went: 'last', handled });
   if (action === 'next' || action === 'back') return hand(stepTo(action, view, s.key, handled));
   if (action === 'seen') {
+    if (s.asides && view.marksSeen) return { ...left(view, handled, s.key, 'set aside', now), taken: true, setAside: s.key };
     const does = s.skipsOnSeen ? 'skip' : seenStep(s.seenable, waits(view.waiting, s.key, view.reads.keyOf));
     if (does === 'skip') return hand(stepTo('next', view, s.key, handled));
     if (does === 'stay' || !view.marksSeen) return no;

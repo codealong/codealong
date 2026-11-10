@@ -150,6 +150,22 @@ describe('lanesAhead', () => {
     expect([woke.sessions[1].snoozedUntil, woke.sessions[1].status]).toEqual([undefined, 'unread']);
   });
 
+  it('sets aside a session that needs you, and nothing else', () => {
+    const lanes = [lane([session('q', 'needs', { need: 'question' }), session('u', 'unread'), session('w', 'working')])];
+    const [l] = lanesAhead(lanes, [change({ kind: 'aside', keys: ['q', 'u', 'w'] })]);
+    expect(l.sessions.map((s) => [s.key, s.status, s.aside])).toEqual([
+      ['q', 'needs', NOW],
+      ['u', 'unread', undefined],
+      ['w', 'working', undefined],
+    ]);
+    // It goes once the board shows it set aside, or no longer needing you.
+    const asked = change({ kind: 'aside', keys: ['q'] }, { doneAt: NOW, shownAt: null });
+    const view = (s: Session): View => ({ boardAt: NOW, find: () => ({ title: s.title, status: s.status, statusSince: null, lastPromptAt: null, archived: false, asks: false, snoozedUntil: null, aside: s.aside != null, quiet: false, queuedAt: null }) });
+    expect(settled(asked, view(session('q', 'needs')), NOW)).toBe(asked);
+    expect(settled(asked, view(session('q', 'needs', { aside: NOW })), NOW)).toBeNull();
+    expect(settled(asked, view(session('q', 'working')), NOW)).toBeNull();
+  });
+
   it('quiets a finished turn out of Your turn at once, and leaves what needs you', () => {
     const lanes = [lane([session('u', 'unread'), session('n', 'needs', { asks: true }), session('i', 'idle')])];
     const [l] = lanesAhead(lanes, [change({ kind: 'quiet', keys: ['u', 'n'], quiet: true })]);
@@ -503,6 +519,16 @@ describe('barAhead', () => {
       ['w', 'working', 'working'],
     ]);
     expect(out.snoozed.map((i) => [i.key, i.snoozedUntil])).toEqual([['n', NOW + 900_000]]);
+  });
+
+  it('moves a session set aside to Working, drawn waiting since it was set aside', () => {
+    const f = feed([item('n', 'needs', NOW - 50), item('q', 'needs', NOW - 40), item('u', 'unread', NOW)]);
+    const out = barAhead(f, [change({ kind: 'aside', keys: ['q', 'u'] })]);
+    expect(out.items.map((i) => [i.key, i.group, i.status, !!i.waiting, i.since])).toEqual([
+      ['n', 'needs', 'needs', false, NOW - 50],
+      ['u', 'unread', 'unread', false, NOW],
+      ['q', 'working', 'working', true, NOW],
+    ]);
   });
 
   it('takes a quieted session’s finished turn off the bar, but not what needs you', () => {

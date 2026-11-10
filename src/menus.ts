@@ -12,7 +12,7 @@
 
 import { useEffect, useState } from 'react';
 import { closeSession, desktopPins, expandAttachments, forkSession, getAccounts, inPreview, moveSession, moveSessionTo, onDesktopPins, openUrl, ownSessions, pinToDesktop, resumeSession, sessionCancel, sessionWindow, stopListening, setPrNudge, setPrPrimary, setReusable, showQuick, unpinFromDesktop, type MergeDone } from './api';
-import { archiveAhead, doneAhead, labelAhead, quietAhead, raiseAhead, seenAhead, unreadAhead } from './ahead';
+import { archiveAhead, asideAhead, doneAhead, labelAhead, quietAhead, raiseAhead, seenAhead, unreadAhead } from './ahead';
 import type { MenuAction, MenuGroup, MenuImage, MenuSpec } from './contextMenu';
 import { shortOf } from './devices';
 import { dueChoices } from './due';
@@ -20,7 +20,7 @@ import { count } from './format';
 import { folderMenu, openInMenu, opensInEditor, terminalTarget, type AppIcons, type Apps } from './editors';
 import { EDITS, HARNESS_WORD, MOVES_ACCOUNTS, MOVES_FOLDERS, renames } from './harness';
 import { chromeLabel, openLabel } from './open';
-import { closable, exitsItsOwnWay, seenable, stoppable, unreadable } from './lanes';
+import { asideable, closable, exitsItsOwnWay, seenable, stoppable, unreadable } from './lanes';
 import { chordPressed, QUEUE_CHORDS, type Key } from './queue';
 import { reviewsSnoozeMenu, SNOOZE_CHORDS, snoozeChordIndex, snoozeChorded as timeChorded, snoozeMenu } from './snooze';
 import { rememberResumed, resumeAccount, resumedIn } from './start';
@@ -127,7 +127,7 @@ function newSessionItem(lane: Lane, run: (() => void) | undefined): MenuAction |
 
 /** How a session, or a PR waiting on your review, left the list of what waits on you: the strip
  *  says it on the one gone on to (queue.ts `wentWords`). */
-export type Left = 'marked seen' | 'snoozed' | 'quieted' | 'closed' | 'done' | 'archived' | 'approved' | 'commented on' | 'changes requested' | 'review started' | 'merged';
+export type Left = 'marked seen' | 'set aside' | 'snoozed' | 'quieted' | 'closed' | 'done' | 'archived' | 'approved' | 'commented on' | 'changes requested' | 'review started' | 'merged';
 
 export interface SessionCan {
   report: Report;
@@ -269,6 +269,10 @@ export interface SessionActions {
   listen?: MenuAction;
   rename?: MenuAction;
   seen?: MenuAction;
+  /** Set aside until its side conversation answers, for one that needs you for something marking
+   *  it seen doesn't settle (lanes.ts `asideable`): what ⌘⏎ in its side conversation's box does
+   *  once it has asked (SessionPanel.tsx), as ⌘E does while one answers. */
+  aside?: MenuAction;
   /** Your turn again, until it's seen or prompted: for one whose turn you've seen. */
   unread?: MenuAction;
   pin?: MenuAction;
@@ -469,6 +473,7 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
     listen: listenItem(lane, s, report),
     rename: can.rename && renames(s) ? { label: 'Rename…', run: can.rename } : undefined,
     seen: seenable(s) ? { label: 'Mark as seen', run: () => settle('marked seen')(seenAhead([s.key])) } : undefined,
+    aside: asideable(s) ? { label: 'Set aside until its side conversation answers', run: () => settle('set aside')(asideAhead([s.key])) } : undefined,
     // It joins what waits on you rather than leaving it, so a window working through that stays.
     unread: unreadable(s) ? { label: 'Mark as unread', run: () => void unreadAhead([s.key]).catch((e: unknown) => report.error(errorText(e))) } : undefined,
     pin: s.archived ? undefined : can.pin,

@@ -11,7 +11,7 @@
 import { shortOf } from './devices';
 import { agoPhrase, middleTruncate } from './format';
 import { heldForAgent } from './prStatus';
-import { branchLabel, byStatusTime, sessionHomes, snoozedApart, unattended, waitsFinished } from './lanes';
+import { branchLabel, byStatusTime, sessionHomes, setAside, snoozedApart, unattended, waitsFinished } from './lanes';
 import { inQueueOrder, statusWaits, type Reads } from './queue';
 import { itemSection, sectionOf, todoItem, type TodoItem, type TodoSectionId } from './todos';
 import { prFlag } from './prStatus';
@@ -42,6 +42,8 @@ export type RowGroup = 'suggested' | 'skills' | 'top' | 'needs' | 'reviews' | 'u
  *  (barfeed.rs). */
 function groupOf(s: Session): 'needs' | 'unread' | 'working' | null {
   if (unattended(s) || snoozedApart(s)) return null;
+  // Set aside, its side conversation is at work for it: it's back once that's done.
+  if (setAside(s)) return 'working';
   if (s.status === 'needs' || s.status === 'error') return 'needs';
   if (s.status === 'unread' || s.status === 'working') return s.status;
   return null;

@@ -43,7 +43,7 @@ import { below } from '../contextMenu';
 import { folderTargets, opensInEditor, useEditorIcons } from '../editors';
 import { absolute, ago, agoPhrase, duration, middleTruncate, tildePath } from '../format';
 import { MOVES_ACCOUNTS, sessionName, sessionPlace } from '../harness';
-import { cutOffWords, limitWords, raisedBy, seenable, sideTitle } from '../lanes';
+import { cutOffWords, limitWords, raisedBy, seenable, setAside, sideTitle } from '../lanes';
 import { cameLines, cameLineWords, cameWord, originWord, type CameLine, type Kin, type Lineage } from '../lineage';
 import { CHORDS, chordKeys, type SessionActions } from '../menus';
 import { showSide } from '../side';
@@ -415,7 +415,9 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
   const quiet = s.quiet ? ' · quiet' : '';
   const agentSeen = s.agentSeen ? ' · seen by its agent' : '';
   const raised = s.raised ? ` · moved to the top${raisedBy(s.raised)}` : '';
-  const status = (s.stalledSince ? `Silent since ${agoPhrase(s.stalledSince, now)}` : `${s.asks ? 'Asks you' : STATUS_WORD[s.status]} · ${since}`) + raised + snoozed + quiet + agentSeen;
+  // Set aside, it says since when it has waited on its side conversation rather than on you.
+  const said = s.aside != null && setAside(s) ? `Set aside for its side conversation · ${agoPhrase(s.aside, now)}` : `${s.asks ? 'Asks you' : STATUS_WORD[s.status]} · ${since}`;
+  const status = (s.stalledSince ? `Silent since ${agoPhrase(s.stalledSince, now)}` : said) + raised + snoozed + quiet + agentSeen;
   const naming = !!renaming && !!onRename;
   // A double-click on the name renames it as the window's Rename does (`actions.rename`, there
   // only where its harness keeps names).

@@ -239,6 +239,8 @@ const REQUESTS: &[Request] = &[
     Request { name: AGENT_SEEN, only_here: Some("A session marks its own turn seen, on the Mac it runs on."), here: agent_seen, ..ANY },
     // A snooze is kept on the session's Mac, so it's snoozed there and everywhere it shows.
     Request { name: api::SESSION_SNOOZE, here: snooze, ..ANY },
+    // So is setting one aside for its side conversation, which runs there too.
+    Request { name: api::SESSION_ASIDE, here: aside, ..ANY },
     // So is quiet, which is the session's for as long as it lasts, and a helper made your own.
     Request { name: api::SESSION_QUIET, here: quiet, ..ANY },
     // Labels too, which only say how you sort your sessions, so an agent may put them on through
@@ -1884,6 +1886,13 @@ fn pr_merge(engine: &Handle, c: &Call) -> Result<Value, String> {
         engine.pr_changed();
     }
     serde_json::to_value(codealong_peer::pr::Merged { note: acted.note, merged: acted.merged }).map_err(words)
+}
+
+/// Sets sessions that need you (`keys`) aside until their side conversations answer
+/// (`board::apply_aside`).
+fn aside(engine: &Handle, c: &Call) -> Result<Value, String> {
+    let keys = c.read::<params::Keys>()?.keys;
+    Ok(shown_at(c, engine.aside(keys)))
 }
 
 /// Snoozes your review of PRs (`keys`, `owner/name#number`) until `until`, or wakes it.

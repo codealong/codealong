@@ -574,7 +574,7 @@ fn waits(status: Status) -> bool {
 
 /// Waits on its user as Codealong's queue has it (`sessions --waiting`).
 fn waits_on_user(s: &Session) -> bool {
-    !s.archived && matches!(s.status, Status::Needs | Status::Error | Status::Unread) && s.snoozed_until.is_none()
+    !s.archived && matches!(s.status, Status::Needs | Status::Error | Status::Unread) && !s.held_back()
 }
 
 /// What happened to `s` since its mark, or with none since `since`. Archived sessions are left

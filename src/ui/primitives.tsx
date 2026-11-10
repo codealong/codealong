@@ -8,7 +8,7 @@ import { fieldAt, typingIn } from '../contextMenu';
 import { deviceLabel, shortOf } from '../devices';
 import { middleTruncate, withTimes } from '../format';
 import { HARNESS_WORD, sessionPlace } from '../harness';
-import { archivedShows, branchLabel, laneWaits, waitsInBackground } from '../lanes';
+import { archivedShows, branchLabel, laneWaits, listedStatus, setAside, waitsInBackground } from '../lanes';
 import { hearingShows } from '../listening';
 import { chipWord, reviewMark } from '../prStatus';
 import type { Bay, Emblem, GitInfo, Lane, LogoStatus, Pr, PrItem, PrState, Session, Status, Surface } from '../types';
@@ -219,10 +219,11 @@ export function StatusGlyph({ status, size = 12, title, waiting = false }: { sta
   );
 }
 
-/** A session's status glyph, a clock while it waits on a command left running in the background,
- *  a recording light while it's hearing a meeting (`Session.listening`, listening.ts
- *  `hearingShows`), and a box once it's archived (`archivedShows`), wherever the session shows. */
-export function SessionGlyph({ s, size = 12, title }: { s: Pick<Session, 'status' | 'background' | 'listening'> & Partial<Pick<Session, 'archived'>>; size?: number; title?: string }) {
+/** A session's status glyph, a clock while it waits on a command left running in the background
+ *  or on its side conversation (set aside, lanes.ts `setAside`), a recording light while it's
+ *  hearing a meeting (`Session.listening`, listening.ts `hearingShows`), and a box once it's
+ *  archived (`archivedShows`), wherever the session shows. */
+export function SessionGlyph({ s, size = 12, title }: { s: Pick<Session, 'status' | 'background' | 'listening' | 'aside'> & Partial<Pick<Session, 'archived'>>; size?: number; title?: string }) {
   if (s.listening && hearingShows(s.status)) {
     return (
       <svg className="ca-glyph ca-glyph--listening" width={size} height={size} viewBox="0 0 12 12" role="img" aria-label={title === '' ? '' : 'Listening'}>
@@ -239,7 +240,9 @@ export function SessionGlyph({ s, size = 12, title }: { s: Pick<Session, 'status
       </svg>
     );
   }
-  return <StatusGlyph status={s.status} size={size} title={title} waiting={waitsInBackground(s)} />;
+  // Set aside, it's drawn as it's listed: working, waiting on its side conversation.
+  const aside = setAside(s);
+  return <StatusGlyph status={listedStatus(s)} size={size} title={title ?? (aside ? 'Waiting on its side conversation' : undefined)} waiting={waitsInBackground(s) || aside} />;
 }
 
 /** A lane's status box: its status glyph, or its PR icon in review and merged bays. */

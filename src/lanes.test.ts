@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ageFiltered, archivedShows, bayOf, branchLabel, bySession, byStatusTime, waitsFinished, raisedBy, closable, connectionLostWords, cutOffWords, exitsItsOwnWay, filterByAge, foldsOf, foldWords, helperLine, helperName, helperStands, homeOf, inboxCounts, laneWaits, limitWords, liveOrLatest, narrowed, relaned, runsShownKey, seenable, sessionFlag, sessionHeadline, sessionPrs, sidesListed, sidesShownKey, stoppable, unattended, waitsInBackground, withoutAccount, workingFor, workingSince } from './lanes';
+import { asideable, ageFiltered, archivedShows, bayOf, branchLabel, bySession, byStatusTime, waitsFinished, raisedBy, closable, connectionLostWords, cutOffWords, exitsItsOwnWay, filterByAge, foldsOf, foldWords, helperLine, helperName, helperStands, homeOf, inboxCounts, laneWaits, limitWords, liveOrLatest, narrowed, relaned, runsShownKey, seenable, sessionFlag, sessionHeadline, sessionPrs, sidesListed, sidesShownKey, stoppable, unattended, waitsInBackground, withoutAccount, workingFor, workingSince } from './lanes';
 import * as fx from './testing/fixtures';
 import type { Lane, Pr, PrItem, Session, SideGlance } from './types';
 
@@ -341,6 +341,27 @@ describe('sessionHeadline', () => {
 
   it('says a session holding another session’s message holds it, and whose', () => {
     expect(sessionHeadline(s({ need: 'message', excerpt: 'Held message from “Review 1021”' }))).toEqual(['`claude2` holds a message for you · Fix the test', 'from “Review 1021”']);
+  });
+});
+
+describe('setting a session aside for its side conversation', () => {
+  const s = (over: Partial<Session>): Session => ({ ...session('a', 'needs', NOW), ...over });
+
+  it('is for one that needs you for something marking it seen doesn’t settle', () => {
+    expect(asideable(s({ need: 'question' }))).toBe(true);
+    expect(asideable(s({ need: 'approval' }))).toBe(true);
+    // A reply that asks you something is marked seen instead, which the answer brings back.
+    expect(asideable(s({ asks: true, need: 'reply' }))).toBe(false);
+    expect(asideable(s({ status: 'unread' }))).toBe(false);
+    expect(asideable(s({ status: 'working' }))).toBe(false);
+    expect(asideable(s({ aside: NOW }))).toBe(false);
+    expect(asideable(s({ archived: true }))).toBe(false);
+  });
+
+  it('labels it on the side, and heads it as waiting on that', () => {
+    const aside = s({ need: 'question', aside: NOW, account: 'claude2', title: 'Restore test', excerpt: 'Asking on the side · Are we restoring for real?' });
+    expect(sessionFlag(aside)).toMatchObject({ label: 'On the side' });
+    expect(sessionHeadline(aside)).toEqual(['`claude2` waits on its side conversation · Restore test', 'Are we restoring for real?']);
   });
 });
 

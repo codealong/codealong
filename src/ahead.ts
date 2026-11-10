@@ -1,5 +1,5 @@
 // Changes you make that the engine takes a moment to show: sessions marked seen or unread, snoozed,
-// quieted, moved to the top, labelled, archived, renamed, sent a message or let go on past a call they waited on, reviews asked
+// set aside for their side conversations, quieted, moved to the top, labelled, archived, renamed, sent a message or let go on past a call they waited on, reviews asked
 // of you snoozed, and PRs reviewed or merged.
 // The engine takes them in its own loop, which waits behind scans and git on a
 // busy Mac (half a second typically, seconds at worst), and only then does every window get a
@@ -7,7 +7,7 @@
 // tells the other windows (the `ahead` event): the bar's pill goes as you mark its session seen in
 // the peek, and the main window shows the session working as you send it something from the bar.
 //
-// A seen, unread, snooze, quiet, move to the top, label, archive, rename or merge goes once a board at least as new as the one the engine says
+// A seen, unread, snooze, set aside, quiet, move to the top, label, archive, rename or merge goes once a board at least as new as the one the engine says
 // shows it arrives. Going by whether the board looks right instead would hide a session that turned unread
 // again a moment later. One the engine turns down goes at once, and the caller says why.
 //
@@ -34,7 +34,7 @@
 // the thread.
 
 import { useSyncExternalStore } from 'react';
-import { archiveSession, emitAhead, labelSessions, markSeen, markUnread, mergePr, onAhead, quietSessions, raiseSessions, renameSession, resumeSession, reviewPr, sendToSession, sessionAnswer, sessionDone, sessionSteer, sessionUnqueue, snoozeReviews, snoozeSessions, windowLabel, type Done, type MergeDone } from './api';
+import { archiveSession, asideSessions, emitAhead, labelSessions, markSeen, markUnread, mergePr, onAhead, quietSessions, raiseSessions, renameSession, resumeSession, reviewPr, sendToSession, sessionAnswer, sessionDone, sessionSteer, sessionUnqueue, snoozeReviews, snoozeSessions, windowLabel, type Done, type MergeDone } from './api';
 import { readDraft, writeDraft } from './drafts';
 import { nameShown } from './harness';
 import { heldForAgent } from './prStatus';
@@ -69,6 +69,8 @@ export type Change =
   /** Snoozed until then, or woken now with null. `picked` by Pick a time… (ui/SnoozeDialog.tsx),
    *  which the window it was asked from waits on (`snoozedFrom`). */
   | { kind: 'snooze'; keys: string[]; until: number | null; picked?: boolean }
+  /** Set aside until their side conversations answer: out of Needs you, with what's working. */
+  | { kind: 'aside'; keys: string[] }
   /** Quieted, or made heard again with false: a quiet one's finished turn is idle. */
   | { kind: 'quiet'; keys: string[]; quiet: boolean }
   /** Moved to the top of what waits on you, or back to their places with false. */
@@ -142,6 +144,8 @@ export interface Shown {
   archived: boolean;
   asks: boolean;
   snoozedUntil: number | null;
+  /** Set aside for its side conversation (`Session.aside`). */
+  aside?: boolean;
   quiet: boolean;
   /** Moved to the top (`Session.raised`). */
   raised?: boolean;
@@ -170,6 +174,13 @@ export interface View {
  *  was cut off (lanes.ts `seenable`). */
 function settledBySeen(s: { status: Status; asks?: boolean; cutOff?: number }): boolean {
   return s.status === 'unread' || (s.status === 'needs' && !!s.asks) || (s.status === 'error' && s.cutOff != null);
+}
+
+/** Setting it aside takes it out of Needs you: one that needs you and isn't set aside yet. The
+ *  engine sets it aside only while its side conversation answers (board.rs `aside_holds`), which
+ *  the window that asks has just seen it do. */
+function settledByAside(s: { status: Status; aside?: number | boolean | null; archived?: boolean }): boolean {
+  return s.status === 'needs' && !s.aside && !s.archived;
 }
 
 /** Whether it still shows waiting on the call an answer was for: a call asked after it began
@@ -201,7 +212,7 @@ function byKey(changes: Ahead[]): Map<string, Ahead[]> {
   for (const a of changes) {
     // A review's snooze, a review and a merge are a PR's, not a session's.
     if (a.change.kind === 'review-snooze' || a.change.kind === 'pr-merge' || a.change.kind === 'pr-review') continue;
-    if (a.change.kind === 'seen' || a.change.kind === 'unread' || a.change.kind === 'snooze' || a.change.kind === 'quiet' || a.change.kind === 'raise' || a.change.kind === 'label') for (const k of a.change.keys) add(k, a);
+    if (a.change.kind === 'seen' || a.change.kind === 'unread' || a.change.kind === 'snooze' || a.change.kind === 'aside' || a.change.kind === 'quiet' || a.change.kind === 'raise' || a.change.kind === 'label') for (const k of a.change.keys) add(k, a);
     else add(a.change.key, a);
   }
   return m;
@@ -238,6 +249,8 @@ export function sessionAhead(s: Session, changes: Ahead[] | undefined): Session 
         out = { ...out, snoozedUntil: undefined, ...(back ? { status: 'unread' as const, statusSince: a.at } : {}) };
       }
     }
+    // Set aside, one that needs you waits on its side conversation first (board.rs `apply_aside`).
+    else if (c.kind === 'aside' && settledByAside(out)) out = { ...out, aside: a.at };
     else if (c.kind === 'send' && a.takenAt == null && !a.lapsed) {
       // A message takes a session out of the archive before it's sent: you took it up again
       // (actions.rs `unarchive_to_send`). Only while it's on its way: once it went, the engine
@@ -281,10 +294,12 @@ export function lanesAhead(lanes: Lane[], changes: Ahead[]): Lane[] {
 
 const LOGO_RANK: LogoStatus[] = ['error', 'needs', 'unread', 'working', 'idle'];
 
-/** A session's color on the mark: a snoozed one only while it works. */
-function logoColor(s: { status: Status; snoozedUntil?: number | null }): LogoStatus {
+/** A session's color on the mark: a snoozed one only while it works, and one set aside as its
+ *  side conversation works for it. */
+function logoColor(s: { status: Status; snoozedUntil?: number | null; aside?: number | null }): LogoStatus {
   if (s.status === 'working') return 'working';
-  return s.snoozedUntil || s.status === 'stopped' ? 'idle' : s.status;
+  if (s.snoozedUntil || s.status === 'stopped') return 'idle';
+  return s.aside ? 'working' : s.status;
 }
 
 /** What the mark's colors say, as the engine works it out (board.rs, `logo_status`). */
@@ -416,6 +431,8 @@ function barMoved(feed: BarFeed, changes: Ahead[]): BarFeed {
     const last = (by.get(key) ?? []).filter((a) => a.change.kind === 'snooze').pop()?.change;
     return last?.kind === 'snooze' ? last.until : undefined;
   };
+  /** When it was set aside for its side conversation, if it was. */
+  const asideAt = (key: string): number | undefined => (by.get(key) ?? []).find((a) => a.change.kind === 'aside')?.at;
   /** Quieted by the last quiet change for it: a finished turn of its leaves Your turn. */
   const quieted = (key: string): boolean => {
     const last = (by.get(key) ?? []).filter((a) => a.change.kind === 'quiet').pop()?.change;
@@ -440,9 +457,14 @@ function barMoved(feed: BarFeed, changes: Ahead[]): BarFeed {
     }
     const m = moved(i.key) ?? goesOn(i);
     const until = snooze(i.key);
+    const aside = asideAt(i.key);
     if (m && i.group !== 'working') {
       changed = true;
       items.push({ ...i, group: 'working', status: 'working', asks: false, since: m.at });
+    } else if (aside != null && i.group === 'needs' && i.status === 'needs') {
+      // Set aside, it's with what's working, drawn waiting, as barfeed.rs lists it.
+      changed = true;
+      items.push({ ...i, group: 'working', status: 'working', waiting: true, since: aside });
     } else if (until != null && i.group !== 'working') {
       changed = true;
       snoozing.push({ ...i, group: 'snoozed', snoozedUntil: until });
@@ -513,7 +535,7 @@ export function boardView(boardAt: number | null, laneLists: Lane[][]): View {
       for (const lanes of laneLists) {
         for (const l of lanes) {
           const s = l.sessions.find((x) => x.key === key && !x.visitor);
-          if (s) return { title: s.title, status: s.status, statusSince: s.statusSince, lastPromptAt: s.lastPromptAt, archived: s.archived, asks: !!s.asks, snoozedUntil: s.snoozedUntil ?? null, quiet: !!s.quiet, raised: !!s.raised, queuedAt: s.queuedAt ?? null, queued: s.queued?.map((m) => m.id), stuck: stuckMidTurn(s), labels: s.labels ?? [] };
+          if (s) return { title: s.title, status: s.status, statusSince: s.statusSince, lastPromptAt: s.lastPromptAt, archived: s.archived, asks: !!s.asks, snoozedUntil: s.snoozedUntil ?? null, aside: s.aside != null, quiet: !!s.quiet, raised: !!s.raised, queuedAt: s.queuedAt ?? null, queued: s.queued?.map((m) => m.id), stuck: stuckMidTurn(s), labels: s.labels ?? [] };
         }
       }
       return undefined;
@@ -563,6 +585,9 @@ export function settled(a: Ahead, v: View, now: number): Ahead | null {
       if (c.kind === 'seen') return !settledBySeen(s);
       if (c.kind === 'unread') return !unreadable(s);
       if (c.kind === 'snooze') return s.snoozedUntil === c.until;
+      // The bar can't tell one set aside from one working, nor can a window whose session no
+      // longer needs you: either way it's out of Needs you.
+      if (c.kind === 'aside') return !settledByAside(s);
       if (c.kind === 'quiet') return s.quiet === c.quiet;
       if (c.kind === 'raise') return !!s.raised === c.raised;
       if (c.kind === 'label') return s.labels === undefined || labelled(s, c);
@@ -736,6 +761,21 @@ export function seenAhead(keys: string[]): Promise<void> {
   const a = made({ kind: 'seen', keys });
   put(a, true);
   return markSeen(keys).then(
+    (shownAt) => answered(a.id, shownAt),
+    (e: unknown) => {
+      drop(a.id, true);
+      throw e;
+    },
+  );
+}
+
+/** Sets sessions that need you aside until their side conversations answer, in every window at
+ *  once (`asideSessions`). */
+export function asideAhead(keys: string[]): Promise<void> {
+  if (keys.length === 0) return Promise.resolve();
+  const a = made({ kind: 'aside', keys });
+  put(a, true);
+  return asideSessions(keys).then(
     (shownAt) => answered(a.id, shownAt),
     (e: unknown) => {
       drop(a.id, true);

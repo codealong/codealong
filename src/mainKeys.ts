@@ -10,7 +10,7 @@ import type { ListRow } from './boardLists';
 import type { MenuAction } from './contextMenu';
 import { findsAt } from './findKeys';
 import { historyChord } from './history';
-import { AGENT_BAY, seenable } from './lanes';
+import { AGENT_BAY, listedStatus, seenable } from './lanes';
 import { useLatest } from './latest';
 import * as menus from './menus';
 import type { Pins } from './pins';
@@ -398,7 +398,7 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
   if (gPending.current) {
     gPending.current = false;
     const bay = ({ n: 'needs', w: 'working', t: 'unread', r: 'review' } as Record<string, Bay | undefined>)[key];
-    const first = visible.find((r) => r.kind === 'agent' && AGENT_BAY[r.session.status] === bay);
+    const first = visible.find((r) => r.kind === 'agent' && AGENT_BAY[listedStatus(r.session)] === bay);
     if (first) setSelectedKey(first.key);
     return;
   }

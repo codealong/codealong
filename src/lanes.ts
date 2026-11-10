@@ -58,6 +58,24 @@ export function unattended(s: Pick<Session, 'helper' | 'headless' | 'status'>): 
   return (helpsAnAgent(s) || !!s.headless) && s.status !== 'needs' && s.status !== 'error';
 }
 
+/** Set aside for its side conversation (board.rs `apply_aside`): it still needs you, but waits on
+ *  the side conversation first, so it's listed and drawn with what's working, waiting, out of
+ *  every queue, until that's done. */
+export function setAside(s: Pick<Session, 'status' | 'aside'>): boolean {
+  return s.aside != null && s.status === 'needs';
+}
+
+/** Kept out of what waits on you for now, whatever its status: snoozed, or set aside for its side
+ *  conversation. The engine's `Session::held_back` says the same. */
+export function heldBack(s: Pick<Session, 'snoozedUntil' | 'aside'>): boolean {
+  return s.snoozedUntil != null || s.aside != null;
+}
+
+/** The status a session is listed under: one set aside is with what's working (`setAside`). */
+export function listedStatus(s: Pick<Session, 'status' | 'aside'>): Session['status'] {
+  return setAside(s) ? 'working' : s.status;
+}
+
 /** Snoozed and not running: it waits apart until its time, out of Needs you and Your turn, as on
  *  the floating bar. A running one stays with Working. */
 export function snoozedApart<S extends Pick<Session, 'snoozedUntil' | 'status'>>(s: S): s is S & { snoozedUntil: number } {
@@ -237,6 +255,13 @@ export function startedOf(s: Session): number {
  *  Marking it seen makes it idle, which takes it off the bar and out of its bay. */
 export function seenable(s: Pick<Session, 'status' | 'asks' | 'cutOff'>): boolean {
   return s.status === 'unread' || !!s.asks || (s.status === 'error' && s.cutOff != null);
+}
+
+/** Whether a session can be set aside for its side conversation (board.rs `apply_aside`): it needs
+ *  you for something marking it seen doesn't settle (a call to allow, a question, a held message),
+ *  and isn't set aside already. The engine holds it only while its side conversation answers. */
+export function asideable(s: Pick<Session, 'status' | 'asks' | 'cutOff' | 'aside' | 'archived'>): boolean {
+  return s.status === 'needs' && !seenable(s) && s.aside == null && !s.archived;
 }
 
 /** Whether a session can be marked unread: its turn is over and you've seen it (idle or
@@ -454,11 +479,16 @@ function truncate(s: string, max: number): string {
   return [...s].length <= max ? s : `${[...s].slice(0, max - 1).join('').trimEnd()}…`;
 }
 
+/** What a session set aside says before what it asked on the side (board.rs `ASKING_ON_THE_SIDE`). */
+const ASKING_ON_THE_SIDE = 'Asking on the side · ';
+
 /** A session's own sentence, as the engine words it (board.rs, `session_headline`). */
 export function sessionHeadline(s: Session): [string, string | null] {
   const acct = code(s.account);
   const need = needOf(s);
   if (need === 'stuck') return [`${acct} is stuck · ${s.title}`, s.excerpt];
+  // Set aside, it waits on its side conversation before it waits on you (board.rs `apply_aside`).
+  if (setAside(s)) return [`${acct} waits on its side conversation · ${s.title}`, s.excerpt?.startsWith(ASKING_ON_THE_SIDE) ? s.excerpt.slice(ASKING_ON_THE_SIDE.length) : null];
   // Every headline names the session: its title after what it's doing.
   switch (s.status) {
     case 'needs':
@@ -546,6 +576,7 @@ export function sessionFlag(s: Session): InsightLabel | null {
   if (s.connectionLost && s.status !== 'working') return { label: 'Network error', tone: 'warn', title: connectionLostWords(s.connectionLost) };
   if (s.cutOff != null && s.status !== 'working') return { label: 'Cut off', tone: 'bad', title: cutOffWords() };
   if (s.status === 'error') return { label: 'Error', tone: 'bad', title: 'It stopped with an error.' };
+  if (setAside(s)) return { label: 'On the side', tone: 'info', title: 'You set it aside until its side conversation answers. It needs you again then.' };
   if (s.status !== 'needs') return null;
   switch (need) {
     case 'reply':
@@ -680,7 +711,7 @@ export function narrowed(lane: Lane, fs: readonly Filter[], since: string): Lane
   if (fs.length === 0) return lane;
   const forPr = fs.some((f) => (f === 'work' ? prNeedsWork(lane.pr) : !AGENT_FILTERS.has(f) && lane.bay === f));
   if (forPr) return lane;
-  const sessions = lane.sessions.filter((s) => inStatus(s) && fs.includes(AGENT_BAY[s.status] as Filter));
+  const sessions = lane.sessions.filter((s) => inStatus(s) && fs.includes(AGENT_BAY[listedStatus(s)] as Filter));
   if (sessions.length === 0) return null;
   // The same copy while the worktree and the filters stay the same, so its row skips rendering
   // between pushes, as `ageFiltered`'s does (`keptCopy`).
@@ -704,8 +735,9 @@ const AGENT_FILTERS = new Set<Filter>(['needs', 'working', 'unread']);
 export function inboxCounts(lanes: Lane[]): { needs: number; working: number; unread: number; review: number; work: number } {
   const c = { needs: 0, working: 0, unread: 0, review: 0, work: 0 };
   for (const lane of lanes) {
+    // As the list has them: one set aside for its side conversation is with what works.
     for (const s of lane.sessions.filter(inStatus)) {
-      const bay = AGENT_BAY[s.status];
+      const bay = AGENT_BAY[listedStatus(s)];
       if (bay === 'needs' || bay === 'working' || bay === 'unread') c[bay]++;
     }
     if (lane.bay === 'review') c.review++;

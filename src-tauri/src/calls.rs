@@ -141,6 +141,13 @@ calls! {
         actions::run_keys_heard(&c.engine, &c.peers, api::SESSION_SNOOZE, keys, actions::params::Snooze { keys: Vec::new(), until }).map(|v| v.and_then(shown_at))
     }
 
+    /// Sets sessions that need you aside until their side conversations answer, each on the device
+    /// it's on, where its side conversation runs. Returns the time of the board that shows it once
+    /// every device has answered.
+    fn aside_sessions(c, keys: Vec<String>) -> Result<Option<i64>, String> {
+        actions::run_keys_heard(&c.engine, &c.peers, api::SESSION_ASIDE, keys, actions::params::Keys::default()).map(|v| v.and_then(shown_at))
+    }
+
     /// Quiets sessions, or makes them heard again with `quiet` false, each on the device it's on.
     fn quiet_sessions(c, keys: Vec<String>, quiet: bool) -> Result<Option<i64>, String> {
         actions::run_keys_heard(&c.engine, &c.peers, api::SESSION_QUIET, keys, actions::params::Quiet { keys: Vec::new(), quiet }).map(|v| v.and_then(shown_at))

@@ -310,6 +310,18 @@ describe('⌘E', () => {
     expect(keyStep(card(B), none, 'seen', NOW)).toMatchObject({ taken: false, went: 'stay' });
   });
 
+  it('sets aside one that needs you while its side conversation answers, and goes on, where the window runs it', () => {
+    const aside = (view: QueueView<Row>): QueueView<Row> => ({ ...view, shown: { ...shown(B), asides: true } });
+    const step = keyStep(aside(sessions(B)), none, 'seen', NOW);
+    expect(step).toMatchObject({ taken: true, setAside: 'B', went: 'on', to: C, words: 'Queue B: set aside.' });
+    expect(step.markSeen).toBeUndefined();
+    // Not kept as dealt with: it waits on you again, as it was, once its side conversation has
+    // answered.
+    expect(step.handled.has('B')).toBe(false);
+    // A card sets it aside from its own strip, as it marks seen.
+    expect(keyStep(aside(card(B)), none, 'seen', NOW)).toMatchObject({ taken: false });
+  });
+
   it('goes on from one that runs as ⌘] does, and marks nothing seen, in every window', () => {
     for (const view of [sessions(W), card(W)]) {
       const step = keyStep(view, none, 'seen', NOW);
@@ -433,6 +445,8 @@ describe('a session that left what waits on you', () => {
     expect(step.handled.has('A')).toBe(false);
     expect(left(card(A, [A]), none, 'A', 'snoozed', NOW).handled.has('A')).toBe(false);
     expect(left(sessions(A), none, 'A', 'archived', NOW).handled.has('A')).toBe(true);
+    // Nor one set aside for its side conversation, which needs you again as it was once that's done.
+    expect(left(sessions(B), none, 'B', 'set aside', NOW).handled.has('B')).toBe(false);
   });
 
   it('moves nothing when it isn’t the one shown', () => {

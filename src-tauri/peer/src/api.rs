@@ -22,6 +22,10 @@ pub const MARK_UNREAD: &str = "mark-unread";
 /// Your turn, there and everywhere, until then. Macs before 2026-10-09 refuse it as a request they
 /// don't know.
 pub const SESSION_SNOOZE: &str = "session-snooze";
+/// Sets sessions that need you (`keys`) aside until their side conversations answer: each is out
+/// of Needs you, there and everywhere, until its side conversation is done, then needs you again
+/// as it did. Macs before 2026-11-10 refuse it as a request they don't know.
+pub const SESSION_ASIDE: &str = "session-aside";
 /// Quiets sessions (`keys`), or makes them heard again with `quiet` false: a quiet one's turns
 /// don't wait on you, there and everywhere, and it waits on you only when it needs you. Macs
 /// before 2026-10-09 refuse it as a request they don't know.
@@ -430,7 +434,7 @@ pub mod params {
         pub prompt: String,
     }
 
-    /// Sessions by key: `mark-seen`, `mark-unread`, `session-watch`.
+    /// Sessions by key: `mark-seen`, `mark-unread`, `session-aside`, `session-watch`.
     #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
     #[serde(default)]
     pub struct Keys {
@@ -634,7 +638,7 @@ pub enum Reach {
 }
 
 /// Every request, with who may make it. A request missing here is one a device doesn't know.
-pub const REQUESTS: [(&str, Reach); 49] = [
+pub const REQUESTS: [(&str, Reach); 50] = [
     (SESSION_PAGE, Reach::Read),
     (SESSION_NEWER, Reach::Read),
     (SESSION_PENDING, Reach::Read),
@@ -654,6 +658,7 @@ pub const REQUESTS: [(&str, Reach); 49] = [
     (MARK_SEEN, Reach::Organize),
     (MARK_UNREAD, Reach::Organize),
     (SESSION_SNOOZE, Reach::Organize),
+    (SESSION_ASIDE, Reach::Organize),
     (SESSION_QUIET, Reach::Organize),
     (SESSION_LABEL, Reach::Organize),
     (SESSION_RAISE, Reach::Organize),

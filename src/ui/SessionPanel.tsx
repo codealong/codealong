@@ -36,13 +36,15 @@ import { runCommand, sessionPutBack, sessionWindow } from '../api';
 import { below, showContextMenu, type MenuAction, type MenuGroup, type MenuSpec } from '../contextMenu';
 import { shortOf } from '../devices';
 import { useKeptSessions } from '../kept';
-import { seenable } from '../lanes';
+import { asideable, seenable } from '../lanes';
+import { useLatest } from '../latest';
 import { CHORDS, chordSigns, doneTitle, type SessionActions } from '../menus';
 import { AWAY_CHORD, QUEUE_CHORDS, type QueueAction } from '../queue';
 import { SNOOZE_CHORDS } from '../snooze';
 import type { Sent, Session, TerminalGlance, TranscriptItem } from '../types';
 import { TerminalDrawer } from './terminal/TerminalDrawer';
 import { besideOf, homeTerminalOf, setDrawer, useSessionView } from '../terminals';
+import { useSideAnswering } from '../side';
 import { SessionTerminal, SessionViewSwitch, showView } from './terminal/SessionTerminal';
 import { cardZoom, scaleOf } from '../zoom';
 import { EditDialog } from './EditFrom';
@@ -315,7 +317,11 @@ export function QueueStrip({ queue, notice, hotkeys, session, actions, onSeen, b
   const next = queue?.next;
   const [nextKey, nextToo] = queueSigns('next');
   const stripRef = useRef<HTMLDivElement>(null);
-  const seen = session && seenable(session) ? (onSeen ?? actions?.seen?.run) : undefined;
+  // One that needs you for something else, while its side conversation answers, is set aside
+  // until that's done by the same key (board.rs `apply_aside`).
+  const answering = useSideAnswering(session?.key);
+  const aside = session && answering && asideable(session) ? (onSeen ?? actions?.aside?.run) : undefined;
+  const seen = session && seenable(session) ? (onSeen ?? actions?.seen?.run) : aside;
   const snooze = actions?.snooze;
   const close = actions?.close;
   const done = actions?.done;
@@ -329,7 +335,15 @@ export function QueueStrip({ queue, notice, hotkeys, session, actions, onSeen, b
     {
       label: 'Seen',
       chord: CHORDS.seen,
-      title: !seen ? (next && queue?.waiting === false ? `Nothing to mark as seen here: ${sign('seen')} goes on to the next` : 'Nothing to mark as seen here') : next && queue?.waiting !== false ? 'Mark as seen and go on to the next' : 'Mark as seen: it goes idle and leaves what waits on you',
+      title: !seen
+        ? next && queue?.waiting === false
+          ? `Nothing to mark as seen here: ${sign('seen')} goes on to the next`
+          : 'Nothing to mark as seen here'
+        : aside
+          ? 'Set it aside until its side conversation answers: it needs you again then'
+          : next && queue?.waiting !== false
+            ? 'Mark as seen and go on to the next'
+            : 'Mark as seen: it goes idle and leaves what waits on you',
       run: seen && (() => seen()),
     },
     { label: 'Done', chord: CHORDS.done, title: done && session ? doneTitle(session) : 'It’s archived already', run: done && (() => done.run()) },
@@ -413,6 +427,18 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
   const openIt = () => onOpen(s.openTarget);
   // Sending and marking seen go on to the next only from a session that waits on you itself.
   const goesOn = queue?.waiting !== false && queue?.next;
+  // ⌘⏎ in its side conversation's box, once asked, takes it as ⌘E would while the side
+  // conversation answers: a turn or a reply that asks you something marked seen, which the answer
+  // brings back (board.rs `apply_side_answer`); one that needs you for something else set aside
+  // until then (`apply_aside`); one that doesn't wait on you gone on from. Read as the question
+  // goes, which can be after the session has changed.
+  const later = useLatest({ s, actions: header.actions, next: queue?.onNext });
+  const onAsked = () => {
+    const { s, actions, next } = later.current;
+    const put = seenable(s) ? actions?.seen : asideable(s) ? actions?.aside : undefined;
+    if (put) put.run();
+    else next?.();
+  };
   // Its shell blocks run in a tab of yours here, as `!` in its box does, so not for a session on
   // another device, and the session is told what they printed.
   const folder = shortOf(s.key) ? null : runFolder(lane, s);
@@ -488,7 +514,7 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
               {device.name} doesn't take prompts from your other devices. To send from here, turn on <b>Let my linked devices act on sessions here</b> in Settings › Devices on {device.name}.
             </p>
           ) : (
-            <Reply session={s} terminal={terminal} runIn={folder ?? undefined} runsUnder={apps.runIn !== 'terminal'} onOpen={openIt} autoFocus={autoFocus && !renaming} keys={keys} onSending={onSending} onSent={onSent} onFailed={onFailed} onAnswered={onAnswered} onNext={goesOn ? onDone : undefined} sayKeys={!!hotkeys} moves={moves} onMove={ask} />
+            <Reply session={s} terminal={terminal} runIn={folder ?? undefined} runsUnder={apps.runIn !== 'terminal'} onOpen={openIt} autoFocus={autoFocus && !renaming} keys={keys} onSending={onSending} onSent={onSent} onFailed={onFailed} onAnswered={onAnswered} onNext={goesOn ? onDone : undefined} onAsked={header.actions ? onAsked : undefined} sayKeys={!!hotkeys} moves={moves} onMove={ask} />
           )}
           {folder !== null && terminals && !away && (
             <TerminalDrawer

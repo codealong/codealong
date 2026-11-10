@@ -229,6 +229,10 @@ export interface Session {
    *  session whose turn you'd seen is Your turn for it, and a window shows it above the box as it
    *  comes to the session (side.ts `useSideAnswer`). Missing from older Macs. */
   sideAnswer?: SideAnswer;
+  /** When you set it aside for its side conversation (board.rs `apply_aside`): it still needs
+   *  you, but waits on the side conversation first, listed with what's working, out of every
+   *  queue, until that's done. */
+  aside?: number;
   /** Replies another session suggested you send it (`codealong session suggest`), shown above its
    *  box to send with a click, while they still answer where it stands: nothing sent to it since,
    *  no turn of its started since (board::suggestions_hold). Missing from older Macs. */

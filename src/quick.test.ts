@@ -25,6 +25,11 @@ describe('queueRows', () => {
     expect(keys(queueRows(board([lane('app2', [session('w', 'working', NOW)])]), ALL_PROJECTS))).toEqual([]);
   });
 
+  it('leaves out one set aside for its side conversation, which waits on that first', () => {
+    const aside = { ...session('a', 'needs', NOW - 120), aside: NOW - 5 };
+    expect(keys(queueRows(board([lane('app2', [aside, session('n', 'needs', NOW - 60)])]), ALL_PROJECTS))).toEqual(['n']);
+  });
+
   it('puts the PRs waiting on your review after what needs you, the longest wait first, snoozed ones left out', () => {
     const review = (number: number, over: Partial<PrItem> = {}) => fx.prItem({ number, key: `acme/app#${number}`, project: 'Acme', state: 'open', reviewRequested: true, updatedAt: NOW - number, ...over });
     // #7 is still being reviewed by Codealong's agent: it waits on you once that's done.

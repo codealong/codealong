@@ -6,11 +6,14 @@
 // window passes only what differs: its rows, how it shows a session, and what's its own to do.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { seenable, waitsFinished } from './lanes';
+import { asideAhead } from './ahead';
+import { asideable, seenable, waitsFinished } from './lanes';
 import type { Left } from './menus';
 import * as rules from './queue';
 import type { Handled, Place, QueueAction, QueueView, Reads, Shown, Step, Went } from './queue';
 import { statusTime } from './quick';
+import { errorText } from './report';
+import { sideAnswering } from './side';
 import type { Lane, Session } from './types';
 import type { Notice, Queue } from './ui/SessionPanel';
 
@@ -18,9 +21,10 @@ import type { Notice, Queue } from './ui/SessionPanel';
  *  said or the window moves on. */
 const NOTICE_MS = 4000;
 
-/** A session shown, from the session itself. */
+/** A session shown, from the session itself. Whether one that needs you can be set aside is
+ *  read again as a key asks (`run`): it can while its side conversation answers. */
 export function shownSession(s: Session): Shown {
-  return { key: s.key, title: s.title, since: statusTime(s), seenable: seenable(s) };
+  return { key: s.key, title: s.title, since: statusTime(s), seenable: seenable(s), asides: asideable(s) };
 }
 
 /** How the queue reads rows that carry their session, and its worktree where they have it:
@@ -131,9 +135,15 @@ export function useWaitingQueue<T, H = undefined>(options: WaitingQueueOptions<T
 
   const run = useCallback(
     (action: QueueAction, how?: H): boolean => {
-      const { options: o, view } = now.current;
+      const { options: o, view: v } = now.current;
+      // One that needs you is set aside only while its side conversation answers, which the
+      // window hears of apart from its board, so that's asked as the key is pressed.
+      const view = v.shown?.asides && !sideAnswering(v.shown.key) ? { ...v, shown: { ...v.shown, asides: false } } : v;
       const step = rules.keyStep(view, handled.current, action, Date.now());
       if (step.markSeen) o.markSeen?.(step.markSeen);
+      // Set aside at once in every window (ahead.ts); one the engine didn't take comes back, with why.
+      const aside = step.setAside;
+      if (aside) asideAhead([aside]).catch((e: unknown) => setNote({ on: now.current.view.shown?.key ?? aside, text: errorText(e), error: true }));
       take(step, how);
       // The window's history shows the session itself; the strip has nothing to say on it.
       if (step.travel && o.travel?.(step.travel)) setNote(null);

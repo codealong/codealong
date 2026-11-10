@@ -102,6 +102,9 @@ pub enum Msg {
     /// Sessions snoozed until then, or woken now with none. The reply is the time of the board
     /// that shows it, published at once.
     Snooze(Vec<String>, Option<i64>, Sender<i64>),
+    /// Sessions that need you set aside until their side conversations answer. The reply is the
+    /// time of the board that shows it, published at once.
+    Aside(Vec<String>, Sender<i64>),
     /// Reviews asked of you snoozed until then, by PR key, or woken now with none. The reply is
     /// the time of the board that shows it, published at once.
     SnoozeReviews(Vec<String>, Option<i64>, Sender<i64>),
@@ -347,6 +350,15 @@ impl Handle {
     pub fn snooze(&self, keys: Vec<String>, until: Option<i64>) -> Option<i64> {
         let (tx, rx) = channel();
         self.tx.send(Msg::Snooze(keys, until, tx)).ok()?;
+        rx.recv_timeout(SHOWN_WAIT).ok()
+    }
+
+    /// Sets sessions that need you aside until their side conversations answer
+    /// (`board::apply_aside`). Returns the time of the board that shows it, as `mark_seen_shown`
+    /// does.
+    pub fn aside(&self, keys: Vec<String>) -> Option<i64> {
+        let (tx, rx) = channel();
+        self.tx.send(Msg::Aside(keys, tx)).ok()?;
         rx.recv_timeout(SHOWN_WAIT).ok()
     }
 
@@ -1876,6 +1888,20 @@ impl Engine {
     /// Forgets the marks of seen from sessions' agents whose sessions have moved on since
     /// (`board::agent_seen_spent`), so the turn a later one ends with is never taken for the one
     /// its agent marked, whatever its record keeps of how it started.
+    /// Forgets sessions set aside that no longer wait on their side conversation
+    /// (`board::aside_holds`): the board shows them as it shows any, and one asked on the side
+    /// again later isn't set aside unless you set it aside again.
+    fn forget_spent_aside(&mut self, board: &Board) {
+        let spent: Vec<String> = self.seen.aside.iter().filter(|m| board.session(&m.key).is_some_and(|(_, s)| s.aside.is_none())).map(|m| m.key.clone()).collect();
+        if spent.is_empty() {
+            return;
+        }
+        for k in &spent {
+            self.seen.forget_aside(k);
+        }
+        self.save_state();
+    }
+
     fn forget_spent_agent_seen(&mut self, board: &Board) {
         let spent: Vec<String> = self.seen.agent_seen.iter().filter(|m| board.session(&m.key).is_some_and(|(_, s)| board::agent_seen_spent(s, m.seen.at))).map(|m| m.key.clone()).collect();
         if spent.is_empty() {
@@ -2101,10 +2127,11 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
     }
 
     /// Sessions with quiet, helpers' and headless runs' rules, their agents' marks of seen, what
-    /// their side conversations answered, their marks of unread, their snoozes, their moves to
-    /// the top and their labels applied (board::apply_quiet, board::apply_helper,
-    /// board::apply_headless, board::apply_agent_seen, board::apply_side_answer,
-    /// board::apply_unread, board::apply_snooze, board::apply_raise, board::apply_labels). A snooze's time coming changes nothing on disk: the 30-second
+    /// their side conversations answered, whether they're set aside for them, their marks of
+    /// unread, their snoozes, their moves to the top and their labels applied (board::apply_quiet,
+    /// board::apply_helper, board::apply_headless, board::apply_agent_seen,
+    /// board::apply_side_answer, board::apply_aside, board::apply_unread, board::apply_snooze,
+    /// board::apply_raise, board::apply_labels). A snooze's time coming changes nothing on disk: the 30-second
     /// heartbeat's publish brings it back.
     fn with_snoozes(&self, mut sessions: Vec<Session>, sides: &std::collections::BTreeMap<String, Vec<crate::side::Glance>>, listenings: &std::collections::BTreeMap<String, crate::listen::Glance>, now: i64) -> Vec<Session> {
         let unattended = sessions.iter().any(|s| s.helper.is_some() || s.headless) || !listenings.is_empty();
@@ -2121,6 +2148,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             board::apply_listening(s, listenings.contains_key(&s.key));
             board::apply_agent_seen(s, self.seen.agent_seen_of(&s.key));
             board::apply_side_answer(s, sides.get(&s.key).map_or(&[], Vec::as_slice), self.seen.seen_at(&s.key));
+            board::apply_aside(s, self.seen.aside_of(&s.key), sides.get(&s.key).map_or(&[], Vec::as_slice));
             // A mark of unread next: a snooze keeps a session marked unread off the bar too.
             board::apply_unread(s, self.seen.unread_of(&s.key), self.seen.seen_at(&s.key));
             board::apply_snooze(s, self.seen.snooze_of(&s.key), self.seen.seen_at(&s.key), now);
@@ -2655,6 +2683,15 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                     }
                     self.save_state();
                     // Now rather than on the next tick: the window shows it already, and waits for it.
+                    self.publish();
+                    let _ = reply.send(self.board.read().map(|b| b.generated_at).unwrap_or(0));
+                }
+                Ok(Msg::Aside(keys, reply)) => {
+                    let now = now_ms();
+                    for k in keys {
+                        self.seen.set_aside(&k, now);
+                    }
+                    self.save_state();
                     self.publish();
                     let _ = reply.send(self.board.read().map(|b| b.generated_at).unwrap_or(0));
                 }
@@ -4173,6 +4210,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         self.forget_stale_suggestions(&board);
         self.forget_stale_tags(&board);
         self.forget_spent_agent_seen(&board);
+        self.forget_spent_aside(&board);
         self.jev_look(&board);
         // Rare too: a schedule's emblem coming, or a session of it showing.
         if self.look_emblems(&board) {

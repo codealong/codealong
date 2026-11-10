@@ -366,6 +366,12 @@ pub struct Session {
     /// it comes to the session. None from Macs before 2026-10-30.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub side_answer: Option<SideAnswer>,
+    /// When you set it aside for its side conversation (`board::apply_aside`): it still needs you,
+    /// but you'll answer once the side conversation has, so until then it's in no queue, on no
+    /// pill and off the mark, listed with what's working. None once the side conversation has
+    /// answered, and from Macs before 2026-11-10, which show it as needing you.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub aside: Option<i64>,
     /// Replies another session suggested you send it (`codealong session suggest`), shown above
     /// its box to send with a click, while they still answer where it stands
     /// (`board::suggestions_hold`). None from Macs before 2026-10-09.
@@ -566,6 +572,12 @@ impl Session {
         self.status == Status::Working && self.background.is_some()
     }
 
+    /// Kept out of what waits on you for now, whatever its status: snoozed until a time, or set
+    /// aside until its side conversation answers (`aside`).
+    pub fn held_back(&self) -> bool {
+        self.snoozed_until.is_some() || self.aside.is_some()
+    }
+
     /// Where it runs, read once from what says so, in the order that settles a session two of
     /// them are true of: one Codealong runs itself is in no terminal and is no job of its
     /// harness's, whatever else its records say, and a job has no tab of its own.
@@ -718,6 +730,7 @@ impl Session {
             raised: None,
             agent_seen: None,
             side_answer: None,
+            aside: None,
             suggestions: None,
             labels: Vec::new(),
             pin: None,

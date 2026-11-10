@@ -130,6 +130,14 @@ export async function snoozeSessions(keys: string[], until: number | null): Prom
   return (await invoke<number | null>('snooze_sessions', { keys, until })) ?? null;
 }
 
+/** Sets sessions that need you aside until their side conversations answer, each on the device
+ *  it's on. Returns the time of the board that shows it, as `markSeen` does, and rejects with why
+ *  when a device didn't; windows set them aside through ahead.ts. */
+export async function asideSessions(keys: string[]): Promise<number | null> {
+  if (!inTauri || keys.length === 0) return null;
+  return (await invoke<number | null>('aside_sessions', { keys })) ?? null;
+}
+
 /** Quiets sessions, or makes them heard again with false, each on the device it's on: a quiet
  *  one's turns don't wait on you. Returns the time of the board that shows it, as `markSeen`
  *  does, and rejects with why when a device didn't; windows quiet through ahead.ts. */

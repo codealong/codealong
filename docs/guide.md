@@ -530,6 +530,21 @@ nothing left to answer. Opening the session where it lives can't show what
 was answered, so that leaves the session waiting, and doesn't mark it seen as it otherwise would. A
 PR's questions have no session to wait on you.
 
+So you can ask on the side and get on with something else until the answer comes. ⌘⏎ in the side
+conversation's box asks it, then takes the session out of what waits on you and goes on to the next
+that waits, as ⌘⏎ in the session's own box sends and goes on. A finished turn, or a reply that asks
+you something, is marked seen, and the answer brings it back as Your turn. One that needs you for
+something marking it seen doesn't settle (a call to allow, a question it asked, a message it holds)
+is *set aside* instead: it's listed with what's working, drawn waiting, labelled *On the side* and
+saying what you asked there, out of Needs you, the floating bar's pills, the notch, the waiting
+window and the mark. Once the side conversation is done (answered, closed, or its copy gone) it
+needs you again as it did, where it waited, with the answer above its box when you come to it, and
+the bar plays its Needs you sound. A prompt sent to it meanwhile, or a new need of its own (the
+question answered in its terminal and another asked), ends it too. ⌘E (Seen on the strip) sets a
+session aside the same way while its side conversation answers, after you've asked with ⏎. A session on
+another machine is set aside there, which needs a build of Codealong from 2026-11-10 or later; the
+iPhone app shows one set aside as needing you.
+
 A session on another machine is asked on the side the same way: its copy runs on that machine,
 beside the session, and the answer shows here as it's written. Asking needs remote control on that
 machine, since the copy can do what the session can, and a build of Codealong from 2026-10-23 or
