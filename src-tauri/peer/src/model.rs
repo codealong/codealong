@@ -567,6 +567,15 @@ impl Session {
         self.need = self.need();
     }
 
+    /// Reads why it needs you where what sent or kept it didn't say: a device of a build from
+    /// before `Session::need`, or a copy of one kept on disk. What a device did say stands, a
+    /// later build's need this one doesn't know (`Need::Other`) among it.
+    pub fn fill_need(&mut self) {
+        if self.need.is_none() {
+            self.settle_need();
+        }
+    }
+
     /// Whether it waits on you to answer a prompt (a permission, a question through its
     /// harness, a held message), where what's typed would answer it: not one whose reply only
     /// asks you something, nor a stuck one, which sits at no prompt. `src/lanes.ts`
@@ -1396,9 +1405,15 @@ mod tests {
         s.status = Status::Working;
         s.settle_need();
         assert_eq!(s.need, None);
-        // A later build's need this one doesn't know still reads.
+        // A later build's need this one doesn't know still reads, and stands where a need
+        // unsaid is read from the rest.
         let later = text.replace("\"approval\"", "\"something-new\"");
-        assert_eq!(serde_json::from_str::<Session>(&later).unwrap().need, Some(Need::Other));
+        let mut later: Session = serde_json::from_str(&later).unwrap();
+        later.fill_need();
+        assert_eq!(later.need, Some(Need::Other));
+        let mut unsaid = Session { status: Status::Needs, excerpt: Some("Bash · `make`".into()), ..crate::fixtures::session("claude:claude:a") };
+        unsaid.fill_need();
+        assert_eq!(unsaid.need, Some(Need::Approval));
     }
 
     use super::*;
