@@ -472,6 +472,9 @@ struct Running {
     /// The latest thing its session said that wasn't nothing, and when.
     cue: Option<String>,
     cue_at: i64,
+    /// When its session last went on under another key (`goes_on_as`): the board takes a
+    /// moment to list a session just resumed, and until it has, the session isn't gone.
+    moved_at: Option<i64>,
 }
 
 impl Running {
@@ -781,7 +784,9 @@ pub fn start(engine: &Handle, key: &str, ask: &Ask) -> Result<Listening> {
     let moved = match begun {
         Ok(moved) => moved,
         Err(e) => {
-            let ear = state().running.remove(&l.id).and_then(|r| r.ear);
+            // Ended as a listening that got going is, so a look that read it from the file in
+            // the meantime starts no helper for it once its record is gone.
+            let ear = take_running(&l.id).and_then(|r| r.ear);
             drop(ear);
             let _ = change(|all| all.retain(|old| old.id != l.id));
             let _ = std::fs::remove_dir_all(folder(&l.id));
@@ -814,6 +819,7 @@ fn reserve(all: &mut Vec<Listening>, l: &Listening, now: i64) -> bool {
 fn goes_on_as(id: &str, key: &str) -> Option<Listening> {
     if let Some(running) = state().running.get_mut(id) {
         running.session = key.to_string();
+        running.moved_at = Some(util::now_ms());
     }
     let now = update(id, |l| l.session = key.to_string());
     changed();
@@ -834,16 +840,19 @@ fn tell(engine: &Handle, board: &Board, l: &Listening, text: &str) -> Result<Opt
     }
 }
 
+/// Takes a listening's helper from what's running, to stop it, and marks the listening ended in
+/// the same breath, under the lock a look plans its helpers under: from here on none is started
+/// for it (`plan`), whatever a look read of it before.
+fn take_running(id: &str) -> Option<Running> {
+    let mut state = state();
+    state.ended.insert(id.to_string());
+    state.running.remove(id)
+}
+
 /// Stops the hearing of listening `id`, its last words written first. Its session is told on
 /// the next look (`step`). `why` when it wasn't the person who ended it.
 fn end(id: &str, why: Option<String>) -> Option<Listening> {
-    // Marked ended in the same breath as its helper is taken, under the lock a look plans its
-    // helpers under: from here on none is started for it (`plan`).
-    let running = {
-        let mut state = state();
-        state.ended.insert(id.to_string());
-        state.running.remove(id)
-    };
+    let running = take_running(id);
     // Outside the lock: the helper's last words come through `heard`, which takes it.
     if let Some(ear) = running.and_then(|r| r.ear) {
         ear.stop();
@@ -889,7 +898,11 @@ fn look(engine: &Handle) {
             }
         }
         written(l);
-        match step(l, hearer(&board, &l.session), now, every_ms, on) {
+        let hearer = hearer(&board, &l.session);
+        if hearer.is_none() && awaited(&state(), &l.id, now) {
+            continue;
+        }
+        match step(l, hearer, now, every_ms, on) {
             Step::Wait => {}
             Step::Drop => {
                 end(&l.id, Some("its session is gone".into()));
@@ -941,10 +954,19 @@ fn look(engine: &Handle) {
             }
         }
     }
-    let mut state = state();
-    state.notes.retain(|id, _| all.iter().any(|l| &l.id == id && !l.done));
-    // Once the file says it ended, no look takes it for hearing any more.
-    state.ended.retain(|id| all.iter().any(|l| &l.id == id && l.hearing()));
+    state().notes.retain(|id, _| all.iter().any(|l| &l.id == id && !l.done));
+    // What this look read is done with here, so a listening's mark can go once nothing would
+    // take it for hearing: by the file as it is now, not as this look read it, which may be
+    // from before the listening began.
+    let now_hearing: HashSet<String> = list().into_iter().filter(Listening::hearing).map(|l| l.id).collect();
+    forget_ended(&mut state(), &now_hearing);
+}
+
+/// Drops the marks of listenings the file no longer has as hearing: it says they ended, or has
+/// them no more. One the file still has as hearing keeps its mark: its ending is under way, its
+/// helper's last words not all written yet.
+fn forget_ended(state: &mut State, now_hearing: &HashSet<String>) {
+    state.ended.retain(|id| now_hearing.contains(id));
 }
 
 /// Notes what a listening's session said since the last look, once its turn is over: a reply
@@ -975,6 +997,15 @@ fn written(l: &Listening) {
     if was.is_some_and(|was| was != at) {
         crate::views::emit(NOTES_WRITTEN, &serde_json::json!({ "session": l.session }));
     }
+}
+
+/// How long the board is given to list a session that was just resumed as a copy.
+const MOVED_WAIT_MS: i64 = 2 * 60 * 1000;
+
+/// Whether a listening whose session the board doesn't list is waiting for it to: it went on
+/// under another key a moment ago, which the board hasn't caught up with yet.
+fn awaited(state: &State, id: &str, now: i64) -> bool {
+    state.running.get(id).and_then(|r| r.moved_at).is_some_and(|at| now - at < MOVED_WAIT_MS)
 }
 
 /// What a look does about a hearing listening's helper.
@@ -1190,6 +1221,36 @@ mod tests {
         state.running.insert(them.id.clone(), Running { silent_since: Some(NOW - SILENT_MS), ..Running::default() });
         assert_eq!(plan(&mut state, &them, NOW), Do::Silent);
         assert_eq!(plan(&mut state, &them, NOW + 500), Do::Nothing);
+    }
+
+    #[test]
+    fn a_mark_that_a_listening_ended_stays_until_the_file_says_so() {
+        // Ended while a look was under way that read the file before it began: the look's own
+        // list doesn't have it, but the file still has it as hearing, its last words on their
+        // way, so the mark stays, and the next look starts it nothing.
+        let l = Listening { sources: Ask { mic: true, ..Ask::default() }.sources().unwrap(), ..hearing() };
+        let mut state = State::default();
+        state.ended.insert(l.id.clone());
+        forget_ended(&mut state, &HashSet::from([l.id.clone()]));
+        assert_eq!(plan(&mut state, &l, NOW), Do::Nothing);
+        assert!(state.running.is_empty());
+        // Once the file says it ended, or has it no more (a start that was taken back), nothing
+        // reads it as hearing, and the mark goes.
+        forget_ended(&mut state, &HashSet::new());
+        assert!(state.ended.is_empty());
+    }
+
+    #[test]
+    fn a_session_just_resumed_as_a_copy_is_waited_for_before_its_taken_for_gone() {
+        let l = hearing();
+        let mut state = State::default();
+        assert!(!awaited(&state, &l.id, NOW));
+        state.running.insert(l.id.clone(), Running { moved_at: Some(NOW - 5000), ..Running::default() });
+        assert!(awaited(&state, &l.id, NOW));
+        assert!(!awaited(&state, &l.id, NOW + MOVED_WAIT_MS));
+        // One that never moved is gone when the board says so.
+        state.running.insert(l.id.clone(), Running::default());
+        assert!(!awaited(&state, &l.id, NOW));
     }
 
     #[test]

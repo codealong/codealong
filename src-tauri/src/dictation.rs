@@ -4,8 +4,8 @@
 //! heard are all here, and so nothing is heard while the app is closed.
 //!
 //! Hearing starts as the key goes down, before the speech model is ready (the helper keeps what's
-//! said meanwhile), and ends as it comes up, when the last words settle and the text goes where
-//! it's for:
+//! said meanwhile), and ends as it comes up: the microphone is off at once, and when the last
+//! words have settled the text goes where it's for, after any said before it:
 //!
 //! - `talk`: to the Codealong window you're in, which types it where its caret is, or failing
 //!   that into the box of the session it shows (src/talk.ts). In another app, or a window with
@@ -276,42 +276,60 @@ pub fn release(app: &AppHandle) {
     finish_in_turn(app, over);
 }
 
-/// Finishes a press that's over after the ones before it, on the one thread that finishes them.
-/// A press is out of `LIVE` as soon as its key comes up, so the next can begin at once; its words
-/// take a moment more to settle, and two said one after the other go where they're for in the
-/// order they were said, since they're handed over here in the order their keys came up.
+/// A press that's over, and what says its helper has stopped, its last words in.
+type Over = (AppHandle, Live, std::sync::mpsc::Receiver<()>);
+
+/// Finishes a press that's over. Two things, apart:
+///
+/// - its helper is stopped now, on a thread of its own, whatever else is going on: the
+///   microphone is off as the key comes up, not when an earlier press's words have gone where
+///   they're for, or what's said after the key would be heard as part of it;
+/// - what was said goes where it's for after the presses before it, on the one thread that
+///   does that, which waits for each one's helper in the order their keys came up. So two said
+///   one after the other arrive in the order they were said.
+///
+/// A press is out of `LIVE` by now, so the next can begin at once.
 fn finish_in_turn(app: &AppHandle, over: Option<Live>) {
-    static TURNS: std::sync::OnceLock<Mutex<std::sync::mpsc::Sender<(AppHandle, Live)>>> = std::sync::OnceLock::new();
-    let Some(over) = over else { return };
+    static TURNS: std::sync::OnceLock<Mutex<std::sync::mpsc::Sender<Over>>> = std::sync::OnceLock::new();
+    let Some(mut over) = over else { return };
+    show(app, &Talk { id: over.id, phase: "settling", to: word(over.to), text: lock(&over.heard).text(), ..Talk::default() });
+    let (stopped, when_stopped) = std::sync::mpsc::channel();
+    let ear = over.ear.take();
+    std::thread::spawn(move || {
+        if let Some(ear) = ear {
+            ear.stop();
+        }
+        let _ = stopped.send(());
+    });
     let turns = TURNS.get_or_init(|| {
-        let (tx, rx) = std::sync::mpsc::channel::<(AppHandle, Live)>();
+        let (tx, rx) = std::sync::mpsc::channel::<Over>();
         let started = std::thread::Builder::new().name("codealong-dictation".into()).spawn(move || {
-            for (app, over) in rx {
-                if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| finish(&app, over))).is_err() {
-                    eprintln!("Voice: finishing what was said panicked");
+            for (app, over, when_stopped) in rx {
+                // Its last words are in once its helper has stopped, or is gone.
+                let _ = when_stopped.recv();
+                if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| deliver(&app, over))).is_err() {
+                    eprintln!("Voice: putting what was said where it's for panicked");
                 }
             }
         });
         if let Err(e) = started {
-            eprintln!("Voice: the thread that finishes what's said didn't start: {e}");
+            eprintln!("Voice: the thread that puts what's said where it's for didn't start: {e}");
         }
         Mutex::new(tx)
     });
-    // Only a thread that didn't start leaves nobody to take it; then it's finished here.
-    if let Err(unsent) = lock(turns).send((app.clone(), over)) {
-        finish(app, unsent.0 .1);
+    // Only a thread that didn't start leaves nobody to take it; then it's done here.
+    if let Err(unsent) = lock(turns).send((app.clone(), over, when_stopped)) {
+        let (app, over, when_stopped) = unsent.0;
+        let _ = when_stopped.recv();
+        deliver(&app, over);
     }
 }
 
-/// Ends a press that's over: its last words settle, and what was said goes where it's for. Off
-/// the main thread, the helper taking a moment, and one press at a time (`finish_in_turn`).
-fn finish(app: &AppHandle, l: Live) {
+/// Puts what a press heard where it's for, its helper stopped and its last words in. Off the
+/// main thread, one press at a time (`finish_in_turn`).
+fn deliver(app: &AppHandle, l: Live) {
     let id = l.id;
     let to = word(l.to);
-    show(app, &Talk { id, phase: "settling", to, text: lock(&l.heard).text(), ..Talk::default() });
-    if let Some(ear) = l.ear {
-        ear.stop();
-    }
     let (text, failed, waiting) = {
         let heard = lock(&l.heard);
         (heard.text(), heard.failed.clone(), heard.waiting.is_some())

@@ -368,6 +368,53 @@ mod tests {
         assert_eq!(Refused::of(Failure::Timeout, "to start").code, "timeout");
     }
 
+    /// Against the real helper, on a Mac that can transcribe (macOS 26): `CODEALONG_EAR="$(
+    /// scripts/ear.sh)" cargo test hears_a_recording -- --ignored --nocapture`. Has macOS say
+    /// a few numbered sentences into a file and hears it back through the helper, as a meeting
+    /// is heard: every sentence, in order, the first of them too, though the file is read before
+    /// the speech model has loaded. Needs no microphone, and asks the person nothing.
+    #[test]
+    #[ignore]
+    fn hears_a_recording() {
+        if std::env::var_os(EAR_VAR).is_none() {
+            return;
+        }
+        let dir = crate::fixtures::scratch("ear-recording");
+        let file = dir.join("said.aiff");
+        let said: Vec<String> = ["one", "two", "three", "four", "five"].iter().map(|n| format!("This is sentence number {n} of the recording.")).collect();
+        let spoke = Command::new("/usr/bin/say").arg("-o").arg(&*file).arg(said.join(" [[slnc 500]] ")).status();
+        assert!(spoke.is_ok_and(|s| s.success()), "macOS's say made no recording");
+        let spec = Spec { sources: vec![Source { name: "Them".into(), from: From::File { path: file.to_string_lossy().into_owned(), paced: false } }], locale: "en-US".into(), hints: Vec::new() };
+        let (tx, rx) = std::sync::mpsc::channel();
+        let ear = Ear::start(&spec, move |event| {
+            let _ = tx.send(event);
+        })
+        .expect("the helper starts");
+        let mut heard = Vec::new();
+        let mut partial = false;
+        loop {
+            match rx.recv_timeout(Duration::from_secs(120)).expect("the helper says something within two minutes") {
+                Event::Final { source, text, at, until } => {
+                    assert_eq!(source, "Them");
+                    assert!(at > 0 && until >= at, "{at} to {until}");
+                    heard.push(text);
+                }
+                Event::Partial { text, .. } => partial |= !text.is_empty(),
+                Event::Ended { .. } => break,
+                Event::Failed(refused) => panic!("{}", refused.message),
+                Event::Closed { last_words } => panic!("{}", stopped(&last_words)),
+                _ => {}
+            }
+        }
+        ear.stop();
+        let all = heard.join(" ").to_lowercase();
+        // The model writes a number as a word or a figure, as it likes.
+        let places: Vec<Option<usize>> = [["number one", "number 1"], ["number two", "number 2"], ["number three", "number 3"], ["number four", "number 4"], ["number five", "number 5"]].iter().map(|ways| ways.iter().find_map(|w| all.find(w))).collect();
+        assert!(places.iter().all(Option::is_some), "not every sentence was heard: {heard:?}");
+        assert!(places.windows(2).all(|w| w[0] < w[1]), "out of order: {heard:?}");
+        assert!(partial, "no words came before they were settled");
+    }
+
     #[test]
     fn linux_has_no_hearing() {
         let refused = os::as_if(os::Os::Linux, binary).unwrap_err();
