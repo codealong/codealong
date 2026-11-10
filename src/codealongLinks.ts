@@ -6,8 +6,9 @@
 // `named_by`). A link only ever shows what it names: nothing here sends, answers, stops or
 // starts.
 
+import { shortOf } from './devices';
 import { sessionHomes, type Placed } from './lanes';
-import type { Lane, Todo } from './types';
+import type { DevicesView, Lane, Todo } from './types';
 
 const SCHEME = /^codealong:\/\/(session|todo)\/([^?#\s]+)/i;
 
@@ -95,21 +96,32 @@ export function sessionNamed(names: SessionNames, name: string, away: string | n
 }
 
 /** What a link macOS opened names in a window: the session, where it lives, or the todo; or
- *  what to say when there's none. `elsewhere`: it's a session's link, and the session may be on
- *  another of your devices that the window hasn't read yet. */
-export type Opened = { session: Placed } | { todo: Todo } | { none: string; elsewhere: boolean };
+ *  what to say when there's none. `awaits`: the session a link names that the window doesn't
+ *  list, which may be on another of your devices it hasn't heard from yet (`mayYetCome`); null
+ *  for anything else that's missing. */
+export type Opened = { session: Placed } | { todo: Todo } | { none: string; awaits: string | null };
 
 export function opened(url: string, names: SessionNames, todos: readonly Todo[]): Opened {
   const to = codealongLinkOf(url);
   if (to?.kind === 'session') {
     const session = sessionNamed(names, to.name);
-    return session ? { session } : { none: `There’s no session ${to.name} here.`, elsewhere: true };
+    return session ? { session } : { none: `There’s no session ${to.name} here.`, awaits: to.name };
   }
   if (to?.kind === 'todo') {
     const todo = todoNamed(todos, to.id);
-    return todo ? { todo } : { none: `There’s no todo ${to.id} here.`, elsewhere: false };
+    return todo ? { todo } : { none: `There’s no todo ${to.id} here.`, awaits: null };
   }
-  return { none: 'That link names nothing Codealong shows.', elsewhere: false };
+  return { none: 'That link names nothing Codealong shows.', awaits: null };
+}
+
+/** Whether a session a window doesn't list may yet be listed: your devices haven't been read
+ *  (`devices` null), or one of them is still reading its sessions and says so (`loading`, its
+ *  board's own), which comes with no worktrees. One named with its device (`@<short>:…`) waits
+ *  on that device alone. */
+export function mayYetCome(name: string, devices: Pick<DevicesView, 'devices'> | null): boolean {
+  if (!devices) return true;
+  const short = shortOf(name);
+  return devices.devices.some((d) => d.loading && (short === null || d.short === short));
 }
 
 /** The todo `id` names: the one with that id, else the only one whose id starts with it. */

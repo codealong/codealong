@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BARE_SOURCE, codealongLinkOf, codealongNameOf, opened, sessionLink, sessionNamed, sessionNames, todoLink, todoNamed } from './codealongLinks';
+import { BARE_SOURCE, codealongLinkOf, codealongNameOf, mayYetCome, opened, sessionLink, sessionNamed, sessionNames, todoLink, todoNamed } from './codealongLinks';
 import * as fx from './testing/fixtures';
 
 describe('codealongLinkOf', () => {
@@ -117,9 +117,20 @@ describe('opened', () => {
 
   it('says what’s missing, and that a session may be on a device not read yet', () => {
     // Before your other devices are read, one of theirs isn't listed: it may yet be.
-    expect(opened('codealong://session/@mini:claude:claude:abd999', local, todos)).toEqual({ none: 'There’s no session @mini:claude:claude:abd999 here.', elsewhere: true });
-    expect(opened('codealong://todo/t-nosuch', local, todos)).toEqual({ none: 'There’s no todo t-nosuch here.', elsewhere: false });
-    for (const url of ['codealong://link/cal1abc', 'codealong://session/', 'https://example.com', '']) expect(opened(url, both, todos)).toEqual({ none: 'That link names nothing Codealong shows.', elsewhere: false });
+    expect(opened('codealong://session/@mini:claude:claude:abd999', local, todos)).toEqual({ none: 'There’s no session @mini:claude:claude:abd999 here.', awaits: '@mini:claude:claude:abd999' });
+    expect(opened('codealong://todo/t-nosuch', local, todos)).toEqual({ none: 'There’s no todo t-nosuch here.', awaits: null });
+    for (const url of ['codealong://link/cal1abc', 'codealong://session/', 'https://example.com', '']) expect(opened(url, both, todos)).toEqual({ none: 'That link names nothing Codealong shows.', awaits: null });
+  });
+
+  it('waits for a session while your devices are unread, or the one it may be on still reads its own', () => {
+    const view = (...loading: string[]) => fx.devicesView({ devices: ['mini', 'studio'].map((short) => fx.deviceView({ short, loading: loading.includes(short) })) });
+    expect(mayYetCome('abd999', null)).toBe(true);
+    expect(mayYetCome('abd999', view())).toBe(false);
+    // One named by its key alone may be on any of them; one named with its device, on that one.
+    expect(mayYetCome('abd999', view('studio'))).toBe(true);
+    expect(mayYetCome('@mini:claude:claude:abd999', view('studio'))).toBe(false);
+    expect(mayYetCome('@mini:claude:claude:abd999', view('mini'))).toBe(true);
+    expect(mayYetCome('@mini:claude:claude:abd999', fx.devicesView({ devices: [] }))).toBe(false);
   });
 });
 

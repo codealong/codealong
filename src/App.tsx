@@ -45,7 +45,7 @@ import { Button, cx, Icon, Kbd, Seg } from './ui/primitives';
 import { ALL_PROJECTS, ProjectSwitcher } from './ui/ProjectSwitcher';
 import { ProjectShown } from './ui/ProjectSaid';
 import { useLogo } from './logo';
-import { opened } from './codealongLinks';
+import { mayYetCome, opened } from './codealongLinks';
 import { linkHost, usePrLinks } from './ui/PrLink';
 import { reviewedWords } from './prDraft';
 import { mayApprove } from './prStatus';
@@ -202,8 +202,9 @@ const AGES: { id: Age; label: string; title: string; ms: number }[] = [
   { id: 'all', label: 'All', title: 'Everything from the last 14 days', ms: 0 },
 ];
 
-/** How long a link macOS opened waits for your other devices to be read before its session is
- *  said to be missing (useDevices.ts): they come a moment after the board. */
+/** How long a link macOS opened waits for your other devices to be read, and to have read their
+ *  own sessions, before its session is said to be missing (useDevices.ts): they come a moment
+ *  after the board. */
 const DEVICES_WAIT_MS = 5000;
 
 type Row = BoardRow | PrRowItem | TodoItem;
@@ -1889,12 +1890,12 @@ export function App() {
   // shows it (SessionLink.tsx): its session among those this window's links name (`linkHost`),
   // here or on your other devices, or its todo. It only ever shows something. A session that
   // isn't listed may be on another of your devices, which this window reads after the board
-  // (useDevices.ts): it's looked for again when they come, and said to be missing only once
-  // they have, or haven't for a while.
+  // (useDevices.ts) and which may itself still be reading its sessions: it's looked for again as
+  // they come, and said to be missing only once they have, or haven't for a while.
   useEffect(() => {
     if (!openedLink || !board || board.loading) return;
     const went = opened(openedLink, linkHost.sessions(), todoStore.todos);
-    if ('none' in went && went.elsewhere && devices === null) {
+    if ('none' in went && went.awaits !== null && mayYetCome(went.awaits, devices)) {
       linkWaits.current ||= Date.now() + DEVICES_WAIT_MS;
       const left = linkWaits.current - Date.now();
       if (left > 0) {
