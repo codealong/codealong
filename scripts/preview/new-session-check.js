@@ -3,9 +3,10 @@
 // Sessions shows it in place of the selected row's panel with the cursor in its box, saying what
 // sending does, with Send off while the box is empty. What's written is kept for the worktree: a
 // row picked puts the panel away, and opening another there brings it back. A start that fails says
-// why in the box, keeping what was written; one that goes says it's starting until the board lists
-// the session, which then takes the panel's place, selected, with the cursor in its box, and the
-// kept words are gone.
+// why in the box, keeping what was written; one that goes says it's starting, through another view
+// and back without a second start, until the board lists the session, which then takes the panel's
+// place, selected, with the cursor in its box, and the kept words are gone. A start answered after
+// another new session opened there leaves that one, and what's written in it, as it is.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/new-session-check.js
 (function () {
   // This runs before the app's script: pick a worktree of this Mac's and an account that starts
@@ -34,14 +35,26 @@
     placeLabel: 'Background',
     harness: account.harness,
   };
-  // The first start fails, the second goes.
+  // The first start fails; the rest wait until the check answers them (`answer`).
   var starts = 0;
+  var pending = null;
   var real = window.__TAURI_INTERNALS__.invoke;
   window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
     if (cmd !== 'start_from_quick') return real(cmd, args, options);
     window.__calls.push([cmd, args]);
     starts += 1;
-    return starts === 1 ? Promise.reject('That worktree just changed. Try again.') : Promise.resolve({ key: KEY, message: null });
+    if (starts === 1) return Promise.reject('That worktree just changed. Try again.');
+    return new Promise(function (resolve) { pending = resolve; });
+  };
+  var answer = function (started) {
+    var r = pending;
+    pending = null;
+    if (r) r(started);
+    return wait(200);
+  };
+  var showView = function (v) {
+    window.__emit('reveal', { kind: 'view', view: v });
+    return wait(300);
   };
 
   var panel = function () { return q('.ca-newsess'); };
@@ -100,8 +113,20 @@
     .then(function () {
       var spec = calls('start_from_quick').pop()[1].spec;
       check('the send starts it as the quick panel would have, on what was written', spec.laneId === lane.id && spec.account === account.name && spec.place === 'background' && spec.prompt === PROMPT, JSON.stringify(spec));
-      check('it says it’s starting until the board lists it', !!panel() && box().readOnly, note());
       check('what was written is no longer kept', !localStorage.getItem(kept), localStorage.getItem(kept));
+      // Another view and back while the start runs: it's still on its way, and can't go twice.
+      return showView('prs').then(function () { return showView('sessions'); }).then(function () { return until(function () { return !!box(); }, 3000, 'no new session after Sessions again'); });
+    })
+    .then(function () {
+      check('back from another view mid-start, it still says it’s starting', /Starting/.test(note()) && box().readOnly && box().value === PROMPT, note() + ' / ' + box().value);
+      check('with Send off', send().disabled, String(send().disabled));
+      var before = calls('start_from_quick').length;
+      key(box(), { key: 'Enter' });
+      return wait(200).then(function () { check('and ⏎ starts nothing more', calls('start_from_quick').length === before, String(calls('start_from_quick').length - before)); });
+    })
+    .then(function () { return answer({ key: KEY, message: null }); })
+    .then(function () {
+      check('it says it’s starting until the board lists it', !!panel() && box().readOnly && /Starting/.test(note()), note());
       // The board lists the session it started.
       var b = JSON.parse(JSON.stringify(board));
       var home = b.lanes.filter(function (l) { return l.id === lane.id; })[0];
@@ -126,6 +151,31 @@
         function () { check('with the cursor in its box', true); },
         function (e) { check('with the cursor in its box', false, String(e)); },
       );
+    })
+    // A start answered after another new session opened there leaves that one as it is.
+    .then(open)
+    .then(function () {
+      check('the next new session there starts empty', box().value === '', box().value);
+      return write('An earlier ask');
+    })
+    .then(function () {
+      send().click();
+      return until(function () { return !!pending; }, 3000, 'the start didn’t go');
+    })
+    .then(function () {
+      // Over the one whose start runs, which reads only.
+      window.__emit('reveal', { kind: 'new', draft: draft });
+      return until(function () { return !!box() && !box().readOnly; }, 3000, 'no newer new session over the one starting');
+    })
+    .then(function () {
+      check('one opened while another there starts doesn’t bring back what that one sent', box().value === '', box().value);
+      return write('A later ask');
+    })
+    // A harness that names its own sessions answers with no key.
+    .then(function () { return answer({ key: null, message: account.name + ' is starting in the background.' }); })
+    .then(function () {
+      check('a late answer leaves the newer new session up', !!panel() && box().value === 'A later ask' && !box().readOnly, panel() ? box().value : 'gone');
+      check('and what’s written there kept', (localStorage.getItem(kept) || '').indexOf('A later ask') >= 0, localStorage.getItem(kept));
     })
     .then(done, stopped);
 })();

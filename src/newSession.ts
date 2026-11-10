@@ -20,13 +20,19 @@ export interface NewSession {
 }
 
 /** A new session as the main window shows it: over the row that was selected as it opened, which
- *  it shows in place of (`newSessionAfter`), and once sent, the session the send started, by
- *  key, which it gives way to once the board lists it (`NEW_SESSION_WAIT_MS`). */
+ *  it shows in place of (`newSessionAfter`); what's on its way while the start runs, and why the
+ *  last one failed, kept here rather than in the panel, which another view unmounts; and once
+ *  started, the session the send started, by key, which it gives way to once the board lists it
+ *  (`NEW_SESSION_WAIT_MS`). */
 export interface NewSessionShown {
   draft: NewSession;
   over: string | null;
-  /** When it opened: each open of it is a new panel, which takes the keyboard. */
+  /** When it opened: each open of it is a new panel, which takes the keyboard, and what a start
+   *  answers goes only to the open that sent it (`forOpen`). */
   opened: number;
+  /** What was sent, as written, while the start runs. */
+  sending: string | null;
+  error: string | null;
   started: { key: string; at: number; message: string | null } | null;
 }
 
@@ -47,6 +53,12 @@ export function newSessionDraft(spec: Pick<StartSpec, 'laneId'>): string {
 export function newSessionAfter(shown: NewSessionShown | null, selected: string | null): NewSessionShown | null {
   if (!shown || shown.over === selected) return shown;
   return shown.over === null ? { ...shown, over: selected } : null;
+}
+
+/** `shown` changed by `change` when it's still the open `opened`: a start answers the panel that
+ *  sent it, never one opened after it. */
+export function forOpen(shown: NewSessionShown | null, opened: number, change: (n: NewSessionShown) => NewSessionShown | null): NewSessionShown | null {
+  return shown && shown.opened === opened ? change(shown) : shown;
 }
 
 /** The worktree that lists the session `key`, among `lanes`: where the board shows the session

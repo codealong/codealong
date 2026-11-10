@@ -25,7 +25,7 @@ import { reviewItems as reviewItemsFor, tryAgain } from './review';
 import { START_OPTIONS_NOTICE, startOptionsFailed } from './start';
 import { itemPrimaryHolds, statusSection, todoAgent, todoInFilter, todoProjects, todoPrompt, useTodoStore, type TodoItem, type TodoSort } from './todos';
 import { repoReviews } from './repoSettings';
-import type { HarnessSchedule, Lane, Pr, PrItem, Schedule, ScheduleItem, Session, SideGlance, StartOptions, TeamFile, Theme, Todo } from './types';
+import type { HarnessSchedule, Lane, Pr, PrItem, Schedule, ScheduleItem, Session, SideGlance, Started, StartOptions, TeamFile, Theme, Todo } from './types';
 import { showSide } from './side';
 import { allTerminals, ownTerminalFor, placeOf, setDrawer, setSessionView, TERMINAL_WAIT_MS, usePoppedTerminals } from './terminals';
 import { useKeptSessions } from './kept';
@@ -94,7 +94,7 @@ import { useBoard } from './useBoard';
 import { useDeviceLanes, useDevices, useObserve } from './useDevices';
 import { useTextSearch } from './useTextSearch';
 import { useLatest } from './latest';
-import { listedIn, NEW_SESSION_WAIT_MS, newSessionAfter, type NewSessionShown } from './newSession';
+import { forOpen, listedIn, NEW_SESSION_WAIT_MS, newSessionAfter, type NewSessionShown } from './newSession';
 import { reorderKey, useMainKeys, VIEW_CHORDS } from './mainKeys';
 import { useListPicks } from './useListPicks';
 import type { SelectHow } from './picks';
@@ -1102,7 +1102,7 @@ export function App() {
     if (r.kind === 'new') {
       setView('sessions');
       setDrill(null);
-      setNewShown({ draft: r.draft, over: selectedKey, opened: Date.now(), started: null });
+      setNewShown({ draft: r.draft, over: selectedKey, opened: Date.now(), sending: null, error: null, started: null });
       return;
     }
     if (r.kind === 'terminal') {
@@ -1365,17 +1365,28 @@ export function App() {
     }
   });
   useEffect(() => showStarted.current(), [board, deviceLanes, newShown, showStarted]);
-  const sendNew = (shown: NewSessionShown) => async (prompt: string) => {
-    const started = await startFromQuick({ ...shown.draft.spec, prompt });
+  /** Starts the new session `shown` on `prompt` (`written` is what was typed, shown while it
+   *  goes): what the start answers goes to that open alone. Rejects when it fails. */
+  const sendNew = (shown: NewSessionShown) => async (prompt: string, written: string) => {
+    const mine = (change: (n: NewSessionShown) => NewSessionShown | null) => setNewShown((n) => forOpen(n, shown.opened, change));
+    mine((n) => ({ ...n, sending: written, error: null }));
+    let started: Started | null;
+    try {
+      started = await startFromQuick({ ...shown.draft.spec, prompt });
+    } catch (e) {
+      mine((n) => ({ ...n, sending: null, error: errorText(e) }));
+      throw e;
+    }
     // A harness that names its own sessions, or one that hasn't said yet, gives no key to wait
     // for: what the start said goes instead.
-    if (!started?.key) {
-      setNewShown(null);
+    const key = started?.key;
+    if (!key) {
+      mine(() => null);
       if (started?.message) setToast(started.message);
       return;
     }
-    const key = started.key;
-    setNewShown((n) => (n && n.opened === shown.opened ? { ...n, started: { key, at: Date.now(), message: started.message } } : n));
+    const message = started?.message ?? null;
+    mine((n) => ({ ...n, started: { key, at: Date.now(), message } }));
     window.setTimeout(() => showStarted.current(), NEW_SESSION_WAIT_MS + 100);
   };
   // A session you click in Sessions is one you mean to answer: the cursor goes to its panel's box,
@@ -2789,6 +2800,8 @@ export function App() {
                   key={newShown.opened}
                   draft={newShown.draft}
                   lane={[...(board?.lanes ?? []), ...deviceLanes].find((l) => l.id === newShown.draft.spec.laneId) ?? null}
+                  sending={newShown.sending}
+                  error={newShown.error}
                   started={!!newShown.started}
                   onSend={sendNew(newShown)}
                   onClose={() => setNewShown(null)}

@@ -31,24 +31,28 @@ export interface NewSessionPanelProps {
   draft: NewSession;
   /** The worktree it starts in, when the board lists it. */
   lane: Lane | null;
+  /** What was sent, as written, while its start runs; why the last start failed. The window
+   *  keeps both (newSession.ts `NewSessionShown`): the panel goes while another view shows. */
+  sending: string | null;
+  error: string | null;
   /** Sent: the start went through and the window waits for the board to list the session. */
   started: boolean;
-  /** Starts it on `prompt`; a failure rejects with why. */
-  onSend: (prompt: string) => Promise<void>;
+  /** Starts it on `prompt`, `written` being what was typed; a failure rejects. */
+  onSend: (prompt: string, written: string) => Promise<void>;
   onClose: () => void;
 }
 
-export function NewSessionPanel({ draft, lane, started, onSend, onClose }: NewSessionPanelProps) {
+export function NewSessionPanel({ draft, lane, sending, error, started, onSend, onClose }: NewSessionPanelProps) {
   const { spec } = draft;
   const kept = newSessionDraft(spec);
-  const [initial] = useState(() => splitAttachments(readDraft(kept)));
+  // Shown again while it's on its way, from another view, as it was sent.
+  const [initial] = useState(() => splitAttachments(sending ?? readDraft(kept)));
   const [text, setText] = useState(initial.text);
   const [attached, setAttached] = useState<Attachment[]>(initial.attachments);
-  const [sending, setSending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [trouble, setTrouble] = useState<string | null>(null);
   const box = useRef<HTMLTextAreaElement>(null);
   const field = useRef<HTMLDivElement>(null);
-  const busy = sending || started;
+  const busy = sending !== null || started;
 
   // It's opened to be written in.
   useEffect(() => box.current?.focus(), []);
@@ -61,14 +65,14 @@ export function NewSessionPanel({ draft, lane, started, onSend, onClose }: NewSe
     setAttached(next);
     keep(written.current.text, next);
   };
-  useFileDrop(field, attach, setError, !busy);
+  useFileDrop(field, attach, setTrouble, !busy);
   const paste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
     const files = filesToAttach(e);
     if (files.length === 0) return;
     e.preventDefault();
     keepFiles(files)
       .then(attach)
-      .catch((err: unknown) => setError(errorText(err)));
+      .catch((err: unknown) => setTrouble(errorText(err)));
   };
 
   // A skill's name goes as the account's agent takes it, as from every box (skills.ts).
@@ -78,19 +82,18 @@ export function NewSessionPanel({ draft, lane, started, onSend, onClose }: NewSe
   const empty = !prompt.trim();
   const send = () => {
     if (empty || busy) return;
-    setSending(true);
-    setError(null);
-    onSend(harness ? withAttachments(writtenFor(text, sessionSkills(listed, harness), harness), attached) : prompt)
-      .then(() => writeDraft(kept, ''))
-      .catch((e: unknown) => {
-        setError(errorText(e));
-        // What you wrote stays, to send again.
-        requestAnimationFrame(() => box.current?.focus());
-      })
-      .finally(() => setSending(false));
+    setTrouble(null);
+    // It's on its way, so the next new session here starts empty. A start that fails puts it back,
+    // unless something newer was written here meanwhile; the window says why.
+    writeDraft(kept, '');
+    onSend(harness ? withAttachments(writtenFor(text, sessionSkills(listed, harness), harness), attached) : prompt, prompt).catch(() => {
+      if (!readDraft(kept)) writeDraft(kept, prompt);
+      requestAnimationFrame(() => box.current?.focus());
+    });
   };
 
-  const note = error ?? (busy ? `Starting ${spec.account}…` : null);
+  const said = error ?? trouble;
+  const note = said ?? (busy ? `Starting ${spec.account}…` : null);
   const where = spec.place === 'codealong' ? 'Codealong' : 'the background';
   return (
     <aside className="ca-insp ca-sessinsp ca-newsess" aria-label="New session">
@@ -102,7 +105,7 @@ export function NewSessionPanel({ draft, lane, started, onSend, onClose }: NewSe
           </div>
         </div>
         <div className="ca-sessinsp-meta">
-          <span>{busy && !error ? 'Starting' : 'Not started'}</span>
+          <span>{busy ? 'Starting' : 'Not started'}</span>
           <span aria-hidden="true">·</span>
           {lane && (
             <span className="ca-sessinsp-lane is-plain" title={tildePath(lane.path)}>
@@ -153,7 +156,7 @@ export function NewSessionPanel({ draft, lane, started, onSend, onClose }: NewSe
             onChange={(e) => {
               setText(e.target.value);
               keep(e.target.value, attached);
-              if (error) setError(null);
+              if (trouble) setTrouble(null);
             }}
             onKeyDown={(e) => {
               if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing) return;
@@ -166,7 +169,7 @@ export function NewSessionPanel({ draft, lane, started, onSend, onClose }: NewSe
             <div className="ca-composer-tools ca-composer-who">
               <BoxPlace icon={placeIcon(spec.place)} label={draft.placeLabel} title={`Not started: sending starts it in ${where}`} />
             </div>
-            {note && <OneLine className={cx('ca-composer-note', !!error && 'is-error')} role="status" text={note} />}
+            {note && <OneLine className={cx('ca-composer-note', !!said && 'is-error')} role="status" text={note} />}
             <div className="ca-composer-buttons">
               <button type="button" className="ca-composer-send" aria-label="Send" title={keysIn('Start it on this prompt (⏎)')} disabled={empty || busy} onClick={send}>
                 <Icon name="arrow-up" size={16} stroke={2} />
