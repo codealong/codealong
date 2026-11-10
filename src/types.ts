@@ -159,6 +159,9 @@ export interface Session {
   archived: boolean;
   /** A background job's `claude attach <job>`: it has no terminal tab of its own. */
   attachCommand: string | null;
+  /** While it runs, the id its harness's app reaches it by: a Claude Code session's Remote
+   *  Control session, which the Claude app shows and sends to. Missing when it has none. */
+  remoteControl?: string;
   /** The session whose record holds this one's conversation until it writes its own: a Claude
    *  Code conversation moved to the background goes on in a job that writes nothing until its
    *  next prompt, and then starts its own with a copy of the conversation. */
@@ -230,6 +233,10 @@ export interface Session {
    *  (board.rs `apply_labels`). Unlike its `insight`, a read of one turn, they stay until taken
    *  off. Missing when it has none, and from older Macs. */
   labels?: Label[];
+  /** Its place among the sessions pinned on the device it's on, the first 0, as that device
+   *  tells the others; missing when it isn't pinned. This device's own windows go by the
+   *  board's list (`Board.pinned`). */
+  pin?: number;
   /** It worked in a reusable worktree before that worktree last took new work: listed after the
    *  current work's sessions, and out of the worktree's status (board::earlier). */
   earlier?: boolean;
@@ -683,6 +690,9 @@ export interface Usage {
   loading: boolean;
   /** Its harness keeps no limits Codealong can read, and `error` says why. */
   noLimits?: boolean;
+  /** Its `preferred` setting: Auto starts it over accounts without one while it has room.
+   *  Missing from older Macs. */
+  preferred?: boolean;
   /** The usage endpoint turned the last read away, and `error` says when it's tried again. */
   rateLimited?: boolean;
 }
@@ -1502,6 +1512,9 @@ export interface Board {
   zoom?: number;
   /** Every todo, in your order (src-tauri/src/todos.rs). */
   todos: Todo[];
+  /** todos.json didn't read the last time it was read: `todos` is what it held before, and a
+   *  change is turned away until it's fixed. Missing while it reads. */
+  todosUnreadable?: boolean;
   /** Todo labels, in your order. */
   labels: Label[];
   /** The schedules (src-tauri/src/schedules/), with what happened to each. Missing on older
