@@ -40,7 +40,7 @@
       };
       var kids = [
         helper(keys[1], { status: 'working', statusSince: now - 3 * min, lastActivity: now - min, lastPromptAt: now - 3 * min, title: 'Review the diff for races' }),
-        helper(keys[2], { status: 'needs', statusSince: now - 2 * min, lastActivity: now - 2 * min, lastPromptAt: now - 4 * min, excerpt: 'Bash · `gh pr diff 12`', title: 'Check the migration on staging' }),
+        helper(keys[2], { status: 'needs', statusSince: now - 2 * min, lastActivity: now - 2 * min, lastPromptAt: now - 4 * min, excerpt: 'Bash · `gh pr diff 12`', need: 'approval', title: 'Check the migration on staging' }),
         helper(keys[3], { status: 'idle', statusSince: now - 5 * min, lastActivity: now - 5 * min, lastPromptAt: now - 8 * min, title: 'Second opinion on the API shape', excerpt: 'The API shape holds up (zqhelpers)', hosted: true, openTarget: 's|' + keys[3] + '|hosted' }),
       ];
       var laneOf = function (s) {

@@ -73,6 +73,31 @@ pub enum Status {
     Stopped,
 }
 
+/// Why a session needs you: the one answer to what it waits on, which a headline, a row's label
+/// and whether typing would answer a prompt all go by (`Session::need`).
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "kebab-case")]
+pub enum Need {
+    /// It waits for you to allow something it wants to do.
+    Approval,
+    /// It asked you a question through its harness and holds its turn for the answer.
+    Question,
+    /// Its turn ended and its reply asks you something: what you type is the answer.
+    Reply,
+    /// It holds another session's message until you deliver or deny it.
+    Message,
+    /// It says it's busy, but nothing has happened for a long while (`Session::stalled_since`).
+    Stuck,
+    /// A device of a later build said something this one doesn't know.
+    #[serde(other)]
+    Other,
+}
+
+/// How a session's excerpt starts while it waits on your answer to a question it asked.
+pub const ASKS_YOU: &str = "Asks you";
+/// How a session's excerpt starts while it holds another session's message for you to allow.
+pub const HELD_MESSAGE: &str = "Held message from ";
+
 /// Board bays, in board order.
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 #[serde(rename_all = "lowercase")]
@@ -243,6 +268,11 @@ pub struct Session {
     /// Set when the session says it's busy but nothing has happened for a long while: it's stuck
     /// mid-turn, usually on a command waiting for input. When it went quiet.
     pub stalled_since: Option<i64>,
+    /// Why it needs you, as `Session::need` reads it from what the session says of itself: stamped
+    /// on every session a window is given (`Session::settle_need`), so nothing but that function
+    /// tells one need from another by the words of an excerpt.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub need: Option<Need>,
     /// Set on a Claude session whose turn ended with a command left running in the background
     /// (registry status `shell`): the command, or empty when it couldn't be read. A working one
     /// is waiting on it (a CI watch, a build), and the windows draw it with a clock instead of the
@@ -507,6 +537,44 @@ impl Session {
         self.status == Status::Working && self.background.is_some()
     }
 
+    /// Why it needs you, read from what it says of itself; none for a session that doesn't, and
+    /// for one that needs you with nothing more to say. Stuck comes first, as a headline has it:
+    /// a session gone quiet is stuck whatever else is known of it. The readers that build a
+    /// session write what it waits on as its excerpt (`board::asks_you`, `HELD_MESSAGE`), and
+    /// this is the one place those words are read back.
+    pub fn need(&self) -> Option<Need> {
+        if self.stalled_since.is_some() {
+            return Some(Need::Stuck);
+        }
+        if self.status != Status::Needs {
+            return None;
+        }
+        let excerpt = self.excerpt.as_deref();
+        if self.asks {
+            Some(Need::Reply)
+        } else if excerpt.is_some_and(|e| e.starts_with(ASKS_YOU)) {
+            Some(Need::Question)
+        } else if excerpt.is_some_and(|e| e.starts_with(HELD_MESSAGE)) {
+            Some(Need::Message)
+        } else {
+            excerpt.map(|_| Need::Approval)
+        }
+    }
+
+    /// Writes down why it needs you (`Session::need`), for the windows and other devices, once
+    /// nothing more will change what it waits on.
+    pub fn settle_need(&mut self) {
+        self.need = self.need();
+    }
+
+    /// Whether it waits on you to answer a prompt (a permission, a question through its
+    /// harness, a held message), where what's typed would answer it: not one whose reply only
+    /// asks you something, nor a stuck one, which sits at no prompt. `src/lanes.ts`
+    /// `waitsOnYou` says the same for the windows.
+    pub fn waits_at_a_prompt(&self) -> bool {
+        self.status == Status::Needs && !matches!(self.need(), Some(Need::Reply | Need::Stuck))
+    }
+
     /// A helper whose turns are for what it helps, not for you: every helper, but one you're
     /// talking to (`Helper::yours`). `src/lanes.ts` `helpsAnAgent` says the same for the windows.
     pub fn helps_an_agent(&self) -> bool {
@@ -575,6 +643,7 @@ impl Session {
             continues: None,
             origin: None,
             stalled_since: None,
+            need: None,
             background: None,
             running: None,
             queued_at: None,
@@ -1292,6 +1361,46 @@ pub struct Usage {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_session_says_why_it_needs_you() {
+        let s = |status, excerpt: Option<&str>| Session { status, excerpt: excerpt.map(str::to_string), ..crate::fixtures::session("claude:claude:a") };
+        assert_eq!(s(Status::Needs, Some("Bash · `make`")).need(), Some(Need::Approval));
+        assert_eq!(s(Status::Needs, Some("Asks you · Which color?")).need(), Some(Need::Question));
+        assert_eq!(s(Status::Needs, Some("Held message from “Review 12”")).need(), Some(Need::Message));
+        assert_eq!(Session { asks: true, ..s(Status::Needs, Some("Asks you · Want the PR?")) }.need(), Some(Need::Reply));
+        // With nothing more to say, it only needs you; and what a session that doesn't need you
+        // last wrote is no need, whatever its words.
+        assert_eq!(s(Status::Needs, None).need(), None);
+        assert_eq!(s(Status::Working, Some("Asks you · Which color?")).need(), None);
+        assert_eq!(s(Status::Unread, Some("Bash · `make`")).need(), None);
+        // Gone quiet, it's stuck before anything else.
+        let stuck = Session { stalled_since: Some(1), ..s(Status::Needs, Some("Stuck on `acme login`")) };
+        assert_eq!(stuck.need(), Some(Need::Stuck));
+        // Typing answers a prompt: an approval, a question, a held message, a need unsaid.
+        for at_a_prompt in [s(Status::Needs, Some("Bash · `make`")), s(Status::Needs, Some("Asks you · Which color?")), s(Status::Needs, Some("Held message from “Review 12”")), s(Status::Needs, None)] {
+            assert!(at_a_prompt.waits_at_a_prompt());
+        }
+        assert!(!stuck.waits_at_a_prompt());
+        assert!(!Session { asks: true, ..s(Status::Needs, None) }.waits_at_a_prompt());
+        assert!(!s(Status::Working, None).waits_at_a_prompt());
+    }
+
+    #[test]
+    fn a_need_is_written_down_and_read_from_any_build() {
+        let mut s = Session { status: Status::Needs, excerpt: Some("Bash · `make`".into()), ..crate::fixtures::session("claude:claude:a") };
+        assert!(!serde_json::to_string(&s).unwrap().contains("\"need\""));
+        s.settle_need();
+        let text = serde_json::to_string(&s).unwrap();
+        assert!(text.contains("\"need\":\"approval\""), "{text}");
+        // Working again, what it waited on goes.
+        s.status = Status::Working;
+        s.settle_need();
+        assert_eq!(s.need, None);
+        // A later build's need this one doesn't know still reads.
+        let later = text.replace("\"approval\"", "\"something-new\"");
+        assert_eq!(serde_json::from_str::<Session>(&later).unwrap().need, Some(Need::Other));
+    }
+
     use super::*;
     use serde_json::Value;
 

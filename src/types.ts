@@ -126,6 +126,11 @@ export interface RunningIn {
   command: string;
 }
 
+/** Why a session needs you (model.rs `Need`): waiting for you to allow something, for your
+ *  answer to a question it holds its turn on, on a reply that asks you something, holding
+ *  another session's message, or stuck. */
+export type Need = 'approval' | 'question' | 'reply' | 'message' | 'stuck' | 'other';
+
 export interface Session {
   key: string;
   id: string;
@@ -163,6 +168,9 @@ export interface Session {
   origin?: SessionOrigin;
   /** Busy but silent for a long while: stuck mid-turn. When it went quiet. */
   stalledSince: number | null;
+  /** Why it needs you, as the engine reads it (`Session::need`): the one thing a headline, a
+   *  row's label and `waitsOnYou` tell one need from another by. */
+  need?: Need;
   /** When the latest of the messages its harness holds until its turn ends came: typed while it
    *  works, one waits there, and its record has it only once the turn ends (Antigravity's
    *  terminal UI, the Codex app's follow-up queue). Missing when it holds none, and from a board

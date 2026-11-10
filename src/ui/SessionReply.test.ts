@@ -21,9 +21,9 @@ describe('replyPlaceholder', () => {
   });
 
   it('says a session stuck mid-turn takes it once that step ends', () => {
-    expect(replyPlaceholder(session({ status: 'needs', stalledSince: 1 }), 'Ghostty', { kind: 'background' })).toBe('Send to claude via its background job: it takes this once the step it’s stuck on ends');
+    expect(replyPlaceholder(session({ status: 'needs', stalledSince: 1, need: 'stuck' }), 'Ghostty', { kind: 'background' })).toBe('Send to claude via its background job: it takes this once the step it’s stuck on ends');
     // One whose turn ended on a command left in the background sits at its prompt.
-    expect(replyPlaceholder(session({ status: 'needs', stalledSince: 1, background: 'acme login --device' }), 'Ghostty', { kind: 'typed', app: 'Ghostty' })).toBe('Send to claude via Ghostty');
+    expect(replyPlaceholder(session({ status: 'needs', stalledSince: 1, need: 'stuck', background: 'acme login --device' }), 'Ghostty', { kind: 'typed', app: 'Ghostty' })).toBe('Send to claude via Ghostty');
   });
 
   it('keeps its own words for a session Codealong runs', () => {
@@ -86,11 +86,11 @@ describe('takesReply', () => {
   it('takes a message from anything but a session at a prompt', () => {
     expect(takesReply(session({ status: 'working' }))).toBe(true);
     expect(takesReply(session({ status: 'needs' }))).toBe(false);
-    expect(takesReply(session({ status: 'needs', asks: true }))).toBe(true);
+    expect(takesReply(session({ status: 'needs', asks: true, need: 'reply' }))).toBe(true);
     // Stuck mid-turn, or on a command its turn left in the background, it takes one as its own
     // terminal does.
-    expect(takesReply(session({ status: 'needs', stalledSince: 1 }))).toBe(true);
-    expect(takesReply(session({ status: 'needs', stalledSince: 1, background: 'acme login --device' }))).toBe(true);
+    expect(takesReply(session({ status: 'needs', stalledSince: 1, need: 'stuck' }))).toBe(true);
+    expect(takesReply(session({ status: 'needs', stalledSince: 1, need: 'stuck', background: 'acme login --device' }))).toBe(true);
   });
 });
 

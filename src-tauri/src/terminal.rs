@@ -338,7 +338,7 @@ pub fn running_label(run: &Run) -> String {
 /// it's running. What the session asks you meanwhile (an approval, another command to allow)
 /// stays as it is, and so does a session that has stopped or failed.
 pub fn overlay_running(s: &mut Session, now: i64) {
-    if matches!(s.status, Status::Stopped | Status::Error) || (s.status == Status::Needs && s.stalled_since.is_none()) {
+    if matches!(s.status, Status::Stopped | Status::Error) || (s.status == Status::Needs && s.need() != Some(crate::model::Need::Stuck)) {
         return;
     }
     let Some(run) = waited_on(&s.key, now) else { return };

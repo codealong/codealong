@@ -38,7 +38,7 @@ import { archiveSession, emitAhead, labelSessions, markSeen, markUnread, mergePr
 import { readDraft, writeDraft } from './drafts';
 import { nameShown } from './harness';
 import { heldForAgent } from './prStatus';
-import { byRaise, relaned, sessionHeadline, stuckMidTurn, unreadable } from './lanes';
+import { byRaise, needOf, relaned, sessionHeadline, stuckMidTurn, unreadable } from './lanes';
 import type { Answers, BarFeed, BarItem, BarRecent, BarSnoozed, Board, Label, Lane, LastReview, LogoStatus, MergeOp, PrItem, QueuedMessage, ResumeIn, Reviewed, Sent, Session, Status, TranscriptItem, Verdict } from './types';
 
 /** A message the board shows no sign of this long after it went stops showing its session as
@@ -252,6 +252,8 @@ export function sessionAhead(s: Session, changes: Ahead[] | undefined): Session 
   // `settle_agent_seen`).
   if (out.agentSeen && out.status !== 'idle') out = { ...out, agentSeen: undefined };
   if (out === s) return s;
+  // What it waited on goes with the status that said so.
+  if (out.need !== needOf(out)) out = { ...out, need: needOf(out) };
   // The headline names the session, after what it's doing.
   if (out.status === s.status && out.title === s.title) return out;
   const [headline, detail] = sessionHeadline(out);

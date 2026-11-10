@@ -42,6 +42,7 @@
           s.asks = false;
           s.stalledSince = null;
           s.excerpt = 'Held message from “Review 1021”';
+          s.need = 'message';
           // As the engine words it (board.rs `session_headline`).
           s.detail = 'from “Review 1021”';
           if (picked) several = { key: s.key, lane: l.id };

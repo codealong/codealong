@@ -31,6 +31,7 @@
           s.asks = false;
           s.hosted = false;
           s.excerpt = 'Bash · `touch alpha.txt`';
+          s.need = 'approval';
           picked = { key: s.key, lane: l.id };
         });
       });

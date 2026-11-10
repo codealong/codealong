@@ -95,14 +95,14 @@ describe('suggestions', () => {
   });
 
   it('sends the answer to a session whose reply asks you something', () => {
-    const asking = board([lane('/api', [session('s:ask', 'needs', { asks: true })])]);
+    const asking = board([lane('/api', [session('s:ask', 'needs', { asks: true, need: 'reply' })])]);
     const r = route({ action: 'send', actions: [['send', 1]], sessions: [{ id: 's:ask', p: 1 }], lanes: [{ id: '/api', p: 1 }] });
     expect(suggestions(r, asking)[0]).toMatchObject({ kind: 'send', key: 'send:s:ask' });
     // And to one whose turn ended on a command in the background that looks stuck, or that's
     // stuck mid-turn: neither is at a prompt.
-    const stuck = board([lane('/api', [session('s:ask', 'needs', { background: 'acme login --device', stalledSince: 1 })])]);
+    const stuck = board([lane('/api', [session('s:ask', 'needs', { background: 'acme login --device', stalledSince: 1, need: 'stuck' })])]);
     expect(suggestions(r, stuck)[0]).toMatchObject({ kind: 'send', key: 'send:s:ask' });
-    const midTurn = board([lane('/api', [session('s:ask', 'needs', { stalledSince: 1 })])]);
+    const midTurn = board([lane('/api', [session('s:ask', 'needs', { stalledSince: 1, need: 'stuck' })])]);
     expect(suggestions(r, midTurn)[0]).toMatchObject({ kind: 'send', key: 'send:s:ask' });
   });
 

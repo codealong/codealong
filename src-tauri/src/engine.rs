@@ -2036,6 +2036,8 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             if let Some(lost) = s.connection_lost.as_mut() {
                 lost.continues = on && live && harness::adapter(s.harness).api_address().is_some();
             }
+            // The last of what's laid over a session: what it waits on is settled.
+            s.settle_need();
         }
         sessions
     }

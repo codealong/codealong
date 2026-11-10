@@ -32,6 +32,7 @@
           s.asks = false;
           s.stalledSince = null;
           s.excerpt = label;
+          s.need = 'approval';
           picked = { key: s.key, lane: l.id };
         });
       });

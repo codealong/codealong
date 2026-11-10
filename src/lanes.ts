@@ -10,7 +10,7 @@ import { MOVES_ACCOUNTS } from './harness';
 import { agoPhrase, duration, withTimes } from './format';
 import type { InsightLabel } from './insights';
 import { resetsPhrase } from './format';
-import type { Bay, ConnectionLost, Lane, Pr, PrItem, Raised, Session, SessionLimit, SideGlance, Status } from './types';
+import type { Bay, ConnectionLost, Lane, Need, Pr, PrItem, Raised, Session, SessionLimit, SideGlance, Status } from './types';
 
 /** The status filter an agent falls under, for the statuses that have one. */
 export const AGENT_BAY: Partial<Record<Status, Bay>> = { needs: 'needs', error: 'needs', working: 'working', unread: 'unread' };
@@ -251,8 +251,22 @@ export function closable(s: Session): boolean {
 /** Whether it waits on you to answer a prompt, where what's typed would answer it (send.rs
  *  `waits_on_you`): not one whose reply only asks you something, nor one that's stuck, which sits
  *  at no prompt and takes a message as it would in its own terminal. */
-export function waitsOnYou(s: Pick<Session, 'status' | 'asks' | 'stalledSince'>): boolean {
-  return s.status === 'needs' && !s.asks && s.stalledSince == null;
+export function waitsOnYou(s: Pick<Session, 'status' | 'need' | 'stalledSince' | 'asks'>): boolean {
+  const need = needOf(s);
+  return s.status === 'needs' && need !== 'reply' && need !== 'stuck';
+}
+
+/** Why a session needs you (model.rs `Session::need`). What a session says of itself outright
+ *  comes first, as it does there: quiet, it's stuck, and its turn ended on a reply that asks you
+ *  something, that's what it waits on. What it holds its turn on (an approval, a question, a
+ *  message) only the engine reads, and its word stands while the session needs you: a change
+ *  made here ahead of the engine (ahead.ts) moves a session's status, and what it waited on goes
+ *  with the status that said so. */
+export function needOf(s: Pick<Session, 'status' | 'need' | 'stalledSince' | 'asks'>): Need | undefined {
+  if (s.stalledSince != null) return 'stuck';
+  if (s.status !== 'needs') return undefined;
+  if (s.asks) return 'reply';
+  return s.need === 'stuck' || s.need === 'reply' ? undefined : s.need;
 }
 
 /** Stuck in the middle of a turn (harness.rs `turn_running`), not on a command its turn left
@@ -413,24 +427,27 @@ function truncate(s: string, max: number): string {
   return [...s].length <= max ? s : `${[...s].slice(0, max - 1).join('').trimEnd()}…`;
 }
 
-/** How a session's excerpt starts while it holds another session's message for you to allow,
- *  as the engine writes it (board.rs `HELD_MESSAGE`). */
-const HELD_MESSAGE = 'Held message from ';
-
 /** A session's own sentence, as the engine words it (board.rs, `session_headline`). */
 export function sessionHeadline(s: Session): [string, string | null] {
   const acct = code(s.account);
-  if (s.stalledSince != null) return [`${acct} is stuck · ${s.title}`, s.excerpt];
+  const need = needOf(s);
+  if (need === 'stuck') return [`${acct} is stuck · ${s.title}`, s.excerpt];
   // Every headline names the session: its title after what it's doing.
   switch (s.status) {
     case 'needs':
-      // A question, from its reply or held through the plugin, leaves the question itself below.
-      if (s.asks || s.excerpt?.startsWith('Asks you')) return [`${acct} asks you · ${s.title}`, s.excerpt?.startsWith('Asks you · ') ? s.excerpt.slice('Asks you · '.length) : null];
-      if (s.excerpt == null) return [`${acct} needs you · ${s.title}`, null];
-      // Another session's message it holds for you to allow (claude/held.rs): who it's from below.
-      if (s.excerpt.startsWith(HELD_MESSAGE)) return [`${acct} holds a message for you · ${s.title}`, s.excerpt.slice('Held message '.length)];
-      if (s.harness === 'claude') return [`${acct} is waiting for approval · ${s.title}`, s.excerpt];
-      return [`${acct} asks for approval · ${s.title}`, s.excerpt];
+      switch (need) {
+        // A question, from its reply or held through the plugin, leaves the question itself below.
+        case 'reply':
+        case 'question':
+          return [`${acct} asks you · ${s.title}`, s.excerpt?.startsWith('Asks you · ') ? s.excerpt.slice('Asks you · '.length) : null];
+        // Another session's message it holds for you to allow (claude/held.rs): who it's from below.
+        case 'message':
+          return [`${acct} holds a message for you · ${s.title}`, s.excerpt?.slice('Held message '.length) ?? null];
+        case 'approval':
+          return [`${acct} ${s.harness === 'claude' ? 'is waiting for approval' : 'asks for approval'} · ${s.title}`, s.excerpt];
+        default:
+          return [`${acct} needs you · ${s.title}`, null];
+      }
     case 'error':
       if (s.limit) return [`${acct} hit its usage limit · ${s.title}`, s.excerpt];
       if (s.cutOff != null) return [`${acct} was cut off · ${s.title}`, s.excerpt];
@@ -496,17 +513,25 @@ export function cutOffWords(offered = false): string {
  * needs you, so only the kind of need gets a label (none for a need with nothing more to say).
  */
 export function sessionFlag(s: Session): InsightLabel | null {
-  if (s.stalledSince != null) return { label: 'Stuck', tone: 'warn', title: 'It says it’s busy, but nothing has happened for a while. It may be waiting on something.' };
+  const need = needOf(s);
+  if (need === 'stuck') return { label: 'Stuck', tone: 'warn', title: 'It says it’s busy, but nothing has happened for a while. It may be waiting on something.' };
   if (s.limit && s.status !== 'working') return { label: 'Limit', tone: 'bad', title: limitWords(s.account, s.limit, Date.now(), false, MOVES_ACCOUNTS.includes(s.harness)) };
   if (s.connectionLost && s.status !== 'working') return { label: 'Network error', tone: 'warn', title: connectionLostWords(s.connectionLost) };
   if (s.cutOff != null && s.status !== 'working') return { label: 'Cut off', tone: 'bad', title: cutOffWords() };
   if (s.status === 'error') return { label: 'Error', tone: 'bad', title: 'It stopped with an error.' };
   if (s.status !== 'needs') return null;
-  if (s.asks) return { label: 'Asks you', tone: 'warn', title: 'Its last reply asks you something.' };
-  if (s.excerpt?.startsWith('Asks you')) return { label: 'Asks you', tone: 'warn', title: 'It’s waiting for your answer to its question.' };
-  if (s.excerpt?.startsWith(HELD_MESSAGE)) return { label: 'Message', tone: 'warn', title: 'Another session sent it a message, which it holds until you deliver or deny it.' };
-  if (s.excerpt != null) return { label: 'Needs approval', tone: 'warn', title: 'It’s waiting for you to allow what it wants to run.' };
-  return null;
+  switch (need) {
+    case 'reply':
+      return { label: 'Asks you', tone: 'warn', title: 'Its last reply asks you something.' };
+    case 'question':
+      return { label: 'Asks you', tone: 'warn', title: 'It’s waiting for your answer to its question.' };
+    case 'message':
+      return { label: 'Message', tone: 'warn', title: 'Another session sent it a message, which it holds until you deliver or deny it.' };
+    case 'approval':
+      return { label: 'Needs approval', tone: 'warn', title: 'It’s waiting for you to allow what it wants to run.' };
+    default:
+      return null;
+  }
 }
 
 /** An idle lane's sentence, as the engine words it: its latest own session, else the session that
