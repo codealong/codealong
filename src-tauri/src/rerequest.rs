@@ -20,7 +20,7 @@
 use std::collections::HashMap;
 
 use crate::config::PullRequestsCfg;
-use crate::engine::Handle;
+use crate::engine::{Handle, Trouble};
 use crate::github::PrRaw;
 use crate::model::{Board, PrItem, Status, TurnKind};
 
@@ -179,7 +179,7 @@ pub fn send_now(engine: &Handle, rerequester: &std::sync::Mutex<Rerequester>, jo
             failed.push(format!("{} wasn't asked to review {} again after its fixes: {e}", job.reviewer, job.pr));
         }
     }
-    engine.rerequested(if failed.is_empty() { Ok(()) } else { Err(failed.join(" ")) });
+    engine.went(Trouble::Rerequests, if failed.is_empty() { Ok(()) } else { Err(failed.join(" ")) });
 }
 
 #[cfg(test)]

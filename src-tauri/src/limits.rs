@@ -8,7 +8,7 @@
 use std::collections::HashSet;
 
 use crate::config::WhenLimited;
-use crate::engine::Handle;
+use crate::engine::{Handle, Trouble};
 use crate::model::Board;
 
 /// A limit hit longer ago than this was hit before Codealong was watching, or was offered and
@@ -52,7 +52,7 @@ pub fn move_now(engine: &Handle, key: &str, to: &str) {
     if engine.read(|b| b.automation_blocked(key)) { return; }
     let moved = crate::actions::local(engine, &crate::actions::From::Here, crate::actions::MOVE, key, serde_json::json!({ "account": to }));
     let title = engine.read(|b| b.session(key).map(|(_, s)| s.title.clone())).unwrap_or_else(|| key.to_string());
-    engine.limit_moved(moved.map(|_| ()).map_err(|e| format!("“{title}” stopped at its usage limit, and moving it to {to} didn't work: {e}")));
+    engine.went(Trouble::Limits, moved.map(|_| ()).map_err(|e| format!("“{title}” stopped at its usage limit, and moving it to {to} didn't work: {e}")));
 }
 
 #[cfg(test)]
