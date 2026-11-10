@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import * as fx from '../testing/fixtures';
 import { setPlatform } from '../platform';
 import type { Question, Session } from '../types';
-import { bangSays, bangTitle, boxPlace, givenBack, replyPlaceholder, stillOffered, takesReply } from './SessionReply';
+import { bangSays, bangTitle, boxPlace, givenBack, replyPlaceholder, stillOffered, takesReply, typesCommands } from './SessionReply';
 
 const session = (over: Partial<Session> = {}): Session => fx.session({ live: true, asks: false, hosted: false, ...over });
 
@@ -28,6 +28,18 @@ describe('replyPlaceholder', () => {
 
   it('keeps its own words for a session Codealong runs', () => {
     expect(replyPlaceholder(session({ hosted: true, status: 'working' }), 'Ghostty', { kind: 'typed', app: 'Ghostty' })).toBe('Send to claude: it takes this after its current turn');
+  });
+});
+
+describe('typesCommands', () => {
+  it('takes a harness’s command where what’s sent lands in the session’s box: its terminal or a background job’s', () => {
+    expect(typesCommands({ kind: 'typed', app: 'Ghostty' })).toBe(true);
+    expect(typesCommands({ kind: 'background' })).toBe(true);
+    // A message hands the agent the words, and an app or a resume isn't the running session's box.
+    expect(typesCommands({ kind: 'message' })).toBe(false);
+    expect(typesCommands({ kind: 'codex-app' })).toBe(false);
+    expect(typesCommands({ kind: 'resume', app: 'Ghostty' })).toBe(false);
+    expect(typesCommands(null)).toBe(false);
   });
 });
 

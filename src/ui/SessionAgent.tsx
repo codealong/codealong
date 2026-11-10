@@ -4,7 +4,8 @@
 //
 // What its menu has goes by what can be done with the session:
 // - Running, its account's models where Codealong can switch them (one it runs, through its agent;
-//   one whose terminal it types into, by its harness's commands, `StartAccount.switchesModel` and
+//   one whose terminal or background job's box it types into, by its harness's commands
+//   (SessionReply.tsx `typesCommands`), `StartAccount.switchesModel` and
 //   `switchesEffort`; one whose app goes on with it, through the app, `switchesInApp`), and the
 //   levels under them, its own checked; a pick switches that session alone (send.rs
 //   `switch_model`, `switch_effort`), on whichever device it's on. Not while its turn runs or it

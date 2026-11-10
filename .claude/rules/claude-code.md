@@ -347,7 +347,10 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   reports a change once the file holds still for a second, and takes the first within 5 seconds
   of its own write for that write's echo, so its next settings write saves the default again.
   How Codealong answers, waits and puts them back, and that the session keeps what it was
-  switched to (checked in tmux on 2026-10-14): `claude/switch.rs`.
+  switched to (checked in tmux on 2026-10-14): `claude/switch.rs`. A background job takes both
+  from its service's `reply` as typed commands, and the question's Return through `attach`: a
+  Sonnet job switched to `low`, then to `haiku`, wrote both outcomes, its next reply named
+  `claude-haiku-5-5` at `low`, and the defaults they saved went back (2.1.322, 2026-11-09).
 - `--effort`'s levels and what a model that doesn't take one gets (2.1.284): `claude/start.rs`
   (`EFFORTS`). Without it a session starts on `settings.json`'s
   `modelSettings.<model>.effortLevel`, else its `effortLevel`, else the model's own default (the

@@ -1,6 +1,7 @@
 //! A model or an effort level switched in a running session by its command typed into its
-//! terminal (`send::switch_model`, `switch_effort`): the question Claude Code asks before it takes
-//! one, and the defaults `/model` and `/effort` save beyond the session.
+//! terminal, or pasted into a background job's box by its account's background service
+//! (`send::switch_model`, `switch_effort`): the question Claude Code asks before it takes one, and
+//! the defaults `/model` and `/effort` save beyond the session.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -67,7 +68,7 @@ pub(super) fn typed(account: &AccountCfg, session: &Session, records: &dyn Fn() 
     let mut said = said_after(records, from, SAID_WAIT);
     let mut pressed = Ok(());
     if said.is_none() && typed.is_ok() {
-        pressed = press_return(session);
+        pressed = press_return(account, session);
         if pressed.is_ok() {
             said = said_after(records, from, ANSWERED_WAIT);
         }
@@ -114,13 +115,12 @@ fn said_after(records: &dyn Fn() -> Vec<PathBuf>, from: u64, wait: Duration) -> 
     }
 }
 
-/// Presses Return in the terminal a session runs in, to answer the question up there.
-fn press_return(session: &Session) -> Result<()> {
-    let pid = session.pid.ok_or_else(|| anyhow!("It isn't running any more."))?;
-    let Some(host) = crate::launch::terminal_host(pid, Path::new(&session.cwd))? else {
-        bail!("Claude Code may be asking about the switch in its terminal, where Codealong can't press keys ({}): answer it there.", crate::launch::presses_keys_in());
-    };
-    crate::launch::press_key(&host, crate::launch::Key::Return)
+/// Presses Return where a session runs, its tab or a background job's terminal, to answer the
+/// question up there.
+fn press_return(account: &AccountCfg, session: &Session) -> Result<()> {
+    let home = account.home_path();
+    let registry = super::session_entry(&home, session).ok_or_else(|| anyhow!("It isn't running any more."))?;
+    super::press_in(&home, session, &registry, crate::launch::Key::Return, "Claude Code may be asking about the switch there: answer it in its terminal.")
 }
 
 /// The account's settings as they are now: `{}` when it has none, None when they don't parse,

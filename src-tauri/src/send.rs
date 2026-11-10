@@ -385,6 +385,19 @@ pub enum Route {
     Own(Arc<dyn Own>),
 }
 
+impl Route {
+    /// What goes this way lands in the session's own box as if typed there: its terminal, or a
+    /// harness's own way that pastes into it (`Own::as_typed`, a background job's box), so a
+    /// harness's command goes in as one.
+    fn as_typed(&self) -> bool {
+        match self {
+            Route::Type { .. } => true,
+            Route::Own(own) => own.as_typed(),
+            Route::Resume => false,
+        }
+    }
+}
+
 /// One of a harness's own ways in, as its adapter lists it (`Adapter::routes`): its background
 /// service, a socket its sessions listen on, its app. The harness's module has the type, and
 /// with it everything about how a prompt goes that way.
@@ -1056,9 +1069,8 @@ pub(crate) fn codealong_routes(session: &Session, routes: Vec<Route>) -> Result<
     for r in routes {
         match &r {
             Route::Own(own) if own.takes_agents() => first.push(r),
-            Route::Own(own) if own.as_typed() => then.push(r),
-            Route::Type { .. } => then.push(r),
-            Route::Own(_) | Route::Resume => {}
+            _ if r.as_typed() => then.push(r),
+            _ => {}
         }
     }
     first.append(&mut then);
@@ -1153,10 +1165,11 @@ pub fn switch_mode(board: &Board, cfg: &Config, key: &str, mode: &str) -> Result
 /// Switches a session's model or effort level, for that session alone: one Codealong runs
 /// through its agent (acp.rs `switch`), one that goes on in its harness's app through the app,
 /// for its next turn (`Own::switch`), any other by its harness's command typed into its terminal
-/// (`Adapter::model_command`, `effort_command`), the way a prompt is typed, and seen through as
-/// its harness needs (`Adapter::type_switch`). Only typed: another way in would take the command
-/// as a prompt. Not mid-turn, where it would wait as a prompt does, nor while the session waits
-/// on you, where it would answer; the app takes it whenever, running or not.
+/// or a background job's box (`Adapter::model_command`, `effort_command`), the way a prompt is
+/// typed, and seen through as its harness needs (`Adapter::type_switch`). Only typed
+/// (`Route::as_typed`): another way in would take the command as a prompt. Not mid-turn, where it
+/// would wait as a prompt does, nor while the session waits on you, where it would answer; the app
+/// takes it whenever, running or not.
 fn switch(board: &Board, cfg: &Config, key: &str, to: Switch) -> Result<String> {
     let (session, account) = crate::harness::find(board, cfg, key)?;
     let adapter = crate::harness::adapter(session.harness);
@@ -1199,7 +1212,7 @@ fn switch(board: &Board, cfg: &Config, key: &str, to: Switch) -> Result<String> 
     let mut why = None;
     let mut typ = |text: &str| -> Result<bool> {
         let msg = Message::new(board, cfg, text, &Sender::You, false);
-        for route in adapter.routes(account, session).iter().filter(|r| matches!(r, Route::Type { .. })) {
+        for route in adapter.routes(account, session).iter().filter(|r| r.as_typed()) {
             match attempt(route, board, session, account, cfg, &msg, None, false)? {
                 Tried::Sent(_) => return Ok(true),
                 Tried::Passed(passed) => why = passed.or(why.take()),
@@ -1822,6 +1835,17 @@ mod tests {
         assert!(refused(idle.clone(), "turbo").contains("isn't an effort level Codealong can switch"));
         assert_eq!(refused(thread.clone(), "high"), "Codex has no command to switch a running session's effort.");
         assert!(refused(thread, "turbo").contains("isn't an effort level Codealong can switch"));
+    }
+
+    /// A harness's command (`/model`, `/effort`) goes only where what's sent lands in the session's
+    /// own box: its terminal, or a background job's, which its account's service pastes into. A
+    /// socket that hands the agent the words would take it as a prompt.
+    #[test]
+    fn types_a_command_only_into_a_box() {
+        let job: Route = crate::claude::daemon::Background { socket: "/tmp/d/control.sock".into(), key_file: "/h/daemon/control.key".into(), job: "6e07c149".into() }.into();
+        let socket: Route = crate::claude::peer::Message { socket: "/tmp/cc-socks/7.sock".into(), session_id: "abc".into(), mode: None }.into();
+        assert!(Route::Type { pid: 7 }.as_typed() && job.as_typed());
+        assert!(!socket.as_typed() && !Route::Resume.as_typed());
     }
 
     /// A mode is switched only for a session that offers modes here (one Codealong runs, or one

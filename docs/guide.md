@@ -2465,8 +2465,9 @@ conversation says the model its latest turn ran on, whose name has its level (Ge
 
 Where Codealong types into its terminal or runs it, that chip's menu has its account's models,
 with its effort levels under them, the one it's on checked: picking either switches that session
-alone, between turns (`/model <name>` or `/effort <level>` typed into a Claude Code session, its
-agent's model or effort for one Codealong runs); mid-turn the models wait for the turn to end,
+alone, between turns (`/model <name>` or `/effort <level>` typed into a Claude Code session, or
+handed to a background job by its account's background service, as a send is; its agent's model
+or effort for one Codealong runs); mid-turn the models wait for the turn to end,
 while a move to another account from the same menu doesn't. Claude Code asks before a switch while the
 conversation is cached for what it's on ("Your next response will be slower"); Codealong answers
 yes, as picking it meant. It also saves what it's switched to as the account's default for new

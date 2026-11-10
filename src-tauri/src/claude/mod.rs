@@ -380,19 +380,7 @@ impl crate::harness::Adapter for ClaudeCode {
             crate::harness::Answer::Deny => crate::launch::Key::Escape,
             crate::harness::Answer::Always => anyhow::bail!("Claude Code's prompt in a terminal is answered here with Allow or Deny only."),
         };
-        if reg.kind.as_deref() == Some("bg") {
-            // A background job has no terminal of its own: the key is typed into the one its
-            // account's background service keeps for it, as `claude attach` would.
-            let home = ctx.account.home_path();
-            let job = reg.job_id.as_deref().ok_or_else(|| anyhow::anyhow!("Claude Code didn't record which job it is."))?;
-            let socket = daemon_socket(&home).ok_or_else(|| anyhow::anyhow!("Its account's background service isn't running."))?;
-            daemon_type(&socket, &home.join("daemon/control.key"), job, &[key.typed().as_bytes()])?;
-        } else {
-            let Some(host) = crate::launch::terminal_host(reg.pid, Path::new(&s.cwd))? else {
-                anyhow::bail!("It isn't in a terminal Codealong can press keys in ({}). Open it to answer.", crate::launch::presses_keys_in());
-            };
-            crate::launch::press_key(&host, key)?;
-        }
+        press_in(&ctx.account.home_path(), s, &reg, key, "Open it to answer.")?;
         Ok(match answer {
             crate::harness::Answer::Allow | crate::harness::Answer::Always => format!("Allowed {}.", call.text),
             crate::harness::Answer::Deny => format!("Denied {}; it stops and waits for you.", call.text),
@@ -648,19 +636,9 @@ impl crate::harness::Adapter for ClaudeCode {
         if !s.queued.iter().any(|m| m.id == id) {
             anyhow::bail!("Claude Code doesn't hold that message any more: its turn has taken it in.");
         }
-        if s.attach_command.is_some() {
-            let home = ctx.account.home_path();
-            let registry = session_entry(&home, s).ok_or_else(|| anyhow::anyhow!("It isn't running any more."))?;
-            let job = registry.job_id.as_deref().ok_or_else(|| anyhow::anyhow!("Claude Code didn't record which job it is."))?;
-            let socket = daemon_socket(&home).ok_or_else(|| anyhow::anyhow!("Its account's background service isn't running."))?;
-            daemon_type(&socket, &home.join("daemon/control.key"), job, &[SEND_NOW.as_bytes()])?;
-        } else {
-            let pid = s.pid.ok_or_else(|| anyhow::anyhow!("It isn't running any more."))?;
-            let Some(host) = crate::launch::terminal_host(pid, Path::new(&s.cwd))? else {
-                anyhow::bail!("It isn't in a terminal Codealong can press keys in ({}). Send it now from there.", crate::launch::presses_keys_in());
-            };
-            crate::launch::press_key(&host, crate::launch::Key::Keys(SEND_NOW))?;
-        }
+        let home = ctx.account.home_path();
+        let registry = session_entry(&home, s).ok_or_else(|| anyhow::anyhow!("It isn't running any more."))?;
+        press_in(&home, s, &registry, crate::launch::Key::Keys(SEND_NOW), "Send it now from there.")?;
         let held = s.queued.len();
         Ok(if held > 1 { format!("“{}” takes the {held} messages it held now, stopping the step it was on.", s.title) } else { format!("“{}” takes it now, stopping the step it was on.", s.title) })
     }
@@ -709,17 +687,7 @@ impl crate::harness::Adapter for ClaudeCode {
         if !matches!(registry.status.as_str(), "busy" | "waiting") {
             anyhow::bail!("Its turn has already ended.");
         }
-        if registry.kind.as_deref() == Some("bg") {
-            let job = registry.job_id.as_deref().ok_or_else(|| anyhow::anyhow!("Claude Code didn't record which job it is."))?;
-            let socket = daemon_socket(&home).ok_or_else(|| anyhow::anyhow!("Its account's background service isn't running."))?;
-            daemon_press_escape(&socket, &home.join("daemon/control.key"), job)?;
-        } else {
-            let pid = s.pid.ok_or_else(|| anyhow::anyhow!("It isn't running any more."))?;
-            let Some(host) = crate::launch::terminal_host(pid, Path::new(&s.cwd))? else {
-                anyhow::bail!("It isn't in a terminal Codealong can press keys in ({}). Open it to stop it there.", crate::launch::presses_keys_in());
-            };
-            crate::launch::press_key(&host, crate::launch::Key::Escape)?;
-        }
+        press_in(&home, s, &registry, crate::launch::Key::Escape, "Open it to stop it there.")?;
         Ok(format!("Stopped “{}”.", s.title))
     }
 
@@ -1705,6 +1673,22 @@ fn shell_word(from: &str) -> String {
 fn record(a: &ClaudeCode, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> anyhow::Result<PathBuf> {
     use crate::harness::Adapter;
     a.records(ctx.account, s).into_iter().next().ok_or_else(|| anyhow::anyhow!("Its transcript isn't on this Mac any more."))
+}
+
+/// Presses `key` in a running session, by its registry entry: a background job has no terminal
+/// of its own, so the key is typed into the one its account's background service keeps for it, as
+/// `claude attach` would; any other's goes to the tab it runs in. `instead` says what to do where
+/// that tab is in a terminal Codealong can't press keys in.
+fn press_in(home: &Path, s: &Session, registry: &RegistryEntry, key: crate::launch::Key, instead: &str) -> anyhow::Result<()> {
+    if registry.kind.as_deref() == Some("bg") {
+        let job = registry.job_id.as_deref().ok_or_else(|| anyhow::anyhow!("Claude Code didn't record which job it is."))?;
+        let socket = daemon_socket(home).ok_or_else(|| anyhow::anyhow!("Its account's background service isn't running."))?;
+        return daemon_type(&socket, &home.join("daemon/control.key"), job, &[key.typed().as_bytes()]);
+    }
+    let Some(host) = crate::launch::terminal_host(registry.pid, Path::new(&s.cwd))? else {
+        anyhow::bail!("It isn't in a terminal Codealong can press keys in ({}). {instead}", crate::launch::presses_keys_in());
+    };
+    crate::launch::press_key(&host, key)
 }
 
 /// The tool call a session's permission prompt is about, with its process: only while Claude

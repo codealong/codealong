@@ -144,6 +144,13 @@ export function takesReply(s: Session): boolean {
   return !waitsOnYou(s);
 }
 
+/** Whether what goes `way` lands in the session's own box as if typed there, its terminal or a
+ *  background job's, so a harness's command (`/model`) goes in as one (send.rs `Route::as_typed`).
+ *  A message or an app hands the agent the words instead. */
+export function typesCommands(way: Way | null | undefined): boolean {
+  return way?.kind === 'typed' || way?.kind === 'background';
+}
+
 /** What the box asks for, and how a message gets there (`way`, once the engine has said): typed
  *  into its terminal, pasted into its background job, a message from Codealong, or its app; or,
  *  where it can't reach the session itself, what happens instead. A session that isn't running
@@ -412,11 +419,11 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
   const resumeWhere = resumeHow && { place: resumeHow.place, behind: !!resumePlace?.behind };
   const place = boxPlace(s, terminal, way, resumeHow && resumePlace ? { place: resumeHow.place, label: resumePlace.label } : null);
   // A running one says what model and effort it's on, beside Send, and where Codealong can switch
-  // them (SessionAgent.tsx): one it runs, or one whose terminal it types into, by its harness's
-  // commands. One whose app goes on with it is switched in the app, running or not, from its
-  // next turn (the Codex app's, codex/ipc.rs `codex_settings_request`).
+  // them (SessionAgent.tsx): one it runs, or one whose terminal or background job's box it types
+  // into, by its harness's commands. One whose app goes on with it is switched in the app,
+  // running or not, from its next turn (the Codex app's, codex/ipc.rs `codex_settings_request`).
   const inApp = goesOnWithIt && !!account?.switchesInApp;
-  const switchable = s.live && (!!s.hosted || way?.kind === 'typed');
+  const switchable = s.live && (!!s.hosted || typesCommands(way));
   const switches = !!account && (account.models?.length ?? 0) > 0 && (inApp || (switchable && (!!s.hosted || !!account.switchesModel)));
   const switchesEffort = !!account && (account.efforts?.length ?? 0) > 0 && (inApp || (switchable && (!!s.hosted || !!account.switchesEffort)));
   const saysModel = !resuming && (s.live || goesOnWithIt) && (switches || switchesEffort || !!s.model);
