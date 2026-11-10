@@ -2,7 +2,9 @@
 // name is typed: the main window's sheet (RenameDialog.tsx, and `r` on the list, ⌃⌘R in
 // Sessions, where `r` alone does nothing), and the name field the peek and the waiting window
 // show in the session header (SessionHeader.tsx), the quick panel's Rename… opening the waiting
-// window on it. Run it in each:
+// window on it. A double-click on the name in the header makes it that field, in the main
+// window's panel (MainPanel.tsx `NamedSessionPanel`), the waiting window and the peek. Run it in
+// each:
 //   scripts/preview.sh sessions '' scripts/preview/rename-check.js
 //   scripts/preview.sh bar '' scripts/preview/rename-check.js
 //   PREVIEW_PIN=session scripts/preview.sh desktop '' scripts/preview/rename-check.js
@@ -17,6 +19,9 @@
   var key = function (el, k) { el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true })); };
   var renames = function () { return calls('rename_session'); };
   var NAME = 'Renamed in a preview';
+  var dblclick = function (el) { el.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true })); };
+  var field = function () { return document.querySelector('.ca-sessinsp-name'); };
+  var heading = function () { return document.querySelector('.ca-sessinsp-title'); };
   var surface = window.__CODEALONG_PEEK__ ? 'peek' : window.__CODEALONG_QUICK__ ? 'quick' : window.__CODEALONG_WAITING__ ? 'waiting' : window.__CODEALONG_DESKTOP__ ? 'desktop' : window.__CODEALONG_BAR__ ? 'bar' : 'main';
   say('rename check (' + surface + '): waiting');
 
@@ -87,6 +92,39 @@
         return until(function () { return !document.querySelector('.ca-renamedlg'); }, 2000).then(function () {
           check('Escape leaves the name alone', renames().length === before);
         });
+      })
+      .then(function () {
+        // A double-click on the name over the selected session's conversation makes it a field
+        // in place, not the sheet; Escape leaves it as it was.
+        var t = heading();
+        check('its name says a double-click renames it', !!t && /Double-click to rename/.test(t.title), t && t.title);
+        dblclick(t);
+        return until(field, 2000);
+      })
+      .then(function () {
+        var input = field();
+        check('a double-click on its name makes it a field with the keyboard, selected', document.activeElement === input && input.selectionStart === 0 && input.selectionEnd === input.value.length, input.value);
+        check('and opens no sheet', !document.querySelector('.ca-renamedlg'));
+        var before = renames().length;
+        key(input, 'Escape');
+        return until(function () { return !field(); }, 2000).then(function () {
+          check('Escape in the field leaves the name alone', renames().length === before && !!heading());
+        });
+      })
+      .then(function () {
+        dblclick(heading());
+        return until(field, 2000);
+      })
+      .then(function () {
+        var input = field();
+        type(input, NAME + ' again');
+        key(input, 'Enter');
+        return until(function () { return !field(); }, 2000);
+      })
+      .then(function () {
+        var r = renames().pop();
+        check('⏎ in the field renames it', r && r.name === NAME + ' again', JSON.stringify(r));
+        check('and the panel shows the new name', heading() && heading().textContent === NAME + ' again', heading() && heading().textContent);
       })
       .then(done)
       .catch(stopped);
@@ -166,6 +204,18 @@
         var r = renames().pop();
         check('⏎ renames it', r && r.key === shown.key && r.name === NAME, JSON.stringify(r));
         check('and the session stays', title() === NAME, title());
+        // A double-click on its name makes it the field again; Escape leaves it.
+        dblclick(heading());
+        return until(field, 2000);
+      })
+      .then(function () {
+        var input = field();
+        check('a double-click on its name makes it a field with the keyboard', document.activeElement === input && input.value === NAME, input.value);
+        var before = renames().length;
+        key(input, 'Escape');
+        return until(function () { return !field(); }, 2000).then(function () {
+          check('Escape leaves the name and the session stays', renames().length === before && title() === NAME, title());
+        });
       })
       .then(done)
       .catch(stopped);
@@ -175,10 +225,10 @@
   // The peek, opened for Rename…: the name is a field; Escape leaves it and the peek goes; ⏎ with
   // a new name renames it and the peek goes.
   var board;
-  var open = function (id) {
+  var open = function (id, rename) {
     var lane = board.lanes.find(function (l) { return !l.hidden && l.sessions.some(function (s) { return !s.visitor && /^(claude|codex|opencode):/.test(s.key) && !s.archived; }); });
     var session = lane.sessions.find(function (s) { return !s.visitor && /^(claude|codex|opencode):/.test(s.key) && !s.archived; });
-    window.__emit('peek-open', { id: id, lane: lane, session: session, terminal: board.apps.terminal, theme: board.theme, room: 600, below: true, focus: true, rename: true });
+    window.__emit('peek-open', { id: id, lane: lane, session: session, terminal: board.apps.terminal, theme: board.theme, room: 600, below: true, focus: true, rename: rename !== false });
     return session;
   };
   var session;
@@ -218,6 +268,29 @@
         var r = renames().pop();
         check('⏎ renames it', r && r.key === session.key && r.name === NAME, JSON.stringify(r));
         check('and puts the peek away', calls('peek_hide').length === hides + 1);
+        window.__emit('peek-hidden', null);
+        return wait(100);
+      });
+    })
+    .then(function () {
+      // Opened as a hover opens it, a double-click on its name makes it the field; Escape leaves
+      // the name and the conversation stays, as Rename… from the peek's own menu does.
+      session = open(9, false);
+      return until(function () { return !!heading(); }, 2000);
+    })
+    .then(function () {
+      check('opened from a hover, its name is no field', !field());
+      dblclick(heading());
+      return until(field, 2000);
+    })
+    .then(function () {
+      var input = field();
+      check('a double-click on its name makes it a field with the keyboard', document.activeElement === input, input.value);
+      var hides = calls('peek_hide').length;
+      var before = renames().length;
+      key(input, 'Escape');
+      return wait(100).then(function () {
+        check('Escape leaves the name and the peek stays', renames().length === before && calls('peek_hide').length === hides && !!heading());
       });
     })
     .then(done)

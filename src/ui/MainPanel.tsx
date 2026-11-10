@@ -7,7 +7,8 @@
 // shows, with the way back (`drill`), the list staying as it was. The window passes what the
 // panels show and what their clicks do.
 
-import { useMemo, useRef, type ReactNode } from 'react';
+import { useMemo, useRef, useState, type ReactNode } from 'react';
+import { renameAhead } from '../ahead';
 import { dismissTodoHint, openUrl } from '../api';
 import type { Entities } from '../canvas/model';
 import { showContextMenu, type MenuSpec } from '../contextMenu';
@@ -15,6 +16,7 @@ import { deviceOf } from '../devices';
 import { middleTruncate } from '../format';
 import { sessionPrs, type Placed } from '../lanes';
 import { lineageOf } from '../lineage';
+import { errorText } from '../report';
 import { scheduleBySession } from '../schedules';
 import type * as menus from '../menus';
 import type { ListRow } from '../boardLists';
@@ -27,7 +29,7 @@ import { Inspector } from './Inspector';
 import { PrInspector } from './PrInspector';
 import type { PanelBackTo } from './primitives';
 import type { PrRowItem } from './PrsView';
-import { SessionPanel } from './SessionPanel';
+import { SessionPanel, type SessionPanelProps } from './SessionPanel';
 import type { FindAsk } from './ThreadFind';
 import { PrPickPanel } from './PrPickPanel';
 import { SessionPickPanel } from './SessionPickPanel';
@@ -260,7 +262,7 @@ export function MainPanel(props: MainPanelProps) {
     const queued = row !== undefined;
     if (queued) stripShown.current = true;
     return (
-      <SessionPanel
+      <NamedSessionPanel
         key={session.key}
         lane={lane}
         session={session}
@@ -303,6 +305,7 @@ export function MainPanel(props: MainPanelProps) {
         // Everywhere, for what its header's boxes offer (Carry on, a move to another account) and
         // its account's menu in the box; the strip that also reads them is Sessions' alone.
         actions={actionsRef.current.session(lane, session, 'session')}
+        onRenameFailed={setToast}
         onDone={queued ? (done) => void queue.answered(session.key, done) : undefined}
         autoFocus={row !== undefined && boxFocus === row}
         maximized={row !== undefined && panelMax}
@@ -409,5 +412,26 @@ export function MainPanel(props: MainPanelProps) {
     (drilledPanel(selected.key, middleTruncate(selected.session.title, 40)) ?? sessionPanel(selected.lane, selected.session, undefined, selected.key))
   ) : (
     (drilledPanel(selected?.key, selectedLane?.callsign ?? 'the worktree') ?? inspector(selectedLane, selected?.kind === 'agent' ? selected.session.key : null))
+  );
+}
+
+/** A session's panel in the main window, whose name a double-click makes a field in its header,
+ *  as Rename does in the windows that show a session as a card. Rename in its menu and ⌃⌘R still
+ *  open the sheet (RenameDialog.tsx), which serves rows whose session the panel isn't showing too.
+ *  Whether its name is a field is the panel's own, keyed by its session: one that went with its
+ *  name still a field (⌘E went on to the next) heard no blur, and isn't a field when it's back. */
+function NamedSessionPanel({ onRenameFailed, ...panel }: SessionPanelProps & { onRenameFailed: (why: string) => void }) {
+  const [naming, setNaming] = useState(false);
+  const { session, actions } = panel;
+  return (
+    <SessionPanel
+      {...panel}
+      actions={actions?.rename ? { ...actions, rename: { ...actions.rename, run: () => setNaming(true) } } : actions}
+      renaming={naming}
+      onRename={(name) => {
+        setNaming(false);
+        if (name) renameAhead(session.key, name).catch((e: unknown) => onRenameFailed(errorText(e)));
+      }}
+    />
   );
 }

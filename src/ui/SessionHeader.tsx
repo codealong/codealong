@@ -31,13 +31,12 @@
 //
 // A window says what it can do by what it passes: the main window can expand the panel and pop
 // the session out into a window of its own, the peek can keep the session on the desktop (the
-// same window) and a session kept there can be closed, and Rename in a
-// menu shows the name as a field. The rest of what can be done to it (snoozing, archiving,
-// pinning) is in its ⋯ menu, which a right-click anywhere on the header gives too, so the row of
-// buttons stays short and is the same in every window. A PR and a
-// session the header names keep their own menus, and the name's field its copy and paste. What a
-// window doesn't know (the PRs, the todos, the sessions around it) it leaves out, and that line
-// isn't there.
+// same window) and a session kept there can be closed, and Rename in a menu shows the name as a
+// field, as a double-click on the name does. The rest of what can be done to it (snoozing,
+// archiving, pinning) is in its ⋯ menu, which a right-click anywhere on the header gives too, so
+// the row of buttons stays short and is the same in every window. A PR and a session the header
+// names keep their own menus, and the name's field its copy and paste. What a window doesn't know
+// (the PRs, the todos, the sessions around it) it leaves out, and that line isn't there.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { below } from '../contextMenu';
@@ -414,6 +413,9 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
   const raised = s.raised ? ` · moved to the top${raisedBy(s.raised)}` : '';
   const status = (s.stalledSince ? `Silent since ${agoPhrase(s.stalledSince, now)}` : `${s.asks ? 'Asks you' : STATUS_WORD[s.status]} · ${since}`) + raised + snoozed + quiet + agentSeen;
   const naming = !!renaming && !!onRename;
+  // A double-click on the name renames it as the window's Rename does (`actions.rename`, there
+  // only where its harness keeps names).
+  const rename = naming ? undefined : actions?.rename;
   // Seen where the window says how, else by the session's own action, when it has a turn to see.
   const seen = seenAbove ? undefined : onSeen ? (seenable(s) ? onSeen : undefined) : actions?.seen?.run;
   const branch = s.branch ?? lane.branch;
@@ -433,7 +435,7 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
         {naming ? (
           <NameField title={s.title} onDone={onRename} />
         ) : (
-          <h3 className="ca-sessinsp-title" title={s.title}>
+          <h3 className="ca-sessinsp-title" title={rename ? `${s.title}\nDouble-click to rename it` : s.title} onDoubleClick={rename && (() => rename.run())}>
             {s.title}
           </h3>
         )}

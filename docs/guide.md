@@ -246,11 +246,13 @@ devices show the ones each Mac gave its sessions.
 
 Rename a session with ⌃⌘R (`r` elsewhere) or its right-click menu, here or wherever a session has
 one (the floating bar's pills and cards on the desktop change the name in place, and the quick
-panel's rows in the waiting window). The name goes where its harness keeps names, so the harness
-shows it too: a Claude Code session's transcript, which `/resume` lists it by and a running session
-takes up, in its terminal's title too, the next time it reads its transcript's end; a Codex thread,
-which the Codex app shows the next time it reads its threads (not an archived one); an OpenCode
-session, through its service, so OpenCode must be running. Antigravity's can't be renamed here.
+panel's rows in the waiting window). Double-click its name over its conversation, in its panel or
+any card, to change it in place: ⏎ renames it, Esc keeps the old name. The name goes where its
+harness keeps names, so the harness shows it too: a Claude Code session's transcript, which
+`/resume` lists it by and a running session takes up, in its terminal's title too, the next time it
+reads its transcript's end; a Codex thread, which the Codex app shows the next time it reads its
+threads (not an archived one); an OpenCode session, through its service, so OpenCode must be
+running. Antigravity's can't be renamed here.
 
 #### Labels
 
