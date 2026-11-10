@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { asCue, ASK, askProblem, clock, cuesYou, heardLine, hearingNow, hears, macSays, noteVoice, saysNothing, toldIn, voiceNow } from './listening';
+import { asCue, ASK, askProblem, clock, cuesYou, heardLine, hearingNow, hearingShows, hears, macSays, noteVoice, saysNothing, toldIn, voiceNow } from './listening';
 import * as fx from './testing/fixtures';
 import type { ListeningGlance } from './types';
 
@@ -70,6 +70,13 @@ describe('a reply that says nothing', () => {
     expect(cuesYou('coach')).toBe(true);
     expect(cuesYou('requests')).toBe(true);
     expect(cuesYou('notes')).toBe(false);
+  });
+});
+
+describe('a session that’s hearing', () => {
+  it('shows that as its status, but when it needs you or went wrong', () => {
+    expect((['idle', 'working', 'unread', 'stopped'] as const).map(hearingShows)).toEqual([true, true, true, true]);
+    expect((['needs', 'error'] as const).map(hearingShows)).toEqual([false, false]);
   });
 });
 

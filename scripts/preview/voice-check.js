@@ -125,6 +125,7 @@
     })
     .then(function () {
       check('a session that listens wears a chip on its row', !!q('.ca-listeningchip', row(0)) && !q('.ca-listeningchip', row(1)));
+      check('and its status is a recording light, the other session’s its own', !!q('.ca-glyph--listening', row(0)) && !q('.ca-glyph--listening', row(1)) && q('.ca-glyph--listening', row(0)).getAttribute('aria-label') === 'Listening');
       // The window's bar has it too, whatever the window shows: a click shows the session.
       var now = all('.ca-win-bar .ca-hearing-now');
       check('and the window’s bar says which session is hearing, and for how long', now.length === 1 && !!q('.ca-live-dot', now[0]) && q('.ca-hearing-now-title', now[0]).textContent === 'Voice A' && /^4:\d\d$/.test(q('.ca-hearing-now-clock', now[0]).textContent), now.map(function (n) { return n.textContent; }).join(' | '));
@@ -216,6 +217,7 @@
     .then(function () {
       check('ended, the chip and the strip go, and the meeting stays in its conversation', !q('.ca-listeningchip', row(0)) && !strip() && all('.ca-thread .ca-heard-line').length === 5);
       check('and the window’s bar says no more that one is hearing', !q('.ca-hearing-now'));
+      check('nor does any session’s status', !q('.ca-glyph--listening'));
     })
     .then(done)
     .catch(stopped);

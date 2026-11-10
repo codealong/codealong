@@ -24,10 +24,16 @@
 .ca-g-hands { fill: none; stroke: var(--ink-2); stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
 .ca-g-alert { fill: var(--alert-solid); }
 .ca-g-x { fill: none; stroke: var(--surface); stroke-width: 1.6; stroke-linecap: round; }
+/* A session that's hearing a meeting (SessionGlyph): a recording light in a ring, beating as the
+   strip's does (Listening.css `ca-live-pulse`), in place of the working and idle glyphs it
+   would change between every few seconds. */
+.ca-g-hearing { fill: var(--alert-solid); animation: ca-live-pulse var(--dur-ellipsis) ease-in-out infinite; }
+.ca-g-hearing-ring { fill: none; stroke: var(--alert-solid); stroke-width: 1.2; opacity: 0.45; }
 /* A PR waiting on your review, where what waits is counted (WaitsGlyph). */
 .ca-glyph-review { color: var(--attn); }
 @keyframes ca-sweep { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) {
+  .ca-g-hearing { animation: none; }
   .ca-g-arc { display: none; animation: none; }
   .ca-g-half { display: inline; }
 }

@@ -3298,7 +3298,10 @@ how it's drawn: what was heard as the meeting's lines, the agent's answers betwe
 answer that says there's nothing to say (a dash, as it's asked to give most of the time) not at
 all. Over its box a strip says it's listening, for how long (a clock that goes on by the second)
 and to what, with the lines heard that it hasn't been told of yet, the words being said right
-now, its notes, and Stop. Its row wears a Listening chip. A coach's latest answer, or a call's requests as they're filed, opens
+now, its notes, and Stop. Its row wears a Listening chip, and its status is a recording light
+wherever the session shows (its row, its card, its panel's header), in place of the working and
+idle glyphs it would change between every few seconds; one that needs you, or failed, still says
+that. A coach's latest answer, or a call's requests as they're filed, opens
 under the notch's pills for a few seconds, beside your camera, without taking the keyboard; a
 click puts it away.
 

@@ -9,7 +9,7 @@
 
 import { useSyncExternalStore } from 'react';
 import { homeOf } from './lanes';
-import type { BarListening, Board, HearingStatus, Lane, ListenAsk, ListeningGlance, ListenRole } from './types';
+import type { BarListening, Board, HearingStatus, Lane, ListenAsk, ListeningGlance, ListenRole, Status } from './types';
 
 /** Voice as the last board had it: whether it's turned on, and the sessions hearing now. */
 export interface Voice {
@@ -42,6 +42,14 @@ const watch = (w: () => void) => {
 
 export function useVoice(): Voice {
   return useSyncExternalStore(watch, voiceNow);
+}
+
+/** Whether a session that's hearing shows that as its status, in place of its own glyph
+ *  (ui/primitives.tsx `SessionGlyph`). Its turns come and go every few seconds while it listens,
+ *  none of them yours (board.rs `apply_listening`), so working and idle say little of it; that it
+ *  waits on you, or that something went wrong, still shows. */
+export function hearingShows(status: Status): boolean {
+  return status !== 'needs' && status !== 'error';
 }
 
 /** The sessions hearing now with where each is, the first to begin first, as the bar's feed names
