@@ -586,6 +586,15 @@ Reviews for one to a review or a comment. ⌘-click, or Open on GitHub in its ca
 GitHub instead. A PR the board doesn't list (an older one, another repo's) is asked of GitHub when
 its card first shows, and has no panel here, so a click opens it on GitHub. A link to a PR in a
 PR's description shows it the same way.
+A link to a session or a todo, as the codealong skill has an agent write one when it names them to
+you (`[its title](codealong://session/<key>)`, `codealong://todo/<id>`), is that session or todo:
+a session's wears its status and emblem as they are now, a todo's its box, and a bare one reads as
+its title. Hovering a session's shows its card, with who runs it, what it's doing and its
+worktree; a click shows the session here, with the way back, ⌘-click opens it where it runs, and a
+right-click has its menu. A click on a todo's shows the todo. A session's key or a todo's id
+written as code is a link the same way, and so is the sender named over a message another session
+sent. A link only shows what it names, and one that names nothing Codealong lists is its words.
+Links work inside Codealong's windows; nothing outside it opens one yet.
 What Codex's app draws in a reply is drawn here too, near enough. A writing block, a finished piece
 of writing such as an email, a message to paste elsewhere or a document, is a card named for its
 kind, with Copy, which copies the writing without the lines around it. An email shows its recipients

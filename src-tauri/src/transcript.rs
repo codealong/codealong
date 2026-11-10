@@ -71,6 +71,10 @@ pub struct Item {
     /// Who sent a `peer` message: the sending session's name, where its record says.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub from: Option<String>,
+    /// That session's key, where the message's byline gave it (send.rs `sender_key_of`): a window
+    /// names the sender as a link to its session.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from_key: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
     /// A tool's whole input: the command, the file, the arguments.
@@ -187,8 +191,10 @@ fn shown_in(mut page: Page, images: &Path, files: &Path) -> Page {
         }
         if let Some(said) = crate::send::from_an_agent(&it.text) {
             let from = crate::send::sender_of(&it.text).map(String::from);
+            let from_key = crate::send::sender_key_of(&it.text).map(String::from);
             it.text = attachments::written_in(said, images, files);
             it.from = from;
+            it.from_key = from_key;
             it.kind = "peer";
             continue;
         }
@@ -348,7 +354,7 @@ fn items_of(line: &[u8], parse: Parse, cursor: u64) -> Vec<Item> {
 }
 
 pub fn item(at: i64, kind: &'static str, text: impl Into<String>) -> Item {
-    Item { at, kind, text: text.into(), from: None, id: None, input: None, output: None, failed: false, shell: false, cwd: None, withdrawn: false, stop: false, questions: Vec::new(), answers: BTreeMap::new(), link: None, sent: None, images: Vec::new(), cursor: 0, n: 0 }
+    Item { at, kind, text: text.into(), from: None, from_key: None, id: None, input: None, output: None, failed: false, shell: false, cwd: None, withdrawn: false, stop: false, questions: Vec::new(), answers: BTreeMap::new(), link: None, sent: None, images: Vec::new(), cursor: 0, n: 0 }
 }
 
 /// The tool calls among `items` that have no result yet, oldest first, for records that keep a
@@ -425,13 +431,15 @@ mod tests {
         let shown = shown_in(page, &dir.join("images"), &dir.join("files"));
         let said: Vec<(&str, &str, Option<&str>)> = shown.items.iter().map(|i| (i.kind, i.text.as_str(), i.from.as_deref())).collect();
         assert_eq!(said, [("peer", "Which test fails?\n\nThe parser's, I think.", Some("Review the parser")), ("you", "Thanks, merge it.", None)]);
+        // With the sender's key, for a window to name it as a link to its session.
+        assert_eq!(shown.items.iter().map(|i| i.from_key.as_deref()).collect::<Vec<_>>(), [Some("claude:claude2:k"), None]);
     }
     use std::path::PathBuf;
 
     /// A page goes to other devices as it is; the phone app reads it with codealong-peer's `Page`.
     #[test]
     fn pages_read_back_on_other_devices() {
-        let item = |kind: &'static str, id: Option<&str>, output: Option<&str>| Item { at: 7, kind, text: format!("{kind} text"), from: None, id: id.map(String::from), input: output.map(|_| "cargo test".to_string()), output: output.map(String::from), failed: kind == "result", shell: false, cwd: None, withdrawn: false, stop: false, questions: Vec::new(), answers: BTreeMap::new(), link: None, sent: None, images: Vec::new(), cursor: 40, n: 2 };
+        let item = |kind: &'static str, id: Option<&str>, output: Option<&str>| Item { at: 7, kind, text: format!("{kind} text"), from: None, from_key: None, id: id.map(String::from), input: output.map(|_| "cargo test".to_string()), output: output.map(String::from), failed: kind == "result", shell: false, cwd: None, withdrawn: false, stop: false, questions: Vec::new(), answers: BTreeMap::new(), link: None, sent: None, images: Vec::new(), cursor: 40, n: 2 };
         let page = Page { items: vec![Item { withdrawn: true, ..item("you", None, None) }, item("agent", None, None), item("tool", Some("t1"), None), item("result", Some("t1"), Some("ok")), item("note", None, None), Item { from: Some("Review the parser".into()), ..item("peer", None, None) }], before: Some(12), after: 900 };
         let theirs: codealong_peer::api::Page = serde_json::from_value(serde_json::to_value(&page).unwrap()).unwrap();
         assert_eq!((theirs.before, theirs.after, theirs.items.len()), (Some(12), 900, 6));

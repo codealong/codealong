@@ -242,7 +242,8 @@ export interface CardHost {
  *  itself `away` as you go to the main window or to where a session lives. It also answers for
  *  the PR links in the conversation (PrLink.tsx): a click on one shows the PR as a click on its
  *  chip does (`followPr`, in the window's own place for it), a PR's card shows its sessions in
- *  the main window, and their menus are their own. */
+ *  the main window, and their menus are their own; and for the links to a session or a todo
+ *  (SessionLink.tsx), which show in the main window too. */
 export function useCardHost({ sessionKey, anchor, live, apps, terminal, away, followPr }: { sessionKey: string | null; /** The pill the bar says things by, where the card isn't a session's (the reviews pill). */ anchor?: string; live: Pick<LiveSession, 'board' | 'needBoard'>; apps: Board['apps'] | undefined; terminal: string; away: () => void; followPr?: (pr: PrItem, tab: PrTab | null) => void }): CardHost {
   const onDesktop = menus.useDesktopPins();
   const icons = useEditorIcons(apps);
@@ -273,6 +274,7 @@ export function useCardHost({ sessionKey, anchor, live, apps, terminal, away, fo
     showPr,
     followPr,
     showSession,
+    showTodo,
     openSession: (l, s) => open(l, s.openTarget),
     sessionMenu: (l, s) => {
       const can: menus.SessionCan = { report, open, terminal, reveal: () => showSession(l, s), editors: apps ? { apps, icons } : undefined, desktop: onDesktop, left: away, labels: live.board?.labels };

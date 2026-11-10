@@ -2801,6 +2801,9 @@ export interface TranscriptItem {
   text: string;
   /** Who sent a `peer` message: the sending session's name, where its record says. */
   from?: string;
+  /** That session's key, where the message said it: its heading names the sender as a link to
+   *  its session (SessionLink.tsx). */
+  fromKey?: string;
   id?: string;
   input?: string;
   output?: string;

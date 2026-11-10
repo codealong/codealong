@@ -332,4 +332,6 @@ The first line of your reply is what Codealong shows for this session: make it t
   are ready), overlaps and duplicates, sessions started from email or for a failed deploy, deploy
   events, notable merges, approvals and reviews, what hygiene ended, the daily Codealong
   suggestions, and Codealong improvements you noticed or started sessions for.
-- Name sessions by their title and say what each needs; give a key only where they'd need it.
+- Name sessions by their title, each as a link to it (`[title](codealong://session/<key>)`, which
+  Codealong draws as the session and shows on a click), and say what each needs; give a bare key
+  only where they'd need it.

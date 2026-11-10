@@ -9,8 +9,11 @@
 // opens its file on a click once the engine has said it's there (`PathCode`, filePaths.ts), and a
 // right-click on it, or on any file shown, offers your editor and the Finder too. A link to a GitHub PR is the PR's
 // (PrLink.tsx): a bare one reads `name#123`, hovering it shows the PR and its sessions, and a
-// click shows the PR in Codealong. A tool's output isn't Markdown, but the web links in it open
-// the same way (`linked`), a PR's keeping its words as written.
+// click shows the PR in Codealong. A link to a session or a todo (`codealong://session/<key>`,
+// codealongLinks.ts) is the session's or the todo's (SessionLink.tsx): a bare one reads as its
+// title, and a session's key or a todo's id written as code is one too, as written. A tool's
+// output isn't Markdown, but the web links in it open the same way (`linked`), a PR's keeping
+// its words as written.
 // The directives Codex's app draws (directives.ts) are drawn as it draws them, near enough: a
 // writing block as a card with Copy, a code comment as a card, a follow-up it offers as a button
 // that puts its prompt in the session's box, a file it cites as the file, which a click opens
@@ -19,6 +22,7 @@
 
 import { createContext, Fragment, isValidElement, memo, useContext, useState, type MouseEvent, type ReactNode } from 'react';
 import { editFile, openFile, openUrl, revealFile, yourEditor } from '../api';
+import { BARE_SOURCE, codealongLinkOf, codealongNameOf, type CodealongLink } from '../codealongLinks';
 import { showContextMenu } from '../contextMenu';
 import { pathIn, usePathKind, type PathAt } from '../filePaths';
 import { fileMenu } from '../menus';
@@ -33,14 +37,33 @@ import { errorText } from '../report';
 import { FileChip, ImagesFrom, KeptImage } from './DescriptionEditor';
 import { PrLink } from './PrLink';
 import { cx, Icon, Seg } from './primitives';
+import { SessionLink, TodoLink } from './SessionLink';
 
 const WEB = /^https?:\/\//i;
 /** A bare web link in text, without the punctuation that ends a sentence around it. */
 const BARE = /https?:\/\/[^\s<>()`]+[^\s<>()`.,;:!?'"*_]/g;
 
+/** A bare link in a reply's text: a web link, or one of Codealong's to a session or a todo. */
+const BARE_OR_OWN = new RegExp(`${BARE.source}|${BARE_SOURCE}`, 'g');
+
 /** A web link in a tool's output, which is as often JSON as prose: it ends at a quote or a
  *  backslash too. */
 const IN_OUTPUT = /https?:\/\/[^\s<>()`"'\\]+[^\s<>()`"'\\.,;:!?*_]/g;
+
+/** A link to a session or a todo, as SessionLink.tsx draws one. `words` left out, it reads as the
+ *  session's title or the todo's; `unknown` is what shows where the window knows no such session
+ *  or todo, and `plain` keeps the words as they are, with nothing ahead of them. */
+function OwnLink({ to, words, unknown, plain }: { to: CodealongLink; words?: ReactNode; unknown: ReactNode; plain?: boolean }) {
+  return to.kind === 'session' ? (
+    <SessionLink name={to.name} unknown={unknown} plain={plain}>
+      {words}
+    </SessionLink>
+  ) : (
+    <TodoLink id={to.id} unknown={unknown} plain={plain}>
+      {words}
+    </TodoLink>
+  );
+}
 
 /** A web link that opens in the browser, never in the app's own window, but for a PR's, which
  *  shows in Codealong (PrLink.tsx). A bare one (`children` left out) reads as its URL, or a PR's as
@@ -70,13 +93,15 @@ export function Link({ url, children, plain }: { url: string; children?: ReactNo
   );
 }
 
-/** Plain text with its bare web links made links. */
+/** Plain text with its bare links made links: web links, and in a reply's text Codealong's own to
+ *  a session or a todo. */
 function bare(text: string, key: number, output = false): ReactNode[] {
   const out: ReactNode[] = [];
   let last = 0;
-  for (const m of text.matchAll(output ? IN_OUTPUT : BARE)) {
+  for (const m of text.matchAll(output ? IN_OUTPUT : BARE_OR_OWN)) {
     if (m.index > last) out.push(text.slice(last, m.index));
-    out.push(<Link key={`${key}-${m.index}`} url={m[0]} plain={output} />);
+    const own = output ? null : codealongLinkOf(m[0]);
+    out.push(own ? <OwnLink key={`${key}-${m.index}`} to={own} unknown={m[0]} /> : <Link key={`${key}-${m.index}`} url={m[0]} plain={output} />);
     last = m.index + m[0].length;
   }
   if (last < text.length) out.push(text.slice(last));
@@ -295,21 +320,28 @@ export function inline(text: string, links = true): ReactNode[] {
     if (m.index > last) out.push(...(links ? bare(text.slice(last, m.index), n++) : [text.slice(last, m.index)]));
     if (m[1] != null) {
       const at = links ? pathIn(m[1]) : null;
-      out.push(at ? <PathCode key={n++} code={m[1]} at={at} /> : <code key={n++} className="ca-ic">{m[1]}</code>);
+      const named = links && !at ? codealongNameOf(m[1]) : null;
+      if (at) out.push(<PathCode key={n++} code={m[1]} at={at} />);
+      else if (named) out.push(<OwnLink key={n++} to={named} words={<code className="ca-ic ca-ic-path">{m[1]}</code>} unknown={<code className="ca-ic">{m[1]}</code>} plain />);
+      else out.push(<code key={n++} className="ca-ic">{m[1]}</code>);
     }
     else if (m[2] != null || m[3] != null) out.push(<strong key={n++}>{inline(m[2] ?? m[3], links)}</strong>);
-    else if (m[4] != null)
+    else if (m[4] != null) {
+      const own = links ? codealongLinkOf(m[5]) : null;
       out.push(
         links && WEB.test(m[5]) ? (
           <Link key={n++} url={m[5]}>
             {inline(m[4], false)}
           </Link>
+        ) : own ? (
+          <OwnLink key={n++} to={own} words={inline(m[4], false)} unknown={inline(m[4], links)} />
         ) : links && isKeptFile(m[5]) ? (
           <FileChip key={n++} name={m[4]} path={m[5]} />
         ) : (
           <Fragment key={n++}>{inline(m[4], links)}</Fragment>
         ),
       );
+    }
     else if (m[6] != null) out.push(links ? <Link key={n++} url={m[6]} /> : m[6]);
     else if (m[7] != null) out.push(<FollowUp key={n++} label={m[7]} prompt={attrsOf(m[8]).prompt ?? ''} />);
     else if (m[9] != null) out.push(<FileLink key={n++} path={attrsOf(m[9]).path ?? ''} opens={links} />);

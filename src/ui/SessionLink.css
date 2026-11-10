@@ -1,0 +1,41 @@
+/* A link to a session or a todo in a conversation (SessionLink.tsx): a session's status and
+   emblem ahead of its words, a todo's box ahead of its own, and the card a session's opens on
+   hover (its shell in HoverCard.css). */
+
+/* It reads as a link wherever it is: in a reply as any link there does (Markdown.css), and in a
+   message's heading, which names its sender (SessionThread.tsx `PeerLabel`). */
+.ca-sesslink,
+.ca-todolink {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--line-strong);
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.ca-sesslink:hover,
+.ca-todolink:hover {
+  text-decoration-color: currentColor;
+}
+.ca-sesslink-marks {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-right: 3px;
+  vertical-align: -2px;
+}
+.ca-todolink .ca-todoglyph {
+  margin-right: 3px;
+  vertical-align: -1px;
+}
+
+/* A key or an id written as code: the code as written, underlined as a path that opens is
+   (Markdown.css `.ca-ic-path`), so the link draws no line of its own under it. */
+.ca-sesslink.is-plain,
+.ca-todolink.is-plain {
+  text-decoration: none;
+}
+
+/* Where the session works, under its row. */
+.ca-sesshover-where {
+  margin-top: var(--space-1);
+}

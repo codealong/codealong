@@ -2249,7 +2249,8 @@ export function App() {
     ]).catch((e: unknown) => setToast(String(e)));
 
   // PR links in conversations and descriptions (PrLink.tsx): a click shows the PR as its chip
-  // does, and their cards show the PR and its sessions here.
+  // does, and their cards show the PR and its sessions here. A link to a session or a todo
+  // (SessionLink.tsx) shows it here the same way.
   usePrLinks(board?.prs, lanes, {
     report,
     showPr: (pr, tab) => reveal.current({ kind: 'pr', key: pr.key, tab: tab ?? undefined }),
@@ -2258,6 +2259,7 @@ export function App() {
       showPrOf(pr);
     },
     showSession: (lane, session) => reveal.current({ kind: 'session', laneId: lane.id, key: session.key }),
+    showTodo: (todo) => reveal.current({ kind: 'todo', id: todo.id }),
     openSession: (lane, session) => open(lane, session.openTarget),
     sessionMenu: (lane, s) => sessionMenu(lane, s, 'worktree'),
     prMenu: (url, pr) => {

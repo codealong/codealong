@@ -115,6 +115,12 @@ through the list for something to do. What follows is for when they've asked.
   a session, or to put one you found (`sessions find`, `pr show`) in front of them; `me` is
   yours. It opens the app when it's closed, and opens nothing where the session runs. Don't bring the
   window up unasked: it covers what the user is looking at.
+- When a reply to your user names another session or a todo, write it as a link, with its key
+  or id whole, as the command gave it: `[its title](codealong://session/<key>)`,
+  `[its title](codealong://todo/<id>)`. Codealong draws it as that session or todo, as it stands
+  now, and a click shows it; a link only shows what it names. Not your own session, and not in
+  what leaves Codealong (a commit, a PR, a message to another service), where it opens nothing.
+  Any command that takes a key or an id takes its link too.
 - `codealong preview set <url>` sets where the current worktree's app opens in the browser,
   when you know it: you started its dev server, or the repo's instructions say where each
   worktree is served (a dev proxy's `https://<name>.app.test`, say). The user's worktree row

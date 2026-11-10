@@ -82,6 +82,7 @@ import { useLatest } from '../latest';
 import { says, shownText } from '../threadFind';
 import { scaleOf } from '../zoom';
 import { FindContext, ThreadFind, type FindAsk } from './ThreadFind';
+import { SessionLink } from './SessionLink';
 import { Reading } from './Tip';
 import { Waiting, Working } from './Working';
 import { held, keysIn } from '../platform';
@@ -163,6 +164,22 @@ export interface Speaker {
 /** Who another session's message is from, as its heading says. */
 export function peerLabel(it: TranscriptItem): string {
   return it.from ? `From “${it.from}”` : 'From another session';
+}
+
+/** Another session's message's heading: who it's from, the sender a link to its session where
+ *  the message said which one sent it (SessionLink.tsx). One this window doesn't list is its
+ *  name, as before. */
+function PeerLabel({ item }: { item: TranscriptItem }) {
+  if (!item.fromKey) return <>{peerLabel(item)}</>;
+  const name = item.from ? `“${item.from}”` : 'another session';
+  return (
+    <>
+      From{' '}
+      <SessionLink name={item.fromKey} unknown={name}>
+        {name}
+      </SessionLink>
+    </>
+  );
 }
 
 /** Whether a message heads itself, after `last`: where the speaker changes, or after a pause. */
@@ -1229,7 +1246,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
                 const shown = told.size > 0 && it.kind === 'agent' ? { ...it, text: asCue(it.text) } : it;
                 const again = it.withdrawn && answeredBelow ? () => putBack(s.key, keyOf(it), it.text, true) : undefined;
                 // What Codealong or another session sent says so, apart from yours and the agent's.
-                const label = it.kind === 'you' ? 'You' : it.kind === 'codealong' ? 'Codealong' : it.kind === 'peer' ? peerLabel(it) : s.account;
+                const label = it.kind === 'you' ? 'You' : it.kind === 'codealong' ? 'Codealong' : it.kind === 'peer' ? <PeerLabel item={it} /> : s.account;
                 const edit = onEdit && editable.has(keyOf(it)) ? () => onEdit(it) : undefined;
                 return <Said key={keyOf(it)} item={shown} result={r.result} now={now} label={label} head={headings.headed.get(keyOf(it))} onPutBack={again} onMenu={onMenu} onEdit={edit} />;
               })}

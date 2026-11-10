@@ -244,7 +244,8 @@ fn peer_item(at: i64, peer: &Peer) -> Item {
         return item(at, "codealong", crate::attachments::shorten(text));
     }
     let from = (!peer.name.is_empty()).then(|| peer.name.clone());
-    Item { from, ..item(at, "peer", crate::attachments::shorten(crate::send::without_byline(&peer.body))) }
+    let from_key = crate::send::sender_key_of(&peer.body).map(String::from);
+    Item { from, from_key, ..item(at, "peer", crate::attachments::shorten(crate::send::without_byline(&peer.body))) }
 }
 
 /* ---- Prompts Claude Code took back ---- */

@@ -2033,6 +2033,10 @@ export function Quick() {
     report: menuReport,
     showPr: revealPr,
     showSession,
+    showTodo: (todo) => {
+      void hideQuick();
+      void showMain({ kind: 'todo', id: todo.id });
+    },
     openSession,
     sessionMenu: (lane, s) => void showContextMenu(sessionMenuSpec(lane, s)).catch((e: unknown) => setError(errorText(e))),
     prMenu: (url, pr) => {

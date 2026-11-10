@@ -4,6 +4,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { blocks, inline, linked, Markdown } from './Markdown';
 import { FileChip, KeptImage } from './DescriptionEditor';
 import { prLabel, prRefOf } from '../prLinks';
+import * as fx from '../testing/fixtures';
+import { usePrLinks } from './PrLink';
 
 /** The web links in a line, as [the words they show, url], found through their elements. A bare
  *  link shows its URL, or a PR's as GitHub shortens it unless it's `plain`. */
@@ -291,5 +293,52 @@ describe('Codex directives', () => {
     // In code it's code, and in a word or a URL it's the word's.
     expect(props(inline('`:codex-followup[a]{prompt="b"}`')).map((p) => p.children)).toEqual([':codex-followup[a]{prompt="b"}']);
     expect(props(inline('x:codex-file-citation{path="/a"}'))).toEqual([]);
+  });
+});
+
+describe('links to a session or a todo', () => {
+  const asking = fx.session({ key: 'claude:claude:0e0b493b-aaaa', title: 'Fix the parser', status: 'needs' });
+  const lane = fx.lane({ id: '/r/app', sessions: [asking] });
+  const todo = fx.todo({ id: 't-mw9gxqs56cwt', title: 'Ship the parser', status: 'in-progress' });
+  const actions = { showSession: () => {}, openSession: () => {}, sessionMenu: () => {}, prMenu: () => {} };
+  /** A window that lists the session and the todo, or one with nothing read yet. */
+  function Window({ text, read }: { text: string; read: boolean }) {
+    usePrLinks([], read ? [lane] : [], actions, read ? fx.board({ lanes: [lane], todos: [todo] }) : null);
+    return createElement(Markdown, { text });
+  }
+  /** The page's words and links, without the marks ahead of a link's words. */
+  const html = (text: string, read = true) =>
+    renderToStaticMarkup(createElement(Window, { text, read }))
+      .replace(/^(<link rel="preload"[^>]*>)+/, '')
+      .replace(/<span class="ca-sesslink-marks">.*?<\/span>/g, '<marks/>')
+      .replace(/<svg class="ca-todoglyph[^>]*>.*?<\/svg>/g, '<box/>');
+  const TODO_TITLE = 'title="Todo · In progress: Ship the parser\nClick to show it in Todo"';
+
+  it('draws one written as a link with its words, and a bare one as its title', () => {
+    expect(html('**[the parser session](codealong://session/claude:claude:0e0b493b-aaaa):** asks you.')).toBe(
+      '<div class="ca-md"><p><strong><a class="ca-md-a ca-sesslink" href="codealong://session/claude:claude:0e0b493b-aaaa"><marks/>the parser session</a>:</strong> asks you.</p></div>',
+    );
+    // By the start of its id, as the command takes one; the link is its whole key.
+    expect(html('See codealong://session/0e0b493b.')).toBe('<div class="ca-md"><p>See <a class="ca-md-a ca-sesslink" href="codealong://session/claude:claude:0e0b493b-aaaa"><marks/>Fix the parser</a>.</p></div>');
+    expect(html('[Its todo](codealong://todo/t-mw9gxqs56cwt) and codealong://todo/t-mw9gxqs56cwt')).toBe(
+      `<div class="ca-md"><p><a class="ca-md-a ca-todolink" href="codealong://todo/t-mw9gxqs56cwt" ${TODO_TITLE}><box/>Its todo</a> and <a class="ca-md-a ca-todolink" href="codealong://todo/t-mw9gxqs56cwt" ${TODO_TITLE}><box/>Ship the parser</a></p></div>`,
+    );
+  });
+
+  it('draws a key or an id written as code as a link, the code as written', () => {
+    expect(html('Sent to `claude:claude:0e0b493b-aaaa` for `t-mw9gxqs56cwt`, not `claude:claude:gone` or `main`.')).toBe(
+      `<div class="ca-md"><p>Sent to <a class="ca-sesslink is-plain" href="codealong://session/claude:claude:0e0b493b-aaaa"><code class="ca-ic ca-ic-path">claude:claude:0e0b493b-aaaa</code></a> for <a class="ca-todolink is-plain" href="codealong://todo/t-mw9gxqs56cwt" ${TODO_TITLE}><code class="ca-ic ca-ic-path">t-mw9gxqs56cwt</code></a>, not <code class="ca-ic">claude:claude:gone</code> or <code class="ca-ic">main</code>.</p></div>`,
+    );
+  });
+
+  it('leaves one that names nothing the window knows as its words', () => {
+    expect(html('[An old one](codealong://session/claude:claude:gone), codealong://todo/t-nosuchtodo1 and [a code](codealong://link/cal1abc).')).toBe('<div class="ca-md"><p>An old one, codealong://todo/t-nosuchtodo1 and a code.</p></div>');
+    // Before the window has read the board, every link is its words.
+    expect(html('[the parser session](codealong://session/claude:claude:0e0b493b-aaaa) and `claude:claude:0e0b493b-aaaa`', false)).toBe('<div class="ca-md"><p>the parser session and <code class="ca-ic">claude:claude:0e0b493b-aaaa</code></p></div>');
+  });
+
+  it('makes no link of one in a tool’s output or inside a link’s words', () => {
+    expect(links(linked('{"link":"codealong://session/claude:claude:0e0b493b-aaaa"}'))).toEqual([]);
+    expect(html('[see codealong://session/0e0b493b](https://x.dev)')).toBe('<div class="ca-md"><p><a class="ca-md-a" href="https://x.dev" title="https://x.dev">see codealong://session/0e0b493b</a></p></div>');
   });
 });

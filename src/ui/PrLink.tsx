@@ -24,12 +24,13 @@ import { useEffect, useLayoutEffect, useState, useSyncExternalStore, type ReactN
 import type { PrTab } from '../agentReview';
 import { openUrl, prCard, setPrNudge, setPrWatch } from '../api';
 import { absolute, agoPhrase, count } from '../format';
+import { sessionNames, type SessionNames } from '../codealongLinks';
 import { cmd } from '../platform';
 import { prIndex, prRefOf, prTabOf, type PrRef } from '../prLinks';
 import { nudgeWords, primaryHere, primaryWords, reviewersWords } from '../prStatus';
 import { errorText, type Report } from '../report';
 import { nudgeAboutFor } from '../repoSettings';
-import type { Board, Lane, Pr, PrItem, Session } from '../types';
+import type { Board, Lane, Pr, PrItem, Session, Todo } from '../types';
 import { HoverCard, useHoverCard, type HoverCardState } from './HoverCard';
 import { MergeBox } from './MergeBox';
 import { PanelSession } from './PanelSession';
@@ -45,8 +46,11 @@ export interface PrLinkActions {
   /** A click on a link to the PR: shows it as a click on its chip does, in place of the panel the
    *  link is in (App.tsx `showPrOf`). `showPr` where there's no such place. */
   followPr?: (pr: PrItem, tab: PrTab | null) => void;
-  /** A click on a session: shows it in this window, or the main one. */
+  /** A click on a session, on a PR's card or a link to it (SessionLink.tsx): shows it in this
+   *  window, or the main one. */
   showSession: (lane: Lane, session: Session) => void;
+  /** A click on a link to a todo: shows it. The main window's Todo view, without it. */
+  showTodo?: (todo: Todo) => void;
   /** Double-click: opens it where it runs. */
   openSession: (lane: Lane, session: Session) => void;
   sessionMenu: (lane: Lane, session: Session) => void;
@@ -68,6 +72,10 @@ const host = {
   prs: undefined as readonly PrItem[] | undefined,
   index: new Map<string, PrItem>(),
   lanes: [] as readonly Lane[],
+  /** The board's own worktrees and todos, as the engine sent them, for the links to a session or
+   *  a todo (SessionLink.tsx): an archived session is only there, not in what a window lists. */
+  boardLanes: [] as readonly Lane[],
+  todos: [] as readonly Todo[],
   /** What a PR's nudge tells of, which its card says: `[pull_requests] nudge_about`, and what its
    *  repo's team or your table for it says (repoSettings.ts `nudgeAboutFor`); and what becomes of
    *  its news while its primary session isn't running (nudges.rs `stopped_primaries`). */
@@ -118,19 +126,39 @@ function fetchCard(ref: PrRef) {
 type NudgeSettings = Partial<Pick<Board, 'nudgeAbout' | 'prStopped' | 'repos' | 'teamFiles' | 'sessions'>>;
 
 /** Gives this window's PR links the board's PRs and lanes, and what the window does with them,
- *  with what a PR's nudge tells of (`nudges`, from the board). Links rendering with it read the
- *  new board at once; links that skip rendering hear about it after, and re-render only when their
- *  own PR changed. */
-export function usePrLinks(prs: readonly PrItem[] | undefined, lanes: readonly Lane[] | undefined, actions: PrLinkActions, nudges: NudgeSettings | null | undefined) {
+ *  with what a PR's nudge tells of (`board`'s parts). Links rendering with it read the new board
+ *  at once; links that skip rendering hear about it after, and re-render only when their own PR
+ *  changed. The links to a session or a todo (SessionLink.tsx) read the same: the sessions the
+ *  window lists, the board's own and its todos (`linkHost`). */
+export function usePrLinks(prs: readonly PrItem[] | undefined, lanes: readonly Lane[] | undefined, actions: PrLinkActions, board: (NudgeSettings & Partial<Pick<Board, 'lanes' | 'todos'>>) | null | undefined) {
   host.actions = actions;
   if (host.prs !== prs) {
     host.prs = prs;
     host.index = prIndex(prs ?? []);
   }
   host.lanes = lanes ?? [];
-  host.nudges = { nudgeAbout: nudges?.nudgeAbout, prStopped: nudges?.prStopped, repos: nudges?.repos, teamFiles: nudges?.teamFiles, sessions: nudges?.sessions };
-  useLayoutEffect(notify, [prs, lanes, nudges?.nudgeAbout, nudges?.prStopped, nudges?.repos, nudges?.teamFiles, nudges?.sessions]);
+  host.boardLanes = board?.lanes ?? [];
+  host.todos = board?.todos ?? [];
+  host.nudges = { nudgeAbout: board?.nudgeAbout, prStopped: board?.prStopped, repos: board?.repos, teamFiles: board?.teamFiles, sessions: board?.sessions };
+  useLayoutEffect(notify, [prs, lanes, board?.lanes, board?.todos, board?.nudgeAbout, board?.prStopped, board?.repos, board?.teamFiles, board?.sessions]);
 }
+
+/** The window's sessions by what a link may name one by: where it lists each, then the board's
+ *  own for the ones it doesn't list. Made when a link first asks, once for the lanes it's from. */
+let named: { lanes: readonly Lane[]; boardLanes: readonly Lane[]; names: SessionNames } | null = null;
+function sessionsNow(): SessionNames {
+  if (named?.lanes !== host.lanes || named.boardLanes !== host.boardLanes) named = { lanes: host.lanes, boardLanes: host.boardLanes, names: sessionNames([...host.lanes, ...host.boardLanes]) };
+  return named.names;
+}
+
+/** What a link to a session or a todo (SessionLink.tsx) reads of this window, and hears a new
+ *  board by: its sessions, the board's todos, and what the window does with them. */
+export const linkHost = {
+  subscribe,
+  sessions: sessionsNow,
+  todos: () => host.todos,
+  actions: () => host.actions,
+};
 
 /** Opens a link in the browser, as this window opens one. */
 function browse(url: string) {

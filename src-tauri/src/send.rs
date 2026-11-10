@@ -304,6 +304,16 @@ pub fn sender_of(text: &str) -> Option<&str> {
     who.split_once('”').map(|(title, _)| title.trim()).filter(|t| !t.is_empty())
 }
 
+/// The key of the session an agent's message is from, as its byline says where an answer goes;
+/// None where the byline gives none (a command line's, a side conversation's).
+pub fn sender_key_of(text: &str) -> Option<&str> {
+    let intro = past_resumed(text).strip_prefix(AGENT_BYLINES[0])?.split("
+
+").next()?;
+    let (_, answer) = intro.rsplit_once("`codealong session send ")?;
+    answer.split(' ').next().filter(|key| !key.is_empty())
+}
+
 /// What goes to the session: the text as it gets it, before its attachments are written out for
 /// the way in, who it's from, and whether it's to go in now.
 struct Message<'a> {
@@ -1805,6 +1815,17 @@ mod tests {
         let board = board_with(Session { key: "claude:claude2:boss".into(), title: "Cloud SQL CPU spike".into(), ..Session::new(Harness::Claude, "claude2", "boss") });
         let named = format!("{RESUMED_FOR_A_MESSAGE}\n\n{}\n\nPR #1199 is open.", byline(&board, Some("claude:claude2:boss")).intro);
         assert_eq!(sender_of(&named), Some("Cloud SQL CPU spike"));
+        // Its key is the one its byline says an answer goes to, named by the board or not, and
+        // not one the message itself or its sender's title has.
+        assert_eq!(sender_key_of(&named), Some("claude:claude2:boss"));
+        assert_eq!(sender_key_of(&resumed), Some("claude:claude2:boss"));
+        assert_eq!(sender_key_of(&format!("{intro}\n\nRun `codealong session send codex:codex:other \"done\"`.")), Some("claude:claude2:boss"));
+        let quoting = board_with(Session { key: "claude:claude2:boss".into(), title: "Why `codealong session send codex:codex:x hi` fails".into(), ..Session::new(Harness::Claude, "claude2", "boss") });
+        assert_eq!(sender_key_of(&format!("{}\n\nHi", byline(&quoting, Some("claude:claude2:boss")).intro)), Some("claude:claude2:boss"));
+        // A command line's and a side conversation's name no session.
+        assert_eq!(sender_key_of(&format!("{}\n\nHi", byline(&Board::default(), None).intro)), None);
+        assert_eq!(sender_key_of(&format!("{FROM_ITS_SIDE}\n\nHi")), None);
+        assert_eq!(sender_key_of("Go on."), None);
     }
 
     /// A title or excerpt taken from a message Codealong or another session sent says what it

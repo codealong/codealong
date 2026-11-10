@@ -5639,8 +5639,23 @@ fn resolve_any_session(c: &mut Client, k: &str) -> Result<String> {
     session_named_anywhere(c.loaded_board()?, &elsewhere, k)
 }
 
-/// The key of the session `k` names on `board`: its key or id, or the start of only one's.
+/// What a link to a session or a todo names (`codealong://session/<key>`, `kind` its `session`
+/// or `todo`), as the skill has an agent write one and a window draws it
+/// (src/codealongLinks.ts), else the text as it is: a link read in a conversation names what the
+/// key in it does.
+fn named_by<'a>(text: &'a str, kind: &str) -> &'a str {
+    let t = text.trim();
+    let scheme = format!("codealong://{kind}/");
+    match t.get(..scheme.len()) {
+        Some(start) if start.eq_ignore_ascii_case(&scheme) => t[scheme.len()..].split(['?', '#']).next().unwrap_or_default().trim_end_matches('/'),
+        _ => text,
+    }
+}
+
+/// The key of the session `k` names on `board`: its key or id, or the start of only one's, as
+/// they are or in a link to it (`named_by`).
 fn session_named(board: &Board, k: &str) -> Result<String> {
+    let k = named_by(k, "session");
     let hits = named(all_sessions(board).into_iter().map(|(s, _)| s), k);
     match hits.len() {
         1 => Ok(hits[0].key.clone()),
@@ -5653,6 +5668,7 @@ fn session_named(board: &Board, k: &str) -> Result<String> {
 /// sessions (`elsewhere`) that it names: by its key there (`@<short>:…`), its id or their start.
 /// One here goes first, so a start that names several here never names one there instead.
 fn session_named_anywhere(board: &Board, elsewhere: &[Lane], k: &str) -> Result<String> {
+    let k = named_by(k, "session");
     if !named(all_sessions(board).into_iter().map(|(s, _)| s), k).is_empty() {
         return session_named(board, k);
     }
@@ -5799,6 +5815,7 @@ fn store_of(board: &Board) -> TodoStore {
 }
 
 fn resolve_todo(store: &TodoStore, id: &str) -> Result<String> {
+    let id = named_by(id, "todo");
     if id.trim().is_empty() {
         bail!("Give a todo id.");
     }
@@ -8850,6 +8867,14 @@ mod tests {
         // One listed there only under a worktree it visited is named all the same.
         assert_eq!(resolve_any_session(&mut c, "vvv2").unwrap(), "@a1b2c3d4e5:claude:claude:vvv222");
         assert_eq!(resolve_any_session(&mut c, "nope").unwrap_err().to_string(), "There's no session nope. `codealong sessions` lists them.");
+        // A link to one names it as the key in it does, here or there, by the start of an id too.
+        assert_eq!(resolve_any_session(&mut c, "codealong://session/claude:claude:abc123").unwrap(), "claude:claude:abc123");
+        assert_eq!(resolve_session(&mut c, " Codealong://Session/abc1/ ").unwrap(), "claude:claude:abc123");
+        assert_eq!(resolve_any_session(&mut c, "codealong://session/@a1b2c3d4e5:codex:codex:fff111?x=1").unwrap(), "@a1b2c3d4e5:codex:codex:fff111");
+        assert_eq!(resolve_any_session(&mut c, "codealong://session/nope").unwrap_err().to_string(), "There's no session nope. `codealong sessions` lists them.");
+        // A todo's link names no session, nor a device's link code.
+        assert!(resolve_any_session(&mut c, "codealong://todo/abc123").is_err() && resolve_any_session(&mut c, "codealong://link/abc123").is_err());
+        assert_eq!((named_by("codealong://todo/t-1#top", "todo"), named_by("t-1", "todo"), named_by("codealong://session/t-1", "todo")), ("t-1", "t-1", "codealong://session/t-1"));
         // The commands that work on this Mac alone don't look there.
         assert!(resolve_session(&mut c, "fff1").is_err());
         let found = c.session_anywhere("@a1b2c3d4e5:codex:codex:fff111").unwrap().map(|(s, l)| (s.key, l.id));
