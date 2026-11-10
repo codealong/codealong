@@ -899,7 +899,7 @@ fn look(engine: &Handle) {
         }
         written(l);
         let hearer = hearer(&board, &l.session);
-        if hearer.is_none() && awaited(&state(), &l.id, now) {
+        if waits_for_board(on, hearer.is_some(), awaited(&state(), &l.id, now)) {
             continue;
         }
         match step(l, hearer, now, every_ms, on) {
@@ -954,12 +954,14 @@ fn look(engine: &Handle) {
             }
         }
     }
-    state().notes.retain(|id, _| all.iter().any(|l| &l.id == id && !l.done));
+    let mut state = state();
+    state.notes.retain(|id, _| all.iter().any(|l| &l.id == id && !l.done));
     // What this look read is done with here, so a listening's mark can go once nothing would
-    // take it for hearing: by the file as it is now, not as this look read it, which may be
-    // from before the listening began.
+    // take it for hearing: by the file as it is now, read with the lock held. A mark is set
+    // under this lock for a listening the file already has (`take_running`), so every mark there
+    // is to drop here is of a listening this read knows of, and one set after isn't looked at.
     let now_hearing: HashSet<String> = list().into_iter().filter(Listening::hearing).map(|l| l.id).collect();
-    forget_ended(&mut state(), &now_hearing);
+    forget_ended(&mut state, &now_hearing);
 }
 
 /// Drops the marks of listenings the file no longer has as hearing: it says they ended, or has
@@ -1001,6 +1003,13 @@ fn written(l: &Listening) {
 
 /// How long the board is given to list a session that was just resumed as a copy.
 const MOVED_WAIT_MS: i64 = 2 * 60 * 1000;
+
+/// Whether a look leaves a listening as it is for now, because its session isn't on the board
+/// yet rather than gone from it (`awaited`). Never with voice turned off: what's hearing ends
+/// then, whatever it waits for.
+fn waits_for_board(on: bool, on_board: bool, awaited: bool) -> bool {
+    on && !on_board && awaited
+}
 
 /// Whether a listening whose session the board doesn't list is waiting for it to: it went on
 /// under another key a moment ago, which the board hasn't caught up with yet.
@@ -1251,6 +1260,13 @@ mod tests {
         // One that never moved is gone when the board says so.
         state.running.insert(l.id.clone(), Running::default());
         assert!(!awaited(&state, &l.id, NOW));
+        // Waited for only while voice is on and the board doesn't list it: turned off, what's
+        // hearing ends at the next look, whatever it waits for.
+        assert!(waits_for_board(true, false, true));
+        assert!(!waits_for_board(false, false, true));
+        assert!(!waits_for_board(true, true, true));
+        assert!(!waits_for_board(true, false, false));
+        assert_eq!(step(&l, None, NOW, EVERY, false), Step::End("voice was turned off".into()));
     }
 
     #[test]

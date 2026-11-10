@@ -217,39 +217,43 @@ fn begin(app: &AppHandle, id: u64, to: To) {
             return;
         }
     };
-    let released = {
+    {
         let mut live = live();
         match live.as_mut().filter(|l| l.id == id) {
             Some(l) => {
                 l.ear = Some(ear);
-                l.released
+                if l.released {
+                    over(app, &mut live);
+                    return;
+                }
             }
             // Gone meanwhile: the helper goes with the ear.
             None => return,
         }
-    };
-    if released {
-        finish_in_turn(app, take(id));
-        return;
     }
     // A key that never comes up is let go of for it. This thread goes as soon as the key does.
     let until = Instant::now() + LONGEST;
-    while live().as_ref().is_some_and(|l| l.id == id) {
-        if Instant::now() >= until {
-            finish_in_turn(app, take(id));
-            return;
+    loop {
+        {
+            let mut live = live();
+            if !live.as_ref().is_some_and(|l| l.id == id) {
+                return;
+            }
+            if Instant::now() >= until {
+                over(app, &mut live);
+                return;
+            }
         }
         std::thread::sleep(Duration::from_millis(250));
     }
 }
 
-/// Takes press `id` out of `LIVE`, if it's still the one there: it's over, and the next can begin.
-fn take(id: u64) -> Option<Live> {
-    let mut live = live();
-    if live.as_ref().is_some_and(|l| l.id == id) {
-        live.take()
-    } else {
-        None
+/// The press in `LIVE` is over: out of it, so the next can begin, and into the line of presses
+/// to finish (`finish_in_turn`), both under `LIVE`'s lock. A next press can only begin, and so
+/// come up, once this lock is let go, by when this one has its place in the line ahead of it.
+fn over(app: &AppHandle, live: &mut MutexGuard<'static, Option<Live>>) {
+    if let Some(over) = live.take() {
+        finish_in_turn(app, over);
     }
 }
 
@@ -262,18 +266,15 @@ fn hints(cfg: &crate::config::Config) -> Vec<String> {
 
 /// The key came up. On the main thread.
 pub fn release(app: &AppHandle) {
-    let over = {
-        let mut live = live();
-        let Some(l) = live.as_mut() else { return };
-        l.shift = crate::os::windows::shift_down();
-        if l.ear.is_none() {
-            // Still starting: `begin` finishes it once it's capturing.
-            l.released = true;
-            return;
-        }
-        live.take()
-    };
-    finish_in_turn(app, over);
+    let mut live = live();
+    let Some(l) = live.as_mut() else { return };
+    l.shift = crate::os::windows::shift_down();
+    if l.ear.is_none() {
+        // Still starting: `begin` finishes it once it's capturing.
+        l.released = true;
+        return;
+    }
+    over(app, &mut live);
 }
 
 /// A press that's over, and what says its helper has stopped, its last words in.
@@ -288,14 +289,17 @@ type Over = (AppHandle, Live, std::sync::mpsc::Receiver<()>);
 ///   does that, which waits for each one's helper in the order their keys came up. So two said
 ///   one after the other arrive in the order they were said.
 ///
-/// A press is out of `LIVE` by now, so the next can begin at once.
-fn finish_in_turn(app: &AppHandle, over: Option<Live>) {
+/// Called with `LIVE`'s lock held (`over`), which is what gives the presses their order here.
+/// Nothing in it waits: it starts a thread and hands the press on.
+fn finish_in_turn(app: &AppHandle, mut over: Live) {
     static TURNS: std::sync::OnceLock<Mutex<std::sync::mpsc::Sender<Over>>> = std::sync::OnceLock::new();
-    let Some(mut over) = over else { return };
-    show(app, &Talk { id: over.id, phase: "settling", to: word(over.to), text: lock(&over.heard).text(), ..Talk::default() });
     let (stopped, when_stopped) = std::sync::mpsc::channel();
     let ear = over.ear.take();
+    // Said from the thread that stops it, not from here: nothing that might wait on the main
+    // thread is done under the lock the main thread takes as a key goes down.
+    let settling = (app.clone(), Talk { id: over.id, phase: "settling", to: word(over.to), text: lock(&over.heard).text(), ..Talk::default() });
     std::thread::spawn(move || {
+        show(&settling.0, &settling.1);
         if let Some(ear) = ear {
             ear.stop();
         }
@@ -317,11 +321,14 @@ fn finish_in_turn(app: &AppHandle, over: Option<Live>) {
         }
         Mutex::new(tx)
     });
-    // Only a thread that didn't start leaves nobody to take it; then it's done here.
+    // Only a thread that didn't start leaves nobody to take it; then it's done on one of its
+    // own, since whoever called holds a lock.
     if let Err(unsent) = lock(turns).send((app.clone(), over, when_stopped)) {
         let (app, over, when_stopped) = unsent.0;
-        let _ = when_stopped.recv();
-        deliver(&app, over);
+        std::thread::spawn(move || {
+            let _ = when_stopped.recv();
+            deliver(&app, over);
+        });
     }
 }
 
