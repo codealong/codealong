@@ -151,7 +151,7 @@ pub enum Event {
     /// A source went wrong and nothing more comes from it; the others carry on.
     Lost { source: String, message: String },
     /// Whether macOS lets a source of the Mac's own audio be heard, as `Status::system_audio` has
-    /// it: said as the source starts and when it changes, until the source has given a sound.
+    /// it: said as the source starts, and as it changes for as long as it isn't allowed.
     Permission { source: String, state: String },
     /// A source that ends by itself (a file) has, its last words settled.
     Ended { source: String },

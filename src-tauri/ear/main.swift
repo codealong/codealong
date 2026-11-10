@@ -600,16 +600,6 @@ enum SystemAudio {
     }
 }
 
-/// Whether a buffer list holds anything but silence: any byte of it that isn't zero.
-func sounds(_ list: UnsafePointer<AudioBufferList>) -> Bool {
-    for buffer in UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: list)) {
-        guard let data = buffer.mData else { continue }
-        let bytes = UnsafeRawBufferPointer(start: data, count: Int(buffer.mDataByteSize))
-        if bytes.contains(where: { $0 != 0 }) { return true }
-    }
-    return false
-}
-
 /// What the Mac plays, or what some apps play, through a Core Audio tap: a private device that
 /// carries the tap's audio and nothing else, read on a queue of ours. The person is asked whether
 /// Codealong may record the Mac's audio as it starts; until they've said yes the tap gives
@@ -646,10 +636,7 @@ final class Tap: Capture {
 
     func start() throws {
         SystemAudio.ask()
-        try queue.sync {
-            try self.build()
-            self.allowedNow()
-        }
+        try queue.sync { try self.build() }
         // An app's helpers come and go (a call started in another tab, a meeting's window opened
         // after the app), and a tap takes the processes it was made with. So the list is read
         // again every so often, and the tap rebuilt when it changed. The output device changing
@@ -669,16 +656,14 @@ final class Tap: Capture {
     private var builtOn: String?
     /// When the tap last handed anything over, silence included. Read and set on `queue`.
     private var lastRead = Date()
-    /// Whether it has handed over anything but silence yet, what macOS said of hearing the Mac's
-    /// audio when the tap was made, and what the engine was last told of it. A tap made before
-    /// the person allowed it gives silence, and whether it goes on to after they have isn't
-    /// known: it's made again once they do (`look`). None of it matters after the first sound.
-    private var heard = false
+    /// What macOS said of hearing the Mac's audio when the tap was made, and what the engine was
+    /// last told of it. A tap made before the person allowed it gives silence, and whether it
+    /// goes on to after they have isn't known: it's made again once they do (`look`). Whether a
+    /// sound has come is the engine's to judge, from how loud it's told the source is.
     private var allowedWhenBuilt = ""
     private var told = ""
 
     /// Whether macOS lets the Mac's audio be heard now, telling the engine when that's changed.
-    @discardableResult
     private func allowedNow() -> String {
         let allowed = SystemAudio.state
         if allowed != told {
@@ -696,10 +681,10 @@ final class Tap: Capture {
         // A tap that hands over nothing at all while something plays has lost its device without
         // the default changing (the Mac slept): the same rebuild.
         let stalled = device != kAudioObjectUnknown && Date().timeIntervalSince(lastRead) > 10 && audioProcesses().contains { $0.playing }
-        // Until the first sound the engine is kept told whether macOS lets it be heard. Allowed
-        // since the tap was made, which has given only silence: made again, to hear.
-        let may = heard ? "" : allowedNow()
-        let allowed = may == "allowed" && allowedWhenBuilt != "allowed" && device != kAudioObjectUnknown
+        // For as long as the tap was made without macOS letting it hear, the engine is kept told
+        // where that stands; allowed since, the tap is made again, to hear. One made allowed is
+        // asked about no more.
+        let allowed = allowedWhenBuilt != "allowed" && allowedNow() == "allowed" && device != kAudioObjectUnknown
         if processes == tapped && outputDevice == builtOn && (device != kAudioObjectUnknown || idle) && !stalled && !allowed { return }
         tearDown()
         do {
@@ -715,7 +700,7 @@ final class Tap: Capture {
         let processes = bundles.isEmpty ? [] : wanted()
         tapped = processes
         builtOn = outputDevice
-        allowedWhenBuilt = SystemAudio.state
+        allowedWhenBuilt = allowedNow()
         // None of the apps asked for plays or records yet: nothing to tap until one does (`look`).
         if !bundles.isEmpty && processes.isEmpty { return }
         let description = bundles.isEmpty
@@ -760,7 +745,6 @@ final class Tap: Capture {
         status = AudioDeviceCreateIOProcIDWithBlock(&proc, device, queue) { [weak self, sink] _, input, _, _, _ in
             self?.lastRead = Date()
             guard let buffer = AVAudioPCMBuffer(pcmFormat: format, bufferListNoCopy: input, deallocator: nil) else { return }
-            if self?.heard == false, sounds(input) { self?.heard = true }
             sink(buffer)
         }
         if status == noErr { status = AudioDeviceStart(device, proc) }

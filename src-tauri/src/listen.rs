@@ -484,6 +484,23 @@ struct Running {
 }
 
 impl Running {
+    /// Takes its helper's word on whether macOS lets the Mac's own audio be heard (`mic`: whether
+    /// it hears a microphone too, for the words).
+    fn permitted(&mut self, state: String, mic: bool, now: i64) {
+        // A helper that isn't allowed hears nothing of it from here on, whatever one before it
+        // heard: the silence starts over, to be said (`silent_long`).
+        if matches!(state.as_str(), "denied" | "unasked") && self.silent_since.is_none() {
+            self.silent_since = Some(now);
+        }
+        // What's said of the silence goes by it, so what's showing is said again, or taken back
+        // where it's allowed now and hasn't been silent for long: said too soon to mean anything.
+        let showing = self.problem.as_deref().is_some_and(|p| p.contains(SILENT));
+        self.may_hear = state;
+        if showing {
+            self.problem = silent_long(self, now).then(|| silent(mic, &self.may_hear));
+        }
+    }
+
     fn of(l: &Listening, now: i64) -> Running {
         Running { session: l.session.clone(), silent_since: l.sources.iter().any(|s| matches!(s.from, ear::From::System | ear::From::Apps { .. })).then_some(now), ..Running::default() }
     }
@@ -683,14 +700,8 @@ fn heard(id: &str, event: Event) {
         Event::Waiting { message } => say(id, |r| r.waiting = Some(message)),
         Event::Lost { source, message } => say(id, |r| r.problem = Some(format!("{source} can't be heard: {message}"))),
         Event::Permission { state, .. } => {
-            // What's said of the silence goes by it, so what's showing is said again.
             let mic = list().iter().find(|l| l.id == id).is_some_and(with_mic);
-            say(id, |r| {
-                if r.problem.as_deref().is_some_and(|p| p.contains(SILENT)) {
-                    r.problem = Some(silent(mic, &state));
-                }
-                r.may_hear = state;
-            });
+            say(id, |r| r.permitted(state, mic, util::now_ms()));
         }
         // Ended on a thread of its own: ending asks the helper to stop, and this is the thread
         // that reads its answer.
@@ -1300,6 +1311,33 @@ mod tests {
         for may_hear in ["", "unknown", "allowed", "denied", "unasked"] {
             assert!(silent(true, may_hear).contains(SILENT) && silent(false, may_hear).contains(SILENT), "{may_hear}");
         }
+        // What's showing is said again as the helper's word changes, and taken back by a sound
+        // as before. A helper started again that says it isn't allowed is believed, whatever the
+        // one before it heard: said at once, though the silence had ended.
+        let mut state = State::default();
+        state.running.insert(both.id.clone(), Running { silent_since: Some(NOW - SILENT_MS), ..Running::default() });
+        assert_eq!(plan(&mut state, &both, NOW), Do::Silent);
+        let running = state.running.get_mut(&both.id).unwrap();
+        running.permitted("denied".into(), true, NOW);
+        assert_eq!(running.problem.as_deref(), Some(silent(true, "denied").as_str()));
+        running.permitted("allowed".into(), true, NOW);
+        assert_eq!((running.problem.as_deref(), running.silent_since), (Some(silent(true, "allowed").as_str()), Some(NOW - SILENT_MS)));
+        (running.problem, running.silent_since) = (None, None);
+        running.permitted("allowed".into(), true, NOW + 5000);
+        assert_eq!(plan(&mut state, &both, NOW + 5000 + SILENT_MS), Do::Nothing, "allowed, after a sound: nothing to say");
+        state.running.get_mut(&both.id).unwrap().permitted("denied".into(), true, NOW + 9000);
+        assert_eq!(plan(&mut state, &both, NOW + 9500), Do::Silent);
+        assert_eq!(state.running[&both.id].problem.as_deref(), Some(silent(true, "denied").as_str()));
+        // Asked and answered yes within the wait: what was said at once is taken back, and a
+        // silence that goes on is said once it has, as one that's allowed.
+        let mut state = State::default();
+        state.running.insert(both.id.clone(), Running { silent_since: Some(NOW), may_hear: "unasked".into(), ..Running::default() });
+        assert_eq!(plan(&mut state, &both, NOW + 500), Do::Silent);
+        state.running.get_mut(&both.id).unwrap().permitted("allowed".into(), true, NOW + 3000);
+        assert_eq!(state.running[&both.id].problem, None);
+        assert_eq!(plan(&mut state, &both, NOW + 3500), Do::Nothing);
+        assert_eq!(plan(&mut state, &both, NOW + SILENT_MS), Do::Silent);
+        assert_eq!(state.running[&both.id].problem.as_deref(), Some(silent(true, "allowed").as_str()));
         // Not allowed is said at once: no wait will mend it. Allowed, or not known, waits to see.
         for (may_hear, at_once) in [("denied", true), ("unasked", true), ("allowed", false), ("unknown", false), ("", false)] {
             let mut state = State::default();

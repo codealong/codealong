@@ -73,8 +73,8 @@ What macOS's speech recognition and audio capture take and give, as codealong-ea
   Run (macOS 26.6.2): from a shell under Rex the preflight said 2 for audio capture and for the
   microphone, where `AVCaptureDevice` said not determined, and 0 for screen capture, which Rex
   has; the request for screen capture called its block back with true and showed nothing. The
-  helper asks when it's 2, tells the engine what it is until the first sound (`permission`), and
-  makes the tap again once it turns to allowed; `listen.rs` `silent` words what a listening says
+  helper asks when it's 2, tells the engine what it is as a tap starts and for as long as it
+  isn't allowed (`permission`), and makes the tap again once it turns to allowed; `listen.rs` `silent` words what a listening says
   of it, and `codealong listen status` says it (`systemAudio`).
 - First real meeting (2026-11-10, a video call, the microphone and the Mac's audio): every line was
   You for a quarter of an hour while the call's app played, and the tap's IO proc was being called all the
