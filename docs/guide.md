@@ -595,7 +595,9 @@ worktree; a click shows the session here, with the way back, ⌘-click opens it 
 right-click has its menu. A click on a todo's shows the todo. A session's key or a todo's id
 written as code is a link the same way, and so is the sender named over a message another session
 sent. A link only shows what it names, and one that names nothing Codealong lists is its words.
-Links work inside Codealong's windows; nothing outside it opens one yet.
+On macOS a click on one outside Codealong opens it here too: in a terminal that opens links
+(Claude Code's replies carry them under their words), a note or a chat, the main window comes
+forward on the session or todo it names, and says so when there's none. Not yet on Linux.
 What Codex's app draws in a reply is drawn here too, near enough. A writing block, a finished piece
 of writing such as an email, a message to paste elsewhere or a document, is a card named for its
 kind, with Copy, which copies the writing without the lines around it. An email shows its recipients

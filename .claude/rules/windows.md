@@ -186,6 +186,19 @@ under `src-tauri/src/`.
 - The background computer-use tools click through raw input: the app comes forward for a moment
   and the one before is put back, which takes the keyboard from the quick panel and hides it.
   `screencapture -l <window id>` captures a window of Codealong's alone, even ordered out.
+- The links macOS opens with an app (LaunchServices, checked with two stub apps claiming a
+  made-up scheme in `CFBundleURLTypes`, macOS 26.6, 2026-11-10). Left to itself it opens a
+  scheme's links with the app it registered last. `NSWorkspace`'s
+  `setDefaultApplication(at:toOpenURLsWithScheme:)` makes one app the scheme's from then on: it
+  answered at once and asked nobody, for a scheme that's an app's own, from a program that
+  wasn't either app. The choice is kept by bundle ID (`LSHandlers` in
+  `com.apple.LaunchServices/com.apple.launchservices.secure`): it held when the other app
+  registered again, went to the other while the chosen app was unregistered, and came back with
+  it. A click that launches the app is delivered (`application:openURLs:`) before
+  `applicationDidFinishLaunching`. An app under a temporary folder (`/private/tmp`) is
+  registered `launch-disabled in-temp-dir` and opens no links, whatever it claims;
+  `lsregister -dump` shows each app's flags and claimed schemes.
+  `os/apps/macos.rs` (`opened_links`, `claim_links`), `front.rs` (`open_links`).
 
 ## Unchecked
 

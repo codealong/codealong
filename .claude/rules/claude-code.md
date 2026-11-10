@@ -778,8 +778,11 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   `[Fix the parser](codealong://session/<key>)` showed as `Fix the parser`, as
   `[the guide](https://example.com/guide)` showed as `the guide` (2.1.322 in tmux, 2026-11-10; the
   record keeps the Markdown as written). So a link to a session or a todo, as the skill has
-  agents write one (`src/codealongLinks.ts`), costs nothing to read there. Not read: whether the
-  words carry a terminal hyperlink (OSC 8), and what Codex's and the other terminals draw.
+  agents write one (`src/codealongLinks.ts`), costs nothing to read there. The words carry a
+  terminal hyperlink to the link's target, whatever its scheme (`ESC ] 8 ; id=<id> ; codealong://session/<key> ESC \`,
+  read with `tmux capture-pane -e`), so a terminal that opens hyperlinks hands a click on them
+  to macOS, which opens Codealong's with Codealong (`front.rs` `open_links`). Not read: what
+  Codex's and the other harnesses' terminals draw, and a click in a real terminal.
 
 ## Claude app
 

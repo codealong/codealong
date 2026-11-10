@@ -386,6 +386,13 @@ fn show_main(app: tauri::AppHandle, reveal: Option<serde_json::Value>) -> Result
     front::show_main(&app, reveal).map_err(words)
 }
 
+/// The link macOS asked Codealong to open (front.rs `open_links`), for the main window's page to
+/// show what it names: given once, then none until another is clicked.
+#[tauri::command]
+fn take_opened_link() -> Option<String> {
+    front::take_opened_link()
+}
+
 /// Opens a session from the floating bar, then asks macOS to bring its app forward: a click in the
 /// bar doesn't make Codealong the active app.
 #[tauri::command]
@@ -1431,7 +1438,7 @@ fn watch_main_thread(app: tauri::AppHandle) {
 /// it's one of its calls (`forward`).
 macro_rules! app_commands {
     ($($then:tt)*) => {
-        $($then)*![get_board, open_target, open_config, editor_icons, open_from_bar, peek_open, pr_at, session_at, perf_mark, page_unfocused, window_keys, pointer_probe, popup_menu, fit_bar, show_main, peek_ready, peek_fit, peek_focus, peek_hide, peek_resize, peek_drag, keep_session, kept_session, kept_ready, kept_focus, kept_resize, kept_close, session_window, session_put_back, session_windows, side_window, side_windows, terminal_window, terminal_put_back, terminal_windows, kept_terminal, bar_feed, desktop_pins, pin_to_desktop, drag_to_desktop, unpin_from_desktop, desktop_feed, fit_desktop, desktop_hover, lineage_feed, show_quick, hide_quick, quick_ready, show_waiting, waiting_asked, start_from_quick, quick_shortcut, pause_quick_shortcut, bar_on, set_bar_on, bar_mode, notch_shape, notch_drag, set_bar_mode, set_notch_open, notch_keys, keep_notch_session, review_in_codex, open_url, open_harness_link, open_pr_file, run_command, play_sound, update_status, check_for_updates, restart_to_update, open_at_login, set_open_at_login, terminal_awake, set_terminal_awake, open_team_file, link_code_qr, start_session, move_session, resume_session, fork_session, sign_in, board_answer, schedule_times, save_attachment, import_attachment, expand_attachments, open_attachment, open_file, reveal_file, edit_file, your_editor, path_kinds, open_project_window]
+        $($then)*![get_board, open_target, open_config, editor_icons, open_from_bar, peek_open, pr_at, session_at, perf_mark, page_unfocused, window_keys, pointer_probe, popup_menu, fit_bar, show_main, take_opened_link, peek_ready, peek_fit, peek_focus, peek_hide, peek_resize, peek_drag, keep_session, kept_session, kept_ready, kept_focus, kept_resize, kept_close, session_window, session_put_back, session_windows, side_window, side_windows, terminal_window, terminal_put_back, terminal_windows, kept_terminal, bar_feed, desktop_pins, pin_to_desktop, drag_to_desktop, unpin_from_desktop, desktop_feed, fit_desktop, desktop_hover, lineage_feed, show_quick, hide_quick, quick_ready, show_waiting, waiting_asked, start_from_quick, quick_shortcut, pause_quick_shortcut, bar_on, set_bar_on, bar_mode, notch_shape, notch_drag, set_bar_mode, set_notch_open, notch_keys, keep_notch_session, review_in_codex, open_url, open_harness_link, open_pr_file, run_command, play_sound, update_status, check_for_updates, restart_to_update, open_at_login, set_open_at_login, terminal_awake, set_terminal_awake, open_team_file, link_code_qr, start_session, move_session, resume_session, fork_session, sign_in, board_answer, schedule_times, save_attachment, import_attachment, expand_attachments, open_attachment, open_file, reveal_file, edit_file, your_editor, path_kinds, open_project_window]
     };
 }
 
@@ -1490,6 +1497,16 @@ pub fn run() {
             zoom::follow(app.handle(), config::zoom());
             // And where it was left, which brings it up.
             frames::setup(app.handle());
+            // Codealong and Codealong Dev both say they open Codealong's links (Info.plist), and
+            // left to itself macOS picks the one it registered last: this build of the repo says
+            // each time it launches that it's the one, so a link clicked where both are installed
+            // never opens the other, which would take over from the one running (view.rs
+            // `take_over`). Codealong never says so: alone, it's the only one there is.
+            if is_dev_build(app.handle()) {
+                if let Some(bundle) = serve::this_binary().filter(|exe| install::in_a_bundle(exe)).and_then(|exe| exe.ancestors().nth(3).map(std::path::Path::to_path_buf)) {
+                    os::apps::claim_links(&bundle, front::LINK_SCHEME);
+                }
+            }
             let shown = std::sync::Mutex::new(theme);
             let shown_logo = std::sync::Mutex::new(model::LogoStatus::Idle);
             let floating = Floating::default();
@@ -1709,6 +1726,11 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while running Codealong")
         .run(|app, event| {
+            // A click, in another app, on a link to a session or a todo (front.rs `open_links`).
+            let links = os::apps::opened_links(&event);
+            if !links.is_empty() {
+                front::open_links(app, &links);
+            }
             // The Dock icon brings the main window back after it was closed.
             match event {
                 ref reopen if os::windows::reopened(reopen) => {

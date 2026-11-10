@@ -15,7 +15,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { below, showContextMenu, type MenuAction, type MenuSpec } from './contextMenu';
 import { useEditorIcons } from './editors';
 import { homeOf, narrowed, runsShownKey, sidesShownKey, type BoardRow, type Filter } from './lanes';
-import { answerLink, barMode, harnessSchedules, onBarMode, onCloseIdle, onCloseStale, onUsageMenu, onWebsiteMenu, onNewWindow, onReveal, onSettings, onSetupMenu, onCheckUpdates, openConfig, openHarnessLink, openProjectWindow, openUrl, orderAccounts, refresh, refreshUsage, scheduleOp, setBarMode, startOptions, setPinned, setPinnedPrs, setPinnedRepos, setPinnedWorktrees, setTheme, setupNeeded, showQuick, startFromQuick, signIn, stopTraining, terminalWindow, windowLabel, zoomWindows, onZoomMenu, onReloadMenu, WEBSITE, type BarMode, type Reveal } from './api';
+import { answerLink, barMode, harnessSchedules, onBarMode, onCloseIdle, onCloseStale, onUsageMenu, onWebsiteMenu, onNewWindow, onReveal, takeOpenedLink, onSettings, onSetupMenu, onCheckUpdates, openConfig, openHarnessLink, openProjectWindow, openUrl, orderAccounts, refresh, refreshUsage, scheduleOp, setBarMode, startOptions, setPinned, setPinnedPrs, setPinnedRepos, setPinnedWorktrees, setTheme, setupNeeded, showQuick, startFromQuick, signIn, stopTraining, terminalWindow, windowLabel, zoomWindows, onZoomMenu, onReloadMenu, WEBSITE, type BarMode, type Reveal } from './api';
 import { count, middleTruncate } from './format';
 import * as menus from './menus';
 import { prRefOf } from './prLinks';
@@ -45,7 +45,8 @@ import { Button, cx, Icon, Kbd, Seg } from './ui/primitives';
 import { ALL_PROJECTS, ProjectSwitcher } from './ui/ProjectSwitcher';
 import { ProjectShown } from './ui/ProjectSaid';
 import { useLogo } from './logo';
-import { usePrLinks } from './ui/PrLink';
+import { codealongLinkOf, sessionNamed, todoNamed } from './codealongLinks';
+import { linkHost, usePrLinks } from './ui/PrLink';
 import { reviewedWords } from './prDraft';
 import { mayApprove } from './prStatus';
 import { PR_GROUPS, PR_ROWS, PR_SORTS, prPlace, PrsView, type PrRowItem, type PrSort } from './ui/PrsView';
@@ -1098,7 +1099,21 @@ export function App() {
   });
   useEffect(() => placeTerminal.current(), [board, placeTerminal]);
 
+  // A link to a session or a todo clicked in another app, which macOS opens with Codealong
+  // (front.rs `open_links`): taken when the app says there's one, and as this window comes up,
+  // since a click that launched the app came before there was a page to tell.
+  const [openedLink, setOpenedLink] = useState<string | null>(null);
+  const takeLink = useCallback(() => {
+    // One that can't be asked for is as if none was clicked: there's nothing to say it about.
+    void takeOpenedLink().then((url) => url && setOpenedLink(url), () => {});
+  }, []);
+  useEffect(takeLink, [takeLink]);
+
   const reveal = useLatest((r: Reveal) => {
+    if (r.kind === 'link') {
+      takeLink();
+      return;
+    }
     // Sessions, with the new session in its panel and the cursor in its box.
     if (r.kind === 'new') {
       setView('sessions');
@@ -1856,6 +1871,24 @@ export function App() {
   };
 
   useEffect(() => onReveal((r) => reveal.current(r)), [reveal]);
+
+  // The link macOS opened, shown once the board has been read, as a click on one in a conversation
+  // shows it (SessionLink.tsx): its session among those this window's links name (`linkHost`),
+  // here or on your other devices, or its todo. It only ever shows something.
+  useEffect(() => {
+    if (!openedLink || !board || board.loading) return;
+    setOpenedLink(null);
+    const to = codealongLinkOf(openedLink);
+    if (to?.kind === 'session') {
+      const at = sessionNamed(linkHost.sessions(), to.name);
+      if (at) reveal.current({ kind: 'session', laneId: at.lane.id, key: at.session.key });
+      else setToast(`There’s no session ${to.name} here.`);
+    } else if (to?.kind === 'todo') {
+      const todo = todoNamed(todoStore.todos, to.id);
+      if (todo) reveal.current({ kind: 'todo', id: todo.id });
+      else setToast(`There’s no todo ${to.id} here.`);
+    } else setToast('That link names nothing Codealong shows.');
+  }, [openedLink, board, reveal, setToast, todoStore.todos]);
 
 
   useMainKeys({

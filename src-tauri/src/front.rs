@@ -26,6 +26,39 @@ pub fn show_main(app: &AppHandle, reveal: Option<serde_json::Value>) -> Result<(
     Ok(())
 }
 
+/// The scheme of Codealong's own links (`codealong://session/<key>`, src/codealongLinks.ts), which
+/// the app's Info.plist claims.
+pub const LINK_SCHEME: &str = "codealong";
+
+/// The link macOS last asked Codealong to open, until the main window's page takes it.
+static OPENED: Mutex<Option<String>> = Mutex::new(None);
+
+/// The one of `urls` to show: the last that's Codealong's own and no longer than a link is.
+fn link_among(urls: &[String]) -> Option<&String> {
+    let ours = |u: &&String| u.len() <= 2048 && u.get(..LINK_SCHEME.len() + 3).is_some_and(|s| s.eq_ignore_ascii_case(&format!("{LINK_SCHEME}://")));
+    urls.iter().rev().find(ours)
+}
+
+/// macOS asked Codealong to open these links (os::apps `opened_links`): a click on one in a
+/// terminal or another app. The main window comes forward and its page is told there's one to
+/// take (`take_opened_link`), which it also asks as it comes up, since a click that launched
+/// the app comes before there's a page to tell. The page shows what the link names, as a click
+/// on one in a conversation does: it knows the sessions and todos, here and on your other
+/// devices. A link only ever shows something.
+pub fn open_links(app: &AppHandle, urls: &[String]) {
+    let Some(link) = link_among(urls) else { return };
+    if let Ok(mut opened) = OPENED.lock() {
+        *opened = Some(link.clone());
+    }
+    // No main window yet when the click is what launched the app: its page asks as it comes up.
+    let _ = show_main(app, Some(serde_json::json!({ "kind": "link" })));
+}
+
+/// The link macOS asked for, once: the page that takes it shows it.
+pub fn take_opened_link() -> Option<String> {
+    OPENED.lock().ok()?.take()
+}
+
 /// Brings a window forward with the keyboard, out of the Dock if it was minimized, and Codealong
 /// with it.
 fn bring(window: &WebviewWindow) -> Result<()> {
@@ -109,5 +142,15 @@ mod tests {
         // only ever hidden.
         assert_eq!(on_press(false, Some("project-gone-0a1b2c3d".into()), open), Press::Bring("main".into()));
         assert_eq!(on_press(false, None, open), Press::Bring("main".into()));
+    }
+
+    #[test]
+    fn the_link_to_show_is_the_last_of_codealongs_own() {
+        let urls = |list: &[&str]| list.iter().map(|u| u.to_string()).collect::<Vec<_>>();
+        let both = urls(&["codealong://session/claude:claude:a", "file:///tmp/x", "Codealong://todo/t-1", "https://example.com/codealong://session/x"]);
+        assert_eq!(link_among(&both).map(String::as_str), Some("Codealong://todo/t-1"));
+        assert_eq!(link_among(&urls(&["https://example.com", "codealong:session/x", "codealong"])), None);
+        // One too long to be a link is passed over.
+        assert_eq!(link_among(&[format!("codealong://session/{}", "k".repeat(2048))]), None);
     }
 }

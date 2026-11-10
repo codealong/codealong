@@ -29,6 +29,15 @@ pub fn set_dock_icon(_app: &tauri::AppHandle, _png: &'static [u8]) -> tauri::Res
     Ok(())
 }
 
+/// No link comes this way on Linux: a desktop opens one by starting the program a launcher
+/// names for its scheme with the link as an argument, and no launcher names Codealong for one yet.
+pub fn opened_links(_event: &tauri::RunEvent) -> Vec<String> {
+    Vec::new()
+}
+
+/// Nothing to claim where no link is opened with Codealong (`opened_links`).
+pub fn claim_links(_bundle: &Path, _scheme: &str) {}
+
 /// The editor menus show editors by name alone.
 pub fn icon(_app: &Path, _px: usize) -> Option<Vec<u8>> {
     None

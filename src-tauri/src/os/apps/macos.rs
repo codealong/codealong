@@ -1,5 +1,5 @@
 //! Apps on macOS, through AppKit: the running ones by bundle ID, Codealong's own (hidden, its Dock
-//! icon), and an app's icon as the Finder shows it.
+//! icon, the links macOS opens with it), and an app's icon as the Finder shows it.
 
 use std::path::Path;
 
@@ -92,6 +92,34 @@ pub fn icon(app: &Path, px: usize) -> Option<Vec<u8>> {
     // this returns and which nothing draws into again; `straight` copies them out.
     let premultiplied = unsafe { std::slice::from_raw_parts(data, px * px * 4) };
     Some(straight(premultiplied))
+}
+
+/// The links macOS asked Codealong to open: a click, in another app, on a link of a scheme the
+/// app's Info.plist claims (`codealong://…`). They come as an event of the app's, ahead of the
+/// one that says it finished launching when the click is what launched it.
+pub fn opened_links(event: &tauri::RunEvent) -> Vec<String> {
+    match event {
+        tauri::RunEvent::Opened { urls } => urls.iter().map(|u| u.to_string()).collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// Has macOS open `scheme`'s links with the app at `bundle` from now on, whichever other app
+/// claims the scheme too. LaunchServices keeps the choice by the app's bundle ID, through that
+/// app being replaced and the other one registering again, asks nobody for a scheme that's an
+/// app's own (it does for the web's and mail's), and answers at once
+/// (`.claude/rules/windows.md`). What goes wrong is only said: the links then open in whichever
+/// app macOS picks, the one registered last.
+pub fn claim_links(bundle: &Path, scheme: &str) {
+    let app = objc2_foundation::NSURL::fileURLWithPath(&NSString::from_str(&bundle.to_string_lossy()));
+    let said = scheme.to_string();
+    let done = block2::RcBlock::new(move |error: *mut objc2_foundation::NSError| {
+        // SAFETY: AppKit hands the completion an NSError it owns for the call, or null.
+        if let Some(e) = unsafe { error.as_ref() } {
+            eprintln!("Couldn't have macOS open {said}:// links here: {}", e.localizedDescription());
+        }
+    });
+    objc2_app_kit::NSWorkspace::sharedWorkspace().setDefaultApplicationAtURL_toOpenURLsWithScheme_completionHandler(&app, &NSString::from_str(scheme), Some(&done));
 }
 
 /// Premultiplied RGBA, as AppKit draws, made straight, as menus and canvases take it.

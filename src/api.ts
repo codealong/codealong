@@ -1457,8 +1457,17 @@ export async function setTheme(theme: Theme): Promise<void> {
  *  A session's `find` is the words the quick panel found it by in what was said, which its
  *  conversation's find bar opens on; a PR's `tab` the one a link to a part of it goes to. A
  *  `view` is one a view's chord asked for in another window (mainKeys.ts `useViewKeys`). `new` is
- *  a start the quick panel left for its first prompt (newSession.ts). */
-export type Reveal = { kind: 'session'; laneId: string; key: string; find?: string } | { kind: 'new'; draft: NewSession } | { kind: 'worktree'; laneId: string } | { kind: 'pr'; key: string; tab?: PrTab } | { kind: 'todo'; id: string } | { kind: 'schedule'; id: string } | { kind: 'board'; board: string; project: string; layout: 'kanban' | 'canvas'; focus?: string[] } | { kind: 'view'; view: string } | { kind: 'snooze'; keys: string[]; reviews: boolean } | { kind: 'terminal'; id: string; wait?: boolean };
+ *  a start the quick panel left for its first prompt (newSession.ts). `link` says macOS asked
+ *  Codealong to open a link, which the window takes (`takeOpenedLink`) and shows. */
+export type Reveal = { kind: 'session'; laneId: string; key: string; find?: string } | { kind: 'new'; draft: NewSession } | { kind: 'worktree'; laneId: string } | { kind: 'pr'; key: string; tab?: PrTab } | { kind: 'todo'; id: string } | { kind: 'schedule'; id: string } | { kind: 'board'; board: string; project: string; layout: 'kanban' | 'canvas'; focus?: string[] } | { kind: 'view'; view: string } | { kind: 'snooze'; keys: string[]; reviews: boolean } | { kind: 'terminal'; id: string; wait?: boolean } | { kind: 'link' };
+
+/** The link macOS asked Codealong to open, a click on one of Codealong's own in another app
+ *  (front.rs `open_links`): given once, null when there's none. The main window takes it as it
+ *  comes up and when told there's one (a `link` reveal), and shows what it names. */
+export async function takeOpenedLink(): Promise<string | null> {
+  if (!inTauri) return null;
+  return invoke<string | null>('take_opened_link');
+}
 
 /** Brings the main window forward, showing a session, worktree, PR or todo if given. */
 export async function showMain(reveal: Reveal | null = null): Promise<void> {

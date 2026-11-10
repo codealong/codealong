@@ -1284,6 +1284,13 @@ window.__TAURI_INTERNALS__ = {
     // A drag of the notch starts, as it does in the app while the bar is docked (bar.rs `drag`),
     // unless a check says it doesn't.
     if (cmd === 'notch_drag') return Promise.resolve(window.__NOTCH_DRAG__ !== false);
+    // The link macOS asked the app to open (front.rs `open_links`): none, unless a check left one
+    // in `window.__OPENED_LINK__` for the page to take, once.
+    if (cmd === 'take_opened_link') {
+      var opened = window.__OPENED_LINK__ || null;
+      window.__OPENED_LINK__ = null;
+      return Promise.resolve(opened);
+    }
     // Whether the window has the keyboard (lib.rs `window_keys`): as the page has it here.
     if (cmd === 'window_keys') return Promise.resolve(document.hasFocus());
     if (window.__unknown.indexOf(cmd) < 0) window.__unknown.push(cmd);

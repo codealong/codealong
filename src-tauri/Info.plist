@@ -8,5 +8,16 @@
   <string>Codealong turns what you say into text for the session you're talking to, on this Mac. No audio is kept.</string>
   <key>NSAudioCaptureUsageDescription</key>
   <string>Codealong turns what a meeting says into text for the session you asked to listen, on this Mac. No audio is kept.</string>
+  <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleURLName</key>
+      <string>Codealong link</string>
+      <key>CFBundleURLSchemes</key>
+      <array>
+        <string>codealong</string>
+      </array>
+    </dict>
+  </array>
 </dict>
 </plist>
