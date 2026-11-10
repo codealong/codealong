@@ -4,9 +4,10 @@
 // Sessions, the sessions its runs started or sent to (boardLists.ts `scheduleSessions`): the
 // latest run's and the ones at work, the rest a click away. The box at the top makes one
 // (ScheduleDialog.tsx); a row's menu is menus.ts `scheduleMenu`, and its panel (SchedulePanel.tsx)
-// has the rest; a session's is its own. After them, the schedules the harnesses keep themselves (a
-// Claude Code session's loop, a Codex app automation), read only, each with the session it wakes;
-// and last, folded, the finished ones (`scheduleSections`).
+// has the rest; a session's is its own. The ones that run once and haven't yet are listed apart,
+// under One-off, after the ones that go on running. After them, the schedules the harnesses keep
+// themselves (a Claude Code session's loop, a Codex app automation), read only, each with the
+// session it wakes; and last, folded, the finished ones (`scheduleSections`).
 
 import { Fragment, useRef, type KeyboardEvent } from 'react';
 import { ago, absolute } from '../format';
@@ -65,14 +66,16 @@ type Entry = { id: string; item?: ScheduleItem; harness?: HarnessSchedule; p: Pl
 export function SchedulesView(props: SchedulesViewProps) {
   const { items, harnessItems, problem, now, selectedId, selectedSession, sessionTitle, sessionsOf, placed, allShown, showFinished, onToggleFinished, onToggleAll, onSelect, onEdit, onMenu, onSelectSession, onOpenSession, onSessionMenu, onOpenHarness, onNew } = props;
   const list = useRef<HTMLDivElement>(null);
-  const { active, finished } = scheduleSections(items);
+  const { active, oneOff, finished } = scheduleSections(items);
   const listed = (xs: ScheduleItem[]) => xs.map((item) => ({ item, ...sessionsOf(item) }));
   const activeRows = listed(active);
+  const oneOffRows = listed(oneOff);
   const finishedRows = showFinished ? listed(finished) : [];
   const harnessRows = harnessItems.map((h) => ({ h, p: h.session ? placed(h.session) : null }));
   const scheduleEntries = (xs: typeof activeRows): Entry[] => xs.flatMap(({ item, rows }) => [{ id: item.id, item, p: null }, ...rows.map((p) => ({ id: item.id, item, p }))]);
   const entries: Entry[] = [
     ...scheduleEntries(activeRows),
+    ...scheduleEntries(oneOffRows),
     ...harnessRows.flatMap(({ h, p }) => [{ id: h.key, harness: h, p: null }, ...(p ? [{ id: h.key, harness: h, p }] : [])]),
     ...scheduleEntries(finishedRows),
   ];
@@ -142,11 +145,6 @@ export function SchedulesView(props: SchedulesViewProps) {
                 <Chip className="ca-schedrow-does" title={s.run.prompt}>
                   {doesWords(s, sessionTitle)}
                 </Chip>
-                {s.once && !done && (
-                  <Chip className="ca-schedrow-once" title="It stops after its first run. Run now doesn’t count.">
-                    Once
-                  </Chip>
-                )}
                 {!done && s.problem && (
                   <Chip className="ca-schedrow-problem" title={s.problem}>
                     Can’t run
@@ -256,6 +254,12 @@ export function SchedulesView(props: SchedulesViewProps) {
           onKeyDown={keys}
         >
           {activeRows.map(scheduleRow)}
+          {oneOffRows.length > 0 && (
+            <section className="ca-bayblock">
+              <SectionHeader icon="repeat-once" label="One-off" count={oneOffRows.length} hint="Each stops after its first run" />
+              <div className="ca-bay-lanes">{oneOffRows.map(scheduleRow)}</div>
+            </section>
+          )}
           {harnessRows.length > 0 && (
             <section className="ca-bayblock">
               <SectionHeader icon="clock" label="Kept by their harnesses" count={harnessRows.length} hint="Read only: change them where they live" />

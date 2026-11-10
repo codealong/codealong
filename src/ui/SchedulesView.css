@@ -55,10 +55,6 @@
   font: var(--type-caption-strong);
   color: var(--ink-3);
 }
-.ca-chip.ca-schedrow-once {
-  font: var(--type-caption-strong);
-  color: var(--ink-3);
-}
 .ca-schedrow-next {
   font: var(--type-meta);
   color: var(--ink-3);

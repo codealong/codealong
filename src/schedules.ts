@@ -75,13 +75,35 @@ export function doesWords(s: Pick<ScheduleItem, 'run' | 'runsIn' | 'thread'>, se
   }
 }
 
-/** The Schedules view's two lists: the schedules still to run, as they come, and the finished
- *  ones, the latest to finish first, which the view folds away. */
-export function scheduleSections(items: ScheduleItem[]): { active: ScheduleItem[]; finished: ScheduleItem[] } {
+/** Whether a schedule runs once and is then finished: one told to stop after its first run
+ *  (`once`), or one at a `once <date>` time, told by its first word as the engine reads a time
+ *  (schedules/rule.rs `parse`). */
+export function runsOnce(s: Pick<Schedule, 'once' | 'when'>): boolean {
+  return !!s.once || (s.when.kind === 'time' && /^[\s,]*once(?=[\s,]|$)/i.test(s.when.rule));
+}
+
+/** The Schedules view's lists: the schedules that go on running, as they come; the ones still to
+ *  run that run once (`runsOnce`: a follow-up an agent left itself, mostly), apart so they don't
+ *  crowd the rest, the next to come first and the ones with no time to say (a watch, an event, a
+ *  paused one) after, as they come; and the finished ones, the latest to finish first, which the
+ *  view folds away. */
+export function scheduleSections(items: ScheduleItem[]): { active: ScheduleItem[]; oneOff: ScheduleItem[]; finished: ScheduleItem[] } {
+  const running = items.filter((x) => x.finished == null);
+  // A watch's `nextAt` is its next look, not a run.
+  const comes = (x: ScheduleItem) => (x.when.kind === 'time' && !x.paused ? (x.nextAt ?? Infinity) : Infinity);
   return {
-    active: items.filter((x) => x.finished == null),
+    active: running.filter((x) => !runsOnce(x)),
+    // Array.prototype.sort is stable, so the ones without a time keep their order.
+    oneOff: running.filter(runsOnce).sort((a, b) => (comes(a) === comes(b) ? 0 : comes(a) - comes(b))),
     finished: items.filter((x) => x.finished != null).sort((a, b) => (b.finished ?? 0) - (a.finished ?? 0)),
   };
+}
+
+/** The schedule the view shows until one is picked: the first as it lists them, which is another
+ *  than the first there is when that one runs once or is finished. */
+export function firstSchedule(items: ScheduleItem[]): ScheduleItem | null {
+  const { active, oneOff, finished } = scheduleSections(items);
+  return active[0] ?? oneOff[0] ?? finished[0] ?? null;
 }
 
 /** The machines a schedule that runs on one of yours may prefer, for its dialog's menu: none in

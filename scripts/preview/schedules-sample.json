@@ -78,6 +78,15 @@
       "runs": []
     },
     {
+      "name": "Read tomorrow's kestrel nightly",
+      "when": { "kind": "time", "rule": "once 2026-11-06 8:00" },
+      "whenWords": "Once, 2026-11-06 at 8:00",
+      "nextIn": 1200,
+      "run": { "to": "session", "session": "$session:3", "folder": "$lane:0", "prompt": "Last night's kestrel run should be in: read it, and say whether the fix held." },
+      "createdBy": "$session:3",
+      "runs": []
+    },
+    {
       "name": "Follow up on the kestrel release",
       "once": true,
       "when": { "kind": "time", "rule": "once 2026-11-05 16:30" },

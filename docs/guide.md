@@ -1782,6 +1782,13 @@ session each run still knows what the last ones found. What a schedule you made 
 yours. One an agent made with `codealong schedule add` sends as Codealong's (*What Codealong sends
 by itself*), and the sessions it starts are that agent's own (*Started by*); its panel says so.
 
+**One-off.** A schedule that runs once and hasn't yet (*Run once, then stop*, or a `once` time
+still to come) is listed apart under One-off, after the ones that go on running: mostly the
+follow-ups agents leave themselves (`codealong schedule add --to me --once`), which would
+otherwise crowd the schedules you keep. The next to come is first, and the ones with no time to
+say (a watch, an event, a script's fire, a paused one) after it, as they were made. Once it has
+run it moves to Finished.
+
 **Finished.** A schedule that ran once, and one whose times are over (a `once` time that ran or
 was missed), folds under Finished at the end of the list, the latest to finish first, out of the
 sidebar's count; Show lists them, each with its runs and its sessions, its panel saying when it

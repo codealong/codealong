@@ -58,7 +58,7 @@ import { TODO_GROUPS, TODO_ROWS, TODO_SORTS, TodoComposer, TodoView } from './ui
 import { ScheduleDialog } from './ui/ScheduleDialog';
 import { HarnessSchedulePanel, SchedulePanel } from './ui/SchedulePanel';
 import { SchedulesView } from './ui/SchedulesView';
-import { blankSchedule, newScheduleFolder, scheduleOf, scheduleProject } from './schedules';
+import { blankSchedule, firstSchedule, newScheduleFolder, scheduleOf, scheduleProject } from './schedules';
 import { KanbanView } from './ui/KanbanView';
 import { applyKanbanDrop, boardOrderWith, columnWith, kanbanCardId, kanbanStep, orderedIds, type KanbanActs } from './kanban';
 import { CanvasView } from './ui/CanvasView';
@@ -1006,13 +1006,13 @@ export function App() {
     if (how === 'one' && drill?.from === key) setDrill(null);
   };
   // The Schedules view's schedules (the project's, as the find narrows them), the one selected (the
-  // first, until one is picked), and the session selected under it while it's still listed there.
+  // first it lists, until one is picked), and the session selected under it while it's still listed there.
   const projectSchedules = useMemo(() => schedulesIn(board?.schedules ?? [], board?.lanes ?? [], current, ''), [board?.schedules, board?.lanes, current]);
   const shownSchedules = useMemo(() => schedulesIn(projectSchedules, board?.lanes ?? [], ALL_PROJECTS, query), [projectSchedules, board?.lanes, query]);
   const shownHarnessSchedules = useMemo(() => harnessSchedulesIn(harnessItems, allHomes, board?.lanes ?? [], current, query), [harnessItems, allHomes, board?.lanes, current, query]);
   // A harness's schedule selected, by its key, which no schedule of Codealong's has.
   const selectedHarness: HarnessSchedule | null = shownHarnessSchedules.find((h) => h.key === scheduleId) ?? null;
-  const selectedSchedule: ScheduleItem | null = selectedHarness ? null : (shownSchedules.find((x) => x.id === scheduleId) ?? shownSchedules[0] ?? null);
+  const selectedSchedule: ScheduleItem | null = selectedHarness ? null : (shownSchedules.find((x) => x.id === scheduleId) ?? firstSchedule(shownSchedules));
   const scheduleSessionShown = !scheduleSession
     ? null
     : selectedHarness

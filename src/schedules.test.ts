@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ALL_PROJECTS } from './quick';
-import { asksRunsOn, blankSchedule, doesWords, fireCommand, newScheduleFolder, nextWords, preferOptions, scheduleBySession, scheduleLanes, scheduleOf, scheduleProject, scheduleSections, scheduleSessions, sessionFolder } from './schedules';
+import { asksRunsOn, blankSchedule, doesWords, fireCommand, firstSchedule, newScheduleFolder, nextWords, preferOptions, runsOnce, scheduleBySession, scheduleLanes, scheduleOf, scheduleProject, scheduleSections, scheduleSessions, sessionFolder } from './schedules';
 import * as fx from './testing/fixtures';
 import type { DevicesView, Schedule, ScheduleItem } from './types';
 
@@ -40,6 +40,38 @@ describe('schedules', () => {
     expect(finished.map((x) => x.id)).toEqual(['s-c', 's-b']);
     // A finished one runs next never, paused or not.
     expect(nextWords(item({ finished: 100, nextAt: NOW + HOUR, paused: true }), NOW)).toBe('');
+  });
+
+  it('knows which run once', () => {
+    expect(runsOnce(item({}))).toBe(false);
+    expect(runsOnce(item({ once: true }))).toBe(true);
+    // A `once <date>` time is one too, read as the engine reads a time: any case, commas as spaces.
+    expect(runsOnce(item({ when: { kind: 'time', rule: 'once 2026-10-21 15:00' } }))).toBe(true);
+    expect(runsOnce(item({ when: { kind: 'time', rule: ' Once,2026-10-21 3pm' } }))).toBe(true);
+    expect(runsOnce(item({ when: { kind: 'time', rule: 'weekdays 9:00' } }))).toBe(false);
+    // Only a time is read that way: a watch's command may start with any word.
+    expect(runsOnce(item({ when: { kind: 'watch', command: 'once', every: '5m', mode: 'lines' } }))).toBe(false);
+  });
+
+  it('lists the ones that run once apart, the next to come first', () => {
+    const watch = { kind: 'watch' as const, command: './deploys', every: '5m', mode: 'lines' as const };
+    const daily = item({ id: 's-daily', nextAt: NOW + HOUR });
+    const later = item({ id: 's-later', once: true, nextAt: NOW + 5 * HOUR });
+    // A watch's next look is no run, however soon.
+    const deploy = item({ id: 's-deploy', once: true, when: watch, nextAt: NOW + 60_000 });
+    const dated = item({ id: 's-dated', when: { kind: 'time', rule: 'once 2026-10-20 15:00' }, nextAt: NOW + 3 * HOUR });
+    const paused = item({ id: 's-paused', once: true, paused: true });
+    const weekly = item({ id: 's-weekly', when: { kind: 'time', rule: 'mon 10:00' }, nextAt: NOW + 30 * 60_000 });
+    const done = item({ id: 's-done', once: true, finished: 100 });
+    const { active, oneOff, finished } = scheduleSections([daily, later, deploy, dated, paused, weekly, done]);
+    expect(active.map((x) => x.id)).toEqual(['s-daily', 's-weekly']);
+    expect(oneOff.map((x) => x.id)).toEqual(['s-dated', 's-later', 's-deploy', 's-paused']);
+    expect(finished.map((x) => x.id)).toEqual(['s-done']);
+    // Until one is picked the view shows the first it lists, not the first there is.
+    expect(firstSchedule([done, later, dated, daily])?.id).toBe('s-daily');
+    expect(firstSchedule([done, later, dated])?.id).toBe('s-dated');
+    expect(firstSchedule([done])?.id).toBe('s-done');
+    expect(firstSchedule([])).toBeNull();
   });
 
   it('saves whether it runs once', () => {

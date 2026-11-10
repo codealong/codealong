@@ -1,5 +1,7 @@
 // Checks what the Schedules view shows of schedules that run once and of the harnesses' own
-// (ui/SchedulesView.tsx, ui/SchedulePanel.tsx, ui/ScheduleDialog.tsx): one that runs once says so;
+// (ui/SchedulesView.tsx, ui/SchedulePanel.tsx, ui/ScheduleDialog.tsx): the ones that run once and
+// haven't yet are listed apart under One-off, after the ones that go on running, the next to come
+// first, and ↓ goes on into them;
 // a finished one is folded under Finished, out of the sidebar's count, and shown with its tag and
 // why; the dialog's Run once, then stop is saved; the schedules the harnesses keep are listed apart,
 // read only, each with the session it wakes, a panel of its own, and Return opening it where it
@@ -17,12 +19,29 @@
     el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
   };
   var heading = function (label) { return all('.ca-schedlist .ca-bay--section').filter(function (h) { return h.textContent.indexOf(label) === 0; })[0]; };
+  var nameOf = function (r) { return r.querySelector('.ca-schedrow-name').textContent; };
+  // The schedules listed under a heading, by name, in order.
+  var under = function (h) { return h ? Array.prototype.slice.call(h.parentElement.querySelectorAll('.ca-schedrow')).map(nameOf) : []; };
+  var selected = function () { var r = q('.ca-schedrow[aria-selected="true"]'); return r ? nameOf(r) : 'none'; };
 
   say('schedules once check: waiting for the schedules');
   until(function () { return rows().length >= 5 && !!heading('Kept by their harnesses'); }, 20000, 'the sample schedules and the harnesses’ own')
     .then(function () {
-      var once = named('Once the atlas deploy is out');
-      check('one that runs once says so', !!once && !!once.querySelector('.ca-schedrow-once'), once ? once.textContent : 'no row');
+      var oneOff = heading('One-off');
+      // One told to stop after its first run, and one at a `once <date>` time: the one with a time
+      // to come first, the watch, which has none to say, after.
+      check('the ones that run once are listed apart under One-off, counted, the next to come first', !!oneOff && /One-off\s*2/.test(oneOff.textContent) && under(oneOff).join(' | ') === 'Read tomorrow\'s kestrel nightly | Once the atlas deploy is out', oneOff ? oneOff.textContent + ': ' + under(oneOff).join(' | ') : 'no heading');
+      var before = rows().map(nameOf);
+      check('after the ones that go on running, before the harnesses’ own', before.indexOf('Release notes') + 1 === before.indexOf('Read tomorrow\'s kestrel nightly') && before.indexOf('Once the atlas deploy is out') + 1 === before.indexOf('Check the northwind deploy and report'), before.join(' | '));
+      press(named('Release notes'));
+      return until(function () { return selected() === 'Release notes'; }, 3000, 'the last that goes on running picked');
+    })
+    .then(function () {
+      q('.ca-schedlist').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
+      return until(function () { return selected() !== 'Release notes'; }, 3000, '↓ to move on');
+    })
+    .then(function () {
+      check('↓ goes on from the last that goes on running to the first that runs once', selected() === 'Read tomorrow\'s kestrel nightly', selected());
       var finished = heading('Finished');
       check('the finished ones are folded under Finished, counted', !!finished && /Finished\s*1/.test(finished.textContent) && !named('Follow up on the kestrel release'), finished ? finished.textContent : 'no heading');
       // The sidebar counts the ones that will run: listed, Codealong's own, neither paused nor finished.

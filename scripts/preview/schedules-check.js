@@ -88,7 +88,7 @@
       check('one whose last run failed says so', failed.textContent.indexOf('Last run failed') >= 0, failed.textContent);
       check('a chat of its own is in no project, so only All projects lists it', !named('Standup notes'), rows().map(function (r) { return r.querySelector('.ca-schedrow-name').textContent; }).join(' | '));
       // Not the paused one, nor the finished one.
-      check('the sidebar counts the ones that run', /Schedules\s*5/.test(q('.ca-side').textContent.replace(/\s+/g, ' ')), q('.ca-side').textContent);
+      check('the sidebar counts the ones that run', /Schedules\s*6/.test(q('.ca-side').textContent.replace(/\s+/g, ' ')), q('.ca-side').textContent);
       press(named('After each deploy'));
       return until(function () { return q('.ca-schedinsp-name') && q('.ca-schedinsp-name').textContent === 'After each deploy'; }, 3000, 'its panel');
     })
