@@ -2,7 +2,8 @@
 // starts in the terminal offers it; for an agent with no background service of its own (Codex,
 // OpenCode, Antigravity) the start row says its terminal opens behind your windows, and for
 // Claude Code that it runs in the background, a terminal attached later; either way ⌘⏎ asks for
-// the background place, for that start alone (no `keep_start_place`), and picking a model then
+// the background place, for that start alone (no `keep_start_place`). With nothing typed ⌘⏎
+// starts nothing: the main window opens a new session for its first prompt (newSession.ts). Picking a model then
 // leaves Background picked. The places are the Runs in row under the agent menu's lines (⌘O opens
 // that menu, AgentMenu.tsx `AgentFoot`, and → steps the place then), each saying what it is on
 // hover, and the agent chip says the place; Make default there keeps the one picked as the
@@ -57,10 +58,26 @@
         });
       })
       .then(function () {
-        check(account.name + ': the start row says ' + words, why().indexOf(words) >= 0, why());
-        note(account.name + ': ' + why());
+        // Nothing typed: nothing starts. The main window opens a new session for its first prompt.
+        check(account.name + ': with nothing typed, the start row says it waits for its first prompt', /, on the first prompt you send from the new session that opens for it\.$/.test(why()), why());
+        var starts = calls('start_from_quick').length;
+        var shows = calls('show_main').length;
+        key(window, { key: 'Enter', metaKey: true });
+        return until(function () { return calls('show_main').length > shows; }, 3000, account.name + ': ⌘⏎ with nothing typed didn’t ask the main window for a new session').then(function () {
+          var asked = calls('show_main').pop()[1].reveal || {};
+          var spec = (asked.draft || {}).spec || {};
+          check(account.name + ': ⌘⏎ with nothing typed opens a new session in the main window', asked.kind === 'new' && spec.account === account.name && spec.place === 'background' && spec.prompt === '', JSON.stringify(asked).slice(0, 300));
+          check(account.name + ': and starts nothing', calls('start_from_quick').length === starts, String(calls('start_from_quick').length - starts));
+        });
+      })
+      .then(function () {
         Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(box(), 'Say hello');
         box().dispatchEvent(new Event('input', { bubbles: true }));
+        return wait(200);
+      })
+      .then(function () {
+        check(account.name + ': the start row says ' + words, why().indexOf(words) >= 0, why());
+        note(account.name + ': ' + why());
         var before = calls('start_from_quick').length;
         return wait(200).then(function () {
           key(window, { key: 'Enter', metaKey: true });

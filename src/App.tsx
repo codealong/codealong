@@ -15,7 +15,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { below, showContextMenu, type MenuAction, type MenuSpec } from './contextMenu';
 import { useEditorIcons } from './editors';
 import { homeOf, narrowed, runsShownKey, sidesShownKey, type BoardRow, type Filter } from './lanes';
-import { answerLink, barMode, harnessSchedules, onBarMode, onCloseIdle, onCloseStale, onUsageMenu, onWebsiteMenu, onNewWindow, onReveal, onSettings, onSetupMenu, onCheckUpdates, openConfig, openHarnessLink, openProjectWindow, openUrl, orderAccounts, refresh, refreshUsage, scheduleOp, setBarMode, startOptions, setPinned, setPinnedPrs, setPinnedRepos, setPinnedWorktrees, setTheme, setupNeeded, showQuick, signIn, stopTraining, terminalWindow, windowLabel, zoomWindows, onZoomMenu, onReloadMenu, WEBSITE, type BarMode, type Reveal } from './api';
+import { answerLink, barMode, harnessSchedules, onBarMode, onCloseIdle, onCloseStale, onUsageMenu, onWebsiteMenu, onNewWindow, onReveal, onSettings, onSetupMenu, onCheckUpdates, openConfig, openHarnessLink, openProjectWindow, openUrl, orderAccounts, refresh, refreshUsage, scheduleOp, setBarMode, startOptions, setPinned, setPinnedPrs, setPinnedRepos, setPinnedWorktrees, setTheme, setupNeeded, showQuick, startFromQuick, signIn, stopTraining, terminalWindow, windowLabel, zoomWindows, onZoomMenu, onReloadMenu, WEBSITE, type BarMode, type Reveal } from './api';
 import { count, middleTruncate } from './format';
 import * as menus from './menus';
 import { prRefOf } from './prLinks';
@@ -94,6 +94,7 @@ import { useBoard } from './useBoard';
 import { useDeviceLanes, useDevices, useObserve } from './useDevices';
 import { useTextSearch } from './useTextSearch';
 import { useLatest } from './latest';
+import { listedIn, NEW_SESSION_WAIT_MS, newSessionAfter, type NewSessionShown } from './newSession';
 import { reorderKey, useMainKeys, VIEW_CHORDS } from './mainKeys';
 import { useListPicks } from './useListPicks';
 import type { SelectHow } from './picks';
@@ -102,6 +103,7 @@ import { canvasPicked, MainPanel, type Drill } from './ui/MainPanel';
 import { showPrTab } from './ui/PrInspector';
 import type { FindAsk } from './ui/ThreadFind';
 import { Toasts, useToasts } from './ui/Toasts';
+import { NewSessionPanel } from './ui/NewSession';
 import { ListenHost } from './ui/Listening';
 import { ageListingChain, ageListingPr, chainOf, currentProject, FACET_WORD, facetsIn, facetsOn, harnessSchedulesIn, labelPick, laneInQuery, onlyPick, prInDone, prInFilter, prInQuery, projectOfCard, revealing, unarchived, scheduleSessions, schedulesIn, sessionInFacets, sessionInFilter, sessionInQuery, sessionItemOf, sessionItemsOf, showingHelper, todoInQuery, togglePick, toggleShown, useBoardLists, projectsOf, type Facets } from './boardLists';
 import { inProject, QUICK_PLACEHOLDER, queryWords, shortcutKeys, shortcutLabel } from './quick';
@@ -1096,6 +1098,13 @@ export function App() {
   useEffect(() => placeTerminal.current(), [board, placeTerminal]);
 
   const reveal = useLatest((r: Reveal) => {
+    // Sessions, with the new session in its panel and the cursor in its box.
+    if (r.kind === 'new') {
+      setView('sessions');
+      setDrill(null);
+      setNewShown({ draft: r.draft, over: selectedKey, opened: Date.now(), started: null });
+      return;
+    }
     if (r.kind === 'terminal') {
       pendingTerminal.current = { id: r.id, wait: !!r.wait, since: Date.now() };
       placeTerminal.current();
@@ -1336,6 +1345,39 @@ export function App() {
     const key = selected?.key;
     setBoxFocus((box) => (box && key !== box ? null : box));
   }, [selected?.key]);
+
+  // A start the quick panel left for its first prompt (newSession.ts): Sessions' panel shows it
+  // in place of the selected row's until another row is picked, and once sent, until the board
+  // lists the session it started, which then takes its place with the cursor in its box.
+  const [newShown, setNewShown] = useState<NewSessionShown | null>(null);
+  useEffect(() => setNewShown((n) => newSessionAfter(n, selectedKey)), [selectedKey]);
+  const showStarted = useLatest(() => {
+    const started = newShown?.started;
+    if (!started) return;
+    const lane = listedIn([...(board?.lanes ?? []), ...deviceLanes], started.key);
+    if (lane) {
+      setNewShown(null);
+      reveal.current({ kind: 'session', laneId: lane.id, key: started.key });
+      setBoxFocus(`${lane.id}::${started.key}`);
+    } else if (Date.now() - started.at >= NEW_SESSION_WAIT_MS) {
+      setNewShown(null);
+      setToast(started.message ?? 'It started, and shows here once it’s listed.');
+    }
+  });
+  useEffect(() => showStarted.current(), [board, deviceLanes, newShown, showStarted]);
+  const sendNew = (shown: NewSessionShown) => async (prompt: string) => {
+    const started = await startFromQuick({ ...shown.draft.spec, prompt });
+    // A harness that names its own sessions, or one that hasn't said yet, gives no key to wait
+    // for: what the start said goes instead.
+    if (!started?.key) {
+      setNewShown(null);
+      if (started?.message) setToast(started.message);
+      return;
+    }
+    const key = started.key;
+    setNewShown((n) => (n && n.opened === shown.opened ? { ...n, started: { key, at: Date.now(), message: started.message } } : n));
+    window.setTimeout(() => showStarted.current(), NEW_SESSION_WAIT_MS + 100);
+  };
   // A session you click in Sessions is one you mean to answer: the cursor goes to its panel's box,
   // once the click has given the list the keyboard, as a press does. The list's chords work from
   // the box too (`listChord`), and Escape in the box gives the list the keyboard back.
@@ -2741,6 +2783,18 @@ export function App() {
             actionsRef={actionsRef}
             open={open}
             newSession={newSession}
+            newSessionPanel={
+              newShown && (
+                <NewSessionPanel
+                  key={newShown.opened}
+                  draft={newShown.draft}
+                  lane={[...(board?.lanes ?? []), ...deviceLanes].find((l) => l.id === newShown.draft.spec.laneId) ?? null}
+                  started={!!newShown.started}
+                  onSend={sendNew(newShown)}
+                  onClose={() => setNewShown(null)}
+                />
+              )
+            }
             showLaneFromPanel={showLaneFromPanel}
             showSessionFromPanel={showSessionFromPanel}
             showTodoFromPanel={showTodoFromPanel}

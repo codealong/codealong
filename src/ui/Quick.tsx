@@ -84,8 +84,10 @@ import {
   keptAt,
   placeStep,
   START_OPTIONS_NOTICE,
+  startDoes,
   startHappens,
   startingLabel,
+  startsOnFirstSend,
   startOptionsFailed,
   startTitleWords,
   startWhereWords,
@@ -1383,6 +1385,20 @@ export function Quick() {
     const spec: StartSpec = { laneId: where.id, account: targetAccount, place: targetPlace, prompt, model: targetModel, effort: targetEffort, worktree: newTree, todos: forTodos.map((t) => t.id) };
     if (!over) noteDone({ kind: 'start', target: where.id, newWorktree: newTree }, 'start-row');
     const targetOnModel = sgChoice ? onModelWords(sgChoice.startsOn, sgChoice.effortWord, ownModels(sgChoice.accountInfo, models)) : onModel;
+    // With nothing to start on, and nothing of its own opening to write it in, the main window
+    // opens a new session for its first prompt, which starts it (newSession.ts).
+    if (startsOnFirstSend(targetPlace, !!prompt.trim())) {
+      const does = startDoes({ lane: where, who: `${targetAccount}${targetOnModel}`, onModel: targetOnModel, place: targetPlace, newWorktree: newTree, prompted: true, terminal: terminalName, behind });
+      clearPrompt();
+      setTodoIds([]);
+      setNewWorktree(false);
+      setImprove(null);
+      setError(null);
+      setActiveKey(null);
+      void hideQuick();
+      void showMain({ kind: 'new', draft: { spec, does, placeLabel: places.find((p) => p.place === targetPlace)?.label ?? targetPlace, harness: harness ?? null } });
+      return;
+    }
     const label = startingLabel(targetPlace, targetAccount, targetOnModel, where, newTree, deviceInfo?.name ?? null);
     const id = Date.now();
     const to = opener ?? 'main';

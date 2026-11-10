@@ -45,6 +45,7 @@ import {
   startChoice,
   startHappens,
   startingLabel,
+  startsOnFirstSend,
   startTitleWords,
   startWhereWords,
   takesModel,
@@ -354,7 +355,11 @@ describe('what the quick panel says of a start', () => {
     expect(startHappens(plan({}))).toBe('Starts work in feature in Ghostty.');
     expect(startHappens(plan({ prompted: true, onModel: ' on Opus' }))).toBe('Starts work on Opus in feature in Ghostty.');
     expect(startHappens(plan({ newWorktree: true }))).toBe('Claude Code makes a new worktree of app and starts work there in Ghostty.');
-    expect(startHappens(plan({ place: 'background' }))).toBe('Starts work in feature in the background. Attach a terminal any time.');
+    expect(startHappens(plan({ place: 'background', prompted: true }))).toBe('Starts work in feature in the background. Attach a terminal any time.');
+    // Nothing typed: nothing starts until the new session that opens for it sends its prompt.
+    expect(startHappens(plan({ place: 'background' }))).toBe('Starts work in feature in the background, on the first prompt you send from the new session that opens for it.');
+    expect(startHappens(plan({ place: 'background', behind: true }))).toBe('Starts work in feature in Ghostty, behind your windows, on the first prompt you send from the new session that opens for it.');
+    expect(startHappens(plan({ place: 'codealong' }))).toBe('Codealong runs work in feature, on the first prompt you send from the new session that opens for it.');
     expect(startHappens(plan({ place: 'background', newWorktree: true, prompted: true }))).toBe('Claude Code makes a new worktree of app and starts work there in the background. Attach a terminal any time.');
     expect(startHappens(plan({ place: 'background', behind: true, prompted: true }))).toBe('Starts work in feature in Ghostty, behind your windows.');
     expect(startHappens(plan({ place: 'codealong', prompted: true }))).toBe('Codealong runs work in feature. Its panel here shows the reply, takes the next prompt and answers what it asks.');
@@ -363,6 +368,15 @@ describe('what the quick panel says of a start', () => {
     expect(startHappens(plan({ place: 'codex-app' }))).toBe('Codex opens a new thread in feature. You write the prompt there.');
     expect(startHappens(plan({ place: 'codex-app', prompted: true }))).toBe('The Codex app starts a new thread in feature on this prompt.');
     expect(startHappens(plan({ place: 'codex-app', prompted: true, onModel: ' on GPT-6-Sol at high effort' }))).toBe('The Codex app starts a new thread on GPT-6-Sol at high effort in feature on this prompt.');
+  });
+
+  it('waits for the first prompt only where nothing of its own opens to write it in', () => {
+    expect(startsOnFirstSend('background', false)).toBe(true);
+    expect(startsOnFirstSend('codealong', false)).toBe(true);
+    expect(startsOnFirstSend('background', true)).toBe(false);
+    expect(startsOnFirstSend('codealong', true)).toBe(false);
+    // A terminal and the apps open a box of their own to write the prompt in.
+    for (const p of ['terminal', 'claude-app', 'codex-app', null] as const) expect(startsOnFirstSend(p, false)).toBe(false);
   });
 
   it('says a chat starts on its own', () => {

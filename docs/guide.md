@@ -2563,6 +2563,18 @@ ends a turn, as it does for sessions running elsewhere. The agent keeps the sess
 records, so it can be resumed in a terminal too, and after Codealong restarts, sending to it picks
 it up again.
 
+#### With nothing typed
+
+A start with nothing typed opens where you write its first prompt: a terminal's agent, the Claude
+app's new-session page, the Codex app's new-thread page. In the background and In Codealong nothing
+of the session's own opens, so nothing starts yet: the main window comes forward on Sessions with a
+**New session** in its panel, in place of the selected row's, saying where it goes and on what,
+with the cursor in its box. ⏎ sends (⇧⏎ starts a new line), which starts it there on what you
+wrote, as the quick panel would have; the panel says it's starting until the session shows on the
+board, which then takes its place, selected, with the cursor in its box. A start that fails says why
+in the box, with what you wrote still there. Picking another row or × puts it away; what you wrote
+is kept for the worktree, so the next new session started there with nothing typed brings it back.
+
 #### In tmux, and while the screen is locked
 
 *Settings › General › Run sessions in tmux*

@@ -1,5 +1,6 @@
 // The panel on the right of the main window, as the view and its selection have it: a
-// worktree's (Inspector), a session's with its conversation (SessionPanel), or the sessions or
+// worktree's (Inspector), a session's with its conversation (SessionPanel), a new session waiting
+// for its first prompt in its place (NewSession.tsx), or the sessions or
 // worktrees picked together, a PR's, a todo's or the todos picked together, the canvas's selected
 // card, or what to select. A PR's or todo's panel can show one of its sessions in its place, any
 // panel the worktree a chip or link shows, and a session's, worktree's or todo's the PR its chip
@@ -114,6 +115,9 @@ export interface MainPanelProps {
   actionsRef: { readonly current: { session: (lane: Lane, s: Session, pin: 'session' | 'worktree') => menus.SessionActions } };
   open: (lane: Lane | null, targetId: string | null | undefined) => void;
   newSession: (at: { laneId: string | null }) => void;
+  /** A start the quick panel left for its first prompt (NewSession.tsx), which Sessions shows in
+   *  place of the selected row's panel. */
+  newSessionPanel: ReactNode;
   showLaneFromPanel: (lane: Lane) => void;
   showSessionFromPanel: (lane: Lane, session: Session) => void;
   /** Shows a schedule in the Schedules view, from a session it ran. */
@@ -148,7 +152,7 @@ export interface MainPanelProps {
 }
 
 export function MainPanel(props: MainPanelProps) {
-  const { view, selected, selectedLane, canvasPicked, board, now, loading, lanes, laneById, homes, devices, projectTodos, todoStore, todoLinks, todosFor, prRowOf, pickedRows, picks, approving, drill, setDrill, queue, boxFocus, panelMax, togglePanelMax, prPanelMax, togglePrPanelMax, actionsRef, open, newSession, showLaneFromPanel, showSessionFromPanel, showSchedule, schedulePanel, scheduleSession, showTodoFromPanel, laneMenu, sessionMenu, sessionMenuSpec, lanePrMenu, showPr, prMenu, prChipMenu, approve, reviewMenuFrom, snoozeMenuFrom, reviewedPr, setPreviewFor, markSeen, setToast, findIn } = props;
+  const { view, selected, selectedLane, canvasPicked, board, now, loading, lanes, laneById, homes, devices, projectTodos, todoStore, todoLinks, todosFor, prRowOf, pickedRows, picks, approving, drill, setDrill, queue, boxFocus, panelMax, togglePanelMax, prPanelMax, togglePrPanelMax, actionsRef, open, newSession, newSessionPanel, showLaneFromPanel, showSessionFromPanel, showSchedule, schedulePanel, scheduleSession, showTodoFromPanel, laneMenu, sessionMenu, sessionMenuSpec, lanePrMenu, showPr, prMenu, prChipMenu, approve, reviewMenuFrom, snoozeMenuFrom, reviewedPr, setPreviewFor, markSeen, setToast, findIn } = props;
   const { startForTodo, startForTodos, todoMenu, todoLinkMenu, todoMoreMenu, labelMenu, projectsForTodos, duePick, duePicked, selectTodoRow, pickMenu } = props.todo;
   const runTodo = todoStore.run;
   const { run: runQueue } = queue;
@@ -383,6 +387,8 @@ export function MainPanel(props: MainPanelProps) {
         <p>Select a PR to see its description, reviews and changes.</p>
       </aside>
     )
+  ) : view === 'sessions' && newSessionPanel ? (
+    newSessionPanel
   ) : view === 'sessions' && picks.sessions.rows.length > 0 ? (
     <SessionPickPanel
       items={picks.sessions.rows}

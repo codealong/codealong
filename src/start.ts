@@ -751,10 +751,19 @@ function startsIn(lane: Pick<Lane, 'callsign' | 'startsChats'>): string {
   return lane.startsChats ? 'a chat of its own' : lane.callsign;
 }
 
+/** Whether a start with nothing typed waits for its first prompt in a new session's panel in the
+ *  main window (NewSession.tsx) rather than starting: in the background or in Codealong nothing of
+ *  its own opens to write the prompt in, as a terminal or an app does, and a session started on
+ *  no prompt only sat idle under its harness's own name for it (asked 2026-11-10). */
+export function startsOnFirstSend(place: StartPlace | null, prompted: boolean): boolean {
+  return !prompted && (place === 'background' || place === 'codealong');
+}
+
 function startHappensThere({ lane, account, place, mac: on, reading, newWorktree, onModel, prompted, terminal, behind }: StartPlan, mac: string): string {
   if (!lane) return on ? `No worktrees in this project on ${mac}.` : reading ? 'Reading worktrees…' : 'No worktrees in this project yet.';
   if (!account || !place) return on?.error ? `${mac} didn’t say where its accounts can start: ${on.error}` : '';
   const does = startDoes({ lane, who: `${account}${onModel}`, onModel, place, newWorktree, prompted, terminal, behind });
+  if (startsOnFirstSend(place, prompted)) return `${does.slice(0, -1)}, on the first prompt you send from the new session that opens for it.`;
   // What the start row has room to add after the words it shares with Jev's suggestions.
   const more =
     place === 'background' && !behind
