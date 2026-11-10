@@ -324,6 +324,15 @@ happens on the board, and `--when-fired` only when a script runs `codealong sche
 To change one (its time, prompt, account, anything `add` takes), `codealong schedule edit
 "<name>" --at "daily 8:00"` changes only what you give it: never remove one and add it again,
 which gives it a new id and loses its runs and notes.
+A follow-up doesn't take your session off your user's list: your turn ends as Your turn and waits
+there until the run comes. When they told you to hold until then, and your reply leaves them
+nothing to read or decide meanwhile, take it off as the turn's last step. For a follow-up at a
+time, `codealong session snooze me <when>` with the time it runs (`tomorrow 2pm`, `fri 17:00`,
+`2026-11-03 15:00`): it's listed under Snoozed with when it's back, and is back then even if the
+run fails. For one that waits on something happening (`--watch`, `--on`, `--only-if`), `codealong
+session seen me --note "<what it waits on>"`: a snooze needs a time, and can keep what an earlier
+run brings out of sight until it. Neither is for a reply that reports work or asks them something, which is
+theirs to read first.
 What one you add sends goes as Codealong's, not as your user's, and the sessions it starts are
 yours (`Started by`). Watching costs no usage: prefer a command that prints what's new to a
 schedule that asks an agent every few minutes whether anything changed.

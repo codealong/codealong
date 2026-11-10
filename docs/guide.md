@@ -1787,7 +1787,10 @@ still to come) is listed apart under One-off, after the ones that go on running:
 follow-ups agents leave themselves (`codealong schedule add --to me --once`), which would
 otherwise crowd the schedules you keep. The next to come is first, and the ones with no time to
 say (a watch, an event, a script's fire, a paused one) after it, as they were made. Once it has
-run it moves to Finished.
+run it moves to Finished. A follow-up alone leaves its session in Your turn until the run comes,
+so the skill has an agent you told to hold until then take the session off your list too: snoozed
+until the time the follow-up runs, or, for one that waits on something happening, its turn marked
+seen (`codealong session seen me`), which the run's message undoes.
 
 **Finished.** A schedule that ran once, and one whose times are over (a `once` time that ran or
 was missed), folds under Finished at the end of the list, the latest to finish first, out of the
