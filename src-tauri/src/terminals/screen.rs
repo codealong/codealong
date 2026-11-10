@@ -1279,6 +1279,13 @@ mod tests {
         s.input(&mouse(MouseAction::Up, -64.0));
         let text = s.selection_text().unwrap();
         assert!(text.starts_with("line 0\n") && text.ends_with("line 18"), "{text:?}");
+        // Let go while it still has somewhere to scroll (a window that lost the drag says so):
+        // it stops there.
+        s.input(&mouse(MouseAction::Down, 20.0));
+        s.input(&mouse(MouseAction::Move, 80.0));
+        assert!(s.autoscrolling());
+        s.input(&mouse(MouseAction::Up, 80.0));
+        assert!(!s.autoscrolling(), "the button let go stops it");
         assert!(s.take_out().is_empty(), "nothing went to the program");
     }
 

@@ -78,6 +78,8 @@ export function TerminalView({ id, focusAt, onLeave, session }: TerminalViewProp
             control.current?.pointer(e.nativeEvent, 'down');
           }}
           onPointerUp={(e) => control.current?.pointer(e.nativeEvent, 'up')}
+          onPointerCancel={() => control.current?.letGo()}
+          onLostPointerCapture={() => control.current?.letGo()}
           onPointerMove={(e) => control.current?.pointer(e.nativeEvent, 'move')}
           onWheel={(e) => control.current?.wheel(e.nativeEvent)}
           onContextMenu={(e) => {

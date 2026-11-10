@@ -14,7 +14,10 @@ const hold = (what: string, answer: unknown = undefined) =>
 
 vi.mock('../../api', async (original) => ({
   ...(await original<typeof import('../../api')>()),
-  terminalInput: vi.fn((_id: string, inputs: TerminalInput[]) => hold(inputs.map((i) => (i.kind === 'key' ? i.text : i.kind)).join(''))),
+  terminalInput: vi.fn((_id: string, inputs: TerminalInput[]) => {
+    given.push(...inputs);
+    return hold(inputs.map((i) => (i.kind === 'key' ? i.text : i.kind)).join(''));
+  }),
   terminalPaste: vi.fn((_id: string, text: string, force: boolean) => hold(`paste:${text}${force ? '!' : ''}`, !/\n/.test(text) || force)),
   terminalCopy: vi.fn(() => hold('copy', null)),
   terminalResize: vi.fn((_id: string, size: { cols: number; rows: number }) => {
@@ -23,6 +26,8 @@ vi.mock('../../api', async (original) => ({
   }),
 }));
 const resizes: string[] = [];
+/** Every input sent, as it went. */
+const given: TerminalInput[] = [];
 
 const { TerminalController } = await import('./controller');
 
@@ -73,6 +78,29 @@ describe('what a window sends a terminal', () => {
     await answer();
     expect(sent).toEqual(['x', 'select', 'copy']);
     await answer();
+  });
+});
+
+describe('a drag the window loses', () => {
+  it('is let go where the pointer last was, so the terminal stops scrolling on past its edge', async () => {
+    sent.length = 0;
+    held.length = 0;
+    given.length = 0;
+    const canvas = { getBoundingClientRect: () => ({ left: 10, top: 10 }) } as HTMLCanvasElement;
+    const c = new TerminalController('t', {} as HTMLElement, canvas, { onLeave: () => {}, onUnsafePaste: () => {}, onError: () => {}, onPointer: () => {} });
+    const at = (y: number, buttons: number) => ({ button: 0, buttons, clientX: 30, clientY: y, shiftKey: false, ctrlKey: false, altKey: false, metaKey: false }) as PointerEvent;
+    c.pointer(at(40, 1), 'down');
+    c.pointer(at(-20, 1), 'move');
+    // Folding the drawer with the button still down.
+    c.stop();
+    for (let i = 0; i < 3; i++) await answer();
+    const mouse = given.filter((i) => i.kind === 'mouse');
+    expect(mouse.map((m) => m.kind === 'mouse' && `${m.action}:${m.button ?? ''}@${m.y}`)).toEqual(['down:left@30', 'move:@-30', 'up:left@-30']);
+    // Let go as it should be, there's nothing more to let go of.
+    given.length = 0;
+    c.letGo();
+    await answer();
+    expect(given).toEqual([]);
   });
 });
 

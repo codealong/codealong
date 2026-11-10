@@ -93,6 +93,9 @@ export class TerminalController {
   private theme: TerminalTheme | null = null;
   private wheelRest = 0;
   private pressed: { x: number; y: number; link: string | null } | null = null;
+  /** Where the pointer is while the left button's down in the terminal: a drag the terminal
+   *  takes on past its edge (screen.rs `autoscroll`) until it hears the button let go. */
+  private dragging: { x: number; y: number } | null = null;
   private stopped = false;
 
   constructor(
@@ -149,6 +152,9 @@ export class TerminalController {
   }
 
   stop(): void {
+    // A drag the view goes away in the middle of (the drawer folded with the button down) is let
+    // go of, or the terminal would scroll on through its scrollback.
+    this.letGo();
     this.stopped = true;
     for (const c of this.cleanups) c();
     for (const t of this.timers) window.clearInterval(t);
@@ -369,10 +375,21 @@ export class TerminalController {
       return;
     }
     if (action === 'up') this.pressed = null;
+    if (button === 'left' && action !== 'move') this.dragging = action === 'down' ? p : null;
+    else if (action === 'move' && this.dragging) this.dragging = p;
     // Moves only matter while a button is held, or to a program that follows the pointer.
     if (action === 'move' && !e.buttons && !this.grid.mouse) return;
     if (button === 'right' && action !== 'move' && !(this.grid.mouse && !e.shiftKey)) return;
     this.send({ kind: 'mouse', action, button: action === 'move' ? undefined : button, x: p.x, y: p.y, mods: modsOf(e) });
+  }
+
+  /** The page lost the drag the left button began (the pointer cancelled, or the view going): the
+   *  terminal is told the button went up where the pointer last was, as it would be. */
+  letGo(): void {
+    const at = this.dragging;
+    if (!at) return;
+    this.dragging = null;
+    this.send({ kind: 'mouse', action: 'up', button: 'left', x: at.x, y: at.y, mods: {} });
   }
 
   wheel(e: WheelEvent): void {
