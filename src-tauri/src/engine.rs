@@ -142,32 +142,17 @@ pub enum Msg {
     /// then, and Chrome's profiles.
     ChromeProfile(String, Option<i64>, Option<String>, Vec<chrome::Profile>),
     RefreshUsage,
-    /// A move of a session a usage limit stopped, and why it didn't work if it didn't.
-    LimitMoved(Option<String>),
-    /// Sessions told their PR was approved (nudges.rs), and which weren't and why if any.
-    Nudged(Option<String>),
+    /// How something Codealong does by itself in the background went (`Handle::went`): why it
+    /// didn't work if it didn't, and which didn't if it was several.
+    Went(Trouble, Option<String>),
     /// The PRs another of your devices runs a session on (nudges.rs `running_elsewhere`).
     RunningElsewhere(std::collections::BTreeSet<String>),
     /// Your other machines that share automations, as their feeds said (shared.rs).
     Machines(crate::shared::Machines),
-    /// A session told what a command you ran for it printed (terminal.rs `report_ended`), and why
-    /// it wasn't if it wasn't.
-    RunReported(Option<String>),
-    /// Sessions told to carry on after a lost connection (reconnect.rs), and which weren't and
-    /// why if any.
-    Continued(Option<String>),
-    /// Reviewers asked to look again at a PR of yours after its fixes (rerequest.rs), and which
-    /// weren't and why if any.
-    Rerequested(Option<String>),
     /// Sessions started in tmux while the screen was locked shown in your terminal once it
     /// wasn't (launch.rs `show_unlocked`): which weren't and why if any, and whether the screen
     /// was locked again before they all were.
     ShownUnlocked(Option<String>, bool),
-    /// Sessions told what their helpers did (helpers.rs), and which weren't and why if any.
-    Reported(Option<String>),
-    /// Messages held for sessions that waited on their user went (outbox.rs), and which were
-    /// dropped and why if any.
-    HeldSent(Option<String>),
     /// A job of the automatic reviews went (autoreview.rs), and why it didn't if it didn't:
     /// reviews.json is read again at once.
     Reviewed(Option<autoreview::Said>),
@@ -468,16 +453,10 @@ impl Handle {
         let _ = self.tx.send(Msg::RefreshUsage);
     }
 
-    /// How moving a session a usage limit stopped went, when Codealong moved it itself
-    /// (limits.rs): a failure is a notice until a later move works.
-    pub fn limit_moved(&self, result: std::result::Result<(), String>) {
-        let _ = self.tx.send(Msg::LimitMoved(result.err()));
-    }
-
-    /// How telling sessions their PR was approved went (nudges.rs): a failure is a notice until
-    /// a later nudge works.
-    pub fn nudged(&self, result: std::result::Result<(), String>) {
-        let _ = self.tx.send(Msg::Nudged(result.err()));
+    /// How something Codealong does by itself in the background went (`Trouble` lists them, with
+    /// what does each): a failure is a notice until a later one works.
+    pub fn went(&self, what: Trouble, result: std::result::Result<(), String>) {
+        let _ = self.tx.send(Msg::Went(what, result.err()));
     }
 
     /// What your other devices run, as their latest boards say (peers.rs): the PRs a session runs
@@ -491,36 +470,6 @@ impl Handle {
     /// them reviews each PR that asks for yours (autoreview.rs `reviewer_of`).
     pub fn peer_machines(&self, machines: crate::shared::Machines) {
         let _ = self.tx.send(Msg::Machines(machines));
-    }
-
-    /// How telling a session what a command you ran for it printed went (terminal.rs
-    /// `report_ended`): a failure is a notice until a later one works.
-    pub fn run_reported(&self, result: std::result::Result<(), String>) {
-        let _ = self.tx.send(Msg::RunReported(result.err()));
-    }
-
-    /// How telling sessions to carry on after a lost connection or a usage limit went
-    /// (reconnect.rs): a failure is a notice until a later one works.
-    pub fn continued(&self, result: std::result::Result<(), String>) {
-        let _ = self.tx.send(Msg::Continued(result.err()));
-    }
-
-    /// How asking reviewers to look again at PRs of yours after their fixes went (rerequest.rs):
-    /// a failure is a notice until a later one works.
-    pub fn rerequested(&self, result: std::result::Result<(), String>) {
-        let _ = self.tx.send(Msg::Rerequested(result.err()));
-    }
-
-    /// How telling sessions what their helpers did went (helpers.rs): a failure is a notice
-    /// until a later one works.
-    pub fn reported(&self, result: std::result::Result<(), String>) {
-        let _ = self.tx.send(Msg::Reported(result.err()));
-    }
-
-    /// How sending messages held for sessions that waited on their user went (outbox.rs): one
-    /// dropped is a notice until a later one goes.
-    pub fn held_sent(&self, result: std::result::Result<(), String>) {
-        let _ = self.tx.send(Msg::HeldSent(result.err()));
     }
 
     /// How a job of the automatic reviews went (autoreview.rs): a failure is a notice until a
@@ -755,6 +704,87 @@ impl Handle {
             self.mark_seen(vec![key]);
         }
         Ok(())
+    }
+}
+
+/// What can go wrong in the background that the engine says as a notice until it goes right
+/// again (`Engine::notices`): each has one sentence at most, the last that went wrong with it.
+/// A new one is a variant here, with its notice's key and title in `Trouble::notice` and its
+/// place among the notices in `Engine::notices`. What finds it wrong off the engine's thread
+/// tells the engine with `Handle::went`.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub enum Trouble {
+    /// config.toml doesn't read, couldn't be saved, or names a sound that isn't there.
+    Config,
+    /// The folders that couldn't be watched.
+    Watch,
+    /// Why todos.json couldn't be read or saved.
+    Todos,
+    /// Why the lock on todos.json couldn't be had, when a change was turned away for it.
+    TodosLock,
+    /// Why state.json couldn't be read or saved.
+    State,
+    /// Why pr-links.json didn't read.
+    PrLinks,
+    /// Why previews.json didn't read.
+    Previews,
+    /// Why worktrees.json didn't read.
+    Reusable,
+    /// Why moving a session a usage limit stopped didn't work, when Codealong moved it itself
+    /// (limits.rs).
+    Limits,
+    /// Why a session wasn't told its PR was approved, when Codealong sends that itself
+    /// (nudges.rs).
+    Nudges,
+    /// Why a session wasn't told what a command you ran for it printed (terminal.rs
+    /// `report_ended`).
+    TerminalRuns,
+    /// Why a session wasn't told to carry on after a lost connection or a usage limit
+    /// (reconnect.rs).
+    Reconnect,
+    /// Why a reviewer wasn't asked to look again at a PR of yours after its fixes
+    /// (rerequest.rs).
+    Rerequests,
+    /// Why a session started while the screen was locked didn't open in your terminal once it
+    /// wasn't (launch.rs `show_unlocked`).
+    Unlocked,
+    /// Why a session wasn't told what its helper did (helpers.rs).
+    Helpers,
+    /// Which messages held for sessions that waited on their user were dropped, and why
+    /// (outbox.rs).
+    HeldMessages,
+    /// Why the last emblem drawn wasn't, until one is.
+    Emblems,
+}
+
+impl Trouble {
+    #[cfg(test)]
+    const ALL: [Trouble; 17] = {
+        use Trouble::*;
+        [Config, Watch, Todos, TodosLock, State, PrLinks, Previews, Reusable, Limits, Nudges, TerminalRuns, Reconnect, Rerequests, Unlocked, Helpers, HeldMessages, Emblems]
+    };
+
+    /// Its notice's key, which the windows know a notice by, and its title.
+    fn notice(self) -> (&'static str, &'static str) {
+        match self {
+            Trouble::Config => ("config", "config.toml has a problem"),
+            Trouble::Watch => ("watch", "Live updates are off"),
+            Trouble::Todos => ("todos", "todos.json has a problem"),
+            Trouble::TodosLock => ("todos-lock", "Todos can't be changed"),
+            Trouble::State => ("state", "state.json has a problem"),
+            Trouble::PrLinks => ("pr-links", "PR links weren't read"),
+            Trouble::Previews => ("previews", "Previews weren't read"),
+            Trouble::Reusable => ("reusable", "Reusable worktrees weren't read"),
+            Trouble::Limits => ("limits", "A session didn't move"),
+            Trouble::Nudges => ("nudges", "A session wasn't told its PR was approved"),
+            Trouble::TerminalRuns => ("terminal-runs", "A session wasn't told what a command printed"),
+            Trouble::Reconnect => ("reconnect", "A session wasn't told to carry on"),
+            Trouble::Rerequests => ("rerequests", "A reviewer wasn't asked to look again"),
+            Trouble::Unlocked => ("unlocked", "A session didn't open in your terminal"),
+            Trouble::Helpers => ("helpers", "A session wasn't told what its helper did"),
+            Trouble::HeldMessages => ("held-messages", "A message held for a session wasn't sent"),
+            Trouble::Emblems => ("emblems", "An emblem wasn't drawn"),
+        }
     }
 }
 
@@ -1232,10 +1262,9 @@ struct Engine {
     /// config.toml as last read or written (`None` when there was none or it didn't read), so an
     /// edit the watcher didn't hear can be told from what's loaded.
     config_text: Option<String>,
-    config_warning: Option<String>,
+    /// What's going wrong in the background, each with why, until it goes right again.
+    troubles: BTreeMap<Trouble, String>,
     seen: SeenState,
-    /// Why state.json couldn't be read or saved.
-    state_warning: Option<String>,
     /// state.json is there but doesn't read: the engine runs on what it has in memory (a first
     /// run's state at launch) and writes nothing over the file until it's fixed or deleted.
     state_unreadable: bool,
@@ -1243,13 +1272,9 @@ struct Engine {
     todos: TodoStore,
     /// todos.json as last read or written, so the watcher can tell someone else's edit from ours.
     todos_text: String,
-    /// Why todos.json couldn't be read or saved.
-    todos_warning: Option<String>,
     /// todos.json is there but doesn't read as a todo list: nothing is written over it, and
     /// changes are turned away, until it's fixed or deleted.
     todos_unreadable: bool,
-    /// Why the lock on todos.json couldn't be had, when a change was turned away for it.
-    todos_lock_warning: Option<String>,
     checkouts: Vec<(String, Checkout)>,
     seeds: Vec<LaneSeed>,
     /// `<main>/.git/worktrees/<name>` → the linked worktree's path.
@@ -1298,7 +1323,6 @@ struct Engine {
     chrome_lookups: HashMap<String, (Option<i64>, Instant)>,
     /// Links to PRs made or taken away by hand (`pr-links.json`).
     pr_store: prlinks::LinkStore,
-    pr_links_warning: Option<String>,
     /// Where the automatic reviews stand (`reviews.json`), for the PRs' cards; autoreview.rs
     /// keeps the file.
     reviews: autoreview::Store,
@@ -1312,31 +1336,12 @@ struct Engine {
     schedules_problem: Option<String>,
     /// Worktrees' preview URLs (`previews.json`) and the servers in their folders.
     previews: board::Previews,
-    previews_warning: Option<String>,
     /// Worktrees marked reusable or not by hand (`worktrees.json`), by path.
     reusable: HashMap<String, bool>,
-    reusable_warning: Option<String>,
-    /// Why moving a session a usage limit stopped didn't work, when Codealong moved it itself.
-    limit_move_warning: Option<String>,
-    /// Why a session wasn't told its PR was approved, when Codealong sends that itself.
-    nudge_warning: Option<String>,
     /// The PRs another of your devices runs a session on (`Handle::peer_lanes`).
     running_elsewhere: std::collections::BTreeSet<String>,
     /// Your machines that share automations (`Handle::peer_machines`).
     machines: std::sync::Arc<crate::shared::Machines>,
-    /// Why a session wasn't told what a command you ran for it printed.
-    run_report_warning: Option<String>,
-    continue_warning: Option<String>,
-    /// Why a reviewer wasn't asked to look again at a PR of yours after its fixes.
-    rerequest_warning: Option<String>,
-    /// Why a session started while the screen was locked didn't open in your terminal once it
-    /// wasn't.
-    show_warning: Option<String>,
-    report_warning: Option<String>,
-    /// Which messages held for sessions that waited on their user were dropped, and why.
-    held_warning: Option<String>,
-    /// Why the last emblem drawn wasn't, until one is.
-    emblem_warning: Option<String>,
     /// The files changed in the background whose last change couldn't be made, by name with
     /// why (`store::problems`), as of the last board.
     store_warnings: Vec<(String, String)>,
@@ -1363,7 +1368,6 @@ struct Engine {
     /// what it would ask in the background comes back.
     passing: bool,
     watcher: Option<RecommendedWatcher>,
-    watch_warning: Option<String>,
     /// Account folders that didn't exist at the last watch: a new account before sign-in.
     missing_homes: Vec<PathBuf>,
     /// Usage by account for the harnesses whose usage is asked for in the background
@@ -1462,15 +1466,12 @@ impl Engine {
             board,
             cfg: Config::default(),
             config_text: None,
-            config_warning: None,
+            troubles: BTreeMap::new(),
             seen: SeenState::default(),
-            state_warning: None,
             state_unreadable: false,
             todos: TodoStore::default(),
             todos_text: String::new(),
-            todos_warning: None,
             todos_unreadable: false,
-            todos_lock_warning: None,
             checkouts: Vec::new(),
             seeds: Vec::new(),
             gitdir_to_lane: HashMap::new(),
@@ -1493,27 +1494,15 @@ impl Engine {
             chrome_profiles: Vec::new(),
             chrome_lookups: HashMap::new(),
             pr_store: prlinks::LinkStore::default(),
-            pr_links_warning: None,
             reviews: autoreview::Store::default(),
             review_warning: None,
             schedules: crate::schedules::File::default(),
             schedule_runs: crate::schedules::Runs::default(),
             schedules_problem: None,
             previews: board::Previews::default(),
-            previews_warning: None,
             reusable: HashMap::new(),
-            reusable_warning: None,
-            limit_move_warning: None,
-            nudge_warning: None,
             running_elsewhere: Default::default(),
             machines: Default::default(),
-            run_report_warning: None,
-            continue_warning: None,
-            rerequest_warning: None,
-            show_warning: None,
-            emblem_warning: None,
-            report_warning: None,
-            held_warning: None,
             store_warnings: Vec::new(),
             servers: None,
             git: HashMap::new(),
@@ -1527,7 +1516,6 @@ impl Engine {
             github,
             passing: false,
             watcher: None,
-            watch_warning: None,
             missing_homes: Vec::new(),
             usage: HashMap::new(),
             usage_inflight: false,
@@ -1694,7 +1682,7 @@ impl Engine {
         const PER_BOARD: usize = 20;
         let kind = self.cfg.emblems.kind;
         if kind != EmblemKind::Drawn {
-            self.emblem_warning = None;
+            self.set_trouble(Trouble::Emblems, None);
         }
         if kind == EmblemKind::Off || self.passing {
             return false;
@@ -1738,7 +1726,7 @@ impl Engine {
     fn draw_emblem(&mut self, board: &Board, key: String) {
         let Some(subject) = crate::emblems::subject(board, &key) else { return };
         let Some(account) = config::drawing_account(&self.cfg).cloned() else {
-            self.emblem_warning = Some("No account can draw emblems: add a Codex account in Settings › Accounts, or have Jev pick emoji in Settings › General.".into());
+            self.set_trouble(Trouble::Emblems, Some("No account can draw emblems: add a Codex account in Settings › Accounts, or have Jev pick emoji in Settings › General.".into()));
             return;
         };
         let prompt = crate::emblems::draw_prompt(subject, &self.emblems.taken(&key, config::EmblemKind::Drawn), &self.cfg.emblems.prompt);
@@ -1759,11 +1747,11 @@ impl Engine {
         match drawn {
             Ok((picture, name)) => {
                 self.emblems.drawn(key, picture, name, now);
-                self.emblem_warning = None;
+                self.set_trouble(Trouble::Emblems, None);
             }
             Err(why) => {
                 self.emblems.draw_failed(key, now);
-                self.emblem_warning = Some(why);
+                self.set_trouble(Trouble::Emblems, Some(why));
             }
         }
         self.dirty = true;
@@ -2101,7 +2089,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             let _lock = self.lock_todos()?;
             self.reload_todos();
             if self.todos_unreadable {
-                return Err(self.todos_warning.clone().unwrap_or_default());
+                return Err(self.trouble(Trouble::Todos).cloned().unwrap_or_default());
             }
             let (labels, ids) = todos::named(&self.todos.labels, add, now_ms());
             if labels != self.todos.labels {
@@ -2504,16 +2492,12 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                     self.mcp.on_refresh();
                     self.read_mcp();
                 }
-                Ok(Msg::LimitMoved(why)) => {
-                    self.limit_move_warning = why;
+                Ok(Msg::Went(what, why)) => {
+                    self.set_trouble(what, why);
                     self.dirty = true;
                 }
                 Ok(Msg::PrLinksChanged) => {
                     self.load_pr_links();
-                    self.dirty = true;
-                }
-                Ok(Msg::Nudged(why)) => {
-                    self.nudge_warning = why;
                     self.dirty = true;
                 }
                 // Another device's board comes often; only what it runs on PRs is looked at.
@@ -2527,29 +2511,9 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                     self.dirty = true;
                 }
                 Ok(Msg::Machines(_)) => {}
-                Ok(Msg::RunReported(why)) => {
-                    self.run_report_warning = why;
-                    self.dirty = true;
-                }
-                Ok(Msg::Continued(why)) => {
-                    self.continue_warning = why;
-                    self.dirty = true;
-                }
-                Ok(Msg::Rerequested(why)) => {
-                    self.rerequest_warning = why;
-                    self.dirty = true;
-                }
                 Ok(Msg::ShownUnlocked(why, deferred)) => {
                     self.tab_looks.on_looked(deferred);
-                    self.show_warning = why;
-                    self.dirty = true;
-                }
-                Ok(Msg::Reported(why)) => {
-                    self.report_warning = why;
-                    self.dirty = true;
-                }
-                Ok(Msg::HeldSent(why)) => {
-                    self.held_warning = why;
+                    self.set_trouble(Trouble::Unlocked, why);
                     self.dirty = true;
                 }
                 Ok(Msg::Reviewed(why)) => {
@@ -2839,19 +2803,19 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             Ok(Some(cfg)) => {
                 // A sound that isn't there reads fine and would only be silent, so it's said here,
                 // as Settings says it when it saves.
-                self.config_warning = config::check_sounds(&cfg.sounds).err();
+                self.set_trouble(Trouble::Config, config::check_sounds(&cfg.sounds).err());
                 self.cfg = cfg;
             }
             Ok(None) => {
                 let cfg = first_run_config();
                 match config::write(&cfg) {
                     Ok(text) => self.config_text = Some(text),
-                    Err(e) => self.config_warning = Some(format!("Couldn't save config.toml: {e}")),
+                    Err(e) => self.set_trouble(Trouble::Config, Some(format!("Couldn't save config.toml: {e}"))),
                 }
                 self.cfg = cfg;
             }
             Err(e) => {
-                self.config_warning = Some(format!("{e:#}. Codealong is using the last good settings."));
+                self.set_trouble(Trouble::Config, Some(format!("{e:#}. Codealong is using the last good settings.")));
                 if self.cfg.accounts.is_empty() {
                     self.cfg.accounts = detect::first_run_accounts();
                 }
@@ -3036,13 +3000,13 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
     }
 
     fn load_previews(&mut self) {
-        if let Some(store) = read_or_warn(previews::load(), &mut self.previews_warning) {
+        if let Some(store) = self.read_or_warn(Trouble::Previews, previews::load()) {
             self.previews.set = store.previews;
         }
     }
 
     fn load_reusable(&mut self) {
-        if let Some(store) = read_or_warn(reusable::load(), &mut self.reusable_warning) {
+        if let Some(store) = self.read_or_warn(Trouble::Reusable, reusable::load()) {
             self.reusable = store.by_path();
         }
     }
@@ -3153,6 +3117,26 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         }
     }
 
+    /// Why `what` is going wrong, while it is.
+    fn trouble(&self, what: Trouble) -> Option<&String> {
+        self.troubles.get(&what)
+    }
+
+    /// `what` went wrong, with why, or went right, with none.
+    fn set_trouble(&mut self, what: Trouble, why: Option<String>) {
+        match why {
+            Some(why) => self.troubles.insert(what, why),
+            None => self.troubles.remove(&what),
+        };
+    }
+
+    /// What one of the stores' files said, or none, with why as `what`'s trouble for the board
+    /// (`Engine::notices`): what was read before stays as it is until the file reads again.
+    fn read_or_warn<T>(&mut self, what: Trouble, read: Result<T>) -> Option<T> {
+        self.set_trouble(what, read.as_ref().err().map(|e| format!("{e:#}")));
+        read.ok()
+    }
+
     /// What isn't working in the background, as the windows say it: a few words for each, and
     /// the whole of it.
     fn notices(&self) -> Vec<Notice> {
@@ -3162,26 +3146,30 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         let jev_usage = crate::ledger::jev_problem();
         let review = self.review_warning.as_ref();
         let said = |key: &str, title: &str, text: Option<&String>| Some(Notice { key: key.into(), title: title.into(), text: text?.clone(), ..Default::default() });
+        let trouble = |what: Trouble| {
+            let (key, title) = what.notice();
+            said(key, title, self.trouble(what))
+        };
         [
-            said("config", "config.toml has a problem", self.config_warning.as_ref()),
+            trouble(Trouble::Config),
             self.github.notice(),
-            said("watch", "Live updates are off", self.watch_warning.as_ref()),
-            said("todos", "todos.json has a problem", self.todos_warning.as_ref()),
-            said("todos-lock", "Todos can't be changed", self.todos_lock_warning.as_ref()),
-            said("state", "state.json has a problem", self.state_warning.as_ref()),
-            said("pr-links", "PR links weren't read", self.pr_links_warning.as_ref()),
-            said("previews", "Previews weren't read", self.previews_warning.as_ref()),
-            said("reusable", "Reusable worktrees weren't read", self.reusable_warning.as_ref()),
+            trouble(Trouble::Watch),
+            trouble(Trouble::Todos),
+            trouble(Trouble::TodosLock),
+            trouble(Trouble::State),
+            trouble(Trouble::PrLinks),
+            trouble(Trouble::Previews),
+            trouble(Trouble::Reusable),
             said("held", "Waiting to open a folder", held.as_ref()),
-            said("limits", "A session didn't move", self.limit_move_warning.as_ref()),
-            said("nudges", "A session wasn't told its PR was approved", self.nudge_warning.as_ref()),
-            said("terminal-runs", "A session wasn't told what a command printed", self.run_report_warning.as_ref()),
-            said("reconnect", "A session wasn't told to carry on", self.continue_warning.as_ref()),
-            said("rerequests", "A reviewer wasn't asked to look again", self.rerequest_warning.as_ref()),
-            said("unlocked", "A session didn't open in your terminal", self.show_warning.as_ref()),
-            said("helpers", "A session wasn't told what its helper did", self.report_warning.as_ref()),
-            said("held-messages", "A message held for a session wasn't sent", self.held_warning.as_ref()),
-            said("emblems", "An emblem wasn't drawn", self.emblem_warning.as_ref()),
+            trouble(Trouble::Limits),
+            trouble(Trouble::Nudges),
+            trouble(Trouble::TerminalRuns),
+            trouble(Trouble::Reconnect),
+            trouble(Trouble::Rerequests),
+            trouble(Trouble::Unlocked),
+            trouble(Trouble::Helpers),
+            trouble(Trouble::HeldMessages),
+            trouble(Trouble::Emblems),
             said("reviews", "A pull request wasn't reviewed", review.map(|s| &s.text)).map(|n| Notice { review_again: review.and_then(|s| s.again.clone()), ..n }),
             said("team-files", "A repo's team settings aren't used", team_files.as_ref()),
             said("ledger", "Usage is missing some sessions", ledger.as_ref()),
@@ -3389,7 +3377,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                     } else {
                         // Deleted: what's in memory is the state from here on.
                         self.state_unreadable = false;
-                        self.state_warning = None;
+                        self.set_trouble(Trouble::State, None);
                     }
                     if !self.state_unreadable {
                         self.remember_accounts();
@@ -3702,7 +3690,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
     }
 
     fn load_pr_links(&mut self) {
-        if let Some(store) = read_or_warn(prlinks::load(), &mut self.pr_links_warning) {
+        if let Some(store) = self.read_or_warn(Trouble::PrLinks, prlinks::load()) {
             self.pr_store = store;
         }
     }
@@ -3758,7 +3746,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         let mut watcher = match notify::recommended_watcher(handler) {
             Ok(w) => w,
             Err(e) => {
-                self.watch_warning = Some(format!("Live updates are off: {e}"));
+                self.set_trouble(Trouble::Watch, Some(format!("Live updates are off: {e}")));
                 return;
             }
         };
@@ -3791,7 +3779,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         }
         // What a path's watch came to, `add` has said.
         let _ = adding.commit();
-        self.watch_warning = (failed > 0).then(|| format!("Couldn't watch {failed} folders; their lanes update every 10 seconds."));
+        self.set_trouble(Trouble::Watch, (failed > 0).then(|| format!("Couldn't watch {failed} folders; their lanes update every 10 seconds.")));
         self.watcher = Some(watcher);
     }
 
@@ -3823,7 +3811,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
     /// state.json, read again. One that doesn't read is left alone: the engine goes on with what
     /// it has in memory, a first run's state at launch, and says so (`notices`).
     fn load_state(&mut self) {
-        let read = read_or_warn(SeenState::load(), &mut self.state_warning);
+        let read = self.read_or_warn(Trouble::State, SeenState::load());
         self.state_unreadable = read.is_none();
         match read {
             Some(state) => self.seen = state,
@@ -3831,7 +3819,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                 if self.seen.first_run == 0 {
                     self.seen = SeenState::fresh();
                 }
-                if let Some(why) = &mut self.state_warning {
+                if let Some(why) = self.troubles.get_mut(&Trouble::State) {
                     why.push_str(" What you pin, archive, snooze and mark seen meanwhile lasts only until Codealong quits.");
                 }
             }
@@ -3844,8 +3832,8 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             return;
         }
         let warning = self.seen.save().err().map(|e| format!("Couldn't save state.json: {e:#}"));
-        if warning != self.state_warning {
-            self.state_warning = warning;
+        if warning.as_ref() != self.trouble(Trouble::State) {
+            self.set_trouble(Trouble::State, warning);
             self.dirty = true;
         }
     }
@@ -3856,8 +3844,8 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
     fn lock_todos(&mut self) -> std::result::Result<todos::Lock, String> {
         let lock = todos::lock().map_err(|e| format!("{e:#}"));
         let warning = lock.as_ref().err().cloned();
-        if warning != self.todos_lock_warning {
-            self.todos_lock_warning = warning;
+        if warning.as_ref() != self.trouble(Trouble::TodosLock) {
+            self.set_trouble(Trouble::TodosLock, warning);
             self.dirty = true;
         }
         lock
@@ -3873,7 +3861,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         self.reload_todos();
         let changed = match self.todos_unreadable {
             // A change now would be lost when the file is fixed, so it's turned away.
-            true => Err(self.todos_warning.clone().unwrap_or_default()),
+            true => Err(self.trouble(Trouble::Todos).cloned().unwrap_or_default()),
             false => self.todos.apply(op, &lanes, now_ms()).map_err(|e| format!("{e:#}")),
         }?;
         if changed {
@@ -3903,7 +3891,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
     }
 
     fn load_todos(&mut self) {
-        let read = read_or_warn(todos::load(), &mut self.todos_warning);
+        let read = self.read_or_warn(Trouble::Todos, todos::load());
         self.todos_unreadable = read.is_none();
         if let Some((store, text)) = read {
             self.todos = store;
@@ -3931,9 +3919,9 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         match todos::save(&self.todos) {
             Ok(text) => {
                 self.todos_text = text;
-                self.todos_warning = None;
+                self.set_trouble(Trouble::Todos, None);
             }
-            Err(e) => self.todos_warning = Some(format!("Couldn't save todos.json: {e:#}")),
+            Err(e) => self.set_trouble(Trouble::Todos, Some(format!("Couldn't save todos.json: {e:#}"))),
         }
     }
 
@@ -4252,13 +4240,6 @@ impl Visitors {
         self.by_lane = found;
         true
     }
-}
-
-/// What one of the stores' files said, or none, with why as its warning for the board
-/// (`Engine::notices`): what was read before stays as it is until the file reads again.
-fn read_or_warn<T>(read: Result<T>, warning: &mut Option<String>) -> Option<T> {
-    *warning = read.as_ref().err().map(|e| format!("{e:#}"));
-    read.ok()
 }
 
 /// Says which folders the scan has been waiting a while to open: most likely macOS is asking
@@ -4916,8 +4897,8 @@ mod tests {
 
         let (tx, _rx) = channel();
         let mut engine = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
-        engine.config_warning = Some("config.toml doesn't read.".into());
-        engine.watch_warning = Some("Couldn't watch 2 folders; their lanes update every 10 seconds.".into());
+        engine.set_trouble(Trouble::Config, Some("config.toml doesn't read.".into()));
+        engine.set_trouble(Trouble::Watch, Some("Couldn't watch 2 folders; their lanes update every 10 seconds.".into()));
         let keys = |e: &Engine| e.notices().into_iter().map(|n| n.key).collect::<Vec<_>>();
         assert_eq!(keys(&engine), ["config", "watch"]);
 
@@ -4932,6 +4913,33 @@ mod tests {
         // The next glance that's answered ends it.
         engine.on_github(ghpoll::Event::Glance(Ok(github::Glance::default())));
         assert_eq!(keys(&engine), ["config", "watch"]);
+    }
+
+    /// Whatever goes wrong in the background is a notice of its own, with the key and the place
+    /// it always had, until it goes right again.
+    #[test]
+    fn each_trouble_is_a_notice_until_it_goes_right() {
+        use super::*;
+
+        let (tx, _rx) = channel();
+        let mut engine = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
+        let keys = |e: &Engine| e.notices().into_iter().map(|n| n.key).collect::<Vec<_>>();
+        assert!(keys(&engine).is_empty());
+        for what in Trouble::ALL {
+            engine.set_trouble(what, Some(format!("{what:?} went wrong.")));
+            let said = engine.notices();
+            assert_eq!(said.len(), 1, "{what:?}");
+            assert_eq!((said[0].key.as_str(), said[0].title.as_str(), said[0].text.clone()), (what.notice().0, what.notice().1, format!("{what:?} went wrong.")));
+            engine.set_trouble(what, None);
+            assert!(keys(&engine).is_empty(), "{what:?}");
+        }
+        for what in Trouble::ALL {
+            engine.set_trouble(what, Some("It went wrong.".into()));
+        }
+        assert_eq!(
+            keys(&engine),
+            ["config", "watch", "todos", "todos-lock", "state", "pr-links", "previews", "reusable", "limits", "nudges", "terminal-runs", "reconnect", "rerequests", "unlocked", "helpers", "held-messages", "emblems"]
+        );
     }
 
     /// A file noted in the background (where a session came from, a side conversation) has
