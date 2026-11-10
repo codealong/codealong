@@ -135,6 +135,9 @@ mod util;
 mod view;
 mod views;
 mod waiting;
+// Holds src/types.ts to the model: tests only.
+#[cfg(test)]
+mod wiretypes;
 mod zoom;
 
 use tauri::{Emitter, Manager, State};
