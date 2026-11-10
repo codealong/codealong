@@ -1156,10 +1156,6 @@ fn waits_to_be_allowed(s: &Session) -> bool {
 fn next(r: &mut Round, board: &Board, pr: &PrItem, head: &str, wanted: bool, now: i64) -> Next {
     let working = |k: &str| board.session(k).is_some_and(|(_, s)| s.status == Status::Working);
     let to_allow = |k: &str| board.session(k).is_some_and(|(_, s)| waits_to_be_allowed(s));
-    // What was left to you is offered again once its session has gone on from it.
-    for p in r.parts.iter_mut().filter(|p| p.left) {
-        p.left = p.session.as_deref().is_some_and(to_allow);
-    }
     if head != r.head && wanted && !r.parts.iter().filter(|p| p.reviewing()).any(|p| p.pending.is_some() || p.session.as_deref().is_some_and(working)) {
         // A reviewer waiting on what its harness allows a review (a web search) is allowed it
         // before its round makes way: its turn goes on, and the next round is typed into it as
@@ -1306,6 +1302,12 @@ impl Reviewer {
                         p.began = Some(now);
                         changed = true;
                     }
+                }
+                // What was left to you is offered again once its session is seen gone on from it,
+                // here on every board: `next` isn't asked for a while after an offer (`next_at`),
+                // and the session may be at its next prompt by then.
+                if p.left && !p.session.as_deref().is_some_and(|k| board.session(k).is_some_and(|(_, s)| waits_to_be_allowed(s))) {
+                    p.left = false;
                 }
             }
         }
@@ -4155,12 +4157,24 @@ mod tests {
         let job = r.due(&waits(HEAD), &on(), NOW + 6).pop().unwrap();
         r.told(&job, Went::Allowed(None), NOW + 7).unwrap();
         assert!(r.store.prs["o/r#7"].rounds[0].parts[0].left);
-        // You answered it there, and it works on.
+        // You answered it there, and it works on, seen before the round is next looked at: by
+        // then it's at a web search, with new commits in.
         let works = board(vec![pr(7, HEAD)], vec![session(Status::Working, NOW + 8)]);
-        assert!(r.due(&works, &on(), NOW + 8 + RETRY_MS).is_empty());
+        assert!(r.due(&works, &on(), NOW + 8).is_empty());
         assert!(!r.store.prs["o/r#7"].rounds[0].parts[0].left);
+        assert!(r.due(&waits(NEXT), &on(), NOW + 9).is_empty(), "left a while after the offer");
         assert_eq!(kinds(&r.due(&waits(NEXT), &on(), NOW + 9 + RETRY_MS)), [format!("allow 7 in {S}")]);
         assert_eq!(r.store.prs["o/r#7"].rounds[0].stage, ReviewStage::Reviewing);
+
+        // Still at the prompt left to you when the commits come: its round makes way.
+        let mut r = Reviewer::default();
+        let jobs = r.due(&board(vec![pr(7, HEAD)], vec![]), &on(), NOW);
+        r.told(&jobs[0], Went::Started(vec![started(AUTO, S, NOW)]), NOW).unwrap();
+        let job = r.due(&waits(HEAD), &on(), NOW + 6).pop().unwrap();
+        r.told(&job, Went::Allowed(None), NOW + 7).unwrap();
+        assert!(r.due(&waits(NEXT), &on(), NOW + 8).is_empty());
+        assert!(r.due(&waits(NEXT), &on(), NOW + 8 + RETRY_MS).is_empty());
+        assert_eq!(r.store.prs["o/r#7"].rounds[0].stage, ReviewStage::Failed);
     }
 
     /// Cursor's command line at its permission prompt writes nothing and reads as working: two
