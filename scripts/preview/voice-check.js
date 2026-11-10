@@ -38,6 +38,7 @@
           s.status = 'idle';
           s.pending = undefined;
           s.asks = false;
+          s.listening = listens && at === 0 ? true : undefined;
           s.lastActivity = now - (at + 1) * 60e3;
           s.lastPromptAt = s.lastActivity;
           if (fresh) picked.push({ key: s.key, lane: l.id });

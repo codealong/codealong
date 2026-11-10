@@ -44,8 +44,8 @@ export function useVoice(): Voice {
   return useSyncExternalStore(watch, voiceNow);
 }
 
-/** Whether a session that's hearing shows that as its status, in place of its own glyph
- *  (ui/primitives.tsx `SessionGlyph`). Its turns come and go every few seconds while it listens,
+/** Whether a session that's hearing (`Session.listening`) shows that as its status, in place of
+ *  its own glyph (ui/primitives.tsx `SessionGlyph`). Its turns come and go every few seconds while it listens,
  *  none of them yours (board.rs `apply_listening`), so working and idle say little of it; that it
  *  waits on you, or that something went wrong, still shows. */
 export function hearingShows(status: Status): boolean {

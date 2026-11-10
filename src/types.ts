@@ -284,6 +284,9 @@ export interface Session {
    *  it's out of the lists and queues, counted on the row of the session it came from
    *  (`origin`, lanes.ts `workingFor`). Missing otherwise. */
   headless?: boolean;
+  /** Hearing a meeting now, on its own Mac (listen.rs, board.rs `apply_listening`): shown where
+   *  its status is (ui/primitives.tsx `SessionGlyph`). Missing otherwise, and from older Macs. */
+  listening?: boolean;
   /** The pages on the web it made or showed you (artifacts Claude Code published), the one it
    *  last published, updated or opened first (artifacts.rs). Missing when it has none, and from
    *  older Macs. */

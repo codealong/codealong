@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { CLICK_WAIT_MS } from '../bar';
 import * as fx from '../testing/fixtures';
 import type { GitInfo } from '../types';
-import { Chip, chipHandlers, driftWords, HarnessChip, MoreChip, PrChip, Row, rowMenu, Seg, selects } from './primitives';
+import { Chip, chipHandlers, driftWords, HarnessChip, MoreChip, PrChip, Row, rowMenu, Seg, selects, SessionGlyph } from './primitives';
 
 describe('driftWords', () => {
   const git = (g: Partial<GitInfo>): GitInfo => fx.git({ base: 'origin/main', baseAhead: 0, baseBehind: 0, ...g });
@@ -179,6 +179,26 @@ describe('Chip', () => {
 
   it('ends with a button that takes it away', () => {
     expect(html({ kind: 'label', remove: { label: 'Remove Bug', title: 'Remove Bug', run: () => {} } }, 'Bug')).toMatch(/^<span class="ca-labelchip">Bug<button type="button" aria-label="Remove Bug" title="Remove Bug"><svg/);
+  });
+});
+
+describe('a session’s status glyph', () => {
+  const glyph = (over: object) => renderToStaticMarkup(createElement(SessionGlyph, { s: fx.session({ status: 'idle', ...over }) }));
+
+  it('is a recording light while the session hears a meeting, whatever window shows it', () => {
+    expect(glyph({})).toContain('ca-glyph--idle');
+    expect(glyph({ listening: true })).toMatch(/^<svg class="ca-glyph ca-glyph--listening"[^>]*aria-label="Listening">/);
+    expect(glyph({ listening: true, status: 'working' })).toContain('ca-glyph--listening');
+    // What waits on you, or went wrong, still shows.
+    expect(glyph({ listening: true, status: 'needs' })).toContain('ca-glyph--needs');
+    expect(glyph({ listening: true, status: 'error' })).toContain('ca-glyph--error');
+  });
+
+  it('is the same on the session’s chip', () => {
+    const chip = (over: object) => renderToStaticMarkup(createElement(HarnessChip, { session: fx.session({ status: 'working', ...over }), named: true }));
+    expect(chip({})).toContain('ca-glyph--working');
+    expect(chip({ listening: true })).toContain('ca-glyph--listening');
+    expect(chip({ listening: true })).not.toContain('ca-glyph--working');
   });
 });
 

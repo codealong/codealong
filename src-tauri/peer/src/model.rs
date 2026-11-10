@@ -453,6 +453,12 @@ pub struct Session {
     /// 2026-10-13.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub headless: bool,
+    /// Hearing a meeting now, on its own Mac (listen.rs; set with its rule,
+    /// `board::apply_listening`). Its turns come and go every few seconds while it does and none
+    /// waits on you, so the windows show this where its status is. False from Macs before
+    /// 2026-11-10.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub listening: bool,
     /// The pages on the web it made or showed you (`Artifact`), the one it last published,
     /// updated or opened first. Empty where its harness makes none, and from Macs before
     /// 2026-10-12.
@@ -715,6 +721,7 @@ impl Session {
             own_worktree: None,
             helper: None,
             headless: false,
+            listening: false,
             artifacts: Vec::new(),
             color: None,
             emblem: None,

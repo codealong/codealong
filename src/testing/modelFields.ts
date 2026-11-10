@@ -59,6 +59,7 @@ export type Session = Holds<Same<
   | "lastActivity"
   | "lastPromptAt"
   | "limit"
+  | "listening"
   | "live"
   | "mode"
   | "model"

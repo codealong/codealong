@@ -329,7 +329,11 @@ function sampleReport(board, days, account) {
 function withExperiments(board) {
   var voice = !!window.__PREVIEW_VOICE__;
   var out = Object.assign(board, { experimental: Object.assign({}, board.experimental, { boards: !window.__PREVIEW_BOARDS_OFF__, voice: voice }) });
-  if (voice && window.__LISTENS__) out.listenings = Object.assign({}, out.listenings, listeningSample(window.__LISTENS__));
+  if (voice && window.__LISTENS__) {
+    out.listenings = Object.assign({}, out.listenings, listeningSample(window.__LISTENS__));
+    // Said on the session too, as the engine says it (board.rs `apply_listening`).
+    (out.lanes || []).forEach(function (l) { l.sessions.forEach(function (s) { if (s.key === window.__LISTENS__) s.listening = true; }); });
+  }
   return out;
 }
 // A session that's listening, as the board lists it (listen.rs `Glance`): a coach, four minutes

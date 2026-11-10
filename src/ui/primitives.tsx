@@ -9,7 +9,7 @@ import { deviceLabel, shortOf } from '../devices';
 import { middleTruncate, withTimes } from '../format';
 import { HARNESS_WORD, sessionPlace } from '../harness';
 import { branchLabel, laneWaits, waitsInBackground } from '../lanes';
-import { hearingShows, useListening } from '../listening';
+import { hearingShows } from '../listening';
 import { chipWord, reviewMark } from '../prStatus';
 import type { Bay, Emblem, GitInfo, Lane, LogoStatus, Pr, PrItem, PrState, Session, Status, Surface } from '../types';
 import type { Waits } from '../queue';
@@ -220,12 +220,10 @@ export function StatusGlyph({ status, size = 12, title, waiting = false }: { sta
 }
 
 /** A session's status glyph, a clock while it waits on a command left running in the background,
- *  and a recording light while it's hearing a meeting (listening.ts `hearingShows`), wherever the
- *  session shows: it reads which sessions hear itself, by `key`, which a glyph made up for a count
- *  doesn't have. */
-export function SessionGlyph({ s, size = 12, title }: { s: Pick<Session, 'status' | 'background'> & { key?: string }; size?: number; title?: string }) {
-  const hearing = useListening(s.key ?? '');
-  if (hearing && hearingShows(s.status)) {
+ *  and a recording light while it's hearing a meeting (`Session.listening`, listening.ts
+ *  `hearingShows`), wherever the session shows. */
+export function SessionGlyph({ s, size = 12, title }: { s: Pick<Session, 'status' | 'background' | 'listening'>; size?: number; title?: string }) {
+  if (s.listening && hearingShows(s.status)) {
     return (
       <svg className="ca-glyph ca-glyph--listening" width={size} height={size} viewBox="0 0 12 12" role="img" aria-label={title === '' ? '' : 'Listening'}>
         <circle className="ca-g-hearing-ring" cx="6" cy="6" r="4.5" />
@@ -741,7 +739,7 @@ export function HarnessChip({ session, withStatus = true, named = false, onOpen,
       inRow={inRow}
       onMenu={onMenu}
     >
-      {withStatus && <StatusGlyph status={session.status} size={10} />}
+      {withStatus && <SessionGlyph s={session} size={10} />}
       {/* Named, the chip stands for the session: its emblem, where it has one, says which. */}
       {named && session.emblem ? <SessionEmblem emblem={session.emblem} of={session.key} size={14} /> : <Icon name={SURFACE_ICON[session.surface]} size={12} />}
       {named ? <span className="ca-sesschip-title">{session.title}</span> : <span>{session.account}</span>}

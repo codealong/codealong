@@ -1675,8 +1675,10 @@ pub fn apply_helper(s: &mut Session) {
 /// to put to the meeting, and it's shown where its answers are, not as something to answer. One
 /// that needs you at a prompt (a call to allow) or stopped on an error still does, and your own
 /// Mark as unread still brings it back. Once hearing has ended its turns are yours again, the one
-/// that sums the meeting up first.
+/// that sums the meeting up first. That it's hearing is said on it (`Session::listening`), for
+/// whatever shows it.
 pub fn apply_listening(s: &mut Session, hearing: bool) {
+    s.listening = hearing;
     if hearing && (s.status == Status::Unread || (s.status == Status::Needs && s.asks)) {
         s.status = Status::Idle;
         s.asks = false;
@@ -2792,6 +2794,13 @@ mod tests {
         }
         // Once hearing has ended, its turns are yours again.
         assert_eq!(of(Status::Unread, false), Status::Unread);
+        // That it's hearing is said on it, and no longer once it isn't; sent only when it is.
+        let mut s = crate::fixtures::session("k");
+        assert!(!serde_json::to_value(&s).unwrap().as_object().unwrap().contains_key("listening"));
+        apply_listening(&mut s, true);
+        assert_eq!(serde_json::to_value(&s).unwrap()["listening"], true);
+        apply_listening(&mut s, false);
+        assert!(!s.listening);
     }
 
     fn reg(status: &str, updated: i64) -> RegistryEntry {
