@@ -61,7 +61,9 @@
 //! whose reviewer has written nothing for twenty minutes (`SILENT_MS`), which goes on all the same.
 //! What a reviewer waits on you to allow is offered to its harness first (`Job::Allow`,
 //! `Adapter::allow_for_review`), which allows a web search, as a review looks things up and Cursor's
-//! command line asks before every one; the rest stays yours to answer. A round
+//! command line asks before every one; the rest stays yours to answer. That comes before a round
+//! makes way for new commits too (`next`): a reviewer left at its prompt takes nothing typed, so
+//! the next round would close it there and start afresh (`ask`). A round
 //! that didn't get done isn't tried again for the same commit (but the one an error ended, above);
 //! the next push tries again, and so
 //! does Try again on the PR's card and on its notice (`again`), which posts a review that was
@@ -259,11 +261,16 @@ pub struct Part {
     /// was asked for had begun.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub began: Option<i64>,
+    /// What its session waits on was offered to its harness to allow and left to you
+    /// (`Job::Allow`), until the session is seen gone on from it: a round that makes way for new
+    /// commits offers it once first (`next`). Not kept, so a restart offers it once more.
+    #[serde(skip)]
+    pub left: bool,
 }
 
 impl Part {
     pub fn asked(who: &str, session: Option<String>, pending: Option<Pending>, at: i64) -> Part {
-        Part { who: who.to_string(), session, pending, at, state: PartState::Reviewing, review: None, agent: None, note: None, carried_on: Vec::new(), began: None }
+        Part { who: who.to_string(), session, pending, at, state: PartState::Reviewing, review: None, agent: None, note: None, carried_on: Vec::new(), began: None, left: false }
     }
 
     pub fn failed(who: &str, why: String, at: i64) -> Part {
@@ -720,7 +727,7 @@ pub enum Job {
     Submit { pr: PrItem, head: String, verdict: Verdict, text: Option<String>, by_hand: bool },
     /// The round's reviewer in `session` waits on you to allow something: allow it, where it's
     /// what Codealong allows a reviewer itself (`Adapter::allow_for_review`, a web search). What
-    /// else it waits on stays yours, and isn't looked at again for `RETRY_MS`.
+    /// else it waits on stays yours (`Part::left`), and isn't looked at again for `RETRY_MS`.
     Allow { pr: PrItem, session: String },
 }
 
@@ -1135,13 +1142,33 @@ fn found(board: &Board, p: &Pending, pr: &PrItem, asked: &HashSet<String>) -> Op
     first_naming(lane.sessions.iter().filter(|s| s.account == p.account && !asked.contains(&s.key)), pr, p.at)
 }
 
+/// Whether a reviewer's session waits on you to allow something, which is offered to its harness
+/// first (`Job::Allow`), rather than having ended its turn on a question (`Session::asks`).
+fn waits_to_be_allowed(s: &Session) -> bool {
+    s.status == Status::Needs && !s.asks
+}
+
 /// What's next for a round under way on PR `pr`, which is at `head` now. The reviewer's turn is
 /// read once its session ended it, told to carry on when it was cut off partway (a few times at
 /// most), and fails once its session is gone a while; once it's settled, its review is posted,
-/// or the round ends without one. A round stuck while the PR moved on ends, for the next.
+/// or the round ends without one. A round stuck while the PR moved on ends, for the next, once
+/// what its reviewer waits on has been offered to its harness to allow.
 fn next(r: &mut Round, board: &Board, pr: &PrItem, head: &str, wanted: bool, now: i64) -> Next {
     let working = |k: &str| board.session(k).is_some_and(|(_, s)| s.status == Status::Working);
+    let to_allow = |k: &str| board.session(k).is_some_and(|(_, s)| waits_to_be_allowed(s));
+    // What was left to you is offered again once its session has gone on from it.
+    for p in r.parts.iter_mut().filter(|p| p.left) {
+        p.left = p.session.as_deref().is_some_and(to_allow);
+    }
     if head != r.head && wanted && !r.parts.iter().filter(|p| p.reviewing()).any(|p| p.pending.is_some() || p.session.as_deref().is_some_and(working)) {
+        // A reviewer waiting on what its harness allows a review (a web search) is allowed it
+        // before its round makes way: its turn goes on, and the next round is typed into it as
+        // into any that worked while commits came. Ended at its prompt, the next round couldn't
+        // be sent to it, closed its terminal with the prompt up and started afresh (`ask`; four
+        // reviews went so in a day, 2026-11-09). Left to you, the round makes way on its next look.
+        if let Some(k) = r.parts.iter().filter(|p| p.reviewing() && !p.left).find_map(|p| p.session.clone().filter(|k| to_allow(k))) {
+            return Next::Job(Job::Allow { pr: pr.clone(), session: k });
+        }
         // A turn that stopped with an error says so all the same, as the turn of a review whose
         // commits came in while it worked often does once it's over: the next round then starts
         // afresh, not in the session that stopped (`past_error`).
@@ -1173,7 +1200,7 @@ fn next(r: &mut Round, board: &Board, pr: &PrItem, head: &str, wanted: bool, now
                 fail(p, &format!("Its turn was cut off partway again after it was told to carry on {CARRY_ONS} times."));
                 changed = true;
             }
-            Some((_, s)) if s.status == Status::Needs && !s.asks => return Next::Job(Job::Allow { pr: pr.clone(), session: k }),
+            Some((_, s)) if waits_to_be_allowed(s) => return Next::Job(Job::Allow { pr: pr.clone(), session: k }),
             None if now - p.at > SHOW_MS => {
                 fail(p, "Its session is gone.");
                 changed = true;
@@ -1592,8 +1619,14 @@ impl Reviewer {
             }
             (Job::Submit { .. }, _) => {}
             // Allowed or not, what it waits on is looked at again only after a while: what's
-            // left to you stays until you answer it.
-            (Job::Allow { .. }, _) => {
+            // left to you stays until you answer it, and is noted as left, so a round that makes
+            // way for new commits does so rather than offer it again (`next`).
+            (Job::Allow { session, .. }, went) => {
+                if !matches!(went, Went::Allowed(Some(_))) {
+                    for p in t.rounds.last_mut().into_iter().flat_map(|r| r.parts.iter_mut()).filter(|p| p.session.as_deref() == Some(session.as_str())) {
+                        p.left = true;
+                    }
+                }
                 self.next_at.insert(key, now + RETRY_MS);
                 return Ok(());
             }
@@ -4059,6 +4092,74 @@ mod tests {
         let jobs = r2.due(&board(vec![pr(7, HEAD)], vec![]), &on(), NOW);
         r2.told(&jobs[0], Went::Started(vec![started(AUTO, S, NOW)]), NOW).unwrap();
         assert!(kinds(&r2.due(&asks, &on(), NOW + 6)).iter().all(|k| !k.starts_with("allow")));
+        assert_eq!(r.store.prs["o/r#7"].rounds[0].stage, ReviewStage::Reviewing);
+    }
+
+    /// New commits came in while the reviewer sat at what its harness allows a review (Cursor's
+    /// web search prompt): it's allowed that before the round makes way, so its turn goes on and
+    /// the next round is typed into it. Four reviews in a day had their round end at the prompt
+    /// instead, and the next round close their terminal with it up and start afresh (2026-11-09).
+    /// What its harness leaves to you is offered once, and the round then makes way as it did.
+    #[test]
+    fn a_reviewer_waiting_to_be_allowed_is_offered_that_before_its_round_makes_way() {
+        const MOVED_ON: &str = "New commits came in before it was done, so it's left for the next round.";
+        let allow = format!("allow 7 in {S}");
+        let stands = |r: &Reviewer| (r.store.prs["o/r#7"].rounds[0].stage, r.store.prs["o/r#7"].rounds[0].note.clone());
+        let mut r = Reviewer::default();
+        let jobs = r.due(&board(vec![pr(7, HEAD)], vec![]), &on(), NOW);
+        r.told(&jobs[0], Went::Started(vec![started(AUTO, S, NOW)]), NOW).unwrap();
+        let waits = board(vec![pr(7, NEXT)], vec![Session { asks: false, ..session(Status::Needs, NOW + 5) }]);
+        let job = r.due(&waits, &on(), NOW + 6).pop().unwrap();
+        assert_eq!(kinds(std::slice::from_ref(&job)), [allow.clone()]);
+        assert_eq!(stands(&r), (ReviewStage::Reviewing, None));
+        // Allowed: it works on, and its round waits for the turn as any whose PR moved on does.
+        r.told(&job, Went::Allowed(Some("Allowed Web search · rust enums.".into())), NOW + 7).unwrap();
+        let works = board(vec![pr(7, NEXT)], vec![session(Status::Working, NOW + 8)]);
+        let mut now = NOW + 8 + RETRY_MS;
+        assert!(r.due(&works, &on(), now).is_empty());
+        assert_eq!(stands(&r), (ReviewStage::Reviewing, None));
+        // Its next search is allowed too.
+        let job = r.due(&waits, &on(), now + 1).pop().unwrap();
+        assert_eq!(kinds(std::slice::from_ref(&job)), [allow.clone()]);
+        r.told(&job, Went::Allowed(Some("Allowed Web search · rust traits.".into())), now + 2).unwrap();
+        // Then a command's prompt, which its harness leaves to you: offered once, and the round
+        // makes way on the look after.
+        now += 3 + RETRY_MS;
+        assert!(r.due(&works, &on(), now).is_empty());
+        let job = r.due(&waits, &on(), now + 1).pop().unwrap();
+        assert_eq!(kinds(std::slice::from_ref(&job)), [allow]);
+        r.told(&job, Went::Allowed(None), now + 2).unwrap();
+        assert_eq!(stands(&r), (ReviewStage::Reviewing, None));
+        now += 3 + RETRY_MS;
+        assert!(r.due(&waits, &on(), now).is_empty());
+        assert_eq!(stands(&r), (ReviewStage::Failed, Some(MOVED_ON.into())));
+        assert_eq!(kinds(&r.due(&waits, &on(), now + QUIET_MS)), [format!("review 7 2222222 since None by auto in {S}")]);
+
+        // One whose turn ended on a question to you isn't offered: its round makes way at once.
+        let mut r = Reviewer::default();
+        let jobs = r.due(&board(vec![pr(7, HEAD)], vec![]), &on(), NOW);
+        r.told(&jobs[0], Went::Started(vec![started(AUTO, S, NOW)]), NOW).unwrap();
+        let asks = board(vec![pr(7, NEXT)], vec![Session { asks: true, ..session(Status::Needs, NOW + 5) }]);
+        assert!(r.due(&asks, &on(), NOW + 6).is_empty());
+        assert_eq!(stands(&r), (ReviewStage::Failed, Some(MOVED_ON.into())));
+    }
+
+    /// What was left to you is offered again once its session has gone on from it: a reviewer
+    /// whose command you allowed in its terminal, at a web search when new commits come in.
+    #[test]
+    fn what_a_reviewer_waits_on_is_offered_again_once_it_has_gone_on() {
+        let mut r = Reviewer::default();
+        let jobs = r.due(&board(vec![pr(7, HEAD)], vec![]), &on(), NOW);
+        r.told(&jobs[0], Went::Started(vec![started(AUTO, S, NOW)]), NOW).unwrap();
+        let waits = |head: &str| board(vec![pr(7, head)], vec![Session { asks: false, ..session(Status::Needs, NOW + 5) }]);
+        let job = r.due(&waits(HEAD), &on(), NOW + 6).pop().unwrap();
+        r.told(&job, Went::Allowed(None), NOW + 7).unwrap();
+        assert!(r.store.prs["o/r#7"].rounds[0].parts[0].left);
+        // You answered it there, and it works on.
+        let works = board(vec![pr(7, HEAD)], vec![session(Status::Working, NOW + 8)]);
+        assert!(r.due(&works, &on(), NOW + 8 + RETRY_MS).is_empty());
+        assert!(!r.store.prs["o/r#7"].rounds[0].parts[0].left);
+        assert_eq!(kinds(&r.due(&waits(NEXT), &on(), NOW + 9 + RETRY_MS)), [format!("allow 7 in {S}")]);
         assert_eq!(r.store.prs["o/r#7"].rounds[0].stage, ReviewStage::Reviewing);
     }
 

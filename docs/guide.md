@@ -1255,7 +1255,10 @@ a session waiting on you holds no place, nor does one that has written nothing f
 which goes on all the same (a reviewer at a prompt Codealong can't read, say, or at a long
 command). A reviewer waiting on you to allow a web search is allowed by Codealong itself, since a
 review looks things up: Cursor's command line asks before each one, whatever its approval mode
-short of Run Everything. Anything else a reviewer asks stays yours. Until the agent's review of the PR's latest commit is done,
+short of Run Everything. That holds when new commits come in while it waits there too: it's
+allowed and finishes its turn, and the new commits are then sent to the same session. Anything
+else a reviewer asks stays yours; one still waiting on that when new commits have come in is
+closed, and they're reviewed in a new session. Until the agent's review of the PR's latest commit is done,
 or didn't get done (two hours at most), the PR is out of what waits on you (the floating bar, the
 notch, the waiting window and the mark), as a snoozed review is, so you review it after the agent;
 it stays under Review requested, saying Agent reviewing, and its Reviews tab has a dot. Once the

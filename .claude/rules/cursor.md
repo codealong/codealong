@@ -176,7 +176,11 @@ chunks) and this Mac's files (2026-10-09). Paths are under `src-tauri/src/`.
   `skipApproval` (one of a search's results went through so). Two automatic reviews sat at a web
   search's prompt in Rex for an hour and a half (2026-11-09), so Codealong allows an automatic
   review's web search itself (`Adapter::allow_for_review`, autoreview.rs `Job::Allow`), and
-  nothing else of a reviewer's.
+  nothing else of a reviewer's. A chat at that prompt takes nothing typed (a send is turned down
+  as waiting on you), so the allow comes before a round makes way for new commits (autoreview.rs
+  `next`): four reviews whose PR moved on while they sat there had their terminal closed with the
+  prompt up and a new chat started, the old one left with a turn that never ended (2026-11-09 and
+  11-10, from server.log's "starts afresh" lines and reviews.json).
 - Sign-in: the app keeps it in its ItemTable (`cursorAuth/accessToken`, `cursorAuth/cachedEmail`,
   `cursorAuth/stripeMembershipType`…); the command line in the keychain (account `cursor-user`,
   services `cursor-access-token`, `cursor-refresh-token`) or, with
