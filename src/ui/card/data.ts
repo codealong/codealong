@@ -74,12 +74,12 @@ export function cardSig(d: CardData | null, now: number): string {
     case 'session': {
       const s = d.session;
       const pr = d.lane.pr;
-      return `s|${s.status}|${s.title}|${sessionLine(s)}|${s.account}|${s.surface}|${s.lastActivity}|${s.statusSince}|${d.lane.callsign}|${d.lane.device?.color}|${d.lane.device?.online}|${pr?.number}|${pr?.state}|${pr?.checks.failed}|${pr?.checks.pending}|${pr?.checks.passed}|${minute}`;
+      return `s|${s.status}|${s.archived}|${s.title}|${sessionLine(s)}|${s.account}|${s.surface}|${s.lastActivity}|${s.statusSince}|${d.lane.callsign}|${d.lane.device?.color}|${d.lane.device?.online}|${pr?.number}|${pr?.state}|${pr?.checks.failed}|${pr?.checks.pending}|${pr?.checks.passed}|${minute}`;
     }
     case 'todo': {
       const t = d.todo;
       // A due date reads by the day, so the card redraws when the day turns.
-      return `t|${t.status}|${t.title}|${!!t.waiting}|${t.labels.join()}|${d.labels.map((l) => l.color + l.name).join()}|${d.sessions.map((s) => s.session.key + s.session.status).join()}|${t.updatedAt}|${t.due ? `${t.due}@${dayKey(now)}` : ''}`;
+      return `t|${t.status}|${t.title}|${!!t.waiting}|${t.labels.join()}|${d.labels.map((l) => l.color + l.name).join()}|${d.sessions.map((s) => s.session.key + s.session.status + (s.session.archived ? '/archived' : '')).join()}|${t.updatedAt}|${t.due ? `${t.due}@${dayKey(now)}` : ''}`;
     }
     case 'pr': {
       const p = d.pr;

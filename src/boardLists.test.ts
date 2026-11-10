@@ -241,6 +241,12 @@ describe('the status filters on a PR', () => {
     expect(prIn(row([['unread', false]]), 'needs')).toBe(false);
   });
 
+  it('leaves out archived sessions, listed on it as having worked on it', () => {
+    const r = row([['unread', false]]);
+    expect(prIn(r, 'unread')).toBe(true);
+    expect(prIn({ ...r, sessions: r.sessions.map((x) => ({ ...x, session: { ...x.session, archived: true } })) }, 'unread')).toBe(false);
+  });
+
   it('is in review while open, needs work with failing checks, and is in no bay of its own', () => {
     expect(prIn(row([]), 'review')).toBe(true);
     expect(prIn(row([], { state: 'merged' }), 'review')).toBe(false);

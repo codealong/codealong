@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as fx from '../../testing/fixtures';
-import { cardSessions, type CardData } from './data';
+import { cardSessions, cardSig, type CardData } from './data';
 
 describe('cardSessions', () => {
   const working = fx.session({ key: 'a', status: 'working', live: true });
@@ -32,5 +32,16 @@ describe('cardSessions', () => {
   it('lists none under a session, or a card the board has lost', () => {
     expect(keys({ ref: 'session', lane, session: working })).toEqual([]);
     expect(keys(null)).toEqual([]);
+  });
+});
+
+describe('cardSig', () => {
+  it('changes when a session is archived or unarchived, which its glyph shows', () => {
+    const s = fx.session({ key: 'a', status: 'stopped' });
+    const lane = fx.lane({ id: 'w', sessions: [s] });
+    const archived = { ...s, archived: true };
+    expect(cardSig({ ref: 'session', session: s, lane }, 0)).not.toBe(cardSig({ ref: 'session', session: archived, lane }, 0));
+    const todo = (session: typeof s) => cardSig({ ref: 'todo', todo: fx.todo(), labels: [], sessions: [{ lane, session }], lane }, 0);
+    expect(todo(s)).not.toBe(todo(archived));
   });
 });

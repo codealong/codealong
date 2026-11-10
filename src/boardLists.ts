@@ -155,8 +155,9 @@ export function prIn(r: PrRowItem, f: Filter): boolean {
     case 'working':
     case 'unread':
       // As on the board, a session from another lane doesn't lend its status: one agent that
-      // made many worktrees would otherwise put all of their PRs in Working.
-      return r.sessions.some(({ session }) => !session.visitor && AGENT_BAY[session.status] === f);
+      // made many worktrees would otherwise put all of their PRs in Working. Nor does an
+      // archived one, listed on the PR as having worked on it.
+      return r.sessions.some(({ session }) => !session.visitor && !session.archived && AGENT_BAY[session.status] === f);
     case 'review':
       return prIsOpen(p);
     case 'work':

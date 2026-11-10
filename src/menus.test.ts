@@ -871,6 +871,8 @@ describe('prMenu and todoMenu', () => {
     expect(setPrPrimary).toHaveBeenCalledWith('acme/api#7', routing.key);
     // Not with one session here, once it's merged, nor where the window has no lanes to name them.
     expect(group({ sessions: sessions.slice(0, 1) })).toBeUndefined();
+    // An archived one is listed on the PR but can't be its primary, so it isn't offered.
+    expect(group({}, [lanes[0], fx.lane({ id: '/r/b', sessions: [{ ...review, archived: true }] })])).toBeUndefined();
     expect(group({ state: 'merged' })).toBeUndefined();
     expect(group({}, null)).toBeUndefined();
   });

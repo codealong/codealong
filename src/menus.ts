@@ -1342,12 +1342,12 @@ function nudgeItem(pr: { key?: string; state?: Pr['state']; nudge?: boolean }, r
 }
 
 /** Primary session: an open PR's sessions on this Mac, its primary one checked, when it has more
- *  than one (board.rs `pr_primary`). The one picked is the one a nudge tells, as `codealong pr
+ *  than one that can be (board.rs `pr_primary`: not an archived one). The one picked is the one a nudge tells, as `codealong pr
  *  nudge --session` makes it, and stays so until another is. */
 function primaryItem(pr: { key?: string; state?: Pr['state']; primary?: string; sessions?: PrItem['sessions'] }, lanes: readonly Lane[] | undefined, report: Report): MenuGroup | undefined {
   const { key, state } = pr;
   if (!key || !lanes || !state || state === 'merged' || state === 'closed') return undefined;
-  const sessions = (pr.sessions ?? []).flatMap((x) => lanes.find((l) => l.id === x.lane && !l.device)?.sessions.find((s) => s.key === x.key) ?? []);
+  const sessions = (pr.sessions ?? []).flatMap((x) => lanes.find((l) => l.id === x.lane && !l.device)?.sessions.find((s) => s.key === x.key && !s.archived) ?? []);
   if (sessions.length < 2) return undefined;
   const pick = (s: Session) => void setPrPrimary(key, s.key).catch((e: unknown) => report.error(errorText(e)));
   return { label: 'Primary session', items: sessions.map((s) => ({ label: `${s.title} · ${s.account}`, checked: s.key === pr.primary, run: () => pick(s) })) };

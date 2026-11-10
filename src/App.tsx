@@ -2251,7 +2251,8 @@ export function App() {
   // PR links in conversations and descriptions (PrLink.tsx): a click shows the PR as its chip
   // does, and their cards show the PR and its sessions here. A link to a session or a todo
   // (SessionLink.tsx) shows it here the same way.
-  usePrLinks(board?.prs, lanes, {
+  // Its worktrees with their archived sessions, which a PR lists with the rest.
+  usePrLinks(board?.prs, rawLanes, {
     report,
     showPr: (pr, tab) => reveal.current({ kind: 'pr', key: pr.key, tab: tab ?? undefined }),
     followPr: (pr, tab) => {
