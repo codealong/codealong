@@ -77,6 +77,8 @@ describe('the windows work out what the engine does', () => {
           expect(needOf({ ...s, need: undefined })).toEqual(outright);
           expect(needOf({ ...s, need: 'approval' })).toEqual(s.status !== 'needs' && s.need !== 'stuck' ? undefined : (outright ?? 'approval'));
           expect(needOf({ ...s, status: 'working', stalledSince: null })).toBeUndefined();
+          // Nor is it still stuck, or asking in its reply, once the session no longer says so.
+          for (const stale of ['stuck', 'reply'] as const) expect(needOf({ ...s, status: 'needs', asks: false, stalledSince: null, need: stale })).toBeUndefined();
         });
       }
 

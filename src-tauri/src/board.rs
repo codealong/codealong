@@ -6227,6 +6227,8 @@ mod tests {
     /// these. `without` leaves one session out, as a filter does.
     fn rule_cases(without: Option<&str>) -> Vec<Lane> {
         const MIN: i64 = 60_000;
+        // The id a scratchpad's folder names its maker by.
+        const MAKER: &str = "abc12345-0000-0000-0000-000000000000";
         // A session of `id` in the worktree `at`, last prompted and last active so many minutes
         // ago: its status began with its last activity unless a case says otherwise.
         let at = |path: &str, id: &str, status: Status, prompted: i64, active: i64| Session {
@@ -6243,16 +6245,17 @@ mod tests {
         let mut sessions = vec![
             // Every way of needing you, the longest wait first whatever was prompted last, and one
             // of every other status beside them.
-            said(at("needs", "approval", Status::Needs, 3, 30), "Bash · `make release`"),
+            Session { status_since: Some(NOW - 30 * MIN), ..said(at("needs", "approval", Status::Needs, 3, 1), "Bash · `make release`") },
             Session { harness: Harness::Codex, account: "codex".into(), ..said(at("needs", "codex-approval", Status::Needs, 60, 25), "Waiting for approval · `make`") },
-            Session { excerpt: Some(asks_you("Which color?")), ..at("needs", "question", Status::Needs, 40, 20) },
+            Session { excerpt: Some(asks_you("Which color?")), status_since: Some(NOW - 20 * MIN), ..at("needs", "question", Status::Needs, 40, 14) },
             Session { excerpt: Some(format!("{HELD_MESSAGE}“Review 12”")), ..at("needs", "message", Status::Needs, 16, 15) },
             Session { asks: true, ..said(at("needs", "reply", Status::Needs, 90, 10), "Asks you · Want the PR?") },
             Session { stalled_since: Some(NOW - 45 * MIN), excerpt: Some(format!("Stuck on `cargo build` for {{for:{}}}", NOW - 45 * MIN)), ..at("needs", "stuck", Status::Needs, 50, 45) },
             at("needs", "unsaid", Status::Needs, 6, 5),
             // No time for when it began to wait: it waits since it was last active.
             Session { status_since: None, ..said(at("needs", "untimed", Status::Needs, 70, 28), "Bash · `ls`") },
-            said(at("needs", "failed-beside", Status::Error, 80, 35), "API error"),
+            Session { status_since: Some(NOW - 35 * MIN), ..said(at("needs", "failed-beside", Status::Error, 80, 2), "API error") },
+            Session { status_since: Some(NOW - 33 * MIN), ..said(at("needs", "failed-later", Status::Error, 85, 30), "Timed out") },
             said(at("needs", "working-beside", Status::Working, 2, 1), "`npm run build`"),
             said(at("needs", "unread-beside", Status::Unread, 8, 2), "Done here."),
             at("needs", "idle-beside", Status::Idle, 9, 3),
@@ -6272,8 +6275,10 @@ mod tests {
             said(at("working", "prompted-first", Status::Working, 50, 1), "`npm test`"),
             said(at("working", "prompted-last", Status::Working, 2, 40), "Fix the build"),
             Session { status_since: Some(NOW - 30 * MIN), ..said(at("working", "prompted-again", Status::Working, 10, 5), "`cargo check`") },
-            said(at("working", "tie-a", Status::Working, 20, 20), "`make a`"),
-            said(at("working", "tie-b", Status::Working, 20, 20), "`make b`"),
+            said(at("working", "same-prompt-a", Status::Working, 20, 9), "`make a`"),
+            said(at("working", "same-prompt-b", Status::Working, 20, 3), "`make b`"),
+            said(at("working", "tie-b", Status::Working, 22, 22), "`make tie b`"),
+            said(at("working", "tie-a", Status::Working, 22, 22), "`make tie a`"),
             Session { background: Some("gh run watch".into()), ..said(at("working", "background", Status::Working, 25, 8), "Waiting on `gh run watch`") },
             Session { excerpt: None, status_since: None, ..at("working", "silent", Status::Working, 26, 12) },
             said(at("working", "finished-beside", Status::Unread, 1, 1), "Done."),
@@ -6292,7 +6297,8 @@ mod tests {
             Session { snoozed_until: Some(NOW + 60 * MIN), ..said(at("unread", "snoozed", Status::Unread, 8, 7), "Done.") },
             Session { raised: Some(Raised { at: NOW - 2 * MIN, ..Default::default() }), ..said(at("unread", "raised", Status::Unread, 300, 200), "Ready when you are.") },
             Session { raised: Some(Raised { at: NOW - MIN, agent: true, ..Default::default() }), ..said(at("unread", "raised-by-an-agent", Status::Unread, 400, 100), "Have a look.") },
-            Session { raised: Some(Raised { at: NOW - 3 * MIN, ..Default::default() }), ..said(at("unread", "raised-before", Status::Unread, 500, 150), "Whenever.") },
+            Session { raised: Some(Raised { at: NOW - 3 * MIN, ..Default::default() }), ..said(at("unread", "raised-before", Status::Unread, 100, 150), "Whenever.") },
+            Session { raised: Some(Raised { at: NOW - 4 * MIN, agent: true, ..Default::default() }), ..said(at("unread", "raised-by-an-agent-before", Status::Unread, 50, 60), "When you can.") },
             // Nothing active: the one last active speaks for the worktree, whichever was prompted
             // last; one that stopped ranks with the idle ones.
             said(at("idle", "active-last", Status::Idle, 300, 20), "Merged."),
@@ -6311,6 +6317,8 @@ mod tests {
             // to answer for; with none of its own, it speaks for the worktree.
             at("visited", "at-home", Status::Idle, 50, 40),
             said(at("visitors-home", "visitor", Status::Needs, 5, 4), "Bash · `make deploy`"),
+            // A worktree a session made in its scratchpad lists its maker, which works elsewhere.
+            Session { id: MAKER.into(), ..at("makers-home", MAKER, Status::Working, 3, 2) },
             // A reusable worktree's work from before it was last reset isn't its work now.
             said(at("reused", "from-before", Status::Unread, 400, 300), "Shipped it."),
             at("reused", "current", Status::Idle, 30, 20),
@@ -6320,10 +6328,17 @@ mod tests {
         sessions.retain(|s| Some(s.key.as_str()) != without);
         let places = [
             "needs", "failed", "working", "unread", "idle", "review", "draft", "approved", "changes", "merged", "closed", "review-at-work", "visited", "visitors-home", "visited-only", "reused", "empty", "dirty", "committed",
-            "committed-undated",
+            "committed-undated", "makers-home",
         ];
-        let seeds: Vec<LaneSeed> = places.iter().map(|p| LaneSeed { callsign: p.to_string(), ..seed(&format!("/r/spark-{p}"), p) }).collect();
-        let pr_of = |branch: &str, state: PrState, number: u64| PrRaw { head_ref: branch.into(), number, merged_at: (state == PrState::Merged).then_some(NOW - 7_200_000), ..pr(PrState::Open, 0) };
+        let mut seeds: Vec<LaneSeed> = places.iter().map(|p| LaneSeed { callsign: p.to_string(), ..seed(&format!("/r/spark-{p}"), p) }).collect();
+        seeds.push(LaneSeed { callsign: "made".into(), ..seed(&format!("/private/tmp/claude-501/-r-spark-makers-home/{MAKER}/scratchpad/spark-made"), "made") });
+        let pr_of = |branch: &str, state: PrState, number: u64| PrRaw {
+            head_ref: branch.into(),
+            number,
+            merged_at: (state == PrState::Merged).then_some(NOW - 7_200_000),
+            closed_at: (state == PrState::Closed).then_some(NOW - 3_600_000),
+            ..pr(PrState::Open, 0)
+        };
         let prs = [("review", PrState::Open), ("draft", PrState::Draft), ("approved", PrState::Approved), ("changes", PrState::Changes), ("merged", PrState::Merged), ("closed", PrState::Closed), ("review-at-work", PrState::Open)];
         let prs = HashMap::from([("sprucehq/spark".to_string(), prs.iter().enumerate().map(|(i, (branch, state))| PrRaw { state: *state, ..pr_of(branch, *state, 1037 + i as u64) }).collect::<Vec<_>>())]);
         let visitor = Session::key_for(Harness::Claude, "claude", "visitor");
@@ -6381,6 +6396,13 @@ mod tests {
             assert!(needs.contains(&need), "{need:?}");
         }
         assert!(all().any(|s| s.visitor.is_some()) && all().any(|s| s.earlier) && all().any(|s| s.archived) && all().any(|s| s.unattended()), "a visitor, earlier work, an archived session and one unattended");
+        let visits: std::collections::BTreeSet<&str> = all().filter_map(|s| s.visitor.as_deref()).collect();
+        assert_eq!(visits.len(), 2, "a session that worked in a worktree and one that made it: {visits:?}");
+        // A PR in each state it can be in, each still its worktree's.
+        let states: Vec<PrState> = lanes.iter().filter_map(|l| l.pr.as_ref().map(|p| p.state)).collect();
+        for state in [PrState::Draft, PrState::Open, PrState::Approved, PrState::Changes, PrState::Merged, PrState::Closed] {
+            assert!(states.contains(&state), "{state:?}");
+        }
         let says: serde_json::Map<String, serde_json::Value> = all()
             .filter(|s| s.visitor.is_none())
             .map(|s| {
@@ -6393,10 +6415,11 @@ mod tests {
                 (s.key.clone(), said)
             })
             .collect();
-        // Each worktree again with one of its own sessions gone, as a filter leaves it.
+        // Each worktree again with one of the sessions it lists gone, a visitor among them, as a
+        // filter leaves it.
         let mut without = Vec::new();
         for lane in &lanes {
-            for s in lane.sessions.iter().filter(|s| s.visitor.is_none()) {
+            for s in &lane.sessions {
                 let left = rule_cases(Some(&s.key));
                 let now = left.iter().find(|l| l.id == lane.id).expect("the worktree stays");
                 without.push(serde_json::json!({ "lane": lane.id, "session": s.key, "bay": now.bay, "glyph": now.glyph, "headline": now.headline, "detail": now.detail }));

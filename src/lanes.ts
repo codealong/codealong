@@ -572,7 +572,8 @@ export function relaned(lane: Lane, sessions: Session[]): Lane {
     if (first) return { ...next, headline: first.headline, detail: first.detail };
   }
   if (bay === 'idle') {
-    const [headline, detail] = idleHeadline(lane, own);
+    // From the sessions it's left with: a visitor that's gone no longer speaks for it.
+    const [headline, detail] = idleHeadline(next, own);
     return { ...next, headline, detail };
   }
   if (bay === lane.bay) return next;
