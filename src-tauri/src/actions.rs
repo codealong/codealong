@@ -840,14 +840,15 @@ fn sender_for(from: &From, by_its_copy: impl FnOnce() -> bool) -> send::Sender {
 }
 
 /// Sends it a prompt where it runs (send.rs), into its running turn at once with `now`: yours
-/// from a window, an agent's from the command. From another device, one that would only open
+/// from a window, an agent's from the command, which is held until the session no longer waits
+/// on its user to answer a prompt (outbox.rs). From another device, one that would only open
 /// with the prompt ready to send is refused: that needs someone here.
 fn send_prompt(engine: &Handle, c: &Call) -> Result<Value, String> {
     let p: params::Send = c.read()?;
     let key = c.session()?;
     unarchive_to_send(engine, c, key);
     let sender = sender_for(c.from, || crate::side::sent_by_copy(key, &p.side));
-    let sent = send::send_here(engine, key, &p.text, sender, p.now).map_err(words)?;
+    let sent = crate::outbox::send_or_hold(engine, key, &p.text, sender, p.now).map_err(words)?;
     note_talking(engine, c, key);
     if matches!(c.from, From::Device | From::Phone) && sent.opened {
         return Err(format!("It needs someone at this device: {}", sent.message));

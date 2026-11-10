@@ -491,8 +491,9 @@ as what you send is: a Claude Code session that skips permission prompts doesn't
 Codealong believes it's the side conversation's only from that copy: each copy is given a secret of
 its own, which the command hands on, and a message without it is any agent's. A Claude Code copy
 may run that one command in any permission mode; a Codex copy only where its thread's sandbox lets
-its commands reach Codealong. Nothing is sent to a session waiting on you to answer a
-prompt (answer it first), and a session that isn't running isn't resumed for it.
+its commands reach Codealong. A session waiting on you to answer a prompt gets it once you have,
+as another agent's message is held (Messages held for a session that waits on you, below), and a
+session that isn't running isn't resumed for it.
 
 Once a side conversation has answered all it was asked (or its copy stopped before it could), its
 session waits on you as it does for a finished turn. One whose turn you'd seen is Your turn from
@@ -3412,6 +3413,17 @@ as the sending session's.
 which session it made (as for helpers, below). `resume_for_sessions_it_started = false` as well
 turns it off, and nothing is sent to a session that isn't running, as for any other agent's
 message.
+
+Messages held for a session that waits on you: an agent's message (or a side conversation's) for a
+session waiting on you to answer a prompt, a call to allow or a question it asks through its
+harness, isn't sent then, since anything typed into it would answer the prompt, and you may be away
+for hours. Codealong's server holds it, and the sender is told so and not to send it again. Once the
+session no longer waits on you (you answered, denied the call, or closed it), the message goes the
+way it would have gone then, a stopped session being resumed for it as above, led by a line saying
+when it was sent and that it was held; several for one session go in the order they were sent. What's
+held outlasts a relaunch. One still held a day on, or that a few tries can't send, is dropped, and
+Codealong tells the session that sent it why, with the start of what it said. The command run where
+it can't reach the server (an agent's sandbox) can't hold it, and says nothing was sent.
 
 ### Helpers
 

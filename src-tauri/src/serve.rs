@@ -21,7 +21,7 @@ use crate::calls::Ctx;
 use crate::engine::Handle;
 use crate::server::{self, Request, Status};
 use crate::util::words;
-use crate::{acp, actions, agentdone, api, autoreview, config, engine, helpers, hibernate, ledger, limits, nudges, origins, os, peers, perf, reconnect, rerequest, reviewdone, schedules, search, send, side, store, terminal, terminals, util, views};
+use crate::{acp, actions, agentdone, api, autoreview, config, engine, helpers, hibernate, ledger, limits, nudges, origins, os, outbox, peers, perf, reconnect, rerequest, reviewdone, schedules, search, send, side, store, terminal, terminals, util, views};
 
 /// What the engine was built from (build.rs): a hash of the Rust that goes into it, so two builds
 /// that differ only in their windows have the same.
@@ -147,6 +147,10 @@ pub fn start() -> Result<Ctx, String> {
     let (mover, moves_with) = (Mutex::new(limits::Mover::default()), engine_slot.clone());
     let (nudger, nudges_with) = (Arc::new(Mutex::new(nudges::Nudger::default())), engine_slot.clone());
     let ends_with = engine_slot.clone();
+    // What a server before this one held goes as the first boards allow, and agents' messages to
+    // sessions waiting on their user are held from now on.
+    outbox::init();
+    let holds_with = engine_slot.clone();
     let (continuer, continues_with) = (Arc::new(Mutex::new(reconnect::Continuer::default())), engine_slot.clone());
     let cut_by_us = continuer.clone();
     let (rerequester, rerequests_with) = (Arc::new(Mutex::new(rerequest::Rerequester::default())), engine_slot.clone());
@@ -217,6 +221,11 @@ pub fn start() -> Result<Ctx, String> {
         // off this thread.
         if let Some(engine) = ends_with.get() {
             agentdone::end_due(engine, board, board.generated_at);
+        }
+        // And messages held for sessions that waited on their user to answer a prompt, once they
+        // don't (outbox.rs): one thread for the batch.
+        if let Some(engine) = holds_with.get() {
+            outbox::send_due(engine, board);
         }
     });
     let _ = engine_slot.set(engine.clone());

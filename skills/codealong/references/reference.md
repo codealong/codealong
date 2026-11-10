@@ -2013,16 +2013,18 @@ Commands:
               service, and sessions Codealong runs get it from Codealong, queued while
               they work. Antigravity's command line (`agy`) gets it typed into its
               terminal, and holds one that comes while it works until its turn ends (its
-              `Queued Messages` setting, Queue by default). Nothing is sent to one
-              waiting on its user to answer a prompt, or to a conversation in the
-              Antigravity app, which takes no prompts from outside. One that isn't
-              running (`status` stopped, `live` false) Codealong resumes out of sight
-              with the message, telling it it had stopped, and the answer says so: it
-              takes a while to start, and spends its account's usage. Its user can turn
-              that off (`[sessions] resume_for_any_session`), and with only
-              `resume_for_sessions_it_started` on it's done just for the session that
-              started yours and the ones yours started (`codealong start`); the error
-              says why when nothing was sent
+              `Queued Messages` setting, Queue by default). One waiting on its user to
+              answer a prompt gets it once they have: Codealong holds it until then, in
+              the order sent, for up to a day, the answer says it's held (don't send it
+              again), and your session is told if it can't be sent. Nothing is sent to a
+              conversation in the Antigravity app, which takes no prompts from outside.
+              One that isn't running (`status` stopped, `live` false) Codealong resumes
+              out of sight with the message, telling it it had stopped, and the answer
+              says so: it takes a while to start, and spends its account's usage. Its
+              user can turn that off (`[sessions] resume_for_any_session`), and with
+              only `resume_for_sessions_it_started` on it's done just for the session
+              that started yours and the ones yours started (`codealong start`); the
+              error says why when nothing was sent
   pending     What a session waits on its user for, when Codealong can see it
               (`pending`): the tool call it asks to run (`id`, which `session answer`
               names; `label`, the call in a line; `input`, all of it; `cannot`, why
@@ -2249,9 +2251,11 @@ its next step, as a Claude Code session does. OpenCode sessions get it posted to
 service, and sessions Codealong runs get it from Codealong, queued while they work.
 Antigravity's command line (`agy`) gets it typed into its terminal, and holds one that
 comes while it works until its turn ends (its `Queued Messages` setting, Queue by
-default). Nothing is sent to one waiting on its user to answer a prompt, or to a
-conversation in the Antigravity app, which takes no prompts from outside. One that isn't
-running (`status` stopped, `live` false) Codealong resumes out of sight with the
+default). One waiting on its user to answer a prompt gets it once they have: Codealong
+holds it until then, in the order sent, for up to a day, the answer says it's held
+(don't send it again), and your session is told if it can't be sent. Nothing is sent to
+a conversation in the Antigravity app, which takes no prompts from outside. One that
+isn't running (`status` stopped, `live` false) Codealong resumes out of sight with the
 message, telling it it had stopped, and the answer says so: it takes a while to start,
 and spends its account's usage. Its user can turn that off (`[sessions]
 resume_for_any_session`), and with only `resume_for_sessions_it_started` on it's done

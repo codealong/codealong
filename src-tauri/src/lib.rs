@@ -26,6 +26,7 @@ mod cycle;
 mod codex;
 mod opencode;
 mod origins;
+mod outbox;
 mod os;
 mod panel;
 mod peek;

@@ -815,16 +815,34 @@ pub(crate) fn waits_on_you(session: &Session) -> bool {
 
 /// A session waiting on you is never typed into: what's typed would answer its prompt. One that
 /// only asks you something in its reply (`Session::asks`), or is stuck, takes what you send like
-/// any prompt.
+/// any prompt. The error is a `WaitsOnItsUser`, so the server can hold an agent's message until
+/// it doesn't wait any more (outbox.rs).
 pub(crate) fn ensure_not_waiting(session: &Session, sender: &Sender) -> Result<()> {
     if waits_on_you(session) {
-        match sender {
-            Sender::Agent(_) | Sender::Side => bail!("{} is waiting on its user to answer a prompt, so nothing was sent. Try again once they have.", quoted(&session.title)),
-            _ => bail!("{} is waiting on you; open it to answer.", quoted(&session.title)),
-        }
+        return Err(WaitsOnItsUser { title: session.title.clone(), agent: sender.agent() }.into());
     }
     Ok(())
 }
+
+/// Why nothing was sent to a session: it waits on its user to answer a prompt (`waits_on_you`).
+/// `agent` says the message was an agent's or a side conversation's, which is told it's the
+/// session's user who answers; you're told to answer it yourself.
+#[derive(Debug)]
+pub(crate) struct WaitsOnItsUser {
+    pub(crate) title: String,
+    pub(crate) agent: bool,
+}
+
+impl std::fmt::Display for WaitsOnItsUser {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.agent {
+            true => write!(f, "{} is waiting on its user to answer a prompt, so nothing was sent. Try again once they have.", quoted(&self.title)),
+            false => write!(f, "{} is waiting on you; open it to answer.", quoted(&self.title)),
+        }
+    }
+}
+
+impl std::error::Error for WaitsOnItsUser {}
 
 /// Why an agent never starts a session that isn't running again, after the session's name:
 /// resumed on its words, the session would take them as its user's own prompt, and spend their
@@ -1920,6 +1938,11 @@ mod tests {
         let s = session(Harness::Claude, Surface::Cli, Status::Needs, true, Some(42));
         let err = ensure_not_waiting(&s, &Sender::Agent(None)).unwrap_err();
         assert!(err.to_string().contains("waiting on its user"), "{err}");
+        // Said so the server can hold it until the session doesn't wait (outbox.rs), whoever sent it.
+        let w = err.downcast_ref::<WaitsOnItsUser>().expect("a WaitsOnItsUser");
+        assert_eq!((w.title.as_str(), w.agent), (s.title.as_str(), true));
+        let yours = ensure_not_waiting(&s, &Sender::You).unwrap_err();
+        assert!(yours.downcast_ref::<WaitsOnItsUser>().is_some_and(|w| !w.agent));
     }
 
     #[test]
