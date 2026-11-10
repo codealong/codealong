@@ -6218,4 +6218,149 @@ mod tests {
         assert!(long.chars().count() <= "pins · ".len() + TAB_TITLE, "{long}");
         assert_eq!(label("/tmp/elsewhere", "Fix it"), None, "outside every worktree the agent's own title is as good");
     }
+
+    /// Worktrees whose sessions are in every state the windows' rules tell apart, as the engine
+    /// composes them: what each worktree's bay, glyph and sentence are, what each session's
+    /// sentence is, and the order its sessions come in. lanes.ts works the same things out again
+    /// (a filter that leaves some sessions out, a change made in a window ahead of the engine),
+    /// each rule a copy of one here kept in step by hand: src/rules.test.ts holds it to these.
+    fn rule_cases() -> Vec<Lane> {
+        const MIN: i64 = 60_000;
+        let at = |path: &str, id: &str, status: Status, ago: i64| Session {
+            status,
+            cwd: path.into(),
+            title: format!("Work on {id}"),
+            status_since: Some(NOW - ago * MIN),
+            last_prompt_at: NOW - (ago + 5) * MIN,
+            last_activity: NOW - ago * MIN,
+            ..crate::fixtures::session(&Session::key_for(Harness::Claude, "claude", id))
+        };
+        let needs = "/r/spark-needs";
+        let approval = Session { excerpt: Some("Bash · `make release`".into()), ..at(needs, "approval", Status::Needs, 30) };
+        let codex = Session { harness: Harness::Codex, account: "codex".into(), excerpt: Some("Waiting for approval · `make`".into()), ..at(needs, "codex-approval", Status::Needs, 25) };
+        let question = Session { excerpt: Some(asks_you("Which color?")), ..at(needs, "question", Status::Needs, 20) };
+        let message = Session { excerpt: Some(format!("{HELD_MESSAGE}“Review 12”")), ..at(needs, "message", Status::Needs, 15) };
+        let reply = Session { asks: true, excerpt: Some("Asks you · Want the PR?".into()), ..at(needs, "reply", Status::Needs, 10) };
+        let stuck = Session { stalled_since: Some(NOW - 40 * MIN), excerpt: Some(format!("Stuck on `cargo build` for {{for:{}}}", NOW - 40 * MIN)), ..at(needs, "stuck", Status::Needs, 40) };
+        let unsaid = at(needs, "unsaid", Status::Needs, 5);
+        // Beside sessions that need you, one of every other status, so each one's place among
+        // them is held.
+        let failed_beside = Session { excerpt: Some("API error".into()), ..at(needs, "failed-beside", Status::Error, 35) };
+        let working_beside = Session { excerpt: Some("`npm run build`".into()), ..at(needs, "working-beside", Status::Working, 1) };
+        let unread_beside = Session { excerpt: Some("Done here.".into()), ..at(needs, "unread-beside", Status::Unread, 2) };
+        let idle_beside = at(needs, "idle-beside", Status::Idle, 3);
+        let stopped_beside = Session { live: false, ..at(needs, "stopped-beside", Status::Stopped, 4) };
+
+        let failed = "/r/spark-failed";
+        let cut_off = Session { live: false, cut_off: Some(NOW - 20 * MIN), excerpt: Some("`cargo test`".into()), ..at(failed, "cut-off", Status::Error, 20) };
+        let limited = Session { limit: Some(SessionLimit { at: NOW - 10 * MIN, ..Default::default() }), excerpt: Some("You've hit your limit".into()), ..at(failed, "limited", Status::Error, 10) };
+        let errored = Session { excerpt: Some("API error".into()), ..at(failed, "errored", Status::Error, 5) };
+
+        let working = "/r/spark-working";
+        let earlier = Session { excerpt: Some("`npm test`".into()), ..at(working, "earlier", Status::Working, 50) };
+        let later = Session { excerpt: Some("Fix the build".into()), ..at(working, "later", Status::Working, 2) };
+        let waiting = Session { background: Some("gh run watch".into()), excerpt: Some("Waiting on `gh run watch`".into()), ..at(working, "background", Status::Working, 8) };
+        let silent = Session { excerpt: None, status_since: None, ..at(working, "silent", Status::Working, 12) };
+
+        let unread = "/r/spark-unread";
+        let finished = Session { excerpt: Some("Pushed the fix.".into()), ..at(unread, "finished", Status::Unread, 9) };
+        let finished_first = Session { excerpt: Some("All green.".into()), ..at(unread, "finished-first", Status::Unread, 90) };
+        let archived = Session { archived: true, excerpt: Some("Bash · `rm -rf build`".into()), ..at(unread, "archived", Status::Needs, 3) };
+        let helper = Session { helper: Some(Helper { parent: Some(finished.key.clone()), ..Default::default() }), ..at(unread, "helper", Status::Working, 1) };
+        let helper_waits = Session { helper: Some(Helper { parent: Some(finished.key.clone()), ..Default::default() }), excerpt: Some("Bash · `gh pr diff 12`".into()), ..at(needs, "helper-waits", Status::Needs, 4) };
+        let headless = Session { headless: true, ..at(unread, "headless", Status::Working, 6) };
+        let snoozed = Session { snoozed_until: Some(NOW + 60 * MIN), excerpt: Some("Done.".into()), ..at(unread, "snoozed", Status::Unread, 7) };
+        let raised = Session { raised: Some(Raised { at: NOW - MIN, ..Default::default() }), excerpt: Some("Ready when you are.".into()), ..at(unread, "raised", Status::Unread, 200) };
+
+        let idle = "/r/spark-idle";
+        let rested = Session { excerpt: Some("Merged.".into()), ..at(idle, "rested", Status::Idle, 300) };
+        let rested_later = Session { excerpt: Some("Nothing else to do.".into()), ..at(idle, "rested-later", Status::Idle, 100) };
+        let stopped = Session { live: false, ..at(idle, "stopped", Status::Stopped, 500) };
+
+        let in_review = Session { excerpt: Some("Opened the PR.".into()), ..at("/r/spark-review", "in-review", Status::Idle, 400) };
+        let after_merge = Session { excerpt: Some("Merged it.".into()), ..at("/r/spark-merged", "after-merge", Status::Idle, 600) };
+
+        let mut sessions = vec![
+            approval, codex, question, message, reply, stuck, unsaid, failed_beside, working_beside, unread_beside, idle_beside, stopped_beside, cut_off, limited, errored, earlier, later, waiting, silent, finished, finished_first, archived, helper, helper_waits, headless, snoozed, raised, rested,
+            rested_later, stopped, in_review, after_merge,
+        ];
+        // As the engine does once nothing more is laid over a session (`Session::settle_need`).
+        sessions.iter_mut().for_each(Session::settle_need);
+        let seeded = |path: &str, callsign: &str| LaneSeed { callsign: callsign.into(), ..seed(path, callsign) };
+        let seeds = [
+            seeded(needs, "needs"),
+            seeded(failed, "failed"),
+            seeded(working, "working"),
+            seeded(unread, "unread"),
+            seeded(idle, "idle"),
+            seeded("/r/spark-review", "review"),
+            seeded("/r/spark-merged", "merged"),
+            seeded("/r/spark-empty", "empty"),
+        ];
+        let pr_of = |branch: &str, state: PrState, number: u64| PrRaw { head_ref: branch.into(), number, ..pr(state, 0) };
+        let prs = HashMap::from([("sprucehq/spark".to_string(), vec![pr_of("review", PrState::Open, 1037), pr_of("merged", PrState::Merged, 1038)])]);
+        compose(Inputs {
+            now: NOW,
+            apps: &AppNames::default(),
+            seeds: &seeds,
+            sessions,
+            visitors: &HashMap::new(),
+            git: &HashMap::new(),
+            prs: &prs,
+            requested: &HashMap::new(),
+            made: &HashMap::new(),
+            project_order: &["Spruce".to_string()],
+            notices: vec![],
+            loading: false,
+            github_at: None,
+            pinned: &[],
+            github_login: Some("gwen"),
+            pr_links: &PrLinks::default(),
+            previews: &Previews::default(),
+            reusable: &HashMap::new(),
+            review_snoozes: &[],
+            session_settings: &Default::default(),
+            auto_reviews: (&Default::default(), &Default::default(), &Default::default()),
+            machines: &Default::default(),
+        })
+        .lanes
+    }
+
+    /// The rule cases as src/rules.test.ts reads them: the worktrees as composed, and of each
+    /// session what the engine's own rules say of it that no field does. Written with
+    /// `CODEALONG_WRITE_FIXTURES=1 cargo test rule_cases`.
+    #[test]
+    fn rule_cases_fixture_is_current() {
+        let lanes = rule_cases();
+        // Every bay and every way of needing you is among them, or the windows' rules for it go unheld.
+        let bays: std::collections::BTreeSet<Bay> = lanes.iter().map(|l| l.bay).collect();
+        assert_eq!(bays.len(), 6, "{bays:?}");
+        let needs: Vec<Option<Need>> = lanes.iter().flat_map(|l| &l.sessions).filter(|s| s.status == Status::Needs && !s.archived).map(|s| s.need).collect();
+        for need in [Some(Need::Approval), Some(Need::Question), Some(Need::Reply), Some(Need::Message), Some(Need::Stuck), None] {
+            assert!(needs.contains(&need), "{need:?}");
+        }
+        let says: serde_json::Map<String, serde_json::Value> = lanes
+            .iter()
+            .flat_map(|l| &l.sessions)
+            .map(|s| {
+                let said = serde_json::json!({
+                    "unattended": s.unattended(),
+                    "helpsAnAgent": s.helps_an_agent(),
+                    "waitsInBackground": s.waits_in_background(),
+                    "waitsAtAPrompt": s.waits_at_a_prompt(),
+                });
+                (s.key.clone(), said)
+            })
+            .collect();
+        let made = serde_json::json!({ "lanes": lanes, "says": says });
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/testing/ruleCases.json");
+        if std::env::var_os("CODEALONG_WRITE_FIXTURES").is_some() {
+            // A worktree to a line, so a rule that changes shows as the lines it changed.
+            let lines: Vec<String> = made["lanes"].as_array().unwrap().iter().map(|l| format!("    {l}")).collect();
+            let text = format!("{{\n  \"lanes\": [\n{}\n  ],\n  \"says\": {}\n}}\n", lines.join(",\n"), made["says"]);
+            std::fs::write(&path, text).unwrap();
+        }
+        let kept: serde_json::Value = std::fs::read_to_string(&path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+        assert!(kept == made, "src/testing/ruleCases.json is stale: a rule of the board's changed, or what a session or worktree is sent as did. Write it again with `CODEALONG_WRITE_FIXTURES=1 cargo test rule_cases`, then `npm test rules` says which rule of lanes.ts no longer agrees.");
+    }
 }
