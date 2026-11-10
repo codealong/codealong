@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CUE_SHOWS, hearingSays, latestTalk, lingers, saidNow, saidUntil, talkSays } from './said';
+import { CUE_SHOWS, hearingNamed, hearingSays, latestTalk, lingers, saidNow, saidUntil, talkSays } from './said';
 import type { BarListening, Talk } from './types';
 
 const talk = (over: Partial<Talk> = {}): Talk => ({ id: 1, phase: 'listening', to: 'looking', text: '', level: 0, ...over });
@@ -57,6 +57,11 @@ describe('what the bar shows of voice', () => {
     expect(hearingSays([])).toBeNull();
     expect(hearingSays([listening()])).toBe('Renewal call is listening');
     expect(hearingSays([listening(), listening({ key: 'b', title: 'Standup', problem: 'Nothing has come from what this Mac plays yet.' })])).toBe('Renewal call is listening\nStandup is listening: Nothing has come from what this Mac plays yet.');
+  });
+
+  it('names the one session hearing, and counts several', () => {
+    expect(hearingNamed([listening()])).toBe('Renewal call');
+    expect(hearingNamed([listening(), listening({ key: 'b', title: 'Standup' })])).toBe('2 sessions listening');
   });
 
   it('knows when what shows runs out', () => {

@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { onTalk } from '../api';
 import { clock } from '../listening';
-import { latestTalk, saidNow, saidUntil, talkSays, type Said } from '../said';
+import { hearingSays, latestTalk, saidNow, saidUntil, talkSays, type Said } from '../said';
 import type { BarListening, Talk } from '../types';
 import { cx, Icon } from './primitives';
 import { useNow } from './useNow';
@@ -99,15 +99,31 @@ export function SaidCard({ said, onDismiss }: { said: Said; onDismiss: () => voi
 const LINE = 44;
 
 /** The same, as a line in the floating bar. */
-export function SaidLine({ said }: { said: Said }) {
+export function SaidLine({ said, onShow }: { said: Said; onShow: (l: BarListening) => void }) {
   const all = (said.kind === 'cue' ? said.listening.cue : said.talk.text || said.talk.message) ?? '';
   // The end of what's heard is what's new: it's what stays when there's too much for a line.
   const words = all.length > LINE ? `…${all.slice(-LINE)}` : all;
-  return (
-    <span className={cx('ca-hud-spoken', said.kind === 'talk' && `is-${said.talk.phase}`)} role="status">
+  const line = (
+    <>
       <span className="ca-live-dot" aria-hidden="true" />
       <span className="ca-hud-spoken-title">{said.kind === 'cue' ? said.listening.title : talkSays(said.talk)}</span>
       {words && <span className="ca-hud-spoken-text">{words}</span>}
+    </>
+  );
+  // A cue has the place of the pills, its session's own among them (Bar.tsx `ListeningPill`), for
+  // as long as it shows, and a coach's show most of the time: so it's the way to the session
+  // meanwhile, as that pill is.
+  if (said.kind === 'cue') {
+    const l = said.listening;
+    return (
+      <button type="button" className="ca-hud-spoken is-cue" title={`${hearingSays([l])}\nShow it`} onClick={() => onShow(l)}>
+        {line}
+      </button>
+    );
+  }
+  return (
+    <span className={cx('ca-hud-spoken', `is-${said.talk.phase}`)} role="status">
+      {line}
     </span>
   );
 }

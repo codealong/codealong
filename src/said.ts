@@ -65,6 +65,12 @@ export function hearingSays(listenings: readonly BarListening[] | undefined): st
   return listenings.map((l) => `${l.title} is listening${l.problem ? `: ${l.problem}` : ''}`).join('\n');
 }
 
+/** The sessions hearing now in a few words, where there's room for one name: the one's title, or
+ *  how many there are (the main window's bar, ui/Listening.tsx `ListeningNow`). */
+export function hearingNamed(listenings: readonly BarListening[]): string {
+  return listenings.length === 1 ? listenings[0].title : `${listenings.length} sessions listening`;
+}
+
 /** What a key held to talk says of itself, over the words: who's listening, and where they went. */
 export function talkSays(talk: Talk): string {
   const whom = talk.title ?? (talk.to === 'orchestrator' ? 'your orchestrator' : null);

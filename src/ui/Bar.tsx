@@ -1089,7 +1089,7 @@ export function Bar() {
         {picking && <ProjectButton name={current} others={others} open={projectMenuOpen} onOpen={projectMenu} />}
         {/* What's said takes the pills' place while it shows: beside them, the bar would outgrow
             the room the pills were fitted to. */}
-        {said ? <SaidLine said={said} /> : sections.flatMap((section, i) => [<span key={`divider-${i}`} className="ca-hud-divider" aria-hidden="true" />, ...section])}
+        {said ? <SaidLine said={said} onShow={reveal} /> : sections.flatMap((section, i) => [<span key={`divider-${i}`} className="ca-hud-divider" aria-hidden="true" />, ...section])}
       </div>
       {measured}
     </ProjectShown.Provider>

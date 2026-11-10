@@ -3304,11 +3304,13 @@ as any session is hearing, Codealong's mark in the bar has a red center that bea
 in the notch or floating, as a recording light does; point at it and it says which session
 listens, and what's wrong when something is. The session has a pill of its own on the bar, the
 first, with the same light, whatever project the bar shows: a click shows the session, under the
-notch's pills or, from the floating bar, in Codealong's window. It's that pill's alone while it
+notch's pills or, from the floating bar, in Codealong's window (as does a click on its cue there,
+which has the pills' place while it shows). It's that pill's alone while it
 listens (its turns come and go every few seconds, so it isn't among the working sessions or the
 recent ones), but when it needs you; the menu bar item's menu lists it first, under Listening.
 And the main window's bar names it, with how long it has listened, whatever the window shows: a
-click there shows it too.
+click there shows it too. Several sessions hearing at once are counted in the one light, and a
+click drops a menu of them.
 
 While it hears, a listening session's finished turns aren't Your turn: it ends one every few
 seconds, none of them yours to answer, so they make no sound and count nowhere. A call it asks

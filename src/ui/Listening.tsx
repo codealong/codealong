@@ -13,7 +13,8 @@ import { useEffect, useState } from 'react';
 import { askMainToListen, hearingStatus, listeningOf, onHearing, onListenAsk, onListeningNotes, startListening, stopListening } from '../api';
 import { ASK, askProblem, clock, heardLine, hears, macSays, onAskedToListen, ROLES, type HeardLine, type ListenAsked, type Told as ToldWhat } from '../listening';
 import { errorText } from '../report';
-import { hearingSays } from '../said';
+import { below, showContextMenu } from '../contextMenu';
+import { hearingNamed, hearingSays } from '../said';
 import type { BarListening, HearingStatus, ListenAsk, ListeningGlance } from '../types';
 import { Markdown } from './Markdown';
 import { Button, CheckBox, Chip, cx, Dialog, Icon, Seg } from './primitives';
@@ -197,25 +198,29 @@ export function ListeningChip({ listening }: { listening: ListeningGlance | unde
  *  the session's name and how long it has listened, and a click shows the session. Nothing while
  *  none hears. On the bar that floats it's a pill (Bar.tsx `ListeningPill`). */
 export function ListeningNow({ listenings, onShow }: { listenings: readonly BarListening[]; onShow: (l: BarListening) => void }) {
-  return (
-    <>
-      {listenings.map((l) => (
-        <HearingNow key={l.key} listening={l} onShow={() => onShow(l)} />
-      ))}
-    </>
-  );
+  return listenings.length ? <HearingNow listenings={listenings} onShow={onShow} /> : null;
 }
 
-/** One of them: a part of its own, so a clock runs by the second only while one hears. */
-function HearingNow({ listening: l, onShow }: { listening: BarListening; onShow: () => void }) {
+/** A part of its own, so a clock runs by the second only while a session hears. The window's bar
+ *  has room for one light: several sessions are counted in it, the clock the first's to begin,
+ *  and a click drops a menu of them to pick from. */
+function HearingNow({ listenings, onShow }: { listenings: readonly BarListening[]; onShow: (l: BarListening) => void }) {
   const now = useNow(1000);
-  const says = hearingSays([l]) ?? '';
+  const [first] = listenings;
+  const one = listenings.length === 1;
+  const says = hearingSays(listenings) ?? '';
   return (
-    <button type="button" className={cx('ca-hearing-now', l.problem && 'is-troubled')} title={`${says}\nShow it`} aria-label={`${says}. Show it`} onClick={onShow}>
+    <button
+      type="button"
+      className="ca-hearing-now"
+      title={`${says}\n${one ? 'Show it' : 'Pick one to show'}`}
+      aria-label={`${says.replace(/\n/g, '. ')}. ${one ? 'Show it' : 'Pick one to show'}`}
+      onClick={(e) => (one ? onShow(first) : void showContextMenu(listenings.map((l) => ({ label: `${l.title} · ${clock(now - l.startedAt)}`, run: () => onShow(l) })), below(e.currentTarget)))}
+    >
       <span className="ca-live-dot" aria-hidden="true" />
-      <span className="ca-hearing-now-title">{l.title}</span>
-      <span className="ca-hearing-now-clock">{clock(now - l.startedAt)}</span>
-      {l.problem && <Icon name="alert" size={12} />}
+      <span className="ca-hearing-now-title">{hearingNamed(listenings)}</span>
+      <span className="ca-hearing-now-clock">{clock(now - first.startedAt)}</span>
+      {listenings.some((l) => l.problem) && <Icon name="alert" size={12} />}
     </button>
   );
 }
