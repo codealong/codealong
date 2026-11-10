@@ -21,7 +21,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Mutex;
 
-use crate::engine::Handle;
+use crate::engine::{Handle, Trouble};
 use crate::model::{Board, Session, Status};
 use crate::origins::Pending;
 
@@ -229,7 +229,7 @@ pub fn send_now(engine: &Handle, reporter: &Mutex<Reporter>, jobs: Vec<Job>) {
             failed.push(format!("“{title}” wasn't told what its helpers did: {e}.{then}"));
         }
     }
-    engine.reported(if failed.is_empty() { Ok(()) } else { Err(failed.join(" ")) });
+    engine.went(Trouble::Helpers, if failed.is_empty() { Ok(()) } else { Err(failed.join(" ")) });
 }
 
 #[cfg(test)]

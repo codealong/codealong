@@ -33,7 +33,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::Mutex;
 
 use crate::config::NudgeAbout;
-use crate::engine::Handle;
+use crate::engine::{Handle, Trouble};
 use crate::github::PrDetail;
 use crate::model::{Board, Lane, Merge, PrItem, PrState, Session};
 use serde::{Deserialize, Serialize};
@@ -623,7 +623,7 @@ fn message(job: &Job, detail: Option<Result<&PrDetail, &str>>, login: Option<&st
 pub fn send_now(engine: &Handle, nudger: &Mutex<Nudger>, jobs: Vec<Job>) {
     let read = |pr: &PrItem| crate::github::detail(&pr.repo_slug, pr.number).map_err(|e| e.to_string());
     let went = send_all(engine, nudger, jobs, read, |job, text| deliver(engine, job, text), crate::util::now_ms);
-    engine.nudged(went);
+    engine.went(Trouble::Nudges, went);
 }
 
 /// Sends a job's message as a window's send does, by `send::tell`, or `send::tell_waking` for a

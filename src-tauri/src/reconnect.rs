@@ -27,7 +27,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 use std::time::Duration;
 
-use crate::engine::Handle;
+use crate::engine::{Handle, Trouble};
 use crate::model::{Board, Session};
 
 /// A connection lost, or a limit lifted, longer ago than this is left as it is: you've seen it,
@@ -302,7 +302,7 @@ pub fn send_now(engine: &Handle, continuer: &Mutex<Continuer>, due: Due) {
             said.push(format!("“{title}” {}, and telling it to carry on didn't work: {e}.{then}", job.why.stopped()));
         }
     }
-    engine.continued(if said.is_empty() { Ok(()) } else { Err(said.join(" ")) });
+    engine.went(Trouble::Reconnect, if said.is_empty() { Ok(()) } else { Err(said.join(" ")) });
 }
 
 #[cfg(test)]

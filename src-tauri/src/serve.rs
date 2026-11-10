@@ -297,7 +297,7 @@ pub fn start() -> Result<Ctx, String> {
         terminal::report_ended(move || board.read(|b| !b.loading), move |run, text| {
             let command = util::one_line(&run.run.command, 60);
             let told = tell_run(&engine, &peers, &run.run, text).map_err(|why| format!("What `{command}` printed didn't reach “{}”: {why} `codealong terminal read {}` has it.", run.run.session_title, run.run.id));
-            engine.run_reported(told);
+            engine.went(engine::Trouble::TerminalRuns, told);
         });
     }
     // After the first scan and the first git runs, which have the Mac to themselves.

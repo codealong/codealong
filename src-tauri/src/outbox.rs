@@ -29,7 +29,7 @@ use std::sync::{Mutex, OnceLock};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-use crate::engine::Handle;
+use crate::engine::{Handle, Trouble};
 use crate::model::Board;
 use crate::send::{self, quoted, Sender, Sent, WaitsOnItsUser};
 
@@ -310,11 +310,11 @@ pub fn start(engine: Handle) {
     }
 }
 
-/// Tells the engine how a batch went (`Outbox::verdict`, `Handle::held_sent`), once for the
+/// Tells the engine how a batch went (`Outbox::verdict`, `Trouble::HeldMessages`), once for the
 /// batch: a notice set and cleared within one look would never reach a board.
 fn report(engine: &Handle, out: &mut Outbox, sent: bool) {
     if let Some(verdict) = out.verdict(sent) {
-        engine.held_sent(verdict);
+        engine.went(Trouble::HeldMessages, verdict);
     }
 }
 
