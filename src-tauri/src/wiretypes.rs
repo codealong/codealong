@@ -157,9 +157,22 @@ fn written<T: Serialize>(value: &T) -> Result<BTreeSet<&'static str>, String> {
 /// given, numbers 0, text and lists empty, what may be missing missing, an enum its first
 /// variant. Only for seeing what it writes (`written`). An error is serde's, for a type that
 /// can't be read this way: a field with an alias (given by both names, it's given twice), one
-/// that must be something particular.
+/// that must be something particular, one that holds itself as it's made.
 fn sample<T: DeserializeOwned>() -> Result<T, String> {
-    struct Plain;
+    /// How far in a value is made before it's given up as one that never ends.
+    const DEEPEST: usize = 64;
+    /// What reads as the plainest of anything, this far in.
+    struct Plain(usize);
+    impl Plain {
+        /// What reads the next level in from `depth`; an error where a type holds itself as
+        /// it's made, which would never end.
+        fn within(depth: usize) -> Result<Plain, Error> {
+            if depth >= DEEPEST {
+                return Err(de::Error::custom("it holds itself without end as it's made: an enum whose first variant holds the enum, most likely"));
+            }
+            Ok(Plain(depth + 1))
+        }
+    }
     macro_rules! plain {
         ($($method:ident => $visit:ident($($value:expr),*);)*) => {
             $(fn $method<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> { visitor.$visit($($value),*) })*
@@ -175,57 +188,67 @@ fn sample<T: DeserializeOwned>() -> Result<T, String> {
             deserialize_f32 => visit_f64(0.0); deserialize_f64 => visit_f64(0.0);
             deserialize_str => visit_str(""); deserialize_string => visit_str(""); deserialize_identifier => visit_str("");
             deserialize_bytes => visit_bytes(&[]); deserialize_byte_buf => visit_bytes(&[]);
-            deserialize_seq => visit_seq(Items(0)); deserialize_map => visit_map(Fields([].iter()));
+            deserialize_seq => visit_seq(Items { left: 0, depth: 0 }); deserialize_map => visit_map(Fields { names: [].iter(), depth: 0 });
         }
         fn deserialize_unit_struct<V: Visitor<'de>>(self, _: &'static str, visitor: V) -> Result<V::Value, Error> {
             visitor.visit_unit()
         }
         fn deserialize_newtype_struct<V: Visitor<'de>>(self, _: &'static str, visitor: V) -> Result<V::Value, Error> {
-            visitor.visit_newtype_struct(Plain)
+            visitor.visit_newtype_struct(Plain::within(self.0)?)
         }
         fn deserialize_tuple<V: Visitor<'de>>(self, len: usize, visitor: V) -> Result<V::Value, Error> {
-            visitor.visit_seq(Items(len))
+            visitor.visit_seq(Items { left: len, depth: self.0 })
         }
         fn deserialize_tuple_struct<V: Visitor<'de>>(self, _: &'static str, len: usize, visitor: V) -> Result<V::Value, Error> {
-            visitor.visit_seq(Items(len))
+            visitor.visit_seq(Items { left: len, depth: self.0 })
         }
         fn deserialize_struct<V: Visitor<'de>>(self, _: &'static str, fields: &'static [&'static str], visitor: V) -> Result<V::Value, Error> {
-            visitor.visit_map(Fields(fields.iter()))
+            visitor.visit_map(Fields { names: fields.iter(), depth: self.0 })
         }
         fn deserialize_enum<V: Visitor<'de>>(self, name: &'static str, variants: &'static [&'static str], visitor: V) -> Result<V::Value, Error> {
-            visitor.visit_enum(First(variants.first().copied().ok_or_else(|| <Error as de::Error>::custom(format!("{name} has no variant")))?))
+            let variant = variants.first().copied().ok_or_else(|| <Error as de::Error>::custom(format!("{name} has no variant")))?;
+            visitor.visit_enum(First { variant, depth: self.0 })
         }
     }
     /// As many plain items as a tuple wants; none for a list.
-    struct Items(usize);
+    struct Items {
+        left: usize,
+        depth: usize,
+    }
     impl<'de> SeqAccess<'de> for Items {
         type Error = Error;
         fn next_element_seed<S: DeserializeSeed<'de>>(&mut self, seed: S) -> Result<Option<S::Value>, Error> {
-            if self.0 == 0 {
+            if self.left == 0 {
                 return Ok(None);
             }
-            self.0 -= 1;
-            seed.deserialize(Plain).map(Some)
+            self.left -= 1;
+            seed.deserialize(Plain::within(self.depth)?).map(Some)
         }
     }
     /// Each of a struct's fields, by the names it says it reads, with a plain value.
-    struct Fields(std::slice::Iter<'static, &'static str>);
+    struct Fields {
+        names: std::slice::Iter<'static, &'static str>,
+        depth: usize,
+    }
     impl<'de> MapAccess<'de> for Fields {
         type Error = Error;
         fn next_key_seed<S: DeserializeSeed<'de>>(&mut self, seed: S) -> Result<Option<S::Value>, Error> {
-            self.0.next().map(|name| seed.deserialize(StrDeserializer::new(name))).transpose()
+            self.names.next().map(|name| seed.deserialize(StrDeserializer::new(name))).transpose()
         }
         fn next_value_seed<S: DeserializeSeed<'de>>(&mut self, seed: S) -> Result<S::Value, Error> {
-            seed.deserialize(Plain)
+            seed.deserialize(Plain::within(self.depth)?)
         }
     }
     /// An enum's first variant, with whatever it holds made plain.
-    struct First(&'static str);
+    struct First {
+        variant: &'static str,
+        depth: usize,
+    }
     impl<'de> EnumAccess<'de> for First {
         type Error = Error;
         type Variant = Plain;
         fn variant_seed<S: DeserializeSeed<'de>>(self, seed: S) -> Result<(S::Value, Plain), Error> {
-            Ok((seed.deserialize(StrDeserializer::new(self.0))?, Plain))
+            Ok((seed.deserialize(StrDeserializer::new(self.variant))?, Plain(self.depth)))
         }
     }
     impl<'de> VariantAccess<'de> for Plain {
@@ -234,16 +257,22 @@ fn sample<T: DeserializeOwned>() -> Result<T, String> {
             Ok(())
         }
         fn newtype_variant_seed<S: DeserializeSeed<'de>>(self, seed: S) -> Result<S::Value, Error> {
-            seed.deserialize(Plain)
+            seed.deserialize(Plain::within(self.0)?)
         }
         fn tuple_variant<V: Visitor<'de>>(self, len: usize, visitor: V) -> Result<V::Value, Error> {
-            visitor.visit_seq(Items(len))
+            visitor.visit_seq(Items { left: len, depth: self.0 })
         }
         fn struct_variant<V: Visitor<'de>>(self, fields: &'static [&'static str], visitor: V) -> Result<V::Value, Error> {
-            visitor.visit_map(Fields(fields.iter()))
+            visitor.visit_map(Fields { names: fields.iter(), depth: self.0 })
         }
     }
-    T::deserialize(Plain).map_err(|e| e.to_string())
+    T::deserialize(Plain(0)).map_err(|e| e.to_string())
+}
+
+/// A name as TypeScript writes a string: JSON's way, which is one of its own, whatever the name
+/// holds.
+fn literal(name: &str) -> String {
+    serde_json::to_string(name).unwrap_or_default()
 }
 
 /// `src/testing/modelFields.ts`: for each pair, a type that holds only while the interface's
@@ -262,27 +291,39 @@ fn fixture() -> String {
          type Same<Engine, Windows> = [Exclude<Engine, Windows>, Exclude<Windows, Engine>] extends [never, never]\n\
          \x20 ? true\n\
          \x20 : { onlyTheEngineNames: Exclude<Engine, Windows>; onlyTheWindowsName: Exclude<Windows, Engine> };\n\
-         type Holds<T extends true> = T;\n",
+         type Holds<T extends true> = T;\n\
+         /** A type's names as JSON has them: a number's as text, and those of every member of a union. */\n\
+         type Names<T> = T extends unknown ? Text<keyof T> : never;\n\
+         type Text<Key> = Key extends string | number ? `${Key}` : Key;\n\
+         \n\
+         // The types above, held to what they're for: a union names what any member of it does, a\n\
+         // number is its text, and a name only one side has doesn't hold.\n\
+         export type Helpers = [\n\
+         \x20 Holds<Same<\"id\" | \"more\", Names<{ id: string } | { id: string; more: string }>>>,\n\
+         \x20 Holds<Same<\"0\", Names<{ 0: string }>>>,\n\
+         \x20 // @ts-expect-error: `more` is only the windows'.\n\
+         \x20 Holds<Same<\"id\", Names<{ id: string; more?: string }>>>,\n\
+         ];\n",
     );
     // What holds `APART` true, where it has something to hold: an unused type fails the typecheck.
     if APART.iter().any(|a| !a.windows.is_empty()) {
-        out.push_str("type Has<Names, Name> = Name extends Names ? true : { theWindowsNoLongerName: Name };\n");
+        out.push_str("type Has<Theirs, Name> = Name extends Theirs ? true : { theWindowsNoLongerName: Name };\n");
     }
     if APART.iter().any(|a| !a.engine.is_empty()) {
-        out.push_str("type Lacks<Names, Name> = Name extends Names ? { theWindowsNowName: Name } : true;\n");
+        out.push_str("type Lacks<Theirs, Name> = Name extends Theirs ? { theWindowsNowName: Name } : true;\n");
     }
     for p in pairs() {
         let apart = APART.iter().find(|a| a.rust == p.rust);
-        let names: Vec<String> = p.names.iter().filter(|n| !apart.is_some_and(|a| a.engine.contains(n))).map(|n| format!("  | '{n}'")).collect();
+        let names: Vec<String> = p.names.iter().filter(|n| !apart.is_some_and(|a| a.engine.contains(n))).map(|n| format!("  | {}", literal(n))).collect();
         let engine = if names.is_empty() { "  never".to_string() } else { names.join("\n") };
-        let theirs = format!("keyof Types.{}", p.ts);
+        let theirs = format!("Names<Types.{}>", p.ts);
         let windows = match apart.map(|a| a.windows).filter(|w| !w.is_empty()) {
-            Some(only) => format!("Exclude<{theirs}, {}>", only.iter().map(|n| format!("'{n}'")).collect::<Vec<_>>().join(" | ")),
+            Some(only) => format!("Exclude<{theirs}, {}>", only.iter().map(|n| literal(n)).collect::<Vec<_>>().join(" | ")),
             None => theirs.clone(),
         };
         out.push_str(&format!("\nexport type {} = Holds<Same<\n{engine},\n  {windows}\n>>;\n", p.rust));
         if let Some(a) = apart {
-            let held = a.windows.iter().map(|n| format!("Holds<Has<{theirs}, '{n}'>>")).chain(a.engine.iter().map(|n| format!("Holds<Lacks<{theirs}, '{n}'>>")));
+            let held = a.windows.iter().map(|n| format!("Holds<Has<{theirs}, {}>>", literal(n))).chain(a.engine.iter().map(|n| format!("Holds<Lacks<{theirs}, {}>>", literal(n))));
             out.push_str(&format!("/** {} */\nexport type {}Apart = [{}];\n", a.why, p.rust, held.collect::<Vec<_>>().join(", ")));
         }
     }
@@ -400,6 +441,19 @@ fn a_structs_names_are_the_ones_it_writes() {
     }
     assert_eq!(written(&Flattened::default()), Err(NOT_A_STRUCT.to_string()));
     assert_eq!(written(&"text"), Err(NOT_A_STRUCT.to_string()));
+
+    // A type that holds itself as it's made is given up, where making it would never end.
+    #[derive(Serialize, Deserialize)]
+    #[allow(dead_code)]
+    enum Tree {
+        Branch(Box<Tree>),
+        Leaf,
+    }
+    assert!(sample::<Tree>().is_err_and(|why| why.contains("without end")));
+
+    // A name goes into the fixture as a string of TypeScript's, whatever it holds.
+    assert_eq!(literal("plain"), "\"plain\"");
+    assert_eq!(literal("it's a \\n \"name\""), r#""it's a \\n \"name\"""#);
 
     assert_eq!(structs("pub struct One {\n    pub a: u8,\n}\npub struct Two;\nstruct Private;\n"), ["One", "Two"]);
 }
