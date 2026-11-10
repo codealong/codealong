@@ -45,6 +45,15 @@
     check('the chip names the session’s latest page', !!s, title + ' in ' + heading);
     if (!s) return done();
     var made = s.artifacts;
+    // Its colors are its own: a sheen and a berry, where a neutral chip would read as a label.
+    var look = getComputedStyle(chip());
+    var berry = getComputedStyle(document.documentElement).getPropertyValue('--artifact').trim();
+    var probe = document.createElement('span');
+    probe.style.color = berry;
+    document.body.appendChild(probe);
+    var berryRgb = getComputedStyle(probe).color;
+    probe.remove();
+    check('the chip is a sheen in the artifact berry, not a neutral chip', /linear-gradient/.test(look.backgroundImage) && look.color === berryRgb && getComputedStyle(chip().querySelector('.ca-icon')).color === berryRgb, look.backgroundImage + ' ' + look.color);
     check('its tooltip says what was done with it and how to open it', chip().title.indexOf(made[0].title) === 0 && /Click to open it in the browser\.$/.test(chip().title), chip().title);
     check('the rest are counted beside it', !!more() && more().textContent.trim() === '+' + (made.length - 1) + ' more' && more().getAttribute('aria-expanded') === 'false', more() && more().textContent);
     check('and named on hover', !!more() && more().title === made.slice(1).map(function (a) { return a.title; }).join('\n'), more() && more().title);

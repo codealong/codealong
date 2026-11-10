@@ -2,7 +2,8 @@
    A chip is one shape and size wherever it shows: 20 high with round ends, 11px text, a 12px
    icon, 6px from the next. Its fill says what it is: neutral for something you can open (an
    agent, a todo, a label), an outline for a place (a worktree, an app that isn't running), a
-   color for where something stands (a PR, its review and checks, Jev's read, an app that runs).
+   color for where something stands (a PR, its review and checks, Jev's read, an app that runs),
+   and a page an agent made a sheen of its own (ArtifactBits.css) that no state's flat tint has.
    Names a machine gave are mono (accounts, worktrees, PR numbers); words are sans. The design
    system drew agents round and everything else square; the lists mix them on one line, so
    they're all round here, and `--chip-radius` is the one place that says so. The PR chip

@@ -535,7 +535,7 @@ of the session's on a click (in the floating windows, in PRs), opens it on GitHu
 and shows the PR's card on hover, which merges an open PR there (see *Merging*), with the todo it's
 on and +N for the rest. Beside its PRs is the latest page on the web it
 made: an artifact Claude Code published, made from a type or opened, its subagents' included, as a
-chip with its title that opens it in the browser on a click, what it last did with it and when on
+chip with its title, lavender fading into pink so it can't be taken for a label or a state, that opens it in the browser on a click, what it last did with it and when on
 hover. When it made more, "+N more" beside the chip (naming them on hover) lists the rest under the
 links, the latest first, each with what was last done with it and how long ago, and "fewer" puts
 them away, as the sessions that came of it go under its title. An artifact published again is one
