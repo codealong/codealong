@@ -202,6 +202,15 @@ under `src-tauri/src/`.
 
 ## Unchecked
 
+- Not yet checked by hand (2026-11-10): a link to a session that launches Codealong, the app
+  closed when it's clicked (`front.rs` `open_links`): that the main window takes the link once
+  it's up and shows the session. With Codealong Dev running, `open codealong://session/<key>`
+  and one with only the start of an id each showed its session (a capture of the window,
+  2026-11-10), and the preview shows the page taking a link that came before it
+  (`opened-link-check.js`). Nor a click on a link's words in a real terminal; nor a Codealong
+  in Applications that claims the scheme beside Codealong Dev (the one installed then didn't
+  yet), where the stub apps say Codealong Dev's claim holds.
+
 - Not yet checked by hand (2026-10-06): zooming in the real app. View's Actual size, Zoom in and
   Zoom out and their keys; every board window following a step, and a project window opening at
   the zoom; a menu dropped from a button (a session header's More) landing under it at 125%. The
