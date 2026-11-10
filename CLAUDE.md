@@ -291,7 +291,8 @@ Each rule names the file whose header has the rest.
   value in `Session::new` or `Lane::new`, which everything that builds one starts from, and bumps
   `feed::READS` when another device shows it, so a kept copy without it is sent again; tests
   build them from the shared fixtures (`peer/src/fixtures.rs`). The windows' `src/types.ts`
-  names every field of the model, which `wiretypes.rs` holds it to. The iPhone app builds on the
+  names every field of the model: `wiretypes.rs` writes the names down, and the typecheck holds
+  types.ts to them. The iPhone app builds on the
   crate at a pinned commit and talks to Macs of other builds, so a new message goes only to
   peers that say they know it.
 - Other Macs' worktrees never go into the board, which is what the engine acts on and sends

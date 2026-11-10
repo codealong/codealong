@@ -3,43 +3,55 @@
 //! The windows' types are written by hand to mirror what serde writes, with the comments the
 //! windows need, and nothing else says when a field is added, dropped or renamed on one side
 //! only. A field the engine sends that no interface declares is one a window can't read without
-//! a cast; a member the engine never sends is always undefined, whatever its type says. Here
-//! each struct of the model is paired with the interface that mirrors it (`pairs`), and the two
-//! must name the same fields but for what's listed as apart on purpose (`APART`), which has to
-//! stay true: an entry that no longer differs fails too.
+//! a cast; a member the engine never sends is always undefined, whatever its type says.
 //!
-//! Every struct in the model's files (`FILES`) is paired or said to have no interface
-//! (`UNMIRRORED`), so a new one has to say which. Names only: what type each field is, and
-//! whether it may be missing, is still kept in step by hand.
+//! Each struct of the model is paired here with the interface that mirrors it (`pairs`), and
+//! the names it writes its fields by go into `src/testing/modelFields.ts` (`fixture`), where
+//! the TypeScript compiler holds each interface's own names to them: `npm run typecheck` fails
+//! on the line of one that differs, saying which names only one side has. A test here keeps
+//! that file current, as windowfeed.rs keeps its fixture. What differs on purpose is listed
+//! with why (`APART`), and has to stay true. Every struct in the model's files (`FILES`) is
+//! paired or said to have no interface (`UNMIRRORED`), so a new one has to say which.
 //!
-//! A struct's names are the ones serde reads it by (`names`), which are the ones it writes only
-//! while nothing in the model's files names a field one way alone: an alias, a field skipped or
-//! renamed in one direction, a flattened one. `misnames` says which lines would, and a test
-//! holds the files to none. An interface is read from types.ts by a small reader of its own
-//! (`Ts`), which fails on a parent it can't read rather than taking it to have no members.
+//! Names only: what type each field is, and whether it may be missing, is still kept in step by
+//! hand. The names are the ones serde writes, read from a value as it's written (`written`),
+//! which `sample` makes of any type that reads: so a field read by another name than it's
+//! written by, skipped one way, or written with a tag, comes out as the windows get it.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
-use serde::de::{self, DeserializeOwned, Deserializer, Visitor};
+use serde::de::value::{Error, StrDeserializer};
+use serde::de::{self, DeserializeOwned, DeserializeSeed, Deserializer, EnumAccess, MapAccess, SeqAccess, VariantAccess, Visitor};
+use serde::ser::{self, Impossible, SerializeStruct, Serializer};
+use serde::Serialize;
 
 use crate::model;
 
-const TYPES: &str = include_str!("../../src/types.ts");
-
 /// The files the board's model is in.
 const FILES: [(&str, &str); 2] = [("peer/src/model.rs", include_str!("../peer/src/model.rs")), ("src/model.rs", include_str!("model.rs"))];
+
+/// Where the names go for the TypeScript compiler to hold types.ts to, from this crate's folder.
+const FIXTURE: &str = "../src/testing/modelFields.ts";
 
 /// A struct and the interface that mirrors it.
 struct Pair {
     rust: &'static str,
     ts: &'static str,
-    /// The names serde knows its fields by (`names`).
+    /// The names it writes its fields by (`written`).
     names: BTreeSet<&'static str>,
 }
 
-fn pair<T: DeserializeOwned>(ts: &'static str) -> Pair {
+/// A struct paired with the interface `ts`, its names read from a value made for the purpose.
+/// One `sample` can't make (it says why) is paired with `pair_of` and a value made by hand.
+fn pair<T: DeserializeOwned + Serialize>(ts: &'static str) -> Pair {
     let rust = std::any::type_name::<T>().rsplit("::").next().unwrap_or_default();
-    Pair { rust, ts, names: names::<T>().unwrap_or_else(|| panic!("{rust} doesn't read as a struct with named fields")) }
+    let value = sample::<T>().unwrap_or_else(|why| panic!("{rust}: no value of it could be made to see what it writes ({why}); pair it with `pair_of` and one made by hand"));
+    pair_of(ts, &value)
+}
+
+fn pair_of<T: Serialize>(ts: &'static str, value: &T) -> Pair {
+    let rust = std::any::type_name::<T>().rsplit("::").next().unwrap_or_default();
+    Pair { rust, ts, names: written(value).unwrap_or_else(|why| panic!("{rust}: {why}")) }
 }
 
 /// The model's structs, each with the interface of types.ts that mirrors it: most by the same
@@ -61,308 +73,220 @@ const UNMIRRORED: [(&str, &str); 2] = [
     ("AppNames", "typed in place, as `Board.apps`"),
 ];
 
-/// What a struct and its interface name differently on purpose: the struct, what only the
-/// engine names, what only the windows name, and why.
-const APART: [(&str, &[&str], &[&str], &str); 1] =
-    [("Target", &[], &["image"], "an editor's own icon, which the windows put on its target from the icons they ask for apart (src/editors.ts)")];
+/// What a struct and its interface name differently on purpose.
+struct Apart {
+    rust: &'static str,
+    /// What the engine writes and no window's type names.
+    engine: &'static [&'static str],
+    /// What the windows' type names and the engine never writes.
+    windows: &'static [&'static str],
+    why: &'static str,
+}
 
-/// The names serde reads a struct's fields by, as its derive hands them to a deserializer:
-/// renamed as `rename_all` and `rename` have them, without what's skipped. None for what isn't
-/// a plain struct (one with a flattened field reads as a map, which says no names). They're the
-/// names it writes too only where no field is named one way alone (`misnames`).
-fn names<T: DeserializeOwned>() -> Option<BTreeSet<&'static str>> {
-    struct Names<'a>(&'a mut Option<&'static [&'static str]>);
-    impl<'de> Deserializer<'de> for Names<'_> {
-        type Error = de::value::Error;
-        fn deserialize_any<V: Visitor<'de>>(self, _: V) -> Result<V::Value, Self::Error> {
-            Err(de::Error::custom("not a struct"))
+const APART: [Apart; 1] = [Apart {
+    rust: "Target",
+    engine: &[],
+    windows: &["image"],
+    why: "An editor's own icon, which the windows put on its target from the icons they ask for apart (src/editors.ts).",
+}];
+
+const NOT_A_STRUCT: &str = "it isn't written as a struct with named fields (a flattened field writes it as a map)";
+
+/// The names `value` writes its fields by: each it writes, and each it leaves out of this value
+/// that another has (`skip_serializing_if`, which serde tells what it writes to of).
+fn written<T: Serialize>(value: &T) -> Result<BTreeSet<&'static str>, String> {
+    struct Names(BTreeSet<&'static str>);
+    impl SerializeStruct for Names {
+        type Ok = BTreeSet<&'static str>;
+        type Error = Error;
+        fn serialize_field<V: ?Sized + Serialize>(&mut self, key: &'static str, _: &V) -> Result<(), Error> {
+            self.0.insert(key);
+            Ok(())
         }
-        fn deserialize_struct<V: Visitor<'de>>(self, _: &'static str, fields: &'static [&'static str], _: V) -> Result<V::Value, Self::Error> {
-            *self.0 = Some(fields);
-            Err(de::Error::custom("only its names were asked for"))
+        fn skip_field(&mut self, key: &'static str) -> Result<(), Error> {
+            self.0.insert(key);
+            Ok(())
         }
-        serde::forward_to_deserialize_any! {
-            bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string bytes byte_buf option unit unit_struct newtype_struct seq tuple tuple_struct map enum identifier ignored_any
+        fn end(self) -> Result<Self::Ok, Error> {
+            Ok(self.0)
         }
     }
-    let mut got = None;
-    let _ = T::deserialize(Names(&mut got));
-    got.map(|fields| fields.iter().copied().collect())
-}
-
-/// Why a line of Rust gives a field a name serde reads and doesn't write, or the other way
-/// round, so that `names` wouldn't be what the windows are sent; None for a line that doesn't.
-fn misnames(line: &str) -> Option<&'static str> {
-    let line = line.trim();
-    if !line.starts_with("#[") || !line.contains("serde(") {
-        return None;
+    /// Takes a struct with named fields and nothing else.
+    struct Top;
+    macro_rules! only_a_struct {
+        ($($method:ident($($arg:ty),*) -> $ret:ty;)*) => {
+            $(fn $method(self, $(_: $arg),*) -> Result<$ret, Error> { Err(ser::Error::custom(NOT_A_STRUCT)) })*
+        };
     }
-    let skipped_one_way = line.match_indices("skip_serializing").any(|(at, word)| !line[at + word.len()..].starts_with("_if"));
-    if line.contains("alias") {
-        Some("an alias is a name read and never written")
-    } else if line.contains("flatten") {
-        Some("a flattened field's names aren't said to what reads it")
-    } else if skipped_one_way {
-        Some("a field skipped only as it's written is read and never sent")
-    } else if line.contains("skip_deserializing") {
-        Some("a field skipped only as it's read is sent and never named here")
-    } else if line.contains("rename(") || line.contains("rename_all(") {
-        Some("a name given one way only is read as one and written as another")
-    } else if line.contains("from =") || line.contains("try_from") || line.contains("into =") {
-        Some("a type read or written as another has that one's fields")
-    } else {
-        None
+    impl Serializer for Top {
+        type Ok = BTreeSet<&'static str>;
+        type Error = Error;
+        type SerializeSeq = Impossible<Self::Ok, Error>;
+        type SerializeTuple = Impossible<Self::Ok, Error>;
+        type SerializeTupleStruct = Impossible<Self::Ok, Error>;
+        type SerializeTupleVariant = Impossible<Self::Ok, Error>;
+        type SerializeMap = Impossible<Self::Ok, Error>;
+        type SerializeStruct = Names;
+        type SerializeStructVariant = Impossible<Self::Ok, Error>;
+        fn serialize_struct(self, _: &'static str, _: usize) -> Result<Names, Error> {
+            Ok(Names(BTreeSet::new()))
+        }
+        fn serialize_some<V: ?Sized + Serialize>(self, _: &V) -> Result<Self::Ok, Error> {
+            Err(ser::Error::custom(NOT_A_STRUCT))
+        }
+        fn serialize_newtype_struct<V: ?Sized + Serialize>(self, _: &'static str, _: &V) -> Result<Self::Ok, Error> {
+            Err(ser::Error::custom(NOT_A_STRUCT))
+        }
+        fn serialize_newtype_variant<V: ?Sized + Serialize>(self, _: &'static str, _: u32, _: &'static str, _: &V) -> Result<Self::Ok, Error> {
+            Err(ser::Error::custom(NOT_A_STRUCT))
+        }
+        only_a_struct! {
+            serialize_bool(bool) -> Self::Ok; serialize_i8(i8) -> Self::Ok; serialize_i16(i16) -> Self::Ok; serialize_i32(i32) -> Self::Ok; serialize_i64(i64) -> Self::Ok;
+            serialize_u8(u8) -> Self::Ok; serialize_u16(u16) -> Self::Ok; serialize_u32(u32) -> Self::Ok; serialize_u64(u64) -> Self::Ok;
+            serialize_f32(f32) -> Self::Ok; serialize_f64(f64) -> Self::Ok; serialize_char(char) -> Self::Ok; serialize_str(&str) -> Self::Ok; serialize_bytes(&[u8]) -> Self::Ok;
+            serialize_none() -> Self::Ok; serialize_unit() -> Self::Ok; serialize_unit_struct(&'static str) -> Self::Ok; serialize_unit_variant(&'static str, u32, &'static str) -> Self::Ok;
+            serialize_seq(Option<usize>) -> Self::SerializeSeq; serialize_tuple(usize) -> Self::SerializeTuple; serialize_tuple_struct(&'static str, usize) -> Self::SerializeTupleStruct;
+            serialize_tuple_variant(&'static str, u32, &'static str, usize) -> Self::SerializeTupleVariant; serialize_map(Option<usize>) -> Self::SerializeMap;
+            serialize_struct_variant(&'static str, u32, &'static str, usize) -> Self::SerializeStructVariant;
+        }
     }
+    value.serialize(Top).map_err(|e| e.to_string())
 }
 
-fn is_quote(c: char) -> bool {
-    matches!(c, '\'' | '"' | '`')
+/// A value of any type that reads, made of the plainest of everything: every field of a struct
+/// given, numbers 0, text and lists empty, what may be missing missing, an enum its first
+/// variant. Only for seeing what it writes (`written`). An error is serde's, for a type that
+/// can't be read this way: a field with an alias (given by both names, it's given twice), one
+/// that must be something particular.
+fn sample<T: DeserializeOwned>() -> Result<T, String> {
+    struct Plain;
+    macro_rules! plain {
+        ($($method:ident => $visit:ident($($value:expr),*);)*) => {
+            $(fn $method<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> { visitor.$visit($($value),*) })*
+        };
+    }
+    impl<'de> Deserializer<'de> for Plain {
+        type Error = Error;
+        plain! {
+            deserialize_any => visit_unit(); deserialize_ignored_any => visit_unit(); deserialize_unit => visit_unit(); deserialize_option => visit_none();
+            deserialize_bool => visit_bool(false); deserialize_char => visit_char('a');
+            deserialize_i8 => visit_i64(0); deserialize_i16 => visit_i64(0); deserialize_i32 => visit_i64(0); deserialize_i64 => visit_i64(0); deserialize_i128 => visit_i64(0);
+            deserialize_u8 => visit_u64(0); deserialize_u16 => visit_u64(0); deserialize_u32 => visit_u64(0); deserialize_u64 => visit_u64(0); deserialize_u128 => visit_u64(0);
+            deserialize_f32 => visit_f64(0.0); deserialize_f64 => visit_f64(0.0);
+            deserialize_str => visit_str(""); deserialize_string => visit_str(""); deserialize_identifier => visit_str("");
+            deserialize_bytes => visit_bytes(&[]); deserialize_byte_buf => visit_bytes(&[]);
+            deserialize_seq => visit_seq(Items(0)); deserialize_map => visit_map(Fields([].iter()));
+        }
+        fn deserialize_unit_struct<V: Visitor<'de>>(self, _: &'static str, visitor: V) -> Result<V::Value, Error> {
+            visitor.visit_unit()
+        }
+        fn deserialize_newtype_struct<V: Visitor<'de>>(self, _: &'static str, visitor: V) -> Result<V::Value, Error> {
+            visitor.visit_newtype_struct(Plain)
+        }
+        fn deserialize_tuple<V: Visitor<'de>>(self, len: usize, visitor: V) -> Result<V::Value, Error> {
+            visitor.visit_seq(Items(len))
+        }
+        fn deserialize_tuple_struct<V: Visitor<'de>>(self, _: &'static str, len: usize, visitor: V) -> Result<V::Value, Error> {
+            visitor.visit_seq(Items(len))
+        }
+        fn deserialize_struct<V: Visitor<'de>>(self, _: &'static str, fields: &'static [&'static str], visitor: V) -> Result<V::Value, Error> {
+            visitor.visit_map(Fields(fields.iter()))
+        }
+        fn deserialize_enum<V: Visitor<'de>>(self, name: &'static str, variants: &'static [&'static str], visitor: V) -> Result<V::Value, Error> {
+            visitor.visit_enum(First(variants.first().copied().ok_or_else(|| <Error as de::Error>::custom(format!("{name} has no variant")))?))
+        }
+    }
+    /// As many plain items as a tuple wants; none for a list.
+    struct Items(usize);
+    impl<'de> SeqAccess<'de> for Items {
+        type Error = Error;
+        fn next_element_seed<S: DeserializeSeed<'de>>(&mut self, seed: S) -> Result<Option<S::Value>, Error> {
+            if self.0 == 0 {
+                return Ok(None);
+            }
+            self.0 -= 1;
+            seed.deserialize(Plain).map(Some)
+        }
+    }
+    /// Each of a struct's fields, by the names it says it reads, with a plain value.
+    struct Fields(std::slice::Iter<'static, &'static str>);
+    impl<'de> MapAccess<'de> for Fields {
+        type Error = Error;
+        fn next_key_seed<S: DeserializeSeed<'de>>(&mut self, seed: S) -> Result<Option<S::Value>, Error> {
+            self.0.next().map(|name| seed.deserialize(StrDeserializer::new(name))).transpose()
+        }
+        fn next_value_seed<S: DeserializeSeed<'de>>(&mut self, seed: S) -> Result<S::Value, Error> {
+            seed.deserialize(Plain)
+        }
+    }
+    /// An enum's first variant, with whatever it holds made plain.
+    struct First(&'static str);
+    impl<'de> EnumAccess<'de> for First {
+        type Error = Error;
+        type Variant = Plain;
+        fn variant_seed<S: DeserializeSeed<'de>>(self, seed: S) -> Result<(S::Value, Plain), Error> {
+            Ok((seed.deserialize(StrDeserializer::new(self.0))?, Plain))
+        }
+    }
+    impl<'de> VariantAccess<'de> for Plain {
+        type Error = Error;
+        fn unit_variant(self) -> Result<(), Error> {
+            Ok(())
+        }
+        fn newtype_variant_seed<S: DeserializeSeed<'de>>(self, seed: S) -> Result<S::Value, Error> {
+            seed.deserialize(Plain)
+        }
+        fn tuple_variant<V: Visitor<'de>>(self, len: usize, visitor: V) -> Result<V::Value, Error> {
+            visitor.visit_seq(Items(len))
+        }
+        fn struct_variant<V: Visitor<'de>>(self, fields: &'static [&'static str], visitor: V) -> Result<V::Value, Error> {
+            visitor.visit_map(Fields(fields.iter()))
+        }
+    }
+    T::deserialize(Plain).map_err(|e| e.to_string())
 }
 
-fn is_word(c: char) -> bool {
-    c.is_alphanumeric() || matches!(c, '_' | '$')
-}
-
-/// TypeScript without its comments, which may hold anything, a brace or a `name:` among it.
-fn uncommented(ts: &str) -> String {
-    let mut out = String::with_capacity(ts.len());
-    let mut chars = ts.chars().peekable();
-    let mut quote: Option<char> = None;
-    while let Some(c) = chars.next() {
-        match (quote, c) {
-            (Some(q), _) => {
-                out.push(c);
-                if c == '\\' {
-                    out.extend(chars.next());
-                } else if c == q {
-                    quote = None;
-                }
-            }
-            (None, c) if is_quote(c) => {
-                quote = Some(c);
-                out.push(c);
-            }
-            (None, '/') if chars.peek() == Some(&'/') => {
-                while chars.peek().is_some_and(|&n| n != '\n') {
-                    chars.next();
-                }
-            }
-            (None, '/') if chars.peek() == Some(&'*') => {
-                chars.next();
-                let mut last = ' ';
-                for n in chars.by_ref() {
-                    if last == '*' && n == '/' {
-                        break;
-                    }
-                    last = n;
-                }
-            }
-            (None, _) => out.push(c),
+/// `src/testing/modelFields.ts`: for each pair, a type that holds only while the interface's
+/// own names are the ones the struct writes, less what `APART` lists, which has lines of its
+/// own to hold it true.
+fn fixture() -> String {
+    let mut out = String::from(
+        "// Written by src-tauri/src/wiretypes.rs, whose test keeps it current\n\
+         // (`CODEALONG_WRITE_FIXTURES=1 cargo test wiretypes` writes it again): the names the engine\n\
+         // writes each struct of its model by, held against the interface of types.ts that mirrors it.\n\
+         // `npm run typecheck` fails on the line of one that names other fields than the engine sends,\n\
+         // saying which only one side has: name the field on the side that lacks it, or say why the two\n\
+         // are apart in wiretypes.rs `APART`.\n\
+         import type * as Types from '../types';\n\
+         \n\
+         type Same<Engine, Windows> = [Exclude<Engine, Windows>, Exclude<Windows, Engine>] extends [never, never]\n\
+         \x20 ? true\n\
+         \x20 : { onlyTheEngineNames: Exclude<Engine, Windows>; onlyTheWindowsName: Exclude<Windows, Engine> };\n\
+         type Holds<T extends true> = T;\n",
+    );
+    // What holds `APART` true, where it has something to hold: an unused type fails the typecheck.
+    if APART.iter().any(|a| !a.windows.is_empty()) {
+        out.push_str("type Has<Names, Name> = Name extends Names ? true : { theWindowsNoLongerName: Name };\n");
+    }
+    if APART.iter().any(|a| !a.engine.is_empty()) {
+        out.push_str("type Lacks<Names, Name> = Name extends Names ? { theWindowsNowName: Name } : true;\n");
+    }
+    for p in pairs() {
+        let apart = APART.iter().find(|a| a.rust == p.rust);
+        let names: Vec<String> = p.names.iter().filter(|n| !apart.is_some_and(|a| a.engine.contains(n))).map(|n| format!("  | '{n}'")).collect();
+        let engine = if names.is_empty() { "  never".to_string() } else { names.join("\n") };
+        let theirs = format!("keyof Types.{}", p.ts);
+        let windows = match apart.map(|a| a.windows).filter(|w| !w.is_empty()) {
+            Some(only) => format!("Exclude<{theirs}, {}>", only.iter().map(|n| format!("'{n}'")).collect::<Vec<_>>().join(" | ")),
+            None => theirs.clone(),
+        };
+        out.push_str(&format!("\nexport type {} = Holds<Same<\n{engine},\n  {windows}\n>>;\n", p.rust));
+        if let Some(a) = apart {
+            let held = a.windows.iter().map(|n| format!("Holds<Has<{theirs}, '{n}'>>")).chain(a.engine.iter().map(|n| format!("Holds<Lacks<{theirs}, '{n}'>>")));
+            out.push_str(&format!("/** {} */\nexport type {}Apart = [{}];\n", a.why, p.rust, held.collect::<Vec<_>>().join(", ")));
         }
     }
     out
-}
-
-/// An interface as types.ts declares it.
-#[derive(Debug, Default, PartialEq)]
-struct Interface {
-    /// What it extends, by name.
-    parents: Vec<String>,
-    /// The names of its own members.
-    own: BTreeSet<String>,
-}
-
-/// TypeScript as characters, without its comments. What reads it steps over each string whole,
-/// so a brace or a `name:` inside one is never taken for code.
-struct Ts(Vec<char>);
-
-impl Ts {
-    fn new(ts: &str) -> Ts {
-        Ts(uncommented(ts).chars().collect())
-    }
-
-    fn at(&self, i: usize) -> Option<char> {
-        self.0.get(i).copied()
-    }
-
-    /// Past the string whose opening quote is at `i`.
-    fn past_string(&self, i: usize) -> usize {
-        let quote = self.0[i];
-        let mut j = i + 1;
-        while j < self.0.len() {
-            match self.0[j] {
-                '\\' => j += 2,
-                c if c == quote => return j + 1,
-                _ => j += 1,
-            }
-        }
-        self.0.len()
-    }
-
-    /// Where the bracket that opens at `i` closes; none when it never does. An arrow's `>`
-    /// closes nothing.
-    fn close_of(&self, i: usize) -> Option<usize> {
-        let (open, close) = match self.at(i)? {
-            '{' => ('{', '}'),
-            '<' => ('<', '>'),
-            '(' => ('(', ')'),
-            '[' => ('[', ']'),
-            _ => return None,
-        };
-        let (mut depth, mut j) = (0, i);
-        while j < self.0.len() {
-            let c = self.0[j];
-            if is_quote(c) {
-                j = self.past_string(j);
-                continue;
-            }
-            if c == open {
-                depth += 1;
-            } else if c == close && !(close == '>' && j > 0 && self.0[j - 1] == '=') {
-                depth -= 1;
-                if depth == 0 {
-                    return Some(j);
-                }
-            }
-            j += 1;
-        }
-        None
-    }
-
-    fn past_space(&self, mut i: usize) -> usize {
-        while self.at(i).is_some_and(char::is_whitespace) {
-            i += 1;
-        }
-        i
-    }
-
-    /// The name that starts at `i` (dotted, as a parent's may be), and where it ends.
-    fn word(&self, i: usize) -> (String, usize) {
-        let end = (i..self.0.len()).find(|&j| !is_word(self.0[j]) && self.0[j] != '.').unwrap_or(self.0.len());
-        (self.0[i..end].iter().collect(), end)
-    }
-
-    /// The interface declared from `i`, just past the word `interface`: its name, the
-    /// interface, and where its body ends. None when what follows isn't a declaration.
-    fn interface(&self, i: usize) -> Option<(String, Interface, usize)> {
-        let (name, after) = self.word(self.past_space(i));
-        if name.is_empty() {
-            return None;
-        }
-        // Its type parameters, whose bounds may hold braces of their own.
-        let past_parameters = |i: usize| -> Option<usize> {
-            let i = self.past_space(i);
-            Some(if self.at(i) == Some('<') { self.past_space(self.close_of(i)? + 1) } else { i })
-        };
-        let mut i = past_parameters(after)?;
-        let mut parents = Vec::new();
-        let (word, after) = self.word(i);
-        if word == "extends" {
-            i = after;
-            loop {
-                let (parent, after) = self.word(self.past_space(i));
-                if parent.is_empty() {
-                    return None;
-                }
-                parents.push(parent);
-                i = past_parameters(after)?;
-                if self.at(i) != Some(',') {
-                    break;
-                }
-                i += 1;
-            }
-        }
-        if self.at(i) != Some('{') {
-            return None;
-        }
-        let close = self.close_of(i)?;
-        Some((name, Interface { parents, own: self.members(i + 1, close) }, close + 1))
-    }
-
-    /// The names of the members between `from` and `to`, an interface's body: each name, quoted
-    /// or not, that starts a member at the body's own level and is followed by `:` or `?:`.
-    /// A member starts the body, a line, or what follows a `;` or a `,`; whatever is nested in
-    /// brackets is stepped over whole.
-    fn members(&self, from: usize, to: usize) -> BTreeSet<String> {
-        let mut out = BTreeSet::new();
-        let (mut i, mut starts) = (from, true);
-        while i < to {
-            let c = self.0[i];
-            if c.is_whitespace() {
-                starts |= c == '\n';
-                i += 1;
-                continue;
-            }
-            if std::mem::take(&mut starts) && (is_quote(c) || is_word(c)) {
-                let (name, after) = if is_quote(c) {
-                    let end = self.past_string(i);
-                    (self.0[i + 1..end.saturating_sub(1).max(i + 1)].iter().collect(), end)
-                } else {
-                    // `readonly name:` names `name`; `readonly:` is a member called that.
-                    let (word, after) = self.word(i);
-                    let (next, past_next) = self.word(self.past_space(after));
-                    if word == "readonly" && !next.is_empty() { (next, past_next) } else { (word, after) }
-                };
-                let mut j = self.past_space(after);
-                if self.at(j) == Some('?') {
-                    j += 1;
-                }
-                if self.at(j) == Some(':') {
-                    out.insert(name);
-                }
-                i = after;
-                continue;
-            }
-            if is_quote(c) {
-                i = self.past_string(i);
-                continue;
-            }
-            if matches!(c, '{' | '(' | '[') {
-                i = self.close_of(i).map_or(to, |close| close + 1);
-                continue;
-            }
-            starts = matches!(c, ';' | ',');
-            i += 1;
-        }
-        out
-    }
-}
-
-/// Each interface TypeScript `ts` declares, exported or not.
-fn interfaces(ts: &str) -> BTreeMap<String, Interface> {
-    let ts = Ts::new(ts);
-    let mut out = BTreeMap::new();
-    let mut i = 0;
-    while i < ts.0.len() {
-        let c = ts.0[i];
-        if is_quote(c) {
-            i = ts.past_string(i);
-        } else if is_word(c) {
-            let (word, after) = ts.word(i);
-            i = after;
-            if word == "interface" {
-                if let Some((name, interface, end)) = ts.interface(after) {
-                    out.insert(name, interface);
-                    i = end;
-                }
-            }
-        } else {
-            i += 1;
-        }
-    }
-    out
-}
-
-/// Every member `name` has: its own and those of what it extends. An error for one that isn't
-/// an interface, or that extends something that isn't: its members can't be read, and taking
-/// it to have none would let a field it does have go unseen.
-fn members_of(name: &str, all: &BTreeMap<String, Interface>) -> Result<BTreeSet<String>, String> {
-    let found = all.get(name).ok_or_else(|| format!("`{name}` isn't an interface (one written as a `type` isn't read)"))?;
-    let mut out = found.own.clone();
-    for parent in &found.parents {
-        out.extend(members_of(parent, all).map_err(|why| format!("`{name}` extends `{parent}`, and {why}"))?);
-    }
-    Ok(out)
 }
 
 /// Every `pub struct` a Rust file declares.
@@ -370,39 +294,25 @@ fn structs(rust: &str) -> Vec<&str> {
     rust.lines().filter_map(|l| l.strip_prefix("pub struct ")).map(|l| l.split(|c: char| !c.is_alphanumeric() && c != '_').next().unwrap_or_default()).collect()
 }
 
+/// What the TypeScript compiler holds types.ts to is what the model writes now.
 #[test]
-fn the_windows_types_name_what_the_engine_sends() {
-    let ts = interfaces(TYPES);
-    let mut wrong = Vec::new();
-    for p in pairs() {
-        let theirs = match members_of(p.ts, &ts) {
-            Ok(theirs) => theirs,
-            Err(why) => {
-                wrong.push(format!("{}: in types.ts, {why}", p.rust));
-                continue;
-            }
-        };
-        let theirs: BTreeSet<&str> = theirs.iter().map(String::as_str).collect();
-        let only_engine: Vec<&str> = p.names.difference(&theirs).copied().collect();
-        let only_windows: Vec<&str> = theirs.difference(&p.names).copied().collect();
-        let (said_engine, said_windows) = APART.iter().find(|a| a.0 == p.rust).map_or((&[][..], &[][..]), |a| (a.1, a.2));
-        if only_engine != said_engine || only_windows != said_windows {
-            wrong.push(format!(
-                "{} and types.ts `{}`: only the engine names {only_engine:?} (APART says {said_engine:?}); only the windows name {only_windows:?} (APART says {said_windows:?})",
-                p.rust, p.ts
-            ));
-        }
+fn the_names_the_typecheck_holds_types_ts_to_are_current() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(FIXTURE);
+    let made = fixture();
+    if std::env::var_os("CODEALONG_WRITE_FIXTURES").is_some() {
+        std::fs::write(&path, &made).unwrap();
     }
-    for a in APART {
-        assert!(pairs().iter().any(|p| p.rust == a.0), "APART lists {}, which isn't paired", a.0);
-        assert!(!a.3.is_empty(), "APART says why {} differs", a.0);
-    }
-    assert!(wrong.is_empty(), "types.ts and the engine's model differ. Name the field on the side that lacks it, or say why they're apart in wiretypes.rs `APART`:\n{}", wrong.join("\n"));
+    let kept = std::fs::read_to_string(&path).unwrap_or_default();
+    assert!(
+        kept == made,
+        "src/testing/modelFields.ts is stale: the model's fields changed. Write it again with `CODEALONG_WRITE_FIXTURES=1 cargo test wiretypes`, then name the same fields in src/types.ts, which `npm run typecheck` holds to it."
+    );
 }
 
 #[test]
 fn every_struct_of_the_model_is_paired_or_said_to_have_no_interface() {
-    let paired: BTreeSet<&str> = pairs().iter().map(|p| p.rust).collect();
+    let pairs = pairs();
+    let paired: BTreeSet<&str> = pairs.iter().map(|p| p.rust).collect();
     let declared: Vec<&str> = FILES.iter().flat_map(|(_, text)| structs(text)).collect();
     for (file, text) in FILES {
         for name in structs(text) {
@@ -413,123 +323,83 @@ fn every_struct_of_the_model_is_paired_or_said_to_have_no_interface() {
     for (name, why) in UNMIRRORED {
         assert!(declared.contains(&name) && !why.is_empty(), "UNMIRRORED lists {name}, which the model's files don't declare");
     }
-}
-
-/// `names` is what the windows are sent only while the model names each field the same both
-/// ways.
-#[test]
-fn the_model_names_no_field_one_way_only() {
-    for (file, text) in FILES {
-        for (n, line) in text.lines().enumerate() {
-            if let Some(why) = misnames(line) {
-                panic!("{file}:{}: {why}, and wiretypes.rs reads a struct's names as serde reads them. Have it read what's written there before the model does this.\n{line}", n + 1);
-            }
-        }
+    // What's apart on purpose is true of the engine's side; the typecheck holds the windows'.
+    for a in &APART {
+        let p = pairs.iter().find(|p| p.rust == a.rust).unwrap_or_else(|| panic!("APART lists {}, which isn't paired", a.rust));
+        assert!(!a.why.is_empty() && !(a.engine.is_empty() && a.windows.is_empty()), "APART says what of {} is apart, and why", a.rust);
+        assert!(a.engine.iter().all(|n| p.names.contains(n)), "APART says the engine writes {:?} of {}, and it doesn't", a.engine, a.rust);
+        assert!(!a.windows.iter().any(|n| p.names.contains(n)), "APART says only the windows name {:?} of {}, and the engine writes it", a.windows, a.rust);
     }
 }
 
+/// The names are the ones written, however a field is read.
 #[test]
-fn a_line_that_names_a_field_one_way_only_is_told() {
-    for fine in [
-        "#[serde(skip)]",
-        "#[serde(default, skip_serializing_if = \"Option::is_none\")]",
-        "#[serde(rename_all = \"camelCase\")]",
-        "#[serde(rename = \"type\")]",
-        "#[serde(default, skip_serializing_if = \"Option::is_none\", deserialize_with = \"emblem_or_none\")]",
-        "/// An alias, with serde(alias) in a comment.",
-        "pub alias: String,",
-    ] {
-        assert_eq!(misnames(fine), None, "{fine}");
+fn a_structs_names_are_the_ones_it_writes() {
+    use serde::Deserialize;
+
+    #[derive(Serialize, Deserialize, Default)]
+    #[serde(rename_all = "camelCase")]
+    struct Inner {
+        deep_field: u8,
     }
-    for told in [
-        "    #[serde(alias = \"old\")]",
-        "#[serde(default, alias = \"old\")]",
-        "#[serde(flatten)]",
-        "#[serde(skip_serializing)]",
-        "#[serde(skip_serializing, default)]",
-        "#[serde(skip_serializing_if = \"Option::is_none\", skip_serializing)]",
-        "#[serde(skip_deserializing)]",
-        "#[serde(rename(serialize = \"sent\"))]",
-        "#[serde(rename_all(deserialize = \"camelCase\"))]",
-        "#[serde(from = \"Old\")]",
-        "#[serde(try_from = \"Old\", into = \"Old\")]",
-        "#[cfg_attr(test, serde(flatten))]",
-    ] {
-        assert!(misnames(told).is_some(), "{told}");
+    #[derive(Serialize, Deserialize)]
+    #[serde(rename_all = "lowercase")]
+    enum Kind {
+        Holding(Inner),
+        Plain,
     }
-}
-
-#[test]
-fn an_interfaces_members_are_read_whatever_its_types_hold() {
-    let got = interfaces(
-        r#"
-        /** Not this one: interface Phantom { a: string } */
-        export interface Base {
-          id: string;
-          // gone: number;
-        }
-        interface Unexported { hidden: boolean }
-        export interface Wide<T extends { bound: string } = { bound: 'x' }> extends Base, Unexported, Map<string, { k: 1 }> {
-          /** A doc with a name: in it, and a brace { too. */
-          label?: string;
-          nested: {
-            inner: number;
-          };
-          kind:
-            | 'a'
-            | 'b';
-          list: Array<{ deep: T }>;
-          url: 'https://example.com' | null;
-          closes: '}' | ')' | ']'; after: string;
-          opens: '{' | '(' | '[';
-          last: string;
-          run(): void;
-          call: (first: string, second: number) => Record<string, number>;
-          tuple: [left: string, right: number];
-          'quoted-key': string;
-          readonly fixed: number;
-          readonly: boolean;
-          [index: string]: unknown;
-        }
-        export interface OneLine { a: string; b?: number, c: { d: string } }
-        export type Alias = { aliased: string };
-        export interface Lost extends Alias { mine: string }
-        const text = 'interface InAString { no: string }';
-    "#,
-    );
-    let own = |name: &str| got[name].own.iter().map(String::as_str).collect::<Vec<_>>();
-    assert_eq!(got.keys().map(String::as_str).collect::<Vec<_>>(), ["Base", "Lost", "OneLine", "Unexported", "Wide"]);
-    assert_eq!(own("Base"), ["id"]);
-    assert_eq!(own("Wide"), ["after", "call", "closes", "fixed", "kind", "label", "last", "list", "nested", "opens", "quoted-key", "readonly", "tuple", "url"]);
-    assert_eq!(got["Wide"].parents, ["Base", "Unexported", "Map"]);
-    assert_eq!(own("OneLine"), ["a", "b", "c"]);
-
-    // What it extends counts, and a parent that can't be read is said rather than taken to have
-    // no members: a `type`, or something from elsewhere.
-    assert_eq!(members_of("OneLine", &got).unwrap().len(), 3);
-    assert_eq!(members_of("Lost", &got).unwrap_err(), "`Lost` extends `Alias`, and `Alias` isn't an interface (one written as a `type` isn't read)");
-    assert!(members_of("Wide", &got).unwrap_err().starts_with("`Wide` extends `Map`"));
-    assert!(members_of("Alias", &got).is_err());
-    let narrow = interfaces("export interface Child extends Base { more: string }\nexport interface Base { id: string }");
-    assert_eq!(members_of("Child", &narrow).unwrap().into_iter().collect::<Vec<_>>(), ["id", "more"]);
-}
-
-#[test]
-fn a_structs_names_are_the_ones_serde_reads() {
-    #[derive(serde::Deserialize)]
+    #[derive(Serialize, Deserialize)]
     #[serde(rename_all = "camelCase")]
     #[allow(dead_code)]
     struct Sample {
         plain: u8,
-        two_words: u8,
+        two_words: String,
         #[serde(rename = "other")]
-        renamed: u8,
+        renamed: (u8, bool),
         #[serde(skip)]
         skipped: u8,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        left_out_when_none: Option<u8>,
+        left_out_when_none: Option<Inner>,
+        #[serde(skip_serializing)]
+        only_read: u8,
+        #[serde(skip_deserializing)]
+        only_written: u8,
+        #[serde(rename(serialize = "sent", deserialize = "read"))]
+        named_each_way: Vec<Inner>,
+        kind: Kind,
+        nested: Inner,
+        anything: serde_json::Value,
     }
-    assert_eq!(names::<Sample>(), Some(BTreeSet::from(["plain", "twoWords", "other", "leftOutWhenNone"])));
-    assert_eq!(names::<String>(), None);
+    let names = |names: &[&'static str]| Ok(names.iter().copied().collect::<BTreeSet<_>>());
+    let value = sample::<Sample>().unwrap();
+    assert_eq!(written(&value), names(&["plain", "twoWords", "other", "leftOutWhenNone", "onlyWritten", "sent", "kind", "nested", "anything"]));
+
+    // A tag is a field of what's written.
+    #[derive(Serialize, Deserialize)]
+    #[serde(tag = "kind")]
+    struct Tagged {
+        id: u8,
+    }
+    assert_eq!(written(&Tagged { id: 0 }), names(&["kind", "id"]));
+
+    // What can't be read this way says so: an alias, given by both names, is given twice.
+    #[derive(Serialize, Deserialize)]
+    struct Aliased {
+        #[serde(alias = "old")]
+        current: u8,
+    }
+    assert!(sample::<Aliased>().is_err_and(|why| why.contains("duplicate field")));
+    assert_eq!(written(&Aliased { current: 0 }), names(&["current"]));
+
+    // And what isn't written as a struct with named fields: a flattened field makes it a map.
+    #[derive(Serialize, Deserialize, Default)]
+    struct Flattened {
+        id: u8,
+        #[serde(flatten)]
+        rest: Inner,
+    }
+    assert_eq!(written(&Flattened::default()), Err(NOT_A_STRUCT.to_string()));
+    assert_eq!(written(&"text"), Err(NOT_A_STRUCT.to_string()));
+
     assert_eq!(structs("pub struct One {\n    pub a: u8,\n}\npub struct Two;\nstruct Private;\n"), ["One", "Two"]);
 }
