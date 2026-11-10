@@ -55,6 +55,9 @@
       check('a link that launched the app shows its session once the board is read', true);
       check('its row is the one selected', !!document.getElementById('row-' + picked.lane + '::' + picked.key));
       check('the link was asked for as the window came up', calls('take_opened_link').length === 1, calls('take_opened_link').length + '');
+      // One clicked between the ask and the listening would be neither taken nor heard of.
+      var names = window.__calls.map(function (c) { return c[0] === 'plugin:event|listen' ? 'listen:' + c[1].event : c[0]; });
+      check('once it could hear of another', names.indexOf('listen:reveal') >= 0 && names.indexOf('listen:reveal') < names.indexOf('take_opened_link'), names.indexOf('listen:reveal') + ' then ' + names.indexOf('take_opened_link'));
       // Another clicked while the app is up: the app keeps it and tells the window.
       window.__OPENED_LINK__ = 'codealong://todo/' + TODO;
       window.__emit('reveal', { kind: 'link' });

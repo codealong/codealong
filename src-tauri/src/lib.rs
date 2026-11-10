@@ -387,10 +387,10 @@ fn show_main(app: tauri::AppHandle, reveal: Option<serde_json::Value>) -> Result
 }
 
 /// The link macOS asked Codealong to open (front.rs `open_links`), for the main window's page to
-/// show what it names: given once, then none until another is clicked.
+/// show what it names: given once, to that window alone, then none until another is clicked.
 #[tauri::command]
-fn take_opened_link() -> Option<String> {
-    front::take_opened_link()
+fn take_opened_link(window: tauri::Window) -> Option<String> {
+    front::take_opened_link(window.label())
 }
 
 /// Opens a session from the floating bar, then asks macOS to bring its app forward: a click in the

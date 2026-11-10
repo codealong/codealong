@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BARE_SOURCE, codealongLinkOf, codealongNameOf, sessionLink, sessionNamed, sessionNames, todoLink, todoNamed } from './codealongLinks';
+import { BARE_SOURCE, codealongLinkOf, codealongNameOf, opened, sessionLink, sessionNamed, sessionNames, todoLink, todoNamed } from './codealongLinks';
 import * as fx from './testing/fixtures';
 
 describe('codealongLinkOf', () => {
@@ -99,6 +99,27 @@ describe('sessionNamed, in a conversation on another Mac', () => {
     expect(sessionNamed(names, 'abd9')?.session).toBe(there);
     // A key of another Mac's, written without the Mac, names nothing here.
     expect(sessionNamed(names, 'claude:claude:abd999')).toBeNull();
+  });
+});
+
+describe('opened', () => {
+  const there = fx.session({ key: '@mini:claude:claude:abd999', id: 'abd999' });
+  const here = fx.session({ key: 'claude:claude:abc123' });
+  const local = sessionNames([fx.lane({ id: '/r/app', sessions: [here] })]);
+  const both = sessionNames([fx.lane({ id: '/r/app', sessions: [here] }), fx.lane({ id: '@mini:/r/app', sessions: [there] })]);
+  const todos = [fx.todo({ id: 't-mw9gxqs56cwt' })];
+
+  it('names the session or the todo a link macOS opened is for', () => {
+    expect(opened('codealong://session/claude:claude:abc123', local, todos)).toEqual({ session: { lane: local.get(here.key)!.lane, session: here } });
+    expect(opened('codealong://session/@mini:claude:claude:abd999', both, todos)).toEqual({ session: both.get(there.key) });
+    expect(opened('Codealong://todo/t-mw9gxqs', local, todos)).toEqual({ todo: todos[0] });
+  });
+
+  it('says what’s missing, and that a session may be on a device not read yet', () => {
+    // Before your other devices are read, one of theirs isn't listed: it may yet be.
+    expect(opened('codealong://session/@mini:claude:claude:abd999', local, todos)).toEqual({ none: 'There’s no session @mini:claude:claude:abd999 here.', elsewhere: true });
+    expect(opened('codealong://todo/t-nosuch', local, todos)).toEqual({ none: 'There’s no todo t-nosuch here.', elsewhere: false });
+    for (const url of ['codealong://link/cal1abc', 'codealong://session/', 'https://example.com', '']) expect(opened(url, both, todos)).toEqual({ none: 'That link names nothing Codealong shows.', elsewhere: false });
   });
 });
 

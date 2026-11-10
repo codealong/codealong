@@ -46,16 +46,29 @@ fn link_among(urls: &[String]) -> Option<&String> {
 /// on one in a conversation does: it knows the sessions and todos, here and on your other
 /// devices. A link only ever shows something.
 pub fn open_links(app: &AppHandle, urls: &[String]) {
-    let Some(link) = link_among(urls) else { return };
-    if let Ok(mut opened) = OPENED.lock() {
-        *opened = Some(link.clone());
+    if !keep_link(urls) {
+        return;
     }
     // No main window yet when the click is what launched the app: its page asks as it comes up.
     let _ = show_main(app, Some(serde_json::json!({ "kind": "link" })));
 }
 
-/// The link macOS asked for, once: the page that takes it shows it.
-pub fn take_opened_link() -> Option<String> {
+/// Keeps the one of `urls` to show for the main window to take; false when none is Codealong's.
+fn keep_link(urls: &[String]) -> bool {
+    let Some(link) = link_among(urls) else { return false };
+    if let Ok(mut opened) = OPENED.lock() {
+        *opened = Some(link.clone());
+    }
+    true
+}
+
+/// The link macOS asked for, once, for the page of the window labeled `window` to show: the main
+/// window's alone, which is the one told of it. A project's window runs the same page, and would
+/// take the link from under the main window as it opens.
+pub fn take_opened_link(window: &str) -> Option<String> {
+    if window != "main" {
+        return None;
+    }
     OPENED.lock().ok()?.take()
 }
 
@@ -152,5 +165,19 @@ mod tests {
         assert_eq!(link_among(&urls(&["https://example.com", "codealong:session/x", "codealong"])), None);
         // One too long to be a link is passed over.
         assert_eq!(link_among(&[format!("codealong://session/{}", "k".repeat(2048))]), None);
+    }
+
+    #[test]
+    fn the_main_window_alone_takes_an_opened_link_once() {
+        assert!(!keep_link(&["https://example.com".to_string()]));
+        assert_eq!(take_opened_link("main"), None);
+        assert!(keep_link(&["codealong://session/claude:claude:a".to_string()]));
+        // A project's window asks as it opens too, and gets none.
+        assert_eq!(take_opened_link("project-acme-37036cd8"), None);
+        assert_eq!(take_opened_link("main").as_deref(), Some("codealong://session/claude:claude:a"));
+        assert_eq!(take_opened_link("main"), None);
+        // A later click replaces one not taken yet.
+        assert!(keep_link(&["codealong://todo/t-1".to_string()]) && keep_link(&["codealong://todo/t-2".to_string()]));
+        assert_eq!(take_opened_link("main").as_deref(), Some("codealong://todo/t-2"));
     }
 }

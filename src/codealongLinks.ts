@@ -94,6 +94,24 @@ export function sessionNamed(names: SessionNames, name: string, away: string | n
   return here !== undefined ? here : (namedOn(names, name, '@') ?? null);
 }
 
+/** What a link macOS opened names in a window: the session, where it lives, or the todo; or
+ *  what to say when there's none. `elsewhere`: it's a session's link, and the session may be on
+ *  another of your devices that the window hasn't read yet. */
+export type Opened = { session: Placed } | { todo: Todo } | { none: string; elsewhere: boolean };
+
+export function opened(url: string, names: SessionNames, todos: readonly Todo[]): Opened {
+  const to = codealongLinkOf(url);
+  if (to?.kind === 'session') {
+    const session = sessionNamed(names, to.name);
+    return session ? { session } : { none: `There’s no session ${to.name} here.`, elsewhere: true };
+  }
+  if (to?.kind === 'todo') {
+    const todo = todoNamed(todos, to.id);
+    return todo ? { todo } : { none: `There’s no todo ${to.id} here.`, elsewhere: false };
+  }
+  return { none: 'That link names nothing Codealong shows.', elsewhere: false };
+}
+
 /** The todo `id` names: the one with that id, else the only one whose id starts with it. */
 export function todoNamed(todos: readonly Todo[], id: string): Todo | null {
   if (!id) return null;

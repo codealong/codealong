@@ -1462,8 +1462,9 @@ export async function setTheme(theme: Theme): Promise<void> {
 export type Reveal = { kind: 'session'; laneId: string; key: string; find?: string } | { kind: 'new'; draft: NewSession } | { kind: 'worktree'; laneId: string } | { kind: 'pr'; key: string; tab?: PrTab } | { kind: 'todo'; id: string } | { kind: 'schedule'; id: string } | { kind: 'board'; board: string; project: string; layout: 'kanban' | 'canvas'; focus?: string[] } | { kind: 'view'; view: string } | { kind: 'snooze'; keys: string[]; reviews: boolean } | { kind: 'terminal'; id: string; wait?: boolean } | { kind: 'link' };
 
 /** The link macOS asked Codealong to open, a click on one of Codealong's own in another app
- *  (front.rs `open_links`): given once, null when there's none. The main window takes it as it
- *  comes up and when told there's one (a `link` reveal), and shows what it names. */
+ *  (front.rs `open_links`): given once, and to the main window alone, null when there's none. The
+ *  main window takes it once it hears what it's told to show (`onReveal`) and when told there's
+ *  one (a `link` reveal), and shows what it names. */
 export async function takeOpenedLink(): Promise<string | null> {
   if (!inTauri) return null;
   return invoke<string | null>('take_opened_link');
@@ -1476,16 +1477,19 @@ export async function showMain(reveal: Reveal | null = null): Promise<void> {
 }
 
 /** Calls `cb` when the floating bar asks this window to show something. Only events sent to
- *  this window count: a plain listener would hear ones sent to any window. */
-export function onReveal(cb: (r: Reveal) => void): () => void {
+ *  this window count: a plain listener would hear ones sent to any window. `listening` is called
+ *  once it hears them, for what came before to be asked for then (`takeOpenedLink`): asked for
+ *  sooner, one that came in between would be neither taken nor heard of. */
+export function onReveal(cb: (r: Reveal) => void, listening?: () => void): () => void {
   if (!inTauri) return () => {};
   let cancelled = false;
   let unlisten: (() => void) | undefined;
   void getCurrentWebviewWindow()
     .listen<Reveal>('reveal', (e) => cb(e.payload))
     .then((u) => {
-      if (cancelled) u();
-      else unlisten = u;
+      if (cancelled) return u();
+      unlisten = u;
+      listening?.();
     });
   return () => {
     cancelled = true;
