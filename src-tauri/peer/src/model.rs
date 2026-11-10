@@ -73,6 +73,23 @@ pub enum Status {
     Stopped,
 }
 
+/// Where a session runs, which is what can end it, close it or type into it (`Session::runs`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Runs {
+    /// It isn't running.
+    Nowhere,
+    /// Codealong runs it itself, over the Agent Client Protocol: in no terminal.
+    Hosted,
+    /// A background job of its harness, which the harness stops (`Session::attach_command`).
+    Job,
+    /// In its harness's own app.
+    App,
+    /// In a terminal, as this process.
+    Tab(u32),
+    /// In a terminal no process was found for.
+    NoTab,
+}
+
 /// Why a session needs you: the one answer to what it waits on, which a headline, a row's label
 /// and whether typing would answer a prompt all go by (`Session::need`).
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
@@ -535,6 +552,20 @@ impl Session {
     /// says the same for the windows.
     pub fn waits_in_background(&self) -> bool {
         self.status == Status::Working && self.background.is_some()
+    }
+
+    /// Where it runs, read once from what says so, in the order that settles a session two of
+    /// them are true of: one Codealong runs itself is in no terminal and is no job of its
+    /// harness's, whatever else its records say, and a job has no tab of its own.
+    pub fn runs(&self) -> Runs {
+        match (self.surface, self.pid) {
+            _ if !self.live => Runs::Nowhere,
+            _ if self.hosted => Runs::Hosted,
+            _ if self.attach_command.is_some() => Runs::Job,
+            (Surface::App, _) => Runs::App,
+            (Surface::Cli, Some(pid)) => Runs::Tab(pid),
+            (Surface::Cli, None) => Runs::NoTab,
+        }
     }
 
     /// Why it needs you, read from what it says of itself; none for a session that doesn't, and
@@ -1370,6 +1401,21 @@ pub struct Usage {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_session_runs_in_one_place() {
+        let s = || Session { live: true, ..crate::fixtures::session("claude:claude:a") };
+        assert_eq!(Session { live: false, pid: Some(7), ..s() }.runs(), Runs::Nowhere);
+        assert_eq!(Session { pid: Some(7), ..s() }.runs(), Runs::Tab(7));
+        assert_eq!(s().runs(), Runs::NoTab);
+        assert_eq!(Session { surface: Surface::App, pid: Some(7), ..s() }.runs(), Runs::App);
+        let job = Session { attach_command: Some("claude attach 5".into()), pid: Some(7), ..s() };
+        assert_eq!(job.runs(), Runs::Job);
+        assert_eq!(Session { surface: Surface::App, ..job.clone() }.runs(), Runs::Job);
+        // One Codealong runs itself is that before anything else its records say.
+        assert_eq!(Session { hosted: true, ..job }.runs(), Runs::Hosted);
+        assert_eq!(Session { hosted: true, surface: Surface::App, ..s() }.runs(), Runs::Hosted);
+    }
+
     #[test]
     fn a_session_says_why_it_needs_you() {
         let s = |status, excerpt: Option<&str>| Session { status, excerpt: excerpt.map(str::to_string), ..crate::fixtures::session("claude:claude:a") };
