@@ -32,6 +32,8 @@
     var sessions = (localStorage.getItem('codealong.view') || 'sessions') === 'sessions';
     var rows = function () { return Array.prototype.slice.call(document.querySelectorAll('.ca-lane.is-agent')); };
     var row;
+    var heard = [];
+    var listen = function (e) { heard.push(e.key); };
     until(function () { return rows().length > 0; }, 20000)
       .then(function () {
         row = rows()[0];
@@ -116,12 +118,18 @@
         return until(field, 2000);
       })
       .then(function () {
+        // The window's keys never hear the field's ⏎: in the app the field is gone by then, and
+        // they'd open the selected session (mainKeys.ts), which a key sent from here can't show.
         var input = field();
+        heard = [];
+        window.addEventListener('keydown', listen);
         type(input, NAME + ' again');
         key(input, 'Enter');
         return until(function () { return !field(); }, 2000);
       })
       .then(function () {
+        window.removeEventListener('keydown', listen);
+        check('the window’s keys don’t hear the field’s ⏎', heard.indexOf('Enter') < 0, heard.join('|'));
         var r = renames().pop();
         check('⏎ in the field renames it', r && r.name === NAME + ' again', JSON.stringify(r));
         check('and the panel shows the new name', heading() && heading().textContent === NAME + ' again', heading() && heading().textContent);

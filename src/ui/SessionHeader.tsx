@@ -179,11 +179,15 @@ function NameField({ title, onDone }: { title: string; onDone: (name: string | n
       onChange={(e) => setName(e.target.value)}
       onKeyDown={(e) => {
         if (e.nativeEvent.isComposing) return;
+        // Kept from the window's own keys: the field is gone by the time they'd hear the key, so
+        // they'd take ⏎ for opening the selected session (the main window's mainKeys.ts).
         if (e.key === 'Enter') {
           e.preventDefault();
+          e.stopPropagation();
           keep();
         } else if (e.key === 'Escape') {
           e.preventDefault();
+          e.stopPropagation();
           finish(null);
         }
       }}
