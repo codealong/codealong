@@ -2045,8 +2045,6 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             if let Some(lost) = s.connection_lost.as_mut() {
                 lost.continues = on && live && harness::adapter(s.harness).api_address().is_some();
             }
-            // The last of what's laid over a session: what it waits on is settled.
-            s.settle_need();
         }
         sessions
     }
@@ -3801,11 +3799,52 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             crate::cycle::overlay(s);
             crate::claude::asks::overlay(s);
             crate::terminal::overlay(s);
+        }
+        out
+    }
+
+    /// The board's sessions: what the harnesses' records say (`build_sessions`), with all the
+    /// engine knows besides laid over it (`laid_over`).
+    fn sessions(&self, now: i64, usage: &[Usage], sides: &std::collections::BTreeMap<String, Vec<crate::side::Glance>>, listenings: &std::collections::BTreeMap<String, crate::listen::Glance>) -> Vec<Session> {
+        self.laid_over(self.build_sessions(now), now, usage, sides, listenings)
+    }
+
+    /// `built` with what the engine knows of each session laid over what its records say, a
+    /// stage at a time in this order, and what's worked out from the whole settled last
+    /// (`settled`). The order is the rule where two stages speak of one thing: a later one has
+    /// the last word. So what Jev reads of a session comes before what terminal.rs knows it
+    /// waits on, which Jev can only guess at; your own marks (seen, unread, snoozed, raised)
+    /// come after both, over whatever a turn is doing; and a usage limit and a lost connection
+    /// are read off where all of that left the session.
+    fn laid_over(&self, built: Vec<Session>, now: i64, usage: &[Usage], sides: &std::collections::BTreeMap<String, Vec<crate::side::Glance>>, listenings: &std::collections::BTreeMap<String, crate::listen::Glance>) -> Vec<Session> {
+        let sessions = with_terminals(built);
+        let sessions = self.with_origins(sessions);
+        let sessions = self.with_run_origins(sessions);
+        let sessions = self.with_chrome(sessions);
+        let sessions = self.with_artifacts(sessions);
+        let sessions = self.with_emblems(sessions);
+        let sessions = self.with_insights(sessions, now);
+        let sessions = with_runs(sessions, now);
+        let sessions = self.with_suggestions(sessions);
+        let sessions = self.with_snoozes(sessions, sides, listenings, now);
+        let sessions = self.with_limits(sessions, usage, now);
+        let sessions = self.with_connections(sessions);
+        self.settled(sessions)
+    }
+
+    /// What's worked out from a session as a whole, once nothing more is laid over it: why it
+    /// needs you (`Session::settle_need`), and whether the turn it's taking can be stopped or
+    /// take a message now (harness.rs `stoppable`, `steerable`). Settled any earlier, these
+    /// spoke of the session a later stage went on to change: one Jev read as working on a
+    /// command gone quiet, not stuck, showed as working and took no message.
+    fn settled(&self, mut sessions: Vec<Session>) -> Vec<Session> {
+        for s in &mut sessions {
+            s.settle_need();
             let account = self.cfg.accounts.iter().find(|a| a.name == s.account);
             s.stoppable = crate::harness::stoppable(s, account);
             s.steerable = crate::harness::steerable(s, account);
         }
-        out
+        sessions
     }
 
     /// state.json, read again. One that doesn't read is left alone: the engine goes on with what
@@ -4007,7 +4046,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             now,
             apps: &apps,
             seeds: &self.seeds,
-            sessions: self.with_connections(self.with_limits(self.with_snoozes(self.with_suggestions(with_runs(self.with_insights(self.with_emblems(self.with_artifacts(self.with_chrome(self.with_run_origins(self.with_origins(with_terminals(self.build_sessions(now))))))), now), now)), &sides, &listenings, now), &usage, now)),
+            sessions: self.sessions(now, &usage, &sides, &listenings),
             git: &self.git,
             prs: self.github.prs(),
             requested: self.github.requested(),
@@ -4940,6 +4979,45 @@ mod tests {
             keys(&engine),
             ["config", "watch", "todos", "todos-lock", "state", "pr-links", "previews", "reusable", "limits", "nudges", "terminal-runs", "reconnect", "rerequests", "unlocked", "helpers", "held-messages", "emblems"]
         );
+    }
+
+    /// What's worked out from a session is worked out from how every stage left it. A session
+    /// gone quiet on a command is stuck as its records have it, and takes no message; once Jev
+    /// reads the command as one that waits on nobody, it's working, and takes one as any working
+    /// session does. Settled as the sessions were built, it showed as working and took none.
+    #[test]
+    fn what_is_worked_out_from_a_session_is_settled_after_all_thats_laid_over_it() {
+        use super::*;
+        use crate::model::{Need, SessionInsight, Surface};
+
+        // A Codex app thread takes a message mid-turn while the app's socket is there to ask.
+        let home = crate::fixtures::scratch("settled");
+        std::fs::create_dir_all(home.join("ipc")).unwrap();
+        std::fs::write(home.join("ipc/ipc.sock"), "").unwrap();
+        let (tx, _rx) = channel();
+        let mut engine = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
+        engine.cfg.accounts = vec![serde_json::from_value(serde_json::json!({ "name": "kestrel", "harness": "codex", "home": home.to_string_lossy() })).unwrap()];
+        engine.cfg.jev.sessions = true;
+        let now = now_ms();
+        let stuck = Session {
+            surface: Surface::App,
+            live: true,
+            status: Status::Needs,
+            status_since: Some(now - 600_000),
+            stalled_since: Some(now - 600_000),
+            excerpt: Some("Stuck on `cargo build` for {for:1}".into()),
+            last_activity: now - 600_000,
+            ..Session::new(Harness::Codex, "kestrel", "t1")
+        };
+        let laid = |e: &Engine| e.laid_over(vec![stuck.clone()], now, &[], &Default::default(), &Default::default()).remove(0);
+        let as_recorded = laid(&engine);
+        assert_eq!((as_recorded.status, as_recorded.need, as_recorded.steerable), (Status::Needs, Some(Need::Stuck), false));
+
+        let (_, signature) = crate::insights::ask(&stuck, now).expect("something to ask Jev of it");
+        engine.insights.answered(stuck.key.clone(), signature, SessionInsight { waits_for_input: Some(0.0), ..Default::default() }, now);
+        let as_read = laid(&engine);
+        assert_eq!((as_read.status, as_read.need, as_read.stalled_since), (Status::Working, None, None));
+        assert!(as_read.steerable, "worked out after Jev's read of it, not before");
     }
 
     /// A file noted in the background (where a session came from, a side conversation) has
