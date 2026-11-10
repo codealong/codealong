@@ -47,43 +47,51 @@ export const sessionLink = (key: string) => `codealong://session/${key}`;
 /** A todo's link. */
 export const todoLink = (id: string) => `codealong://todo/${id}`;
 
-/** A window's sessions by what a link may name one by, each where it lives (lanes.ts `Placed`). */
-export interface SessionNames {
-  byKey: Map<string, Placed>;
-  byId: Map<string, Placed>;
-}
+/** A window's sessions by key, each where it lives (lanes.ts `Placed`). */
+export type SessionNames = Map<string, Placed>;
 
 /** The sessions of `lanes`, each once: under the worktree it's listed in as its own, the first
  *  of them (lanes.ts `sessionHomes`), and one listed only where it visits, there, as the
  *  command names one (cli.rs `all_in`). A worktree a session only looked into lists a copy of it
  *  that says what it did there, not what it's doing. */
 export function sessionNames(lanes: Lane[]): SessionNames {
-  const byKey = sessionHomes(lanes);
-  for (const lane of lanes) for (const session of lane.sessions) if (!byKey.has(session.key)) byKey.set(session.key, { lane, session });
-  const byId = new Map<string, Placed>();
-  for (const at of byKey.values()) if (!byId.has(at.session.id)) byId.set(at.session.id, at);
-  return { byKey, byId };
+  const names = sessionHomes(lanes);
+  for (const lane of lanes) for (const session of lane.sessions) if (!names.has(session.key)) names.set(session.key, { lane, session });
+  return names;
 }
 
-/** The session `name` names: the one whose key or id it is, else the only one whose key or id
- *  starts with it, or whose short id it is. None when it names none, or more than one. In a
- *  conversation on another of your Macs (`away`, its short id) a key is that Mac's own, which
- *  this one lists after `@<short>:`, so it's looked for there first. */
-export function sessionNamed(names: SessionNames, name: string, away: string | null = null): Placed | null {
-  if (away && name && !name.startsWith('@')) {
-    const there = sessionNamed(names, `@${away}:${name}`);
-    if (there) return there;
-  }
-  const exact = names.byKey.get(name) ?? names.byId.get(name);
-  if (exact || !name) return exact ?? null;
-  let hit: Placed | null = null;
-  for (const at of names.byKey.values()) {
+/** The one of a device's sessions that `name` names, as the command names one (cli.rs `named`):
+ *  the one whose key or id it is, else the only one whose key or id starts with it, or whose
+ *  short id it is. `device` is what its keys start with: `@<short>:` for another of your Macs
+ *  (`@` for any of them), nothing for this one. Null when more than one is named, and undefined
+ *  when none is. */
+function namedOn(names: SessionNames, name: string, device: string): Placed | null | undefined {
+  const mine = (key: string) => (device ? key.startsWith(device) : !key.startsWith('@'));
+  // A key on one of your other Macs is written without its `@<short>:` in a conversation there.
+  const cut = device.endsWith(':') ? device.length : 0;
+  const whole = names.get(cut ? device + name : name);
+  if (whole && mine(whole.session.key)) return whole;
+  let hit: Placed | null | undefined;
+  for (const at of names.values()) {
     const s = at.session;
-    if (!(s.id.startsWith(name) || s.key.startsWith(name) || s.shortId === name)) continue;
-    if (hit) return null;
-    hit = at;
+    if (!mine(s.key)) continue;
+    if (s.id === name) return at;
+    if (s.id.startsWith(name) || s.key.startsWith(name, cut) || s.shortId === name) hit = hit === undefined ? at : null;
   }
   return hit;
+}
+
+/** The session `name` names, among this Mac's first and then your other Macs', as the command
+ *  has it (cli.rs `session_named_anywhere`); one written with its Mac (`@<short>:…`) is that
+ *  Mac's. In a conversation on another of your Macs (`away`, its short id) a key is that Mac's
+ *  own, which this one lists after `@<short>:`, so only that Mac's sessions are named: one there
+ *  isn't this Mac's of the same id. None when it names none, or more than one. */
+export function sessionNamed(names: SessionNames, name: string, away: string | null = null): Placed | null {
+  if (!name) return null;
+  if (name.startsWith('@')) return namedOn(names, name, '@') ?? null;
+  if (away) return namedOn(names, name, `@${away}:`) ?? null;
+  const here = namedOn(names, name, '');
+  return here !== undefined ? here : (namedOn(names, name, '@') ?? null);
 }
 
 /** The todo `id` names: the one with that id, else the only one whose id starts with it. */

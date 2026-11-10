@@ -56,7 +56,9 @@ export interface LiveSession {
   /** Asks for the board now: a PR link's card goes by it, and would ask GitHub without. */
   needBoard: () => void;
   /** Your other devices' worktrees, while the session shown is on one of them, as they last
-   *  said: a link in its conversation to another session there finds it (SessionLink.tsx). */
+   *  said: a link in its conversation to another session there finds it (SessionLink.tsx). None
+   *  for a session of this Mac's, whose card doesn't follow your devices: what it read for an
+   *  earlier one would go stale. */
   there?: readonly Lane[];
 }
 
@@ -132,7 +134,7 @@ export function useLiveSession(told: Told | null, shown: boolean): LiveSession {
     if (following.current) following.current.read(failed);
     else void getBoard().then(takeBoard, failed);
   }, [takeBoard]);
-  return { lane, session, theme: now?.theme ?? (elsewhere ? look?.theme : null) ?? null, zoom: now?.zoom ?? (elsewhere ? look?.zoom : null) ?? null, board, device: elsewhere && key ? deviceOf(devices, key) : null, needBoard, there: devices?.lanes };
+  return { lane, session, theme: now?.theme ?? (elsewhere ? look?.theme : null) ?? null, zoom: now?.zoom ?? (elsewhere ? look?.zoom : null) ?? null, board, device: elsewhere && key ? deviceOf(devices, key) : null, needBoard, there: elsewhere ? devices?.lanes : undefined };
 }
 
 /** ⌘= ⌘- ⌘0 on a card in a window that floats: they zoom every window, as in the board's, and

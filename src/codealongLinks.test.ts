@@ -76,13 +76,28 @@ describe('sessionNamed, in a conversation on another Mac', () => {
   const twin = fx.session({ key: '@mini:claude:claude:abc123', id: 'abc123' });
   const names = sessionNames([fx.lane({ id: '/r/app', sessions: [here] }), fx.lane({ id: '@mini:/r/app', sessions: [there, twin] })]);
 
-  it('takes a key as that Mac wrote it, before one of this Mac’s', () => {
+  it('takes a key, an id or the start of one as that Mac’s own, and never this Mac’s', () => {
     expect(sessionNamed(names, 'claude:claude:abd999', 'mini')?.session).toBe(there);
     expect(sessionNamed(names, 'claude:claude:abc123', 'mini')?.session).toBe(twin);
-    expect(sessionNamed(names, 'abd9', 'mini')?.session).toBe(there);
-    // One it names whole is that one, and from this Mac's conversations a key is this Mac's.
+    expect(sessionNamed(names, 'abc123', 'mini')?.session).toBe(twin);
+    expect(sessionNamed(names, 'abc1', 'mini')?.session).toBe(twin);
+    expect(sessionNamed(names, 'claude:claude:abd', 'mini')?.session).toBe(there);
+    // Two there start with it; and one only this Mac has isn't that Mac's.
+    expect(sessionNamed(names, 'ab', 'mini')).toBeNull();
+    const alone = sessionNames([fx.lane({ id: '/r/app', sessions: [here] }), fx.lane({ id: '@mini:/r/app', sessions: [there] })]);
+    expect(sessionNamed(alone, 'claude:claude:abc123', 'mini')).toBeNull();
+    expect(sessionNamed(alone, 'abc1', 'mini')).toBeNull();
+    // One named with its Mac is that Mac's, whichever conversation names it.
     expect(sessionNamed(names, '@mini:claude:claude:abd999', 'mini')?.session).toBe(there);
+    expect(sessionNamed(names, '@mini:claude:claude:abd999')?.session).toBe(there);
+  });
+
+  it('from this Mac’s conversations names this Mac’s first, then your other Macs’, as the command does', () => {
     expect(sessionNamed(names, 'claude:claude:abc123')?.session).toBe(here);
+    expect(sessionNamed(names, 'abc123')?.session).toBe(here);
+    expect(sessionNamed(names, 'abc1')?.session).toBe(here);
+    expect(sessionNamed(names, 'abd9')?.session).toBe(there);
+    // A key of another Mac's, written without the Mac, names nothing here.
     expect(sessionNamed(names, 'claude:claude:abd999')).toBeNull();
   });
 });

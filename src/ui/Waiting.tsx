@@ -306,7 +306,8 @@ export function Waiting() {
 
   // PR links in a conversation shown here (PrLink.tsx): a click on one shows the PR here as its
   // chip does, a session on a PR's card shows here too, and Show in Codealong the PR in the main
-  // window.
+  // window. A link to a session (SessionLink.tsx) shows it here as well, so it names only what
+  // this window can show: this Mac's sessions, and those of your devices that wait here (`there`).
   usePrLinks(board?.prs, board?.lanes, {
     report,
     showPr: revealPr,
@@ -325,7 +326,7 @@ export function Waiting() {
         }),
       );
     },
-  }, board, deviceLanes);
+  }, board, there);
 
   // The queue's keys, with nothing else taking them, and typing with nothing focused goes to the
   // box.
