@@ -165,6 +165,9 @@ pub enum Msg {
     ShownUnlocked(Option<String>, bool),
     /// Sessions told what their helpers did (helpers.rs), and which weren't and why if any.
     Reported(Option<String>),
+    /// Messages held for sessions that waited on their user went (outbox.rs), and which were
+    /// dropped and why if any.
+    HeldSent(Option<String>),
     /// A job of the automatic reviews went (autoreview.rs), and why it didn't if it didn't:
     /// reviews.json is read again at once.
     Reviewed(Option<autoreview::Said>),
@@ -505,6 +508,12 @@ impl Handle {
     /// until a later one works.
     pub fn reported(&self, result: std::result::Result<(), String>) {
         let _ = self.tx.send(Msg::Reported(result.err()));
+    }
+
+    /// How sending messages held for sessions that waited on their user went (outbox.rs): one
+    /// dropped is a notice until a later one goes.
+    pub fn held_sent(&self, result: std::result::Result<(), String>) {
+        let _ = self.tx.send(Msg::HeldSent(result.err()));
     }
 
     /// How a job of the automatic reviews went (autoreview.rs): a failure is a notice until a
@@ -1315,6 +1324,8 @@ struct Engine {
     /// wasn't.
     show_warning: Option<String>,
     report_warning: Option<String>,
+    /// Which messages held for sessions that waited on their user were dropped, and why.
+    held_warning: Option<String>,
     /// Why the last emblem drawn wasn't, until one is.
     emblem_warning: Option<String>,
     /// The files changed in the background whose last change couldn't be made, by name with
@@ -1493,6 +1504,7 @@ impl Engine {
             show_warning: None,
             emblem_warning: None,
             report_warning: None,
+            held_warning: None,
             store_warnings: Vec::new(),
             servers: None,
             git: HashMap::new(),
@@ -2520,6 +2532,10 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                     self.report_warning = why;
                     self.dirty = true;
                 }
+                Ok(Msg::HeldSent(why)) => {
+                    self.held_warning = why;
+                    self.dirty = true;
+                }
                 Ok(Msg::Reviewed(why)) => {
                     self.review_warning = why;
                     self.load_reviews();
@@ -3148,6 +3164,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             said("rerequests", "A reviewer wasn't asked to look again", self.rerequest_warning.as_ref()),
             said("unlocked", "A session didn't open in your terminal", self.show_warning.as_ref()),
             said("helpers", "A session wasn't told what its helper did", self.report_warning.as_ref()),
+            said("held-messages", "A message held for a session wasn't sent", self.held_warning.as_ref()),
             said("emblems", "An emblem wasn't drawn", self.emblem_warning.as_ref()),
             said("reviews", "A pull request wasn't reviewed", review.map(|s| &s.text)).map(|n| Notice { review_again: review.and_then(|s| s.again.clone()), ..n }),
             said("team-files", "A repo's team settings aren't used", team_files.as_ref()),

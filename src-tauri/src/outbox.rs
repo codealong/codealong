@@ -6,15 +6,17 @@
 //! meant to hand over often never reached the session (2026-11-09). So the server holds it here
 //! instead, in `held-messages.json` next to the config, so it outlasts a relaunch.
 //!
-//! Every board the engine publishes is looked at (serve.rs). A message goes once the session it's
+//! Every board the engine publishes is looked at (serve.rs), and the board as it stands every few
+//! seconds while anything is held (`start`). A message goes once the session it's
 //! for no longer waits on its user to answer a prompt, whether they answered, denied the call or
 //! closed the session, the same way it would have gone then (send.rs `send_here`, with the sender
 //! it was sent with), led by a line saying when it was sent and that it was held. Several for one
 //! session go in the order they were sent. One that finds the session waiting again is held on;
 //! one that fails is tried again a little later, a few times. A message that can't go, or is still
 //! held a day on, is dropped, and the session that sent it is told why, as Codealong's own message
-//! (send.rs `Sender::Codealong`), held here too while that session waits on its user. A message
-//! from no session Codealong knows, and Codealong's own word about a message, tell nobody.
+//! (send.rs `Sender::Codealong`), held here too while that session waits on its user, however
+//! many it has held. Every one dropped is a notice too, until a later one goes. A message the
+//! server couldn't save isn't held: the sender is told nothing was sent.
 //!
 //! Only the server sends what's held, so only the server holds (`init`): the command run where
 //! it can't reach one (an agent's sandbox) sends by itself, and is turned away as before.
@@ -132,11 +134,13 @@ pub enum Went {
 pub struct Outbox {
     held: Vec<Held>,
     sending: HashSet<String>,
+    /// Why each message dropped since `take_dropped` was, for a notice.
+    dropped: Vec<String>,
 }
 
 impl Outbox {
     fn new(held: Vec<Held>) -> Outbox {
-        Outbox { held, sending: HashSet::new() }
+        Outbox { held, ..Outbox::default() }
     }
 
     /// Holds `h` for its session, after the ones held for it already.
@@ -214,17 +218,28 @@ impl Outbox {
         }
     }
 
-    /// Owes the session that sent `h` word that it was dropped, and why, as a message from
-    /// Codealong held here too: it goes on the next board where that session doesn't wait on its
-    /// user. A message from no session, or Codealong's own word, tells nobody.
+    /// Notes that `h` was dropped, and why, for a notice (`take_dropped`), and owes the session
+    /// that sent it word of it, as a message from Codealong held here too, however many it has
+    /// held already: it goes once that session doesn't wait on its user. A message from no
+    /// session, or Codealong's own word, tells nobody but the notice.
     fn dropped(&mut self, h: &Held, why: &str, now: i64) {
+        let why = why.trim().trim_end_matches('.');
+        let to = if h.title.trim().is_empty() { format!("the session {}", h.to) } else { quoted(&h.title) };
+        let ago = crate::jev::ago_words(h.at, now);
         eprintln!("Codealong dropped a message held for {} since {}: {why}", h.to, h.at);
+        self.dropped.push(match h.by {
+            By::Codealong => format!("Codealong couldn't tell {to} that a message it sent wasn't sent: {why}."),
+            _ => format!("A message for {to}, held from {ago} while it waited on you, wasn't sent: {why}."),
+        });
         let (By::Agent, Some(from)) = (&h.by, &h.from) else { return };
         let said = crate::jev::clip(&h.text, 300);
-        let to = if h.title.trim().is_empty() { "the session".to_string() } else { quoted(&h.title) };
-        let text = format!("Your message to {to} ({}), sent {} while it waited on its user to answer a prompt, wasn't sent: {}. It began: “{said}”", h.to, crate::jev::ago_words(h.at, now), why.trim().trim_end_matches('.'));
-        let notice = Held { id: next_id(now), to: from.clone(), title: String::new(), by: By::Codealong, from: None, text, now: false, at: now, failures: 0, next_at: 0 };
-        self.hold(notice);
+        let text = format!("Your message to {to} ({}), sent {ago} while it waited on its user to answer a prompt, wasn't sent: {why}. It began: “{said}”", h.to);
+        self.held.push(Held { id: next_id(now), to: from.clone(), title: String::new(), by: By::Codealong, from: None, text, now: false, at: now, failures: 0, next_at: 0 });
+    }
+
+    /// What was dropped since it was last asked, a sentence each.
+    pub fn take_dropped(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.dropped)
     }
 }
 
@@ -235,8 +250,11 @@ fn next_id(at: i64) -> String {
     format!("{at}-{}", N.fetch_add(1, Ordering::Relaxed))
 }
 
-/// Set once the server holds and sends messages (`init`).
+/// Set once the server holds and sends messages (`start`).
 static RUNS: AtomicBool = AtomicBool::new(false);
+
+/// How often the clock looks while anything is held.
+const LOOK_EVERY: std::time::Duration = std::time::Duration::from_secs(15);
 
 fn path() -> PathBuf {
     crate::config::support_dir().join("held-messages.json")
@@ -247,22 +265,47 @@ fn outbox() -> &'static Mutex<Outbox> {
     OUTBOX.get_or_init(|| Mutex::new(Outbox::new(crate::store::load_whole(&path(), "held messages"))))
 }
 
-/// Saves what's held, which a relaunch reads again (`init`).
-fn save(out: &Outbox) {
-    if let Err(e) = crate::store::save_whole(&path(), &out.held) {
+/// Saves what's held, which a relaunch reads again (`start`). One that fails is a notice too
+/// (store.rs `noted`).
+fn save(out: &Outbox) -> Result<()> {
+    let saved = crate::store::save_whole(&path(), &out.held);
+    if let Err(e) = &saved {
         eprintln!("Couldn't save the held messages: {e:#}");
     }
+    saved
 }
 
-/// Has this process hold messages for sessions that wait on their user, and send them as boards
-/// come (`send_due`): the server, which runs for as long as the sessions do. What a server before
-/// it held is read now, to go as the first boards allow.
-pub fn init() {
+/// Has this process hold messages for sessions that wait on their user, and send them (`send_due`)
+/// as boards come and on a clock of its own: the server, which runs for as long as the sessions
+/// do. The clock is for a board that sits still, which isn't published again (engine.rs
+/// `publish`), while a failed send waits to be tried again or a message to be dropped. What a
+/// server before it held is read now, to go as the first boards allow.
+pub fn start(engine: Handle) {
     let n = outbox().lock().map(|o| o.held.len()).unwrap_or_default();
     if n > 0 {
         eprintln!("Holding {n} message(s) for sessions that waited on their user, from before this server started.");
     }
     RUNS.store(true, Ordering::SeqCst);
+    let started = std::thread::Builder::new().name("codealong-outbox".into()).spawn(move || loop {
+        std::thread::sleep(LOOK_EVERY);
+        if outbox().lock().is_ok_and(|o| !o.held.is_empty()) {
+            send_due(&engine, &engine.board(), crate::util::now_ms());
+        }
+    });
+    if let Err(e) = started {
+        eprintln!("codealong: messages held for sessions are sent only as the board changes: {e}");
+    }
+}
+
+/// Tells the engine what was dropped since it last asked, as a notice, or that a held message
+/// went with none dropped, which clears one (`Handle::held_sent`).
+fn report(engine: &Handle, out: &mut Outbox, sent: bool) {
+    let dropped = out.take_dropped();
+    if !dropped.is_empty() {
+        engine.held_sent(Err(dropped.join(" ")));
+    } else if sent {
+        engine.held_sent(Ok(()));
+    }
 }
 
 /// Sends `text` to the session `key` as send.rs `send_here` does, and where it waits on its user
@@ -283,8 +326,12 @@ pub fn send_or_hold(engine: &Handle, key: &str, text: &str, sender: Sender, now:
     let mut out = outbox().lock().unwrap_or_else(|e| e.into_inner());
     let holding = out.hold(h);
     if holding == Holding::Held {
+        // Kept only in memory, it would be gone after a relaunch with nobody told.
+        if let Err(e) = save(&out) {
+            out.held.pop();
+            anyhow::bail!("{} is waiting on its user to answer a prompt, and Codealong couldn't keep your message to send later ({e:#}), so nothing was sent. Try again once they have.", quoted(&title));
+        }
         eprintln!("Holding a message for {key} until its user answers the prompt it waits on.");
-        save(&out);
     }
     Ok(send::sent(held_words(&title, holding, told)?))
 }
@@ -303,19 +350,21 @@ fn held_words(title: &str, holding: Holding, told: bool) -> Result<String> {
     })
 }
 
-/// Sends what's held for sessions `board` shows no longer waiting on their user, in the server
-/// (serve.rs, for each board the engine publishes): one thread for the batch, in the order they
-/// were sent, since two sends typing into one terminal at once would interleave.
-pub fn send_due(engine: &Handle, board: &Board) {
+/// Sends what's held for sessions `board` shows no longer waiting on their user, at `now` (ms),
+/// in the server (serve.rs, for each board the engine publishes, and `start`'s clock): one thread
+/// for the batch, in the order they were sent, since two sends typing into one terminal at once
+/// would interleave.
+pub fn send_due(engine: &Handle, board: &Board, now: i64) {
     if !RUNS.load(Ordering::SeqCst) {
         return;
     }
     let due = match outbox().lock() {
         Ok(mut out) if !out.held.is_empty() => {
-            if out.expire(board.generated_at) {
-                save(&out);
+            if out.expire(now) {
+                let _ = save(&out);
+                report(engine, &mut out, false);
             }
-            out.due(board, board.generated_at)
+            out.due(board, now)
         }
         _ => return,
     };
@@ -350,12 +399,14 @@ fn send_now(engine: &Handle, due: Vec<Held>) {
             Went::Failed(why) => eprintln!("Couldn't send {} the message held for it: {why}", h.to),
             Went::Waits => {}
         }
-        if went != Went::Sent {
+        let sent = went == Went::Sent;
+        if !sent {
             stopped.insert(h.to.clone());
         }
         let mut out = outbox().lock().unwrap_or_else(|e| e.into_inner());
         out.went(&h.id, went, crate::util::now_ms());
-        save(&out);
+        let _ = save(&out);
+        report(engine, &mut out, sent);
     }
 }
 
@@ -451,8 +502,13 @@ mod tests {
             out.went(&due[1].id, Went::Waits, at);
             at += RETRY_MS << (tried - 1);
         }
-        // Dropped after its last try, its sender owed word of it, and the next goes.
+        // Dropped after its last try, a notice says so, its sender is owed word of it, and the
+        // next goes.
         assert!(out.held.iter().all(|h| h.id != "first@1800000000000"));
+        let dropped = out.take_dropped();
+        assert_eq!(dropped.len(), 1);
+        assert!(dropped[0].starts_with("A message for “Fix the build”, held from ") && dropped[0].ends_with(" while it waited on you, wasn't sent: the terminal didn't answer."), "{}", dropped[0]);
+        assert!(out.take_dropped().is_empty(), "taken once");
         let due = out.due(&free, at);
         assert_eq!(due.iter().map(|h| (h.to.as_str(), &h.by)).collect::<Vec<_>>(), [(TO, &By::Agent), (FROM, &By::Codealong)]);
         let notice = &due[1].text;
@@ -477,12 +533,30 @@ mod tests {
         assert_eq!(due.len(), 1);
         assert_eq!((due[0].to.as_str(), &due[0].by), (FROM, &By::Codealong));
         assert!(due[0].text.contains("wasn't sent: its user didn't answer the prompt it waits on within a day, so Codealong stopped holding it. It began: “old news”"), "{}", due[0].text);
-        // Codealong's own word that doesn't go tells nobody in turn.
+        // All three are in the notice, told to their senders or not.
+        assert_eq!(out.take_dropped().len(), 3);
+        // Codealong's own word that doesn't go tells nobody in turn, but the notice.
         for _ in 0..TRIES {
             out.went(&due[0].id, Went::Failed("gone".into()), NOW);
             out.held.iter_mut().for_each(|h| h.next_at = 0);
         }
         assert!(out.held.is_empty());
+        assert_eq!(out.take_dropped(), ["Codealong couldn't tell the session claude:claude2:from that a message it sent wasn't sent: gone."]);
+    }
+
+    #[test]
+    fn a_sender_holding_all_it_may_is_still_told_its_message_was_dropped() {
+        let mut out = Outbox::default();
+        out.hold(held("old news", NOW));
+        // Its sender has all it may held for it, sent later.
+        for i in 0..MOST {
+            assert_eq!(out.hold(Held { to: FROM.into(), from: Some(TO.into()), ..held(&format!("m{i}"), NOW + KEEP_MS) }), Holding::Held);
+        }
+        assert_eq!(out.hold(Held { to: FROM.into(), ..held("one more", NOW + KEEP_MS) }), Holding::Full);
+        assert!(out.expire(NOW + KEEP_MS + 1));
+        // The word that it was dropped is held past the limit.
+        assert_eq!(out.held.iter().filter(|h| h.to == FROM).count(), MOST + 1);
+        assert!(out.held.iter().any(|h| h.to == FROM && h.by == By::Codealong && h.text.contains("“old news”")));
     }
 
     #[test]

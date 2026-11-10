@@ -3421,9 +3421,10 @@ for hours. Codealong's server holds it, and the sender is told so and not to sen
 session no longer waits on you (you answered, denied the call, or closed it), the message goes the
 way it would have gone then, a stopped session being resumed for it as above, led by a line saying
 when it was sent and that it was held; several for one session go in the order they were sent. What's
-held outlasts a relaunch. One still held a day on, or that a few tries can't send, is dropped, and
-Codealong tells the session that sent it why, with the start of what it said. The command run where
-it can't reach the server (an agent's sandbox) can't hold it, and says nothing was sent.
+held outlasts a relaunch. One still held a day on, or that a few tries can't send, is dropped:
+Codealong tells the session that sent it why, with the start of what it said, and a notice says so
+until a later one goes. The command run where it can't reach the server (an agent's sandbox) can't
+hold it, and says nothing was sent.
 
 ### Helpers
 

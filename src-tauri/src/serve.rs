@@ -147,9 +147,6 @@ pub fn start() -> Result<Ctx, String> {
     let (mover, moves_with) = (Mutex::new(limits::Mover::default()), engine_slot.clone());
     let (nudger, nudges_with) = (Arc::new(Mutex::new(nudges::Nudger::default())), engine_slot.clone());
     let ends_with = engine_slot.clone();
-    // What a server before this one held goes as the first boards allow, and agents' messages to
-    // sessions waiting on their user are held from now on.
-    outbox::init();
     let holds_with = engine_slot.clone();
     let (continuer, continues_with) = (Arc::new(Mutex::new(reconnect::Continuer::default())), engine_slot.clone());
     let cut_by_us = continuer.clone();
@@ -225,10 +222,14 @@ pub fn start() -> Result<Ctx, String> {
         // And messages held for sessions that waited on their user to answer a prompt, once they
         // don't (outbox.rs): one thread for the batch.
         if let Some(engine) = holds_with.get() {
-            outbox::send_due(engine, board);
+            outbox::send_due(engine, board, util::now_ms());
         }
     });
     let _ = engine_slot.set(engine.clone());
+    // Agents' messages to sessions waiting on their user are held from now on, before the socket
+    // answers; what a server before this one held goes as the first boards allow, and a clock
+    // retries and drops them while the board sits still.
+    outbox::start(engine.clone());
     // Schedules (schedules/runner.rs): what's due, every few seconds.
     schedules::runner::spawn(engine.clone(), peers.clone());
     // Automatic reviews' sessions once they're done with (reviewdone.rs).
