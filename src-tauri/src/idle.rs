@@ -423,18 +423,57 @@ pub enum Exited {
     Removing,
 }
 
+/// An exit Codealong typed that its harness answered with a question in its terminal
+/// (`Exited::Asks`): its process, when the command was typed, and whether what typed it archives
+/// the session once it has ended (Mark as done does; an agent's `session done me` only where its
+/// user asked it to close). The question answered from Codealong, what was begun is finished
+/// (actions.rs `answer_here`); a harness whose terminal can't be read knows its question by it
+/// (claude/exiting.rs). Kept in the server, which typed it, while the process lives.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ExitAsked {
+    pub pid: u32,
+    pub at: i64,
+    pub archive: bool,
+}
+
+static EXITS_ASKED: std::sync::Mutex<Option<HashMap<String, ExitAsked>>> = std::sync::Mutex::new(None);
+
+/// The exit Codealong typed into the session `key` that asks in its terminal, while its process
+/// lives (`ExitAsked`).
+pub fn exit_asked(key: &str) -> Option<ExitAsked> {
+    let mut all = EXITS_ASKED.lock().unwrap_or_else(|e| e.into_inner());
+    let all = all.get_or_insert_with(HashMap::new);
+    all.retain(|_, a| crate::procs::pid_alive(a.pid));
+    all.get(key).copied()
+}
+
+fn note_exit_asked(key: &str, asked: ExitAsked) {
+    EXITS_ASKED.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(HashMap::new).insert(key.to_string(), asked);
+}
+
+/// The question the exit typed into `key` raised was answered, or the exit called off.
+pub fn exit_answered(key: &str) {
+    if let Some(all) = EXITS_ASKED.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+        all.remove(key);
+    }
+}
+
+/// The git lock Claude Code holds on the worktree `s` made for itself while it runs ("claude
+/// session <name> (pid …)"), if there's one: it comes off just before the worktree is deleted,
+/// and stays while its harness asks about it.
+pub fn worktree_lock(s: &Session) -> Option<std::path::PathBuf> {
+    s.own_worktree.as_deref().and_then(|w| crate::repos::linked_gitdir(Path::new(w))).map(|d| d.join("locked")).filter(|l| l.exists())
+}
+
 /// Types the harness's exit command into `s`'s terminal (`Ending::Exit`), clearing its input box
 /// first so a draft there doesn't go with it, and waits for the process to end, then closes the
-/// tab. `Err` when nothing could be typed: then nothing was done to it.
-///
-/// Claude Code holds a git lock on its worktree while it runs ("claude session <name> (pid …)")
-/// and takes it off just before deleting the worktree; while it asks, the lock stays. So a lock
-/// that goes while the process still runs says the worktree is being removed, which is waited
-/// for longer than a question is.
-pub fn exit(s: &Session, account: &crate::config::AccountCfg, pid: u32) -> Result<Exited, String> {
+/// tab (`await_end`). `Err` when nothing could be typed: then nothing was done to it. One that
+/// asks first is noted (`ExitAsked`), `archive` saying whether it's to be archived once it ends.
+pub fn exit(s: &Session, account: &crate::config::AccountCfg, pid: u32, archive: bool) -> Result<Exited, String> {
     let adapter = crate::harness::adapter(s.harness);
     let Some(command) = adapter.exit_command() else { return Err(format!("{} has no command to exit a session.", adapter.harness().word())) };
-    let lock = s.own_worktree.as_deref().and_then(|w| crate::repos::linked_gitdir(Path::new(w))).map(|d| d.join("locked")).filter(|l| l.exists());
+    let lock = worktree_lock(s);
+    let at = crate::util::now_ms();
     let typed = adapter
         .routes(account, s)
         .into_iter()
@@ -448,17 +487,28 @@ pub fn exit(s: &Session, account: &crate::config::AccountCfg, pid: u32) -> Resul
         Ok(crate::launch::Typed::Nowhere(why)) => return Err(format!("Codealong couldn't type `{command}` into its terminal ({why}).")),
         Err(e) => return Err(format!("Codealong couldn't type `{command}` into its terminal: {}", crate::util::words(e))),
     }
+    let ended = await_end(s, pid, lock.as_deref());
+    if ended == Exited::Asks {
+        note_exit_asked(&s.key, ExitAsked { pid, at, archive });
+    }
+    Ok(ended)
+}
+
+/// Waits for `s`'s process `pid`, told to exit, to end, then closes its tab. `lock` is its
+/// worktree's lock as it was told (`worktree_lock`): one that goes while the process still runs
+/// says the worktree is being removed, which is waited for longer than a question is.
+pub fn await_end(s: &Session, pid: u32, lock: Option<&Path>) -> Exited {
     let started = std::time::Instant::now();
     while crate::procs::pid_alive(pid) {
-        let removing = lock.as_ref().is_some_and(|l| !l.exists());
+        let removing = lock.is_some_and(|l| !l.exists());
         if started.elapsed() > if removing { REMOVAL_WAIT } else { EXIT_WAIT } {
-            return Ok(if removing { Exited::Removing } else { Exited::Asks });
+            return if removing { Exited::Removing } else { Exited::Asks };
         }
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
     let removed = s.own_worktree.as_deref().is_some_and(|w| !Path::new(w).exists());
     let closed = crate::launch::close_session_terminals(&[(pid, Path::new(&s.cwd))]).pop().unwrap_or_else(|| Err(anyhow::anyhow!("Nothing was closed.")));
-    Ok(Exited::Ended { removed, closed: closed.map_err(crate::util::words) })
+    Exited::Ended { removed, closed: closed.map_err(crate::util::words) }
 }
 
 /// A stretch of time in words: 26 hours, 3 days.
@@ -662,6 +712,21 @@ mod tests {
         assert_eq!(ending(&b, &hosted, true), Ok(Ending::Turn));
         hosted.status = Status::Idle;
         assert_eq!(ending(&b, &hosted, false), Ok(Ending::Nothing(None)));
+    }
+
+    #[test]
+    fn an_exit_that_asks_is_kept_while_its_process_lives() {
+        let here = std::process::id();
+        note_exit_asked("claude:claude:asks", ExitAsked { pid: here, at: 5, archive: true });
+        assert_eq!(exit_asked("claude:claude:asks"), Some(ExitAsked { pid: here, at: 5, archive: true }));
+        exit_answered("claude:claude:asks");
+        assert_eq!(exit_asked("claude:claude:asks"), None);
+        // A process that has ended asks nothing any more.
+        let mut child = std::process::Command::new("true").spawn().unwrap();
+        let gone = child.id();
+        child.wait().unwrap();
+        note_exit_asked("claude:claude:gone", ExitAsked { pid: gone, at: 5, archive: false });
+        assert_eq!(exit_asked("claude:claude:gone"), None);
     }
 
     #[test]

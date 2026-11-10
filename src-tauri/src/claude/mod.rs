@@ -19,6 +19,7 @@ pub mod asks;
 mod builtin;
 mod conversation;
 pub mod daemon;
+mod exiting;
 pub mod held;
 pub mod live;
 mod mcp;
@@ -303,6 +304,7 @@ impl crate::harness::Adapter for ClaudeCode {
                 questions: call.questions,
                 unwritten: false,
                 terminal: None,
+                exiting: false,
             });
         }
         // Another session's message it holds for you: its dialog comes before any call made
@@ -313,6 +315,10 @@ impl crate::harness::Adapter for ClaudeCode {
         if let Some(p) = app_pending(ctx, s) {
             return Some(p);
         }
+        // What `/exit` asks before it exits, whether to keep the worktree the session made.
+        if let Some(p) = exiting::pending(ctx, s) {
+            return Some(p);
+        }
         let (call, reg) = waiting_call(self, ctx, s)?;
         // A background job's prompt is answered through its account's background service, as a
         // held message is; a terminal's, by a key pressed there.
@@ -320,12 +326,13 @@ impl crate::harness::Adapter for ClaudeCode {
         // Not every prompt has "Yes, and always allow" as its second choice, and a 2 pressed at
         // one without it is something else, so Always isn't offered in a terminal.
         let plan = call.text == PLAN;
-        Some(crate::harness::Pending { id: call.id.clone().unwrap_or_default(), label: call.text, input: call.input, cannot, always: false, no_once: false, plan, message: false, always_rule: None, questions: Vec::new(), unwritten: false, terminal: None })
+        Some(crate::harness::Pending { id: call.id.clone().unwrap_or_default(), label: call.text, input: call.input, cannot, always: false, no_once: false, plan, message: false, always_rule: None, questions: Vec::new(), unwritten: false, terminal: None, exiting: false })
     }
 
-    /// A held message denied is dropped while the turn goes on (held.rs).
+    /// A held message denied is dropped while the turn goes on (held.rs), and an exit's
+    /// question declined calls the exit off (exiting.rs): neither stops a turn.
     fn deny_stops(&self, id: &str) -> bool {
-        !id.starts_with(HELD_ID)
+        !id.starts_with(HELD_ID) && !id.starts_with(exiting::EXIT_ID)
     }
 
     fn answer(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, id: &str, answer: crate::harness::Answer) -> anyhow::Result<String> {
@@ -334,6 +341,12 @@ impl crate::harness::Adapter for ClaudeCode {
         }
         if id.starts_with(JOB_ASKS_ID) {
             return decline_job_questions(self, ctx, s, id, answer);
+        }
+        if id.starts_with(exiting::EXIT_ID) {
+            if answer != crate::harness::Answer::Deny {
+                anyhow::bail!("It asks whether to keep its worktree: pick a choice.");
+            }
+            return exiting::decline(ctx, s, id);
         }
         if id.starts_with(APP_ASK_ID) {
             anyhow::bail!("{APP_ASKS} Answer it there.");
@@ -399,6 +412,9 @@ impl crate::harness::Adapter for ClaudeCode {
     fn answer_questions(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, id: &str, answers: &Value) -> anyhow::Result<String> {
         if id.starts_with(JOB_ASKS_ID) {
             return answer_job_questions(self, ctx, s, id, answers);
+        }
+        if id.starts_with(exiting::EXIT_ID) {
+            return exiting::answer(ctx, s, id, answers);
         }
         if let Some(asked) = asks::of_session(&s.id).filter(|a| a.id == id) {
             let answers = asks::picked(&questions_of(&asked.input), answers)?;
@@ -1816,6 +1832,7 @@ fn app_pending(ctx: &crate::harness::Ctx, s: &crate::model::Session) -> Option<c
         questions: Vec::new(),
         unwritten: false,
         terminal: None,
+        exiting: false,
     })
 }
 
@@ -1857,6 +1874,7 @@ fn held_pending(ctx: &crate::harness::Ctx, s: &crate::model::Session, held: &Hel
         questions: Vec::new(),
         unwritten: false,
         terminal: None,
+        exiting: false,
     }
 }
 
@@ -1984,6 +2002,7 @@ fn job_pending(a: &ClaudeCode, ctx: &crate::harness::Ctx, s: &crate::model::Sess
         unwritten: written.is_none() && live::stream(&s.key).is_none(),
         questions,
         terminal: None,
+        exiting: false,
     })
 }
 

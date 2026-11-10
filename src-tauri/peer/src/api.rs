@@ -844,6 +844,13 @@ pub struct Pending {
     /// allow, which comes to the same. None from Macs before 2026-10-12.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub terminal: Option<TerminalRun>,
+    /// It's its harness asking, as the session exits, whether to keep the worktree it made for
+    /// it (Claude Code's "Exiting worktree session", which Mark as done's `/exit` can bring up):
+    /// `questions` has the one question, whose choices are all it takes, and Deny calls the exit
+    /// off, leaving the session at its prompt. Devices that don't know it show it as questions,
+    /// and words of your own for it are refused.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub exiting: bool,
 }
 
 /// Where a command a session asks to run in your terminal would run (`Pending::terminal`).

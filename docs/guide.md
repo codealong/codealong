@@ -188,7 +188,15 @@ other sessions too stays open, and a session in the Claude or Codex app is only 
 app has no way for another program to close it. A background job that holds the worktree Claude
 Code made for it is stopped, and the worktree is removed after it, as Clean up worktree… does (see
 [Clean up worktrees](#clean-up-worktrees)), unless something in it would be lost: then it stays, and
-the toast says why ("1 commit on no remote"). A session still working, or one that left a command
+the toast says why ("1 commit on no remote"). A session in a terminal that holds such a worktree is
+exited with Claude Code's own `/exit`, which removes the worktree when nothing in it would be lost
+and otherwise asks whether to keep it. The session then waits on you with that question, answered
+on its box as any question is (Keep worktree, Remove worktree), or Cancel to call the exit off;
+once it's answered, the session exits, its terminal closes and it's archived. Codealong reads the
+question, with what removing would lose, off a Rex or tmux terminal or one of its own; in another
+terminal it offers the two choices, and that terminal says what would be lost. A question asked by
+an `/exit` you typed yourself is answered the same way, from a terminal Codealong can read. A
+session still working, or one that left a command
 running in the background, isn't ended by surprise: Mark as done says so, and pressed again within
 15 seconds ends that too. A session on another Mac is done there, when that Mac lets its linked
 devices act on its sessions (remote control); otherwise it's only marked seen and archived, and the

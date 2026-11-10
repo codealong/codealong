@@ -2205,7 +2205,7 @@ impl crate::harness::Adapter for Antigravity {
         };
         // Questions are answered with your picks, so their arguments aren't shown.
         let input = c.questions.is_empty().then(|| c.input.clone());
-        Some(crate::harness::Pending { id: c.result_step.to_string(), label: c.asked(), input, cannot, always: false, no_once: false, plan: false, message: false, always_rule: None, questions: c.questions, unwritten: false, terminal: None })
+        Some(crate::harness::Pending { id: c.result_step.to_string(), label: c.asked(), input, cannot, always: false, no_once: false, plan: false, message: false, always_rule: None, questions: c.questions, unwritten: false, terminal: None, exiting: false })
     }
 
     /// Its terminal UI's permission prompt, with a key (1.3.4, in tmux, 2026-10-13): `1`, with no

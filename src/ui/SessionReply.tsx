@@ -1468,6 +1468,7 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
         onDismissSuggested={dismissPicked}
         onAnswer={(answers, on) => answer('allow', on ? andNext : undefined, answers)}
         onDecline={() => answer('deny')}
+        exiting={!!pending.exiting}
         folded={folded}
         onFold={fold}
       />
@@ -1583,6 +1584,9 @@ interface QuestionsProps {
    *  does from the box. The button answers and stays. */
   onAnswer: (answers: Answers, on: boolean) => void;
   onDecline: () => void;
+  /** It's its harness asking whether to keep its worktree as it exits (`Pending.exiting`): its
+   *  choices are all it takes, and declining calls the exit off. */
+  exiting?: boolean;
   /** Choices another session picked for them (`Suggestions.picks`), picked here until you pick
    *  otherwise, so one click on Answer answers with them. */
   suggested?: Suggestions | null;
@@ -1596,7 +1600,7 @@ interface QuestionsProps {
  *  question takes more, or type your own answer; your picks go back as its answer. Several show
  *  one at a time, as Claude Code's own prompt shows them, with a strip of their headers to go
  *  between them: all at once, a few long ones ran off the bottom of the panel. */
-function Questions({ questions, draft, call, unwritten, where, onOpen, keys, busy, note, given, onAnswer, onDecline, suggested, onDismissSuggested, folded, onFold }: QuestionsProps) {
+function Questions({ questions, draft, call, unwritten, where, onOpen, keys, busy, note, given, onAnswer, onDecline, exiting = false, suggested, onDismissSuggested, folded, onFold }: QuestionsProps) {
   // Your picks and words as you left them, in this window or another, on the question you were
   // on. Kept as they change, they're as new as an answer that didn't go or newer, which has them
   // only where nothing was kept (storage turned down, or the suggested picks sent untouched).
@@ -1776,35 +1780,38 @@ function Questions({ questions, draft, call, unwritten, where, onOpen, keys, bus
           </div>
           {suggesting && suggested && onDismissSuggested && <SuggestionHead suggestions={suggested} onDismiss={onDismissSuggested} />}
         </div>
-        <input
-          ref={ownRef}
-          className="ca-question-own"
-          type="text"
-          placeholder={q.options.length ? 'Or type your own answer' : 'Type your answer'}
-          value={own[q.question] ?? ''}
-          disabled={busy}
-          onChange={(e) => type(q, e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key !== 'Enter' || e.nativeEvent.isComposing || !(bare(e) || chordPressed('Cmd+Enter', e))) return;
-            if (cmd(e)) {
-              // ⌘⏎ from an answer you typed, in every window: on to the next question, or, with
-              // none left, it answers and goes on.
-              e.preventDefault();
-              answerRef.current(true);
-            } else if (next !== null) {
-              // Enter goes on to the next question and its box; it never answers, so a half-typed
-              // answer isn't sent.
-              e.preventDefault();
-              typing.current = true;
-              go(next);
-            }
-          }}
-        />
+        {/* What an exit asks takes nothing but its choices. */}
+        {!exiting && (
+          <input
+            ref={ownRef}
+            className="ca-question-own"
+            type="text"
+            placeholder={q.options.length ? 'Or type your own answer' : 'Type your answer'}
+            value={own[q.question] ?? ''}
+            disabled={busy}
+            onChange={(e) => type(q, e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key !== 'Enter' || e.nativeEvent.isComposing || !(bare(e) || chordPressed('Cmd+Enter', e))) return;
+              if (cmd(e)) {
+                // ⌘⏎ from an answer you typed, in every window: on to the next question, or, with
+                // none left, it answers and goes on.
+                e.preventDefault();
+                answerRef.current(true);
+              } else if (next !== null) {
+                // Enter goes on to the next question and its box; it never answers, so a half-typed
+                // answer isn't sent.
+                e.preventDefault();
+                typing.current = true;
+                go(next);
+              }
+            }}
+          />
+        )}
       </div>
       <div className="ca-composer-foot">
-        <span className={cx('ca-composer-note', note?.error && 'is-error')}>{busy ? 'Answering…' : (note?.text ?? `${q.multiSelect ? 'Pick one or more.' : 'Pick one, or type your own.'} Decline stops the turn, or write below to say something else.`)}</span>
-        <Button size="sm" disabled={busy} onClick={onDecline}>
-          Decline
+        <span className={cx('ca-composer-note', note?.error && 'is-error')}>{busy ? 'Answering…' : (note?.text ?? (exiting ? 'It’s exiting. Cancel keeps it open, at its prompt.' : `${q.multiSelect ? 'Pick one or more.' : 'Pick one, or type your own.'} Decline stops the turn, or write below to say something else.`))}</span>
+        <Button size="sm" disabled={busy} onClick={onDecline} title={exiting ? 'Call the exit off, as Escape in its terminal does' : undefined}>
+          {exiting ? 'Cancel' : 'Decline'}
         </Button>
         {next !== null ? (
           <Button variant="primary" size="sm" kbd={keys ? ['⌘', '⏎'] : undefined} disabled={busy} onClick={() => go(next)}>

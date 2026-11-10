@@ -263,6 +263,7 @@ pub fn pending(a: &Asked, terminal: &str) -> api::Pending {
         label: label(a),
         input: Some(a.ask.command.clone()),
         terminal: Some(api::TerminalRun { cwd: tilde(&a.ask.cwd), app: terminal.to_string() }),
+        exiting: false,
         ..Default::default()
     }
 }

@@ -2523,7 +2523,7 @@ impl crate::harness::Adapter for Cursor {
         }
         let open = self.app_open(ctx.account, s);
         let c = open.iter().find(|c| c.waits).or(open.first())?.clone();
-        Some(crate::harness::Pending { id: c.id, label: c.label, input: Some(c.input).filter(|i| !i.is_empty()), cannot: Some("Cursor asks in its own window; answer it there.".into()), always: false, no_once: false, plan: false, message: false, always_rule: None, questions: Vec::new(), unwritten: false, terminal: None })
+        Some(crate::harness::Pending { id: c.id, label: c.label, input: Some(c.input).filter(|i| !i.is_empty()), cannot: Some("Cursor asks in its own window; answer it there.".into()), always: false, no_once: false, plan: false, message: false, always_rule: None, questions: Vec::new(), unwritten: false, terminal: None, exiting: false })
     }
 
     /// The command line's prompt, with its keys, once it's still the one up: `y` runs it once,

@@ -1305,7 +1305,7 @@ fn pending_of(p: &Permission) -> Pending {
     let always = pick(p, Answer::Always).ok();
     // What a plan's Always does is the agent's to say, in its own words.
     let always_rule = always.filter(|_| p.plan).map(|o| format!("Approves the plan and keeps the conversation, as its agent's “{}”.", o.name.trim()));
-    Pending { id: p.tool_call.clone(), label: p.label.clone(), input: p.input.clone(), cannot: None, always: always.is_some(), no_once: pick(p, Answer::Allow).is_err(), plan: p.plan, message: false, always_rule, questions: Vec::new(), unwritten: false, terminal: None }
+    Pending { id: p.tool_call.clone(), label: p.label.clone(), input: p.input.clone(), cannot: None, always: always.is_some(), no_once: pick(p, Answer::Allow).is_err(), plan: p.plan, message: false, always_rule, questions: Vec::new(), unwritten: false, terminal: None, exiting: false }
 }
 
 /// Answers the permission request for tool call `id` with the option its agent offered for that

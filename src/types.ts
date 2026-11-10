@@ -2898,6 +2898,10 @@ export interface Pending {
    *  `input` is the command, which Allow runs in a new tab of `app` in `cwd`, as you. It's asked
    *  every time, so there's no Always. */
   terminal?: { cwd: string; app: string } | null;
+  /** It's its harness asking, as the session exits, whether to keep the worktree it made for it
+   *  (Claude Code's "Exiting worktree session"): `questions` has the one question, whose choices
+   *  are all it takes, and Deny calls the exit off, leaving the session at its prompt. */
+  exiting?: boolean;
 }
 
 /** A question an agent asks you, with choices to pick from. */

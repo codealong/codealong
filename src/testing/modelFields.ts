@@ -971,6 +971,7 @@ export type Pending = Holds<Same<
   | "always"
   | "alwaysRule"
   | "cannot"
+  | "exiting"
   | "id"
   | "input"
   | "label"

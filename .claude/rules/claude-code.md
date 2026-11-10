@@ -393,7 +393,12 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   `claude/transcript.rs` (`own_worktree`), `idle.rs` (`exit`, `EXIT_WAIT`). `/exit` removes it
   when nothing is uncommitted, no commit was added and the session has no name of yours
   ("Worktree removed (no changes)"), else asks "Exiting worktree session" (Keep worktree /
-  Remove worktree, Keep first); a hangup, as closing its tab gives, removes nothing, runs no
+  Remove worktree, Keep first). While that's up the registry says `waiting` / `dialog open`, as
+  for any command's dialog, and the transcript nothing (`/exit` is written once it closes, not at
+  all when it's called off); its screen, its keys (a digit picks, Escape calls the exit off) and
+  answering it from Codealong: `claude/exiting.rs` (module header, 2.1.322 in tmux, 2026-11-10).
+  Before it, a session Mark as done had exited came back as Needs you with nothing Codealong
+  could show, and was answered only in its terminal. A hangup, as closing its tab gives, removes nothing, runs no
   `WorktreeRemove` hook and leaves the git lock (`claude session <name> (pid … start …)`) behind.
   The lock comes off just before the files are deleted. A session sent no prompt yet has no
   `worktree-state` line, and the exit writes none: it writes a `relocated` line with the
