@@ -66,6 +66,8 @@ export interface PrLinkActions {
   needBoard?: () => void;
 }
 
+const NO_LANES: readonly Lane[] = [];
+
 /** This window's PRs and lanes and what it does with them (`usePrLinks`). Each window is a page
  *  of its own, so one is enough. */
 const host = {
@@ -74,7 +76,10 @@ const host = {
   lanes: [] as readonly Lane[],
   /** The board's own worktrees and todos, as the engine sent them, for the links to a session or
    *  a todo (SessionLink.tsx): an archived session is only there, not in what a window lists. */
-  boardLanes: [] as readonly Lane[],
+  boardLanes: NO_LANES,
+  /** Your other devices' worktrees, where the window follows them (useDevices.ts): a link to one
+   *  of their sessions finds it there. */
+  there: NO_LANES,
   todos: [] as readonly Todo[],
   /** What a PR's nudge tells of, which its card says: `[pull_requests] nudge_about`, and what its
    *  repo's team or your table for it says (repoSettings.ts `nudgeAboutFor`); and what becomes of
@@ -129,25 +134,30 @@ type NudgeSettings = Partial<Pick<Board, 'nudgeAbout' | 'prStopped' | 'repos' | 
  *  with what a PR's nudge tells of (`board`'s parts). Links rendering with it read the new board
  *  at once; links that skip rendering hear about it after, and re-render only when their own PR
  *  changed. The links to a session or a todo (SessionLink.tsx) read the same: the sessions the
- *  window lists, the board's own and its todos (`linkHost`). */
-export function usePrLinks(prs: readonly PrItem[] | undefined, lanes: readonly Lane[] | undefined, actions: PrLinkActions, board: (NudgeSettings & Partial<Pick<Board, 'lanes' | 'todos'>>) | null | undefined) {
+ *  window lists, the board's own, those of your other devices where the window follows them
+ *  (`there`, useDevices.ts) and the board's todos (`linkHost`). */
+export function usePrLinks(prs: readonly PrItem[] | undefined, lanes: readonly Lane[] | undefined, actions: PrLinkActions, board: (NudgeSettings & Partial<Pick<Board, 'lanes' | 'todos'>>) | null | undefined, there: readonly Lane[] = NO_LANES) {
   host.actions = actions;
   if (host.prs !== prs) {
     host.prs = prs;
     host.index = prIndex(prs ?? []);
   }
   host.lanes = lanes ?? [];
-  host.boardLanes = board?.lanes ?? [];
+  host.boardLanes = board?.lanes ?? NO_LANES;
+  host.there = there;
   host.todos = board?.todos ?? [];
   host.nudges = { nudgeAbout: board?.nudgeAbout, prStopped: board?.prStopped, repos: board?.repos, teamFiles: board?.teamFiles, sessions: board?.sessions };
-  useLayoutEffect(notify, [prs, lanes, board?.lanes, board?.todos, board?.nudgeAbout, board?.prStopped, board?.repos, board?.teamFiles, board?.sessions]);
+  useLayoutEffect(notify, [prs, lanes, there, board?.lanes, board?.todos, board?.nudgeAbout, board?.prStopped, board?.repos, board?.teamFiles, board?.sessions]);
 }
 
 /** The window's sessions by what a link may name one by: where it lists each, then the board's
- *  own for the ones it doesn't list. Made when a link first asks, once for the lanes it's from. */
-let named: { lanes: readonly Lane[]; boardLanes: readonly Lane[]; names: SessionNames } | null = null;
+ *  own and your other devices' for the ones it doesn't list. Made when a link first asks, once
+ *  for the lanes it's from. */
+let named: { lanes: readonly Lane[]; boardLanes: readonly Lane[]; there: readonly Lane[]; names: SessionNames } | null = null;
 function sessionsNow(): SessionNames {
-  if (named?.lanes !== host.lanes || named.boardLanes !== host.boardLanes) named = { lanes: host.lanes, boardLanes: host.boardLanes, names: sessionNames([...host.lanes, ...host.boardLanes]) };
+  if (named?.lanes !== host.lanes || named.boardLanes !== host.boardLanes || named.there !== host.there) {
+    named = { lanes: host.lanes, boardLanes: host.boardLanes, there: host.there, names: sessionNames([...host.lanes, ...host.boardLanes, ...host.there]) };
+  }
   return named.names;
 }
 

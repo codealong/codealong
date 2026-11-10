@@ -325,7 +325,7 @@ export function Waiting() {
         }),
       );
     },
-  }, board);
+  }, board, deviceLanes);
 
   // The queue's keys, with nothing else taking them, and typing with nothing focused goes to the
   // box.

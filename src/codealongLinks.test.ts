@@ -47,6 +47,18 @@ describe('sessionNamed', () => {
     expect(sessionNamed(names, 'codex:codex:019a-cccc')).toEqual({ lane: own, session: c });
   });
 
+  it('finds one where it lives, not in a worktree it only visited, unless that’s all that lists it', () => {
+    const home = fx.session({ key: 'claude:claude:roamer1' });
+    const copy = { ...home, visitor: '/r/app' };
+    const guest = fx.session({ key: 'claude:claude:guest001', visitor: '/r/elsewhere' });
+    const visited = fx.lane({ id: '/r/visited', sessions: [copy, guest] });
+    const lived = fx.lane({ id: '/r/app', sessions: [home] });
+    const roaming = sessionNames([visited, lived]);
+    expect(sessionNamed(roaming, 'claude:claude:roamer1')).toEqual({ lane: lived, session: home });
+    expect(sessionNamed(roaming, 'roamer')?.session).toBe(home);
+    expect(sessionNamed(roaming, 'guest001')).toEqual({ lane: visited, session: guest });
+  });
+
   it('finds one by the start of its key or id when only one starts so, as the command does', () => {
     expect(sessionNamed(names, '0e0b49')?.session).toBe(a);
     expect(sessionNamed(names, 'codex:codex:')?.session).toBe(c);
@@ -55,6 +67,23 @@ describe('sessionNamed', () => {
     expect(sessionNamed(names, '0e0b')).toBeNull();
     expect(sessionNamed(names, 'claude:claude3:x')).toBeNull();
     expect(sessionNamed(names, '')).toBeNull();
+  });
+});
+
+describe('sessionNamed, in a conversation on another Mac', () => {
+  const here = fx.session({ key: 'claude:claude:abc123' });
+  const there = fx.session({ key: '@mini:claude:claude:abd999', id: 'abd999' });
+  const twin = fx.session({ key: '@mini:claude:claude:abc123', id: 'abc123' });
+  const names = sessionNames([fx.lane({ id: '/r/app', sessions: [here] }), fx.lane({ id: '@mini:/r/app', sessions: [there, twin] })]);
+
+  it('takes a key as that Mac wrote it, before one of this Mac’s', () => {
+    expect(sessionNamed(names, 'claude:claude:abd999', 'mini')?.session).toBe(there);
+    expect(sessionNamed(names, 'claude:claude:abc123', 'mini')?.session).toBe(twin);
+    expect(sessionNamed(names, 'abd9', 'mini')?.session).toBe(there);
+    // One it names whole is that one, and from this Mac's conversations a key is this Mac's.
+    expect(sessionNamed(names, '@mini:claude:claude:abd999', 'mini')?.session).toBe(there);
+    expect(sessionNamed(names, 'claude:claude:abc123')?.session).toBe(here);
+    expect(sessionNamed(names, 'claude:claude:abd999')).toBeNull();
   });
 });
 

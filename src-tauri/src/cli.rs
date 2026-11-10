@@ -5652,10 +5652,21 @@ fn named_by<'a>(text: &'a str, kind: &str) -> &'a str {
     }
 }
 
+/// What names a session in `k`: the text, or what a link to a session holds (`named_by`). A
+/// link that holds nothing names none: every key starts with nothing, and a board with one
+/// session would have it be that one.
+fn session_in(k: &str) -> Result<&str> {
+    let named = named_by(k, "session");
+    if named.trim().is_empty() {
+        bail!("Give a session key.");
+    }
+    Ok(named)
+}
+
 /// The key of the session `k` names on `board`: its key or id, or the start of only one's, as
-/// they are or in a link to it (`named_by`).
+/// they are or in a link to it (`session_in`).
 fn session_named(board: &Board, k: &str) -> Result<String> {
-    let k = named_by(k, "session");
+    let k = session_in(k)?;
     let hits = named(all_sessions(board).into_iter().map(|(s, _)| s), k);
     match hits.len() {
         1 => Ok(hits[0].key.clone()),
@@ -5668,7 +5679,7 @@ fn session_named(board: &Board, k: &str) -> Result<String> {
 /// sessions (`elsewhere`) that it names: by its key there (`@<short>:…`), its id or their start.
 /// One here goes first, so a start that names several here never names one there instead.
 fn session_named_anywhere(board: &Board, elsewhere: &[Lane], k: &str) -> Result<String> {
-    let k = named_by(k, "session");
+    let k = session_in(k)?;
     if !named(all_sessions(board).into_iter().map(|(s, _)| s), k).is_empty() {
         return session_named(board, k);
     }
@@ -6117,6 +6128,7 @@ fn with_options(c: &mut Client, mut s: crate::schedules::Schedule, o: ScheduleOp
             None => bail!("No session runs this command, so there's no `me` to send to. Give a session's key."),
         },
         (Some(key), _) => {
+            let key = session_in(key)?;
             let board = c.loaded_board()?;
             if !all_sessions(board).iter().any(|(x, _)| x.key == key) {
                 return Err(no_session(board, key));
@@ -8819,6 +8831,9 @@ mod tests {
         assert_eq!((mine.run.to, mine.run.session.as_str(), mine.run.folder.as_str()), (To::Session, "claude:claude:kestrel", "/work/atlas"));
         assert_eq!(with(&daily, &["--worktree", "/work/northwind/src"]).unwrap().run.folder, "/work/northwind");
         assert!(with(&daily, &["--to", "claude:claude:nobody"]).is_err());
+        // A session's link sends to the session it names, and one that names none to nobody.
+        assert_eq!(with(&daily, &["--to", "codealong://session/claude:claude:kestrel"]).unwrap().run.session, "claude:claude:kestrel");
+        assert!(with(&daily, &["--to", "codealong://session/"]).is_err());
         // One that sends to a session outside any worktree is told where new ones start.
         let outside = Schedule { run: Run { to: To::Session, session: "claude:claude:kestrel".into(), folder: String::new(), ..daily.run.clone() }, ..daily.clone() };
         assert!(with(&outside, &["--thread"]).unwrap_err().to_string().contains("--worktree"));
@@ -8872,6 +8887,10 @@ mod tests {
         assert_eq!(resolve_session(&mut c, " Codealong://Session/abc1/ ").unwrap(), "claude:claude:abc123");
         assert_eq!(resolve_any_session(&mut c, "codealong://session/@a1b2c3d4e5:codex:codex:fff111?x=1").unwrap(), "@a1b2c3d4e5:codex:codex:fff111");
         assert_eq!(resolve_any_session(&mut c, "codealong://session/nope").unwrap_err().to_string(), "There's no session nope. `codealong sessions` lists them.");
+        // One that holds no key names none, though every key starts with nothing and this Mac
+        // has one session.
+        assert_eq!(resolve_session(&mut c, "codealong://session/").unwrap_err().to_string(), "Give a session key.");
+        assert_eq!(resolve_any_session(&mut c, "codealong://session//?x").unwrap_err().to_string(), "Give a session key.");
         // A todo's link names no session, nor a device's link code.
         assert!(resolve_any_session(&mut c, "codealong://todo/abc123").is_err() && resolve_any_session(&mut c, "codealong://link/abc123").is_err());
         assert_eq!((named_by("codealong://todo/t-1#top", "todo"), named_by("t-1", "todo"), named_by("codealong://session/t-1", "todo")), ("t-1", "t-1", "codealong://session/t-1"));

@@ -2044,7 +2044,7 @@ export function Quick() {
       void showContextMenu(spec).catch((e: unknown) => setError(errorText(e)));
     },
     openLink,
-  }, board);
+  }, board, deviceLanes);
 
   // Its rows say a worktree's or a PR's project where it isn't the one picked (ProjectSaid.tsx).
   const page = (

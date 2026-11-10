@@ -15,12 +15,13 @@
 // The window says what it lists and what it does with a session through the PR links' host
 // (PrLink.tsx `usePrLinks`, `linkHost`): a link watches only its own session there.
 
-import { useSyncExternalStore, type ReactNode } from 'react';
+import { useContext, useSyncExternalStore, type ReactNode } from 'react';
 import { showMain } from '../api';
 import { sessionLink, sessionNamed, todoLink, todoNamed } from '../codealongLinks';
 import { cmd } from '../platform';
 import { STATUS_WORD } from '../todos';
 import type { Lane, Session } from '../types';
+import { ImagesFrom } from './DescriptionEditor';
 import { HoverCard, useHoverCard, type HoverCardState } from './HoverCard';
 import { PanelSession } from './PanelSession';
 import { linkHost, type PrLinkActions } from './PrLink';
@@ -46,8 +47,10 @@ function useLinked<T>(read: () => T): T {
 export function SessionLink({ name, children, unknown, plain }: LinkProps & { name: string }) {
   // The session and its worktree as the board has them now: the objects the board holds, so a
   // push re-renders a link only when its own session changed.
-  const session = useLinked(() => sessionNamed(linkHost.sessions(), name)?.session ?? null);
-  const lane = useLinked(() => sessionNamed(linkHost.sessions(), name)?.lane ?? null);
+  // In a conversation on another of your Macs, the keys written are that Mac's.
+  const away = useContext(ImagesFrom);
+  const session = useLinked(() => sessionNamed(linkHost.sessions(), name, away)?.session ?? null);
+  const lane = useLinked(() => sessionNamed(linkHost.sessions(), name, away)?.lane ?? null);
   const c = useHoverCard();
   // A page that never said what it does with a session (PrLink.tsx `usePrLinks`) has no links.
   if (!session || !lane || !linkHost.actions()) return <>{unknown}</>;

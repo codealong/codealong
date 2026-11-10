@@ -55,6 +55,9 @@ export interface LiveSession {
   device: DeviceView | null;
   /** Asks for the board now: a PR link's card goes by it, and would ask GitHub without. */
   needBoard: () => void;
+  /** Your other devices' worktrees, while the session shown is on one of them, as they last
+   *  said: a link in its conversation to another session there finds it (SessionLink.tsx). */
+  there?: readonly Lane[];
 }
 
 /** The session `told` of, kept up with the board while it's `shown`: the windows that show one
@@ -129,7 +132,7 @@ export function useLiveSession(told: Told | null, shown: boolean): LiveSession {
     if (following.current) following.current.read(failed);
     else void getBoard().then(takeBoard, failed);
   }, [takeBoard]);
-  return { lane, session, theme: now?.theme ?? (elsewhere ? look?.theme : null) ?? null, zoom: now?.zoom ?? (elsewhere ? look?.zoom : null) ?? null, board, device: elsewhere && key ? deviceOf(devices, key) : null, needBoard };
+  return { lane, session, theme: now?.theme ?? (elsewhere ? look?.theme : null) ?? null, zoom: now?.zoom ?? (elsewhere ? look?.zoom : null) ?? null, board, device: elsewhere && key ? deviceOf(devices, key) : null, needBoard, there: devices?.lanes };
 }
 
 /** ⌘= ⌘- ⌘0 on a card in a window that floats: they zoom every window, as in the board's, and
@@ -244,7 +247,7 @@ export interface CardHost {
  *  chip does (`followPr`, in the window's own place for it), a PR's card shows its sessions in
  *  the main window, and their menus are their own; and for the links to a session or a todo
  *  (SessionLink.tsx), which show in the main window too. */
-export function useCardHost({ sessionKey, anchor, live, apps, terminal, away, followPr }: { sessionKey: string | null; /** The pill the bar says things by, where the card isn't a session's (the reviews pill). */ anchor?: string; live: Pick<LiveSession, 'board' | 'needBoard'>; apps: Board['apps'] | undefined; terminal: string; away: () => void; followPr?: (pr: PrItem, tab: PrTab | null) => void }): CardHost {
+export function useCardHost({ sessionKey, anchor, live, apps, terminal, away, followPr }: { sessionKey: string | null; /** The pill the bar says things by, where the card isn't a session's (the reviews pill). */ anchor?: string; live: Pick<LiveSession, 'board' | 'needBoard' | 'there'>; apps: Board['apps'] | undefined; terminal: string; away: () => void; followPr?: (pr: PrItem, tab: PrTab | null) => void }): CardHost {
   const onDesktop = menus.useDesktopPins();
   const icons = useEditorIcons(apps);
   const by = anchor ?? sessionKey;
@@ -285,6 +288,6 @@ export function useCardHost({ sessionKey, anchor, live, apps, terminal, away, fo
       void showContextMenu(spec).catch((e: unknown) => report.error(errorText(e)));
     },
     needBoard: live.needBoard,
-  }, live.board);
+  }, live.board, live.there);
   return { report, open, showSession, showPr, showLane, showTodo };
 }

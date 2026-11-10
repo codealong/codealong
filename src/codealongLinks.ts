@@ -6,7 +6,8 @@
 // `named_by`). A link only ever shows what it names: nothing here sends, answers, stops or
 // starts.
 
-import type { Lane, Session, Todo } from './types';
+import { sessionHomes, type Placed } from './lanes';
+import type { Lane, Todo } from './types';
 
 const SCHEME = /^codealong:\/\/(session|todo)\/([^?#\s]+)/i;
 
@@ -46,39 +47,36 @@ export const sessionLink = (key: string) => `codealong://session/${key}`;
 /** A todo's link. */
 export const todoLink = (id: string) => `codealong://todo/${id}`;
 
-/** A session where a window lists it. */
-export interface SessionAt {
-  lane: Lane;
-  session: Session;
-}
-
-/** A window's sessions by what a link may name one by. */
+/** A window's sessions by what a link may name one by, each where it lives (lanes.ts `Placed`). */
 export interface SessionNames {
-  byKey: Map<string, SessionAt>;
-  byId: Map<string, SessionAt>;
+  byKey: Map<string, Placed>;
+  byId: Map<string, Placed>;
 }
 
-/** The sessions of `lanes`, each once, in the first worktree that lists it. */
-export function sessionNames(lanes: readonly Lane[]): SessionNames {
-  const byKey = new Map<string, SessionAt>();
-  const byId = new Map<string, SessionAt>();
-  for (const lane of lanes) {
-    for (const session of lane.sessions) {
-      if (byKey.has(session.key)) continue;
-      const at = { lane, session };
-      byKey.set(session.key, at);
-      if (!byId.has(session.id)) byId.set(session.id, at);
-    }
-  }
+/** The sessions of `lanes`, each once: under the worktree it's listed in as its own, the first
+ *  of them (lanes.ts `sessionHomes`), and one listed only where it visits, there, as the
+ *  command names one (cli.rs `all_in`). A worktree a session only looked into lists a copy of it
+ *  that says what it did there, not what it's doing. */
+export function sessionNames(lanes: Lane[]): SessionNames {
+  const byKey = sessionHomes(lanes);
+  for (const lane of lanes) for (const session of lane.sessions) if (!byKey.has(session.key)) byKey.set(session.key, { lane, session });
+  const byId = new Map<string, Placed>();
+  for (const at of byKey.values()) if (!byId.has(at.session.id)) byId.set(at.session.id, at);
   return { byKey, byId };
 }
 
 /** The session `name` names: the one whose key or id it is, else the only one whose key or id
- *  starts with it, or whose short id it is. None when it names none, or more than one. */
-export function sessionNamed(names: SessionNames, name: string): SessionAt | null {
+ *  starts with it, or whose short id it is. None when it names none, or more than one. In a
+ *  conversation on another of your Macs (`away`, its short id) a key is that Mac's own, which
+ *  this one lists after `@<short>:`, so it's looked for there first. */
+export function sessionNamed(names: SessionNames, name: string, away: string | null = null): Placed | null {
+  if (away && name && !name.startsWith('@')) {
+    const there = sessionNamed(names, `@${away}:${name}`);
+    if (there) return there;
+  }
   const exact = names.byKey.get(name) ?? names.byId.get(name);
   if (exact || !name) return exact ?? null;
-  let hit: SessionAt | null = null;
+  let hit: Placed | null = null;
   for (const at of names.byKey.values()) {
     const s = at.session;
     if (!(s.id.startsWith(name) || s.key.startsWith(name) || s.shortId === name)) continue;

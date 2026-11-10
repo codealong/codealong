@@ -774,6 +774,12 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   truncated files are checked again.
   Claude Code 2.1.303 also treats `apiError: "dlp_request_denied"` and
   `apiError: "safety_monitor_blocked"` on assistant messages as flags; the reader does too.
+- Its terminal draws a Markdown link in a reply as its words alone, whatever the link's scheme:
+  `[Fix the parser](codealong://session/<key>)` showed as `Fix the parser`, as
+  `[the guide](https://example.com/guide)` showed as `the guide` (2.1.322 in tmux, 2026-11-10; the
+  record keeps the Markdown as written). So a link to a session or a todo, as the skill has
+  agents write one (`src/codealongLinks.ts`), costs nothing to read there. Not read: whether the
+  words carry a terminal hyperlink (OSC 8), and what Codex's and the other terminals draw.
 
 ## Claude app
 

@@ -2266,7 +2266,7 @@ export function App() {
       if (pr) prMenu(prRowOf(pr));
       else void showContextMenu(menus.prMenu({ url, number: prRefOf(url)?.number ?? 0 }, { report })).catch((e: unknown) => setToast(String(e)));
     },
-  }, board);
+  }, board, deviceLanes);
 
   // The quick panel's shortcut from any app, which the box in the title bar shows; ⌘K without one.
   const quickKeys = shortcutKeys(board?.quickShortcut);
