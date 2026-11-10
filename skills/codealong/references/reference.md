@@ -5175,8 +5175,10 @@ Commands:
           over
   status  What this Mac can hear with: whether it can transcribe speech and in which
           language, whether that language's model is on it yet, whether Codealong may
-          use the microphone, and the apps that record or play right now. Asks the user
-          for nothing
+          use the microphone, and the apps that record or play right now. Codealong's
+          server answers (`answeredBy: server` in the JSON); with no server it's this
+          command's own shell that's asked, whose microphone is its terminal's
+          (`shell`). Asks the user for nothing
   help    Print this message or the help of the given subcommand(s)
 
 Options:
@@ -5241,7 +5243,8 @@ Options:
       --at-speed
           Hear it at the speed it plays, as a meeting is heard, the session told as it
           goes: for trying a coach on a meeting you recorded. Without it the recording
-          is read as fast as it can be, and the session is told once it's all in
+          is read some twenty-five times faster, the session still told as it goes when
+          that takes a while
 
       --table
           Tables, even when piped
@@ -5304,7 +5307,9 @@ Options:
 ```
 What this Mac can hear with: whether it can transcribe speech and in which language,
 whether that language's model is on it yet, whether Codealong may use the microphone,
-and the apps that record or play right now. Asks the user for nothing
+and the apps that record or play right now. Codealong's server answers (`answeredBy:
+server` in the JSON); with no server it's this command's own shell that's asked, whose
+microphone is its terminal's (`shell`). Asks the user for nothing
 
 Usage: codealong listen status [OPTIONS]
 

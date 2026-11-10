@@ -1484,7 +1484,7 @@ enum ListenCmd {
         /// The recording to hear.
         #[arg(long, value_name = "PATH")]
         file: String,
-        /// Hear it at the speed it plays, as a meeting is heard, the session told as it goes: for trying a coach on a meeting you recorded. Without it the recording is read as fast as it can be, and the session is told once it's all in.
+        /// Hear it at the speed it plays, as a meeting is heard, the session told as it goes: for trying a coach on a meeting you recorded. Without it the recording is read some twenty-five times faster, the session still told as it goes when that takes a while.
         #[arg(long)]
         at_speed: bool,
         /// What the session makes of it: notes it keeps in a file, a few lines of coaching each time it's told what was heard, or a todo for each thing asked for (a bug, a fix, a feature).
@@ -1502,7 +1502,7 @@ enum ListenCmd {
         /// The session's key, or `me` for the one running this command.
         session: String,
     },
-    /// What this Mac can hear with: whether it can transcribe speech and in which language, whether that language's model is on it yet, whether Codealong may use the microphone, and the apps that record or play right now. Asks the user for nothing.
+    /// What this Mac can hear with: whether it can transcribe speech and in which language, whether that language's model is on it yet, whether Codealong may use the microphone, and the apps that record or play right now. Codealong's server answers (`answeredBy: server` in the JSON); with no server it's this command's own shell that's asked, whose microphone is its terminal's (`shell`). Asks the user for nothing.
     Status,
 }
 
@@ -2270,10 +2270,13 @@ fn listen(cmd: ListenCmd, c: &mut Client, json: bool) -> Result<()> {
             // shell that's asked, which is said.
             let served = c.app.is_some();
             let me = find_me(c)?.0;
-            let heard = c.act(actions::HEARING, "", serde_json::json!({}), me)?;
+            let mut heard = c.act(actions::HEARING, "", serde_json::json!({}), me)?;
             let status: crate::ear::Status = serde_json::from_value(heard["status"].clone())?;
             let apps: Vec<crate::ear::App> = serde_json::from_value(heard["apps"].clone()).unwrap_or_default();
             if json {
+                // Whose answer it is, for whoever reads only this: `shell` is this command's own
+                // terminal, whose microphone isn't Codealong's.
+                heard["answeredBy"] = serde_json::json!(if served { "server" } else { "shell" });
                 return print_json(&heard);
             }
             if !served {
