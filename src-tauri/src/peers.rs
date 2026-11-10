@@ -1883,7 +1883,9 @@ fn save_linked(dir: &Path, linked: &[Linked]) -> Result<()> {
 
 /// Read leniently: what each device last said is a cache, filled again as each connects.
 fn load_cache(dir: &Path) -> HashMap<String, Cached> {
-    crate::store::read_or_default(&cache_path(dir))
+    let mut cache: HashMap<String, Cached> = crate::store::read_or_default(&cache_path(dir));
+    cache.values_mut().for_each(|c| c.replica.fill_needs());
+    cache
 }
 
 fn save_cache(dir: &Path, cache: &HashMap<String, Cached>) {

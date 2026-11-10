@@ -142,6 +142,12 @@ impl Replica {
         }
     }
 
+    /// Reads why each session needs you where a copy kept from before `Session::need` doesn't
+    /// say (`Session::fill_need`): what's kept on disk is shown before its device connects again.
+    pub fn fill_needs(&mut self) {
+        self.lanes.iter_mut().flat_map(|l| &mut l.sessions).for_each(Session::fill_need);
+    }
+
     pub fn apply(&mut self, msg: FeedMsg) {
         if msg.full {
             *self = Replica { reads: READS, ..Replica::default() };
@@ -176,7 +182,7 @@ impl Replica {
         let mut at: HashMap<String, usize> = self.lanes.iter().enumerate().map(|(i, l)| (l.id.clone(), i)).collect();
         for mut l in msg.lanes {
             // A device from before `Session::need` sends none: this one reads it from the rest.
-            l.sessions.iter_mut().for_each(Session::settle_need);
+            l.sessions.iter_mut().for_each(Session::fill_need);
             if let Some(keys) = msg.keys.get(&l.id) {
                 let had = at.get(&l.id).map(|&i| std::mem::take(&mut self.lanes[i].sessions)).unwrap_or_default();
                 let mut had: HashMap<String, Session> = had.into_iter().map(|s| (s.key.clone(), s)).collect();
@@ -236,6 +242,23 @@ mod tests {
         replica.apply(FeedMsg { rev: 1, full: true, lanes: vec![lane("/a")], hashes: HashMap::from([("/a".to_string(), 8)]), ..Default::default() });
         assert_eq!(replica.reads, READS);
         assert_eq!(replica.have(), HashMap::from([("/a".to_string(), 8)]));
+    }
+
+    #[test]
+    fn a_need_unsaid_is_read_and_one_said_stands() {
+        use crate::model::{Need, Status};
+        let waits = |key: &str, need| Session { status: Status::Needs, excerpt: Some("Bash · `make`".into()), need, ..crate::fixtures::session(key) };
+        let needs = |r: &Replica| r.lanes[0].sessions.iter().map(|s| s.need).collect::<Vec<_>>();
+        // A feed from a build before `Session::need` says none, and one from a later build may
+        // say one this build doesn't know: the first is read from the rest, the second stands.
+        let mut replica = Replica::default();
+        let sent = crate::fixtures::lane("/a", vec![waits("claude:claude:old", None), waits("claude:claude:later", Some(Need::Other))]);
+        replica.apply(FeedMsg { rev: 1, full: true, lanes: vec![sent.clone()], ..Default::default() });
+        assert_eq!(needs(&replica), [Some(Need::Approval), Some(Need::Other)]);
+        // A copy kept on disk from before it, shown before its device connects again.
+        let mut kept = Replica { lanes: vec![sent], ..Replica::default() };
+        kept.fill_needs();
+        assert_eq!(needs(&kept), [Some(Need::Approval), Some(Need::Other)]);
     }
 
     #[test]
