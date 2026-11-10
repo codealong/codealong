@@ -56,6 +56,7 @@
         s.asks = false;
         s.hosted = false;
         s.excerpt = status === 'needs' ? pending.label : 'Writing';
+        s.need = status === 'needs' ? 'approval' : undefined;
         // Each board a change of the session, as the engine sends one.
         s.lastActivity = Date.now();
         if (!picked) {
