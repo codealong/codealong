@@ -2416,8 +2416,9 @@ in_bar` on), else shows it in Codealong too. Send to lists this machine's sessio
 ⌥⌘' (`[shortcuts] chat`) opens the same
 panel with the worktree picker on No project, so what you type starts a chat of its own, in a folder
 of its own among Codealong's chats, rather than in a worktree; it finds sessions as ⌥⌘/ does, and
-the picker (⌘T) still goes to a worktree. The shortcuts are yours to change in Settings › General;
-Settings names shortcuts macOS and common launchers already use.
+the picker (⌘T) still goes to a worktree. With voice on, ⌥⌘= (`[shortcuts] listen`) opens it set
+to listen to a meeting instead (*Voice*, Listen now). The shortcuts are yours to change in
+Settings › General; Settings names shortcuts macOS and common launchers already use.
 
 A prompt (a few words, not a word or two of a search) can go to any session, not only one Jev
 suggests: Send to another session…, the row under Jev's suggestions (at the end of Sessions with
@@ -3378,9 +3379,10 @@ Settings won't save one.
 
 *Settings › Experimental, or `voice = true` under `[experimental]` in config.toml*
 
-Voice is an experiment, off until you turn it on. While it's off its two shortcuts do nothing, a
-session's menu has no Listen…, and every `codealong listen` command says it's off. It has two
-halves: a key you hold to talk to a session, and sessions that listen to a meeting.
+Voice is an experiment, off until you turn it on. While it's off its three shortcuts do nothing,
+there's no Listen now and no Listen… in a session's menu, and every `codealong listen` command
+says it's off. It has two halves: a key you hold to talk to a session, and sessions that listen
+to a meeting.
 
 Speech is turned into text on this Mac, by macOS's own speech model (macOS 26 or later; the
 model for a language is downloaded by macOS the first time it's used), in a helper process of
@@ -3493,6 +3495,43 @@ and have a session hear a recording (`start --file`), which is transcribed as fa
 or with `--at-speed` at the speed it plays, the session told as it goes: a way to try a coach on a
 meeting you recorded.
 
+**Listen now.** For a meeting that's beginning, with no session to ask: press ⌥⌘= from any app
+(`[shortcuts] listen`, set with Voice in Settings › Experimental), or the microphone in the main
+window's bar, *Listen now…* in the Meetings dialog or in the menu bar item's menu. The quick panel
+opens set to listen: its box asks what the meeting is, and ⏎ has Codealong hear it from that
+moment, with a session started for it. Nothing needs typing. What you do type is the meeting's
+name (its first line) and what you want from it, which the session is told you added. Under the
+box are the same choices a session's Listen… asks, as you left them last time: what it does
+(Notes to begin with) and what it hears (you and what the Mac plays). The session is a chat of
+its own, in no project, unless you pick a worktree for it (⌘T), and starts on the account and
+model Settings names for meetings (`[voice] meeting_account`, `meeting_model`), as a calendar
+meeting's does. The panel lists and searches nothing while it's set to listen, and a prompt you'd
+left unsent in it waits under ↑.
+
+Hearing starts before the session does. A session takes some seconds to come up, and the meeting
+has begun, so Codealong hears from ⏎ and writes the transcript, and the session is told
+everything said meanwhile once it's there. Until then the bar's recording light is on under the
+meeting's name, with nothing yet to show for a click. If the session doesn't start, the hearing
+stops, nothing of it is kept, and the panel comes back with what you typed and why. *Take notes*
+on a calendar meeting hears from the click the same way.
+
+It's a meeting like the calendar's: a folder of its own among your meetings, named for when it
+began and what you called it, with its transcript, its notes and `meeting.json`, listed in the
+Meetings dialog with the rest. It needs voice on and nothing more: not *Offer to take a meeting's
+notes*, and nothing of your calendar is read for it. When that setting is on and your calendar
+has a meeting going on or about to start, the panel offers it, ticked: left so, ⏎ takes that
+meeting, with its name and who's in it; unticked, it's a meeting of its own. Having no end in a
+calendar, one of its own ends when you stop it, or after half an hour of nothing said. And one
+you stop within two minutes of starting it, with nothing heard, was a mistake: its session is
+ended and archived rather than asked to sum up a meeting that never was, and its folder goes
+with it. A calendar meeting taken by mistake goes the same way.
+
+⌥⌘= is the key over the two held to talk. The backslash beside them (`⌥⌘\`) is 1Password's Quick
+Access on newer macOS; macOS itself zooms the screen with ⌥⌘= only once Accessibility › Zoom's
+keyboard shortcuts are turned on. Listening through the microphone or to what the Mac plays is
+yours to start, so the `codealong` command has no Listen now; `codealong --snapshot --listen-plan`
+says what one would start, hearing nothing.
+
 **Meetings.** With *Offer to take a meeting's notes as it starts* on (Settings › Experimental;
 `[voice] meetings`), Codealong reads your calendar and, a minute before a meeting starts (or as
 it starts, or up to ten minutes before: *A meeting is offered*, `meeting_lead`), asks whether to
@@ -3542,7 +3581,11 @@ three minutes, so one that runs over is heard to its end; and when you take the 
 last one's ends. Taking a meeting is yours to do, in Codealong's windows: the command neither
 takes one nor asks macOS for your calendar.
 
-Not yet checked by hand: the Mac's audio giving anything but silence (the first real meeting, on
+Not yet checked by hand: Listen now in the real app (⌥⌘= from another app, the microphone and
+the session that follows it, the light under a meeting's name while its session starts, and a
+meeting started by mistake put away: the preview shows the panel and what it asks for, the
+engine's rules are tested, and what it would start is `--snapshot --listen-plan`'s); the Mac's
+audio giving anything but silence (the first real meeting, on
 2026-11-10, heard only the microphone, and the build that fixes what was found hasn't heard a
 call since); a real meeting offered and taken (the calendar itself has been read, with its
 accounts and the day's meetings); speakers told from headphones in a real room, which so far is

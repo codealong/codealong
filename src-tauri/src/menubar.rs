@@ -44,6 +44,7 @@ const SHOW: &str = "menubar:show:";
 const MORE: &str = "menubar:more";
 const MAIN: &str = "menubar:main";
 const WAITING: &str = "menubar:waiting";
+const LISTEN: &str = "menubar:listen";
 const RESTART: &str = "menubar:restart";
 const SETTINGS: &str = "menubar:settings";
 const QUIT: &str = "menubar:quit";
@@ -67,8 +68,12 @@ pub struct Listed {
     reviews: Vec<Row>,
     unread: Vec<Row>,
     working: Vec<Row>,
+    /// Voice is turned on, so the menu has Listen now.
+    voice: bool,
 }
 
+/// A line for a session or a PR. One with no key has nothing to show yet, and can't be picked: a
+/// listening whose session is still being started.
 #[derive(Clone, Debug, PartialEq)]
 struct Row {
     key: String,
@@ -114,11 +119,19 @@ pub fn listed(feed: &BarFeed) -> Listed {
             .collect()
     };
     Listed {
-        listening: feed.listenings.iter().map(|l| Row { key: l.key.clone(), label: label(&l.title, "", None, false) }).collect(),
+        listening: feed
+            .listenings
+            .iter()
+            .map(|l| {
+                let said = label(&l.title, "", None, false);
+                Row { key: l.key.clone(), label: if l.listening.starting.is_some() { format!("{said} (its session is starting)") } else { said } }
+            })
+            .collect(),
         needs: rows(Group::Needs),
         reviews: feed.reviews.iter().map(|r| Row { key: r.key.clone(), label: label(&format!("#{} {}", r.number, r.title), &r.repo, None, false) }).collect(),
         unread: rows(Group::Unread),
         working: rows(Group::Working),
+        voice: feed.voice,
     }
 }
 
@@ -155,7 +168,7 @@ pub fn lines(listed: &Listed, hosted: usize, server: Server) -> Vec<Line> {
             out.push(Line::Separator);
         }
         out.push(note(heading));
-        out.extend(rows.iter().take(EACH).map(|r| item(&format!("{SHOW}{}", r.key), &r.label)));
+        out.extend(rows.iter().take(EACH).map(|r| if r.key.is_empty() { note(&r.label) } else { item(&format!("{SHOW}{}", r.key), &r.label) }));
         if rows.len() > EACH {
             out.push(item(MORE, format!("{} more in Codealong…", rows.len() - EACH)));
         }
@@ -167,6 +180,10 @@ pub fn lines(listed: &Listed, hosted: usize, server: Server) -> Vec<Line> {
     out.push(Line::Separator);
     out.push(item(MAIN, "Open Codealong"));
     out.push(Line::Item { id: waits.then(|| WAITING.to_string()), label: "Waiting on you…".into() });
+    // Listen now (meetings.rs `now`), which the quick panel asks about, while voice is on.
+    if listed.voice {
+        out.push(item(LISTEN, "Listen now…"));
+    }
     out.push(Line::Separator);
     out.push(note(match (server, hosted) {
         (Server::Starting, _) => "Server starting…".to_string(),
@@ -367,6 +384,7 @@ fn picked(app: &AppHandle, id: &str) {
             }
         }
         WAITING => crate::waiting::open(app, Value::Null),
+        LISTEN => crate::quick::open(app, json!({ "listen": true })),
         SETTINGS => {
             if crate::front::show_main(app, None).is_ok() {
                 let _ = app.emit_to("main", "settings", ());
@@ -438,11 +456,13 @@ mod tests {
     #[test]
     fn the_menu_lists_each_group_under_its_heading_then_the_app_and_its_server() {
         let listed = Listed {
-            listening: vec![row("claude:l", "Renewal call")],
+            // The second was started ahead of its session, which is on its way: nothing to show yet.
+            listening: vec![row("claude:l", "Renewal call"), row("", "Standup (its session is starting)")],
             needs: vec![row("claude:a", "Answer me · northwind")],
             reviews: vec![row("pr:atlas/web#12", "#12 Tidy the header · web")],
             unread: vec![],
             working: (0..7).map(|n| row(&format!("codex:{n}"), &format!("Working {n} · kestrel"))).collect(),
+            voice: true,
         };
         let lines = lines(&listed, 2, Server::Running);
         assert_eq!(
@@ -450,6 +470,7 @@ mod tests {
             [
                 "Listening",
                 "Renewal call [show:claude:l]",
+                "Standup (its session is starting)",
                 "--",
                 "Needs you",
                 "Answer me · northwind [show:claude:a]",
@@ -467,6 +488,7 @@ mod tests {
                 "--",
                 "Open Codealong [main]",
                 "Waiting on you… [waiting]",
+                "Listen now… [listen]",
                 "--",
                 "Server running 2 sessions",
                 "Restart server [restart]",
@@ -488,6 +510,8 @@ mod tests {
         assert!(said.contains(&"Waiting on you…".to_string()));
         assert!(said.contains(&"Server starting…".to_string()));
         assert!(said.contains(&"Restart server".to_string()));
+        // Listen now is voice's, which is off.
+        assert!(!said.iter().any(|line| line.starts_with("Listen now")));
         assert_eq!(ids(&super::lines(&Listed::default(), 1, Server::Running))[5], "Server running 1 session");
         // A server the app runs in itself goes with it: there's no restarting it from here.
         let in_app = ids(&super::lines(&Listed::default(), 1, Server::InApp));
@@ -502,6 +526,7 @@ mod tests {
             reviews: vec![row("pr", "#1 P")],
             unread: vec![row("c", "C")],
             working: vec![],
+            voice: false,
         };
         // A session that's hearing is said first, and isn't something that waits on you.
         let hearing = Listed { listening: vec![row("l", "L")], ..Listed::default() };

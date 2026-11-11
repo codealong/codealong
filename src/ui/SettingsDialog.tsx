@@ -2297,8 +2297,8 @@ const MEETING_LEAD: Profile[] = [
   { id: '10', name: '10 minutes before' },
 ];
 
-/** The two shortcuts held to talk, as `SHORTCUTS` has the others. They're Voice's, so they're set
- *  with it, not in General. */
+/** The two shortcuts held to talk and the one that starts listening, as `SHORTCUTS` has the
+ *  others. They're Voice's, so they're set with it, not in General. */
 const TALK_SHORTCUTS: typeof SHORTCUTS = [
   {
     which: 'talk',
@@ -2315,6 +2315,14 @@ const TALK_SHORTCUTS: typeof SHORTCUTS = [
     name: 'Shortcut held to talk to your orchestrator',
     called: 'the shortcut held to talk to your orchestrator',
     says: 'Hold it and talk, from any app; let go and what you said is in your orchestrator’s box, with Codealong’s window brought forward on it. Keep Shift down as you let go to send it instead.',
+  },
+  {
+    which: 'listen',
+    key: 'listen',
+    title: 'Listen now',
+    name: 'Shortcut that starts listening',
+    called: 'the shortcut that starts listening',
+    says: 'Press it from any app as a meeting begins: the quick panel asks what it is, and ⏎ has Codealong hear it from then on, with a session started for it that keeps its notes. A meeting in your calendar or not.',
   },
 ];
 
@@ -2363,7 +2371,7 @@ function ExperimentalPane({ cfg, view, disabled, onSave }: PaneProps & { view: C
           <CheckBox checked={experimental.voice} onChange={(on) => void onSave({ ...cfg, experimental: { ...experimental, voice: on } })} />
           <span>Voice</span>
           <small>
-            Talk to a session by holding a key, and have a session listen to a meeting: it keeps notes, coaches you as it goes, or files a todo for each thing a customer asks for (Listen… in a session’s menu). Speech is turned into text on this Mac, by macOS 26’s own model, and no audio is kept. macOS asks before Codealong may use the microphone or hear what the Mac plays.
+            Talk to a session by holding a key, and have a session listen to a meeting: it keeps notes, coaches you as it goes, or files a todo for each thing a customer asks for (Listen now, or Listen… in a session’s menu). Speech is turned into text on this Mac, by macOS 26’s own model, and no audio is kept. macOS asks before Codealong may use the microphone or hear what the Mac plays.
           </small>
         </label>
         {experimental.voice && (

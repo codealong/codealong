@@ -423,10 +423,11 @@ are an experiment, off until you turn them on in Settings › Experimental.
 
 Voice is an experiment too (macOS 26, Settings › Experimental). Hold ⌥⌘[ and talk, and what you
 said is typed where your caret is in Codealong; hold ⌥⌘] to talk to your orchestrator from any
-app. And a session can listen to a meeting (Listen… in its menu): it keeps notes, coaches you a
-few words at a time beside your camera, or files a todo for each thing a customer asks for. Speech
-becomes text on your Mac, with macOS's own model, and no audio is kept
-([the guide](docs/guide.md#voice) has the rest).
+app. And a session can listen to a meeting: it keeps notes, coaches you a few words at a time
+beside your camera, or files a todo for each thing a customer asks for. Press ⌥⌘= as one begins
+(Listen now) and Codealong hears it from then on, with a session started for it; or have a
+session you already have listen (Listen… in its menu). Speech becomes text on your Mac, with
+macOS's own model, and no audio is kept ([the guide](docs/guide.md#voice) has the rest).
 
 ### Open anything where it lives
 
@@ -620,6 +621,7 @@ improve = "Option+Cmd+,"            # the quick panel to improve Codealong itsel
 main_window = "Option+Cmd+;"        # Codealong's window you were in last; pressed there, hides Codealong
 talk = "Option+Cmd+["               # with voice on: held while you talk to the session you're looking at (Settings › Experimental)
 talk_orchestrator = "Option+Cmd+]"  # with voice on: held while you talk to your orchestrator
+listen = "Option+Cmd+="             # with voice on: opens the quick panel set to listen to a meeting from then on (Listen now)
 
 [jev]                          # TypeSafe's Jev, each feature off until turned on (Settings › Jev)
 model = "jev-preview"          # TypeSafe's newest release; jev-latest its newest stable one, or a version (jev-1.14.0)

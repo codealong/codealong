@@ -983,7 +983,7 @@ export interface Config {
   /** `zoom` is a percent; Settings leaves it as config.toml has it. */
   appearance: { theme: Theme; zoom?: number };
   /** Shortcuts that work in any app, as config.toml writes them (`Option+Cmd+/`); empty is off. */
-  shortcuts: { quick_panel: string; chat?: string; waiting: string; improve?: string; main_window?: string; talk?: string; talk_orchestrator?: string };
+  shortcuts: { quick_panel: string; chat?: string; waiting: string; improve?: string; main_window?: string; talk?: string; talk_orchestrator?: string; listen?: string };
   /** What Codealong asks TypeSafe's Jev, feature by feature. Older files have none: all off. */
   jev?: JevCfg;
   /** Session emblems. Older files have none: off. */
@@ -1078,6 +1078,9 @@ export interface Meeting {
   link?: string;
   /** For one that repeats, what its occurrences share. */
   series?: string;
+  /** Not from the calendar: one you had Codealong listen to as it began (Listen now), which has
+   *  when it started and no end to go by. Missing for the calendar's. */
+  unplanned?: boolean;
 }
 
 /** The meeting on offer (meetings.rs `Offer`): one about to start or just begun, to take its
@@ -1177,6 +1180,10 @@ export interface ListeningGlance {
   /** The latest thing its session said that wasn't nothing, and when. */
   cue?: string;
   cueAt: number;
+  /** It was started ahead of its session, which is still on its way (Listen now, a meeting just
+   *  taken): what it's called until then, its meeting's name. The board lists it under no
+   *  session's key, an empty one. Missing once its session has it. */
+  starting?: string;
 }
 
 /** A listening as its file keeps it (listen.rs `Listening`). */
@@ -1846,6 +1853,9 @@ export interface Board {
    *  older boards. */
   talkShortcut?: string;
   talkOrchestratorShortcut?: string;
+  /** The shortcut that opens the quick panel set to listen to a meeting, as config.toml writes
+   *  it; empty when off, as it is until voice is turned on. Missing on older boards. */
+  listenShortcut?: string;
   /** Where a session that improves Codealong goes (improve.ts). Missing on older boards. */
   improve?: Improve;
   /** What Codealong asks Jev, from `[jev]` in config.toml. Missing on older boards. */
@@ -2785,7 +2795,7 @@ export interface ShortcutStatus {
   /** The quick panel's, the one that opens it set to a chat, the one that goes through what waits
    *  on you, Improve Codealong's, the one that brings the board's window forward, or one of the
    *  two held to talk. */
-  which: 'quick' | 'chat' | 'waiting' | 'improve' | 'main' | 'talk' | 'talkorchestrator';
+  which: 'quick' | 'chat' | 'waiting' | 'improve' | 'main' | 'talk' | 'talkorchestrator' | 'listen';
   /** As config.toml writes it; empty when it's off. */
   shortcut: string;
   error: string | null;
@@ -2837,6 +2847,8 @@ export interface BarFeed {
   listenings?: BarListening[];
   /** The meeting on offer (`Board.meeting`): the bar asks whether to take its notes. */
   meeting?: MeetingOffer;
+  /** Voice is turned on: the menu bar item's menu has Listen now. Missing while it's off. */
+  voice?: boolean;
 }
 
 export interface BarItem {

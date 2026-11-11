@@ -115,6 +115,7 @@ const MODES: &[Mode] = &[
     Mode { flag: "--schedules", takes: "", run: schedules },
     Mode { flag: "--harness-schedules", takes: "", run: harness_schedules },
     Mode { flag: "--schedule-plan", takes: "<schedule>", run: schedule_plan },
+    Mode { flag: "--listen-plan", takes: "[what you'd type] [--in <worktree folder>]", run: listen_plan },
     Mode { flag: "--schedule-check", takes: "<schedule>", run: schedule_check },
     Mode { flag: "--schedule-run", takes: "<schedule>", run: schedule_run },
     Mode { flag: "--schedule-times", takes: "<time, as a schedule writes it>", run: |_, rest| Ok(pretty(&crate::schedules::times(&rest.join(" "), util::now_ms(), &crate::schedules::rule::Local))) },
@@ -236,6 +237,17 @@ fn schedule_plan(_: &Args, rest: &[String]) -> Done {
     let board = engine::snapshot(true, false);
     let cfg = config::current().map_err(failed)?;
     Ok(pretty(&crate::schedules::runner::plan_now(&board, &cfg, &s, &track, util::now_ms())))
+}
+
+/// `codealong --snapshot --listen-plan [what you'd type] [--in <worktree folder>]`: what Listen
+/// now would start for a meeting that's in no calendar (meetings.rs `plan`), without starting a
+/// session or hearing anything: the session, where and on what, and where its files would go.
+fn listen_plan(args: &Args, rest: &[String]) -> Done {
+    let words = rest.first().filter(|w| !w.starts_with("--")).cloned().unwrap_or_default();
+    let lane = args.option("--in").map(|folder| util::expand(folder).to_string_lossy().into_owned()).unwrap_or_default();
+    let board = engine::snapshot(false, false);
+    let cfg = config::current().map_err(failed)?;
+    Ok(pretty(&crate::meetings::plan(&cfg, &board, &words, &lane, util::now_ms()).map_err(failed)?))
 }
 
 /// `codealong --snapshot --schedule-run <schedule>`: runs it now, as Run now does, over a board

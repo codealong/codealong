@@ -877,6 +877,14 @@ calls! {
         actions::run(&c.engine, &c.peers, actions::MEETING, "", actions::params::Meeting { id, take, role: role.unwrap_or_default() })
     }
 
+    /// Listen now (meetings.rs `now`): Codealong hears a meeting from this moment, with a session
+    /// started for it in `lane` (a chat of its own when that's empty). `meeting` is the one in
+    /// your calendar it is, when it's one; `ask` what to hear and make of it. It answers once the
+    /// session has the listening.
+    fn listen_now(c, meeting: Option<String>, lane: Option<String>, ask: Option<crate::listen::Ask>) -> Result<Value, String> {
+        actions::run(&c.engine, &c.peers, actions::LISTEN_NOW, "", actions::params::ListenNow { meeting, lane: lane.unwrap_or_default(), ask: ask.unwrap_or_default() })
+    }
+
     /// Your meetings, the latest first (meetings.rs `kept`): the folders among them that say which
     /// meeting they are.
     fn meetings_kept(c) -> Result<Vec<crate::meetings::Kept>, String> {

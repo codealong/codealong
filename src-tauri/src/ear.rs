@@ -362,6 +362,10 @@ pub struct Meeting {
     /// For one that repeats, what its occurrences share.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub series: Option<String>,
+    /// Not from the calendar: one you had Codealong listen to as it began (meetings.rs `now`),
+    /// which has when it started and no end to go by.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub unplanned: bool,
 }
 
 /// Someone in an event, as the calendar has them.

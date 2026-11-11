@@ -35,6 +35,7 @@ pub const RUN_COMMAND: &str = "session-run-command";
 pub const LISTEN: &str = "session-listen";
 pub const HEARING: &str = "hearing";
 pub const MEETING: &str = "meeting";
+pub const LISTEN_NOW: &str = "listen-now";
 pub const CALENDAR: &str = "calendar";
 /// A session's own agent marking the turn it's taking seen (`codealong session seen me`), which
 /// no other device runs.
@@ -99,6 +100,19 @@ pub mod params {
         pub id: String,
         pub take: bool,
         pub role: crate::listen::Role,
+    }
+
+    /// `listen-now`: has Codealong hear a meeting from this moment, with a session started for
+    /// it (meetings.rs `now`). `meeting` is the one in your calendar it is, by its id, when one
+    /// is going on and you said it's that one; `lane` the worktree its session starts in, or
+    /// empty for a chat of its own; `ask` what to hear and make of it, its `prompt` what you
+    /// typed.
+    #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+    #[serde(default)]
+    pub struct ListenNow {
+        pub meeting: Option<String>,
+        pub lane: String,
+        pub ask: crate::listen::Ask,
     }
 
     /// `session-run-command`: a command you ran for the session, and the folder it runs in. It's
@@ -324,6 +338,10 @@ const REQUESTS: &[Request] = &[
     // microphone and hears what it plays, which are its user's to turn on, so never the
     // command's. Its session takes a while to start.
     Request { name: MEETING, only_here: Some("A meeting is taken on the Mac whose calendar has it."), here: meeting, command: in_windows, wait: Some(Duration::from_secs(90)), ..ANY },
+    // Listen now turns this Mac's microphone on and hears what it plays, from the moment it's
+    // asked: its user's to start, in the quick panel, never the command's. Its session takes a
+    // while to start.
+    Request { name: LISTEN_NOW, only_here: Some("A Mac listens to the meeting it's at; have it listen there."), here: listen_now, command: in_windows, wait: Some(Duration::from_secs(90)), ..ANY },
     // macOS is asked for your calendar, which puts its question on your screen: yours to ask
     // for, in Settings. It waits on your answer.
     Request { name: CALENDAR, only_here: Some("A Mac's calendar is asked for on that Mac."), here: calendar, command: in_windows, wait: Some(Duration::from_secs(150)), ..ANY },
@@ -379,7 +397,7 @@ fn listening_is_yours(params: &Value) -> Result<(), String> {
 }
 
 fn in_windows(_: &Value) -> Result<(), String> {
-    Err("Your calendar is asked for, and a meeting in it taken or passed on, in Codealong's windows: taking one turns on this Mac's microphone and hears what it plays, which are its user's to start.".into())
+    Err("Your calendar is asked for, and a meeting taken or passed on, in Codealong's windows: taking one turns on this Mac's microphone and hears what it plays, which are its user's to start.".into())
 }
 
 fn run_is_yours(_: &Value) -> Result<(), String> {
@@ -2114,11 +2132,23 @@ fn calendar(engine: &Handle, _: &Call) -> Result<Value, String> {
     serde_json::to_value(status).map_err(|e| e.to_string())
 }
 
-/// Starts or ends a session's listening: the listening as it is now.
+/// Listen now (meetings.rs `now`): the listening it started, once its session has it.
+fn listen_now(engine: &Handle, c: &Call) -> Result<Value, String> {
+    let p: params::ListenNow = c.read()?;
+    let listening = crate::meetings::now(engine, p.meeting.as_deref(), &p.lane, &p.ask).map_err(words)?;
+    serde_json::to_value(listening).map_err(|e| e.to_string())
+}
+
+/// Starts or ends a session's listening: the listening as it is now. A meeting's that you end
+/// moments after it began, with nothing heard, was started by mistake, and is put away with its
+/// session (meetings.rs `put_away`).
 fn listen(engine: &Handle, c: &Call) -> Result<Value, String> {
     let p: params::Listen = c.read()?;
     let key = c.session()?;
     let listening = if p.on { crate::listen::start(engine, key, &p.ask) } else { crate::listen::stop(key) }.map_err(words)?;
+    if !p.on && crate::meetings::stray(&listening) {
+        crate::meetings::put_away(engine, &listening);
+    }
     serde_json::to_value(listening).map_err(|e| e.to_string())
 }
 

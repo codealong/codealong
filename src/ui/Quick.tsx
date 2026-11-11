@@ -23,6 +23,12 @@
 // ⇥ on a session answers it, and ⏎ or ⇥ on a PR waiting on your review reviews it, in the waiting
 // window (Waiting.tsx), which goes on from there to the rest that waits on you: the panel finds
 // and starts, and answering is that window's.
+//
+// Opened to listen (`[shortcuts] listen`, Listen now in the windows) it's set to that instead:
+// the box asks what the meeting is, nothing is listed or looked for, and ⏎ has Codealong hear it
+// from then on, with a session started for it (meetings.rs `now`) in a chat of its own unless a
+// worktree is picked (⌘T). What it does with what it hears, and what's heard, are picked under
+// the box as a session's Listen… asks them (Listening.tsx `ListenChoices`), and kept for next time.
 
 import { reuse } from '../reuse';
 import type { PrTab } from '../agentReview';
@@ -39,7 +45,10 @@ import {
   inPreview,
   getConfig,
   keepStartPlace,
+  hearingStatus,
+  listenNow,
   lookFolder,
+  meetingsAhead,
   noteRoute,
   onBoard,
   onDevices,
@@ -58,6 +67,8 @@ import {
 } from '../api';
 import { CODEALONG_PROJECT, IMPROVE_PLACEHOLDER, improvePrompt, improveWords, remoteImproveLane, withCodealongProject } from '../improve';
 import { devSetupTask, type AgentTask } from '../agentTasks';
+import { askProblem, LISTEN_KEPT, listenKept, macSays, nowAsk, nowMeeting, nowPlaceholder, nowRow } from '../listening';
+import { meetingTime, meetingWith } from '../meetings';
 import { boardAhead, sendAhead, useAhead } from '../ahead';
 import { filesToAttach, keepFiles, useFileDrop } from '../attachInput';
 import { deviceLabel, floatingLanes, shortOf } from '../devices';
@@ -100,9 +111,10 @@ import { alreadyOnWords, duplicateOf, rankedBy, routeChoice, routeDone, sameStar
 import { dueWords } from '../due';
 import { liveOrLatest, sessionHomes, sessionWhy } from '../lanes';
 import { blockedBy, mergeAttachments, newTodo, primaryHolds, snippet, splitAttachments, todoAgent, todoItem, todoProjects, todoPrompt, todosPrompt, withAttachments } from '../todos';
-import type { Attachment, Board, DesktopPinned, DevicesView, FolderLook, Lane, PrItem, Route, RouteChoice, RouteNote, Session, StartOptions, StartPlace, StartSpec } from '../types';
+import type { Attachment, Board, DesktopPinned, DevicesView, FolderLook, HearingStatus, Lane, ListenAsk, MeetingAhead, PrItem, Route, RouteChoice, RouteNote, Session, StartOptions, StartPlace, StartSpec } from '../types';
 import { AttachmentStrip } from './DescriptionEditor';
 import { DevSetupDialog } from './DevSetupDialog';
+import { ListenChoices } from './Listening';
 import { Picker, type PickerOption, type PickerSection } from './Picker';
 import { addsTo, anotherFolderOption, chatOption, folderOptions, laneSections } from './pickerOptions';
 import { AgentFoot } from './AgentMenu';
@@ -126,7 +138,7 @@ import { useViewKeys } from '../mainKeys';
 import { useStartChoice, useStartPicks } from '../useStartChoice';
 import { findFor } from '../threadFind';
 import { useTextSearch } from '../useTextSearch';
-import { cardHeight, MARGIN, useQuickSize } from './useQuickSize';
+import { cardHeight, HEIGHT, LISTEN_HEIGHT, MARGIN, useQuickSize } from './useQuickSize';
 import { bare, chordPressed, cmd, emacsCtrl, held as modsHeld, keysIn } from '../platform';
 
 declare global {
@@ -148,6 +160,9 @@ const HISTORY_KEY = 'codealong.quick.history';
 const DRAFT_KEY = 'codealong.quick.draft';
 /** Whether a search lists archived sessions too, after the others that match as closely. */
 const ARCHIVED_KEY = 'codealong.quick.archived';
+/** How Listen now was last asked: what its session does with what it hears, and what's heard
+ *  (listening.ts `ListenKept`). */
+const LISTEN_KEY = 'codealong.quick.listen';
 /** Don't suggest this again, ticked in Switch to Codealong Dev? (DevSetupDialog.tsx). */
 const NO_DEV_KEY = 'codealong.quick.no-dev-setup';
 /** The input grows to this many lines, then scrolls. */
@@ -325,6 +340,18 @@ export function Quick() {
   // Opened by the chat shortcut: on Codealong's chats, which the worktree picker calls No project,
   // until another is picked, and the hint names that shortcut.
   const [asChat, setAsChat] = useState(false);
+  // Opened to listen (`[shortcuts] listen`, Listen now in the windows): the box asks what the
+  // meeting is, nothing is listed, and ⏎ has Codealong hear it from then on, with a session
+  // started for it, in a chat of its own until a worktree is picked.
+  const [listen, setListen] = useState(false);
+  const listenWas = useLatest(listen);
+  // How it was last asked, kept for the next meeting.
+  const [listenHow, setListenHow] = useStored(LISTEN_KEY, listenKept, LISTEN_KEPT);
+  // What this Mac can hear with, and the meetings in the day ahead, read as the panel opens to
+  // listen; and the one of them you said this isn't, by its id.
+  const [hearing, setHearing] = useState<HearingStatus | null>(null);
+  const [meetings, setMeetings] = useState<MeetingAhead[]>([]);
+  const [notMeeting, setNotMeeting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   // What a menu's action did (copied, closed), for a moment.
   const [info, setInfo] = useState<string | null>(null);
@@ -435,12 +462,16 @@ export function Quick() {
         setDevAsk(!!improving && !readStored(NO_DEV_KEY, flag, false));
         recalledOver.current = null;
         improveFollowed.current = false;
-        setAsChat(!!ctx.chat);
+        // Listening starts a chat of its own too, until a worktree is picked for it.
+        setListen(!!ctx.listen);
+        setNotMeeting(null);
+        setAsChat(!!ctx.chat || !!ctx.listen);
         const at = improving ? (b?.improve?.laneId ?? null) : (ctx.laneId ?? null);
         setProject(improving && b?.improve?.project ? b.improve.project : (ctx.project ?? readStored(PROJECT_KEY, asText, ALL_PROJECTS)));
         setLaneId(at);
         setTodoIds(ctx.todos ?? (ctx.todo ? [ctx.todo] : []));
-        const typed = fullPromptNow.current;
+        // What was typed to name a meeting is no prompt to keep as a draft.
+        const typed = listenWas.current ? '' : fullPromptNow.current;
         const typedFor = todoIdsNow.current;
         const typedOver = improveNow.current?.shots;
         setDraft((d) => nextDraft(typed, typedFor, d, typedOver));
@@ -543,7 +574,26 @@ export function Quick() {
       offHidden();
     };
     // Once: the refs and setters are the same objects on every render.
-  }, [fullPromptNow, todoIdsNow, improveNow, foldedNow, holdsPromptNow, setAgent, setEffort, setPlace, setNewWorktree]);
+  }, [fullPromptNow, todoIdsNow, improveNow, listenWas, foldedNow, holdsPromptNow, setAgent, setEffort, setPlace, setNewWorktree]);
+
+  // Opened to listen: what this Mac can hear with, for what macOS will ask, and the meetings in
+  // the day ahead, for the one going on. Not said when a read fails: Listen now then offers no
+  // meeting from the calendar and says nothing of what macOS will ask, and listens all the same.
+  useEffect(() => {
+    if (!shown || !listen) return;
+    let over = false;
+    meetingsAhead().then(
+      (all) => !over && setMeetings(all),
+      () => {},
+    );
+    hearingStatus().then(
+      (h) => !over && setHearing(h),
+      () => {},
+    );
+    return () => {
+      over = true;
+    };
+  }, [shown, listen, opens]);
 
   useEffect(
     () =>
@@ -649,7 +699,7 @@ export function Quick() {
   // repos on this Mac and the accounts' own; the skill it names whole is the one a start runs,
   // and a repo's is where. A todo's prompt is words, and another Mac's folders and accounts
   // aren't read from here.
-  const mentions = useMemo(() => (todoIds.length === 0 && !deviceNow ? mentionsIn(text) : []), [text, todoIds.length, deviceNow]);
+  const mentions = useMemo(() => (todoIds.length === 0 && !deviceNow && !listen ? mentionsIn(text) : []), [text, todoIds.length, deviceNow, listen]);
   // Where the caret is, moved as the text is typed, the caret moved, or a name finished.
   const [caret, setCaret] = useState(0);
   const typing: Mention | null = mentions.length > 0 ? mentionAt(text, Math.min(caret, text.length)) : null;
@@ -877,9 +927,10 @@ export function Quick() {
   // With a todo to start, the input holds its prompt, not a search: only the new session is
   // listed.
   const prompted = text.trim().length > 0 || attached.length > 0;
-  const query = todo || slash ? '' : text.trim();
+  // Set to listen, it holds what the meeting is: nothing is looked for, sent to Jev or listed.
+  const query = todo || slash || listen ? '' : text.trim();
   // With nothing typed or attached, a few todos ready to start go under the sessions, which leave them room.
-  const listing = !query && attached.length === 0 && !todo && !slash;
+  const listing = !query && attached.length === 0 && !todo && !slash && !listen;
   const readyList = useMemo(() => (board && listing ? readyTodos(board, current) : null), [board, current, listing]);
   const attention = useMemo(() => (board && listing ? attentionRows(board, current, MAX_ROWS - (readyList?.rows.length ?? 0)) : null), [board, current, listing, readyList]);
   // Below them, the rest of the day's sessions, for ↓ to reach one that isn't waiting on you.
@@ -996,7 +1047,8 @@ export function Quick() {
   });
 
   // The panel's height, one whatever it lists, told to quick.rs as it opens (useQuickSize.ts).
-  useQuickSize({ list, scroller, input, asking: askingDevNow, opens, room, opening, reported, caretKept });
+  const tall = listen ? LISTEN_HEIGHT : HEIGHT;
+  useQuickSize({ list, scroller, input, asking: askingDevNow, opens, room, tall, opening, reported, caretKept });
 
   // The last answer orders the sessions found too while the next is worked out, so the ones it
   // put first don't drop back at every key.
@@ -1029,7 +1081,7 @@ export function Quick() {
   };
   // Send to sends what's typed to a session: the new session's row and its settings below are
   // put away until the box holds the prompt again.
-  const keys = [...rows.map((r) => r.key), ...(inSendTo ? [] : [COMPOSE])];
+  const keys = [...rows.map((r) => r.key), ...(inSendTo || listen ? [] : [COMPOSE])];
   // The rows ⌘1 to ⌘9 reach, in order; Send to's row has ⌘F.
   const numbered: Row[] = rows.filter((r) => r.kind !== 'sendto');
   // Rows that move by themselves end what a scroll of yours aimed at (aim.ts): where each sits in
@@ -1051,8 +1103,10 @@ export function Quick() {
   });
   const recallable = useMemo(() => recallList(draft?.text ?? null, history), [draft, history]);
   useEffect(() => {
+    // A meeting's name, typed to listen to it, is no prompt to bring back.
+    if (listen) return;
     writeStored(DRAFT_KEY, draftCodec, nextDraft(fullPrompt, todoIds, draft, improve?.shots));
-  }, [fullPrompt, todoIds, draft, improve]);
+  }, [fullPrompt, todoIds, draft, improve, listen]);
   // For a search, ⏎ does the first thing it found, a session, todo or PR, when Jev suggests nothing.
   const firstFound = asSearch && !inSendTo ? (keys.find((k) => k !== 'sendto' && k !== COMPOSE) ?? keys[0]) : keys[0];
   const active = activeKey && keys.includes(activeKey) ? activeKey : startLeads && !inSendTo ? COMPOSE : firstFound;
@@ -1462,6 +1516,47 @@ export function Quick() {
       });
   };
 
+  /* ---- Listen now ---- */
+
+  // The meeting in your calendar it would be of, when one is going on or about to start, unless
+  // you said it isn't that one; what it asks for, from how it was last asked and what's typed.
+  const calendarMeeting = listen ? nowMeeting(meetings) : null;
+  const itsMeeting = calendarMeeting && calendarMeeting.id !== notMeeting ? calendarMeeting : null;
+  const listenAsk = nowAsk(listenHow, text);
+  const setListenAsk = (next: Partial<ListenAsk>) => setListenHow((how) => ({ role: next.role ?? how.role, mic: next.mic ?? how.mic, system: next.system ?? how.system, start: next.start ?? how.start }));
+  // Why it can't listen as it stands: this Mac can't transcribe, or nothing is picked to hear.
+  const listenProblem = hearing?.status.why ?? askProblem(listenAsk);
+  const listenRow = nowRow({ kept: listenHow, meeting: itsMeeting, where: lane && !lane.startsChats ? `in ${lane.callsign}` : 'as a chat of its own' });
+
+  /** Listen now: Codealong hears the meeting from this moment, with a session started for it,
+   *  which shows on the board once it has the listening. The panel closes at once; a start that
+   *  fails brings it back with what you wrote and why. Files attached aren't passed on. */
+  const listenToIt = () => {
+    if (listenProblem) {
+      setError(listenProblem);
+      return;
+    }
+    const kept = { text, attached };
+    const id = Date.now();
+    const to = opener ?? 'main';
+    const named = itsMeeting?.title.trim() || listenAsk.prompt.split('\n')[0].trim();
+    clearPrompt();
+    setError(null);
+    setActiveKey(null);
+    void tellOpener(to, { phase: 'begin', id, label: named ? `Starting a session to listen to ${named}…` : 'Starting a session to listen…' });
+    void hideQuick();
+    listenNow({ meeting: itsMeeting?.id, lane: lane && !lane.startsChats ? lane.id : undefined, ask: listenAsk })
+      .then((listening) => tellOpener(to, { phase: 'end', id, key: listening?.session ?? null, message: null }))
+      .catch((e: unknown) => {
+        void tellOpener(to, { phase: 'end', id, key: null, message: null });
+        reopen(() => {
+          setText(kept.text);
+          setAttached(kept.attached);
+          setError(errorText(e));
+        });
+      });
+  };
+
   /** Keeps what's typed as a todo, linked to the worktree. Improve Codealong's pictures go into
    *  its description. */
   const saveTodo = (where: Lane) => {
@@ -1587,6 +1682,15 @@ export function Quick() {
 
   const onInputKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.nativeEvent.isComposing) return;
+    // Set to listen there's nothing listed to move through, and no earlier prompts to bring
+    // back: ⏎ starts listening, and ⇧⏎ is a new line.
+    if (listen) {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        listenToIt();
+      }
+      return;
+    }
     const el = e.currentTarget;
     // In Send to the box finds a session: ⏎ (or ⌘⏎) sends to it, ⌫ in the empty box goes back to
     // the prompt as Escape does, and the arrows move through the list, never back through
@@ -1753,7 +1857,9 @@ export function Quick() {
         return;
       }
       // The menus for a new session are put away in Send to, with their keys.
-      const startMenu = !inSendTo && (k === 't' || k === 'l' || (k === 'd' && macs.length > 0) || (k === 'o' && places.length > 1));
+      // And set to listen, all but the worktree's: its session starts on this Mac, on the
+      // account Settings names for meetings.
+      const startMenu = !inSendTo && (k === 't' || (!listen && (k === 'l' || (k === 'd' && macs.length > 0) || (k === 'o' && places.length > 1))));
       if (k === 'p' || startMenu) {
         e.preventDefault();
         // ⌘O opens the agent menu too, its ← → stepping where it runs, a row under its lines
@@ -1773,6 +1879,7 @@ export function Quick() {
       } else if (e.key === 'Enter') {
         e.preventDefault();
         if (inSendTo) activate(active, false);
+        else if (listen) listenToIt();
         else start();
       }
     };
@@ -2028,7 +2135,7 @@ export function Quick() {
   const agentChip = agentChipWords({ auto: isAuto(choice), group: activeGroup?.name ?? null, account, accounts: accounts.length, remote: deviceNow ? { read: !!startOptionsNow, error: remote?.error ?? null } : null, model: modelShown, effortWord });
   // The hint names the shortcut that opened the panel this way: Improve Codealong's when improving,
   // the chat one when it opened on a chat.
-  const shortcut = shortcutLabel(improve ? board?.improveShortcut : asChat ? board?.chatShortcut : board?.quickShortcut);
+  const shortcut = shortcutLabel(listen ? board?.listenShortcut : improve ? board?.improveShortcut : asChat ? board?.chatShortcut : board?.quickShortcut);
 
   // PR links in the list's rows (PrLink.tsx): a PR, or a session on its card, shows in the main
   // window, as ⏎ on a row does.
@@ -2066,7 +2173,7 @@ export function Quick() {
     >
       {drag.ghost}
       {folded && <QuickFold chip={foldChip} words={foldedWords(text, attached.length)} shortcut={shortcut} />}
-      <div className="ca-quick" role="dialog" aria-label="Codealong" style={{ height: cardHeight(room) }}>
+      <div className="ca-quick" role="dialog" aria-label="Codealong" style={{ height: cardHeight(room, tall) }}>
         <div className="ca-quick-head">
         <div className="ca-quick-input">
           <div className="ca-quick-pick">
@@ -2082,8 +2189,8 @@ export function Quick() {
             value={inSendTo ? sendTo : text}
             rows={1}
             spellCheck={!inSendTo}
-            aria-label={inSendTo ? SEND_TO_PLACEHOLDER : 'Search or prompt'}
-            placeholder={inSendTo ? SEND_TO_PLACEHOLDER : improve ? IMPROVE_PLACEHOLDER : draft ? `${QUICK_PLACEHOLDER} ↑ brings back your draft` : history.length ? `${QUICK_PLACEHOLDER} ↑ for earlier prompts` : QUICK_PLACEHOLDER}
+            aria-label={inSendTo ? SEND_TO_PLACEHOLDER : listen ? 'What the meeting is' : 'Search or prompt'}
+            placeholder={inSendTo ? SEND_TO_PLACEHOLDER : listen ? nowPlaceholder(listenHow.role) : improve ? IMPROVE_PLACEHOLDER : draft ? `${QUICK_PLACEHOLDER} ↑ brings back your draft` : history.length ? `${QUICK_PLACEHOLDER} ↑ for earlier prompts` : QUICK_PLACEHOLDER}
             onChange={(e) => {
               setActiveKey(null);
               if (inSendTo) {
@@ -2151,7 +2258,19 @@ export function Quick() {
               if (e.target === e.currentTarget) scrolledByYou.current = true;
             }}
           >
-            {!board || board.loading ? (
+            {listen ? (
+              // A press here leaves the keyboard in the box, as a press on a row does.
+              <div className="ca-quick-listen" onMouseDown={(e) => e.preventDefault()}>
+                {calendarMeeting && (
+                  <label className="ca-listendlg-check">
+                    <CheckBox checked={!!itsMeeting} onChange={(on) => setNotMeeting(on ? null : calendarMeeting.id)} />
+                    <span>It’s {calendarMeeting.title.trim() ? `“${calendarMeeting.title.trim()}”` : 'the meeting in your calendar'}</span>
+                    <small>{[meetingTime(calendarMeeting, now), meetingWith(calendarMeeting)].filter(Boolean).join(', ')}. Its notes are kept under its name, with who’s in it.</small>
+                  </label>
+                )}
+                <ListenChoices ask={listenAsk} set={setListenAsk} playing={[]} />
+              </div>
+            ) : !board || board.loading ? (
               <>
                 <p className="ca-quick-note">{error ? '' : 'Reading sessions…'}</p>
                 {!error && <Tip place="quick" />}
@@ -2433,7 +2552,19 @@ export function Quick() {
               </>
             )}
           </div>
-          {!inSendTo && (
+          {listen && (
+            <div role="option" aria-selected className={cx('ca-quick-row', 'ca-quick-compose', 'is-active', listenProblem && 'is-disabled')} onMouseDown={(e) => e.preventDefault()} onClick={listenToIt}>
+              <span className="ca-quick-plus">
+                <Icon name="microphone" size={14} stroke={2} />
+              </span>
+              <span className="ca-quick-row-main">
+                <span className="ca-quick-row-title">{listenRow.title}</span>
+                <span className="ca-quick-row-why">{listenProblem ?? [macSays(hearing?.status, listenAsk), listenRow.why, attached.length > 0 && 'Files attached aren’t passed on.'].filter(Boolean).join(' ')}</span>
+              </span>
+              <Kbd keys={['⏎']} />
+            </div>
+          )}
+          {!inSendTo && !listen && (
             <div
               role="option"
               aria-selected={active === COMPOSE}
@@ -2533,7 +2664,7 @@ export function Quick() {
         )}
         {!inSendTo && (
           <div className="ca-quick-bar">
-            {macs.length > 0 && (
+            {macs.length > 0 && !listen && (
               <div className="ca-quick-pick">
                 <button type="button" data-picker-trigger className="ca-quick-chip" title={keysIn(deviceInfo ? `On ${deviceInfo.name}\nMac (⌘D)` : 'Mac (⌘D)')} aria-haspopup="dialog" aria-expanded={picker === 'device'} onClick={() => togglePicker('device')}>
                   {deviceInfo ? <i className={`ca-labeldot is-${deviceInfo.color}`} aria-hidden="true" /> : <Icon name="device-desktop" size={14} />}
@@ -2564,14 +2695,17 @@ export function Quick() {
                 />
               )}
             </div>
-            <label
-              className={cx('ca-check', 'ca-quick-newtree', !makesWorktree && 'is-disabled')}
-              title={lane?.startsChats ? 'A chat has no repo to make a worktree of.' : newWorktreeTitle(makesWorktree, placeNow, harness)}
-            >
-              <CheckBox checked={inNewWorktree} disabled={!makesWorktree} onChange={setNewWorktree} />
-              New worktree
-            </label>
-            <div className="ca-quick-pick ca-quick-agent">
+            {listen && <span className="ca-quick-listen-on">Its session starts on the account Settings › Experimental names for meetings.</span>}
+            {!listen && (
+              <label
+                className={cx('ca-check', 'ca-quick-newtree', !makesWorktree && 'is-disabled')}
+                title={lane?.startsChats ? 'A chat has no repo to make a worktree of.' : newWorktreeTitle(makesWorktree, placeNow, harness)}
+              >
+                <CheckBox checked={inNewWorktree} disabled={!makesWorktree} onChange={setNewWorktree} />
+                New worktree
+              </label>
+            )}
+            <div className="ca-quick-pick ca-quick-agent" hidden={listen}>
               <button type="button" data-picker-trigger className="ca-quick-chip" title={keysIn('Account, model, effort (⌘L) and where it runs (⌘O)')} disabled={accounts.length === 0} aria-haspopup="dialog" aria-expanded={picker === 'agent'} onClick={() => { setStepsPlace(false); togglePicker('agent'); }}>
                 <Icon name={autoFor ? 'sparkles' : 'user'} size={14} />
                 <span>{agentChip.label}</span>

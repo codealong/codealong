@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { asCue, ASK, askProblem, CAPTIONS_KEPT, captionsHearing, clock, cuesYou, heardLine, hearingNow, hearingShows, hears, macSays, NO_CAPTIONS, noteVoice, saysNothing, settledGone, toldIn, voiceNow, withLines, type Captions } from './listening';
+import { asCue, ASK, askProblem, CAPTIONS_KEPT, captionsHearing, clock, cuesYou, heardLine, hearingNow, hearingShows, hears, LISTEN_KEPT, listenKept, macSays, NO_CAPTIONS, noteVoice, nowAsk, nowMeeting, nowPlaceholder, nowRow, saysNothing, settledGone, toldIn, voiceNow, withLines, type Captions } from './listening';
 import * as fx from './testing/fixtures';
-import type { ListeningGlance } from './types';
+import type { ListeningGlance, MeetingAhead } from './types';
 
 const glance = (over: Partial<ListeningGlance> = {}): ListeningGlance => ({ id: 'a', startedAt: 0, role: 'notes', mic: true, playback: true, transcript: '/t/transcript.md', notes: '/t/notes.md', cueAt: 0, ...over });
 
@@ -90,6 +90,60 @@ describe('the sessions hearing now', () => {
       ['notes', '/b', 'Standup', 'n'],
       ['coach', '/a', 'Renewal call', 'c'],
     ]);
+  });
+
+  it('name one started ahead of its session for its meeting, with no session to show yet', () => {
+    const lanes = [fx.lane({ id: '/a', sessions: [fx.session({ key: 'coach', title: 'Renewal call' })] })];
+    const got = hearingNow(lanes, { '': glance({ id: 's', startedAt: 950, starting: 'On-site with Kestrel' }), coach: glance({ id: 'c', startedAt: 900 }) });
+    expect(got.map((l) => [l.key, l.laneId, l.title, l.id])).toEqual([
+      ['coach', '/a', 'Renewal call', 'c'],
+      ['', '', 'On-site with Kestrel', 's'],
+    ]);
+  });
+});
+
+describe('Listen now', () => {
+  const meeting = (over: Partial<MeetingAhead> = {}): MeetingAhead => ({ id: 'e1', title: 'Renewal call', start: 0, end: 1_800_000, calendar: 'Work', attendees: ['Dana Kestrel'], takeable: true, ...over });
+
+  it('asks for what was asked last time, with what’s typed this time', () => {
+    expect(nowAsk(LISTEN_KEPT, '  On-site with Kestrel\nTrack what they ask for ')).toEqual({ ...ASK, prompt: 'On-site with Kestrel\nTrack what they ask for' });
+    expect(nowAsk({ role: 'coach', mic: true, system: false, start: true }, '')).toEqual({ ...ASK, role: 'coach', system: false, start: false, prompt: '' });
+    // Starting a session on each request is the requests' alone.
+    expect(nowAsk({ role: 'requests', mic: true, system: true, start: true }, '').start).toBe(true);
+    // Your own needs words, and hearing needs something to hear: said as the dialog says them.
+    expect(askProblem(nowAsk({ ...LISTEN_KEPT, role: 'custom' }, ' '))).toBe('Say what the session should do with what it hears.');
+    expect(askProblem(nowAsk({ ...LISTEN_KEPT, mic: false, system: false }, 'Standup'))).toBe('Pick something to listen to: the microphone, this Mac’s audio, or both.');
+    expect(askProblem(nowAsk(LISTEN_KEPT, ''))).toBeNull();
+  });
+
+  it('keeps how it was asked, and reads what it can’t as a new one’s', () => {
+    const kept = { role: 'requests', mic: false, system: true, start: true } as const;
+    expect(listenKept.parse(listenKept.format(kept) ?? '')).toEqual(kept);
+    expect(listenKept.parse('{"role":"minutes","mic":"yes"}')).toEqual(LISTEN_KEPT);
+    expect(listenKept.parse('{"role":"coach"}')).toEqual({ ...LISTEN_KEPT, role: 'coach' });
+    expect(listenKept.parse('[]')).toBeUndefined();
+  });
+
+  it('is of the meeting your calendar has going on, when no session hears it yet', () => {
+    expect(nowMeeting([])).toBeNull();
+    expect(nowMeeting([meeting({ takeable: false })])).toBeNull();
+    expect(nowMeeting([meeting({ heard: true }), meeting({ id: 'e2', title: 'Standup' })])?.id).toBe('e2');
+    // One you passed on is still the one going on.
+    expect(nowMeeting([meeting({ answered: true })])?.id).toBe('e1');
+  });
+
+  it('says what ⏎ does, and what follows', () => {
+    const chat = nowRow({ kept: LISTEN_KEPT, meeting: null, where: 'as a chat of its own' });
+    expect(chat).toEqual({ title: 'Listen now', why: 'Codealong hears you and this Mac’s audio from the moment you press ⏎, and a session started as a chat of its own keeps its notes. No audio is kept.' });
+    const coach = nowRow({ kept: { role: 'coach', mic: true, system: false, start: false }, meeting: meeting(), where: 'in web-2' });
+    expect(coach).toEqual({ title: 'Listen to “Renewal call”', why: 'Codealong hears your microphone from the moment you press ⏎, and a session started in web-2 coaches you through it. No audio is kept.' });
+    expect(nowRow({ kept: { ...LISTEN_KEPT, mic: false }, meeting: meeting({ title: ' ' }), where: 'in web-2' }).title).toBe('Listen to the meeting in your calendar');
+    expect(nowRow({ kept: { ...LISTEN_KEPT, mic: false }, meeting: null, where: 'in web-2' }).why).toContain('hears this Mac’s audio from');
+  });
+
+  it('asks in the box for what the meeting is, or for what to do with it', () => {
+    expect(nowPlaceholder('notes')).toBe('What’s this meeting? You can leave this empty');
+    expect(nowPlaceholder('custom')).toBe('What should it do with what it hears?');
   });
 });
 

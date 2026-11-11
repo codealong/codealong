@@ -2385,8 +2385,15 @@ export function App() {
           <Kbd keys={quickKeys ?? ['⌘', 'K']} />
         </button>
         <div className="ca-win-bar-end" data-tauri-drag-region>
-          {/* The sessions hearing now (listen.rs), whatever the window shows: a click shows one. */}
-          <ListeningNow listenings={hearingNow(board?.lanes ?? [], board?.listenings)} onShow={(l) => reveal.current({ kind: 'session', laneId: l.laneId, key: l.key })} />
+          {/* The sessions hearing now (listen.rs), whatever the window shows: a click shows one.
+              While none hears, and voice is on, Listen now is in their place (meetings.rs `now`):
+              the button that starts a listening is where the light that says one is going shows. */}
+          <ListeningNow
+            listenings={hearingNow(board?.lanes ?? [], board?.listenings)}
+            onShow={(l) => reveal.current({ kind: 'session', laneId: l.laneId, key: l.key })}
+            onListen={board?.experimental?.voice ? () => void showQuick({ listen: true, project: projectNow.current, opener: windowLabel() }) : undefined}
+            shortcut={shortcutLabel(board?.listenShortcut)}
+          />
           {board?.experimental?.voice && <Button icon="calendar" aria-label="Meetings" title="Meetings: the notes and transcripts of the ones Codealong took" onClick={() => setMeetingsOpen(true)} />}
           <Seg
             className="ca-barplace"
@@ -2974,6 +2981,10 @@ export function App() {
       {meetingsOpen && (
         <MeetingsDialog
           onClose={() => setMeetingsOpen(false)}
+          onListen={() => {
+            setMeetingsOpen(false);
+            void showQuick({ listen: true, project: projectNow.current, opener: windowLabel() });
+          }}
           onShowSession={(key) => {
             const home = homeOf(board?.lanes ?? [], key);
             if (home) reveal.current({ kind: 'session', laneId: home.lane.id, key });

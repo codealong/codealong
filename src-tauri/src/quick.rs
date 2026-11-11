@@ -2,7 +2,8 @@
 //! the sessions that need you; typing finds sessions; its last row starts a new one with what
 //! you typed as the prompt. A shortcut that works in every app (`[shortcuts] quick_panel` in
 //! config.toml) opens it, and so do ⌘N and New session in the board's windows, at what's
-//! selected there; `[shortcuts] chat` opens it set to start a chat in no project. Answering what
+//! selected there; `[shortcuts] chat` opens it set to start a chat in no project, and `[shortcuts]
+//! listen` set to listen to a meeting from then on (meetings.rs `now`). Answering what
 //! waits on you, one after another, is the waiting window's (waiting.rs), which another shortcut
 //! (`[shortcuts] waiting`) brings up, unless the bar is docked in the notch: then the notch does
 //! that (`work_through`). Every shortcut that works in any app is kept here (`Keys`), whatever it
@@ -90,13 +91,15 @@ struct Quick {
     main_shortcut: Mutex<ShortcutState>,
     talk_shortcut: Mutex<ShortcutState>,
     talk_orchestrator_shortcut: Mutex<ShortcutState>,
+    listen_shortcut: Mutex<ShortcutState>,
 }
 
 /// Codealong's shortcuts that work in every app: the quick panel's, the one that opens it set to a
 /// chat in no project, the one that goes through what waits on you, Improve Codealong's
-/// (improve.rs), the one that brings the board's window forward (front.rs `toggle_board`), and the
+/// (improve.rs), the one that brings the board's window forward (front.rs `toggle_board`), the
 /// two held while you talk, to the session you're looking at and to your orchestrator
-/// (dictation.rs), which are off until voice is turned on.
+/// (dictation.rs), and the one that opens the quick panel set to listen to a meeting; voice's
+/// three are off until voice is turned on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Keys {
@@ -107,10 +110,11 @@ pub enum Keys {
     Main,
     Talk,
     TalkOrchestrator,
+    Listen,
 }
 
 impl Keys {
-    pub const ALL: [Keys; 7] = [Keys::Quick, Keys::Chat, Keys::Waiting, Keys::Improve, Keys::Main, Keys::Talk, Keys::TalkOrchestrator];
+    pub const ALL: [Keys; 8] = [Keys::Quick, Keys::Chat, Keys::Waiting, Keys::Improve, Keys::Main, Keys::Talk, Keys::TalkOrchestrator, Keys::Listen];
 
     /// Its shortcut as `[shortcuts]` in config.toml has it.
     pub fn in_config(self, cfg: &crate::config::ShortcutsCfg) -> &str {
@@ -122,6 +126,7 @@ impl Keys {
             Keys::Main => &cfg.main_window,
             Keys::Talk => &cfg.talk,
             Keys::TalkOrchestrator => &cfg.talk_orchestrator,
+            Keys::Listen => &cfg.listen,
         }
     }
 
@@ -135,6 +140,7 @@ impl Keys {
             Keys::Main => &board.main_window_shortcut,
             Keys::Talk => &board.talk_shortcut,
             Keys::TalkOrchestrator => &board.talk_orchestrator_shortcut,
+            Keys::Listen => &board.listen_shortcut,
         }
     }
 }
@@ -149,6 +155,7 @@ impl Quick {
             Keys::Main => &self.main_shortcut,
             Keys::Talk => &self.talk_shortcut,
             Keys::TalkOrchestrator => &self.talk_orchestrator_shortcut,
+            Keys::Listen => &self.listen_shortcut,
         }
     }
 }
@@ -413,6 +420,13 @@ pub fn toggle_chat(app: &AppHandle) {
     toggle_for(app, serde_json::json!({ "chat": true }));
 }
 
+/// The listen shortcut, and Listen now wherever it's asked for (the main window's bar, the menu
+/// bar item's menu): opens the panel set to listen to a meeting from then on, or closes the panel
+/// when it's up. On the main thread.
+pub fn toggle_listen(app: &AppHandle) {
+    toggle_for(app, serde_json::json!({ "listen": true }));
+}
+
 /// Opens the panel for `context`, or hides it if it's up. Folded, it opens again as it was.
 fn toggle_for(app: &AppHandle, context: Value) {
     match app.get_webview_window(LABEL) {
@@ -574,9 +588,10 @@ fn unfold(state: &Quick) -> Option<f64> {
 
 /// Whether an open brings a prompt of its own, which takes the box from what the folded panel
 /// holds: a todo's, Improve Codealong's, one Codealong writes for you. The shortcuts, ⌘N and New
-/// session bring none.
+/// session bring none, but Listen now: its box is for what a meeting is, and a meeting that's
+/// beginning doesn't wait on a prompt you'd left unsent, which ↑ brings back after.
 fn brings_a_prompt(context: &Value) -> bool {
-    ["prompt", "todo", "todos", "improve"].iter().any(|k| context.get(k).is_some_and(|v| !v.is_null()))
+    ["prompt", "todo", "todos", "improve", "listen"].iter().any(|k| context.get(k).is_some_and(|v| !v.is_null()))
 }
 
 /// The shortcut that goes through what waits on you. Docked in the notch, the bar's page opens
@@ -610,6 +625,8 @@ pub fn pressed(app: &AppHandle, shortcut: &Shortcut) {
         crate::dictation::press(app, crate::dictation::To::Looking);
     } else if is(Keys::TalkOrchestrator) {
         crate::dictation::press(app, crate::dictation::To::Orchestrator);
+    } else if is(Keys::Listen) {
+        toggle_listen(app);
     }
 }
 
@@ -869,7 +886,7 @@ mod tests {
         for plain in [Value::Null, serde_json::json!({ "chat": true }), serde_json::json!({ "laneId": "l1", "project": "atlas", "opener": "main" }), serde_json::json!({ "prompt": null })] {
             assert!(!brings_a_prompt(&plain), "{plain}");
         }
-        for own in [serde_json::json!({ "prompt": "Set up the iPhone app" }), serde_json::json!({ "todo": "t-1" }), serde_json::json!({ "todos": ["t-1", "t-2"] }), serde_json::json!({ "improve": { "shots": [] } })] {
+        for own in [serde_json::json!({ "prompt": "Set up the iPhone app" }), serde_json::json!({ "todo": "t-1" }), serde_json::json!({ "todos": ["t-1", "t-2"] }), serde_json::json!({ "improve": { "shots": [] } }), serde_json::json!({ "listen": true })] {
             assert!(brings_a_prompt(&own), "{own}");
         }
     }

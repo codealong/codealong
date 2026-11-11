@@ -27,6 +27,12 @@
 //! when its session is gone, when nothing has been said for half an hour (one left on by
 //! mistake shouldn't hear the rest of your day), or after eight hours.
 //!
+//! A meeting's listening is started ahead of the session that takes it (`start_ahead`, meetings.rs
+//! `begin`): a session takes a while to come up, and a meeting asked for now has begun, so
+//! Codealong hears and writes the transcript from the moment it's asked, with no session yet (the
+//! board lists it under its meeting's name, `Glance::starting`), and the session is given it once
+//! it shows (`attach`) and told of everything heard meanwhile.
+//!
 //! No audio is kept, here or in the helper. A transcript stays in Codealong's files, under
 //! `listenings/<id>/`, beside the notes its session was asked to keep there, until you remove it.
 //!
@@ -61,6 +67,11 @@ const AFTER_MEETING_MS: i64 = 3 * 60 * 1000;
 
 /// The longest a listening goes on.
 const LONGEST_MS: i64 = 8 * 60 * 60 * 1000;
+
+/// How long a listening started ahead of its session (`start_ahead`) hears with none: longer
+/// than a session is given to show and be told (meetings.rs `SHOWS_WITHIN`). One still without
+/// after that was left by a server that stopped in the middle of starting it.
+const UNCLAIMED_MS: i64 = 3 * 60 * 1000;
 
 /// A helper that stops by itself is started again, this many times in `RESTART_WINDOW_MS` at
 /// most: one that keeps dying isn't going to hear anything.
@@ -172,7 +183,8 @@ impl Ask {
 #[serde(rename_all = "camelCase", default)]
 pub struct Listening {
     pub id: String,
-    /// The key of the session that listens.
+    /// The key of the session that listens. Empty for one started ahead of its session
+    /// (`start_ahead`), until the session shows and is given it (`attach`).
     pub session: String,
     pub sources: Vec<Source>,
     pub role: Role,
@@ -325,6 +337,11 @@ pub fn step(l: &Listening, hearer: Option<Hearer>, now: i64, every_ms: i64, on: 
     if l.hearing() && !on {
         return Step::End("voice was turned off".into());
     }
+    // Started ahead of its session, which is still on its way: it hears, and there's nobody to
+    // tell yet. One whose session never came has nobody to tell at all.
+    if l.session.is_empty() {
+        return if l.hearing() && now - l.started_at < UNCLAIMED_MS { Step::Wait } else { Step::Drop };
+    }
     let Some(hearer) = hearer else { return Step::Drop };
     if l.hearing() {
         if now - l.started_at >= LONGEST_MS {
@@ -334,8 +351,8 @@ pub fn step(l: &Listening, hearer: Option<Hearer>, now: i64, every_ms: i64, on: 
             return Step::End("nothing had been said for half an hour".into());
         }
         // A meeting that runs over is heard to its end: only its time being up and the talk
-        // having stopped ends it.
-        if l.meeting.as_ref().is_some_and(|m| now >= m.end && now - l.heard_at.max(l.started_at) >= AFTER_MEETING_MS) {
+        // having stopped ends it. One that isn't from the calendar has no time to be up.
+        if l.meeting.as_ref().is_some_and(|m| !m.unplanned && now >= m.end && now - l.heard_at.max(l.started_at) >= AFTER_MEETING_MS) {
             return Step::End("its meeting was over".into());
         }
     }
@@ -373,7 +390,8 @@ pub fn brief(l: &Listening) -> String {
         "" => String::new(),
         more => format!("\n\nYour user adds:\n\n{more}"),
     };
-    // A meeting taken from their calendar: which one, and where the ones before it are.
+    // A meeting taken from their calendar: which one, and where the ones before it are. One they
+    // had Codealong listen to as it began is in no calendar: only when it began.
     let which = match &l.meeting {
         Some(m) => {
             let before = match (l.dir().parent(), m.series.is_some()) {
@@ -381,13 +399,13 @@ pub fn brief(l: &Listening) -> String {
                 (Some(all), false) => format!(" Their earlier meetings are in {}, a folder each with its notes.md.", all.display()),
                 (None, _) => String::new(),
             };
-            format!(
-                "\n\nIt's “{}” in their calendar, from {} to {}{}.{before} What your user writes to you while it goes on is their own note of it: work it into yours.",
-                m.title.trim(),
-                crate::meetings::hour(m.start),
-                crate::meetings::hour(m.end),
-                crate::meetings::with_whom(m)
-            )
+            let what = if m.unplanned {
+                // What they called it is the first line of what they typed, which is told below.
+                format!("It isn't in their calendar: they had Codealong start listening at {}.", crate::meetings::hour(m.start))
+            } else {
+                format!("It's “{}” in their calendar, from {} to {}{}.", m.title.trim(), crate::meetings::hour(m.start), crate::meetings::hour(m.end), crate::meetings::with_whom(m))
+            };
+            format!("\n\n{what}{before} What your user writes to you while it goes on is their own note of it: work it into yours.")
         }
         None => String::new(),
     };
@@ -639,6 +657,20 @@ pub struct Glance {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cue: Option<String>,
     pub cue_at: i64,
+    /// It was started ahead of its session (`start_ahead`), which is still on its way: what it's
+    /// called until then, its meeting's name. The board lists it under no session's key (an
+    /// empty one), since it has none yet, and the windows show it as hearing all the same.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub starting: Option<String>,
+}
+
+/// What a listening with no session yet is called (`Glance::starting`): its meeting's name, or
+/// that it's a meeting.
+fn starting_name(l: &Listening) -> String {
+    match l.meeting.as_ref().map(|m| m.title.trim()) {
+        Some(title) if !title.is_empty() => title.to_string(),
+        _ => "A meeting".into(),
+    }
 }
 
 /// The listenings that are hearing now, by the key of the session each is for.
@@ -669,6 +701,7 @@ pub fn glances() -> BTreeMap<String, Glance> {
                 waiting: running.waiting.clone(),
                 cue: running.cue.clone(),
                 cue_at: running.cue_at,
+                starting: l.session.is_empty().then(|| starting_name(&l)),
                 id: l.id.clone(),
             };
             Some((l.session, glance))
@@ -884,12 +917,6 @@ fn new_id(now: i64) -> String {
 /// told what's going on; a session that can't be told (it waits on you at a prompt, it's gone) is
 /// an error, and nothing is left listening.
 pub fn start(engine: &Handle, key: &str, ask: &Ask) -> Result<Listening> {
-    start_of(engine, key, ask, None)
-}
-
-/// `start`, for a meeting taken from the calendar (`of`): its transcript and notes go in the
-/// meeting's folder, and its session is told which meeting it is.
-pub fn start_of(engine: &Handle, key: &str, ask: &Ask, of: Option<Of>) -> Result<Listening> {
     let cfg = crate::config::current()?;
     turned_on(&cfg)?;
     let sources = ask.sources()?;
@@ -898,6 +925,58 @@ pub fn start_of(engine: &Handle, key: &str, ask: &Ask, of: Option<Of>) -> Result
     if send::waits_on_you(session) {
         bail!("{} waits on you to answer something. Answer it first, then have it listen.", send::quoted(&session.title));
     }
+    // What its session last said was said before this, and is no cue.
+    let l = begin(&cfg, key, Some(session.reply_tail.clone()), sources, ask, None, || format!("{} is listening already.", send::quoted(&session.title)))?;
+    told(engine, &board, l)
+}
+
+/// Starts a listening ahead of its session, for a meeting whose session is still being started
+/// (meetings.rs `begin`): Codealong hears from now, so what's said while the session comes up
+/// isn't lost. The transcript and notes go in the meeting's folder (`of`). `attach` gives it
+/// its session, which is then told of everything heard so far; one whose session never comes
+/// is taken back (`abandon`), or ends by itself (`UNCLAIMED_MS`).
+pub fn start_ahead(ask: &Ask, of: Of) -> Result<Listening> {
+    let cfg = crate::config::current()?;
+    turned_on(&cfg)?;
+    let sources = ask.sources()?;
+    let l = begin(&cfg, "", None, sources, ask, Some(of), || "A meeting's session is being started already. Try again once it shows.".to_string())?;
+    changed();
+    Ok(l)
+}
+
+/// Gives a listening started ahead (`start_ahead`) its session, now that the board lists it, and
+/// tells the session what's going on, as `start` does. One that ended meanwhile, or whose session
+/// can't be told, is an error, and nothing is left of it.
+pub fn attach(engine: &Handle, id: &str, key: &str) -> Result<Listening> {
+    let board = engine.board();
+    let Some((_, session)) = board.session(key) else { bail!("Its session isn't on the board.") };
+    if let Some(running) = state().running.get_mut(id) {
+        running.session = key.to_string();
+        // What it said before it was listening is no cue.
+        running.reply = Some(session.reply_tail.clone());
+    }
+    let Some(l) = update(id, |l| l.session = key.to_string()) else { bail!("Its listening is gone.") };
+    if !l.hearing() {
+        let why = l.why_ended.as_deref().map(|why| format!(": {why}")).unwrap_or_default();
+        forget(&l);
+        bail!("Its listening ended before its session started{why}.");
+    }
+    told(engine, &board, l)
+}
+
+/// Takes back a listening started ahead whose session never came (`start_ahead`): its hearing
+/// stops, and nothing of it is kept.
+pub fn abandon(id: &str) {
+    if let Some(l) = list().into_iter().find(|l| l.id == id) {
+        forget(&l);
+        changed();
+    }
+}
+
+/// Files a new listening for session `key` (none yet when it's empty) and starts its helper:
+/// it's hearing when this returns, and its session hasn't been told. `reply` is what its session
+/// last said, when it has one; `taken` says why not, for a session that's listening already.
+fn begin(cfg: &crate::config::Config, key: &str, reply: Option<Option<String>>, sources: Vec<Source>, ask: &Ask, of: Option<Of>, taken: impl FnOnce() -> String) -> Result<Listening> {
     let now = util::now_ms();
     let l = Listening {
         id: new_id(now),
@@ -918,38 +997,36 @@ pub fn start_of(engine: &Handle, key: &str, ask: &Ask, of: Option<Of>) -> Result
     // The transcript is there to read from the first telling on, empty as it is.
     append(&l.transcript(), "")?;
     // Running before it's in the file: the listenings' thread starts a helper for one the file
-    // has and it doesn't know (`revive`). What its session last said was said before this, and
-    // is no cue.
-    state().running.insert(l.id.clone(), Running { reply: Some(session.reply_tail.clone()), ..Running::of(&l, now) });
+    // has and it doesn't know (`revive`).
+    state().running.insert(l.id.clone(), Running { reply, ..Running::of(&l, now) });
     let begun = change(|all| reserve(all, &l, now))
         .and_then(|free| match free {
             true => Ok(()),
-            false => Err(anyhow!("{} is listening already.", send::quoted(&session.title))),
+            false => Err(anyhow!(taken())),
         })
         .and_then(|()| start_ear(&l).map_err(refusal))
-        .and_then(|ear| {
+        .map(|ear| {
             if let Some(running) = state().running.get_mut(&l.id) {
                 // What it plays through was said as it started, before there was an ear to tell.
                 ear.echo(running.echo.cancelling());
                 running.ear = Some(ear);
             }
-            // Its session is told while it works too: the harness holds it for the turn's end.
-            tell(engine, &board, &l, &brief(&l))
         });
-    let moved = match begun {
+    if let Err(e) = begun {
+        forget(&l);
+        return Err(e);
+    }
+    Ok(l)
+}
+
+/// Tells a hearing listening's session what's going on (`brief`). A session that can't be told
+/// is an error, and nothing is left listening.
+fn told(engine: &Handle, board: &Board, l: Listening) -> Result<Listening> {
+    // Its session is told while it works too: the harness holds it for the turn's end.
+    let moved = match tell(engine, board, &l, &brief(&l)) {
         Ok(moved) => moved,
         Err(e) => {
-            // Ended as a listening that got going is, so a look that read it from the file in
-            // the meantime starts no helper for it once its record is gone.
-            let ear = take_running(&l.id).and_then(|r| r.ear);
-            drop(ear);
-            let _ = change(|all| all.retain(|old| old.id != l.id));
-            // Its own folder goes with it; a meeting's is the meeting's, and only what this put
-            // there goes (an empty transcript).
-            let _ = match l.folder {
-                Some(_) => std::fs::remove_file(l.transcript()),
-                None => std::fs::remove_dir_all(folder(&l.id)),
-            };
+            forget(&l);
             return Err(e);
         }
     };
@@ -959,6 +1036,21 @@ pub fn start_of(engine: &Handle, key: &str, ask: &Ask, of: Option<Of>) -> Result
     };
     changed();
     Ok(l)
+}
+
+/// Takes back a listening that didn't get going, leaving nothing of it. Ended as one that got
+/// going is, so a look that read it from the file in the meantime starts no helper for it once
+/// its record is gone.
+fn forget(l: &Listening) {
+    let ear = take_running(&l.id).and_then(|r| r.ear);
+    drop(ear);
+    let _ = change(|all| all.retain(|old| old.id != l.id));
+    // Its own folder goes with it; a meeting's is the meeting's, and only what this put there
+    // goes (its transcript).
+    let _ = match l.folder {
+        Some(_) => std::fs::remove_file(l.transcript()),
+        None => std::fs::remove_dir_all(folder(&l.id)),
+    };
 }
 
 /// Files a new listening, unless its session is hearing already: looked for and filed in one
@@ -1033,7 +1125,6 @@ fn end(id: &str, why: Option<String>) -> Option<Listening> {
     ended
 }
 
-/// Ends the listening of session `key`, as the person asks.
 /// Ends every meeting's listening that's still hearing (`Listening::meeting`) but `keep`, the
 /// next one's, once that one is hearing: the last meeting's time is up. One you started yourself
 /// on a session goes on.
@@ -1048,9 +1139,17 @@ pub fn meetings_heard() -> Vec<String> {
     list().into_iter().filter(Listening::hearing).filter_map(|l| l.meeting.map(|m| m.id)).collect()
 }
 
+/// Ends the listening of session `key`, as the person asks.
 pub fn stop(key: &str) -> Result<Listening> {
     let Some(l) = list().into_iter().find(|l| l.session == key && l.hearing()) else { bail!("That session isn't listening.") };
     end(&l.id, None).ok_or_else(|| anyhow!("That listening is gone."))
+}
+
+/// A listening that ended has nothing more to tell its session: one started by mistake, whose
+/// session is put away with it (meetings.rs `put_away`) rather than asked to sum up a meeting
+/// that never was.
+pub fn done_with(id: &str) {
+    update(id, |l| l.done = true);
 }
 
 /// One look at every listening: helpers started again, what's due told, what its session said
@@ -1083,7 +1182,7 @@ fn look(engine: &Handle) {
         match step(l, hearer, now, every_ms, on) {
             Step::Wait => {}
             Step::Drop => {
-                end(&l.id, Some("its session is gone".into()));
+                end(&l.id, Some(if l.session.is_empty() { "its session never started" } else { "its session is gone" }.into()));
                 update(&l.id, |l| l.done = true);
             }
             Step::End(why) => {
@@ -1337,6 +1436,49 @@ mod tests {
         let early = Listening { meeting: Some(ear::Meeting { end: NOW + 20 * 60_000, ..meeting }), heard_at: NOW - 10 * 60_000, ..hearing() };
         assert_eq!(step(&early, IDLE, NOW, EVERY, true), Step::Wait);
         assert_eq!(step(&Listening { heard_at: NOW - 10 * 60_000, ..hearing() }, IDLE, NOW, EVERY, true), Step::Wait);
+    }
+
+    #[test]
+    fn one_started_ahead_of_its_session_hears_with_nobody_to_tell_until_it_comes() {
+        let ahead = Listening { session: String::new(), lines: 3, started_at: NOW - 20_000, told_at: NOW - 20_000, heard_at: NOW - 5000, ..hearing() };
+        // Lines heard and no session yet: it waits for its session, where one whose session is
+        // gone from the board is dropped.
+        assert_eq!(step(&ahead, None, NOW, EVERY, true), Step::Wait);
+        assert_eq!(step(&Listening { session: "k".into(), ..ahead.clone() }, None, NOW, EVERY, true), Step::Drop);
+        // Given its session, it's told everything heard meanwhile at once.
+        assert_eq!(step(&Listening { session: "k".into(), ..ahead.clone() }, IDLE, NOW, EVERY, true), Step::Tell { from: 1, to: 3, last: false });
+        // A session that never came: it doesn't hear on, and there's nobody to tell.
+        assert_eq!(step(&Listening { started_at: NOW - UNCLAIMED_MS, ..ahead.clone() }, None, NOW, EVERY, true), Step::Drop);
+        // Voice turned off ends it like any other, and then there's nobody to tell it ended.
+        assert_eq!(step(&ahead, None, NOW, EVERY, false), Step::End("voice was turned off".into()));
+        assert_eq!(step(&Listening { ended_at: Some(NOW), ..ahead.clone() }, None, NOW, EVERY, true), Step::Drop);
+        // Until it has a session the board lists it under its meeting's name.
+        let named = Listening { meeting: Some(ear::Meeting { title: " Standup ".into(), unplanned: true, ..Default::default() }), ..ahead.clone() };
+        assert_eq!((starting_name(&named), starting_name(&ahead)), ("Standup".to_string(), "A meeting".to_string()));
+    }
+
+    #[test]
+    fn a_meeting_thats_in_no_calendar_has_no_time_to_be_up_and_its_session_is_told_so() {
+        let began = NOW - 60 * 60_000;
+        let meeting = ear::Meeting { id: "now:x".into(), title: "On-site with Kestrel".into(), start: began, end: began, unplanned: true, ..Default::default() };
+        let l = Listening {
+            sources: Ask { mic: true, system: true, ..Ask::default() }.sources().unwrap(),
+            meeting: Some(meeting),
+            folder: Some("/Users/me/Meetings/2026-11-10 1400 On-site with Kestrel".into()),
+            prompt: "On-site with Kestrel\nTrack what they ask for".into(),
+            started_at: began,
+            heard_at: NOW - 10 * 60_000,
+            ..hearing()
+        };
+        // Ten minutes of nothing an hour in: a calendar's meeting whose time was up would be over.
+        assert_eq!(step(&l, IDLE, NOW, EVERY, true), Step::Wait);
+        assert_eq!(step(&Listening { heard_at: NOW - QUIET_ENDS_MS, ..l.clone() }, IDLE, NOW, EVERY, true), Step::End("nothing had been said for half an hour".into()));
+        let said = brief(&l);
+        assert!(said.contains("It isn't in their calendar: they had Codealong start listening at "), "{said}");
+        assert!(said.contains(". Their earlier meetings are in /Users/me/Meetings, a folder each with its notes.md. What your user writes to you"), "{said}");
+        assert!(!said.contains("in their calendar, from"), "{said}");
+        // What they typed is what they add, the name it starts with and all.
+        assert!(said.contains("Your user adds:\n\nOn-site with Kestrel\nTrack what they ask for"), "{said}");
     }
 
     #[test]

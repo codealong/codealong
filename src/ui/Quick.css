@@ -193,6 +193,19 @@ html.is-quick body {
 .ca-quick-scroll:empty {
   padding-bottom: 0;
 }
+/* Set to listen (Listen now): what a listening asks in place of the list, its fields those of the
+   dialog a session's Listen… opens (Listening.css), spaced as that dialog spaces them. */
+.ca-quick-listen {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-3) 10px var(--space-2);
+}
+/* On which account its session starts, beside the worktree it starts in. */
+.ca-quick-listen-on {
+  min-width: 0;
+  color: var(--ink-3);
+  font: var(--type-caption);
+}
 .ca-quick-note {
   margin: 0;
   padding: 10px 10px 2px;

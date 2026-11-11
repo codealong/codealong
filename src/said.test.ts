@@ -57,6 +57,8 @@ describe('what the bar shows of voice', () => {
     expect(hearingSays([])).toBeNull();
     expect(hearingSays([listening()])).toBe('Renewal call is listening');
     expect(hearingSays([listening(), listening({ key: 'b', title: 'Standup', problem: 'Nothing has come from what this Mac plays yet.' })])).toBe('Renewal call is listening\nStandup is listening: Nothing has come from what this Mac plays yet.');
+    // One started ahead of its session is heard under its meeting's name, with no session yet.
+    expect(hearingSays([listening({ key: '', title: 'Standup', starting: 'Standup' })])).toBe('Standup is being heard, and its session is starting');
   });
 
   it('names the one session hearing, and counts several', () => {

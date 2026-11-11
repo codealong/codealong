@@ -1107,6 +1107,7 @@ impl Config {
         if !self.experimental.voice {
             shortcuts.talk.clear();
             shortcuts.talk_orchestrator.clear();
+            shortcuts.listen.clear();
         }
         shortcuts
     }
@@ -1241,11 +1242,16 @@ pub struct ShortcutsCfg {
     /// Held to talk to your orchestrator, whatever you're looking at.
     #[serde(default = "default_talk_orchestrator")]
     pub talk_orchestrator: String,
+    /// Opens the quick panel set to listen: Codealong hears a meeting from then on, with a
+    /// session started for it (meetings.rs `now`). It does nothing until `[experimental] voice`
+    /// is on.
+    #[serde(default = "default_listen")]
+    pub listen: String,
 }
 
 impl Default for ShortcutsCfg {
     fn default() -> Self {
-        ShortcutsCfg { quick_panel: default_quick_panel(), chat: default_chat(), waiting: default_waiting(), improve: default_improve(), main_window: default_main_window(), talk: default_talk(), talk_orchestrator: default_talk_orchestrator() }
+        ShortcutsCfg { quick_panel: default_quick_panel(), chat: default_chat(), waiting: default_waiting(), improve: default_improve(), main_window: default_main_window(), talk: default_talk(), talk_orchestrator: default_talk_orchestrator(), listen: default_listen() }
     }
 }
 
@@ -1260,6 +1266,7 @@ pub struct DefaultShortcuts {
     pub main_window: &'static str,
     pub talk: &'static str,
     pub talk_orchestrator: &'static str,
+    pub listen: &'static str,
 }
 
 /// On macOS ⌥⌘ and the keys right of the letters, which sit together: ⌥⌘/ the quick panel, / for
@@ -1272,11 +1279,16 @@ pub struct DefaultShortcuts {
 /// Codealong's own windows; no macOS shortcut or common app's uses these. On Linux the same keys
 /// with Ctrl and Alt, which desktops leave to apps; Super and a key is the desktop's own. The two
 /// held to talk are the brackets beside them, a pair under one hand: editors fold code with ⌥⌘[
-/// and ⌥⌘], which these take from them while voice is on.
+/// and ⌥⌘], which these take from them while voice is on. Listen now is ⌥⌘=, the key over the
+/// brackets, so voice's three sit together. Not ⌥⌘\, the key beside them: 1Password shows its
+/// Quick Access with it (its default from the macOS after 26, where it was ⇧⌘Space; read on
+/// 2026-11-11 from support.1password.com/keyboard-shortcuts and from the app's own defaults, which
+/// have both). macOS zooms the screen with ⌥⌘= only once Accessibility › Zoom's keyboard
+/// shortcuts are turned on, which they aren't as it comes.
 pub fn default_shortcuts() -> DefaultShortcuts {
     match crate::os::current() {
-        crate::os::Os::MacOs => DefaultShortcuts { quick_panel: "Option+Cmd+/", chat: "Option+Cmd+'", waiting: "Option+Cmd+.", improve: "Option+Cmd+,", main_window: "Option+Cmd+;", talk: "Option+Cmd+[", talk_orchestrator: "Option+Cmd+]" },
-        crate::os::Os::Linux => DefaultShortcuts { quick_panel: "Ctrl+Alt+/", chat: "Ctrl+Alt+'", waiting: "Ctrl+Alt+.", improve: "Ctrl+Alt+,", main_window: "Ctrl+Alt+;", talk: "Ctrl+Alt+[", talk_orchestrator: "Ctrl+Alt+]" },
+        crate::os::Os::MacOs => DefaultShortcuts { quick_panel: "Option+Cmd+/", chat: "Option+Cmd+'", waiting: "Option+Cmd+.", improve: "Option+Cmd+,", main_window: "Option+Cmd+;", talk: "Option+Cmd+[", talk_orchestrator: "Option+Cmd+]", listen: "Option+Cmd+=" },
+        crate::os::Os::Linux => DefaultShortcuts { quick_panel: "Ctrl+Alt+/", chat: "Ctrl+Alt+'", waiting: "Ctrl+Alt+.", improve: "Ctrl+Alt+,", main_window: "Ctrl+Alt+;", talk: "Ctrl+Alt+[", talk_orchestrator: "Ctrl+Alt+]", listen: "Ctrl+Alt+=" },
     }
 }
 
@@ -1290,6 +1302,10 @@ fn default_talk() -> String {
 
 fn default_talk_orchestrator() -> String {
     default_shortcuts().talk_orchestrator.to_string()
+}
+
+fn default_listen() -> String {
+    default_shortcuts().listen.to_string()
 }
 
 fn default_chat() -> String {
@@ -1989,7 +2005,7 @@ fn shortcuts_comment() -> String {
         crate::os::Os::MacOs => ("Option+Cmd+/", "Cmd+Ctrl+K"),
         crate::os::Os::Linux => ("Ctrl+Alt+/", "Ctrl+Shift+K"),
     };
-    format!("# Shortcuts that work in any app, such as \"{a}\" or \"{b}\". \"\" turns one off.\n# quick_panel opens the quick panel: find a session, or start one.\n# chat opens the quick panel set to start a chat of its own, in no project.\n# waiting opens the first session that waits on you, to answer one after another: in the notch\n# when the bar is docked there, else in the waiting window.\n# improve opens the quick panel to improve Codealong itself, with pictures of its windows.\n# main_window brings Codealong's window forward, or hides Codealong when it's the window you're in.\n# talk and talk_orchestrator, with [experimental] voice on, are held while you talk: to the session\n# you're looking at, and to your orchestrator.\n")
+    format!("# Shortcuts that work in any app, such as \"{a}\" or \"{b}\". \"\" turns one off.\n# quick_panel opens the quick panel: find a session, or start one.\n# chat opens the quick panel set to start a chat of its own, in no project.\n# waiting opens the first session that waits on you, to answer one after another: in the notch\n# when the bar is docked there, else in the waiting window.\n# improve opens the quick panel to improve Codealong itself, with pictures of its windows.\n# main_window brings Codealong's window forward, or hides Codealong when it's the window you're in.\n# talk and talk_orchestrator, with [experimental] voice on, are held while you talk: to the session\n# you're looking at, and to your orchestrator. listen, with voice on, opens the quick panel set to\n# listen: Codealong hears a meeting from then on.\n")
 }
 
 /// Sets `[apps] editor` in config.toml and keeps everything else as written: an editor picked
@@ -2086,9 +2102,10 @@ fn set_shortcuts(doc: &mut toml_edit::DocumentMut, shortcuts: &ShortcutsCfg, voi
     set_value(&mut doc["shortcuts"]["improve"], Value::from(shortcuts.improve.trim()));
     set_value(&mut doc["shortcuts"]["main_window"], Value::from(shortcuts.main_window.trim()));
     // A file from before voice gets these only once they're not the defaults, or voice is on.
-    if shortcuts.talk != default_talk() || shortcuts.talk_orchestrator != default_talk_orchestrator() || voice || doc["shortcuts"].get("talk").is_some() {
+    if shortcuts.talk != default_talk() || shortcuts.talk_orchestrator != default_talk_orchestrator() || shortcuts.listen != default_listen() || voice || doc["shortcuts"].get("talk").is_some() {
         set_value(&mut doc["shortcuts"]["talk"], Value::from(shortcuts.talk.trim()));
         set_value(&mut doc["shortcuts"]["talk_orchestrator"], Value::from(shortcuts.talk_orchestrator.trim()));
+        set_value(&mut doc["shortcuts"]["listen"], Value::from(shortcuts.listen.trim()));
     }
 }
 
@@ -2247,7 +2264,7 @@ pub fn check(cfg: &Config) -> std::result::Result<(), String> {
     // The ones in use: an experiment's that's off take no keys, so they clash with nothing.
     let shortcuts = &cfg.shortcuts_in_use();
     let mut taken: Vec<(&str, tauri_plugin_global_shortcut::Shortcut)> = Vec::new();
-    for (key, text) in [("quick_panel", &shortcuts.quick_panel), ("chat", &shortcuts.chat), ("waiting", &shortcuts.waiting), ("improve", &shortcuts.improve), ("main_window", &shortcuts.main_window), ("talk", &shortcuts.talk), ("talk_orchestrator", &shortcuts.talk_orchestrator)] {
+    for (key, text) in [("quick_panel", &shortcuts.quick_panel), ("chat", &shortcuts.chat), ("waiting", &shortcuts.waiting), ("improve", &shortcuts.improve), ("main_window", &shortcuts.main_window), ("talk", &shortcuts.talk), ("talk_orchestrator", &shortcuts.talk_orchestrator), ("listen", &shortcuts.listen)] {
         let Some(shortcut) = crate::quick::parse_shortcut(text).map_err(|e| format!("[shortcuts] {key}: {e}"))? else { continue };
         if let Some((other, _)) = taken.iter().find(|(_, s)| *s == shortcut) {
             return Err(format!("[shortcuts] {key} is the same keys as {other}; one press can only do one of them."));
@@ -2941,9 +2958,10 @@ pub fn render(cfg: &Config) -> String {
     s.push_str(&format!("waiting = {}\n", q(&cfg.shortcuts.waiting)));
     s.push_str(&format!("improve = {}\n", q(&cfg.shortcuts.improve)));
     s.push_str(&format!("main_window = {}\n", q(&cfg.shortcuts.main_window)));
-    if cfg.experimental.voice || cfg.shortcuts.talk != default_talk() || cfg.shortcuts.talk_orchestrator != default_talk_orchestrator() {
+    if cfg.experimental.voice || cfg.shortcuts.talk != default_talk() || cfg.shortcuts.talk_orchestrator != default_talk_orchestrator() || cfg.shortcuts.listen != default_listen() {
         s.push_str(&format!("talk = {}\n", q(&cfg.shortcuts.talk)));
         s.push_str(&format!("talk_orchestrator = {}\n", q(&cfg.shortcuts.talk_orchestrator)));
+        s.push_str(&format!("listen = {}\n", q(&cfg.shortcuts.listen)));
     }
     if cfg.jev != JevCfg::default() {
         s.push('\n');
@@ -3202,7 +3220,7 @@ mod tests {
             scan: vec!["~/projects".into()],
             apps: AppsCfg::default(),
             appearance: AppearanceCfg { theme: Theme::Dark, ..AppearanceCfg::default() },
-            shortcuts: ShortcutsCfg { quick_panel: "Cmd+Ctrl+K".into(), chat: "Cmd+Ctrl+C".into(), waiting: "Ctrl+Option+N".into(), improve: "Ctrl+Option+I".into(), main_window: "Ctrl+Option+M".into(), talk: "Ctrl+Option+T".into(), talk_orchestrator: "Ctrl+Option+O".into() },
+            shortcuts: ShortcutsCfg { quick_panel: "Cmd+Ctrl+K".into(), chat: "Cmd+Ctrl+C".into(), waiting: "Ctrl+Option+N".into(), improve: "Ctrl+Option+I".into(), main_window: "Ctrl+Option+M".into(), talk: "Ctrl+Option+T".into(), talk_orchestrator: "Ctrl+Option+O".into(), listen: "Ctrl+Option+L".into() },
             accounts: vec![
                 AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, acp: None, monthly: None, per_token: false, usage_cap: Some(85), disabled: false, chrome_profile: None },
                 AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None },
@@ -4425,7 +4443,7 @@ mod tests {
         cfg.shortcuts.main_window = default_shortcuts().main_window.into();
         cfg.shortcuts.chat = "Option+Cmd+;".into();
         assert!(check(&cfg).unwrap_err().starts_with("[shortcuts] main_window is the same keys as chat"));
-        cfg.shortcuts = ShortcutsCfg { quick_panel: String::new(), chat: String::new(), waiting: String::new(), improve: String::new(), main_window: String::new(), talk: String::new(), talk_orchestrator: String::new() };
+        cfg.shortcuts = ShortcutsCfg { quick_panel: String::new(), chat: String::new(), waiting: String::new(), improve: String::new(), main_window: String::new(), talk: String::new(), talk_orchestrator: String::new(), listen: String::new() };
         assert!(check(&cfg).is_ok());
     }
 
@@ -4435,7 +4453,7 @@ mod tests {
         assert!(linux.contains("[shortcuts]\nquick_panel = \"Ctrl+Alt+/\"\nchat = \"Ctrl+Alt+'\"\n"), "{linux}");
         let _mac = crate::os::AsIf::new(crate::os::Os::MacOs);
         let cfg: Config = toml::from_str("[shortcuts]\nquick_panel = \"Cmd+Ctrl+K\"\n").unwrap();
-        assert_eq!(cfg.shortcuts, ShortcutsCfg { quick_panel: "Cmd+Ctrl+K".into(), chat: default_shortcuts().chat.into(), waiting: default_shortcuts().waiting.into(), improve: default_shortcuts().improve.into(), main_window: default_shortcuts().main_window.into(), talk: default_shortcuts().talk.into(), talk_orchestrator: default_shortcuts().talk_orchestrator.into() });
+        assert_eq!(cfg.shortcuts, ShortcutsCfg { quick_panel: "Cmd+Ctrl+K".into(), chat: default_shortcuts().chat.into(), waiting: default_shortcuts().waiting.into(), improve: default_shortcuts().improve.into(), main_window: default_shortcuts().main_window.into(), talk: default_shortcuts().talk.into(), talk_orchestrator: default_shortcuts().talk_orchestrator.into(), listen: default_shortcuts().listen.into() });
         let text = render(&Config::default());
         assert!(text.contains("[shortcuts]\nquick_panel = \"Option+Cmd+/\"\nchat = \"Option+Cmd+'\"\nwaiting = \"Option+Cmd+.\"\nimprove = \"Option+Cmd+,\"\nmain_window = \"Option+Cmd+;\"\n"), "{text}");
     }

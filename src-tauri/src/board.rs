@@ -3055,6 +3055,7 @@ pub fn compose(inp: Inputs) -> Board {
         main_window_shortcut: String::new(),
         talk_shortcut: String::new(),
         talk_orchestrator_shortcut: String::new(),
+        listen_shortcut: String::new(),
         improve: Default::default(),
         jev: Default::default(),
         experimental: Default::default(),

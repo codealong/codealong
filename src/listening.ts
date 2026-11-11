@@ -9,7 +9,8 @@
 
 import { useSyncExternalStore } from 'react';
 import { homeOf } from './lanes';
-import type { BarListening, Board, Hearing, HearingStatus, Lane, ListenAsk, ListeningGlance, ListenRole, Status } from './types';
+import type { Codec } from './stored';
+import type { BarListening, Board, Hearing, HearingStatus, Lane, ListenAsk, ListeningGlance, ListenRole, MeetingAhead, Status } from './types';
 
 /** Voice as the last board had it: whether it's turned on, and the sessions hearing now. */
 export interface Voice {
@@ -54,10 +55,15 @@ export function hearingShows(status: Status): boolean {
 
 /** The sessions hearing now with where each is, the first to begin first, as the bar's feed names
  *  them (barfeed.rs `listenings`): what the main window's recording light shows. One whose
- *  session the board doesn't list is left out. */
+ *  session the board doesn't list is left out, but one started ahead of its session
+ *  (`ListeningGlance.starting`), which hears under its meeting's name with no session to show yet. */
 export function hearingNow(lanes: Lane[], listenings: Voice['listenings'] | undefined): BarListening[] {
   const out: BarListening[] = [];
   for (const [key, l] of Object.entries(listenings ?? {})) {
+    if (l.starting !== undefined) {
+      out.push({ ...l, key: '', laneId: '', title: l.starting });
+      continue;
+    }
     const home = homeOf(lanes, key);
     if (home) out.push({ ...l, key, laneId: home.lane.id, title: home.session.title });
   }
@@ -88,7 +94,65 @@ export function askProblem(ask: ListenAsk): string | null {
   return null;
 }
 
-/** What a listening hears, in a few words: "You and this Mac’s audio". */
+/** What Listen now remembers of how you last asked (the quick panel set to listen, ui/Quick.tsx):
+ *  what its session makes of what it hears, and what's heard. What you type there is the
+ *  meeting's own, and never kept. */
+export interface ListenKept {
+  role: ListenRole;
+  mic: boolean;
+  system: boolean;
+  start: boolean;
+}
+
+export const LISTEN_KEPT: ListenKept = { role: ASK.role, mic: ASK.mic, system: ASK.system, start: ASK.start };
+
+/** `ListenKept` as a window keeps it. What it can't read of one it reads as a new one's. */
+export const listenKept: Codec<ListenKept> = {
+  parse: (raw) => {
+    const v: unknown = JSON.parse(raw);
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return undefined;
+    const kept = v as Partial<Record<keyof ListenKept, unknown>>;
+    const role = ROLES.find((r) => r.id === kept.role)?.id ?? LISTEN_KEPT.role;
+    const on = (x: unknown, otherwise: boolean) => (typeof x === 'boolean' ? x : otherwise);
+    return { role, mic: on(kept.mic, LISTEN_KEPT.mic), system: on(kept.system, LISTEN_KEPT.system), start: on(kept.start, LISTEN_KEPT.start) };
+  },
+  format: (kept) => JSON.stringify(kept),
+};
+
+/** What Listen now asks for, from how you last asked and what you typed this time: the meeting's
+ *  name and anything you want of it, or for Your own, what to do with what's heard. */
+export function nowAsk(kept: ListenKept, typed: string): ListenAsk {
+  return { ...ASK, ...kept, start: kept.start && kept.role === 'requests', prompt: typed.trim() };
+}
+
+/** The meeting in your calendar that Listen now would be of: one that's going on or about to
+ *  start and that no session hears yet (meetings.rs `Ahead`), the first to start. None while
+ *  meetings aren't offered, since the calendar isn't read then. */
+export function nowMeeting(ahead: readonly MeetingAhead[]): MeetingAhead | null {
+  return ahead.find((m) => m.takeable && !m.heard) ?? null;
+}
+
+/** What the session Listen now starts does with what it hears, as the end of a sentence. */
+const NOW_DOES: Record<ListenRole, string> = {
+  notes: 'keeps its notes',
+  coach: 'coaches you through it',
+  requests: 'files a todo for each thing asked for',
+  custom: 'does what you wrote with it',
+};
+
+/** What the box asks for when the quick panel is set to listen. */
+export function nowPlaceholder(role: ListenRole): string {
+  return role === 'custom' ? 'What should it do with what it hears?' : 'What’s this meeting? You can leave this empty';
+}
+
+/** The row that starts a listening, in words: what ⏎ does, and what follows. `where` is where its
+ *  session starts ("as a chat of its own", "in web-2"). */
+export function nowRow(c: { kept: ListenKept; meeting: Pick<MeetingAhead, 'title'> | null; where: string }): { title: string; why: string } {
+  const title = c.meeting ? `Listen to ${c.meeting.title.trim() ? `“${c.meeting.title.trim()}”` : 'the meeting in your calendar'}` : 'Listen now';
+  const from = c.kept.mic && c.kept.system ? 'you and this Mac’s audio' : c.kept.mic ? 'your microphone' : 'this Mac’s audio';
+  return { title, why: `Codealong hears ${from} from the moment you press ⏎, and a session started ${c.where} ${NOW_DOES[c.kept.role]}. No audio is kept.` };
+}
+
 /** What the dialog says, before a listening starts, of what macOS has to allow for what's picked
  *  (ear.rs `Status`): that it isn't letting Codealong, with where that's turned on, or that it
  *  will ask. Nothing when all of it is allowed, or isn't known. */
@@ -102,6 +166,7 @@ export function macSays(status: HearingStatus['status'] | undefined, ask: Pick<L
   return asks.length ? `macOS will ask whether Codealong may ${asks.join(', and whether it may ')}.` : '';
 }
 
+/** What a listening hears, in a few words: "You and this Mac’s audio". */
 export function hears(l: Pick<ListeningGlance, 'mic' | 'playback' | 'apps' | 'speakers'>, names: Record<string, string> = {}): string {
   const them = l.apps?.length ? l.apps.map((a) => names[a] ?? a).join(', ') : 'this Mac’s audio';
   // On speakers, as it was heard to be: the Mac's audio is being taken out of the microphone.

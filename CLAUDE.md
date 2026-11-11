@@ -124,6 +124,7 @@ with `--usage`, and its endpoint rate-limits: don't loop it.
   `--snapshot --stale-terminals [wait]`: the tabs Close stale terminals would list, closing none.
   `--snapshot --hibernate [wait]`: what would hibernate now (`[sessions] hibernate_after`), closing none.
   `--snapshot --hearing`: what this Mac hears with; `--snapshot --transcribe <file>`: a recording's words (ear.rs).
+  `--snapshot --listen-plan [words] [--in <folder>]`: what Listen now would start, hearing nothing.
 - `--snapshot --schedules`: the schedules as their view lists them;
   `--snapshot --harness-schedules`: the ones the harnesses keep themselves (schedules/harnesses.rs);
   `--snapshot --schedule-plan

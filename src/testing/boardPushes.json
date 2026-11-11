@@ -212,6 +212,7 @@
           "targets": []
         }
       ],
+      "listenShortcut": "",
       "loading": false,
       "logoStatus": "idle",
       "mainWindowShortcut": "",
@@ -555,6 +556,7 @@
             "targets": []
           }
         ],
+        "listenShortcut": "",
         "loading": false,
         "logoStatus": "idle",
         "mainWindowShortcut": "",
@@ -901,6 +903,7 @@
           "targets": []
         }
       ],
+      "listenShortcut": "",
       "loading": false,
       "logoStatus": "idle",
       "mainWindowShortcut": "",
@@ -1285,6 +1288,7 @@
           "targets": []
         }
       ],
+      "listenShortcut": "",
       "loading": false,
       "logoStatus": "idle",
       "mainWindowShortcut": "",
@@ -1668,6 +1672,7 @@
           "targets": []
         }
       ],
+      "listenShortcut": "",
       "loading": false,
       "logoStatus": "idle",
       "mainWindowShortcut": "",
@@ -2117,6 +2122,7 @@
           "targets": []
         }
       ],
+      "listenShortcut": "",
       "loading": true,
       "logoStatus": "idle",
       "mainWindowShortcut": "",
@@ -2541,6 +2547,7 @@
           "targets": []
         }
       ],
+      "listenShortcut": "",
       "loading": true,
       "logoStatus": "idle",
       "mainWindowShortcut": "",

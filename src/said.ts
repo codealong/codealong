@@ -59,10 +59,11 @@ export function saidUntil(said: Said | null, talkedAt: number): number | null {
 }
 
 /** What the mark says while sessions hear (ui/Said.tsx, the bar's mark with its center red):
- *  which, and what's wrong with any, a line each. Nothing while none does. */
+ *  which, and what's wrong with any, a line each. One started ahead of its session, which is
+ *  still on its way, is heard under its meeting's name. Nothing while none does. */
 export function hearingSays(listenings: readonly BarListening[] | undefined): string | null {
   if (!listenings?.length) return null;
-  return listenings.map((l) => `${l.title} is listening${l.problem ? `: ${l.problem}` : ''}`).join('\n');
+  return listenings.map((l) => `${l.title} is ${l.starting !== undefined ? 'being heard, and its session is starting' : 'listening'}${l.problem ? `: ${l.problem}` : ''}`).join('\n');
 }
 
 /** The sessions hearing now in a few words, where there's room for one name: the one's title, or

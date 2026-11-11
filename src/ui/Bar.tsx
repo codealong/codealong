@@ -201,13 +201,14 @@ function reviewLabel(p: BarReview, place: PlaceWords): string {
 
 /** A session that's hearing, first on the bar for as long as it does, whatever project the bar
  *  shows: a click shows it, as a click on a session's pill does. It's this pill's alone while it
- *  listens, but when it needs you (barfeed.rs `feed`): its turns come and go every few seconds. */
+ *  listens, but when it needs you (barfeed.rs `feed`): its turns come and go every few seconds.
+ *  One started ahead of its session (no key yet) is heard all the same, with nothing to show. */
 function ListeningPill({ listening: l, peeked, onOpen, measure }: { listening: BarListening; peeked?: boolean; onOpen?: () => void; measure?: boolean }) {
   return (
     <button
       type="button"
       className={cx('ca-hud-pill is-hearing', peeked && 'is-peeked')}
-      title={measure || peeked ? undefined : `${hearingSays([l])}\nShow it`}
+      title={measure || peeked ? undefined : `${hearingSays([l])}${l.key ? '\nShow it' : ''}`}
       aria-pressed={measure ? undefined : peeked}
       data-listening={measure ? '' : undefined}
       data-key={measure ? undefined : l.key}
@@ -686,6 +687,8 @@ export function Bar() {
   /** A click on the pill of a session that's hearing: docked, it shows in the notch, and a click
    *  on the pill of the one shown puts it away; floating, it shows in Codealong's window. */
   const clickHearing = (l: BarListening) => {
+    // Its session is still being started: there's nothing to show yet.
+    if (!l.key) return;
     stopHover();
     if (notch) stage.toggle(l.key);
     else reveal(l);

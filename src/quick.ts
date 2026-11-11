@@ -768,7 +768,10 @@ export const TAKEN: Record<string, string> = {
   '⌃⌥Space': 'macOS’s input source switching, where it’s on',
   '⌃⌘Space': 'Emoji & Symbols',
   '⌥Space': 'the ChatGPT, Raycast and Alfred launchers, by default',
-  '⇧⌘Space': '1Password’s Quick Access, by default',
+  // 1Password's own default moved with macOS: its keyboard shortcuts page gives ⌥⌘\ and says
+  // ⇧⌘Space "on macOS 26 or earlier" (support.1password.com/keyboard-shortcuts, read 2026-11-11).
+  '⇧⌘Space': '1Password’s Quick Access, by default on macOS 26 and earlier',
+  '⌥⌘\\': '1Password’s Quick Access, by default on macOS after 26',
   '⇧⌘3': 'screenshots',
   '⇧⌘4': 'screenshots',
   '⇧⌘5': 'screenshots',

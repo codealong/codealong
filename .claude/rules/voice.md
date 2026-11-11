@@ -149,6 +149,10 @@ What macOS's speech recognition and audio capture take and give, as codealong-ea
   at its own account's address. Not yet seen: a meeting taken; and one you declined, which is
   read from the participant `isCurrentUser` marks, then from the addresses of yours in it.
 
+- Not yet run for real (2026-11-11): Listen now, a listening started ahead of its session
+  (listen.rs `start_ahead`): that two helpers hearing the microphone at once, the last meeting's
+  and the next one's until its session shows, both hear; and how long a session takes to show,
+  which is how long the transcript runs before anyone is told of it.
 - The microphone ran for real on 2026-11-10, under the server (Codealong Dev was asked and
   allowed). Not yet seen: the tap giving anything but silence; whether making a tap asks the
   person by itself (the helper asks through `TCCAccessRequest` either way); whether a tap made

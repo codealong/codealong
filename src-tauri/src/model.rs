@@ -225,6 +225,10 @@ pub struct Board {
     pub talk_shortcut: String,
     #[serde(default)]
     pub talk_orchestrator_shortcut: String,
+    /// The shortcut that opens the quick panel set to listen to a meeting, from config.toml;
+    /// empty when it's off, as it is until `experimental.voice` is on.
+    #[serde(default)]
+    pub listen_shortcut: String,
     /// Where a session that improves Codealong goes: its project and worktree, or its source in
     /// no project yet (improve.rs).
     #[serde(default)]

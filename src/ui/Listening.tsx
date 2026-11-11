@@ -8,8 +8,10 @@
 // - `ListeningChip`: on its row.
 // - `ListenHost`: the dialog a session's Listen… opens, which the board's windows show; any other
 //   window hands the asking to the main window, which has the room for it.
+// - `ListenChoices`: what a listening does and hears, to pick, in that dialog and in the quick
+//   panel set to listen (Quick.tsx).
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { askMainToListen, hearingStatus, listeningOf, onHearing, onListenAsk, onListeningNotes, startListening, stopListening } from '../api';
 import { ASK, askProblem, captionsHearing, clock, heardLine, hears, macSays, NO_CAPTIONS, onAskedToListen, ROLES, settledGone, SETTLING_MS, withLines, type Captions, type HeardLine, type ListenAsked, type Told as ToldWhat } from '../listening';
 import { errorText } from '../report';
@@ -207,33 +209,88 @@ export function ListeningChip({ listening }: { listening: ListeningGlance | unde
 }
 
 /** The sessions hearing now, in the main window's bar whatever it shows: a recording light with
- *  the session's name and how long it has listened, and a click shows the session. Nothing while
- *  none hears. On the bar that floats it's a pill (Bar.tsx `ListeningPill`). */
-export function ListeningNow({ listenings, onShow }: { listenings: readonly BarListening[]; onShow: (l: BarListening) => void }) {
-  return listenings.length ? <HearingNow listenings={listenings} onShow={onShow} /> : null;
+ *  the session's name and how long it has listened, and a click shows the session. While none
+ *  hears, the button that starts one is in its place (`onListen`: Listen now, while voice is on,
+ *  with the `shortcut` that asks for it from any app), so the light shows where it was pressed.
+ *  On the bar that floats it's a pill (Bar.tsx `ListeningPill`). */
+export function ListeningNow({ listenings, onShow, onListen, shortcut }: { listenings: readonly BarListening[]; onShow: (l: BarListening) => void; onListen?: () => void; shortcut?: string | null }) {
+  if (listenings.length) return <HearingNow listenings={listenings} onShow={onShow} />;
+  if (!onListen) return null;
+  return <Button icon="microphone" aria-label="Listen now" title={`Listen now: Codealong hears a meeting from the moment you say, and a session started for it keeps its notes${shortcut ? ` (${shortcut} from any app)` : ''}`} onClick={onListen} />;
 }
 
 /** A part of its own, so a clock runs by the second only while a session hears. The window's bar
  *  has room for one light: several sessions are counted in it, the clock the first's to begin,
- *  and a click drops a menu of them to pick from. */
+ *  and a click drops a menu of them to pick from. One whose session is still being started
+ *  (`starting`) has nothing to show yet. */
 function HearingNow({ listenings, onShow }: { listenings: readonly BarListening[]; onShow: (l: BarListening) => void }) {
   const now = useNow(1000);
   const [first] = listenings;
   const one = listenings.length === 1;
   const says = hearingSays(listenings) ?? '';
+  const does = !one ? 'Pick one to show' : first.key ? 'Show it' : '';
   return (
     <button
       type="button"
       className="ca-hearing-now"
-      title={`${says}\n${one ? 'Show it' : 'Pick one to show'}`}
-      aria-label={`${says.replace(/\n/g, '. ')}. ${one ? 'Show it' : 'Pick one to show'}`}
-      onClick={(e) => (one ? onShow(first) : void showContextMenu(listenings.map((l) => ({ label: `${l.title} · ${clock(now - l.startedAt)}`, run: () => onShow(l) })), below(e.currentTarget)))}
+      title={does ? `${says}\n${does}` : says}
+      aria-label={`${says.replace(/\n/g, '. ')}${does ? `. ${does}` : ''}`}
+      onClick={(e) => (one ? first.key && onShow(first) : void showContextMenu(listenings.map((l) => ({ label: `${l.title} · ${clock(now - l.startedAt)}`, run: () => onShow(l), enabled: !!l.key })), below(e.currentTarget)))}
     >
       <span className="ca-live-dot" aria-hidden="true" />
       <span className="ca-hearing-now-title">{hearingNamed(listenings)}</span>
       <span className="ca-hearing-now-clock">{clock(now - first.startedAt)}</span>
       {listenings.some((l) => l.problem) && <Icon name="alert" size={12} />}
     </button>
+  );
+}
+
+/** What a listening does with what it hears, and what it hears, to pick: asked the same way by
+ *  the dialog a session's Listen… opens and by the quick panel set to listen (Quick.tsx).
+ *  `playing` are the apps to offer in place of everything the Mac plays; `children` go between
+ *  the two, where the dialog asks for anything to add. */
+export function ListenChoices({ ask, set, playing, children }: { ask: Pick<ListenAsk, 'role' | 'start' | 'mic' | 'system' | 'apps'>; set: (next: Partial<ListenAsk>) => void; playing: HearingStatus['apps']; children?: ReactNode }) {
+  const role = ROLES.find((r) => r.id === ask.role) ?? ROLES[0];
+  return (
+    <>
+      <div className="ca-listendlg-field">
+        <span>What it does</span>
+        <Seg label="What it does with what it hears" options={ROLES.map((r) => ({ id: r.id, label: r.label }))} value={ask.role} onPick={(id) => set({ role: id })} />
+        <small>{role.says}</small>
+      </div>
+      {ask.role === 'requests' && (
+        <label className="ca-listendlg-check">
+          <CheckBox checked={ask.start} onChange={(on) => set({ start: on })} />
+          <span>Start a session on each right away</span>
+          <small>Each in a worktree of its own, as this session’s helper. Otherwise the todos wait for you to start the ones you want.</small>
+        </label>
+      )}
+      {children}
+      <div className="ca-listendlg-field">
+        <span>Hears</span>
+        <label className="ca-listendlg-check">
+          <CheckBox checked={ask.mic} onChange={(on) => set({ mic: on })} />
+          <span>You, through the microphone</span>
+        </label>
+        <label className="ca-listendlg-check">
+          <CheckBox checked={ask.system} onChange={(on) => set({ system: on, apps: on ? ask.apps : [] })} />
+          <span>Everyone else, from what this Mac plays</span>
+        </label>
+        {ask.system && playing.length > 0 && (
+          <div className="ca-listendlg-apps">
+            <Seg
+              label="Which audio"
+              options={[{ id: '', label: 'Everything' }, ...playing.map((a) => ({ id: a.bundle, label: `Only ${a.name}` }))]}
+              value={ask.apps[0] ?? ''}
+              onPick={(bundle) => set({ apps: bundle ? [bundle] : [] })}
+            />
+          </div>
+        )}
+        {/* Speakers or headphones isn't asked: the engine hears which (echo.rs), and on
+            speakers takes what the Mac plays out of the microphone by itself. */}
+        {ask.mic && ask.system && <small>On speakers the microphone hears the others too: Codealong notices, and takes what this Mac plays out of it, so they aren’t written down twice.</small>}
+      </div>
+    </>
   );
 }
 
@@ -256,7 +313,6 @@ function ListenDialog({ asked, onClose }: { asked: ListenAsked; onClose: () => v
   const set = (next: Partial<ListenAsk>) => setAsk((a) => ({ ...a, ...next }));
   const cannot = hearing?.status.why ?? null;
   const problem = cannot ?? askProblem(ask);
-  const role = ROLES.find((r) => r.id === ask.role) ?? ROLES[0];
   const playing = (hearing?.apps ?? []).filter((a) => a.playing || a.recording);
   const start = () => {
     if (problem || busy) return;
@@ -292,46 +348,12 @@ function ListenDialog({ asked, onClose }: { asked: ListenAsked; onClose: () => v
       }
     >
       <div className="ca-dialog-body">
-        <div className="ca-listendlg-field">
-          <span>What it does</span>
-          <Seg label="What it does with what it hears" options={ROLES.map((r) => ({ id: r.id, label: r.label }))} value={ask.role} onPick={(id) => set({ role: id })} />
-          <small>{role.says}</small>
-        </div>
-        {ask.role === 'requests' && (
-          <label className="ca-listendlg-check">
-            <CheckBox checked={ask.start} onChange={(on) => set({ start: on })} />
-            <span>Start a session on each right away</span>
-            <small>Each in a worktree of its own, as this session’s helper. Otherwise the todos wait for you to start the ones you want.</small>
+        <ListenChoices ask={ask} set={set} playing={playing}>
+          <label className="ca-listendlg-field">
+            <span>{ask.role === 'custom' ? 'What to do with it' : 'Anything to add'}</span>
+            <textarea className="ca-listendlg-prompt" rows={ask.role === 'custom' ? 4 : 2} value={ask.prompt} placeholder={ask.role === 'coach' ? 'What you want out of this meeting' : ask.role === 'custom' ? 'Count how often anyone says “synergy”' : 'Who’s on the call, what it’s about'} onChange={(e) => set({ prompt: e.target.value })} />
           </label>
-        )}
-        <label className="ca-listendlg-field">
-          <span>{ask.role === 'custom' ? 'What to do with it' : 'Anything to add'}</span>
-          <textarea className="ca-listendlg-prompt" rows={ask.role === 'custom' ? 4 : 2} value={ask.prompt} placeholder={ask.role === 'coach' ? 'What you want out of this meeting' : ask.role === 'custom' ? 'Count how often anyone says “synergy”' : 'Who’s on the call, what it’s about'} onChange={(e) => set({ prompt: e.target.value })} />
-        </label>
-        <div className="ca-listendlg-field">
-          <span>Hears</span>
-          <label className="ca-listendlg-check">
-            <CheckBox checked={ask.mic} onChange={(on) => set({ mic: on })} />
-            <span>You, through the microphone</span>
-          </label>
-          <label className="ca-listendlg-check">
-            <CheckBox checked={ask.system} onChange={(on) => set({ system: on, apps: on ? ask.apps : [] })} />
-            <span>Everyone else, from what this Mac plays</span>
-          </label>
-          {ask.system && playing.length > 0 && (
-            <div className="ca-listendlg-apps">
-              <Seg
-                label="Which audio"
-                options={[{ id: '', label: 'Everything' }, ...playing.map((a) => ({ id: a.bundle, label: `Only ${a.name}` }))]}
-                value={ask.apps[0] ?? ''}
-                onPick={(bundle) => set({ apps: bundle ? [bundle] : [] })}
-              />
-            </div>
-          )}
-          {/* Speakers or headphones isn't asked: the engine hears which (echo.rs), and on
-              speakers takes what the Mac plays out of the microphone by itself. */}
-          {ask.mic && ask.system && <small>On speakers the microphone hears the others too: Codealong notices, and takes what this Mac plays out of it, so they aren’t written down twice.</small>}
-        </div>
+        </ListenChoices>
       </div>
     </Dialog>
   );

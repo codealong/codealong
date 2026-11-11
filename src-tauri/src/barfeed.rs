@@ -88,9 +88,14 @@ pub struct BarFeed {
     /// The meeting on offer (`Board::meeting`): the bar asks whether to take its notes.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub meeting: Option<crate::meetings::Offer>,
+    /// Voice is turned on (`[experimental] voice`): the menu bar item's menu has Listen now.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub voice: bool,
 }
 
-/// A session that's listening, as the bar shows it.
+/// A session that's listening, as the bar shows it. One started ahead of its session
+/// (`Glance::starting`) has no session yet: its key and worktree are empty, its title its
+/// meeting's name, and there's nothing to show for a click on it.
 #[derive(Serialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct BarListening {
@@ -328,11 +333,21 @@ pub fn feed(shown: Shown) -> BarFeed {
         devices,
         // By when each began, so the one the bar names first stays the same one.
         listenings: {
-            let mut listenings: Vec<BarListening> = board.listenings.iter().filter_map(|(key, l)| board.session(key).map(|(lane, s)| BarListening { key: key.clone(), lane_id: lane.id.clone(), title: s.title.clone(), listening: l.clone() })).collect();
+            let mut listenings: Vec<BarListening> = board
+                .listenings
+                .iter()
+                .filter_map(|(key, l)| match (&l.starting, board.session(key)) {
+                    // Started ahead of its session, which is on its way: it's hearing all the same.
+                    (Some(name), _) => Some(BarListening { key: String::new(), lane_id: String::new(), title: name.clone(), listening: l.clone() }),
+                    (None, Some((lane, s))) => Some(BarListening { key: key.clone(), lane_id: lane.id.clone(), title: s.title.clone(), listening: l.clone() }),
+                    (None, None) => None,
+                })
+                .collect();
             listenings.sort_by_key(|l| l.listening.started_at);
             listenings
         },
         meeting: board.meeting.clone(),
+        voice: board.experimental.voice,
     }
 }
 
@@ -416,6 +431,12 @@ mod tests {
         assert_eq!((sent["key"].as_str(), sent["role"].as_str(), sent["cue"].as_str(), sent["cueAt"].as_i64()), (Some("coach"), Some("coach"), Some("Ask when they renew."), Some(NOW - 5)));
         // With where its session is, to show it there.
         assert_eq!(sent["laneId"].as_str(), Some(b.lanes[0].id.as_str()));
+        // One started ahead of its session hears with none yet: named for its meeting, the last
+        // to begin last, with no session or worktree to show.
+        b.listenings.insert(String::new(), Glance { id: "s".into(), started_at: NOW - 3, starting: Some("Standup".into()), ..Glance::default() });
+        let ahead = feed(Shown::here(&b)).listenings;
+        assert_eq!(ahead.iter().map(|l| (l.key.as_str(), l.lane_id.as_str(), l.title.as_str())).collect::<Vec<_>>(), vec![("notes", b.lanes[0].id.as_str(), "Title notes"), ("coach", b.lanes[0].id.as_str(), "Title coach"), ("", "", "Standup")]);
+        assert_eq!(serde_json::to_value(&ahead[2]).unwrap()["starting"].as_str(), Some("Standup"));
         // One that's hearing has that pill for its own: it isn't among the recent ones too, nor
         // the working ones as its turns come and go, but it is while it needs you.
         assert!(f.recent.is_empty() && f.items.is_empty());

@@ -469,6 +469,7 @@ export type Board = Holds<Same<
   | "jev"
   | "labels"
   | "lanes"
+  | "listenShortcut"
   | "listenings"
   | "loading"
   | "logoStatus"

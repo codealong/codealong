@@ -26,6 +26,13 @@
 //! started there can read them all. Its listening ends by itself once the meeting's time is up
 //! and the talk has stopped (listen.rs `AFTER_MEETING_MS`).
 //!
+//! Listen now (`now`) does the same for a meeting whenever you ask, calendar or none: the one
+//! your calendar has going on, when you say it's that one, or a meeting of its own in no
+//! calendar (`unplanned`), named for what you typed, with a folder among the rest. It needs
+//! voice on and not `[voice] meetings`: nothing of the calendar is read for it. Either way
+//! Codealong hears from the moment it's asked, before the session it starts has come up
+//! (`begin`), and one you stop right away with nothing heard leaves nothing behind (`stray`).
+//!
 //! Only this Mac's calendar and sessions: nothing of it goes to your other devices.
 
 use std::collections::{HashMap, HashSet};
@@ -374,6 +381,10 @@ pub fn with_whom(m: &Meeting) -> String {
 /// What a session started for a meeting is asked first, before it's told how it listens
 /// (listen.rs `brief`): only to be there.
 fn opening(m: &Meeting) -> String {
+    // One that's in no calendar has begun, and has only what its session is told next to say of it.
+    if m.unplanned {
+        return "Your user is in a meeting, and asked Codealong to have you listen in on it. Codealong is about to tell you how: it transcribes the meeting on their Mac and tells you what's said as it's heard. There's nothing to do until it does: reply with only “Ready”.".into();
+    }
     format!(
         "Your user has a meeting, “{}”, from {} to {}{}, and asked Codealong to have you take its notes. Codealong is about to tell you how: it transcribes the meeting on their Mac and tells you what's said as it's heard. There's nothing to do until it does: reply with only “Ready”.",
         m.title.trim(),
@@ -526,13 +537,41 @@ pub fn pass(engine: &Handle, id: &str) {
 pub fn take(engine: &Handle, id: &str, role: Role) -> Result<Listening> {
     let cfg = config::current()?;
     listen::turned_on(&cfg)?;
+    taken(engine, &cfg, id, "", &listen::Ask { mic: true, system: true, role, ..listen::Ask::default() })
+}
+
+/// Listen now (the quick panel set to listen, Quick.tsx): Codealong hears a meeting from this
+/// moment, with a session started for it as `take` starts one. `id` is the meeting in your
+/// calendar it is, when one is going on or about to start (`Ahead::takeable`) and you said it's
+/// that one; without, it's a meeting of its own, in no calendar (`unplanned`). Its session
+/// starts in `lane`, a worktree's id, or as a chat of its own when that's empty, and `ask` says
+/// what to hear and make of it, its `prompt` being what you typed.
+pub fn now(engine: &Handle, id: Option<&str>, lane: &str, ask: &listen::Ask) -> Result<Listening> {
+    let cfg = config::current()?;
+    listen::turned_on(&cfg)?;
+    match id.map(str::trim).filter(|id| !id.is_empty()) {
+        Some(id) => taken(engine, &cfg, id, lane, ask),
+        None => begin(engine, &cfg, &unplanned(&ask.prompt, util::now_ms()), lane, ask),
+    }
+}
+
+/// A meeting that's in no calendar: one you have Codealong listen to as it begins. It's named
+/// for the first line of what you typed, when you typed anything, and has when it began and no
+/// end to go by.
+pub fn unplanned(words: &str, now: i64) -> Meeting {
+    let title = words.lines().map(str::trim).find(|line| !line.is_empty()).map(|line| util::truncate(line, 80)).unwrap_or_default();
+    Meeting { id: format!("now:{}", util::base36(now as u64)), title, start: now, end: now, unplanned: true, ..Meeting::default() }
+}
+
+/// Takes the calendar's meeting `id`, in sight as being taken until it's hearing.
+fn taken(engine: &Handle, cfg: &Config, id: &str, lane: &str, ask: &listen::Ask) -> Result<Listening> {
     // Asked for from a list read a while ago, say: taken since, in another window.
     if listen::meetings_heard().iter().any(|heard| heard == id) {
         bail!("That meeting's notes are being taken already.");
     }
     let meeting = {
         let mut state = state();
-        let Some(meeting) = found(&state.calendar.events, &Rules::of(&cfg), id).cloned() else { bail!("That meeting isn't in your calendar any more.") };
+        let Some(meeting) = found(&state.calendar.events, &Rules::of(cfg), id).cloned() else { bail!("That meeting isn't in your calendar any more.") };
         if state.taking.is_some() {
             bail!("A meeting's notes are being started already.");
         }
@@ -540,7 +579,7 @@ pub fn take(engine: &Handle, id: &str, role: Role) -> Result<Listening> {
         meeting
     };
     settle(engine, util::now_ms());
-    let taken = begin(engine, &cfg, &meeting, role);
+    let taken = begin(engine, cfg, &meeting, lane, ask);
     let now = util::now_ms();
     {
         let mut state = state();
@@ -556,33 +595,129 @@ pub fn take(engine: &Handle, id: &str, role: Role) -> Result<Listening> {
     taken
 }
 
-/// Starts a meeting's session and its listening.
-fn begin(engine: &Handle, cfg: &Config, meeting: &Meeting, role: Role) -> Result<Listening> {
-    use codealong_peer::api;
+/// Starts a meeting's listening and its session, the hearing first: a session takes a while to
+/// come up, and a meeting you ask to hear now has begun, so Codealong hears from the start
+/// (`listen::start_ahead`) and the session is told everything said meanwhile once it shows.
+/// When the session doesn't come, nothing of the listening is kept.
+fn begin(engine: &Handle, cfg: &Config, meeting: &Meeting, lane: &str, ask: &listen::Ask) -> Result<Listening> {
     let now = util::now_ms();
-    let board = engine.board();
-    // A chat of its own, as a schedule with no folder starts one (schedules/runner.rs).
-    let lane = config::chats_dir().to_string_lossy().into_owned();
+    let (lane, pick) = placed(cfg, &engine.board(), lane, now)?;
+    let folder = new_folder(&root(cfg), meeting)?;
+    let ask = listen::Ask { speakers: ask.speakers || cfg.voice.on_speakers, ..ask.clone() };
+    let ahead = match listen::start_ahead(&ask, listen::Of { meeting: meeting.clone(), folder: folder.clone() }) {
+        Ok(ahead) => ahead,
+        Err(e) => {
+            // The folder made for it, when nothing else is in it.
+            let _ = std::fs::remove_dir(&folder);
+            return Err(e);
+        }
+    };
+    let listening = match session_for(engine, meeting, &lane, pick).and_then(|key| listen::attach(engine, &ahead.id, &key)) {
+        Ok(listening) => listening,
+        Err(e) => {
+            listen::abandon(&ahead.id);
+            let _ = std::fs::remove_dir(&folder);
+            return Err(e);
+        }
+    };
+    // The last meeting's is over, if it's still hearing: its time is up, and this one has come.
+    // Only now that this one has its session: a take that failed leaves the last one as it was.
+    listen::end_meetings_but(&listening.id, "the next meeting was taken");
+    write_record(&folder.join("meeting.json"), &Record { meeting: meeting.clone(), listening: listening.id.clone(), session: listening.session.clone(), role: ask.role, taken_at: now });
+    Ok(listening)
+}
+
+/// Where a meeting's session starts and on what: in `lane`, or as a chat of its own when that's
+/// empty, as a schedule with no folder starts one (schedules/runner.rs); on the account and
+/// model `[voice]` names for meetings, or the ones Auto picks now, out of sight.
+fn placed(cfg: &Config, board: &crate::model::Board, lane: &str, now: i64) -> Result<(String, crate::start::Pick)> {
+    let lane = match lane.trim() {
+        "" => config::chats_dir().to_string_lossy().into_owned(),
+        lane => lane.to_string(),
+    };
     let account = Some(cfg.voice.meeting_account.trim()).filter(|a| !a.is_empty()).unwrap_or("auto");
     let model = Some(cfg.voice.meeting_model.trim()).filter(|m| !m.is_empty());
-    let pick = crate::start::pick(cfg, Some(&board), account, None, model, None, true, now, &util::home())?;
-    let folder = new_folder(&root(cfg), meeting)?;
-    let spec = api::StartSpec { lane_id: lane.clone(), account: pick.account, place: pick.place, prompt: opening(meeting), model: pick.model, effort: pick.effort, worktree: false, todos: Vec::new(), from: None, helper: false, report: false };
+    let pick = crate::start::pick(cfg, Some(board), account, None, model, None, true, now, &util::home())?;
+    Ok((lane, pick))
+}
+
+/// What Listen now would start for a meeting that's in no calendar, said without starting or
+/// hearing anything (`codealong --snapshot --listen-plan`): its session, with what it would be
+/// called, where it would start and on what, picked now; what it would first be asked; and the
+/// folder its transcript and notes would go in.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Plan {
+    pub session: String,
+    pub lane: String,
+    pub account: String,
+    pub model: Option<String>,
+    pub effort: Option<String>,
+    pub place: crate::start::Place,
+    pub opening: String,
+    pub folder: String,
+}
+
+pub fn plan(cfg: &Config, board: &crate::model::Board, words: &str, lane: &str, now: i64) -> Result<Plan> {
+    listen::turned_on(cfg)?;
+    let meeting = unplanned(words, now);
+    let (lane, pick) = placed(cfg, board, lane, now)?;
+    Ok(Plan { session: session_name(&meeting), lane, account: pick.account, model: pick.model, effort: pick.effort, place: pick.place, opening: opening(&meeting), folder: util::tilde(&folder_for(&root(cfg), &meeting)) })
+}
+
+/// What the session that takes a meeting is called: the meeting's name, or for one with none,
+/// that it's a meeting and when it began.
+fn session_name(m: &Meeting) -> String {
+    match m.title.trim() {
+        "" => format!("Meeting at {}", hour(m.start)),
+        title => util::truncate(title, 80),
+    }
+}
+
+/// Starts the session that takes a meeting, in `lane`, and waits for the board to list it,
+/// which is where its listening is given it from: its key.
+fn session_for(engine: &Handle, meeting: &Meeting, lane: &str, pick: crate::start::Pick) -> Result<String> {
+    use codealong_peer::api;
+    let spec = api::StartSpec { lane_id: lane.to_string(), account: pick.account, place: pick.place, prompt: opening(meeting), model: pick.model, effort: pick.effort, worktree: false, todos: Vec::new(), from: None, helper: false, report: false };
     let on = spec.account.clone();
-    let started: api::Started = crate::actions::local(engine, &crate::actions::From::Here, api::START, &lane, api::params::Start { spec }).and_then(crate::actions::typed).map_err(|e| anyhow!(e))?;
+    let started: api::Started = crate::actions::local(engine, &crate::actions::From::Here, api::START, lane, api::params::Start { spec }).and_then(crate::actions::typed).map_err(|e| anyhow!(e))?;
     let Some(key) = started.key else {
         bail!("A session was started on {on} for it, but its harness names its own sessions, so Codealong can't tell which to have listen. Have it listen from its menu once it shows, or name another account in Settings › Voice.");
     };
     shows(engine, &key)?;
     // Named for its meeting, where its harness would name it for what it was first asked.
-    let _ = crate::actions::local(engine, &crate::actions::From::Here, api::SESSION_RENAME, &key, api::params::Rename { key: String::new(), name: util::truncate(meeting.title.trim(), 80) });
-    let ask = listen::Ask { mic: true, system: true, speakers: cfg.voice.on_speakers, role, ..listen::Ask::default() };
-    let listening = listen::start_of(engine, &key, &ask, Some(listen::Of { meeting: meeting.clone(), folder: folder.clone() }))?;
-    // The last meeting's is over, if it's still hearing: its time is up, and this one has come.
-    // Only now that this one is hearing: a take that failed leaves the last one as it was.
-    listen::end_meetings_but(&listening.id, "the next meeting was taken");
-    write_record(&folder.join("meeting.json"), &Record { meeting: meeting.clone(), listening: listening.id.clone(), session: listening.session.clone(), role, taken_at: now });
-    Ok(listening)
+    let _ = crate::actions::local(engine, &crate::actions::From::Here, api::SESSION_RENAME, &key, api::params::Rename { key: String::new(), name: session_name(meeting) });
+    Ok(key)
+}
+
+/// How soon after it began a meeting's listening that you stop with nothing heard counts as one
+/// started by mistake (`stray`).
+const STRAY_MS: i64 = 2 * 60 * 1000;
+
+/// Whether a meeting's listening was started by mistake: you stopped it within a couple of
+/// minutes of its start, and nothing had been heard.
+pub fn stray(l: &Listening) -> bool {
+    l.meeting.is_some() && l.folder.is_some() && l.lines == 0 && l.why_ended.is_none() && l.ended_at.is_some_and(|at| at - l.started_at < STRAY_MS)
+}
+
+/// Puts away a meeting started by mistake (`stray`), so that it costs a click and leaves nothing
+/// behind. Its session isn't asked to sum up a meeting that never was: it's ended and archived,
+/// as Mark as done does, and found again among the archived if it's wanted after all. Its folder
+/// goes, with the empty transcript, what was noted of the meeting, and the notes file its
+/// session was asked to make before anything was said.
+pub fn put_away(engine: &Handle, l: &Listening) {
+    use codealong_peer::api;
+    listen::done_with(&l.id);
+    let done = crate::actions::local(engine, &crate::actions::From::Here, api::SESSION_DONE, &l.session, api::params::Done { key: String::new(), stop: true, archive: false });
+    if let Err(e) = done {
+        eprintln!("meetings: the session of a meeting started by mistake wasn't put away: {e}");
+    }
+    let dir = l.dir();
+    for name in ["transcript.md", "meeting.json", "notes.md"] {
+        let _ = std::fs::remove_file(dir.join(name));
+    }
+    // Only when that was all of it.
+    let _ = std::fs::remove_dir(&dir);
 }
 
 fn write_record(path: &Path, record: &Record) {
@@ -892,6 +1027,56 @@ mod tests {
         assert!(said.starts_with("Your user has a meeting, “Renewal call”, from "), "{said}");
         assert!(said.contains(" with Dana Kestrel, and asked Codealong to have you take its notes."), "{said}");
         assert!(said.ends_with("reply with only “Ready”."), "{said}");
+    }
+
+    #[test]
+    fn a_meeting_in_no_calendar_is_named_for_what_you_typed_and_kept_like_the_rest() {
+        // The first line of what you typed is its name; with nothing typed it has none.
+        let named = unplanned("\n  On-site with Kestrel  \nTrack what they ask for", NOW);
+        assert_eq!((named.title.as_str(), named.start, named.end, named.unplanned), ("On-site with Kestrel", NOW, NOW, true));
+        assert!(named.id.starts_with("now:") && named.attendees.is_empty() && named.calendar.is_empty());
+        let bare = unplanned("  ", NOW);
+        assert_eq!(bare.title, "");
+        assert_eq!(unplanned(&"x".repeat(200), NOW).title.chars().count(), 80);
+        // Its session is named for it, or for when it began; its folder is among your meetings.
+        assert_eq!(session_name(&named), "On-site with Kestrel");
+        assert!(session_name(&bare).starts_with("Meeting at "), "{}", session_name(&bare));
+        let root = Path::new("/Users/me/Meetings");
+        assert!(util::file_name(&folder_for(root, &named)).ends_with(" On-site with Kestrel"));
+        assert!(util::file_name(&folder_for(root, &bare)).ends_with(" Meeting"));
+        // It's a meeting with nobody named in it and no call, which no calendar's rule would
+        // count: its session is asked only to be there, and told nothing of a calendar.
+        assert!(!is_meeting(&named));
+        let said = opening(&named);
+        assert!(said.starts_with("Your user is in a meeting, and asked Codealong to have you listen in on it."), "{said}");
+        assert!(said.ends_with("reply with only “Ready”.") && !said.contains("calendar"), "{said}");
+        // What its folder says of it reads back as one that's in no calendar.
+        let record = Record { meeting: named.clone(), listening: "l1".into(), session: "claude:work:abc".into(), role: Role::Coach, taken_at: NOW };
+        let read: Record = serde_json::from_str(&serde_json::to_string(&record).unwrap()).unwrap();
+        assert_eq!(read, record);
+        assert!(read.meeting.unplanned);
+    }
+
+    #[test]
+    fn a_meeting_stopped_at_once_with_nothing_heard_was_started_by_mistake() {
+        let l = Listening {
+            id: "l".into(),
+            session: "claude:work:abc".into(),
+            started_at: NOW,
+            ended_at: Some(NOW + 20_000),
+            meeting: Some(unplanned("", NOW)),
+            folder: Some("/Users/me/Meetings/2026-11-10 1400 Meeting".into()),
+            ..Listening::default()
+        };
+        assert!(stray(&l));
+        // Something was heard, or it went on a while: it's a meeting, short as it was.
+        assert!(!stray(&Listening { lines: 1, ..l.clone() }));
+        assert!(!stray(&Listening { ended_at: Some(NOW + STRAY_MS), ..l.clone() }));
+        // Ended by itself (voice turned off, its helper failing) isn't you taking it back.
+        assert!(!stray(&Listening { why_ended: Some("voice was turned off".into()), ..l.clone() }));
+        // Still hearing, or a session's own listening that no session was started for.
+        assert!(!stray(&Listening { ended_at: None, ..l.clone() }));
+        assert!(!stray(&Listening { meeting: None, folder: None, ..l }));
     }
 
     #[test]

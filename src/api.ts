@@ -2020,6 +2020,10 @@ export interface QuickOpen {
   improve?: boolean | { shots: Attachment[] };
   /** Starts in a chat of its own, in no project (`[shortcuts] chat`), in place of `laneId`. */
   chat?: boolean;
+  /** Listen now (`[shortcuts] listen`, meetings.rs `now`): the panel asks what the meeting is
+   *  and ⏎ has Codealong hear it from then on, with a session started for it, in a chat of its
+   *  own unless a worktree is picked. */
+  listen?: boolean;
   /** How tall the panel's window can be: from its top edge to the bottom of the screen's usable
    *  part. quick.rs adds it to every open. */
   room?: number;
@@ -2129,7 +2133,7 @@ export function windowLabel(): string | null {
 /** One of the shortcuts that work in every app, the quick panel's unless `which` says, and
  *  whether it works. */
 export async function quickShortcut(which: ShortcutStatus['which'] = 'quick'): Promise<ShortcutStatus> {
-  const preview: ShortcutStatus = { which, shortcut: { quick: 'Option+Cmd+/', chat: "Option+Cmd+'", waiting: 'Option+Cmd+.', improve: 'Option+Cmd+,', main: 'Option+Cmd+;', talk: 'Option+Cmd+[', talkorchestrator: 'Option+Cmd+]' }[which], error: null };
+  const preview: ShortcutStatus = { which, shortcut: { quick: 'Option+Cmd+/', chat: "Option+Cmd+'", waiting: 'Option+Cmd+.', improve: 'Option+Cmd+,', main: 'Option+Cmd+;', talk: 'Option+Cmd+[', talkorchestrator: 'Option+Cmd+]', listen: 'Option+Cmd+=' }[which], error: null };
   if (!inTauri) return preview;
   return (await invoke<ShortcutStatus | null>('quick_shortcut', { which })) ?? preview;
 }
@@ -2308,6 +2312,15 @@ export async function answerMeeting(id: string, take: boolean): Promise<{ sessio
   if (!inTauri) return null;
   // Taken, the listening it started, whose `session` is the one that takes its notes.
   return (await invoke<{ session?: string } | null>('meeting', { id, take })) ?? null;
+}
+
+/** Listen now (meetings.rs `now`): Codealong hears a meeting from this moment, with a session
+ *  started for it in `lane`, a worktree's id, or as a chat of its own without one. `meeting` is
+ *  the one in your calendar it is, by its id, when it's one; `ask.prompt` is what you typed.
+ *  Resolves once the session has the listening; rejects with why when it can't. */
+export async function listenNow(now: { meeting?: string; lane?: string; ask: ListenAsk }): Promise<{ session?: string } | null> {
+  if (!inTauri) return null;
+  return (await invoke<{ session?: string } | null>('listen_now', { meeting: now.meeting ?? null, lane: now.lane ?? null, ask: now.ask })) ?? null;
 }
 
 /** The meetings in the day ahead, the first to start first: none while they aren't offered. */

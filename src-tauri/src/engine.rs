@@ -1032,6 +1032,7 @@ pub fn starting_board() -> Board {
         main_window_shortcut: shortcuts.main_window,
         talk_shortcut: shortcuts.talk,
         talk_orchestrator_shortcut: shortcuts.talk_orchestrator,
+        listen_shortcut: shortcuts.listen,
         ..Default::default()
     }
 }
@@ -4190,6 +4191,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         let in_use = self.cfg.shortcuts_in_use();
         board.talk_shortcut = in_use.talk;
         board.talk_orchestrator_shortcut = in_use.talk_orchestrator;
+        board.listen_shortcut = in_use.listen;
         // Codealong's own source's worktrees, and where a session that improves it goes.
         let sources: HashSet<PathBuf> = self.codealong_sources.iter().map(|(root, _)| root.clone()).collect();
         crate::improve::mark(&mut board.lanes, &self.lane_checkout, &sources);

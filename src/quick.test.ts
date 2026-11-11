@@ -557,6 +557,9 @@ describe('shortcuts', () => {
     // What the label shows for a recorded one is what TAKEN is keyed by.
     expect(TAKEN[shortcutLabel('Cmd+Space')!]).toBe('Spotlight');
     expect(TAKEN[shortcutLabel((shortcutFromKey(key('Space', { altKey: true })) as { shortcut: string }).shortcut)!]).toContain('ChatGPT');
+    // The key beside the ones held to talk is 1Password's, which is why Listen now's is ⌥⌘=.
+    expect(TAKEN[shortcutLabel((shortcutFromKey(key('Backslash', { altKey: true, metaKey: true })) as { shortcut: string }).shortcut)!]).toContain('1Password');
+    expect(TAKEN[shortcutLabel('Option+Cmd+=')!]).toBeUndefined();
   });
 
   it('waits while only modifiers are down, and turns away keys that would take typing or menus', () => {

@@ -4,6 +4,8 @@
 // What it lists scrolls within it, the new-session row stays above the bar, and the bar's menus
 // open over the list. quick.rs sizes its window to the card, plus room for the shadow; the open
 // reports that height, to the script that opened it, which returns it, or with quickReady.
+// Opened to listen (Quick.tsx) it lists nothing, and is one height of its own: what a listening
+// asks, with room for every choice it can show.
 
 import { useLayoutEffect, type MutableRefObject, type RefObject } from 'react';
 import { quickReady } from '../api';
@@ -14,9 +16,15 @@ export const MARGIN = 20;
 /** The card's height: what it reached with the list at its tallest, before it was fixed. */
 export const HEIGHT = 640;
 
-/** The card's height where the window has `room` on its screen (null: off any screen). */
-export function cardHeight(room: number | null): number {
-  return room ? Math.min(HEIGHT, room - 2 * MARGIN) : HEIGHT;
+/** The card's height when the panel is opened to listen: the box, what a listening asks with
+ *  every choice showing (a meeting from the calendar, a session on each request), the row that
+ *  starts it and the bar, with a line to spare for something that went wrong. */
+export const LISTEN_HEIGHT = 500;
+
+/** The card's height where the window has `room` on its screen (null: off any screen), `tall`
+ *  when it has the room. */
+export function cardHeight(room: number | null, tall: number = HEIGHT): number {
+  return room ? Math.min(tall, room - 2 * MARGIN) : tall;
 }
 
 export interface QuickSize {
@@ -30,6 +38,8 @@ export interface QuickSize {
   opens: number;
   /** How tall the window can be on its screen. */
   room: number | null;
+  /** How tall the card is with the room for it: `HEIGHT`, or `LISTEN_HEIGHT` opened to listen. */
+  tall: number;
   /** Who opens the panel while it's being laid out: the script that returns the height, or the page. */
   opening: MutableRefObject<'script' | 'page' | null>;
   /** The height last reported, which the opening script returns. */
@@ -38,7 +48,7 @@ export interface QuickSize {
   caretKept: MutableRefObject<boolean>;
 }
 
-export function useQuickSize({ list, scroller, input, asking, opens, room, opening, reported, caretKept }: QuickSize): void {
+export function useQuickSize({ list, scroller, input, asking, opens, room, tall, opening, reported, caretKept }: QuickSize): void {
   // A scrollbar, where macOS shows one, narrows the rows while the list scrolls; the new-session
   // row below it keeps in line with them.
   useLayoutEffect(() => {
@@ -48,7 +58,7 @@ export function useQuickSize({ list, scroller, input, asking, opens, room, openi
 
   useLayoutEffect(() => {
     if (opens === 0) return;
-    const h = cardHeight(room) + 2 * MARGIN;
+    const h = cardHeight(room, tall) + 2 * MARGIN;
     reported.current = h;
     // The cursor goes at the end of whatever the panel opens with: nothing, a todo's prompt, or
     // what a failed start left; unfolded, where you left it.
@@ -59,6 +69,7 @@ export function useQuickSize({ list, scroller, input, asking, opens, room, openi
     }
     caretKept.current = false;
     if (opening.current !== 'script') void quickReady(h);
-    // The room comes with each open. The refs are the same objects on every render.
-  }, [opens, room, input, asking, opening, reported, caretKept]);
+    // The room and what it's opened for come with each open. The refs are the same objects on
+    // every render.
+  }, [opens, room, tall, input, asking, opening, reported, caretKept]);
 }

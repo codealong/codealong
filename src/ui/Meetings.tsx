@@ -32,7 +32,7 @@ const PARTS: { id: Part; label: string }[] = [
   { id: 'transcript', label: 'Transcript' },
 ];
 
-export function MeetingsDialog({ onClose, onShowSession }: { onClose: () => void; onShowSession: (key: string) => boolean }) {
+export function MeetingsDialog({ onClose, onShowSession, onListen }: { onClose: () => void; onShowSession: (key: string) => boolean; onListen: () => void }) {
   const [kept, setKept] = useState<KeptMeeting[] | null>(null);
   const [ahead, setAhead] = useState<MeetingAhead[]>([]);
   const [failed, setFailed] = useState<string | null>(null);
@@ -125,15 +125,22 @@ export function MeetingsDialog({ onClose, onShowSession }: { onClose: () => void
       className="ca-meetingsdlg"
       aside={failed ? <span className="ca-meetings-failed">{failed}</span> : undefined}
       foot={
-        <Button variant="primary" size="sm" onClick={onClose} disabled={taking !== null}>
-          Done
-        </Button>
+        <>
+          {/* A meeting that isn't in your calendar, or that you'd name yourself: Listen now asks
+              what it is in the quick panel (meetings.rs `now`). */}
+          <Button variant="ghost" size="sm" icon="microphone" title="Have Codealong hear a meeting from the moment you say, in your calendar or not, with a session started for it" onClick={onListen} disabled={taking !== null}>
+            Listen now…
+          </Button>
+          <Button variant="primary" size="sm" onClick={onClose} disabled={taking !== null}>
+            Done
+          </Button>
+        </>
       }
     >
       <div className="ca-dialog-body">
         {none ? (
           <p className="ca-meetings-none">
-            No meetings yet. With Offer to take a meeting’s notes as it starts on (Settings › Experimental), Codealong asks as one in your calendar is about to start, the day’s meetings are listed here, and the ones you take are kept here.
+            No meetings yet. Listen now has Codealong hear one from the moment you say, and it’s kept here. With Offer to take a meeting’s notes as it starts on (Settings › Experimental), Codealong asks as one in your calendar is about to start, and the day’s meetings are listed here too.
           </p>
         ) : (
           <div className="ca-meetings">

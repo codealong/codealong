@@ -1378,10 +1378,13 @@ window.__TAURI_INTERNALS__ = {
       return Promise.resolve({ notes: '# Renewal call\n\n- Signed by end of June, live in September.\n- Dana signs off over ten seats.\n', transcript: '[14:03:22] Them: Can it export to CSV?\n[14:03:27] You: Not yet.\n[14:03:40] (Codealong’s hearing stopped and started again here: some of what was said is missing.)\n' });
     }
     if (cmd === 'listen') return window.__LISTEN_FAILS__ ? Promise.reject(new Error(window.__LISTEN_FAILS__)) : Promise.resolve({ id: 'sample', session: (args || {}).key });
+    // Listen now (meetings.rs `now`), which a check reads from `sent('listen_now')`: the listening
+    // it started, with the session started for it, or why not (`window.__LISTEN_FAILS__`).
+    if (cmd === 'listen_now') return window.__LISTEN_FAILS__ ? Promise.reject(new Error(window.__LISTEN_FAILS__)) : Promise.resolve({ id: 'sample', session: 'claude:work:listen-now' });
     if (cmd === 'quick_shortcut') {
       var which = (args && args.which) || 'quick';
       var set = window.__SHORTCUTS__ || {};
-      var defaults = { quick: 'Option+Cmd+/', chat: "Option+Cmd+'", waiting: 'Option+Cmd+.', improve: 'Option+Cmd+,', main: 'Option+Cmd+;', talk: 'Option+Cmd+[', talkorchestrator: 'Option+Cmd+]' };
+      var defaults = { quick: 'Option+Cmd+/', chat: "Option+Cmd+'", waiting: 'Option+Cmd+.', improve: 'Option+Cmd+,', main: 'Option+Cmd+;', talk: 'Option+Cmd+[', talkorchestrator: 'Option+Cmd+]', listen: 'Option+Cmd+=' };
       return Promise.resolve({ which: which, shortcut: which in set ? set[which] : defaults[which], error: null });
     }
     // A folder's path typed in the quick panel's worktree menu (newfolder.rs `look`), on a made-up
