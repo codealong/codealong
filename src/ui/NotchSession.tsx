@@ -114,7 +114,8 @@ export interface NotchStageState {
   /** The session or review left the bar (marked seen, snoozed, archived; approved, reviewed): on
    *  to the next, or the end of what waits when none does. */
   left: (key: string, done: Left) => void;
-  /** The board no longer has the session `key`: going back and forward passes it over. */
+  /** The board no longer has the session `key`, as the engine said once it had read the board:
+   *  going back and forward passes it over from then on. */
   gone: (key: string) => void;
   /** The review `key` left on didn't go: it's back among what waits, the notch opens on it again
    *  when it had closed, and the strip says why. */
@@ -402,8 +403,8 @@ interface NotchSessionProps {
    *  (NotchStageState `failed`): it comes round again, the notch back on it where it closed or
    *  ended, saying `why` (menus.ts `SessionCan.failed`). */
   onFailed: (key: string, why: string) => void;
-  /** The board no longer has it. */
-  onGone: (key: string) => void;
+  /** The board no longer has it: `sure` when the engine said so, not when asking it failed. */
+  onGone: (key: string, sure: boolean) => void;
   /** The zoom the card draws at, in percent, from the bar's feed (zoom.ts). */
   zoom?: number;
 }
@@ -420,10 +421,10 @@ export function NotchSession({ sessionKey, rename, now, queue, notice, onBack, k
       (at) => {
         if (over) return;
         if (at) setTold(at);
-        else gone.current(sessionKey);
+        else gone.current(sessionKey, true);
       },
       () => {
-        if (!over) gone.current(sessionKey);
+        if (!over) gone.current(sessionKey, false);
       },
     );
     return () => {

@@ -1028,8 +1028,9 @@ export function Bar() {
                 onLeft={stage.left}
                 onUnsent={stage.unsent}
                 onFailed={stage.failed}
-                onGone={(key) => {
-                  stage.gone(key);
+                onGone={(key, sure) => {
+                  // An answer from a board still being read, or none, says nothing of it.
+                  if (sure && feed && !feed.loading) stage.gone(key);
                   stage.close();
                   setFailed({ anchor: key, message: 'That session is no longer on the board.' });
                 }}
