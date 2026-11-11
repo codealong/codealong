@@ -4243,7 +4243,9 @@ orchestrator's answers, cursor and narrative in `orchestrator/`; what every
 model call used, and Claude's extra usage as it was read, in `ledger.sqlite` (the Usage window's).
 Todos and labels are in `todos.json`, which is watched, so an agent or an editor can add to it.
 The listenings (*Voice*) are in `listenings.json`, and each one's transcript and notes in a folder
-of its own in `listenings/`.
+of its own in `listenings/`; a meeting taken from your calendar has its folder in `meetings/`
+instead (or where `[voice] meetings_folder` says), and the meetings you took or passed on are
+noted in `meetings.json`, so one isn't offered twice.
 The schedules are in `schedules.json`, watched the same way, and what happened to each (its runs,
 the session it keeps going, what its watch saw, the runs asked for) in `schedule-runs.json`; each
 schedule's watch and notes have a folder of their own in `schedules/`.

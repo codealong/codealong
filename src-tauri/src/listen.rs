@@ -952,6 +952,10 @@ fn goes_on_as(id: &str, key: &str) -> Option<Listening> {
         running.moved_at = Some(util::now_ms());
     }
     let now = update(id, |l| l.session = key.to_string());
+    // A meeting's own record says which session took it, so it follows.
+    if let Some(l) = &now {
+        crate::meetings::follow(l);
+    }
     changed();
     now
 }
@@ -1000,12 +1004,18 @@ fn end(id: &str, why: Option<String>) -> Option<Listening> {
 }
 
 /// Ends the listening of session `key`, as the person asks.
-/// Ends every meeting's listening that's still hearing (`Listening::meeting`), as the next one is
-/// taken: its time is up. One you started yourself on a session goes on.
-pub fn end_meetings(why: &str) {
-    for l in list().into_iter().filter(|l| l.hearing() && l.meeting.is_some()) {
+/// Ends every meeting's listening that's still hearing (`Listening::meeting`) but `keep`, the
+/// next one's, once that one is hearing: the last meeting's time is up. One you started yourself
+/// on a session goes on.
+pub fn end_meetings_but(keep: &str, why: &str) {
+    for l in list().into_iter().filter(|l| l.hearing() && l.meeting.is_some() && l.id != keep) {
         end(&l.id, Some(why.to_string()));
     }
+}
+
+/// The meetings being heard now, by their ids in the calendar: taken, whatever else knows it.
+pub fn meetings_heard() -> Vec<String> {
+    list().into_iter().filter(Listening::hearing).filter_map(|l| l.meeting.map(|m| m.id)).collect()
 }
 
 pub fn stop(key: &str) -> Result<Listening> {

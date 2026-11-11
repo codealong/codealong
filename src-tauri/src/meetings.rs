@@ -9,7 +9,9 @@
 //!
 //! A meeting is an event with a time of day that someone else is in, or that's held on a call
 //! (`is_meeting`), and that you didn't say no to. It's on offer from a minute before it starts
-//! until ten minutes in, or its end (`on_offer`); one you took or passed on isn't offered again.
+//! until ten minutes in, or its end (`on_offer`); one you took or passed on isn't offered again,
+//! which `meetings.json` beside config.toml keeps across a server started again, nor is one a
+//! session is hearing.
 //! What's on offer is on the board (`Board::meeting`), which every window draws from.
 //!
 //! Taking one (`take`) starts a session for it as a chat of its own, on the account and model
@@ -36,7 +38,7 @@ use crate::config::Config;
 use crate::ear::{self, Calendar, Meeting};
 use crate::engine::Handle;
 use crate::listen::{self, Listening, Role};
-use crate::{config, util};
+use crate::{config, store, util};
 
 /// How long before a meeting starts it's offered, and how far into it the offer stays.
 const LEAD_MS: i64 = 60 * 1000;
@@ -152,13 +154,43 @@ pub fn files(root: &Path, folder: &str) -> Result<Files> {
     Ok(Files { notes: read("notes.md"), transcript: read("transcript.md") })
 }
 
+/// The meetings you took or passed on, by id, and when, as `meetings.json` keeps them: a server
+/// started again in the middle of a meeting's offer doesn't make it twice.
+#[derive(Serialize, Deserialize, Default)]
+struct Answers {
+    #[serde(default)]
+    answered: std::collections::BTreeMap<String, i64>,
+}
+
+fn answers_path() -> PathBuf {
+    config::support_dir().join("meetings.json")
+}
+
+/// Notes an answer in the file, and lets go of the ones too old to matter.
+fn note_answer(path: &Path, id: &str, now: i64) {
+    let noted = store::change(path, "the meetings you answered", |file: &mut Answers| {
+        file.answered.retain(|_, at| now - *at < ANSWERS_KEPT_MS);
+        file.answered.insert(id.to_string(), now);
+        true
+    });
+    // One that isn't noted is still remembered until the server goes; the file's trouble is
+    // said as a notice (store.rs `problems`).
+    let _ = store::noted(path, noted);
+}
+
+fn kept_answers(path: &Path) -> HashMap<String, i64> {
+    store::read_or_default::<Answers>(path).answered.into_iter().collect()
+}
+
 #[derive(Default)]
 struct State {
     calendar: Calendar,
     read_at: Option<Instant>,
     problem: Option<String>,
-    /// The meetings you took or passed on, by id, and when.
+    /// The meetings you took or passed on, by id, and when: the file's (`Answers`), read at the
+    /// first look, and what's been answered since.
     answered: HashMap<String, i64>,
+    answers_read: bool,
     /// The one whose session is being started.
     taking: Option<String>,
     offer: Option<Offer>,
@@ -287,13 +319,21 @@ fn look(engine: &Handle) {
         let had = {
             let mut state = state();
             let had = state.offer.take().is_some();
-            *state = State { answered: std::mem::take(&mut state.answered), ..State::default() };
+            *state = State { answered: std::mem::take(&mut state.answered), answers_read: state.answers_read, ..State::default() };
             had
         };
         if had {
             engine.listenings_changed();
         }
         return;
+    }
+    if !state().answers_read {
+        let kept = kept_answers(&answers_path());
+        let mut state = state();
+        for (id, at) in kept {
+            state.answered.entry(id).or_insert(at);
+        }
+        state.answers_read = true;
     }
     if state().read_at.is_none_or(|at| at.elapsed() >= READ_EVERY) {
         read(false);
@@ -321,8 +361,14 @@ fn read(ask: bool) {
 
 /// Works out what's on offer, and has the board say so when it changed.
 fn settle(engine: &Handle, now: i64) {
+    // A meeting a session is hearing was taken, whatever the answers say: by a server before
+    // this one that went between starting it and noting it, say.
+    let heard = listen::meetings_heard();
     let changed = {
         let mut state = state();
+        for id in heard {
+            state.answered.entry(id).or_insert(now);
+        }
         let offer = match state.taking.clone() {
             // The one being taken stays in sight until it's hearing, whatever the time.
             Some(id) => state.calendar.events.iter().find(|m| m.id == id).map(|m| Offer { meeting: m.clone(), taking: true }),
@@ -372,6 +418,7 @@ pub fn ask(engine: &Handle) -> Result<Status> {
 pub fn pass(engine: &Handle, id: &str) {
     let now = util::now_ms();
     state().answered.insert(id.to_string(), now);
+    note_answer(&answers_path(), id, now);
     settle(engine, now);
 }
 
@@ -399,6 +446,9 @@ pub fn take(engine: &Handle, id: &str, role: Role) -> Result<Listening> {
             state.answered.insert(id.to_string(), now);
         }
     }
+    if taken.is_ok() {
+        note_answer(&answers_path(), id, now);
+    }
     settle(engine, now);
     taken
 }
@@ -423,15 +473,34 @@ fn begin(engine: &Handle, cfg: &Config, meeting: &Meeting, role: Role) -> Result
     shows(engine, &key)?;
     // Named for its meeting, where its harness would name it for what it was first asked.
     let _ = crate::actions::local(engine, &crate::actions::From::Here, api::SESSION_RENAME, &key, api::params::Rename { key: String::new(), name: util::truncate(meeting.title.trim(), 80) });
-    // The last meeting's is over, if it's still hearing: its time is up, and this one has come.
-    listen::end_meetings("the next meeting was taken");
     let ask = listen::Ask { mic: true, system: true, speakers: cfg.voice.on_speakers, role, ..listen::Ask::default() };
     let listening = listen::start_of(engine, &key, &ask, Some(listen::Of { meeting: meeting.clone(), folder: folder.clone() }))?;
-    let record = Record { meeting: meeting.clone(), listening: listening.id.clone(), session: listening.session.clone(), role, taken_at: now };
-    if let Err(e) = serde_json::to_string_pretty(&record).map_err(anyhow::Error::from).and_then(|text| util::write_whole(&folder.join("meeting.json"), &text)) {
-        eprintln!("meetings: {} wasn't written: {e}", folder.join("meeting.json").display());
-    }
+    // The last meeting's is over, if it's still hearing: its time is up, and this one has come.
+    // Only now that this one is hearing: a take that failed leaves the last one as it was.
+    listen::end_meetings_but(&listening.id, "the next meeting was taken");
+    write_record(&folder.join("meeting.json"), &Record { meeting: meeting.clone(), listening: listening.id.clone(), session: listening.session.clone(), role, taken_at: now });
     Ok(listening)
+}
+
+fn write_record(path: &Path, record: &Record) {
+    if let Err(e) = serde_json::to_string_pretty(record).map_err(anyhow::Error::from).and_then(|text| util::write_whole(path, &text)) {
+        eprintln!("meetings: {} wasn't written: {e}", path.display());
+    }
+}
+
+/// Keeps a meeting's record with the session its listening goes on under (listen.rs
+/// `goes_on_as`: one that had stopped was resumed as a copy, with another key), so *Its session*
+/// in the window that lists your meetings goes to the one that has the conversation.
+pub fn follow(l: &Listening) {
+    if l.folder.is_none() {
+        return;
+    }
+    let path = l.dir().join("meeting.json");
+    let Some(mut record) = std::fs::read_to_string(&path).ok().and_then(|text| serde_json::from_str::<Record>(&text).ok()) else { return };
+    if record.listening == l.id && record.session != l.session {
+        record.session = l.session.clone();
+        write_record(&path, &record);
+    }
 }
 
 /// Waits for a session just started to show on the board, which its listening is started from.
@@ -495,6 +564,40 @@ mod tests {
         answered.insert("b".to_string(), NOW);
         assert_eq!(on_offer(&events, &answered, NOW), None);
         assert_eq!(on_offer(&events, &answered, NOW + 4 * MIN).map(|m| m.id.as_str()), Some("later"));
+    }
+
+    #[test]
+    fn the_answers_to_offers_are_kept_in_a_file_and_the_old_ones_let_go() {
+        let path = store::test_dir("meetings-answers").join("meetings.json");
+        assert!(kept_answers(&path).is_empty());
+        note_answer(&path, "a", NOW);
+        note_answer(&path, "b", NOW + MIN);
+        // As a server started again reads them: neither is on offer.
+        let kept = kept_answers(&path);
+        assert_eq!((kept.get("a"), kept.get("b")), (Some(&NOW), Some(&(NOW + MIN))));
+        assert_eq!(on_offer(&[meeting("a", NOW, 30), meeting("b", NOW, 30)], &kept, NOW + MIN), None);
+        // One from long ago goes as the next is noted.
+        note_answer(&path, "c", NOW + ANSWERS_KEPT_MS + MIN);
+        let kept = kept_answers(&path);
+        assert_eq!(kept.keys().map(String::as_str).collect::<Vec<_>>(), vec!["c"]);
+    }
+
+    #[test]
+    fn a_meetings_record_follows_its_listening_to_the_session_it_goes_on_under() {
+        let folder = store::test_dir("meetings-follow").join("2026-11-10 1400 Renewal call");
+        std::fs::create_dir_all(&folder).unwrap();
+        let record = Record { meeting: meeting("a", NOW, 30), listening: "l1".into(), session: "claude:work:old".into(), role: Role::Notes, taken_at: NOW };
+        write_record(&folder.join("meeting.json"), &record);
+        let read = || serde_json::from_str::<Record>(&std::fs::read_to_string(folder.join("meeting.json")).unwrap()).unwrap();
+        let listening = |id: &str, session: &str| Listening { id: id.into(), session: session.into(), folder: Some(folder.to_string_lossy().into_owned()), meeting: Some(meeting("a", NOW, 30)), ..Listening::default() };
+        // Another listening's move leaves it (the meeting taken again, into a folder beside it).
+        follow(&listening("l2", "claude:work:other"));
+        assert_eq!(read(), record);
+        follow(&listening("l1", "claude:work:new"));
+        assert_eq!(read(), Record { session: "claude:work:new".into(), ..record });
+        // One that's no meeting's has no record to keep.
+        follow(&Listening { id: "l1".into(), session: "claude:work:x".into(), ..Listening::default() });
+        assert_eq!(read().session, "claude:work:new");
     }
 
     #[test]
