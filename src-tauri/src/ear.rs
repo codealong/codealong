@@ -341,8 +341,10 @@ pub struct Meeting {
     pub title: String,
     pub start: i64,
     pub end: i64,
-    /// The calendar it's in, by name.
+    /// The calendar it's in, by name, and by the id that stays when it's renamed.
     pub calendar: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub calendar_id: String,
     /// The others in it, by name, or by address where the calendar has no name for them.
     pub attendees: Vec<String>,
     /// The person said no to it.
@@ -365,6 +367,15 @@ pub struct CalendarSource {
     pub kind: String,
 }
 
+/// One of the person's calendars: its id, its name, and the account it's from.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CalendarInfo {
+    pub id: String,
+    pub title: String,
+    pub source: String,
+}
+
 /// The person's calendar as the helper read it.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -374,6 +385,8 @@ pub struct Calendar {
     pub access: String,
     /// The accounts it has calendars from. Empty unless it's allowed.
     pub sources: Vec<CalendarSource>,
+    /// Every calendar, by account then name.
+    pub calendars: Vec<CalendarInfo>,
     /// The events between the times asked for, the first to start first.
     pub events: Vec<Meeting>,
 }
@@ -422,9 +435,11 @@ mod tests {
         let read: Calendar = serde_json::from_value(json!({
             "access": "allowed",
             "sources": [{ "title": "sam@northwind.example", "kind": "caldav" }],
-            "events": [{ "id": "E1@1794330000000", "title": "Renewal call", "start": 1_794_330_000_000i64, "end": 1_794_331_800_000i64, "calendar": "Work", "attendees": ["Dana Kestrel"], "declined": false, "link": "https://meet.example/abc", "series": "E1" }]
+            "calendars": [{ "id": "C1", "title": "Work", "source": "sam@northwind.example" }],
+            "events": [{ "id": "E1@1794330000000", "title": "Renewal call", "start": 1_794_330_000_000i64, "end": 1_794_331_800_000i64, "calendar": "Work", "calendarId": "C1", "attendees": ["Dana Kestrel"], "declined": false, "link": "https://meet.example/abc", "series": "E1" }]
         }))
         .unwrap();
+        assert_eq!((read.calendars[0].id.as_str(), read.events[0].calendar_id.as_str()), ("C1", "C1"));
         assert_eq!((read.access.as_str(), read.sources[0].kind.as_str(), read.events[0].attendees.len(), read.events[0].link.as_deref()), ("allowed", "caldav", 1, Some("https://meet.example/abc")));
         assert_eq!(serde_json::from_value::<Calendar>(json!({ "access": "unasked" })).unwrap(), Calendar { access: "unasked".into(), ..Calendar::default() });
         // A newer helper's line, and an answer nobody waits for any more.

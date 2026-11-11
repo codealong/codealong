@@ -4,7 +4,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { emit, emitTo, listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import type { AccountCfg, AccountInfo, AgentsStatus, Answers, AtLogin, Attachment, BarFeed, BarNote, Board, CalendarStatus, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, DevicesView, EditorIcon, FolderLook, FoundAccount, Harness, HarnessSchedule, Hearing, HearingStatus, HostedStream, KeptMeeting, MeetingFiles, IdlePlan, JevReport, LabelColor, Lane, LineageFeed, ListenAsk, ListeningTail, MergeBox, MergeOp, ModeSwitched, Notice, PathKind, PeekOpen, PeekShown, Pending, Profile, PointerProbe, PrAt, PrDetail, PrItem, ResumeIn, Reviewed, Route, RouteNote, ScheduleOp, ScheduleTimes, Sent, Session, SessionSpent, Since, SetupView, ShortcutStatus, Side, SideKept, SkillsListed, StalePlan, StaleOutcome, Started, StartOptions, StartPlace, StartSpec, Talk, Talked, TerminalFrame, TerminalGlance, TerminalInput, TerminalSize, TerminalTheme, TextFound, Theme, TodoSuggested, TokenReport, Training, TranscriptPage, Unqueued, UpdateView, Verdict, Way, WrittenReview, YourReview } from './types';
+import type { AccountCfg, AccountInfo, AgentsStatus, Answers, AtLogin, Attachment, BarFeed, BarNote, Board, CalendarStatus, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, DevicesView, EditorIcon, FolderLook, FoundAccount, Harness, HarnessSchedule, Hearing, HearingStatus, HostedStream, KeptMeeting, MeetingAhead, MeetingFiles, IdlePlan, JevReport, LabelColor, Lane, LineageFeed, ListenAsk, ListeningTail, MergeBox, MergeOp, ModeSwitched, Notice, PathKind, PeekOpen, PeekShown, Pending, Profile, PointerProbe, PrAt, PrDetail, PrItem, ResumeIn, Reviewed, Route, RouteNote, ScheduleOp, ScheduleTimes, Sent, Session, SessionSpent, Since, SetupView, ShortcutStatus, Side, SideKept, SkillsListed, StalePlan, StaleOutcome, Started, StartOptions, StartPlace, StartSpec, Talk, Talked, TerminalFrame, TerminalGlance, TerminalInput, TerminalSize, TerminalTheme, TextFound, Theme, TodoSuggested, TokenReport, Training, TranscriptPage, Unqueued, UpdateView, Verdict, Way, WrittenReview, YourReview } from './types';
 import type { PrTab } from './agentReview';
 import type { ListenAsked } from './listening';
 import type { AgentTask } from './agentTasks';
@@ -2285,9 +2285,16 @@ export async function listeningOf(key: string): Promise<ListeningTail | null> {
 
 /** Takes the meeting on offer (meetings.rs), with a session that listens and keeps its notes, or
  *  with `take` false passes on it. Taking resolves once the session is hearing. */
-export async function answerMeeting(id: string, take: boolean): Promise<void> {
-  if (!inTauri) return;
-  await invoke('meeting', { id, take });
+export async function answerMeeting(id: string, take: boolean): Promise<{ session?: string } | null> {
+  if (!inTauri) return null;
+  // Taken, the listening it started, whose `session` is the one that takes its notes.
+  return (await invoke<{ session?: string } | null>('meeting', { id, take })) ?? null;
+}
+
+/** The meetings in the day ahead, the first to start first: none while they aren't offered. */
+export async function meetingsAhead(): Promise<MeetingAhead[]> {
+  if (!inTauri) return [];
+  return (await invoke<MeetingAhead[] | null>('meetings_ahead')) ?? [];
 }
 
 /** Your meetings, the latest first: the folders among them that say which meeting they are. */

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calendarSays, meetingWhen, meetingWith } from './meetings';
+import { calendarsByAccount, calendarSays, calendarsOff, meetingTime, meetingWhen, meetingWith } from './meetings';
 import type { CalendarStatus } from './types';
 
 const NOW = 1_794_330_000_000;
@@ -24,6 +24,31 @@ describe('the meeting on offer, in words', () => {
     expect(meetingWith({ attendees: ['A', 'B', 'C', 'D'] })).toBe('with A, B, C and D');
     expect(meetingWith({ attendees: ['A', 'B', 'C', 'D', 'E'] })).toBe('with A, B, C, D and 1 more');
     expect(meetingWith({ attendees: ['A', 'B', 'C', 'D', 'E', 'F'] })).toBe('with A, B, C, D and 2 more');
+  });
+});
+
+describe('the calendars that count', () => {
+  it('are listed under the account each is from', () => {
+    const cal = (id: string, title: string, source: string) => ({ id, title, source });
+    expect(calendarsByAccount([])).toEqual([]);
+    expect(calendarsByAccount([cal('1', 'Home', 'iCloud'), cal('2', 'Family', 'iCloud'), cal('3', 'Work', 'sam@northwind.example')])).toEqual([
+      { source: 'iCloud', calendars: [cal('1', 'Home', 'iCloud'), cal('2', 'Family', 'iCloud')] },
+      { source: 'sam@northwind.example', calendars: [cal('3', 'Work', 'sam@northwind.example')] },
+    ]);
+  });
+
+  it('are left out by id, each once, and taken back in', () => {
+    expect(calendarsOff([], 'a', false)).toEqual(['a']);
+    expect(calendarsOff(['a'], 'a', false)).toEqual(['a']);
+    expect(calendarsOff(['a', 'b'], 'a', true)).toEqual(['b']);
+    expect(calendarsOff(['b'], 'a', true)).toEqual(['b']);
+  });
+
+  it('say when a meeting ahead is, and that it’s tomorrow when it is', () => {
+    const today = new Date(2026, 10, 10, 9, 0).getTime();
+    const at = (h: number, m: number, d = 10) => new Date(2026, 10, d, h, m).getTime();
+    expect(meetingTime({ start: at(14, 0), end: at(14, 30) }, today)).toMatch(/^2:00.* – 2:30/);
+    expect(meetingTime({ start: at(8, 0, 11), end: at(9, 0, 11) }, today)).toMatch(/^Tomorrow, 8:00.* – 9:00/);
   });
 });
 

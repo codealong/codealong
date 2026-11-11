@@ -3444,16 +3444,20 @@ or with `--at-speed` at the speed it plays, the session told as it goes: a way t
 meeting you recorded.
 
 **Meetings.** With *Offer to take a meeting's notes as it starts* on (Settings › Experimental;
-`[voice] meetings`), Codealong reads your calendar and, a minute before a meeting starts, asks
-whether to take its notes: a card under the notch's pills, a line ahead of the floating bar's
+`[voice] meetings`), Codealong reads your calendar and, a minute before a meeting starts (or as
+it starts, or up to ten minutes before: *A meeting is offered*, `meeting_lead`), asks whether to
+take its notes: a card under the notch's pills, a line ahead of the floating bar's
 pills, and a line in the main window beside its notices, with the meeting's name, when it starts
 and who else is in it. The offer
 stays until ten minutes into the meeting, or its end. **Take notes** starts a session for it, a
 chat of its own named for the meeting, and has it listen to your microphone and to what the Mac
 plays as its note-taker, with nothing more to set up; **Not this one** puts the offer away, and
 that meeting isn't offered again. A meeting is an event with a time of day that someone else is
-in, or that has a link to a call (Zoom, Meet, Teams and the like), and that you didn't decline:
-time you set aside for yourself isn't offered.
+in, or that has a link to a call (Zoom, Meet, Teams and the like). Never offered: an event that
+takes the whole day, one that was called off, one you declined, time you set aside for yourself
+(nobody else in it and no link to a call), and one longer than four hours (a day away with
+others in it). Settings lists your calendars under the account each is from, all ticked: untick
+one and its meetings aren't offered (`meeting_calendars_off`, by the calendar's id).
 
 The calendar is macOS's own, the one the Calendar app shows: whichever accounts you added to this
 Mac in System Settings › Internet Accounts (Google, iCloud, Exchange), so there's nothing to sign
@@ -3469,8 +3473,10 @@ took it. The folders are side by side in `meetings` beside config.toml, or where
 meetings_folder` says (a folder you sync, or your notes app's). That folder is the record: nothing
 else lists your meetings, and a session started in it can read them all, which is how one is
 asked what was said last week. The calendar button in the main window's bar (there while voice is
-on) opens them: the list, the latest first, and the one picked with its notes or its transcript,
-*Its session* to go to the session that took it, and *Show in Finder* for its folder. The session that takes a meeting is told which meeting it is and
+on) opens your meetings: the ones in the day ahead, as your calendar has them, where one that's
+going on or starts within ten minutes has *Take notes* (before its offer, or after you passed on
+it); and the ones that were taken, the latest first, the one picked with its notes or its
+transcript, *Its session* to go to the session that took it, and *Show in Finder* for its folder. The session that takes a meeting is told which meeting it is and
 where the earlier ones are, and that what you write to it while the meeting goes on is your own
 note, to work into its notes. It starts on the account `[voice] meeting_account` names (an
 account, a routing group, or Auto) with `meeting_model`, or the account's own: a small model keeps

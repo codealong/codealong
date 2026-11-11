@@ -878,6 +878,13 @@ calls! {
         Ok(crate::meetings::kept(&crate::meetings::root(&cfg)))
     }
 
+    /// The meetings in the day ahead (meetings.rs `ahead`), the first to start first, with whether
+    /// each can be taken now: none while meetings aren't offered.
+    fn meetings_ahead(c) -> Result<Vec<crate::meetings::Ahead>, String> {
+        let cfg = config::current().map_err(words)?;
+        Ok(crate::meetings::ahead(&cfg))
+    }
+
     /// A kept meeting's notes and transcript (meetings.rs `files`), by its folder.
     fn meeting_files(c, folder: String) -> Result<crate::meetings::Files, String> {
         let cfg = config::current().map_err(words)?;

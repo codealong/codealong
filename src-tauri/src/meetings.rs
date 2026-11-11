@@ -40,9 +40,36 @@ use crate::engine::Handle;
 use crate::listen::{self, Listening, Role};
 use crate::{config, store, util};
 
-/// How long before a meeting starts it's offered, and how far into it the offer stays.
-const LEAD_MS: i64 = 60 * 1000;
+/// How far into a meeting its offer stays; how long before it starts is `[voice] meeting_lead`.
 const LATE_MS: i64 = 10 * 60 * 1000;
+
+/// An event longer than this isn't a meeting to take notes of: a day blocked out with others
+/// in it, an offsite, a conference.
+const LONGEST_MS: i64 = 4 * 60 * 60 * 1000;
+
+/// A meeting that's going on, or starts within this long, can be taken from the list of what's
+/// ahead, before or after its offer.
+const SOON_MS: i64 = 10 * 60 * 1000;
+
+/// What `[voice]` says of which meetings are offered: not those of the calendars left out, and
+/// from how long before one starts.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Rules {
+    pub off: Vec<String>,
+    pub lead_ms: i64,
+}
+
+impl Rules {
+    pub fn of(cfg: &Config) -> Rules {
+        Rules { off: cfg.voice.meeting_calendars_off.clone(), lead_ms: i64::from(cfg.voice.meeting_lead.min(config::MEETING_LEAD_MAX)) * 60 * 1000 }
+    }
+
+    /// Whether an event is one to offer at all: a meeting (`is_meeting`), in a calendar that
+    /// counts.
+    pub fn counts(&self, m: &Meeting) -> bool {
+        is_meeting(m) && (m.calendar_id.is_empty() || !self.off.contains(&m.calendar_id))
+    }
+}
 
 /// How far ahead the calendar is read, and how often.
 const AHEAD_MS: i64 = 24 * 60 * 60 * 1000;
@@ -87,6 +114,44 @@ pub struct Status {
     pub problem: Option<String>,
     /// Where your meetings are kept (`root`), as a path from your home.
     pub folder: String,
+    /// Every calendar, by account then name, for Settings to offer: which count is `[voice]
+    /// meeting_calendars_off`.
+    pub calendars: Vec<ear::CalendarInfo>,
+}
+
+/// A meeting in the day ahead, for the window that lists them: whether it can be taken now
+/// (it's going on, or about to), whether you answered its offer, and whether it's being heard.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Ahead {
+    #[serde(flatten)]
+    pub meeting: Meeting,
+    pub takeable: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub answered: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub heard: bool,
+}
+
+/// The meetings ahead that count, the first to start first, with one that's going on.
+fn ahead_of(events: &[Meeting], rules: &Rules, answered: &HashMap<String, i64>, heard: &[String], now: i64) -> Vec<Ahead> {
+    let mut ahead: Vec<Ahead> = events
+        .iter()
+        .filter(|m| rules.counts(m) && m.end > now)
+        .map(|m| Ahead { takeable: now >= m.start - SOON_MS && !heard.contains(&m.id), answered: answered.contains_key(&m.id), heard: heard.contains(&m.id), meeting: m.clone() })
+        .collect();
+    ahead.sort_by(|a, b| a.meeting.start.cmp(&b.meeting.start).then_with(|| a.meeting.id.cmp(&b.meeting.id)));
+    ahead
+}
+
+/// The meetings in the day ahead, as last read (`Ahead`): none while meetings aren't offered.
+pub fn ahead(cfg: &Config) -> Vec<Ahead> {
+    if !turned_on(cfg) {
+        return Vec::new();
+    }
+    let heard = listen::meetings_heard();
+    let state = state();
+    ahead_of(&state.calendar.events, &Rules::of(cfg), &state.answered, &heard, util::now_ms())
 }
 
 /// What a meeting's folder says of it (`meeting.json`): what the calendar had, and what took it.
@@ -204,18 +269,20 @@ fn state() -> MutexGuard<'static, State> {
 // The rules.
 
 /// Whether an event is a meeting to take notes of: someone else is in it or it's held on a call,
-/// and you didn't say no to it. A block of time you set aside for yourself isn't one.
+/// you didn't say no to it, and it isn't hours long. A block of time you set aside for yourself
+/// isn't one, nor a day away with others in it. Events that take the whole day, and ones called
+/// off, the helper leaves out as it reads (`calendar` in main.swift).
 pub fn is_meeting(m: &Meeting) -> bool {
-    !m.declined && (!m.attendees.is_empty() || m.link.is_some())
+    !m.declined && (!m.attendees.is_empty() || m.link.is_some()) && m.end - m.start <= LONGEST_MS
 }
 
 /// The meeting to offer at `now`: one about to start or not long begun, still going, that you
 /// haven't answered and that no session is hearing (`heard`). The first to start, of several.
-pub fn on_offer<'a>(events: &'a [Meeting], answered: &HashMap<String, i64>, heard: &[String], now: i64) -> Option<&'a Meeting> {
+pub fn on_offer<'a>(events: &'a [Meeting], rules: &Rules, answered: &HashMap<String, i64>, heard: &[String], now: i64) -> Option<&'a Meeting> {
     events
         .iter()
-        .filter(|m| is_meeting(m) && !answered.contains_key(&m.id) && !heard.contains(&m.id))
-        .filter(|m| now >= m.start - LEAD_MS && now < m.end.min(m.start + LATE_MS))
+        .filter(|m| rules.counts(m) && !answered.contains_key(&m.id) && !heard.contains(&m.id))
+        .filter(|m| now >= m.start - rules.lead_ms && now < m.end.min(m.start + LATE_MS))
         .min_by(|a, b| a.start.cmp(&b.start).then_with(|| a.id.cmp(&b.id)))
 }
 
@@ -361,10 +428,10 @@ fn read(ask: bool) {
 
 /// What's on offer: the meeting being taken, in sight until it's hearing whatever the time, else
 /// the one `on_offer` gives.
-fn offer_of(events: &[Meeting], answered: &HashMap<String, i64>, heard: &[String], taking: Option<&str>, now: i64) -> Option<Offer> {
+fn offer_of(events: &[Meeting], rules: &Rules, answered: &HashMap<String, i64>, heard: &[String], taking: Option<&str>, now: i64) -> Option<Offer> {
     match taking {
         Some(id) => events.iter().find(|m| m.id == id).map(|m| Offer { meeting: m.clone(), taking: true }),
-        None => on_offer(events, answered, heard, now).map(|m| Offer { meeting: m.clone(), taking: false }),
+        None => on_offer(events, rules, answered, heard, now).map(|m| Offer { meeting: m.clone(), taking: false }),
     }
 }
 
@@ -375,9 +442,12 @@ fn settle(engine: &Handle, now: i64) {
     // never remembered: one whose take is under way is listed as hearing before it is, and a
     // take that then fails leaves the meeting to be taken again.
     let heard = listen::meetings_heard();
+    // As the settings are now: a calendar left out in Settings is out at the next look.
+    let Ok(cfg) = config::current() else { return };
+    let rules = Rules::of(&cfg);
     let changed = {
         let mut state = state();
-        let offer = offer_of(&state.calendar.events, &state.answered, &heard, state.taking.as_deref(), now);
+        let offer = offer_of(&state.calendar.events, &rules, &state.answered, &heard, state.taking.as_deref(), now);
         let changed = offer != state.offer;
         state.offer = offer;
         changed
@@ -396,7 +466,8 @@ pub fn offered() -> Option<Offer> {
 pub fn status(cfg: &Config) -> Status {
     let now = util::now_ms();
     let state = state();
-    let ahead: Vec<&Meeting> = state.calendar.events.iter().filter(|m| is_meeting(m) && m.start > now).collect();
+    let rules = Rules::of(cfg);
+    let ahead: Vec<&Meeting> = state.calendar.events.iter().filter(|m| rules.counts(m) && m.start > now).collect();
     Status {
         on: turned_on(cfg),
         access: state.calendar.access.clone(),
@@ -405,6 +476,7 @@ pub fn status(cfg: &Config) -> Status {
         next_at: ahead.iter().map(|m| m.start).min(),
         problem: state.problem.clone(),
         folder: util::tilde(&root(cfg)),
+        calendars: state.calendar.calendars.clone(),
     }
 }
 
@@ -525,6 +597,8 @@ mod tests {
 
     const NOW: i64 = 1_794_330_000_000;
     const MIN: i64 = 60_000;
+    /// As a new config.toml has it: every calendar, a minute before.
+    const PLAIN: Rules = Rules { off: Vec::new(), lead_ms: MIN };
 
     fn meeting(id: &str, start: i64, minutes: i64) -> Meeting {
         Meeting { id: id.into(), title: "Renewal call".into(), start, end: start + minutes * MIN, calendar: "Work".into(), attendees: vec!["Dana Kestrel".into()], ..Meeting::default() }
@@ -538,23 +612,70 @@ mod tests {
         let alone = Meeting { attendees: Vec::new(), ..m.clone() };
         assert!(!is_meeting(&alone));
         assert!(is_meeting(&Meeting { link: Some("https://meet.example/abc".into()), ..alone }));
-        assert!(!is_meeting(&Meeting { declined: true, ..m }));
+        assert!(!is_meeting(&Meeting { declined: true, ..m.clone() }));
+        // Hours long, with others in it: a day away, not a meeting to take notes of.
+        assert!(is_meeting(&Meeting { end: m.start + LONGEST_MS, ..m.clone() }));
+        assert!(!is_meeting(&Meeting { end: m.start + LONGEST_MS + MIN, ..m }));
+    }
+
+    #[test]
+    fn the_settings_say_which_calendars_count_and_how_long_before() {
+        let work = Meeting { calendar_id: "work".into(), ..meeting("w", NOW, 30) };
+        let home = Meeting { calendar_id: "home".into(), ..meeting("h", NOW, 30) };
+        let events = [home.clone(), work.clone()];
+        let none = HashMap::new();
+        // Both count until one's calendar is left out; an event that names no calendar counts.
+        assert_eq!(on_offer(&events, &PLAIN, &none, &[], NOW).map(|m| m.id.as_str()), Some("h"));
+        let rules = Rules { off: vec!["home".into()], lead_ms: 5 * MIN };
+        assert!(rules.counts(&work) && !rules.counts(&home) && rules.counts(&meeting("x", NOW, 30)));
+        assert_eq!(on_offer(&events, &rules, &none, &[], NOW).map(|m| m.id.as_str()), Some("w"));
+        // Offered from as long before as asked, and at its start with none.
+        assert_eq!(on_offer(&events, &rules, &none, &[], NOW - 5 * MIN).map(|m| m.id.as_str()), Some("w"));
+        assert_eq!(on_offer(&events, &rules, &none, &[], NOW - 6 * MIN), None);
+        let at_start = Rules { off: Vec::new(), lead_ms: 0 };
+        assert_eq!(on_offer(&events, &at_start, &none, &[], NOW - 1), None);
+        assert!(on_offer(&events, &at_start, &none, &[], NOW).is_some());
+        // As config.toml has them, the lead in minutes and never more than the most.
+        let mut cfg: Config = toml::from_str("").unwrap();
+        cfg.voice.meeting_lead = 2;
+        cfg.voice.meeting_calendars_off = vec!["home".into()];
+        assert_eq!(Rules::of(&cfg), Rules { off: vec!["home".into()], lead_ms: 2 * MIN });
+        cfg.voice.meeting_lead = 500;
+        assert_eq!(Rules::of(&cfg).lead_ms, i64::from(config::MEETING_LEAD_MAX) * MIN);
+    }
+
+    #[test]
+    fn the_meetings_ahead_are_listed_with_what_can_be_done_with_each() {
+        let events = [
+            meeting("later", NOW + 3 * 60 * MIN, 30),
+            meeting("over", NOW - 60 * MIN, 30),
+            meeting("going", NOW - 5 * MIN, 30),
+            Meeting { attendees: Vec::new(), ..meeting("alone", NOW + MIN, 30) },
+            meeting("soon", NOW + 9 * MIN, 30),
+            Meeting { calendar_id: "home".into(), ..meeting("home", NOW + 2 * MIN, 30) },
+        ];
+        let rules = Rules { off: vec!["home".into()], lead_ms: MIN };
+        let answered = HashMap::from([("soon".to_string(), NOW)]);
+        let got: Vec<(String, bool, bool, bool)> = ahead_of(&events, &rules, &answered, &["going".to_string()], NOW).into_iter().map(|a| (a.meeting.id, a.takeable, a.answered, a.heard)).collect();
+        // In order; one that's over, one that's no meeting and one in a calendar left out aren't
+        // listed. One being heard can't be taken again; one you passed on still can.
+        assert_eq!(got, vec![("going".to_string(), false, false, true), ("soon".to_string(), true, true, false), ("later".to_string(), false, false, false)]);
     }
 
     #[test]
     fn a_meeting_is_on_offer_from_a_minute_before_until_ten_minutes_in_or_its_end() {
         let events = [meeting("a", NOW, 30)];
         let none = HashMap::new();
-        let offered = |now: i64| on_offer(&events, &none, &[], now).map(|m| m.id.as_str());
+        let offered = |now: i64| on_offer(&events, &PLAIN, &none, &[], now).map(|m| m.id.as_str());
         assert_eq!(offered(NOW - 2 * MIN), None);
-        assert_eq!(offered(NOW - LEAD_MS), Some("a"));
+        assert_eq!(offered(NOW - MIN), Some("a"));
         assert_eq!(offered(NOW), Some("a"));
         assert_eq!(offered(NOW + LATE_MS - 1), Some("a"));
         assert_eq!(offered(NOW + LATE_MS), None);
         // A short one is on offer only while it goes on.
         let short = [meeting("s", NOW, 5)];
-        assert_eq!(on_offer(&short, &none, &[], NOW + 4 * MIN).map(|m| m.id.as_str()), Some("s"));
-        assert_eq!(on_offer(&short, &none, &[], NOW + 5 * MIN), None);
+        assert_eq!(on_offer(&short, &PLAIN, &none, &[], NOW + 4 * MIN).map(|m| m.id.as_str()), Some("s"));
+        assert_eq!(on_offer(&short, &PLAIN, &none, &[], NOW + 5 * MIN), None);
     }
 
     #[test]
@@ -562,12 +683,12 @@ mod tests {
         let events = [meeting("b", NOW, 30), meeting("a", NOW, 30), meeting("later", NOW + 5 * MIN, 30), Meeting { attendees: Vec::new(), ..meeting("alone", NOW - MIN, 60) }];
         let mut answered = HashMap::new();
         // The first to start, and of two at once the same one every time.
-        assert_eq!(on_offer(&events, &answered, &[], NOW).map(|m| m.id.as_str()), Some("a"));
+        assert_eq!(on_offer(&events, &PLAIN, &answered, &[], NOW).map(|m| m.id.as_str()), Some("a"));
         answered.insert("a".to_string(), NOW);
-        assert_eq!(on_offer(&events, &answered, &[], NOW).map(|m| m.id.as_str()), Some("b"));
+        assert_eq!(on_offer(&events, &PLAIN, &answered, &[], NOW).map(|m| m.id.as_str()), Some("b"));
         answered.insert("b".to_string(), NOW);
-        assert_eq!(on_offer(&events, &answered, &[], NOW), None);
-        assert_eq!(on_offer(&events, &answered, &[], NOW + 4 * MIN).map(|m| m.id.as_str()), Some("later"));
+        assert_eq!(on_offer(&events, &PLAIN, &answered, &[], NOW), None);
+        assert_eq!(on_offer(&events, &PLAIN, &answered, &[], NOW + 4 * MIN).map(|m| m.id.as_str()), Some("later"));
     }
 
     #[test]
@@ -576,7 +697,7 @@ mod tests {
         let answered = HashMap::new();
         let offered = |heard: &[&str], taking: Option<&str>, now: i64| {
             let heard: Vec<String> = heard.iter().map(|id| id.to_string()).collect();
-            offer_of(&events, &answered, &heard, taking, now).map(|o| (o.meeting.id, o.taking))
+            offer_of(&events, &PLAIN, &answered, &heard, taking, now).map(|o| (o.meeting.id, o.taking))
         };
         assert_eq!(offered(&[], None, NOW), Some(("a".to_string(), false)));
         // Taken: in sight as starting, while its listening is filed before anything's heard.
@@ -599,7 +720,7 @@ mod tests {
         // As a server started again reads them: neither is on offer.
         let kept = kept_answers(&path);
         assert_eq!((kept.get("a"), kept.get("b")), (Some(&NOW), Some(&(NOW + MIN))));
-        assert_eq!(on_offer(&[meeting("a", NOW, 30), meeting("b", NOW, 30)], &kept, &[], NOW + MIN), None);
+        assert_eq!(on_offer(&[meeting("a", NOW, 30), meeting("b", NOW, 30)], &PLAIN, &kept, &[], NOW + MIN), None);
         // One from long ago goes as the next is noted.
         note_answer(&path, "c", NOW + ANSWERS_KEPT_MS + MIN);
         let kept = kept_answers(&path);

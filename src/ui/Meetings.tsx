@@ -1,14 +1,16 @@
-// Your meetings (src-tauri/src/meetings.rs `kept`): the folders among your meetings that say
-// which meeting they are, the latest first, and the one picked with its notes and its
-// transcript as its files have them. A dialog in the main window, opened from its bar. The
-// folders are the record, so this lists what's there now: nothing is kept about them elsewhere.
+// Your meetings (src-tauri/src/meetings.rs): the ones in the day ahead, as your calendar has
+// them (`ahead`), and the ones Codealong took, the latest first (`kept`: the folders among your
+// meetings that say which meeting they are), the one picked with its notes and its transcript
+// as its files have them. A dialog in the main window, opened from its bar. A meeting that's
+// going on or about to start can be taken from here, before or after its offer; the folders are
+// the record of the rest, so this lists what's there now.
 
 import { useEffect, useState } from 'react';
-import { keptMeetings, meetingFiles, revealFile } from '../api';
+import { answerMeeting, keptMeetings, meetingFiles, meetingsAhead, revealFile } from '../api';
 import { heardLine } from '../listening';
-import { meetingWith } from '../meetings';
+import { meetingTime, meetingWith } from '../meetings';
 import { errorText } from '../report';
-import type { KeptMeeting, MeetingFiles } from '../types';
+import type { KeptMeeting, MeetingAhead, MeetingFiles } from '../types';
 import { HeardLines } from './Listening';
 import { Markdown } from './Markdown';
 import { Button, cx, Dialog, Seg } from './primitives';
@@ -25,20 +27,30 @@ const PARTS: { id: Part; label: string }[] = [
 ];
 
 export function MeetingsDialog({ onClose, onShowSession }: { onClose: () => void; onShowSession: (key: string) => boolean }) {
-  const [all, setAll] = useState<KeptMeeting[] | null>(null);
+  const [kept, setKept] = useState<KeptMeeting[] | null>(null);
+  const [ahead, setAhead] = useState<MeetingAhead[]>([]);
   const [failed, setFailed] = useState<string | null>(null);
   const [picked, setPicked] = useState<string | null>(null);
   const [files, setFiles] = useState<{ of: string; files: MeetingFiles } | null>(null);
   const [part, setPart] = useState<Part>('notes');
+  // The meeting being taken from here: its session is starting.
+  const [taking, setTaking] = useState<string | null>(null);
+  // As the dialog opens; the list of what's ahead is the calendar's as the engine last read it.
+  const [now] = useState(() => Date.now());
   useEffect(() => {
     let over = false;
     keptMeetings().then(
-      (kept) => {
+      (all) => {
         if (over) return;
-        setAll(kept);
-        setPicked((p) => p ?? kept[0]?.folder ?? null);
+        setKept(all);
+        setPicked((p) => p ?? all[0]?.folder ?? null);
       },
       (e: unknown) => !over && setFailed(errorText(e)),
+    );
+    // None while meetings aren't offered, or from an engine that doesn't list them.
+    meetingsAhead().then(
+      (all) => !over && setAhead(all),
+      () => {},
     );
     return () => {
       over = true;
@@ -55,7 +67,7 @@ export function MeetingsDialog({ onClose, onShowSession }: { onClose: () => void
       over = true;
     };
   }, [picked]);
-  const shown = all?.find((m) => m.folder === picked) ?? null;
+  const shown = kept?.find((m) => m.folder === picked) ?? null;
   const read = files && files.of === picked ? files.files : null;
   const text = read ? (part === 'notes' ? read.notes : read.transcript) : null;
   const show = () => {
@@ -63,60 +75,107 @@ export function MeetingsDialog({ onClose, onShowSession }: { onClose: () => void
     if (shown && onShowSession(shown.session)) onClose();
     else setFailed('Its session is no longer on the board. Its notes and transcript are here.');
   };
+  const take = (m: MeetingAhead) => {
+    setFailed(null);
+    setTaking(m.id);
+    answerMeeting(m.id, true).then(
+      (listening) => {
+        // The session that takes its notes, as soon as the board has it: the dialog gives way.
+        if (listening?.session) onShowSession(listening.session);
+        onClose();
+      },
+      (e: unknown) => {
+        setTaking(null);
+        setFailed(errorText(e));
+      },
+    );
+  };
+  const none = kept !== null && kept.length === 0 && ahead.length === 0;
   return (
     <Dialog
       title="Meetings"
-      lede="The meetings whose notes Codealong took, the latest first. Each is a folder of plain files, yours to read, move or share."
+      lede="The meetings in the day ahead, and the ones whose notes Codealong took, the latest first. Each of those is a folder of plain files, yours to read, move or share."
       onClose={onClose}
+      busy={taking !== null}
       className="ca-meetingsdlg"
       aside={failed ? <span className="ca-meetings-failed">{failed}</span> : undefined}
       foot={
-        <Button variant="primary" size="sm" onClick={onClose}>
+        <Button variant="primary" size="sm" onClick={onClose} disabled={taking !== null}>
           Done
         </Button>
       }
     >
       <div className="ca-dialog-body">
-        {all && all.length === 0 ? (
-        <p className="ca-meetings-none">No meetings yet. With Offer to take a meeting’s notes as it starts on (Settings › Experimental), Codealong asks as one in your calendar is about to start, and the ones you take are kept here.</p>
-      ) : (
-        <div className="ca-meetings">
-          <ul className="ca-meetings-list" aria-label="Meetings">
-            {(all ?? []).map((m) => (
-              <li key={m.folder}>
-                <button type="button" className={cx('ca-meetings-row', m.folder === picked && 'is-on')} aria-current={m.folder === picked || undefined} onClick={() => setPicked(m.folder)}>
-                  <span className="ca-meetings-title">{m.title.trim() || 'A meeting'}</span>
-                  <span className="ca-meetings-when">{when(m.start)}</span>
-                  <span className="ca-meetings-who">{[meetingWith(m), m.lines === 0 ? 'nothing heard' : m.notes ? '' : 'no notes'].filter(Boolean).join(' · ')}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-          {shown && (
-            <section className="ca-meetings-shown" aria-label={shown.title}>
-              <header className="ca-meetings-head">
-                <Seg label="What to read" look="text" options={PARTS} value={part} onPick={setPart} />
-                <span className="ca-meetings-acts">
-                  <Button variant="ghost" size="sm" icon="message" title="Show the session that took its notes" onClick={show}>
-                    Its session
-                  </Button>
-                  <Button variant="ghost" size="sm" icon="folder" title={shown.folder} onClick={() => void revealFile(`${shown.folder}/meeting.json`).catch((e: unknown) => setFailed(errorText(e)))}>
-                    Show in Finder
-                  </Button>
-                </span>
-              </header>
-              <div className="ca-meetings-body">
-                {read === null ? null : text === null ? (
-                  <p className="ca-meetings-none">{part === 'notes' ? 'No notes were kept of it.' : 'Nothing was heard.'}</p>
-                ) : part === 'notes' ? (
-                  <Markdown text={text} />
-                ) : (
-                  <HeardLines lines={text.split('\n').filter((l) => l.trim() !== '').map(heardLine)} />
-                )}
-              </div>
-            </section>
-          )}
-        </div>
+        {none ? (
+          <p className="ca-meetings-none">
+            No meetings yet. With Offer to take a meeting’s notes as it starts on (Settings › Experimental), Codealong asks as one in your calendar is about to start, the day’s meetings are listed here, and the ones you take are kept here.
+          </p>
+        ) : (
+          <div className="ca-meetings">
+            <div className="ca-meetings-list">
+              {ahead.length > 0 && (
+                <>
+                  <h3 className="ca-meetings-group">Coming up</h3>
+                  <ul aria-label="Coming up">
+                    {ahead.map((m) => (
+                      <li key={m.id} className="ca-meetings-ahead">
+                        <span className="ca-meetings-title">{m.title.trim() || 'A meeting'}</span>
+                        <span className="ca-meetings-when">{meetingTime(m, now)}</span>
+                        <span className="ca-meetings-who">{[meetingWith(m), m.heard ? 'being heard now' : m.answered && !m.takeable ? '' : m.answered ? 'you passed on it' : ''].filter(Boolean).join(' · ')}</span>
+                        {m.takeable && (
+                          <Button size="sm" variant={m.answered ? 'secondary' : 'primary'} disabled={taking !== null} title="Start a session that listens to it and keeps its notes" onClick={() => take(m)}>
+                            {taking === m.id ? 'Starting…' : 'Take notes'}
+                          </Button>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+              {(kept ?? []).length > 0 && (
+                <>
+                  <h3 className="ca-meetings-group">Taken</h3>
+                  <ul aria-label="Taken">
+                    {(kept ?? []).map((m) => (
+                      <li key={m.folder}>
+                        <button type="button" className={cx('ca-meetings-row', m.folder === picked && 'is-on')} aria-current={m.folder === picked || undefined} onClick={() => setPicked(m.folder)}>
+                          <span className="ca-meetings-title">{m.title.trim() || 'A meeting'}</span>
+                          <span className="ca-meetings-when">{when(m.start)}</span>
+                          <span className="ca-meetings-who">{[meetingWith(m), m.lines === 0 ? 'nothing heard' : m.notes ? '' : 'no notes'].filter(Boolean).join(' · ')}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+            </div>
+            {shown ? (
+              <section className="ca-meetings-shown" aria-label={shown.title}>
+                <header className="ca-meetings-head">
+                  <Seg label="What to read" look="text" options={PARTS} value={part} onPick={setPart} />
+                  <span className="ca-meetings-acts">
+                    <Button variant="ghost" size="sm" icon="message" title="Show the session that took its notes" onClick={show}>
+                      Its session
+                    </Button>
+                    <Button variant="ghost" size="sm" icon="folder" title={shown.folder} onClick={() => void revealFile(`${shown.folder}/meeting.json`).catch((e: unknown) => setFailed(errorText(e)))}>
+                      Show in Finder
+                    </Button>
+                  </span>
+                </header>
+                <div className="ca-meetings-body">
+                  {read === null ? null : text === null ? (
+                    <p className="ca-meetings-none">{part === 'notes' ? 'No notes were kept of it.' : 'Nothing was heard.'}</p>
+                  ) : part === 'notes' ? (
+                    <Markdown text={text} />
+                  ) : (
+                    <HeardLines lines={text.split('\n').filter((l) => l.trim() !== '').map(heardLine)} />
+                  )}
+                </div>
+              </section>
+            ) : (
+              <p className="ca-meetings-none">None taken yet: the notes and transcript of the ones you take show here.</p>
+            )}
+          </div>
         )}
       </div>
     </Dialog>

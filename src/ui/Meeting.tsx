@@ -28,6 +28,7 @@ export function MeetingOffered({ offer, look }: { offer: MeetingOffer; look: 'ca
     answerMeeting(offer.id, take)
       .catch((err: unknown) => setFailed(errorText(err)))
       .finally(() => setAsked(false));
+    // Nothing to do with the session it started: the board shows it as it comes.
   };
   const title = offer.title.trim() || 'A meeting';
   const when = meetingWhen(offer, now);

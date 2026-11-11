@@ -16,10 +16,40 @@
   flex-direction: column;
   gap: 2px;
   min-height: 0;
+  overflow-y: auto;
+}
+.ca-meetings-list ul {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   margin: 0;
   padding: 0;
-  overflow-y: auto;
   list-style: none;
+}
+/* The two groups: what's ahead, and what was taken. */
+.ca-meetings-group {
+  margin: var(--space-2) 0 var(--space-1);
+  padding: 0 var(--space-3);
+  color: var(--ink-3);
+  font: var(--type-caption-heading);
+}
+.ca-meetings-group:first-child {
+  margin-top: 0;
+}
+/* One that's ahead: what it is, and Take notes once it can be taken. */
+.ca-meetings-ahead {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px var(--space-2);
+  align-items: center;
+  padding: var(--space-2) var(--space-3);
+}
+.ca-meetings-ahead > span {
+  grid-column: 1;
+}
+.ca-meetings-ahead > .ca-btn {
+  grid-column: 2;
+  grid-row: 1 / span 3;
 }
 .ca-meetings-row {
   appearance: none;

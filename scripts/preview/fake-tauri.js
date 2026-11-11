@@ -347,9 +347,18 @@ function meetingsSample() {
   };
   return [kept('2026-11-10 1400 Renewal call', 'Renewal call', 2 * 3600e3, ['Dana Kestrel', 'Lee Atlas'], 42, true), kept('2026-11-09 0930 Standup', 'Standup', day + 6 * 3600e3, ['Sam Northwind'], 0, false)];
 }
+// Three calendars from two accounts (ear.rs `CalendarInfo`), by account then name.
+function calendarsSample() {
+  return [{ id: 'C-family', title: 'Family', source: 'iCloud' }, { id: 'C-home', title: 'Home', source: 'iCloud' }, { id: 'C-work', title: 'Work', source: 'sam@northwind.example' }];
+}
+// The day ahead (meetings.rs `Ahead`): one going on that can be taken, one later.
+function aheadSample() {
+  var at = function (id, title, start, attendees, more) { return Object.assign({ id: id, title: title, start: Date.now() + start, end: Date.now() + start + 1800e3, calendar: 'Work', calendarId: 'C-work', attendees: attendees, takeable: false }, more); };
+  return [at('E-now@1', 'Design review', -4 * 60e3, ['Dana Kestrel'], { takeable: true }), at('E-later@1', 'Planning', 3 * 3600e3, ['Lee Atlas', 'Sam Northwind'], {})];
+}
 // Where the calendar stands (meetings.rs `Status`): allowed, one account, two meetings ahead.
 function calendarSample() {
-  return { on: true, access: 'allowed', sources: [{ title: 'sam@northwind.example', kind: 'caldav' }], meetings: 2, nextAt: Date.now() + 40 * 60e3, folder: '~/Library/Application Support/Codealong/meetings' };
+  return { on: true, access: 'allowed', sources: [{ title: 'sam@northwind.example', kind: 'caldav' }], meetings: 2, nextAt: Date.now() + 40 * 60e3, folder: '~/Library/Application Support/Codealong/meetings', calendars: calendarsSample() };
 }
 // A session that's listening, as the board lists it (listen.rs `Glance`): a coach, four minutes
 // in, hearing you and the Mac, with a cue it gave a few seconds ago.
@@ -1257,10 +1266,11 @@ window.__TAURI_INTERNALS__ = {
     }
     // A meeting taken or passed on, and the calendar asked for (meetings.rs): taking fails with
     // `window.__MEETING_FAILS__`, and the calendar stands as `window.__CALENDAR__` has it.
-    if (cmd === 'meeting') return window.__MEETING_FAILS__ && (args || {}).take ? Promise.reject(new Error(window.__MEETING_FAILS__)) : Promise.resolve(null);
+    if (cmd === 'meeting') return window.__MEETING_FAILS__ && (args || {}).take ? Promise.reject(new Error(window.__MEETING_FAILS__)) : Promise.resolve((args || {}).take ? { id: 'sample', session: 'claude:work:meeting-taken' } : null);
     if (cmd === 'calendar_access') return Promise.resolve(window.__CALENDAR__ || calendarSample());
     // Your meetings (meetings.rs `kept`), and one's notes and transcript.
     if (cmd === 'meetings_kept') return Promise.resolve(window.__MEETINGS__ || meetingsSample());
+    if (cmd === 'meetings_ahead') return Promise.resolve(window.__AHEAD__ || aheadSample());
     if (cmd === 'meeting_files') {
       return Promise.resolve({ notes: '# Renewal call\n\n- Signed by end of June, live in September.\n- Dana signs off over ten seats.\n', transcript: '[14:03:22] Them: Can it export to CSV?\n[14:03:27] You: Not yet.\n[14:03:40] (Codealong’s hearing stopped and started again here: some of what was said is missing.)\n' });
     }

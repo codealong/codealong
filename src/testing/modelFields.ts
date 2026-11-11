@@ -955,6 +955,8 @@ export type SoundsCfg = Holds<Same<
 export type VoiceCfg = Holds<Same<
   | "locale"
   | "meeting_account"
+  | "meeting_calendars_off"
+  | "meeting_lead"
   | "meeting_model"
   | "meetings"
   | "meetings_folder"

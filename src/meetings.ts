@@ -2,7 +2,7 @@
 // to start, the board says so (`Board.meeting`), and the windows ask whether to take its notes
 // (ui/Meeting.tsx). And where your calendar stands, as Settings says it.
 
-import type { CalendarStatus, Meeting } from './types';
+import type { CalendarInfo, CalendarStatus, Meeting } from './types';
 
 /** Names as a sentence lists them: "a", "a and b", "a, b and c" (util.rs `listed`). */
 function listed(names: readonly string[]): string {
@@ -30,6 +30,31 @@ export function meetingWith(m: Pick<Meeting, 'attendees'>): string {
 /** A time of day, as this Mac writes one. */
 function hour(at: number): string {
   return new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+
+/** When a meeting is, for a list of the day ahead: its start and end as this Mac writes times,
+ *  with "Tomorrow" ahead of one that isn't today. */
+export function meetingTime(m: Pick<Meeting, 'start' | 'end'>, now: number): string {
+  const day = (at: number) => new Date(at).toDateString();
+  return `${day(m.start) === day(now) ? '' : 'Tomorrow, '}${hour(m.start)} – ${hour(m.end)}`;
+}
+
+/** Your calendars by the account each is from, in the order they came (by account, then name),
+ *  for Settings to list under each account's name. */
+export function calendarsByAccount(calendars: readonly CalendarInfo[]): { source: string; calendars: CalendarInfo[] }[] {
+  const out: { source: string; calendars: CalendarInfo[] }[] = [];
+  for (const c of calendars) {
+    const last = out[out.length - 1];
+    if (last && last.source === c.source) last.calendars.push(c);
+    else out.push({ source: c.source, calendars: [c] });
+  }
+  return out;
+}
+
+/** `[voice] meeting_calendars_off` with a calendar ticked or unticked: the ids left out, each once. */
+export function calendarsOff(off: readonly string[], id: string, counts: boolean): string[] {
+  const rest = off.filter((x) => x !== id);
+  return counts ? rest : [...rest, id];
 }
 
 /** Where your calendar stands, for Settings: whose calendars are read and what's ahead, or why

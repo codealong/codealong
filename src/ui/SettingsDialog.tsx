@@ -10,7 +10,7 @@ import { nudgeKind, nudgeMerges, withMerges } from '../prStatus';
 import { heldSaid, shortcutFromKey, shortcutLabel, takenFor } from '../quick';
 import { DRAWS, HARNESS_WORD, MOVES_ACCOUNTS } from '../harness';
 import { worktreeName } from '../lanes';
-import { calendarSays } from '../meetings';
+import { calendarsByAccount, calendarSays, calendarsOff } from '../meetings';
 import { REUSE_WORDS } from '../reusable';
 import { groupReviewWords, reviewsRunIn } from '../review';
 import { type Field, mineOf, offerWords, pullRequestsFor, repoChoices, reviewsEverywhere, reviewsFor, type Reviews, sourceOf, type Source, teamFileOf, withOwn, withPullRequests, withRepo, withReviews, without, PULL_REQUESTS_OFF } from '../repoSettings';
@@ -2283,7 +2283,16 @@ function AdvancedPane({ cfg, view, disabled, onSave }: PaneProps & { view: Confi
 const EXPERIMENTS_OFF: Required<ExperimentalCfg> = { boards: false, voice: false };
 
 /** `[voice]` as a file without the table has it (config.rs `VoiceCfg`). */
-export const VOICE_DEFAULT: Required<VoiceCfg> = { locale: '', send_on_release: false, tell_every: 20, meetings: false, meetings_folder: '', meeting_account: '', meeting_model: '', on_speakers: false };
+export const VOICE_DEFAULT: Required<VoiceCfg> = { locale: '', send_on_release: false, tell_every: 20, meetings: false, meetings_folder: '', meeting_account: '', meeting_model: '', meeting_lead: 1, meeting_calendars_off: [], on_speakers: false };
+
+/** How long before a meeting starts it's offered, in minutes. */
+const MEETING_LEAD: Profile[] = [
+  { id: '0', name: 'As it starts' },
+  { id: '1', name: 'A minute before' },
+  { id: '2', name: '2 minutes before' },
+  { id: '5', name: '5 minutes before' },
+  { id: '10', name: '10 minutes before' },
+];
 
 /** The two shortcuts held to talk, as `SHORTCUTS` has the others. They're Voice's, so they're set
  *  with it, not in General. */
@@ -2445,6 +2454,30 @@ function MeetingsFields({ cfg, voice, setVoice }: { cfg: Config; voice: Required
       )}
       {voice.meetings && (
         <>
+          <label className="ca-field">
+            <span>A meeting is offered</span>
+            <ProfileSelect value={String(voice.meeting_lead)} profiles={MEETING_LEAD} onChange={(minutes) => setVoice({ meeting_lead: Number(minutes) })} />
+            <small>And until ten minutes into it. Events that take the whole day, ones you declined, ones with nobody else in them and no link to a call, and ones longer than four hours are never offered.</small>
+          </label>
+          {(calendar?.calendars?.length ?? 0) > 0 && (
+            <div className="ca-field">
+              <span>Calendars</span>
+              <div className="ca-settings-calendars">
+                {calendarsByAccount(calendar?.calendars ?? []).map((account) => (
+                  <div key={account.source} className="ca-settings-calaccount">
+                    <small>{account.source || 'On this Mac'}</small>
+                    {account.calendars.map((c) => (
+                      <label key={c.id} className="ca-settings-cal">
+                        <CheckBox checked={!voice.meeting_calendars_off.includes(c.id)} onChange={(counts) => setVoice({ meeting_calendars_off: calendarsOff(voice.meeting_calendars_off, c.id, counts) })} />
+                        <span>{c.title}</span>
+                      </label>
+                    ))}
+                  </div>
+                ))}
+              </div>
+              <small>Meetings in a calendar that isn’t ticked aren’t offered.</small>
+            </div>
+          )}
           <label className="ca-field">
             <span>A meeting’s session starts on</span>
             <ProfileSelect value={voice.meeting_account} profiles={accounts} onChange={(account) => setVoice({ meeting_account: account })} />

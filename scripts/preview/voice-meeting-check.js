@@ -5,8 +5,9 @@
 // offer stays; Not this one passes on it; and the offer goes when the board has none. The same
 // in the main window's bar and the floating bar (one line) and under the notch's pills (a card,
 // which opens the notch without taking the keyboard). In the main window, the bar's Meetings
-// button opens the ones that were kept: the list, the latest first, and the one picked with its
-// notes and its transcript (ui/Meetings.tsx).
+// button opens your meetings (ui/Meetings.tsx): the day ahead, where one that's going on can be
+// taken, and the ones that were kept, the latest first, the one picked with its notes and its
+// transcript.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/voice-meeting-check.js
 //   PREVIEW_WAIT=60000 scripts/preview.sh bar '' scripts/preview/voice-meeting-check.js
 //   PREVIEW_SIZE=1512,720 PREVIEW_WAIT=60000 scripts/preview.sh notch '' scripts/preview/voice-meeting-check.js
@@ -39,6 +40,7 @@
   // Your meetings, from the main window's bar: the list, and the one picked with its notes and
   // its transcript.
   var library = function () {
+    var taken = 0;
     var dialog = function () { return q('.ca-dialog.ca-meetingsdlg'); };
     var opens = q('.ca-win-bar button[aria-label="Meetings"]');
     check('with voice on, the window’s bar opens your meetings', !!opens);
@@ -62,10 +64,19 @@
       })
       .then(function () {
         check('a session the board no longer has is said to be gone, and the dialog stays', !!dialog() && q('.ca-meetings-failed', dialog()).textContent.indexOf('no longer on the board') > 0);
-        all('button', dialog()).filter(function (b) { return b.textContent.trim() === 'Done'; })[0].click();
-        return until(function () { return !dialog(); }, 2000, 'the dialog to close');
+        // The day ahead is listed over them; one that's going on can be taken from here.
+        var ahead = all('.ca-meetings-ahead', dialog());
+        check('the meetings ahead are listed, the first to start first', ahead.length === 2 && q('.ca-meetings-title', ahead[0]).textContent === 'Design review' && q('.ca-meetings-title', ahead[1]).textContent === 'Planning', ahead.map(function (a) { return a.textContent; }).join(' | '));
+        check('with when each is and who’s in it', / – /.test(q('.ca-meetings-when', ahead[0]).textContent) && q('.ca-meetings-who', ahead[1]).textContent === 'with Lee Atlas and Sam Northwind', q('.ca-meetings-when', ahead[0]).textContent + ' / ' + q('.ca-meetings-who', ahead[1]).textContent);
+        check('one that’s going on can be taken, a later one not yet', !!q('button', ahead[0]) && q('button', ahead[0]).textContent.trim() === 'Take notes' && !q('button', ahead[1]));
+        taken = asked().length;
+        q('button', ahead[0]).click();
+        return until(function () { return asked().length > taken && !dialog(); }, 3000, 'the meeting to be taken and the dialog to give way');
       })
-      .then(function () { check('Done closes it', true); });
+      .then(function () {
+        var last = asked()[asked().length - 1];
+        check('Take notes there takes it, and the dialog gives way to its session', last.id === 'E-now@1' && last.take === true && !dialog(), JSON.stringify(last));
+      });
   };
 
   say('voice meeting check: waiting for the offer');

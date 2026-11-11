@@ -887,6 +887,10 @@ export interface VoiceCfg {
    *  Auto), and its model, empty for the account's own. */
   meeting_account?: string;
   meeting_model?: string;
+  /** How many minutes before a meeting starts it's offered. */
+  meeting_lead?: number;
+  /** The calendars whose meetings aren't offered, by the ids macOS has for them. */
+  meeting_calendars_off?: string[];
   /** You're on speakers in your meetings: what the Mac plays is taken out of the microphone. */
   on_speakers?: boolean;
 }
@@ -898,7 +902,9 @@ export interface Meeting {
   title: string;
   start: number;
   end: number;
+  /** The calendar it's in, by name, and by the id that stays when it's renamed. */
   calendar: string;
+  calendarId?: string;
   /** The others in it, by name, or by address where the calendar has no name. */
   attendees: string[];
   declined?: boolean;
@@ -947,6 +953,24 @@ export interface CalendarStatus {
   problem?: string;
   /** Where your meetings are kept, as a path from your home. */
   folder: string;
+  /** Every calendar, by account then name, for Settings to offer: `id`, its name (`title`) and
+   *  the account it's from (`source`). Missing from engines before they were listed. */
+  calendars?: CalendarInfo[];
+}
+
+/** One of your calendars (ear.rs `CalendarInfo`). */
+export interface CalendarInfo {
+  id: string;
+  title: string;
+  source: string;
+}
+
+/** A meeting in the day ahead (meetings.rs `Ahead`): whether it can be taken now (it's going on,
+ *  or about to), whether you answered its offer, and whether a session is hearing it. */
+export interface MeetingAhead extends Meeting {
+  takeable: boolean;
+  answered?: boolean;
+  heard?: boolean;
 }
 
 /** What a listening session makes of what it hears (listen.rs `Role`). */

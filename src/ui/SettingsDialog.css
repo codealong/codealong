@@ -174,6 +174,23 @@
 .ca-settings-check small {
   grid-column: 2;
 }
+/* The calendars whose meetings are offered (MeetingsFields): a column of ticks under each
+   account's name. */
+.ca-settings-calendars {
+  display: grid;
+  gap: var(--space-3);
+}
+.ca-settings-calaccount {
+  display: grid;
+  gap: var(--space-1);
+}
+.ca-settings-cal {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--ink);
+  font: var(--type-body);
+}
 .ca-settings-files {
   grid-template-columns: 150px minmax(0, 1fr);
 }

@@ -720,6 +720,8 @@ meetings = false               # as a meeting in your calendar is about to start
 meetings_folder = ""           # where your meetings are kept, a folder each (transcript.md, notes.md, meeting.json); "" for meetings beside this file
 meeting_account = ""           # the account a meeting's session starts on: an account, a routing group, or "" for Auto
 meeting_model = ""             # and its model; "" for the account's own
+meeting_lead = 1               # how many minutes before a meeting starts it's offered (0 for as it starts, 30 at the most)
+meeting_calendars_off = []     # the calendars whose meetings aren't offered, by id; Settings lists them to untick
 on_speakers = false            # true takes what the Mac plays out of the microphone in every meeting; false, Codealong hears whether you're on speakers and does it then
 
 [debug]

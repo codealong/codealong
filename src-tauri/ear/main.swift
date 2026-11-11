@@ -1105,6 +1105,7 @@ func described(_ event: EKEvent) -> [String: Any] {
         "start": start,
         "end": Int64(event.endDate.timeIntervalSince1970 * 1000),
         "calendar": event.calendar?.title ?? "",
+        "calendarId": event.calendar?.calendarIdentifier ?? "",
         "attendees": others,
         "declined": people.first { $0.isCurrentUser }?.participantStatus == .declined,
     ]
@@ -1115,8 +1116,8 @@ func described(_ event: EKEvent) -> [String: Any] {
 
 /// The person's calendar, as macOS has it (EventKit: whichever accounts they added to this Mac,
 /// iCloud, Google, Exchange and the rest, with no sign-in of ours): whether Codealong may read
-/// it, the accounts it has calendars from, and the events between `from` and `to` (milliseconds
-/// since 1970) that have a time of day and weren't called off. With `ask`, macOS asks the person
+/// it, the accounts it has calendars from, each calendar, and the events between `from` and `to`
+/// (milliseconds since 1970) that have a time of day and weren't called off. With `ask`, macOS asks the person
 /// first when it hasn't yet, and this waits for their answer; without, nobody is asked anything.
 func calendar(_ params: [String: Any]) async -> [String: Any] {
     if params["ask"] as? Bool == true, EKEventStore.authorizationStatus(for: .event) == .notDetermined {
@@ -1129,6 +1130,11 @@ func calendar(_ params: [String: Any]) async -> [String: Any] {
     let store = EKEventStore()
     let kinds: [EKSourceType: String] = [.local: "local", .exchange: "exchange", .calDAV: "caldav", .mobileMe: "icloud", .subscribed: "subscribed", .birthdays: "birthdays"]
     answer["sources"] = store.sources.filter { !$0.calendars(for: .event).isEmpty }.map { ["title": $0.title, "kind": kinds[$0.sourceType] ?? "other"] }
+    // Each calendar, with the account it's from, for the person to say which count: by its id,
+    // which stays when it's renamed.
+    answer["calendars"] = store.calendars(for: .event)
+        .map { ["id": $0.calendarIdentifier, "title": $0.title, "source": $0.source?.title ?? ""] }
+        .sorted { ($0["source"] ?? "", $0["title"] ?? "") < ($1["source"] ?? "", $1["title"] ?? "") }
     let now = Date().timeIntervalSince1970 * 1000
     let from = Date(timeIntervalSince1970: ((params["from"] as? NSNumber)?.doubleValue ?? now) / 1000)
     let to = Date(timeIntervalSince1970: ((params["to"] as? NSNumber)?.doubleValue ?? now + 86_400_000) / 1000)
