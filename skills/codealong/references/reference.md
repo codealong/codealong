@@ -2749,7 +2749,8 @@ Options:
           do before then, as `session snooze` reads a time: a day (thu, tomorrow, next
           week, 2026-11-16: that morning at 9), a day and a time (thu 2pm), a time (5pm)
           or a span (3h). Codealong then offers its user a snooze until then, in the
-          session's Snooze menu and above its box, and the session isn't Finished. Only
+          session's Snooze menu and above its box, and the session isn't Finished. Say
+          it with how the reply ends (--ending) or another of these, not alone. Only
           where the reply says so ("nothing to do until Thursday's cutover", "the freeze
           lifts Monday"): not a deadline it's working to, nor a day it merely names
 

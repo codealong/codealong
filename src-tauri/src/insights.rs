@@ -102,6 +102,7 @@ pub fn ask(s: &Session, now: i64) -> Option<(Kind, String)> {
     // kept for the other. A call replaced while its question waits has a new time too, so an
     // answer read for the old one never applies.
     let since = s.status_since.filter(|_| s.status == Status::Needs).map(|t| t.to_string()).unwrap_or_default();
+    let day: String;
     let (kind, basis): (Kind, Vec<&str>) = if let Some(cmd) = s.background.as_deref() {
         let cmd = cmd.trim();
         if cmd.is_empty() {
@@ -123,7 +124,10 @@ pub fn ask(s: &Session, now: i64) -> Option<(Kind, String)> {
             return None;
         }
         // The same reply to another prompt is another moment: finished is asked about the prompt.
-        (Kind::Turn, vec![s.reply_tail.as_deref().filter(|t| !t.trim().is_empty())?, s.last_prompt.as_deref().unwrap_or(""), TURN_QUESTIONS])
+        // So is the same reply on another day: the days it names are counted from its own
+        // (`waits_question`), so "nothing until tomorrow" said again waits for another morning.
+        day = reply_day(s, &Local).to_string();
+        (Kind::Turn, vec![s.reply_tail.as_deref().filter(|t| !t.trim().is_empty())?, s.last_prompt.as_deref().unwrap_or(""), TURN_QUESTIONS, day.as_str()])
     } else {
         return None;
     };
@@ -192,17 +196,26 @@ const WAITS_UNTIL: f64 = 0.6;
 /// words and doesn't count days.
 const WAITS_DAYS: i64 = 7;
 
-/// The question of when the end of a reply written at `from` says the work goes on, with nothing
-/// for anyone to do before: a choice among no time said, later the same day, each of the next
-/// seven days, and later than those. A day's option says every way a reply names it (tomorrow,
-/// its weekday, its date in words and in numbers, in so many days, next week for its Monday) and
-/// is named by its date, so its answer says the day whenever it's read (`waits_until`). Jev is
+/// The day a session's last reply was written, in days since 1970-01-01 on `zone`'s clock: what
+/// the days the reply names are counted from, whenever it's asked about, and so part of the
+/// moment it's kept under (`ask`).
+fn reply_day(s: &Session, zone: &dyn Zone) -> i64 {
+    let at = zone.civil(s.turn_ended.unwrap_or(s.last_activity));
+    days_from_civil(at.year, at.month, at.day)
+}
+
+/// The question of when the end of a reply written on the day `today` says the work goes on,
+/// with nothing for anyone to do before: a choice among no time said, later the same day, each
+/// of the next seven days, and later than those. A day's option says every way a reply names it
+/// (tomorrow, its weekday, its date in words and in numbers, in so many days, next week for its
+/// Monday) and is named by its date, so its answer says the day whenever it's read
+/// (`waits_until`). Jev is
 /// weak at dates and counting (jev.rs), and with only weekdays for options it put "until the
 /// 11-14 walkthrough", "expires on November 16th" and "check back in two days" on other days or
 /// on none; with each day's date and count in its option it read all three at 0.94 to 1.00.
 /// Later the same day has an option so that "CI takes about 20 minutes" has somewhere to go that
 /// isn't tomorrow: no snooze is offered for it, since the choice can't say the hour.
-fn waits_question(from: i64, zone: &dyn Zone) -> Value {
+fn waits_question(today: i64) -> Value {
     const WEEKDAYS: [&str; 7] = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
     const MONTHS: [&str; 12] = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
     const COUNTS: [&str; 5] = ["two", "three", "four", "five", "six"];
@@ -216,8 +229,6 @@ fn waits_question(from: i64, zone: &dyn Zone) -> Value {
         };
         format!("{n}{end}")
     };
-    let at = zone.civil(from);
-    let today = days_from_civil(at.year, at.month, at.day);
     let mut criteria = Map::new();
     criteria.insert("none".into(), json!("It names no later time or day that the work waits for: it's done, it asks something now, it goes on now, or it waits on something with no time said."));
     criteria.insert("today".into(), json!("Later today: at a time today, this afternoon, this evening, tonight, or in some minutes or hours."));
@@ -336,8 +347,7 @@ fn request_in(s: &Session, kind: Kind, model: &str, waiting: Option<&str>, zone:
                     "criteria": Value::Object(LANDING.iter().map(|(k, v)| (k.to_string(), json!(v))).collect()),
                 });
             }
-            // The days are counted from when the reply was written, not from when it's asked about.
-            q["waits_until"] = waits_question(s.turn_ended.unwrap_or(s.last_activity), zone);
+            q["waits_until"] = waits_question(reply_day(s, zone));
             q
         }
         Kind::Quiet => {
@@ -631,6 +641,11 @@ mod tests {
         let mut again = session(Status::Unread);
         again.last_prompt = Some("Now the docs too".into());
         assert_ne!(ask(&again, NOW).unwrap().1, a);
+        // The same exchange on another day is another moment, since the days its reply names
+        // are counted from its own; later the same day it's still the one.
+        let on = |at: i64| Session { turn_ended: Some(at), last_activity: at, ..session(Status::Unread) };
+        assert_eq!(ask(&on(NOW - 120_000), NOW).unwrap().1, a);
+        assert_ne!(ask(&on(NOW + 2 * DAY_MS), NOW + 2 * DAY_MS).unwrap().1, a);
         // Each call a session waits on is a moment of its own, by when it began waiting: the
         // same line shown for another call (the same tool, other arguments) isn't the same
         // moment, so the risk read for one, from the whole call, isn't kept for the other.

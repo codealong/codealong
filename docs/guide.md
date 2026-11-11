@@ -3122,9 +3122,10 @@ the first line of its Snooze menu, and ⌃⌘8, in every window. It's only offer
 itself. Jev reads the day ([Session status from Jev](#session-status-from-jev)): tomorrow, a
 weekday, a date, in so many days or next week, up to a week ahead, and the snooze runs to 9 that
 morning; an agent that read the session can say any time (`codealong session tag <session>
---waits-until <when>`, when as `session snooze` reads it). The offer is for the reply it read: it
+--ending <how its reply ends> --waits-until <when>`, when as `session snooze` reads it). The offer is for the reply it read: it
 goes once the session is sent something or takes a turn, once it's snoozed, and when the time
-comes. Such a session isn't [Finished](#finished-sessions).
+comes. Such a session isn't [Finished](#finished-sessions), before the time or after it: the
+work it put off is then due.
 
 #### Quiet
 

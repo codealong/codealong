@@ -1791,9 +1791,9 @@ export interface SessionInsight {
    *  (insights.rs `ENDINGS`). `asksYou` is the chance of the first two together. */
   ending?: Ending;
   /** When its last reply says the work goes on, with nothing for you or it to do before then: a
-   *  snooze is offered until then (snooze.ts `suggestedUntil`). Jev reads a day, which is that
-   *  morning; an agent's tag says any time. Missing where the reply names none, once the time
-   *  has come, and from older Macs. */
+   *  snooze is offered until then (snooze.ts `suggestedSnooze`). Jev reads a day, which is that
+   *  morning; an agent's tag says any time. It stays once the time has come, when nothing is
+   *  offered. Missing where the reply names none, and from older Macs. */
   waitsUntil?: number;
 }
 

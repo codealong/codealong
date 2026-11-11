@@ -781,7 +781,7 @@ struct TagArgs {
     /// What the command its turn left running in the background does: polling (checks again and again for something outside), job (one long piece of work that ends by itself), server (keeps running until stopped; its turn is over) or stalled (stuck, or waiting on its user).
     #[arg(long, value_name = "KIND", value_parser = clap::builder::PossibleValuesParser::new(insights::BACKGROUND.map(|(k, _)| k)))]
     background: Option<String>,
-    /// When its last reply says the work goes on, with nothing for it or its user to do before then, as `session snooze` reads a time: a day (thu, tomorrow, next week, 2026-11-16: that morning at 9), a day and a time (thu 2pm), a time (5pm) or a span (3h). Codealong then offers its user a snooze until then, in the session's Snooze menu and above its box, and the session isn't Finished. Only where the reply says so ("nothing to do until Thursday's cutover", "the freeze lifts Monday"): not a deadline it's working to, nor a day it merely names.
+    /// When its last reply says the work goes on, with nothing for it or its user to do before then, as `session snooze` reads a time: a day (thu, tomorrow, next week, 2026-11-16: that morning at 9), a day and a time (thu 2pm), a time (5pm) or a span (3h). Codealong then offers its user a snooze until then, in the session's Snooze menu and above its box, and the session isn't Finished. Say it with how the reply ends (--ending) or another of these, not alone. Only where the reply says so ("nothing to do until Thursday's cutover", "the freeze lifts Monday"): not a deadline it's working to, nor a day it merely names.
     #[arg(long, value_name = "WHEN")]
     waits_until: Option<String>,
     /// Why, in a sentence or two; shown with the tag.
@@ -4622,6 +4622,30 @@ fn insight_words(i: &crate::model::SessionInsight) -> String {
     format!("{}{by}", parts.join(" · "))
 }
 
+/// What `session tag`'s arguments say of a session, at `now` on `zone`'s clock: nothing for
+/// --clear, which takes its tag away. An error says what's missing or doesn't read.
+fn tag_said(a: TagArgs, now: i64, zone: &dyn crate::schedules::rule::Zone) -> Result<params::Tag> {
+    if a.clear {
+        return Ok(params::Tag::default());
+    }
+    let read = a.asks_you.is_some() || a.ending.is_some() || a.landing.is_some() || a.finished.is_some() || a.risk.is_some() || a.background.is_some();
+    if !read && a.waits_until.is_none() {
+        bail!("Say something about it (--asks-you, --ending, --landing, --finished, --risk, --background or --waits-until), or --clear to take its tag away.");
+    }
+    // A Mac from before 2026-11-11 doesn't know when a reply's work goes on, and would take a
+    // tag that says nothing else for one taking its tag away.
+    if !read {
+        bail!("Say how its reply ends too (--ending), or another of --asks-you, --landing, --finished, --risk and --background: when its work goes on isn't a tag by itself.");
+    }
+    // Read on this Mac's clock, as a snooze's time is.
+    let waits_until = a.waits_until.as_deref().map(|when| crate::snoozewhen::until(when, now, zone).map_err(|e| anyhow!(e))).transpose()?;
+    let unit = |b: Option<bool>| b.map(|b| if b { 1.0 } else { 0.0 });
+    // An ending says whether the reply asks, and that goes with it: a Mac from before endings
+    // reads only that, and would take a tag that says nothing else for one taking its tag away.
+    let asks_you = unit(a.asks_you).or_else(|| a.ending.as_deref().map(|e| if insights::asking(e) { 1.0 } else { 0.0 }));
+    Ok(params::Tag { asks_you, ending: a.ending, landing: a.landing, finished: unit(a.finished), risk: a.risk.map(f64::from), background: a.background, waits_until, note: a.note, prompt_at: a.prompt_at, ..Default::default() })
+}
+
 /// `session tag`: asked as the session running the command, which is named with it, on
 /// whichever device the session is on. The app's windows show it at once; without the app, it's
 /// kept for it.
@@ -4629,21 +4653,7 @@ fn session_tag(c: &mut Client, a: TagArgs, json: bool) -> Result<()> {
     let key = resolve_any_session(c, &a.key)?;
     let me = find_me(c)?.0;
     let by_title = me.as_deref().and_then(|k| all_sessions(c.board().ok()?).into_iter().find(|(s, _)| s.key == k).map(|(s, _)| s.title.clone())).filter(|t| !t.is_empty());
-    let unit = |b: Option<bool>| b.map(|b| if b { 1.0 } else { 0.0 });
-    let params = if a.clear {
-        params::Tag::default()
-    } else {
-        if a.asks_you.is_none() && a.ending.is_none() && a.landing.is_none() && a.finished.is_none() && a.risk.is_none() && a.background.is_none() && a.waits_until.is_none() {
-            bail!("Say something about it (--asks-you, --ending, --landing, --finished, --risk, --background or --waits-until), or --clear to take its tag away.");
-        }
-        // Read on this Mac's clock, as a snooze's time is.
-        let waits_until = a.waits_until.as_deref().map(|when| crate::snoozewhen::until(when, crate::util::now_ms(), &crate::schedules::rule::Local).map_err(|e| anyhow!(e))).transpose()?;
-        // An ending says whether the reply asks, and that goes with it: a Mac from before endings
-        // reads only that, and would take a tag that says nothing else for one taking its tag away.
-        let asks_you = unit(a.asks_you).or_else(|| a.ending.as_deref().map(|e| if insights::asking(e) { 1.0 } else { 0.0 }));
-        params::Tag { asks_you, ending: a.ending, landing: a.landing, finished: unit(a.finished), risk: a.risk.map(f64::from), background: a.background, waits_until, note: a.note, prompt_at: a.prompt_at, ..Default::default() }
-    };
-    let params = params::Tag { by: me.clone(), by_title, ..params };
+    let params = params::Tag { by: me.clone(), by_title, ..tag_said(a, crate::util::now_ms(), &crate::schedules::rule::Local)? };
     let got = c.act(api::SESSION_TAG, &key, params, me)?;
     let out = ActOut { session: key, said: got.as_str().map(String::from), copy: None };
     if json {
@@ -8103,6 +8113,24 @@ mod tests {
         let cli = parse_from(["codealong", "session", "tag", "abc", "--waits-until", "thu 2pm", "--prompt-at", "4"]).unwrap();
         assert!(matches!(cli.cmd, Cmd::Session { cmd: SessionCmd::Tag(ref a) } if a.waits_until.as_deref() == Some("thu 2pm") && a.ending.is_none()));
         assert!(Cli::try_parse_from(["codealong", "session", "tag", "abc", "--clear", "--waits-until", "thu"]).is_err());
+        // When its work goes on is read as a snooze's time is, and said with something an older
+        // Mac knows too: alone, it would take the session's tag away there.
+        {
+            use crate::schedules::rule::tests::{ms, Fake};
+            // Wednesday, 2026-11-11, 2:10 PM.
+            let zone = Fake { offset_hours: -8, summer: None };
+            let now = ms(&zone, 2026, 11, 11, 14, 10);
+            let said = |args: &[&str]| {
+                let Cmd::Session { cmd: SessionCmd::Tag(a) } = parse_from([&["codealong", "session", "tag", "abc", "--prompt-at", "4"][..], args].concat()).unwrap().cmd else { panic!() };
+                tag_said(a, now, &zone)
+            };
+            let tag = said(&["--ending", "report", "--waits-until", "thu 2pm"]).unwrap();
+            assert_eq!((tag.waits_until, tag.ending.as_deref(), tag.asks_you), (Some(ms(&zone, 2026, 11, 12, 14, 0)), Some("report"), Some(0.0)));
+            assert_eq!(said(&["--finished", "no", "--waits-until", "mon"]).unwrap().waits_until, Some(ms(&zone, 2026, 11, 16, 9, 0)));
+            assert!(said(&["--waits-until", "thu"]).unwrap_err().to_string().starts_with("Say how its reply ends too"));
+            assert!(said(&["--ending", "report", "--waits-until", "whenever"]).unwrap_err().to_string().starts_with("Couldn't read"));
+            assert!(said(&["--note", "nothing read"]).unwrap_err().to_string().starts_with("Say something about it"));
+        }
         // The finished ones, alone or among what waits.
         let cli = parse_from(["codealong", "sessions", "--finished", "--waiting"]).unwrap();
         assert!(matches!(cli.cmd, Cmd::Sessions(ref a) if a.filter.finished && a.filter.waiting));

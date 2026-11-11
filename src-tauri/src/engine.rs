@@ -1887,10 +1887,7 @@ impl Engine {
             } else {
                 (None, None)
             };
-            if let Some(mut i) = crate::insights::merged(jev, said, tag) {
-                // The day its reply waits for is said until it comes: a snooze to it is offered
-                // only while it would hold the session back.
-                i.waits_until = i.waits_until.filter(|&until| until > now);
+            if let Some(i) = crate::insights::merged(jev, said, tag) {
                 board::apply_insight(s, &i);
                 board::asks_while_agents_run(s, &i, self.seen.seen_at(&s.key));
                 // A turn that left a server running is over: Your turn until you've seen it.

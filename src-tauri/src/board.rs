@@ -2313,7 +2313,8 @@ pub fn finished_of(s: &Session, work: &Work) -> Option<Finished> {
     let landing = read.and_then(|i| i.landing.as_deref()).or(work.said);
     let not_landed = landing.is_some_and(|l| matches!(l, "blocked" | "uncommitted" | "committed"));
     let done = read.and_then(|i| i.finished);
-    // Work that goes on at a later time isn't done, however the reply reads till then.
+    // Work put off to a later time isn't done, however the reply reads: not till then, and not
+    // once the time has come, when it's due.
     let goes_on_later = read.is_some_and(|i| i.waits_until.is_some());
     if leaves_a_step || goes_on_later || not_landed || done.is_some_and(|p| p < NOT_FINISHED) {
         return None;
@@ -5121,6 +5122,7 @@ mod tests {
         }
         left("reads as not done", ended(|i| i.finished = Some(0.4)));
         left("its work goes on at a later time", ended(|i| (i.finished, i.waits_until) = (Some(1.0), Some(NOW + DAY_MS))));
+        left("work it put off is due", ended(|i| (i.finished, i.waits_until) = (Some(1.0), Some(NOW - DAY_MS))));
         // What it is: working, waiting on you, archived, an agent's helper, a script's run.
         left("working", Session { status: Status::Working, ..done() });
         left("needs you", Session { status: Status::Needs, ..done() });
