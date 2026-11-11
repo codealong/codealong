@@ -598,6 +598,18 @@ struct State {
     ending: HashSet<String>,
 }
 
+/// How long an ending under way is waited for (`ending_over`): a helper writes its last words in
+/// a fraction of a second, and one that hangs isn't waited on for ever.
+const ENDING_WAIT: Duration = Duration::from_secs(15);
+
+/// Waits until no ending of listening `id` is under way (`end_when`).
+fn ending_over(id: &str) {
+    let since = Instant::now();
+    while state().ending.contains(id) && since.elapsed() < ENDING_WAIT {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
 /// An ending under way (`State::ending`), over when this goes, however the ending went.
 struct Ending(String);
 
@@ -982,22 +994,36 @@ pub fn attach(engine: &Handle, id: &str, key: &str) -> Result<Listening> {
     };
     let now = util::now_ms();
     let key = moved.clone().unwrap_or_else(|| key.to_string());
-    // Telling it took a moment, in which the listening may have ended (its helper failed, voice
-    // was turned off): it's the session's only if it's still hearing, said in the change that
-    // files it so, and otherwise nothing is left of it, as when it ended before.
-    let mut claimed = false;
-    let Some(l) = update(id, |l| claimed = claim(l, &key, now)) else { bail!("Its listening is gone.") };
+    // Telling it took a moment, in which the listening may have ended or begun to (its helper
+    // failed, voice was turned off, it waited too long). It's the session's only if no ending
+    // has taken it, which is asked, and filed, under the lock an ending begins under
+    // (`end_when`): one or the other happens, never both. What's running learns of the session
+    // under that lock too, so a look that reads the new key from the file finds the grace a
+    // copy just resumed is given (`awaited`) already there.
+    let (filed, claimed) = {
+        let mut state = state();
+        let mut claimed = false;
+        let filed = match state.ended.contains(id) {
+            true => list().into_iter().find(|l| l.id == id),
+            false => update(id, |l| claimed = claim(l, &key, now)),
+        };
+        if let Some(running) = state.running.get_mut(id).filter(|_| claimed) {
+            running.session = key.clone();
+            // What it said before it was listening is no cue.
+            running.reply = Some(session.reply_tail.clone());
+            // Resumed as a copy to be told: the board takes a moment to list that one.
+            running.moved_at = moved.is_some().then_some(now);
+        }
+        (filed, claimed)
+    };
+    let Some(l) = filed else { bail!("Its listening is gone.") };
     if !claimed {
+        // Once its ending is over, so why it ended is known and its last words are written.
+        ending_over(id);
+        let l = list().into_iter().find(|l| l.id == id).unwrap_or(l);
         let why = l.why_ended.as_deref().map(|why| format!(": {why}")).unwrap_or_default();
         forget(&l);
         bail!("Its listening ended as its session started{why}.");
-    }
-    if let Some(running) = state().running.get_mut(id) {
-        running.session = key.clone();
-        // What it said before it was listening is no cue.
-        running.reply = Some(session.reply_tail.clone());
-        // Resumed as a copy to be told: the board takes a moment to list that one.
-        running.moved_at = moved.is_some().then_some(now);
     }
     changed();
     Ok(l)
@@ -1091,8 +1117,10 @@ fn told(engine: &Handle, board: &Board, l: Listening) -> Result<Listening> {
 
 /// Takes back a listening that didn't get going, leaving nothing of it. Ended as one that got
 /// going is, so a look that read it from the file in the meantime starts no helper for it once
-/// its record is gone.
+/// its record is gone. An ending of it that's under way is waited for first: its last words
+/// would be written into what this removes.
 fn forget(l: &Listening) {
+    ending_over(&l.id);
     let ear = take_running(&l.id).and_then(|r| r.ear);
     drop(ear);
     let _ = change(|all| all.retain(|old| old.id != l.id));
@@ -1172,11 +1200,25 @@ fn end(id: &str, why: Option<String>) -> Option<Listening> {
 /// the lines it had: a second ending would find no helper, end it at once, and say how it ended
 /// (`untold`) of a transcript that's still being written.
 fn end_as(id: &str, why: Option<String>, untold: impl Fn(&Listening) -> bool) -> Option<Listening> {
+    end_when(id, why, None, untold)
+}
+
+/// `end_as`, only while `still` holds of the listening as the file has it now, asked under the
+/// lock a listening started ahead is given its session under (`attach`): an ending decided of
+/// what a look read a moment ago (nobody's, for too long) doesn't end one that has been given
+/// its session since, and one that has begun to end is given to none.
+fn end_when(id: &str, why: Option<String>, still: Option<&dyn Fn(&Listening) -> bool>, untold: impl Fn(&Listening) -> bool) -> Option<Listening> {
     let (running, _ending) = {
         let mut state = state();
-        if !state.ending.insert(id.to_string()) {
+        if state.ending.contains(id) {
             return None;
         }
+        if let Some(still) = still {
+            if !list().iter().any(|l| l.id == id && still(l)) {
+                return None;
+            }
+        }
+        state.ending.insert(id.to_string());
         // From here on no helper is started for it, whatever a look read of it before (`plan`).
         state.ended.insert(id.to_string());
         (state.running.remove(id), Ending(id.to_string()))
@@ -1252,8 +1294,15 @@ fn look(engine: &Handle) {
         }
         match step(l, hearer, now, every_ms, on) {
             Step::Wait => {}
+            Step::Drop if l.session.is_empty() => {
+                // Nobody's when this look read it: `attach` may have given it its session since,
+                // and then it's neither ended nor done with.
+                let nobodys = |now: &Listening| now.session.is_empty();
+                end_when(&l.id, Some("its session never started".into()), Some(&nobodys), |_| false);
+                update(&l.id, |l| l.done = l.done || l.session.is_empty());
+            }
             Step::Drop => {
-                end(&l.id, Some(if l.session.is_empty() { "its session never started" } else { "its session is gone" }.into()));
+                end(&l.id, Some("its session is gone".into()));
                 update(&l.id, |l| l.done = true);
             }
             Step::End(why) => {
