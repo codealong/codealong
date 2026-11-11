@@ -1379,8 +1379,13 @@ window.__TAURI_INTERNALS__ = {
     }
     if (cmd === 'listen') return window.__LISTEN_FAILS__ ? Promise.reject(new Error(window.__LISTEN_FAILS__)) : Promise.resolve({ id: 'sample', session: (args || {}).key });
     // Listen now (meetings.rs `now`), which a check reads from `sent('listen_now')`: the listening
-    // it started, with the session started for it, or why not (`window.__LISTEN_FAILS__`).
-    if (cmd === 'listen_now') return window.__LISTEN_FAILS__ ? Promise.reject(new Error(window.__LISTEN_FAILS__)) : Promise.resolve({ id: 'sample', session: 'claude:work:listen-now' });
+    // it started, with the session started for it, or why not (`window.__LISTEN_FAILS__`), at
+    // once or after `window.__LISTEN_AFTER__` milliseconds, as a session that takes its time does.
+    if (cmd === 'listen_now') {
+      var listened = function () { return window.__LISTEN_FAILS__ ? Promise.reject(new Error(window.__LISTEN_FAILS__)) : Promise.resolve({ id: 'sample', session: 'claude:work:listen-now' }); };
+      var after = window.__LISTEN_AFTER__;
+      return after ? new Promise(function (r) { setTimeout(r, after); }).then(listened) : listened();
+    }
     if (cmd === 'quick_shortcut') {
       var which = (args && args.which) || 'quick';
       var set = window.__SHORTCUTS__ || {};

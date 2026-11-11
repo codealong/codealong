@@ -1103,9 +1103,9 @@ export function Quick() {
   });
   const recallable = useMemo(() => recallList(draft?.text ?? null, history), [draft, history]);
   useEffect(() => {
-    // A meeting's name, typed to listen to it, is no prompt to bring back.
-    if (listen) return;
-    writeStored(DRAFT_KEY, draftCodec, nextDraft(fullPrompt, todoIds, draft, improve?.shots));
+    // A meeting's name, typed to listen to it, is no prompt to bring back: set to listen, the
+    // draft is kept as it is.
+    writeStored(DRAFT_KEY, draftCodec, listen ? draft : nextDraft(fullPrompt, todoIds, draft, improve?.shots));
   }, [fullPrompt, todoIds, draft, improve, listen]);
   // For a search, ⏎ does the first thing it found, a session, todo or PR, when Jev suggests nothing.
   const firstFound = asSearch && !inSendTo ? (keys.find((k) => k !== 'sendto' && k !== COMPOSE) ?? keys[0]) : keys[0];
@@ -1560,6 +1560,14 @@ export function Quick() {
         // fail many seconds on): a meeting's name put back into a panel that finds sessions
         // would be looked for, sent to Jev and kept as a prompt's draft.
         reopen(() => {
+          // A prompt written there since, not sent, is kept as a draft, as an open keeps one: ↑
+          // brings it back once the panel finds and starts again.
+          if (!listenWas.current) {
+            const typed = fullPromptNow.current;
+            const typedFor = todoIdsNow.current;
+            const typedOver = improveNow.current?.shots;
+            setDraft((d) => nextDraft(typed, typedFor, d, typedOver));
+          }
           setListen(true);
           setAsChat(true);
           setImprove(null);

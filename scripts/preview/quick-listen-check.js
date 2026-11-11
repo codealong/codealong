@@ -4,9 +4,9 @@
 // calendar has going on is the one it's of until you say it isn't; ⏎ asks for the listening with
 // what's typed, what's picked and where, and puts the panel away; how it was asked is kept for
 // the next one; a start that fails brings the panel back with what was typed and why, set to
-// listen again even when it has been opened for something else since; with nothing picked to
-// hear it says so and asks for nothing; and an ordinary open after lists and starts as before,
-// with no draft made of a meeting's name.
+// listen again even when it has been opened for something else since, a prompt written there
+// meanwhile kept as a draft; with nothing picked to hear it says so and asks for nothing; and an
+// ordinary open after lists and starts as before, with no draft made of a meeting's name.
 //   PREVIEW_VOICE=1 PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/quick-listen-check.js
 // The board needs a worktree to pick.
 (function () {
@@ -124,21 +124,28 @@
       return open();
     })
     .then(function () {
-      // A start that fails once the panel has been opened for something else (its session can
-      // take many seconds not to come): it's back set to listen, not finding sessions.
+      // A start that fails once the panel has been opened for something else and written in
+      // (its session can take many seconds not to come): it's back set to listen, not finding
+      // sessions, and what was written there meanwhile is kept as a draft.
       window.__LISTEN_FAILS__ = 'Its session was started but hasn’t shown yet.';
+      window.__LISTEN_AFTER__ = 700;
       type(input(), 'Retro');
       enter();
       window.__quickOpen({}, board);
+      type(input(), 'Fix the login redirect on the settings page');
       return until(function () { return q('.ca-quick-error'); }, 5000, 'why it failed, later');
     })
     .then(function () {
       window.__LISTEN_FAILS__ = null;
+      window.__LISTEN_AFTER__ = 0;
       check('a start that fails later comes back set to listen', !!q('.ca-quick-listen') && input().value === 'Retro' && all('[data-row]').length === 0 && /^What’s this meeting\?/.test(input().placeholder), input().value + ' | ' + input().placeholder);
       return wait(900);
     })
     .then(function () {
-      check('and its name is looked for nowhere', sent('search_text').length === 0 && sent('route_quick').length === 0, sent('search_text').length + ' searches, ' + sent('route_quick').length + ' routes');
+      var looked = sent('search_text').map(function (a) { return a.words; }).concat(sent('route_quick').map(function (a) { return a.text; }));
+      check('its name is looked for nowhere', looked.every(function (w) { return !/Retro|Kestrel|Standup/.test(w); }), looked.join(' | '));
+      var draft = JSON.parse(localStorage.getItem('codealong.quick.draft') || 'null');
+      check('and the prompt written meanwhile is kept as a draft', !!draft && draft.text === 'Fix the login redirect on the settings page', JSON.stringify(draft));
       type(input(), 'Planning');
       return wait(300);
     })
@@ -148,7 +155,8 @@
     })
     .then(function () {
       check('an ordinary open after lists and starts as before', !q('.ca-quick-listen') && Math.round(q('.ca-quick').getBoundingClientRect().height) === 640 && !!q('.ca-quick-newtree'), String(q('.ca-quick').getBoundingClientRect().height));
-      check('and a meeting’s name is no draft to bring back', localStorage.getItem('codealong.quick.draft') === null && !/brings back your draft/.test(input().placeholder), input().placeholder);
+      var draft = JSON.parse(localStorage.getItem('codealong.quick.draft') || 'null');
+      check('and a meeting’s name is no draft to bring back', !!draft && draft.text === 'Fix the login redirect on the settings page' && /brings back your draft/.test(input().placeholder), JSON.stringify(draft));
       done();
     })
     .catch(stopped);

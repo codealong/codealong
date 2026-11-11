@@ -593,6 +593,18 @@ struct State {
     /// started for a listening nothing lists any more would go on hearing with nothing to show
     /// it or stop it.
     ended: HashSet<String>,
+    /// The listenings whose hearing is being ended right now (`end_as`), which takes as long as
+    /// their helper takes to write its last words.
+    ending: HashSet<String>,
+}
+
+/// An ending under way (`State::ending`), over when this goes, however the ending went.
+struct Ending(String);
+
+impl Drop for Ending {
+    fn drop(&mut self) {
+        state().ending.remove(&self.0);
+    }
 }
 
 fn state() -> MutexGuard<'static, State> {
@@ -970,6 +982,16 @@ pub fn attach(engine: &Handle, id: &str, key: &str) -> Result<Listening> {
     };
     let now = util::now_ms();
     let key = moved.clone().unwrap_or_else(|| key.to_string());
+    // Telling it took a moment, in which the listening may have ended (its helper failed, voice
+    // was turned off): it's the session's only if it's still hearing, said in the change that
+    // files it so, and otherwise nothing is left of it, as when it ended before.
+    let mut claimed = false;
+    let Some(l) = update(id, |l| claimed = claim(l, &key, now)) else { bail!("Its listening is gone.") };
+    if !claimed {
+        let why = l.why_ended.as_deref().map(|why| format!(": {why}")).unwrap_or_default();
+        forget(&l);
+        bail!("Its listening ended as its session started{why}.");
+    }
     if let Some(running) = state().running.get_mut(id) {
         running.session = key.clone();
         // What it said before it was listening is no cue.
@@ -977,14 +999,20 @@ pub fn attach(engine: &Handle, id: &str, key: &str) -> Result<Listening> {
         // Resumed as a copy to be told: the board takes a moment to list that one.
         running.moved_at = moved.is_some().then_some(now);
     }
-    let Some(l) = update(id, |l| {
-        l.session = key.clone();
-        l.told_at = now;
-    }) else {
-        bail!("Its listening is gone.")
-    };
     changed();
     Ok(l)
+}
+
+/// Files a listening started ahead as session `key`'s, told what's going on at `now`, if it's
+/// still hearing: whether it was. From then the listenings' thread tells that session what's
+/// heard, a telling's time from now at the soonest.
+fn claim(l: &mut Listening, key: &str, now: i64) -> bool {
+    if !l.hearing() {
+        return false;
+    }
+    l.session = key.to_string();
+    l.told_at = now;
+    true
 }
 
 /// Takes back a listening started ahead whose session never came (`start_ahead`): its hearing
@@ -1119,9 +1147,9 @@ fn tell(engine: &Handle, board: &Board, l: &Listening, text: &str) -> Result<Opt
     }
 }
 
-/// Takes a listening's helper from what's running, to stop it, and marks the listening ended in
-/// the same breath, under the lock a look plans its helpers under: from here on none is started
-/// for it (`plan`), whatever a look read of it before.
+/// Takes the helper of a listening that didn't get going from what's running, to drop it
+/// (`forget`), and marks the listening ended in the same breath, under the lock a look plans its
+/// helpers under: from here on none is started for it (`plan`), whatever a look read of it before.
 fn take_running(id: &str) -> Option<Running> {
     let mut state = state();
     state.ended.insert(id.to_string());
@@ -1137,8 +1165,22 @@ fn end(id: &str, why: Option<String>) -> Option<Listening> {
 /// `end`, with whether its session has nothing more to be told (`untold`, asked of the listening
 /// as it ended) noted in the same change of the file: no look reads it as ended with its session
 /// still to tell, which it would then tell to finish up.
+///
+/// One ending at a time for a listening, and nothing for one asked for while another is under
+/// way (Stop pressed twice, a look ending what you just stopped). The first takes its helper and
+/// waits for its last words, and until those are written the file still has it as hearing with
+/// the lines it had: a second ending would find no helper, end it at once, and say how it ended
+/// (`untold`) of a transcript that's still being written.
 fn end_as(id: &str, why: Option<String>, untold: impl Fn(&Listening) -> bool) -> Option<Listening> {
-    let running = take_running(id);
+    let (running, _ending) = {
+        let mut state = state();
+        if !state.ending.insert(id.to_string()) {
+            return None;
+        }
+        // From here on no helper is started for it, whatever a look read of it before (`plan`).
+        state.ended.insert(id.to_string());
+        (state.running.remove(id), Ending(id.to_string()))
+    };
     // Outside the lock: the helper's last words come through `heard`, which takes it.
     if let Some(ear) = running.and_then(|r| r.ear) {
         ear.stop();
@@ -1177,7 +1219,8 @@ pub fn meetings_heard() -> Vec<String> {
 /// meeting that wasn't: whoever asked puts it away (`meetings::put_away`).
 pub fn stop(key: &str) -> Result<Listening> {
     let Some(l) = list().into_iter().find(|l| l.session == key && l.hearing()) else { bail!("That session isn't listening.") };
-    end_as(&l.id, None, crate::meetings::stray).ok_or_else(|| anyhow!("That listening is gone."))
+    // Nothing when it's being ended already (stopped twice), or gone.
+    end_as(&l.id, None, crate::meetings::stray).ok_or_else(|| anyhow!("That listening has ended already."))
 }
 
 /// One look at every listening: helpers started again, what's due told, what its session said
@@ -1499,6 +1542,23 @@ mod tests {
         // Until it has a session the board lists it under its meeting's name.
         let named = Listening { meeting: Some(ear::Meeting { title: " Standup ".into(), unplanned: true, ..Default::default() }), ..ahead.clone() };
         assert_eq!((starting_name(&named), starting_name(&ahead)), ("Standup".to_string(), "A meeting".to_string()));
+    }
+
+    #[test]
+    fn a_listening_started_ahead_is_its_sessions_only_while_it_still_hears() {
+        let mut ahead = Listening { session: String::new(), lines: 3, told_at: NOW - 40_000, heard_at: NOW - 5000, ..hearing() };
+        assert!(claim(&mut ahead, "claude:work:abc", NOW));
+        assert_eq!((ahead.session.as_str(), ahead.told_at), ("claude:work:abc", NOW));
+        // Just told what's going on: what was heard meanwhile waits out a telling's time, then
+        // goes all at once.
+        assert_eq!(step(&ahead, IDLE, NOW + 1000, EVERY, true), Step::Wait);
+        assert_eq!(step(&ahead, IDLE, NOW + EVERY, EVERY, true), Step::Tell { from: 1, to: 3, last: false });
+        // Ended while its session was being told (its helper failed, voice was turned off): it
+        // isn't given to the session, and is left as it ended.
+        let mut ended = Listening { session: String::new(), ended_at: Some(NOW - 100), why_ended: Some("voice was turned off".into()), done: true, ..hearing() };
+        let was = ended.clone();
+        assert!(!claim(&mut ended, "claude:work:abc", NOW));
+        assert_eq!(ended, was);
     }
 
     #[test]
