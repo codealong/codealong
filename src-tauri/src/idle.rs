@@ -424,8 +424,9 @@ pub enum Exited {
 }
 
 /// An exit Codealong typed whose process hasn't ended yet, its harness maybe asking first whether
-/// to keep the worktree (`Exited::Asks`): its process, when the command was typed, its worktree's
-/// lock as it was then (`worktree_lock`), when the dialog it brought up came up and when that
+/// to keep the worktree (`Exited::Asks`): its process, the one above it in its tab (`tab_host`),
+/// when the command was typed, its worktree's lock as it was then (`worktree_lock`), when the
+/// dialog it brought up came up and when that
 /// dialog went (`exit_dialog_seen`). Noted as it's typed, so a dialog that comes and goes while
 /// `exit` waits is seen; a harness whose terminal can't be read knows its question by it
 /// (claude/exiting.rs), and what typed the exit is finished once its process ends, wherever the
@@ -433,6 +434,7 @@ pub enum Exited {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExitAsked {
     pub pid: u32,
+    pub host: Option<u32>,
     pub at: i64,
     pub lock: Option<std::path::PathBuf>,
     pub dialog: Option<i64>,
@@ -443,6 +445,13 @@ static EXITS_ASKED: std::sync::Mutex<Option<HashMap<String, ExitAsked>>> = std::
 
 fn exits_asked<T>(f: impl FnOnce(&mut HashMap<String, ExitAsked>) -> T) -> T {
     f(EXITS_ASKED.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(HashMap::new))
+}
+
+/// Whether an exit Codealong typed into the session `key` is still under way: its process lives,
+/// asking or not (`ExitAsked`). Ending it any other way meanwhile would hang up what the exit
+/// waits on.
+pub fn exit_noted(key: &str) -> bool {
+    exits_asked(|all| all.get(key).is_some_and(|a| crate::procs::pid_alive(a.pid)))
 }
 
 /// The exit Codealong typed into the session `key`, while its process lives and nothing says its
@@ -499,7 +508,8 @@ pub fn exit(s: &Session, account: &crate::config::AccountCfg, pid: u32) -> Resul
     let adapter = crate::harness::adapter(s.harness);
     let Some(command) = adapter.exit_command() else { return Err(format!("{} has no command to exit a session.", adapter.harness().word())) };
     let lock = worktree_lock(s);
-    note_exit_asked(&s.key, ExitAsked { pid, at: crate::util::now_ms(), lock: lock.clone(), dialog: None, gone: None });
+    let host = tab_host(pid);
+    note_exit_asked(&s.key, ExitAsked { pid, host, at: crate::util::now_ms(), lock: lock.clone(), dialog: None, gone: None });
     let typed = adapter
         .routes(account, s)
         .into_iter()
@@ -509,7 +519,7 @@ pub fn exit(s: &Session, account: &crate::config::AccountCfg, pid: u32) -> Resul
         })
         .unwrap_or_else(|| Ok(crate::launch::Typed::Nowhere("it isn't in a terminal Codealong can type into".into())));
     let typed = match typed {
-        Ok(crate::launch::Typed::Into(_)) => Ok(await_end(s, pid, lock.as_deref())),
+        Ok(crate::launch::Typed::Into(_)) => Ok(await_end(s, pid, host, lock.as_deref())),
         Ok(crate::launch::Typed::Nowhere(why)) => Err(format!("Codealong couldn't type `{command}` into its terminal ({why}).")),
         Err(e) => Err(format!("Codealong couldn't type `{command}` into its terminal: {}", crate::util::words(e))),
     };
@@ -519,10 +529,11 @@ pub fn exit(s: &Session, account: &crate::config::AccountCfg, pid: u32) -> Resul
     typed
 }
 
-/// Waits for `s`'s process `pid`, told to exit, to end, then closes its tab. `lock` is its
-/// worktree's lock as it was told (`worktree_lock`): one that goes while the process still runs
-/// says the worktree is being removed, which is waited for longer than a question is.
-pub fn await_end(s: &Session, pid: u32, lock: Option<&Path>) -> Exited {
+/// Waits for `s`'s process `pid`, told to exit, to end, then closes its tab by `host`, the process
+/// above it there (`close_tab`). `lock` is its worktree's lock as it was told (`worktree_lock`):
+/// one that goes while the process still runs says the worktree is being removed, which is
+/// waited for longer than a question is.
+fn await_end(s: &Session, pid: u32, host: Option<u32>, lock: Option<&Path>) -> Exited {
     let started = std::time::Instant::now();
     while crate::procs::pid_alive(pid) {
         let removing = lock.is_some_and(|l| !l.exists());
@@ -532,8 +543,24 @@ pub fn await_end(s: &Session, pid: u32, lock: Option<&Path>) -> Exited {
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
     let removed = s.own_worktree.as_deref().is_some_and(|w| !Path::new(w).exists());
-    let closed = crate::launch::close_session_terminals(&[(pid, Path::new(&s.cwd))]).pop().unwrap_or_else(|| Err(anyhow::anyhow!("Nothing was closed.")));
-    Exited::Ended { removed, closed: closed.map_err(crate::util::words) }
+    Exited::Ended { removed, closed: close_tab(host, Path::new(&s.cwd)) }
+}
+
+/// The process above `pid` in its tab, its shell, read while `pid` runs: the terminal a process
+/// is in is found from the processes above it (`launch::terminal_kind`), which a process that
+/// has ended no longer has.
+fn tab_host(pid: u32) -> Option<u32> {
+    crate::procs::parent_and_name(pid).map(|(ppid, _)| ppid).filter(|p| *p > 1)
+}
+
+/// Closes the tab a session ran in, once its process has ended, by `host`, the process that was
+/// above it there (`tab_host`), which hangs up with it. One that ended too took the tab with
+/// it: nothing's left to close.
+fn close_tab(host: Option<u32>, cwd: &Path) -> Result<(), String> {
+    match host.filter(|h| crate::procs::pid_alive(*h)) {
+        Some(host) => crate::launch::close_session_terminals(&[(host, cwd)]).pop().unwrap_or_else(|| Err(anyhow::anyhow!("Nothing was closed."))).map_err(crate::util::words),
+        None => Ok(()),
+    }
 }
 
 /// How often the watch on an exit that asks (`finish_when_ended`) looks again.
@@ -553,10 +580,7 @@ pub fn finish_when_ended(s: &Session, ended: impl FnOnce(Result<(), String>) + S
             match exit_watched(&key, crate::util::now_ms()) {
                 Watched::Waiting => {}
                 Watched::Over => return None,
-                Watched::Ended(pid) => {
-                    let closed = crate::launch::close_session_terminals(&[(pid, Path::new(&cwd))]).pop().unwrap_or_else(|| Err(anyhow::anyhow!("Nothing was closed.")));
-                    return Some(closed.map_err(crate::util::words));
-                }
+                Watched::Ended(host) => return Some(close_tab(host, Path::new(&cwd))),
             }
         },
         move |closed| {
@@ -572,8 +596,8 @@ pub fn finish_when_ended(s: &Session, ended: impl FnOnce(Result<(), String>) + S
 enum Watched {
     /// Its question is still up, or an answer is taking effect.
     Waiting,
-    /// Its process ended, `pid`: the exit went ahead.
-    Ended(u32),
+    /// Its process ended: the exit went ahead. The process that was above it in its tab.
+    Ended(Option<u32>),
     /// Called off: the record is gone, or its dialog went while the process ran on.
     Over,
 }
@@ -587,9 +611,9 @@ fn exit_watched(key: &str, now: i64) -> Watched {
     exits_asked(|all| {
         let Some(asked) = all.get(key) else { return Watched::Over };
         if !crate::procs::pid_alive(asked.pid) {
-            let pid = asked.pid;
+            let host = asked.host;
             all.remove(key);
-            return Watched::Ended(pid);
+            return Watched::Ended(host);
         }
         let removing = asked.lock.as_ref().is_some_and(|l| !l.exists());
         let wait = if asked.lock.is_some() { EXIT_WAIT } else { REMOVAL_WAIT };
@@ -808,7 +832,7 @@ mod tests {
 
     /// An exit typed into a process of this test's own, now, with a lock that's there.
     fn asked_here(lock: Option<std::path::PathBuf>) -> ExitAsked {
-        ExitAsked { pid: std::process::id(), at: 100, lock, dialog: None, gone: None }
+        ExitAsked { pid: std::process::id(), host: None, at: 100, lock, dialog: None, gone: None }
     }
 
     #[test]
@@ -823,9 +847,10 @@ mod tests {
         let mut child = std::process::Command::new("true").spawn().unwrap();
         let gone = child.id();
         child.wait().unwrap();
-        note_exit_asked(key, ExitAsked { pid: gone, ..asked_here(None) });
+        note_exit_asked(key, ExitAsked { pid: gone, host: Some(7), ..asked_here(None) });
         assert_eq!(exit_asked(key), None);
-        assert_eq!(exit_watched(key, 0), Watched::Ended(gone));
+        assert!(!exit_noted(key));
+        assert_eq!(exit_watched(key, 0), Watched::Ended(Some(7)), "its tab is found by what was above it");
         assert_eq!(exit_watched(key, 0), Watched::Over);
     }
 
@@ -859,6 +884,9 @@ mod tests {
         exit_dialog_seen(key, Some(120), 130);
         exit_dialog_seen(key, None, 200);
         assert_eq!(exit_asked(key), None, "its question has gone");
+        // Mark as done, still waiting on it to end, leaves it be: it's no question now, but
+        // archiving would hang it up.
+        assert!(exit_noted(key));
         assert_eq!(exit_watched(key, 200 + wait), Watched::Waiting);
         assert_eq!(exit_watched(key, 201 + wait), Watched::Over);
         // Remove took the lock off: the removal is waited for however long it takes.

@@ -1473,8 +1473,9 @@ fn finish(engine: &Handle, c: &Call, key: &str, stop: bool, by: Option<&str>) ->
     // Its harness asks first, whether to keep its worktree: it stays where you'll see the
     // question, and is archived once it has exited (`end`, `idle::finish_when_ended`). Archived
     // now, a terminal of Codealong's own would close with it (`Handle::archive`), hanging the
-    // question up. Its helpers' work is done either way.
-    if exits && crate::idle::exit_asked(key).is_some() {
+    // question up, or the session, where it was called off as Codealong waited. Its helpers'
+    // work is done either way.
+    if exits && crate::idle::exit_noted(key) {
         let (helped, _) = finish_helpers(engine, &board, &cfg, key, stop, &who);
         let message = [note, helped].into_iter().flatten().collect::<Vec<_>>().join(" ");
         return to_value(api::Done { done: false, message, noted: true });
@@ -1527,7 +1528,7 @@ fn finish_helpers(engine: &Handle, board: &crate::model::Board, cfg: &config::Co
                 let exits = matches!(ends, crate::idle::Ending::Exit(_));
                 let (ended, _) = end(engine, h, account, ends, who, true);
                 // Its harness asks first: it's archived once that's answered, as a session is.
-                if exits && crate::idle::exit_asked(&h.key).is_some() {
+                if exits && crate::idle::exit_noted(&h.key) {
                     left += 1;
                     continue;
                 }
@@ -1597,9 +1598,11 @@ fn end(engine: &Handle, s: &crate::model::Session, account: &config::AccountCfg,
                     // However it's answered, here or in its terminal, it's finished once it has
                     // exited, as it would have been had its harness not asked.
                     let (engine, key) = (engine.clone(), s.key.clone());
-                    crate::idle::finish_when_ended(s, move |_closed| {
-                        // A tab left open, or a session left unarchived, stays where you see it.
-                        if archive {
+                    crate::idle::finish_when_ended(s, move |closed| {
+                        // One whose tab didn't close stays where you'll see it, as an agent's
+                        // `session done me` leaves one (`end_after_turn`); one that wasn't
+                        // archived stays in its list, which says as much.
+                        if archive && closed.is_ok() {
                             engine.mark_seen(vec![key.clone()]);
                             let _ = engine.archive(&key, true);
                         }
