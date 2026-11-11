@@ -2707,8 +2707,9 @@ Paste or drop screenshots and other files into the prompt: Claude Code in a term
 file mentions (attached when they're 256 KB or less, read otherwise, with their folders added so it
 doesn't ask), and the apps and OpenCode get their paths. Images show in the prompt as pictures.
 A photo in a format the agents don't take, an iPhone's HEIC copied from Photos say, or AVIF, is
-made a JPEG as it goes in, and a TIFF a PNG, so it shows and goes as any screenshot does; Linux has
-nothing to make them with, so there they go as files.
+made a JPEG as it goes in (a PNG where it has see-through parts), and a TIFF a PNG, so it shows and
+goes as any screenshot does. One that holds several pictures, a scan of several pages or a burst,
+stays a file, as does every such picture on Linux, which has nothing to make them with.
 
 #### Chats
 

@@ -185,41 +185,59 @@ fn write_once(path: &Path, bytes: &[u8]) -> Result<()> {
 }
 
 /// A picture `image_kind` doesn't know that macOS can make into one it does, and the format it's
-/// made: HEIF (an iPhone's photos) and AVIF, which are photos, as JPEG; TIFF, often a screenshot
-/// or a scan, as PNG. Known by the first bytes: an ISO file's `ftyp` brand, or TIFF's byte order
-/// and 42. A camera's raw files are TIFF inside too, and go the same way.
+/// made: a HEIF image (an iPhone's photo) or an AVIF one as JPEG, being photos (PNG where they
+/// have see-through parts, `converted`); a TIFF, often a screenshot or a scan, as PNG. Known by
+/// the first bytes: an ISO file's `ftyp` brand, or TIFF's byte order and 42. What holds several
+/// pictures would keep only its first, so it stays a file: a HEIF or AVIF sequence (a burst, an
+/// animation; brands `msf1`, `hevc`, `avis`…) and a TIFF of several pages (`one_page`).
 fn convertible(bytes: &[u8]) -> Option<&'static str> {
-    const PHOTOS: [&[u8]; 10] = [b"heic", b"heix", b"hevc", b"hevx", b"heim", b"heis", b"mif1", b"msf1", b"avif", b"avis"];
+    const PHOTOS: [&[u8]; 6] = [b"heic", b"heix", b"heim", b"heis", b"mif1", b"avif"];
     let brand = (bytes.get(4..8) == Some(b"ftyp")).then(|| bytes.get(8..12)).flatten();
     if brand.is_some_and(|b| PHOTOS.contains(&b)) {
         Some("jpeg")
-    } else if bytes.starts_with(b"II*\0") || bytes.starts_with(b"MM\0*") {
+    } else if (bytes.starts_with(b"II*\0") || bytes.starts_with(b"MM\0*")) && one_page(bytes) {
         Some("png")
     } else {
         None
     }
 }
 
+/// Whether a TIFF plainly holds one page: its first image directory (a count of 12-byte entries,
+/// then the next directory's offset) names no next one. One that doesn't read this far doesn't.
+fn one_page(b: &[u8]) -> bool {
+    let big = b.starts_with(b"MM");
+    let u16_at = |i: usize| b.get(i..i + 2).map(|x| if big { u16::from_be_bytes([x[0], x[1]]) } else { u16::from_le_bytes([x[0], x[1]]) });
+    let u32_at = |i: usize| b.get(i..i + 4).map(|x| if big { u32::from_be_bytes([x[0], x[1], x[2], x[3]]) } else { u32::from_le_bytes([x[0], x[1], x[2], x[3]]) } as usize);
+    let next = u32_at(4).and_then(|first| u32_at(first + 2 + usize::from(u16_at(first)?) * 12));
+    next == Some(0)
+}
+
 /// `bytes` made an image `image_kind` knows, when they're a picture `convertible` names. `sips`
 /// makes it, keeping the EXIF orientation, so a portrait photo shows upright as the original did
-/// (a photo's 12 MP took it 0.7 s, 2.4 MB of JPEG from 1.5 MB of HEIC). Linux has no `sips`, so
+/// (a photo's 12 MP took it 0.7 s, 2.4 MB of JPEG from 1.5 MB of HEIC). A photo with see-through
+/// parts (a subject lifted from its background) would go black round them as JPEG, so it's made
+/// PNG: sips says so of a HEIC or AVIF one (`hasAlpha`, another 0.35 s). Linux has no `sips`, so
 /// there such a picture stays a file, as it was before. None when it can't be read.
 fn converted(bytes: &[u8]) -> Option<Vec<u8>> {
     let format = convertible(bytes)?;
     if !crate::os::is_macos() {
         return None;
     }
+    let sips = |args: &[&str]| crate::procs::run("/usr/bin/sips", args, None, std::time::Duration::from_secs(30)).ok();
     static MADE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let n = MADE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let scratch = |ext: &str| std::env::temp_dir().join(format!("codealong-attach-{}-{n}.{ext}", std::process::id()));
-    let (from, to) = (scratch("in"), scratch(format));
+    let from = scratch("in");
     let made = std::fs::write(&from, bytes).ok().and_then(|_| {
-        let args = ["-s", "format", format, from.to_str()?, "--out", to.to_str()?];
-        crate::procs::run("/usr/bin/sips", &args, None, std::time::Duration::from_secs(30)).ok()?;
-        std::fs::read(&to).ok()
+        let from = from.to_str()?;
+        let see_through = format == "jpeg" && sips(&["-g", "hasAlpha", from]).is_some_and(|out| out.lines().any(|l| l.trim() == "hasAlpha: yes"));
+        let format = if see_through { "png" } else { format };
+        let to = scratch(format);
+        let read = sips(&["-s", "format", format, from, "--out", to.to_str()?]).and_then(|_| std::fs::read(&to).ok());
+        let _ = std::fs::remove_file(&to);
+        read
     });
     let _ = std::fs::remove_file(&from);
-    let _ = std::fs::remove_file(&to);
     made.filter(|m| image_kind(m).is_some())
 }
 
@@ -688,8 +706,16 @@ mod tests {
         assert_eq!(convertible(HEIC), Some("jpeg"));
         assert_eq!(convertible(b"\0\0\0\x18ftypmif1\0\0\0\0"), Some("jpeg"));
         assert_eq!(convertible(b"\0\0\0\x1cftypavif\0\0\0\0"), Some("jpeg"));
-        assert_eq!(convertible(b"II*\0\x08\0\0\0"), Some("png"));
-        assert_eq!(convertible(b"MM\0*\0\0\0\x08"), Some("png"));
+        // A TIFF's first directory: no entries here, then the next one's offset, 0 for none.
+        assert_eq!(convertible(b"II*\0\x08\0\0\0\0\0\0\0\0\0"), Some("png"));
+        assert_eq!(convertible(b"MM\0*\0\0\0\x08\0\x01\x01\0\0\x03\0\0\0\x01\0\x40\0\0\0\0\0\0"), Some("png"));
+        // What holds several pictures would keep only its first: a scan of two pages, a burst or
+        // an animation. Nor is a TIFF that doesn't read as far as its next page.
+        assert_eq!(convertible(b"II*\0\x08\0\0\0\0\0\x0e\0\0\0\0\0\0\0\0\0"), None);
+        assert_eq!(convertible(b"MM\0*\0\0\0\x08\0\0\0\0\0\x0e\0\0\0\0\0\0"), None);
+        assert_eq!(convertible(b"II*\0\x08\0\0\0\x05\0"), None);
+        assert_eq!(convertible(b"\0\0\0\x18ftypmsf1\0\0\0\0"), None);
+        assert_eq!(convertible(b"\0\0\0\x18ftypavis\0\0\0\0"), None);
         // A video has the same box with another brand, and an image a window shows isn't made again.
         assert_eq!(convertible(b"\0\0\0\x18ftypisom\0\0\0\0"), None);
         assert_eq!(convertible(b"\0\0\0\x14ftypqt  \0\0\0\0"), None);
@@ -702,28 +728,40 @@ mod tests {
     fn keeps_a_photo_as_the_image_macos_makes_of_it() {
         use crate::os::{as_if, Os};
         const JPEG: &[u8] = b"\xff\xd8\xff\xe0 as sips made it";
-        let ran = std::rc::Rc::new(std::cell::Cell::new(0));
-        let runs = ran.clone();
-        crate::procs::stand_in::set(Some(Box::new(move |program, args, _, _| {
-            assert_eq!(program, "/usr/bin/sips");
-            assert_eq!((&args[..3], args[4]), (&["-s", "format", "jpeg"][..], "--out"));
-            assert_eq!(std::fs::read(args[3]).unwrap(), HEIC, "sips reads the photo as it came");
-            std::fs::write(args[5], JPEG).unwrap();
-            runs.set(runs.get() + 1);
-            Ok(String::new())
-        })));
+        // sips as it answers for a photo with see-through parts or without, making what it's asked.
+        let sips = |alpha: &'static str, ran: std::rc::Rc<std::cell::RefCell<Vec<String>>>| -> crate::procs::stand_in::Runner {
+            Box::new(move |program, args, _, _| {
+                assert_eq!(program, "/usr/bin/sips");
+                if args[..2] == ["-g", "hasAlpha"] {
+                    ran.borrow_mut().push("hasAlpha".into());
+                    return Ok(format!("{}\n  hasAlpha: {alpha}\n", args[2]));
+                }
+                assert_eq!((&args[..2], args[4]), (&["-s", "format"][..], "--out"));
+                assert_eq!(std::fs::read(args[3]).unwrap(), HEIC, "sips reads the photo as it came");
+                std::fs::write(args[5], if args[2] == "png" { PNG } else { JPEG }).unwrap();
+                ran.borrow_mut().push(args[2].to_string());
+                Ok(String::new())
+            })
+        };
+        let ran = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        crate::procs::stand_in::set(Some(sips("no", ran.clone())));
         let (images, files) = (crate::fixtures::scratch("attach-heic-i"), crate::fixtures::scratch("attach-heic-f"));
         let photo = as_if(Os::MacOs, || keep_in(&images, &files, HEIC, "IMG_2975.HEIC")).unwrap();
         assert_eq!((photo.kind, photo.name.as_str()), (Kind::Image, "IMG_2975.HEIC"));
         // Named by the image's bytes, as another device it's carried to names it.
         assert_eq!(photo.path, format!("images/{}.jpg", hash16(JPEG)));
         assert_eq!(std::fs::read(locate_in(&images, &files, &photo.path).unwrap()).unwrap(), JPEG);
-        assert_eq!(ran.get(), 1);
+        assert_eq!(*ran.borrow(), ["hasAlpha", "jpeg"]);
         let left = |dir: &Path| std::fs::read_dir(dir).unwrap().flatten().any(|e| e.file_name().to_string_lossy().starts_with(&format!("codealong-attach-{}-", std::process::id())));
         assert!(!left(&std::env::temp_dir()), "sips's files are cleared away");
+        // One with see-through parts would go black round them as JPEG, so it's made PNG.
+        crate::procs::stand_in::set(Some(sips("yes", ran.clone())));
+        let lifted = as_if(Os::MacOs, || keep_in(&images, &files, HEIC, "Subject.HEIC")).unwrap();
+        assert_eq!((lifted.kind, lifted.path), (Kind::Image, format!("images/{}.png", hash16(PNG))));
+        assert_eq!(*ran.borrow(), ["hasAlpha", "jpeg", "hasAlpha", "png"]);
         // Linux has no sips, and a photo sips can't read is a file too, as it came.
         let on_linux = as_if(Os::Linux, || keep_in(&images, &files, HEIC, "IMG_2975.HEIC")).unwrap();
-        assert_eq!((on_linux.kind, ran.get()), (Kind::File, 1));
+        assert_eq!((on_linux.kind, ran.borrow().len()), (Kind::File, 4));
         crate::procs::stand_in::set(Some(Box::new(|_, _, _, _| Err(anyhow::anyhow!("sips Error: Cannot extract image from file.")))));
         let unread = as_if(Os::MacOs, || keep_in(&images, &files, HEIC, "IMG_2975.HEIC")).unwrap();
         crate::procs::stand_in::set(None);
