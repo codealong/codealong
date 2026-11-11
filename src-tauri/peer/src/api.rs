@@ -978,7 +978,9 @@ pub struct Image {
 #[serde(rename_all = "camelCase")]
 pub struct Done {
     /// It was marked seen and archived. False when work under way held it, which `message` says,
-    /// and nothing was done: asked again with `stop`, that ends too.
+    /// and nothing was done: asked again with `stop`, that ends too. False too when its harness
+    /// asks something as it exits (whether to keep its worktree, `Pending::exiting`): it stays,
+    /// and is archived once that's answered; asked again with `stop`, its terminal closes.
     pub done: bool,
     /// One sentence: what ended, or what's under way.
     pub message: String,

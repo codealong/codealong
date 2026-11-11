@@ -112,6 +112,23 @@ fn assumed(worktree: &str) -> Dialog {
     }
 }
 
+/// When the dialog the registry entry `reg` says is open came up, if it says one is.
+fn dialog_since(reg: &RegistryEntry) -> Option<i64> {
+    reg.status_updated_at.filter(|_| reg.waits_on(DIALOG_OPEN))
+}
+
+/// The account's registry as the board reads it: what the sessions Codealong typed an exit into
+/// wait on now, so an exit's question is known by the dialog it brought up and no other
+/// (`idle::exit_dialog_seen`).
+pub fn saw(account: &str, entries: &[RegistryEntry]) {
+    for reg in entries {
+        let key = Session::key_for(crate::model::Harness::Claude, account, &reg.session_id);
+        if crate::idle::exit_asked(&key).is_some_and(|a| a.pid == reg.pid) {
+            crate::idle::exit_dialog_seen(&key, dialog_since(reg));
+        }
+    }
+}
+
 /// The dialog up in the live session `s`, with its registry entry: while the entry says a
 /// dialog is open, what its terminal shows, or, where that can't be read, the one the `/exit`
 /// Codealong typed brought up. A background job is stopped rather than exited, so it's never
@@ -121,8 +138,10 @@ fn up(home: &Path, s: &Session) -> Option<(Dialog, RegistryEntry)> {
     match crate::launch::screen_of(reg.pid, Path::new(&s.cwd)) {
         Ok(Some(text)) => read(&text).map(|d| (d, reg)),
         _ => {
-            let since = reg.status_updated_at?;
-            crate::idle::exit_asked(&s.key).filter(|a| a.pid == reg.pid && a.at <= since)?;
+            let since = dialog_since(&reg)?;
+            // The registry as read now, should the board not have read it since it changed.
+            crate::idle::exit_dialog_seen(&s.key, Some(since));
+            crate::idle::exit_asked(&s.key).filter(|a| a.pid == reg.pid && a.dialog == Some(since))?;
             Some((assumed(s.own_worktree.as_deref()?), reg))
         }
     }

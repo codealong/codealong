@@ -424,16 +424,18 @@ pub enum Exited {
 }
 
 /// An exit Codealong typed that its harness answered with a question in its terminal
-/// (`Exited::Asks`): its process, when the command was typed, and whether what typed it archives
-/// the session once it has ended (Mark as done does; an agent's `session done me` only where its
-/// user asked it to close). The question answered from Codealong, what was begun is finished
-/// (actions.rs `answer_here`); a harness whose terminal can't be read knows its question by it
-/// (claude/exiting.rs). Kept in the server, which typed it, while the process lives.
+/// (`Exited::Asks`): its process, when the command was typed, whether what typed it archives the
+/// session once it has ended (Mark as done does; an agent's `session done me` only where its user
+/// asked it to close), and when the dialog it brought up came up (`exit_dialog_seen`). The
+/// question answered from Codealong, what was begun is finished (actions.rs `answer_here`); a
+/// harness whose terminal can't be read knows its question by it (claude/exiting.rs). Kept in the
+/// server, which typed it, while the process lives and that dialog is up.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ExitAsked {
     pub pid: u32,
     pub at: i64,
     pub archive: bool,
+    pub dialog: Option<i64>,
 }
 
 static EXITS_ASKED: std::sync::Mutex<Option<HashMap<String, ExitAsked>>> = std::sync::Mutex::new(None);
@@ -449,6 +451,26 @@ pub fn exit_asked(key: &str) -> Option<ExitAsked> {
 
 fn note_exit_asked(key: &str, asked: ExitAsked) {
     EXITS_ASKED.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(HashMap::new).insert(key.to_string(), asked);
+}
+
+/// What the session `key`, typed an exit that asks (`ExitAsked`), waits on now, by its harness's
+/// record: `asking`, the time the dialog it waits on came up, or None while it waits on none.
+/// The first dialog to come up once the exit was typed is its question (a turn under way when it
+/// was typed puts it off until the turn ends); once that dialog has gone, the exit was answered
+/// or called off where it runs, and a dialog after it (`/model` there) is no question of the
+/// exit's, so the record goes.
+pub fn exit_dialog_seen(key: &str, asking: Option<i64>) {
+    let mut all = EXITS_ASKED.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(all) = all.as_mut() else { return };
+    let Some(asked) = all.get_mut(key) else { return };
+    match (asked.dialog, asking) {
+        (None, Some(t)) if t >= asked.at => asked.dialog = Some(t),
+        (Some(up), Some(t)) if t == up => {}
+        (Some(_), _) => {
+            all.remove(key);
+        }
+        (None, _) => {}
+    }
 }
 
 /// The question the exit typed into `key` raised was answered, or the exit called off.
@@ -489,7 +511,7 @@ pub fn exit(s: &Session, account: &crate::config::AccountCfg, pid: u32, archive:
     }
     let ended = await_end(s, pid, lock.as_deref());
     if ended == Exited::Asks {
-        note_exit_asked(&s.key, ExitAsked { pid, at, archive });
+        note_exit_asked(&s.key, ExitAsked { pid, at, archive, dialog: None });
     }
     Ok(ended)
 }
@@ -717,16 +739,38 @@ mod tests {
     #[test]
     fn an_exit_that_asks_is_kept_while_its_process_lives() {
         let here = std::process::id();
-        note_exit_asked("claude:claude:asks", ExitAsked { pid: here, at: 5, archive: true });
-        assert_eq!(exit_asked("claude:claude:asks"), Some(ExitAsked { pid: here, at: 5, archive: true }));
+        let asked = ExitAsked { pid: here, at: 5, archive: true, dialog: None };
+        note_exit_asked("claude:claude:asks", asked);
+        assert_eq!(exit_asked("claude:claude:asks"), Some(asked));
         exit_answered("claude:claude:asks");
         assert_eq!(exit_asked("claude:claude:asks"), None);
         // A process that has ended asks nothing any more.
         let mut child = std::process::Command::new("true").spawn().unwrap();
         let gone = child.id();
         child.wait().unwrap();
-        note_exit_asked("claude:claude:gone", ExitAsked { pid: gone, at: 5, archive: false });
+        note_exit_asked("claude:claude:gone", ExitAsked { pid: gone, archive: false, ..asked });
         assert_eq!(exit_asked("claude:claude:gone"), None);
+    }
+
+    #[test]
+    fn an_exit_asks_with_the_first_dialog_after_it_and_no_other() {
+        let key = "claude:claude:dialogs";
+        let here = std::process::id();
+        let dialog = |up| exit_asked(key).map(|a| a.dialog).expect(up);
+        note_exit_asked(key, ExitAsked { pid: here, at: 100, archive: true, dialog: None });
+        // A turn under way puts the dialog off, and one up before the exit was typed isn't its.
+        exit_dialog_seen(key, None);
+        exit_dialog_seen(key, Some(50));
+        assert_eq!(dialog("still asked"), None);
+        exit_dialog_seen(key, Some(120));
+        exit_dialog_seen(key, Some(120));
+        assert_eq!(dialog("bound"), Some(120));
+        // Called off where it runs, then another command's dialog: the exit asks nothing now.
+        exit_dialog_seen(key, None);
+        assert_eq!(exit_asked(key), None);
+        note_exit_asked(key, ExitAsked { pid: here, at: 100, archive: true, dialog: Some(120) });
+        exit_dialog_seen(key, Some(300));
+        assert_eq!(exit_asked(key), None);
     }
 
     #[test]

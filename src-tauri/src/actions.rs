@@ -781,15 +781,20 @@ fn answer_here(engine: &Handle, c: &Call) -> Result<Value, String> {
     // an answer takes it off.
     let asked = crate::idle::exit_asked(key).filter(|a| s.pid == Some(a.pid) && adapter.pending(&ctx, s).is_some_and(|p| p.exiting && p.id == id));
     let lock = asked.and_then(|_| crate::idle::worktree_lock(s));
-    if asked.is_some() && (answers.is_none() || saying.is_some()) {
-        crate::idle::exit_answered(key);
-    }
+    // Declined, once that went: the record is what finds the question where its terminal can't
+    // be read, so it goes only once the exit has been called off.
+    let called_off = |said: String| {
+        if asked.is_some() {
+            crate::idle::exit_answered(key);
+        }
+        said
+    };
     if let Some(m) = saying {
         if let Some(said) = adapter.deny_saying(&ctx, s, &id, m).map_err(words)? {
             note_talking(engine, c, key);
             return Ok(Value::String(said));
         }
-        let said = noting_deny(engine, c, key, stops_it, || adapter.answer(&ctx, s, &id, answer)).map_err(words)?;
+        let said = noting_deny(engine, c, key, stops_it, || adapter.answer(&ctx, s, &id, answer)).map(called_off).map_err(words)?;
         return sent_after(engine, c, key, m, &said);
     }
     match answers {
@@ -797,7 +802,7 @@ fn answer_here(engine: &Handle, c: &Call) -> Result<Value, String> {
             Some(asked) => exited(engine, s, asked, lock.as_deref(), said),
             None => said,
         }),
-        None => noting_deny(engine, c, key, stops_it, || adapter.answer(&ctx, s, &id, answer)),
+        None => noting_deny(engine, c, key, stops_it, || adapter.answer(&ctx, s, &id, answer)).map(called_off),
     }
     .map(Value::String)
     .map_err(words)
@@ -806,8 +811,7 @@ fn answer_here(engine: &Handle, c: &Call) -> Result<Value, String> {
 /// The rest of the exit Codealong typed into `s` (`idle::ExitAsked`), once the question its
 /// harness asked first is answered here (`said` says how): it waits for the session to end,
 /// closes its terminal, and archives it when what typed the exit archives it (Mark as done), as
-/// that would have had its harness not asked. The session came back to the lists as it began to
-/// wait on you.
+/// that would have had its harness not asked. It stayed in the lists meanwhile (`finish`).
 fn exited(engine: &Handle, s: &crate::model::Session, asked: crate::idle::ExitAsked, lock: Option<&std::path::Path>, said: String) -> String {
     use crate::idle::Exited;
     crate::idle::exit_answered(&s.key);
@@ -1504,8 +1508,18 @@ fn finish(engine: &Handle, c: &Call, key: &str, stop: bool, by: Option<&str>) ->
         Err(busy) => return to_value(api::Done { done: false, message: busy, noted: false }),
     };
     let job = matches!(ends, crate::idle::Ending::Job);
+    let exits = matches!(ends, crate::idle::Ending::Exit(_));
     let who = stops::who(&board, c.from);
     let (ended, note) = end(s, account, ends, &who, true);
+    // Its harness asks first, whether to keep its worktree: it stays where you'll see the
+    // question, and is archived once that's answered here (`exited`). Archived now, a terminal
+    // of Codealong's own would close with it (`Handle::archive`), hanging the question up.
+    // Its helpers' work is done either way.
+    if exits && crate::idle::exit_asked(key).is_some() {
+        let (helped, _) = finish_helpers(engine, &board, &cfg, key, stop, &who);
+        let message = [note, helped].into_iter().flatten().collect::<Vec<_>>().join(" ");
+        return to_value(api::Done { done: false, message, noted: true });
+    }
     let stopped = ended.is_some();
     let title = s.title.clone();
     engine.mark_seen(vec![key.to_string()]);
@@ -1551,7 +1565,13 @@ fn finish_helpers(engine: &Handle, board: &crate::model::Board, cfg: &config::Co
                 // What didn't go for a helper is left unsaid: it's archived either way, and
                 // its own panel says how it stands.
                 let job = matches!(ends, crate::idle::Ending::Job);
+                let exits = matches!(ends, crate::idle::Ending::Exit(_));
                 let (ended, _) = end(h, account, ends, who, true);
+                // Its harness asks first: it's archived once that's answered, as a session is.
+                if exits && crate::idle::exit_asked(&h.key).is_some() {
+                    left += 1;
+                    continue;
+                }
                 engine.mark_seen(vec![h.key.clone()]);
                 if let Ok(shown) = engine.archive(&h.key, true) {
                     done += 1;
