@@ -3222,7 +3222,7 @@ mod tests {
         let text = text.replace("[apps]\n", "[apps]\n# my editor of choice\n");
         let accounts = vec![
             AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None },
-            AccountCfg { name: "claude3".into(), harness: "claude".into(), home: "~/.claude3".into(), command: Some("CLAUDE_CONFIG_DIR=~/.claude3 claude".into()), start: Some("background".into()), acp: None, monthly: None, per_token: false, usage_cap: Some(80), disabled: false, chrome_profile: None },
+            AccountCfg { name: "claude3".into(), harness: "claude".into(), home: "~/.claude3".into(), command: Some("CLAUDE_CONFIG_DIR=~/.claude3 claude".into()), start: Some("background".into()), acp: None, monthly: None, per_token: false, usage_cap: Some(80), disabled: false, chrome_profile: Some("Work".into()) },
         ];
         let out = with_accounts(&text, &accounts).unwrap();
         assert!(out.contains("# my editor of choice"));
@@ -3247,6 +3247,7 @@ mod tests {
         assert!(check_accounts(&[AccountCfg { usage_cap: Some(0), ..a("claude", "~/.claude") }]).is_err());
         assert!(check_accounts(&[AccountCfg { usage_cap: Some(101), ..a("claude", "~/.claude") }]).is_err());
         assert!(check_accounts(&[AccountCfg { usage_cap: Some(85), ..a("claude", "~/.claude") }]).is_ok());
+        assert!(check_accounts(&[AccountCfg { chrome_profile: Some(" ".into()), ..a("claude", "~/.claude") }]).unwrap_err().contains("chrome_profile is empty"));
     }
 
     #[test]
