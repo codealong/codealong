@@ -50,7 +50,7 @@ use std::io::Write as _;
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{channel, RecvTimeoutError, Sender};
 use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant};
@@ -1057,8 +1057,9 @@ pub fn render(bytes: &[u8]) -> Vec<String> {
 struct Reporting {
     run: Run,
     /// Whether its session shows it waits on it: not one Codealong can't send a message by itself
-    /// (send.rs `takes_unattended`), which telling it would fail for.
-    shown: bool,
+    /// (send.rs `takes_unattended`), which telling it would fail for. None for a run kept from
+    /// before the server started, until the board has the sessions to ask (`settle_shown`).
+    shown: Option<bool>,
     /// When telling its session began, once the run ended. The session waits on it until its last
     /// prompt is from then on, or for `TOLD_LAPSE_MS` when none comes.
     telling_since: Option<i64>,
@@ -1080,7 +1081,7 @@ const TOLD_LAPSE_MS: i64 = 60_000;
 /// Has a run you ran for its session (`Run::reports`) told to the session once it ends
 /// (`report_ended`), and the session shown waiting on it meanwhile when `shown`.
 pub fn report(run: &Run, shown: bool) {
-    to_report().push(Reporting { run: run.clone(), shown, telling_since: None, dropped: false });
+    to_report().push(Reporting { run: run.clone(), shown: Some(shown), telling_since: None, dropped: false });
 }
 
 fn mark(id: &str, f: impl FnOnce(&mut Reporting)) {
@@ -1094,19 +1095,41 @@ fn mark(id: &str, f: impl FnOnce(&mut Reporting)) {
 fn yours_going(key: &str, last_prompt_at: i64, now: i64) -> Option<Run> {
     to_report()
         .iter()
-        .filter(|r| r.shown && !r.dropped && r.run.session == key && r.telling_since.is_none_or(|t| last_prompt_at < t && now - t < TOLD_LAPSE_MS))
+        .filter(|r| r.shown == Some(true) && !r.dropped && r.run.session == key && r.telling_since.is_none_or(|t| last_prompt_at < t && now - t < TOLD_LAPSE_MS))
         .map(|r| &r.run)
         .max_by_key(|r| r.allowed_at)
         .cloned()
 }
 
+/// Set once a run kept from before the server started was found to be one its session waits on
+/// (`settle_shown`), for the board to show it.
+static SETTLED: AtomicBool = AtomicBool::new(false);
+
+/// Asks whether each run kept from before the server started is one its session can be told
+/// (`tellable`, by its key), as `report`'s caller asked of a run it started. True when a session
+/// was found to wait on one.
+fn settle_shown(tellable: &dyn Fn(&str) -> bool) -> bool {
+    let unasked: Vec<(String, String)> = to_report().iter().filter(|r| r.shown.is_none()).map(|r| (r.run.id.clone(), r.run.session.clone())).collect();
+    let mut found = false;
+    for (id, session) in unasked {
+        let shown = tellable(&session);
+        found |= shown;
+        mark(&id, |r| r.shown = Some(shown));
+    }
+    if found {
+        SETTLED.store(true, Ordering::SeqCst);
+    }
+    found
+}
+
 /// Forgets the runs of yours whose sessions were told what they printed a while ago, or won't be.
-/// True when it forgot one, which the board stops showing.
+/// True when it forgot one, which the board stops showing, or a session was found to wait on one
+/// kept from before the server started (`settle_shown`), which it starts showing.
 pub fn forget_told(now: i64) -> bool {
     let mut r = to_report();
     let before = r.len();
     r.retain(|x| !x.dropped && x.telling_since.is_none_or(|t| now - t < TOLD_LAPSE_MS));
-    r.len() != before
+    r.len() != before || SETTLED.swap(false, Ordering::SeqCst)
 }
 
 /// In a run's folder once its session was told what it printed, or telling it was tried.
@@ -1119,16 +1142,17 @@ const REPORT_LINE_CHARS: usize = 400;
 /// started since (`report`), and those that ended, or were still running, while the app was closed
 /// or relaunching. `tell` sends the words to the session, as yours, once `ready` says the board has
 /// the sessions: after a relaunch, its first scan may not have them yet. It says whether they
-/// went; a session they didn't reach stops waiting on the run.
-pub fn report_ended(ready: impl Fn() -> bool + Send + 'static, tell: impl Fn(&RunStatus, String) -> bool + Send + 'static) {
+/// went; a session they didn't reach stops waiting on the run. `tellable` says whether a session
+/// can be told, by its key, for the runs from before, whose sessions wait on them only once it has.
+pub fn report_ended(ready: impl Fn() -> bool + Send + 'static, tellable: impl Fn(&str) -> bool + Send + 'static, tell: impl Fn(&RunStatus, String) -> bool + Send + 'static) {
     let left = list(None).into_iter().filter(|s| s.run.reports && !dir(&s.run.id).join(REPORTED).exists());
-    // Whether each can be told is asked as it's told.
-    to_report().extend(left.map(|s| Reporting { run: s.run, shown: true, telling_since: None, dropped: false }));
+    to_report().extend(left.map(|s| Reporting { run: s.run, shown: None, telling_since: None, dropped: false }));
     let _ = std::thread::Builder::new().name("terminal-reports".into()).spawn(move || loop {
         std::thread::sleep(Duration::from_secs(2));
         if !ready() {
             continue;
         }
+        settle_shown(&tellable);
         let ids: Vec<String> = to_report().iter().filter(|r| r.telling_since.is_none() && !r.dropped).map(|r| r.run.id.clone()).collect();
         for id in ids {
             let ended = match status(&id) {
@@ -1531,6 +1555,27 @@ mod tests {
         assert!(forget_told(10_000));
         mark(&pasted.id, |r| r.dropped = true);
         forget_told(10_000);
+
+        // Kept from before the server started: shown once its session is found to be one that
+        // can be told, and not before.
+        let kept = Run { id: "run-test-yours-kept".into(), allowed_at: 11_000, ..run.clone() };
+        let elsewhere = Run { id: "run-test-yours-kept-pasted".into(), session: "cursor:cursor:terminal-yours-test".into(), allowed_at: 11_000, ..run.clone() };
+        to_report().extend([kept.clone(), elsewhere.clone()].map(|run| Reporting { run, shown: None, telling_since: None, dropped: false }));
+        let mut s = yours.clone();
+        overlay_yours(&mut s, 12_000);
+        assert_eq!(shown(&s), shown(&yours), "not asked yet");
+        assert!(settle_shown(&|k: &str| k == key), "a session waits on one");
+        assert!(!settle_shown(&|_: &str| true), "each is asked once");
+        overlay_yours(&mut s, 12_000);
+        assert_eq!(s.running.as_ref().map(|r| r.yours), Some(true));
+        let other = Session { key: elsewhere.session.clone(), ..yours.clone() };
+        let mut s = other.clone();
+        overlay_yours(&mut s, 12_000);
+        assert_eq!(shown(&s), shown(&other), "its app takes a message only pasted");
+        for id in [&kept.id, &elsewhere.id] {
+            mark(id, |r| r.dropped = true);
+        }
+        forget_told(12_000);
     }
 
     #[test]

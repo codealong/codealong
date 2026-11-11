@@ -741,7 +741,7 @@ fn run_command(engine: &Handle, c: &Call) -> Result<Value, String> {
     let asked = crate::terminal::Asked { id, ask: crate::terminal::Ask { session: key.to_string(), command, cwd: p.folder.into(), ..Default::default() }, at };
     let run = crate::terminal::start(&asked, &apps, &lanes, &title, true).map_err(words)?;
     // The session waits on it meanwhile, unless what it prints can't be sent to it.
-    let told = cfg().ok().and_then(|cfg| crate::send::way_in(&engine.board(), &cfg, key).ok()).is_some_and(|way| crate::send::takes_unattended(way.as_ref()));
+    let told = cfg().is_ok_and(|cfg| crate::send::takes_unattended(&engine.board(), &cfg, key));
     crate::terminal::report(&run, told);
     engine.hosted_changed();
     Ok(json!(format!("Running it in {}. What it prints goes to the session when it ends.", run.place())))

@@ -624,12 +624,24 @@ pub fn way_in(board: &Board, cfg: &Config, key: &str) -> Result<Option<Way>> {
     first_way(board, cfg, key, |_, routes| routes)
 }
 
-/// Whether a session that `way_in` reaches this way takes a message Codealong sends with nobody
-/// at the Mac, as it sends what a command you ran for it printed (serve.rs `tell_run`): not one
-/// that takes a message only pasted into its app, which would come forward from the background
-/// with it on the clipboard and nobody there to paste it.
-pub fn takes_unattended(way: Option<&Way>) -> bool {
-    !matches!(way, Some(Way::ClaudeApp | Way::Antigravity | Way::Cursor))
+/// Whether the session `key` takes a message Codealong sends with nobody at the Mac, as it sends
+/// what a command you ran for it printed (serve.rs `tell_run`).
+pub fn takes_unattended(board: &Board, cfg: &Config, key: &str) -> bool {
+    let Ok((session, _)) = crate::harness::find(board, cfg, key) else { return false };
+    reaches_unattended(session.hosted, way_in(board, cfg, key).ok().flatten().as_ref())
+}
+
+/// `takes_unattended` for a session Codealong runs itself or not, reached by its first way in:
+/// one it runs itself takes it, and one that has a way in that isn't a paste (`pasted_only`).
+/// One with none takes nothing.
+fn reaches_unattended(hosted: bool, way: Option<&Way>) -> bool {
+    hosted || way.is_some_and(|w| !pasted_only(w))
+}
+
+/// Whether a session reached this way takes a message only pasted into its app, which would come
+/// forward from the background with it on the clipboard and nobody there to paste it.
+pub fn pasted_only(way: &Way) -> bool {
+    matches!(way, Way::ClaudeApp | Way::Antigravity | Way::Cursor)
 }
 
 /// The first of the session's ways in that `keep` keeps and that applies, as `send` tries them.
@@ -1555,6 +1567,19 @@ mod tests {
         assert_eq!(first(&[Stand(Way::Background).into(), message]), Some(Way::Background));
         assert_eq!(first(&[Route::Resume]), Some(Way::Resume { app: "iTerm2".into() }));
         assert_eq!(first(&[Stand(Way::CodexApp).into()]), Some(Way::CodexApp));
+    }
+
+    /// What Codealong sends with nobody there reaches a session it runs itself, or one with a way
+    /// in that isn't a paste into its app; not one with no way in at all.
+    #[test]
+    fn a_message_sent_unattended_needs_a_way_in_that_isnt_a_paste() {
+        assert!(reaches_unattended(true, None), "one Codealong runs itself");
+        assert!(!reaches_unattended(false, None), "no way in");
+        assert!(reaches_unattended(false, Some(&Way::Typed { app: "Ghostty".into() })));
+        assert!(reaches_unattended(false, Some(&Way::Resume { app: "iTerm2".into() })));
+        for pasted in [Way::ClaudeApp, Way::Antigravity, Way::Cursor] {
+            assert!(!reaches_unattended(false, Some(&pasted)), "{pasted:?}");
+        }
     }
 
     #[test]
