@@ -190,6 +190,9 @@ function PartTable({ analytics, by, lanes, sessions, onShowSession }: Props & { 
           <th scope="col" className="ca-usage-share-col">
             What they did
           </th>
+          <th scope="col" className="is-num" title="Turns that count as yours: the ones you began, and what each session went on to do by itself after">
+            Your turns
+          </th>
           <th scope="col" className="is-num">
             Agents’
           </th>
@@ -205,12 +208,13 @@ function PartTable({ analytics, by, lanes, sessions, onShowSession }: Props & { 
               <span className="ca-usage-name">{by === 'session' ? <SessionName id={r.key} title={r.title} sessions={sessions} onShow={onShowSession} /> : <span>{r.key || 'Unknown'}</span>}</span>
               {by === 'session' && <span className="ca-usage-note">{[r.account, r.folder && r.folder.split('/').pop(), r.began && r.began !== 'you' && BEGAN.find((b) => b.id === r.began)?.label].filter(Boolean).join(' · ')}</span>}
             </th>
-            <td className="is-num" title={`${count(cameIn(r))} things came in to ${by === 'session' ? 'it' : 'its sessions'} in all`}>
+            <td className="is-num" title={`${count(cameIn(r))} turns in all`}>
               {count(yours(r))}
             </td>
             <td className="ca-usage-share-col">
               <Mix row={r} top={top} />
             </td>
+            <td className="is-num">{r.counts.you ? count(r.counts.you) : <span className="ca-usage-none">—</span>}</td>
             <td className="is-num">{r.counts.agent ? count(r.counts.agent) : <span className="ca-usage-none">—</span>}</td>
             <td className="is-num">{r.counts.codealong ? count(r.counts.codealong) : <span className="ca-usage-none">—</span>}</td>
           </tr>

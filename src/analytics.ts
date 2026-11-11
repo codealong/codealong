@@ -144,12 +144,13 @@ export function secondHandSessions(began: Count[]): { second: number; known: num
   return { second: sum(known.filter((b) => !YOURS.has(b.key)).map((b) => b.n)), known: sum(known.map((b) => b.n)) };
 }
 
-/** A row's prompts of yours. */
+/** A row's prompts of yours: every one has a stance, read or not. Not `counts.you`, which also
+ *  has the turns the session began itself after a prompt of yours. */
 export function yours(row: PartRow): number {
-  return row.counts.you ?? 0;
+  return sum(Object.values(row.stances));
 }
 
-/** Everything that came in to a row's sessions. */
+/** Every turn of a row's sessions. */
 export function cameIn(row: PartRow): number {
   return sum(Object.values(row.counts));
 }

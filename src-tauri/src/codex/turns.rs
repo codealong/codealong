@@ -3,7 +3,8 @@
 //! A rollout says when each turn starts and ends (`task_started`, then `task_complete` or
 //! `turn_aborted`), and a prompt is an `event_msg` inside its turn: an `item_completed` whose
 //! item is a `UserMessage` (with an `id`, which names it here), or in older rollouts a
-//! `user_message` with none. Some rollouts have a prompt both ways, so a turn's prompts are told
+//! `user_message` with none, which goes by its time and words (`turns::named`), as a fork's copy
+//! of it does. Some rollouts have a prompt both ways, so a turn's prompts are told
 //! apart by their text (`State::seen`). Nothing marks who a prompt is from: another session's
 //! message and Codealong's own are typed in as yours are, led by the line Codealong puts first
 //! (`turns::whose`). The app's automations wake a thread with a `<heartbeat>`, which is the
@@ -93,7 +94,9 @@ fn prompt(st: &mut State, at: i64, id: Option<String>, raw: &str) -> Option<Came
     // Another prompt inside a turn that already has one was steered into it.
     let mid = st.open && !st.seen.is_empty();
     st.seen.push(hash);
-    let id = id.unwrap_or_else(|| st.name());
+    // An older rollout's prompt has no id: it goes by when it came and what it said, which a
+    // fork's or a moved thread's copy of the line has too.
+    let id = id.unwrap_or_else(|| crate::turns::named(at, raw));
     let t = raw.trim_start();
     if t.starts_with(HEARTBEAT) {
         return Some(Came { id, at, source: Source::Itself, kind: "wakeup", sender: None, mid, text: String::new(), picked: None });
@@ -148,7 +151,12 @@ mod tests {
         assert_eq!(step(&mut st, user_item("i4", agents)).map(|c| (c.source, c.sender, c.text)), Some((Source::Agent, Some("claude:claude:a".into()), "Look again at the lexer.".into())));
         // An older rollout's prompt has no id of its own.
         step(&mut st, event(json!({"type": "task_started", "turn_id": "t4"})));
-        assert_eq!(step(&mut st, event(json!({"type": "user_message", "message": "## My request:\nShip it"}))).map(|c| (c.id, c.text)), Some(("codex:codex:t1#0".into(), "Ship it".into())));
+        let legacy = event(json!({"type": "user_message", "message": "## My request:\nShip it"}));
+        let came = step(&mut st, legacy.clone()).unwrap();
+        assert_eq!(came.text, "Ship it");
+        // The same line read from a fork's rollout is the same prompt.
+        let mut fork = State { session: "codex:codex:fork".into(), ..Default::default() };
+        assert_eq!(step(&mut fork, legacy).map(|c| c.id), Some(came.id));
     }
 
     #[test]

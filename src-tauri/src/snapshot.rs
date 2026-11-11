@@ -316,7 +316,7 @@ fn stance(args: &Args, rest: &[String]) -> Done {
         let answer = crate::jev::ask(crate::jev::Feature::Prompts, &crate::stance::request(&cfg.jev.model, &u)).map_err(failed)?;
         let read = crate::stance::read(&answer);
         if let (Some((stance, sure)), Ok(id)) = (&read, u.id.parse::<i64>()) {
-            crate::stance::set(&db, id, stance, Some(*sure), answer["model"].as_str().unwrap_or(&cfg.jev.model)).map_err(failed)?;
+            crate::stance::keep_read(&db, id, stance, *sure, answer["model"].as_str().unwrap_or(&cfg.jev.model)).map_err(failed)?;
         }
         out.push(serde_json::json!({ "prompt": u, "stance": read.map(|(s, _)| s), "probabilities": crate::jev::choice(&answer, "stance") }));
     }

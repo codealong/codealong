@@ -95,11 +95,17 @@ describe('second hand', () => {
 describe('rows', () => {
   const row = (key: string, you: number, agent: number, stances: Record<string, number>, lastAt = 0): PartRow => ({ key, counts: { you, agent }, stances, lastAt });
 
+  it('count a row’s prompts as the ones you typed, not every turn that counts as yours', () => {
+    // One prompt, and four reports of a task it started, which count with it.
+    expect(yours(row('claude:claude:a', 5, 0, { agrees: 1 }))).toBe(1);
+    expect(cameIn(row('claude:claude:a', 5, 2, { agrees: 1 }))).toBe(7);
+  });
+
   it('sum folders by project, the most prompted first', () => {
-    const folders = [row('/work/app', 2, 1, { agrees: 2 }, 5), row('/work/app-wt', 3, 0, { steers: 1, agrees: 2 }, 9), row('/work/site', 9, 4, { '': 9 }, 1), row('/tmp/x', 1, 0, {})];
+    const folders = [row('/work/app', 2, 1, { agrees: 2 }, 5), row('/work/app-wt', 3, 0, { steers: 1, agrees: 2 }, 9), row('/work/site', 12, 4, { '': 9 }, 1), row('/tmp/x', 1, 0, { asks: 1 })];
     const rows = partByProject(folders, (f) => (f.startsWith('/work/app') ? 'App' : f.startsWith('/work/site') ? 'Site' : ''));
     expect(rows.map((r) => [r.key, yours(r), cameIn(r)])).toEqual([
-      ['Site', 9, 13],
+      ['Site', 9, 16],
       ['App', 5, 6],
       ['No project', 1, 1],
     ]);

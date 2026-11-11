@@ -29,7 +29,9 @@
 //! With `[experimental] analytics` on, the same file keeps what came in to each session and who
 //! from (turns.rs, which gives each call its turn), where each session came from (began.rs) and
 //! how the sessions you marked done stood (dismissed.rs). Their tables are made here, with the
-//! rest, and a report groups its calls by them too (`Report::origins`, `Report::hands`).
+//! rest, and stay empty while it's off; a report groups its calls by them only while it's on
+//! (`Report::origins`, `Report::hands`). Whether a subagent made a call is noted either way: it's
+//! what the call's record says of it, as its speed is.
 
 use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
@@ -202,7 +204,8 @@ CREATE TABLE IF NOT EXISTS turns (
   stance TEXT,
   stance_p REAL,
   read_by TEXT,
-  counts_as TEXT
+  counts_as TEXT,
+  seq INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS turns_session ON turns(session, at);
 CREATE INDEX IF NOT EXISTS turns_at ON turns(at);
@@ -246,7 +249,8 @@ CREATE TABLE IF NOT EXISTS meta (
 /// Columns a ledger from before them has its tables without: what `began.rs` notes of each
 /// session, and what `turns.rs` says of each call. SQLite adds a column to a table in place,
 /// every row reading NULL for it: not known.
-const ADDED: [(&str, &str, &str); 6] = [
+const ADDED: [(&str, &str, &str); 7] = [
+    ("turns", "seq", "INTEGER NOT NULL DEFAULT 0"),
     ("sessions", "began", "TEXT"),
     ("sessions", "began_by", "TEXT"),
     ("sessions", "title", "TEXT"),
@@ -448,7 +452,10 @@ pub fn reread_for_subagents(db: &Connection) -> Result<()> {
     if meta(db, "subagents")?.is_some() {
         return Ok(());
     }
-    db.execute("UPDATE files SET offset = 0, size = 0, mtime = 0 WHERE path NOT LIKE '%#rows'", [])?;
+    // With what its lines had said forgotten too: a record read from its start starts as new. A
+    // Codex rollout that ended on its priority tier would have its earlier calls read as fast
+    // otherwise, for good, since a call keeps the fastest it was ever read as.
+    db.execute("UPDATE files SET offset = 0, size = 0, mtime = 0, state = '{}' WHERE path NOT LIKE '%#rows'", [])?;
     set_meta(db, "subagents", "1")
 }
 
@@ -823,7 +830,9 @@ enum Calls<'a> {
 /// The calls, summed by day, session, model, speed, how far their prompts went past the sizes
 /// some model's prices change above (prices.rs `thresholds`: priced as a prompt just past the
 /// last one passed) and whether the harness recorded a cost, so each sum is priced one way.
-fn groups(db: &Connection, calls: Calls, thresholds: &[u64]) -> Result<Vec<Group>> {
+/// With `analytics`, also by how the session began, who began the call's turn and whether a
+/// subagent made it; without, the query is what it was before there were any.
+fn groups(db: &Connection, calls: Calls, thresholds: &[u64], analytics: bool) -> Result<Vec<Group>> {
     let step = match thresholds {
         [] => "0".to_string(),
         _ => format!("CASE {} ELSE 0 END", thresholds.iter().rev().map(|t| format!("WHEN c.prompt > {t} THEN {}", t + 1)).collect::<Vec<_>>().join(" ")),
@@ -834,14 +843,18 @@ fn groups(db: &Connection, calls: Calls, thresholds: &[u64]) -> Result<Vec<Group
         Calls::Since(from, Some(account)) => ("c.at >= ?1 AND s.account = ?2", vec![from.into(), account.to_string().into()]),
         Calls::Session(key) => ("c.session = (SELECT id FROM sessions WHERE key = ?1)", vec![key.to_string().into()]),
     };
+    let (more, join, by) = match analytics {
+        true => ("coalesce(s.began, '') AS began, coalesce(t.counts_as, '') AS hand, c.sub AS sub", "LEFT JOIN turns t ON t.id = c.turn", ", hand, sub"),
+        false => ("'' AS began, '' AS hand, NULL AS sub", "", ""),
+    };
     let sql = format!(
         "SELECT date(c.at / 1000, 'unixepoch', 'localtime') AS day, s.key, s.account, s.folder, c.model, c.fast, {step} AS step,
                 sum(c.input), sum(c.cache_read), sum(c.cache_write), sum(c.cache_write_1h), sum(c.output), sum(c.reasoning),
                 sum(c.searches), count(*), sum(c.cost), max(c.at), coalesce(c.cost, 0) > 0 AS recorded,
-                coalesce(s.began, '') AS began, coalesce(t.counts_as, '') AS hand, c.sub AS sub
-         FROM calls c JOIN sessions s ON s.id = c.session LEFT JOIN turns t ON t.id = c.turn
+                {more}
+         FROM calls c JOIN sessions s ON s.id = c.session {join}
          WHERE {filter}
-         GROUP BY day, c.session, c.model, c.fast, step, recorded, hand, sub"
+         GROUP BY day, c.session, c.model, c.fast, step, recorded{by}"
     );
     let mut stmt = db.prepare(&sql)?;
     let rows = stmt.query_map(rusqlite::params_from_iter(args), |r| {
@@ -984,7 +997,7 @@ pub fn report_in(db: &Connection, cfg: &crate::config::Config, days: u32, accoun
         .map(|a| (a.name.clone(), Paid { account: a.name.clone(), monthly: a.monthly, per_token: a.per_token, ..Default::default() }))
         .collect();
 
-    for g in groups(db, Calls::Since(from, account), &prices::thresholds(&cfg.prices))? {
+    for g in groups(db, Calls::Since(from, account), &prices::thresholds(&cfg.prices), analytics)? {
         if g.day < first {
             continue;
         }
@@ -1100,7 +1113,7 @@ pub fn session(key: &str) -> Result<SessionSpent> {
 pub fn session_in(db: &Connection, cfg: &crate::config::Config, key: &str) -> Result<SessionSpent> {
     let mut total = Spent { key: key.to_string(), ..Default::default() };
     let mut models: BTreeMap<String, Spent> = BTreeMap::new();
-    for g in groups(db, Calls::Session(key), &prices::thresholds(&cfg.prices))? {
+    for g in groups(db, Calls::Session(key), &prices::thresholds(&cfg.prices), false)? {
         let per_token = cfg.accounts.iter().any(|a| a.name == g.account && a.per_token);
         let s = price_group(&g, prices::price_of(&g.model, &cfg.prices).as_ref(), per_token);
         total.add(&s);
@@ -1380,6 +1393,25 @@ mod tests {
         note_extra_in(&db, "claude", now - 2000, 2.0, None, "USD").unwrap();
         let r = report_in(&db, &Config { accounts: vec![plan], ..Default::default() }, 1, None, now).unwrap();
         assert!((r.paying[0].extra - 42.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn records_are_read_again_once_for_subagents_calls_as_if_new() {
+        let db = in_memory();
+        // A rollout read to its end, on its priority tier by then, and a database's rows.
+        db.execute("INSERT INTO files (path, offset, size, mtime, state) VALUES ('/r/rollout.jsonl', 900, 900, 5, '{\"fast\":true,\"total\":4200}')", []).unwrap();
+        db.execute("INSERT INTO files (path, offset, size, mtime, state) VALUES ('opencode:opencode#rows', 77, 0, 0, '{}')", []).unwrap();
+        reread_for_subagents(&db).unwrap();
+        let row = |path: &str| db.query_row("SELECT offset, size, state FROM files WHERE path = ?1", [path], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, String>(2)?))).unwrap();
+        // From its start, with nothing carried over from where it ended: its early calls aren't
+        // read as fast, nor its first skipped for a total already seen.
+        assert_eq!(row("/r/rollout.jsonl"), (0, 0, "{}".into()));
+        assert_eq!(file_row(&db, "/r/rollout.jsonl").unwrap().unwrap().state, TokenState::default());
+        assert_eq!(row("opencode:opencode#rows").0, 77, "a database is asked from its newest write, as before");
+        // Only once.
+        db.execute("UPDATE files SET offset = 900, size = 900 WHERE path = '/r/rollout.jsonl'", []).unwrap();
+        reread_for_subagents(&db).unwrap();
+        assert_eq!(row("/r/rollout.jsonl").0, 900);
     }
 
     #[test]

@@ -162,10 +162,21 @@ impl State {
         }
     }
 
-    /// A name for the next thing to come in, for a record whose lines have none of their own.
+    /// A name for the next thing to come in, for a record whose lines have none of their own
+    /// and that no other record copies.
     pub fn name(&self) -> String {
         format!("{}#{}", self.session, self.n)
     }
+}
+
+/// A name for something that came in, by when and what it said, for a record that gives it none
+/// of its own, or one that a copy doesn't keep (a fork's, a moved session's): the copy has the
+/// time and the words, so it's the same line under this name whichever record it's read from.
+pub fn named(at: i64, text: &str) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    text.hash(&mut h);
+    format!("{at}:{:016x}", h.finish())
 }
 
 /// Whose a message typed into a session is, by the line Codealong leads one with: its own
@@ -286,7 +297,7 @@ struct RowsState {
 const SAID_KEPT: usize = 400;
 
 /// Reads what was said in a harness that keeps messages in a database (`Adapter::said`), from the
-/// newest write the last read saw. A message's id is the database's own.
+/// newest write the last read saw.
 fn read_rows(db: &Connection, account: &AccountCfg, adapter: &dyn crate::harness::Adapter, now: i64, dirty: &mut Dirty) -> Result<()> {
     let tag = adapter.harness().config();
     let key = format!("{tag}:{}#said", account.name);
@@ -307,7 +318,9 @@ fn read_rows(db: &Connection, account: &AccountCfg, adapter: &dyn crate::harness
         }
         let (source, sender) = whose(&m.text);
         let before = state.said.get(&m.session).cloned().unwrap_or_default();
-        let came = Came { id: m.id.clone(), at: m.at, source, kind: if source == Source::You { "prompt" } else { "message" }, sender, mid: false, text: crate::send::past_sender_lines(&m.text).trim().to_string(), picked: None };
+        // A fork's copy of a message has an id of its own and the original's time (OpenCode's
+        // does), so a message goes by when it came and what it said.
+        let came = Came { id: named(m.at, &m.text), at: m.at, source, kind: if source == Source::You { "prompt" } else { "message" }, sender, mid: false, text: crate::send::past_sender_lines(&m.text).trim().to_string(), picked: None };
         let first = before.is_empty() && !tx.prepare_cached("SELECT EXISTS (SELECT 1 FROM turns t JOIN sessions s ON s.id = t.session WHERE s.key = ?1)")?.query_row([&session], |r| r.get::<_, bool>(0))?;
         put(&tx, account, tag, &session, &[Row { came, before, after_stop: false, first }], now, dirty)?;
     }
@@ -334,10 +347,13 @@ fn put(db: &Connection, account: &AccountCfg, tag: &str, session: &str, rows: &[
     }
     let sid = crate::ledger::session_row(db, session, &account.name, "")?;
     let mut add = db.prepare_cached(
-        "INSERT INTO turns (id, session, at, source, kind, sender, mid, after_stop, picked, chars, opening, text, before, stance, read_by)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
+        "INSERT INTO turns (id, session, at, source, kind, sender, mid, after_stop, picked, chars, opening, text, before, stance, read_by, seq)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
          ON CONFLICT(id) DO NOTHING",
     )?;
+    // The order things were read in, which is the order a record has them in: two that came in
+    // the same instant, as a record that times things to the minute has them, keep it.
+    let mut seq: i64 = crate::ledger::meta(db, "turn_seq")?.and_then(|n| n.parse().ok()).unwrap_or(0);
     for r in rows {
         let c = &r.came;
         let yours = c.source == Source::You;
@@ -360,20 +376,27 @@ fn put(db: &Connection, account: &AccountCfg, tag: &str, session: &str, rows: &[
             reads.then(|| r.before.clone()),
             stance,
             stance.map(|_| crate::stance::BY_RULE),
+            {
+                seq += 1;
+                seq
+            },
         ])?;
         if added > 0 {
             touch(dirty, sid, c.at);
         }
     }
+    crate::ledger::set_meta(db, "turn_seq", &seq.to_string())?;
     Ok(())
 }
 
 /// What each of a session's turns counts as, in order: who began it, a turn the session began
 /// itself counted with the one it follows (the session's own beginning, for one nothing came
 /// before), and the first prompt of a session an agent or Codealong started counted as theirs
-/// when it came as the session started.
-pub fn counted(turns: &[(Source, i64)], began: Option<(Began, Option<&str>)>, started: Option<i64>) -> Vec<Source> {
-    let opens_as = began.map(|(b, by)| b.opens_as(by)).unwrap_or(Source::You);
+/// when it came as the session started. None where nothing says: a turn the session began itself
+/// with nothing known before it, in a session whose beginning was never noted (a record that
+/// starts partway, one from before any of this was kept). That's not known, not yours.
+pub fn counted(turns: &[(Source, i64)], began: Option<(Began, Option<&str>)>, started: Option<i64>) -> Vec<Option<Source>> {
+    let opens_as = began.map(|(b, by)| b.opens_as(by));
     let mut last: Option<Source> = None;
     turns
         .iter()
@@ -381,11 +404,12 @@ pub fn counted(turns: &[(Source, i64)], began: Option<(Began, Option<&str>)>, st
         .map(|(i, (source, at))| {
             let as_started = i == 0 && started.is_none_or(|s| *at <= s + OPENS_WITHIN_MS);
             let counts = match source {
-                Source::Itself => last.unwrap_or(opens_as),
-                Source::You if as_started => opens_as,
-                s => *s,
+                Source::Itself => last.or(opens_as),
+                // Typed with no beginning noted is yours: someone typed it.
+                Source::You if as_started => Some(opens_as.unwrap_or(Source::You)),
+                s => Some(*s),
             };
-            last = Some(counts);
+            last = counts.or(last);
             counts
         })
         .collect()
@@ -395,7 +419,7 @@ pub fn counted(turns: &[(Source, i64)], began: Option<(Began, Option<&str>)>, st
 pub fn recount(db: &Connection, session: i64) -> Result<()> {
     let (began, by, started): (Option<String>, Option<String>, Option<i64>) = db.prepare_cached("SELECT began, began_by, started FROM sessions WHERE id = ?1")?.query_row([session], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
     let began = began.as_deref().and_then(Began::from_word).map(|b| (b, by.as_deref()));
-    let mut stmt = db.prepare_cached("SELECT id, source, at, counts_as FROM turns WHERE session = ?1 ORDER BY at, id")?;
+    let mut stmt = db.prepare_cached("SELECT id, source, at, counts_as FROM turns WHERE session = ?1 ORDER BY at, seq")?;
     let rows: Vec<(i64, Source, i64, Option<String>)> = stmt
         .query_map([session], |r| Ok((r.get(0)?, r.get::<_, String>(1)?, r.get(2)?, r.get(3)?)))?
         .filter_map(|r| r.ok().and_then(|(id, source, at, was)| Some((id, Source::from_word(&source)?, at, was))))
@@ -403,15 +427,17 @@ pub fn recount(db: &Connection, session: i64) -> Result<()> {
     let counts = counted(&rows.iter().map(|(_, source, at, _)| (*source, *at)).collect::<Vec<_>>(), began, started);
     let mut set = db.prepare_cached("UPDATE turns SET counts_as = ?2 WHERE id = ?1")?;
     for ((id, _, _, was), counts) in rows.iter().zip(counts) {
-        if was.as_deref() != Some(counts.word()) {
-            set.execute(params![id, counts.word()])?;
+        let counts = counts.map(Source::word);
+        if was.as_deref() != counts {
+            set.execute(params![id, counts])?;
         }
     }
     Ok(())
 }
 
-/// The turn each call was made in: the latest thing that came in to its session at or before it.
-const TURN_OF: &str = "(SELECT t.id FROM turns t WHERE t.session = calls.session AND t.at <= calls.at ORDER BY t.at DESC, t.id DESC LIMIT 1)";
+/// The turn each call was made in: the latest thing that came in to its session at or before it,
+/// of the ones whose time is known, the later read of two that came in the same instant.
+const TURN_OF: &str = "(SELECT t.id FROM turns t WHERE t.session = calls.session AND t.at > 0 AND t.at <= calls.at ORDER BY t.at DESC, t.seq DESC LIMIT 1)";
 
 /// After a pass: what each new turn's session's turns count as, the turn of each call made from
 /// the earliest new turn on, and the turn of each call read since the last pass.
@@ -546,7 +572,9 @@ pub struct PartRow {
     /// How the session began (`Began::word`), for a session's row, when noted.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub began: Option<String>,
-    /// What came in, by what it counts as (`Source::word`: you, agent, codealong).
+    /// The turns, by what each counts as (`Source::word`: you, agent, codealong; an empty key
+    /// where that isn't known). One the session began itself is with the turn it follows, so
+    /// `you` here is more than the prompts you typed, which are `stances`.
     pub counts: BTreeMap<String, u64>,
     /// Your prompts by stance, an empty key for the ones not read.
     pub stances: BTreeMap<String, u64>,
@@ -562,8 +590,9 @@ impl PartRow {
         self.last_at = self.last_at.max(last_at);
     }
 
+    /// The prompts of yours: every one has a stance, read or not.
     pub fn yours(&self) -> u64 {
-        self.counts.get("you").copied().unwrap_or(0)
+        self.stances.values().sum()
     }
 }
 
@@ -620,8 +649,12 @@ const PROMPTS: usize = 200;
 
 /// What came in over the last `days` days, for one account or all of them.
 pub fn part_in(db: &Connection, cfg: &crate::config::Config, days: u32, account: Option<&str>, now: i64) -> Result<Part> {
-    let first: String = db.query_row("SELECT date('now', 'localtime', ?1)", [format!("-{} days", days.max(1) - 1)], |r| r.get(0))?;
-    let from = now - (days.max(1) as i64 + 1) * DAY_MS;
+    let back = format!("-{} days", days.max(1) - 1);
+    let first: String = db.query_row("SELECT date('now', 'localtime', ?1)", [&back], |r| r.get(0))?;
+    // The first of the days begins at its local midnight: what every count here starts from, so
+    // the lists and the totals are of the same days.
+    let from: i64 = db.query_row("SELECT CAST(strftime('%s', date('now', 'localtime', ?1), 'utc') AS INTEGER) * 1000", [&back], |r| r.get(0))?;
+    let _ = now;
     let mut day_rows: BTreeMap<String, PartDay> = BTreeMap::new();
     let (mut sources, mut hands, mut stances): (BTreeMap<String, u64>, BTreeMap<String, u64>, BTreeMap<String, u64>) = Default::default();
     let mut marks = Marks::default();
@@ -629,7 +662,7 @@ pub fn part_in(db: &Connection, cfg: &crate::config::Config, days: u32, account:
     let filter = if account.is_some() { "AND s.account = ?2" } else { "AND ?2 IS NULL" };
     let sql = format!(
         "SELECT date(t.at / 1000, 'unixepoch', 'localtime') AS day, s.key, s.account, s.folder, coalesce(s.title, ''), s.began,
-                t.source, coalesce(t.counts_as, t.source) AS hand, coalesce(t.stance, '') AS stance, t.kind,
+                t.source, coalesce(t.counts_as, CASE WHEN t.source = 'itself' THEN '' ELSE t.source END) AS hand, coalesce(t.stance, '') AS stance, t.kind,
                 count(*), sum(t.mid), sum(t.after_stop), sum(t.chars), max(t.at),
                 sum(t.picked = 'first'), sum(t.picked = 'offered'), sum(t.picked = 'own')
          FROM turns t JOIN sessions s ON s.id = t.session
@@ -788,6 +821,7 @@ mod tests {
         use Source::*;
         let at = |list: &[Source]| list.iter().enumerate().map(|(i, s)| (*s, 1000 + i as i64)).collect::<Vec<_>>();
         // Yours, a task reporting back on it, an agent's message, what follows from that.
+        let counted = |turns: &[(Source, i64)], began, started| super::counted(turns, began, started).into_iter().map(|c| c.expect("known")).collect::<Vec<_>>();
         assert_eq!(counted(&at(&[You, Itself, Agent, Itself, Itself, You, Codealong, Itself]), None, None), vec![You, You, Agent, Agent, Agent, You, Codealong, Codealong]);
         // A helper opens with its starter's words, typed in as yours would be; what you type
         // into it later is yours.
@@ -801,6 +835,10 @@ mod tests {
         assert_eq!(counted(&at(&[You]), Some((Began::Fork, Some("x"))), None), vec![You]);
         assert_eq!(counted(&at(&[You]), Some((Began::Headless, None)), None), vec![You]);
         assert_eq!(counted(&at(&[You]), Some((Began::Headless, Some("x"))), None), vec![Agent]);
+        // With no beginning noted, a turn the session began itself with nothing before it is
+        // nobody's until something known comes in; what follows that is known again.
+        assert_eq!(super::counted(&at(&[Itself, Itself, Agent, Itself]), None, None), vec![None, None, Some(Agent), Some(Agent)]);
+        assert_eq!(super::counted(&at(&[Itself]), Some((Began::You, None)), None), vec![Some(You)]);
     }
 
     #[test]
@@ -844,6 +882,58 @@ mod tests {
         assert_eq!(part.sources.len(), 2);
         assert!(part.stances.is_empty(), "a helper's opening isn't a prompt of yours: {:?}", part.stances);
         assert_eq!(part.sessions[0].began.as_deref(), Some("helper"));
+    }
+
+    #[test]
+    fn two_that_came_in_the_same_instant_keep_the_order_they_were_read_in() {
+        let now = now_ms();
+        let a = account();
+        // A record that times things to the minute: an agent's message, then a task's report.
+        let rows = vec![
+            Row { came: came("m1", now - 60_000, Source::Agent, "Two findings."), before: String::new(), after_stop: false, first: true },
+            Row { came: Came { kind: "task", ..came("t1", now - 60_000, Source::Itself, "") }, before: String::new(), after_stop: false, first: false },
+        ];
+        // Whatever numbers their names hash to, the report follows the message.
+        for flip in [false, true] {
+            let db = db();
+            let mut rows = rows.iter().map(|r| Row { came: r.came.clone(), before: String::new(), after_stop: false, first: r.first }).collect::<Vec<_>>();
+            if flip {
+                rows[0].came.id = "zz".into();
+                rows[1].came.id = "aa".into();
+            }
+            let mut dirty = Dirty::new();
+            put(&db, &a, "cursor", "cursor:cursor:c1", &rows, now, &mut dirty).unwrap();
+            settle(&db, &dirty, now).unwrap();
+            let counts: Vec<(String, Option<String>)> = db.prepare("SELECT source, counts_as FROM turns ORDER BY seq").unwrap().query_map([], |r| Ok((r.get(0)?, r.get(1)?))).unwrap().map(Result::unwrap).collect();
+            assert_eq!(counts, [("agent".into(), Some("agent".into())), ("itself".into(), Some("agent".into()))], "flip {flip}");
+        }
+    }
+
+    #[test]
+    fn a_days_lists_are_of_the_same_days_as_its_totals() {
+        let db = db();
+        let now = now_ms();
+        let a = account();
+        // Two days ago: before any one-day report's day began, whatever the hour is now.
+        let then = now - 2 * DAY_MS;
+        let rows = vec![Row { came: came("u1", then, Source::You, "No, wrap it instead."), before: "I'll rewrite it.".into(), after_stop: false, first: false }];
+        let mut dirty = Dirty::new();
+        put(&db, &a, "claude", "claude:claude:a", &rows, now, &mut dirty).unwrap();
+        settle(&db, &dirty, now).unwrap();
+        crate::stance::set(&db, crate::ledger::row_id("claude", "u1"), "redirects", None, "agent").unwrap();
+        db.execute("INSERT INTO answers (at, session, answer) VALUES (?1, 'claude:claude:a', 'allow')", [then]).unwrap();
+        let day = part_in(&db, &crate::config::Config::default(), 1, None, now).unwrap();
+        assert!(day.stances.is_empty() && day.prompts.is_empty(), "{:?}", day.prompts);
+        assert_eq!(day.marks.allowed, 0);
+        let week = part_in(&db, &crate::config::Config::default(), 7, None, now).unwrap();
+        assert_eq!((week.prompts.len(), week.marks.allowed), (1, 1));
+        // A row's prompts are the ones you typed, not every turn that counts as yours.
+        let more = vec![Row { came: Came { kind: "task", ..came("t1", then + 1000, Source::Itself, "") }, before: String::new(), after_stop: false, first: false }];
+        let mut dirty = Dirty::new();
+        put(&db, &a, "claude", "claude:claude:a", &more, now, &mut dirty).unwrap();
+        settle(&db, &dirty, now).unwrap();
+        let week = part_in(&db, &crate::config::Config::default(), 7, None, now).unwrap();
+        assert_eq!((week.sessions[0].yours(), week.sessions[0].counts.get("you")), (1, Some(&2)));
     }
 
     #[test]

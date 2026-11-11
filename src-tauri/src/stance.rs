@@ -151,7 +151,17 @@ pub fn read(response: &Value) -> Option<(String, f64)> {
     jev::choice(response, "stance").into_iter().next().filter(|(s, _)| is_stance(s))
 }
 
-/// Says what a prompt did. A stance no rule or reader has is refused.
+/// Keeps Jev's read of a prompt, unless something read it meanwhile: an agent can tag a prompt
+/// while Jev's answer for it is on its way, and the agent's word stands.
+pub fn keep_read(db: &Connection, id: i64, stance: &str, sure: f64, model: &str) -> Result<bool> {
+    if !is_stance(stance) {
+        bail!("“{stance}” isn't something a prompt does.");
+    }
+    Ok(db.execute("UPDATE turns SET stance = ?2, stance_p = ?3, read_by = ?4 WHERE id = ?1 AND source = 'you' AND stance IS NULL", params![id, stance, sure, model])? > 0)
+}
+
+/// Says what a prompt did, over whatever read it before (an agent's tag). A stance no rule or
+/// reader has is refused.
 pub fn set(db: &Connection, id: i64, stance: &str, sure: Option<f64>, by: &str) -> Result<()> {
     if !is_stance(stance) {
         bail!("“{stance}” isn't something a prompt does. It's one of: {}, {COMMAND}.", STANCES.map(|(s, _)| s).join(", "));
@@ -185,7 +195,7 @@ pub fn pass(db: &Connection) {
         for (u, answer) in batch.iter().zip(answers) {
             let Ok(id) = u.id.parse::<i64>() else { continue };
             let done = match answer.as_ref().map(read) {
-                Ok(Some((stance, sure))) => set(db, id, &stance, Some(sure), answer.as_ref().ok().and_then(|a| a["model"].as_str()).unwrap_or(&cfg.jev.model)),
+                Ok(Some((stance, sure))) => keep_read(db, id, &stance, sure, answer.as_ref().ok().and_then(|a| a["model"].as_str()).unwrap_or(&cfg.jev.model)).map(|_| ()),
                 // An answer with no stance in it, or a request Jev can't take: not asked again.
                 Ok(None) => unreadable(db, id),
                 Err(e) if refused(e) => unreadable(db, id),
@@ -212,7 +222,7 @@ fn refused(e: &anyhow::Error) -> bool {
 }
 
 fn unreadable(db: &Connection, id: i64) -> Result<()> {
-    db.execute("UPDATE turns SET text = NULL, before = NULL, read_by = ?2 WHERE id = ?1", params![id, UNREADABLE])?;
+    db.execute("UPDATE turns SET text = NULL, before = NULL, read_by = ?2 WHERE id = ?1 AND stance IS NULL", params![id, UNREADABLE])?;
     Ok(())
 }
 
@@ -258,5 +268,21 @@ mod tests {
         let answer = json!({"answers": {"stance": {"probabilities": {"redirects": 0.81, "steers": 0.17, "asks": 0.02}}}});
         assert_eq!(read(&answer), Some(("redirects".into(), 0.81)));
         assert_eq!(read(&json!({"answers": {}})), None);
+    }
+
+    #[test]
+    fn jevs_read_never_goes_over_an_agents() {
+        let db = crate::ledger::in_memory();
+        let sid = crate::ledger::session_row(&db, "claude:claude:a", "claude", "").unwrap();
+        db.execute("INSERT INTO turns (id, session, at, source, kind, text, counts_as) VALUES (7, ?1, 5, 'you', 'prompt', 'No, wrap it.', 'you')", [sid]).unwrap();
+        // The agent's tag lands while Jev's answer is on its way.
+        set(&db, 7, "redirects", None, "agent").unwrap();
+        assert!(!keep_read(&db, 7, "steers", 0.6, "jev-1.14.0").unwrap());
+        unreadable(&db, 7).unwrap();
+        let (stance, by): (String, String) = db.query_row("SELECT stance, read_by FROM turns WHERE id = 7", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+        assert_eq!((stance.as_str(), by.as_str()), ("redirects", "agent"));
+        // One nothing has read takes Jev's.
+        db.execute("INSERT INTO turns (id, session, at, source, kind, text, counts_as) VALUES (8, ?1, 6, 'you', 'prompt', 'Go ahead.', 'you')", [sid]).unwrap();
+        assert!(keep_read(&db, 8, "agrees", 0.9, "jev-1.14.0").unwrap());
     }
 }

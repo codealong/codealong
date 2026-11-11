@@ -308,6 +308,29 @@ put labels on them: `codealong session label <key> --add <name>` (a new name is 
 labels todos wear), `--remove <name>` to take one off. A label stays until it's taken off, so put
 one on only when the user asked for it; `codealong sessions --label <name>` lists the ones with it.
 
+## Reading what your user's prompts did
+
+Analytics are an experiment, off until your user turns them on in Settings › Experimental: the
+Usage window then says who began each turn of their sessions and what each of their prompts did
+with the reply before it. While they're off every `codealong analytics` command says so. When
+your user asks you to read their prompts for it (Jev can too, once they turn that on):
+
+1. `codealong analytics prompts` lists the prompts of theirs that nothing has read yet, the
+   newest first: each with its id, its session, what it says, the end of the agent's reply
+   before it, and whether it came while the agent worked or after they stopped its turn.
+2. Say what each did with what the agent had last said: `codealong analytics tag <id> <stance>`.
+   `sets-out` asks for new work that isn't about the reply; `agrees` goes along with what the
+   agent said, proposed or asked and adds nothing ("go ahead", "continue", "try again", "looks
+   good"); `steers` keeps its direction and adjusts it or adds to it (a requirement, a
+   correction, a choice between what it offered, a fact it needed); `redirects` rejects what it
+   did or proposed and replaces it; `asks` is a question that tells it to change nothing.
+   Read the prompt against that reply, not alone: "yes" agrees, and "yes, but in the other
+   file" steers. Where the end of the reply isn't what the prompt answers, `codealong session
+   transcript <key>` has the rest.
+
+A tag stands over Jev's read of the same prompt. Tag only what you read, and leave one you
+can't tell untagged: it's shown as not read, which is true.
+
 ## Orchestrating
 
 When your user asks you to run as their orchestrator, keeping watch over all their sessions on a
