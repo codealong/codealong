@@ -148,11 +148,14 @@ export function useNotchStage(items: BarItem[], reviews: BarReview[], known: (ke
   // back to their session as they did. One shown since some other way (a review the queue went
   // on to) leads nowhere.
   const fromChips = useRef(new Map<string, CameFrom>());
+  // The sessions that left the bar while shown here (marked done, archived, marked seen): the bar
+  // doesn't list them, but the engine still has them to go back to.
+  const leftHere = useRef(new Set<string>());
 
   // Back and forward through the sessions looked at here, as in the main window. One the bar no
-  // longer has is passed over. The end of what waits shows no session.
+  // longer has is passed over, unless it left from here. The end of what waits shows no session.
   const key = open && shown?.kind !== 'end' ? (shown?.key ?? null) : null;
-  const history = useSessionHistory(key, (k) => known(k) || fromChips.current.has(k), HISTORY_KEY);
+  const history = useSessionHistory(key, (k) => known(k) || fromChips.current.has(k) || leftHere.current.has(k), HISTORY_KEY);
 
   // The way through what waits on you (useWaitingQueue.ts), over the bar's own list: the pills
   // and reviews that wait, with ⌥↑ ⌥↓ along all of them. One that leaves the bar takes the notch
@@ -271,6 +274,7 @@ export function useNotchStage(items: BarItem[], reviews: BarReview[], known: (ke
    *  end of what waits does. */
   const left = useCallback(
     (key: string, done: Left) => {
+      if (kindOf(key) === 'session') leftHere.current.add(key);
       if (shownNow.current === key && leftQueue(key, done) === 'last') end();
     },
     [end, leftQueue],

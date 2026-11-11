@@ -1457,18 +1457,20 @@ export function App() {
     const lane = startLaneId ? laneById.get(startLaneId) : undefined;
     return lane ? { lane, session: null } : null;
   }, [shownSession, homes, allHomes, selected, startLaneId, laneById]);
-  // One that's gone, archived, older than the sidebar's age filter shows or in a worktree no
-  // project lists is passed over: the list wouldn't have it.
+  // One that's gone, older than the sidebar's age filter shows or in a worktree no project lists
+  // is passed over: the list wouldn't have it. An archived one isn't, whatever its age: Sessions'
+  // Archived fold has it, and Mark as done archives the one you've just left for the next.
   const sessionHistory = useSessionHistory(shownSession, (key) => {
-    const home = homes.get(key);
-    return !!home && (!home.lane.hidden || inProject(home.lane, current)) && (home.session.lastActivity >= cutoff || sessionPins.set.has(key));
+    const home = homes.get(key) ?? allHomes.get(key);
+    if (!home || (home.lane.hidden && !inProject(home.lane, current))) return false;
+    return home.session.archived || home.session.lastActivity >= cutoff || sessionPins.set.has(key);
   }, HISTORY_KEY);
   /** Goes back or forward a session. It shows in Sessions: where it's listed, when the list has it
-   *  as it's filtered now, else as a session the bar asks for is shown. From a session's box, the
-   *  cursor goes to the box of the one gone to. */
+   *  as it's filtered now, else as a session the bar asks for is shown (an archived one in the
+   *  Archived fold). From a session's box, the cursor goes to the box of the one gone to. */
   const travel = useLatest((dir: 'back' | 'forward', box: boolean) => {
     const key = dir === 'back' ? sessionHistory.goBack() : sessionHistory.goForward();
-    const home = key ? homes.get(key) : undefined;
+    const home = key ? (homes.get(key) ?? allHomes.get(key)) : undefined;
     if (!key || !home) return;
     const row = sessionRows.find((r) => r.kind === 'agent' && r.session.key === key);
     if (row) {
@@ -1482,7 +1484,7 @@ export function App() {
   });
   /** What a history button says: where it goes, and its key. */
   const historyTitle = (to: string | null, word: string, none: string, keys: string) => {
-    const title = to ? homes.get(to)?.session.title : null;
+    const title = to ? (homes.get(to) ?? allHomes.get(to))?.session.title : null;
     return `${title ? `${word} to ${middleTruncate(title, 60)}` : none} (${keys})`;
   };
 

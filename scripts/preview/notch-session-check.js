@@ -2,7 +2,7 @@
 // Notch.tsx): hovering a pill opens no peek; a click on it opens the notch on its session, with
 // the keyboard and the cursor in its box, the window never resized; its pill is marked; ⌘] goes
 // on to the next that waits on you and ⌥⇧↑ back, ⌥↓ steps along the bar, ⌘E marks seen and goes
-// on, ⌃- and ⌃⇧- go back and forward through the ones looked at; Escape puts it away and gives the keyboard back; a click on its pill again does too; one
+// on, ⌃- and ⌃⇧- go back and forward through the ones looked at, one marked done (⇧⌘E) among them; Escape puts it away and gives the keyboard back; a click on its pill again does too; one
 // that lost the keyboard stays while the pointer is on it and goes when it leaves, or at once
 // with the pointer elsewhere; a double-click opens the session where it lives; and a count beside
 // the camera shows its group's first, and a click on the notch itself the current one; the pin in its header keeps it on the desktop; and Rename…
@@ -452,6 +452,47 @@
       check('the strip’s × puts it away', keysCalls()[keysCalls().length - 1] === false);
       return wait(500);
     })
+    .then(function () {
+      // Marked done (⇧⌘E), a session leaves the bar, and is still a stop on the way back: ⌃- from
+      // the next one shows it again.
+      enter();
+      return until(function () { return is('pills'); }, 2000, 'the pills, to mark one done');
+    })
+    .then(function () {
+      var mine = function (i) { return !!pill(i.key); };
+      // Not the one that's working: Done holds that one to ask again.
+      var a = items.slice(0, 3).filter(mine)[0];
+      var b = a && items.filter(function (i) { return i.key !== a.key && mine(i); })[0];
+      if (!a || !b) throw new Error('two of the check’s sessions aren’t left on the bar, to mark one done');
+      window.__doneOne = a;
+      window.__doneNext = b;
+      pill(a.key).click();
+      return until(function () { return showing(a.key); }, 3000, 'the one to mark done');
+    })
+    .then(function () { return wait(1200); })
+    .then(function () {
+      var a = window.__doneOne;
+      key({ key: 'E', code: 'KeyE', metaKey: true, shiftKey: true });
+      return until(function () { return calls('session_done').some(function (c) { return c.key === a.key; }) && !pill(a.key); }, 3000, '⇧⌘E');
+    })
+    .then(function () { return wait(300); })
+    .then(function () {
+      var b = window.__doneNext;
+      // It may have gone on to that one already; a click on its pill would put it away.
+      if (!showing(b.key)) pill(b.key).click();
+      return until(function () { return showing(b.key); }, 3000, 'another, to go back from');
+    })
+    .then(function () { return wait(1200); })
+    .then(function () {
+      key({ key: '-', code: 'Minus', ctrlKey: true });
+      return until(function () { return is('session') && title() === names[window.__doneOne.key]; }, 3000, '⌃- back to the one marked done');
+    })
+    .then(function () {
+      check('⌃- goes back to one marked done, which has left the bar', true);
+      escape();
+      return until(function () { return !is('session'); }, 2000, 'putting it away');
+    })
+    .then(function () { return wait(500); })
     .then(function () {
       // ⌃⌘1 snoozes the one shown for the first of its menu's times, and it leaves what waits.
       shape().click();

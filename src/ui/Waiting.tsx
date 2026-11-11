@@ -134,7 +134,9 @@ export function Waiting() {
   const queue = useMemo(() => (everywhere ? queueRows(everywhere, ALL_PROJECTS) : []), [everywhere]);
   // How many sessions are at work, for the end of what waits to say, as the quick panel counts them.
   const working = useMemo(() => (everywhere ? attentionRows(everywhere, ALL_PROJECTS).counts.working : 0), [everywhere]);
-  const answerable = useMemo(() => new Set(everywhere ? [...everywhere.lanes.flatMap((l) => l.sessions.filter((s) => !s.archived).map((s) => s.key)), ...everywhere.prs.map((p) => p.key)] : []), [everywhere]);
+  // What ⌃- and ⌃⇧- can go to: whatever the board still lists, archived sessions too, since Mark
+  // as done archives the one it goes on from.
+  const answerable = useMemo(() => new Set(everywhere ? [...everywhere.lanes.flatMap((l) => l.sessions.map((s) => s.key)), ...everywhere.prs.map((p) => p.key)] : []), [everywhere]);
   const shownKey = replying?.session.key ?? reviewing?.key ?? null;
   const looked = useSessionHistory(up ? shownKey : null, (k) => answerable.has(k), LOOKED_KEY);
 

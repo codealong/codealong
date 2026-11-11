@@ -1,7 +1,8 @@
 // Checks going back and forward through the sessions you looked at (history.ts, App.tsx
 // `travel`): ⌃- and ⌃⇧- from a session's box, the search field and another view, the title
 // bar's buttons and what they say, a session passed over quickly left out, one only just come to
-// kept for Forward, and the search left alone when the list has the session as it's filtered.
+// kept for Forward, the search left alone when the list has the session as it's filtered, and
+// one marked done (so archived) still a stop, shown in the Archived fold.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/history-check.js
 (function () {
   // This runs before the app's script: four of the board's real sessions get names to go by, and
@@ -27,6 +28,9 @@
           s.lastActivity = Date.now() - 60e3 * (picked.length + 1);
           s.hosted = false;
           s.stoppable = false;
+          // Each with a row of its own: a helper or a headless run is listed under its session.
+          s.helper = undefined;
+          s.headless = undefined;
           s.title = 'Place ' + 'ABCD'[picked.length];
           picked.push({ key: s.key, lane: l.id });
         });
@@ -158,6 +162,25 @@
       check('a search that hides the session is cleared', title() === 'Place B' && (!search() || search().value === ''), title() + ' / ' + (search() && search().value));
       var kept = JSON.parse(localStorage.getItem('codealong.sessionHistory') || 'null');
       check('the history is kept for the next launch', !!kept && kept.keys[kept.at] === picked[1].key, JSON.stringify(kept && kept.at));
+      return look(1, 'Place B');
+    })
+    .then(function () {
+      // Mark as done archives it: still a stop on the way back.
+      key({ key: 'E', code: 'KeyE', metaKey: true, shiftKey: true });
+      return until(function () { return !!window.__calls.find(function (c) { return c[0] === 'session_done'; }) && (!row(1) || !!row(1).closest('.ca-archived')); }, 3000).catch(function () {});
+    })
+    .then(function () {
+      check('⇧⌘E marks it done and it leaves the list', !!window.__calls.find(function (c) { return c[0] === 'session_done'; }) && (!row(1) || !!row(1).closest('.ca-archived')));
+      return look(3, 'Place D');
+    })
+    .then(function () {
+      check('Back says it goes to the one marked done', button('Back').title === 'Back to Place B (⌃-)', button('Back').title);
+      back();
+      return on('Place B');
+    })
+    .then(function () {
+      check('⌃- goes back to the one marked done, in the Archived fold', title() === 'Place B' && !!row(1) && !!row(1).closest('.ca-archived'), title());
+      check('and Forward comes back from it', button('Forward').title === 'Forward to Place D (⌃⇧-)', button('Forward').title);
     })
     .catch(function (e) { check('ran', false, String(e) + ' at ' + title()); })
     .then(done);

@@ -58,8 +58,10 @@ where they go. ⌃` opens a new terminal in the folder of what's shown, as VS Co
 from any view or text field and in every window that shows a session: the session's own folder, else
 the selected worktree's, or the worktree of the todo or PR selected. A session counts once its
 conversation has shown for a second, so the ones passed over on the way down a list aren't stops,
-and each window keeps its own history across launches. A session's or worktree's actions have
-letters (`p` pin, `a` archive, `r` rename, `e` mark seen) and chords that work in every view (⌃⌘P,
+and each window keeps its own history across launches. One you mark done or archive is still a
+stop: ⌃- right after ⇧⌘E brings back the one you just finished (in the main window, in the
+Archived fold). A session's or worktree's actions have letters (`p` pin, `a` archive, `r` rename,
+`e` mark seen) and chords that work in every view (⌃⌘P,
 ⌃⌘A, ⌃⌘R, ⌘E, and four with no letter of their own: ⌃⌘W closes a session's terminal, ⇧⌘E marks it
 done, ⇧⌘M asks to merge its PR and mark it done (Merge and done, see *Merging*), and ⌃⌘1 to ⌃⌘7
 snooze it for one of the Snooze menu's times); the right-click menu shows them.
