@@ -4,7 +4,9 @@
 //!
 //! - Images a window can show (PNG, JPEG, GIF, WebP) are `images/<hash>.<ext>`, written
 //!   `![image](images/<hash>.<ext>)`, and shown in place through the `codealong-image:` scheme
-//!   (lib.rs).
+//!   (lib.rs). A picture in a format windows and agents don't all take (an iPhone's HEIC photo,
+//!   pasted from Photos or dropped from the Finder; AVIF; TIFF) is made one of those first, on
+//!   macOS (`converted`), so it shows and goes as the others do.
 //! - Any other file is `files/<hash>/<name>`, its name made safe for a path, and written
 //!   `[<name>](files/<hash>/<name>)`.
 //!
@@ -182,12 +184,55 @@ fn write_once(path: &Path, bytes: &[u8]) -> Result<()> {
     crate::store::write(path, bytes).or_else(|e| if path.exists() { Ok(()) } else { Err(e) })
 }
 
+/// A picture `image_kind` doesn't know that macOS can make into one it does, and the format it's
+/// made: HEIF (an iPhone's photos) and AVIF, which are photos, as JPEG; TIFF, often a screenshot
+/// or a scan, as PNG. Known by the first bytes: an ISO file's `ftyp` brand, or TIFF's byte order
+/// and 42. A camera's raw files are TIFF inside too, and go the same way.
+fn convertible(bytes: &[u8]) -> Option<&'static str> {
+    const PHOTOS: [&[u8]; 10] = [b"heic", b"heix", b"hevc", b"hevx", b"heim", b"heis", b"mif1", b"msf1", b"avif", b"avis"];
+    let brand = (bytes.get(4..8) == Some(b"ftyp")).then(|| bytes.get(8..12)).flatten();
+    if brand.is_some_and(|b| PHOTOS.contains(&b)) {
+        Some("jpeg")
+    } else if bytes.starts_with(b"II*\0") || bytes.starts_with(b"MM\0*") {
+        Some("png")
+    } else {
+        None
+    }
+}
+
+/// `bytes` made an image `image_kind` knows, when they're a picture `convertible` names. `sips`
+/// makes it, keeping the EXIF orientation, so a portrait photo shows upright as the original did
+/// (a photo's 12 MP took it 0.7 s, 2.4 MB of JPEG from 1.5 MB of HEIC). Linux has no `sips`, so
+/// there such a picture stays a file, as it was before. None when it can't be read.
+fn converted(bytes: &[u8]) -> Option<Vec<u8>> {
+    let format = convertible(bytes)?;
+    if !crate::os::is_macos() {
+        return None;
+    }
+    static MADE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = MADE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let scratch = |ext: &str| std::env::temp_dir().join(format!("codealong-attach-{}-{n}.{ext}", std::process::id()));
+    let (from, to) = (scratch("in"), scratch(format));
+    let made = std::fs::write(&from, bytes).ok().and_then(|_| {
+        let args = ["-s", "format", format, from.to_str()?, "--out", to.to_str()?];
+        crate::procs::run("/usr/bin/sips", &args, None, std::time::Duration::from_secs(30)).ok()?;
+        std::fs::read(&to).ok()
+    });
+    let _ = std::fs::remove_file(&from);
+    let _ = std::fs::remove_file(&to);
+    made.filter(|m| image_kind(m).is_some())
+}
+
 /// Keeps a file's bytes under `images` or `files`, by what they are, and says how to refer to it.
-/// An image too big to show in place goes with the other files.
+/// A picture in another format is made an image first where it can be (`converted`), and named
+/// by the image's bytes, as another device it's carried to names it. An image too big to show in
+/// place goes with the other files, as it came.
 pub fn keep_in(images: &Path, files: &Path, bytes: &[u8], name: &str) -> Result<Attachment> {
-    if let Some(ext) = image_kind(bytes).filter(|_| bytes.len() <= MAX_IMAGE_BYTES) {
-        let kept = format!("{}.{ext}", hash16(bytes));
-        write_once(&images.join(&kept), bytes)?;
+    let made = converted(bytes);
+    let image = made.as_deref().unwrap_or(bytes);
+    if let Some(ext) = image_kind(image).filter(|_| image.len() <= MAX_IMAGE_BYTES) {
+        let kept = format!("{}.{ext}", hash16(image));
+        write_once(&images.join(&kept), image)?;
         return Ok(Attachment { kind: Kind::Image, path: format!("{IMAGES}{kept}"), name: shown_name(name, "image") });
     }
     if bytes.len() > MAX_FILE_BYTES {
@@ -633,6 +678,58 @@ mod tests {
         // An image a window can't show is a file like any other.
         let svg = keep_in(&images, &files, b"<svg xmlns='http://www.w3.org/2000/svg'/>", "logo.svg").unwrap();
         assert_eq!((svg.kind, svg.name.as_str()), (Kind::File, "logo.svg"));
+    }
+
+    /// The start of an iPhone's HEIC photo.
+    const HEIC: &[u8] = b"\0\0\0\x24ftypheic\0\0\0\0mif1MiHEmiaf";
+
+    #[test]
+    fn knows_pictures_macos_can_make_images() {
+        assert_eq!(convertible(HEIC), Some("jpeg"));
+        assert_eq!(convertible(b"\0\0\0\x18ftypmif1\0\0\0\0"), Some("jpeg"));
+        assert_eq!(convertible(b"\0\0\0\x1cftypavif\0\0\0\0"), Some("jpeg"));
+        assert_eq!(convertible(b"II*\0\x08\0\0\0"), Some("png"));
+        assert_eq!(convertible(b"MM\0*\0\0\0\x08"), Some("png"));
+        // A video has the same box with another brand, and an image a window shows isn't made again.
+        assert_eq!(convertible(b"\0\0\0\x18ftypisom\0\0\0\0"), None);
+        assert_eq!(convertible(b"\0\0\0\x14ftypqt  \0\0\0\0"), None);
+        assert_eq!(convertible(PNG), None);
+        assert_eq!(convertible(&[0xff, 0xd8, 0xff, 0xe0]), None);
+        assert_eq!(convertible(b"ftyp"), None);
+    }
+
+    #[test]
+    fn keeps_a_photo_as_the_image_macos_makes_of_it() {
+        use crate::os::{as_if, Os};
+        const JPEG: &[u8] = b"\xff\xd8\xff\xe0 as sips made it";
+        let ran = std::rc::Rc::new(std::cell::Cell::new(0));
+        let runs = ran.clone();
+        crate::procs::stand_in::set(Some(Box::new(move |program, args, _, _| {
+            assert_eq!(program, "/usr/bin/sips");
+            assert_eq!((&args[..3], args[4]), (&["-s", "format", "jpeg"][..], "--out"));
+            assert_eq!(std::fs::read(args[3]).unwrap(), HEIC, "sips reads the photo as it came");
+            std::fs::write(args[5], JPEG).unwrap();
+            runs.set(runs.get() + 1);
+            Ok(String::new())
+        })));
+        let (images, files) = (crate::fixtures::scratch("attach-heic-i"), crate::fixtures::scratch("attach-heic-f"));
+        let photo = as_if(Os::MacOs, || keep_in(&images, &files, HEIC, "IMG_2975.HEIC")).unwrap();
+        assert_eq!((photo.kind, photo.name.as_str()), (Kind::Image, "IMG_2975.HEIC"));
+        // Named by the image's bytes, as another device it's carried to names it.
+        assert_eq!(photo.path, format!("images/{}.jpg", hash16(JPEG)));
+        assert_eq!(std::fs::read(locate_in(&images, &files, &photo.path).unwrap()).unwrap(), JPEG);
+        assert_eq!(ran.get(), 1);
+        let left = |dir: &Path| std::fs::read_dir(dir).unwrap().flatten().any(|e| e.file_name().to_string_lossy().starts_with(&format!("codealong-attach-{}-", std::process::id())));
+        assert!(!left(&std::env::temp_dir()), "sips's files are cleared away");
+        // Linux has no sips, and a photo sips can't read is a file too, as it came.
+        let on_linux = as_if(Os::Linux, || keep_in(&images, &files, HEIC, "IMG_2975.HEIC")).unwrap();
+        assert_eq!((on_linux.kind, ran.get()), (Kind::File, 1));
+        crate::procs::stand_in::set(Some(Box::new(|_, _, _, _| Err(anyhow::anyhow!("sips Error: Cannot extract image from file.")))));
+        let unread = as_if(Os::MacOs, || keep_in(&images, &files, HEIC, "IMG_2975.HEIC")).unwrap();
+        crate::procs::stand_in::set(None);
+        assert_eq!(unread.kind, Kind::File);
+        assert!(unread.path.ends_with("/IMG_2975.HEIC"), "{}", unread.path);
+        assert_eq!(std::fs::read(locate_in(&images, &files, &unread.path).unwrap()).unwrap(), HEIC);
     }
 
     #[test]

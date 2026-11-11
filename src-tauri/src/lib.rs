@@ -1095,20 +1095,22 @@ fn schedule_times(rule: String) -> schedules::Times {
 
 /// Keeps a file pasted or picked into a description or a prompt. The window sends its bytes as
 /// they are, not as JSON, and its name in `x-name` (URL-encoded, as headers are ASCII); the reply
-/// says how text refers to it.
-#[tauri::command(async)]
-fn save_attachment(request: tauri::ipc::Request<'_>) -> Result<attachments::Attachment, String> {
+/// says how text refers to it. A photo can take `sips` a second or more to make an image a window
+/// shows (`attachments::converted`), so both run on the blocking pool.
+#[tauri::command]
+async fn save_attachment(request: tauri::ipc::Request<'_>) -> Result<attachments::Attachment, String> {
     let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
         return Err("That wasn't a file.".into());
     };
+    let bytes = bytes.clone();
     let name = request.headers().get("x-name").and_then(|v| v.to_str().ok()).and_then(|v| urlencoding::decode(v).ok()).map(|v| v.into_owned()).unwrap_or_default();
-    attachments::keep(bytes, &name).map_err(words)
+    blocking(move || attachments::keep(&bytes, &name).map_err(words)).await?
 }
 
 /// Keeps a copy of a file dropped from the Finder.
-#[tauri::command(async)]
-fn import_attachment(path: String) -> Result<attachments::Attachment, String> {
-    attachments::import(std::path::Path::new(&path)).map_err(words)
+#[tauri::command]
+async fn import_attachment(path: String) -> Result<attachments::Attachment, String> {
+    blocking(move || attachments::import(std::path::Path::new(&path)).map_err(words)).await?
 }
 
 /// Text with its attachments as full paths, for copying a todo as a prompt.
