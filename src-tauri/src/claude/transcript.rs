@@ -879,6 +879,11 @@ fn shell_task(id: &str) -> bool {
     id.len() == 9 && id.starts_with('b') && id[1..].bytes().all(|c| c.is_ascii_digit() || c.is_ascii_lowercase())
 }
 
+/// Most background agents kept per session (`TranscriptInfo::agents`). More than shells: one
+/// dropped while it still runs makes the session read as mid-turn once the rest have reported,
+/// and one whose end was never read matters only while Claude Code says the session is busy.
+const AGENTS_MOST: usize = 64;
+
 /// The subagent or workflow a call's result says it started in the background, and what it's
 /// for: `status: "async_launched"`, with an Agent call's `agentId` and `description`, or a
 /// Workflow call's `taskId` and `summary` (2.1.322). Claude Code says the session is busy while
@@ -917,7 +922,7 @@ fn background_step(running: &mut Vec<(String, i64)>, agents: &mut Vec<Background
         if !agents.iter().any(|a| a.id == id) {
             agents.push(BackgroundAgent { id: id.to_string(), at, about });
         }
-        if agents.len() > BACKGROUND_MOST {
+        if agents.len() > AGENTS_MOST {
             agents.remove(0);
         }
     }
@@ -2672,6 +2677,12 @@ pub(super) mod tests {
         // TaskStop's result ends one too.
         let stop = result("2026-11-11T01:20:00.000Z", json!({"message": "Successfully stopped task", "task_id": "a5f3c2e1d0b9a8776", "task_type": "local_agent"}));
         assert!(parse_lines(HEAD, &format!("{}\n{stop}", started[0])).agents.is_empty());
+        // Many at once are all followed, so the first, finishing last, still keeps it waiting.
+        let many: Vec<String> = (0..20).map(|i| result("2026-11-11T01:21:00.000Z", json!({"status": "async_launched", "agentId": format!("a{i:016}"), "description": format!("Review part {i}")}))).collect();
+        let mut info = parse_lines(HEAD, &many.join("\n"));
+        let reports: Vec<String> = (1..20).map(|i| told(&notice(&format!("a{i:016}")))).collect();
+        apply_tail(&mut info, &mut TailState::default(), &reports.join("\n"));
+        assert_eq!(info.agents.iter().map(|a| a.id.as_str()).collect::<Vec<_>>(), ["a0000000000000000"]);
         // A first read finds one started before its tail, past a long command's output.
         let dir = crate::fixtures::scratch("agents-before-tail");
         let path = dir.join("s.jsonl");

@@ -362,12 +362,18 @@ pub fn ending(board: &Board, s: &Session, stop: bool) -> Result<Ending, String> 
         return Ok(Ending::Nothing(None));
     }
     if !stop {
-        if s.status == Status::Working {
-            return Err(format!("“{}” is still working.", s.title));
+        // What its turn left running is said first: working or not (one whose reply asks you
+        // something Needs you while its agents run), it ends with the session.
+        if !s.agents.is_empty() {
+            let what = if s.agents.len() == 1 { "an agent".to_string() } else { format!("{} agents", s.agents.len()) };
+            return Err(format!("“{}” left {what} running in the background.", s.title));
         }
         if let Some(command) = &s.background {
             let what = if command.trim().is_empty() { "a command".to_string() } else { format!("`{}`", crate::util::truncate(command.trim(), 60)) };
             return Err(format!("“{}” left {what} running in the background.", s.title));
+        }
+        if s.status == Status::Working {
+            return Err(format!("“{}” is still working.", s.title));
         }
     }
     Ok(match s.runs() {
@@ -388,15 +394,15 @@ pub fn ending(board: &Board, s: &Session, stop: bool) -> Result<Ending, String> 
 /// Whether being done with `s` types its harness's exit command rather than hanging it up: it
 /// holds a worktree its harness made for it (`Session::own_worktree`), which the harness cleans
 /// up only as it exits its own way, and nothing under way would take the command for something
-/// else. A running turn, stuck or not, would take it as a prompt once it ends, a command left
-/// running in the background has Claude Code ask about it first, and a prompt waiting on you
-/// would take it as the answer; those hang up as before, and the worktree stays.
+/// else. A running turn, stuck or not, would take it as a prompt once it ends, a command or agents
+/// left running in the background have Claude Code ask about them first, and a prompt waiting on
+/// you would take it as the answer; those hang up as before, and the worktree stays.
 fn exits_its_own_way(s: &Session) -> bool {
     s.own_worktree.is_some()
         && crate::harness::adapter(s.harness).exit_command().is_some()
         && s.status != Status::Working
         && s.stalled_since.is_none()
-        && s.background.is_none()
+        && !s.left_running()
         && !crate::send::waits_on_you(s)
 }
 
@@ -821,6 +827,16 @@ mod tests {
         assert_eq!(ending(&b, &busy, true), Ok(Ending::Terminal(3)));
         assert_eq!(ending(&b, &left, false), Err("“Session left” left `npm run dev` running in the background.".into()));
         assert_eq!(ending(&b, &left, true), Ok(Ending::Terminal(4)));
+        // So do the agents a turn left running, whether it waits on them or its reply asks you
+        // something meanwhile.
+        let mut agents = session("agents", 10, Status::Needs, 0);
+        agents.agents = vec!["Draft the release notes".into(), String::new()];
+        let b = board(vec![agents.clone()]);
+        assert_eq!(ending(&b, &agents, false), Err("“Session agents” left 2 agents running in the background.".into()));
+        agents.status = Status::Working;
+        agents.agents.pop();
+        assert_eq!(ending(&b, &agents, false), Err("“Session agents” left an agent running in the background.".into()));
+        assert_eq!(ending(&b, &agents, true), Ok(Ending::Terminal(10)));
         // A session Codealong runs shares its process: only its turn stops.
         assert!(ending(&b, &hosted, false).is_err());
         assert_eq!(ending(&b, &hosted, true), Ok(Ending::Turn));

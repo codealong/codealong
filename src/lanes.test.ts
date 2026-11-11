@@ -526,6 +526,8 @@ describe('exitsItsOwnWay', () => {
   it('is not while what it types would be taken for something else, as idle.rs has it', () => {
     expect(exitsItsOwnWay({ ...own, status: 'working' })).toBe(false);
     expect(exitsItsOwnWay({ ...own, background: 'npm run dev' })).toBe(false);
+    // Nor while its reply asks you something and the agents its turn left run on.
+    expect(exitsItsOwnWay({ ...own, status: 'needs', asks: true, agents: ['Draft the release notes'] })).toBe(false);
     expect(exitsItsOwnWay({ ...own, status: 'needs' })).toBe(false);
   });
 

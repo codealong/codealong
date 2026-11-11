@@ -20,7 +20,7 @@ import { count } from './format';
 import { folderMenu, openInMenu, opensInEditor, terminalTarget, type AppIcons, type Apps } from './editors';
 import { EDITS, HARNESS_WORD, MOVES_ACCOUNTS, MOVES_FOLDERS, renames } from './harness';
 import { chromeLabel, openLabel } from './open';
-import { asideable, closable, exitsItsOwnWay, seenable, stoppable, unreadable } from './lanes';
+import { asideable, closable, exitsItsOwnWay, seenable, stoppable, unreadable, waitsInBackground } from './lanes';
 import { chordPressed, QUEUE_CHORDS, type Key } from './queue';
 import { reviewsSnoozeMenu, SNOOZE_CHORDS, snoozeChordIndex, snoozeChorded as timeChorded, snoozeMenu } from './snooze';
 import { rememberResumed, resumeAccount, resumedIn } from './start';
@@ -406,14 +406,15 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
   const suggested = s.limit?.moveTo && moveTo.includes(s.limit.moveTo) && goesOn ? s.limit.moveTo : null;
   const archive = can.archive ?? ((archived: boolean) => (archived ? settle('archived')(archiveAhead(s.key, true)) : void archiveAhead(s.key, false).catch((e: unknown) => report.error(errorText(e)))));
   // Work under way holds it, and Mark as done again soon after ends that too. A session that's
-  // working is held here; one that left a command running in the background, by the engine.
+  // working is held here; one that left a command or agents running in the background, by the
+  // engine, which says which.
   const holds = (why: string) => {
     holding.set(s.key, Date.now());
     report.info(`${why} ${DONE_AGAIN}`);
   };
   const done = () => {
     const stop = held(s.key, Date.now());
-    if (!stop && s.status === 'working') return holds(`“${s.title}” is still working.`);
+    if (!stop && s.status === 'working' && !waitsInBackground(s)) return holds(`“${s.title}” is still working.`);
     can.left?.('done');
     busy(`Wrapping up ${s.title}…`, doneAhead(s.key, stop))
       .then((r) => {
