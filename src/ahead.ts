@@ -146,6 +146,9 @@ export interface Shown {
   snoozedUntil: number | null;
   /** Set aside for its side conversation (`Session.aside`). */
   aside?: boolean;
+  /** When the side conversation that answered since it was last seen answered
+   *  (`Session.sideAnswer`). Unknown to the bar. */
+  answeredAt?: number;
   quiet: boolean;
   /** Moved to the top (`Session.raised`). */
   raised?: boolean;
@@ -535,7 +538,7 @@ export function boardView(boardAt: number | null, laneLists: Lane[][]): View {
       for (const lanes of laneLists) {
         for (const l of lanes) {
           const s = l.sessions.find((x) => x.key === key && !x.visitor);
-          if (s) return { title: s.title, status: s.status, statusSince: s.statusSince, lastPromptAt: s.lastPromptAt, archived: s.archived, asks: !!s.asks, snoozedUntil: s.snoozedUntil ?? null, aside: s.aside != null, quiet: !!s.quiet, raised: !!s.raised, queuedAt: s.queuedAt ?? null, queued: s.queued?.map((m) => m.id), stuck: stuckMidTurn(s), labels: s.labels ?? [] };
+          if (s) return { title: s.title, status: s.status, statusSince: s.statusSince, lastPromptAt: s.lastPromptAt, archived: s.archived, asks: !!s.asks, snoozedUntil: s.snoozedUntil ?? null, aside: s.aside != null, answeredAt: s.sideAnswer?.at, quiet: !!s.quiet, raised: !!s.raised, queuedAt: s.queuedAt ?? null, queued: s.queued?.map((m) => m.id), stuck: stuckMidTurn(s), labels: s.labels ?? [] };
         }
       }
       return undefined;
@@ -582,7 +585,10 @@ export function settled(a: Ahead, v: View, now: number): Ahead | null {
       if (s === undefined) return false;
       if (c.kind === 'answer') return !stillAsked(s, s.statusSince, c);
       if (c.kind === 'unqueue') return !s.queued?.includes(c.id);
-      if (c.kind === 'seen') return !settledBySeen(s);
+      // A side conversation that answered after it was marked seen brings it back, as the
+      // engine has it (board.rs `apply_side_answer`), whether or not a board showed it seen
+      // first: ⌘⏎ asks seen and goes on before the engine takes the mark (menus.ts `askAside`).
+      if (c.kind === 'seen') return !settledBySeen(s) || (s.answeredAt ?? 0) > a.at;
       if (c.kind === 'unread') return !unreadable(s);
       if (c.kind === 'snooze') return s.snoozedUntil === c.until;
       // The bar can't tell one set aside from one working, nor can a window whose session no

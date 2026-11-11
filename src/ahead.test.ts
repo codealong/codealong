@@ -166,6 +166,14 @@ describe('lanesAhead', () => {
     expect(settled(asked, view(session('q', 'working')), NOW)).toBeNull();
   });
 
+  it('lets a seen go once a side conversation answered after it, though no board showed it seen', () => {
+    const seen = change({ kind: 'seen', keys: ['u'] }, { doneAt: NOW, shownAt: null });
+    const view = (answeredAt?: number): View => ({ boardAt: NOW + 1_000, find: () => ({ title: 'u', status: 'unread', statusSince: NOW + 500, lastPromptAt: null, archived: false, asks: false, snoozedUntil: null, quiet: false, queuedAt: null, answeredAt }) });
+    expect(settled(seen, view(), NOW + 1_000)).toBe(seen);
+    expect(settled(seen, view(NOW - 60_000), NOW + 1_000)).toBe(seen);
+    expect(settled(seen, view(NOW + 500), NOW + 1_000)).toBeNull();
+  });
+
   it('quiets a finished turn out of Your turn at once, and leaves what needs you', () => {
     const lanes = [lane([session('u', 'unread'), session('n', 'needs', { asks: true }), session('i', 'idle')])];
     const [l] = lanesAhead(lanes, [change({ kind: 'quiet', keys: ['u', 'n'], quiet: true })]);

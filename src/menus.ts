@@ -456,8 +456,9 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
     if (aside) return void ask(false).then((asked) => asked && aside.run());
     if (!seenable(s)) return void ask(false);
     can.left?.('marked seen');
-    // Seen at once here; not asked, it's back as it was, its box having said why.
-    void seenAhead([s.key], () => ask(true).then((asked) => (asked ? null : Promise.reject(new Error('Not asked'))))).catch(() => {});
+    // Seen at once here; not asked, it's back as it was and comes round again, its box or the
+    // window having said why.
+    void seenAhead([s.key], () => ask(true).then((asked) => (asked ? null : Promise.reject(new Error('Not asked'))))).catch(() => can.failed?.(null));
   };
   const ownTerminal = can.ownTerminal && { label: can.ownTerminal.has ? 'Show terminal' : 'New terminal', run: can.ownTerminal.run };
   return {

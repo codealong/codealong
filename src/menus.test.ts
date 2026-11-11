@@ -344,14 +344,15 @@ describe('sessionMenu', () => {
       seen.mockImplementation((keys: string[], mark?: (keys: string[]) => Promise<number | null>) => (order.push('seen'), mark ? mark(keys).then(() => {}) : Promise.resolve()));
       const left: string[] = [];
       const ask = vi.fn((asSeen: boolean) => (order.push(asSeen ? 'ask seen' : 'ask'), Promise.resolve(took)));
-      sessionActions(lane(), s, { ...base, left: (d) => left.push(d) }).askAside(ask);
+      sessionActions(lane(), s, { ...base, left: (d) => left.push(d), failed: (why) => left.push(`failed ${why}`) }).askAside(ask);
       await flush();
       return { order, left };
     };
     // A finished turn goes on at once, shown seen, and is asked seen: the engine marks it as of
     // the question, once the copy has it, and not at all when it didn't.
     expect(await run(session({ status: 'unread' }), true)).toEqual({ order: ['seen', 'ask seen'], left: ['marked seen'] });
-    expect(await run(session({ status: 'unread' }), false)).toEqual({ order: ['seen', 'ask seen'], left: ['marked seen'] });
+    // Not asked, it comes round again where the window goes through what waits.
+    expect(await run(session({ status: 'unread' }), false)).toEqual({ order: ['seen', 'ask seen'], left: ['marked seen', 'failed null'] });
     // One that asks you a question is set aside once the copy has it, and not if it didn't.
     const asks = session({ status: 'needs', need: 'question', excerpt: 'Asks you · Which color?' });
     expect(await run(asks, true)).toEqual({ order: ['ask'], left: ['set aside'] });
