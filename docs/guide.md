@@ -3334,7 +3334,9 @@ offers that once it's pinned.
 A short sound plays when something starts to wait on you, so you notice while you're in another app
 or away from the screen: a pop when a session needs you (it asks you something, waits on a call to
 allow, or stops with an error), a lighter click when a session's turn ends (macOS's Pop and Tink),
-and, once you pick one, a sound when a pull request asks for your review. Each can be one of macOS's sounds, one you put in
+and, once you pick one, a sound when a pull request asks for your review. With meetings offered
+(*Voice*), a glass rings as one comes on offer, ahead of the rest: its card is under the notch,
+which may not be on the screen you're looking at. Each can be one of macOS's sounds, one you put in
 ~/Library/Sounds, or None; the button beside it plays it, and Volume sets how loud they all are, as
 a percent of the Mac's own. Codealong shows no Notification Center banners: the mark's beat and the
 notch's count already show what came (*Queues, pills and the mark*), and the sound is for when you
@@ -3475,7 +3477,8 @@ meeting you recorded.
 it starts, or up to ten minutes before: *A meeting is offered*, `meeting_lead`), asks whether to
 take its notes: a card under the notch's pills, a line ahead of the floating bar's
 pills, and a line in the main window beside its notices, with the meeting's name, when it starts
-and who else is in it. The offer
+and who else is in it. A sound comes with it (*Sounds*, `[sounds] meeting`), since the notch may
+be on another screen than the one you're looking at. The offer
 stays until ten minutes into the meeting, or its end. **Take notes** starts a session for it, a
 chat of its own named for the meeting, and has it listen to your microphone and to what the Mac
 plays as its note-taker, with nothing more to set up; **Not this one** puts the offer away, and

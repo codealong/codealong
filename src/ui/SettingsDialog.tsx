@@ -645,12 +645,14 @@ function KeepAwakeField({ terminal, name, keepsTerminals }: { terminal: string; 
 /* ---- Sounds ---- */
 
 /** `[sounds]` when config.toml has none (config.rs `SoundsCfg`). */
-const SOUNDS_DEFAULT: SoundsCfg = { needs_you: 'Pop', your_turn: 'Tink', review_requested: '', volume: 60 };
+const SOUNDS_DEFAULT: Required<SoundsCfg> = { needs_you: 'Pop', your_turn: 'Tink', review_requested: '', meeting: 'Glass', volume: 60 };
 
-type SoundKind = 'needs_you' | 'your_turn' | 'review_requested';
+type SoundKind = 'meeting' | 'needs_you' | 'your_turn' | 'review_requested';
 
-/** What each sound is for (sounds.rs `Kind`), the most urgent first. */
+/** What each sound is for (sounds.rs `Kind`), the most urgent first. A meeting's is listed only
+ *  with voice on, which is what offers them. */
 const SOUND_KINDS: { id: SoundKind; label: string; says: string }[] = [
+  { id: 'meeting', label: 'A meeting is about to start', says: 'Codealong offers to take its notes, under the notch and in the main window: the sound is for when you’re looking at another screen.' },
   { id: 'needs_you', label: 'A session needs you', says: 'It asks you something, waits on a call to allow, or stopped with an error.' },
   { id: 'your_turn', label: 'A session’s turn ended', says: 'Its reply is yours to read.' },
   { id: 'review_requested', label: 'A pull request asks for your review', says: 'Someone asked for your review on GitHub.' },
@@ -663,6 +665,7 @@ const SOUND_KINDS: { id: SoundKind; label: string; says: string }[] = [
  */
 function SoundsPane({ cfg, names, disabled, onSave, onError }: PaneProps & { names: string[]; onError: (e: string) => void }) {
   const sounds = { ...SOUNDS_DEFAULT, ...cfg.sounds };
+  const kinds = SOUND_KINDS.filter((k) => k.id !== 'meeting' || cfg.experimental?.voice);
   const [volume, setVolume] = useState(sounds.volume);
   useEffect(() => setVolume(sounds.volume), [sounds.volume]);
   const options: Profile[] = [{ id: '', name: 'None' }, ...names.map((n) => ({ id: n, name: n }))];
@@ -671,7 +674,7 @@ function SoundsPane({ cfg, names, disabled, onSave, onError }: PaneProps & { nam
   const commitVolume = () => {
     if (volume === sounds.volume) return;
     set({ volume });
-    const first = SOUND_KINDS.map((k) => sounds[k.id]).find(Boolean);
+    const first = kinds.map((k) => sounds[k.id]).find(Boolean);
     if (first && volume > 0) hear(first, volume);
   };
   return (
@@ -681,7 +684,7 @@ function SoundsPane({ cfg, names, disabled, onSave, onError }: PaneProps & { nam
         <p>A short sound when something starts to wait on you, for when you’re looking somewhere else. The bar’s mark and the notch show it too.</p>
       </div>
       <fieldset className="ca-settings-fields" disabled={disabled}>
-        {SOUND_KINDS.map((k) => (
+        {kinds.map((k) => (
           <div key={k.id} className="ca-field">
             <span>{k.label}</span>
             <div className="ca-settings-sound">

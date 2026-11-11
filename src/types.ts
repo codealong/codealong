@@ -1195,6 +1195,8 @@ export interface SoundsCfg {
   needs_you: string;
   your_turn: string;
   review_requested: string;
+  /** A meeting in your calendar is about to start (meetings.rs). Missing from older engines. */
+  meeting?: string;
   /** In percent of the Mac's own volume. */
   volume: number;
 }

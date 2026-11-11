@@ -37,6 +37,8 @@ const REST_MS: i64 = 10_000;
 /// What starts to wait on you, the most urgent first.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Kind {
+    /// A meeting in your calendar is about to start (meetings.rs): it won't wait.
+    Meeting,
     NeedsYou,
     ReviewRequested,
     YourTurn,
@@ -46,6 +48,7 @@ impl Kind {
     /// The sound config.toml gives it; empty for none.
     pub fn sound(self, cfg: &SoundsCfg) -> &str {
         match self {
+            Kind::Meeting => cfg.meeting.trim(),
             Kind::NeedsYou => cfg.needs_you.trim(),
             Kind::ReviewRequested => cfg.review_requested.trim(),
             Kind::YourTurn => cfg.your_turn.trim(),
@@ -64,6 +67,9 @@ struct Waiting {
     reviews: Option<HashSet<String>>,
     /// The other devices whose sessions the feed listed (`BarFeed::devices`).
     devices: HashSet<String>,
+    /// The meeting on offer (`BarFeed::meeting`), by its id; not one you took, whose session is
+    /// starting.
+    meeting: Option<String>,
 }
 
 fn waiting(feed: &BarFeed, reviews_read: bool) -> Waiting {
@@ -79,6 +85,7 @@ fn waiting(feed: &BarFeed, reviews_read: bool) -> Waiting {
     }
     w.reviews = reviews_read.then(|| feed.reviews.iter().map(|r| r.key.clone()).collect());
     w.devices = feed.devices.iter().cloned().collect();
+    w.meeting = feed.meeting.as_ref().filter(|m| !m.taking).map(|m| m.meeting.id.clone());
     w
 }
 
@@ -136,6 +143,11 @@ impl Chimer {
             if reviews.iter().any(|k| !before.contains(k)) {
                 out.push(Kind::ReviewRequested);
             }
+        }
+        // A meeting come on offer: its card is under the notch, which may be on another screen
+        // than the one you're looking at.
+        if now.meeting.is_some() && now.meeting != was.meeting {
+            out.push(Kind::Meeting);
         }
         out
     }
@@ -206,7 +218,7 @@ mod tests {
     const NOW: i64 = 1_790_200_000_000;
 
     fn cfg() -> SoundsCfg {
-        SoundsCfg { needs_you: "Glass".into(), your_turn: "Pop".into(), review_requested: "Tink".into(), volume: 60 }
+        SoundsCfg { needs_you: "Glass".into(), your_turn: "Pop".into(), review_requested: "Tink".into(), meeting: "Hero".into(), volume: 60 }
     }
 
     fn session(key: &str, status: Status, since: i64) -> Session {
@@ -321,6 +333,27 @@ mod tests {
         more.generated_at = NOW + REST_MS;
         more.lanes[0].sessions.push(session("d", Status::Unread, NOW + REST_MS));
         assert_eq!(due(&mut c, &more, &cfg()), Some(Kind::YourTurn));
+    }
+
+    #[test]
+    fn a_meeting_come_on_offer_sounds_once_and_over_whatever_else_came() {
+        let offer = |id: &str, taking: bool| Some(crate::meetings::Offer { meeting: crate::ear::Meeting { id: id.into(), title: "Renewal call".into(), start: NOW, end: NOW + 1_800_000, ..Default::default() }, taking });
+        let at = |ms: i64, meeting: Option<crate::meetings::Offer>, sessions: Vec<Session>| Board { meeting, ..board_at(NOW + ms, sessions) };
+        // One there at launch makes none, as nothing there at launch does.
+        let mut c = Chimer::default();
+        assert_eq!(due(&mut c, &at(-3_600_000, offer("early", false), vec![]), &cfg()), None);
+        // One that comes does, the once, and ahead of a session that came to need you with it.
+        let mut c = after(vec![session("a", Status::Working, NOW - 3_600_000)]);
+        assert_eq!(due(&mut c, &at(0, offer("m", false), vec![session("a", Status::Needs, NOW)]), &cfg()), Some(Kind::Meeting));
+        assert_eq!(due(&mut c, &at(REST_MS * 2, offer("m", false), vec![session("a", Status::Needs, NOW)]), &cfg()), None);
+        // Taken, its session starting, and then gone: neither is news. The next one is.
+        assert_eq!(due(&mut c, &at(REST_MS * 3, offer("m", true), vec![]), &cfg()), None);
+        assert_eq!(due(&mut c, &at(REST_MS * 4, None, vec![]), &cfg()), None);
+        assert_eq!(due(&mut c, &at(REST_MS * 6, offer("next", false), vec![]), &cfg()), Some(Kind::Meeting));
+        // With no sound for it, it leaves the way clear.
+        let mut c = after(vec![session("a", Status::Working, NOW - 3_600_000)]);
+        let silent = SoundsCfg { meeting: String::new(), ..cfg() };
+        assert_eq!(due(&mut c, &at(0, offer("m", false), vec![session("a", Status::Needs, NOW)]), &silent), Some(Kind::NeedsYou));
     }
 
     #[test]

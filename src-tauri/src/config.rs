@@ -1030,6 +1030,10 @@ pub struct SoundsCfg {
     /// A pull request asks for your review.
     #[serde(default)]
     pub review_requested: String,
+    /// A meeting in your calendar is about to start, and Codealong offers to take its notes
+    /// (meetings.rs): only with `[voice] meetings` on.
+    #[serde(default = "default_meeting_sound")]
+    pub meeting: String,
     /// In percent of the Mac's own volume.
     #[serde(default = "default_sound_volume")]
     pub volume: u32,
@@ -1037,8 +1041,12 @@ pub struct SoundsCfg {
 
 impl Default for SoundsCfg {
     fn default() -> Self {
-        SoundsCfg { needs_you: default_needs_you_sound(), your_turn: default_your_turn_sound(), review_requested: String::new(), volume: default_sound_volume() }
+        SoundsCfg { needs_you: default_needs_you_sound(), your_turn: default_your_turn_sound(), review_requested: String::new(), meeting: default_meeting_sound(), volume: default_sound_volume() }
     }
+}
+
+fn default_meeting_sound() -> String {
+    crate::os::sound::meeting_default().into()
 }
 
 fn default_needs_you_sound() -> String {
@@ -1957,7 +1965,7 @@ const VOICE_COMMENT: &str = "# Voice, once [experimental] voice is on. locale: t
 const REPOS_COMMENT: &str = "# Your settings for one repo's pull requests, over [reviews] and [pull_requests] and over what the repo's\n# .codealong/config.toml sets for its team. Settings › Automation sets them with the repo picked.\n";
 /// What config.toml says above `[sounds]`: where the OS keeps the sounds it can name.
 fn sounds_comment() -> String {
-    format!("# A sound when something starts to wait on you. needs_you: a session asks you something, waits on a call\n# to allow, or stops with an error. your_turn: a session's turn ended. review_requested: a pull request asks\n# for your review. {}\n", crate::os::sound::names_said())
+    format!("# A sound when something starts to wait on you. needs_you: a session asks you something, waits on a call\n# to allow, or stops with an error. your_turn: a session's turn ended. review_requested: a pull request asks\n# for your review. meeting: a meeting in your calendar is about to start, with [voice] meetings on. {}\n", crate::os::sound::names_said())
 }
 
 /// What config.toml says above `[debug]`: where the timings go.
@@ -2253,7 +2261,7 @@ pub fn check(cfg: &Config) -> std::result::Result<(), String> {
 /// Mac's own. The engine says so when config.toml is edited by hand, since it reads the file
 /// without these checks.
 pub fn check_sounds(sounds: &SoundsCfg) -> std::result::Result<(), String> {
-    for (key, name) in [("needs_you", &sounds.needs_you), ("your_turn", &sounds.your_turn), ("review_requested", &sounds.review_requested)] {
+    for (key, name) in [("needs_you", &sounds.needs_you), ("your_turn", &sounds.your_turn), ("review_requested", &sounds.review_requested), ("meeting", &sounds.meeting)] {
         crate::sounds::check(key, name)?;
     }
     if sounds.volume > 100 {
@@ -2531,6 +2539,7 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
         set_value(&mut doc["sounds"]["needs_you"], Value::from(sounds.needs_you.trim()));
         set_value(&mut doc["sounds"]["your_turn"], Value::from(sounds.your_turn.trim()));
         set_value(&mut doc["sounds"]["review_requested"], Value::from(sounds.review_requested.trim()));
+        set_value(&mut doc["sounds"]["meeting"], Value::from(sounds.meeting.trim()));
         set_value(&mut doc["sounds"]["volume"], Value::from(sounds.volume as i64));
     }
 
@@ -3054,6 +3063,7 @@ pub fn render(cfg: &Config) -> String {
     s.push_str(&format!("needs_you = {}\n", q(&cfg.sounds.needs_you)));
     s.push_str(&format!("your_turn = {}\n", q(&cfg.sounds.your_turn)));
     s.push_str(&format!("review_requested = {}\n", q(&cfg.sounds.review_requested)));
+    s.push_str(&format!("meeting = {}\n", q(&cfg.sounds.meeting)));
     s.push_str(&format!("volume = {}\n", cfg.sounds.volume));
     if cfg.experimental != ExperimentalCfg::default() {
         s.push('\n');
@@ -3201,7 +3211,7 @@ mod tests {
             reviews: ReviewsCfg { auto: true, account: "claude".into(), model: "opus".into(), effort: String::new(), other_harness: true, drafts: true, prompt: "Start two subagents.\nThen combine their findings.".into(), start: ReviewStart::Codealong, post: ReviewPost::None, submit: ReviewSubmit::Approve, auto_approve: false, reviewers: Vec::new(), own: OwnReviewsCfg::default(), team_instructions: String::new(), never_submit: Vec::new() },
             pull_requests: PullRequestsCfg { nudge_by_default: true, nudge_about: NudgeAbout::FeedbackAndChecks, rerequest_after_fixes: false },
             repos: BTreeMap::from([("github.com/sprucehq/web".to_string(), RepoCfg { reviews: ReviewsPatch { auto: Some(true), account: Some("codex".into()), post: Some(ReviewPost::Draft), own: OwnReviewsPatch { send: Some(false), ..OwnReviewsPatch::default() }, ..ReviewsPatch::default() }, pull_requests: PullRequestsPatch { nudge_about: Some(NudgeAbout::Feedback), ..PullRequestsPatch::default() } })]),
-            sounds: SoundsCfg { needs_you: "Tink".into(), your_turn: String::new(), review_requested: "Purr".into(), volume: 35 },
+            sounds: SoundsCfg { needs_you: "Tink".into(), your_turn: String::new(), review_requested: "Purr".into(), meeting: "Glass".into(), volume: 35 },
             experimental: ExperimentalCfg { boards: true, voice: true },
             voice: VoiceCfg { locale: "en-GB".into(), send_on_release: true, tell_every: 45, meetings: true, meetings_folder: "~/Meetings".into(), meeting_account: String::new(), meeting_model: "haiku".into(), meeting_lead: 2, meeting_calendars_off: vec!["C1".into(), "C2".into()], on_speakers: true },
             debug: DebugCfg::default(),
@@ -3709,10 +3719,11 @@ mod tests {
     fn sounds_are_on_for_what_waits_on_you_and_name_sounds_the_mac_has() {
         let d = toml::from_str::<Config>("").unwrap().sounds;
         let (pop, tink) = crate::os::sound::defaults();
-        assert_eq!((d.needs_you.as_str(), d.your_turn.as_str(), d.review_requested.as_str(), d.volume), (pop, tink, "", 60));
+        let glass = crate::os::sound::meeting_default();
+        assert_eq!((d.needs_you.as_str(), d.your_turn.as_str(), d.review_requested.as_str(), d.meeting.as_str(), d.volume), (pop, tink, "", glass, 60));
         // A new file says so, before the accounts.
         let new = render(&full());
-        assert!(new.contains(&format!("{}[sounds]\nneeds_you = \"{pop}\"\nyour_turn = \"{tink}\"\nreview_requested = \"\"\nvolume = 60\n", sounds_comment())), "{new}");
+        assert!(new.contains(&format!("{}[sounds]\nneeds_you = \"{pop}\"\nyour_turn = \"{tink}\"\nreview_requested = \"\"\nmeeting = \"{glass}\"\nvolume = 60\n", sounds_comment())), "{new}");
         assert!(new.find("[sounds]").unwrap() < new.find("[[accounts]]").unwrap(), "{new}");
         // An older file gets the table only once a sound changes.
         let start = new.find(&sounds_comment()).unwrap();
@@ -3722,7 +3733,7 @@ mod tests {
         quieter.sounds.your_turn = String::new();
         quieter.sounds.volume = 30;
         let out = with_config(&old, &quieter).unwrap();
-        assert!(out.contains(&format!("{}[sounds]\nneeds_you = \"{pop}\"\nyour_turn = \"\"\nreview_requested = \"\"\nvolume = 30\n", sounds_comment())), "{out}");
+        assert!(out.contains(&format!("{}[sounds]\nneeds_you = \"{pop}\"\nyour_turn = \"\"\nreview_requested = \"\"\nmeeting = \"{glass}\"\nvolume = 30\n", sounds_comment())), "{out}");
         assert!(out.find("[sounds]").unwrap() < out.find("[[accounts]]").unwrap(), "{out}");
         assert_eq!(parse(&out).unwrap(), quieter);
         // A sound the Mac doesn't have, and a volume over the Mac's own, are refused.

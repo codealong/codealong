@@ -700,6 +700,7 @@ rerequest_after_fixes = false  # ask a reviewer who asked for changes to look ag
 needs_you = "Pop"              # a session asks you something, waits on a call to allow, or stops with an error (on Linux, "message-new-instant")
 your_turn = "Tink"             # a session's turn ended (on Linux, "complete")
 review_requested = ""          # a PR asks for your review; "" is no sound
+meeting = "Glass"              # a meeting in your calendar is about to start, with [voice] meetings on
 volume = 60                    # in percent of the system's own; any sound in /System/Library/Sounds or ~/Library/Sounds, or on Linux the freedesktop sound theme's or ~/.local/share/sounds
 
 [repos."github.com/acme/web".reviews]  # yours for one repo, over the above and its team's file (Settings › Automation, the repo picked)

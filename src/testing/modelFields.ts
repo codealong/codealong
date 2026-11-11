@@ -949,6 +949,7 @@ export type SessionsCfg = Holds<Same<
 >>;
 
 export type SoundsCfg = Holds<Same<
+  | "meeting"
   | "needs_you"
   | "review_requested"
   | "volume"

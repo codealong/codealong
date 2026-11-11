@@ -25,6 +25,16 @@ pub fn defaults() -> (&'static str, &'static str) {
     }
 }
 
+/// The sound a new config.toml names for a meeting about to start (meetings.rs): on macOS a
+/// glass, which every Mac has and which carries from another screen; none on Linux, which has
+/// no meetings yet.
+pub fn meeting_default() -> &'static str {
+    match super::current() {
+        Os::MacOs => "Glass",
+        Os::Linux => "",
+    }
+}
+
 /// Whether the defaults can be missing: a Linux without the sound theme has neither.
 pub fn default_may_be_missing() -> bool {
     super::current() == Os::Linux
