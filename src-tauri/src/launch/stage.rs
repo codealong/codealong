@@ -1392,6 +1392,20 @@ mod tests {
     }
 
     #[test]
+    fn a_tab_whose_session_has_ended_is_closed_by_its_shell() {
+        let dir = Path::new("/r/app");
+        // Read while the session runs: its tab's shell, under Terminal's and Rex's `login`; one
+        // with no shell of its own in a tab has none.
+        let p = played(|_| Ok("\n".into()), || [IN_TERMINAL, 700_010, 500_010].map(tab_shell));
+        assert_eq!(p.got, [Some(300_003), Some(700_003), None]);
+        // Closed by it with nothing hung up: the shell is back at its prompt, and the tab closes.
+        let answer = |s: &Sent| Ok(if s.what == "TERMINAL_TTYS" { "/dev/ttys301\n".to_string() } else { "\n".to_string() });
+        let p = play(setup(), answer, move || close_shells_tab(300_003, dir));
+        p.got.unwrap();
+        assert_eq!(p.log, ["TERMINAL_TTYS []", "TERMINAL_IN_FRONT []", "hang up []", r#"TERMINAL_CLOSE+TAB_ON ["/dev/ttys301"]"#]);
+    }
+
+    #[test]
     fn a_tab_stays_when_its_process_does_or_its_app_says_no() {
         let dir = Path::new("/r/app");
         let said = |results: &[Result<()>]| results.iter().map(|r| r.as_ref().map_err(|e| e.to_string()).err().unwrap_or_else(|| "closed".into())).collect::<Vec<_>>();

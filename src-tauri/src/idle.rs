@@ -469,17 +469,15 @@ fn note_exit_asked(key: &str, asked: ExitAsked) {
 /// dialog to come up once the exit was typed is its question (a turn under way when it was typed
 /// puts it off until the turn ends). Once that has gone, it was answered or called off where it
 /// runs, which its process ending or not says (`exit_watched`); a dialog after it (`/model`
-/// there) is no question of the exit's, and the record goes.
+/// there) is no question of the exit's, which was called off. Either way the record stays until
+/// its watch has seen which: Mark as done, still waiting on the exit, goes by it (`exit_noted`).
 pub fn exit_dialog_seen(key: &str, asking: Option<i64>, now: i64) {
     exits_asked(|all| {
         let Some(asked) = all.get_mut(key) else { return };
         match (asked.dialog, asking) {
             (None, Some(t)) if t >= asked.at => asked.dialog = Some(t),
             (Some(up), Some(t)) if t == up => {}
-            (Some(_), Some(_)) => {
-                all.remove(key);
-            }
-            (Some(_), None) => {
+            (Some(_), _) => {
                 asked.gone.get_or_insert(now);
             }
             (None, _) => {}
@@ -546,19 +544,19 @@ fn await_end(s: &Session, pid: u32, host: Option<u32>, lock: Option<&Path>) -> E
     Exited::Ended { removed, closed: close_tab(host, Path::new(&s.cwd)) }
 }
 
-/// The process above `pid` in its tab, its shell, read while `pid` runs: the terminal a process
-/// is in is found from the processes above it (`launch::terminal_kind`), which a process that
-/// has ended no longer has.
+/// The shell of the tab a session's process `pid` runs in, read while it runs
+/// (`launch::tab_shell`): the terminal a process is in is found from the processes above it,
+/// which a process that has ended no longer has.
 fn tab_host(pid: u32) -> Option<u32> {
-    crate::procs::parent_and_name(pid).map(|(ppid, _)| ppid).filter(|p| *p > 1)
+    crate::launch::tab_shell(pid)
 }
 
-/// Closes the tab a session ran in, once its process has ended, by `host`, the process that was
-/// above it there (`tab_host`), which hangs up with it. One that ended too took the tab with
-/// it: nothing's left to close.
+/// Closes the tab a session ran in, once its process has ended, by `host`, the shell it ran
+/// under there (`tab_host`). A session with no shell of its own in its tab took the tab with
+/// it, and so did one whose shell ended too: nothing's left to close.
 fn close_tab(host: Option<u32>, cwd: &Path) -> Result<(), String> {
     match host.filter(|h| crate::procs::pid_alive(*h)) {
-        Some(host) => crate::launch::close_session_terminals(&[(host, cwd)]).pop().unwrap_or_else(|| Err(anyhow::anyhow!("Nothing was closed."))).map_err(crate::util::words),
+        Some(host) => crate::launch::close_shells_tab(host, cwd).map_err(crate::util::words),
         None => Ok(()),
     }
 }
@@ -866,10 +864,13 @@ mod tests {
         exit_dialog_seen(key, Some(120), 130);
         exit_dialog_seen(key, Some(120), 140);
         assert_eq!(dialog("bound"), Some(120));
-        // Another command's dialog after it: the exit asks nothing now.
+        // Another command's dialog after it: the exit asks nothing now, and was called off, but
+        // Mark as done, still waiting on it, holds back till its watch has seen that.
         exit_dialog_seen(key, Some(300), 300);
         assert_eq!(exit_asked(key), None);
-        assert_eq!(exit_watched(key, 300), Watched::Over);
+        assert!(exit_noted(key));
+        assert_eq!(exit_watched(key, 300 + 2 * REMOVAL_WAIT.as_millis() as i64), Watched::Over);
+        assert!(!exit_noted(key));
     }
 
     #[test]

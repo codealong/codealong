@@ -1048,6 +1048,20 @@ pub fn close_session_terminals(sessions: &[(u32, &Path)]) -> Vec<Result<()>> {
     close_terminals(&sessions.iter().map(|&(pid, cwd)| Closing { pid, cwd, hang_up: vec![pid], unasked: None }).collect::<Vec<_>>())
 }
 
+/// The shell of the tab `pid` runs in, when that's another process than `pid` (`shell_of`), read
+/// while `pid` runs: once it has ended, its tab is found from its shell (`close_shells_tab`), as
+/// a terminal is found from the processes above one, which an ended process no longer has.
+pub fn tab_shell(pid: u32) -> Option<u32> {
+    shell_of(pid).filter(|shell| *shell != pid)
+}
+
+/// Closes the tab `shell` is the shell of (`tab_shell`), what ran there above it having ended:
+/// nothing is hung up, and a shell back at its prompt lets the app close the tab without asking,
+/// as Close stale terminals closes one.
+pub fn close_shells_tab(shell: u32, cwd: &Path) -> Result<()> {
+    close_terminals(&[Closing { pid: shell, cwd, hang_up: Vec::new(), unasked: None }]).pop().unwrap_or_else(|| Err(anyhow!("Nothing was closed.")))
+}
+
 /// Hangs up what runs in tabs and closes them, all at once for each app: with dozens of tabs on a
 /// busy Mac, one tab at a time took minutes. The processes get a hangup (as they would from the
 /// tab closing), and the tabs whose processes all exited close in one script: the apps ask before
