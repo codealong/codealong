@@ -1029,10 +1029,10 @@ export function Bar() {
                 onUnsent={stage.unsent}
                 onFailed={stage.failed}
                 onGone={(key) => {
+                  stage.gone(key);
                   stage.close();
                   setFailed({ anchor: key, message: 'That session is no longer on the board.' });
                 }}
-                onBoard={stage.read}
               />
             ) : null
           }
