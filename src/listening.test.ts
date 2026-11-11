@@ -123,6 +123,9 @@ describe('what macOS has to allow, before a listening starts', () => {
 describe('a listening, in words', () => {
   it('says what it hears', () => {
     expect(hears(glance())).toBe('You and this Mac’s audio');
+    // On speakers, as it was heard to be: only of the two together.
+    expect(hears(glance({ speakers: true }))).toBe('You and this Mac’s audio, on speakers');
+    expect(hears(glance({ speakers: true, playback: false }))).toBe('Your microphone');
     expect(hears(glance({ playback: false }))).toBe('Your microphone');
     expect(hears(glance({ mic: false }))).toBe('This Mac’s audio');
     expect(hears(glance({ apps: ['us.example.meet'] }), { 'us.example.meet': 'Meet' })).toBe('You and Meet');

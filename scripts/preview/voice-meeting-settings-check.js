@@ -2,7 +2,7 @@
 // with voice on, the offer to take a meeting's notes is off and shows nothing more; turning it
 // on saves it and has macOS asked for the calendar, and what the calendar says shows under it
 // (not asked yet, with a button to ask; then whose calendars are read and what's ahead), with
-// what a meeting's session starts on and whether you're on speakers.
+// what a meeting's session starts on. Speakers or headphones isn't asked: it's heard (echo.rs).
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/voice-meeting-settings-check.js
 (function () {
   // This runs before the app's script: config.toml reads back as it was saved, with voice on.
@@ -50,7 +50,7 @@
       check('turning it on saves it', !!saved && saved.config.voice.meetings === true, JSON.stringify(saved && saved.config.voice));
       check('and has macOS asked for the calendar', calls('calendar_access').length === 1);
       check('not asked yet, it says so and offers to ask', says() === 'macOS hasn’t asked yet whether Codealong may read your calendar.' && !!asks(), says());
-      check('with what a meeting’s session starts on, and whether you’re on speakers', !!field('A meeting’s session starts on') && !!field('I’m on speakers in my meetings'));
+      check('with what a meeting’s session starts on, and nothing to say of speakers', !!field('A meeting’s session starts on') && !field('I’m on speakers in my meetings'));
       // You said yes: it says whose calendars it reads and what's ahead.
       window.__CALENDAR__ = { on: true, access: 'allowed', sources: [{ title: 'sam@northwind.example', kind: 'caldav' }, { title: 'iCloud', kind: 'icloud' }], meetings: 2, nextAt: Date.now() + 40 * 60e3, folder: '~/Library/Application Support/Codealong/meetings' };
       asks().click();
@@ -58,11 +58,7 @@
     })
     .then(function () {
       check('allowed, it says whose calendars it reads and what’s ahead', /^Reading the calendars of sam@northwind\.example and iCloud\. 2 meetings in the day ahead, the next at \d{1,2}:\d\d/.test(says()) && !asks(), says());
-      var speakers = field('I’m on speakers in my meetings').querySelector('input[type="checkbox"]');
-      speakers.click();
-      return until(function () { var s = sent('save_config').slice(-1)[0]; return s && s.config.voice.on_speakers === true; }, 3000, 'on speakers saved');
     })
-    .then(function () { check('on speakers is saved with it', true); })
     .then(done)
     .catch(stopped);
 })();

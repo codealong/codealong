@@ -153,6 +153,10 @@ pub enum Event {
     /// Whether macOS lets a source of the Mac's own audio be heard, as `Status::system_audio` has
     /// it: said as the source starts, and as it changes for as long as it isn't allowed.
     Permission { source: String, state: String },
+    /// What the Mac plays through, by its id, with what the device says of itself (`kind`:
+    /// "speakers", "headphones" or "unknown"): said as a source of the Mac's own audio starts,
+    /// and when it changes (echo.rs).
+    Output { device: String, kind: String },
     /// A source that ends by itself (a file) has, its last words settled.
     Ended { source: String },
     /// The speech model can't be had: nothing will be heard.
@@ -174,6 +178,7 @@ pub fn event(line: &Value) -> Option<Event> {
         "state" => Event::Waiting { message: text("message") },
         "lost" => Event::Lost { source: text("source"), message: text("message") },
         "permission" => Event::Permission { source: text("source"), state: text("state") },
+        "output" => Event::Output { device: text("device"), kind: text("kind") },
         "ended" => Event::Ended { source: text("source") },
         "failed" => Event::Failed(Refused { code: text("code"), message: text("message") }),
         _ => return None,
@@ -234,6 +239,13 @@ impl Ear {
             && client.request("status", json!({}), Some(ASK)).is_ok_and(|s| s.get("microphone").and_then(Value::as_str) == Some("unasked"));
         client.request("start", params, Some(if asking { ASKING } else { START })).map_err(|e| Refused::of(e, "to start"))?;
         Ok(Ear { client })
+    }
+
+    /// Has the microphone take what the Mac plays out of what it hears, or stop: you're on
+    /// speakers, or no longer (echo.rs). Not waited on, so it can be said from the thread that
+    /// reads what the helper says; one that didn't reach it is said again at its next start.
+    pub fn echo(&self, on: bool) {
+        let _ = self.client.notify("echo", json!({ "on": on }));
     }
 
     /// Stops capturing and waits for the last words, which reach `on` before this returns; then
@@ -398,6 +410,7 @@ mod tests {
         assert_eq!(event(&line(r#"{"method":"state","params":{"state":"downloading","message":"Downloading"}}"#)), Some(Event::Waiting { message: "Downloading".into() }));
         assert_eq!(event(&line(r#"{"method":"lost","params":{"source":"you","message":"gone"}}"#)), Some(Event::Lost { source: "you".into(), message: "gone".into() }));
         assert_eq!(event(&line(r#"{"method":"permission","params":{"source":"them","state":"denied"}}"#)), Some(Event::Permission { source: "them".into(), state: "denied".into() }));
+        assert_eq!(event(&line(r#"{"method":"output","params":{"source":"them","device":"BuiltInSpeakerDevice","kind":"speakers","name":"MacBook Pro Speakers"}}"#)), Some(Event::Output { device: "BuiltInSpeakerDevice".into(), kind: "speakers".into() }));
         assert_eq!(event(&line(r#"{"method":"ended","params":{"source":"file"}}"#)), Some(Event::Ended { source: "file".into() }));
         assert_eq!(event(&line(r#"{"method":"failed","params":{"code":"no-locale","message":"none"}}"#)), Some(Event::Failed(Refused { code: "no-locale".into(), message: "none".into() })));
         // What the helper says of itself, as it words it; an older one says nothing of the Mac's audio.

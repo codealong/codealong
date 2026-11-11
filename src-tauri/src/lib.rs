@@ -70,6 +70,7 @@ mod kept;
 mod launch;
 mod ledger;
 mod limits;
+mod echo;
 mod listen;
 mod meetings;
 mod newfolder;

@@ -3377,9 +3377,17 @@ Tell the session first what you want from the meeting, as you'd tell it anything
   (for a call with a customer: a todo for each bug, fix or feature asked for, with what was said
   about it, and with *Start a session on each right away* a session on each, in a worktree of its
   own, as the listening session's helper); or your own words;
-- what it hears: you, through the microphone; everyone else, from what the Mac plays, or only
-  from one app that's playing; and whether you're on speakers, when what the Mac plays is taken
-  out of what the microphone hears so the others aren't written down twice.
+- what it hears: you, through the microphone; and everyone else, from what the Mac plays, or
+  only from one app that's playing.
+
+Speakers or headphones isn't asked. On speakers the microphone hears the others too, and they'd
+be written down twice, once as you. Codealong hears which it is: a microphone that picks up what
+the Mac plays is never as quiet while the Mac is loud as it gets when the Mac is silent, and one
+on headphones is. After a few seconds of the others talking it knows, takes what the Mac plays
+out of the microphone from then on (the strip says *on speakers*), and starts over whenever what
+the Mac plays through changes, so headphones put on or taken off mid-meeting are followed.
+Speakers that say they are (the Mac's own, a display's) start that way. `[voice] on_speakers` in
+config.toml does it from the start of every meeting, for a setup it gets wrong.
 
 Codealong writes what's said to a transcript, a line for each thing said: the time, who (You for
 the microphone, Them for what the Mac plays), and the words. At a pause in the talk, and no more
@@ -3466,8 +3474,7 @@ on) opens them: the list, the latest first, and the one picked with its notes or
 where the earlier ones are, and that what you write to it while the meeting goes on is your own
 note, to work into its notes. It starts on the account `[voice] meeting_account` names (an
 account, a routing group, or Auto) with `meeting_model`, or the account's own: a small model keeps
-notes well and costs little, since each telling is a turn. `[voice] on_speakers` is for meetings
-you take on speakers, as *I'm on speakers* is in Listen….
+notes well and costs little, since each telling is a turn.
 
 A meeting's listening ends by itself once the meeting's time is up and nothing has been said for
 three minutes, so one that runs over is heard to its end; and when you take the next one, the

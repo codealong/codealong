@@ -327,13 +327,9 @@ function ListenDialog({ asked, onClose }: { asked: ListenAsked; onClose: () => v
               />
             </div>
           )}
-          {ask.mic && ask.system && (
-            <label className="ca-listendlg-check">
-              <CheckBox checked={ask.speakers} onChange={(on) => set({ speakers: on })} />
-              <span>I’m on speakers, not headphones</span>
-              <small>The microphone hears the others too: what the Mac plays is taken out of it, so they aren’t written down twice.</small>
-            </label>
-          )}
+          {/* Speakers or headphones isn't asked: the engine hears which (echo.rs), and on
+              speakers takes what the Mac plays out of the microphone by itself. */}
+          {ask.mic && ask.system && <small>On speakers the microphone hears the others too: Codealong notices, and takes what this Mac plays out of it, so they aren’t written down twice.</small>}
         </div>
       </div>
     </Dialog>

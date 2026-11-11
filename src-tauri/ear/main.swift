@@ -251,7 +251,9 @@ final class Pipeline: @unchecked Sendable {
         if finished { return }
         loudest = max(loudest, level(single))
         if heardAt - lastLevel >= 0.1 {
-            note("level", ["source": name, "level": (loudest * 1000).rounded() / 1000])
+            // To five places: the engine tells speakers from headphones by how quiet the
+            // microphone gets while the Mac plays (echo.rs), which is down among the thousandths.
+            note("level", ["source": name, "level": (loudest * 100_000).rounded() / 100_000])
             lastLevel = heardAt
             loudest = 0
         }
@@ -350,7 +352,8 @@ protocol Capture: AnyObject {
 /// mid-buffer), it's also started again whenever nothing has come from it for a few seconds.
 final class Mic: Capture {
     private var engine = AVAudioEngine()
-    private let cancelEcho: Bool
+    /// Whether what the Mac plays is taken out of what's heard. Read and set on `queue`.
+    private var cancelEcho: Bool
     private let sink: (AVAudioPCMBuffer) -> Void
     private let lost: (String) -> Void
     private var watching: NSObjectProtocol?
@@ -418,6 +421,17 @@ final class Mic: Capture {
 
     private func look() {
         if !stopped && (!engine.isRunning || quietFor > 4) { again() }
+    }
+
+    /// Takes what the Mac plays out of what's heard from here on, or stops: the engine found the
+    /// microphone hears it (you're on speakers), or what the Mac plays through changed. The
+    /// microphone is started again for it, which loses a moment of what's said.
+    func cancel(_ on: Bool) {
+        queue.async {
+            if self.stopped || on == self.cancelEcho { return }
+            self.cancelEcho = on
+            self.again()
+        }
     }
 
     /// Starts over. A microphone that stays away is said once, and looked for on.
@@ -572,6 +586,29 @@ func app(of process: AudioProcess) -> (bundle: String, name: String)? {
     return process.bundle.isEmpty ? nil : (process.bundle, process.bundle)
 }
 
+/// What the Mac plays through, as far as the device says: "speakers" when it's heard in the
+/// room (the Mac's own, a display's, AirPlay), "headphones" when it isn't (Bluetooth, the Mac's
+/// headphone jack, anything that calls itself a headset), and "unknown" for the rest, a USB
+/// sound card or a dock's jack, which have either plugged in. A first guess, for the engine to
+/// start from (echo.rs): what's heard settles it.
+func outputKind(_ device: AudioObjectID) -> String {
+    let name = (text(device, kAudioObjectPropertyName) ?? "").lowercased()
+    let named: (String...) -> Bool = { words in words.contains { name.contains($0) } }
+    if named("headphone", "headset", "airpods", "earbud", "earphone", "buds") { return "headphones" }
+    switch property(device, kAudioDevicePropertyTransportType, UInt32(0)) ?? 0 {
+    case kAudioDeviceTransportTypeBluetooth, kAudioDeviceTransportTypeBluetoothLE: return "headphones"
+    case kAudioDeviceTransportTypeHDMI, kAudioDeviceTransportTypeDisplayPort, kAudioDeviceTransportTypeAirPlay: return "speakers"
+    case kAudioDeviceTransportTypeBuiltIn:
+        // The Mac's own output says which of its two it is.
+        var at = address(kAudioDevicePropertyDataSource, kAudioDevicePropertyScopeOutput)
+        var source = UInt32(0)
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        if AudioObjectGetPropertyData(device, &at, 0, nil, &size, &source) == noErr, source == 0x6864_706E { return "headphones" }  // 'hdpn'
+        return "speakers"
+    default: return named("speaker") ? "speakers" : "unknown"
+    }
+}
+
 /// Whether macOS lets Codealong hear what the Mac plays (System Audio Recording Only). No public
 /// call says: these are the privacy database's own, the ones its prompt comes from, looked up by
 /// name so that a macOS without them only leaves it unknown. They answer for the app that's
@@ -615,6 +652,10 @@ final class Tap: Capture {
     private let lost: (String) -> Void
     /// Told whether macOS lets the Mac's audio be heard (`SystemAudio.state`), as it changes.
     private let permission: (String) -> Void
+    /// Told what the Mac plays through (its id, `outputKind`, its name), as the tap is first made
+    /// and when it changes.
+    private let output: (String, String, String) -> Void
+    private var toldOutput: String?
     private let queue = DispatchQueue(label: "codealong.ear.tap")
     private var tap = AudioObjectID(kAudioObjectUnknown)
     private var device = AudioObjectID(kAudioObjectUnknown)
@@ -623,11 +664,12 @@ final class Tap: Capture {
     private var timer: DispatchSourceTimer?
     private var stopped = false
 
-    init(bundles: [String], sink: @escaping (AVAudioPCMBuffer) -> Void, lost: @escaping (String) -> Void, permission: @escaping (String) -> Void) {
+    init(bundles: [String], sink: @escaping (AVAudioPCMBuffer) -> Void, lost: @escaping (String) -> Void, permission: @escaping (String) -> Void, output: @escaping (String, String, String) -> Void) {
         self.bundles = bundles
         self.sink = sink
         self.lost = lost
         self.permission = permission
+        self.output = output
     }
 
     /// The processes to tap for the apps asked for: an app's own, and those it answers for.
@@ -705,6 +747,12 @@ final class Tap: Capture {
         tapped = processes
         builtOn = outputDevice
         allowedWhenBuilt = allowedNow()
+        // What it plays through now, said when it isn't what was last said: the engine starts
+        // over on whether the microphone hears it.
+        if builtOn != toldOutput, let uid = builtOn, let device = property(AudioObjectID(kAudioObjectSystemObject), kAudioHardwarePropertyDefaultSystemOutputDevice, AudioObjectID(0)) {
+            toldOutput = uid
+            output(uid, outputKind(device), text(device, kAudioObjectPropertyName) ?? "")
+        }
         // None of the apps asked for plays or records yet: nothing to tap until one does (`look`).
         if !bundles.isEmpty && processes.isEmpty { return }
         let description = bundles.isEmpty
@@ -888,16 +936,17 @@ actor Listening {
                 let sink: (AVAudioPCMBuffer) -> Void = { pipeline.feed($0) }
                 let lost: (String) -> Void = { note("lost", ["source": name, "message": $0]) }
                 let permission: (String) -> Void = { note("permission", ["source": name, "state": $0]) }
+                let output: (String, String, String) -> Void = { note("output", ["source": name, "device": $0, "kind": $1, "name": $2]) }
                 let capture: Capture
                 switch source["kind"] as? String ?? "" {
                 case "mic":
                     capture = Mic(cancelEcho: source["cancel_echo"] as? Bool ?? false, sink: sink, lost: lost)
                 case "system":
-                    capture = Tap(bundles: [], sink: sink, lost: lost, permission: permission)
+                    capture = Tap(bundles: [], sink: sink, lost: lost, permission: permission, output: output)
                 case "apps":
                     let bundles = source["bundles"] as? [String] ?? []
                     if bundles.isEmpty { throw Refusal(code: "bad-request", message: "No app to listen to.") }
-                    capture = Tap(bundles: bundles, sink: sink, lost: lost, permission: permission)
+                    capture = Tap(bundles: bundles, sink: sink, lost: lost, permission: permission, output: output)
                 case "file":
                     guard let path = source["path"] as? String else {
                         throw Refusal(code: "bad-request", message: "No file to listen to.")
@@ -944,6 +993,13 @@ actor Listening {
 
     /// Stops capturing, and answers once the last words are out. A model still loading is waited
     /// for, for what was said meanwhile; one still downloading isn't.
+    /// Has the microphone take what the Mac plays out of what it hears, or stop (`Mic.cancel`).
+    func echo(_ on: Bool) {
+        for capture in captures {
+            (capture as? Mic)?.cancel(on)
+        }
+    }
+
     func stop() async {
         for capture in captures { capture.stop() }
         captures = []
@@ -975,6 +1031,10 @@ func warm(_ params: [String: Any]) async throws -> [String: Any] {
 /// What this Mac can hear with, without asking anyone anything.
 func status(_ params: [String: Any]) async -> [String: Any] {
     var answer: [String: Any] = ["available": SpeechTranscriber.isAvailable, "microphone": microphoneState(), "systemAudio": SystemAudio.state]
+    // What the Mac plays through now, and what that says of speakers or headphones (`outputKind`).
+    if let device = property(AudioObjectID(kAudioObjectSystemObject), kAudioHardwarePropertyDefaultSystemOutputDevice, AudioObjectID(0)) {
+        answer["output"] = ["name": text(device, kAudioObjectPropertyName) ?? "", "kind": outputKind(device)]
+    }
     let asked = (params["locale"] as? String).map(Locale.init(identifier:)) ?? Locale.current
     if SpeechTranscriber.isAvailable, let locale = await SpeechTranscriber.supportedLocale(equivalentTo: asked) {
         answer["locale"] = locale.identifier
@@ -1110,6 +1170,7 @@ Thread.detachNewThread {
         case "warm": answer(id) { try await warm(params) }
         case "apps": answer(id) { ["apps": apps()] }
         case "calendar": answer(id) { await calendar(params) }
+        case "echo": answer(id) { await listening.echo(params["on"] as? Bool ?? false); return [:] }
         default:
             if let id { writeLine(["id": id, "error": ["code": -32601, "message": "\(method)?"]]) }
         }

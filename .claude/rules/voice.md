@@ -88,6 +88,19 @@ What macOS's speech recognition and audio capture take and give, as codealong-ea
   (`responsibility_get_pid_responsible_for_pid`, by `dlsym`). Run: the list on this Mac named
   the iOS Simulator as playing and Core Speech as recording.
 
+- Speakers or headphones (echo.rs): what the Mac plays through says only so much.
+  `kAudioDevicePropertyTransportType` tells Bluetooth, HDMI, DisplayPort and AirPlay; the Mac's
+  own output says which of its two it is in `kAudioDevicePropertyDataSource` on the output scope
+  (`hdpn` for the jack); a USB sound card or a dock's jack says nothing of what's plugged into it
+  (`outputKind`). Run (2026-11-10): this Mac's output, a dock's Realtek USB2.0 Audio, came out
+  unknown. So it's heard instead, from the loudness the helper sends for each source (to five
+  places, since the Mac heard through a microphone is down among the thousandths): tried on two
+  `say` voices mixed as a call, the microphone's quiet while the Mac was loud came out 24, 6 and
+  2 times its quiet while the Mac was silent on speakers, and 1.0 to 1.1 on headphones, where a
+  correlation of the two loudnesses didn't tell them apart (your own voice is most of what a
+  microphone hears). Not yet run on a real microphone and a real room, nor that voice processing
+  takes the Mac's audio out well enough that the others aren't written down as you.
+
 ## The calendar
 
 - macOS's calendar is read through EventKit (`EKEventStore`), which has whichever accounts the

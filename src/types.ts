@@ -975,6 +975,9 @@ export interface ListeningGlance {
   mic: boolean;
   playback: boolean;
   apps?: string[];
+  /** What the Mac plays is being taken out of the microphone: you're on speakers, as you said or
+   *  as Codealong heard it to be (echo.rs). Missing while it isn't. */
+  speakers?: boolean;
   transcript: string;
   notes: string;
   /** Something wrong that it goes on through. */

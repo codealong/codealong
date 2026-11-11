@@ -1121,8 +1121,10 @@ pub struct VoiceCfg {
     pub meeting_account: String,
     #[serde(default)]
     pub meeting_model: String,
-    /// You're on speakers in your meetings, not headphones: what the Mac plays is taken out of
-    /// what the microphone hears, so the others aren't written down twice.
+    /// What the Mac plays is taken out of what the microphone hears in every meeting from its
+    /// start, as it is on speakers so the others aren't written down twice. Without it Codealong
+    /// works out whether you're on speakers from the sound (echo.rs), which is the way to leave
+    /// it: this is for a setup it gets wrong.
     #[serde(default)]
     pub on_speakers: bool,
 }
@@ -1914,7 +1916,7 @@ const OWN_REVIEWS_COMMENT: &str = "# [reviews.own] auto: an agent reviews each o
 # Nothing goes on GitHub.
 ";
 const EXPERIMENTAL_COMMENT: &str = "# Features still being tried out, each off until it's turned on. boards: the main window's Board view, as\n# Kanban and as Canvas, Add to board in the menus, and `codealong board`. voice: a key held to talk to the\n# session you're looking at or to your orchestrator, and sessions that listen to a meeting ([voice]).\n";
-const VOICE_COMMENT: &str = "# Voice, once [experimental] voice is on. locale: the language spoken, such as \"en-US\"; \"\" for this Mac's own.\n# send_on_release: what you say to your orchestrator is sent as you let go of the key, not put in its box\n# first. tell_every: how often, in seconds, a session that listens is told what's new, at most.\n# meetings: as a meeting in your calendar is about to start, offer to take its notes, in a folder of its own\n# under meetings_folder (\"\" for meetings beside this file), by a session on meeting_account (an account, a\n# routing group, or \"\" for Auto) and meeting_model. on_speakers: you're on speakers in them, not headphones.\n";
+const VOICE_COMMENT: &str = "# Voice, once [experimental] voice is on. locale: the language spoken, such as \"en-US\"; \"\" for this Mac's own.\n# send_on_release: what you say to your orchestrator is sent as you let go of the key, not put in its box\n# first. tell_every: how often, in seconds, a session that listens is told what's new, at most.\n# meetings: as a meeting in your calendar is about to start, offer to take its notes, in a folder of its own\n# under meetings_folder (\"\" for meetings beside this file), by a session on meeting_account (an account, a\n# routing group, or \"\" for Auto) and meeting_model. on_speakers: take what the Mac plays out of the microphone\n# in every meeting; without it Codealong hears whether you're on speakers, and does it then.\n";
 const REPOS_COMMENT: &str = "# Your settings for one repo's pull requests, over [reviews] and [pull_requests] and over what the repo's\n# .codealong/config.toml sets for its team. Settings › Automation sets them with the repo picked.\n";
 /// What config.toml says above `[sounds]`: where the OS keeps the sounds it can name.
 fn sounds_comment() -> String {

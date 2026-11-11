@@ -514,6 +514,9 @@ struct Running {
     /// Whether macOS lets the Mac's own audio be heard, as its helper last said
     /// (`ear::Status::system_audio`); empty until it has.
     may_hear: String,
+    /// Whether its microphone hears what the Mac plays (you're on speakers), worked out from how
+    /// loud each is, for the helper to take it out.
+    echo: crate::echo::Echo,
     /// Something wrong that it goes on through.
     problem: Option<String>,
     /// Something it waits on that passes: the speech model downloading.
@@ -550,7 +553,13 @@ impl Running {
     }
 
     fn of(l: &Listening, now: i64) -> Running {
-        Running { session: l.session.clone(), silent_since: l.sources.iter().any(|s| matches!(s.from, ear::From::System | ear::From::Apps { .. })).then_some(now), ..Running::default() }
+        Running {
+            session: l.session.clone(),
+            silent_since: l.sources.iter().any(|s| matches!(s.from, ear::From::System | ear::From::Apps { .. })).then_some(now),
+            // Asked for from the start (`Ask::speakers`), or worked out as it goes.
+            echo: crate::echo::Echo::new(l.sources.iter().any(|s| matches!(s.from, ear::From::Mic { cancel_echo: true }))),
+            ..Running::default()
+        }
     }
 }
 
@@ -615,6 +624,10 @@ pub struct Glance {
     pub playback: bool,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub apps: Vec<String>,
+    /// What the Mac plays is being taken out of the microphone: you're on speakers, as you said
+    /// or as it was heard to be (echo.rs).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub speakers: bool,
     pub transcript: String,
     pub notes: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -649,6 +662,7 @@ pub fn glances() -> BTreeMap<String, Glance> {
                 mic: l.sources.iter().any(|s| matches!(s.from, ear::From::Mic { .. })),
                 playback: l.sources.iter().any(|s| !matches!(s.from, ear::From::Mic { .. })),
                 apps: apps.unwrap_or_default(),
+                speakers: running.echo.cancelling(),
                 transcript: l.transcript().to_string_lossy().into_owned(),
                 notes: l.notes().to_string_lossy().into_owned(),
                 problem: running.problem.clone(),
@@ -687,7 +701,7 @@ pub fn tail(key: &str) -> Option<Tail> {
 
 /// Sets what's said of a running listening, and has the board drawn again when it changed.
 fn say(id: &str, f: impl FnOnce(&mut Running)) {
-    let shown = |r: &Running| (r.problem.clone(), r.waiting.clone(), r.cue.clone());
+    let shown = |r: &Running| (r.problem.clone(), r.waiting.clone(), r.cue.clone(), r.echo.cancelling());
     let was;
     let is;
     {
@@ -735,15 +749,29 @@ fn heard(id: &str, event: Event) {
             }
         }
         Event::Level { source, level } => {
-            // Only the Mac's own audio is silent when macOS isn't letting it be heard.
-            if source != YOU && level > 0.0 {
-                say(id, |r| {
-                    if r.silent_since.take().is_some() && r.problem.as_deref().is_some_and(|p| p.contains(SILENT)) {
-                        r.problem = None;
+            let mine = source == YOU;
+            say(id, |r| {
+                // Only the Mac's own audio is silent when macOS isn't letting it be heard.
+                if !mine && level > 0.0 && r.silent_since.take().is_some() && r.problem.as_deref().is_some_and(|p| p.contains(SILENT)) {
+                    r.problem = None;
+                }
+                // The microphone hears what the Mac plays: you're on speakers, and it's taken
+                // out from here on, so the others aren't written down twice.
+                if r.echo.heard(mine, level, util::now_ms()) {
+                    if let Some(ear) = &r.ear {
+                        ear.echo(true);
                     }
-                });
-            }
+                }
+            });
         }
+        Event::Output { device, kind } => say(id, |r| {
+            let cancel = r.echo.plays_through(&device, &kind);
+            // Said either way: a helper started again knows only what its listening began with.
+            // One that hasn't answered its start yet has no ear here, and is told as it gets one.
+            if let Some(ear) = &r.ear {
+                ear.echo(cancel);
+            }
+        }),
         Event::Ready => say(id, |r| r.waiting = None),
         Event::Waiting { message } => say(id, |r| r.waiting = Some(message)),
         Event::Lost { source, message } => say(id, |r| r.problem = Some(format!("{source} can't be heard: {message}"))),
@@ -901,6 +929,8 @@ pub fn start_of(engine: &Handle, key: &str, ask: &Ask, of: Option<Of>) -> Result
         .and_then(|()| start_ear(&l).map_err(refusal))
         .and_then(|ear| {
             if let Some(running) = state().running.get_mut(&l.id) {
+                // What it plays through was said as it started, before there was an ear to tell.
+                ear.echo(running.echo.cancelling());
                 running.ear = Some(ear);
             }
             // Its session is told while it works too: the harness holds it for the turn's end.
@@ -1223,7 +1253,10 @@ fn revive(l: &Listening, now: i64) {
                 Ok(ear) => {
                     let mut state = state();
                     match state.running.get_mut(&l.id) {
-                        Some(running) => running.ear = Some(ear),
+                        Some(running) => {
+                            ear.echo(running.echo.cancelling());
+                            running.ear = Some(ear);
+                        }
                         // Ended meanwhile: the helper goes with the ear.
                         None => drop(ear),
                     }

@@ -2448,12 +2448,10 @@ function MeetingsFields({ cfg, voice, setVoice }: { cfg: Config; voice: Required
           <label className="ca-field">
             <span>A meeting’s session starts on</span>
             <ProfileSelect value={voice.meeting_account} profiles={accounts} onChange={(account) => setVoice({ meeting_account: account })} />
-            <small>Auto picks as the quick panel does. Its model is the account’s own unless config.toml names one (meeting_model): a small one keeps notes well and costs little.</small>
-          </label>
-          <label className="ca-field ca-settings-check">
-            <CheckBox checked={voice.on_speakers} onChange={(on) => setVoice({ on_speakers: on })} />
-            <span>I’m on speakers in my meetings</span>
-            <small>Not headphones: what this Mac plays is taken out of what the microphone hears, so the others aren’t written down twice.</small>
+            <small>
+              Auto picks as the quick panel does. Its model is the account’s own unless config.toml names one (meeting_model): a small one keeps notes well and costs little. Speakers or headphones isn’t asked: Codealong hears which, and on
+              speakers takes what this Mac plays out of the microphone, so the others aren’t written down twice.
+            </small>
           </label>
         </>
       )}

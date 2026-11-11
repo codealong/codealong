@@ -102,9 +102,10 @@ export function macSays(status: HearingStatus['status'] | undefined, ask: Pick<L
   return asks.length ? `macOS will ask whether Codealong may ${asks.join(', and whether it may ')}.` : '';
 }
 
-export function hears(l: Pick<ListeningGlance, 'mic' | 'playback' | 'apps'>, names: Record<string, string> = {}): string {
+export function hears(l: Pick<ListeningGlance, 'mic' | 'playback' | 'apps' | 'speakers'>, names: Record<string, string> = {}): string {
   const them = l.apps?.length ? l.apps.map((a) => names[a] ?? a).join(', ') : 'this Mac’s audio';
-  if (l.mic && l.playback) return `You and ${them}`;
+  // On speakers, as it was heard to be: the Mac's audio is being taken out of the microphone.
+  if (l.mic && l.playback) return `You and ${them}${l.speakers ? ', on speakers' : ''}`;
   return l.mic ? 'Your microphone' : them.charAt(0).toUpperCase() + them.slice(1);
 }
 
