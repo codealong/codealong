@@ -90,6 +90,11 @@ pub fn of_code(code: &str) -> (Key, char) {
     }
 }
 
+/// Whether `key` is Shift, Control, Option or Command, as Ghostty's `Key.modifier` has them.
+pub fn is_modifier(key: Key) -> bool {
+    matches!(key, Key::ShiftLeft | Key::ShiftRight | Key::ControlLeft | Key::ControlRight | Key::AltLeft | Key::AltRight | Key::MetaLeft | Key::MetaRight)
+}
+
 /// The key that types `c` on a US layout, for a character a key gives on another layout: the
 /// encoder goes by the key for Ctrl and the rest, so Ctrl and the letter A is Ctrl+A wherever the
 /// layout puts A. None for a character no US key types alone.

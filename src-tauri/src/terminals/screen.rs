@@ -607,7 +607,10 @@ impl Screen {
                 self.out.extend_from_slice(t.as_bytes());
             }
         }
-        if self.out.len() > before {
+        // A modifier alone, which a program that asks for every key (the Kitty protocol's flag 8)
+        // is sent, isn't typing, as in Ghostty: Shift pressed for a Shift-click mustn't take the
+        // view back to the bottom nor forget where the selection began.
+        if self.out.len() > before && !keys::is_modifier(physical) {
             self.typed();
         }
     }
@@ -750,6 +753,15 @@ impl Screen {
         }
         if !tracking {
             return;
+        }
+        // A click the program gets clears the selection and forgets where it began, as in
+        // Ghostty: what the program does with it may change what was selected, and a Shift-click
+        // after starts afresh.
+        if action != MouseAction::Move {
+            if self.term.selection().ok().flatten().is_some() {
+                let _ = self.term.set_selection(None);
+            }
+            self.gesture.reset(&self.term);
         }
         let _ = self
             .mouse_encoder
@@ -1393,6 +1405,45 @@ mod tests {
         wait(&mut s, 1000);
         click(&mut s, 100.0, 4.0, true);
         assert_eq!(s.selection_text(), None, "typing forgot where it began");
+    }
+
+    /// A program that asks for every key, modifiers too (the Kitty protocol's flag 8), is sent
+    /// Shift pressed alone, but that isn't typing: the view stays scrolled back and the
+    /// Shift-click still goes on from the click.
+    #[test]
+    fn shift_pressed_alone_for_a_program_that_asks_keeps_the_view_and_where_it_began() {
+        let (mut s, _) = screen();
+        for i in 0..20 {
+            s.feed(format!("line {i}\r\n").as_bytes());
+        }
+        s.feed(b"\x1b[>8u");
+        click(&mut s, 60.0, 20.0, false);
+        s.input(&Input::Wheel { rows: -10.0, x: 1.0, y: 1.0, mods: Mods4::default() });
+        s.input(&Input::Key { code: "ShiftLeft".into(), text: None, unshifted: None, mods: Mods4 { shift: true, ..Default::default() }, action: KeyAction::Press });
+        assert!(!s.take_out().is_empty(), "the program was sent Shift");
+        wait(&mut s, 1000);
+        click(&mut s, 1.0, 4.0, true);
+        let text = s.selection_text().unwrap();
+        assert!(text.starts_with("line 7\n") && text.ends_with("line 18"), "{text:?}");
+    }
+
+    /// With a program that takes the mouse, a click it gets clears what Shift selected and
+    /// where it began, as in Ghostty, so a Shift-click after starts afresh.
+    #[test]
+    fn a_click_the_program_gets_clears_the_selection_and_where_it_began() {
+        let (mut s, _) = screen();
+        s.feed(b"one two three\x1b[?1000h\x1b[?1006h");
+        s.input(&left(MouseAction::Down, 33.0, 4.0, true));
+        s.input(&left(MouseAction::Move, 60.0, 4.0, true));
+        s.input(&left(MouseAction::Up, 60.0, 4.0, true));
+        assert_eq!(s.selection_text().as_deref(), Some("two"));
+        assert!(s.take_out().is_empty(), "what Shift selected didn't go to the program");
+        click(&mut s, 100.0, 4.0, false);
+        assert!(!s.take_out().is_empty(), "the program got the click");
+        assert_eq!(s.selection_text(), None);
+        wait(&mut s, 1000);
+        click(&mut s, 1.0, 4.0, true);
+        assert_eq!(s.selection_text(), None, "a plain press, not taking on the old selection");
     }
 
     /// A program that asks for the mouse (htop, vim with `mouse=a`) is sent clicks and the wheel
