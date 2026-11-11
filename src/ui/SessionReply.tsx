@@ -226,10 +226,9 @@ interface ComposerProps {
   onFailed?: (why: string) => void;
   /** ⌘⏎ sends, then goes on to the next session that waits on you, saying what was done. */
   onNext?: (done: string) => void;
-  /** ⌘⏎ asking its side conversation, as the question goes: the session leaves what waits on you
-   *  until the side conversation answers, and the window goes on (SessionPanel.tsx). What it
-   *  returns runs once the copy has the question. */
-  onAsked?: () => (() => void) | undefined;
+  /** ⌘⏎ asking its side conversation: it asks with what it's handed, and the session leaves what
+   *  waits on you until the side conversation answers (menus.ts `askAside`). */
+  onAsked?: (ask: () => Promise<boolean>) => void;
   /** The window's keyboard works through what waits on you (the notch, the waiting window): the
    *  keys of the replies suggested for it work from anywhere in it, not only from the box. */
   keyed?: boolean;
@@ -748,10 +747,9 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
   // `/side`, and the question after it. The box clears at once and the question shows above it
   // as soon as its copy is started; one that can't be asked is back in the box, which stays the
   // side conversation's, with why. With no question it shows the side conversations kept from
-  // before. `asked` runs as the question goes, and what it returns once the copy has it (⌘⏎'s
-  // `onAsked`).
+  // before. ⌘⏎'s `onAsked` asks it, as it takes the session out of what waits on you.
   const [asking, setAsking] = useState(false);
-  const askAside = (question: string, asked?: () => (() => void) | undefined) => {
+  const askAside = (question: string, asked?: (ask: () => Promise<boolean>) => void) => {
     if (asking) return;
     const key = s.key;
     const full = withAttachments(question, attached);
@@ -771,27 +769,30 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
     const from = beingRead(key);
     startingSide(key);
     setAsking(true);
-    const then = asked?.();
     // The question shows as the engine tells of it (side.ts), as its answer does: what this
     // resolves with can be behind what's been heard since.
-    sideAsk(key, full, from)
-      .then(
-        () => then?.(),
-        (e: unknown) => {
-          const why = errorText(e);
-          const side = sideDraft(key);
-          writeDraft(side, [full, readDraft(side)].filter((t) => t.trim()).join('\n\n'));
-          notAsked(key);
-          if (!land(key, { text: why, error: true })) onFailed?.(why);
-        },
-      )
-      .finally(() => setAsking(false));
+    const ask = () =>
+      sideAsk(key, full, from)
+        .then(
+          () => true,
+          (e: unknown) => {
+            const why = errorText(e);
+            const side = sideDraft(key);
+            writeDraft(side, [full, readDraft(side)].filter((t) => t.trim()).join('\n\n'));
+            notAsked(key);
+            if (!land(key, { text: why, error: true })) onFailed?.(why);
+            return false;
+          },
+        )
+        .finally(() => setAsking(false));
+    if (asked) asked(ask);
+    else void ask();
   };
 
   /** Runs what's in the box when it's one of Codealong's commands, else sends it: to the session,
-   *  or to its side conversation while that shows. A question asked on the side runs `asked`
-   *  as it goes (`askAside`). */
-  const submit = (asked?: () => (() => void) | undefined): boolean => {
+   *  or to its side conversation while that shows. A question asked on the side goes through
+   *  `asked`, where it's given (`askAside`). */
+  const submit = (asked?: (ask: () => Promise<boolean>) => void): boolean => {
     if (runs) return runOwn();
     const command = slashCommand(text, s);
     if (!command && aside) {
@@ -1856,8 +1857,8 @@ export interface ReplyProps {
   /** Going on to the next session that waits on you: ⌘⏎ in the box sends, or allows the call this
    *  one waits on, then goes on, saying what was done. */
   onNext?: (done: string) => void;
-  /** ⌘⏎ in its side conversation's box, as it asks (`ComposerProps.onAsked`). */
-  onAsked?: () => (() => void) | undefined;
+  /** ⌘⏎ in its side conversation's box (`ComposerProps.onAsked`). */
+  onAsked?: (ask: () => Promise<boolean>) => void;
   /** The box says its own keys too, where the window says its keys on a strip
    *  (`ComposerProps.sayKeys`). */
   sayKeys?: boolean;

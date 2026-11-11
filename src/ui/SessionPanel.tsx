@@ -37,7 +37,6 @@ import { below, showContextMenu, type MenuAction, type MenuGroup, type MenuSpec 
 import { shortOf } from '../devices';
 import { useKeptSessions } from '../kept';
 import { asideable, seenable } from '../lanes';
-import { useLatest } from '../latest';
 import { CHORDS, chordSigns, doneTitle, type SessionActions } from '../menus';
 import { AWAY_CHORD, QUEUE_CHORDS, type QueueAction } from '../queue';
 import { SNOOZE_CHORDS } from '../snooze';
@@ -427,21 +426,6 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
   const openIt = () => onOpen(s.openTarget);
   // Sending and marking seen go on to the next only from a session that waits on you itself.
   const goesOn = queue?.waiting !== false && queue?.next;
-  // ⌘⏎ in its side conversation's box takes it as ⌘E would while the side conversation answers.
-  // A turn or a reply that asks you something is marked seen as the question goes, before an
-  // answer can come, which brings it back (board.rs `apply_side_answer` counts one after it was
-  // seen). One that needs you for something else is set aside once its copy has the question,
-  // which the engine holds it for (`aside_holds`). One that doesn't wait on you is gone on from.
-  const later = useLatest({ s, actions: header.actions, next: queue?.onNext });
-  const onAsked = (): (() => void) | undefined => {
-    const { s, actions, next } = later.current;
-    const aside = asideable(s) ? actions?.aside : undefined;
-    if (aside) return () => aside.run();
-    const seen = seenable(s) ? actions?.seen : undefined;
-    if (seen) seen.run();
-    else next?.();
-    return undefined;
-  };
   // Its shell blocks run in a tab of yours here, as `!` in its box does, so not for a session on
   // another device, and the session is told what they printed.
   const folder = shortOf(s.key) ? null : runFolder(lane, s);
@@ -517,7 +501,7 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
               {device.name} doesn't take prompts from your other devices. To send from here, turn on <b>Let my linked devices act on sessions here</b> in Settings › Devices on {device.name}.
             </p>
           ) : (
-            <Reply session={s} terminal={terminal} runIn={folder ?? undefined} runsUnder={apps.runIn !== 'terminal'} onOpen={openIt} autoFocus={autoFocus && !renaming} keys={keys} onSending={onSending} onSent={onSent} onFailed={onFailed} onAnswered={onAnswered} onNext={goesOn ? onDone : undefined} onAsked={header.actions ? onAsked : undefined} sayKeys={!!hotkeys} moves={moves} onMove={ask} />
+            <Reply session={s} terminal={terminal} runIn={folder ?? undefined} runsUnder={apps.runIn !== 'terminal'} onOpen={openIt} autoFocus={autoFocus && !renaming} keys={keys} onSending={onSending} onSent={onSent} onFailed={onFailed} onAnswered={onAnswered} onNext={goesOn ? onDone : undefined} onAsked={header.actions?.askAside} sayKeys={!!hotkeys} moves={moves} onMove={ask} />
           )}
           {folder !== null && terminals && !away && (
             <TerminalDrawer
