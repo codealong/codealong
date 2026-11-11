@@ -123,9 +123,12 @@ What macOS's speech recognition and audio capture take and give, as codealong-ea
 
 ## Unchecked
 
-- Not yet run (2026-11-10): the calendar itself, which waits on macOS's prompt, answered by a
-  person: that the prompt names Codealong when the server starts the helper, what a Google
-  account's source is titled, and that `EKParticipant.isCurrentUser` is set on Google's events.
+- The calendar was read for real on 2026-11-10, by the helper under the server once its user
+  turned meetings on and answered macOS's prompt: five sources (three CalDAV, which is how
+  Google's accounts come, the birthdays and a subscribed one) with eighteen calendars between
+  them, and eleven meetings in the day ahead. Not yet seen: a meeting offered and taken, and
+  that `EKParticipant.isCurrentUser` is set on Google's events (it's what tells the others in a
+  meeting from you, and a meeting you declined).
 
 - The microphone ran for real on 2026-11-10, under the server (Codealong Dev was asked and
   allowed). Not yet seen: the tap giving anything but silence; whether making a tap asks the

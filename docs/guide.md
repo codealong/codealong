@@ -3489,9 +3489,9 @@ takes one nor asks macOS for your calendar.
 
 Not yet checked by hand: the Mac's audio giving anything but silence (the first real meeting, on
 2026-11-10, heard only the microphone, and the build that fixes what was found hasn't heard a
-call since); the calendar itself, which waits on macOS's prompt, so no real meeting has been
-offered or taken; what a listening does across sleep, a change of headphones mid-meeting, and two
-sources at once on speakers.
+call since); a real meeting offered and taken (the calendar itself has been read, with its
+accounts and the day's meetings); speakers told from headphones in a real room, which so far is
+only worked out on recordings; and what a listening does across sleep.
 
 ## Opening things where they live
 
