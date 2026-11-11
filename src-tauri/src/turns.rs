@@ -170,8 +170,9 @@ impl State {
 }
 
 /// A name for something that came in, by when and what it said, for a record that gives it none
-/// of its own, or one that a copy doesn't keep (a fork's, a moved session's): the copy has the
-/// time and the words, so it's the same line under this name whichever record it's read from.
+/// of its own (an older Codex rollout's prompt): a copy of the line (a fork's, a moved thread's)
+/// has the time and the words, so it's the same line under this name whichever record it's read
+/// from.
 pub fn named(at: i64, text: &str) -> String {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -296,14 +297,14 @@ struct RowsState {
 /// Sessions' last words kept for a database's reads, at most: the least lately heard go first.
 const SAID_KEPT: usize = 400;
 
-/// Reads what was said in a harness that keeps messages in a database (`Adapter::said`), from the
-/// newest write the last read saw.
+/// Reads what was said in a harness that keeps messages in a database (`Adapter::said_once`), from
+/// the newest write the last read saw. A message's id is the database's own.
 fn read_rows(db: &Connection, account: &AccountCfg, adapter: &dyn crate::harness::Adapter, now: i64, dirty: &mut Dirty) -> Result<()> {
     let tag = adapter.harness().config();
     let key = format!("{tag}:{}#said", account.name);
     let had: Option<(i64, String)> = db.prepare_cached("SELECT offset, state FROM turn_files WHERE path = ?1")?.query_row([&key], |r| Ok((r.get(0)?, r.get(1)?))).optional()?;
     let (after, mut state) = had.map(|(after, state)| (after, serde_json::from_str::<RowsState>(&state).unwrap_or_default())).unwrap_or_default();
-    let mut said = adapter.said(account, 0, after);
+    let mut said = adapter.said_once(account, after);
     if said.is_empty() {
         return Ok(());
     }
@@ -318,9 +319,7 @@ fn read_rows(db: &Connection, account: &AccountCfg, adapter: &dyn crate::harness
         }
         let (source, sender) = whose(&m.text);
         let before = state.said.get(&m.session).cloned().unwrap_or_default();
-        // A fork's copy of a message has an id of its own and the original's time (OpenCode's
-        // does), so a message goes by when it came and what it said.
-        let came = Came { id: named(m.at, &m.text), at: m.at, source, kind: if source == Source::You { "prompt" } else { "message" }, sender, mid: false, text: crate::send::past_sender_lines(&m.text).trim().to_string(), picked: None };
+        let came = Came { id: m.id.clone(), at: m.at, source, kind: if source == Source::You { "prompt" } else { "message" }, sender, mid: false, text: crate::send::past_sender_lines(&m.text).trim().to_string(), picked: None };
         let first = before.is_empty() && !tx.prepare_cached("SELECT EXISTS (SELECT 1 FROM turns t JOIN sessions s ON s.id = t.session WHERE s.key = ?1)")?.query_row([&session], |r| r.get::<_, bool>(0))?;
         put(&tx, account, tag, &session, &[Row { came, before, after_stop: false, first }], now, dirty)?;
     }
@@ -791,7 +790,7 @@ mod tests {
     use super::*;
 
     fn account() -> AccountCfg {
-        AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false }
+        AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None }
     }
 
     fn came(id: &str, at: i64, source: Source, text: &str) -> Came {

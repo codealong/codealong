@@ -254,6 +254,27 @@ fn context_of(db: &Connection, session: &str) -> Option<(u64, Option<String>)> {
 /// its row) in top-level sessions updated since `since_ms`.
 pub fn read_prose(home: &Path, since_ms: i64, after: i64) -> Vec<Said> {
     let Some(db) = open(&home.join("opencode.db")) else { return Vec::new() };
+    prose_in(&db, since_ms, after, false)
+}
+
+/// `read_prose` over every session, each message once (`Adapter::said_once`): a fork's copies of
+/// the messages before it, which have ids of their own and keep their first times, are the
+/// session's it copied while that one is there, as its calls are (`token_uses_in`).
+pub fn read_prose_once(home: &Path, after: i64) -> Vec<Said> {
+    let Some(db) = open(&home.join("opencode.db")) else { return Vec::new() };
+    prose_in(&db, 0, after, true)
+}
+
+fn prose_in(db: &Connection, since_ms: i64, after: i64, once: bool) -> Vec<Said> {
+    // Each fork whose session is still there, by when it was made, as `token_uses_in` has them.
+    let mut forks: HashMap<String, i64> = HashMap::new();
+    if once {
+        if let Ok(mut stmt) = db.prepare("SELECT f.id, f.time_created FROM session_v2 f JOIN session_v2 o ON o.id = f.fork_session_id") {
+            if let Ok(rows) = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))) {
+                forks.extend(rows.flatten());
+            }
+        }
+    }
     let read = || -> rusqlite::Result<Vec<Said>> {
         let mut stmt = db.prepare(
             "SELECT m.id, m.session_id, m.type, m.time_created, m.time_updated, m.data FROM session_message m \
@@ -265,6 +286,7 @@ pub fn read_prose(home: &Path, since_ms: i64, after: i64) -> Vec<Said> {
         })?;
         Ok(rows
             .flatten()
+            .filter(|(_, session, _, at, _, _)| !forks.get(session).is_some_and(|made| at < made))
             .filter_map(|(id, session, kind, at, updated, data)| {
                 let v: Value = serde_json::from_str(&data).ok()?;
                 let you = kind == "user";
@@ -1210,6 +1232,10 @@ impl crate::harness::Adapter for OpenCode {
         read_prose(&account.home_path(), since, after)
     }
 
+    fn said_once(&self, account: &AccountCfg, after: i64) -> Vec<Said> {
+        read_prose_once(&account.home_path(), after)
+    }
+
     fn records_tokens(&self) -> bool {
         true
     }
@@ -1711,12 +1737,40 @@ mod tests {
         assert_eq!(newest, 6600);
         let two = uses.iter().find(|u| u.id == "msg_2").unwrap();
         assert_eq!((two.output, two.reasoning, two.cache_read, two.cost), (10, 6, 488, Some(0.25)));
+        // A subagent's call counts for its parent, and says it's a subagent's.
+        assert!(!two.sub && uses.iter().find(|u| u.id == "msg_3").unwrap().sub);
         // Read on from there: nothing new.
         assert!(token_uses_in(&db, "opencode", newest).unwrap().0.is_empty());
         // With the session it copied gone, the fork's copy is the record that's left.
         db.execute_batch("DELETE FROM session_message WHERE session_id = 'ses_a'; DELETE FROM session_v2 WHERE id = 'ses_a';").unwrap();
         let (uses, _) = token_uses_in(&db, "opencode", 0).unwrap();
         assert!(uses.iter().any(|u| u.id == "msg_1b" && u.session == "opencode:opencode:ses_b"));
+    }
+
+    /// A fork's copies of the prompts before it are the session's it copied, whichever of the two
+    /// sorts first: read as the fork's, they'd leave that session's calls with no turn.
+    #[test]
+    fn reads_each_message_once_leaving_a_forks_copies_to_the_session_it_copied() {
+        let db = db_with(
+            "ALTER TABLE session_v2 ADD COLUMN fork_session_id TEXT;\
+             INSERT INTO session_v2 (id, directory, time_created, time_updated) VALUES ('ses_z', '/r', 1000, 1000);\
+             INSERT INTO session_v2 (id, directory, time_created, time_updated, fork_session_id) VALUES ('ses_a', '/r', 5000, 5000, 'ses_z');\
+             INSERT INTO session_message (id, session_id, type, seq, time_created, time_updated, data) VALUES \
+             ('msg_1', 'ses_z', 'user', 1, 2000, 2000, '{\"text\":\"Fix the parser\"}'), ('msg_1b', 'ses_a', 'user', 1, 2000, 2000, '{\"text\":\"Fix the parser\"}'), \
+             ('msg_2', 'ses_a', 'user', 2, 5500, 5500, '{\"text\":\"Now the lexer\"}');",
+        );
+        let said = |once| {
+            let mut got: Vec<(String, String)> = prose_in(&db, 0, 0, once).into_iter().map(|m| (m.id, m.session)).collect();
+            got.sort();
+            got
+        };
+        // The fork's session sorts before the one it copied, and still has only its own.
+        assert_eq!(said(true), [("msg_1".to_string(), "ses_z".to_string()), ("msg_2".to_string(), "ses_a".to_string())]);
+        // A search finds what a fork's conversation has, copies and all.
+        assert_eq!(said(false).len(), 3);
+        // With the session it copied gone, the copy is the record that's left.
+        db.execute_batch("DELETE FROM session_message WHERE session_id = 'ses_z'; DELETE FROM session_v2 WHERE id = 'ses_z';").unwrap();
+        assert_eq!(said(true), [("msg_1b".to_string(), "ses_a".to_string()), ("msg_2".to_string(), "ses_a".to_string())]);
     }
 
     #[test]

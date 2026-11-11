@@ -30,8 +30,10 @@
 //! from (turns.rs, which gives each call its turn), where each session came from (began.rs) and
 //! how the sessions you marked done stood (dismissed.rs). Their tables are made here, with the
 //! rest, and stay empty while it's off; a report groups its calls by them only while it's on
-//! (`Report::origins`, `Report::hands`). Whether a subagent made a call is noted either way: it's
-//! what the call's record says of it, as its speed is.
+//! (`Report::origins`, `Report::hands`). Off, nothing is read or kept for it: no turn, prompt,
+//! beginning or dismissal. One thing is the ledger's own either way: as it reads a call it notes
+//! whether a subagent made it (`calls.sub`), which is what the call's record says of it, as its
+//! speed is.
 
 use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
@@ -454,8 +456,9 @@ pub fn reread_for_subagents(db: &Connection) -> Result<()> {
     }
     // With what its lines had said forgotten too: a record read from its start starts as new. A
     // Codex rollout that ended on its priority tier would have its earlier calls read as fast
-    // otherwise, for good, since a call keeps the fastest it was ever read as.
-    db.execute("UPDATE files SET offset = 0, size = 0, mtime = 0, state = '{}' WHERE path NOT LIKE '%#rows'", [])?;
+    // otherwise, for good, since a call keeps the fastest it was ever read as. A database's
+    // calls are asked for again from the first too (`read_rows`).
+    db.execute("UPDATE files SET offset = 0, size = 0, mtime = 0, state = '{}'", [])?;
     set_meta(db, "subagents", "1")
 }
 
@@ -1407,7 +1410,7 @@ mod tests {
         // read as fast, nor its first skipped for a total already seen.
         assert_eq!(row("/r/rollout.jsonl"), (0, 0, "{}".into()));
         assert_eq!(file_row(&db, "/r/rollout.jsonl").unwrap().unwrap().state, TokenState::default());
-        assert_eq!(row("opencode:opencode#rows").0, 77, "a database is asked from its newest write, as before");
+        assert_eq!(row("opencode:opencode#rows").0, 0, "a database's calls are asked for again from the first");
         // Only once.
         db.execute("UPDATE files SET offset = 900, size = 900 WHERE path = '/r/rollout.jsonl'", []).unwrap();
         reread_for_subagents(&db).unwrap();

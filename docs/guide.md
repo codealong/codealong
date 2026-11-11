@@ -4094,7 +4094,9 @@ It's all read from the records your harnesses keep on this machine, into the sam
 tokens (`ledger.sqlite`): turning analytics on reads the records still there, so Claude Code's go
 back about 30 days, and how sessions stood is known only from then on. A prompt of yours is kept
 with how it opens, for the lists; the whole of it and the end of the reply before it are kept
-only until it's been read, and never past 30 days. Nothing is kept while analytics are off.
+only until it's been read, and never past 30 days. While analytics are off none of this is read
+or kept: no turns, prompts, beginnings or how a session stood. The ledger only notes, as it reads
+each call for the Usage window, whether a subagent made it.
 `codealong analytics [--days N] [--account <name>]` prints the same, and `codealong tokens --by
 began` and `--by turn` what it cost. Cursor and Antigravity record no tokens, so their sessions
 have turns and no cost. Other machines' sessions aren't in it: each machine keeps its own.

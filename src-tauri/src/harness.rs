@@ -663,6 +663,13 @@ pub trait Adapter: Sync {
         false
     }
 
+    /// What was said in the messages written after `after`, each message once, for turns.rs:
+    /// `said` over every session, unless the harness keeps a message in more than one place (a
+    /// fork's copies), where it's the session's that had it first.
+    fn said_once(&self, account: &AccountCfg, after: i64) -> Vec<Said> {
+        self.said(account, 0, after)
+    }
+
     /// Its records of what model calls used, as files of lines that only grow, every one there
     /// is, each with the key of the session it's for. The ledger reads each whole once, then on
     /// from where it stopped.
