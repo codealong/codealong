@@ -21,7 +21,7 @@ use crate::calls::Ctx;
 use crate::engine::Handle;
 use crate::server::{self, Request, Status};
 use crate::util::words;
-use crate::{acp, actions, agentdone, api, autoreview, config, engine, helpers, hibernate, ledger, limits, listen, nudges, origins, os, outbox, peers, perf, reconnect, rerequest, reviewdone, schedules, search, send, side, store, terminal, terminals, util, views};
+use crate::{acp, actions, agentdone, api, autoreview, config, engine, helpers, hibernate, ledger, limits, listen, meetings, nudges, origins, os, outbox, peers, perf, reconnect, rerequest, reviewdone, schedules, search, send, side, store, terminal, terminals, util, views};
 
 /// What the engine was built from (build.rs): a hash of the Rust that goes into it, so two builds
 /// that differ only in their windows have the same.
@@ -242,6 +242,8 @@ pub fn start() -> Result<Ctx, String> {
     // The sessions that listen (listen.rs): the ones that were listening are taken up again, and
     // each is told what's new as it's heard.
     listen::spawn(engine.clone());
+    // The meetings in your calendar (meetings.rs): one about to start is offered, to take its notes.
+    meetings::spawn(engine.clone());
     // Sessions Codealong runs itself: a turn's start and end recompose the board, and the reply as
     // it streams goes to the apps, which hand it to whichever windows show the session.
     {

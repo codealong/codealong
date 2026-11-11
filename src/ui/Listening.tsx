@@ -33,6 +33,17 @@ function Line({ line, live }: { line: HeardLine; live?: boolean }) {
   );
 }
 
+/** A meeting's lines, as its conversation and its transcript both draw them. */
+export function HeardLines({ lines }: { lines: HeardLine[] }) {
+  return (
+    <ol className="ca-heard-lines">
+      {lines.map((l, i) => (
+        <Line key={i} line={l} />
+      ))}
+    </ol>
+  );
+}
+
 /** What Codealong told a listening session, in its conversation. */
 export function Told({ told }: { told: ToldWhat }) {
   const [open, setOpen] = useState(false);

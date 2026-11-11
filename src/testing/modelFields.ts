@@ -461,6 +461,7 @@ export type Board = Holds<Same<
   | "logoStatus"
   | "mainWindowShortcut"
   | "mcp"
+  | "meeting"
   | "notices"
   | "nudgeAbout"
   | "perfLog"
@@ -693,10 +694,12 @@ export type Listening = Holds<Same<
   | "done"
   | "endedAt"
   | "failures"
+  | "folder"
   | "heardAt"
   | "id"
   | "lines"
   | "locale"
+  | "meeting"
   | "prompt"
   | "role"
   | "session"
@@ -949,6 +952,11 @@ export type SoundsCfg = Holds<Same<
 
 export type VoiceCfg = Holds<Same<
   | "locale"
+  | "meeting_account"
+  | "meeting_model"
+  | "meetings"
+  | "meetings_folder"
+  | "on_speakers"
   | "send_on_release"
   | "tell_every",
   Names<Types.VoiceCfg>

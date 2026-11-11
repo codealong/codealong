@@ -334,7 +334,22 @@ function withExperiments(board) {
     // Said on the session too, as the engine says it (board.rs `apply_listening`).
     (out.lanes || []).forEach(function (l) { l.sessions.forEach(function (s) { if (s.key === window.__LISTENS__) s.listening = true; }); });
   }
+  // The meeting on offer (meetings.rs `Offer`), when a check or an init script set one.
+  if (voice && window.__MEETING__) out.meeting = window.__MEETING__;
   return out;
+}
+// Two meetings kept (meetings.rs `Kept`): one with notes, and one in which nothing was heard.
+function meetingsSample() {
+  var root = '/Users/me/Library/Application Support/Codealong/meetings/';
+  var day = 24 * 3600e3;
+  var kept = function (name, title, ago, attendees, lines, notes) {
+    return { folder: root + name, name: name, id: name, title: title, start: Date.now() - ago, end: Date.now() - ago + 1800e3, calendar: 'Work', attendees: attendees, listening: 'sample', session: 'claude:work:' + name, role: 'notes', takenAt: Date.now() - ago, notes: notes, lines: lines };
+  };
+  return [kept('2026-11-10 1400 Renewal call', 'Renewal call', 2 * 3600e3, ['Dana Kestrel', 'Lee Atlas'], 42, true), kept('2026-11-09 0930 Standup', 'Standup', day + 6 * 3600e3, ['Sam Northwind'], 0, false)];
+}
+// Where the calendar stands (meetings.rs `Status`): allowed, one account, two meetings ahead.
+function calendarSample() {
+  return { on: true, access: 'allowed', sources: [{ title: 'sam@northwind.example', kind: 'caldav' }], meetings: 2, nextAt: Date.now() + 40 * 60e3, folder: '~/Library/Application Support/Codealong/meetings' };
 }
 // A session that's listening, as the board lists it (listen.rs `Glance`): a coach, four minutes
 // in, hearing you and the Mac, with a cue it gave a few seconds ago.
@@ -581,6 +596,7 @@ window.__TAURI_INTERNALS__ = {
           feed.items = (feed.items || []).filter(function (i) { return i.key !== window.__LISTENS__ || i.group !== 'working'; });
           feed.recent = (feed.recent || []).filter(function (i) { return i.key !== window.__LISTENS__; });
         }
+        if (window.__PREVIEW_VOICE__ && window.__MEETING__) feed.meeting = window.__MEETING__;
         if (window.__PREVIEW_EMBLEMS__) (feed.items || []).forEach(function (i) { i.emblem = emblemOf(i.key); });
         if (!all[1] || all[1].cfg.in_bar === false) return feed;
         return window.__TAURI_INTERNALS__.invoke('devices').then(function (view) {
@@ -1235,7 +1251,18 @@ window.__TAURI_INTERNALS__ = {
       });
     }
     if (cmd === 'hearing') {
-      return Promise.resolve(window.__HEARING__ || { status: { available: true, microphone: 'allowed', locale: 'en_US', installed: true }, apps: [{ bundle: 'us.example.meet', name: 'Meet', recording: true, playing: true }, { bundle: 'com.example.music', name: 'Music', recording: false, playing: true }] });
+      // With where the calendar stands (meetings.rs `Status`), as `window.__CALENDAR__` has it.
+      var heard = window.__HEARING__ || { status: { available: true, microphone: 'allowed', locale: 'en_US', installed: true }, apps: [{ bundle: 'us.example.meet', name: 'Meet', recording: true, playing: true }, { bundle: 'com.example.music', name: 'Music', recording: false, playing: true }] };
+      return Promise.resolve(Object.assign({ calendar: window.__CALENDAR__ || calendarSample() }, heard));
+    }
+    // A meeting taken or passed on, and the calendar asked for (meetings.rs): taking fails with
+    // `window.__MEETING_FAILS__`, and the calendar stands as `window.__CALENDAR__` has it.
+    if (cmd === 'meeting') return window.__MEETING_FAILS__ && (args || {}).take ? Promise.reject(new Error(window.__MEETING_FAILS__)) : Promise.resolve(null);
+    if (cmd === 'calendar_access') return Promise.resolve(window.__CALENDAR__ || calendarSample());
+    // Your meetings (meetings.rs `kept`), and one's notes and transcript.
+    if (cmd === 'meetings_kept') return Promise.resolve(window.__MEETINGS__ || meetingsSample());
+    if (cmd === 'meeting_files') {
+      return Promise.resolve({ notes: '# Renewal call\n\n- Signed by end of June, live in September.\n- Dana signs off over ten seats.\n', transcript: '[14:03:22] Them: Can it export to CSV?\n[14:03:27] You: Not yet.\n[14:03:40] (Codealong’s hearing stopped and started again here: some of what was said is missing.)\n' });
     }
     if (cmd === 'listen') return window.__LISTEN_FAILS__ ? Promise.reject(new Error(window.__LISTEN_FAILS__)) : Promise.resolve({ id: 'sample', session: (args || {}).key });
     if (cmd === 'quick_shortcut') {

@@ -4,7 +4,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { emit, emitTo, listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import type { AccountCfg, AccountInfo, AgentsStatus, Answers, AtLogin, Attachment, BarFeed, BarNote, Board, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, DevicesView, EditorIcon, FolderLook, FoundAccount, Harness, HarnessSchedule, Hearing, HearingStatus, HostedStream, IdlePlan, JevReport, LabelColor, Lane, LineageFeed, ListenAsk, ListeningTail, MergeBox, MergeOp, ModeSwitched, Notice, PathKind, PeekOpen, PeekShown, Pending, Profile, PointerProbe, PrAt, PrDetail, PrItem, ResumeIn, Reviewed, Route, RouteNote, ScheduleOp, ScheduleTimes, Sent, Session, SessionSpent, Since, SetupView, ShortcutStatus, Side, SideKept, SkillsListed, StalePlan, StaleOutcome, Started, StartOptions, StartPlace, StartSpec, Talk, Talked, TerminalFrame, TerminalGlance, TerminalInput, TerminalSize, TerminalTheme, TextFound, Theme, TodoSuggested, TokenReport, Training, TranscriptPage, Unqueued, UpdateView, Verdict, Way, WrittenReview, YourReview } from './types';
+import type { AccountCfg, AccountInfo, AgentsStatus, Answers, AtLogin, Attachment, BarFeed, BarNote, Board, CalendarStatus, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, DevicesView, EditorIcon, FolderLook, FoundAccount, Harness, HarnessSchedule, Hearing, HearingStatus, HostedStream, KeptMeeting, MeetingFiles, IdlePlan, JevReport, LabelColor, Lane, LineageFeed, ListenAsk, ListeningTail, MergeBox, MergeOp, ModeSwitched, Notice, PathKind, PeekOpen, PeekShown, Pending, Profile, PointerProbe, PrAt, PrDetail, PrItem, ResumeIn, Reviewed, Route, RouteNote, ScheduleOp, ScheduleTimes, Sent, Session, SessionSpent, Since, SetupView, ShortcutStatus, Side, SideKept, SkillsListed, StalePlan, StaleOutcome, Started, StartOptions, StartPlace, StartSpec, Talk, Talked, TerminalFrame, TerminalGlance, TerminalInput, TerminalSize, TerminalTheme, TextFound, Theme, TodoSuggested, TokenReport, Training, TranscriptPage, Unqueued, UpdateView, Verdict, Way, WrittenReview, YourReview } from './types';
 import type { PrTab } from './agentReview';
 import type { ListenAsked } from './listening';
 import type { AgentTask } from './agentTasks';
@@ -2273,6 +2273,32 @@ export async function stopListening(key: string): Promise<void> {
 export async function listeningOf(key: string): Promise<ListeningTail | null> {
   if (!inTauri) return null;
   return (await invoke<ListeningTail | null>('listening', { key })) ?? null;
+}
+
+/** Takes the meeting on offer (meetings.rs), with a session that listens and keeps its notes, or
+ *  with `take` false passes on it. Taking resolves once the session is hearing. */
+export async function answerMeeting(id: string, take: boolean): Promise<void> {
+  if (!inTauri) return;
+  await invoke('meeting', { id, take });
+}
+
+/** Your meetings, the latest first: the folders among them that say which meeting they are. */
+export async function keptMeetings(): Promise<KeptMeeting[]> {
+  if (!inTauri) return [];
+  return (await invoke<KeptMeeting[] | null>('meetings_kept')) ?? [];
+}
+
+/** A kept meeting's notes and transcript, by its folder. */
+export async function meetingFiles(folder: string): Promise<MeetingFiles> {
+  if (!inTauri) return { notes: null, transcript: null };
+  return (await invoke<MeetingFiles | null>('meeting_files', { folder })) ?? { notes: null, transcript: null };
+}
+
+/** Has macOS ask whether Codealong may read your calendar, when it hasn't yet, and says where the
+ *  calendar stands. It waits on your answer. */
+export async function askForCalendar(): Promise<CalendarStatus | null> {
+  if (!inTauri) return null;
+  return (await invoke<CalendarStatus | null>('calendar_access')) ?? null;
 }
 
 /** What this Mac can hear with, and the apps that record or play now. Asks the person nothing. */

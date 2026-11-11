@@ -869,6 +869,75 @@ export interface VoiceCfg {
   send_on_release: boolean;
   /** How often a session that listens is told what's new, at most, in seconds. */
   tell_every: number;
+  /** A meeting in your calendar is offered as it's about to start, to take its notes
+   *  (meetings.rs). Off until you turn it on. Missing from older engines, as the rest are. */
+  meetings?: boolean;
+  /** Where your meetings are kept, a folder each; empty for `meetings` beside config.toml. */
+  meetings_folder?: string;
+  /** The account a meeting's session starts on (an account, a routing group, or empty for
+   *  Auto), and its model, empty for the account's own. */
+  meeting_account?: string;
+  meeting_model?: string;
+  /** You're on speakers in your meetings: what the Mac plays is taken out of the microphone. */
+  on_speakers?: boolean;
+}
+
+/** An event in your calendar with a time of day (ear.rs `Meeting`): times in milliseconds. */
+export interface Meeting {
+  /** Its id in the calendar with when it starts, so the occurrences of one that repeats differ. */
+  id: string;
+  title: string;
+  start: number;
+  end: number;
+  calendar: string;
+  /** The others in it, by name, or by address where the calendar has no name. */
+  attendees: string[];
+  declined?: boolean;
+  /** The link to its call. */
+  link?: string;
+  /** For one that repeats, what its occurrences share. */
+  series?: string;
+}
+
+/** The meeting on offer (meetings.rs `Offer`): one about to start or just begun, to take its
+ *  notes. `taking`: you took it, and its session is being started. */
+export interface MeetingOffer extends Meeting {
+  taking?: boolean;
+}
+
+/** A meeting kept among your meetings (meetings.rs `Kept`): what its folder says of it, the
+ *  listening that heard it and the session that took its notes, and what's in it. */
+export interface KeptMeeting extends Meeting {
+  folder: string;
+  /** The folder's name: when it was and what it was called. */
+  name: string;
+  listening: string;
+  session: string;
+  role: ListenRole;
+  takenAt: number;
+  /** Whether notes were kept of it, and how many lines were heard. */
+  notes: boolean;
+  lines: number;
+}
+
+/** A kept meeting's notes and transcript, as its files have them (meetings.rs `Files`). */
+export interface MeetingFiles {
+  notes: string | null;
+  transcript: string | null;
+}
+
+/** Where your calendar stands (meetings.rs `Status`): whether it's read at all (`on`), whether
+ *  Codealong may, the accounts it has calendars from, and how many meetings are in the day ahead
+ *  with when the next starts. */
+export interface CalendarStatus {
+  on: boolean;
+  access: string;
+  sources: { title: string; kind: string }[];
+  meetings: number;
+  nextAt?: number;
+  problem?: string;
+  /** Where your meetings are kept, as a path from your home. */
+  folder: string;
 }
 
 /** What a listening session makes of what it hears (listen.rs `Role`). */
@@ -932,6 +1001,10 @@ export interface Listening {
   /** Tries to tell its session that failed, since the last that went through. */
   failures: number;
   done: boolean;
+  /** The meeting it's of, when it was taken from the calendar, and the folder its transcript
+   *  and notes are in when that isn't its own among Codealong's files. */
+  meeting?: Meeting;
+  folder?: string;
 }
 
 /** Where a session's listening stands (listen.rs `Tail`): what its session hasn't been told
@@ -959,6 +1032,8 @@ export interface Hearing {
 export interface HearingStatus {
   status: { available: boolean; why?: string; microphone: string; systemAudio?: string; locale?: string; installed: boolean };
   apps: { bundle: string; name: string; recording: boolean; playing: boolean }[];
+  /** Where your calendar stands, as last read. Missing from older engines. */
+  calendar?: CalendarStatus;
 }
 
 /** A session that's listening, as the bar shows it (barfeed.rs `BarListening`). */
@@ -1516,6 +1591,9 @@ export interface Board {
   /** The sessions that are listening (listen.rs `glances`), by session key. This Mac's own.
    *  Absent from engines of older builds, and when there are none. */
   listenings?: Record<string, ListeningGlance>;
+  /** The meeting in your calendar that's about to start or just has, on offer to take its notes
+   *  (meetings.rs). This Mac's own. Absent when none is. */
+  meeting?: MeetingOffer;
   /** Pinned session keys, in order. */
   pinned: string[];
   /** Pinned worktrees (lane ids), in order. */
@@ -2543,6 +2621,8 @@ export interface BarFeed {
   /** The sessions that are listening, the first to begin first. Missing while there are none,
    *  and from a feed an older app sent. */
   listenings?: BarListening[];
+  /** The meeting on offer (`Board.meeting`): the bar asks whether to take its notes. */
+  meeting?: MeetingOffer;
 }
 
 export interface BarItem {

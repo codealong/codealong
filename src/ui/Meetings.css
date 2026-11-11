@@ -1,0 +1,100 @@
+/* Your meetings (Meetings.tsx): a dialog with the list on one side and the one picked, its notes
+   or its transcript, on the other. */
+
+.ca-dialog.ca-meetingsdlg {
+  width: min(960px, calc(100vw - 80px));
+}
+.ca-meetings {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: var(--space-4);
+  height: min(560px, calc(100vh - 260px));
+  min-height: 240px;
+}
+.ca-meetings-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+.ca-meetings-row {
+  appearance: none;
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink);
+  font: var(--type-body);
+  text-align: left;
+  cursor: default;
+}
+.ca-meetings-row:hover {
+  background: var(--neutral-tint);
+}
+.ca-meetings-row.is-on {
+  background: var(--surface-selected);
+}
+.ca-meetings-row:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+.ca-meetings-title {
+  overflow: hidden;
+  font: var(--type-meta-strong);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ca-meetings-when,
+.ca-meetings-who {
+  overflow: hidden;
+  color: var(--ink-3);
+  font: var(--type-caption);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ca-meetings-who:empty {
+  display: none;
+}
+.ca-meetings-shown {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+  min-height: 0;
+}
+.ca-meetings-head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.ca-meetings-acts {
+  display: flex;
+  gap: var(--space-1);
+}
+.ca-meetings-body {
+  flex: 1;
+  min-height: 0;
+  padding: var(--space-3) var(--space-4);
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+.ca-meetings-none {
+  margin: 0;
+  color: var(--ink-3);
+  font: var(--type-body);
+}
+.ca-meetings-failed {
+  color: var(--alert);
+  font: var(--type-meta);
+}

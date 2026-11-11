@@ -4077,6 +4077,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         adopt_terminals(&board.lanes, |pid| crate::procs::tty(pid).map(|t| t.to_string_lossy().into_owned()));
         board.terminals = crate::terminals::glances();
         board.listenings = listenings;
+        board.meeting = crate::meetings::offered();
         board.github_polled = self.github.polled();
         board.github_current = self.github.current();
         board.when_limited = self.cfg.limits.when_hit;

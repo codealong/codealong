@@ -12,5 +12,9 @@
        codealong-ear, which is signed with the same entitlements. macOS still asks the person. -->
   <key>com.apple.security.device.audio-input</key>
   <true/>
+  <!-- And read the person's calendar only with this: codealong-ear reads it (EventKit) to offer
+       to take notes as a meeting starts. macOS still asks the person. -->
+  <key>com.apple.security.personal-information.calendars</key>
+  <true/>
 </dict>
 </plist>

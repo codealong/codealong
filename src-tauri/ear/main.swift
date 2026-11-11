@@ -10,6 +10,9 @@
 //   → {"id":2,"method":"stop"}
 //   ← {"id":2,"result":{}}
 //
+// It also reads the person's calendar for the engine (`calendar`), which like the microphone is
+// asked for as Codealong only from a process Codealong started.
+//
 // It's Swift, and a process of its own, because SpeechAnalyzer has no interface but Swift's, and
 // so that audio that goes wrong takes down this and not the engine. No audio is written anywhere:
 // what leaves this process is text. It ends when its stdin does, so it never outlives its engine.
@@ -23,6 +26,7 @@ import AVFoundation
 import AppKit
 import AudioToolbox
 import CoreAudio
+import EventKit
 import Foundation
 import Speech
 
@@ -996,6 +1000,84 @@ func apps() -> [[String: Any]] {
 
 // MARK: - Lines in
 
+// MARK: - The calendar
+
+/// Whether Codealong may read the person's calendar: "allowed", "denied", "restricted", or
+/// "unasked" when macOS has yet to ask them. Seeing only what one adds (write-only) is not being
+/// allowed to read.
+func calendarAccess() -> String {
+    switch EKEventStore.authorizationStatus(for: .event) {
+    case .fullAccess: return "allowed"
+    case .notDetermined: return "unasked"
+    case .restricted: return "restricted"
+    default: return "denied"
+    }
+}
+
+/// A link to a call in an event, wherever its calendar put it: the event's own link, its place or
+/// its notes. What tells a meeting held on a call from a block of time.
+func callLink(_ event: EKEvent) -> String? {
+    let places = [event.url?.absoluteString, event.location, event.notes].compactMap { $0 }
+    let hosts = "zoom\\.us|zoomgov\\.com|meet\\.google\\.com|teams\\.microsoft\\.com|teams\\.live\\.com|webex\\.com|whereby\\.com|chime\\.aws|gotomeeting\\.com|gotomeet\\.me|bluejeans\\.com|around\\.co|facetime\\.apple\\.com"
+    guard let pattern = try? NSRegularExpression(pattern: "https?://[^\\s<>\"']*(?:\(hosts))[^\\s<>\"']*", options: [.caseInsensitive]) else { return nil }
+    for text in places {
+        if let found = pattern.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)), let range = Range(found.range, in: text) {
+            return String(text[range])
+        }
+    }
+    return nil
+}
+
+/// An event as the engine takes it (ear.rs `Meeting`): times in milliseconds since 1970, the
+/// others in it by name (by address where they have no name), and whether the person said no.
+/// An occurrence of a repeating event has its series' id, so its `id` carries when it starts.
+func described(_ event: EKEvent) -> [String: Any] {
+    let people = (event.attendees ?? []).filter { $0.participantType != .room && $0.participantType != .resource }
+    let others = people.filter { !$0.isCurrentUser }.compactMap { person -> String? in
+        if let name = person.name, !name.isEmpty { return name }
+        let address = person.url.absoluteString
+        return address.hasPrefix("mailto:") ? String(address.dropFirst(7)) : nil
+    }
+    let start = Int64(event.startDate.timeIntervalSince1970 * 1000)
+    var out: [String: Any] = [
+        "id": "\(event.calendarItemIdentifier)@\(start)",
+        "title": event.title ?? "",
+        "start": start,
+        "end": Int64(event.endDate.timeIntervalSince1970 * 1000),
+        "calendar": event.calendar?.title ?? "",
+        "attendees": others,
+        "declined": people.first { $0.isCurrentUser }?.participantStatus == .declined,
+    ]
+    if event.hasRecurrenceRules { out["series"] = event.calendarItemIdentifier }
+    if let link = callLink(event) { out["link"] = link }
+    return out
+}
+
+/// The person's calendar, as macOS has it (EventKit: whichever accounts they added to this Mac,
+/// iCloud, Google, Exchange and the rest, with no sign-in of ours): whether Codealong may read
+/// it, the accounts it has calendars from, and the events between `from` and `to` (milliseconds
+/// since 1970) that have a time of day and weren't called off. With `ask`, macOS asks the person
+/// first when it hasn't yet, and this waits for their answer; without, nobody is asked anything.
+func calendar(_ params: [String: Any]) async -> [String: Any] {
+    if params["ask"] as? Bool == true, EKEventStore.authorizationStatus(for: .event) == .notDetermined {
+        _ = try? await EKEventStore().requestFullAccessToEvents()
+    }
+    var answer: [String: Any] = ["access": calendarAccess()]
+    guard calendarAccess() == "allowed" else { return answer }
+    // A store of its own each time: one made before the person said yes doesn't see what a new
+    // one does.
+    let store = EKEventStore()
+    let kinds: [EKSourceType: String] = [.local: "local", .exchange: "exchange", .calDAV: "caldav", .mobileMe: "icloud", .subscribed: "subscribed", .birthdays: "birthdays"]
+    answer["sources"] = store.sources.filter { !$0.calendars(for: .event).isEmpty }.map { ["title": $0.title, "kind": kinds[$0.sourceType] ?? "other"] }
+    let now = Date().timeIntervalSince1970 * 1000
+    let from = Date(timeIntervalSince1970: ((params["from"] as? NSNumber)?.doubleValue ?? now) / 1000)
+    let to = Date(timeIntervalSince1970: ((params["to"] as? NSNumber)?.doubleValue ?? now + 86_400_000) / 1000)
+    guard to > from else { return answer }
+    let events = store.events(matching: store.predicateForEvents(withStart: from, end: to, calendars: nil))
+    answer["events"] = events.filter { !$0.isAllDay && $0.status != .canceled }.sorted { $0.startDate < $1.startDate }.map(described)
+    return answer
+}
+
 signal(SIGPIPE, SIG_IGN)
 let listening = Listening()
 
@@ -1027,6 +1109,7 @@ Thread.detachNewThread {
         case "status": answer(id) { await status(params) }
         case "warm": answer(id) { try await warm(params) }
         case "apps": answer(id) { ["apps": apps()] }
+        case "calendar": answer(id) { await calendar(params) }
         default:
             if let id { writeLine(["id": id, "error": ["code": -32601, "message": "\(method)?"]]) }
         }

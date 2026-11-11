@@ -34,6 +34,8 @@ pub const REUSABLE: &str = "worktree-reusable";
 pub const RUN_COMMAND: &str = "session-run-command";
 pub const LISTEN: &str = "session-listen";
 pub const HEARING: &str = "hearing";
+pub const MEETING: &str = "meeting";
+pub const CALENDAR: &str = "calendar";
 /// A session's own agent marking the turn it's taking seen (`codealong session seen me`), which
 /// no other device runs.
 pub const AGENT_SEEN: &str = "session-agent-seen";
@@ -87,6 +89,16 @@ pub mod params {
     pub struct Listen {
         pub on: bool,
         pub ask: crate::listen::Ask,
+    }
+
+    /// `meeting`: takes the meeting on offer (meetings.rs), by its id, with a session that
+    /// listens as `role`; or with `take` false passes on it.
+    #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+    #[serde(default)]
+    pub struct Meeting {
+        pub id: String,
+        pub take: bool,
+        pub role: crate::listen::Role,
     }
 
     /// `session-run-command`: a command you ran for the session, and the folder it runs in. It's
@@ -306,6 +318,13 @@ const REQUESTS: &[Request] = &[
     Request { name: LISTEN, only_here: Some("A session listens on the Mac it runs on; have it listen there."), here: listen, command: listening_is_yours, ..ANY },
     // What this Mac can hear with, about no session: asked of the server, whose hearing it is.
     Request { name: HEARING, only_here: Some("What a Mac can hear with is asked on that Mac."), here: hearing, ..ANY },
+    // A meeting in your calendar is taken, or passed on, at this Mac: taking one turns on its
+    // microphone and hears what it plays, which are its user's to turn on, so never the
+    // command's. Its session takes a while to start.
+    Request { name: MEETING, only_here: Some("A meeting is taken on the Mac whose calendar has it."), here: meeting, command: in_windows, wait: Some(Duration::from_secs(90)), ..ANY },
+    // macOS is asked for your calendar, which puts its question on your screen: yours to ask
+    // for, in Settings. It waits on your answer.
+    Request { name: CALENDAR, only_here: Some("A Mac's calendar is asked for on that Mac."), here: calendar, command: in_windows, wait: Some(Duration::from_secs(150)), ..ANY },
     // A worktree goes only when nothing in it would be lost, checked again on its Mac, so an
     // agent may clean one up too. Can't be undone, so another device needs remote control. A
     // repo's own teardown can take a minute or more (cleanup.rs).
@@ -355,6 +374,10 @@ fn listening_is_yours(params: &Value) -> Result<(), String> {
         return Err("Listening through this Mac's microphone or to what it plays is its user's to start, in Codealong's windows. The command can have a session hear a recording (--file), and end a listening.".into());
     }
     Ok(())
+}
+
+fn in_windows(_: &Value) -> Result<(), String> {
+    Err("Your calendar is asked for, and a meeting in it taken or passed on, in Codealong's windows: taking one turns on this Mac's microphone and hears what it plays, which are its user's to start.".into())
 }
 
 fn run_is_yours(_: &Value) -> Result<(), String> {
@@ -2012,6 +2035,23 @@ fn hearing(_: &Handle, _: &Call) -> Result<Value, String> {
     let cfg = crate::config::current().map_err(words)?;
     crate::listen::turned_on(&cfg).map_err(words)?;
     Ok(crate::listen::hearing(&cfg))
+}
+
+/// Takes the meeting on offer or passes on it (meetings.rs): the listening it started, or nothing.
+fn meeting(engine: &Handle, c: &Call) -> Result<Value, String> {
+    let p: params::Meeting = c.read()?;
+    if !p.take {
+        crate::meetings::pass(engine, &p.id);
+        return Ok(Value::Null);
+    }
+    let listening = crate::meetings::take(engine, &p.id, p.role).map_err(words)?;
+    serde_json::to_value(listening).map_err(|e| e.to_string())
+}
+
+/// Has macOS ask for your calendar, when it hasn't yet: where the calendar stands after.
+fn calendar(engine: &Handle, _: &Call) -> Result<Value, String> {
+    let status = crate::meetings::ask(engine).map_err(words)?;
+    serde_json::to_value(status).map_err(|e| e.to_string())
 }
 
 /// Starts or ends a session's listening: the listening as it is now.

@@ -6,6 +6,8 @@
   <string>Codealong opens terminal sessions in Ghostty, iTerm2 or Terminal and brings the right window to the front.</string>
   <key>NSMicrophoneUsageDescription</key>
   <string>Codealong turns what you say into text for the session you're talking to, on this Mac. No audio is kept.</string>
+  <key>NSCalendarsFullAccessUsageDescription</key>
+  <string>Codealong reads your calendar to offer to take notes as a meeting starts, and to name the meeting and who's in it in those notes. It changes nothing in it.</string>
   <key>NSAudioCaptureUsageDescription</key>
   <string>Codealong turns what a meeting says into text for the session you asked to listen, on this Mac. No audio is kept.</string>
   <key>CFBundleURLTypes</key>

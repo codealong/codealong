@@ -716,6 +716,11 @@ voice = false                  # the keys held to talk, sessions that listen to 
 locale = ""                    # the language spoken, such as "en-US"; "" for this Mac's own
 send_on_release = false        # what you say to your orchestrator is sent as you let go of the key, not put in its box first
 tell_every = 20                # how often, in seconds, a session that listens is told what's new, at most (5 at the least)
+meetings = false               # as a meeting in your calendar is about to start, offer to take its notes; macOS asks once for your calendar
+meetings_folder = ""           # where your meetings are kept, a folder each (transcript.md, notes.md, meeting.json); "" for meetings beside this file
+meeting_account = ""           # the account a meeting's session starts on: an account, a routing group, or "" for Auto
+meeting_model = ""             # and its model; "" for the account's own
+on_speakers = false            # you're on speakers in your meetings: what the Mac plays is taken out of what the microphone hears
 
 [debug]
 perf_log = false               # true logs timings to ~/Library/Logs/Codealong/perf.log, on Linux ~/.local/state/codealong/perf.log (Settings › Advanced)

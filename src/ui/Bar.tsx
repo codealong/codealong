@@ -46,6 +46,7 @@ import { openWhere, openWords } from '../open';
 import { dueWords } from '../due';
 import { asText, readStored, writeStored } from '../stored';
 import { SaidCard, SaidLine, useSaid } from './Said';
+import { MeetingOffered } from './Meeting';
 import { hearingSays } from '../said';
 
 /** Room around the bar for its shadow: the window is this much bigger on every side. */
@@ -496,6 +497,9 @@ export function Bar() {
   // else is there, without the keyboard, which stays with whatever you're in.
   const { said, dismiss: dismissSaid } = useSaid(feed?.listenings);
   const saying = stage.open ? null : said;
+  // The meeting on offer (meetings.rs): in the same place, ahead of what's said, until answered.
+  const meeting = feed?.meeting ?? null;
+  const offering = stage.open ? null : meeting;
   const hearing = hearingSays(feed?.listenings);
   // The shortcut that goes through what waits on you, docked in the notch: the notch opens on the
   // session that waits (or puts it away), and with nothing waiting, on the end of what waits,
@@ -543,7 +547,7 @@ export function Bar() {
         room,
       ),
     );
-  }, [items, listenings, snoozed, recent, reviews, todos, picking, current, others, fontsReady]);
+  }, [items, listenings, meeting, notch, snoozed, recent, reviews, todos, picking, current, others, fontsReady]);
 
   // The window follows the bar's size: after every render, since WebKit holds back resize
   // notifications while the window is hidden, and on resizes renders don't cause (fonts).
@@ -929,10 +933,20 @@ export function Bar() {
     // is never out of sight.
     if (listenings.length) sections.unshift(listenings.map((l) => <ListeningPill key={`hearing-${l.key}`} listening={l} peeked={shownKey === l.key} onOpen={() => clickHearing(l)} />));
   }
+  // The meeting on offer goes ahead of everything, floating, among what the bar is fitted to;
+  // docked, it's the card under the pills.
+  if (meeting && !notch) sections.unshift([<MeetingOffered key="meeting" offer={meeting} look="line" />]);
   if (failed && !failedShown) sections.push([failedPill()]);
 
   const measured = (
     <div ref={measure} className="ca-hud-measure" aria-hidden="true">
+      {/* The meeting's line is as wide as it is, with the hearing sessions' pills: one more
+          piece that's always there, ahead of the pills that fold. */}
+      {meeting && !notch && (
+        <span data-listening="">
+          <MeetingOffered offer={meeting} look="line" />
+        </span>
+      )}
       {listenings.map((l) => (
         <ListeningPill key={l.key} listening={l} measure />
       ))}
@@ -992,6 +1006,8 @@ export function Bar() {
               />
             ) : stage.key && stage.kind === 'end' ? (
               <QueueEnd key={stage.endOpens} said={stage.ended} className="ca-notch-end" />
+            ) : offering ? (
+              <MeetingOffered offer={offering} look="card" />
             ) : saying ? (
               <SaidCard said={saying} onDismiss={dismissSaid} />
             ) : stage.key ? (
@@ -1019,8 +1035,8 @@ export function Bar() {
               />
             ) : null
           }
-          sessionOpen={stage.open || saying !== null}
-          sessionEnd={stage.open ? stage.kind === 'end' : saying !== null}
+          sessionOpen={stage.open || saying !== null || offering !== null}
+          sessionEnd={stage.open ? stage.kind === 'end' : saying !== null || offering !== null}
           sessionKeys={stage.open && stage.keys}
           hearing={hearing}
           onSessionLeft={stage.close}

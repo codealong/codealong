@@ -1,0 +1,587 @@
+//! Meetings: as one in your calendar is about to start, Codealong offers to take its notes, and
+//! taking it starts a session that listens (listen.rs) with nothing more to set up. Part of
+//! voice (`[experimental] voice`), and off until `[voice] meetings` is on.
+//!
+//! The calendar is macOS's own, read by the helper (ear.rs `calendar`, EventKit): whichever
+//! accounts you added to this Mac, with no sign-in of Codealong's. macOS asks you once whether
+//! Codealong may read it, and only when you turn this on or ask for it (`ask`): a look at the
+//! calendar asks nobody anything. It's read again every minute for the day ahead.
+//!
+//! A meeting is an event with a time of day that someone else is in, or that's held on a call
+//! (`is_meeting`), and that you didn't say no to. It's on offer from a minute before it starts
+//! until ten minutes in, or its end (`on_offer`); one you took or passed on isn't offered again.
+//! What's on offer is on the board (`Board::meeting`), which every window draws from.
+//!
+//! Taking one (`take`) starts a session for it as a chat of its own, on the account and model
+//! `[voice]` names (or the ones Auto picks), and has it listen to your microphone and what the
+//! Mac plays, as its note-taker. Its transcript and notes go in the meeting's own folder among
+//! your meetings (`folder_for`): `[voice] meetings_folder`, or `meetings` beside config.toml. A
+//! folder a meeting, named for when it was and what it was called, with `transcript.md`,
+//! `notes.md` and `meeting.json` (what the calendar said of it, and the session that took it).
+//! Plain files, so the folder is the record: nothing else lists your meetings, and a session
+//! started there can read them all. Its listening ends by itself once the meeting's time is up
+//! and the talk has stopped (listen.rs `AFTER_MEETING_MS`).
+//!
+//! Only this Mac's calendar and sessions: nothing of it goes to your other devices.
+
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::{Mutex, MutexGuard, OnceLock};
+use std::time::{Duration, Instant};
+
+use anyhow::{anyhow, bail, Result};
+use serde::{Deserialize, Serialize};
+
+use crate::config::Config;
+use crate::ear::{self, Calendar, Meeting};
+use crate::engine::Handle;
+use crate::listen::{self, Listening, Role};
+use crate::{config, util};
+
+/// How long before a meeting starts it's offered, and how far into it the offer stays.
+const LEAD_MS: i64 = 60 * 1000;
+const LATE_MS: i64 = 10 * 60 * 1000;
+
+/// How far ahead the calendar is read, and how often.
+const AHEAD_MS: i64 = 24 * 60 * 60 * 1000;
+const READ_EVERY: Duration = Duration::from_secs(60);
+
+/// How often what's on offer is looked at again: a meeting comes on offer on the minute.
+const TICK: Duration = Duration::from_secs(5);
+
+/// How long a new session has to show on the board before its listening starts.
+const SHOWS_WITHIN: Duration = Duration::from_secs(45);
+
+/// How long an answer to an offer is remembered: past any meeting's being on offer.
+const ANSWERS_KEPT_MS: i64 = 2 * AHEAD_MS;
+
+/// The meeting on offer, as the windows show it.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Offer {
+    #[serde(flatten)]
+    pub meeting: Meeting,
+    /// You took it, and its session is being started: nothing's hearing yet.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub taking: bool,
+}
+
+/// Where the calendar stands, for Settings and `codealong listen status`: whether it's read at
+/// all, whether Codealong may, the accounts it has calendars from, and how many meetings are
+/// still to come in the day ahead with when the next starts. No meeting's name: the command
+/// prints this, and an agent may run it.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Status {
+    /// `[voice] meetings`.
+    pub on: bool,
+    pub access: String,
+    pub sources: Vec<ear::CalendarSource>,
+    pub meetings: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_at: Option<i64>,
+    /// Why it couldn't be read, when it couldn't.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub problem: Option<String>,
+    /// Where your meetings are kept (`root`), as a path from your home.
+    pub folder: String,
+}
+
+/// What a meeting's folder says of it (`meeting.json`): what the calendar had, and what took it.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Record {
+    #[serde(flatten)]
+    pub meeting: Meeting,
+    /// The listening that heard it, and the key of the session that took its notes.
+    pub listening: String,
+    pub session: String,
+    pub role: Role,
+    pub taken_at: i64,
+}
+
+/// A meeting kept among your meetings: what its folder says of it (`Record`), and what's in it.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Kept {
+    pub folder: String,
+    /// The folder's name: when it was and what it was called.
+    pub name: String,
+    #[serde(flatten)]
+    pub record: Record,
+    /// Whether notes were kept of it, and how many lines were heard.
+    pub notes: bool,
+    pub lines: usize,
+}
+
+/// A kept meeting's notes and transcript, as its files have them: None for one that's empty or
+/// isn't there.
+#[derive(Serialize, Clone, Debug, Default, PartialEq)]
+pub struct Files {
+    pub notes: Option<String>,
+    pub transcript: Option<String>,
+}
+
+/// Your meetings, the latest first: every folder in `root` that says which meeting it is
+/// (`meeting.json`). The folder is the record, so one moved in, renamed or taken away is as it's
+/// found.
+pub fn kept(root: &Path) -> Vec<Kept> {
+    let Ok(folders) = std::fs::read_dir(root) else { return Vec::new() };
+    let mut all: Vec<Kept> = folders
+        .flatten()
+        .filter_map(|entry| {
+            let folder = entry.path();
+            let record: Record = serde_json::from_str(&std::fs::read_to_string(folder.join("meeting.json")).ok()?).ok()?;
+            let lines = std::fs::read_to_string(folder.join("transcript.md")).map(|t| t.lines().filter(|l| l.starts_with('[')).count()).unwrap_or(0);
+            let notes = std::fs::metadata(folder.join("notes.md")).is_ok_and(|m| m.len() > 0);
+            Some(Kept { name: util::file_name(&folder), folder: folder.to_string_lossy().into_owned(), record, notes, lines })
+        })
+        .collect();
+    all.sort_by(|a, b| b.record.meeting.start.cmp(&a.record.meeting.start).then_with(|| b.name.cmp(&a.name)));
+    all
+}
+
+/// A kept meeting's notes and transcript, for the window that shows it. Only of a folder among
+/// your meetings that says which meeting it is: nothing else is read by asking for it here.
+pub fn files(root: &Path, folder: &str) -> Result<Files> {
+    let folder = Path::new(folder);
+    if folder.parent() != Some(root) || !folder.join("meeting.json").is_file() {
+        bail!("That isn't one of your meetings.");
+    }
+    let read = |name: &str| std::fs::read_to_string(folder.join(name)).ok().filter(|text| !text.trim().is_empty());
+    Ok(Files { notes: read("notes.md"), transcript: read("transcript.md") })
+}
+
+#[derive(Default)]
+struct State {
+    calendar: Calendar,
+    read_at: Option<Instant>,
+    problem: Option<String>,
+    /// The meetings you took or passed on, by id, and when.
+    answered: HashMap<String, i64>,
+    /// The one whose session is being started.
+    taking: Option<String>,
+    offer: Option<Offer>,
+}
+
+fn state() -> MutexGuard<'static, State> {
+    static STATE: OnceLock<Mutex<State>> = OnceLock::new();
+    STATE.get_or_init(Mutex::default).lock().unwrap_or_else(|e| e.into_inner())
+}
+
+// The rules.
+
+/// Whether an event is a meeting to take notes of: someone else is in it or it's held on a call,
+/// and you didn't say no to it. A block of time you set aside for yourself isn't one.
+pub fn is_meeting(m: &Meeting) -> bool {
+    !m.declined && (!m.attendees.is_empty() || m.link.is_some())
+}
+
+/// The meeting to offer at `now`: one about to start or not long begun, still going, that you
+/// haven't answered. The first to start, of several.
+pub fn on_offer<'a>(events: &'a [Meeting], answered: &HashMap<String, i64>, now: i64) -> Option<&'a Meeting> {
+    events
+        .iter()
+        .filter(|m| is_meeting(m) && !answered.contains_key(&m.id))
+        .filter(|m| now >= m.start - LEAD_MS && now < m.end.min(m.start + LATE_MS))
+        .min_by(|a, b| a.start.cmp(&b.start).then_with(|| a.id.cmp(&b.id)))
+}
+
+/// A local time's parts: year, month, day, hour, minute.
+fn local(ms: i64) -> (i32, u32, u32, u32, u32) {
+    let secs = ms.div_euclid(1000) as libc::time_t;
+    // SAFETY: localtime_r fills the struct it's given; a zeroed tm is a valid one.
+    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+    unsafe { libc::localtime_r(&secs, &mut tm) };
+    (tm.tm_year + 1900, (tm.tm_mon + 1) as u32, tm.tm_mday as u32, tm.tm_hour as u32, tm.tm_min as u32)
+}
+
+/// A time of day as a clock has it, on the Mac's own clock.
+pub fn hour(ms: i64) -> String {
+    let (_, _, _, h, m) = local(ms);
+    format!("{h:02}:{m:02}")
+}
+
+/// A meeting's name as a folder's: nothing a path can't hold, one line, not too long.
+fn safe(title: &str) -> String {
+    let plain: String = title.chars().map(|c| if matches!(c, '/' | '\\' | ':' | '\0') || c.is_control() { ' ' } else { c }).collect();
+    let words = plain.split_whitespace().collect::<Vec<_>>().join(" ");
+    match util::truncate(words.trim_matches('.'), 80) {
+        name if name.trim().is_empty() => "Meeting".into(),
+        name => name,
+    }
+}
+
+/// The folder a meeting's transcript and notes go in, among your meetings in `root`: named for
+/// the day and time it starts and what it's called, so they list in order.
+pub fn folder_for(root: &Path, m: &Meeting) -> PathBuf {
+    let (y, mo, d, h, mi) = local(m.start);
+    root.join(format!("{y:04}-{mo:02}-{d:02} {h:02}{mi:02} {}", safe(&m.title)))
+}
+
+/// Where your meetings are kept: `[voice] meetings_folder`, or `meetings` among Codealong's
+/// files.
+pub fn root(cfg: &Config) -> PathBuf {
+    match cfg.voice.meetings_folder.trim() {
+        "" => config::support_dir().join("meetings"),
+        folder => util::expand(folder),
+    }
+}
+
+/// Makes the folder a meeting is taken into. One that already has a transcript (the meeting was
+/// taken before, and stopped) is left as it is, and this one goes beside it.
+fn new_folder(root: &Path, m: &Meeting) -> Result<PathBuf> {
+    let first = folder_for(root, m);
+    let folder = (1..100)
+        .map(|n| if n == 1 { first.clone() } else { PathBuf::from(format!("{} ({n})", first.display())) })
+        .find(|f| !f.join("transcript.md").exists())
+        .ok_or_else(|| anyhow!("{} has been taken too many times.", util::tilde(&first)))?;
+    std::fs::create_dir_all(&folder).map_err(|e| anyhow!("Couldn't make {}: {e}", util::tilde(&folder)))?;
+    Ok(folder)
+}
+
+/// The others in a meeting, in words: "with Dana and Lee", or nothing when it's only you.
+pub fn with_whom(m: &Meeting) -> String {
+    match m.attendees.as_slice() {
+        [] => String::new(),
+        [a, b, c, d, rest @ ..] if !rest.is_empty() => format!(" with {a}, {b}, {c}, {d} and {} more", rest.len()),
+        names => format!(" with {}", util::listed(names, "and")),
+    }
+}
+
+/// What a session started for a meeting is asked first, before it's told how it listens
+/// (listen.rs `brief`): only to be there.
+fn opening(m: &Meeting) -> String {
+    format!(
+        "Your user has a meeting, “{}”, from {} to {}{}, and asked Codealong to have you take its notes. Codealong is about to tell you how: it transcribes the meeting on their Mac and tells you what's said as it's heard. There's nothing to do until it does: reply with only “Ready”.",
+        m.title.trim(),
+        hour(m.start),
+        hour(m.end),
+        with_whom(m)
+    )
+}
+
+// What's running.
+
+/// Starts the meetings' thread in the server.
+pub fn spawn(engine: Handle) {
+    let started = std::thread::Builder::new().name("codealong-meetings".into()).spawn(move || loop {
+        if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| look(&engine))).is_err() {
+            eprintln!("meetings: a look at the calendar panicked");
+        }
+        std::thread::sleep(TICK);
+    });
+    if let Err(e) = started {
+        eprintln!("meetings: the calendar's thread didn't start: {e}");
+    }
+}
+
+fn turned_on(cfg: &Config) -> bool {
+    cfg.experimental.voice && cfg.voice.meetings
+}
+
+/// One look: the calendar read again when it's time, and what's on offer worked out anew.
+fn look(engine: &Handle) {
+    let Ok(cfg) = config::current() else { return };
+    if !turned_on(&cfg) {
+        let had = {
+            let mut state = state();
+            let had = state.offer.take().is_some();
+            *state = State { answered: std::mem::take(&mut state.answered), ..State::default() };
+            had
+        };
+        if had {
+            engine.listenings_changed();
+        }
+        return;
+    }
+    if state().read_at.is_none_or(|at| at.elapsed() >= READ_EVERY) {
+        read(false);
+    }
+    settle(engine, util::now_ms());
+}
+
+/// Reads the calendar for the day ahead, keeping what it says; with `ask`, macOS asks the person
+/// first whether Codealong may. Outside the lock: the helper takes a moment, and their answer
+/// as long as they take.
+fn read(ask: bool) {
+    let now = util::now_ms();
+    let got = ear::calendar(ask, now - LATE_MS, now + AHEAD_MS);
+    let mut state = state();
+    state.read_at = Some(Instant::now());
+    match got {
+        Ok(calendar) => {
+            state.calendar = calendar;
+            state.problem = None;
+        }
+        Err(refused) => state.problem = Some(refused.message),
+    }
+    state.answered.retain(|_, at| now - *at < ANSWERS_KEPT_MS);
+}
+
+/// Works out what's on offer, and has the board say so when it changed.
+fn settle(engine: &Handle, now: i64) {
+    let changed = {
+        let mut state = state();
+        let offer = match state.taking.clone() {
+            // The one being taken stays in sight until it's hearing, whatever the time.
+            Some(id) => state.calendar.events.iter().find(|m| m.id == id).map(|m| Offer { meeting: m.clone(), taking: true }),
+            None => on_offer(&state.calendar.events, &state.answered, now).map(|m| Offer { meeting: m.clone(), taking: false }),
+        };
+        let changed = offer != state.offer;
+        state.offer = offer;
+        changed
+    };
+    if changed {
+        engine.listenings_changed();
+    }
+}
+
+/// The meeting on offer now, for the board.
+pub fn offered() -> Option<Offer> {
+    state().offer.clone()
+}
+
+/// Where the calendar stands (`Status`), as last read.
+pub fn status(cfg: &Config) -> Status {
+    let now = util::now_ms();
+    let state = state();
+    let ahead: Vec<&Meeting> = state.calendar.events.iter().filter(|m| is_meeting(m) && m.start > now).collect();
+    Status {
+        on: turned_on(cfg),
+        access: state.calendar.access.clone(),
+        sources: state.calendar.sources.clone(),
+        meetings: ahead.len(),
+        next_at: ahead.iter().map(|m| m.start).min(),
+        problem: state.problem.clone(),
+        folder: util::tilde(&root(cfg)),
+    }
+}
+
+/// Has macOS ask the person whether Codealong may read their calendar, when it hasn't yet, and
+/// reads it: where it stands after. What Settings asks as this is turned on.
+pub fn ask(engine: &Handle) -> Result<Status> {
+    let cfg = config::current()?;
+    listen::turned_on(&cfg)?;
+    read(true);
+    settle(engine, util::now_ms());
+    Ok(status(&cfg))
+}
+
+/// Passes on a meeting: it isn't offered again.
+pub fn pass(engine: &Handle, id: &str) {
+    let now = util::now_ms();
+    state().answered.insert(id.to_string(), now);
+    settle(engine, now);
+}
+
+/// Takes a meeting: a session is started for it and listens, as `role`. It returns once the
+/// session is hearing; until then the offer says it's being taken.
+pub fn take(engine: &Handle, id: &str, role: Role) -> Result<Listening> {
+    let cfg = config::current()?;
+    listen::turned_on(&cfg)?;
+    let meeting = {
+        let mut state = state();
+        let Some(meeting) = state.calendar.events.iter().find(|m| m.id == id).cloned() else { bail!("That meeting isn't in your calendar any more.") };
+        if state.taking.is_some() {
+            bail!("A meeting's notes are being started already.");
+        }
+        state.taking = Some(id.to_string());
+        meeting
+    };
+    settle(engine, util::now_ms());
+    let taken = begin(engine, &cfg, &meeting, role);
+    let now = util::now_ms();
+    {
+        let mut state = state();
+        state.taking = None;
+        if taken.is_ok() {
+            state.answered.insert(id.to_string(), now);
+        }
+    }
+    settle(engine, now);
+    taken
+}
+
+/// Starts a meeting's session and its listening.
+fn begin(engine: &Handle, cfg: &Config, meeting: &Meeting, role: Role) -> Result<Listening> {
+    use codealong_peer::api;
+    let now = util::now_ms();
+    let board = engine.board();
+    // A chat of its own, as a schedule with no folder starts one (schedules/runner.rs).
+    let lane = config::chats_dir().to_string_lossy().into_owned();
+    let account = Some(cfg.voice.meeting_account.trim()).filter(|a| !a.is_empty()).unwrap_or("auto");
+    let model = Some(cfg.voice.meeting_model.trim()).filter(|m| !m.is_empty());
+    let pick = crate::start::pick(cfg, Some(&board), account, None, model, None, true, now, &util::home())?;
+    let folder = new_folder(&root(cfg), meeting)?;
+    let spec = api::StartSpec { lane_id: lane.clone(), account: pick.account, place: pick.place, prompt: opening(meeting), model: pick.model, effort: pick.effort, worktree: false, todos: Vec::new(), from: None, helper: false, report: false };
+    let on = spec.account.clone();
+    let started: api::Started = crate::actions::local(engine, &crate::actions::From::Here, api::START, &lane, api::params::Start { spec }).and_then(crate::actions::typed).map_err(|e| anyhow!(e))?;
+    let Some(key) = started.key else {
+        bail!("A session was started on {on} for it, but its harness names its own sessions, so Codealong can't tell which to have listen. Have it listen from its menu once it shows, or name another account in Settings › Voice.");
+    };
+    shows(engine, &key)?;
+    // Named for its meeting, where its harness would name it for what it was first asked.
+    let _ = crate::actions::local(engine, &crate::actions::From::Here, api::SESSION_RENAME, &key, api::params::Rename { key: String::new(), name: util::truncate(meeting.title.trim(), 80) });
+    // The last meeting's is over, if it's still hearing: its time is up, and this one has come.
+    listen::end_meetings("the next meeting was taken");
+    let ask = listen::Ask { mic: true, system: true, speakers: cfg.voice.on_speakers, role, ..listen::Ask::default() };
+    let listening = listen::start_of(engine, &key, &ask, Some(listen::Of { meeting: meeting.clone(), folder: folder.clone() }))?;
+    let record = Record { meeting: meeting.clone(), listening: listening.id.clone(), session: listening.session.clone(), role, taken_at: now };
+    if let Err(e) = serde_json::to_string_pretty(&record).map_err(anyhow::Error::from).and_then(|text| util::write_whole(&folder.join("meeting.json"), &text)) {
+        eprintln!("meetings: {} wasn't written: {e}", folder.join("meeting.json").display());
+    }
+    Ok(listening)
+}
+
+/// Waits for a session just started to show on the board, which its listening is started from.
+fn shows(engine: &Handle, key: &str) -> Result<()> {
+    let since = Instant::now();
+    while since.elapsed() < SHOWS_WITHIN {
+        if engine.board().session(key).is_some() {
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_millis(300));
+    }
+    bail!("Its session was started but hasn't shown yet. Have it listen from its menu once it does.")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const NOW: i64 = 1_794_330_000_000;
+    const MIN: i64 = 60_000;
+
+    fn meeting(id: &str, start: i64, minutes: i64) -> Meeting {
+        Meeting { id: id.into(), title: "Renewal call".into(), start, end: start + minutes * MIN, calendar: "Work".into(), attendees: vec!["Dana Kestrel".into()], ..Meeting::default() }
+    }
+
+    #[test]
+    fn a_meeting_is_an_event_with_someone_else_or_a_call_that_you_didnt_decline() {
+        let m = meeting("a", NOW, 30);
+        assert!(is_meeting(&m));
+        // Time you set aside for yourself isn't one; held on a call, it is.
+        let alone = Meeting { attendees: Vec::new(), ..m.clone() };
+        assert!(!is_meeting(&alone));
+        assert!(is_meeting(&Meeting { link: Some("https://meet.example/abc".into()), ..alone }));
+        assert!(!is_meeting(&Meeting { declined: true, ..m }));
+    }
+
+    #[test]
+    fn a_meeting_is_on_offer_from_a_minute_before_until_ten_minutes_in_or_its_end() {
+        let events = [meeting("a", NOW, 30)];
+        let none = HashMap::new();
+        let offered = |now: i64| on_offer(&events, &none, now).map(|m| m.id.as_str());
+        assert_eq!(offered(NOW - 2 * MIN), None);
+        assert_eq!(offered(NOW - LEAD_MS), Some("a"));
+        assert_eq!(offered(NOW), Some("a"));
+        assert_eq!(offered(NOW + LATE_MS - 1), Some("a"));
+        assert_eq!(offered(NOW + LATE_MS), None);
+        // A short one is on offer only while it goes on.
+        let short = [meeting("s", NOW, 5)];
+        assert_eq!(on_offer(&short, &none, NOW + 4 * MIN).map(|m| m.id.as_str()), Some("s"));
+        assert_eq!(on_offer(&short, &none, NOW + 5 * MIN), None);
+    }
+
+    #[test]
+    fn one_you_answered_isnt_offered_again_and_the_next_at_the_same_time_is() {
+        let events = [meeting("b", NOW, 30), meeting("a", NOW, 30), meeting("later", NOW + 5 * MIN, 30), Meeting { attendees: Vec::new(), ..meeting("alone", NOW - MIN, 60) }];
+        let mut answered = HashMap::new();
+        // The first to start, and of two at once the same one every time.
+        assert_eq!(on_offer(&events, &answered, NOW).map(|m| m.id.as_str()), Some("a"));
+        answered.insert("a".to_string(), NOW);
+        assert_eq!(on_offer(&events, &answered, NOW).map(|m| m.id.as_str()), Some("b"));
+        answered.insert("b".to_string(), NOW);
+        assert_eq!(on_offer(&events, &answered, NOW), None);
+        assert_eq!(on_offer(&events, &answered, NOW + 4 * MIN).map(|m| m.id.as_str()), Some("later"));
+    }
+
+    #[test]
+    fn a_meetings_folder_is_named_for_when_it_was_and_what_it_was_called() {
+        let root = Path::new("/Users/me/Meetings");
+        let m = Meeting { title: "  Q3/Q4 planning: atlas\n& kestrel  ".into(), ..meeting("a", NOW, 30) };
+        let name = folder_for(root, &m).file_name().unwrap().to_string_lossy().into_owned();
+        let (y, mo, d, h, mi) = local(NOW);
+        assert_eq!(name, format!("{y:04}-{mo:02}-{d:02} {h:02}{mi:02} Q3 Q4 planning atlas & kestrel"));
+        assert!(folder_for(root, &m).starts_with(root));
+        // One with no name, or a name that's all dots, still has a folder.
+        for title in ["", " .. ", "\t"] {
+            let name = folder_for(root, &Meeting { title: title.into(), ..m.clone() }).file_name().unwrap().to_string_lossy().into_owned();
+            assert!(name.ends_with(" Meeting"), "{name}");
+        }
+        assert!(safe(&"long ".repeat(40)).chars().count() <= 80);
+    }
+
+    #[test]
+    fn a_meeting_taken_again_goes_beside_the_first() {
+        let root = std::env::temp_dir().join(format!("codealong-meetings-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let m = meeting("a", NOW, 30);
+        let first = new_folder(&root, &m).unwrap();
+        assert_eq!(first, folder_for(&root, &m));
+        // Nothing heard into it yet: the same folder is taken again.
+        assert_eq!(new_folder(&root, &m).unwrap(), first);
+        std::fs::write(first.join("transcript.md"), "[10:00:00] You: Hello.\n").unwrap();
+        let second = new_folder(&root, &m).unwrap();
+        assert_eq!(second.file_name().unwrap().to_string_lossy(), format!("{} (2)", first.file_name().unwrap().to_string_lossy()));
+        assert!(second.is_dir());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn your_meetings_are_the_folders_that_say_which_meeting_they_are_the_latest_first() {
+        let root = std::env::temp_dir().join(format!("codealong-meetings-kept-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        assert_eq!(kept(&root), Vec::new());
+        let keep = |m: &Meeting, transcript: &str, notes: &str| {
+            let folder = new_folder(&root, m).unwrap();
+            let record = Record { meeting: m.clone(), listening: "l".into(), session: format!("claude:work:{}", m.id), role: Role::Notes, taken_at: m.start };
+            std::fs::write(folder.join("meeting.json"), serde_json::to_string_pretty(&record).unwrap()).unwrap();
+            std::fs::write(folder.join("transcript.md"), transcript).unwrap();
+            std::fs::write(folder.join("notes.md"), notes).unwrap();
+            folder
+        };
+        let first = keep(&meeting("a", NOW, 30), "[10:00:00] You: Hello.\n[10:00:04] Them: Hi.\n(Codealong's hearing stopped and started again here.)\n", "# Renewal call\n\n- Signed by June.\n");
+        let later = keep(&Meeting { title: "Standup".into(), ..meeting("b", NOW + 60 * MIN, 15) }, "", "");
+        // A folder that says nothing of a meeting isn't one, whatever's in it.
+        std::fs::create_dir_all(root.join("scratch")).unwrap();
+        std::fs::write(root.join("scratch").join("notes.md"), "mine").unwrap();
+        let all = kept(&root);
+        assert_eq!(all.iter().map(|k| (k.record.meeting.title.as_str(), k.lines, k.notes)).collect::<Vec<_>>(), vec![("Standup", 0, false), ("Renewal call", 2, true)]);
+        assert_eq!(all[1].folder, first.to_string_lossy());
+        assert!(all[1].name.ends_with(" Renewal call"), "{}", all[1].name);
+        // Its files are read as they are; an empty one is none; and only a meeting's are read.
+        let got = files(&root, &all[1].folder).unwrap();
+        assert_eq!(got.notes.as_deref(), Some("# Renewal call\n\n- Signed by June.\n"));
+        assert!(got.transcript.unwrap().starts_with("[10:00:00] You: Hello."));
+        assert_eq!(files(&root, &later.to_string_lossy()).unwrap(), Files::default());
+        for other in [root.join("scratch"), root.clone(), std::env::temp_dir(), first.join("..").join("..")] {
+            assert_eq!(files(&root, &other.to_string_lossy()).unwrap_err().to_string(), "That isn't one of your meetings.", "{}", other.display());
+        }
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn says_who_else_is_in_it_and_what_its_session_is_first_asked() {
+        let m = meeting("a", NOW, 30);
+        assert_eq!(with_whom(&m), " with Dana Kestrel");
+        assert_eq!(with_whom(&Meeting { attendees: Vec::new(), ..m.clone() }), "");
+        let many = Meeting { attendees: ["A", "B", "C", "D", "E", "F"].map(String::from).to_vec(), ..m.clone() };
+        assert_eq!(with_whom(&many), " with A, B, C, D and 2 more");
+        let five = Meeting { attendees: ["A", "B", "C", "D", "E"].map(String::from).to_vec(), ..m.clone() };
+        assert_eq!(with_whom(&five), " with A, B, C, D and 1 more");
+        let said = opening(&m);
+        assert!(said.starts_with("Your user has a meeting, “Renewal call”, from "), "{said}");
+        assert!(said.contains(" with Dana Kestrel, and asked Codealong to have you take its notes."), "{said}");
+        assert!(said.ends_with("reply with only “Ready”."), "{said}");
+    }
+
+    #[test]
+    fn what_a_meetings_folder_says_of_it_reads_back() {
+        let record = Record { meeting: Meeting { link: Some("https://meet.example/abc".into()), series: Some("E1".into()), ..meeting("E1@1", NOW, 30) }, listening: "l1".into(), session: "claude:work:abc".into(), role: Role::Notes, taken_at: NOW };
+        let text = serde_json::to_string_pretty(&record).unwrap();
+        assert!(text.contains("\"title\": \"Renewal call\"") && text.contains("\"session\": \"claude:work:abc\"") && text.contains("\"takenAt\""), "{text}");
+        assert_eq!(serde_json::from_str::<Record>(&text).unwrap(), record);
+    }
+}

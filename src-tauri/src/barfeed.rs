@@ -85,6 +85,9 @@ pub struct BarFeed {
     /// is, for as long as it is, and what it last said that wasn't nothing (`Glance::cue`).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub listenings: Vec<BarListening>,
+    /// The meeting on offer (`Board::meeting`): the bar asks whether to take its notes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub meeting: Option<crate::meetings::Offer>,
 }
 
 /// A session that's listening, as the bar shows it.
@@ -325,6 +328,7 @@ pub fn feed(shown: Shown) -> BarFeed {
             listenings.sort_by_key(|l| l.listening.started_at);
             listenings
         },
+        meeting: board.meeting.clone(),
     }
 }
 
@@ -417,6 +421,11 @@ mod tests {
         let f = feed(Shown::here(&b));
         assert_eq!(f.items.iter().map(|i| i.key.as_str()).collect::<Vec<_>>(), vec!["asks", "other"]);
         assert_eq!(f.listenings.len(), 2);
+        // The meeting on offer is the board's, as it is.
+        assert_eq!(f.meeting, None);
+        b.meeting = Some(crate::meetings::Offer { meeting: crate::ear::Meeting { id: "e".into(), title: "Renewal call".into(), start: NOW, end: NOW + 1_800_000, ..Default::default() }, taking: false });
+        let sent = serde_json::to_value(feed(Shown::here(&b))).unwrap();
+        assert_eq!((sent["meeting"]["id"].as_str(), sent["meeting"]["title"].as_str(), sent["meeting"].get("taking")), (Some("e"), Some("Renewal call"), None));
     }
 
     #[test]

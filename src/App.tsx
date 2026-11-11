@@ -106,6 +106,8 @@ import type { FindAsk } from './ui/ThreadFind';
 import { Toasts, useToasts } from './ui/Toasts';
 import { NewSessionPanel } from './ui/NewSession';
 import { ListenHost, ListeningNow } from './ui/Listening';
+import { MeetingOffered } from './ui/Meeting';
+import { MeetingsDialog } from './ui/Meetings';
 import { hearingNow } from './listening';
 import { ageListingChain, ageListingPr, chainOf, currentProject, FACET_WORD, facetsIn, facetsOn, harnessSchedulesIn, labelPick, laneInQuery, onlyPick, prInDone, prInFilter, prInQuery, projectOfCard, revealing, unarchived, scheduleSessions, schedulesIn, sessionInFacets, sessionInFilter, sessionInQuery, sessionItemOf, sessionItemsOf, showingHelper, todoInQuery, togglePick, toggleShown, useBoardLists, projectsOf, type Facets } from './boardLists';
 import { inProject, QUICK_PLACEHOLDER, queryWords, shortcutKeys, shortcutLabel } from './quick';
@@ -394,6 +396,8 @@ export function App() {
   }, []);
   // View › Usage… and the usage bar (ui/UsageDialog.tsx), for one account or all of them.
   const [usageOf, setUsageOf] = useState<{ account: string | null } | null>(null);
+  // Your meetings (ui/Meetings.tsx), opened from the window's bar while voice is on.
+  const [meetingsOpen, setMeetingsOpen] = useState(false);
   useEffect(() => onUsageMenu(() => setUsageOf({ account: null })), []);
   // Help › Codealong Website opens the website in the browser.
   useEffect(() => onWebsiteMenu(() => void openUrl(WEBSITE).catch((e: unknown) => setToast(errorText(e)))), [setToast]);
@@ -2380,6 +2384,7 @@ export function App() {
         <div className="ca-win-bar-end" data-tauri-drag-region>
           {/* The sessions hearing now (listen.rs), whatever the window shows: a click shows one. */}
           <ListeningNow listenings={hearingNow(board?.lanes ?? [], board?.listenings)} onShow={(l) => reveal.current({ kind: 'session', laneId: l.laneId, key: l.key })} />
+          {board?.experimental?.voice && <Button icon="calendar" aria-label="Meetings" title="Meetings: the notes and transcripts of the ones Codealong took" onClick={() => setMeetingsOpen(true)} />}
           <Seg
             className="ca-barplace"
             label="Agents bar"
@@ -2423,12 +2428,17 @@ export function App() {
           })
         }
         notices={
-          <Notices
+          <>
+            {/* The meeting about to start (meetings.rs), to take its notes: where there's room for it
+                whatever the window's width, beside what else the window has to say. */}
+            {board?.meeting && <MeetingOffered offer={board.meeting} look="line" />}
+            <Notices
             notices={notices}
             now={now}
             onDismiss={(n) => setDismissed((d) => [...d, noticeId(n)])}
             onAction={(a) => ('opens' in a ? openSettings('file') : tryAgain(a.reviews, { error: setToast, info: setToast, busy: track }))}
           />
+          </>
         }
       />
       <div
@@ -2956,6 +2966,16 @@ export function App() {
       {scheduleEdit && board && <ScheduleDialog schedule={scheduleEdit} board={board} devices={devices} now={now} onClose={() => setScheduleEdit(null)} onSaved={setScheduleId} />}
       {boardEdit && <BoardDialog board={boardEdit.board} project={current} onSave={saveBoard} onClose={() => setBoardEdit(null)} {...ruleChoices} />}
       {columnEdit && <ColumnDialog column={columnEdit.column} onSave={saveColumn} onClose={() => setColumnEdit(null)} {...ruleChoices} />}
+      {meetingsOpen && (
+        <MeetingsDialog
+          onClose={() => setMeetingsOpen(false)}
+          onShowSession={(key) => {
+            const home = homeOf(board?.lanes ?? [], key);
+            if (home) reveal.current({ kind: 'session', laneId: home.lane.id, key });
+            return home !== null;
+          }}
+        />
+      )}
       <ListenHost here />
       <Toasts state={toasts} anchor={toastAnchor} onUnarchive={(u) => setArchived(u.keys, false, u.title)} />
     </div>

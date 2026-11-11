@@ -318,6 +318,63 @@ pub fn apps() -> Result<Vec<App>, Refused> {
     Ok(serde_json::from_value(answer.get("apps").cloned().unwrap_or(Value::Null)).unwrap_or_default())
 }
 
+/// An event in the person's calendar that has a time of day and wasn't called off, as the helper
+/// reads it from macOS's own (EventKit): times in milliseconds since 1970.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Meeting {
+    /// Its id in the calendar with when it starts, which tells the occurrences of one that
+    /// repeats apart.
+    pub id: String,
+    pub title: String,
+    pub start: i64,
+    pub end: i64,
+    /// The calendar it's in, by name.
+    pub calendar: String,
+    /// The others in it, by name, or by address where the calendar has no name for them.
+    pub attendees: Vec<String>,
+    /// The person said no to it.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub declined: bool,
+    /// The link to its call, found in its link, its place or its notes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub link: Option<String>,
+    /// For one that repeats, what its occurrences share.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub series: Option<String>,
+}
+
+/// An account macOS's calendar has calendars from: its name there (often its address) and its
+/// kind ("icloud", "caldav" as Google's are, "exchange", "local", "subscribed", "birthdays").
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CalendarSource {
+    pub title: String,
+    pub kind: String,
+}
+
+/// The person's calendar as the helper read it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Calendar {
+    /// Whether Codealong may read it: "allowed", "denied", "restricted", or "unasked" when macOS
+    /// has yet to ask the person. Empty before the first read, and where the helper can't say.
+    pub access: String,
+    /// The accounts it has calendars from. Empty unless it's allowed.
+    pub sources: Vec<CalendarSource>,
+    /// The events between the times asked for, the first to start first.
+    pub events: Vec<Meeting>,
+}
+
+/// Reads the person's calendar between `from` and `to` (milliseconds since 1970). With `ask`,
+/// macOS asks them first whether Codealong may, when it hasn't yet, and this waits for their
+/// answer; without, nobody is asked anything. Asked as whatever started the helper: Codealong
+/// when its server does, a terminal when a shell does.
+pub fn calendar(ask_first: bool, from: i64, to: i64) -> Result<Calendar, Refused> {
+    let answer = ask("calendar", json!({ "ask": ask_first, "from": from, "to": to }), if ask_first { ASKING } else { ASK })?;
+    serde_json::from_value(answer).map_err(|e| Refused { code: "unread".into(), message: format!("The helper's answer about the calendar didn't read ({e}).") })
+}
+
 /// Loads the speech model, downloading it first where it isn't on this Mac, so the next thing
 /// said isn't kept waiting on it: the system keeps a loaded model a while.
 pub fn warm(locale: &str) -> Result<(), Refused> {
@@ -348,6 +405,15 @@ mod tests {
         assert_eq!((status.microphone.as_str(), status.system_audio.as_str()), ("allowed", "unasked"));
         assert_eq!(serde_json::to_value(&status).unwrap()["systemAudio"], "unasked");
         assert_eq!(serde_json::from_value::<Status>(json!({ "available": true })).unwrap().system_audio, "");
+        // The calendar as the helper answers it, and one it may not read.
+        let read: Calendar = serde_json::from_value(json!({
+            "access": "allowed",
+            "sources": [{ "title": "sam@northwind.example", "kind": "caldav" }],
+            "events": [{ "id": "E1@1794330000000", "title": "Renewal call", "start": 1_794_330_000_000i64, "end": 1_794_331_800_000i64, "calendar": "Work", "attendees": ["Dana Kestrel"], "declined": false, "link": "https://meet.example/abc", "series": "E1" }]
+        }))
+        .unwrap();
+        assert_eq!((read.access.as_str(), read.sources[0].kind.as_str(), read.events[0].attendees.len(), read.events[0].link.as_deref()), ("allowed", "caldav", 1, Some("https://meet.example/abc")));
+        assert_eq!(serde_json::from_value::<Calendar>(json!({ "access": "unasked" })).unwrap(), Calendar { access: "unasked".into(), ..Calendar::default() });
         // A newer helper's line, and an answer nobody waits for any more.
         assert_eq!(event(&line(r#"{"method":"something-new","params":{}}"#)), None);
         assert_eq!(event(&line(r#"{"id":4,"result":{}}"#)), None);

@@ -1508,7 +1508,7 @@ enum ListenCmd {
         /// The session's key, or `me` for the one running this command.
         session: String,
     },
-    /// What this Mac can hear with: whether it can transcribe speech and in which language, whether that language's model is on it yet, whether Codealong may use the microphone and hear what this Mac plays, and the apps that record or play right now. Codealong's server answers (`answeredBy: server` in the JSON); with no server it's this command's own shell that's asked, whose answers on the two are its terminal's (`shell`). Asks the user for nothing.
+    /// What this Mac can hear with: whether it can transcribe speech and in which language, whether that language's model is on it yet, whether Codealong may use the microphone and hear what this Mac plays, the apps that record or play right now, and, with meetings offered (`[voice] meetings`), whether it may read your calendar, the accounts it has calendars from and how many meetings are in the day ahead (never their names). Codealong's server answers (`answeredBy: server` in the JSON); with no server it's this command's own shell that's asked, whose answers on the two are its terminal's (`shell`). Asks the user for nothing.
     Status,
 }
 
@@ -2237,6 +2237,31 @@ fn boards_on(cfg: &Config) -> Result<()> {
     Ok(())
 }
 
+/// What `codealong listen status` says of your calendar: nothing while meetings aren't offered.
+fn calendar_said(c: &crate::meetings::Status) -> Option<String> {
+    if !c.on {
+        return None;
+    }
+    if let Some(problem) = &c.problem {
+        return Some(format!("Your calendar couldn't be read: {problem}"));
+    }
+    Some(match c.access.as_str() {
+        "allowed" if c.sources.is_empty() => "Codealong may read your calendar, which has no accounts in it: add yours in System Settings › Internet Accounts, with Calendars on.".to_string(),
+        "allowed" => {
+            let from: Vec<String> = c.sources.iter().map(|s| format!("{} ({})", s.title, s.kind)).collect();
+            let ahead = match (c.meetings, c.next_at) {
+                (0, _) => "No meetings in the day ahead.".to_string(),
+                (n, Some(at)) => format!("{n} {} in the day ahead, the next at {}.", if n == 1 { "meeting" } else { "meetings" }, crate::meetings::hour(at)),
+                (n, None) => format!("{n} {} in the day ahead.", if n == 1 { "meeting" } else { "meetings" }),
+            };
+            format!("Codealong reads the calendars of {}. {ahead}", util::listed(&from, "and"))
+        }
+        "unasked" => "macOS hasn't asked yet whether Codealong may read your calendar: Settings › Experimental asks.".to_string(),
+        "" => "Your calendar hasn't been read yet.".to_string(),
+        _ => "Codealong isn't allowed to read your calendar: System Settings › Privacy & Security › Calendars, with full access.".to_string(),
+    })
+}
+
 /// `codealong listen`. The server keeps the listenings and runs their hearing, so everything but
 /// the list needs it.
 fn listen(cmd: ListenCmd, c: &mut Client, json: bool) -> Result<()> {
@@ -2307,6 +2332,12 @@ fn listen(cmd: ListenCmd, c: &mut Client, json: bool) -> Result<()> {
                         "unasked" => println!("macOS hasn't asked yet whether Codealong may hear what this Mac plays: it will the first time a session listens to it."),
                         "denied" => println!("Codealong isn't allowed to hear what this Mac plays: System Settings › Privacy & Security › Screen & System Audio Recording, under System Audio Recording Only."),
                         _ => {}
+                    }
+                    // The calendar, where meetings are offered (meetings.rs), as the server last read it.
+                    if let Ok(calendar) = serde_json::from_value::<crate::meetings::Status>(heard["calendar"].clone()) {
+                        if let Some(said) = calendar_said(&calendar) {
+                            println!("{said}");
+                        }
                     }
                     for app in &apps {
                         let does = match (app.recording, app.playing) {

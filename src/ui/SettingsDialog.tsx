@@ -5,16 +5,17 @@
 // (SettingsFind.tsx).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { getConfig, onQuickShortcut, openAtLogin, openTeamFile, openUrl, pauseQuickShortcut, playSound, quickShortcut, jevKey, saveConfig, saveConfigText, setJevKey, setOpenAtLogin, setReusable, setTerminalAwake, startOptions, takeTeamSettings, terminalAwake, testJev } from '../api';
+import { askForCalendar, getConfig, hearingStatus, onQuickShortcut, openAtLogin, openTeamFile, openUrl, pauseQuickShortcut, playSound, quickShortcut, jevKey, saveConfig, saveConfigText, setJevKey, setOpenAtLogin, setReusable, setTerminalAwake, startOptions, takeTeamSettings, terminalAwake, testJev } from '../api';
 import { nudgeKind, nudgeMerges, withMerges } from '../prStatus';
 import { heldSaid, shortcutFromKey, shortcutLabel, takenFor } from '../quick';
 import { DRAWS, HARNESS_WORD, MOVES_ACCOUNTS } from '../harness';
 import { worktreeName } from '../lanes';
+import { calendarSays } from '../meetings';
 import { REUSE_WORDS } from '../reusable';
 import { groupReviewWords, reviewsRunIn } from '../review';
 import { type Field, mineOf, offerWords, pullRequestsFor, repoChoices, reviewsEverywhere, reviewsFor, type Reviews, sourceOf, type Source, teamFileOf, withOwn, withPullRequests, withRepo, withReviews, without, PULL_REQUESTS_OFF } from '../repoSettings';
 import { BUFFER, modelName, withLists } from '../start';
-import type { AtLogin, ChromeProfile, Config, ConfigView, EmblemKind, EmblemsCfg, ExperimentalCfg, GroupMemberCfg, JevCfg, Lane, Mcp, NewTerminal, NudgeAbout, OwnReviewsCfg, Profile, ProjectCfg, PullRequestsCfg, RepoCfg, Reuse, ReviewPost, ReviewsCfg, ReviewStart, ReviewSubmit, RoutingCfg, RoutingGroup, RoutingGroupCfg, RoutingStrategy, SessionsCfg, ShortcutStatus, SoundsCfg, StartAccount, TeamCfg, TeamFile, Theme, TmuxUse, Training, Usage, Verdict, VoiceCfg, WhenLimited } from '../types';
+import type { AtLogin, CalendarStatus, ChromeProfile, Config, ConfigView, EmblemKind, EmblemsCfg, ExperimentalCfg, GroupMemberCfg, JevCfg, Lane, Mcp, NewTerminal, NudgeAbout, OwnReviewsCfg, Profile, ProjectCfg, PullRequestsCfg, RepoCfg, Reuse, ReviewPost, ReviewsCfg, ReviewStart, ReviewSubmit, RoutingCfg, RoutingGroup, RoutingGroupCfg, RoutingStrategy, SessionsCfg, ShortcutStatus, SoundsCfg, StartAccount, TeamCfg, TeamFile, Theme, TmuxUse, Training, Usage, Verdict, VoiceCfg, WhenLimited } from '../types';
 import { AccountsSection } from './AccountsSection';
 import { AgentMenu, type AgentPick } from './AgentMenu';
 import { AgentPromptBox } from './AgentPromptBox';
@@ -2282,7 +2283,7 @@ function AdvancedPane({ cfg, view, disabled, onSave }: PaneProps & { view: Confi
 const EXPERIMENTS_OFF: Required<ExperimentalCfg> = { boards: false, voice: false };
 
 /** `[voice]` as a file without the table has it (config.rs `VoiceCfg`). */
-export const VOICE_DEFAULT: VoiceCfg = { locale: '', send_on_release: false, tell_every: 20 };
+export const VOICE_DEFAULT: Required<VoiceCfg> = { locale: '', send_on_release: false, tell_every: 20, meetings: false, meetings_folder: '', meeting_account: '', meeting_model: '', on_speakers: false };
 
 /** The two shortcuts held to talk, as `SHORTCUTS` has the others. They're Voice's, so they're set
  *  with it, not in General. */
@@ -2384,9 +2385,78 @@ function ExperimentalPane({ cfg, view, disabled, onSave }: PaneProps & { view: C
               <ProfileSelect value={String(voice.tell_every)} profiles={TELL_EVERY} onChange={(s) => setVoice({ tell_every: Number(s) })} />
               <small>At a pause in what’s said, and never while its last answer is still being written. Sooner makes a coach quicker and uses more of the account’s plan: each telling is a turn.</small>
             </label>
+            <MeetingsFields cfg={cfg} voice={voice} setVoice={setVoice} />
           </>
         )}
       </fieldset>
+    </>
+  );
+}
+
+/** Meetings (meetings.rs): the offer to take a meeting's notes as it starts, which is what has
+ *  macOS ask for your calendar, with where the calendar stands and what a meeting's session
+ *  starts on. Where they're kept and its model are config.toml's (`meetings_folder`,
+ *  `meeting_model`). */
+function MeetingsFields({ cfg, voice, setVoice }: { cfg: Config; voice: Required<VoiceCfg>; setVoice: (next: Partial<VoiceCfg>) => void }) {
+  const [calendar, setCalendar] = useState<CalendarStatus | null>(null);
+  const [failed, setFailed] = useState<string | null>(null);
+  // Read as the section shows, without asking anyone anything; asked for as it's turned on.
+  useEffect(() => {
+    let over = false;
+    void hearingStatus().then(
+      (h) => !over && setCalendar(h?.calendar ?? null),
+      () => {},
+    );
+    return () => {
+      over = true;
+    };
+  }, [voice.meetings]);
+  const ask = () => {
+    setFailed(null);
+    askForCalendar().then(
+      (c) => setCalendar(c),
+      (e: unknown) => setFailed(errorText(e)),
+    );
+  };
+  const turn = (on: boolean) => {
+    setVoice({ meetings: on });
+    // macOS asks once; the answer shows below. Later looks ask nothing.
+    if (on) window.setTimeout(ask, 600);
+  };
+  const accounts: Profile[] = [{ id: '', name: 'Auto' }, ...cfg.accounts.filter((a) => !a.disabled).map((a) => ({ id: a.name, name: a.name }))];
+  const says = failed ?? (voice.meetings ? calendarSays(calendar) : '');
+  return (
+    <>
+      <label className="ca-field ca-settings-check">
+        <CheckBox checked={voice.meetings} onChange={turn} />
+        <span>Offer to take a meeting’s notes as it starts</span>
+        <small>
+          A minute before a meeting in your calendar, Codealong asks whether to take its notes. Take notes starts a session that listens to your microphone and what this Mac plays, and keeps the notes and the transcript in a folder of the meeting’s own
+          {calendar?.folder ? ` under ${calendar.folder}` : ''}. The calendar is macOS’s own, with whichever accounts you added to this Mac, so there’s nothing to sign in to: macOS asks once whether Codealong may read it.
+        </small>
+        {says && <small>{says}</small>}
+      </label>
+      {voice.meetings && calendar?.access === 'unasked' && (
+        <div className="ca-field">
+          <Button size="sm" onClick={ask}>
+            Ask macOS for my calendar
+          </Button>
+        </div>
+      )}
+      {voice.meetings && (
+        <>
+          <label className="ca-field">
+            <span>A meeting’s session starts on</span>
+            <ProfileSelect value={voice.meeting_account} profiles={accounts} onChange={(account) => setVoice({ meeting_account: account })} />
+            <small>Auto picks as the quick panel does. Its model is the account’s own unless config.toml names one (meeting_model): a small one keeps notes well and costs little.</small>
+          </label>
+          <label className="ca-field ca-settings-check">
+            <CheckBox checked={voice.on_speakers} onChange={(on) => setVoice({ on_speakers: on })} />
+            <span>I’m on speakers in my meetings</span>
+            <small>Not headphones: what this Mac plays is taken out of what the microphone hears, so the others aren’t written down twice.</small>
+          </label>
+        </>
+      )}
     </>
   );
 }

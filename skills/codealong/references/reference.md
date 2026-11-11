@@ -5209,10 +5209,13 @@ Commands:
           over
   status  What this Mac can hear with: whether it can transcribe speech and in which
           language, whether that language's model is on it yet, whether Codealong may
-          use the microphone and hear what this Mac plays, and the apps that record or
-          play right now. Codealong's server answers (`answeredBy: server` in the JSON);
-          with no server it's this command's own shell that's asked, whose answers on
-          the two are its terminal's (`shell`). Asks the user for nothing
+          use the microphone and hear what this Mac plays, the apps that record or play
+          right now, and, with meetings offered (`[voice] meetings`), whether it may
+          read your calendar, the accounts it has calendars from and how many meetings
+          are in the day ahead (never their names). Codealong's server answers
+          (`answeredBy: server` in the JSON); with no server it's this command's own
+          shell that's asked, whose answers on the two are its terminal's (`shell`).
+          Asks the user for nothing
   help    Print this message or the help of the given subcommand(s)
 
 Options:
@@ -5341,10 +5344,12 @@ Options:
 ```
 What this Mac can hear with: whether it can transcribe speech and in which language,
 whether that language's model is on it yet, whether Codealong may use the microphone and
-hear what this Mac plays, and the apps that record or play right now. Codealong's server
-answers (`answeredBy: server` in the JSON); with no server it's this command's own shell
-that's asked, whose answers on the two are its terminal's (`shell`). Asks the user for
-nothing
+hear what this Mac plays, the apps that record or play right now, and, with meetings
+offered (`[voice] meetings`), whether it may read your calendar, the accounts it has
+calendars from and how many meetings are in the day ahead (never their names).
+Codealong's server answers (`answeredBy: server` in the JSON); with no server it's this
+command's own shell that's asked, whose answers on the two are its terminal's (`shell`).
+Asks the user for nothing
 
 Usage: codealong listen status [OPTIONS]
 

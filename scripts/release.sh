@@ -272,6 +272,8 @@ for signed in "$app" "$app/Contents/MacOS/codealong-ear"; do
   codesign -d --entitlements - --xml "$signed" 2>/dev/null | grep -q "com.apple.security.device.audio-input" ||
     fail "$signed is signed without the microphone's entitlement (Entitlements.plist): it couldn't hear."
 done
+codesign -d --entitlements - --xml "$app/Contents/MacOS/codealong-ear" 2>/dev/null | grep -q "com.apple.security.personal-information.calendars" ||
+  fail "codealong-ear is signed without the calendar's entitlement (Entitlements.plist): it couldn't read your meetings."
 codesign -dvv "$app/Contents/MacOS/codealong-ear" 2>&1 | grep -q "flags=.*runtime" ||
   fail "codealong-ear isn't signed with the hardened runtime, which notarizing requires."
 for binary in codealong codealong-ear; do

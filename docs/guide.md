@@ -3395,9 +3395,50 @@ and have a session hear a recording (`start --file`), which is transcribed as fa
 or with `--at-speed` at the speed it plays, the session told as it goes: a way to try a coach on a
 meeting you recorded.
 
-Not yet checked by hand: the microphone and the Mac's audio themselves, which wait on macOS's
-prompts (a recording has been heard end to end through the same helper); what a listening does
-across sleep, a change of headphones mid-meeting, and two sources at once on speakers.
+**Meetings.** With *Offer to take a meeting's notes as it starts* on (Settings › Experimental;
+`[voice] meetings`), Codealong reads your calendar and, a minute before a meeting starts, asks
+whether to take its notes: a card under the notch's pills, a line ahead of the floating bar's
+pills, and a line in the main window beside its notices, with the meeting's name, when it starts
+and who else is in it. The offer
+stays until ten minutes into the meeting, or its end. **Take notes** starts a session for it, a
+chat of its own named for the meeting, and has it listen to your microphone and to what the Mac
+plays as its note-taker, with nothing more to set up; **Not this one** puts the offer away, and
+that meeting isn't offered again. A meeting is an event with a time of day that someone else is
+in, or that has a link to a call (Zoom, Meet, Teams and the like), and that you didn't decline:
+time you set aside for yourself isn't offered.
+
+The calendar is macOS's own, the one the Calendar app shows: whichever accounts you added to this
+Mac in System Settings › Internet Accounts (Google, iCloud, Exchange), so there's nothing to sign
+in to and nothing of Codealong's to connect. macOS asks once whether Codealong may read it, when
+you turn the setting on; Settings says whose calendars it reads and how many meetings are in the
+day ahead, and so does `codealong listen status`, which never names a meeting. Nothing in your
+calendar is changed.
+
+A meeting's files are plain ones, in a folder of its own named for when it was and what it was
+called (`2026-11-10 1400 Renewal call`): `transcript.md`, a line for each thing said; `notes.md`,
+as its session keeps them; and `meeting.json`, what the calendar said of it and which session
+took it. The folders are side by side in `meetings` beside config.toml, or wherever `[voice]
+meetings_folder` says (a folder you sync, or your notes app's). That folder is the record: nothing
+else lists your meetings, and a session started in it can read them all, which is how one is
+asked what was said last week. The calendar button in the main window's bar (there while voice is
+on) opens them: the list, the latest first, and the one picked with its notes or its transcript,
+*Its session* to go to the session that took it, and *Show in Finder* for its folder. The session that takes a meeting is told which meeting it is and
+where the earlier ones are, and that what you write to it while the meeting goes on is your own
+note, to work into its notes. It starts on the account `[voice] meeting_account` names (an
+account, a routing group, or Auto) with `meeting_model`, or the account's own: a small model keeps
+notes well and costs little, since each telling is a turn. `[voice] on_speakers` is for meetings
+you take on speakers, as *I'm on speakers* is in Listen….
+
+A meeting's listening ends by itself once the meeting's time is up and nothing has been said for
+three minutes, so one that runs over is heard to its end; and when you take the next one, the
+last one's ends. Taking a meeting is yours to do, in Codealong's windows: the command neither
+takes one nor asks macOS for your calendar.
+
+Not yet checked by hand: the Mac's audio giving anything but silence (the first real meeting, on
+2026-11-10, heard only the microphone, and the build that fixes what was found hasn't heard a
+call since); the calendar itself, which waits on macOS's prompt, so no real meeting has been
+offered or taken; what a listening does across sleep, a change of headphones mid-meeting, and two
+sources at once on speakers.
 
 ## Opening things where they live
 

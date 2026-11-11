@@ -858,6 +858,31 @@ calls! {
         actions::run(&c.engine, &c.peers, actions::HEARING, "", Value::Null)
     }
 
+    /// Takes the meeting on offer (meetings.rs), by its id, with a session that listens as
+    /// `role`, or with `take` false passes on it. It answers once the session is hearing.
+    fn meeting(c, id: String, take: bool, role: Option<crate::listen::Role>) -> Result<Value, String> {
+        actions::run(&c.engine, &c.peers, actions::MEETING, "", actions::params::Meeting { id, take, role: role.unwrap_or_default() })
+    }
+
+    /// Your meetings, the latest first (meetings.rs `kept`): the folders among them that say which
+    /// meeting they are.
+    fn meetings_kept(c) -> Result<Vec<crate::meetings::Kept>, String> {
+        let cfg = config::current().map_err(words)?;
+        Ok(crate::meetings::kept(&crate::meetings::root(&cfg)))
+    }
+
+    /// A kept meeting's notes and transcript (meetings.rs `files`), by its folder.
+    fn meeting_files(c, folder: String) -> Result<crate::meetings::Files, String> {
+        let cfg = config::current().map_err(words)?;
+        crate::meetings::files(&crate::meetings::root(&cfg), &folder).map_err(words)
+    }
+
+    /// Has macOS ask whether Codealong may read your calendar, when it hasn't yet, and says where
+    /// the calendar stands (meetings.rs `Status`). It waits on your answer.
+    fn calendar_access(c) -> Result<Value, String> {
+        actions::run(&c.engine, &c.peers, actions::CALENDAR, "", Value::Null)
+    }
+
     /// The session to talk to as your orchestrator (board.rs `orchestrator`): its key and title,
     /// or nothing when none runs.
     fn orchestrator(c) -> Result<Option<(String, String)>, String> {

@@ -164,6 +164,10 @@ pub struct Board {
     /// sent to other devices.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub listenings: std::collections::BTreeMap<String, crate::listen::Glance>,
+    /// The meeting in your calendar that's about to start or just has, on offer to take its notes
+    /// (meetings.rs `on_offer`). This Mac's own: not sent to other devices.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub meeting: Option<crate::meetings::Offer>,
     /// Pinned session keys, in order.
     pub pinned: Vec<String>,
     /// Pinned worktrees (lane ids), in order.

@@ -1,0 +1,118 @@
+/* The meeting on offer (Meeting.tsx): a card under the notch's pills, and one line in the
+   floating bar and in the main window, beside its notices. */
+
+.ca-meeting.is-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  box-sizing: border-box;
+  width: 100%;
+  padding: var(--space-3) var(--space-5) var(--space-4);
+  color: var(--ink);
+  font: var(--type-body);
+}
+.ca-meeting-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.ca-meeting-head > svg,
+.ca-meeting.is-line > svg {
+  flex: none;
+  color: var(--ink-3);
+}
+.ca-meeting-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ca-meeting.is-card .ca-meeting-title {
+  flex: 1;
+  font: var(--type-lead);
+}
+.ca-meeting-when {
+  flex: none;
+  color: var(--ink-3);
+  font: var(--type-caption);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.ca-meeting-who {
+  overflow: hidden;
+  color: var(--ink-2);
+  font: var(--type-meta);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ca-meeting-failed,
+.ca-meeting.is-failed .ca-meeting-when {
+  color: var(--alert);
+}
+.ca-meeting-failed {
+  font: var(--type-meta);
+  overflow-wrap: anywhere;
+}
+.ca-meeting-acts {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+
+/* One line: what it is, when, and the two answers, as a pill's height. */
+.ca-meeting.is-line {
+  flex: 0 1 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  max-width: 420px;
+  height: 24px;
+  padding: 0 var(--space-1) 0 var(--space-3);
+  box-sizing: border-box;
+  border-radius: var(--radius-pill);
+  background: var(--neutral-tint);
+  color: var(--ink);
+  font: var(--type-meta-strong);
+  white-space: nowrap;
+}
+.ca-meeting.is-line.is-failed .ca-meeting-when {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ca-meeting-take,
+.ca-meeting-pass {
+  appearance: none;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  font: var(--type-meta-strong);
+  cursor: default;
+}
+.ca-meeting-take {
+  padding: 0 var(--space-3);
+  background: var(--ink);
+  color: var(--surface);
+}
+.ca-meeting-pass {
+  padding: 0 var(--space-1);
+  background: transparent;
+  color: var(--ink-3);
+}
+.ca-meeting-pass:hover {
+  color: var(--ink);
+}
+.ca-meeting-take:disabled,
+.ca-meeting-pass:disabled {
+  opacity: 0.6;
+}
+.ca-meeting-take:focus-visible,
+.ca-meeting-pass:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}

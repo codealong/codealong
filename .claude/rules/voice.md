@@ -88,7 +88,29 @@ What macOS's speech recognition and audio capture take and give, as codealong-ea
   (`responsibility_get_pid_responsible_for_pid`, by `dlsym`). Run: the list on this Mac named
   the iOS Simulator as playing and Core Speech as recording.
 
+## The calendar
+
+- macOS's calendar is read through EventKit (`EKEventStore`), which has whichever accounts the
+  person added in System Settings › Internet Accounts (a Google account's calendars come as a
+  CalDAV source, named for the account), with no sign-in of ours. It asks with
+  `requestFullAccessToEvents` (macOS 14) and `NSCalendarsFullAccessUsageDescription`, and under
+  the hardened runtime needs `com.apple.security.personal-information.calendars`;
+  `authorizationStatus(for: .event)` says where it stands without asking (`fullAccess`,
+  `writeOnly`, which reads nothing, `denied`, `restricted`, `notDetermined`). Like the microphone
+  it's asked as whatever started the helper. Run (macOS 26.6.2): from a shell under Rex the
+  status was `notDetermined` and the store listed no sources and no calendars, so nothing of the
+  calendar is seen before access is given; the Calendar app's own settings (`defaults read
+  com.apple.iCal AccountDisplayOrder`) listed 18 accounts on this Mac, which is all a shell can
+  say of it.
+- An occurrence of an event that repeats has its series' `calendarItemIdentifier`, so
+  `meetings.rs` tells them apart by that with when each starts. An event's link to its call is
+  wherever its calendar put it: `url`, `location` or `notes` (`callLink`).
+
 ## Unchecked
+
+- Not yet run (2026-11-10): the calendar itself, which waits on macOS's prompt, answered by a
+  person: that the prompt names Codealong when the server starts the helper, what a Google
+  account's source is titled, and that `EKParticipant.isCurrentUser` is set on Google's events.
 
 - The microphone ran for real on 2026-11-10, under the server (Codealong Dev was asked and
   allowed). Not yet seen: the tap giving anything but silence; whether making a tap asks the
