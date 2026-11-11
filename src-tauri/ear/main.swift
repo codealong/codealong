@@ -586,6 +586,15 @@ func app(of process: AudioProcess) -> (bundle: String, name: String)? {
     return process.bundle.isEmpty ? nil : (process.bundle, process.bundle)
 }
 
+/// The device what's played comes out of: the default output, which apps play through unless
+/// they've been pointed elsewhere. Not the one the Mac's own alerts go to
+/// (`kAudioHardwarePropertyDefaultSystemOutputDevice`), which stays where it was when headphones
+/// are picked for the rest.
+func playsThrough() -> (device: AudioObjectID, uid: String)? {
+    guard let device = property(AudioObjectID(kAudioObjectSystemObject), kAudioHardwarePropertyDefaultOutputDevice, AudioObjectID(0)), let uid = text(device, kAudioDevicePropertyDeviceUID) else { return nil }
+    return (device, uid)
+}
+
 /// What the Mac plays through, as far as the device says: "speakers" when it's heard in the
 /// room (the Mac's own, a display's, AirPlay), "headphones" when it isn't (Bluetooth, the Mac's
 /// headphone jack, anything that calls itself a headset), and "unknown" for the rest, a USB
@@ -699,6 +708,16 @@ final class Tap: Capture {
         return text(id, kAudioDevicePropertyDeviceUID)
     }
 
+    /// Says what the Mac plays through (`playsThrough`), when it isn't what was last said: the
+    /// engine starts over on whether the microphone hears it. Looked at as often as the tap is,
+    /// since it changes without the tap having to (headphones picked for what plays, with the
+    /// Mac's alerts left where they were).
+    private func tellOutput() {
+        guard let (device, uid) = playsThrough(), uid != toldOutput else { return }
+        toldOutput = uid
+        output(uid, outputKind(device), text(device, kAudioObjectPropertyName) ?? "")
+    }
+
     private var builtOn: String?
     /// When the tap last handed anything over, silence included. Read and set on `queue`.
     private var lastRead = Date()
@@ -721,6 +740,7 @@ final class Tap: Capture {
 
     private func look() {
         if stopped { return }
+        tellOutput()
         let processes = bundles.isEmpty ? [] : wanted()
         // Apps that play nothing yet have nothing to tap: looked for again next time.
         let idle = !bundles.isEmpty && processes.isEmpty
@@ -747,12 +767,7 @@ final class Tap: Capture {
         tapped = processes
         builtOn = outputDevice
         allowedWhenBuilt = allowedNow()
-        // What it plays through now, said when it isn't what was last said: the engine starts
-        // over on whether the microphone hears it.
-        if builtOn != toldOutput, let uid = builtOn, let device = property(AudioObjectID(kAudioObjectSystemObject), kAudioHardwarePropertyDefaultSystemOutputDevice, AudioObjectID(0)) {
-            toldOutput = uid
-            output(uid, outputKind(device), text(device, kAudioObjectPropertyName) ?? "")
-        }
+        tellOutput()
         // None of the apps asked for plays or records yet: nothing to tap until one does (`look`).
         if !bundles.isEmpty && processes.isEmpty { return }
         let description = bundles.isEmpty
@@ -1032,7 +1047,7 @@ func warm(_ params: [String: Any]) async throws -> [String: Any] {
 func status(_ params: [String: Any]) async -> [String: Any] {
     var answer: [String: Any] = ["available": SpeechTranscriber.isAvailable, "microphone": microphoneState(), "systemAudio": SystemAudio.state]
     // What the Mac plays through now, and what that says of speakers or headphones (`outputKind`).
-    if let device = property(AudioObjectID(kAudioObjectSystemObject), kAudioHardwarePropertyDefaultSystemOutputDevice, AudioObjectID(0)) {
+    if let (device, _) = playsThrough() {
         answer["output"] = ["name": text(device, kAudioObjectPropertyName) ?? "", "kind": outputKind(device)]
     }
     let asked = (params["locale"] as? String).map(Locale.init(identifier:)) ?? Locale.current

@@ -8,13 +8,17 @@
 //! microphone that hears it is never as quiet as it gets when the Mac is silent; one that
 //! doesn't (headphones) is just as quiet in both, whenever you're not talking yourself. So the
 //! two are compared at their quiet ends (`LOW`), which your own voice, loud as it is, doesn't
-//! reach: you'd have to talk through four fifths of what the others say to hide it. Loudness is
-//! as the helper sends it, about ten times a second for each source (`Event::Level`).
+//! reach: you'd have to talk through four fifths of what the others say to hide it. Both are
+//! taken a reading at a time, so that a sound of the room's own that comes and goes (typing)
+//! weighs the same in each; and since what the Mac plays reaches the microphone's readings a
+//! little late, the readings while it's loud are taken at each delay it might have (`REACH`),
+//! and the delay that shows it best is the one that counts. Loudness is as the helper sends
+//! it, about ten times a second for each source (`Event::Level`).
 //!
 //! Tried on spoken recordings mixed as a call would be (2026-11-10): the Mac heard at a fifth
-//! of its level, a twentieth, and a thirtieth in a noisy room came out at 24, 6 and 2 times the
-//! microphone's quiet; headphones at 1.0, a noisy room and a pair that leaks included, however
-//! much of the time you talked. Following the loudness up and down (a correlation) told them
+//! of its level, a twentieth, and a thirtieth in a noisy room came out at 21, 5 and 1.9 times
+//! the microphone's quiet; headphones at 1.0 to 1.1, a noisy room, a pair that leaks and typing
+//! throughout included, however much of the time you talked. Following the loudness up and down (a correlation) told them
 //! apart far worse, your own voice being most of what a microphone hears.
 //!
 //! What the Mac plays through is the first guess (`plays_through`): speakers that say they are
@@ -143,22 +147,31 @@ fn quantile(mut levels: Vec<f32>, q: f64) -> f64 {
 fn quiets(bins: &[Bin]) -> Option<(f64, f64)> {
     let top = quantile(bins.iter().filter_map(|b| b.them).collect(), 0.9);
     let (loud, nothing) = ((top * 0.4).max(0.005), top * 0.05);
-    // The microphone at its loudest over the bins a sound would reach it in.
-    let reached = |i: usize| bins[i..=i + REACH].iter().filter_map(|b| b.you).reduce(f32::max);
-    let (mut during, mut between) = (Vec::new(), Vec::new());
+    // The microphone's reading each number of bins after one in which the Mac was loud, a list
+    // for each delay; and its reading in each bin around which the Mac was silent.
+    let mut during: Vec<Vec<f32>> = vec![Vec::new(); REACH + 1];
+    let mut between = Vec::new();
     for i in 0..bins.len().saturating_sub(REACH) {
-        let Some(mic) = reached(i) else { continue };
-        let played: Vec<f64> = bins[i..=i + REACH].iter().filter_map(|b| b.them).map(f64::from).collect();
         if bins[i].them.is_some_and(|t| f64::from(t) >= loud) {
-            during.push(mic);
-        } else if let Some(mic) = bins[i].you.filter(|_| !played.is_empty() && played.iter().all(|&t| t <= nothing) && i >= REACH && bins[i - REACH..i].iter().filter_map(|b| b.them).all(|t| f64::from(t) <= nothing)) {
-            // Silent before it too (the last of what was played is still on its way), and the
-            // one bin's reading, not the loudest of a few: between your own words is quiet enough
-            // to count, which is what tells a room's quiet from a voice that rarely stops.
-            between.push(mic);
+            for (lag, readings) in during.iter_mut().enumerate() {
+                readings.extend(bins[i + lag].you);
+            }
+            continue;
+        }
+        let played: Vec<f64> = bins[i..=i + REACH].iter().filter_map(|b| b.them).map(f64::from).collect();
+        // Silent after it and before it too: the last of what was played is still on its way.
+        let silent = !played.is_empty() && played.iter().all(|&t| t <= nothing) && i >= REACH && bins[i - REACH..i].iter().filter_map(|b| b.them).all(|t| f64::from(t) <= nothing);
+        if silent {
+            between.extend(bins[i].you);
         }
     }
-    (during.len() >= LOUD_NEEDED && between.len() >= SILENT_NEEDED).then(|| (quantile(during, LOW), quantile(between, LOW)))
+    if between.len() < SILENT_NEEDED {
+        return None;
+    }
+    // The delay at which the microphone is least quiet while the Mac is loud is the one the
+    // Mac's sound takes, if it reaches it at all; where it doesn't, they're all as quiet.
+    let loudest = during.into_iter().filter(|readings| readings.len() >= LOUD_NEEDED).map(|readings| quantile(readings, LOW)).reduce(f64::max)?;
+    Some((loudest, quantile(between, LOW)))
 }
 
 #[cfg(test)]
@@ -205,9 +218,18 @@ mod tests {
 
     #[test]
     fn a_microphone_that_hears_the_mac_is_on_speakers_however_much_you_talk() {
-        for (echo, room, you_talk) in [(0.2, 0.002, 0.5), (0.05, 0.002, 0.5), (0.03, 0.004, 0.5), (0.2, 0.002, 0.0), (0.2, 0.002, 0.7), (0.1, 0.01, 0.5)] {
+        for (echo, room, you_talk) in [(0.2, 0.002, 0.5), (0.05, 0.002, 0.5), (0.05, 0.004, 0.5), (0.2, 0.002, 0.0), (0.2, 0.002, 0.7), (0.1, 0.01, 0.5)] {
             let at = found(Echo::new(false), &call(echo, room, you_talk, 90));
             assert!(at.is_some_and(|s| s <= 30), "echo {echo}, room {room}, you talk {you_talk}: {at:?}");
+        }
+    }
+
+    #[test]
+    fn what_of_the_mac_is_lost_in_the_room_isnt_called_speakers() {
+        // Heard so faintly that it's hardly over the room's own noise: nothing a transcript
+        // would have twice, and not enough to go by.
+        for (echo, room) in [(0.01, 0.004), (0.02, 0.01)] {
+            assert_eq!(found(Echo::new(false), &call(echo, room, 0.5, 90)), None, "echo {echo}, room {room}");
         }
     }
 
@@ -216,6 +238,19 @@ mod tests {
         for (echo, room, you_talk) in [(0.0, 0.002, 0.5), (0.0, 0.01, 0.5), (0.0, 0.03, 0.7), (0.0, 0.002, 0.0), (0.004, 0.002, 0.5)] {
             assert_eq!(found(Echo::new(false), &call(echo, room, you_talk, 90)), None, "echo {echo}, room {room}, you talk {you_talk}");
         }
+    }
+
+    #[test]
+    fn a_rooms_own_noise_that_comes_and_goes_isnt_the_macs() {
+        // Typing, on headphones: a fifth of a second of it, a fifth of quiet, and so on, whatever
+        // the others are saying. As loud while the Mac plays as while it doesn't, measured alike.
+        for (burst, room) in [(0.05, 0.002), (0.2, 0.002), (0.02, 0.006)] {
+            let typing: Vec<_> = call(0.0, room, 0.0, 120).into_iter().map(|(mine, level, at)| (mine, if mine && (at / 200) % 2 == 0 { level + burst } else { level }, at)).collect();
+            assert_eq!(found(Echo::new(false), &typing), None, "bursts of {burst} in a room at {room}");
+        }
+        // And with you talking in the pauses as well.
+        let both: Vec<_> = call(0.0, 0.002, 0.5, 120).into_iter().map(|(mine, level, at)| (mine, if mine && (at / 200) % 2 == 0 { level + 0.05 } else { level }, at)).collect();
+        assert_eq!(found(Echo::new(false), &both), None);
     }
 
     #[test]

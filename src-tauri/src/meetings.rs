@@ -503,6 +503,10 @@ pub fn pass(engine: &Handle, id: &str) {
 pub fn take(engine: &Handle, id: &str, role: Role) -> Result<Listening> {
     let cfg = config::current()?;
     listen::turned_on(&cfg)?;
+    // Asked for from a list read a while ago, say: taken since, in another window.
+    if listen::meetings_heard().iter().any(|heard| heard == id) {
+        bail!("That meeting's notes are being taken already.");
+    }
     let meeting = {
         let mut state = state();
         let Some(meeting) = state.calendar.events.iter().find(|m| m.id == id).cloned() else { bail!("That meeting isn't in your calendar any more.") };

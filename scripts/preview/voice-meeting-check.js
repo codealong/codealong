@@ -71,7 +71,9 @@
         check('one that’s going on can be taken, a later one not yet', !!q('button', ahead[0]) && q('button', ahead[0]).textContent.trim() === 'Take notes' && !q('button', ahead[1]));
         taken = asked().length;
         q('button', ahead[0]).click();
-        return until(function () { return asked().length > taken && !dialog(); }, 3000, 'the meeting to be taken and the dialog to give way');
+        // It waits a few seconds for the new session to reach this window's board, to show it,
+        // and gives way without it: the stub's board never has it.
+        return until(function () { return asked().length > taken && !dialog(); }, 15000, 'the meeting to be taken and the dialog to give way');
       })
       .then(function () {
         var last = asked()[asked().length - 1];

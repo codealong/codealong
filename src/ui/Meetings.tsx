@@ -9,6 +9,7 @@ import { useEffect, useState } from 'react';
 import { answerMeeting, keptMeetings, meetingFiles, meetingsAhead, revealFile } from '../api';
 import { heardLine } from '../listening';
 import { meetingTime, meetingWith } from '../meetings';
+import { useLatest } from '../latest';
 import { errorText } from '../report';
 import type { KeptMeeting, MeetingAhead, MeetingFiles } from '../types';
 import { HeardLines } from './Listening';
@@ -19,6 +20,11 @@ import { Button, cx, Dialog, Seg } from './primitives';
 function when(start: number): string {
   return new Date(start).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
+
+/** How often what's ahead is read again while the dialog is open, and how long a session just
+ *  started for a meeting has to reach this window's board before the dialog closes without it. */
+const AHEAD_EVERY_MS = 10_000;
+const SHOWS_WITHIN_MS = 8000;
 
 type Part = 'notes' | 'transcript';
 const PARTS: { id: Part; label: string }[] = [
@@ -35,8 +41,11 @@ export function MeetingsDialog({ onClose, onShowSession }: { onClose: () => void
   const [part, setPart] = useState<Part>('notes');
   // The meeting being taken from here: its session is starting.
   const [taking, setTaking] = useState<string | null>(null);
-  // As the dialog opens; the list of what's ahead is the calendar's as the engine last read it.
-  const [now] = useState(() => Date.now());
+  const [now, setNow] = useState(() => Date.now());
+  // Read after the render that asked: a take answers many seconds on, when the board the
+  // window had then no longer says where the new session is.
+  const showSession = useLatest(onShowSession);
+  const close = useLatest(onClose);
   useEffect(() => {
     let over = false;
     keptMeetings().then(
@@ -47,13 +56,23 @@ export function MeetingsDialog({ onClose, onShowSession }: { onClose: () => void
       },
       (e: unknown) => !over && setFailed(errorText(e)),
     );
+    // What's ahead, and what can be done with each, as the engine has it now and every few
+    // seconds while the dialog is open: a meeting comes to be takeable, or is taken elsewhere.
     // None while meetings aren't offered, or from an engine that doesn't list them.
-    meetingsAhead().then(
-      (all) => !over && setAhead(all),
-      () => {},
-    );
+    const look = () =>
+      void meetingsAhead().then(
+        (all) => {
+          if (over) return;
+          setAhead(all);
+          setNow(Date.now());
+        },
+        () => {},
+      );
+    look();
+    const again = window.setInterval(look, AHEAD_EVERY_MS);
     return () => {
       over = true;
+      window.clearInterval(again);
     };
   }, []);
   useEffect(() => {
@@ -80,9 +99,15 @@ export function MeetingsDialog({ onClose, onShowSession }: { onClose: () => void
     setTaking(m.id);
     answerMeeting(m.id, true).then(
       (listening) => {
-        // The session that takes its notes, as soon as the board has it: the dialog gives way.
-        if (listening?.session) onShowSession(listening.session);
-        onClose();
+        // The session that takes its notes: the dialog gives way to it once the window's board
+        // has it, which follows the engine's by a moment, and gives way anyway if it never does.
+        const key = listening?.session;
+        const until = Date.now() + SHOWS_WITHIN_MS;
+        const show = () => {
+          if (!key || showSession.current(key) || Date.now() > until) close.current();
+          else window.setTimeout(show, 250);
+        };
+        show();
       },
       (e: unknown) => {
         setTaking(null);
