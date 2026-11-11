@@ -41,7 +41,7 @@ import { useSessionHistory } from '../history';
 import { seenable } from '../lanes';
 import type { Left } from '../menus';
 import { errorText } from '../report';
-import type { BarItem, BarReview, Board, PrItem } from '../types';
+import type { BarItem, BarReview, Board, Lane, PrItem } from '../types';
 import { useWaitingQueue } from '../useWaitingQueue';
 import { useCardHost, useLiveSession, type Told } from './cardHost';
 import { dialogUp } from './focusTrap';
@@ -114,6 +114,9 @@ export interface NotchStageState {
   /** The session or review left the bar (marked seen, snoozed, archived; approved, reviewed): on
    *  to the next, or the end of what waits when none does. */
   left: (key: string, done: Left) => void;
+  /** The board as the card read it last, whose sessions are still there to go back to though the
+   *  bar no longer lists them. */
+  read: (lanes: readonly Lane[]) => void;
   /** The review `key` left on didn't go: it's back among what waits, the notch opens on it again
    *  when it had closed, and the strip says why. */
   failed: (key: string, why: string) => void;
@@ -148,14 +151,14 @@ export function useNotchStage(items: BarItem[], reviews: BarReview[], known: (ke
   // back to their session as they did. One shown since some other way (a review the queue went
   // on to) leads nowhere.
   const fromChips = useRef(new Map<string, CameFrom>());
-  // The sessions that left the bar while shown here (marked done, archived, marked seen): the bar
-  // doesn't list them, but the engine still has them to go back to.
-  const leftHere = useRef(new Set<string>());
+  // Every session on the board as the card read it last (`read`), archived ones too: the bar lists
+  // only some, and one marked done here has left it.
+  const onBoard = useRef<ReadonlySet<string>>(new Set());
 
-  // Back and forward through the sessions looked at here, as in the main window. One the bar no
-  // longer has is passed over, unless it left from here. The end of what waits shows no session.
+  // Back and forward through the sessions looked at here, as in the main window. One neither the
+  // bar nor the board has any more is passed over. The end of what waits shows no session.
   const key = open && shown?.kind !== 'end' ? (shown?.key ?? null) : null;
-  const history = useSessionHistory(key, (k) => known(k) || fromChips.current.has(k) || leftHere.current.has(k), HISTORY_KEY);
+  const history = useSessionHistory(key, (k) => known(k) || fromChips.current.has(k) || onBoard.current.has(k), HISTORY_KEY);
 
   // The way through what waits on you (useWaitingQueue.ts), over the bar's own list: the pills
   // and reviews that wait, with ⌥↑ ⌥↓ along all of them. One that leaves the bar takes the notch
@@ -274,7 +277,6 @@ export function useNotchStage(items: BarItem[], reviews: BarReview[], known: (ke
    *  end of what waits does. */
   const left = useCallback(
     (key: string, done: Left) => {
-      if (kindOf(key) === 'session') leftHere.current.add(key);
       if (shownNow.current === key && leftQueue(key, done) === 'last') end();
     },
     [end, leftQueue],
@@ -364,7 +366,11 @@ export function useNotchStage(items: BarItem[], reviews: BarReview[], known: (ke
 
   const back = history.back ? () => void run('historyBack') : null;
 
-  return { key: shown?.key ?? null, kind: shown?.kind ?? 'session', open, keys, rename: shown?.rename ?? false, queue: queue.queue, notice: queue.notice, ended: queue.ended, endOpens, back, from: shown?.from ?? null, show, showPr, returnFrom, toggle, press, workThrough, close, takeKeys, next, left, failed, unsent };
+  const read = useCallback((lanes: readonly Lane[]) => {
+    onBoard.current = new Set(lanes.flatMap((l) => l.sessions.map((s) => s.key)));
+  }, []);
+
+  return { key: shown?.key ?? null, kind: shown?.kind ?? 'session', open, keys, rename: shown?.rename ?? false, queue: queue.queue, notice: queue.notice, ended: queue.ended, endOpens, back, from: shown?.from ?? null, show, showPr, returnFrom, toggle, press, workThrough, close, takeKeys, next, left, read, failed, unsent };
 }
 
 interface NotchSessionProps {
@@ -398,11 +404,13 @@ interface NotchSessionProps {
   onFailed: (key: string, why: string) => void;
   /** The board no longer has it. */
   onGone: (key: string) => void;
+  /** The board as the card read it, each time it does (NotchStageState `read`). */
+  onBoard: (lanes: readonly Lane[]) => void;
   /** The zoom the card draws at, in percent, from the bar's feed (zoom.ts). */
   zoom?: number;
 }
 
-export function NotchSession({ sessionKey, rename, now, queue, notice, onBack, keys, onKeys, onShow, onShowPr, onClose, onNext, onLeft, onUnsent, onFailed, onGone, zoom }: NotchSessionProps) {
+export function NotchSession({ sessionKey, rename, now, queue, notice, onBack, keys, onKeys, onShow, onShowPr, onClose, onNext, onLeft, onUnsent, onFailed, onGone, onBoard, zoom }: NotchSessionProps) {
   // The session as the engine has it, asked for as it's shown; the one before stays until it
   // comes, so going from one to the next never shows an empty notch.
   const [told, setTold] = useState<(Told & { apps: Board['apps'] }) | null>(null);
@@ -426,6 +434,10 @@ export function NotchSession({ sessionKey, rename, now, queue, notice, onBack, k
   }, [sessionKey]);
 
   const live = useLiveSession(told, true);
+  const lanes = live.board?.lanes;
+  useEffect(() => {
+    if (lanes) onBoard(lanes);
+  }, [lanes, onBoard]);
   // A click on a PR's chip, or on a link to it in the conversation: the PR in the session's
   // place, on the tab the link goes to.
   const followPr = (pr: PrItem, tab: PrTab | null = null) => {

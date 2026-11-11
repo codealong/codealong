@@ -1032,6 +1032,7 @@ export function Bar() {
                   stage.close();
                   setFailed({ anchor: key, message: 'That session is no longer on the board.' });
                 }}
+                onBoard={stage.read}
               />
             ) : null
           }

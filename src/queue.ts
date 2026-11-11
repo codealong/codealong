@@ -263,8 +263,8 @@ export interface Step<T> {
 
 /** What a key comes to. */
 export interface KeyStep<T> extends Step<T> {
-  /** The key was the queue's. False when it's the window's own or the card's, or nothing shows:
-   *  the event goes on to whoever's it is. */
+  /** The key was the queue's. False when it's the window's own or the card's, or nothing shows
+   *  (but for the window's history): the event goes on to whoever's it is. */
   taken: boolean;
   /** The session to mark seen, before the window goes on. */
   markSeen?: string;
@@ -311,6 +311,9 @@ export function left<T>(view: QueueView<T>, handled: Handled, from: string, done
 export function keyStep<T>(view: QueueView<T>, handled: Handled, action: QueueAction, now: number): KeyStep<T> {
   const s = view.shown;
   const no: KeyStep<T> = { taken: false, went: 'stay', handled };
+  // The window's history needs no session shown: from the end of what waits, ⌃- goes back to the
+  // last one looked at, the one just finished there too.
+  if (action === 'historyBack' || action === 'historyForward') return view.travels ? { taken: true, went: 'stay', handled, travel: action === 'historyBack' ? 'back' : 'forward' } : no;
   if (!s) return no;
   /** A step by hand: nothing is dealt with, and the strip takes back what it said. */
   const hand = (to: T | null): KeyStep<T> => (to ? { taken: true, went: 'on', to, words: null, handled } : { taken: true, went: 'last', handled });
@@ -326,7 +329,7 @@ export function keyStep<T>(view: QueueView<T>, handled: Handled, action: QueueAc
     const to = stepAlong(view.along, s.key, action === 'down' ? 1 : -1, view.reads.keyOf);
     return hand(to && view.reads.keyOf(to) !== s.key ? to : null);
   }
-  return view.travels ? { taken: true, went: 'stay', handled, travel: action === 'historyBack' ? 'back' : 'forward' } : no;
+  return no;
 }
 
 /** The first that waits and hasn't been dealt with, for a window that shows nothing: the waiting

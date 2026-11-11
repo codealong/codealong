@@ -260,9 +260,12 @@ describe('⌘] ⌥⇧↓ and ⌘[ ⌥⇧↑', () => {
     expect(keyStep(card(W, []), none, 'back', NOW)).toMatchObject({ taken: true, went: 'last' });
   });
 
-  it('are nobody’s with no session shown', () => {
+  it('are nobody’s with no session shown, but the window’s history', () => {
     expect(keyStep(sessions(null), none, 'next', NOW)).toMatchObject({ taken: false });
-    expect(keyStep(card(null), none, 'historyBack', NOW)).toMatchObject({ taken: false });
+    expect(keyStep(sessions(null), none, 'historyBack', NOW)).toMatchObject({ taken: false });
+    // At the end of what waits, ⌃- goes back to the one just finished.
+    expect(keyStep(card(null), none, 'historyBack', NOW)).toMatchObject({ taken: true, travel: 'back' });
+    expect(keyStep(card(null), none, 'historyForward', NOW)).toMatchObject({ taken: true, travel: 'forward' });
   });
 });
 
