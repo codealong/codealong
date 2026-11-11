@@ -262,11 +262,10 @@ pub trait Adapter: Sync {
     /// Types a switch (`model_command` or `effort_command`, and the value: `text`) into a running
     /// session's terminal by `typ`, which answers whether it went in, and sees it through: a
     /// question the harness asks before it takes the switch is answered, and what it keeps of the
-    /// switch beyond the session is put back. Answers the model or level it's on now, which the
-    /// harness may have set to another than asked, or None when it couldn't be typed. The
-    /// default only types it.
-    fn type_switch(&self, _account: &AccountCfg, _session: &Session, to: Switch, text: &str, typ: &mut dyn FnMut(&str) -> Result<bool>) -> Result<Option<String>> {
-        Ok(typ(text)?.then(|| to.value().to_string()))
+    /// switch beyond the session is put back. Answers what it came to, or None when it couldn't be
+    /// typed. The default only types it.
+    fn type_switch(&self, _account: &AccountCfg, _session: &Session, to: Switch, text: &str, typ: &mut dyn FnMut(&str) -> Result<bool>) -> Result<Option<Switched>> {
+        Ok(typ(text)?.then(|| Switched::On(to.value().to_string())))
     }
 
     /// The command that, typed into a running session's terminal, ends it the harness's own way,
@@ -1227,6 +1226,17 @@ pub struct ModePicker {
     pub command: &'static str,
     /// The ids of the modes it lists (`SessionMode::id`), the first numbered 1.
     pub listed: Vec<&'static str>,
+}
+
+/// What a switch typed into a running session's terminal came to (`Adapter::type_switch`).
+#[derive(Debug, PartialEq)]
+pub enum Switched {
+    /// It's on this model or level now, which its harness may have set to another than asked.
+    On(String),
+    /// It went in, and nothing its harness keeps says what it set: only its terminal does, and
+    /// its next reply names the level (Claude Code's `/effort` mid-turn, where the level asked
+    /// for saves no default: max, or one over the session's cap).
+    Unsaid,
 }
 
 /// What a running session is switched to, for it alone (`send::switch_model`,

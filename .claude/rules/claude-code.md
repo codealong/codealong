@@ -360,7 +360,12 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   again even with nothing in it changed, and `/effort max` writes nothing. `/effort` asked no
   question, mid-turn or between turns. Return in an empty box mid-turn does nothing. All in tmux,
   2026-11-10: `claude/switch.rs` (`typed`), `claude/mod.rs` (`switches_mid_turn`). A background
-  job's through its service's `reply` mid-turn wasn't tried.
+  job's through its service's `reply` mid-turn wasn't tried. By 2.1.322's code (not tried): a
+  level over the model's cap is set to the cap and saves no default, and with
+  `CLAUDE_CODE_EFFORT_LEVEL` naming another level (`auto` too) nothing is set in the session,
+  though a level it can save is still saved. The registry's `waiting` comes from a table of
+  Claude Code's dialogs (`permission prompt`, `input needed`, `dialog open`), where the panel a
+  command's question shows in has none, so `/model`'s question leaves it as it was.
 - `--effort`'s levels and what a model that doesn't take one gets (2.1.284): `claude/start.rs`
   (`EFFORTS`). Without it a session starts on `settings.json`'s
   `modelSettings.<model>.effortLevel`, else its `effortLevel`, else the model's own default (the

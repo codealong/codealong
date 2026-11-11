@@ -3,6 +3,7 @@
 //! (`send::switch_model`, `switch_effort`): the question Claude Code asks before it takes one, and
 //! the defaults `/model` and `/effort` save beyond the session.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
 
@@ -11,14 +12,14 @@ use serde_json::value::RawValue;
 use serde_json::Value;
 
 use crate::config::AccountCfg;
-use crate::harness::Switch;
+use crate::harness::{Switch, Switched};
 use crate::jsonedit::Node;
 use crate::model::Session;
 
 /// How long Claude Code is given to write what a switch did before its question is taken to be
-/// up, and then to write it once the question is answered.
-const SAID_WAIT: Duration = Duration::from_millis(1500);
-const ANSWERED_WAIT: Duration = Duration::from_secs(5);
+/// up, and then to write it once the question is answered; a test's stand-in writes at once.
+const SAID_WAIT: Duration = if cfg!(test) { Duration::from_millis(200) } else { Duration::from_millis(1500) };
+const ANSWERED_WAIT: Duration = if cfg!(test) { Duration::from_millis(300) } else { Duration::from_secs(5) };
 
 /// Where Claude Code keeps the defaults a switch saves (2.1.299, typed in its terminal): the
 /// model new sessions start on (`/model opus`: "Set model to Opus 5.5 and saved as your default
@@ -37,37 +38,46 @@ const EFFORT_LEVEL: &str = "effortLevel";
 /// saves the default again (seen on 2026-10-14).
 const ECHO_WAIT: Duration = Duration::from_secs(3);
 
-/// The level `/effort` sets for the session alone: it saves no default, so mid-turn nothing at all
-/// says it was taken (2.1.299's words, "max being session-only"; 2.1.322 left settings.json as it
-/// was).
-const SESSION_ONLY_EFFORT: &str = "max";
+/// The variable that fixes a session's effort level for its whole run: while it names another
+/// level than one asked for, `/effort` sets nothing in the session (it says "Not applied", or
+/// "overrides this session"), though it still saves the level asked for as the default (2.1.322's
+/// code).
+const EFFORT_VAR: &str = "CLAUDE_CODE_EFFORT_LEVEL";
 
 /// Types a switch by `typ` and sees it through. While the conversation is cached for what it's
 /// on, Claude Code asks first ("Switch model?", "Change effort level?", 2.1.299; checked in tmux
 /// on 2026-10-14), Yes picked, and writes what it did (`<local-command-stdout>`) only once that's
 /// answered; so when nothing's written in a moment, Return answers Yes, as picking the switch
-/// here meant. Both commands also save what they switch to as the account's default for new
-/// sessions (`/effort` only low to xhigh): what they saved is put back, and the session keeps what
-/// it was switched to (checked the same day). One switch at a time, so one doesn't take another's
-/// saved default for the account's own; another asked meanwhile is refused rather than kept
-/// waiting, when the session it's for may have gone on to a turn. Answers what it's on now: a
-/// level over the account's cap is set to the cap. `records` are the session's own transcript,
-/// where the command writes, even for one whose conversation another's record holds until then.
+/// here meant, unless it waits on something else (`press_return`). Both commands also save what
+/// they switch to as the account's default for new sessions (`/effort` only low to xhigh, and not
+/// a level over the session's cap, which it sets to the cap): what they saved is put back, and
+/// the session keeps what it was switched to (checked the same day). One switch at a time, so one
+/// doesn't take another's saved default for the account's own; another asked meanwhile is refused
+/// rather than kept waiting, when the session it's for may have gone on to a turn. Answers what
+/// it's on now: a level over the cap is set to the cap. `records` are the session's own
+/// transcript, where the command writes, even for one whose conversation another's record holds
+/// until then.
 ///
 /// Mid-turn the commands run at once too (2.1.322, in tmux on 2026-11-10): `/model` to another
 /// model asks the same question under the running turn, and the turn's next step goes on what
 /// they set. But what they did shows only on screen, and nothing reaches the transcript, then or
 /// after the turn; so there the default they save says they took it, settings.json being written
-/// again whenever one is taken, even with nothing in it changed. `/effort` asked nothing mid-turn,
-/// and the level it keeps for the session alone saves nothing, so that's taken as typed. Return
-/// in an empty box mid-turn does nothing.
-pub(super) fn typed(account: &AccountCfg, session: &Session, records: &dyn Fn() -> Vec<PathBuf>, to: Switch, text: &str, typ: &mut dyn FnMut(&str) -> Result<bool>) -> Result<Option<String>> {
+/// again whenever one is saved, even with nothing in it changed. `/effort` asks nothing mid-turn,
+/// so no Return is pressed for it, and a level that saves no default (max, or one over the cap)
+/// leaves nothing that says what it set: that's `Switched::Unsaid`. A level its environment fixes
+/// isn't typed mid-turn, where nothing would say it wasn't applied.
+pub(super) fn typed(account: &AccountCfg, session: &Session, records: &dyn Fn() -> Vec<PathBuf>, to: Switch, text: &str, typ: &mut dyn FnMut(&str) -> Result<bool>) -> Result<Option<Switched>> {
     static SWITCHING: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let _one_at_a_time = match SWITCHING.try_lock() {
         Ok(held) => held,
         Err(std::sync::TryLockError::Poisoned(e)) => e.into_inner(),
         Err(std::sync::TryLockError::WouldBlock) => bail!("Another switch is under way: try again in a few seconds."),
     };
+    see_through(account, session, records, to, text, typ)
+}
+
+/// `typed`, while no other switch is under way.
+fn see_through(account: &AccountCfg, session: &Session, records: &dyn Fn() -> Vec<PathBuf>, to: Switch, text: &str, typ: &mut dyn FnMut(&str) -> Result<bool>) -> Result<Option<Switched>> {
     // A session sent no prompt yet may have no transcript: the command starts one.
     let from = records().first().and_then(|t| std::fs::metadata(t).ok()).map_or(0, |m| m.len());
     let settings = account.home_path().join("settings.json");
@@ -75,18 +85,26 @@ pub(super) fn typed(account: &AccountCfg, session: &Session, records: &dyn Fn() 
     // Mid-turn the transcript says nothing, and the settings written again do.
     let mid_turn = crate::harness::turn_running(session);
     let saves = mid_turn.then(|| (settings.as_path(), written_at(&settings)));
+    let asks = !(mid_turn && matches!(to, Switch::Effort(_)));
+    if !asks {
+        let env = session.pid.and_then(crate::procs::environment).unwrap_or_default();
+        if let Some(fixed) = fixed_effort(&env, to.value()) {
+            bail!("{EFFORT_VAR}={fixed} in its environment keeps Claude Code from switching its effort.");
+        }
+    }
     // A typing that failed may still have gone in (`send::MayHaveArrived`): what it said and saved
     // is looked for, and only a question it surely brought up is answered.
     let typed = typ(text);
     if matches!(typed, Ok(false)) {
         return Ok(None);
     }
-    let mut took = took_after(records, from, saves, SAID_WAIT);
+    // With nothing to answer, the whole wait goes on looking.
+    let mut sign = sign_after(records, from, saves, if asks { SAID_WAIT } else { SAID_WAIT + ANSWERED_WAIT });
     let mut pressed = Ok(());
-    if took.is_none() && typed.is_ok() {
+    if sign.is_none() && typed.is_ok() && asks {
         pressed = press_return(account, session);
         if pressed.is_ok() {
-            took = took_after(records, from, saves, ANSWERED_WAIT);
+            sign = sign_after(records, from, saves, ANSWERED_WAIT);
         }
     }
     // What it saved is put back however the switch went.
@@ -95,10 +113,10 @@ pub(super) fn typed(account: &AccountCfg, session: &Session, records: &dyn Fn() 
     }
     typed?;
     pressed?;
-    let said = match took {
-        Some(Took::Said(said)) => said,
-        Some(Took::Saved) => return Ok(Some(to.value().to_string())),
-        None if mid_turn && to == Switch::Effort(SESSION_ONLY_EFFORT) => return Ok(Some(to.value().to_string())),
+    let said = match sign {
+        Some(Sign::Said(said)) => said,
+        Some(Sign::Saved) => return Ok(Some(Switched::On(to.value().to_string()))),
+        None if !asks => return Ok(Some(Switched::Unsaid)),
         None => bail!("Claude Code didn't say it took the switch: it may be asking about it in its terminal."),
     };
     let now = match to {
@@ -109,12 +127,18 @@ pub(super) fn typed(account: &AccountCfg, session: &Session, records: &dyn Fn() 
         let words = said.trim_start_matches("<local-command-stdout>").trim_end_matches("</local-command-stdout>");
         bail!("Claude Code didn't switch it: {}", words.trim());
     };
-    Ok(Some(now))
+    Ok(Some(Switched::On(now)))
+}
+
+/// The level a session's environment (`env`) fixes its effort at, where that isn't `level`
+/// (`EFFORT_VAR`). Claude Code takes `auto` there for a level too.
+fn fixed_effort(env: &HashMap<String, String>, level: &str) -> Option<String> {
+    env.get(EFFORT_VAR).map(|v| v.trim()).filter(|v| !v.is_empty() && !v.eq_ignore_ascii_case(level)).map(str::to_string)
 }
 
 /// What says Claude Code took a switch.
 #[derive(Debug, PartialEq)]
-enum Took {
+enum Sign {
     /// What it wrote of the command's outcome, `<local-command-stdout>` and all.
     Said(String),
     /// Mid-turn, where it writes nothing: the settings it saves the default in were written again.
@@ -125,7 +149,7 @@ enum Took {
 /// session's transcript (`records`' first) after byte `from`, the first such line's; or, given
 /// `saves` (the settings and when they were last written before the switch), the settings
 /// written since. Another write of them in those seconds would be taken for the switch's.
-fn took_after(records: &dyn Fn() -> Vec<PathBuf>, from: u64, saves: Option<(&Path, Option<SystemTime>)>, wait: Duration) -> Option<Took> {
+fn sign_after(records: &dyn Fn() -> Vec<PathBuf>, from: u64, saves: Option<(&Path, Option<SystemTime>)>, wait: Duration) -> Option<Sign> {
     let deadline = Instant::now() + wait;
     loop {
         if let Some(tail) = records().first().and_then(|t| crate::util::read_tail(t, from).ok()) {
@@ -136,11 +160,11 @@ fn took_after(records: &dyn Fn() -> Vec<PathBuf>, from: u64, saves: Option<(&Pat
                 (v.get("type")?.as_str()? == "user" && text.starts_with("<local-command-stdout>")).then(|| text.to_string())
             });
             if let Some(said) = said {
-                return Some(Took::Said(said));
+                return Some(Sign::Said(said));
             }
         }
         if saves.is_some_and(|(settings, was)| written_at(settings) != was) {
-            return Some(Took::Saved);
+            return Some(Sign::Saved);
         }
         if Instant::now() >= deadline {
             return None;
@@ -159,7 +183,19 @@ fn written_at(settings: &Path) -> Option<SystemTime> {
 fn press_return(account: &AccountCfg, session: &Session) -> Result<()> {
     let home = account.home_path();
     let registry = super::session_entry(&home, session).ok_or_else(|| anyhow!("It isn't running any more."))?;
+    if let Some(why) = waits_on_another(&registry) {
+        bail!("Its terminal shows something else to answer ({why}), which Return would answer: answer its question about the switch there.");
+    }
     super::press_in(&home, session, &registry, crate::launch::Key::Return, "Claude Code may be asking about the switch there: answer it in its terminal.")
+}
+
+/// What a session waits on that isn't a switch's question, by its registry: Claude Code marks it
+/// waiting for a permission prompt, a question, a held message or another dialog of its own, never
+/// for the panel a command's question shows in (2.1.322's table of them: `/model`'s has no
+/// `waitingFor`). A turn going on under the switch can bring one up meanwhile, and Return would
+/// answer it.
+fn waits_on_another(registry: &super::RegistryEntry) -> Option<&str> {
+    (registry.status == "waiting").then(|| registry.waiting_for.as_deref().unwrap_or("a prompt"))
 }
 
 /// The account's settings as they are now: `{}` when it has none, None when they don't parse,
@@ -339,16 +375,16 @@ mod tests {
         let path = dir.join("t.jsonl");
         let records = || vec![path.clone()].into_iter().filter(|p| p.is_file()).collect();
         // A session with no transcript yet says nothing until the command starts one.
-        assert_eq!(took_after(&records, 0, None, Duration::ZERO), None);
+        assert_eq!(sign_after(&records, 0, None, Duration::ZERO), None);
         let line = |content: &str| format!("{}\n", json!({ "type": "user", "message": { "role": "user", "content": content } }));
         std::fs::write(&path, line("<local-command-stdout>Set effort level to low (this session only): Quick</local-command-stdout>")).unwrap();
         let from = std::fs::metadata(&path).unwrap().len();
         // What came before the switch isn't what it said, and nothing yet is nothing.
-        assert_eq!(took_after(&records, from, None, Duration::ZERO), None);
+        assert_eq!(sign_after(&records, from, None, Duration::ZERO), None);
         let caveat = line("<local-command-caveat>The command below was run directly in Claude Code.</local-command-caveat>");
         let said = "<local-command-stdout>Set effort level to high (saved as your default for new sessions): Comprehensive</local-command-stdout>";
         std::fs::write(&path, format!("{}{caveat}{}", std::fs::read_to_string(&path).unwrap(), line(said))).unwrap();
-        assert_eq!(took_after(&records, from, None, Duration::ZERO), Some(Took::Said(said.to_string())));
+        assert_eq!(sign_after(&records, from, None, Duration::ZERO), Some(Sign::Said(said.to_string())));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -364,18 +400,65 @@ mod tests {
         let was = written_at(&settings);
         assert!(was.is_some());
         // Nothing written since: nothing says it was taken.
-        assert_eq!(took_after(&records, 0, Some((&settings, was)), Duration::ZERO), None);
+        assert_eq!(sign_after(&records, 0, Some((&settings, was)), Duration::ZERO), None);
         // As Claude Code saves a default it already had: the same text, written again.
         let file = std::fs::File::options().write(true).open(&settings).unwrap();
         file.set_modified(was.unwrap() + Duration::from_secs(1)).unwrap();
-        assert_eq!(took_after(&records, 0, Some((&settings, was)), Duration::ZERO), Some(Took::Saved));
+        assert_eq!(sign_after(&records, 0, Some((&settings, was)), Duration::ZERO), Some(Sign::Saved));
         // Not looked at between turns, where the transcript says what it did.
-        assert_eq!(took_after(&records, 0, None, Duration::ZERO), None);
+        assert_eq!(sign_after(&records, 0, None, Duration::ZERO), None);
         // Settings that weren't there before and are now were written too.
         let fresh = dir.join("fresh.json");
         assert_eq!(written_at(&fresh), None);
         std::fs::write(&fresh, "{}").unwrap();
-        assert_eq!(took_after(&records, 0, Some((&fresh, None)), Duration::ZERO), Some(Took::Saved));
+        assert_eq!(sign_after(&records, 0, Some((&fresh, None)), Duration::ZERO), Some(Sign::Saved));
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Mid-turn an effort switch presses no Return, as nothing asks about one and a prompt the
+    /// turn brought up would take it: one that saved its default is on its level, one that saved
+    /// none (max, or a level over the cap) says nothing of what it set. A model's question is
+    /// answered with Return, which here finds no session to press it in.
+    #[test]
+    fn mid_turn_only_a_models_question_gets_a_return() {
+        use crate::model::{Harness, Status};
+        let dir = crate::store::test_dir("switch-mid-turn");
+        let account: AccountCfg = serde_json::from_value(json!({ "name": "claude", "harness": "claude", "home": dir })).unwrap();
+        let (path, settings) = (dir.join("t.jsonl"), dir.join("settings.json"));
+        std::fs::write(&path, "").unwrap();
+        std::fs::write(&settings, SETTINGS).unwrap();
+        let records = || vec![path.clone()];
+        let working = Session { status: Status::Working, live: true, pid: None, ..Session::new(Harness::Claude, "claude", "abc") };
+        // As Claude Code takes a switch that saves a default: the settings written again, the same.
+        let mut saves = |_: &str| -> Result<bool> {
+            std::fs::File::options().write(true).open(&settings)?.set_modified(SystemTime::now() + Duration::from_secs(5))?;
+            Ok(true)
+        };
+        let mut quiet = |_: &str| -> Result<bool> { Ok(true) };
+        let switch = |to: Switch, typ: &mut dyn FnMut(&str) -> Result<bool>| see_through(&account, &working, &records, to, "/typed", typ);
+        assert_eq!(switch(Switch::Effort("high"), &mut saves).unwrap(), Some(Switched::On("high".into())));
+        assert_eq!(switch(Switch::Effort("max"), &mut quiet).unwrap(), Some(Switched::Unsaid));
+        assert_eq!(switch(Switch::Model("haiku"), &mut quiet).unwrap_err().to_string(), "It isn't running any more.");
+        assert_eq!(switch(Switch::Model("haiku"), &mut saves).unwrap(), Some(Switched::On("haiku".into())));
+        // Nothing typed: nothing switched.
+        assert_eq!(switch(Switch::Effort("high"), &mut |_: &str| Ok(false)).unwrap(), None);
+        assert_eq!(std::fs::read_to_string(&settings).unwrap(), SETTINGS);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A level the session's environment fixes isn't typed mid-turn, `auto` there included; nor is
+    /// Return pressed while its terminal shows something else to answer.
+    #[test]
+    fn a_fixed_level_or_another_prompt_up_keeps_a_switch_out() {
+        let env = |v: &str| HashMap::from([(EFFORT_VAR.to_string(), v.to_string())]);
+        assert_eq!(fixed_effort(&HashMap::new(), "high"), None);
+        assert_eq!(fixed_effort(&env("low"), "high").as_deref(), Some("low"));
+        assert_eq!(fixed_effort(&env("auto"), "high").as_deref(), Some("auto"));
+        assert_eq!(fixed_effort(&env("HIGH"), "high"), None);
+        assert_eq!(fixed_effort(&env(" "), "high"), None);
+        let registry = |status: &str, waiting: Option<&str>| super::super::RegistryEntry { status: status.into(), waiting_for: waiting.map(str::to_string), ..Default::default() };
+        assert_eq!(waits_on_another(&registry("busy", None)), None);
+        assert_eq!(waits_on_another(&registry("waiting", Some("permission prompt"))), Some("permission prompt"));
+        assert_eq!(waits_on_another(&registry("waiting", None)), Some("a prompt"));
     }
 }

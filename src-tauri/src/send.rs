@@ -1273,10 +1273,16 @@ fn switch(board: &Board, cfg: &Config, key: &str, to: Switch) -> Result<String> 
         }
         Ok(false)
     };
-    if let Some(now) = adapter.type_switch(account, session, to, &text, &mut typ)? {
-        let capped = if now == value { String::new() } else { format!(" ({value} is over the account's cap)") };
-        let from = if mid_turn { " from its next step" } else { "" };
-        return Ok(format!("Switched {title} to {}{capped}{from}: `{text}` went into its terminal.", label(&now)));
+    let from = if mid_turn { " from its next step" } else { "" };
+    match adapter.type_switch(account, session, to, &text, &mut typ)? {
+        Some(crate::harness::Switched::On(now)) => {
+            let capped = if now == value { String::new() } else { format!(" ({value} is over the account's cap)") };
+            return Ok(format!("Switched {title} to {}{capped}{from}: `{text}` went into its terminal.", label(&now)));
+        }
+        Some(crate::harness::Switched::Unsaid) => {
+            return Ok(format!("`{text}` went into {title}'s terminal{from}. {} says only there what it set, and its next reply will show it.", adapter.harness().word()));
+        }
+        None => {}
     }
     bail!("Codealong can't type into {title}'s terminal{}, so its {what} wasn't switched. Run `{text}` there.", why.map(|w| format!(" ({w})")).unwrap_or_default())
 }

@@ -2517,8 +2517,12 @@ what it's on ("Your next response will be slower"), mid-turn too; Codealong answ
 picking it meant. It also saves what it's switched to as the account's default for new sessions;
 Codealong puts the default back a few seconds later, so the switch stays with that session, and the
 box says what happened once that's done. Mid-turn Claude Code says what it switched only in its
-terminal, so Codealong goes by that default it saved; `max` effort saves none, and is taken as
-typed. Meanwhile the account's other running sessions may follow the new default. A Codex session
+terminal, so Codealong goes by that default it saved; an effort level that saves none (`max`, or
+one over a cap your settings or organization set, which it lowers to the cap) leaves the box saying
+only that it went in, and the session's next reply shows the level. Codealong presses no key for a
+question about a switch while its terminal shows something else to answer, and switches no effort
+mid-turn where `CLAUDE_CODE_EFFORT_LEVEL` fixes it for the session. Meanwhile the account's other
+running sessions may follow the new default. A Codex session
 in a terminal is switched there, with its own `/model`; one Codealong runs is switched from the
 chip.
 

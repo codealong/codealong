@@ -868,7 +868,7 @@ impl crate::harness::Adapter for ClaudeCode {
     /// The question Claude Code asks before a switch, answered, and the defaults `/model` and
     /// `/effort` saved put back: `switch::typed`. What the command says is in the session's own
     /// transcript, not one whose conversation it `continues`.
-    fn type_switch(&self, account: &crate::config::AccountCfg, session: &crate::model::Session, to: crate::harness::Switch, text: &str, typ: &mut dyn FnMut(&str) -> anyhow::Result<bool>) -> anyhow::Result<Option<String>> {
+    fn type_switch(&self, account: &crate::config::AccountCfg, session: &crate::model::Session, to: crate::harness::Switch, text: &str, typ: &mut dyn FnMut(&str) -> anyhow::Result<bool>) -> anyhow::Result<Option<crate::harness::Switched>> {
         switch::typed(account, session, &|| transcripts_named(&account.home_path(), &session.id), to, text, typ)
     }
 
