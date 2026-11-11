@@ -8,10 +8,11 @@
 //! calendar asks nobody anything. It's read again every minute for the day ahead.
 //!
 //! A meeting is an event with a time of day that someone else is in, or that's held on a call
-//! (`is_meeting`), and that you didn't say no to. It's on offer from a minute before it starts
-//! until ten minutes in, or its end (`on_offer`); one you took or passed on isn't offered again,
-//! which `meetings.json` beside config.toml keeps across a server started again, nor is one a
-//! session is hearing.
+//! (`is_meeting`), and that you didn't say no to. One you're invited to at several of your
+//! addresses is in each account's calendar and counts once (`counted`). It's on offer from a
+//! minute before it starts until ten minutes in, or its end (`on_offer`); one you took or passed
+//! on isn't offered again, which `meetings.json` beside config.toml keeps across a server started
+//! again, nor is one a session is hearing.
 //! What's on offer is on the board (`Board::meeting`), which every window draws from.
 //!
 //! Taking one (`take`) starts a session for it as a chat of its own, on the account and model
@@ -26,7 +27,7 @@
 //!
 //! Only this Mac's calendar and sessions: nothing of it goes to your other devices.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, Instant};
@@ -135,9 +136,9 @@ pub struct Ahead {
 
 /// The meetings ahead that count, the first to start first, with one that's going on.
 fn ahead_of(events: &[Meeting], rules: &Rules, answered: &HashMap<String, i64>, heard: &[String], now: i64) -> Vec<Ahead> {
-    let mut ahead: Vec<Ahead> = events
-        .iter()
-        .filter(|m| rules.counts(m) && m.end > now)
+    let mut ahead: Vec<Ahead> = counted(events, rules)
+        .into_iter()
+        .filter(|m| m.end > now)
         .map(|m| Ahead { takeable: now >= m.start - SOON_MS && !heard.contains(&m.id), answered: answered.contains_key(&m.id), heard: heard.contains(&m.id), meeting: m.clone() })
         .collect();
     ahead.sort_by(|a, b| a.meeting.start.cmp(&b.meeting.start).then_with(|| a.meeting.id.cmp(&b.meeting.id)));
@@ -276,12 +277,29 @@ pub fn is_meeting(m: &Meeting) -> bool {
     !m.declined && (!m.attendees.is_empty() || m.link.is_some()) && m.end - m.start <= LONGEST_MS
 }
 
+/// The events that count under the rules, one of each meeting. A meeting you're invited to at
+/// several of your addresses is an event in each account's calendar, and the helper gives the
+/// copies one id (main.swift `name(of:)`): it counts once, as its first copy in a calendar that
+/// counts, so leaving one of those calendars out leaves the meeting in; and not at all once you
+/// said no to it in any of them, where you'd answer it the once.
+fn counted<'a>(events: &'a [Meeting], rules: &Rules) -> Vec<&'a Meeting> {
+    let declined: HashSet<&str> = events.iter().filter(|m| m.declined).map(|m| m.id.as_str()).collect();
+    let mut seen = HashSet::new();
+    events.iter().filter(|m| rules.counts(m) && !declined.contains(m.id.as_str()) && seen.insert(m.id.as_str())).collect()
+}
+
+/// A meeting by its id: the copy that counts (`counted`), else whichever has it, as one being
+/// taken stays in sight whatever the settings say since.
+fn found<'a>(events: &'a [Meeting], rules: &Rules, id: &str) -> Option<&'a Meeting> {
+    counted(events, rules).into_iter().find(|m| m.id == id).or_else(|| events.iter().find(|m| m.id == id))
+}
+
 /// The meeting to offer at `now`: one about to start or not long begun, still going, that you
 /// haven't answered and that no session is hearing (`heard`). The first to start, of several.
 pub fn on_offer<'a>(events: &'a [Meeting], rules: &Rules, answered: &HashMap<String, i64>, heard: &[String], now: i64) -> Option<&'a Meeting> {
-    events
-        .iter()
-        .filter(|m| rules.counts(m) && !answered.contains_key(&m.id) && !heard.contains(&m.id))
+    counted(events, rules)
+        .into_iter()
+        .filter(|m| !answered.contains_key(&m.id) && !heard.contains(&m.id))
         .filter(|m| now >= m.start - rules.lead_ms && now < m.end.min(m.start + LATE_MS))
         .min_by(|a, b| a.start.cmp(&b.start).then_with(|| a.id.cmp(&b.id)))
 }
@@ -430,7 +448,7 @@ fn read(ask: bool) {
 /// the one `on_offer` gives.
 fn offer_of(events: &[Meeting], rules: &Rules, answered: &HashMap<String, i64>, heard: &[String], taking: Option<&str>, now: i64) -> Option<Offer> {
     match taking {
-        Some(id) => events.iter().find(|m| m.id == id).map(|m| Offer { meeting: m.clone(), taking: true }),
+        Some(id) => found(events, rules, id).map(|m| Offer { meeting: m.clone(), taking: true }),
         None => on_offer(events, rules, answered, heard, now).map(|m| Offer { meeting: m.clone(), taking: false }),
     }
 }
@@ -467,7 +485,7 @@ pub fn status(cfg: &Config) -> Status {
     let now = util::now_ms();
     let state = state();
     let rules = Rules::of(cfg);
-    let ahead: Vec<&Meeting> = state.calendar.events.iter().filter(|m| rules.counts(m) && m.start > now).collect();
+    let ahead: Vec<&Meeting> = counted(&state.calendar.events, &rules).into_iter().filter(|m| m.start > now).collect();
     Status {
         on: turned_on(cfg),
         access: state.calendar.access.clone(),
@@ -509,7 +527,7 @@ pub fn take(engine: &Handle, id: &str, role: Role) -> Result<Listening> {
     }
     let meeting = {
         let mut state = state();
-        let Some(meeting) = state.calendar.events.iter().find(|m| m.id == id).cloned() else { bail!("That meeting isn't in your calendar any more.") };
+        let Some(meeting) = found(&state.calendar.events, &Rules::of(&cfg), id).cloned() else { bail!("That meeting isn't in your calendar any more.") };
         if state.taking.is_some() {
             bail!("A meeting's notes are being started already.");
         }
@@ -646,6 +664,34 @@ mod tests {
         assert_eq!(Rules::of(&cfg), Rules { off: vec!["home".into()], lead_ms: 2 * MIN });
         cfg.voice.meeting_lead = 500;
         assert_eq!(Rules::of(&cfg).lead_ms, i64::from(config::MEETING_LEAD_MAX) * MIN);
+    }
+
+    #[test]
+    fn a_meeting_in_several_of_your_calendars_counts_once() {
+        // Invited at two addresses: the same event in each account's calendar, with one id.
+        let copy = |calendar: &str| Meeting { calendar_id: calendar.into(), calendar: calendar.into(), ..meeting("m", NOW, 30) };
+        let events = [copy("home"), copy("work"), Meeting { calendar_id: "work".into(), ..meeting("other", NOW + 2 * MIN, 30) }];
+        let none = HashMap::new();
+        let ids = |rules: &Rules| ahead_of(&events, rules, &none, &[], NOW).into_iter().map(|a| (a.meeting.id, a.meeting.calendar_id)).collect::<Vec<_>>();
+        assert_eq!(ids(&PLAIN), vec![("m".to_string(), "home".to_string()), ("other".to_string(), "work".to_string())]);
+        // With one of its calendars left out it's the other's, and still a meeting; with both, not.
+        let without = |off: &[&str]| Rules { off: off.iter().map(|c| c.to_string()).collect(), lead_ms: MIN };
+        assert_eq!(ids(&without(&["home"])), vec![("m".to_string(), "work".to_string()), ("other".to_string(), "work".to_string())]);
+        assert_eq!(found(&events, &without(&["home"]), "m").map(|m| m.calendar_id.as_str()), Some("work"));
+        assert_eq!(ids(&without(&["home", "work"])), vec![]);
+        // Taken, it's found whatever the settings say since.
+        assert_eq!(found(&events, &without(&["home", "work"]), "m").map(|m| m.calendar_id.as_str()), Some("home"));
+        assert_eq!(found(&events, &PLAIN, "gone"), None);
+        // Answered once, neither copy is offered; the next meeting is.
+        assert_eq!(on_offer(&events, &PLAIN, &none, &[], NOW).map(|m| m.calendar_id.as_str()), Some("home"));
+        let answered = HashMap::from([("m".to_string(), NOW)]);
+        assert_eq!(on_offer(&events, &PLAIN, &answered, &[], NOW), None);
+        assert_eq!(on_offer(&events, &PLAIN, &answered, &[], NOW + MIN).map(|m| m.id.as_str()), Some("other"));
+        // Said no to at one address, it's one you said no to, whichever calendars count.
+        let events = [copy("home"), Meeting { declined: true, ..copy("work") }];
+        assert_eq!(on_offer(&events, &PLAIN, &none, &[], NOW), None);
+        assert_eq!(on_offer(&events, &without(&["work"]), &none, &[], NOW), None);
+        assert!(ahead_of(&events, &PLAIN, &none, &[], NOW).is_empty());
     }
 
     #[test]

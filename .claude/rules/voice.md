@@ -117,18 +117,34 @@ What macOS's speech recognition and audio capture take and give, as codealong-ea
   calendar is seen before access is given; the Calendar app's own settings (`defaults read
   com.apple.iCal AccountDisplayOrder`) listed 18 accounts on this Mac, which is all a shell can
   say of it.
-- An occurrence of an event that repeats has its series' `calendarItemIdentifier`, so
-  `meetings.rs` tells them apart by that with when each starts. An event's link to its call is
-  wherever its calendar put it: `url`, `location` or `notes` (`callLink`).
+- An occurrence of an event that repeats has its series' identifiers, so `meetings.rs` tells
+  them apart by one with when each starts. An event's link to its call is wherever its calendar
+  put it: `url`, `location` or `notes` (`callLink`).
+- Someone with several accounts on their Mac is often invited to a meeting at more than one of
+  their addresses, and each account's calendar then has the event: seen 2026-11-11, where five
+  of the eight meetings in the day ahead were listed two or three times. The copies are
+  separate events to EventKit (`calendarItemIdentifier` differs); what they share is
+  `calendarItemExternalIdentifier`, the UID their server gave the event, which is what a
+  meeting's `id` is made from (`name(of:)` in main.swift) so that the engine counts it once.
+- `EKParticipant.isCurrentUser` marks only the address of the account the event is in: in each
+  copy of such a meeting the person's other addresses were ordinary guests, and the offer said
+  the meeting was with themselves. Nothing public says which addresses are the person's. What
+  the helper goes by (`ownAddresses`): an account named for its address, and a calendar the
+  person can write to that's named for one, which is how a Google account's main calendar
+  comes. On this Mac one of five accounts and five of eighteen calendars were named for an
+  address; a calendar someone else shares is named for theirs, and is told apart only by
+  being read-only.
 
 ## Unchecked
 
 - The calendar was read for real on 2026-11-10, by the helper under the server once its user
   turned meetings on and answered macOS's prompt: five sources (three CalDAV, which is how
   Google's accounts come, the birthdays and a subscribed one) with eighteen calendars between
-  them, and eleven meetings in the day ahead. Not yet seen: a meeting offered and taken, and
-  that `EKParticipant.isCurrentUser` is set on Google's events (it's what tells the others in a
-  meeting from you, and a meeting you declined).
+  them, and eleven meetings in the day ahead. A meeting was offered for real on 2026-11-11, its
+  card under the notch a minute before it started. Not yet seen: one taken; a meeting counted
+  once across accounts with the running app (the external identifier being the same in each
+  copy is Apple's word and CalDAV's, not something run here); and a meeting you declined, which
+  is read from the participant `isCurrentUser` marks, then from one with an address of yours.
 
 - The microphone ran for real on 2026-11-10, under the server (Codealong Dev was asked and
   allowed). Not yet seen: the tap giving anything but silence; whether making a tap asks the

@@ -1103,28 +1103,59 @@ func callLink(_ event: EKEvent) -> String? {
     return nil
 }
 
+/// A participant's address, where they came with one.
+func address(of person: EKParticipant) -> String? {
+    let url = person.url.absoluteString
+    return url.lowercased().hasPrefix("mailto:") ? String(url.dropFirst(7)) : nil
+}
+
+/// The addresses that are the person's own, as far as their calendars say: an account named for
+/// its address, and a calendar they can write to that's named for one, as a Google account's
+/// main calendar is. The calendar marks which participant of an event is them (`isCurrentUser`),
+/// but only the address of the account the event is in: someone invited at two of their
+/// addresses was one of the others in their own meeting, in each account's copy of it (seen
+/// 2026-11-11). A calendar someone else shares for reading is named for that someone, and isn't
+/// counted; one they let the person write to is, which leaves that someone out of the others.
+func ownAddresses(_ store: EKEventStore) -> Set<String> {
+    let named = store.sources.map(\.title) + store.calendars(for: .event).filter(\.allowsContentModifications).map(\.title)
+    return Set(named.map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }.filter { $0.contains("@") && !$0.contains(" ") })
+}
+
+/// What names an event, the same in every calendar that has it: a meeting the person is invited
+/// to at two of their addresses is an event in each account's calendar, two to EventKit
+/// (`calendarItemIdentifier`) with the one identifier its server gave it (its UID, on CalDAV).
+/// The engine takes events of one name and start for one meeting (meetings.rs `counted`). An
+/// event without one has EventKit's own.
+func name(of event: EKEvent) -> String {
+    if let external = event.calendarItemExternalIdentifier, !external.isEmpty { return external }
+    return event.calendarItemIdentifier
+}
+
 /// An event as the engine takes it (ear.rs `Meeting`): times in milliseconds since 1970, the
 /// others in it by name (by address where they have no name), and whether the person said no.
-/// An occurrence of a repeating event has its series' id, so its `id` carries when it starts.
-func described(_ event: EKEvent) -> [String: Any] {
+/// Who's the person is the calendar's word, and any of their own addresses (`mine`) besides;
+/// whether they said no is the calendar's word first. An occurrence of a repeating event has
+/// its series' name, so its `id` carries when it starts.
+func described(_ event: EKEvent, mine: Set<String>) -> [String: Any] {
     let people = (event.attendees ?? []).filter { $0.participantType != .room && $0.participantType != .resource }
-    let others = people.filter { !$0.isCurrentUser }.compactMap { person -> String? in
+    let isMine: (EKParticipant) -> Bool = { person in address(of: person).map { mine.contains($0.lowercased()) } == true }
+    let others = people.filter { !$0.isCurrentUser && !isMine($0) }.compactMap { person -> String? in
         if let name = person.name, !name.isEmpty { return name }
-        let address = person.url.absoluteString
-        return address.hasPrefix("mailto:") ? String(address.dropFirst(7)) : nil
+        return address(of: person)
     }
+    let me = people.first { $0.isCurrentUser } ?? people.first(where: isMine)
     let start = Int64(event.startDate.timeIntervalSince1970 * 1000)
     var out: [String: Any] = [
-        "id": "\(event.calendarItemIdentifier)@\(start)",
+        "id": "\(name(of: event))@\(start)",
         "title": event.title ?? "",
         "start": start,
         "end": Int64(event.endDate.timeIntervalSince1970 * 1000),
         "calendar": event.calendar?.title ?? "",
         "calendarId": event.calendar?.calendarIdentifier ?? "",
         "attendees": others,
-        "declined": people.first { $0.isCurrentUser }?.participantStatus == .declined,
+        "declined": me?.participantStatus == .declined,
     ]
-    if event.hasRecurrenceRules { out["series"] = event.calendarItemIdentifier }
+    if event.hasRecurrenceRules { out["series"] = name(of: event) }
     if let link = callLink(event) { out["link"] = link }
     return out
 }
@@ -1155,7 +1186,8 @@ func calendar(_ params: [String: Any]) async -> [String: Any] {
     let to = Date(timeIntervalSince1970: ((params["to"] as? NSNumber)?.doubleValue ?? now + 86_400_000) / 1000)
     guard to > from else { return answer }
     let events = store.events(matching: store.predicateForEvents(withStart: from, end: to, calendars: nil))
-    answer["events"] = events.filter { !$0.isAllDay && $0.status != .canceled }.sorted { $0.startDate < $1.startDate }.map(described)
+    let mine = ownAddresses(store)
+    answer["events"] = events.filter { !$0.isAllDay && $0.status != .canceled }.sorted { $0.startDate < $1.startDate }.map { described($0, mine: mine) }
     return answer
 }
 

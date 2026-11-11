@@ -335,8 +335,9 @@ pub fn apps() -> Result<Vec<App>, Refused> {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Meeting {
-    /// Its id in the calendar with when it starts, which tells the occurrences of one that
-    /// repeats apart.
+    /// What its server names it with when it starts, which tells the occurrences of one that
+    /// repeats apart, and is the same for its copy in each calendar that has it (meetings.rs
+    /// `counted`).
     pub id: String,
     pub title: String,
     pub start: i64,
@@ -345,7 +346,8 @@ pub struct Meeting {
     pub calendar: String,
     #[serde(skip_serializing_if = "String::is_empty")]
     pub calendar_id: String,
-    /// The others in it, by name, or by address where the calendar has no name for them.
+    /// The others in it, by name, or by address where the calendar has no name for them: not
+    /// the person, at any address the calendars say is theirs.
     pub attendees: Vec<String>,
     /// The person said no to it.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
