@@ -363,7 +363,7 @@ impl<'a> Message<'a> {
     /// Whether it goes in now: sending now matters only while a turn runs, since otherwise the
     /// prompt starts one either way.
     fn now_for(&self, session: &Session) -> bool {
-        self.now && session.status == Status::Working
+        self.now && session.status == Status::Working && !session.waits_in_background()
     }
 }
 
@@ -515,9 +515,10 @@ impl Delivery<'_> {
 }
 
 /// Whether a session is in the middle of a turn, stuck in one too, so a prompt goes in once the
-/// step it's on ends.
+/// step it's on ends. One working only on what its turn left running in the background
+/// (`Session::waits_in_background`) takes it as a new turn at once.
 fn mid_turn(session: &Session) -> bool {
-    session.status == Status::Working || crate::harness::turn_running(session)
+    (session.status == Status::Working && !session.waits_in_background()) || crate::harness::turn_running(session)
 }
 
 /// The prompt went, where it lives.

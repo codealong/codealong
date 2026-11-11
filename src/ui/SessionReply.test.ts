@@ -17,6 +17,9 @@ describe('replyPlaceholder', () => {
 
   it('goes by the session alone until then', () => {
     expect(replyPlaceholder(session({ status: 'working' }), 'Ghostty')).toBe('Send to claude: it takes this in as it works');
+    // One working only on the agents or command its turn left running sits at its prompt.
+    expect(replyPlaceholder(session({ status: 'working', agents: ['Draft the release notes'] }), 'Ghostty', { kind: 'background' })).toBe('Send to claude via its background job');
+    expect(replyPlaceholder(session({ status: 'working', background: 'gh pr checks --watch' }), 'Ghostty')).toBe('Send to claude');
     expect(replyPlaceholder(session({ live: false }), 'Ghostty', null)).toBe('Send to claude: it isn’t running, so this resumes it in Ghostty');
   });
 

@@ -251,6 +251,29 @@ pub fn untold_shell(r: &RegistryEntry, t: &TranscriptInfo) -> bool {
     r.status == "idle" && r.entrypoint.as_deref() != Some("cli") && t.background.iter().any(|(_, at)| r.started_at.map_or(true, |s| *at >= s))
 }
 
+/// What a Claude session its registry says is busy left running in the background with its turn
+/// over: the subagents and workflows its transcript says it started since its process did and
+/// hasn't heard the end of, what each is for. Claude Code says busy while any of them runs,
+/// whether or not a turn does (2.1.322's `delegatedActive`), so only a transcript whose last turn
+/// has ended (`TranscriptInfo::ended_at`) says it's them it's busy with. Read as a turn, such a
+/// session showed working for as long as its agents ran, its last command for an excerpt, and a
+/// reply that asked you something never reached Needs you (2026-11-10). Empty otherwise.
+pub fn agents_left_running(r: &RegistryEntry, t: &TranscriptInfo) -> Vec<String> {
+    if r.status != "busy" || t.ended_at.is_none() {
+        return Vec::new();
+    }
+    t.agents.iter().filter(|a| r.started_at.map_or(true, |s| a.at >= s)).map(|a| a.about.clone()).collect()
+}
+
+/// A session's excerpt while it waits on the agents its turn left running (`agents_left_running`).
+pub fn waiting_on_agents(agents: &[String]) -> String {
+    match agents {
+        [one] if !one.is_empty() => format!("Waiting on a background agent · {one}"),
+        [_] => "Waiting on a background agent".to_string(),
+        _ => format!("Waiting on {} background agents", agents.len()),
+    }
+}
+
 /// Whether processes listed at `listed_at` can say a session's background shells have gone
 /// (`untold_shell`): the engine lists them every few seconds off its thread, and one listed
 /// before a shell started doesn't have it yet.
@@ -300,13 +323,16 @@ pub fn claude_session(
         .filter(|(r, t)| matches!(r.status.as_str(), "idle" | "shell") && t.compacted.is_some())
         .map(|(r, t)| RegistryEntry { status_updated_at: Some(t.active_at()), ..r.clone() });
     let reg = restarted.as_ref().or(compacted.as_ref()).or(reg);
+    // Busy only with the agents its turn left running: it waits on them, as on a shell.
+    let agents = reg.zip(tr).map(|(r, t)| agents_left_running(r, t)).unwrap_or_default();
     // An approval up in the Claude app is what a busy session waits on, however long it's quiet.
     let app_ask = quiet.app_ask.filter(|_| reg.is_some_and(|r| r.status == "busy"));
     // The registry doesn't refresh while a session is busy; its transcript, status changes and
-    // subagent logs do. Stuck mid-turn, it can't go on without you.
+    // subagent logs do. Stuck mid-turn, it can't go on without you; with its turn over, it isn't
+    // mid-turn.
     let stalled_since = claude_busy_since(reg, tr)
         .map(|t| t.max(quiet.subagent_at.unwrap_or(0)))
-        .filter(|t| now - t > CLAUDE_STALL_MS && app_ask.is_none());
+        .filter(|t| now - t > CLAUDE_STALL_MS && app_ask.is_none() && agents.is_empty());
     let background = reg.is_some_and(|r| r.status == "shell");
     let left_running = background && quiet.background_active_at.is_some_and(|t| now - t >= BACKGROUND_QUIET_MS);
     let status = match reg {
@@ -385,6 +411,7 @@ pub fn claude_session(
             Some(cmd) => format!("Left running · {}", code(&truncate(&one_line(cmd, 200), 80))),
             None => "Left a command running".to_string(),
         }),
+        Status::Working if !agents.is_empty() => Some(waiting_on_agents(&agents)),
         // Its turn is over: it waits on the command (a CI watch, a build) to wake it, which
         // "working" alone hid behind a spinner (asked 2026-10-07).
         Status::Working if background => Some(match quiet.running {
@@ -428,8 +455,9 @@ pub fn claude_session(
         last_prompt: tr.and_then(|t| t.last_prompt.clone()),
         name: reg.and_then(|r| r.name.clone()),
         started_at: reg.and_then(|r| r.started_at).or_else(|| tr.and_then(|t| t.started_at)),
-        // Waiting on the app since it asked, however long the turn has run.
-        status_since: app_ask.map(|a| a.at).or_else(|| reg.and_then(|r| r.status_updated_at)),
+        // Waiting on the app since it asked, however long the turn has run; on its agents since
+        // its turn ended, which the registry, busy since the turn began, doesn't say.
+        status_since: app_ask.map(|a| a.at).or_else(|| tr.and_then(|t| t.ended_at).filter(|_| !agents.is_empty())).or_else(|| reg.and_then(|r| r.status_updated_at)),
         last_prompt_at: tr
             .and_then(|t| t.last_prompt_at)
             .or_else(|| reg.and_then(|r| r.started_at))
@@ -444,6 +472,7 @@ pub fn claude_session(
         remote_control: reg.and_then(|r| r.remote_control.clone()),
         stalled_since,
         background: background.then(|| quiet.running.unwrap_or_default().to_string()),
+        agents,
         app_account: account.home_path() == crate::util::home().join(".claude"),
         limit,
         connection_lost,
@@ -1980,13 +2009,7 @@ pub fn aside_holds(s: &Session, at: i64, sides: &[crate::side::Glance]) -> bool 
 pub fn apply_insight(s: &mut Session, i: &SessionInsight) {
     s.insight = Some(i.clone());
     if s.status == Status::Unread && i.asks_you.unwrap_or(0.0) >= ASKS_YOU {
-        s.status = Status::Needs;
-        s.asks = true;
-        let question = s.reply_tail.as_deref().map(question_in).filter(|q| !q.is_empty());
-        s.excerpt = Some(match question {
-            Some(q) => format!("Asks you · {q}"),
-            None => "Asks you something".to_string(),
-        });
+        needs_your_answer(s);
     }
     if let (Some(since), Some(p)) = (s.stalled_since, i.waits_for_input) {
         if p < WAITS_FOR_INPUT {
@@ -2019,6 +2042,28 @@ pub fn apply_insight(s: &mut Session, i: &SessionInsight) {
             }
             _ => {}
         }
+    }
+}
+
+/// Makes a session whose turn ended on a reply that asks you something Needs you, with the
+/// question.
+fn needs_your_answer(s: &mut Session) {
+    s.status = Status::Needs;
+    s.asks = true;
+    let question = s.reply_tail.as_deref().map(question_in).filter(|q| !q.is_empty());
+    s.excerpt = Some(match question {
+        Some(q) => format!("Asks you · {q}"),
+        None => "Asks you something".to_string(),
+    });
+}
+
+/// A session waiting on the agents its turn left running (`Session::agents`) whose reply asks you
+/// something you haven't seen (its turn ended after `seen_at`) Needs you, as an unread turn's
+/// does (`apply_insight`): it sits at its prompt, and its agents carry on whatever you answer.
+/// After `apply_insight`, which doesn't know when you looked.
+pub fn asks_while_agents_run(s: &mut Session, i: &SessionInsight, seen_at: i64) {
+    if s.status == Status::Working && !s.agents.is_empty() && s.status_since.unwrap_or(0) > seen_at && i.asks_you.unwrap_or(0.0) >= ASKS_YOU {
+        needs_your_answer(s);
     }
 }
 
@@ -5212,6 +5257,58 @@ mod tests {
     }
 
     #[test]
+    fn a_turn_that_ended_with_agents_running_waits_on_them() {
+        use crate::claude::BackgroundAgent;
+        const MIN: i64 = 60_000;
+        let a = acct("claude");
+        let agent = |id: &str, at: i64, about: &str| BackgroundAgent { id: id.into(), at, about: about.into() };
+        // Busy since its prompt 40 minutes ago, as Claude Code says while its agents run; its turn
+        // ended five minutes ago on a question.
+        let r = reg("busy", NOW - 40 * MIN);
+        let ended = NOW - 5 * MIN;
+        let t = TranscriptInfo {
+            ended_at: Some(ended),
+            last_ts: ended,
+            last_prompt_at: Some(NOW - 40 * MIN),
+            last_text_tail: Some("Shall I file it with these dates?".into()),
+            agents: vec![agent("a1", NOW - 35 * MIN, "Draft the drift corrections"), agent("a2", NOW - 35 * MIN, "")],
+            ..tr()
+        };
+        let quiet = Quiet { subagent_at: Some(NOW - 31 * MIN), ..Quiet::default() };
+        let s = claude_session(&a, Some(&r), Some(&t), 0, NOW, &quiet).unwrap();
+        assert_eq!((s.status, s.excerpt.as_deref(), s.stalled_since), (Status::Working, Some("Waiting on 2 background agents"), None), "not stuck past 30 minutes");
+        assert_eq!((s.agents.len(), s.status_since, s.background.as_deref()), (2, Some(ended), None));
+        assert!(s.waits_in_background() && s.left_running());
+        assert!(!crate::harness::turn_running(&s), "there's no turn to stop");
+        assert_eq!(serde_json::to_value(&s).unwrap()["agents"], serde_json::json!(["Draft the drift corrections", ""]));
+        // One says what it's for.
+        let one = TranscriptInfo { agents: t.agents[..1].to_vec(), ..t.clone() };
+        assert_eq!(claude_session(&a, Some(&r), Some(&one), 0, NOW, &quiet).unwrap().excerpt.as_deref(), Some("Waiting on a background agent · Draft the drift corrections"));
+        // Jev reads its reply as a turn's: asking you, it Needs you until you've seen it.
+        assert_eq!(crate::insights::ask(&s, NOW).map(|(k, _)| k), Some(crate::insights::Kind::Turn));
+        let asks = insight(|i| i.asks_you = Some(0.9));
+        let mut asked = s.clone();
+        apply_insight(&mut asked, &asks);
+        asks_while_agents_run(&mut asked, &asks, NOW - 10 * MIN);
+        assert_eq!((asked.status, asked.asks, asked.excerpt.as_deref()), (Status::Needs, true, Some("Asks you · Shall I file it with these dates?")));
+        let mut seen = s.clone();
+        asks_while_agents_run(&mut seen, &asks, NOW);
+        assert_eq!(seen.status, Status::Working);
+        let mut waits = s.clone();
+        asks_while_agents_run(&mut waits, &insight(|i| i.asks_you = Some(0.05)), 0);
+        assert_eq!((waits.status, waits.excerpt), (Status::Working, s.excerpt.clone()));
+        // Mid-turn, busy is its turn's, whatever agents run beside it.
+        let turn = TranscriptInfo { ended_at: None, ..t.clone() };
+        let working = claude_session(&a, Some(&r), Some(&turn), 0, NOW, &Quiet { subagent_at: Some(NOW), ..Quiet::default() }).unwrap();
+        assert_eq!((working.status, working.agents.len(), working.excerpt.as_deref()), (Status::Working, 0, Some("running `yarn test`")));
+        assert!(crate::harness::turn_running(&working));
+        // Agents an earlier process started went with it, and idle is idle.
+        let restarted = RegistryEntry { started_at: Some(NOW - 30 * MIN), ..r.clone() };
+        assert!(agents_left_running(&restarted, &t).is_empty());
+        assert!(agents_left_running(&reg("idle", ended), &t).is_empty());
+    }
+
+    #[test]
     fn jev_takes_a_server_out_of_working() {
         let a = acct("claude2");
         let quiet = Quiet { subagent_at: None, running: Some("npm run dev"), ..Default::default() };
@@ -6784,6 +6881,7 @@ mod tests {
             said(at("working", "tie-b", Status::Working, 22, 22), "`make tie b`"),
             said(at("working", "tie-a", Status::Working, 22, 22), "`make tie a`"),
             Session { background: Some("gh run watch".into()), ..said(at("working", "background", Status::Working, 25, 8), "Waiting on `gh run watch`") },
+            Session { agents: vec!["Draft the release notes".into()], ..said(at("working", "agents", Status::Working, 27, 7), "Waiting on a background agent · Draft the release notes") },
             Session { excerpt: None, status_since: None, ..at("working", "silent", Status::Working, 26, 12) },
             said(at("working", "finished-beside", Status::Unread, 1, 1), "Done."),
             at("working", "idle-beside-work", Status::Idle, 3, 2),

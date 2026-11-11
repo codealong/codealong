@@ -549,6 +549,13 @@ describe('waitsInBackground', () => {
     expect(waitsInBackground({ ...waiting, status: 'idle' })).toBe(false);
   });
 
+  it('is a working session whose turn ended with agents left running', () => {
+    const agents = fx.session({ status: 'working', agents: ['Draft the release notes', ''] });
+    expect(waitsInBackground(agents)).toBe(true);
+    expect(waitsInBackground({ ...agents, agents: [] })).toBe(false);
+    expect(waitsInBackground({ ...agents, status: 'needs' })).toBe(false);
+  });
+
   it('is a worktree whose working sessions all wait', () => {
     expect(laneWaits(fx.lane({ glyph: 'working', sessions: [waiting] }))).toBe(true);
     expect(laneWaits(fx.lane({ glyph: 'working', sessions: [waiting, busy] }))).toBe(false);

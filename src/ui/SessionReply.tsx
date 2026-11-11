@@ -98,7 +98,7 @@ import { filesToAttach, keepFiles, useFileDrop } from '../attachInput';
 import { answersDraft, onDraftChange, readAnswers, readDraft, sideDraft, writeDraft, writtenAnswers } from '../drafts';
 import { noteDraftTaken } from '../typingTrace';
 import { HARNESS_WORD, sessionPlace } from '../harness';
-import { asideable, seenable, stoppable, stuckMidTurn, waitsOnYou } from '../lanes';
+import { asideable, seenable, stoppable, stuckMidTurn, waitsInBackground, waitsOnYou } from '../lanes';
 import { beingRead, notAsked, shownSide, showSides, startingSide, useAside, usePopped, useSideAnswer } from '../side';
 import { COMMANDS, commandWords, slashCommand, slashMatches } from '../slash';
 import { completed, matching, mentionsIn, sessionSkills, skillNamed, typedAt, writtenFor } from '../skills';
@@ -158,7 +158,8 @@ export function typesCommands(way: Way | null | undefined): boolean {
 export function replyPlaceholder(s: Session, terminal: string, way?: Way | null, resuming?: { place: StartPlace; behind: boolean } | null): string {
   const to = s.asks ? `Answer ${s.account}` : `Send to ${s.account}`;
   if (s.hosted) return s.status === 'working' || s.status === 'needs' ? `${to}: it takes this after its current turn` : to;
-  const working = s.status === 'working' ? ': it takes this in as it works' : stuckMidTurn(s) ? ': it takes this once the step it’s stuck on ends' : '';
+  // One working only on what its turn left in the background sits at its prompt: this starts a turn.
+  const working = s.status === 'working' && !waitsInBackground(s) ? ': it takes this in as it works' : stuckMidTurn(s) ? ': it takes this once the step it’s stuck on ends' : '';
   switch (way?.kind) {
     case 'typed':
       return `${to} via ${way.app}${working}`;

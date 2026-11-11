@@ -73,6 +73,8 @@ pub use conversation::conversation_items;
 pub use held::Held;
 pub use registry::RegistryEntry;
 pub use transcript::TranscriptInfo;
+#[cfg(test)]
+pub use transcript::BackgroundAgent;
 
 /// Claude Code's send-now key, Ctrl+X Ctrl+S (`chat:sendNow`; Ctrl+Enter is bound to it too, but
 /// a terminal without the kitty keyboard protocol sends it as Return). Pressed with a prompt in

@@ -35,6 +35,20 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   and the process table whether one still runs: `claude/transcript.rs` (`background_step`),
   `board.rs` (`untold_shell`). Read as a turn that ended, an ACP session's reply saying it waited
   on what its Monitor would report was taken by Jev for asking you (2026-10-29).
+- Agents and workflows run in the background keep the registry `busy` with the session's turn over
+  (2.1.322's code: its status is `isLoading || delegatedActive ? "busy" : "idle"`, `delegatedActive`
+  any running `local_agent`, `remote_agent`, `in_process_teammate` or `local_workflow` task, and
+  `shell` only `idle` with a `local_bash` one), and `statusUpdatedAt` stays at the prompt until
+  the last of them ends. The transcript says which a session started (an Agent or Workflow call's
+  result, `toolUseResult.status: "async_launched"` with an Agent's `agentId` and `description`, a
+  Workflow's `taskId` and `summary`) and which ended (a
+  `<task-notification>` with a `<status>`, its `<task-id>` the agent's id, or one held for the turn
+  as a `queued_command`; TaskStop's `task_id`), and `system` / `turn_duration` that the turn did:
+  `claude/transcript.rs` (`agent_started`, `background_step`), `board.rs` (`agents_left_running`).
+  Read as a turn, a session that ended a turn on a question while six agents ran showed working for
+  40 minutes, its last command for an excerpt, and the question never reached Needs you
+  (2026-11-10). Not followed: a foreground agent moved to the background, a finished agent resumed
+  by SendMessage (both busy by the same rule), and remote agents and teammates.
 - Transcripts, `<home>/projects/<encoded cwd>/<session>.jsonl`, subagents' logs,
   `<session>/subagents/agent-*.jsonl` (the same format, every line `isSidechain: true`, with an
   `agent-*.meta.json` beside each: `description`, `requestShape: "background"` for one run in

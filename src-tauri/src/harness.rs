@@ -1113,10 +1113,11 @@ pub fn nothing_before(h: Harness) -> anyhow::Error {
 }
 
 /// Whether a session is in the middle of a turn that a Stop would end: working, or stuck mid-turn.
-/// Not a turn that ended with a command left running in the background (Claude Code's `shell`,
-/// `Session::background`), which shows as working while it runs: there's no turn to stop.
+/// Not a turn that ended with a command or agents left running in the background (Claude Code's
+/// `shell`, `Session::left_running`), which shows as working while they run: there's no turn to
+/// stop.
 pub fn turn_running(s: &Session) -> bool {
-    s.live && s.background.is_none() && (s.status == crate::model::Status::Working || s.stalled_since.is_some())
+    s.live && !s.left_running() && (s.status == crate::model::Status::Working || s.stalled_since.is_some())
 }
 
 /// Whether Codealong can stop the turn a session is taking: one it runs itself, or one its
@@ -1128,8 +1129,10 @@ pub fn stoppable(s: &Session, account: Option<&AccountCfg>) -> bool {
 /// Whether what you send to a session can reach the agent in the turn it's taking at once
 /// (`Adapter::steers`). The Agent Client Protocol has no way to, so a session Codealong runs
 /// itself takes a message after its turn; one stuck mid-turn takes nothing typed.
+/// One whose turn is over with something left running in the background takes a prompt as a new
+/// turn at once, so there's no turn to send into.
 pub fn steerable(s: &Session, account: Option<&AccountCfg>) -> bool {
-    s.live && s.status == crate::model::Status::Working && !s.hosted && account.is_some_and(|account| adapter(s.harness).steers(&Ctx { account }, s))
+    s.live && s.status == crate::model::Status::Working && !s.left_running() && !s.hosted && account.is_some_and(|account| adapter(s.harness).steers(&Ctx { account }, s))
 }
 
 /// `program`, a harness's command line, when `command` (an account's, as config.toml gives it)

@@ -187,6 +187,11 @@ export interface Session {
    *  when it couldn't be read. Working, it waits on it (`waitsInBackground`). Missing from a
    *  board an older app sent. */
   background?: string;
+  /** A Claude session whose turn ended with subagents or workflows it started in the background
+   *  still running: what each is for, oldest first ("" where its call didn't say). Working, it
+   *  waits on them (`waitsInBackground`). Missing when there are none, and from a board an older
+   *  app sent. */
+  agents?: string[];
   /** While its agent waits on a command you allowed in your terminal (`codealong terminal run`):
    *  where it runs and what, which the end of its conversation says (`Waiting`). Missing from a
    *  board an older app sent. */

@@ -675,7 +675,12 @@ A session gone silent mid-turn has no line: its header says how long it's been s
 turn is over but that waits on a command it left running in the background (a CI watch or a
 Claude Code Monitor, say), in a terminal, in the Claude app or started from Codealong, says so in
 the line's place, with the clock the list draws for it: Waiting on and the command, all of it on
-hover. It isn't your turn until the command ends and the agent has had its say about it.
+hover. It isn't your turn until the command ends and the agent has had its say about it. The same
+goes for a Claude Code session whose turn ended with agents or a workflow it started still running
+in the background: Waiting on a background agent and what it's for, or Waiting on and how many,
+each one's errand on hover, timed from the turn's end, with no Stop (there's no turn to stop) and a
+box that starts a new turn rather than sending into one. Unless its last reply asks you something
+(see *Jev*), in which case it's *Needs you* until you've seen it, while the agents carry on.
 
 Now and then, in the main window, a tip on using Codealong sits quietly on the line's right
 (*Tips*): beside the word when all of it fits there on one line, else under it on the right: only
@@ -3593,7 +3598,9 @@ want…") or leaves you next steps to take yourself stays *Your turn*. A busy se
 long build stays *Working* instead of *stuck*; a command left running in the background says
 whether it polls for something, runs a job, is a server or watcher left running (no longer
 *Working*), or waits on you (a sign-in, a password), which still takes what you send it, since its
-turn is over. Rows show how far the work got (Landed, Pushed,
+turn is over. A reply written as a turn ended with agents still running in the background is read
+as any turn's: one that asks you something is *Needs you* until you've seen it, and one that only
+says it waits on its agents stays waiting. Rows show how far the work got (Landed, Pushed,
 Committed, Not committed, Blocked) and how risky a command waiting for approval looks, judged from
 the whole call where its harness shows it (the arguments, not just the command's name); a worktree
 whose sessions all read as done says *Looks finished*. A turn that's yours to read also says how
@@ -3661,6 +3668,12 @@ A Claude session whose turn left a command running in the background (registry s
 *Working* while that command does something. The engine looks at the command's processes once a
 minute; when none has started or used CPU for 15 minutes (a dev server, a sign-in waiting on a
 browser, `tail -f`), the turn is over and the row says *Left running*.
+
+Agents and workflows a Claude Code session started in the background keep it busy by Claude Code's
+own word, whether or not a turn runs. A session whose transcript says its turn ended with some of
+them still running waits on them (*Waiting on 3 background agents*), as on a command, until each
+has reported; agents an earlier process of it started went with that process. One that's busy
+mid-turn is working, whatever runs beside it.
 
 ### Where a session came from
 

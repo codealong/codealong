@@ -1651,10 +1651,10 @@ fn end(engine: &Handle, s: &crate::model::Session, account: &config::AccountCfg,
 }
 
 /// Does `act`, which ends the session `s`, and logs it as Mark as done's stop in stops.log when
-/// it ends work under way: a turn running, one waiting on you to allow a call, or a command its
-/// turn left running. `who` asked.
+/// it ends work under way: a turn running, one waiting on you to allow a call, or a command or
+/// agents its turn left running. `who` asked.
 fn stopping<T, E: std::fmt::Display>(s: &crate::model::Session, who: &str, act: impl FnOnce() -> Result<T, E>) -> Result<T, E> {
-    if s.live && (harness::turn_running(s) || send::waits_on_you(s) || s.background.is_some()) {
+    if s.live && (harness::turn_running(s) || send::waits_on_you(s) || s.left_running()) {
         stops::noted(Stop::Done, &s.key, &s.title, who, act)
     } else {
         act()

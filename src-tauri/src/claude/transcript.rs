@@ -50,6 +50,15 @@ pub struct Holding {
     dequeued: Vec<String>,
 }
 
+/// A subagent or workflow a session started in the background (`agent_started`): its task id,
+/// when it started and what it's for.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BackgroundAgent {
+    pub id: String,
+    pub at: i64,
+    pub about: String,
+}
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct TranscriptInfo {
     pub session_id: String,
@@ -152,6 +161,10 @@ pub struct TranscriptInfo {
     /// ended, with when each started, oldest first: each wakes it as it ends. Its registry says
     /// so only from a terminal (board.rs `untold_shell`).
     pub background: Vec<(String, i64)>,
+    /// The subagents and workflows it started in the background that it hasn't been told have
+    /// ended, oldest first, followed as its shells are (`background_step`): Claude Code says it's
+    /// busy while any runs, its turn over or not (board.rs `agents_left_running`).
+    pub agents: Vec<BackgroundAgent>,
 }
 
 impl TranscriptInfo {
@@ -257,7 +270,7 @@ pub fn parse_transcript(path: &Path, mtime: i64, prev: Option<Parsed>) -> Option
     // A large append rebuilds the tail's status, but flags in the already-read prefix are known.
     let (was_flagged, flag_from) = prev.as_ref().filter(|(_, _, st)| st.offset <= len).map(|(_, info, st)| (info.flagged, st.offset)).unwrap_or_default();
     // So are the shells it runs in the background, which the lines since only add to or end.
-    let ran = prev.as_ref().filter(|(_, _, st)| st.offset <= len).map(|(_, info, st)| (info.background.clone(), st.offset));
+    let ran = prev.as_ref().filter(|(_, _, st)| st.offset <= len).map(|(_, info, st)| (info.background.clone(), info.agents.clone(), st.offset));
     let resume = prev.filter(|(_, _, st)| st.offset <= len && len - st.offset <= 4 * FRESH_TAIL);
     let fresh = resume.is_none();
     let (head, mut info, mut state, tail) = match resume {
@@ -279,9 +292,9 @@ pub fn parse_transcript(path: &Path, mtime: i64, prev: Option<Parsed>) -> Option
             let (said_at, ended_at, compacted) = said_before(path, tail.start);
             info.compacted = said_at.filter(|_| compacted);
             info.ended_at = ended_at;
-            (info.queue, info.background) = held_before(path, tail.start.saturating_sub(QUEUE_SCAN), tail.start);
-            if let Some((background, from)) = ran {
-                info.background = background_since(path, background, from, tail.start);
+            (info.queue, info.background, info.agents) = held_before(path, tail.start.saturating_sub(QUEUE_SCAN), tail.start);
+            if let Some((background, agents, from)) = ran {
+                (info.background, info.agents) = background_since(path, background, agents, from, tail.start);
             }
             (head, info, TailState { said_at, ..TailState::default() }, tail)
         }
@@ -518,7 +531,7 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
         if let Some(step) = turn_step(&v) {
             info.unfinished = step;
         }
-        background_step(&mut info.background, &v, ts);
+        background_step(&mut info.background, &mut info.agents, &v, ts);
         let typed = hold_line(&mut info.queue, &mut state.holding, &v);
         // A subagent's prompt, in transcripts from before their own logs, went in its mode.
         if matches!(kind, Some("permission-mode") | Some("user")) && v.get("isSidechain").and_then(Value::as_bool) != Some(true) {
@@ -866,12 +879,27 @@ fn shell_task(id: &str) -> bool {
     id.len() == 9 && id.starts_with('b') && id[1..].bytes().all(|c| c.is_ascii_digit() || c.is_ascii_lowercase())
 }
 
-/// Follows the shells a session runs in the background through a line. A call's result starts
-/// one: a Bash call's `backgroundTaskId`, a Monitor's `taskId`. A notification with a `<status>`
-/// ends one (completed, failed, killed, or stopped as the session ended; a Monitor's events come
-/// without), as a line of its own or one held for the turn to take in (`queued_command`); so
-/// does TaskStop's result, which no notification follows.
-fn background_step(running: &mut Vec<(String, i64)>, v: &Value, at: Option<i64>) {
+/// The subagent or workflow a call's result says it started in the background, and what it's
+/// for: `status: "async_launched"`, with an Agent call's `agentId` and `description`, or a
+/// Workflow call's `taskId` and `summary` (2.1.322). Claude Code says the session is busy while
+/// one runs (its `delegatedActive`, any running `local_agent` or `local_workflow` task), where a
+/// shell leaves it idle.
+fn agent_started(result: &Value) -> Option<(&str, String)> {
+    if result.get("status").and_then(Value::as_str) != Some("async_launched") {
+        return None;
+    }
+    let id = result.get("agentId").or_else(|| result.get("taskId")).and_then(Value::as_str).filter(|id| !id.is_empty())?;
+    let about = ["description", "summary", "workflowName"].iter().find_map(|k| result.get(*k).and_then(Value::as_str).filter(|a| !a.trim().is_empty()));
+    Some((id, about.map(|a| one_line(a, 120)).unwrap_or_default()))
+}
+
+/// Follows what a session runs in the background through a line: its shells, and its subagents
+/// and workflows (`agent_started`). A call's result starts one: a Bash call's
+/// `backgroundTaskId`, a Monitor's `taskId`, an Agent's or a Workflow's launch. A notification
+/// with a `<status>` ends one (completed, failed, killed, or stopped as the session ended; a
+/// Monitor's events come without), as a line of its own or one held for the turn to take in
+/// (`queued_command`); so does TaskStop's result, which no notification follows.
+fn background_step(running: &mut Vec<(String, i64)>, agents: &mut Vec<BackgroundAgent>, v: &Value, at: Option<i64>) {
     if v.get("isSidechain").and_then(Value::as_bool) == Some(true) {
         return;
     }
@@ -883,6 +911,14 @@ fn background_step(running: &mut Vec<(String, i64)>, v: &Value, at: Option<i64>)
         }
         if running.len() > BACKGROUND_MOST {
             running.remove(0);
+        }
+    }
+    if let (Some((id, about)), Some(at)) = (result.and_then(agent_started), at) {
+        if !agents.iter().any(|a| a.id == id) {
+            agents.push(BackgroundAgent { id: id.to_string(), at, about });
+        }
+        if agents.len() > BACKGROUND_MOST {
+            agents.remove(0);
         }
     }
     let stopped = result.and_then(|r| r.get("task_id")).and_then(Value::as_str);
@@ -901,6 +937,7 @@ fn background_step(running: &mut Vec<(String, i64)>, v: &Value, at: Option<i64>)
         .filter_map(|n| n.split("<task-id>").nth(1)?.split("</task-id>").next())
         .collect();
     running.retain(|(id, _)| Some(id.as_str()) != stopped && !ended.contains(&id.as_str()));
+    agents.retain(|a| Some(a.id.as_str()) != stopped && !ended.contains(&a.id.as_str()));
 }
 
 fn str_of(v: &Value, key: &str) -> Option<String> {
@@ -1144,10 +1181,11 @@ const QUEUE_SCAN: u64 = 1024 * 1024;
 /// first read replays the queue's lines, the turns' prompts and the command lines before them from
 /// `QUEUE_SCAN` before its tail, once (`hold_line`); later reads carry what's held forward. A prompt's line is known
 /// for a turn's by its `turnPosition` (2.1.30x). The same look back finds the shells it runs in
-/// the background (`background_step`), which a long turn's output can push out of the tail too;
+/// the background and its agents (`background_step`), which a long turn's output can push out of
+/// the tail too;
 /// one started further back than that before Codealong first read the transcript is read as its
 /// registry says, since reading back to every session's start would cost each launch far more.
-fn held_before(path: &Path, from: u64, end: u64) -> (Vec<QueuedMessage>, Vec<(String, i64)>) {
+fn held_before(path: &Path, from: u64, end: u64) -> (Vec<QueuedMessage>, Vec<(String, i64)>, Vec<BackgroundAgent>) {
     let (mut lines, mut tasks): (Vec<Value>, Vec<Value>) = (Vec::new(), Vec::new());
     scan_lines_back(path, from, end, |line| {
         if line.contains("\"queue-operation\"") || line.contains("\"turnPosition\"") || line.contains("<command-name>") {
@@ -1162,14 +1200,15 @@ fn held_before(path: &Path, from: u64, end: u64) -> (Vec<QueuedMessage>, Vec<(St
     for v in lines.iter().rev() {
         hold_line(&mut queue, &mut holding, v);
     }
-    let mut background = Vec::new();
-    replay_background(&mut background, &tasks);
-    (queue, background)
+    let (mut background, mut agents) = (Vec::new(), Vec::new());
+    replay_background(&mut background, &mut agents, &tasks);
+    (queue, background, agents)
 }
 
-/// The shells it runs in the background after the lines from `from` to `end`, when those it ran
-/// at `from` are known: a large append is read afresh, but only its lines can start or end one.
-fn background_since(path: &Path, mut running: Vec<(String, i64)>, from: u64, end: u64) -> Vec<(String, i64)> {
+/// The shells and agents it runs in the background after the lines from `from` to `end`, when
+/// those it ran at `from` are known: a large append is read afresh, but only its lines can start
+/// or end one.
+fn background_since(path: &Path, mut running: Vec<(String, i64)>, mut agents: Vec<BackgroundAgent>, from: u64, end: u64) -> (Vec<(String, i64)>, Vec<BackgroundAgent>) {
     let mut tasks = Vec::new();
     scan_lines_back(path, from, end, |line| {
         if names_a_task(line) {
@@ -1177,19 +1216,20 @@ fn background_since(path: &Path, mut running: Vec<(String, i64)>, from: u64, end
         }
         false
     });
-    replay_background(&mut running, &tasks);
-    running
+    replay_background(&mut running, &mut agents, &tasks);
+    (running, agents)
 }
 
-/// Whether a line can start or end a background shell (`background_step`), before it's parsed.
+/// Whether a line can start or end a background shell or agent (`background_step`), before it's
+/// parsed.
 fn names_a_task(line: &str) -> bool {
-    ["\"backgroundTaskId\"", "\"taskId\"", "\"task_id\"", "<task-notification>"].iter().any(|s| line.contains(s))
+    ["\"backgroundTaskId\"", "\"taskId\"", "\"agentId\"", "\"task_id\"", "<task-notification>"].iter().any(|s| line.contains(s))
 }
 
 /// `background_step` over lines a look back gathered, last first.
-fn replay_background(running: &mut Vec<(String, i64)>, last_first: &[Value]) {
+fn replay_background(running: &mut Vec<(String, i64)>, agents: &mut Vec<BackgroundAgent>, last_first: &[Value]) {
     for v in last_first.iter().rev() {
-        background_step(running, v, str_of(v, "timestamp").as_deref().and_then(parse_rfc3339_ms));
+        background_step(running, agents, v, str_of(v, "timestamp").as_deref().and_then(parse_rfc3339_ms));
     }
 }
 
@@ -2594,6 +2634,55 @@ pub(super) mod tests {
         let long = result("2026-10-29T21:59:00.000Z", json!({"stdout": "x".repeat(2_000_000)}));
         std::fs::write(&path, format!("{HEAD}{}\n{ended}\n{long}\n{}\n", started.join("\n"), told(&notice("b7k2m9p4q", "")))).unwrap();
         assert_eq!(parse_transcript(&path, 2, Some(first)).unwrap().1.background, both[1..]);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn follows_the_agents_it_runs_in_the_background() {
+        use serde_json::json;
+        let at = |ts: &str| parse_rfc3339_ms(ts).unwrap();
+        let result = |ts: &str, r: Value| json!({"type": "user", "timestamp": ts, "message": {"content": [{"type": "tool_result", "tool_use_id": "t", "content": "ok"}]}, "toolUseResult": r}).to_string();
+        let notice = |id: &str| format!("<task-notification>\n<task-id>{id}</task-id>\n<tool-use-id>t</tool-use-id>\n<status>completed</status>\n<summary>Agent finished</summary>\n</task-notification>");
+        let told = |text: &str| json!({"type": "user", "timestamp": "2026-11-11T01:41:51.000Z", "origin": {"kind": "task-notification"}, "message": {"content": text}}).to_string();
+        let held = |text: &str| json!({"type": "attachment", "timestamp": "2026-11-11T01:15:35.000Z", "attachment": {"type": "queued_command", "prompt": text}}).to_string();
+        // As 2.1.322 writes an Agent call's launch and a Workflow call's; a foreground agent's
+        // result, and a shell's, aren't one.
+        let started = [
+            result("2026-11-11T01:07:15.000Z", json!({"isAsync": true, "status": "async_launched", "agentId": "a5f3c2e1d0b9a8776", "description": "Scope the build paths", "outputFile": "/tmp/a.output"})),
+            result("2026-11-11T01:07:28.000Z", json!({"status": "async_launched", "taskId": "wk4p7m2qz", "taskType": "local_workflow", "workflowName": "readiness", "summary": "Readiness review of the package\n15 reviewers, then verification"})),
+            result("2026-11-11T01:07:30.000Z", json!({"status": "completed", "agentId": "a0123456789abcdef", "content": []})),
+            result("2026-11-11T01:07:31.000Z", json!({"stdout": "", "backgroundTaskId": "b3x8c1v5n"})),
+        ];
+        let mut info = parse_lines(HEAD, &started.join("\n"));
+        let both = vec![
+            BackgroundAgent { id: "a5f3c2e1d0b9a8776".into(), at: at("2026-11-11T01:07:15.000Z"), about: "Scope the build paths".into() },
+            BackgroundAgent { id: "wk4p7m2qz".into(), at: at("2026-11-11T01:07:28.000Z"), about: "Readiness review of the package".into() },
+        ];
+        assert_eq!(info.agents, both);
+        assert_eq!(info.background.len(), 1, "the shell is followed apart");
+        // Its report ends one, held for the turn or a line of its own; a subagent's line doesn't.
+        let mut state = TailState::default();
+        let sidechain = json!({"type": "user", "isSidechain": true, "message": {"content": notice("a5f3c2e1d0b9a8776")}}).to_string();
+        apply_tail(&mut info, &mut state, &sidechain);
+        assert_eq!(info.agents, both);
+        apply_tail(&mut info, &mut state, &held(&notice("wk4p7m2qz")));
+        assert_eq!(info.agents, both[..1]);
+        apply_tail(&mut info, &mut state, &told(&notice("a5f3c2e1d0b9a8776")));
+        assert!(info.agents.is_empty());
+        // TaskStop's result ends one too.
+        let stop = result("2026-11-11T01:20:00.000Z", json!({"message": "Successfully stopped task", "task_id": "a5f3c2e1d0b9a8776", "task_type": "local_agent"}));
+        assert!(parse_lines(HEAD, &format!("{}\n{stop}", started[0])).agents.is_empty());
+        // A first read finds one started before its tail, past a long command's output.
+        let dir = crate::fixtures::scratch("agents-before-tail");
+        let path = dir.join("s.jsonl");
+        let output = result("2026-11-11T01:30:00.000Z", json!({"stdout": "x".repeat(300_000)}));
+        std::fs::write(&path, format!("{HEAD}{}\n{}\n{output}\n", started.join("\n"), held(&notice("wk4p7m2qz")))).unwrap();
+        let first = parse_transcript(&path, 1, None).unwrap();
+        assert_eq!(first.1.agents, both[..1]);
+        // A large append is read afresh, and what ran before it runs on unless the append ends it.
+        let long = result("2026-11-11T01:40:00.000Z", json!({"stdout": "x".repeat(2_000_000)}));
+        std::fs::write(&path, format!("{HEAD}{}\n{}\n{output}\n{long}\n{}\n", started.join("\n"), held(&notice("wk4p7m2qz")), told(&notice("a5f3c2e1d0b9a8776")))).unwrap();
+        assert!(parse_transcript(&path, 2, Some(first)).unwrap().1.agents.is_empty());
         std::fs::remove_dir_all(dir).unwrap();
     }
 

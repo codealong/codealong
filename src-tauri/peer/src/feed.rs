@@ -93,8 +93,8 @@ pub struct FeedMsg {
 /// 11: `SessionMode::expected`; 12: `Session::emblem` as an emoji or a picture; 13:
 /// `Session::raised`; 14: `Session::side_answer`; 15: `Session::agent_seen`; 16: `Session::running`;
 /// 17: `Session::labels`; 18: `Session::need`; 19: `Session::listening`; 20: `Session::finished`
-/// and `SessionInsight::ending`; 21: `Session::aside`.
-pub const READS: u32 = 21;
+/// and `SessionInsight::ending`; 21: `Session::aside`; 22: `Session::agents`.
+pub const READS: u32 = 22;
 
 /// What this device knows of a linked device's board, kept up to date by its feeds, and kept on disk
 /// so a device that's asleep still shows as it was when last seen.

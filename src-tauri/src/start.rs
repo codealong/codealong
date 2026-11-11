@@ -1503,6 +1503,10 @@ pub fn move_to(board: &Board, cfg: &Config, key: &str, to: &str, prompt: &str) -
     if s.background.is_some() {
         left.push_str(" It had a command running in the background: ask the copy to start it again if it's still needed.");
     }
+    // So did the agents it left running, which ran in its process.
+    if !s.agents.is_empty() {
+        left.push_str(" It had agents running in the background: ask the copy to start them again if they're still needed.");
+    }
     let place = if in_background { "as a background job".to_string() } else { format!("in a new terminal in {}", lane.callsign) };
     let goes = if prompt.trim().is_empty() { format!("it goes on {place}") } else { format!("it carries on {place}") };
     let runs = runs.map(|r| format!(" {r}")).unwrap_or_default();

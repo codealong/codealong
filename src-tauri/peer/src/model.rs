@@ -296,6 +296,12 @@ pub struct Session {
     /// spinner of a turn that's running.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub background: Option<String>,
+    /// Set on a Claude session whose turn ended with subagents or workflows it started in the
+    /// background still running, which its harness says keep it busy: what each is for, oldest
+    /// first ("" where its call didn't say). A working one waits on them, each waking it as it
+    /// ends, and the windows draw it as they draw `background`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub agents: Vec<String>,
     /// Set while its agent waits on a command you allowed in your terminal (`codealong terminal
     /// run`): where it runs and what. Working, the windows say that at the end of its
     /// conversation, in place of a turn's word or the command it waits with in the background.
@@ -565,11 +571,18 @@ impl Session {
         format!("{}:{account}:{id}", harness.config())
     }
 
-    /// Working only in that it waits on a command its turn left running in the background, which
-    /// wakes it when it ends: counted as working, drawn waiting. `src/lanes.ts` `waitsInBackground`
+    /// Whether its turn is over with something it started still running in the background, which
+    /// wakes it as it ends: a command (`background`) or agents (`agents`). There's no turn to
+    /// stop or to send into then; a prompt starts one.
+    pub fn left_running(&self) -> bool {
+        self.background.is_some() || !self.agents.is_empty()
+    }
+
+    /// Working only in that it waits on what its turn left running in the background
+    /// (`left_running`): counted as working, drawn waiting. `src/lanes.ts` `waitsInBackground`
     /// says the same for the windows.
     pub fn waits_in_background(&self) -> bool {
-        self.status == Status::Working && self.background.is_some()
+        self.status == Status::Working && self.left_running()
     }
 
     /// Kept out of what waits on you for now, whatever its status: snoozed until a time, or set
@@ -716,6 +729,7 @@ impl Session {
             stalled_since: None,
             need: None,
             background: None,
+            agents: Vec::new(),
             running: None,
             queued_at: None,
             queued: Vec::new(),

@@ -28,6 +28,7 @@ type Lacks<Theirs, Name> = Name extends Theirs ? { theWindowsNowName: Name } : t
 export type Session = Holds<Same<
   | "account"
   | "agentSeen"
+  | "agents"
   | "appAccount"
   | "archived"
   | "artifacts"

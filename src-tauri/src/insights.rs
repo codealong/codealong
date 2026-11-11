@@ -81,9 +81,10 @@ fn command_in(excerpt: &str) -> Option<&str> {
 
 /// Whether its turn is over: its last reply is what it has to say. One that Needs you only
 /// because that reply asks you something (`asks`, from `board::apply_insight`) is at its prompt
-/// too: asked about again from the published board, it's the same moment, not an approval.
+/// too: asked about again from the published board, it's the same moment, not an approval. So is
+/// one working only on the agents its turn left running (`Session::agents`).
 fn turn_ended(s: &Session) -> bool {
-    matches!(s.status, Status::Unread | Status::Idle | Status::Stopped) || s.asks
+    matches!(s.status, Status::Unread | Status::Idle | Status::Stopped) || s.asks || (s.status == Status::Working && !s.agents.is_empty())
 }
 
 /// What to ask about a session now, and the signature that moment is kept under: `<kind>-<hash>`
