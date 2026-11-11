@@ -210,11 +210,11 @@ pub fn is_meeting(m: &Meeting) -> bool {
 }
 
 /// The meeting to offer at `now`: one about to start or not long begun, still going, that you
-/// haven't answered. The first to start, of several.
-pub fn on_offer<'a>(events: &'a [Meeting], answered: &HashMap<String, i64>, now: i64) -> Option<&'a Meeting> {
+/// haven't answered and that no session is hearing (`heard`). The first to start, of several.
+pub fn on_offer<'a>(events: &'a [Meeting], answered: &HashMap<String, i64>, heard: &[String], now: i64) -> Option<&'a Meeting> {
     events
         .iter()
-        .filter(|m| is_meeting(m) && !answered.contains_key(&m.id))
+        .filter(|m| is_meeting(m) && !answered.contains_key(&m.id) && !heard.contains(&m.id))
         .filter(|m| now >= m.start - LEAD_MS && now < m.end.min(m.start + LATE_MS))
         .min_by(|a, b| a.start.cmp(&b.start).then_with(|| a.id.cmp(&b.id)))
 }
@@ -359,21 +359,25 @@ fn read(ask: bool) {
     state.answered.retain(|_, at| now - *at < ANSWERS_KEPT_MS);
 }
 
+/// What's on offer: the meeting being taken, in sight until it's hearing whatever the time, else
+/// the one `on_offer` gives.
+fn offer_of(events: &[Meeting], answered: &HashMap<String, i64>, heard: &[String], taking: Option<&str>, now: i64) -> Option<Offer> {
+    match taking {
+        Some(id) => events.iter().find(|m| m.id == id).map(|m| Offer { meeting: m.clone(), taking: true }),
+        None => on_offer(events, answered, heard, now).map(|m| Offer { meeting: m.clone(), taking: false }),
+    }
+}
+
 /// Works out what's on offer, and has the board say so when it changed.
 fn settle(engine: &Handle, now: i64) {
     // A meeting a session is hearing was taken, whatever the answers say: by a server before
-    // this one that went between starting it and noting it, say.
+    // this one that went between starting it and noting it, say. Only while it's heard, and
+    // never remembered: one whose take is under way is listed as hearing before it is, and a
+    // take that then fails leaves the meeting to be taken again.
     let heard = listen::meetings_heard();
     let changed = {
         let mut state = state();
-        for id in heard {
-            state.answered.entry(id).or_insert(now);
-        }
-        let offer = match state.taking.clone() {
-            // The one being taken stays in sight until it's hearing, whatever the time.
-            Some(id) => state.calendar.events.iter().find(|m| m.id == id).map(|m| Offer { meeting: m.clone(), taking: true }),
-            None => on_offer(&state.calendar.events, &state.answered, now).map(|m| Offer { meeting: m.clone(), taking: false }),
-        };
+        let offer = offer_of(&state.calendar.events, &state.answered, &heard, state.taking.as_deref(), now);
         let changed = offer != state.offer;
         state.offer = offer;
         changed
@@ -541,7 +545,7 @@ mod tests {
     fn a_meeting_is_on_offer_from_a_minute_before_until_ten_minutes_in_or_its_end() {
         let events = [meeting("a", NOW, 30)];
         let none = HashMap::new();
-        let offered = |now: i64| on_offer(&events, &none, now).map(|m| m.id.as_str());
+        let offered = |now: i64| on_offer(&events, &none, &[], now).map(|m| m.id.as_str());
         assert_eq!(offered(NOW - 2 * MIN), None);
         assert_eq!(offered(NOW - LEAD_MS), Some("a"));
         assert_eq!(offered(NOW), Some("a"));
@@ -549,8 +553,8 @@ mod tests {
         assert_eq!(offered(NOW + LATE_MS), None);
         // A short one is on offer only while it goes on.
         let short = [meeting("s", NOW, 5)];
-        assert_eq!(on_offer(&short, &none, NOW + 4 * MIN).map(|m| m.id.as_str()), Some("s"));
-        assert_eq!(on_offer(&short, &none, NOW + 5 * MIN), None);
+        assert_eq!(on_offer(&short, &none, &[], NOW + 4 * MIN).map(|m| m.id.as_str()), Some("s"));
+        assert_eq!(on_offer(&short, &none, &[], NOW + 5 * MIN), None);
     }
 
     #[test]
@@ -558,12 +562,32 @@ mod tests {
         let events = [meeting("b", NOW, 30), meeting("a", NOW, 30), meeting("later", NOW + 5 * MIN, 30), Meeting { attendees: Vec::new(), ..meeting("alone", NOW - MIN, 60) }];
         let mut answered = HashMap::new();
         // The first to start, and of two at once the same one every time.
-        assert_eq!(on_offer(&events, &answered, NOW).map(|m| m.id.as_str()), Some("a"));
+        assert_eq!(on_offer(&events, &answered, &[], NOW).map(|m| m.id.as_str()), Some("a"));
         answered.insert("a".to_string(), NOW);
-        assert_eq!(on_offer(&events, &answered, NOW).map(|m| m.id.as_str()), Some("b"));
+        assert_eq!(on_offer(&events, &answered, &[], NOW).map(|m| m.id.as_str()), Some("b"));
         answered.insert("b".to_string(), NOW);
-        assert_eq!(on_offer(&events, &answered, NOW), None);
-        assert_eq!(on_offer(&events, &answered, NOW + 4 * MIN).map(|m| m.id.as_str()), Some("later"));
+        assert_eq!(on_offer(&events, &answered, &[], NOW), None);
+        assert_eq!(on_offer(&events, &answered, &[], NOW + 4 * MIN).map(|m| m.id.as_str()), Some("later"));
+    }
+
+    #[test]
+    fn a_meeting_being_heard_isnt_on_offer_and_one_whose_take_failed_is_again() {
+        let events = [meeting("a", NOW, 30), meeting("b", NOW + 2 * MIN, 30)];
+        let answered = HashMap::new();
+        let offered = |heard: &[&str], taking: Option<&str>, now: i64| {
+            let heard: Vec<String> = heard.iter().map(|id| id.to_string()).collect();
+            offer_of(&events, &answered, &heard, taking, now).map(|o| (o.meeting.id, o.taking))
+        };
+        assert_eq!(offered(&[], None, NOW), Some(("a".to_string(), false)));
+        // Taken: in sight as starting, while its listening is filed before anything's heard.
+        assert_eq!(offered(&[], Some("a"), NOW), Some(("a".to_string(), true)));
+        assert_eq!(offered(&["a"], Some("a"), NOW + 5000), Some(("a".to_string(), true)));
+        // It's hearing: no longer on offer, by that alone, and the next one is in its turn.
+        assert_eq!(offered(&["a"], None, NOW + 10_000), None);
+        assert_eq!(offered(&["a"], None, NOW + MIN).map(|(id, _)| id), Some("b".to_string()));
+        // The take failed and its listening is gone: nothing was remembered, so it's on offer
+        // again, to try once more.
+        assert_eq!(offered(&[], None, NOW + 10_000), Some(("a".to_string(), false)));
     }
 
     #[test]
@@ -575,7 +599,7 @@ mod tests {
         // As a server started again reads them: neither is on offer.
         let kept = kept_answers(&path);
         assert_eq!((kept.get("a"), kept.get("b")), (Some(&NOW), Some(&(NOW + MIN))));
-        assert_eq!(on_offer(&[meeting("a", NOW, 30), meeting("b", NOW, 30)], &kept, NOW + MIN), None);
+        assert_eq!(on_offer(&[meeting("a", NOW, 30), meeting("b", NOW, 30)], &kept, &[], NOW + MIN), None);
         // One from long ago goes as the next is noted.
         note_answer(&path, "c", NOW + ANSWERS_KEPT_MS + MIN);
         let kept = kept_answers(&path);
