@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { doneAhead, labelAhead, quietAhead, raiseAhead } from './ahead';
+import { asideAhead, doneAhead, labelAhead, quietAhead, raiseAhead } from './ahead';
 import { getAccounts, moveSession, moveSessionTo, resumeSession, setPrPrimary, type Done, type MergeDone } from './api';
 import type { MenuAction, MenuGroup, MenuSpec } from './contextMenu';
 import { carryOnIn, chordLetter, chordSigns, chorded, CHORDS, DONE_HOLD_MS, SUGGESTION_CHORDS, suggestionChord, doneTitle, fileMenu, keyed, laneActions, laneMenu, lanesActions, lanesMenu, mergesWith, prMenu, prsActions, prsMenu, repoMenu, sessionActions, sessionMenu, sessionsActions, sessionsMenu, todoMenu, todoPanelMenu, todosMenu, toggleWaiting, type MergeDoneAsk, type SessionCan, type SessionsCan, type TodoEdit } from './menus';
@@ -13,7 +13,7 @@ import type { TodoOp } from './todos';
 import type { Label, Lane, PrItem, Session, Todo } from './types';
 
 // What the engine says to Mark as done: done, unless a test says otherwise.
-vi.mock('./ahead', async (original) => ({ ...(await original<typeof import('./ahead')>()), doneAhead: vi.fn(), labelAhead: vi.fn(() => Promise.resolve()), quietAhead: vi.fn(() => Promise.resolve()), raiseAhead: vi.fn(() => Promise.resolve()) }));
+vi.mock('./ahead', async (original) => ({ ...(await original<typeof import('./ahead')>()), doneAhead: vi.fn(), labelAhead: vi.fn(() => Promise.resolve()), quietAhead: vi.fn(() => Promise.resolve()), raiseAhead: vi.fn(() => Promise.resolve()), asideAhead: vi.fn(() => Promise.resolve()) }));
 // No accounts to move to, unless a test says otherwise; what a move gives back, as a test says.
 vi.mock('./api', async (original) => ({ ...(await original<typeof import('./api')>()), getAccounts: vi.fn(() => Promise.resolve([])), moveSession: vi.fn(), moveSessionTo: vi.fn(), resumeSession: vi.fn(), setPrPrimary: vi.fn(() => Promise.resolve()) }));
 // No accounts to resume in, unless a test says otherwise.
@@ -312,6 +312,26 @@ describe('sessionMenu', () => {
     top?.run();
     expect(raise).toHaveBeenLastCalledWith(['claude:c:1'], false);
     expect(sessionActions(lane(), session({ archived: true }), base).raise).toBeUndefined();
+  });
+
+  it('sets aside on ⌘E, in Mark as seen’s place, one that needs you while its side conversation answers', () => {
+    const aside = vi.mocked(asideAhead);
+    aside.mockClear();
+    const left: string[] = [];
+    const asks = session({ status: 'needs', need: 'question', excerpt: 'Asks you · Which color?' });
+    const acts = sessionActions(lane(), asks, { ...base, answering: true, left: (d) => left.push(d) });
+    expect(acts.seen?.label).toBe('Set aside until its side conversation answers');
+    expect(chorded(acts, { key: 'e', code: 'KeyE', metaKey: true, ctrlKey: false, altKey: false, shiftKey: false })).toBe(acts.seen);
+    acts.seen?.run();
+    expect(aside).toHaveBeenLastCalledWith(['claude:c:1']);
+    expect(left).toEqual(['set aside']);
+    // With nothing answering on its side, ⌘E has nothing to do; the side box's ⌘⏎ still can.
+    const idle = sessionActions(lane(), asks, base);
+    expect(idle.seen).toBeUndefined();
+    expect(idle.aside?.label).toBe('Set aside until its side conversation answers');
+    // A finished turn is marked seen, answering or not; one set aside already isn't again.
+    expect(sessionActions(lane(), session({ status: 'unread' }), { ...base, answering: true }).seen?.label).toBe('Mark as seen');
+    expect(sessionActions(lane(), { ...asks, aside: 1 }, { ...base, answering: true }).seen).toBeUndefined();
   });
 
   it('checks Quiet while it’s quiet, and goes on from a turn it takes out of what waits on you', () => {

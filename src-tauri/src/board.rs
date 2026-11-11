@@ -1945,7 +1945,7 @@ pub fn apply_side_answer(s: &mut Session, sides: &[crate::side::Glance], seen_at
 pub fn apply_aside(s: &mut Session, at: Option<i64>, sides: &[crate::side::Glance]) {
     let Some(at) = at.filter(|at| aside_holds(s, *at, sides)) else { return };
     s.aside = Some(at);
-    if let Some(g) = sides.iter().find(|g| g.running) {
+    if let Some(g) = sides.iter().find(|g| g.running && g.open) {
         s.excerpt = Some(format!("{ASKING_ON_THE_SIDE}{}", g.question));
     }
 }
@@ -1955,8 +1955,9 @@ pub fn apply_aside(s: &mut Session, at: Option<i64>, sides: &[crate::side::Glanc
 const ASKING_ON_THE_SIDE: &str = "Asking on the side · ";
 
 /// Whether a session set aside at `at` still waits on its side conversation: it needs you as it
-/// did then (none of its own since: no new need began, nothing was sent it), and a side
-/// conversation of its is still answering, none having finished since. Once it doesn't, the
+/// did then (none of its own since: no new need began, nothing was sent it), and its open side
+/// conversation is still answering, none having finished since. One you closed lets it go,
+/// though its copy answers on: you've done with it. Once it doesn't hold, the
 /// engine forgets it (`Engine::forget_spent_aside`), so a side conversation asked later doesn't
 /// set it aside again.
 pub fn aside_holds(s: &Session, at: i64, sides: &[crate::side::Glance]) -> bool {
@@ -1964,7 +1965,7 @@ pub fn aside_holds(s: &Session, at: i64, sides: &[crate::side::Glance]) -> bool 
         && !s.archived
         && s.status_since.unwrap_or(s.last_activity) <= at
         && s.last_prompt_at <= at
-        && sides.iter().any(|g| g.running)
+        && sides.iter().any(|g| g.running && g.open)
         && !sides.iter().any(|g| g.answered_at.is_some_and(|t| t > at))
 }
 
@@ -4900,8 +4901,10 @@ mod tests {
         assert_eq!(lane_waiting_since(std::slice::from_ref(&s)), None);
         assert!(raise_refused(&s, None, true).is_some());
 
-        // Once it has answered, or nothing answers any more, it needs you again as it did.
-        for sides in [vec![side(false, Some(NOW - MIN))], vec![side(false, None)], vec![], vec![side(true, Some(NOW - MIN))]] {
+        // Once it has answered, or nothing answers any more, or you closed it as it answered, it
+        // needs you again as it did.
+        let closed = crate::side::Glance { open: false, ..side(true, None) };
+        for sides in [vec![side(false, Some(NOW - MIN))], vec![side(false, None)], vec![], vec![side(true, Some(NOW - MIN))], vec![closed]] {
             let s = applied(&needs, Some(set), &sides);
             assert_eq!((s.status, s.aside, s.excerpt.as_deref()), (Status::Needs, None, Some("Restore test?")), "{sides:?}");
         }

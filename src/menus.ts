@@ -131,6 +131,10 @@ export type Left = 'marked seen' | 'set aside' | 'snoozed' | 'quieted' | 'closed
 
 export interface SessionCan {
   report: Report;
+  /** Its open side conversation is answering, where the window hears of it (side.ts
+   *  `useSideAnswering`): one that needs you for something marking it seen doesn't settle is set
+   *  aside in Mark as seen's place, by its key (`aside`). */
+  answering?: boolean;
   /** Opens one of its worktree's targets: the session where it lives, the folder in an editor. */
   open: (lane: Lane, target: string) => void;
   /** The terminal app's name, for Open in Ghostty where the worktree doesn't name the target. */
@@ -437,6 +441,7 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
     );
   };
   const merges = can.mergeDone && mergesWith(can.mergeDone.prs, s);
+  const aside = asideable(s) ? { label: 'Set aside until its side conversation answers', run: () => settle('set aside')(asideAhead([s.key])) } : undefined;
   const ownTerminal = can.ownTerminal && { label: can.ownTerminal.has ? 'Show terminal' : 'New terminal', run: can.ownTerminal.run };
   return {
     // One on another device opens on its own Mac (peerfeed.rs `shareable`): Open in main window reads it.
@@ -472,8 +477,8 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
     stop: stoppable(s) ? { label: 'Stop turn', run: () => void said(`Stopping ${s.title}…`, sessionCancel(s.key)) } : undefined,
     listen: listenItem(lane, s, report),
     rename: can.rename && renames(s) ? { label: 'Rename…', run: can.rename } : undefined,
-    seen: seenable(s) ? { label: 'Mark as seen', run: () => settle('marked seen')(seenAhead([s.key])) } : undefined,
-    aside: asideable(s) ? { label: 'Set aside until its side conversation answers', run: () => settle('set aside')(asideAhead([s.key])) } : undefined,
+    seen: seenable(s) ? { label: 'Mark as seen', run: () => settle('marked seen')(seenAhead([s.key])) } : can.answering ? aside : undefined,
+    aside,
     // It joins what waits on you rather than leaving it, so a window working through that stays.
     unread: unreadable(s) ? { label: 'Mark as unread', run: () => void unreadAhead([s.key]).catch((e: unknown) => report.error(errorText(e))) } : undefined,
     pin: s.archived ? undefined : can.pin,

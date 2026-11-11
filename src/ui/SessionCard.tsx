@@ -28,6 +28,7 @@ import { useLatest } from '../latest';
 import { sessionContext } from '../sessionContext';
 import { useStartAccounts } from '../startAccounts';
 import { besideOf, ownTerminalFor } from '../terminals';
+import { useSideAnswering } from '../side';
 import type { Board, Lane, Pr, PrItem, Session, TerminalGlance, Todo } from '../types';
 import { reloadKey, zoomKey } from './cardHost';
 import { dialogUp } from './focusTrap';
@@ -97,6 +98,8 @@ export function SessionCard({ lane, session, apps, now, board, can, canFor, outg
   // have gone on, or been put away, by then, so the window says why too (menus.ts
   // `SessionCan.mergeDone`).
   const mergingDone = useMergeDone(false, session.key);
+  // Whether its side conversation answers, for ⌘E on one that needs you (menus.ts `answering`).
+  const answering = useSideAnswering(session.key);
   /** A window's part for a session, with the card's: the same menu in every window. */
   const whole = (s: Session, base: WindowCan): menus.SessionCan => ({
     ...base,
@@ -109,6 +112,7 @@ export function SessionCard({ lane, session, apps, now, board, can, canFor, outg
     // Its terminal under its box, for the session shown; another the header names opens its
     // folder in your terminal app, as it has no drawer here. The terminal it runs in isn't in a
     // card's drawer (SessionPanel.tsx), so with only that one, ⌃` opens a shell beside it.
+    answering: s.key === session.key && answering,
     ownTerminal: s.key === session.key ? ownTerminalFor(s.key, runFolder(lane, s), apps.runIn, besideOf(board?.terminals?.[s.key] ?? NO_TERMINALS), (e: unknown) => report.error(errorText(e))) : undefined,
     keys: 'chords',
   });

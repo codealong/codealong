@@ -537,11 +537,15 @@ you something, is marked seen, and the answer brings it back as Your turn. One t
 something marking it seen doesn't settle (a call to allow, a question it asked, a message it holds)
 is *set aside* instead: it's listed with what's working, drawn waiting, labelled *On the side* and
 saying what you asked there, out of Needs you, the floating bar's pills, the notch, the waiting
-window and the mark. Once the side conversation is done (answered, closed, or its copy gone) it
-needs you again as it did, where it waited, with the answer above its box when you come to it, and
-the bar plays its Needs you sound. A prompt sent to it meanwhile, or a new need of its own (the
-question answered in its terminal and another asked), ends it too. ⌘E (Seen on the strip) sets a
-session aside the same way while its side conversation answers, after you've asked with ⏎. A session on
+window and the mark. Once the side conversation is done (answered, closed though its copy answers
+on, or its copy gone) it needs you again as it did, where it waited, with the answer above its box
+when you come to it, and the bar plays its Needs you sound. A finished turn is marked seen as the
+question goes, so even an answer that comes at once brings it back. A prompt sent to it meanwhile,
+or a new need of its own (the question answered in its terminal and another asked), ends it too.
+⌘E (Seen on the strip) sets a session aside the same way while its side conversation answers,
+after you've asked with ⏎, and the menu of a session shown as a card (the notch, the waiting
+window, the peek) has *Set aside until its side conversation answers* in Mark as seen's place
+meanwhile. A session on
 another machine is set aside there, which needs a build of Codealong from 2026-11-10 or later; the
 iPhone app shows one set aside as needing you.
 

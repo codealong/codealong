@@ -461,11 +461,12 @@ function readSide(key: string): void {
   );
 }
 
-/** Whether a session's side conversation is answering, as the engine last told this window: its
- *  open one, or one closed while its copy answers. Read as it's asked, for a key pressed now
- *  (useWaitingQueue.ts): a window hears of side conversations apart from its board. */
+/** Whether a session's open side conversation is answering, as the engine last told this window,
+ *  which a session set aside waits on (board.rs `aside_holds`; one closed as it answers doesn't
+ *  count). Read as it's asked, for a key pressed now (useWaitingQueue.ts): a window hears of side
+ *  conversations apart from its board. */
 export function sideAnswering(key: string): boolean {
-  return !!sides.get(key)?.running || [...closing.values()].some((c) => c.key === key && c.running);
+  return !!sides.get(key)?.running;
 }
 
 /** Whether a session's side conversation is answering (`sideAnswering`), as it changes. */

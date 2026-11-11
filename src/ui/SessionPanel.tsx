@@ -427,17 +427,20 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
   const openIt = () => onOpen(s.openTarget);
   // Sending and marking seen go on to the next only from a session that waits on you itself.
   const goesOn = queue?.waiting !== false && queue?.next;
-  // ⌘⏎ in its side conversation's box, once asked, takes it as ⌘E would while the side
-  // conversation answers: a turn or a reply that asks you something marked seen, which the answer
-  // brings back (board.rs `apply_side_answer`); one that needs you for something else set aside
-  // until then (`apply_aside`); one that doesn't wait on you gone on from. Read as the question
-  // goes, which can be after the session has changed.
+  // ⌘⏎ in its side conversation's box takes it as ⌘E would while the side conversation answers.
+  // A turn or a reply that asks you something is marked seen as the question goes, before an
+  // answer can come, which brings it back (board.rs `apply_side_answer` counts one after it was
+  // seen). One that needs you for something else is set aside once its copy has the question,
+  // which the engine holds it for (`aside_holds`). One that doesn't wait on you is gone on from.
   const later = useLatest({ s, actions: header.actions, next: queue?.onNext });
-  const onAsked = () => {
+  const onAsked = (): (() => void) | undefined => {
     const { s, actions, next } = later.current;
-    const put = seenable(s) ? actions?.seen : asideable(s) ? actions?.aside : undefined;
-    if (put) put.run();
+    const aside = asideable(s) ? actions?.aside : undefined;
+    if (aside) return () => aside.run();
+    const seen = seenable(s) ? actions?.seen : undefined;
+    if (seen) seen.run();
     else next?.();
+    return undefined;
   };
   // Its shell blocks run in a tab of yours here, as `!` in its box does, so not for a session on
   // another device, and the session is told what they printed.

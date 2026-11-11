@@ -133,6 +133,18 @@
       check('⌘E while it answers sets B aside', asides().join('|') === picked[0].key + '|' + picked[1].key, asides().join('|'));
       check('and goes on to the next', title() === 'Aside C', title());
 
+      // C's turn ended: ⌘⏎ marks it seen before its question goes, so an answer that comes
+      // before the engine takes the mark still brings it back.
+      await until(box, 5000, 'C’s box');
+      box().focus();
+      type(box(), '/side Anything else?');
+      await wait(50);
+      key(box(), { key: 'Enter', metaKey: true });
+      await until(function () { return calls('side_ask').length === 3; }, 3000, 'C asked on the side').catch(function () {});
+      var order = window.__calls.map(function (c) { return c[0] === 'mark_seen' && c[1].keys.indexOf(picked[2].key) >= 0 ? 'seen' : c[0] === 'side_ask' && c[1].key === picked[2].key ? 'ask' : null; }).filter(Boolean);
+      check('⌘⏎ on a finished turn marks it seen, then asks', order.join(',') === 'seen,ask', order.join(','));
+      check('setting nothing aside', asides().length === 2, asides().join('|'));
+
       // The engine's board says A is set aside: it stays so once the window's own change goes.
       window.__asideA = Date.now();
       window.__pushSides();
