@@ -556,6 +556,13 @@ impl Screen {
     /// Ghostty, and so does where it began: a Shift-click after starts afresh.
     pub fn typed(&mut self) {
         self.term.scroll_viewport(ScrollViewport::Bottom);
+        self.forget_selection();
+    }
+
+    /// Clears the selection and forgets where it began, so a Shift-click after starts afresh:
+    /// once something's typed, or the program gets a click or the wheel, as in Ghostty, since what
+    /// the program does then may change what was selected.
+    fn forget_selection(&mut self) {
         if self.term.selection().ok().flatten().is_some() {
             let _ = self.term.set_selection(None);
         }
@@ -754,14 +761,8 @@ impl Screen {
         if !tracking {
             return;
         }
-        // A click the program gets clears the selection and forgets where it began, as in
-        // Ghostty: what the program does with it may change what was selected, and a Shift-click
-        // after starts afresh.
         if action != MouseAction::Move {
-            if self.term.selection().ok().flatten().is_some() {
-                let _ = self.term.set_selection(None);
-            }
-            self.gesture.reset(&self.term);
+            self.forget_selection();
         }
         let _ = self
             .mouse_encoder
@@ -795,6 +796,9 @@ impl Screen {
             return;
         }
         if self.term.is_mouse_tracking().unwrap_or(false) && !mods4.shift {
+            // The program scrolls itself, which may move what was selected. Shift and the wheel
+            // scrolls the view instead, and keeps the selection to Shift-click on from.
+            self.forget_selection();
             for _ in 0..steps.unsigned_abs().min(10) {
                 for action in [MouseAction::Down, MouseAction::Up] {
                     self.held.clear();
@@ -1443,6 +1447,33 @@ mod tests {
         assert_eq!(s.selection_text(), None);
         wait(&mut s, 1000);
         click(&mut s, 1.0, 4.0, true);
+        assert_eq!(s.selection_text(), None, "a plain press, not taking on the old selection");
+    }
+
+    /// With a program that takes the mouse, the wheel it gets clears what Shift selected and
+    /// where it began, as a click does; Shift and the wheel scrolls the view and keeps both.
+    #[test]
+    fn the_wheel_the_program_gets_clears_the_selection_and_shift_wheel_keeps_it() {
+        let (mut s, _) = screen();
+        for i in 0..20 {
+            s.feed(format!("line {i}\r\n").as_bytes());
+        }
+        s.feed(b"\x1b[?1000h\x1b[?1006h");
+        let shift = Mods4 { shift: true, ..Default::default() };
+        // Shift and a click just past the end of line 18, Shift and the wheel back to line 7, and
+        // a Shift-click there selects between.
+        click(&mut s, 60.0, 20.0, true);
+        s.input(&Input::Wheel { rows: -10.0, x: 1.0, y: 1.0, mods: shift });
+        assert!(s.take_out().is_empty(), "Shift and the wheel didn't go to the program");
+        wait(&mut s, 1000);
+        click(&mut s, 1.0, 4.0, true);
+        assert!(s.selection_text().is_some_and(|t| t.starts_with("line 7\n")), "{:?}", s.selection_text());
+        // The wheel alone goes to the program, and the selection goes.
+        s.input(&Input::Wheel { rows: 1.0, x: 1.0, y: 1.0, mods: Mods4::default() });
+        assert!(!s.take_out().is_empty(), "the program got the wheel");
+        assert_eq!(s.selection_text(), None);
+        wait(&mut s, 1000);
+        click(&mut s, 1.0, 36.0, true);
         assert_eq!(s.selection_text(), None, "a plain press, not taking on the old selection");
     }
 
