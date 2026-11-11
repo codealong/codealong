@@ -3497,7 +3497,8 @@ meeting you recorded.
 
 **Listen now.** For a meeting that's beginning, with no session to ask: press ⌥⌘= from any app
 (`[shortcuts] listen`, set with Voice in Settings › Experimental), or the microphone in the main
-window's bar, *Listen now…* in the Meetings dialog or in the menu bar item's menu. The quick panel
+window's bar (there while nothing is being heard, where the recording light shows once something
+is), *Listen now…* in the Meetings dialog or in the menu bar item's menu. The quick panel
 opens set to listen: its box asks what the meeting is, and ⏎ has Codealong hear it from that
 moment, with a session started for it. Nothing needs typing. What you do type is the meeting's
 name (its first line) and what you want from it, which the session is told you added. Under the

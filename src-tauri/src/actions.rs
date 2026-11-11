@@ -2146,7 +2146,8 @@ fn listen(engine: &Handle, c: &Call) -> Result<Value, String> {
     let p: params::Listen = c.read()?;
     let key = c.session()?;
     let listening = if p.on { crate::listen::start(engine, key, &p.ask) } else { crate::listen::stop(key) }.map_err(words)?;
-    if !p.on && crate::meetings::stray(&listening) {
+    // Done with as it ended (`listen::stop`), so its session was never told to finish up.
+    if !p.on && listening.done && crate::meetings::stray(&listening) {
         crate::meetings::put_away(engine, &listening);
     }
     serde_json::to_value(listening).map_err(|e| e.to_string())

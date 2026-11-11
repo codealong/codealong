@@ -357,16 +357,22 @@ pub fn root(cfg: &Config) -> PathBuf {
     }
 }
 
-/// Makes the folder a meeting is taken into. One that already has a transcript (the meeting was
-/// taken before, and stopped) is left as it is, and this one goes beside it.
+/// Makes the folder a meeting is taken into, one of its own: a folder that's there already (the
+/// meeting was taken before, or you keep one by that name) is left as it is, whatever it holds,
+/// and this one goes beside it. So everything in a taking's folder was put there for it, which is
+/// what lets one taken by mistake go whole (`put_away`).
 fn new_folder(root: &Path, m: &Meeting) -> Result<PathBuf> {
+    std::fs::create_dir_all(root).map_err(|e| anyhow!("Couldn't make {}: {e}", util::tilde(root)))?;
     let first = folder_for(root, m);
-    let folder = (1..100)
-        .map(|n| if n == 1 { first.clone() } else { PathBuf::from(format!("{} ({n})", first.display())) })
-        .find(|f| !f.join("transcript.md").exists())
-        .ok_or_else(|| anyhow!("{} has been taken too many times.", util::tilde(&first)))?;
-    std::fs::create_dir_all(&folder).map_err(|e| anyhow!("Couldn't make {}: {e}", util::tilde(&folder)))?;
-    Ok(folder)
+    for n in 1..100 {
+        let folder = if n == 1 { first.clone() } else { PathBuf::from(format!("{} ({n})", first.display())) };
+        match std::fs::create_dir(&folder) {
+            Ok(()) => return Ok(folder),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(e) => bail!("Couldn't make {}: {e}", util::tilde(&folder)),
+        }
+    }
+    bail!("{} has been taken too many times.", util::tilde(&first))
 }
 
 /// The others in a meeting, in words: "with Dana and Lee", or nothing when it's only you.
@@ -612,10 +618,16 @@ fn begin(engine: &Handle, cfg: &Config, meeting: &Meeting, lane: &str, ask: &lis
             return Err(e);
         }
     };
+    // Which meeting it is goes in its folder as the hearing starts, with no session yet: should
+    // the server stop before its session shows, what was heard is still one of your meetings,
+    // and listed (`kept`).
+    let record = Record { meeting: meeting.clone(), listening: ahead.id.clone(), session: String::new(), role: ask.role, taken_at: now };
+    write_record(&folder.join("meeting.json"), &record);
     let listening = match session_for(engine, meeting, &lane, pick).and_then(|key| listen::attach(engine, &ahead.id, &key)) {
         Ok(listening) => listening,
         Err(e) => {
             listen::abandon(&ahead.id);
+            let _ = std::fs::remove_file(folder.join("meeting.json"));
             let _ = std::fs::remove_dir(&folder);
             return Err(e);
         }
@@ -623,7 +635,7 @@ fn begin(engine: &Handle, cfg: &Config, meeting: &Meeting, lane: &str, ask: &lis
     // The last meeting's is over, if it's still hearing: its time is up, and this one has come.
     // Only now that this one has its session: a take that failed leaves the last one as it was.
     listen::end_meetings_but(&listening.id, "the next meeting was taken");
-    write_record(&folder.join("meeting.json"), &Record { meeting: meeting.clone(), listening: listening.id.clone(), session: listening.session.clone(), role: ask.role, taken_at: now });
+    write_record(&folder.join("meeting.json"), &Record { session: listening.session.clone(), ..record });
     Ok(listening)
 }
 
@@ -701,13 +713,13 @@ pub fn stray(l: &Listening) -> bool {
 }
 
 /// Puts away a meeting started by mistake (`stray`), so that it costs a click and leaves nothing
-/// behind. Its session isn't asked to sum up a meeting that never was: it's ended and archived,
-/// as Mark as done does, and found again among the archived if it's wanted after all. Its folder
-/// goes, with the empty transcript, what was noted of the meeting, and the notes file its
+/// behind. Its session wasn't asked to sum up a meeting that never was (`listen::stop` was done
+/// with it as it ended): it's ended and archived, as Mark as done does, and found again among
+/// the archived if it's wanted after all. Its folder goes, which was made for this taking alone
+/// (`new_folder`): the empty transcript, what was noted of the meeting, and the notes file its
 /// session was asked to make before anything was said.
 pub fn put_away(engine: &Handle, l: &Listening) {
     use codealong_peer::api;
-    listen::done_with(&l.id);
     let done = crate::actions::local(engine, &crate::actions::From::Here, api::SESSION_DONE, &l.session, api::params::Done { key: String::new(), stop: true, archive: false });
     if let Err(e) = done {
         eprintln!("meetings: the session of a meeting started by mistake wasn't put away: {e}");
@@ -972,12 +984,15 @@ mod tests {
         let m = meeting("a", NOW, 30);
         let first = new_folder(&root, &m).unwrap();
         assert_eq!(first, folder_for(&root, &m));
-        // Nothing heard into it yet: the same folder is taken again.
-        assert_eq!(new_folder(&root, &m).unwrap(), first);
-        std::fs::write(first.join("transcript.md"), "[10:00:00] You: Hello.\n").unwrap();
+        // A folder that's there is someone's, whatever it holds: notes kept of it before, with
+        // no transcript, are never this taking's to remove.
+        std::fs::write(first.join("notes.md"), "# Renewal call\n").unwrap();
         let second = new_folder(&root, &m).unwrap();
         assert_eq!(second.file_name().unwrap().to_string_lossy(), format!("{} (2)", first.file_name().unwrap().to_string_lossy()));
-        assert!(second.is_dir());
+        assert!(second.is_dir() && std::fs::read_dir(&second).unwrap().next().is_none());
+        // A taking that came to nothing takes its empty folder with it, and the name is free again.
+        std::fs::remove_dir(&second).unwrap();
+        assert_eq!(new_folder(&root, &m).unwrap(), second);
         let _ = std::fs::remove_dir_all(&root);
     }
 

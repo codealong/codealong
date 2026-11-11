@@ -1536,7 +1536,14 @@ export function Quick() {
       setError(listenProblem);
       return;
     }
-    const kept = { text, attached };
+    // The worktree picked below is still coming onto the board: its session would start in
+    // another one meanwhile, as a new session's would (`start`).
+    if (addingNow) {
+      setInfo(`Still adding ${addingNow.name}; listen again in a moment.`);
+      return;
+    }
+    // What the panel was set to, for a start that fails: it may be open for something else by then.
+    const kept = { text, attached, project, laneId, device, notMeeting };
     const id = Date.now();
     const to = opener ?? 'main';
     const named = itsMeeting?.title.trim() || listenAsk.prompt.split('\n')[0].trim();
@@ -1549,7 +1556,20 @@ export function Quick() {
       .then((listening) => tellOpener(to, { phase: 'end', id, key: listening?.session ?? null, message: null }))
       .catch((e: unknown) => {
         void tellOpener(to, { phase: 'end', id, key: null, message: null });
+        // Back as it was set to listen, whatever it has been opened for since (the hearing can
+        // fail many seconds on): a meeting's name put back into a panel that finds sessions
+        // would be looked for, sent to Jev and kept as a prompt's draft.
         reopen(() => {
+          setListen(true);
+          setAsChat(true);
+          setImprove(null);
+          setTodoIds([]);
+          setSendTo(null);
+          setRecall(null);
+          setProject(kept.project);
+          setLaneId(kept.laneId);
+          setDevice(kept.device);
+          setNotMeeting(kept.notMeeting);
           setText(kept.text);
           setAttached(kept.attached);
           setError(errorText(e));

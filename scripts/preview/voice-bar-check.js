@@ -2,8 +2,10 @@
 // ui/Said.tsx `SaidLine`): the mark's center says one is, the session has a pill of its own, the
 // first, and a click on it shows the session in Codealong's window; a coach's cue takes the
 // pills' place for as long as it shows, and a click on it shows the session too, so the way to
-// the session is never gone; and when nothing hears, the pill and the mark's light go. The bar
-// shows sessions of the check's own in place of the feed's, which need be on no board.
+// the session is never gone; when nothing hears, the pill and the mark's light go; and a meeting
+// heard ahead of its session (Listen now), which is still starting, has the light and a pill
+// under its own name, with nothing to show for a click. The bar shows sessions of the check's
+// own in place of the feed's, which need be on no board.
 //   PREVIEW_WAIT=30000 scripts/preview.sh bar '' scripts/preview/voice-bar-check.js
 (function () {
   var now = Date.now();
@@ -72,7 +74,21 @@
       hears([]);
       return until(function () { return !pill() && !cue() && !mark() && q('.ca-hud > [data-key]'); }, 3000, 'the pill and the light to go');
     })
-    .then(function () { check('when nothing hears, the pill and the mark’s light go', true); })
+    .then(function () {
+      check('when nothing hears, the pill and the mark’s light go', true);
+      // Heard ahead of its session (barfeed.rs `BarListening`): no key or worktree yet.
+      hears([listening({ key: '', laneId: '', title: 'On-site with Kestrel', starting: 'On-site with Kestrel', role: 'notes', startedAt: Date.now() - 3e3 })]);
+      return until(function () { return pill() && mark(); }, 3000, 'the pill of a meeting whose session is starting');
+    })
+    .then(function () {
+      var says = q('.ca-hud .ca-hud-mark').getAttribute('title') || '';
+      check('a meeting whose session is still starting has the light, under its name', pill().textContent.trim() === 'On-site with Kestrel' && says.indexOf('On-site with Kestrel is being heard, and its session is starting') === 0, says);
+      check('and its pill says nothing of showing it', (pill().getAttribute('title') || '').indexOf('Show it') < 0, pill().getAttribute('title'));
+      shows = calls('show_main').length;
+      pill().click();
+      return wait(400);
+    })
+    .then(function () { check('a click on it shows nothing yet', calls('show_main').length === shows, String(calls('show_main').length - shows)); })
     .then(done)
     .catch(stopped);
 })();

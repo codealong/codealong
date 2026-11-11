@@ -3,9 +3,10 @@
 // for, whatever is typed; it's a chat of its own, with only the worktree to pick; the meeting the
 // calendar has going on is the one it's of until you say it isn't; ⏎ asks for the listening with
 // what's typed, what's picked and where, and puts the panel away; how it was asked is kept for
-// the next one; a start that fails brings the panel back with what was typed and why; with
-// nothing picked to hear it says so and asks for nothing; and an ordinary open after lists and
-// starts as before, with no draft made of a meeting's name.
+// the next one; a start that fails brings the panel back with what was typed and why, set to
+// listen again even when it has been opened for something else since; with nothing picked to
+// hear it says so and asks for nothing; and an ordinary open after lists and starts as before,
+// with no draft made of a meeting's name.
 //   PREVIEW_VOICE=1 PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/quick-listen-check.js
 // The board needs a worktree to pick.
 (function () {
@@ -123,6 +124,21 @@
       return open();
     })
     .then(function () {
+      // A start that fails once the panel has been opened for something else (its session can
+      // take many seconds not to come): it's back set to listen, not finding sessions.
+      window.__LISTEN_FAILS__ = 'Its session was started but hasn’t shown yet.';
+      type(input(), 'Retro');
+      enter();
+      window.__quickOpen({}, board);
+      return until(function () { return q('.ca-quick-error'); }, 5000, 'why it failed, later');
+    })
+    .then(function () {
+      window.__LISTEN_FAILS__ = null;
+      check('a start that fails later comes back set to listen', !!q('.ca-quick-listen') && input().value === 'Retro' && all('[data-row]').length === 0 && /^What’s this meeting\?/.test(input().placeholder), input().value + ' | ' + input().placeholder);
+      return wait(900);
+    })
+    .then(function () {
+      check('and its name is looked for nowhere', sent('search_text').length === 0 && sent('route_quick').length === 0, sent('search_text').length + ' searches, ' + sent('route_quick').length + ' routes');
       type(input(), 'Planning');
       return wait(300);
     })

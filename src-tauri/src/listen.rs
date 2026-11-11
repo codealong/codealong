@@ -70,7 +70,8 @@ const LONGEST_MS: i64 = 8 * 60 * 60 * 1000;
 
 /// How long a listening started ahead of its session (`start_ahead`) hears with none: longer
 /// than a session is given to show and be told (meetings.rs `SHOWS_WITHIN`). One still without
-/// after that was left by a server that stopped in the middle of starting it.
+/// after that isn't going to get one. (One a server left so as it stopped is ended by the next
+/// as it starts, `left_unclaimed`.)
 const UNCLAIMED_MS: i64 = 3 * 60 * 1000;
 
 /// A helper that stops by itself is started again, this many times in `RESTART_WINDOW_MS` at
@@ -950,18 +951,40 @@ pub fn start_ahead(ask: &Ask, of: Of) -> Result<Listening> {
 pub fn attach(engine: &Handle, id: &str, key: &str) -> Result<Listening> {
     let board = engine.board();
     let Some((_, session)) = board.session(key) else { bail!("Its session isn't on the board.") };
-    if let Some(running) = state().running.get_mut(id) {
-        running.session = key.to_string();
-        // What it said before it was listening is no cue.
-        running.reply = Some(session.reply_tail.clone());
-    }
-    let Some(l) = update(id, |l| l.session = key.to_string()) else { bail!("Its listening is gone.") };
-    if !l.hearing() {
-        let why = l.why_ended.as_deref().map(|why| format!(": {why}")).unwrap_or_default();
-        forget(&l);
+    let Some(ahead) = list().into_iter().find(|l| l.id == id) else { bail!("Its listening is gone.") };
+    if !ahead.hearing() {
+        let why = ahead.why_ended.as_deref().map(|why| format!(": {why}")).unwrap_or_default();
+        forget(&ahead);
         bail!("Its listening ended before its session started{why}.");
     }
-    told(engine, &board, l)
+    // Told what's going on before the listening is filed as its own. Until it is, the
+    // listenings' thread has nobody to tell (`step`), so what was heard meanwhile can't reach
+    // the session ahead of what to make of it; and from then it waits out a telling's time.
+    let given = Listening { session: key.to_string(), ..ahead };
+    let moved = match tell(engine, &board, &given, &brief(&given)) {
+        Ok(moved) => moved,
+        Err(e) => {
+            forget(&given);
+            return Err(e);
+        }
+    };
+    let now = util::now_ms();
+    let key = moved.clone().unwrap_or_else(|| key.to_string());
+    if let Some(running) = state().running.get_mut(id) {
+        running.session = key.clone();
+        // What it said before it was listening is no cue.
+        running.reply = Some(session.reply_tail.clone());
+        // Resumed as a copy to be told: the board takes a moment to list that one.
+        running.moved_at = moved.is_some().then_some(now);
+    }
+    let Some(l) = update(id, |l| {
+        l.session = key.clone();
+        l.told_at = now;
+    }) else {
+        bail!("Its listening is gone.")
+    };
+    changed();
+    Ok(l)
 }
 
 /// Takes back a listening started ahead whose session never came (`start_ahead`): its hearing
@@ -1108,6 +1131,13 @@ fn take_running(id: &str) -> Option<Running> {
 /// Stops the hearing of listening `id`, its last words written first. Its session is told on
 /// the next look (`step`). `why` when it wasn't the person who ended it.
 fn end(id: &str, why: Option<String>) -> Option<Listening> {
+    end_as(id, why, |_| false)
+}
+
+/// `end`, with whether its session has nothing more to be told (`untold`, asked of the listening
+/// as it ended) noted in the same change of the file: no look reads it as ended with its session
+/// still to tell, which it would then tell to finish up.
+fn end_as(id: &str, why: Option<String>, untold: impl Fn(&Listening) -> bool) -> Option<Listening> {
     let running = take_running(id);
     // Outside the lock: the helper's last words come through `heard`, which takes it.
     if let Some(ear) = running.and_then(|r| r.ear) {
@@ -1119,6 +1149,9 @@ fn end(id: &str, why: Option<String>) -> Option<Listening> {
             l.why_ended = why;
             // Told at once, whatever the last telling's time.
             l.failures = 0;
+        }
+        if untold(l) {
+            l.done = true;
         }
     });
     changed();
@@ -1139,17 +1172,12 @@ pub fn meetings_heard() -> Vec<String> {
     list().into_iter().filter(Listening::hearing).filter_map(|l| l.meeting.map(|m| m.id)).collect()
 }
 
-/// Ends the listening of session `key`, as the person asks.
+/// Ends the listening of session `key`, as the person asks. A meeting's that was started by
+/// mistake (meetings.rs `stray`) is done with as it ends, its session never told to sum up a
+/// meeting that wasn't: whoever asked puts it away (`meetings::put_away`).
 pub fn stop(key: &str) -> Result<Listening> {
     let Some(l) = list().into_iter().find(|l| l.session == key && l.hearing()) else { bail!("That session isn't listening.") };
-    end(&l.id, None).ok_or_else(|| anyhow!("That listening is gone."))
-}
-
-/// A listening that ended has nothing more to tell its session: one started by mistake, whose
-/// session is put away with it (meetings.rs `put_away`) rather than asked to sum up a meeting
-/// that never was.
-pub fn done_with(id: &str) {
-    update(id, |l| l.done = true);
+    end_as(&l.id, None, crate::meetings::stray).ok_or_else(|| anyhow!("That listening is gone."))
 }
 
 /// One look at every listening: helpers started again, what's due told, what its session said
@@ -1380,10 +1408,12 @@ fn revive(l: &Listening, now: i64) {
 pub fn spawn(engine: Handle) {
     state().engine = Some(engine.clone());
     if !list().is_empty() {
+        let now = util::now_ms();
         let _ = change(|all| {
             for l in all.iter_mut().filter(|l| !l.done) {
                 l.lines = count_lines(&l.transcript());
                 l.told = l.told.min(l.lines);
+                left_unclaimed(l, now);
             }
         });
     }
@@ -1396,6 +1426,20 @@ pub fn spawn(engine: Handle) {
     if let Err(e) = started {
         eprintln!("listen: the listenings' thread didn't start: {e}");
     }
+}
+
+/// A listening started ahead of its session that the last server never gave one (it stopped in
+/// the middle of starting it): nothing in this server will, so it doesn't hear on, and there's
+/// nobody to tell. What it heard stays where its meeting's folder says (meetings.rs `begin`).
+fn left_unclaimed(l: &mut Listening, now: i64) {
+    if !l.session.is_empty() {
+        return;
+    }
+    if l.ended_at.is_none() {
+        l.ended_at = Some(now);
+        l.why_ended = Some("Codealong's server stopped as its session was starting".into());
+    }
+    l.done = true;
 }
 
 /// Stops every helper, their last words written: the server is going. The listenings stay
@@ -1455,6 +1499,23 @@ mod tests {
         // Until it has a session the board lists it under its meeting's name.
         let named = Listening { meeting: Some(ear::Meeting { title: " Standup ".into(), unplanned: true, ..Default::default() }), ..ahead.clone() };
         assert_eq!((starting_name(&named), starting_name(&ahead)), ("Standup".to_string(), "A meeting".to_string()));
+    }
+
+    #[test]
+    fn one_the_last_server_left_without_a_session_doesnt_hear_on() {
+        // Started ahead of its session by a server that stopped before giving it one: ended as
+        // the next server starts, with nobody to tell.
+        let mut ahead = Listening { session: String::new(), lines: 3, ..hearing() };
+        left_unclaimed(&mut ahead, NOW);
+        assert_eq!((ahead.ended_at, ahead.why_ended.as_deref(), ahead.done), (Some(NOW), Some("Codealong's server stopped as its session was starting"), true));
+        assert_eq!(step(&ahead, None, NOW, EVERY, true), Step::Wait);
+        // One that had ended already keeps when and why; one with a session is taken up as it was.
+        let mut ended = Listening { session: String::new(), ended_at: Some(NOW - 5000), why_ended: Some("voice was turned off".into()), ..hearing() };
+        left_unclaimed(&mut ended, NOW);
+        assert_eq!((ended.ended_at, ended.why_ended.as_deref(), ended.done), (Some(NOW - 5000), Some("voice was turned off"), true));
+        let mut going = hearing();
+        left_unclaimed(&mut going, NOW);
+        assert_eq!(going, hearing());
     }
 
     #[test]
