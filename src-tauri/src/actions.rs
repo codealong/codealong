@@ -775,61 +775,20 @@ fn answer_here(engine: &Handle, c: &Call) -> Result<Value, String> {
     let ctx = harness::Ctx { account };
     let adapter = harness::adapter(s.harness);
     let stops_it = answer == api::Answer::Deny && adapter.deny_stops(&id);
-    // What its harness asks as an exit Codealong typed goes ahead (`idle::ExitAsked`), whether to
-    // keep its worktree: answered, it exits, and is then finished as what typed the exit would
-    // have (`exited`); declined, the exit is called off. Its worktree's lock is read now, before
-    // an answer takes it off.
-    let asked = crate::idle::exit_asked(key).filter(|a| s.pid == Some(a.pid) && adapter.pending(&ctx, s).is_some_and(|p| p.exiting && p.id == id));
-    let lock = asked.and_then(|_| crate::idle::worktree_lock(s));
-    // Declined, once that went: the record is what finds the question where its terminal can't
-    // be read, so it goes only once the exit has been called off.
-    let called_off = |said: String| {
-        if asked.is_some() {
-            crate::idle::exit_answered(key);
-        }
-        said
-    };
     if let Some(m) = saying {
         if let Some(said) = adapter.deny_saying(&ctx, s, &id, m).map_err(words)? {
             note_talking(engine, c, key);
             return Ok(Value::String(said));
         }
-        let said = noting_deny(engine, c, key, stops_it, || adapter.answer(&ctx, s, &id, answer)).map(called_off).map_err(words)?;
+        let said = noting_deny(engine, c, key, stops_it, || adapter.answer(&ctx, s, &id, answer)).map_err(words)?;
         return sent_after(engine, c, key, m, &said);
     }
     match answers {
-        Some(a) => adapter.answer_questions(&ctx, s, &id, &a).map(|said| match asked {
-            Some(asked) => exited(engine, s, asked, lock.as_deref(), said),
-            None => said,
-        }),
-        None => noting_deny(engine, c, key, stops_it, || adapter.answer(&ctx, s, &id, answer)).map(called_off),
+        Some(a) => adapter.answer_questions(&ctx, s, &id, &a),
+        None => noting_deny(engine, c, key, stops_it, || adapter.answer(&ctx, s, &id, answer)),
     }
     .map(Value::String)
     .map_err(words)
-}
-
-/// The rest of the exit Codealong typed into `s` (`idle::ExitAsked`), once the question its
-/// harness asked first is answered here (`said` says how): it waits for the session to end,
-/// closes its terminal, and archives it when what typed the exit archives it (Mark as done), as
-/// that would have had its harness not asked. It stayed in the lists meanwhile (`finish`).
-fn exited(engine: &Handle, s: &crate::model::Session, asked: crate::idle::ExitAsked, lock: Option<&std::path::Path>, said: String) -> String {
-    use crate::idle::Exited;
-    crate::idle::exit_answered(&s.key);
-    let word = harness::adapter(s.harness).harness().word();
-    let then = match crate::idle::await_end(s, asked.pid, lock) {
-        Exited::Ended { closed: Ok(()), .. } => "its terminal is closed".to_string(),
-        Exited::Ended { closed: Err(e), .. } => format!("its terminal didn't close: {e}"),
-        Exited::Removing => return format!("{said} {word} is still removing its worktree, so its terminal stays open."),
-        Exited::Asks => return format!("{said} It hasn't exited yet: see what its terminal shows."),
-    };
-    if !asked.archive {
-        return format!("{said} It exited and {then}.");
-    }
-    engine.mark_seen(vec![s.key.clone()]);
-    match engine.archive(&s.key, true) {
-        Ok(_) => format!("{said} It exited, {then}, and it's archived."),
-        Err(e) => format!("{said} It exited and {then}, but it wasn't archived: {}", words(e)),
-    }
 }
 
 /// Answers the call of the session `key` as `act` does, and logs it in stops.log as it's made
@@ -1510,11 +1469,11 @@ fn finish(engine: &Handle, c: &Call, key: &str, stop: bool, by: Option<&str>) ->
     let job = matches!(ends, crate::idle::Ending::Job);
     let exits = matches!(ends, crate::idle::Ending::Exit(_));
     let who = stops::who(&board, c.from);
-    let (ended, note) = end(s, account, ends, &who, true);
+    let (ended, note) = end(engine, s, account, ends, &who, true);
     // Its harness asks first, whether to keep its worktree: it stays where you'll see the
-    // question, and is archived once that's answered here (`exited`). Archived now, a terminal
-    // of Codealong's own would close with it (`Handle::archive`), hanging the question up.
-    // Its helpers' work is done either way.
+    // question, and is archived once it has exited (`end`, `idle::finish_when_ended`). Archived
+    // now, a terminal of Codealong's own would close with it (`Handle::archive`), hanging the
+    // question up. Its helpers' work is done either way.
     if exits && crate::idle::exit_asked(key).is_some() {
         let (helped, _) = finish_helpers(engine, &board, &cfg, key, stop, &who);
         let message = [note, helped].into_iter().flatten().collect::<Vec<_>>().join(" ");
@@ -1566,7 +1525,7 @@ fn finish_helpers(engine: &Handle, board: &crate::model::Board, cfg: &config::Co
                 // its own panel says how it stands.
                 let job = matches!(ends, crate::idle::Ending::Job);
                 let exits = matches!(ends, crate::idle::Ending::Exit(_));
-                let (ended, _) = end(h, account, ends, who, true);
+                let (ended, _) = end(engine, h, account, ends, who, true);
                 // Its harness asks first: it's archived once that's answered, as a session is.
                 if exits && crate::idle::exit_asked(&h.key).is_some() {
                     left += 1;
@@ -1606,9 +1565,9 @@ fn helpers_done_words(done: usize, left: usize) -> Option<String> {
 /// Ends a session as `ends` says: what ended, and what's worth saying besides (why nothing did,
 /// or what didn't go). `who` asked, for stops.log: closing its terminal, stopping its job or
 /// stopping its turn while work is under way is a stop (`stopping`). `archive`: what ends it
-/// archives it, which an exit its harness asks about first does once that's answered here
-/// (`idle::ExitAsked`).
-fn end(s: &crate::model::Session, account: &config::AccountCfg, ends: crate::idle::Ending, who: &str, archive: bool) -> (Option<String>, Option<String>) {
+/// archives it, which an exit its harness asks about first does once its process has ended
+/// (`idle::finish_when_ended`).
+fn end(engine: &Handle, s: &crate::model::Session, account: &config::AccountCfg, ends: crate::idle::Ending, who: &str, archive: bool) -> (Option<String>, Option<String>) {
     use crate::idle::{Ending, Exited};
     let ctx = harness::Ctx { account };
     let adapter = harness::adapter(s.harness);
@@ -1627,14 +1586,26 @@ fn end(s: &crate::model::Session, account: &config::AccountCfg, ends: crate::idl
         Ending::Exit(pid) => {
             let word = adapter.harness().word();
             let worktree = s.own_worktree.as_deref().map(|w| crate::util::file_name(std::path::Path::new(w))).unwrap_or_default();
-            match crate::idle::exit(s, account, pid, archive) {
+            match crate::idle::exit(s, account, pid) {
                 Ok(Exited::Ended { removed: true, closed: Ok(()) }) => (Some(format!("{word} removed its worktree, its terminal is closed")), None),
                 Ok(Exited::Ended { removed: true, closed: Err(e) }) => (Some(format!("{word} removed its worktree")), Some(format!("Its terminal didn't close: {e}"))),
                 Ok(Exited::Ended { removed: false, closed }) => (
                     closed.is_ok().then(|| "it exited and its terminal is closed".to_string()),
                     Some(format!("{word} kept its worktree, {worktree}.{}", closed.err().map(|e| format!(" Its terminal didn't close: {e}")).unwrap_or_default())),
                 ),
-                Ok(Exited::Asks) => (None, Some(format!("{word} asks whether to keep its worktree, {worktree}, before it exits: the session waits on your answer."))),
+                Ok(Exited::Asks) => {
+                    // However it's answered, here or in its terminal, it's finished once it has
+                    // exited, as it would have been had its harness not asked.
+                    let (engine, key) = (engine.clone(), s.key.clone());
+                    crate::idle::finish_when_ended(s, move |_closed| {
+                        // A tab left open, or a session left unarchived, stays where you see it.
+                        if archive {
+                            engine.mark_seen(vec![key.clone()]);
+                            let _ = engine.archive(&key, true);
+                        }
+                    });
+                    (None, Some(format!("{word} asks whether to keep its worktree, {worktree}, before it exits: the session waits on your answer.")))
+                }
                 Ok(Exited::Removing) => (None, Some(format!("{word} is still removing its worktree, {worktree}, so its terminal stays open."))),
                 Err(e) => (None, Some(format!("{e} It's still open, its worktree with it."))),
             }
@@ -1679,7 +1650,7 @@ pub fn end_after_turn(engine: &Handle, key: &str, archive: bool) -> Result<Strin
     let can_end = !matches!(ends, crate::idle::Ending::Nothing(_));
     // Its own agent asked, and a turn that has ended has nothing to stop.
     let who = "its own agent, with the codealong command";
-    let (ended, note) = end(s, account, ends, who, archive);
+    let (ended, note) = end(engine, s, account, ends, who, archive);
     let worktree = job_worktree(engine, &cfg, s, job && ended.is_some());
     let went_wrong = (can_end && note.is_some()) || worktree.as_ref().is_some_and(|(_, partly)| *partly);
     let mut said: Vec<String> = [ended.map(|e| format!("“{}”: {e}.", s.title)), note, worktree.map(|(words, _)| words)].into_iter().flatten().collect();

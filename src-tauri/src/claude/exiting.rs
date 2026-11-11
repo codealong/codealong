@@ -121,10 +121,11 @@ fn dialog_since(reg: &RegistryEntry) -> Option<i64> {
 /// wait on now, so an exit's question is known by the dialog it brought up and no other
 /// (`idle::exit_dialog_seen`).
 pub fn saw(account: &str, entries: &[RegistryEntry]) {
+    let now = crate::util::now_ms();
     for reg in entries {
         let key = Session::key_for(crate::model::Harness::Claude, account, &reg.session_id);
         if crate::idle::exit_asked(&key).is_some_and(|a| a.pid == reg.pid) {
-            crate::idle::exit_dialog_seen(&key, dialog_since(reg));
+            crate::idle::exit_dialog_seen(&key, dialog_since(reg), now);
         }
     }
 }
@@ -140,7 +141,7 @@ fn up(home: &Path, s: &Session) -> Option<(Dialog, RegistryEntry)> {
         _ => {
             let since = dialog_since(&reg)?;
             // The registry as read now, should the board not have read it since it changed.
-            crate::idle::exit_dialog_seen(&s.key, Some(since));
+            crate::idle::exit_dialog_seen(&s.key, Some(since), crate::util::now_ms());
             crate::idle::exit_asked(&s.key).filter(|a| a.pid == reg.pid && a.dialog == Some(since))?;
             Some((assumed(s.own_worktree.as_deref()?), reg))
         }

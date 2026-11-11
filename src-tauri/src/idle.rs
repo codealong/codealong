@@ -423,79 +423,83 @@ pub enum Exited {
     Removing,
 }
 
-/// An exit Codealong typed that its harness answered with a question in its terminal
-/// (`Exited::Asks`): its process, when the command was typed, whether what typed it archives the
-/// session once it has ended (Mark as done does; an agent's `session done me` only where its user
-/// asked it to close), and when the dialog it brought up came up (`exit_dialog_seen`). The
-/// question answered from Codealong, what was begun is finished (actions.rs `answer_here`); a
-/// harness whose terminal can't be read knows its question by it (claude/exiting.rs). Kept in the
-/// server, which typed it, while the process lives and that dialog is up.
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// An exit Codealong typed whose process hasn't ended yet, its harness maybe asking first whether
+/// to keep the worktree (`Exited::Asks`): its process, when the command was typed, its worktree's
+/// lock as it was then (`worktree_lock`), when the dialog it brought up came up and when that
+/// dialog went (`exit_dialog_seen`). Noted as it's typed, so a dialog that comes and goes while
+/// `exit` waits is seen; a harness whose terminal can't be read knows its question by it
+/// (claude/exiting.rs), and what typed the exit is finished once its process ends, wherever the
+/// question was answered (`finish_when_ended`). Kept in the server, which typed it.
+#[derive(Debug, Clone, PartialEq)]
 pub struct ExitAsked {
     pub pid: u32,
     pub at: i64,
-    pub archive: bool,
+    pub lock: Option<std::path::PathBuf>,
     pub dialog: Option<i64>,
+    pub gone: Option<i64>,
 }
 
 static EXITS_ASKED: std::sync::Mutex<Option<HashMap<String, ExitAsked>>> = std::sync::Mutex::new(None);
 
-/// The exit Codealong typed into the session `key` that asks in its terminal, while its process
-/// lives (`ExitAsked`).
+fn exits_asked<T>(f: impl FnOnce(&mut HashMap<String, ExitAsked>) -> T) -> T {
+    f(EXITS_ASKED.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(HashMap::new))
+}
+
+/// The exit Codealong typed into the session `key`, while its process lives and nothing says its
+/// question has gone (`ExitAsked`).
 pub fn exit_asked(key: &str) -> Option<ExitAsked> {
-    let mut all = EXITS_ASKED.lock().unwrap_or_else(|e| e.into_inner());
-    let all = all.get_or_insert_with(HashMap::new);
-    all.retain(|_, a| crate::procs::pid_alive(a.pid));
-    all.get(key).copied()
+    exits_asked(|all| all.get(key).filter(|a| a.gone.is_none() && crate::procs::pid_alive(a.pid)).cloned())
 }
 
 fn note_exit_asked(key: &str, asked: ExitAsked) {
-    EXITS_ASKED.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(HashMap::new).insert(key.to_string(), asked);
+    exits_asked(|all| all.insert(key.to_string(), asked));
 }
 
-/// What the session `key`, typed an exit that asks (`ExitAsked`), waits on now, by its harness's
-/// record: `asking`, the time the dialog it waits on came up, or None while it waits on none.
-/// The first dialog to come up once the exit was typed is its question (a turn under way when it
-/// was typed puts it off until the turn ends); once that dialog has gone, the exit was answered
-/// or called off where it runs, and a dialog after it (`/model` there) is no question of the
-/// exit's, so the record goes.
-pub fn exit_dialog_seen(key: &str, asking: Option<i64>) {
-    let mut all = EXITS_ASKED.lock().unwrap_or_else(|e| e.into_inner());
-    let Some(all) = all.as_mut() else { return };
-    let Some(asked) = all.get_mut(key) else { return };
-    match (asked.dialog, asking) {
-        (None, Some(t)) if t >= asked.at => asked.dialog = Some(t),
-        (Some(up), Some(t)) if t == up => {}
-        (Some(_), _) => {
-            all.remove(key);
+/// What the session `key`, typed an exit (`ExitAsked`), waits on now, by its harness's record:
+/// `asking`, the time the dialog it waits on came up, or None while it waits on none. The first
+/// dialog to come up once the exit was typed is its question (a turn under way when it was typed
+/// puts it off until the turn ends). Once that has gone, it was answered or called off where it
+/// runs, which its process ending or not says (`exit_watched`); a dialog after it (`/model`
+/// there) is no question of the exit's, and the record goes.
+pub fn exit_dialog_seen(key: &str, asking: Option<i64>, now: i64) {
+    exits_asked(|all| {
+        let Some(asked) = all.get_mut(key) else { return };
+        match (asked.dialog, asking) {
+            (None, Some(t)) if t >= asked.at => asked.dialog = Some(t),
+            (Some(up), Some(t)) if t == up => {}
+            (Some(_), Some(_)) => {
+                all.remove(key);
+            }
+            (Some(_), None) => {
+                asked.gone.get_or_insert(now);
+            }
+            (None, _) => {}
         }
-        (None, _) => {}
-    }
+    });
 }
 
-/// The question the exit typed into `key` raised was answered, or the exit called off.
-pub fn exit_answered(key: &str) {
-    if let Some(all) = EXITS_ASKED.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
-        all.remove(key);
-    }
+/// The exit typed into `key` is over without asking: it ended while `exit` waited, or wasn't
+/// typed at all. Its record goes.
+fn exit_over(key: &str) {
+    exits_asked(|all| all.remove(key));
 }
 
 /// The git lock Claude Code holds on the worktree `s` made for itself while it runs ("claude
 /// session <name> (pid …)"), if there's one: it comes off just before the worktree is deleted,
 /// and stays while its harness asks about it.
-pub fn worktree_lock(s: &Session) -> Option<std::path::PathBuf> {
+fn worktree_lock(s: &Session) -> Option<std::path::PathBuf> {
     s.own_worktree.as_deref().and_then(|w| crate::repos::linked_gitdir(Path::new(w))).map(|d| d.join("locked")).filter(|l| l.exists())
 }
 
 /// Types the harness's exit command into `s`'s terminal (`Ending::Exit`), clearing its input box
 /// first so a draft there doesn't go with it, and waits for the process to end, then closes the
 /// tab (`await_end`). `Err` when nothing could be typed: then nothing was done to it. One that
-/// asks first is noted (`ExitAsked`), `archive` saying whether it's to be archived once it ends.
-pub fn exit(s: &Session, account: &crate::config::AccountCfg, pid: u32, archive: bool) -> Result<Exited, String> {
+/// asks first stays noted (`ExitAsked`), for `finish_when_ended`.
+pub fn exit(s: &Session, account: &crate::config::AccountCfg, pid: u32) -> Result<Exited, String> {
     let adapter = crate::harness::adapter(s.harness);
     let Some(command) = adapter.exit_command() else { return Err(format!("{} has no command to exit a session.", adapter.harness().word())) };
     let lock = worktree_lock(s);
-    let at = crate::util::now_ms();
+    note_exit_asked(&s.key, ExitAsked { pid, at: crate::util::now_ms(), lock: lock.clone(), dialog: None, gone: None });
     let typed = adapter
         .routes(account, s)
         .into_iter()
@@ -504,16 +508,15 @@ pub fn exit(s: &Session, account: &crate::config::AccountCfg, pid: u32, archive:
             _ => None,
         })
         .unwrap_or_else(|| Ok(crate::launch::Typed::Nowhere("it isn't in a terminal Codealong can type into".into())));
-    match typed {
-        Ok(crate::launch::Typed::Into(_)) => {}
-        Ok(crate::launch::Typed::Nowhere(why)) => return Err(format!("Codealong couldn't type `{command}` into its terminal ({why}).")),
-        Err(e) => return Err(format!("Codealong couldn't type `{command}` into its terminal: {}", crate::util::words(e))),
+    let typed = match typed {
+        Ok(crate::launch::Typed::Into(_)) => Ok(await_end(s, pid, lock.as_deref())),
+        Ok(crate::launch::Typed::Nowhere(why)) => Err(format!("Codealong couldn't type `{command}` into its terminal ({why}).")),
+        Err(e) => Err(format!("Codealong couldn't type `{command}` into its terminal: {}", crate::util::words(e))),
+    };
+    if typed != Ok(Exited::Asks) {
+        exit_over(&s.key);
     }
-    let ended = await_end(s, pid, lock.as_deref());
-    if ended == Exited::Asks {
-        note_exit_asked(&s.key, ExitAsked { pid, at, archive, dialog: None });
-    }
-    Ok(ended)
+    typed
 }
 
 /// Waits for `s`'s process `pid`, told to exit, to end, then closes its tab. `lock` is its
@@ -531,6 +534,73 @@ pub fn await_end(s: &Session, pid: u32, lock: Option<&Path>) -> Exited {
     let removed = s.own_worktree.as_deref().is_some_and(|w| !Path::new(w).exists());
     let closed = crate::launch::close_session_terminals(&[(pid, Path::new(&s.cwd))]).pop().unwrap_or_else(|| Err(anyhow::anyhow!("Nothing was closed.")));
     Exited::Ended { removed, closed: closed.map_err(crate::util::words) }
+}
+
+/// How often the watch on an exit that asks (`finish_when_ended`) looks again.
+const EXIT_WATCH_EVERY: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// Watches the exit typed into `s` that asks first (`Exited::Asks`) until its process ends,
+/// however its question is answered, from Codealong or in its terminal: then its tab is closed,
+/// as an exit that didn't ask closes it, and `ended` is told how that went, for what typed the
+/// exit to finish as it would have. Called off (its dialog gone while the process runs on, by
+/// Cancel in Codealong or Escape where it runs), the watch stops and `ended` is told nothing.
+pub fn finish_when_ended(s: &Session, ended: impl FnOnce(Result<(), String>) + Send + 'static) {
+    let (key, cwd) = (s.key.clone(), s.cwd.clone());
+    crate::throttle::background(
+        "codealong-exit-watch",
+        move || loop {
+            std::thread::sleep(EXIT_WATCH_EVERY);
+            match exit_watched(&key, crate::util::now_ms()) {
+                Watched::Waiting => {}
+                Watched::Over => return None,
+                Watched::Ended(pid) => {
+                    let closed = crate::launch::close_session_terminals(&[(pid, Path::new(&cwd))]).pop().unwrap_or_else(|| Err(anyhow::anyhow!("Nothing was closed.")));
+                    return Some(closed.map_err(crate::util::words));
+                }
+            }
+        },
+        move |closed| {
+            if let Some(Some(closed)) = closed {
+                ended(closed);
+            }
+        },
+    );
+}
+
+/// Where an exit that asks stands for its watch (`exit_watched`).
+#[derive(Debug, PartialEq)]
+enum Watched {
+    /// Its question is still up, or an answer is taking effect.
+    Waiting,
+    /// Its process ended, `pid`: the exit went ahead.
+    Ended(u32),
+    /// Called off: the record is gone, or its dialog went while the process ran on.
+    Over,
+}
+
+/// Where the exit typed into `key` stands at `now`. Its process gone, the record is taken, so
+/// only one watch finishes it. Its dialog gone with the process running on longer than an answer
+/// takes to end it, it was called off where it runs: Remove takes the worktree's lock off as it
+/// starts deleting, and is waited for as long as that takes; a worktree without a lock (a hook
+/// made it) is given as long as a removal is.
+fn exit_watched(key: &str, now: i64) -> Watched {
+    exits_asked(|all| {
+        let Some(asked) = all.get(key) else { return Watched::Over };
+        if !crate::procs::pid_alive(asked.pid) {
+            let pid = asked.pid;
+            all.remove(key);
+            return Watched::Ended(pid);
+        }
+        let removing = asked.lock.as_ref().is_some_and(|l| !l.exists());
+        let wait = if asked.lock.is_some() { EXIT_WAIT } else { REMOVAL_WAIT };
+        match asked.gone {
+            Some(gone) if !removing && now - gone > wait.as_millis() as i64 => {
+                all.remove(key);
+                Watched::Over
+            }
+            _ => Watched::Waiting,
+        }
+    })
 }
 
 /// A stretch of time in words: 26 hours, 3 days.
@@ -736,41 +806,69 @@ mod tests {
         assert_eq!(ending(&b, &hosted, false), Ok(Ending::Nothing(None)));
     }
 
+    /// An exit typed into a process of this test's own, now, with a lock that's there.
+    fn asked_here(lock: Option<std::path::PathBuf>) -> ExitAsked {
+        ExitAsked { pid: std::process::id(), at: 100, lock, dialog: None, gone: None }
+    }
+
     #[test]
-    fn an_exit_that_asks_is_kept_while_its_process_lives() {
-        let here = std::process::id();
-        let asked = ExitAsked { pid: here, at: 5, archive: true, dialog: None };
-        note_exit_asked("claude:claude:asks", asked);
-        assert_eq!(exit_asked("claude:claude:asks"), Some(asked));
-        exit_answered("claude:claude:asks");
-        assert_eq!(exit_asked("claude:claude:asks"), None);
-        // A process that has ended asks nothing any more.
+    fn an_exit_is_kept_while_its_process_lives() {
+        let key = "claude:claude:asks";
+        note_exit_asked(key, asked_here(None));
+        assert_eq!(exit_asked(key), Some(asked_here(None)));
+        exit_over(key);
+        assert_eq!(exit_asked(key), None);
+        assert_eq!(exit_watched(key, 0), Watched::Over);
+        // A process that has ended asks nothing any more, and its watch takes the record once.
         let mut child = std::process::Command::new("true").spawn().unwrap();
         let gone = child.id();
         child.wait().unwrap();
-        note_exit_asked("claude:claude:gone", ExitAsked { pid: gone, archive: false, ..asked });
-        assert_eq!(exit_asked("claude:claude:gone"), None);
+        note_exit_asked(key, ExitAsked { pid: gone, ..asked_here(None) });
+        assert_eq!(exit_asked(key), None);
+        assert_eq!(exit_watched(key, 0), Watched::Ended(gone));
+        assert_eq!(exit_watched(key, 0), Watched::Over);
     }
 
     #[test]
     fn an_exit_asks_with_the_first_dialog_after_it_and_no_other() {
         let key = "claude:claude:dialogs";
-        let here = std::process::id();
         let dialog = |up| exit_asked(key).map(|a| a.dialog).expect(up);
-        note_exit_asked(key, ExitAsked { pid: here, at: 100, archive: true, dialog: None });
+        note_exit_asked(key, asked_here(None));
         // A turn under way puts the dialog off, and one up before the exit was typed isn't its.
-        exit_dialog_seen(key, None);
-        exit_dialog_seen(key, Some(50));
+        exit_dialog_seen(key, None, 110);
+        exit_dialog_seen(key, Some(50), 110);
         assert_eq!(dialog("still asked"), None);
-        exit_dialog_seen(key, Some(120));
-        exit_dialog_seen(key, Some(120));
+        exit_dialog_seen(key, Some(120), 130);
+        exit_dialog_seen(key, Some(120), 140);
         assert_eq!(dialog("bound"), Some(120));
-        // Called off where it runs, then another command's dialog: the exit asks nothing now.
-        exit_dialog_seen(key, None);
+        // Another command's dialog after it: the exit asks nothing now.
+        exit_dialog_seen(key, Some(300), 300);
         assert_eq!(exit_asked(key), None);
-        note_exit_asked(key, ExitAsked { pid: here, at: 100, archive: true, dialog: Some(120) });
-        exit_dialog_seen(key, Some(300));
-        assert_eq!(exit_asked(key), None);
+        assert_eq!(exit_watched(key, 300), Watched::Over);
+    }
+
+    #[test]
+    fn an_exit_called_off_where_it_runs_is_over_and_an_answer_is_waited_for() {
+        let key = "claude:claude:called-off";
+        let lock = std::env::temp_dir().join(format!("codealong-exit-lock-{}", std::process::id()));
+        std::fs::write(&lock, "claude session kestrel").unwrap();
+        let wait = EXIT_WAIT.as_millis() as i64;
+        // Its dialog went, and the process runs on with the worktree still locked: called off,
+        // once an answer would have ended it, and not before.
+        note_exit_asked(key, asked_here(Some(lock.clone())));
+        exit_dialog_seen(key, Some(120), 130);
+        exit_dialog_seen(key, None, 200);
+        assert_eq!(exit_asked(key), None, "its question has gone");
+        assert_eq!(exit_watched(key, 200 + wait), Watched::Waiting);
+        assert_eq!(exit_watched(key, 201 + wait), Watched::Over);
+        // Remove took the lock off: the removal is waited for however long it takes.
+        note_exit_asked(key, ExitAsked { gone: Some(200), ..asked_here(Some(lock.clone())) });
+        std::fs::remove_file(&lock).unwrap();
+        assert_eq!(exit_watched(key, 200 + 10 * wait), Watched::Waiting);
+        // A worktree no lock was on (a hook made it) is given as long as a removal is.
+        note_exit_asked(key, ExitAsked { gone: Some(200), ..asked_here(None) });
+        assert_eq!(exit_watched(key, 201 + wait), Watched::Waiting);
+        assert_eq!(exit_watched(key, 201 + REMOVAL_WAIT.as_millis() as i64), Watched::Over);
     }
 
     #[test]
