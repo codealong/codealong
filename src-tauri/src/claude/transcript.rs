@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 
 use super::conversation::{line_peer, sent_from_codealong};
-use crate::model::{QueuedMessage, SessionLimit};
+use crate::model::{ApiError, QueuedMessage, SessionLimit};
 use crate::util::{code, command_dir, file_name, mtime_ms, note_work, one_line, parse_rfc3339_ms, read_head, read_tail, resolve, scan_lines_back, without_cd, work_before};
 
 /// What the start of a transcript says. It never changes, so the engine reads it once.
@@ -123,6 +123,9 @@ pub struct TranscriptInfo {
     /// When the last turn ended for want of a connection to the API (`connection_lost_at`),
     /// until a reply or a prompt of yours comes after.
     pub connection_lost: Option<i64>,
+    /// The API error the last turn ended on (`api_error_of`), a lost connection's included, until
+    /// a reply or a prompt of yours comes after.
+    pub api_error: Option<ApiError>,
     /// A provider refusal anywhere in the conversation, including before the current tail.
     pub flagged: bool,
     /// When the last turn last did something, while it hasn't ended (`turn_step`). A session
@@ -575,6 +578,7 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
                 // A limit's refusal is written as a reply; any other reply means it went on.
                 info.limit = limit_of(&v).map(|l| SessionLimit { model: info.model.clone(), ..l });
                 info.connection_lost = connection_lost_at(&v);
+                info.api_error = api_error_of(&v);
                 // A subagent's reply, in transcripts from before their own logs, is its model and
                 // its context, not this session's.
                 let sidechain = v.get("isSidechain").and_then(Value::as_bool) == Some(true);
@@ -642,6 +646,7 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
                 if you_typed(&v) {
                     info.limit = None;
                     info.connection_lost = None;
+                    info.api_error = None;
                     info.last_tool = None;
                     // Its `last-prompt` line often comes only after the reply has begun (in 104 of
                     // 191 prompts here, 2026-10-15), so the prompt itself says what it's on now.
@@ -750,16 +755,23 @@ pub(super) fn limit_of(v: &Value) -> Option<SessionLimit> {
 
 /// What Claude Code says as it ends a turn for want of a connection, after the text "API Error: ":
 /// its words for a request that couldn't connect (ENOTFOUND and EAI_AGAIN, no route, a connection
-/// reset, any other connection error) and for a reply cut off by the Mac sleeping or the connection
-/// going (2.1.293's code). A refused connection and a proxy that won't tunnel are left out: they
-/// don't come right by waiting.
+/// reset or refused, any other connection error) and for a reply cut off by the Mac sleeping or the
+/// connection going (2.1.293's code; "Connection closed mid-response" in this Mac's transcripts).
+/// A refused connection (ECONNREFUSED, "a firewall or proxy may be blocking it") often comes right
+/// by itself: 21 in 800 transcripts here (2026-11-11), and a session told to try again 5 minutes
+/// after one went on.
+/// While it doesn't, reconnect.rs's own connection to the API is refused too and nothing is sent;
+/// where only Claude Code's proxy refuses it, the session is told a few times at most
+/// (reconnect.rs `AGAIN_MAX`). A proxy that won't tunnel is left out.
 const CONNECTION_LOST: &[&str] = &[
     "Can't reach the API server",
     "No internet route",
     "Connection dropped",
+    "Connection refused",
     "Unable to connect to API",
     "Your computer went to sleep",
     "Connection lost",
+    "Connection closed",
 ];
 
 /// When an assistant line says the turn ended for want of a connection: Claude Code writes the
@@ -777,6 +789,30 @@ pub(super) fn connection_lost_at(v: &Value) -> Option<i64> {
     let text = v.pointer("/message/content")?.as_array()?.iter().find_map(|i| i.get("text")?.as_str())?;
     let said = text.strip_prefix("API Error: ")?;
     CONNECTION_LOST.iter().any(|w| said.starts_with(w)).then(|| str_of(v, "timestamp").as_deref().and_then(parse_rfc3339_ms).unwrap_or(0))
+}
+
+/// The error an assistant line says ended the turn, for a window to show and offer to try again:
+/// Claude Code writes one as a reply with `isApiErrorMessage` and `message.model` `"<synthetic>"`,
+/// its `error` the kind and its text "API Error: " and its words. In 800 of this Mac's transcripts
+/// (2026-11-11): 257 `server_error`s (the lost connections of `CONNECTION_LOST`; "No response from
+/// API (waited 10m, then 10m on the retry)…", "The response stopped arriving…", "529
+/// Overloaded…"), 16 `rate_limit`s (all but 3 a usage limit's 429; those said the model was
+/// unavailable), 11 `invalid_request`s, the safeguards' flags, and 9 `authentication_failed`s
+/// ("Login expired · Please run /login"). Left out: a usage limit's refusal (`limit_of`), said
+/// apart; a sign-in that needs `/login`, which trying again doesn't mend; a request the API turned
+/// down for what it held (`flagged`), which shouldn't go again at a click; and a subagent's.
+pub(super) fn api_error_of(v: &Value) -> Option<ApiError> {
+    let sidechain = v.get("isSidechain").and_then(Value::as_bool) == Some(true);
+    if v.get("isApiErrorMessage").and_then(Value::as_bool) != Some(true) || sidechain || limit_of(v).is_some() || flagged(v) {
+        return None;
+    }
+    if matches!(v.get("error").and_then(Value::as_str), Some("authentication_failed" | "invalid_request")) {
+        return None;
+    }
+    let text = v.pointer("/message/content")?.as_array()?.iter().find_map(|i| i.get("text")?.as_str())?;
+    let said = one_line(text.strip_prefix("API Error: ").unwrap_or(text), 200);
+    let at = str_of(v, "timestamp").as_deref().and_then(parse_rfc3339_ms).unwrap_or(0);
+    (!said.is_empty()).then_some(ApiError { at, said })
 }
 
 /// What a line says about whether the turn it's in has ended (`TranscriptInfo::unfinished`):
@@ -2454,11 +2490,16 @@ pub(super) mod tests {
             "API Error: Your computer went to sleep mid-response. The response above may be incomplete.",
             "API Error: Connection lost before a response was produced. Try again.",
             "API Error: No internet route — check your connection or VPN (ENETUNREACH)",
+            "API Error: Connection refused — a firewall or proxy may be blocking it (ECONNREFUSED)",
+            "API Error: Connection closed mid-response. The response above may be incomplete.",
         ] {
-            assert_eq!(parse_lines(HEAD, &format!("{}\n", lost(text))).connection_lost, at, "{text}");
+            let info = parse_lines(HEAD, &format!("{}\n", lost(text)));
+            assert_eq!(info.connection_lost, at, "{text}");
+            // Its words are the API error's, to show beside it.
+            assert_eq!(info.api_error.map(|e| e.said), text.strip_prefix("API Error: ").map(str::to_string), "{text}");
         }
         // Errors that waiting doesn't mend, and a limit, aren't one.
-        for text in ["API Error: Connection refused — a firewall or proxy may be blocking it (ECONNREFUSED)", "API Error: 529 Overloaded. This is a server-side issue, usually temporary."] {
+        for text in ["API Error: 529 Overloaded. This is a server-side issue, usually temporary.", "API Error: No response from API (waited 10m, then 10m on the retry)."] {
             assert_eq!(parse_lines(HEAD, &format!("{}\n", lost(text))).connection_lost, None, "{text}");
         }
         assert_eq!(parse_lines(HEAD, &format!("{SPEND_CAPPED}\n")).connection_lost, None);
@@ -2474,6 +2515,35 @@ pub(super) mod tests {
         assert_eq!(parse_lines(HEAD, &format!("{error}\n{prompt}\n")).connection_lost, None);
         let reply = r#"{"type":"assistant","timestamp":"2026-10-08T00:23:46.497Z","message":{"model":"claude-opus-5-5","content":[{"type":"text","text":"Going on."}]}}"#;
         assert_eq!(parse_lines(HEAD, &format!("{error}\n{notice}\n{reply}\n")).connection_lost, None);
+    }
+
+    #[test]
+    fn a_turn_an_api_error_ended_says_what_went_wrong_until_something_comes_after() {
+        let at = parse_rfc3339_ms("2026-10-07T23:48:20.610Z");
+        let overloaded = lost("API Error: 529 Overloaded. This is a server-side issue, usually temporary — try again in a moment.");
+        let info = parse_lines(HEAD, &format!("{overloaded}\n"));
+        assert_eq!(info.api_error, Some(ApiError { at: at.unwrap(), said: "529 Overloaded. This is a server-side issue, usually temporary — try again in a moment.".into() }));
+        assert_eq!(info.connection_lost, None);
+        // A model that's unavailable is no limit, and trying again later may get it.
+        let unavailable = r#"{"type":"assistant","timestamp":"2026-07-01T14:46:02.917Z","error":"rate_limit","isApiErrorMessage":true,"message":{"model":"<synthetic>","content":[{"type":"text","text":"Claude Fable 5 is currently unavailable."}]}}"#;
+        assert_eq!(parse_lines(HEAD, unavailable).api_error.map(|e| e.said).as_deref(), Some("Claude Fable 5 is currently unavailable."));
+        // A limit is said apart; a sign-in that needs /login, a flag and a subagent's error get none.
+        let login = r#"{"type":"assistant","timestamp":"2026-10-07T23:48:20.610Z","error":"authentication_failed","isApiErrorMessage":true,"message":{"model":"<synthetic>","content":[{"type":"text","text":"Login expired · Please run /login"}]}}"#;
+        let flag = r#"{"type":"assistant","timestamp":"2026-10-07T23:48:20.610Z","error":"invalid_request","isApiErrorMessage":true,"message":{"model":"<synthetic>","stop_reason":"refusal","content":[{"type":"text","text":"API Error: Opus 5.5's safeguards flagged this message."}]}}"#;
+        let subagent = r#"{"type":"assistant","isSidechain":true,"timestamp":"2026-10-07T23:48:20.610Z","error":"server_error","isApiErrorMessage":true,"message":{"model":"<synthetic>","content":[{"type":"text","text":"API Error: 529 Overloaded."}]}}"#;
+        for line in [SPEND_CAPPED, login, flag, subagent] {
+            assert_eq!(parse_lines(HEAD, &format!("{line}\n")).api_error, None, "{line}");
+        }
+        // An agent's own words about one are no error of Claude Code's.
+        let said = r#"{"type":"assistant","timestamp":"2026-10-07T23:50:00.000Z","message":{"model":"claude-opus-5-5","content":[{"type":"text","text":"API Error: 529 Overloaded is what it printed."}]}}"#;
+        assert_eq!(parse_lines(HEAD, &format!("{said}\n")).api_error, None);
+        // A prompt of yours or a reply ends it; a task's notice doesn't.
+        let notice = r#"{"type":"user","timestamp":"2026-10-07T23:50:00.567Z","origin":{"kind":"task-notification"},"message":{"content":"<task-notification>done</task-notification>"}}"#;
+        assert!(parse_lines(HEAD, &format!("{overloaded}\n{notice}\n")).api_error.is_some());
+        let prompt = r#"{"type":"user","timestamp":"2026-10-08T00:23:42.747Z","origin":{"kind":"human"},"message":{"content":"try again"}}"#;
+        assert_eq!(parse_lines(HEAD, &format!("{overloaded}\n{prompt}\n")).api_error, None);
+        let reply = r#"{"type":"assistant","timestamp":"2026-10-08T00:23:46.497Z","message":{"model":"claude-opus-5-5","content":[{"type":"text","text":"Going on."}]}}"#;
+        assert_eq!(parse_lines(HEAD, &format!("{overloaded}\n{reply}\n")).api_error, None);
     }
 
     /// A turn killed in a foreground command and one stopped with Escape there, as Claude Code

@@ -12,7 +12,7 @@
 
 import { useEffect, useState } from 'react';
 import { chromeProfiles, closeSession, desktopPins, expandAttachments, forkSession, getAccounts, inPreview, moveSession, moveSessionTo, onDesktopPins, openInChrome, openUrl, ownSessions, pinToDesktop, resumeSession, sessionCancel, sessionWindow, stopListening, setPrNudge, setPrPrimary, setReusable, showQuick, unpinFromDesktop, type MergeDone } from './api';
-import { archiveAhead, asideAhead, doneAhead, labelAhead, quietAhead, raiseAhead, seenAhead, unreadAhead } from './ahead';
+import { archiveAhead, asideAhead, doneAhead, labelAhead, quietAhead, raiseAhead, seenAhead, sendAhead, sentWorthSaying, unreadAhead } from './ahead';
 import { showContextMenu, type MenuAction, type MenuGroup, type MenuImage, type MenuSpec } from './contextMenu';
 import { shortOf } from './devices';
 import { dueChoices } from './due';
@@ -20,7 +20,7 @@ import { count } from './format';
 import { folderMenu, openInMenu, opensInEditor, terminalTarget, type AppIcons, type Apps } from './editors';
 import { EDITS, HARNESS_WORD, MOVES_ACCOUNTS, MOVES_FOLDERS, renames } from './harness';
 import { chromeLabel, openLabel } from './open';
-import { asideable, closable, exitsItsOwnWay, seenable, stoppable, unreadable, waitsInBackground } from './lanes';
+import { asideable, closable, endedOnApiError, exitsItsOwnWay, seenable, stoppable, unreadable, waitsInBackground } from './lanes';
 import { chordPressed, QUEUE_CHORDS, type Key } from './queue';
 import { reviewsSnoozeMenu, SNOOZE_CHORDS, snoozeChordIndex, snoozeChorded as timeChorded, snoozeMenu, suggestedSnooze } from './snooze';
 import { rememberResumed, resumeAccount, resumedIn } from './start';
@@ -267,6 +267,10 @@ export interface SessionActions {
   /** A turn that was cut off goes on where its account's last session did, told to carry on
    *  (`Session.cutOff`, start.rs `CARRY_ON`). */
   carryOn?: MenuAction;
+  /** A turn an API error ended goes again: the session is sent `TRY_AGAIN` as if you'd typed it
+   *  (`Session.apiError`). Try now where Codealong carries it on by itself once its API can be
+   *  reached (`ConnectionLost.continues`). */
+  tryAgain?: MenuAction;
   stop?: MenuAction;
   /** Listen…, which asks what to listen to and what for, or Stop listening while it hears
    *  (listen.rs): for a session on this Mac, while voice is turned on. */
@@ -329,6 +333,10 @@ export interface AccountMoves {
   goesOn: boolean;
   run: (to: string) => void;
 }
+
+/** What Try again sends a session whose turn an API error ended, as yours (`tryAgain`): it says
+ *  why, whether or not the harness hands its agent the error. */
+export const TRY_AGAIN = 'Your last turn ended on an API error. Try again, carrying on where you left off.';
 
 export function sessionActions(lane: Lane, s: Session, can: SessionCan): SessionActions {
   readAccounts();
@@ -492,6 +500,12 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
     moveOn: suggested ? moveItem(suggested, `Move to ${suggested} and go on`) : undefined,
     moveAccounts: moveTo.length > 0 ? { to: moveTo, suggested, goesOn: !!goesOn, run: move } : undefined,
     carryOn: carryTo ? { label: 'Carry on', run: () => void resume(carryTo) } : undefined,
+    // Sent as the box sends it, shown in the conversation at once; what happened is said only
+    // where it's news (opened to paste, say).
+    tryAgain:
+      endedOnApiError(s) && !s.archived
+        ? { label: s.connectionLost?.continues ? 'Try now' : 'Try again', run: () => void said(`Trying ${s.title} again…`, sendAhead(s, TRY_AGAIN).then((sent) => (sentWorthSaying(sent) ? sent.message : null))) }
+        : undefined,
     // The session carries on, waiting for you.
     stop: stoppable(s) ? { label: 'Stop turn', run: () => void said(`Stopping ${s.title}…`, sessionCancel(s.key)) } : undefined,
     listen: listenItem(lane, s, report),

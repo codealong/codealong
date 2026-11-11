@@ -48,6 +48,14 @@ export interface ConnectionLost {
   continues?: boolean;
 }
 
+/** An error from its API that ended a session's turn (peer/src/model.rs `ApiError`). */
+export interface ApiError {
+  /** When the turn ended. */
+  at: number;
+  /** What went wrong, in a line, in the harness's words. */
+  said: string;
+}
+
 /** A message a session's harness holds until the turn it's taking ends (peer/src/model.rs
  *  `QueuedMessage`). */
 export interface QueuedMessage {
@@ -262,9 +270,13 @@ export interface Session {
   chrome?: ChromeTabs;
   /** Its last turn ended on its account's usage limit, and nothing has been said since. */
   limit?: SessionLimit;
-  /** Its last turn ended because its harness couldn't reach its API (the Mac slept, or the
-   *  network dropped), and nothing has been said since. Missing from older Macs. */
+  /** Its last turn ended because its harness couldn't reach its API (the Mac slept, the network
+   *  dropped, or the connection was refused), and nothing has been said since. Missing from older
+   *  Macs. */
   connectionLost?: ConnectionLost;
+  /** Its last turn ended on an error from its API, a lost connection included, and nothing has
+   *  been said since: what the harness said. Missing from older Macs. */
+  apiError?: ApiError;
   /** Its last turn was cut off: what ran it ended partway through (its terminal closed, the Mac
    *  restarted, it was killed), and nothing has gone on since. When the turn last did something.
    *  Missing from older Macs. */

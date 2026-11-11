@@ -10,7 +10,7 @@ import { MOVES_ACCOUNTS } from './harness';
 import { agoPhrase, duration, withTimes } from './format';
 import type { InsightLabel } from './insights';
 import { resetsPhrase } from './format';
-import type { Bay, ConnectionLost, Lane, Need, Pr, PrItem, Raised, Session, SessionLimit, SideGlance, Status } from './types';
+import type { Bay, Lane, Need, Pr, PrItem, Raised, Session, SessionLimit, SideGlance, Status } from './types';
 
 /** The status filter an agent falls under, for the statuses that have one. */
 export const AGENT_BAY: Partial<Record<Status, Bay>> = { needs: 'needs', error: 'needs', working: 'working', unread: 'unread' };
@@ -551,10 +551,20 @@ export function limitWords(account: string, limit: SessionLimit, now: number, of
   return `It stopped at ${account}’s ${limitName(limit.meter)}${spent}.${when}${where}`;
 }
 
-/** What a lost connection that ended a session's turn comes to, and who carries it on. */
-export function connectionLostWords(lost: ConnectionLost): string {
-  const then = lost.continues ? 'Codealong tells it to carry on once the API can be reached again.' : 'Send it something to carry on.';
-  return `Its last turn ended because it couldn’t reach its API: the Mac slept, or the network dropped. ${then}`;
+/** Whether an API error ended a session's last turn and nothing has gone on since (`Session.apiError`,
+ *  `connectionLost`, the only one a Mac from before 2026-11-11 sends). */
+export function endedOnApiError(s: Pick<Session, 'apiError' | 'connectionLost' | 'status'>): boolean {
+  return !!(s.apiError || s.connectionLost) && s.status !== 'working';
+}
+
+/** What an API error that ended a session's turn comes to, in its harness's words where it said
+ *  them, and who carries it on: Codealong, once the API can be reached after a lost connection,
+ *  else you (left out where a button beside it offers to try again). */
+export function apiErrorWords(s: Pick<Session, 'apiError' | 'connectionLost'>, offered = false): string {
+  const said = s.apiError?.said.trim().replace(/[\s.]+$/, '');
+  const what = said ? `Its last turn ended on an API error: ${said}.` : 'Its last turn ended because it couldn’t reach its API: the Mac slept, or the network dropped.';
+  const then = s.connectionLost?.continues ? ' Codealong tells it to carry on once the API can be reached again.' : offered ? '' : ' Send it something to try again.';
+  return `${what}${then}`;
 }
 
 /** What a cut-off turn comes to (`Session.cutOff`), and how it goes on (left out where a button
@@ -573,9 +583,11 @@ export function sessionFlag(s: Session): InsightLabel | null {
   const need = needOf(s);
   if (need === 'stuck') return { label: 'Stuck', tone: 'warn', title: 'It says it’s busy, but nothing has happened for a while. It may be waiting on something.' };
   if (s.limit && s.status !== 'working') return { label: 'Limit', tone: 'bad', title: limitWords(s.account, s.limit, Date.now(), false, MOVES_ACCOUNTS.includes(s.harness)) };
-  if (s.connectionLost && s.status !== 'working') return { label: 'Network error', tone: 'warn', title: connectionLostWords(s.connectionLost) };
+  if (s.connectionLost && s.status !== 'working') return { label: 'Network error', tone: 'warn', title: apiErrorWords(s) };
   if (s.cutOff != null && s.status !== 'working') return { label: 'Cut off', tone: 'bad', title: cutOffWords() };
-  if (s.status === 'error') return { label: 'Error', tone: 'bad', title: 'It stopped with an error.' };
+  if (s.status === 'error') return { label: 'Error', tone: 'bad', title: s.apiError ? apiErrorWords(s) : 'It stopped with an error.' };
+  // A turn that ended on one reads as finished (Claude Code's), so the list says what ended it.
+  if (s.apiError && s.status !== 'working') return { label: 'API error', tone: 'warn', title: apiErrorWords(s) };
   if (setAside(s)) return { label: 'On the side', tone: 'info', title: 'You set it aside until its side conversation answers. It needs you again then.' };
   if (s.status !== 'needs') return null;
   switch (need) {

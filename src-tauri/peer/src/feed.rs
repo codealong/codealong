@@ -94,8 +94,8 @@ pub struct FeedMsg {
 /// `Session::raised`; 14: `Session::side_answer`; 15: `Session::agent_seen`; 16: `Session::running`;
 /// 17: `Session::labels`; 18: `Session::need`; 19: `Session::listening`; 20: `Session::finished`
 /// and `SessionInsight::ending`; 21: `Session::aside`; 22: `Session::agents`; 23:
-/// `SessionInsight::waits_until`; 24: `RunningIn::yours`.
-pub const READS: u32 = 24;
+/// `SessionInsight::waits_until`; 24: `RunningIn::yours`; 25: `Session::api_error`.
+pub const READS: u32 = 25;
 
 /// What this device knows of a linked device's board, kept up to date by its feeds, and kept on disk
 /// so a device that's asleep still shows as it was when last seen.

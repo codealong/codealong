@@ -63,7 +63,7 @@ fn pairs() -> Vec<Pair> {
         ($($t:ident),* $(,)?) => { vec![$(pair::<model::$t>(stringify!($t))),*] };
     }
     let mut pairs = same![
-        Session, Emblem, Artifact, Helper, SessionMode, ContextUse, QueuedMessage, SessionLimit, ConnectionLost, Suggestions, SideAnswer, Raised, AgentSeen, RunningIn, SessionOrigin, ChromeTabs,
+        Session, Emblem, Artifact, Helper, SessionMode, ContextUse, QueuedMessage, SessionLimit, ConnectionLost, ApiError, Suggestions, SideAnswer, Raised, AgentSeen, RunningIn, SessionOrigin, ChromeTabs,
         SessionInsight, Finished, Checks, Label, PrLabel, Pr, StaleApproval, GitInfo, Target, Lane, Cleanup, Preview, PreviewServer, DeviceTag, Meter, Usage, ProjectSummary, AccountInfo, Notice, Board,
         TodoHint, PrItem, LastReview, AutoReview, ReviewPart, PrSession,
     ];

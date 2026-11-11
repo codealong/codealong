@@ -431,10 +431,23 @@ const TERMINATED: &str = "Agent execution terminated due to error.";
 /// seven minutes on 2026-10-14, each sent after the agent had waited minutes on a permission
 /// prompt or a command, on a connection the network had dropped meanwhile. "dial tcp: lookup …:
 /// no such host" was seen too, which `agy` tried again itself; the rest are Go's words for the
-/// same kinds of loss (`util::GO_CONNECTION_LOST`, which `gh` says too). A refused connection is
-/// left out, as Claude Code's is (claude/transcript.rs `CONNECTION_LOST`): it doesn't come right
-/// by waiting.
+/// same kinds of loss (`util::GO_CONNECTION_LOST`, which `gh` says too), and a refused connection
+/// (`REFUSED`), which is one here as Claude Code's is (claude/transcript.rs `CONNECTION_LOST` says
+/// why).
 const CONNECTION_LOST: &[&str] = crate::util::GO_CONNECTION_LOST;
+
+/// How Go's error ends for a connection the API's end refused ("dial tcp …: connect: connection
+/// refused").
+const REFUSED: &str = "connection refused";
+
+/// How a failed turn's line starts when its request to the API failed (`failed_of`).
+const REQUEST_FAILED: &str = "Its request to the API failed: ";
+
+/// What a failed turn's line (`Failed::said`) says went wrong, as an API error's words: the cause
+/// alone ("broken pipe") where its request failed.
+pub fn api_error_words(said: &str) -> &str {
+    said.strip_prefix(REQUEST_FAILED).unwrap_or(said)
+}
 
 /// Why a turn ended on an error.
 #[derive(Debug, Clone, PartialEq)]
@@ -472,13 +485,13 @@ fn failed_of(payload: &[u8]) -> Option<(FailedOn, String)> {
         let said = for_you.split(" Resets in ").next().unwrap_or(&for_you);
         return Some((FailedOn::Quota { resets_at }, one_line(said, 140)));
     }
-    if CONNECTION_LOST.iter().any(|w| error.ends_with(w)) {
+    if CONNECTION_LOST.iter().chain(&[REFUSED]).any(|w| error.ends_with(w)) {
         // Go's words for the loss are the error's last part ("broken pipe").
         let cause = error.rsplit(": ").next().unwrap_or(&error);
-        return Some((FailedOn::Connection, format!("Its request to the API failed: {cause}")));
+        return Some((FailedOn::Connection, format!("{REQUEST_FAILED}{cause}")));
     }
     let said = match request_cause(&error) {
-        Some(cause) => format!("Its request to the API failed: {cause}"),
+        Some(cause) => format!("{REQUEST_FAILED}{cause}"),
         None if for_you == TERMINATED && !error.is_empty() => error,
         None => for_you,
     };
@@ -2903,10 +2916,15 @@ mod tests {
         // Anything else says what went wrong, where the words for you say only that it failed.
         let missing = "NOT_FOUND (code 404): models/barium-b-agy is not found for API version v1main, or is not supported for generateContent.";
         assert_eq!(failed_of(&error_note(missing, Some(TERMINATED))), Some((FailedOn::Other, missing.to_string())));
-        // A refused connection doesn't come right by waiting. Its cause is said whole, where the
-        // address it went to would take the line.
+        // A refused connection is lost too, said by Go's last words for it, without the address.
         let refused = error_note("agent executor error: generating and executing: request failed: Post \"https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse\": dial tcp [2001:db8::2]:443: connect: connection refused", Some(TERMINATED));
-        assert_eq!(failed_of(&refused), Some((FailedOn::Other, "Its request to the API failed: dial tcp [2001:db8::2]:443: connect: connection refused".to_string())));
+        assert_eq!(failed_of(&refused), Some((FailedOn::Connection, "Its request to the API failed: connection refused".to_string())));
+        // Any other request's cause is said whole, where the address it went to would take the line.
+        let tls = error_note("agent executor error: request failed: Post \"https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse\": tls: failed to verify certificate", Some(TERMINATED));
+        assert_eq!(failed_of(&tls), Some((FailedOn::Other, "Its request to the API failed: tls: failed to verify certificate".to_string())));
+        // As an API error, the cause alone.
+        assert_eq!(api_error_words("Its request to the API failed: broken pipe"), "broken pipe");
+        assert_eq!(api_error_words(missing), missing);
         // A note the agent goes on after ends no turn.
         assert_eq!(failed_of(&error_note("API error (attempt 1): request failed: Post \"https://oauth2.googleapis.com/token\": dial tcp: lookup oauth2.googleapis.com: no such host", None)), None);
     }

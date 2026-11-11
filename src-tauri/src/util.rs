@@ -9,7 +9,8 @@ pub const DAY_MS: i64 = 24 * 60 * 60 * 1000;
 
 /// How an error from Go's networking ends when its connection was lost or couldn't be made, as
 /// the Go programs Codealong reads say it: `agy` (antigravity.rs `CONNECTION_LOST`) and `gh`
-/// (github.rs `unreachable`). A refused connection is left out: it doesn't come right by waiting.
+/// (github.rs `unreachable`). A refused connection is left out, which `gh` doesn't try again;
+/// `agy`'s counts as lost (antigravity.rs `REFUSED`).
 pub const GO_CONNECTION_LOST: &[&str] = &[
     "broken pipe",
     "connection reset by peer",

@@ -29,6 +29,7 @@ export type Session = Holds<Same<
   | "account"
   | "agentSeen"
   | "agents"
+  | "apiError"
   | "appAccount"
   | "archived"
   | "artifacts"
@@ -157,6 +158,12 @@ export type ConnectionLost = Holds<Same<
   | "at"
   | "continues",
   Names<Types.ConnectionLost>
+>>;
+
+export type ApiError = Holds<Same<
+  | "at"
+  | "said",
+  Names<Types.ApiError>
 >>;
 
 export type Suggestions = Holds<Same<

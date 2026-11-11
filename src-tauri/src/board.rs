@@ -354,6 +354,8 @@ pub fn claude_session(
     // The same for a turn a lost connection ended; whether Codealong carries it on is the
     // engine's to say (`engine::with_connections`).
     let connection_lost = tr.and_then(|t| t.connection_lost).filter(|_| status != Status::Working).map(|at| ConnectionLost { at, continues: false });
+    // What went wrong, for a window to show and offer to try again.
+    let api_error = tr.and_then(|t| t.api_error.clone()).filter(|_| status != Status::Working);
     // Its process went away partway through a turn: its terminal closed, the Mac restarted, it
     // was killed. Read only for terminal sessions (background jobs too), whose turns were checked
     // to end the ways `transcript::turn_step` knows; the Claude app restarts its own sessions.
@@ -476,6 +478,7 @@ pub fn claude_session(
         app_account: account.home_path() == crate::util::home().join(".claude"),
         limit,
         connection_lost,
+        api_error,
         cut_off,
         flagged: tr.is_some_and(|t| t.flagged),
         model: tr.and_then(|t| t.model.clone()),
@@ -707,6 +710,8 @@ pub fn antigravity_session(account: &AccountCfg, c: &Conversation, process: Opti
         _ => None,
     });
     let connection_lost = failed.filter(|f| f.on == FailedOn::Connection).map(|f| ConnectionLost { at: f.at, continues: false });
+    // What went wrong, but for a quota's refusal, which is its limit.
+    let api_error = failed.filter(|f| !matches!(f.on, FailedOn::Quota { .. })).map(|f| ApiError { at: f.at, said: crate::antigravity::api_error_words(&f.said).to_string() });
     // A lost connection reads as a finished turn, as Claude Code's does: it says so beside it.
     let status = if failed.is_some_and(|f| f.on != FailedOn::Connection) && status == Status::Unread { Status::Error } else { status };
     let title = c.title.clone().or_else(|| c.preview.clone()).unwrap_or_else(|| "Antigravity conversation".to_string());
@@ -768,6 +773,7 @@ pub fn antigravity_session(account: &AccountCfg, c: &Conversation, process: Opti
         queued_at: process.and_then(|_| c.said.queued.last().copied()),
         limit,
         connection_lost,
+        api_error,
         ..known
     }
 }

@@ -43,7 +43,7 @@ import { below } from '../contextMenu';
 import { folderTargets, opensInEditor, useEditorIcons } from '../editors';
 import { absolute, ago, agoPhrase, duration, middleTruncate, tildePath } from '../format';
 import { MOVES_ACCOUNTS, sessionName, sessionPlace } from '../harness';
-import { cutOffWords, limitWords, raisedBy, seenable, setAside, sideTitle } from '../lanes';
+import { apiErrorWords, cutOffWords, endedOnApiError, limitWords, raisedBy, seenable, setAside, sideTitle } from '../lanes';
 import { cameLines, cameLineWords, cameWord, originWord, type CameLine, type Kin, type Lineage } from '../lineage';
 import { CHORDS, chordKeys, type SessionActions } from '../menus';
 import { showSide } from '../side';
@@ -564,6 +564,17 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
             </Button>
           )}
           {onMove && <MoveButton onMove={onMove} />}
+        </div>
+      )}
+      {endedOnApiError(s) && (
+        <div className="ca-sessinsp-limit" role="note">
+          <Icon name="alert" size={12} />
+          <span className="ca-sessinsp-limit-words">{apiErrorWords(s, !!actions?.tryAgain)}</span>
+          {actions?.tryAgain && (
+            <Button size="sm" title="It’s sent a message saying its last turn ended on an API error, to try again where it left off" onClick={() => actions.tryAgain?.run()}>
+              {actions.tryAgain.label}
+            </Button>
+          )}
         </div>
       )}
       {/* Hidden when it has nothing to show (SessionHeader.css), Jev's chip included. */}

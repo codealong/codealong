@@ -407,10 +407,15 @@ pub struct Session {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<SessionLimit>,
     /// Its last turn ended because its harness couldn't reach its API, and nothing has been said
-    /// since: the Mac slept or the network dropped, and the harness gave up retrying. None from
-    /// Macs before 2026-10-08.
+    /// since: the Mac slept, the network dropped or the connection was refused, and the harness
+    /// gave up retrying. None from Macs before 2026-10-08.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub connection_lost: Option<ConnectionLost>,
+    /// Its last turn ended on an error from its harness's API, and nothing has been said since:
+    /// what the harness said went wrong. A lost connection (`connection_lost`) is one too, its
+    /// words here; a usage limit's refusal is `limit` instead. None from Macs before 2026-11-11.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_error: Option<ApiError>,
     /// Its last turn was cut off: what ran it ended partway through (its terminal closed, the
     /// Mac restarted, it was killed), and nothing has gone on since. When the turn last did
     /// something. None from Macs before 2026-10-12.
@@ -754,6 +759,7 @@ impl Session {
             chrome: None,
             limit: None,
             connection_lost: None,
+            api_error: None,
             cut_off: None,
             flagged: false,
             model: None,
@@ -886,6 +892,17 @@ pub struct ConnectionLost {
     /// `[sessions] continue_after_network_error`).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub continues: bool,
+}
+
+/// An error from its API that ended a session's turn, as its harness recorded it.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiError {
+    /// When the turn ended.
+    pub at: i64,
+    /// What went wrong, in a line, in the harness's words ("529 Overloaded. This is a
+    /// server-side issue, usually temporary.").
+    pub said: String,
 }
 
 /// Replies suggested for a session by another session that read it (a supervisor going over the

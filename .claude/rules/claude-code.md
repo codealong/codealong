@@ -281,7 +281,15 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   2026-10-07) are there too. `CLAUDE_CODE_MAX_RETRIES` (default 10) is clamped to 15 unless the
   undocumented `CLAUDE_CODE_RETRY_WATCHDOG` is set, which allows 300 and retries 429s and 529s
   for good, so Codealong sets neither and carries such a session on itself (reconnect.rs).
-  Claude Code's own automatic resume is only for a usage limit that lifts (above).
+  Claude Code's own automatic resume is only for a usage limit that lifts (above). A refused
+  connection ("Connection refused — a firewall or proxy may be blocking it (ECONNREFUSED)") is
+  carried on too since 2026-11-11: one here went on when told to try again 5 minutes after.
+- Every other error that ends a turn is written the same way, `isApiErrorMessage` with `error` its
+  kind (`server_error` for "529 Overloaded…", "No response from API (waited 10m…)", "The response
+  stopped arriving…"; `rate_limit` without a 429 for a model that's unavailable;
+  `authentication_failed` for "Login expired · Please run /login"; `invalid_request` for the
+  safeguards' flags). A window shows them with Try again, but for those that trying again doesn't
+  mend: `claude/transcript.rs` (`api_error_of`).
 - `--resume <id>` run in another folder goes on as the same session, its transcript staying in
   the first folder's project with the new folder on its lines, and `--bg --resume <id>` keeps
   the ID only for a session no background job has had, copying one that has into a new job

@@ -393,11 +393,22 @@ notice. `[limits] continue_when_lifted = false` (Settings › Automation) turns 
 A Claude Code session, or an Antigravity one in its command line, whose turn ended because it
 couldn't reach its API says so (Network error): with the lid closed the Mac wakes for a few seconds
 every minute or two without DNS, and Claude Code's retries run out there; Antigravity gives up at
-once on a connection the network dropped while it waited on a permission prompt or a command.
-Codealong tells it to carry on once the API can be reached again, once for each time, and leaves it
-for you (with a notice) when it loses the connection again straight after a few times running;
-`[sessions] continue_after_network_error = false` (Settings › Automation) turns that off. Any other
-error that ends an Antigravity turn shows as one (Error), in its own words, until you've seen it.
+once on a connection the network dropped while it waited on a permission prompt or a command. A
+refused connection (ECONNREFUSED, "a firewall or proxy may be blocking it") counts too: it often
+comes right by itself. Codealong tells it to carry on once the API can be reached again, once for
+each time, and leaves it for you (with a notice) when it loses the connection again straight after
+a few times running; `[sessions] continue_after_network_error = false` (Settings › Automation)
+turns that off. Any other error that ends an Antigravity turn shows as one (Error), in its own
+words, until you've seen it.
+
+Any API error that ended a turn, a lost connection's included, shows in the session's panel in its
+harness's words ("529 Overloaded…", "No response from API…"), with **Try again** beside it, and a
+Claude Code session whose turn ended on one that isn't a lost connection says API error in the
+lists. Try again sends the session a message of yours saying its last turn ended on an API error
+and to carry on where it left off, as if you'd typed it. Where Codealong is to carry it on by itself
+once the API can be reached, the button is **Try now**. A usage limit has its own note (*Usage
+limits*), and Claude Code's errors that trying again doesn't mend get none: a sign-in that needs
+`/login`, and a request the API turned down for what it held.
 
 #### Cut off
 

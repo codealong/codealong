@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { asideable, ageFiltered, archivedShows, bayOf, branchLabel, bySession, byStatusTime, waitsFinished, raisedBy, closable, connectionLostWords, cutOffWords, exitsItsOwnWay, filterByAge, foldsOf, foldWords, helperLine, helperName, helperStands, homeOf, inboxCounts, laneWaits, limitWords, liveOrLatest, narrowed, relaned, runsShownKey, seenable, sessionFlag, sessionHeadline, sessionPrs, sidesListed, sidesShownKey, stoppable, unattended, waitsInBackground, withoutAccount, workingFor, workingSince } from './lanes';
+import { asideable, ageFiltered, apiErrorWords, archivedShows, bayOf, branchLabel, bySession, byStatusTime, waitsFinished, raisedBy, closable, cutOffWords, endedOnApiError, exitsItsOwnWay, filterByAge, foldsOf, foldWords, helperLine, helperName, helperStands, homeOf, inboxCounts, laneWaits, limitWords, liveOrLatest, narrowed, relaned, runsShownKey, seenable, sessionFlag, sessionHeadline, sessionPrs, sidesListed, sidesShownKey, stoppable, unattended, waitsInBackground, withoutAccount, workingFor, workingSince } from './lanes';
 import * as fx from './testing/fixtures';
 import type { Lane, Pr, PrItem, Session, SideGlance } from './types';
 
@@ -386,10 +386,27 @@ describe('sessionFlag', () => {
   it('says a lost connection ended its turn, and whether Codealong carries it on', () => {
     const lost = s({ status: 'unread', excerpt: "API Error: Can't reach the API server — check your internet or DNS (ENOTFOUND)", connectionLost: { at: NOW - 60_000, continues: true } });
     expect(sessionFlag(lost)).toMatchObject({ label: 'Network error', tone: 'warn' });
-    expect(connectionLostWords({ at: NOW, continues: true })).toBe('Its last turn ended because it couldn’t reach its API: the Mac slept, or the network dropped. Codealong tells it to carry on once the API can be reached again.');
-    expect(connectionLostWords({ at: NOW })).toBe('Its last turn ended because it couldn’t reach its API: the Mac slept, or the network dropped. Send it something to carry on.');
+    // A Mac from before API errors says only that the connection was lost.
+    expect(apiErrorWords({ connectionLost: { at: NOW, continues: true } })).toBe('Its last turn ended because it couldn’t reach its API: the Mac slept, or the network dropped. Codealong tells it to carry on once the API can be reached again.');
+    expect(apiErrorWords({ connectionLost: { at: NOW } })).toBe('Its last turn ended because it couldn’t reach its API: the Mac slept, or the network dropped. Send it something to try again.');
+    // Its harness's words where it said them.
+    const refused = { connectionLost: { at: NOW, continues: true }, apiError: { at: NOW, said: 'Connection refused — a firewall or proxy may be blocking it (ECONNREFUSED)' } };
+    expect(apiErrorWords(refused, true)).toBe('Its last turn ended on an API error: Connection refused — a firewall or proxy may be blocking it (ECONNREFUSED). Codealong tells it to carry on once the API can be reached again.');
     // Carried on, it's working: nothing to flag.
     expect(sessionFlag({ ...lost, status: 'working', excerpt: null })).toBeNull();
+    expect(endedOnApiError({ ...lost, status: 'working' })).toBe(false);
+  });
+
+  it('says what an API error that ended its turn said, and offers to try again', () => {
+    const errored = s({ status: 'unread', excerpt: 'API Error: 529 Overloaded.', apiError: { at: NOW - 60_000, said: '529 Overloaded. This is a server-side issue, usually temporary.' } });
+    expect(endedOnApiError(errored)).toBe(true);
+    expect(sessionFlag(errored)).toMatchObject({ label: 'API error', tone: 'warn' });
+    expect(apiErrorWords(errored)).toBe('Its last turn ended on an API error: 529 Overloaded. This is a server-side issue, usually temporary. Send it something to try again.');
+    // The button beside it says how it goes on.
+    expect(apiErrorWords(errored, true)).toBe('Its last turn ended on an API error: 529 Overloaded. This is a server-side issue, usually temporary.');
+    expect(sessionFlag({ ...errored, status: 'working', excerpt: null })).toBeNull();
+    // One its harness calls an error (Antigravity's) stays Error, its words on hover.
+    expect(sessionFlag({ ...errored, status: 'error' })).toMatchObject({ label: 'Error', tone: 'bad', title: apiErrorWords(errored) });
   });
 
   it('says a turn was cut off, as news until seen and as a flag after', () => {
