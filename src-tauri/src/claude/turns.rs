@@ -21,6 +21,12 @@
 //! words (`asks::REFUSED_SAYING`). And a turn you stopped leaves "[Request interrupted by user"
 //! or a result "User rejected tool use", which the next prompt is told by (`State::stopped`).
 //!
+//! A line marked typed isn't always yours: a prompt a session was started or resumed with reads
+//! as typed whoever wrote it, so one led by the line Codealong puts first is Codealong's own or
+//! another agent's (`turns::whose`). And a reply that's Claude Code's own words for an error
+//! (`isApiErrorMessage`: a lost connection, a usage limit) isn't what the agent said: "try
+//! again" after one answers the reply before it.
+//!
 //! A subagent's log isn't read: what comes in there is its parent agent's doing. A fork made
 //! through the Agent SDK copies lines under new ids, each naming the line it copies
 //! (`forkedFrom.messageUuid`), which is the name a copied line goes by here, so a copy is the
@@ -30,7 +36,7 @@ use serde_json::Value;
 
 use super::conversation::peer_source;
 use super::transcript::{line_words, ran_a_turn, reply_text};
-use crate::turns::{Came, Picked, Source, State};
+use crate::turns::{whose, Came, Picked, Source, State};
 use crate::util::parse_rfc3339_ms;
 
 /// What Claude Code writes where you stopped a turn: as a line of its own, or as the result of
@@ -38,9 +44,25 @@ use crate::util::parse_rfc3339_ms;
 const INTERRUPTED: &str = "[Request interrupted by user";
 const REJECTED: &str = "User rejected tool use";
 
+/// A prompt that reads as typed, as whoever its leading line says wrote it: you, unless a
+/// session was started or resumed with Codealong's own words or another agent's.
+fn typed(v: &Value, text: String) -> Option<Came> {
+    let (source, sender) = whose(&text);
+    let kind = if source == Source::You { "prompt" } else { "message" };
+    Some(Came { sender, ..came(v, source, kind, crate::send::past_sender_lines(&text).trim().to_string())? })
+}
+
 pub fn turn_step(line: &[u8], st: &mut State) -> Option<Came> {
     let has = |needle: &[u8]| memchr::memmem::find(line, needle).is_some();
     if !has(br#""type":"user""#) && !has(br#""type":"assistant""#) && !has(b"queued_command") && !has(b"scheduled_task_fire") {
+        return None;
+    }
+    // Most of a transcript is the agent's calls and their results: a reply's line is read only
+    // when it has words, and a result's only when it could be yours (an answer, a refusal).
+    if has(br#""type":"assistant""#) && !has(br#""type":"text""#) && !has(br#""type":"user""#) {
+        return None;
+    }
+    if has(br#""type":"tool_result""#) && !has(br#""answers""#) && !has(REJECTED.as_bytes()) && !has(b"The user doesn't want to proceed") {
         return None;
     }
     let v: Value = serde_json::from_slice(line).ok()?;
@@ -56,8 +78,10 @@ pub fn turn_step(line: &[u8], st: &mut State) -> Option<Came> {
             None
         }
         "assistant" => {
-            if let Some(text) = reply_text(&v) {
-                st.say(&text);
+            if !flag("isApiErrorMessage") {
+                if let Some(text) = reply_text(&v) {
+                    st.say(&text);
+                }
             }
             None
         }
@@ -120,13 +144,13 @@ fn user(v: &Value, st: &mut State) -> Option<Came> {
         return None;
     }
     match origin {
-        Some("human") | Some("sdk") => came(v, Source::You, "prompt", line_words(v).unwrap_or_default()),
+        Some("human") | Some("sdk") => typed(v, line_words(v).unwrap_or_default()),
         Some("scheduled") => came(v, Source::Itself, "wakeup", String::new()),
         Some("task_notification") | Some("task-notification") | Some("peer") => came(v, Source::Itself, "task", String::new()),
         Some(_) => None,
         None if wakeup => came(v, Source::Itself, "wakeup", String::new()),
         // Before the marks: a prompt is what reads as one.
-        None => (ran_a_turn(v) || line_words(v).is_some_and(|w| !w.trim().is_empty()) && super::transcript::you_typed(v)).then(|| came(v, Source::You, "prompt", line_words(v).unwrap_or_default())).flatten(),
+        None => (ran_a_turn(v) || line_words(v).is_some_and(|w| !w.trim().is_empty()) && super::transcript::you_typed(v)).then(|| typed(v, line_words(v).unwrap_or_default())).flatten(),
     }
 }
 
@@ -159,11 +183,13 @@ fn result(v: &Value, content: &Value, st: &mut State) -> Option<Came> {
         st.say(&asked.join("\n"));
         return Some(Came { picked: Some(picked(&questions, answers)), ..came(v, Source::You, "answer", said.join("; "))? });
     }
-    let text = text_in(content);
-    if let Some((_, words)) = text.split_once(super::asks::REFUSED_SAYING) {
-        return Some(Came { mid: true, ..came(v, Source::You, "prompt", words.trim().to_string())? });
+    // Only a result that's an error and opens with Claude Code's own words is a refusal: a
+    // command's output can quote them (a search of this very file does).
+    let refused = content.as_array().into_iter().flatten().filter(|i| i.get("is_error").and_then(Value::as_bool) == Some(true)).filter_map(|i| i.get("content").map(text_in)).find_map(|t| t.strip_prefix(super::asks::REFUSED_SAYING).map(|w| w.trim().to_string()));
+    if let Some(words) = refused {
+        return Some(Came { mid: true, ..came(v, Source::You, "prompt", words)? });
     }
-    if v.get("toolUseResult").and_then(Value::as_str) == Some(REJECTED) || text.contains(INTERRUPTED) {
+    if v.get("toolUseResult").and_then(Value::as_str) == Some(REJECTED) {
         st.stopped = true;
     }
     None
@@ -236,6 +262,13 @@ mod tests {
         // An older wakeup has no mark: it's the line after its fire.
         step(&mut st, json!({"type": "system", "subtype": "scheduled_task_fire", "taskId": "t1"}));
         assert_eq!(step(&mut st, json!({"type": "user", "uuid": "u4", "message": {"content": "check the deploy"}})).map(|c| c.source), Some(Source::Itself));
+        // Claude Code's own words for an error aren't what the agent said.
+        assert_eq!(step(&mut st, json!({"type": "assistant", "isApiErrorMessage": true, "message": {"content": [{"type": "text", "text": "API Error: Connection refused"}]}})), None);
+        assert_eq!(st.said, "Done. Shall I push?");
+        // A session resumed for another agent's message, or started by Codealong, reads as typed.
+        let resumed = format!("{} This message is from another agent, “Review the parser” (Codex), sent with `codealong session send`; it isn't from your user. To answer it, run `codealong session send codex:codex:t1 \"<your answer>\"`.\n\nTwo findings.", crate::send::RESUMED_FOR_A_MESSAGE);
+        assert_eq!(step(&mut st, user_line("u6", "human", json!(resumed))).map(|c| (c.source, c.kind, c.sender, c.text)), Some((Source::Agent, "message", Some("codex:codex:t1".into()), "Two findings.".into())));
+        assert_eq!(step(&mut st, user_line("u7", "human", json!(crate::send::by_codealong("Check the deploy.")))).map(|c| (c.source, c.text)), Some((Source::Codealong, "Check the deploy.".into())));
         // A program driving it through the SDK types as you do.
         assert_eq!(step(&mut st, json!({"type": "user", "uuid": "u5", "turnOrigin": "sdk", "message": {"content": "Carry on"}})).map(|c| (c.source, c.text)), Some((Source::You, "Carry on".into())));
         // Not turns: a skill's expansion, a command of Claude Code's own, a subagent's line, a summary.
@@ -291,6 +324,9 @@ mod tests {
         // A call refused with words is those words, said into the turn.
         let refused = json!({"type": "user", "uuid": "r1", "message": {"content": [{"type": "tool_result", "tool_use_id": "t", "is_error": true, "content": format!("{}Explain it first", crate::claude::asks::REFUSED_SAYING)}]}});
         assert_eq!(step(&mut st, refused).map(|c| (c.source, c.mid, c.text)), Some((Source::You, true, "Explain it first".into())));
+        // Output that only quotes those words, or the words of a stop, is a command's own.
+        let quoting = json!({"type": "user", "uuid": "r0", "message": {"content": [{"type": "tool_result", "tool_use_id": "t", "content": format!("src/claude/asks.rs: {}Explain it first\n[Request interrupted by user for tool use]", crate::claude::asks::REFUSED_SAYING)}]}});
+        assert_eq!(step(&mut st, quoting), None);
         // A turn you stopped says so on what comes next from you.
         assert!(!st.stopped);
         let rejected = json!({"type": "user", "uuid": "r2", "toolUseResult": "User rejected tool use", "message": {"content": [{"type": "tool_result", "tool_use_id": "t", "is_error": true, "content": "The user doesn't want to proceed with this tool use."}]}});

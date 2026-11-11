@@ -276,3 +276,8 @@ chunks) and this Mac's files (2026-10-09). Paths are under `src-tauri/src/`.
 - MCP servers: `~/.cursor/mcp.json` (`mcpServers`), the app's and the command line's; a workspace's
   `.cursor/mcp.json` beside it asks approval first. One turned off in Cursor's settings stays in
   the file: `cursor.rs` (`Cursor::mcp`). The file was empty (0 bytes) here, 2026-10-20.
+- A background task its agent started ending writes a prompt into the chat's transcript as a
+  prompt of yours is written, opening "Briefly inform the user about the task result and perform
+  any follow-up actions (if needed)." (seen 2026-11-11): nobody typed it, so the analytics count
+  it as the session's own doing: `cursor.rs` (`TASK_ENDED`, `Cursor::turn_step`). Whether the
+  app's own chats in `state.vscdb` have the same wasn't looked into.

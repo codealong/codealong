@@ -80,6 +80,18 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   (`claude/transcript.rs` `you_sent_while_working`): without that, a message sent while the
   session worked stayed "Sent" at the end of its thread once the turn had taken it in (`ahead.ts`
   `took`), whenever the page the thread read began after it.
+- What began each turn, for the analytics (turns.rs): a turn's first `user` line says it in
+  `turnOrigin` (`human`, `peer`, `task_notification`, `scheduled`, `sdk`; 2.1.322, 2026-11-11),
+  beside `origin.kind` on all but a scheduled one, and a `queued_command` attachment in
+  `attachment.origin.kind`: `claude/turns.rs` (module header, `turn_step`). Not there: such
+  lines also have `promptSource`, `turnPosition`, `turnAttributionKey`, `wakeupSource`,
+  `scheduledTaskId` and `scheduledFireId`, unread. Over four days of this machine's transcripts
+  the turn-starting lines were 898 another session's, 884 typed, 938 a wakeup's and 848 a task's
+  report, with 660 more reports and 391 messages taken in mid-turn. A prompt a session was
+  started or resumed with is marked `human` whoever wrote it, so Codealong's own and an agent's
+  are told by the line they open with (`turns::whose`); a tool result that only quotes "[Request
+  interrupted by user" or the words of a refusal (a search of the code that has them) is no stop
+  and no refusal, so only a result that's an error and opens with those words is one.
 - Escape before the agent has written anything back, with the input box empty, takes the prompt
   back instead of interrupting the turn, and nothing in the transcript says so (2.1.285's
   `auto_restore_cancel`): `claude/conversation.rs` (the comment above `fate_of`, and `fate_of`).

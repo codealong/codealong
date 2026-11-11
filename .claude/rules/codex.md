@@ -144,6 +144,12 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
   `last_token_usage.total_tokens` and `model_context_window` (258,400 for gpt-6-astra on
   0.157.1), `ThreadInfo::context`. The event's `rate_limits` also has `credits: {has_credits,
   unlimited, balance}` and `plan_type`.
+- What came in to a thread and who from, for the analytics (turns.rs): `codex/turns.rs` (module
+  header). Not there: recent rollouts write a prompt only as an `item_completed` `UserMessage`
+  (136 of them here had a `client_id` on 52, which marks nothing known), and an `AgentMessage`
+  has a `phase`, `commentary` or `final_answer`, which nothing reads. Archived threads' rollouts
+  are read too (`Codex::turn_files`): a review's or a helper's thread is archived once it's done,
+  and without them a week's calls had $476 of $4,129 with no turn (2026-11-11).
 - What each call used, for the token ledger: `codex/rollout.rs` (`token_use`, `all_rollouts`).
   A guardian review's rollout (`source: {subagent: {other: "guardian"}}`) and a spawned agent's
   count from nothing (0.156, 2026-10-12), so a subagent's tokens aren't its parent's again; a

@@ -25,11 +25,11 @@ use crate::turns::{Came, Picked};
 
 /// What a prompt can do, each as Jev is told it. `command` is never asked: a rule's alone.
 pub const STANCES: [(&str, &str); 5] = [
-    ("sets-out", "Asks for new work, unrelated to what the agent just said or proposed: a new task, or the next thing after the last one was finished. It doesn't respond to the agent's last reply."),
-    ("agrees", "Goes along with what the agent said, proposed or asked: tells it to go ahead, continue, do what it offered or recommended, or says it looks good. It adds no new requirement and changes nothing about the agent's plan."),
-    ("steers", "Keeps the agent's direction but adjusts it: adds a requirement or a constraint, corrects a detail, narrows or widens the scope, picks between options the agent gave, or answers the agent's question with a decision the agent hadn't proposed."),
-    ("redirects", "Rejects the agent's direction and replaces it: says its approach or its result is wrong, tells it to stop, undo or start over, or tells it to do something different from what it did or proposed."),
-    ("asks", "Only asks the agent for information or an explanation, or asks to be shown something. It asks for no change and gives no direction."),
+    ("sets-out", "Tells the agent to do new work that isn't about its last reply: a new task, or the next thing now that the last one is finished."),
+    ("agrees", "Goes along with what the agent said, proposed or asked: tells it to go ahead, to continue, to carry on or to try again, to do what it offered or recommended, says it looks good, or says the user has done what the agent asked of them. It adds no new requirement and changes nothing about the agent's plan."),
+    ("steers", "Keeps what the agent did or proposed and adjusts it or adds to it: a further requirement or a constraint, a correction of a detail, a narrower or wider scope, a choice between options the agent gave, or a fact or a decision the agent needed."),
+    ("redirects", "Rejects what the agent did or proposed and replaces it: says its approach or its result is wrong, tells it not to do what it proposed or to hold off, to undo it, or to do something different instead."),
+    ("asks", "A question for the agent: asks for information, an explanation or its opinion, or asks to be shown something, about its last reply or about anything else. It tells the agent to change nothing."),
 ];
 
 /// A slash command's stance: it runs something of the harness's or a skill's, and answers nothing.
@@ -62,7 +62,9 @@ pub fn by_rule(c: &Came, first: bool) -> Option<&'static str> {
             _ => None,
         };
     }
-    if is_command(&c.text) {
+    // A slash command, or what a command you ran for the session printed (terminal.rs
+    // `report_ended`), which Codealong sends in your name.
+    if is_command(&c.text) || c.text.starts_with(crate::terminal::RAN_IT) {
         return Some(COMMAND);
     }
     first.then_some("sets-out")
@@ -232,6 +234,7 @@ mod tests {
         assert_eq!(by_rule(&came("prompt", "/codealong:orchestrate tick", None), false), Some(COMMAND));
         assert_eq!(by_rule(&came("prompt", "/Users/me/projects/northwind-app/src is where it breaks", None), false), None);
         assert_eq!(by_rule(&came("prompt", "/ no", None), false), None);
+        assert_eq!(by_rule(&came("prompt", "I ran this in my terminal:\n\n```\nnpm test\n```\n\nIt exited with status 0.", None), false), Some(COMMAND));
         // An answer that picks what was offered needs no read; words of your own do.
         assert_eq!(by_rule(&came("answer", "Postgres", Some(Picked::First)), false), Some("agrees"));
         assert_eq!(by_rule(&came("answer", "SQLite", Some(Picked::Offered)), false), Some("steers"));

@@ -627,6 +627,7 @@ quick_panel = false            # suggestions as you type in the quick panel
 sessions = false               # how each turn ended: asks you, stuck, landed, finished, risk
 todos = false                  # links sessions to todos, done hints, new todos' labels
 pull_requests = false          # review comments that ask for a change
+prompts = false                # with [experimental] analytics: what each prompt you typed did with the reply before it
 
 [emblems]                      # something to know each session by beside its title (Settings › General)
 kind = "off"                   # "emoji" (Jev picks one) or "drawn" (an account draws one)
@@ -713,6 +714,7 @@ check = true                   # look for a new version by itself (Settings › 
 [experimental]                 # features still being tried out, each off until it's turned on (Settings › Experimental)
 boards = false                 # the Board view, as Kanban and as Canvas, Add to board in the menus, and `codealong board`
 voice = false                  # the keys held to talk, sessions that listen to a meeting (Listen… in a session's menu), and `codealong listen`
+analytics = false              # who began each session and turn, what your prompts did, how the sessions you marked done stood (the Usage window, `codealong analytics`)
 
 [voice]                        # once [experimental] voice is on (Settings › Experimental)
 locale = ""                    # the language spoken, such as "en-US"; "" for this Mac's own

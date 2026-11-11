@@ -147,6 +147,10 @@ pub struct State {
     /// The record is a subagent's: what comes in there is its parent agent's doing.
     #[serde(default)]
     pub sub: bool,
+    /// When the last thing with a time of its own came in, for a record whose lines don't all
+    /// have one (`from_prose`).
+    #[serde(default)]
+    pub at: i64,
 }
 
 impl State {
@@ -185,9 +189,13 @@ pub fn from_prose(state: &mut State, at: i64, you: bool, text: &str) -> Option<C
         state.say(text);
         return None;
     }
+    // A line with no time of its own came no earlier than the last that had one.
+    if at > 0 {
+        state.at = at;
+    }
     let (source, sender) = whose(text);
     let kind = if source == Source::You { "prompt" } else { "message" };
-    Some(Came { id: state.name(), at, source, kind, sender, mid: false, text: crate::send::past_sender_lines(text).trim().to_string(), picked: None })
+    Some(Came { id: state.name(), at: state.at, source, kind, sender, mid: false, text: crate::send::past_sender_lines(text).trim().to_string(), picked: None })
 }
 
 /// Something that came in, with what the record said around it.

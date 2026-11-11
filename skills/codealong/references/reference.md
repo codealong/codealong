@@ -47,6 +47,14 @@ Commands:
              plan, its `monthly` in config.toml, a day's share at a time; Claude's extra
              usage; and accounts that pay by the token). Rows by account, model, folder,
              session or day; JSON has them all
+  analytics  Your part in the work, an experiment (`[experimental] analytics`, Settings
+             › Experimental): what came in to your sessions and who from (you, another
+             agent, Codealong, the session itself), what your prompts did with what the
+             agent had said (set out new work, agreed, steered, redirected, asked), how
+             sessions began, and how the ones you marked done stood (finished, or left
+             asking you something, not landed…). The Usage window's Your part and
+             Sessions show the same; JSON has it all. `prompts` lists prompts of yours
+             nothing has read yet, and `tag` says what one did
   whoami     Which session runs this command, its worktree, the other agents running in
              that worktree now (`others`: none means no other agent shares the checkout,
              however many sessions worked there before), and its open todos: the ones
@@ -406,10 +414,121 @@ Options:
           Tables, even when piped
 
       --by <BY>
-          What the table's rows are
+          What the table's rows are. `began` (how each session began) and `turn` (who
+          began the turn each call was made in) have rows once `[experimental]
+          analytics` is on
           
           [default: account]
-          [possible values: account, model, folder, session, day]
+          [possible values: account, model, folder, session, day, began, turn]
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong analytics
+
+```
+Your part in the work, an experiment (`[experimental] analytics`, Settings ›
+Experimental): what came in to your sessions and who from (you, another agent,
+Codealong, the session itself), what your prompts did with what the agent had said (set
+out new work, agreed, steered, redirected, asked), how sessions began, and how the ones
+you marked done stood (finished, or left asking you something, not landed…). The Usage
+window's Your part and Sessions show the same; JSON has it all. `prompts` lists prompts
+of yours nothing has read yet, and `tag` says what one did
+
+Usage: codealong analytics [OPTIONS] [COMMAND]
+
+Commands:
+  prompts  Prompts of yours that nothing has read yet for what they did, the newest
+           first: each with its id, its session, what it says and the end of the agent's
+           reply before it. For an agent asked to read them: say what each did with
+           `analytics tag`
+  tag      Says what a prompt did with what its agent had last said, by its id as
+           `analytics prompts` lists it: `sets-out` (asks for new work, unrelated to the
+           reply before it), `agrees` (goes along with what the agent said or proposed,
+           adding nothing), `steers` (keeps the agent's direction and adjusts it),
+           `redirects` (rejects it and replaces it), `asks` (only asks for information)
+           or `command` (a slash command). It stands over Jev's read of the same prompt
+  help     Print this message or the help of the given subcommand(s)
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --days <DAYS>
+          How many days back, today included
+          
+          [default: 30]
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+      --account <ACCOUNT>
+          One account's alone
+
+  -h, --help
+          Print help
+```
+
+## codealong analytics prompts
+
+```
+Prompts of yours that nothing has read yet for what they did, the newest first: each
+with its id, its session, what it says and the end of the agent's reply before it. For
+an agent asked to read them: say what each did with `analytics tag`
+
+Usage: codealong analytics prompts [OPTIONS]
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --limit <LIMIT>
+          How many to list
+          
+          [default: 20]
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong analytics tag
+
+```
+Says what a prompt did with what its agent had last said, by its id as `analytics
+prompts` lists it: `sets-out` (asks for new work, unrelated to the reply before it),
+`agrees` (goes along with what the agent said or proposed, adding nothing), `steers`
+(keeps the agent's direction and adjusts it), `redirects` (rejects it and replaces it),
+`asks` (only asks for information) or `command` (a slash command). It stands over Jev's
+read of the same prompt
+
+Usage: codealong analytics tag [OPTIONS] <ID> <STANCE>
+
+Arguments:
+  <ID>
+          
+
+  <STANCE>
+          
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
 
       --verbose
           Say on stderr whether the app or the files answered

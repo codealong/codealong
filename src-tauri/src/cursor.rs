@@ -2194,6 +2194,11 @@ fn under_way(s: &Session) -> bool {
     matches!(s.status, Status::Working | Status::Needs) && s.live
 }
 
+/// How the prompt opens that Cursor writes into a chat's record, as a prompt of yours is
+/// written, when a background task its agent started ends (seen in this machine's transcripts,
+/// 2026-11-11): nobody typed it.
+const TASK_ENDED: &str = "Briefly inform the user about the task result";
+
 impl crate::harness::Adapter for Cursor {
     fn harness(&self) -> Harness {
         Harness::Cursor
@@ -2332,6 +2337,14 @@ impl crate::harness::Adapter for Cursor {
             }
         }
         out
+    }
+
+    /// As any harness read through its prose, but for what Cursor itself puts to its agent as a
+    /// background task of its ends (`TASK_ENDED`), which is the session's own doing.
+    fn turn_step(&self, line: &[u8], state: &mut crate::turns::State) -> Option<crate::turns::Came> {
+        let (at, you, text) = self.prose(line)?;
+        let came = crate::turns::from_prose(state, at, you, &text)?;
+        Some(if text.trim_start().starts_with(TASK_ENDED) { crate::turns::Came { source: crate::turns::Source::Itself, kind: "task", text: String::new(), ..came } } else { came })
     }
 
     /// What you asked, and what the agent said.

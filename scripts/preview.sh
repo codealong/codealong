@@ -121,6 +121,8 @@
 # PREVIEW_EMBLEMS=1 gives every session an emblem made up from its key, as `[emblems] kind = "emoji"`
 # would once Jev had picked them; PREVIEW_EMBLEMS=drawn a picture of scripts/preview/emblems/, as
 # `"drawn"` would once they were drawn.
+# PREVIEW_ANALYTICS=1 turns `[experimental] analytics` on, with a made-up report for the Usage
+# window's Your part and Sessions (scripts/preview/usage-part-init.js opens them).
 # PREVIEW_GROUP=worktree|repo shows Sessions, PRs and Todo grouped by worktree or by repo (Group
 # by, over each list); without it, as the window was left: not grouped.
 # PREVIEW_LOADING=1 shows every window as it is at launch, before the engine's first scan has
@@ -238,6 +240,7 @@ setup="localStorage.setItem('codealong.view','$view');localStorage.setItem('code
 [ -n "${PREVIEW_GROUP:-}" ] && setup="$setup localStorage.setItem('codealong.sessionGroup','$PREVIEW_GROUP'); localStorage.setItem('codealong.prGroup','$PREVIEW_GROUP'); localStorage.setItem('codealong.todoGroup','$PREVIEW_GROUP');"
 [ -n "${PREVIEW_LOADING:-}" ] && setup="$setup window.__PREVIEW_LOADING__=true;"
 [ -n "${PREVIEW_EMBLEMS:-}" ] && setup="$setup window.__PREVIEW_EMBLEMS__='$PREVIEW_EMBLEMS';"
+[ -n "${PREVIEW_ANALYTICS:-}" ] && setup="$setup window.__PREVIEW_ANALYTICS__=true;"
 # The window remembers whether boards were on, for before the board comes: as the stub has them.
 if [ -n "${PREVIEW_BOARDS_OFF:-}" ]; then
   setup="$setup window.__PREVIEW_BOARDS_OFF__=true; localStorage.setItem('codealong.boardsOn','0');"

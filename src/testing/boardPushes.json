@@ -22,6 +22,7 @@
         "tailscale": true
       },
       "experimental": {
+        "analytics": false,
         "boards": false,
         "voice": false
       },
@@ -36,6 +37,7 @@
       "improveShortcut": "",
       "jev": {
         "model": "jev-preview",
+        "prompts": false,
         "pull_requests": false,
         "quick_panel": false,
         "sessions": false,
@@ -363,6 +365,7 @@
           "tailscale": true
         },
         "experimental": {
+          "analytics": false,
           "boards": false,
           "voice": false
         },
@@ -377,6 +380,7 @@
         "improveShortcut": "",
         "jev": {
           "model": "jev-preview",
+          "prompts": false,
           "pull_requests": false,
           "quick_panel": false,
           "sessions": false,
@@ -707,6 +711,7 @@
         "tailscale": true
       },
       "experimental": {
+        "analytics": false,
         "boards": false,
         "voice": false
       },
@@ -721,6 +726,7 @@
       "improveShortcut": "",
       "jev": {
         "model": "jev-preview",
+        "prompts": false,
         "pull_requests": false,
         "quick_panel": false,
         "sessions": false,
@@ -1089,6 +1095,7 @@
         "tailscale": true
       },
       "experimental": {
+        "analytics": false,
         "boards": false,
         "voice": false
       },
@@ -1103,6 +1110,7 @@
       "improveShortcut": "",
       "jev": {
         "model": "jev-preview",
+        "prompts": false,
         "pull_requests": false,
         "quick_panel": false,
         "sessions": false,
@@ -1470,6 +1478,7 @@
         "tailscale": true
       },
       "experimental": {
+        "analytics": false,
         "boards": false,
         "voice": false
       },
@@ -1484,6 +1493,7 @@
       "improveShortcut": "",
       "jev": {
         "model": "jev-preview",
+        "prompts": false,
         "pull_requests": false,
         "quick_panel": false,
         "sessions": false,
@@ -1920,6 +1930,7 @@
         "tailscale": true
       },
       "experimental": {
+        "analytics": false,
         "boards": false,
         "voice": false
       },
@@ -1931,6 +1942,7 @@
       "improveShortcut": "",
       "jev": {
         "model": "jev-preview",
+        "prompts": false,
         "pull_requests": false,
         "quick_panel": false,
         "sessions": false,
@@ -2342,6 +2354,7 @@
         "tailscale": true
       },
       "experimental": {
+        "analytics": false,
         "boards": false,
         "voice": false
       },
@@ -2353,6 +2366,7 @@
       "improveShortcut": "",
       "jev": {
         "model": "jev-preview",
+        "prompts": false,
         "pull_requests": false,
         "quick_panel": false,
         "sessions": false,

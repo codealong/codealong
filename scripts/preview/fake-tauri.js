@@ -316,6 +316,100 @@ function sampleReport(board, days, account) {
     untracked: accounts.filter(function (a) { return a.indexOf('cursor') === 0 || a.indexOf('antigravity') === 0; }),
     asOf: Date.now() - 90e3,
     filling: false,
+    // With analytics on (PREVIEW_ANALYTICS): what the same calls cost by how their session began
+    // and by who began their turn (ledger.rs `Report::origins`, `hands`, `subagents`).
+    origins: window.__PREVIEW_ANALYTICS__ ? [spentOf('you', total * 0.44), spentOf('agent', total * 0.21), spentOf('helper', total * 0.11), spentOf('fork', total * 0.09), spentOf('schedule', total * 0.07), spentOf('review', total * 0.06), spentOf('', total * 0.02)] : undefined,
+    hands: window.__PREVIEW_ANALYTICS__ ? [spentOf('you', total * 0.52), spentOf('agent', total * 0.24), spentOf('codealong', total * 0.2), spentOf('', total * 0.04)] : undefined,
+    subagents: window.__PREVIEW_ANALYTICS__ ? spentOf('subagents', total * 0.06) : undefined,
+  };
+}
+// Your part and Sessions (analytics.rs `Analytics`), made up the same every time from the board's
+// sessions (PREVIEW_ANALYTICS in preview.sh): most of what comes in isn't typed, most prompts
+// that answer a reply agree with it, and a few of the sessions marked done weren't finished.
+function sampleAnalytics(board, days, account) {
+  var sessions = [];
+  (board.lanes || []).filter(function (l) { return !l.device; }).forEach(function (l) {
+    l.sessions.forEach(function (s) { if (!account || s.account === account) sessions.push({ s: s, lane: l }); });
+  });
+  var stanceOf = function (h) { return h < 0.16 ? 'sets-out' : h < 0.46 ? 'agrees' : h < 0.62 ? 'steers' : h < 0.67 ? 'redirects' : h < 0.75 ? 'asks' : h < 0.78 ? 'command' : ''; };
+  var out = [];
+  var today = new Date();
+  var add = function (into, key, n) { if (n > 0) into[key] = (into[key] || 0) + n; };
+  var totals = { sources: {}, hands: {}, stances: {} };
+  for (var i = days - 1; i >= 0; i--) {
+    var d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - i);
+    var day = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    var weekend = d.getDay() === 0 || d.getDay() === 6;
+    var you = Math.round((weekend ? 12 : 60) * (0.5 + hashOf('you' + day)));
+    var sources = { you: you, itself: Math.round(you * 1.4), codealong: Math.round(you * 0.7), agent: Math.round(you * 0.35) };
+    var stances = {};
+    for (var k = 0; k < you; k++) add(stances, stanceOf(hashOf(day + k)), 1);
+    Object.keys(sources).forEach(function (s) { add(totals.sources, s, sources[s]); });
+    add(totals.hands, 'you', Math.round(you * 1.8));
+    add(totals.hands, 'codealong', Math.round(you * 1.1));
+    add(totals.hands, 'agent', Math.round(you * 0.55));
+    Object.keys(stances).forEach(function (s) { add(totals.stances, s, stances[s]); });
+    out.push({ day: day, sources: sources, stances: stances });
+  }
+  var counts = function (m) { return Object.keys(m).map(function (k) { return { key: k, n: m[k] }; }).sort(function (a, b) { return b.n - a.n; }); };
+  var rowOf = function (key, n, extra) {
+    var stances = {};
+    for (var k = 0; k < n; k++) add(stances, stanceOf(hashOf(key + k)), 1);
+    return Object.assign({ key: key, counts: { you: n, agent: Math.round(n * hashOf('a' + key)), codealong: Math.round(n * 0.6 * hashOf('c' + key)) }, stances: stances, lastAt: Date.now() - Math.round(hashOf(key) * 864e5) }, extra || {});
+  };
+  var yours = totals.stances;
+  var all = Object.keys(yours).reduce(function (s, k) { return s + yours[k]; }, 0);
+  var accounts = (board.usage || []).map(function (u) { return u.account; }).filter(function (a) { return !account || a === account; });
+  var weight = [0.55, 0.3, 0.1, 0.05];
+  var began = ['you', 'you', 'you', 'helper', 'agent', 'review', 'you', 'schedule', 'fork', 'you'];
+  var rows = sessions.slice(0, 40).map(function (x, i) { return rowOf(x.s.key, Math.round(2 + 40 * hashOf(x.s.key)), { title: x.s.title, account: x.s.account, folder: x.lane.path, began: began[i % began.length] }); });
+  rows.sort(function (a, b) { return b.counts.you - a.counts.you; });
+  var openings = ['No, keep the old tokenizer and wrap it instead of rewriting it.', 'Also cover the empty file, and name the test for what it holds.', 'Not a new table: put the column on the one we have.', 'Use the helper that is already there rather than a second one.', 'Stop. That changes what the flag means; leave its meaning alone.'];
+  var prompts = sessions.slice(0, 14).map(function (x, i) {
+    return { id: String(1000 + i), at: Date.now() - (i + 1) * 5400e3, session: x.s.key, title: x.s.title, opening: openings[i % openings.length], stance: i % 3 === 0 ? 'redirects' : 'steers', sure: 0.6 + 0.3 * hashOf(x.s.key), readBy: 'jev-1.14.0', mid: i % 5 === 1, afterStop: i % 4 === 0 };
+  });
+  var said = { asks: 'Its last reply asked you something', 'not-landed': 'Its change hadn’t landed', 'open-pr': 'A PR it worked on was still open', unsaved: 'Its worktree held work that wasn’t saved', error: 'It had stopped on an error' };
+  var words = Object.keys(said);
+  var list = sessions.slice(3, 10).map(function (x, i) {
+    var w = words[i % words.length];
+    return { at: Date.now() - (i + 1) * 7200e3, session: x.s.key, title: x.s.title, account: x.s.account, folder: x.lane.path, what: i % 4 === 3 ? 'archive' : 'done', standing: w, said: said[w], unread: i % 3 === 0, reopened: i === 1 };
+  });
+  var hanging = sessions.slice(10, 13).map(function (x, i) {
+    return { session: x.s.key, title: x.s.title, account: x.s.account, folder: x.lane.path, standing: i ? 'not-landed' : 'asks', said: i ? 'Its change hasn’t landed' : 'Its last reply asks you something', lastActivity: Date.now() - (4 + i) * 864e5 };
+  });
+  var n = Math.max(20, sessions.length);
+  return {
+    on: true,
+    part: {
+      days: out,
+      sources: counts(totals.sources),
+      hands: counts(totals.hands),
+      stances: counts(yours),
+      marks: { mid: Math.round(all * 0.04), afterStop: Math.round(all * 0.01), pickedFirst: Math.round(all * 0.09), pickedOffered: Math.round(all * 0.02), ownWords: Math.round(all * 0.02), allowed: Math.round(all * 0.3), denied: Math.round(all * 0.01), suggested: Math.round(all * 0.03), chars: all * 240 },
+      accounts: accounts.map(function (a, i) { return rowOf(a, Math.round(all * (weight[i] || 0.02))); }),
+      folders: (board.lanes || []).filter(function (l) { return !l.device; }).slice(0, 12).map(function (l, i) { return rowOf(l.path, Math.round(all * (0.3 / (i + 1)))); }),
+      sessions: rows,
+      prompts: prompts,
+      since: Date.now() - 21 * 864e5,
+      unread: yours[''] || 0,
+      reading: false,
+    },
+    outcomes: {
+      began: [{ key: 'you', n: Math.round(n * 0.42) }, { key: 'helper', n: Math.round(n * 0.22) }, { key: 'review', n: Math.round(n * 0.14) }, { key: 'agent', n: Math.round(n * 0.09) }, { key: 'schedule', n: Math.round(n * 0.06) }, { key: 'fork', n: Math.round(n * 0.03) }, { key: '', n: Math.round(n * 0.04) }],
+      left: 31,
+      finished: 14,
+      lookedFinished: 7,
+      unfinished: list.length,
+      unknown: 31 - 21 - list.length,
+      reopened: 1,
+      standings: [],
+      list: list,
+      byAgents: 4,
+      hanging: hanging,
+      since: Date.now() - 21 * 864e5,
+    },
+    asOf: Date.now() - 90e3,
+    filling: false,
   };
 }
 // The board and the bar's feed as the engine hands them out before its first scan finishes
@@ -325,10 +419,12 @@ function sampleReport(board, days, account) {
 // checks work everywhere, and off with PREVIEW_BOARDS_OFF, as a new config.toml has them. Voice
 // (`[experimental] voice`) is off, as a new config.toml has it, and on with PREVIEW_VOICE, which
 // also has the session named in `window.__LISTENS__` listening (`listeningSample`), if a check
-// or an init script named one.
+// or an init script named one. Analytics (`[experimental] analytics`) are off the same way, and
+// on with PREVIEW_ANALYTICS, which gives the Usage window its Your part and Sessions
+// (`sampleAnalytics`).
 function withExperiments(board) {
   var voice = !!window.__PREVIEW_VOICE__;
-  var out = Object.assign(board, { experimental: Object.assign({}, board.experimental, { boards: !window.__PREVIEW_BOARDS_OFF__, voice: voice }) });
+  var out = Object.assign(board, { experimental: Object.assign({}, board.experimental, { boards: !window.__PREVIEW_BOARDS_OFF__, voice: voice, analytics: !!window.__PREVIEW_ANALYTICS__ }) });
   if (voice && window.__LISTENS__) {
     out.listenings = Object.assign({}, out.listenings, listeningSample(window.__LISTENS__));
     // Said on the session too, as the engine says it (board.rs `apply_listening`).
@@ -473,6 +569,11 @@ window.__TAURI_INTERNALS__ = {
     if (cmd === 'token_report') {
       return Promise.all([fetch('./board.json').then(function (r) { return r.json(); }), optionalJson('./tokens-fixture.json')]).then(function (all) {
         return all[1] || sampleReport(all[0], (args || {}).days || 30, (args || {}).account || null);
+      });
+    }
+    if (cmd === 'analytics_report') {
+      return fetch('./board.json').then(function (r) { return r.json(); }).then(function (board) {
+        return window.__PREVIEW_ANALYTICS__ ? sampleAnalytics(board, (args || {}).days || 30, (args || {}).account || null) : { on: false };
       });
     }
     if (cmd === 'jev_usage') return Promise.resolve(sampleJevUsage((args || {}).days || 30));

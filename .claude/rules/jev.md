@@ -4,6 +4,7 @@ paths:
   - "src-tauri/src/route.rs"
   - "src-tauri/src/todojev.rs"
   - "src-tauri/src/insights.rs"
+  - "src-tauri/src/stance.rs"
 ---
 
 # TypeSafe
@@ -97,3 +98,19 @@ docs.typesafe.ai, 2026-09-25, and its models and images pages with requests trie
   0.00 to 0.07. "CI usually takes about 20 minutes" and "opens at 5 PM today" read as today (0.97,
   1.00), which has an option so they don't land on tomorrow. The question took a turn's request
   from 909 input tokens to 1,443.
+- What a prompt did with the reply before it (stance.rs `STANCES`, `request`, 1.14, 2026-11-11):
+  one choice of five (sets out new work, agrees, steers, redirects, asks), with the end of the
+  agent's last reply (1,500 characters) and the prompt (2,000) in the state, tried on one
+  machine's newest prompts (`--snapshot --stance`), each read by hand too. A first wording, whose
+  `redirects` said "tells it to stop, undo or start over", read "try again" after an error as a
+  redirect six times of six (0.64 to 0.74) and a question on a new subject as new work, and
+  agreed with the hand on 35 of 50. Saying under `agrees` that carrying on and trying again are
+  agreement, under `redirects` only rejecting and replacing ("not to do what it proposed or to
+  hold off"), and making `asks` any question, "about its last reply or about anything else",
+  agreed on 62 of 70: every "try again" came back agrees (0.79 to 0.94), "continue" 0.94 to
+  0.99. The eight: three where the prompt answered an earlier part of a long reply than its end
+  (a go-ahead after "Nothing needs you now" read as new work at 0.88, a rewrite asked of
+  drafts the end didn't mention at 0.97), three close calls between agreeing and steering (a
+  yes that also picks: 0.51 against 0.49), and two questions read as new work. A reply that's
+  the harness's own error text isn't given as what the agent said (`claude/turns.rs`), which is
+  what made "try again" read against the right reply. A request was 600 to 1,750 tokens, 950 on average: the 130 of both tries came to half a cent.

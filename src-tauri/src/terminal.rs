@@ -1138,6 +1138,10 @@ const REPORTED: &str = "reported";
 const REPORT_LINES: usize = 60;
 const REPORT_LINE_CHARS: usize = 400;
 
+/// How what a command you ran for a session printed is told to it opens (`report_ended`), in
+/// your name: a prompt that opens so is no reply of yours to the agent (stance.rs `by_rule`).
+pub const RAN_IT: &str = "I ran this in my terminal:";
+
 /// Tells each run's session what it printed once it ends, for as long as the app runs: the runs
 /// started since (`report`), and those that ended, or were still running, while the app was closed
 /// or relaunching. `tell` sends the words to the session, as yours, once `ready` says the board has
@@ -1191,7 +1195,7 @@ pub fn report_text(s: &RunStatus, printed: &Output) -> String {
         _ => format!(". What it printed:\n\n{}", fenced(&lines.join("\n"))),
     };
     let more = if lines.len() < printed.total || printed.cut || clipped { format!("\n\nAll of it: `codealong terminal read {} --lines 2000`.", s.run.id) } else { String::new() };
-    format!("I ran this in my terminal:\n\n{}\n\n{ended}{what}{more}", fenced(&s.run.command))
+    format!("{RAN_IT}\n\n{}\n\n{ended}{what}{more}", fenced(&s.run.command))
 }
 
 /// Text in a code block whose fence no run of backticks in it closes.

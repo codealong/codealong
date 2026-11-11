@@ -4031,6 +4031,74 @@ cache_write_1h = 6
 `codealong tokens [--days N] [--account <name>] [--by account|model|folder|session|day]` prints
 the same from the command line.
 
+#### Your part in the work
+
+*Experimental: Settings › Experimental › Analytics, or `analytics = true` under `[experimental]`*
+
+Most of what sets an agent going isn't typed by you: a background task reports back, another
+session sends a message, Codealong passes on a PR's news or runs a schedule. With analytics on, the
+Usage window has two more views beside **Cost** that say what your own part was.
+
+**Your part** counts everything that came in to your sessions over the days, by who it was from:
+you, another agent, Codealong, or the session itself (a background task or a subagent reporting
+back, a wakeup it set, a loop's tick). Each of those begins a turn, and every model call is counted
+with the turn it was made in, so the tiles say what share of the turns you began and what the
+turns others began cost at API prices: the second-hand share. Two rules decide what a turn counts
+as. One the session began itself counts with the turn it follows, since it's the same work going
+on. And the first prompt of a session an agent or Codealong started is theirs, though it's typed in
+as yours would be. Subagents' calls are their session's, and are said apart.
+
+Under the tiles, each day's prompts of yours are stacked by what they did with what the agent had
+last said:
+
+- **Set out new work**: a new task, or the next thing now that the last one is finished.
+- **Agreed**: told it to go ahead, to carry on, or that it looks good, adding nothing.
+- **Steered**: kept its direction and adjusted it: a requirement, a correction, a choice between
+  what it offered, a fact it needed.
+- **Redirected**: rejected what it did or proposed and replaced it.
+- **Asked something**: a question, with nothing for it to change.
+- **Ran a command**: a slash command, or a command you ran for the session.
+
+What a prompt did is a read, not a record, and each says what read it. A rule reads the ones the
+record is sure of: the first thing said in a session sets out its work, a command is a command,
+and an answer to a question the agent put to you agreed when you picked its first choice (the one
+an agent recommends when it recommends one) and steered when you picked another. The rest wait
+for a reader. **Have Jev read what your prompts did** (under Analytics in Settings, `prompts =
+true` under `[jev]`) sends TypeSafe each prompt with the end of the reply before it, once, a few a
+minute, the newest first; tried on 70 of one machine's prompts it agreed with a reading by hand
+on about nine in ten, and missed mostly where a prompt answered an earlier part of a long reply
+than its end. Or an agent can read them: `codealong analytics prompts` lists the ones that wait,
+and `codealong analytics tag <id> <stance>` says what one did, which stands over Jev's read.
+Unread ones are drawn as Not read, never left out.
+
+The view also says what the records are sure of besides: how many prompts you sent while the
+agent worked or after you stopped its turn, how your answers to its questions went, the calls
+you allowed and denied from Codealong, and the suggested replies you sent as written. A table
+lists it by account, project or session, and your latest prompts that steered or redirected are
+listed with the session each was in.
+
+**Sessions** says how the sessions active in those days began (you; a copy of another you made;
+an agent, as its helper or not; Codealong, for a review or on a schedule; a headless run), with
+what each kind cost, and how the ones you were done with stood. Mark as done, Archive and Close
+idle sessions each note where the session's work stood at that moment: finished (a PR it worked on
+merged, a todo linked to it is done, or its own status line says its change landed), looked
+finished (only the read of its last reply says so), nothing known, or unfinished, with why: it
+was still working, its last reply asked you something, it had stopped on an error, its change
+hadn't landed, a PR it worked on was open, its worktree held work that wasn't saved. The
+unfinished ones are listed, each with whether you had read its last reply and whether you took it
+up again after, and so are the sessions still open with work left undone that nothing has touched
+for three days. Marking a session done that stood unfinished also says so at once, in the window
+you did it in.
+
+It's all read from the records your harnesses keep on this machine, into the same ledger as the
+tokens (`ledger.sqlite`): turning analytics on reads the records still there, so Claude Code's go
+back about 30 days, and how sessions stood is known only from then on. A prompt of yours is kept
+with how it opens, for the lists; the whole of it and the end of the reply before it are kept
+only until it's been read, and never past 30 days. Nothing is kept while analytics are off.
+`codealong analytics [--days N] [--account <name>]` prints the same, and `codealong tokens --by
+began` and `--by turn` what it cost. Cursor and Antigravity record no tokens, so their sessions
+have turns and no cost. Other machines' sessions aren't in it: each machine keeps its own.
+
 Codealong's own questions to TypeSafe's Jev aren't a session's work, so they're in Settings › Jev,
 under Usage: what they cost today or over the last 7 or 30 days, how many there were and their
 tokens, and the same for each feature that asked (the Test button's too), the one that sent the
