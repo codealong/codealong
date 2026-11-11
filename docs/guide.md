@@ -2521,7 +2521,8 @@ terminal, so Codealong goes by that default it saved; an effort level that saves
 one over a cap your settings or organization set, which it lowers to the cap) leaves the box saying
 only that it went in, and the session's next reply shows the level. Codealong presses no key for a
 question about a switch while its terminal shows something else to answer, and switches no effort
-mid-turn where `CLAUDE_CODE_EFFORT_LEVEL` fixes it for the session. Meanwhile the account's other
+mid-turn where `CLAUDE_CODE_EFFORT_LEVEL`, in its environment or a settings file's `env`, fixes it
+for the session. Meanwhile the account's other
 running sessions may follow the new default. A Codex session
 in a terminal is switched there, with its own `/model`; one Codealong runs is switched from the
 chip.

@@ -143,7 +143,7 @@ fn offers(settings: &[PathBuf], state: &Path) -> Offers {
 /// them: the account's, the repo's, the repo's local ones, and the managed ones over all
 /// (2.1.308's code). Not read: what an organization hands down from Anthropic's servers or as a
 /// macOS profile, the managed drop-in folder, and `--settings`.
-fn settings_files(home: &Path, cwd: &Path) -> [PathBuf; 4] {
+pub(super) fn settings_files(home: &Path, cwd: &Path) -> [PathBuf; 4] {
     let managed = match crate::os::current() {
         crate::os::Os::MacOs => "/Library/Application Support/ClaudeCode",
         crate::os::Os::Linux => "/etc/claude-code",

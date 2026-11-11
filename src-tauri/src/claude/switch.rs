@@ -3,7 +3,6 @@
 //! (`send::switch_model`, `switch_effort`): the question Claude Code asks before it takes one, and
 //! the defaults `/model` and `/effort` save beyond the session.
 
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
 
@@ -64,8 +63,8 @@ const EFFORT_VAR: &str = "CLAUDE_CODE_EFFORT_LEVEL";
 /// after the turn; so there the default they save says they took it, settings.json being written
 /// again whenever one is saved, even with nothing in it changed. `/effort` asks nothing mid-turn,
 /// so no Return is pressed for it, and a level that saves no default (max, or one over the cap)
-/// leaves nothing that says what it set: that's `Switched::Unsaid`. A level its environment fixes
-/// isn't typed mid-turn, where nothing would say it wasn't applied.
+/// leaves nothing that says what it set: that's `Switched::Unsaid`. A level its environment or
+/// settings fix (`fixed_effort`) isn't typed mid-turn, where nothing would say it wasn't applied.
 pub(super) fn typed(account: &AccountCfg, session: &Session, records: &dyn Fn() -> Vec<PathBuf>, to: Switch, text: &str, typ: &mut dyn FnMut(&str) -> Result<bool>) -> Result<Option<Switched>> {
     static SWITCHING: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let _one_at_a_time = match SWITCHING.try_lock() {
@@ -87,9 +86,11 @@ fn see_through(account: &AccountCfg, session: &Session, records: &dyn Fn() -> Ve
     let saves = mid_turn.then(|| (settings.as_path(), written_at(&settings)));
     let asks = !(mid_turn && matches!(to, Switch::Effort(_)));
     if !asks {
-        let env = session.pid.and_then(crate::procs::environment).unwrap_or_default();
-        if let Some(fixed) = fixed_effort(&env, to.value()) {
-            bail!("{EFFORT_VAR}={fixed} in its environment keeps Claude Code from switching its effort.");
+        let launched = session.pid.and_then(crate::procs::environment).and_then(|mut env| env.remove(EFFORT_VAR));
+        let home = account.home_path();
+        let files = std::iter::once(super::trust::state_file(&home)).chain(super::mode::settings_files(&home, Path::new(&session.cwd)));
+        if let Some(fixed) = fixed_effort(launched, files.filter_map(|f| std::fs::read_to_string(f).ok()), to.value()) {
+            bail!("{EFFORT_VAR}={fixed}, from its environment or its settings, keeps Claude Code from switching its effort.");
         }
     }
     // A typing that failed may still have gone in (`send::MayHaveArrived`): what it said and saved
@@ -130,10 +131,14 @@ fn see_through(account: &AccountCfg, session: &Session, records: &dyn Fn() -> Ve
     Ok(Some(Switched::On(now)))
 }
 
-/// The level a session's environment (`env`) fixes its effort at, where that isn't `level`
-/// (`EFFORT_VAR`). Claude Code takes `auto` there for a level too.
-fn fixed_effort(env: &HashMap<String, String>, level: &str) -> Option<String> {
-    env.get(EFFORT_VAR).map(|v| v.trim()).filter(|v| !v.is_empty() && !v.eq_ignore_ascii_case(level)).map(str::to_string)
+/// The level a session's effort is fixed at, where it isn't `level`, as Claude Code takes
+/// `EFFORT_VAR`: from the environment it started with (`launched`), then the `env` of its
+/// account's state file and of each settings file (`texts`, lowest first), each over the one
+/// before. 2.1.322's code puts those in its own environment after launch, which the kernel
+/// doesn't show another process. `auto` and `unset` there fix it too; an empty value fixes none.
+fn fixed_effort(launched: Option<String>, texts: impl Iterator<Item = String>, level: &str) -> Option<String> {
+    let set = texts.filter_map(|t| serde_json::from_str::<Value>(&t).ok()?.get("env")?.get(EFFORT_VAR)?.as_str().map(str::to_string)).last();
+    set.or(launched).map(|v| v.trim().to_string()).filter(|v| !v.is_empty() && !v.eq_ignore_ascii_case(level))
 }
 
 /// What says Claude Code took a switch.
@@ -446,16 +451,25 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
-    /// A level the session's environment fixes isn't typed mid-turn, `auto` there included; nor is
-    /// Return pressed while its terminal shows something else to answer.
+    /// A level the session's environment or settings fix isn't typed mid-turn, `auto` there
+    /// included; nor is Return pressed while its terminal shows something else to answer.
     #[test]
     fn a_fixed_level_or_another_prompt_up_keeps_a_switch_out() {
-        let env = |v: &str| HashMap::from([(EFFORT_VAR.to_string(), v.to_string())]);
-        assert_eq!(fixed_effort(&HashMap::new(), "high"), None);
-        assert_eq!(fixed_effort(&env("low"), "high").as_deref(), Some("low"));
-        assert_eq!(fixed_effort(&env("auto"), "high").as_deref(), Some("auto"));
-        assert_eq!(fixed_effort(&env("HIGH"), "high"), None);
-        assert_eq!(fixed_effort(&env(" "), "high"), None);
+        let none = std::iter::empty::<String>;
+        let set = |v: &str| format!(r#"{{"env":{{"{EFFORT_VAR}":"{v}"}},"model":"opus"}}"#);
+        let launched = |v: &str| Some(v.to_string());
+        assert_eq!(fixed_effort(None, none(), "high"), None);
+        assert_eq!(fixed_effort(launched("low"), none(), "high").as_deref(), Some("low"));
+        assert_eq!(fixed_effort(launched("auto"), none(), "high").as_deref(), Some("auto"));
+        assert_eq!(fixed_effort(launched("HIGH"), none(), "high"), None);
+        assert_eq!(fixed_effort(launched(" "), none(), "high"), None);
+        // A settings file's `env` goes over what it started with, and a later file over an earlier.
+        assert_eq!(fixed_effort(None, [set("low")].into_iter(), "high").as_deref(), Some("low"));
+        assert_eq!(fixed_effort(launched("high"), [set("low")].into_iter(), "high").as_deref(), Some("low"));
+        assert_eq!(fixed_effort(launched("low"), [set("high")].into_iter(), "high"), None);
+        assert_eq!(fixed_effort(None, [set("low"), "{}".into(), "not json".into(), set("auto")].into_iter(), "high").as_deref(), Some("auto"));
+        // Set empty, it fixes none, whatever it started with.
+        assert_eq!(fixed_effort(launched("low"), [set("")].into_iter(), "high"), None);
         let registry = |status: &str, waiting: Option<&str>| super::super::RegistryEntry { status: status.into(), waiting_for: waiting.map(str::to_string), ..Default::default() };
         assert_eq!(waits_on_another(&registry("busy", None)), None);
         assert_eq!(waits_on_another(&registry("waiting", Some("permission prompt"))), Some("permission prompt"));
