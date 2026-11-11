@@ -20,7 +20,7 @@ use serde_json::{json, Value};
 use crate::engine::Handle;
 use crate::peers::Peers;
 use crate::stops::Stop;
-use crate::util::words;
+use crate::util::{now_ms, words};
 use crate::{acp, config, harness, peerfeed, send, stops, transcript};
 
 /// What only happens on the device a session runs on: another device can't ask for them, so
@@ -1743,7 +1743,14 @@ fn done_anyway(engine: &Handle, peers: &Peers, device: &str, own: &str, why: &st
 fn side_ask(engine: &Handle, c: &Call) -> Result<Value, String> {
     let p: params::Side = c.read()?;
     let key = c.session()?;
+    let asked_at = now_ms();
     let side = crate::side::ask(&engine.board(), &cfg()?, key, &p.text, p.from.as_deref()).map_err(words)?;
+    // Seen as of the question, once its copy has it: its answer comes after that, however late
+    // the engine takes the mark, and brings the session back (board.rs `apply_side_answer`). One
+    // that couldn't be asked isn't marked at all.
+    if p.seen {
+        engine.mark_seen_at(vec![key.to_string()], asked_at);
+    }
     note_talking(engine, c, key);
     to_value(side)
 }
@@ -2357,6 +2364,11 @@ mod tests {
         // none. Its question goes with its images, as a prompt does.
         let ask = find(api::SIDE_ASK).unwrap();
         assert_eq!((ask.there)(json!({ "text": "Why a queue?" }), "claude:claude:abc").unwrap(), json!({ "key": "claude:claude:abc", "text": "Why a queue?" }));
+        // Asked seen (⌘⏎ on a finished turn), the Mac it's on marks the session seen as of then.
+        assert_eq!((ask.there)(json!({ "text": "Why a queue?", "seen": true }), "claude:claude:abc").unwrap(), json!({ "key": "claude:claude:abc", "text": "Why a queue?", "seen": true }));
+        let unseen: params::Side = serde_json::from_value(json!({ "text": "Why a queue?" })).unwrap();
+        assert!(!unseen.seen);
+        assert_eq!(serde_json::to_value(&unseen).unwrap(), json!({ "text": "Why a queue?" }));
         assert_eq!(ask.prompt, Some("/text"));
         // Only a Mac that knows to go on in the one a window reads is asked to.
         assert_eq!((ask.knows)(&json!({ "text": "And then?", "from": "7-1" })).map(|(word, _)| word), Some(codealong_peer::proto::SIDE_FROM));

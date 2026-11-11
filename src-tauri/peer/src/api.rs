@@ -611,6 +611,11 @@ pub mod params {
         pub text: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         pub from: Option<String>,
+        /// Marks the session seen as of when the question came, once its copy has it: an answer
+        /// is later whenever the mark is taken, so it brings the session back (⌘⏎ in the side
+        /// conversation's box). A device of a build before 2026-11-10 leaves it unseen.
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        pub seen: bool,
     }
 
     /// `side-forget`: the kept side conversation, by its id (`SideKept::id`).
@@ -1438,9 +1443,9 @@ mod tests {
         assert_eq!(v(&params::Keys { keys: vec![key()] }), json!({ "keys": ["claude:claude:abc"] }));
         // A window's own question carried no key before a side conversation could be asked from
         // another device.
-        assert_eq!(v(&params::Side { key: String::new(), text: "Why a queue?".into(), from: None }), json!({ "text": "Why a queue?" }));
+        assert_eq!(v(&params::Side { key: String::new(), text: "Why a queue?".into(), from: None, seen: false }), json!({ "text": "Why a queue?" }));
         // A question asked as one is read names it, which a device of a build before leaves alone.
-        assert_eq!(v(&params::Side { key: String::new(), text: "And then?".into(), from: Some("7-1".into()) }), json!({ "text": "And then?", "from": "7-1" }));
+        assert_eq!(v(&params::Side { key: String::new(), text: "And then?".into(), from: Some("7-1".into()), seen: false }), json!({ "text": "And then?", "from": "7-1" }));
         assert_eq!(v(&params::SideForget { key: key(), id: "7-1".into() }), json!({ "key": "claude:claude:abc", "id": "7-1" }));
         assert_eq!(v(&params::Search { words: vec!["webhook".into()] }), json!({ "words": ["webhook"] }));
         assert_eq!(v(&params::Route { project: "All projects".into(), text: "fix it".into() }), json!({ "project": "All projects", "text": "fix it" }));

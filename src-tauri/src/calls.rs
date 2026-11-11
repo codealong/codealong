@@ -733,8 +733,8 @@ calls! {
 
     /// Asks something about a session on the side (side.rs). Returns the side conversation with
     /// the question in it; the answer comes as `side` events.
-    fn side_ask(c, key: String, text: String, from: Option<String>) -> Result<Value, String> {
-        actions::run(&c.engine, &c.peers, api::SIDE_ASK, &key, actions::params::Side { text, from, ..Default::default() })
+    fn side_ask(c, key: String, text: String, from: Option<String>, seen: Option<bool>) -> Result<Value, String> {
+        actions::run(&c.engine, &c.peers, api::SIDE_ASK, &key, actions::params::Side { text, from, seen: seen.unwrap_or(false), ..Default::default() })
     }
 
     /// A session's side conversation, for a window that starts showing the session.

@@ -756,11 +756,13 @@ export function unreadAhead(keys: string[]): Promise<void> {
   );
 }
 
-export function seenAhead(keys: string[]): Promise<void> {
+/** Marks sessions seen, showing it at once: by `mark`, where something else marks them (a side
+ *  conversation asked with `seen`), else `markSeen`. */
+export function seenAhead(keys: string[], mark: (keys: string[]) => Promise<number | null> = markSeen): Promise<void> {
   if (keys.length === 0) return Promise.resolve();
   const a = made({ kind: 'seen', keys });
   put(a, true);
-  return markSeen(keys).then(
+  return mark(keys).then(
     (shownAt) => answered(a.id, shownAt),
     (e: unknown) => {
       drop(a.id, true);

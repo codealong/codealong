@@ -133,17 +133,18 @@
       check('⌘E while it answers sets B aside', asides().join('|') === picked[0].key + '|' + picked[1].key, asides().join('|'));
       check('and goes on to the next', title() === 'Aside C', title());
 
-      // C's turn ended: ⌘⏎ marks it seen before its question goes, so an answer that comes
-      // before the engine takes the mark still brings it back.
+      // C's turn ended: ⌘⏎ asks it seen, and the engine marks it seen as of the question once
+      // the copy has it, so its answer brings it back however late the mark is taken.
       await until(box, 5000, 'C’s box');
       box().focus();
       type(box(), '/side Anything else?');
       await wait(50);
       key(box(), { key: 'Enter', metaKey: true });
       await until(function () { return calls('side_ask').length === 3; }, 3000, 'C asked on the side').catch(function () {});
-      var order = window.__calls.map(function (c) { return c[0] === 'mark_seen' && c[1].keys.indexOf(picked[2].key) >= 0 ? 'seen' : c[0] === 'side_ask' && c[1].key === picked[2].key ? 'ask' : null; }).filter(Boolean);
-      check('⌘⏎ on a finished turn marks it seen, then asks', order.join(',') === 'seen,ask', order.join(','));
-      check('setting nothing aside', asides().length === 2, asides().join('|'));
+      var c = calls('side_ask')[2] || {};
+      check('⌘⏎ on a finished turn asks it seen', c.key === picked[2].key && c.seen === true, JSON.stringify(c));
+      check('with no mark of its own, nor setting it aside', !calls('mark_seen').some(function (m) { return m.keys.indexOf(picked[2].key) >= 0; }) && asides().length === 2, asides().join('|'));
+      check('the questions that set aside go unseen', calls('side_ask').slice(0, 2).every(function (a) { return !a.seen; }));
 
       // The engine's board says A is set aside: it stays so once the window's own change goes.
       window.__asideA = Date.now();

@@ -280,11 +280,13 @@ export interface SessionActions {
   /** ⌘⏎ in its side conversation's box (SessionReply.tsx): asks with `ask`, which says whether
    *  the copy took the question, and takes the session out of what waits on you until the side
    *  conversation answers. A finished turn, or a reply that asks you something, goes on as Mark as
-   *  seen does and is marked seen before it's asked, the engine having taken the mark, so even an
-   *  answer that comes at once brings it back (board.rs `apply_side_answer`); one the copy didn't
-   *  take is Your turn again. One that needs you for something else is set aside once the copy
-   *  has the question, which the engine holds it for (`aside_holds`). Any other is only asked. */
-  askAside: (ask: () => Promise<boolean>) => void;
+   *  seen does, and is asked `seen`: the engine marks it seen as of the question once the copy has
+   *  it, so its answer brings it back however late the mark is taken (board.rs
+   *  `apply_side_answer`, actions.rs `side_ask`), and one the copy didn't take stays Your turn.
+   *  One that needs you for something else is set aside once the copy has the question, which the
+   *  engine holds it for (`aside_holds`). Any other is only asked, as ⌘⏎ in its own box only
+   *  sends. */
+  askAside: (ask: (seen: boolean) => Promise<boolean>) => void;
   /** Your turn again, until it's seen or prompted: for one whose turn you've seen. */
   unread?: MenuAction;
   pin?: MenuAction;
@@ -450,16 +452,12 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
   };
   const merges = can.mergeDone && mergesWith(can.mergeDone.prs, s);
   const aside = asideable(s) ? { label: 'Set aside until its side conversation answers', run: () => settle('set aside')(asideAhead([s.key])) } : undefined;
-  const askAside = (ask: () => Promise<boolean>) => {
-    if (aside) return void ask().then((asked) => asked && aside.run());
-    if (!seenable(s)) return void ask();
+  const askAside = (ask: (seen: boolean) => Promise<boolean>) => {
+    if (aside) return void ask(false).then((asked) => asked && aside.run());
+    if (!seenable(s)) return void ask(false);
     can.left?.('marked seen');
-    // A seen that doesn't go leaves it Your turn, where the answer finds it all the same.
-    void seenAhead([s.key])
-      .catch(() => {})
-      .then(ask)
-      .then((asked) => (asked ? undefined : unreadAhead([s.key])))
-      .catch((e: unknown) => report.error(errorText(e)));
+    // Seen at once here; not asked, it's back as it was, its box having said why.
+    void seenAhead([s.key], () => ask(true).then((asked) => (asked ? null : Promise.reject(new Error('Not asked'))))).catch(() => {});
   };
   const ownTerminal = can.ownTerminal && { label: can.ownTerminal.has ? 'Show terminal' : 'New terminal', run: can.ownTerminal.run };
   return {

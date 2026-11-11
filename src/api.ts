@@ -982,9 +982,9 @@ export async function moveSessionTo(key: string, laneId: string): Promise<Starte
  *  answers, and the session carries on, unaware. Asked as one of its side conversations is read
  *  (`from`, its id), it goes on in that one. Resolves with the side conversation, the question in
  *  it; the answer comes through `onSide`. */
-export async function sideAsk(key: string, text: string, from: string | null): Promise<Side> {
+export async function sideAsk(key: string, text: string, from: string | null, seen = false): Promise<Side> {
   if (!inTauri) throw new Error('A side conversation needs the app.');
-  return invoke<Side>('side_ask', { key, text, from });
+  return invoke<Side>('side_ask', { key, text, from, seen });
 }
 
 /** A session's side conversation, if it has one. */

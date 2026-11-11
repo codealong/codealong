@@ -628,7 +628,7 @@ impl Client {
             }
         }
         let told = self.side_told(&hex, key);
-        let side: api::Side = read(self.ask(&hex, api::SIDE_ASK, of(params::Side { key: key.into(), text: text.into(), from: from.map(String::from) }), ACT_WAIT)?)?;
+        let side: api::Side = read(self.ask(&hex, api::SIDE_ASK, of(params::Side { key: key.into(), text: text.into(), from: from.map(String::from), seen: false }), ACT_WAIT)?)?;
         self.side_read(&hex, key, told, Some(side.clone()));
         Ok(side)
     }

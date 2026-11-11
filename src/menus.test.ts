@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { asideAhead, doneAhead, labelAhead, quietAhead, raiseAhead, seenAhead, unreadAhead } from './ahead';
+import { asideAhead, doneAhead, labelAhead, quietAhead, raiseAhead, seenAhead } from './ahead';
 import { getAccounts, moveSession, moveSessionTo, resumeSession, setPrPrimary, type Done, type MergeDone } from './api';
 import type { MenuAction, MenuGroup, MenuSpec } from './contextMenu';
 import { carryOnIn, chordLetter, chordSigns, chorded, CHORDS, DONE_HOLD_MS, SUGGESTION_CHORDS, suggestionChord, doneTitle, fileMenu, keyed, laneActions, laneMenu, lanesActions, lanesMenu, mergesWith, prMenu, prsActions, prsMenu, repoMenu, sessionActions, sessionMenu, sessionsActions, sessionsMenu, todoMenu, todoPanelMenu, todosMenu, toggleWaiting, type MergeDoneAsk, type SessionCan, type SessionsCan, type TodoEdit } from './menus';
@@ -13,7 +13,7 @@ import type { TodoOp } from './todos';
 import type { Label, Lane, PrItem, Session, Todo } from './types';
 
 // What the engine says to Mark as done: done, unless a test says otherwise.
-vi.mock('./ahead', async (original) => ({ ...(await original<typeof import('./ahead')>()), doneAhead: vi.fn(), labelAhead: vi.fn(() => Promise.resolve()), quietAhead: vi.fn(() => Promise.resolve()), raiseAhead: vi.fn(() => Promise.resolve()), asideAhead: vi.fn(() => Promise.resolve()), seenAhead: vi.fn(() => Promise.resolve()), unreadAhead: vi.fn(() => Promise.resolve()) }));
+vi.mock('./ahead', async (original) => ({ ...(await original<typeof import('./ahead')>()), doneAhead: vi.fn(), labelAhead: vi.fn(() => Promise.resolve()), quietAhead: vi.fn(() => Promise.resolve()), raiseAhead: vi.fn(() => Promise.resolve()), asideAhead: vi.fn(() => Promise.resolve()), seenAhead: vi.fn(() => Promise.resolve()) }));
 // No accounts to move to, unless a test says otherwise; what a move gives back, as a test says.
 vi.mock('./api', async (original) => ({ ...(await original<typeof import('./api')>()), getAccounts: vi.fn(() => Promise.resolve([])), moveSession: vi.fn(), moveSessionTo: vi.fn(), resumeSession: vi.fn(), setPrPrimary: vi.fn(() => Promise.resolve()) }));
 // No accounts to resume in, unless a test says otherwise.
@@ -335,33 +335,31 @@ describe('sessionMenu', () => {
   });
 
   it('asks on the side with ⌘⏎ and takes the session out of what waits on you until it answers', async () => {
-    const [aside, seen, unread] = [vi.mocked(asideAhead), vi.mocked(seenAhead), vi.mocked(unreadAhead)];
+    const [aside, seen] = [vi.mocked(asideAhead), vi.mocked(seenAhead)];
     const flush = () => new Promise((r) => setTimeout(r, 0));
     const run = async (s: Session, took: boolean) => {
-      for (const m of [aside, seen, unread]) m.mockClear();
+      for (const m of [aside, seen]) m.mockClear();
       const order: string[] = [];
-      seen.mockImplementation(() => (order.push('seen'), Promise.resolve()));
+      // Shown seen at once, by what's handed it to mark them with.
+      seen.mockImplementation((keys: string[], mark?: (keys: string[]) => Promise<number | null>) => (order.push('seen'), mark ? mark(keys).then(() => {}) : Promise.resolve()));
       const left: string[] = [];
-      const ask = vi.fn(() => (order.push('ask'), Promise.resolve(took)));
+      const ask = vi.fn((asSeen: boolean) => (order.push(asSeen ? 'ask seen' : 'ask'), Promise.resolve(took)));
       sessionActions(lane(), s, { ...base, left: (d) => left.push(d) }).askAside(ask);
       await flush();
-      return { order, left, asked: ask.mock.calls.length };
+      return { order, left };
     };
-    // A finished turn goes on at once, marked seen before it's asked, the mark taken first.
-    const turn = await run(session({ status: 'unread' }), true);
-    expect(turn).toEqual({ order: ['seen', 'ask'], left: ['marked seen'], asked: 1 });
-    expect(unread).not.toHaveBeenCalled();
-    // One the copy didn't take is Your turn again.
-    await run(session({ status: 'unread' }), false);
-    expect(unread).toHaveBeenLastCalledWith(['claude:c:1']);
+    // A finished turn goes on at once, shown seen, and is asked seen: the engine marks it as of
+    // the question, once the copy has it, and not at all when it didn't.
+    expect(await run(session({ status: 'unread' }), true)).toEqual({ order: ['seen', 'ask seen'], left: ['marked seen'] });
+    expect(await run(session({ status: 'unread' }), false)).toEqual({ order: ['seen', 'ask seen'], left: ['marked seen'] });
     // One that asks you a question is set aside once the copy has it, and not if it didn't.
     const asks = session({ status: 'needs', need: 'question', excerpt: 'Asks you · Which color?' });
-    expect(await run(asks, true)).toEqual({ order: ['ask'], left: ['set aside'], asked: 1 });
+    expect(await run(asks, true)).toEqual({ order: ['ask'], left: ['set aside'] });
     expect(aside).toHaveBeenLastCalledWith(['claude:c:1']);
-    expect(await run(asks, false)).toEqual({ order: ['ask'], left: [], asked: 1 });
+    expect(await run(asks, false)).toEqual({ order: ['ask'], left: [] });
     expect(aside).not.toHaveBeenCalled();
-    // One that doesn't wait on you is only asked.
-    expect(await run(session({ status: 'working' }), true)).toEqual({ order: ['ask'], left: [], asked: 1 });
+    // One that doesn't wait on you is only asked, as ⌘⏎ in its own box only sends.
+    expect(await run(session({ status: 'working' }), true)).toEqual({ order: ['ask'], left: [] });
     seen.mockImplementation(() => Promise.resolve());
   });
 

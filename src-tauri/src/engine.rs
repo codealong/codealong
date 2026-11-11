@@ -92,8 +92,9 @@ pub enum Msg {
     /// verdict and the commit it was of where that isn't the PR's head (a draft's). The reply is
     /// the time of the board that shows it, published at once.
     Approved(String, u64, github::Verdict, Option<String>, Sender<i64>),
-    /// Sessions marked seen. With a reply, the time of the board that shows it, published at once.
-    MarkSeen(Vec<String>, Option<Sender<i64>>),
+    /// Sessions marked seen, as of then (when it's taken, with none). With a reply, the time of
+    /// the board that shows it, published at once.
+    MarkSeen(Vec<String>, Option<i64>, Option<Sender<i64>>),
     /// Sessions to mark unread, and where to say when the board shows it.
     MarkUnread(Vec<String>, Option<Sender<i64>>),
     /// A session whose own agent marked the turn it's taking seen, with why (its time is the
@@ -314,14 +315,20 @@ impl Handle {
     }
 
     pub fn mark_seen(&self, keys: Vec<String>) {
-        let _ = self.tx.send(Msg::MarkSeen(keys, None));
+        let _ = self.tx.send(Msg::MarkSeen(keys, None, None));
+    }
+
+    /// Marks sessions seen as of `at`, however long the engine takes to get to it: what came
+    /// after `at` (a side conversation's answer) still waits on you.
+    pub fn mark_seen_at(&self, keys: Vec<String>, at: i64) {
+        let _ = self.tx.send(Msg::MarkSeen(keys, Some(at), None));
     }
 
     /// Marks sessions seen and returns the time of the board that shows it, so a window knows
     /// when its own copy of the change can go; None when the engine is too busy to say.
     pub fn mark_seen_shown(&self, keys: Vec<String>) -> Option<i64> {
         let (tx, rx) = channel();
-        self.tx.send(Msg::MarkSeen(keys, Some(tx))).ok()?;
+        self.tx.send(Msg::MarkSeen(keys, None, Some(tx))).ok()?;
         rx.recv_timeout(SHOWN_WAIT).ok()
     }
 
@@ -2637,11 +2644,13 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                 Ok(Msg::TrainingOne(asked_as, t)) => self.dirty |= self.training.on_changed(&asked_as, t),
                 Ok(Msg::McpRead(list)) => self.dirty |= self.mcp.on_read(list),
                 Ok(Msg::EmblemDrawn(key, drawn)) => self.on_emblem_drawn(&key, drawn),
-                Ok(Msg::MarkSeen(keys, reply)) => {
+                Ok(Msg::MarkSeen(keys, at, reply)) => {
                     let now = now_ms();
                     let taken_up: Vec<String> = self.board.read().map(|b| keys.iter().filter(|k| b.session(k).is_some_and(|(_, s)| board::seen_takes_up(s))).cloned().collect()).unwrap_or_default();
                     for k in keys {
-                        self.seen.mark(&k, now);
+                        // As of then, never back from a later mark.
+                        let at = at.map_or(now, |at| at.max(self.seen.seen.get(&k).copied().unwrap_or(0)));
+                        self.seen.mark(&k, at);
                     }
                     for k in taken_up {
                         self.seen.take_up(&k);

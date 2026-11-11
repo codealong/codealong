@@ -539,8 +539,10 @@ is *set aside* instead: it's listed with what's working, drawn waiting, labelled
 saying what you asked there, out of Needs you, the floating bar's pills, the notch, the waiting
 window and the mark. Once the side conversation is done (answered, closed though its copy answers
 on, or its copy gone) it needs you again as it did, where it waited, with the answer above its box
-when you come to it, and the bar plays its Needs you sound. A finished turn is marked seen as the
-question goes, so even an answer that comes at once brings it back. A prompt sent to it meanwhile,
+when you come to it, and the bar plays its Needs you sound. A finished turn is marked seen as of
+the question, so even an answer that comes at once brings it back, and one whose question couldn't
+be asked stays as it was, its box saying why. ⌘⏎ on a session that doesn't wait on you (one
+that's working) only asks, as ⌘⏎ in its own box only sends. A prompt sent to it meanwhile,
 or a new need of its own (the question answered in its terminal and another asked), ends it too.
 ⌘E (Seen on the strip) sets a session aside the same way while its side conversation answers,
 after you've asked with ⏎, and the menu of a session shown as a card (the notch, the waiting
