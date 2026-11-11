@@ -142,10 +142,12 @@ What macOS's speech recognition and audio capture take and give, as codealong-ea
   turned meetings on and answered macOS's prompt: five sources (three CalDAV, which is how
   Google's accounts come, the birthdays and a subscribed one) with eighteen calendars between
   them, and eleven meetings in the day ahead. A meeting was offered for real on 2026-11-11, its
-  card under the notch a minute before it started. Not yet seen: one taken; a meeting counted
-  once across accounts with the running app (the external identifier being the same in each
-  copy is Apple's word and CalDAV's, not something run here); and a meeting you declined, which
-  is read from the participant `isCurrentUser` marks, then from one with an address of yours.
+  card under the notch a minute before it started. The same day, with the app built from
+  c33d3d1e, the day ahead listed each meeting once and none of the person's own addresses among
+  who else is in one, where the build before listed most two or three times: the copies of a
+  Google event do share `calendarItemExternalIdentifier`, and each is marked `isCurrentUser`
+  at its own account's address. Not yet seen: a meeting taken; and one you declined, which is
+  read from the participant `isCurrentUser` marks, then from the addresses of yours in it.
 
 - The microphone ran for real on 2026-11-10, under the server (Codealong Dev was asked and
   allowed). Not yet seen: the tap giving anything but silence; whether making a tap asks the
