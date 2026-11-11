@@ -4,7 +4,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { emit, emitTo, listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import type { AccountCfg, AccountInfo, AgentsStatus, Answers, AtLogin, Attachment, BarFeed, BarNote, Board, CalendarStatus, ChromeProfile, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, DevicesView, EditorIcon, FolderLook, FoundAccount, Harness, HarnessSchedule, Hearing, HearingStatus, HostedStream, KeptMeeting, MeetingAhead, MeetingFiles, IdlePlan, JevReport, LabelColor, Lane, LineageFeed, ListenAsk, ListeningTail, MergeBox, MergeOp, ModeSwitched, Notice, PathKind, PeekOpen, PeekShown, Pending, Profile, PointerProbe, PrAt, PrDetail, PrItem, ResumeIn, Reviewed, Route, RouteNote, ScheduleOp, ScheduleTimes, Sent, Session, SessionSpent, Since, SetupView, ShortcutStatus, Side, SideKept, SkillsListed, StalePlan, StaleOutcome, Started, StartOptions, StartPlace, StartSpec, Talk, Talked, TerminalFrame, TerminalGlance, TerminalInput, TerminalSize, TerminalTheme, TextFound, Theme, TodoSuggested, TokenReport, Training, TranscriptPage, Unqueued, UpdateView, Verdict, Way, WrittenReview, YourReview } from './types';
+import type { AccountCfg, AccountInfo, AgentsStatus, Analytics, Answers, AtLogin, Attachment, BarFeed, BarNote, Board, CalendarStatus, ChromeProfile, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, DevicesView, EditorIcon, FolderLook, FoundAccount, Harness, HarnessSchedule, Hearing, HearingStatus, HostedStream, KeptMeeting, MeetingAhead, MeetingFiles, IdlePlan, JevReport, LabelColor, Lane, LineageFeed, ListenAsk, ListeningTail, MergeBox, MergeOp, ModeSwitched, Notice, PathKind, PeekOpen, PeekShown, Pending, Profile, PointerProbe, PrAt, PrDetail, PrItem, ResumeIn, Reviewed, Route, RouteNote, ScheduleOp, ScheduleTimes, Sent, Session, SessionSpent, Since, SetupView, ShortcutStatus, Side, SideKept, SkillsListed, StalePlan, StaleOutcome, Started, StartOptions, StartPlace, StartSpec, Talk, Talked, TerminalFrame, TerminalGlance, TerminalInput, TerminalSize, TerminalTheme, TextFound, Theme, TodoSuggested, TokenReport, Training, TranscriptPage, Unqueued, UpdateView, Verdict, Way, WrittenReview, YourReview } from './types';
 import type { PrTab } from './agentReview';
 import type { ListenAsked } from './listening';
 import type { AgentTask } from './agentTasks';
@@ -505,6 +505,12 @@ export function onWebsiteMenu(cb: () => void): () => void {
 
 /** Which sessions have sat idle for `afterMs` with nothing asked of you, and which stay open;
  *  with `archive`, the ones that can't close are listed to be archived only. */
+/** Your part in the work over the last `days` days, for one account or all (analytics.rs). */
+export async function analyticsReport(days: number, account: string | null): Promise<Analytics> {
+  if (!inTauri) throw new Error('The ledger needs the app.');
+  return invoke<Analytics>('analytics_report', { days, account });
+}
+
 /** What sessions used and cost in the last `days` days, for one account or all (ledger.rs). */
 export async function tokenReport(days: number, account: string | null): Promise<TokenReport> {
   if (!inTauri) throw new Error('The token ledger needs the app.');

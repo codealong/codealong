@@ -38,6 +38,7 @@ mod teardown;
 mod training;
 mod transcript;
 mod trust;
+mod turns;
 mod unqueue;
 mod usage;
 mod wakeups;
@@ -798,6 +799,10 @@ impl crate::harness::Adapter for ClaudeCode {
 
     fn token_use(&self, line: &[u8], state: &mut crate::ledger::TokenState) -> Option<crate::ledger::TokenUse> {
         transcript::token_use(line, state)
+    }
+
+    fn turn_step(&self, line: &[u8], state: &mut crate::turns::State) -> Option<crate::turns::Came> {
+        turns::turn_step(line, state)
     }
 
     /// What you typed, and what the agent replied.

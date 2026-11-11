@@ -1388,6 +1388,13 @@ pub(super) fn you_sent_while_working(v: &Value) -> bool {
     }
 }
 
+/// The words of a prompt line, whoever it's from, as `typed_text` gives yours: a command as it
+/// was typed, else what's left of its text without the tags and context around it.
+pub(super) fn line_words(v: &Value) -> Option<String> {
+    let text = prompt_text(v)?;
+    command_run(v, &text).or_else(|| prompt_words(&text))
+}
+
 /// The whole of a prompt you typed, for searching sessions' text (search.rs).
 pub fn typed_text(v: &Value) -> Option<String> {
     if !you_typed(v) {
@@ -1642,6 +1649,8 @@ pub fn token_use(line: &[u8], st: &mut crate::ledger::TokenState) -> Option<crat
         fast: u.get("speed").and_then(Value::as_str) == Some("fast"),
         searches: u.get("server_tool_use").map(|s| n(s, "web_search_requests")).unwrap_or(0),
         cost: None,
+        // A subagent's log, every line of which is a sidechain's.
+        sub: v.get("isSidechain").and_then(Value::as_bool) == Some(true),
     })
 }
 

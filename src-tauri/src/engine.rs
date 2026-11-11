@@ -4251,6 +4251,10 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             board.todos = self.todos.todos.clone();
         }
         self.keep_run_origins(&board);
+        // Where each session came from, for the ledger to keep (began.rs).
+        if self.cfg.experimental.analytics && crate::began::due() {
+            crate::began::note(crate::began::noted_on(&board, &crate::schedules::own_sessions(&self.schedules, &self.schedule_runs, &board)));
+        }
         // The board already leaves them out.
         self.forget_stale_suggestions(&board);
         self.forget_stale_tags(&board);

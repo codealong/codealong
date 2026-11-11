@@ -233,6 +233,23 @@ pub(super) fn sent_from_codealong(peer: &Peer) -> Option<String> {
     (!text.is_empty()).then(|| crate::attachments::shorten(text))
 }
 
+/// Whose another session's message on a line is, for turns.rs, with what it says: yours when
+/// Codealong sent it for you, Codealong's when it sent it by itself, else its agent's, by its
+/// session's key where the line Codealong leads it with gives one and else by the name it came
+/// under. None for a line that's no session's message.
+pub(super) fn peer_source(v: &Value) -> Option<(crate::turns::Source, Option<String>, String)> {
+    use crate::turns::Source;
+    let peer = line_peer(v)?;
+    if let Some(text) = sent_from_codealong(&peer) {
+        return Some((Source::You, None, text));
+    }
+    if let Some(said) = crate::send::from_codealong(&peer.body) {
+        return Some((Source::Codealong, None, said.to_string()));
+    }
+    let sender = crate::send::sender_key_of(&peer.body).map(String::from).or_else(|| (!peer.name.is_empty()).then(|| peer.name.clone()));
+    Some((Source::Agent, sender, crate::send::without_byline(&peer.body).to_string()))
+}
+
 /// Another session's message in the conversation: yours when Codealong sent it for you,
 /// Codealong's when it sent it by itself (send.rs `tell`), else the message, whole, and who it's
 /// from.

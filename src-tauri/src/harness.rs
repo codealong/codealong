@@ -631,6 +631,24 @@ pub trait Adapter: Sync {
         None
     }
 
+    /// Its records of what came in to each session, for turns.rs: files of lines that only
+    /// grow, written since `since`, each with its session's key. The ones search reads, unless
+    /// the harness keeps some of its sessions' records where search doesn't look.
+    fn turn_files(&self, account: &AccountCfg, since: i64) -> Vec<(PathBuf, String)> {
+        self.search_files(account, since).into_iter().map(|(path, key, _)| (path, key)).collect()
+    }
+
+    /// What one line of a record `turn_files` lists says came in to its session from outside
+    /// its agent, and who from, for turns.rs; `state` carries what earlier lines said (what the
+    /// agent last said, a stop, a turn under way) from line to line and from one read to the
+    /// next. Without a reader of its own a harness is read through its `prose`, where the line
+    /// Codealong leads a message with tells an agent's and its own from yours
+    /// (`turns::from_prose`).
+    fn turn_step(&self, line: &[u8], state: &mut crate::turns::State) -> Option<crate::turns::Came> {
+        let (at, you, text) = self.prose(line)?;
+        crate::turns::from_prose(state, at, you, &text)
+    }
+
     /// What was said, in sessions active since `since`, in the messages written after
     /// `after`, where the harness keeps them in a database rather than files.
     fn said(&self, _account: &AccountCfg, _since: i64, _after: i64) -> Vec<Said> {

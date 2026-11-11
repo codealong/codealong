@@ -106,6 +106,8 @@ const MODES: &[Mode] = &[
     Mode { flag: "--tab-picture", takes: "<session key> <file>", run: tab_picture },
     Mode { flag: "--tokens", takes: "[days] [--account <name>] [--session <key>] [--into <ledger file>]", run: tokens },
     Mode { flag: "--jev-usage", takes: "[days]", run: jev_usage },
+    Mode { flag: "--analytics", takes: "[days] [--account <name>] [--into <ledger file>]", run: analytics },
+    Mode { flag: "--stance", takes: "[how many] --into <ledger file>", run: stance },
     Mode { flag: "--stale-terminals", takes: "[how long unused: 90m, 24h, 3d, 1w]", run: stale_terminals },
     Mode { flag: "--hearing", takes: "", run: hearing },
     Mode { flag: "--transcribe", takes: "<sound file> [locale]", run: transcribe },
@@ -263,6 +265,62 @@ fn jev_usage(_: &Args, rest: &[String]) -> Done {
         None => 30,
     };
     Ok(pretty(&crate::ledger::jev_report(days).map_err(failed)?))
+}
+
+/// `codealong --snapshot --analytics [days]`: what the Usage window's Your part and Sessions show
+/// for the last `days` days (30 unless given), whether or not the experiment is on: this Mac's
+/// records read afresh into a ledger of the check's own (a temporary file, or `--into` one to keep
+/// and read on from), never the app's, with where each session came from as a board read now says.
+/// Only records written in those days are read, and nothing here was ever marked done.
+fn analytics(args: &Args, rest: &[String]) -> Done {
+    let days: u32 = match rest.first().filter(|d| !d.starts_with("--")) {
+        Some(d) => d.parse().map_err(|_| Stop::Usage)?,
+        None => 30,
+    };
+    let cfg = config::current().map_err(failed)?;
+    let keep = args.option("--into").map(std::path::PathBuf::from);
+    let file = keep.clone().unwrap_or_else(|| std::env::temp_dir().join(format!("codealong-analytics-check-{}.sqlite", std::process::id())));
+    let db = crate::ledger::open(&file).map_err(failed)?;
+    let now = util::now_ms();
+    let since = now - (days as i64 + 1) * util::DAY_MS;
+    let mut caught = crate::ledger::catch_up_since(&db, &cfg.accounts, since);
+    let board = board_now();
+    let (schedules, runs) = (crate::schedules::load().unwrap_or_default(), crate::schedules::load_runs().unwrap_or_default());
+    board.read(|b| crate::began::note(crate::began::noted_on(b, &crate::schedules::own_sessions(&schedules, &runs, b))));
+    crate::turns::pass_since(&db, &cfg.accounts, &mut caught, since);
+    let report = board.read(|b| crate::analytics::report_in(&db, &cfg, Some(b), days, args.option("--account"), now)).map_err(failed)?;
+    let tokens = crate::ledger::report_in(&db, &config::Config { experimental: config::ExperimentalCfg { analytics: true, ..cfg.experimental.clone() }, ..cfg.clone() }, days, args.option("--account"), now).map_err(failed)?;
+    drop(db);
+    if keep.is_none() {
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{suffix}", file.display()));
+        }
+    }
+    Ok(pretty(&serde_json::json!({ "analytics": report, "origins": tokens.origins, "hands": tokens.hands, "subagents": tokens.subagents, "total": tokens.total, "problem": caught.problem() })))
+}
+
+/// `codealong --snapshot --stance [how many] --into <ledger file>`: reads the newest prompts that
+/// wait on a read in a check's ledger (one `--snapshot --analytics --into` made), 10 unless given,
+/// as the app would with `[jev] prompts` on, and prints each with what Jev made of it: for trying
+/// the question's wording. Real: it asks TypeSafe, and keeps each read in that ledger.
+fn stance(args: &Args, rest: &[String]) -> Done {
+    let n: usize = match rest.first().filter(|d| !d.starts_with("--")) {
+        Some(d) => d.parse().map_err(|_| Stop::Usage)?,
+        None => 10,
+    };
+    let file = args.option("--into").ok_or(Stop::Usage)?;
+    let cfg = config::current().map_err(failed)?;
+    let db = crate::ledger::open(std::path::Path::new(file)).map_err(failed)?;
+    let mut out = Vec::new();
+    for u in crate::stance::unread(&db, n).map_err(failed)? {
+        let answer = crate::jev::ask(crate::jev::Feature::Prompts, &crate::stance::request(&cfg.jev.model, &u)).map_err(failed)?;
+        let read = crate::stance::read(&answer);
+        if let (Some((stance, sure)), Ok(id)) = (&read, u.id.parse::<i64>()) {
+            crate::stance::set(&db, id, stance, Some(*sure), answer["model"].as_str().unwrap_or(&cfg.jev.model)).map_err(failed)?;
+        }
+        out.push(serde_json::json!({ "prompt": u, "stance": read.map(|(s, _)| s), "probabilities": crate::jev::choice(&answer, "stance") }));
+    }
+    Ok(pretty(&out))
 }
 
 /// `codealong --snapshot --routes [days]`: how often what you did with what you typed in the quick

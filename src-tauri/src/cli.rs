@@ -89,10 +89,12 @@ enum Cmd {
         /// One account's alone.
         #[arg(long)]
         account: Option<String>,
-        /// What the table's rows are.
+        /// What the table's rows are. `began` (how each session began) and `turn` (who began the turn each call was made in) have rows once `[experimental] analytics` is on.
         #[arg(long, value_enum, default_value_t = TokensBy::Account)]
         by: TokensBy,
     },
+    /// Your part in the work, an experiment (`[experimental] analytics`, Settings › Experimental): what came in to your sessions and who from (you, another agent, Codealong, the session itself), what your prompts did with what the agent had said (set out new work, agreed, steered, redirected, asked), how sessions began, and how the ones you marked done stood (finished, or left asking you something, not landed…). The Usage window's Your part and Sessions show the same; JSON has it all. `prompts` lists prompts of yours nothing has read yet, and `tag` says what one did.
+    Analytics(AnalyticsArgs),
     /// Which session runs this command, its worktree, the other agents running in that worktree now (`others`: none means no other agent shares the checkout, however many sessions worked there before), and its open todos: the ones linked to the session, then the worktree's when no other agent is running there (in a checkout several agents share, those are the others' work). Run it first.
     Whoami {
         /// Plain text for a session-start hook, even when piped: a line or two when a session or todo is found, nothing otherwise.
@@ -850,6 +852,36 @@ enum TokensBy {
     Folder,
     Session,
     Day,
+    Began,
+    Turn,
+}
+
+#[derive(Args, Debug)]
+#[command(args_conflicts_with_subcommands = false)]
+struct AnalyticsArgs {
+    #[command(subcommand)]
+    cmd: Option<AnalyticsCmd>,
+    /// How many days back, today included.
+    #[arg(long, default_value_t = 30)]
+    days: u32,
+    /// One account's alone.
+    #[arg(long)]
+    account: Option<String>,
+}
+
+#[derive(Subcommand, Debug)]
+enum AnalyticsCmd {
+    /// Prompts of yours that nothing has read yet for what they did, the newest first: each with its id, its session, what it says and the end of the agent's reply before it. For an agent asked to read them: say what each did with `analytics tag`.
+    Prompts {
+        /// How many to list.
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+    },
+    /// Says what a prompt did with what its agent had last said, by its id as `analytics prompts` lists it: `sets-out` (asks for new work, unrelated to the reply before it), `agrees` (goes along with what the agent said or proposed, adding nothing), `steers` (keeps the agent's direction and adjusts it), `redirects` (rejects it and replaces it), `asks` (only asks for information) or `command` (a slash command). It stands over Jev's read of the same prompt.
+    Tag {
+        id: String,
+        stance: String,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -2093,6 +2125,11 @@ fn run(cmd: Cmd, c: &mut Client, json: bool) -> Result<()> {
         Cmd::Accounts { usage } => accounts(c, usage, json),
         Cmd::Mcp { service, tools } => mcp(c, service.as_deref(), tools, json),
         Cmd::Tokens { days, account, by } => tokens(c, days, account.as_deref(), by, json),
+        Cmd::Analytics(args) => match args.cmd {
+            Some(AnalyticsCmd::Prompts { limit }) => analytics_prompts(c, limit, json),
+            Some(AnalyticsCmd::Tag { id, stance }) => analytics_tag(c, &id, &stance, json),
+            None => analytics(c, args.days, args.account.as_deref(), json),
+        },
         Cmd::Whoami { context } => whoami(c, context, json),
         Cmd::Todo { cmd } => todo(cmd, c, json),
         Cmd::Schedule { cmd } => schedule(cmd, c, json),
@@ -3610,6 +3647,11 @@ fn tokens(c: &mut Client, days: u32, account: Option<&str>, by: TokensBy, json: 
         TokensBy::Model => r.models.iter().map(|s| row(s.key.clone(), s)).collect(),
         TokensBy::Folder => r.folders.iter().map(|s| row(tilde(std::path::Path::new(&s.key)), s)).collect(),
         TokensBy::Session => r.sessions.iter().map(|s| row(s.key.clone(), s)).collect(),
+        TokensBy::Began | TokensBy::Turn => {
+            analytics_on(&cfg)?;
+            let (rows, named): (_, fn(&str) -> &str) = if by == TokensBy::Began { (&r.origins, began_words) } else { (&r.hands, hand_words) };
+            rows.iter().map(|s| row(named(&s.key).to_string(), s)).collect()
+        }
         TokensBy::Day => r
             .days
             .iter()
@@ -3623,6 +3665,8 @@ fn tokens(c: &mut Client, days: u32, account: Option<&str>, by: TokensBy, json: 
         TokensBy::Folder => "FOLDER",
         TokensBy::Session => "SESSION",
         TokensBy::Day => "DAY",
+        TokensBy::Began => "SESSIONS BEGUN BY",
+        TokensBy::Turn => "TURNS BEGUN BY",
     };
     print!("{}", table_text(&[what, "TOKENS", "CACHED", "AT API PRICES", "PAID"], rows));
     let lever = if r.paid > 0.0 { format!(", {:.1}× what was paid", r.total.api / r.paid) } else { String::new() };
@@ -3630,6 +3674,147 @@ fn tokens(c: &mut Client, days: u32, account: Option<&str>, by: TokensBy, json: 
     if !r.unpriced.is_empty() {
         println!("No price for {}: add [prices.\"<model>\"] to config.toml.", r.unpriced.join(", "));
     }
+    Ok(())
+}
+
+// ---- analytics ----
+
+fn analytics_on(cfg: &Config) -> Result<()> {
+    if !cfg.experimental.analytics {
+        bail!("Analytics are an experiment, and they're turned off. Turn them on in Settings › Experimental, or with `analytics = true` under `[experimental]` in config.toml.");
+    }
+    Ok(())
+}
+
+/// How a session began (began.rs `Began::word`), as a row names it.
+fn began_words(word: &str) -> &str {
+    match word {
+        "you" => "You",
+        "fork" => "You, as a copy of another",
+        "helper" => "An agent, as its helper",
+        "agent" => "An agent",
+        "review" => "Codealong, to review a PR",
+        "schedule" => "Codealong, on a schedule",
+        "headless" => "A headless run",
+        "" => "Not known",
+        other => other,
+    }
+}
+
+/// Who began a turn (turns.rs `Source::word`), as a row names it.
+fn hand_words(word: &str) -> &str {
+    match word {
+        "you" => "You",
+        "agent" => "Another agent",
+        "codealong" => "Codealong",
+        "itself" => "The session itself",
+        "" => "Not known",
+        other => other,
+    }
+}
+
+/// What a prompt did (stance.rs `STANCES`), as a row names it.
+fn stance_words(word: &str) -> &str {
+    match word {
+        "sets-out" => "Set out new work",
+        "agrees" => "Agreed",
+        "steers" => "Steered",
+        "redirects" => "Redirected",
+        "asks" => "Asked something",
+        "command" => "Ran a command",
+        "" => "Not read",
+        other => other,
+    }
+}
+
+/// The app's ledger, which the analytics are kept in with the tokens.
+fn analytics_ledger(c: &mut Client) -> Result<rusqlite::Connection> {
+    analytics_on(c.cfg()?)?;
+    let file = crate::ledger::path();
+    if !file.exists() {
+        bail!("Nothing is recorded yet: the app reads what came in to sessions into {} as it runs.", tilde(&file));
+    }
+    crate::ledger::open(&file)
+}
+
+/// The analytics report (analytics.rs), read from the ledger's file as `tokens` reads it, with
+/// the sessions left hanging from the board.
+fn analytics(c: &mut Client, days: u32, account: Option<&str>, json: bool) -> Result<()> {
+    let db = analytics_ledger(c)?;
+    let cfg = c.cfg()?.clone();
+    let days = days.max(1);
+    let now = now_ms();
+    let board = c.board().ok().cloned();
+    let r = crate::analytics::report_in(&db, &cfg, board.as_ref(), days, account, now)?;
+    let spent = crate::ledger::report_in(&db, &cfg, days, account, now)?;
+    if json {
+        return print_json(&json!({ "analytics": r, "origins": spent.origins, "hands": spent.hands, "subagents": spent.subagents, "total": spent.total }));
+    }
+    let share = |n: u64, of: u64| if of > 0 { format!("{:.0}%", n as f64 * 100.0 / of as f64) } else { String::new() };
+    let dollars = |n: f64| if n >= 1000.0 { format!("${n:.0}") } else { format!("${n:.2}") };
+    let part = &r.part;
+    let came: u64 = part.sources.iter().map(|s| s.n).sum();
+    println!("The last {days} days.\n");
+    print!("{}", table_text(&["WHAT CAME IN, FROM", "", "SHARE"], part.sources.iter().map(|s| vec![hand_words(&s.key).to_string(), s.n.to_string(), share(s.n, came)]).collect()));
+    let cost = |key: &str| spent.hands.iter().find(|h| h.key == key).map(|h| h.api).unwrap_or(0.0);
+    let rows = part.hands.iter().map(|s| vec![hand_words(&s.key).to_string(), s.n.to_string(), share(s.n, came), dollars(cost(&s.key))]).collect();
+    println!();
+    print!("{}", table_text(&["TURNS BEGUN BY", "", "SHARE", "AT API PRICES"], rows));
+    if let Some(sub) = spent.subagents.as_ref().filter(|s| s.api > 0.0) {
+        println!("Subagents made {} of it.", dollars(sub.api));
+    }
+    let yours: u64 = part.stances.iter().map(|s| s.n).sum();
+    println!();
+    print!("{}", table_text(&["YOUR PROMPTS", "", "SHARE"], part.stances.iter().map(|s| vec![stance_words(&s.key).to_string(), s.n.to_string(), share(s.n, yours)]).collect()));
+    let m = &part.marks;
+    println!("\n{} sent while the agent worked, {} after you stopped its turn. Answers to its questions: {} its first choice, {} another, {} your own words. From Codealong: {} calls allowed, {} denied, {} suggested replies sent as written.", m.mid, m.after_stop, m.picked_first, m.picked_offered, m.own_words, m.allowed, m.denied, m.suggested);
+    if part.unread > 0 {
+        println!("{} of your prompts wait on a read{}", part.unread, if part.reading { ": Jev reads a few each minute." } else { ": turn on Have Jev read what your prompts did in Settings › Experimental, or have an agent read them (`codealong analytics prompts`)." });
+    }
+    let o = &r.outcomes;
+    let began: u64 = o.began.iter().map(|b| b.n).sum();
+    println!();
+    print!("{}", table_text(&["SESSIONS BEGUN BY", "", "SHARE"], o.began.iter().map(|b| vec![began_words(&b.key).to_string(), b.n.to_string(), share(b.n, began)]).collect()));
+    println!("\nYou marked {} done or archived: {} finished, {} that looked finished, {} unfinished, {} nothing is known of; you took {} up again.", o.left, o.finished, o.looked_finished, o.unfinished, o.unknown, o.reopened);
+    for l in o.list.iter().take(15) {
+        println!("  {}  {}: {}{}", l.session, l.title, l.said, if l.reopened { " (taken up again)" } else { "" });
+    }
+    if !o.hanging.is_empty() {
+        println!("\n{} still open with work left undone, untouched for {} days or more:", o.hanging.len(), crate::dismissed::HANGING_DAYS);
+        for h in o.hanging.iter().take(15) {
+            println!("  {}  {}: {}", h.session, h.title, h.said);
+        }
+    }
+    Ok(())
+}
+
+fn analytics_prompts(c: &mut Client, limit: usize, json: bool) -> Result<()> {
+    let db = analytics_ledger(c)?;
+    let unread = crate::stance::unread(&db, limit.max(1))?;
+    if json {
+        return print_json(&unread);
+    }
+    if unread.is_empty() {
+        println!("No prompt of yours waits on a read.");
+    }
+    for u in &unread {
+        println!("{}  {}  {}", u.id, u.session, u.title);
+        if !u.before.is_empty() {
+            println!("  The agent had said: {}", crate::util::one_line(&u.before, 300));
+        }
+        println!("  You{}: {}\n", if u.after_stop { ", having stopped its turn" } else if u.mid { ", while it worked" } else { "" }, crate::util::one_line(&u.text, 300));
+    }
+    Ok(())
+}
+
+fn analytics_tag(c: &mut Client, id: &str, stance: &str, json: bool) -> Result<()> {
+    let db = analytics_ledger(c)?;
+    let by = find_me(c).ok().and_then(|(me, _)| me);
+    crate::analytics::tag(&db, id, stance, by.as_deref())?;
+    if json {
+        return print_json(&json!({ "id": id, "stance": stance }));
+    }
+    println!("Noted: {}.", stance_words(stance).to_lowercase());
     Ok(())
 }
 

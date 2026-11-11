@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex};
 use serde_json::Value;
 
 use crate::util::{self, words};
-use crate::{acp, actions, api, autoreview, boards, config, detect, engine, github, harness, idle, improve, install, jev, ledger, model, newfolder, peers, prasks, prlinks, prmerge, route, routelog, runcode, schedules, search, send, setup, side, skills, stale, start, store, terminals, todojev, todos, training, views, zoom};
+use crate::{acp, actions, analytics, api, autoreview, boards, config, detect, engine, github, harness, idle, improve, install, jev, ledger, model, newfolder, peers, prasks, prlinks, prmerge, route, routelog, runcode, schedules, search, send, setup, side, skills, stale, start, store, terminals, todojev, todos, training, views, zoom};
 
 /// What a call runs with: the server's engine, your other devices, and the automatic reviewer.
 #[derive(Clone)]
@@ -79,6 +79,12 @@ calls! {
     fn token_report(c, days: u32, account: Option<String>) -> Result<ledger::Report, String> {
         ledger::nudge();
         ledger::report(days, account.as_deref()).map_err(words)
+    }
+
+    /// Your part in the work over the last `days` days, for the Usage window's Your part and
+    /// Sessions (analytics.rs), for one account or all; empty while the experiment is off.
+    fn analytics_report(c, days: u32, account: Option<String>) -> Result<analytics::Analytics, String> {
+        analytics::report(Some(&c.engine.board()), days, account.as_deref()).map_err(words)
     }
 
     /// What one session used and cost, by model, for its panel.

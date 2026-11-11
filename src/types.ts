@@ -693,6 +693,147 @@ export interface TokenReport {
   filling: boolean;
   /** What the last read of the records couldn't read, which the numbers leave out. */
   problem?: string;
+  /** By how each session began (began.rs `Began::word`), an empty key for the ones nothing was
+   *  noted of. Missing while `[experimental] analytics` is off, as the two below are. */
+  origins?: Spent[];
+  /** By who began the turn each call was made in (turns.rs `Source::word`: you, agent,
+   *  codealong), an empty key for calls whose turn isn't known. */
+  hands?: Spent[];
+  /** What subagents' calls came to. */
+  subagents?: Spent;
+}
+
+/** How many of something, by a word (turns.rs `Count`). */
+export interface Count {
+  key: string;
+  n: number;
+}
+
+/** One day of what came in (turns.rs `PartDay`): by who it was from, and your prompts by what
+ *  they did, an empty key for the ones not read. */
+export interface PartDay {
+  day: string;
+  sources: Record<string, number>;
+  stances: Record<string, number>;
+}
+
+/** What the records say for sure of your prompts (turns.rs `Marks`). */
+export interface PartMarks {
+  mid: number;
+  afterStop: number;
+  pickedFirst: number;
+  pickedOffered: number;
+  ownWords: number;
+  allowed: number;
+  denied: number;
+  suggested: number;
+  chars: number;
+}
+
+/** A group's turns: an account's, a folder's or a session's (turns.rs `PartRow`). */
+export interface PartRow {
+  key: string;
+  title?: string;
+  account?: string;
+  folder?: string;
+  /** How the session began, for a session's row, when noted. */
+  began?: string;
+  /** What came in, by what it counts as: you, agent, codealong. */
+  counts: Record<string, number>;
+  /** Your prompts by stance, an empty key for the ones not read. */
+  stances: Record<string, number>;
+  lastAt: number;
+}
+
+/** A prompt of yours, for a list (turns.rs `Prompt`). */
+export interface PartPrompt {
+  id: string;
+  at: number;
+  session: string;
+  title: string;
+  opening: string;
+  stance?: string;
+  /** How sure the read was, 0 to 1, when a read says. */
+  sure?: number;
+  /** What read it: `rule`, a Jev model, or `agent` and its session. */
+  readBy?: string;
+  mid: boolean;
+  afterStop: boolean;
+}
+
+/** Your part over some days (turns.rs `Part`). */
+export interface Part {
+  days: PartDay[];
+  /** Everything that came in, by who its record says it was from. */
+  sources: Count[];
+  /** By what it counts as: a turn the session began itself with the one it follows. */
+  hands: Count[];
+  stances: Count[];
+  marks: PartMarks;
+  accounts: PartRow[];
+  folders: PartRow[];
+  sessions: PartRow[];
+  /** Your latest prompts that steered or redirected. */
+  prompts: PartPrompt[];
+  /** The earliest thing known to have come in. */
+  since?: number;
+  /** Prompts of yours still waiting on a read, and whether Jev reads them. */
+  unread: number;
+  reading: boolean;
+}
+
+/** A session you left (dismissed.rs `Left`). */
+export interface LeftSession {
+  at: number;
+  session: string;
+  title: string;
+  account: string;
+  folder: string;
+  /** `done`, `archive` or `close-idle`. */
+  what: string;
+  standing: string;
+  said: string;
+  unread: boolean;
+  reopened: boolean;
+}
+
+/** A session still open with work left undone (dismissed.rs `Hanging`). */
+export interface HangingSession {
+  session: string;
+  title: string;
+  account: string;
+  folder: string;
+  standing: string;
+  said: string;
+  lastActivity: number;
+}
+
+/** How sessions began and how you left them (dismissed.rs `Outcomes`). */
+export interface Outcomes {
+  began: Count[];
+  left: number;
+  finished: number;
+  lookedFinished: number;
+  unfinished: number;
+  unknown: number;
+  reopened: number;
+  standings: Count[];
+  /** The ones left unfinished, the newest first. */
+  list: LeftSession[];
+  /** Sessions an agent marked done from the command, not counted above. */
+  byAgents: number;
+  hanging: HangingSession[];
+  since?: number;
+}
+
+/** Your part in the work (analytics.rs `Analytics`), for the Usage window's Your part and
+ *  Sessions. `on` is false, and the rest empty, while `[experimental] analytics` is off. */
+export interface Analytics {
+  on: boolean;
+  part: Part;
+  outcomes: Outcomes;
+  asOf: number;
+  filling: boolean;
 }
 
 /** What one session used and cost, by model (ledger.rs `SessionSpent`). */
@@ -884,10 +1025,13 @@ export interface Config {
 
 /** `[experimental]` (config.rs `ExperimentalCfg`): features still being tried out, each off until
  *  it's turned on. `boards`: the Board view, as Kanban and as Canvas, and Add to board. `voice`:
- *  the keys held to talk, and sessions that listen. Missing from files and boards before it: off. */
+ *  the keys held to talk, and sessions that listen. `analytics`: who began each session and turn,
+ *  what your prompts did, and how the sessions you marked done stood (the Usage window's Your part
+ *  and Sessions). Missing from files and boards before it: off. */
 export interface ExperimentalCfg {
   boards: boolean;
   voice?: boolean;
+  analytics?: boolean;
 }
 
 /** `[voice]` (config.rs `VoiceCfg`). */
@@ -1755,6 +1899,9 @@ export interface JevCfg {
   sessions: boolean;
   todos: boolean;
   pull_requests: boolean;
+  /** Reads what each prompt you typed did with what its agent had said, once `[experimental]
+   *  analytics` is on. Missing from files before it: off. */
+  prompts?: boolean;
 }
 
 /** What each session gets beside its title (`[emblems] kind`): nothing, an emoji Jev picks, or a

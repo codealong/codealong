@@ -2288,45 +2288,166 @@ pub struct Work {
     pub said: Option<&'static str>,
 }
 
-/// Whether a session's work is done with nothing left for you, and why: for a session of yours
-/// whose turn ended as turns do, with nothing left running, queued or put off.
+/// Where a session's work stands: finished, or the first thing that says it isn't
+/// (`standing_of`). `finished_of` is its `Finished`, and a session marked done is noted with the
+/// rest (dismissed.rs), which is how you're told which ones you left unfinished.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Standing {
+    /// Not yours to weigh: a helper's work or a headless run's is its starter's, and an archived
+    /// session is behind you already.
+    NotYours,
+    /// Its turn is running.
+    Working,
+    /// It waits on you to allow a call or to answer a question it put to you.
+    Needs,
+    /// It stopped on an error.
+    Error,
+    /// Its last reply asks you something.
+    Asks,
+    /// Its harness cut its turn short: a usage limit, a lost connection, a hangup.
+    CutShort,
+    /// Something of its is still to come: a command or agents left running, a message queued, a
+    /// snooze.
+    ToCome,
+    /// Its reply hands you a next step or waits on what it started.
+    LeavesStep,
+    /// Its change hasn't landed: blocked, uncommitted, or committed and not pushed.
+    NotLanded,
+    /// The read of its reply says what you asked for isn't done.
+    NotDone,
+    /// A PR it worked on is still open.
+    OpenPr,
+    /// A todo linked to it isn't done.
+    OpenTodo,
+    /// Its own worktree holds uncommitted files or commits on no remote.
+    Unsaved,
+    /// Nothing says either way: no more finished than not.
+    Unknown,
+    /// Finished, for sure or by the read of its reply (`Finished::sure`).
+    Finished(Finished),
+}
+
+/// Every standing's word, for the tests that hold each to a sentence.
+#[cfg(test)]
+pub const STANDINGS: [&str; 16] = ["not-yours", "working", "needs", "error", "asks", "cut-short", "to-come", "step", "not-landed", "not-done", "open-pr", "open-todo", "unsaved", "unknown", "looks-finished", "finished"];
+
+impl Standing {
+    /// Its word, as the ledger keeps it; a finished one's is `finished` when something besides
+    /// its reply says so, else `looks-finished`.
+    pub fn word(&self) -> &'static str {
+        match self {
+            Standing::NotYours => "not-yours",
+            Standing::Working => "working",
+            Standing::Needs => "needs",
+            Standing::Error => "error",
+            Standing::Asks => "asks",
+            Standing::CutShort => "cut-short",
+            Standing::ToCome => "to-come",
+            Standing::LeavesStep => "step",
+            Standing::NotLanded => "not-landed",
+            Standing::NotDone => "not-done",
+            Standing::OpenPr => "open-pr",
+            Standing::OpenTodo => "open-todo",
+            Standing::Unsaved => "unsaved",
+            Standing::Unknown => "unknown",
+            Standing::Finished(f) if f.sure => "finished",
+            Standing::Finished(_) => "looks-finished",
+        }
+    }
+
+    /// How a session marked done stood, as a sentence says it: "It was still working".
+    pub fn said(word: &str) -> &'static str {
+        match word {
+            "working" => "It was still working",
+            "needs" => "It was waiting on you to allow a call or answer it",
+            "error" => "It had stopped on an error",
+            "asks" => "Its last reply asked you something",
+            "cut-short" => "Its turn had been cut short",
+            "to-come" => "It had work still to come",
+            "step" => "Its reply left you a next step",
+            "not-landed" => "Its change hadn't landed",
+            "not-done" => "Its reply read as not done",
+            "open-pr" => "A PR it worked on was still open",
+            "open-todo" => "A todo linked to it wasn't done",
+            "unsaved" => "Its worktree held work that wasn't saved",
+            "finished" => "Finished",
+            "looks-finished" => "It looked finished",
+            "not-yours" => "It worked for another session",
+            _ => "Nothing said whether it was finished",
+        }
+    }
+
+    /// Whether a standing's word is one of work left undone: not finished, and not merely
+    /// unknown.
+    pub fn unfinished(word: &str) -> bool {
+        !matches!(word, "finished" | "looks-finished" | "unknown" | "not-yours")
+    }
+}
+
+/// Where a session's work stands (`Standing`), for a session of yours.
 ///
-/// Not when its reply may ask you something (`reply_asks`), hands you a next step or waits on
-/// what it started (`SessionInsight::ending`: only a report or an offer of more leaves nothing),
-/// says the work goes on at a later time (`SessionInsight::waits_until`),
-/// says its change didn't land or that it couldn't finish (the read's `landing`, else its own
-/// status line, `Work::said`), or reads as not done (`NOT_FINISHED`); nor while a PR it worked on
-/// is open, a todo linked to it isn't done, or its own worktree holds what would be lost.
+/// It isn't finished while its turn runs or waits on you, when its reply may ask you something
+/// (`reply_asks`), hands you a next step or waits on what it started (`SessionInsight::ending`:
+/// only a report or an offer of more leaves nothing), says the work goes on at a later time
+/// (`SessionInsight::waits_until`), says its change didn't land or that it couldn't finish (the
+/// read's `landing`, else its own status line, `Work::said`), or reads as not done
+/// (`NOT_FINISHED`); nor while a PR it worked on is open, a todo linked to it isn't done, or its
+/// own worktree holds what would be lost.
 ///
 /// Then it's finished for sure when something besides the reply says so: a PR it worked on
 /// merged, a todo linked to it done, or its status line saying the change landed. With none of
 /// those it looks finished when the read of its reply says what you asked for is done
-/// (`FINISHED`), and otherwise isn't: a session nothing is known of is no more finished than not.
-pub fn finished_of(s: &Session, work: &Work) -> Option<Finished> {
-    let ended = matches!(s.status, Status::Unread | Status::Idle | Status::Stopped) && !s.asks;
-    if !ended || s.archived || s.helps_an_agent() || s.headless {
-        return None;
+/// (`FINISHED`), and otherwise nothing is known: a session nothing is known of is no more
+/// finished than not.
+pub fn standing_of(s: &Session, work: &Work) -> Standing {
+    if s.archived || s.helps_an_agent() || s.headless {
+        return Standing::NotYours;
     }
-    let cut_short = s.limit.is_some() || s.connection_lost.is_some() || s.cut_off.is_some();
-    let to_come = s.background.is_some() || s.running.is_some() || s.stalled_since.is_some() || s.queued_at.is_some() || !s.queued.is_empty() || s.snoozed_until.is_some();
-    if cut_short || to_come || reply_asks(s) {
-        return None;
+    if s.asks {
+        return Standing::Asks;
+    }
+    match s.status {
+        Status::Working => return Standing::Working,
+        Status::Needs => return Standing::Needs,
+        Status::Error => return Standing::Error,
+        Status::Unread | Status::Idle | Status::Stopped => {}
+    }
+    if s.limit.is_some() || s.connection_lost.is_some() || s.cut_off.is_some() {
+        return Standing::CutShort;
+    }
+    if s.background.is_some() || s.running.is_some() || s.stalled_since.is_some() || s.queued_at.is_some() || !s.queued.is_empty() || s.snoozed_until.is_some() {
+        return Standing::ToCome;
+    }
+    if reply_asks(s) {
+        return Standing::Asks;
     }
     let read = s.insight.as_ref();
-    let leaves_a_step = read.and_then(|i| i.ending.as_deref()).is_some_and(|e| !matches!(e, "report" | "offer"));
+    if read.and_then(|i| i.ending.as_deref()).is_some_and(|e| !matches!(e, "report" | "offer")) {
+        return Standing::LeavesStep;
+    }
     // The read's landing has the status line under an agent's tag of it; with no read of it, the
     // line itself.
     let landing = read.and_then(|i| i.landing.as_deref()).or(work.said);
-    let not_landed = landing.is_some_and(|l| matches!(l, "blocked" | "uncommitted" | "committed"));
-    let done = read.and_then(|i| i.finished);
     // Work put off to a later time isn't done, however the reply reads: not till then, and not
     // once the time has come, when it's due.
-    let goes_on_later = read.is_some_and(|i| i.waits_until.is_some());
-    if leaves_a_step || goes_on_later || not_landed || done.is_some_and(|p| p < NOT_FINISHED) {
-        return None;
+    if read.is_some_and(|i| i.waits_until.is_some()) {
+        return Standing::ToCome;
     }
-    if work.prs.iter().any(|(_, state)| state.is_open()) || work.todos.contains(&false) || work.unsaved {
-        return None;
+    if landing.is_some_and(|l| matches!(l, "blocked" | "uncommitted" | "committed")) {
+        return Standing::NotLanded;
+    }
+    let done = read.and_then(|i| i.finished);
+    if done.is_some_and(|p| p < NOT_FINISHED) {
+        return Standing::NotDone;
+    }
+    if work.prs.iter().any(|(_, state)| state.is_open()) {
+        return Standing::OpenPr;
+    }
+    if work.todos.contains(&false) {
+        return Standing::OpenTodo;
+    }
+    if work.unsaved {
+        return Standing::Unsaved;
     }
     let mut why = Vec::new();
     let merged: Vec<u64> = work.prs.iter().filter(|(_, state)| *state == PrState::Merged).map(|(n, _)| *n).collect();
@@ -2352,16 +2473,27 @@ pub fn finished_of(s: &Session, work: &Work) -> Option<Finished> {
             None => "its reply reads as done".to_string(),
         });
     }
-    (!why.is_empty()).then_some(Finished { sure, why })
+    if why.is_empty() {
+        Standing::Unknown
+    } else {
+        Standing::Finished(Finished { sure, why })
+    }
 }
 
-/// Says of each session on the board whether it's finished (`finished_of`), from the PRs that
-/// list it, the todos linked to it and its worktree, once the board has all three; a session
-/// that only visits a worktree is as finished there as where it's listed. Then puts each
-/// worktree's own sessions back in their order, which has the finished turns after the others
-/// (`sort_sessions`), and says the worktree's sentence again where a turn of its waits on you:
-/// it's the first one's.
-pub fn settle_finished(lanes: &mut [Lane], prs: &[PrItem], todos: &[crate::todos::Todo]) {
+/// Whether a session's work is done with nothing left for you, and why: `standing_of`'s
+/// `Finished`, for a session of yours whose turn ended as turns do, with nothing left running,
+/// queued or put off.
+pub fn finished_of(s: &Session, work: &Work) -> Option<Finished> {
+    match standing_of(s, work) {
+        Standing::Finished(f) => Some(f),
+        _ => None,
+    }
+}
+
+/// What's known of each session's work besides the read of its last reply, from the PRs that list
+/// it, the todos linked to it and its worktree: by its key, for the sessions a worktree lists as
+/// its own.
+pub fn works(lanes: &[Lane], prs: &[PrItem], todos: &[crate::todos::Todo]) -> HashMap<String, Work> {
     let mut worked: HashMap<&str, Vec<(u64, PrState)>> = HashMap::new();
     for p in prs {
         for s in &p.sessions {
@@ -2374,21 +2506,46 @@ pub fn settle_finished(lanes: &mut [Lane], prs: &[PrItem], todos: &[crate::todos
             linked.entry(key.as_str()).or_default().push(t.status == crate::todos::TodoStatus::Done);
         }
     }
-    let mut found: HashMap<String, Finished> = HashMap::new();
+    let mut found = HashMap::new();
     for lane in lanes.iter() {
         let own = |s: &&Session| s.visitor.is_none() && !s.archived && !s.earlier && !s.unattended();
         let alone = !matches!(lane.origin, Origin::Main | Origin::Folder) && !lane.chats && lane.sessions.iter().filter(own).count() == 1;
         let holds = alone && lane.git.as_ref().is_some_and(|g| g.dirty > 0 || g.unpushed.unwrap_or(0) > 0);
         for s in lane.sessions.iter().filter(|s| s.visitor.is_none()) {
-            let work = Work {
-                prs: worked.get(s.key.as_str()).cloned().unwrap_or_default(),
-                todos: linked.get(s.key.as_str()).cloned().unwrap_or_default(),
-                unsaved: holds && own(&s),
-                said: crate::insights::landing_said(s),
-            };
-            if let Some(f) = finished_of(s, &work) {
-                found.insert(s.key.clone(), f);
-            }
+            found.insert(
+                s.key.clone(),
+                Work {
+                    prs: worked.get(s.key.as_str()).cloned().unwrap_or_default(),
+                    todos: linked.get(s.key.as_str()).cloned().unwrap_or_default(),
+                    unsaved: holds && own(&s),
+                    said: crate::insights::landing_said(s),
+                },
+            );
+        }
+    }
+    found
+}
+
+/// Where the session `key` stands on a board (`standing_of`), as it's listed in its own worktree;
+/// None for a session the board doesn't list.
+pub fn standing_on(lanes: &[Lane], prs: &[PrItem], todos: &[crate::todos::Todo], key: &str) -> Option<Standing> {
+    let s = lanes.iter().flat_map(|l| &l.sessions).find(|s| s.key == key && s.visitor.is_none())?;
+    let works = works(lanes, prs, todos);
+    Some(standing_of(s, works.get(key).unwrap_or(&Work::default())))
+}
+
+/// Says of each session on the board whether it's finished (`finished_of`), from the PRs that
+/// list it, the todos linked to it and its worktree, once the board has all three; a session
+/// that only visits a worktree is as finished there as where it's listed. Then puts each
+/// worktree's own sessions back in their order, which has the finished turns after the others
+/// (`sort_sessions`), and says the worktree's sentence again where a turn of its waits on you:
+/// it's the first one's.
+pub fn settle_finished(lanes: &mut [Lane], prs: &[PrItem], todos: &[crate::todos::Todo]) {
+    let works = works(lanes, prs, todos);
+    let mut found: HashMap<String, Finished> = HashMap::new();
+    for s in lanes.iter().flat_map(|l| &l.sessions).filter(|s| s.visitor.is_none()) {
+        if let Some(f) = works.get(&s.key).and_then(|work| finished_of(s, work)) {
+            found.insert(s.key.clone(), f);
         }
     }
     for lane in lanes.iter_mut() {

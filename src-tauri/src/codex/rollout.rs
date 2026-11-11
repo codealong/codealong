@@ -318,6 +318,8 @@ pub fn token_use(line: &[u8], st: &mut crate::ledger::TokenState) -> Option<crat
                 fast: st.fast,
                 searches: 0,
                 cost: None,
+                // A spawned agent's rollout, which names the thread that spawned it.
+                sub: !st.parent.is_empty(),
             })
         }
         _ => None,
@@ -588,7 +590,7 @@ fn parse_events(text: &str) -> Vec<Value> {
 }
 
 /// The payload of an `event_msg` line.
-fn event_payload(v: &Value) -> Option<&Value> {
+pub(super) fn event_payload(v: &Value) -> Option<&Value> {
     (v.get("type").and_then(Value::as_str) == Some("event_msg")).then(|| v.get("payload")).flatten()
 }
 
@@ -667,7 +669,7 @@ pub fn prose_of(v: &Value) -> Option<(bool, String)> {
 /// A prompt without the context Codex wraps around it: files or browser state before a
 /// `## My request:` heading, an automation's `<heartbeat>`, a voice `<realtime_delegation>`.
 /// An answer to the agent's question isn't a request.
-fn request_of(text: &str) -> Option<&str> {
+pub(super) fn request_of(text: &str) -> Option<&str> {
     let t = text.trim_start();
     if t.starts_with("<send_user_message_question_reply>") {
         return None;

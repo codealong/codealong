@@ -46,6 +46,8 @@ pub enum Feature {
     Todos,
     PullRequests,
     Emblems,
+    /// What each prompt of yours did (stance.rs), once `[experimental] analytics` is on.
+    Prompts,
     Test,
 }
 
@@ -58,6 +60,7 @@ impl Feature {
             Feature::Todos => "todos",
             Feature::PullRequests => "pull_requests",
             Feature::Emblems => "emblems",
+            Feature::Prompts => "prompts",
             Feature::Test => "test",
         }
     }

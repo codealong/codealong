@@ -308,11 +308,21 @@ fn outcome(key: &str, title: String, ends: Ends, ended: Option<&Result<(), Strin
 /// Mark as done does.
 pub fn close_on(engine: &crate::engine::Handle, keys: &[String], after_ms: i64, archive: bool) -> Result<Vec<Outcome>, String> {
     let cfg = crate::config::current().map_err(crate::util::words)?;
+    let board = engine.board();
+    // How each stands as it's closed (dismissed.rs), noted for the ones that are archived.
+    let leaving = |key: &String| board.session(key).and_then(|(_, s)| crate::dismissed::leaving(&board, s, crate::dismissed::What::CloseIdle, &crate::actions::From::Here));
     let archiver = |keys: &[String]| {
+        let leaving: Vec<_> = keys.iter().map(leaving).collect();
         engine.mark_seen(keys.to_vec());
-        engine.archive_all(keys)
+        let archived = engine.archive_all(keys);
+        for (leaving, archived) in leaving.iter().zip(&archived) {
+            if let (Some(leaving), Ok(())) = (leaving, archived) {
+                leaving.note();
+            }
+        }
+        archived
     };
-    Ok(close(&engine.board(), &cfg, keys, after_ms, archive.then_some(&archiver as Archiver)))
+    Ok(close(&board, &cfg, keys, after_ms, archive.then_some(&archiver as Archiver)))
 }
 
 /// Closes one session because you picked Close from its menu, whatever it's doing: its terminal

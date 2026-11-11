@@ -1720,7 +1720,7 @@ const JEV_FEATURES: { id: JevFeature; label: string; does: string; sends: string
 /** A feature's name in Jev's usage: its switch's label, Session emblems' (Settings › General), or
  *  the Test button's. */
 function jevFeatureName(feature: string): string {
-  return JEV_FEATURES.find((f) => f.id === feature)?.label ?? ({ emblems: 'Session emblems', test: 'Test button' } as Record<string, string>)[feature] ?? feature;
+  return JEV_FEATURES.find((f) => f.id === feature)?.label ?? ({ emblems: 'Session emblems', test: 'Test button', prompts: 'What your prompts did' } as Record<string, string>)[feature] ?? feature;
 }
 
 /**
@@ -2283,7 +2283,7 @@ function AdvancedPane({ cfg, view, disabled, onSave }: PaneProps & { view: Confi
 /* ---- Experimental ---- */
 
 /** `[experimental]` as a file without the table has it: every experiment off. */
-const EXPERIMENTS_OFF: Required<ExperimentalCfg> = { boards: false, voice: false };
+const EXPERIMENTS_OFF: Required<ExperimentalCfg> = { boards: false, voice: false, analytics: false };
 
 /** `[voice]` as a file without the table has it (config.rs `VoiceCfg`). */
 export const VOICE_DEFAULT: Required<VoiceCfg> = { locale: '', send_on_release: false, tell_every: 20, meetings: false, meetings_folder: '', meeting_account: '', meeting_model: '', meeting_lead: 1, meeting_calendars_off: [], on_speakers: false };
@@ -2399,6 +2399,22 @@ function ExperimentalPane({ cfg, view, disabled, onSave }: PaneProps & { view: C
             </label>
             <MeetingsFields cfg={cfg} voice={voice} setVoice={setVoice} />
           </>
+        )}
+        <label className="ca-field ca-settings-check">
+          <CheckBox checked={experimental.analytics} onChange={(on) => void onSave({ ...cfg, experimental: { ...experimental, analytics: on } })} />
+          <span>Analytics</span>
+          <small>
+            Your part in the work, in the Usage window: who began each session and each turn of its (you, another agent, Codealong, or the session carrying on by itself) and what that used, and how the sessions you marked done stood: finished, or left asking you something, still working or not landed. Read from the records your harnesses keep on this machine, into Codealong’s ledger; turning it on reads the ones still there. <code className="ca-ic">codealong analytics</code> prints the same.
+          </small>
+        </label>
+        {experimental.analytics && (
+          <label className="ca-field ca-settings-check">
+            <CheckBox checked={!!cfg.jev?.prompts} onChange={(on) => void onSave({ ...cfg, jev: { ...JEV_OFF, ...cfg.jev, prompts: on } })} />
+            <span>Have Jev read what your prompts did</span>
+            <small>
+              Whether each prompt you typed set out new work, agreed with what the agent had said, steered it, redirected it or asked it something. Sends TypeSafe the prompt and the end of the reply before it, once per prompt, with the key in Settings › Jev. Off, only what the records say for sure is counted: the first prompt of a session, an offered answer picked, a suggested reply sent as written.
+            </small>
+          </label>
         )}
       </fieldset>
     </>

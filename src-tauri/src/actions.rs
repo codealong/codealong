@@ -720,6 +720,16 @@ fn answer_call(engine: &Handle, c: &Call) -> Result<Value, String> {
     // Answers to its questions, or words sent in place of the call, answer what was suggested
     // for it, as a message does (`send_prompt`).
     let p: params::Answer = c.read()?;
+    // A call you allowed or denied here is counted with your part in the work (turns.rs); an
+    // answer to its question is in its record.
+    if let (Some(answer), true, true) = (p.answer, matches!(c.from, From::Here | From::Phone), p.answers.as_ref().is_none_or(|a| a.is_null())) {
+        let word = match answer {
+            api::Answer::Allow => "allow",
+            api::Answer::Always => "always",
+            api::Answer::Deny => "deny",
+        };
+        crate::turns::note_answer(c.session()?, word, "");
+    }
     let words_sent = p.message.as_deref().is_some_and(|m| !m.trim().is_empty());
     if (words_sent || p.answers.as_ref().is_some_and(|a| !a.is_null())) && !matches!(c.from, From::Command(_)) {
         forget_suggested(engine, c.session()?);
@@ -906,6 +916,8 @@ fn send_prompt(engine: &Handle, c: &Call) -> Result<Value, String> {
     let key = c.session()?;
     unarchive_to_send(engine, c, key);
     let sender = sender_for(c.from, || crate::side::sent_by_copy(key, &p.side));
+    // One of the replies suggested for it, sent as it was written.
+    let suggested = matches!(c.from, From::Here | From::Phone) && engine.read(|b| b.session(key).and_then(|(_, s)| s.suggestions.as_ref()).is_some_and(|sg| sg.replies.iter().any(|r| r.trim() == p.text.trim())));
     let sent = crate::outbox::send_or_hold(engine, key, &p.text, sender, p.now).map_err(words)?;
     note_talking(engine, c, key);
     if matches!(c.from, From::Device | From::Phone) && sent.opened {
@@ -916,6 +928,9 @@ fn send_prompt(engine: &Handle, c: &Call) -> Result<Value, String> {
     // its app to take.
     if !matches!(c.from, From::Command(_)) && !sent.opened {
         forget_suggested(engine, key);
+        if suggested {
+            crate::turns::note_answer(key, "suggested", &p.text);
+        }
     }
     to_value(sent)
 }
@@ -931,8 +946,9 @@ fn unarchive_to_send(engine: &Handle, c: &Call, key: &str) {
     if !unarchives(c.from, archived) {
         return;
     }
-    if let Err(e) = engine.archive(key, false) {
-        eprintln!("Couldn't take {key} out of the archive to send it a message: {e:#}");
+    match engine.archive(key, false) {
+        Ok(_) => crate::dismissed::undone(key),
+        Err(e) => eprintln!("Couldn't take {key} out of the archive to send it a message: {e:#}"),
     }
 }
 
@@ -1152,7 +1168,15 @@ fn shown_at(c: &Call, at: Option<i64>) -> Value {
 /// Archives it, or unarchives it with `archived: false` (Codex threads in Codex itself).
 fn archive(engine: &Handle, c: &Call) -> Result<Value, String> {
     let p: params::Archive = c.read()?;
-    let at = engine.archive(c.session()?, p.archived).map_err(words)?;
+    let key = c.session()?;
+    // How it stands as it's archived (dismissed.rs), read before it is.
+    let leaving = if p.archived { engine.read(|b| b.session(key).and_then(|(_, s)| crate::dismissed::leaving(b, s, crate::dismissed::What::Archive, c.from))) } else { None };
+    let at = engine.archive(key, p.archived).map_err(words)?;
+    match leaving {
+        Some(leaving) => leaving.note(),
+        None if !p.archived => crate::dismissed::undone(key),
+        None => {}
+    }
     Ok(shown_at(c, at))
 }
 
@@ -1498,7 +1522,9 @@ fn finish(engine: &Handle, c: &Call, key: &str, stop: bool, by: Option<&str>) ->
     let job = matches!(ends, crate::idle::Ending::Job);
     let exits = matches!(ends, crate::idle::Ending::Exit(_));
     let who = stops::who(&board, c.from);
-    let (ended, note) = end(engine, s, account, ends, &who, true);
+    // How it stands now, before anything of it is ended (dismissed.rs): noted once it's archived.
+    let leaving = crate::dismissed::leaving(&board, s, crate::dismissed::What::Done, c.from);
+    let (ended, note) = end(engine, s, account, ends, &who, true, leaving.clone());
     // Its harness asks first, whether to keep its worktree: it stays where you'll see the
     // question, and is archived once it has exited (`end`, `idle::finish_when_ended`). Archived
     // now, a terminal of Codealong's own would close with it (`Handle::archive`), hanging the
@@ -1513,6 +1539,11 @@ fn finish(engine: &Handle, c: &Call, key: &str, stop: bool, by: Option<&str>) ->
     let title = s.title.clone();
     engine.mark_seen(vec![key.to_string()]);
     let at = engine.archive(key, true).map_err(words)?;
+    // Left with work undone, it says how it stood, which a list it has left can't.
+    let hint = leaving.as_ref().and_then(|l| {
+        l.note();
+        l.hint()
+    });
     let what = match ended {
         Some(what) => format!("{what} and it's archived."),
         None => "it's archived.".to_string(),
@@ -1535,7 +1566,10 @@ fn finish(engine: &Handle, c: &Call, key: &str, stop: bool, by: Option<&str>) ->
     if let Some(words) = &helped {
         message = format!("{message} {words}");
     }
-    let noted = note.is_some() || worktree.is_some_and(|(_, noted)| noted);
+    if let Some(hint) = hint {
+        message = format!("{message} {hint}.");
+    }
+    let noted = note.is_some() || hint.is_some() || worktree.is_some_and(|(_, noted)| noted);
     let mut answer = to_value(api::Done { done: true, message, noted })?;
     answer["at"] = shown_at(c, at);
     Ok(answer)
@@ -1555,7 +1589,7 @@ fn finish_helpers(engine: &Handle, board: &crate::model::Board, cfg: &config::Co
                 // its own panel says how it stands.
                 let job = matches!(ends, crate::idle::Ending::Job);
                 let exits = matches!(ends, crate::idle::Ending::Exit(_));
-                let (ended, _) = end(engine, h, account, ends, who, true);
+                let (ended, _) = end(engine, h, account, ends, who, true, None);
                 // Its harness asks first: it's archived once that's answered, as a session is.
                 if exits && crate::idle::exit_noted(&h.key) {
                     left += 1;
@@ -1596,8 +1630,8 @@ fn helpers_done_words(done: usize, left: usize) -> Option<String> {
 /// or what didn't go). `who` asked, for stops.log: closing its terminal, stopping its job or
 /// stopping its turn while work is under way is a stop (`stopping`). `archive`: what ends it
 /// archives it, which an exit its harness asks about first does once its process has ended
-/// (`idle::finish_when_ended`).
-fn end(engine: &Handle, s: &crate::model::Session, account: &config::AccountCfg, ends: crate::idle::Ending, who: &str, archive: bool) -> (Option<String>, Option<String>) {
+/// (`idle::finish_when_ended`), noting then how it stood when it was asked (`leaving`).
+fn end(engine: &Handle, s: &crate::model::Session, account: &config::AccountCfg, ends: crate::idle::Ending, who: &str, archive: bool, leaving: Option<crate::dismissed::Leaving>) -> (Option<String>, Option<String>) {
     use crate::idle::{Ending, Exited};
     let ctx = harness::Ctx { account };
     let adapter = harness::adapter(s.harness);
@@ -1633,7 +1667,9 @@ fn end(engine: &Handle, s: &crate::model::Session, account: &config::AccountCfg,
                         // archived stays in its list, which says as much.
                         if archive && closed.is_ok() {
                             engine.mark_seen(vec![key.clone()]);
-                            let _ = engine.archive(&key, true);
+                            if let (Ok(_), Some(leaving)) = (engine.archive(&key, true), &leaving) {
+                                leaving.note();
+                            }
                         }
                     });
                     (None, Some(format!("{word} asks whether to keep its worktree, {worktree}, before it exits: the session waits on your answer.")))
@@ -1682,7 +1718,8 @@ pub fn end_after_turn(engine: &Handle, key: &str, archive: bool) -> Result<Strin
     let can_end = !matches!(ends, crate::idle::Ending::Nothing(_));
     // Its own agent asked, and a turn that has ended has nothing to stop.
     let who = "its own agent, with the codealong command";
-    let (ended, note) = end(engine, s, account, ends, who, archive);
+    let leaving = crate::dismissed::leaving(&board, s, crate::dismissed::What::Done, &From::Command(Some(key.to_string())));
+    let (ended, note) = end(engine, s, account, ends, who, archive, leaving.clone());
     let worktree = job_worktree(engine, &cfg, s, job && ended.is_some());
     let went_wrong = (can_end && note.is_some()) || worktree.as_ref().is_some_and(|(_, partly)| *partly);
     let mut said: Vec<String> = [ended.map(|e| format!("“{}”: {e}.", s.title)), note, worktree.map(|(words, _)| words)].into_iter().flatten().collect();
@@ -1695,6 +1732,9 @@ pub fn end_after_turn(engine: &Handle, key: &str, archive: bool) -> Result<Strin
             return Ok(said.join(" "));
         }
         engine.mark_seen(vec![key.to_string()]);
+        if let Some(leaving) = &leaving {
+            leaving.note();
+        }
         said.push("It's marked seen and archived, as its user asked.".into());
         if let (Some(helped), _) = finish_helpers(engine, &board, &cfg, key, false, who) {
             said.push(helped);

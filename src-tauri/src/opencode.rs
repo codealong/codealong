@@ -349,6 +349,7 @@ fn token_uses_in(db: &Connection, account: &str, after: i64) -> rusqlite::Result
             fast: false,
             searches: 0,
             cost: v.get("cost").and_then(Value::as_f64),
+            sub: false,
         });
     }
     Ok((out, newest))

@@ -1,0 +1,28 @@
+/* The Usage window's Your part and Sessions (UsageAnalytics.tsx), over UsageDialog.css's own
+   tiles, charts and tables: a bar cut into its series, a row's prompts as a thin one, and the
+   lists of prompts and sessions. Series wear the chart tokens, words stay in ink. */
+
+.ca-usage-split { display: grid; gap: var(--space-1); }
+.ca-usage-split-bar { display: flex; gap: 2px; height: 10px; }
+.ca-usage-split-bar > i { display: block; min-width: 2px; flex-basis: 0; }
+.ca-usage-split-bar > i:first-child { border-radius: 3px 0 0 3px; }
+.ca-usage-split-bar > i:last-child { border-radius: 0 3px 3px 0; }
+.ca-usage-split-bar > i:only-child { border-radius: 3px; }
+.ca-usage-split .ca-usage-key b { font: var(--type-caption-strong); color: var(--ink); font-variant-numeric: tabular-nums; }
+.ca-usage-split .ca-usage-key .ca-usage-none { font-variant-numeric: tabular-nums; }
+
+.ca-usage-mix { display: flex; gap: 1px; height: 6px; min-width: 2px; }
+.ca-usage-mix > i { display: block; min-width: 1px; flex-basis: 0; }
+.ca-usage-mix > i:last-child { border-radius: 0 3px 3px 0; }
+
+.ca-usage-fine { margin: 0; font: var(--type-caption); color: var(--ink-3); }
+.ca-usage-fine:empty { display: none; }
+
+.ca-usage-marks { margin: 0; padding: 0; list-style: none; display: grid; gap: 2px; font: var(--type-meta); color: var(--ink-2); }
+
+.ca-usage-list { margin: 0; padding: 0; list-style: none; display: grid; font: var(--type-meta); color: var(--ink-2); }
+.ca-usage-list > li { display: grid; gap: 2px; padding: 6px var(--space-2); border-bottom: 1px solid var(--line); min-width: 0; }
+.ca-usage-list .ca-usage-name { font: var(--type-meta-strong); color: var(--ink); }
+.ca-usage-list .ca-usage-note > .ca-linkbtn { font: inherit; color: var(--ink-2); }
+.ca-usage-list .ca-usage-note > .ca-linkbtn:hover { text-decoration: underline; }
+.ca-usage-more { justify-self: start; font: var(--type-caption-strong); color: var(--ink-2); text-decoration: underline; text-underline-offset: 2px; }

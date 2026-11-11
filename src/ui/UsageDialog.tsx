@@ -7,13 +7,16 @@
 // number are spend.ts's.
 
 import { useEffect, useMemo, useState } from 'react';
-import { tokenReport } from '../api';
+import { BEGAN, HANDS } from '../analytics';
+import { analyticsReport, tokenReport } from '../api';
 import { agoPhrase } from '../format';
-import { byProject, cacheShare, cumulative, dayLabel, leverage, money, moneyTick, readNote, seriesColor, sessionLabel, stackOf, ticks, tokenCount, totalTokens } from '../spend';
-import type { Board, Session, Spent, SpendDay, TokenReport } from '../types';
+import { byProject, cacheShare, cumulative, dayLabel, leverage, money, readNote, seriesColor, sessionLabel, stackOf, ticks, tokenCount, totalTokens } from '../spend';
+import type { Analytics, Board, Session, Spent, SpendDay, TokenReport } from '../types';
 import { Button, cx, Dialog, Icon, Seg } from './primitives';
+import { SessionsPart, type UsageView, VIEWS, YourPart } from './UsageAnalytics';
+import { AXIS, bar, HitArea, PLOT, Tip, W, XAxis, xOf, YAxis } from './UsageChart';
 
-type By = 'account' | 'model' | 'project' | 'session' | 'day';
+type By = 'account' | 'model' | 'project' | 'session' | 'day' | 'began' | 'turn';
 
 const SPANS: { id: number; label: string }[] = [
   { id: 7, label: '7 days' },
@@ -29,6 +32,10 @@ const BYS: { id: By; label: string }[] = [
   { id: 'session', label: 'Session' },
   { id: 'day', label: 'Day' },
 ];
+
+/** With `[experimental] analytics` on: by how each session began, and by who began the turn each
+ *  call was made in. */
+const BYS_ANALYTICS: { id: By; label: string }[] = [...BYS, { id: 'began', label: 'Begun by' }, { id: 'turn', label: 'Turn begun by' }];
 
 interface Props {
   board: Board;
@@ -49,6 +56,11 @@ export function UsageDialog({ board, account: first, now, onClose, onShowSession
   const [report, setReport] = useState<TokenReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Your part and Sessions, an experiment: off, the window is what it was.
+  const experiment = !!board.experimental?.analytics;
+  const [view, setView] = useState<UsageView>('cost');
+  const [analytics, setAnalytics] = useState<Analytics | null>(null);
+  const shown: UsageView = experiment ? view : 'cost';
 
   useEffect(() => {
     let live = true;
@@ -62,14 +74,24 @@ export function UsageDialog({ board, account: first, now, onClose, onShowSession
         })
         .catch((e: unknown) => live && setError(String(e)))
         .finally(() => live && setLoading(false));
+    // The numbers the other views show come with the same days; without them, they say why.
+    const askAnalytics = () =>
+      experiment &&
+      analyticsReport(days, account)
+        .then((a) => live && setAnalytics(a))
+        .catch((e: unknown) => live && setError(String(e)));
     void ask();
+    void askAnalytics();
     // While the ledger reads records for the first time, and as sessions work, the numbers move.
-    const t = setInterval(() => void ask(), 30_000);
+    const t = setInterval(() => {
+      void ask();
+      void askAnalytics();
+    }, 30_000);
     return () => {
       live = false;
       clearInterval(t);
     };
-  }, [days, account]);
+  }, [days, account, experiment]);
 
   const order = useMemo(() => board.usage.map((u) => u.account), [board.usage]);
   const sessions = useMemo(() => new Map<string, Session>(board.lanes.filter((l) => !l.device).flatMap((l) => l.sessions.map((s) => [s.key, s] as const))), [board.lanes]);
@@ -93,6 +115,7 @@ export function UsageDialog({ board, account: first, now, onClose, onShowSession
     >
       <div className="ca-dialog-body ca-usage-body">
         <div className="ca-usage-filters">
+          {experiment && <Seg options={VIEWS} value={view} onPick={setView} label="View" />}
           <Seg options={SPANS} value={days} onPick={setDays} label="Days" look="text" />
           <div className="ca-start-select ca-usage-account">
             <select aria-label="Account" value={account ?? ''} onChange={(e) => setAccount(e.target.value || null)}>
@@ -110,6 +133,18 @@ export function UsageDialog({ board, account: first, now, onClose, onShowSession
           <p className="ca-form-error" role="alert">
             {error}
           </p>
+        ) : shown !== 'cost' ? (
+          !analytics ? (
+            <p className="ca-empty">Reading what came in to your sessions…</p>
+          ) : (
+            <div className={cx('ca-usage-report', loading && 'is-loading')}>
+              {shown === 'part' ? (
+                <YourPart analytics={analytics} report={report} lanes={board.lanes} sessions={sessions} now={now} onShowSession={onShowSession} />
+              ) : (
+                <SessionsPart analytics={analytics} report={report} lanes={board.lanes} sessions={sessions} now={now} onShowSession={onShowSession} />
+              )}
+            </div>
+          )
         ) : !report ? (
           <p className="ca-empty">Reading what your sessions used…</p>
         ) : (
@@ -120,7 +155,7 @@ export function UsageDialog({ board, account: first, now, onClose, onShowSession
               <span className="ca-usage-by-label" id="ca-usage-by">
                 By
               </span>
-              <Seg options={BYS} value={by} onPick={setBy} labelledBy="ca-usage-by" look="text" />
+              <Seg options={experiment ? BYS_ANALYTICS : BYS} value={by} onPick={setBy} labelledBy="ca-usage-by" look="text" />
             </div>
             <Table report={report} by={by} order={order} sessions={sessions} lanes={board.lanes} onAccount={(a) => setAccount(a)} onShowSession={onShowSession} />
             <Notes report={report} />
@@ -171,26 +206,6 @@ function Stats({ report: r, onAccounts }: { report: TokenReport; onAccounts: () 
   );
 }
 
-/** The charts' width in their own units: they scale to the dialog, both the same, so their days
- *  line up. */
-const W = 800;
-const LEFT = 48;
-const RIGHT = 12;
-const PLOT = W - LEFT - RIGHT;
-const AXIS = 22;
-
-function xOf(i: number, n: number): number {
-  return LEFT + ((i + 0.5) * PLOT) / Math.max(n, 1);
-}
-
-/** About six of the days, the last always among them, for the x axis. */
-function labelled(n: number): Set<number> {
-  const step = Math.max(1, Math.ceil(n / 6));
-  const out = new Set<number>();
-  for (let i = n - 1; i >= 0; i -= step) out.add(i);
-  return out;
-}
-
 function Charts({ days, order }: { days: SpendDay[]; order: string[] }) {
   const [hover, setHover] = useState<{ i: number; chart: 'total' | 'daily' } | null>(null);
   const run = useMemo(() => cumulative(days), [days]);
@@ -230,65 +245,6 @@ function Charts({ days, order }: { days: SpendDay[]; order: string[] }) {
         </figcaption>
         <Daily days={days} order={order} hover={hover?.i ?? null} tip={hover?.chart === 'daily'} onHover={(i) => setHover(i === null ? null : { i, chart: 'daily' })} />
       </figure>
-    </div>
-  );
-}
-
-/** The hit area over a chart: the day under the pointer, nearest by its x. */
-function HitArea({ n, top, height, onHover }: { n: number; top: number; height: number; onHover: (i: number | null) => void }) {
-  return (
-    <rect
-      x={LEFT}
-      y={top}
-      width={PLOT}
-      height={height}
-      fill="transparent"
-      onPointerMove={(e) => {
-        const box = e.currentTarget.getBoundingClientRect();
-        const at = ((e.clientX - box.left) / box.width) * n;
-        onHover(Math.min(n - 1, Math.max(0, Math.floor(at))));
-      }}
-      onPointerLeave={() => onHover(null)}
-    />
-  );
-}
-
-function YAxis({ marks, y, top }: { marks: number[]; y: (v: number) => number; top: number }) {
-  return (
-    <g className="ca-usage-axis">
-      {marks.map((m) => (
-        <g key={m}>
-          <line x1={LEFT} x2={W - RIGHT} y1={y(m)} y2={y(m)} className="ca-usage-grid" />
-          <text x={LEFT - 8} y={Math.max(top + 8, y(m) + 4)} textAnchor="end">
-            {moneyTick(m)}
-          </text>
-        </g>
-      ))}
-    </g>
-  );
-}
-
-function XAxis({ days, y }: { days: { day: string }[]; y: number }) {
-  const shown = labelled(days.length);
-  return (
-    <g className="ca-usage-axis">
-      {days.map((d, i) =>
-        shown.has(i) ? (
-          <text key={d.day} x={xOf(i, days.length)} y={y} textAnchor={i === days.length - 1 ? 'end' : 'middle'} dx={i === days.length - 1 ? 6 : 0}>
-            {dayLabel(d.day)}
-          </text>
-        ) : null,
-      )}
-    </g>
-  );
-}
-
-function Tip({ x, children }: { x: number; children: React.ReactNode }) {
-  // Kept inside the chart: past its middle it opens to the left of the day.
-  const left = x / W > 0.5;
-  return (
-    <div className={cx('ca-usage-tip', left && 'is-left')} style={{ left: `${(x / W) * 100}%` }} role="status">
-      {children}
     </div>
   );
 }
@@ -405,12 +361,6 @@ function Daily({ days, order, hover, tip, onHover }: { days: SpendDay[]; order: 
   );
 }
 
-/** A bar's outline: square at the baseline, its top corners rounded by `r`. */
-function bar(x: number, y: number, w: number, h: number, r: number): string {
-  if (h <= 0) return '';
-  return `M${x},${y + h} V${y + r} Q${x},${y} ${x + r},${y} H${x + w - r} Q${x + w},${y} ${x + w},${y + r} V${y + h} Z`;
-}
-
 interface TableProps {
   report: TokenReport;
   by: By;
@@ -445,6 +395,10 @@ function Table({ report: r, by, order, sessions, lanes, onAccount, onShowSession
           const on = sessions.has(s.key);
           return { key: s.key, name: sessionLabel(s, sessions), note: [s.account, s.folder && s.folder.split('/').pop()].filter(Boolean).join(' · '), spent: s, act: on ? () => onShowSession(s.key) : undefined, actTitle: 'Show the session' };
         });
+      case 'began':
+        return (r.origins ?? []).map((s) => ({ key: s.key, name: BEGAN.find((b) => b.id === s.key)?.label ?? s.key, swatch: BEGAN.find((b) => b.id === s.key)?.color, spent: s }));
+      case 'turn':
+        return (r.hands ?? []).map((s) => ({ key: s.key, name: HANDS.find((h) => h.id === s.key)?.label ?? s.key, swatch: HANDS.find((h) => h.id === s.key)?.color, spent: s }));
       case 'day':
         return [...r.days].reverse().map((d) => {
           const api = Object.values(d.api).reduce((a, b) => a + b, 0);
@@ -459,7 +413,7 @@ function Table({ report: r, by, order, sessions, lanes, onAccount, onShowSession
     <table className="ca-usage-table">
       <thead>
         <tr>
-          <th scope="col">{BYS.find((b) => b.id === by)?.label}</th>
+          <th scope="col">{BYS_ANALYTICS.find((b) => b.id === by)?.label}</th>
           <th scope="col" className="is-num">
             Tokens
           </th>

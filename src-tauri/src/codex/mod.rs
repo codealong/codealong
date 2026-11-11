@@ -24,6 +24,7 @@ mod terminals;
 mod hook;
 mod training;
 mod trust;
+mod turns;
 mod usage;
 
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -541,6 +542,17 @@ impl crate::harness::Adapter for Codex {
 
     fn token_use(&self, line: &[u8], state: &mut crate::ledger::TokenState) -> Option<crate::ledger::TokenUse> {
         rollout::token_use(line, state)
+    }
+
+    /// Archived threads' rollouts too, as the ledger reads their calls: a review or a helper is
+    /// archived once it's done, and its turns are as much the work's as any.
+    fn turn_files(&self, account: &AccountCfg, since: i64) -> Vec<(PathBuf, String)> {
+        let written = |p: &PathBuf| since <= 0 || crate::util::mtime_ms(p).is_some_and(|m| m >= since);
+        rollout::all_rollouts(&account.home_path()).into_iter().filter(written).filter_map(|p| thread_id_of(&p).map(|id| (p, Session::key_for(Harness::Codex, &account.name, &id)))).collect()
+    }
+
+    fn turn_step(&self, line: &[u8], state: &mut crate::turns::State) -> Option<crate::turns::Came> {
+        turns::turn_step(line, state)
     }
 
     fn prose(&self, line: &[u8]) -> Option<(i64, bool, String)> {

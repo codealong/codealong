@@ -840,6 +840,7 @@ export type EmblemsCfg = Holds<Same<
 >>;
 
 export type ExperimentalCfg = Holds<Same<
+  | "analytics"
   | "boards"
   | "voice",
   Names<Types.ExperimentalCfg>
@@ -854,6 +855,7 @@ export type GroupMemberCfg = Holds<Same<
 
 export type JevCfg = Holds<Same<
   | "model"
+  | "prompts"
   | "pull_requests"
   | "quick_panel"
   | "sessions"

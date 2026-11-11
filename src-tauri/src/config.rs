@@ -121,6 +121,11 @@ pub struct JevCfg {
     /// Marks the review comments on a pull request that ask for a change.
     #[serde(default)]
     pub pull_requests: bool,
+    /// Reads what each prompt you typed did with what its agent had last said: set out new work,
+    /// agreed, steered, redirected or asked (stance.rs). It does nothing until `[experimental]
+    /// analytics` is on.
+    #[serde(default)]
+    pub prompts: bool,
     /// `emblems = true` from before `[emblems]`, when Jev gave sessions icons: read, folded into
     /// `[emblems]` as emoji, and never written back.
     #[serde(default, skip_serializing)]
@@ -129,13 +134,13 @@ pub struct JevCfg {
 
 impl Default for JevCfg {
     fn default() -> Self {
-        JevCfg { model: default_jev_model(), quick_panel: false, sessions: false, todos: false, pull_requests: false, emblems: false }
+        JevCfg { model: default_jev_model(), quick_panel: false, sessions: false, todos: false, pull_requests: false, prompts: false, emblems: false }
     }
 }
 
 impl JevCfg {
     pub fn any(&self) -> bool {
-        self.quick_panel || self.sessions || self.todos || self.pull_requests
+        self.quick_panel || self.sessions || self.todos || self.pull_requests || self.prompts
     }
 }
 
@@ -1087,6 +1092,11 @@ pub struct ExperimentalCfg {
     /// your orchestrator, and sessions that listen to a meeting. `[voice]` has its settings.
     #[serde(default)]
     pub voice: bool,
+    /// Analytics (turns.rs, left.rs, stance.rs): who began each session and each turn of its, what
+    /// your prompts did with what the agent had said, and how the sessions you marked done stood,
+    /// kept in the ledger and shown in the Usage window.
+    #[serde(default)]
+    pub analytics: bool,
 }
 
 impl Config {
@@ -1960,7 +1970,7 @@ const OWN_REVIEWS_COMMENT: &str = "# [reviews.own] auto: an agent reviews each o
 # review to the PR's primary session, once it runs and doesn't wait on you. drafts: review your draft PRs too.
 # Nothing goes on GitHub.
 ";
-const EXPERIMENTAL_COMMENT: &str = "# Features still being tried out, each off until it's turned on. boards: the main window's Board view, as\n# Kanban and as Canvas, Add to board in the menus, and `codealong board`. voice: a key held to talk to the\n# session you're looking at or to your orchestrator, and sessions that listen to a meeting ([voice]).\n";
+const EXPERIMENTAL_COMMENT: &str = "# Features still being tried out, each off until it's turned on. boards: the main window's Board view, as\n# Kanban and as Canvas, Add to board in the menus, and `codealong board`. voice: a key held to talk to the\n# session you're looking at or to your orchestrator, and sessions that listen to a meeting ([voice]).\n# analytics: who began each session and turn, what your prompts did with what the agent had said, and how\n# the sessions you marked done stood, in the Usage window and `codealong analytics`.\n";
 const VOICE_COMMENT: &str = "# Voice, once [experimental] voice is on. locale: the language spoken, such as \"en-US\"; \"\" for this Mac's own.\n# send_on_release: what you say to your orchestrator is sent as you let go of the key, not put in its box\n# first. tell_every: how often, in seconds, a session that listens is told what's new, at most.\n# meetings: as a meeting in your calendar is about to start, offer to take its notes, in a folder of its own\n# under meetings_folder (\"\" for meetings beside this file), by a session on meeting_account (an account, a\n# routing group, or \"\" for Auto) and meeting_model, meeting_lead minutes before it starts, but for the\n# calendars in meeting_calendars_off (by id; Settings lists them). on_speakers: take what the Mac plays out of the microphone\n# in every meeting; without it Codealong hears whether you're on speakers, and does it then.\n";
 const REPOS_COMMENT: &str = "# Your settings for one repo's pull requests, over [reviews] and [pull_requests] and over what the repo's\n# .codealong/config.toml sets for its team. Settings › Automation sets them with the repo picked.\n";
 /// What config.toml says above `[sounds]`: where the OS keeps the sounds it can name.
@@ -2330,6 +2340,10 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
         set_value(&mut doc["jev"]["sessions"], Value::from(cfg.jev.sessions));
         set_value(&mut doc["jev"]["todos"], Value::from(cfg.jev.todos));
         set_value(&mut doc["jev"]["pull_requests"], Value::from(cfg.jev.pull_requests));
+        // Its experiment's: only a file that has it or turns it on gets the line.
+        if cfg.jev.prompts || doc["jev"].get("prompts").is_some() {
+            set_value(&mut doc["jev"]["prompts"], Value::from(cfg.jev.prompts));
+        }
         // Folded into [emblems] as it was read.
         if let Some(jev) = doc["jev"].as_table_like_mut() {
             jev.remove("emblems");
@@ -2555,6 +2569,9 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
         set_value(&mut doc["experimental"]["boards"], Value::from(cfg.experimental.boards));
         if cfg.experimental.voice || doc["experimental"].get("voice").is_some() {
             set_value(&mut doc["experimental"]["voice"], Value::from(cfg.experimental.voice));
+        }
+        if cfg.experimental.analytics || doc["experimental"].get("analytics").is_some() {
+            set_value(&mut doc["experimental"]["analytics"], Value::from(cfg.experimental.analytics));
         }
     }
     // Only a file that has the table, or changes one of its settings, gets it.
@@ -2937,6 +2954,9 @@ pub fn render(cfg: &Config) -> String {
         s.push_str(&format!("sessions = {}\n", cfg.jev.sessions));
         s.push_str(&format!("todos = {}\n", cfg.jev.todos));
         s.push_str(&format!("pull_requests = {}\n", cfg.jev.pull_requests));
+        if cfg.jev.prompts {
+            s.push_str("prompts = true\n");
+        }
     }
     if cfg.emblems != EmblemsCfg::default() {
         let e = &cfg.emblems;
@@ -3073,6 +3093,9 @@ pub fn render(cfg: &Config) -> String {
         if cfg.experimental.voice {
             s.push_str("voice = true\n");
         }
+        if cfg.experimental.analytics {
+            s.push_str("analytics = true\n");
+        }
     }
     if cfg.voice != VoiceCfg::default() {
         s.push('\n');
@@ -3190,7 +3213,7 @@ mod tests {
                 folders: vec!["~/projects/sparkhq/vault".into()],
                 chrome_profile: Some("Work".into()),
             }],
-            jev: JevCfg { model: "jev-1.13.0".into(), quick_panel: true, sessions: false, todos: true, pull_requests: false, emblems: false },
+            jev: JevCfg { model: "jev-1.13.0".into(), quick_panel: true, sessions: false, todos: true, pull_requests: false, prompts: false, emblems: false },
             router: None,
             emblems: EmblemsCfg { kind: EmblemKind::Emoji, account: String::new(), prompt: "Pixel art, 16 by 16.".into() },
             search: SearchCfg { days: 7 },
@@ -3212,7 +3235,7 @@ mod tests {
             pull_requests: PullRequestsCfg { nudge_by_default: true, nudge_about: NudgeAbout::FeedbackAndChecks, rerequest_after_fixes: false },
             repos: BTreeMap::from([("github.com/sprucehq/web".to_string(), RepoCfg { reviews: ReviewsPatch { auto: Some(true), account: Some("codex".into()), post: Some(ReviewPost::Draft), own: OwnReviewsPatch { send: Some(false), ..OwnReviewsPatch::default() }, ..ReviewsPatch::default() }, pull_requests: PullRequestsPatch { nudge_about: Some(NudgeAbout::Feedback), ..PullRequestsPatch::default() } })]),
             sounds: SoundsCfg { needs_you: "Tink".into(), your_turn: String::new(), review_requested: "Purr".into(), meeting: "Glass".into(), volume: 35 },
-            experimental: ExperimentalCfg { boards: true, voice: true },
+            experimental: ExperimentalCfg { boards: true, voice: true, analytics: true },
             voice: VoiceCfg { locale: "en-GB".into(), send_on_release: true, tell_every: 45, meetings: true, meetings_folder: "~/Meetings".into(), meeting_account: String::new(), meeting_model: "haiku".into(), meeting_lead: 2, meeting_calendars_off: vec!["C1".into(), "C2".into()], on_speakers: true },
             debug: DebugCfg::default(),
             prices: BTreeMap::new(),
@@ -3612,7 +3635,7 @@ mod tests {
         // The table itself: the shortcuts' comment names it.
         assert!(!old.contains("\n[experimental]\n"), "{old}");
         assert!(!with_config(&old, &full()).unwrap().contains("\n[experimental]\n"));
-        let on = Config { experimental: ExperimentalCfg { boards: true, voice: false }, ..full() };
+        let on = Config { experimental: ExperimentalCfg { boards: true, ..Default::default() }, ..full() };
         let out = with_config(&old, &on).unwrap();
         assert!(out.contains(&format!("{EXPERIMENTAL_COMMENT}[experimental]\nboards = true\n")), "{out}");
         assert!(out.find("[sounds]").unwrap() < out.find("\n[experimental]\n").unwrap(), "{out}");

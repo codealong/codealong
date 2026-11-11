@@ -25,6 +25,11 @@
 //! Codealong's own requests to TypeSafe's Jev (jev.rs) are kept here too, a row each in a table
 //! of their own (`note_jev`), by the feature that asked: they belong to no session or account,
 //! and Settings › Jev reports them (`jev_report`), not the Usage window.
+//!
+//! With `[experimental] analytics` on, the same file keeps what came in to each session and who
+//! from (turns.rs, which gives each call its turn), where each session came from (began.rs) and
+//! how the sessions you marked done stood (dismissed.rs). Their tables are made here, with the
+//! rest, and a report groups its calls by them too (`Report::origins`, `Report::hands`).
 
 use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
@@ -73,6 +78,9 @@ pub struct TokenUse {
     pub searches: u64,
     /// What the harness recorded it cost, in dollars (OpenCode does, from your provider's prices).
     pub cost: Option<f64>,
+    /// A subagent made it, for its session: its record says so (Claude Code's `isSidechain`), or
+    /// names a parent (`TokenState::parent`).
+    pub sub: bool,
 }
 
 impl TokenUse {
@@ -124,7 +132,11 @@ CREATE TABLE IF NOT EXISTS sessions (
   id INTEGER PRIMARY KEY,
   key TEXT NOT NULL UNIQUE,
   account TEXT NOT NULL,
-  folder TEXT NOT NULL DEFAULT ''
+  folder TEXT NOT NULL DEFAULT '',
+  began TEXT,
+  began_by TEXT,
+  title TEXT,
+  started INTEGER
 );
 CREATE TABLE IF NOT EXISTS calls (
   id INTEGER PRIMARY KEY,
@@ -140,7 +152,9 @@ CREATE TABLE IF NOT EXISTS calls (
   fast INTEGER NOT NULL DEFAULT 0,
   searches INTEGER NOT NULL DEFAULT 0,
   prompt INTEGER NOT NULL DEFAULT 0,
-  cost REAL
+  cost REAL,
+  turn INTEGER,
+  sub INTEGER
 );
 CREATE INDEX IF NOT EXISTS calls_at ON calls(at);
 CREATE INDEX IF NOT EXISTS calls_session ON calls(session);
@@ -171,7 +185,110 @@ CREATE TABLE IF NOT EXISTS jev (
   output INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS jev_at ON jev(at);
+CREATE TABLE IF NOT EXISTS turns (
+  id INTEGER PRIMARY KEY,
+  session INTEGER NOT NULL,
+  at INTEGER NOT NULL,
+  source TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  sender TEXT,
+  mid INTEGER NOT NULL DEFAULT 0,
+  after_stop INTEGER NOT NULL DEFAULT 0,
+  picked TEXT,
+  chars INTEGER NOT NULL DEFAULT 0,
+  opening TEXT,
+  text TEXT,
+  before TEXT,
+  stance TEXT,
+  stance_p REAL,
+  read_by TEXT,
+  counts_as TEXT
+);
+CREATE INDEX IF NOT EXISTS turns_session ON turns(session, at);
+CREATE INDEX IF NOT EXISTS turns_at ON turns(at);
+CREATE TABLE IF NOT EXISTS turn_files (
+  path TEXT PRIMARY KEY,
+  offset INTEGER NOT NULL,
+  size INTEGER NOT NULL,
+  mtime INTEGER NOT NULL,
+  state TEXT NOT NULL DEFAULT '{}'
+);
+CREATE TABLE IF NOT EXISTS dismissals (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  at INTEGER NOT NULL,
+  session TEXT NOT NULL,
+  title TEXT NOT NULL DEFAULT '',
+  account TEXT NOT NULL DEFAULT '',
+  folder TEXT NOT NULL DEFAULT '',
+  what TEXT NOT NULL,
+  by TEXT NOT NULL,
+  by_key TEXT,
+  standing TEXT NOT NULL,
+  why TEXT NOT NULL DEFAULT '',
+  unread INTEGER NOT NULL DEFAULT 0,
+  undone INTEGER
+);
+CREATE INDEX IF NOT EXISTS dismissals_at ON dismissals(at);
+CREATE INDEX IF NOT EXISTS dismissals_session ON dismissals(session);
+CREATE TABLE IF NOT EXISTS answers (
+  at INTEGER NOT NULL,
+  session TEXT NOT NULL,
+  answer TEXT NOT NULL,
+  what TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS answers_at ON answers(at);
+CREATE TABLE IF NOT EXISTS meta (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
 ";
+
+/// Columns a ledger from before them has its tables without: what `began.rs` notes of each
+/// session, and what `turns.rs` says of each call. SQLite adds a column to a table in place,
+/// every row reading NULL for it: not known.
+const ADDED: [(&str, &str, &str); 6] = [
+    ("sessions", "began", "TEXT"),
+    ("sessions", "began_by", "TEXT"),
+    ("sessions", "title", "TEXT"),
+    ("sessions", "started", "INTEGER"),
+    ("calls", "turn", "INTEGER"),
+    ("calls", "sub", "INTEGER"),
+];
+
+fn add_columns(db: &Connection) -> Result<()> {
+    for (table, column, kind) in ADDED {
+        let has: bool = db.query_row("SELECT count(*) FROM pragma_table_info(?1) WHERE name = ?2", [table, column], |r| r.get::<_, i64>(0)).map(|n| n > 0)?;
+        if !has {
+            db.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {column} {kind}"))?;
+        }
+    }
+    Ok(())
+}
+
+/// A ledger that's gone with its connection, for tests.
+#[cfg(test)]
+pub fn in_memory() -> Connection {
+    let db = Connection::open_in_memory().expect("an in-memory database opens");
+    db.execute_batch(SCHEMA).expect("the schema is valid");
+    db
+}
+
+/// A note the ledger keeps of itself (`meta`): what's been read through, what a pass has done.
+pub fn meta(db: &Connection, key: &str) -> Result<Option<String>> {
+    Ok(db.query_row("SELECT value FROM meta WHERE key = ?1", [key], |r| r.get(0)).optional()?)
+}
+
+pub fn set_meta(db: &Connection, key: &str, value: &str) -> Result<()> {
+    db.execute("INSERT INTO meta (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value", params![key, value])?;
+    Ok(())
+}
+
+/// A session's row, made if it has none yet: its id. A folder given goes over one it had.
+pub fn session_row(db: &Connection, key: &str, account: &str, folder: &str) -> Result<i64> {
+    db.prepare_cached("INSERT INTO sessions (key, account, folder) VALUES (?1, ?2, ?3) ON CONFLICT(key) DO UPDATE SET folder = CASE WHEN excluded.folder != '' THEN excluded.folder ELSE folder END")?
+        .execute(params![key, account, folder])?;
+    Ok(db.prepare_cached("SELECT id FROM sessions WHERE key = ?1")?.query_row([key], |r| r.get(0))?)
+}
 
 pub fn open(path: &Path) -> Result<Connection> {
     if let Some(dir) = path.parent() {
@@ -181,6 +298,7 @@ pub fn open(path: &Path) -> Result<Connection> {
     db.busy_timeout(Duration::from_secs(10))?;
     db.pragma_update(None, "journal_mode", "WAL")?;
     db.execute_batch(SCHEMA)?;
+    add_columns(&db)?;
     Ok(db)
 }
 
@@ -190,7 +308,7 @@ fn shared() -> &'static Mutex<Option<Connection>> {
     DB.get_or_init(|| Mutex::new(None))
 }
 
-fn with_db<R>(f: impl FnOnce(&Connection) -> Result<R>) -> Result<R> {
+pub(crate) fn with_db<R>(f: impl FnOnce(&Connection) -> Result<R>) -> Result<R> {
     let mut slot = shared().lock().unwrap_or_else(|e| e.into_inner());
     if slot.is_none() {
         *slot = Some(open(&path())?);
@@ -228,12 +346,27 @@ pub fn spawn(delay: Duration) {
         loop {
             let t = Instant::now();
             let accounts = crate::config::current().map(|c| c.accounts).unwrap_or_default();
-            let caught = catch_up(&db, &accounts);
+            let analytics = crate::config::current().is_ok_and(|c| c.experimental.analytics);
+            // Calls read before a subagent's were told apart are read again, once, for that.
+            if analytics {
+                if let Err(e) = reread_for_subagents(&db) {
+                    eprintln!("The token ledger couldn't start over for subagents' calls: {e:#}");
+                }
+            }
+            let mut caught = catch_up(&db, &accounts);
+            if analytics {
+                crate::turns::pass(&db, &accounts, &mut caught);
+            }
             *problem_slot().lock().unwrap_or_else(|e| e.into_inner()) = caught.problem();
             CAUGHT_UP.store(now_ms(), Ordering::Relaxed);
             FILLING.store(false, Ordering::Relaxed);
             if caught.read > 0 {
                 crate::perf::log(&format!("token ledger: read {} MB in {:?}", caught.read / (1024 * 1024), t.elapsed()));
+            }
+            // Last, and after the numbers are said to be caught up: a read asks TypeSafe, a few
+            // prompts at a time, and takes as long as it answers.
+            if analytics {
+                crate::stance::pass(&db);
             }
             match rx.recv_timeout(Duration::from_secs(60)) {
                 Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
@@ -242,6 +375,12 @@ pub fn spawn(delay: Duration) {
             while rx.try_recv().is_ok() {}
         }
     });
+}
+
+/// When the app's ledger last caught up with every record (0 before its first read ends), and
+/// whether that first read of them all is still going.
+pub fn caught_up() -> (i64, bool) {
+    (CAUGHT_UP.load(Ordering::Relaxed), FILLING.load(Ordering::Relaxed))
 }
 
 fn problem_slot() -> &'static Mutex<Option<String>> {
@@ -264,7 +403,7 @@ pub fn nudge() {
 
 /// The call's row ID: its harness's name for it, hashed. Not the account's: a copy in another
 /// account's records (a session moved there) is the same call.
-fn row_id(harness: &str, id: &str) -> i64 {
+pub(crate) fn row_id(harness: &str, id: &str) -> i64 {
     let h = Sha256::digest(format!("{harness}:{id}").as_bytes());
     i64::from_be_bytes(h[..8].try_into().expect("eight bytes"))
 }
@@ -300,6 +439,17 @@ impl Caught {
             n => format!("Couldn't read what sessions used from {n} records, the first {first}"),
         })
     }
+}
+
+/// Has every record read again from its start, once, the first time analytics are on: a call
+/// read before then doesn't say whether a subagent made it (`calls.sub`), and a call read again
+/// keeps its row and gains that.
+pub fn reread_for_subagents(db: &Connection) -> Result<()> {
+    if meta(db, "subagents")?.is_some() {
+        return Ok(());
+    }
+    db.execute("UPDATE files SET offset = 0, size = 0, mtime = 0 WHERE path NOT LIKE '%#rows'", [])?;
+    set_meta(db, "subagents", "1")
 }
 
 /// Reads every account's records into `db`, each file from where it was left. Each file's calls
@@ -430,7 +580,13 @@ fn put_uses(db: &Connection, account: &AccountCfg, tag: &str, uses: &[TokenUse])
         roots.insert(key.to_string(), at.clone());
         Ok(at)
     };
-    let uses: Vec<TokenUse> = uses.iter().map(|u| Ok(TokenUse { session: root(&u.session)?, ..u.clone() })).collect::<Result<_>>()?;
+    let uses: Vec<TokenUse> = uses
+        .iter()
+        .map(|u| {
+            let session = root(&u.session)?;
+            Ok(TokenUse { sub: u.sub || session != u.session, session, ..u.clone() })
+        })
+        .collect::<Result<_>>()?;
     let uses = &uses[..];
     let mut sessions: HashMap<String, i64> = HashMap::new();
     let mut folders: HashMap<String, String> = HashMap::new();
@@ -442,9 +598,10 @@ fn put_uses(db: &Connection, account: &AccountCfg, tag: &str, uses: &[TokenUse])
     let mut add_session = db.prepare_cached("INSERT INTO sessions (key, account, folder) VALUES (?1, ?2, ?3) ON CONFLICT(key) DO UPDATE SET folder = CASE WHEN excluded.folder != '' THEN excluded.folder ELSE folder END")?;
     let mut session_id = db.prepare_cached("SELECT id FROM sessions WHERE key = ?1")?;
     let mut add = db.prepare_cached(
-        "INSERT INTO calls (id, at, session, model, input, cache_read, cache_write, cache_write_1h, output, reasoning, fast, searches, prompt, cost)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+        "INSERT INTO calls (id, at, session, model, input, cache_read, cache_write, cache_write_1h, output, reasoning, fast, searches, prompt, cost, sub)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
          ON CONFLICT(id) DO UPDATE SET
+           sub = max(coalesce(sub, 0), excluded.sub),
            input = max(input, excluded.input), cache_read = max(cache_read, excluded.cache_read),
            cache_write = max(cache_write, excluded.cache_write), cache_write_1h = max(cache_write_1h, excluded.cache_write_1h),
            output = max(output, excluded.output), reasoning = max(reasoning, excluded.reasoning),
@@ -476,6 +633,7 @@ fn put_uses(db: &Connection, account: &AccountCfg, tag: &str, uses: &[TokenUse])
             u.searches as i64,
             u.prompt() as i64,
             u.cost,
+            u.sub as i64,
         ])?;
     }
     Ok(())
@@ -617,6 +775,19 @@ pub struct Report {
     /// What the last read of the records couldn't read (`problem`), which these numbers leave out.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub problem: Option<String>,
+    /// By how each session began (began.rs `Began::word`: `you`, `fork`, `agent`, `helper`,
+    /// `review`, `schedule`, `headless`), an empty key for the sessions nothing was noted of.
+    /// Empty while `[experimental] analytics` is off, and so are the two below.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub origins: Vec<Spent>,
+    /// By who began the turn each call was made in (turns.rs `Source::word`: `you`, `agent`,
+    /// `codealong`), a turn the session began itself counted with the one it follows; an empty
+    /// key for calls whose turn isn't known.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hands: Vec<Spent>,
+    /// What subagents' calls came to, of the calls known to be a subagent's or not.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subagents: Option<Spent>,
 }
 
 const SESSIONS: usize = 200;
@@ -636,6 +807,11 @@ struct Group {
     calls: u64,
     recorded: Option<f64>,
     last_at: i64,
+    /// How its session began (`sessions.began`), who began the turn it was made in
+    /// (`turns.counts_as`) and whether a subagent made it; empty and None where not known.
+    began: String,
+    hand: String,
+    sub: Option<bool>,
 }
 
 /// Which calls a report sums: those since a time, for one account or all, or one session's.
@@ -661,10 +837,11 @@ fn groups(db: &Connection, calls: Calls, thresholds: &[u64]) -> Result<Vec<Group
     let sql = format!(
         "SELECT date(c.at / 1000, 'unixepoch', 'localtime') AS day, s.key, s.account, s.folder, c.model, c.fast, {step} AS step,
                 sum(c.input), sum(c.cache_read), sum(c.cache_write), sum(c.cache_write_1h), sum(c.output), sum(c.reasoning),
-                sum(c.searches), count(*), sum(c.cost), max(c.at), coalesce(c.cost, 0) > 0 AS recorded
-         FROM calls c JOIN sessions s ON s.id = c.session
+                sum(c.searches), count(*), sum(c.cost), max(c.at), coalesce(c.cost, 0) > 0 AS recorded,
+                coalesce(s.began, '') AS began, coalesce(t.counts_as, '') AS hand, c.sub AS sub
+         FROM calls c JOIN sessions s ON s.id = c.session LEFT JOIN turns t ON t.id = c.turn
          WHERE {filter}
-         GROUP BY day, c.session, c.model, c.fast, step, recorded"
+         GROUP BY day, c.session, c.model, c.fast, step, recorded, hand, sub"
     );
     let mut stmt = db.prepare(&sql)?;
     let rows = stmt.query_map(rusqlite::params_from_iter(args), |r| {
@@ -690,6 +867,9 @@ fn groups(db: &Connection, calls: Calls, thresholds: &[u64]) -> Result<Vec<Group
             calls: r.get::<_, i64>(14)? as u64,
             recorded: r.get::<_, Option<f64>>(15)?.filter(|_| r.get::<_, i64>(17).is_ok_and(|x| x != 0)),
             last_at: r.get(16)?,
+            began: r.get(18)?,
+            hand: r.get(19)?,
+            sub: r.get::<_, Option<i64>>(20)?.map(|x| x != 0),
         })
     })?;
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
@@ -794,6 +974,10 @@ pub fn report_in(db: &Connection, cfg: &crate::config::Config, days: u32, accoun
     let mut by_model: BTreeMap<String, Spent> = BTreeMap::new();
     let mut by_folder: BTreeMap<String, Spent> = BTreeMap::new();
     let mut by_session: HashMap<String, Spent> = HashMap::new();
+    let analytics = cfg.experimental.analytics;
+    let mut by_began: BTreeMap<String, Spent> = BTreeMap::new();
+    let mut by_hand: BTreeMap<String, Spent> = BTreeMap::new();
+    let mut subagents = Spent { key: "subagents".into(), ..Default::default() };
     let mut by_day: BTreeMap<String, Day> = dates.iter().map(|d| (d.clone(), Day { day: d.clone(), ..Default::default() })).collect();
     let mut paying: BTreeMap<String, Paid> = accounts
         .iter()
@@ -813,6 +997,13 @@ pub fn report_in(db: &Connection, cfg: &crate::config::Config, days: u32, accoun
         by_account.entry(g.account.clone()).or_insert_with(|| Spent { key: g.account.clone(), ..Default::default() }).add(&s);
         by_model.entry(g.model.clone()).or_insert_with(|| Spent { key: g.model.clone(), ..Default::default() }).add(&s);
         by_folder.entry(g.folder.clone()).or_insert_with(|| Spent { key: g.folder.clone(), ..Default::default() }).add(&s);
+        if analytics {
+            by_began.entry(g.began.clone()).or_insert_with(|| Spent { key: g.began.clone(), ..Default::default() }).add(&s);
+            by_hand.entry(g.hand.clone()).or_insert_with(|| Spent { key: g.hand.clone(), ..Default::default() }).add(&s);
+            if g.sub == Some(true) {
+                subagents.add(&s);
+            }
+        }
         by_session
             .entry(g.session.clone())
             .or_insert_with(|| Spent { key: g.session.clone(), account: Some(g.account.clone()), folder: Some(g.folder.clone()), ..Default::default() })
@@ -887,6 +1078,9 @@ pub fn report_in(db: &Connection, cfg: &crate::config::Config, days: u32, accoun
         as_of: 0,
         filling: false,
         problem: None,
+        origins: by_cost(by_began),
+        hands: by_cost(by_hand),
+        subagents: analytics.then_some(subagents),
     })
 }
 
