@@ -171,6 +171,11 @@
 .ca-sessinsp-links > .ca-sessinsp-todo {
   flex: 1 1 140px;
 }
+/* Why a pick from the page chip's menu didn't happen (ArtifactBits.tsx): a line of its own under
+   the chips, wrapping, since it names the link and what Chrome said. */
+.ca-sessinsp-links > .ca-artifact-why {
+  flex: 1 1 100%;
+}
 .ca-sessinsp-todo {
   display: inline-flex;
   align-items: center;

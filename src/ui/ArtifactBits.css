@@ -90,6 +90,8 @@
 
 /* Why something picked from a page's menu didn't happen, beside the chip or under the list. */
 .ca-artifact-why {
+  min-width: 0;
   color: var(--ink-3);
   font: var(--type-meta);
+  overflow-wrap: anywhere;
 }

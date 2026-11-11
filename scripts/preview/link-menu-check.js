@@ -24,7 +24,7 @@
     // Chrome won't open the Work profile.
     if (cmd === 'open_in_chrome' && (args || {}).dir === 'Profile 3') {
       window.__calls.push([cmd, args, options]);
-      return Promise.reject('Couldn’t open it in Chrome’s Work profile: Chrome didn’t answer.');
+      return Promise.reject('Couldn’t open ' + args.url + ' in Chrome’s Work profile: Chrome didn’t answer within ten seconds, so it may still be starting, or its profile folder may be locked by another copy.');
     }
     if (cmd === 'session_page' && picked && (args || {}).key === picked.key) {
       var at = Date.now() - 9 * 60e3;
@@ -94,7 +94,11 @@
         check('and a right-click on it has the link’s menu', labels.join(' | ') === WANT.join(' | '), labels.join(' | '));
         menuItem('Open in Chrome (Work)')();
         await until(function () { return q('.ca-sessinsp-links .ca-artifact-why'); }, 3000, 'the header said nothing of a profile that didn’t open');
-        check('one that doesn’t open says why beside the chip', /Work profile/.test(q('.ca-sessinsp-links .ca-artifact-why').textContent), q('.ca-sessinsp-links .ca-artifact-why').textContent);
+        var why = q('.ca-sessinsp-links .ca-artifact-why');
+        check('one that doesn’t open says why under the chips', /Work profile/.test(why.textContent), why.textContent);
+        var head = q('.ca-sessinsp-head').getBoundingClientRect();
+        var box = why.getBoundingClientRect();
+        check('wrapping inside the header, however long', box.right <= head.right + 1 && box.left >= head.left - 1 && box.height > 20, JSON.stringify({ why: [box.left, box.right, box.height], head: [head.left, head.right] }));
       }
 
       // Two profiles of one name are told apart by who's signed in; one profile alone needs no name.
