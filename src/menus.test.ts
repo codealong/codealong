@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { asideAhead, doneAhead, labelAhead, quietAhead, raiseAhead, seenAhead } from './ahead';
-import { getAccounts, moveSession, moveSessionTo, openInChrome, openUrl, resumeSession, setPrPrimary, type Done, type MergeDone } from './api';
+import { getAccounts, moveSession, moveSessionTo, openInChrome, openUrl, resumeSession, sendToSession, setPrPrimary, type Done, type MergeDone } from './api';
 import type { MenuAction, MenuGroup, MenuSpec } from './contextMenu';
-import { carryOnIn, chordLetter, chordSigns, chorded, CHORDS, DONE_HOLD_MS, SUGGESTION_CHORDS, suggestionChord, doneTitle, fileMenu, keyed, laneActions, laneMenu, lanesActions, lanesMenu, mergesWith, prMenu, prsActions, prsMenu, repoMenu, sessionActions, sessionMenu, sessionsActions, sessionsMenu, todoMenu, todoPanelMenu, todosMenu, toggleWaiting, linkMenu, type MergeDoneAsk, type SessionCan, type SessionsCan, type TodoEdit } from './menus';
+import { carryOnIn, chordLetter, chordSigns, chorded, CHORDS, DONE_HOLD_MS, SUGGESTION_CHORDS, suggestionChord, doneTitle, fileMenu, keyed, laneActions, laneMenu, lanesActions, lanesMenu, mergesWith, prMenu, prsActions, prsMenu, repoMenu, sessionActions, sessionMenu, sessionsActions, sessionsMenu, todoMenu, todoPanelMenu, todosMenu, toggleWaiting, TRY_AGAIN, linkMenu, type MergeDoneAsk, type SessionCan, type SessionsCan, type TodoEdit } from './menus';
 import type { MergeForm } from './merge';
 import { openLabel } from './open';
 import { setPlatform } from './platform';
@@ -15,7 +15,7 @@ import type { Label, Lane, PrItem, Session, Todo } from './types';
 // What the engine says to Mark as done: done, unless a test says otherwise.
 vi.mock('./ahead', async (original) => ({ ...(await original<typeof import('./ahead')>()), doneAhead: vi.fn(), labelAhead: vi.fn(() => Promise.resolve()), quietAhead: vi.fn(() => Promise.resolve()), raiseAhead: vi.fn(() => Promise.resolve()), asideAhead: vi.fn(() => Promise.resolve()), seenAhead: vi.fn(() => Promise.resolve()) }));
 // No accounts to move to, unless a test says otherwise; what a move gives back, as a test says.
-vi.mock('./api', async (original) => ({ ...(await original<typeof import('./api')>()), getAccounts: vi.fn(() => Promise.resolve([])), moveSession: vi.fn(), moveSessionTo: vi.fn(), openInChrome: vi.fn(() => Promise.resolve()), openUrl: vi.fn(() => Promise.resolve()), resumeSession: vi.fn(), setPrPrimary: vi.fn(() => Promise.resolve()) }));
+vi.mock('./api', async (original) => ({ ...(await original<typeof import('./api')>()), getAccounts: vi.fn(() => Promise.resolve([])), moveSession: vi.fn(), moveSessionTo: vi.fn(), openInChrome: vi.fn(() => Promise.resolve()), openUrl: vi.fn(() => Promise.resolve()), resumeSession: vi.fn(), sendToSession: vi.fn(), setPrPrimary: vi.fn(() => Promise.resolve()) }));
 // No accounts to resume in, unless a test says otherwise.
 vi.mock('./startAccounts', async (original) => ({ ...(await original<typeof import('./startAccounts')>()), startAccountsNow: vi.fn(() => []) }));
 
@@ -69,6 +69,40 @@ describe('carryOnIn', () => {
     // Where it last went on, if it can't go there now, isn't the place.
     expect(carryOnIn([background, terminal], 'codealong')).toBe(terminal);
     expect(carryOnIn([app], undefined)).toBe(app);
+  });
+});
+
+describe('Try again', () => {
+  afterEach(() => vi.mocked(startAccountsNow).mockReturnValue([]));
+
+  it('sends a session whose turn an API error ended the message to try again, where Carry on would take one that isn’t running', async () => {
+    const send = vi.mocked(sendToSession).mockResolvedValue({ message: 'Sent.', opened: false });
+    const resume = vi.mocked(resumeSession).mockResolvedValue({ message: 'Resumed.', opened: false });
+    const errored = session({ apiError: { at: 1, said: '529 Overloaded.' } });
+    const acts = sessionActions(lane(), errored, base);
+    expect(acts.tryAgain?.label).toBe('Try again');
+    acts.tryAgain?.run();
+    await vi.waitFor(() => expect(send).toHaveBeenCalledWith(errored.key, TRY_AGAIN, false));
+    // Codealong carries a lost connection on by itself, so its button tries now.
+    expect(sessionActions(lane(), { ...errored, connectionLost: { at: 1, continues: true } }, base).tryAgain?.label).toBe('Try now');
+    // Nothing to try while it works, once it's archived, or without an error.
+    expect(sessionActions(lane(), { ...errored, status: 'working' }, base).tryAgain).toBeUndefined();
+    expect(sessionActions(lane(), { ...errored, archived: true }, base).tryAgain).toBeUndefined();
+    expect(sessionActions(lane(), session(), base).tryAgain).toBeUndefined();
+    // One that isn't running goes on where Carry on would take it, on the message.
+    vi.mocked(startAccountsNow).mockReturnValue([
+      fx.startAccount({
+        places: [
+          { place: 'background', label: 'Background' },
+          { place: 'terminal', label: 'Ghostty' },
+        ],
+        resumes: ['background', 'terminal'],
+      }),
+    ]);
+    const stopped = { ...errored, key: 'claude:c:2', id: '2', live: false, pid: null };
+    sessionActions(lane(), stopped, base).tryAgain?.run();
+    await vi.waitFor(() => expect(resume).toHaveBeenCalledWith(stopped.key, { place: 'terminal', model: null, effort: null }, TRY_AGAIN));
+    expect(send).toHaveBeenCalledTimes(1);
   });
 });
 

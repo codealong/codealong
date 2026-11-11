@@ -1257,7 +1257,7 @@ impl Reader {
         for key in origins.sessions.keys() {
             let Some(id) = key.strip_prefix(&prefix).filter(|id| !known.contains(id)) else { continue };
             let Some(from) = self.moved_copy(&a.name, origins.origin_of(key)) else { continue };
-            let info = TranscriptInfo { session_id: id.to_string(), limit: None, connection_lost: None, ..from.transcript.1.clone() };
+            let info = TranscriptInfo { session_id: id.to_string(), limit: None, connection_lost: None, api_error: None, ..from.transcript.1.clone() };
             let seen_at = look.seen.seen_at(&from.key).max(look.seen.seen_at(key));
             let Some(mut s) = crate::board::claude_session(a, None, Some(&info), seen_at, look.now, &crate::board::Quiet::default()) else { continue };
             s.archived = look.archived_here(key, s.last_activity);
@@ -1483,9 +1483,13 @@ impl crate::harness::Reader for Reader {
             let reg = moved.as_ref().or(reg);
             let seen_at = from.as_ref().map(|f| look.seen.seen_at(&f.key)).unwrap_or(0).max(look.seen.seen_at(&key));
             let info = tr.map(|(_, t)| t);
-            // A limit or a lost connection in the conversation it goes on from stopped that
-            // session's turn, maybe on another account; this one hasn't taken a turn yet.
-            let unlimited = from.as_ref().and(info).filter(|t| t.limit.is_some() || t.connection_lost.is_some()).map(|t| TranscriptInfo { limit: None, connection_lost: None, ..t.clone() });
+            // A limit or an API error in the conversation it goes on from stopped that session's
+            // turn, maybe on another account; this one hasn't taken a turn yet.
+            let unlimited = from
+                .as_ref()
+                .and(info)
+                .filter(|t| t.limit.is_some() || t.connection_lost.is_some() || t.api_error.is_some())
+                .map(|t| TranscriptInfo { limit: None, connection_lost: None, api_error: None, ..t.clone() });
             let info = unlimited.as_ref().or(info);
             // Only a busy session that's gone quiet costs a look outside its transcript,
             // and one whose turn left a command running in the background (read once
@@ -2592,6 +2596,20 @@ mod tests {
         std::fs::create_dir_all(&own).unwrap();
         std::fs::write(own.join("c0.jsonl"), "{}\n").unwrap();
         assert_eq!(resume_args(&to, &Session { continues: None, ..copy.clone() }, home_of), "c0");
+
+        // A conversation whose last turn an API error ended moves without it: the copy hasn't
+        // taken a turn, so it has nothing to try again.
+        let mut errored = std::fs::read_to_string(&transcript).unwrap();
+        errored.push_str(r#"{"type":"assistant","sessionId":"s1","cwd":"/Users/me/app","timestamp":"2026-09-23T15:02:00.000Z","error":"server_error","isApiErrorMessage":true,"message":{"model":"<synthetic>","content":[{"type":"text","text":"API Error: Connection refused — a firewall or proxy may be blocking it (ECONNREFUSED)"}]}}"#);
+        errored.push('\n');
+        std::fs::write(&transcript, errored).unwrap();
+        let look = Look { seen: &seen, since: 0, now, ps: Default::default() };
+        let mut reader = Reader::default();
+        reader.apply(&from, std::slice::from_ref(&transcript), &look);
+        let source = reader.moved_copy("claude2", origins.origin_of("claude:claude2:c0")).unwrap();
+        assert!(source.transcript.1.api_error.is_some() && source.transcript.1.connection_lost.is_some());
+        let copy = &reader.closed_copies(&to, &HashSet::new(), &origins, &look)[0];
+        assert_eq!((copy.api_error.as_ref(), copy.connection_lost.as_ref(), copy.limit.as_ref()), (None, None, None));
     }
 
     #[test]

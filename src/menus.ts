@@ -399,6 +399,12 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
   const resumeTo = here && !s.live && !s.hosted && s.surface === 'cli' ? resumePlaces(s) : [];
   const cutOff = s.cutOff != null && s.status !== 'working';
   const carryTo = carriesOnIn(s);
+  const tryAgain = () => {
+    const to = goesOnIn(s);
+    if (to) rememberResumed(s.account, to.place);
+    const resume = to && { place: to.place, model: null, effort: null };
+    return said(`Trying ${s.title} again…`, sendAhead(s, TRY_AGAIN, { resume }).then((sent) => (sentWorthSaying(sent) ? sent.message : null)));
+  };
   const resume = (to: StartAccount['places'][number]) =>
     busy(`Resuming ${s.title}…`, resumeSession(s.key, { place: to.place, model: null, effort: null }))
       .then((sent) => {
@@ -501,11 +507,9 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
     moveAccounts: moveTo.length > 0 ? { to: moveTo, suggested, goesOn: !!goesOn, run: move } : undefined,
     carryOn: carryTo ? { label: 'Carry on', run: () => void resume(carryTo) } : undefined,
     // Sent as the box sends it, shown in the conversation at once; what happened is said only
-    // where it's news (opened to paste, say).
-    tryAgain:
-      endedOnApiError(s) && !s.archived
-        ? { label: s.connectionLost?.continues ? 'Try now' : 'Try again', run: () => void said(`Trying ${s.title} again…`, sendAhead(s, TRY_AGAIN).then((sent) => (sentWorthSaying(sent) ? sent.message : null))) }
-        : undefined,
+    // where it's news (opened to paste, say). One that isn't running goes on where Carry on would
+    // take it.
+    tryAgain: endedOnApiError(s) && !s.archived ? { label: s.connectionLost?.continues ? 'Try now' : 'Try again', run: () => void tryAgain() } : undefined,
     // The session carries on, waiting for you.
     stop: stoppable(s) ? { label: 'Stop turn', run: () => void said(`Stopping ${s.title}…`, sessionCancel(s.key)) } : undefined,
     listen: listenItem(lane, s, report),
@@ -615,9 +619,16 @@ export function carryOnIn(places: StartAccount['places'], last: StartPlace | und
 
 /** Where Carry on resumes `s`, for one of this Mac's whose turn was cut off and that isn't
  *  running; undefined for any other. Resumed with nothing to say, it's told to carry on (start.rs
- *  `resume`): one of its harness's app goes on there, the rest where its box would resume it. */
+ *  `resume`). */
 function carriesOnIn(s: Session): StartAccount['places'][number] | undefined {
-  if (s.cutOff == null || s.status === 'working' || shortOf(s.key) || s.live || s.hosted) return undefined;
+  return s.cutOff == null || s.status === 'working' ? undefined : goesOnIn(s);
+}
+
+/** Where `s`, one of this Mac's that isn't running, goes on when it's resumed on something: one of
+ *  its harness's app there, the rest where its box would resume it. Undefined for any other, which
+ *  a send reaches where it is. */
+function goesOnIn(s: Session): StartAccount['places'][number] | undefined {
+  if (shortOf(s.key) || s.live || s.hosted) return undefined;
   if (s.surface === 'app') return resumePlaces(s).find((p) => p.place === 'claude-app' || p.place === 'codex-app');
   const places = s.surface === 'cli' ? resumePlaces(s) : [];
   return places.length > 0 ? carryOnIn(places, resumedIn(s.account)) : undefined;
