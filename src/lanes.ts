@@ -762,10 +762,11 @@ export function sessionWhy(detail: string | null, headline: string, now: number)
 }
 
 /** Working only in that it waits on what its turn left running in the background (a CI watch, a
- *  build, its agents), which wakes it when it ends: counted as working, drawn with a clock rather
- *  than a spinner. The engine's `Session::waits_in_background` says the same. */
-export function waitsInBackground(s: Pick<Session, 'status' | 'background' | 'agents'>): boolean {
-  return s.status === 'working' && (s.background != null || (s.agents?.length ?? 0) > 0);
+ *  build, its agents), or on a command you ran for it, which wakes it when it ends: counted as
+ *  working, drawn with a clock rather than a spinner. The engine's `Session::waits_in_background`
+ *  says the same. */
+export function waitsInBackground(s: Pick<Session, 'status' | 'background' | 'agents' | 'running'>): boolean {
+  return s.status === 'working' && (s.background != null || (s.agents?.length ?? 0) > 0 || s.running?.yours === true);
 }
 
 /** A worktree that's working only through sessions that wait on their background commands. */

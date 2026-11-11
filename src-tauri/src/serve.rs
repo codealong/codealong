@@ -302,7 +302,9 @@ pub fn start() -> Result<Ctx, String> {
         terminal::report_ended(move || board.read(|b| !b.loading), move |run, text| {
             let command = util::one_line(&run.run.command, 60);
             let told = tell_run(&engine, &peers, &run.run, text).map_err(|why| format!("What `{command}` printed didn't reach “{}”: {why} `codealong terminal read {}` has it.", run.run.session_title, run.run.id));
+            let went = told.is_ok();
             engine.went(engine::Trouble::TerminalRuns, told);
+            went
         });
     }
     // After the first scan and the first git runs, which have the Mac to themselves.
@@ -469,12 +471,11 @@ fn run_lock(dir: &std::path::Path) -> Result<std::fs::File, String> {
 }
 
 /// Sends a session what a command you ran for it printed, as yours (terminal.rs `report_ended`):
-/// not to one that takes a message only pasted into its app, which would come forward from the
-/// background with it on the clipboard and nobody there to paste it.
+/// not to one that takes a message only pasted into its app (send.rs `takes_unattended`).
 fn tell_run(engine: &Handle, peers: &peers::Peers, run: &terminal::Run, text: String) -> Result<(), String> {
     let cfg = config::current().map_err(words)?;
     let way = send::way_in(&engine.board(), &cfg, &run.session).map_err(words)?;
-    if matches!(way, Some(api::Way::ClaudeApp | api::Way::Antigravity | api::Way::Cursor)) {
+    if !send::takes_unattended(way.as_ref()) {
         return Err("it takes a message only pasted into its app, so it wasn't sent.".into());
     }
     let sent = actions::run(engine, peers, api::SESSION_SEND, &run.session, actions::params::Send { text, ..Default::default() })?;

@@ -303,8 +303,9 @@ pub struct Session {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub agents: Vec<String>,
     /// Set while its agent waits on a command you allowed in your terminal (`codealong terminal
-    /// run`): where it runs and what. Working, the windows say that at the end of its
-    /// conversation, in place of a turn's word or the command it waits with in the background.
+    /// run`), or while a command you ran for it goes (`RunningIn::yours`): where it runs and what.
+    /// Working, the windows say that at the end of its conversation, in place of a turn's word or
+    /// the command it waits with in the background.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub running: Option<RunningIn>,
     /// When the latest of the messages it holds came, by its harness's word: one typed while it
@@ -571,11 +572,12 @@ impl Session {
         format!("{}:{account}:{id}", harness.config())
     }
 
-    /// Whether its turn is over with something it started still running in the background, which
-    /// wakes it as it ends: a command (`background`) or agents (`agents`). There's no turn to
-    /// stop or to send into then; a prompt starts one.
+    /// Whether its turn is over with something still running that wakes it as it ends: a command
+    /// (`background`) or agents (`agents`) it started in the background, or a command you ran
+    /// for it (`RunningIn::yours`), whose output it's sent. There's no turn to stop or to send
+    /// into then; a prompt starts one.
     pub fn left_running(&self) -> bool {
-        self.background.is_some() || !self.agents.is_empty()
+        self.background.is_some() || !self.agents.is_empty() || self.running.as_ref().is_some_and(|r| r.yours)
     }
 
     /// Working only in that it waits on what its turn left running in the background
@@ -970,7 +972,8 @@ pub struct AgentSeen {
     pub note: Option<String>,
 }
 
-/// A command you allowed in a terminal, which a session's agent waits on.
+/// A command running in a terminal that a session waits on: one you allowed, which its agent
+/// waits on mid-turn, or one you ran for it yourself (`yours`), whose output it's sent when it ends.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct RunningIn {
@@ -979,6 +982,11 @@ pub struct RunningIn {
     pub terminal: String,
     /// The command, less a leading `cd` to its folder, which the session's worktree says.
     pub command: String,
+    /// You ran it for the session (`!` in its box, Run on a block): its turn is over, and what the
+    /// command prints goes to it as your message once it ends, so it waits on the command as on
+    /// one its turn left running in the background (`Session::left_running`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub yours: bool,
 }
 
 /// Where a session came from: the session it was forked from or started by.

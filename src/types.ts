@@ -118,12 +118,17 @@ export interface Suggestions {
   promptAt?: number;
 }
 
-/** A command you allowed in a terminal, which a session's agent waits on (model.rs `RunningIn`). */
+/** A command running in a terminal that a session waits on: one you allowed, which its agent
+ *  waits on mid-turn, or one you ran for it (`yours`) (model.rs `RunningIn`). */
 export interface RunningIn {
   /** The terminal app its tab is in (Ghostty, Rex…), or Codealong for a terminal under the session. */
   terminal: string;
   /** The command, less a leading `cd` to its folder. */
   command: string;
+  /** You ran it for the session (`!` in its box, Run on a block): its turn is over, and what the
+   *  command prints goes to it when it ends, so it waits on it (`waitsInBackground`). Missing for
+   *  an agent's run, and from a board an older app sent. */
+  yours?: boolean;
 }
 
 /** Why a session needs you (model.rs `Need`): waiting for you to allow something, for your
@@ -192,9 +197,9 @@ export interface Session {
    *  waits on them (`waitsInBackground`). Missing when there are none, and from a board an older
    *  app sent. */
   agents?: string[];
-  /** While its agent waits on a command you allowed in your terminal (`codealong terminal run`):
-   *  where it runs and what, which the end of its conversation says (`Waiting`). Missing from a
-   *  board an older app sent. */
+  /** While its agent waits on a command you allowed in your terminal (`codealong terminal run`),
+   *  or while a command you ran for it goes (`RunningIn.yours`): where it runs and what, which
+   *  the end of its conversation says (`Waiting`). Missing from a board an older app sent. */
   running?: RunningIn;
   /** Jev's read of how its turn ended, when `[jev] sessions` is on (insights.rs). */
   insight?: SessionInsight;

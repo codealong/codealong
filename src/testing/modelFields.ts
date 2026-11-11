@@ -195,7 +195,8 @@ export type AgentSeen = Holds<Same<
 
 export type RunningIn = Holds<Same<
   | "command"
-  | "terminal",
+  | "terminal"
+  | "yours",
   Names<Types.RunningIn>
 >>;
 

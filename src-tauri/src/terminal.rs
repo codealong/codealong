@@ -36,7 +36,10 @@
 //! it says so, and for which session, each time it asks where the run stands (`note_waited`), and
 //! that session shows the run going there (`overlay_running`). To the session's harness and to
 //! Jev, a command that has printed nothing for a while looks stuck, which would show the session
-//! needing you with nothing to answer while the run goes on in a tab you may not see.
+//! needing you with nothing to answer while the run goes on in a tab you may not see. A command
+//! you ran for a session shows on it too, from when you ran it until the session has been sent
+//! what it printed (`overlay_yours`): its turn is over, but what comes next is its turn on that,
+//! not yours, so it waits on the command as on one its turn left running in the background.
 //!
 //! Reading. What it printed is a terminal's bytes, colors and a progress line redrawn with a
 //! carriage return among them; `render` turns them into the lines a screen ends up showing, one
@@ -350,7 +353,34 @@ pub fn overlay_running(s: &mut Session, now: i64) {
     s.stalled_since = None;
     s.asks = false;
     s.excerpt = Some(running_label(&run));
-    s.running = Some(RunningIn { terminal: run.terminal.clone(), command: without_cd(run.command.trim()).to_string() });
+    s.running = Some(RunningIn { terminal: run.terminal.clone(), command: without_cd(run.command.trim()).to_string(), yours: false });
+}
+
+/// The line the windows show for a session waiting on a command you ran for it. Where it runs is
+/// for the end of its conversation to say.
+pub fn yours_label(run: &Run) -> String {
+    format!("Waiting on your command · {}", code(&truncate(&one_line(without_cd(&run.command), 200), 80)))
+}
+
+/// Lays a command you ran for the session over it, after Jev's read (engine.rs `with_runs`), from
+/// when you ran it until the session has been sent what it printed (`report_ended`): its turn is
+/// over, and what comes next is its turn on that, so it's working, waiting on the command as on
+/// one its turn left running in the background (`RunningIn::yours`), not waiting on you. Only a
+/// session that waits on your next message, or on your answer to a reply that asked you something,
+/// which the command is: one taking a turn keeps its turn's line, and one that asks you to allow
+/// something, holds its turn on a question or a message, is stuck, has stopped or failed stays as
+/// it is.
+pub fn overlay_yours(s: &mut Session, now: i64) {
+    let next = s.stalled_since.is_none() && (matches!(s.status, Status::Idle | Status::Unread) || s.need() == Some(crate::model::Need::Reply));
+    if !next {
+        return;
+    }
+    let Some(run) = yours_going(&s.key, s.last_prompt_at, now) else { return };
+    s.status = Status::Working;
+    s.status_since = Some(run.allowed_at);
+    s.asks = false;
+    s.excerpt = Some(yours_label(&run));
+    s.running = Some(RunningIn { terminal: run.terminal.clone(), command: without_cd(run.command.trim()).to_string(), yours: true });
 }
 
 /// Holds a request as a connection would, for other modules' tests; the receiver hears its answer.
@@ -481,7 +511,8 @@ fn base36(mut n: u64) -> String {
 /// run the command there: its folder written, then a line typed into the new tab's shell that runs
 /// the wrapper. The tab goes beside the terminals in its folder's lanes
 /// (`board::terminal_neighbours`), named like a session's, and closes as
-/// `[apps] close_command_tabs_after` says once the command ends.
+/// `[apps] close_command_tabs_after` says once the command ends. A command you ran is told to its
+/// session once its caller hands the run to `report`.
 pub fn start(asked: &Asked, apps: &AppNames, lanes: &[Lane], session_title: &str, reports: bool) -> Result<Run> {
     let cwd = &asked.ask.cwd;
     if !cwd.is_absolute() || !cwd.is_dir() {
@@ -525,9 +556,6 @@ pub fn start(asked: &Asked, apps: &AppNames, lanes: &[Lane], session_title: &str
                 bail!("{e}");
             }
         }
-        if reports {
-            to_report().push(run.id.clone());
-        }
         return Ok(run);
     }
     let near = crate::board::terminal_neighbours(lanes, cwd);
@@ -544,9 +572,6 @@ pub fn start(asked: &Asked, apps: &AppNames, lanes: &[Lane], session_title: &str
         if withdraw(&d).unwrap_or(true) {
             return Err(e);
         }
-    }
-    if reports {
-        to_report().push(run.id.clone());
     }
     Ok(run)
 }
@@ -1027,11 +1052,61 @@ pub fn render(bytes: &[u8]) -> Vec<String> {
 
 // Telling the session what a run of yours printed.
 
-/// The runs whose session is told what they printed once they end (`Run::reports`), by id.
-static TO_REPORT: Mutex<Vec<String>> = Mutex::new(Vec::new());
+/// A run of yours whose session is told what it printed once it ends (`Run::reports`), from when
+/// you ran it until the session has been sent that, which it waits on meanwhile (`overlay_yours`).
+struct Reporting {
+    run: Run,
+    /// Whether its session shows it waits on it: not one Codealong can't send a message by itself
+    /// (send.rs `takes_unattended`), which telling it would fail for.
+    shown: bool,
+    /// When telling its session began, once the run ended. The session waits on it until its last
+    /// prompt is from then on, or for `TOLD_LAPSE_MS` when none comes.
+    telling_since: Option<i64>,
+    /// Telling its session failed, or there was nothing to tell it: forgotten (`forget_told`).
+    dropped: bool,
+}
 
-fn to_report() -> MutexGuard<'static, Vec<String>> {
+static TO_REPORT: Mutex<Vec<Reporting>> = Mutex::new(Vec::new());
+
+fn to_report() -> MutexGuard<'static, Vec<Reporting>> {
     TO_REPORT.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// How long a session told what a run of yours printed is shown waiting on it if its prompt
+/// doesn't come: typed into its terminal it comes in a second or two, through a background job's
+/// service in a few more, and a session it never reaches goes back to waiting on you.
+const TOLD_LAPSE_MS: i64 = 60_000;
+
+/// Has a run you ran for its session (`Run::reports`) told to the session once it ends
+/// (`report_ended`), and the session shown waiting on it meanwhile when `shown`.
+pub fn report(run: &Run, shown: bool) {
+    to_report().push(Reporting { run: run.clone(), shown, telling_since: None, dropped: false });
+}
+
+fn mark(id: &str, f: impl FnOnce(&mut Reporting)) {
+    if let Some(r) = to_report().iter_mut().find(|r| r.run.id == id) {
+        f(r);
+    }
+}
+
+/// The latest run of yours the session `key` waits on, its last prompt sent at `last_prompt_at`:
+/// one going, or ended and being told, until its prompt comes.
+fn yours_going(key: &str, last_prompt_at: i64, now: i64) -> Option<Run> {
+    to_report()
+        .iter()
+        .filter(|r| r.shown && !r.dropped && r.run.session == key && r.telling_since.is_none_or(|t| last_prompt_at < t && now - t < TOLD_LAPSE_MS))
+        .map(|r| &r.run)
+        .max_by_key(|r| r.allowed_at)
+        .cloned()
+}
+
+/// Forgets the runs of yours whose sessions were told what they printed a while ago, or won't be.
+/// True when it forgot one, which the board stops showing.
+pub fn forget_told(now: i64) -> bool {
+    let mut r = to_report();
+    let before = r.len();
+    r.retain(|x| !x.dropped && x.telling_since.is_none_or(|t| now - t < TOLD_LAPSE_MS));
+    r.len() != before
 }
 
 /// In a run's folder once its session was told what it printed, or telling it was tried.
@@ -1041,18 +1116,20 @@ const REPORT_LINES: usize = 60;
 const REPORT_LINE_CHARS: usize = 400;
 
 /// Tells each run's session what it printed once it ends, for as long as the app runs: the runs
-/// started since (`start`), and those that ended, or were still running, while the app was closed
+/// started since (`report`), and those that ended, or were still running, while the app was closed
 /// or relaunching. `tell` sends the words to the session, as yours, once `ready` says the board has
-/// the sessions: after a relaunch, its first scan may not have them yet.
-pub fn report_ended(ready: impl Fn() -> bool + Send + 'static, tell: impl Fn(&RunStatus, String) + Send + 'static) {
-    let left: Vec<String> = list(None).into_iter().filter(|s| s.run.reports && !dir(&s.run.id).join(REPORTED).exists()).map(|s| s.run.id).collect();
-    to_report().extend(left);
+/// the sessions: after a relaunch, its first scan may not have them yet. It says whether they
+/// went; a session they didn't reach stops waiting on the run.
+pub fn report_ended(ready: impl Fn() -> bool + Send + 'static, tell: impl Fn(&RunStatus, String) -> bool + Send + 'static) {
+    let left = list(None).into_iter().filter(|s| s.run.reports && !dir(&s.run.id).join(REPORTED).exists());
+    // Whether each can be told is asked as it's told.
+    to_report().extend(left.map(|s| Reporting { run: s.run, shown: true, telling_since: None, dropped: false }));
     let _ = std::thread::Builder::new().name("terminal-reports".into()).spawn(move || loop {
         std::thread::sleep(Duration::from_secs(2));
         if !ready() {
             continue;
         }
-        let ids = to_report().clone();
+        let ids: Vec<String> = to_report().iter().filter(|r| r.telling_since.is_none() && !r.dropped).map(|r| r.run.id.clone()).collect();
         for id in ids {
             let ended = match status(&id) {
                 Ok(s) if matches!(s.state, State::Exited | State::Ended) => Some(s),
@@ -1060,14 +1137,17 @@ pub fn report_ended(ready: impl Fn() -> bool + Send + 'static, tell: impl Fn(&Ru
                 // Its folder is gone.
                 Err(_) => None,
             };
-            to_report().retain(|i| *i != id);
-            let Some(s) = ended else { continue };
+            let since = now_ms();
             // Noted first, so a relaunch while it's told doesn't tell it twice.
-            if std::fs::write(dir(&id).join(REPORTED), "").is_err() {
+            let Some(s) = ended.filter(|_| std::fs::write(dir(&id).join(REPORTED), "").is_ok()) else {
+                mark(&id, |r| r.dropped = true);
                 continue;
-            }
+            };
+            mark(&id, |r| r.telling_since = Some(since));
             let printed = output(&id, REPORT_LINES, 0, None).unwrap_or_default();
-            tell(&s, report_text(&s, &printed));
+            if !tell(&s, report_text(&s, &printed)) {
+                mark(&id, |r| r.dropped = true);
+            }
         }
     });
 }
@@ -1327,7 +1407,7 @@ mod tests {
         overlay_running(&mut s, 10_700);
         assert_eq!((s.status, s.status_since, s.stalled_since, s.excerpt.as_deref()), (Status::Working, Some(1_000), None, Some("Running in Rex · `node scripts/publish.mjs`")));
         assert_eq!(s.background, stuck.background, "its command still runs in the background");
-        assert_eq!(s.running, Some(RunningIn { terminal: "Rex".into(), command: "node scripts/publish.mjs".into() }));
+        assert_eq!(s.running, Some(RunningIn { terminal: "Rex".into(), command: "node scripts/publish.mjs".into(), yours: false }));
 
         // Already working, it keeps its time; one of Codealong's own terminals is said as such.
         let mut working = Session { status: Status::Working, status_since: Some(800), ..crate::fixtures::session(key) };
@@ -1370,6 +1450,87 @@ mod tests {
         overlay_running(&mut theirs, 31_100);
         assert_eq!(theirs.excerpt.as_deref(), Some("Running in Ghostty · `make deploy`"));
         assert!(forget_unwaited(31_000 + WAIT_LAPSE_MS));
+    }
+
+    // One test, as the runs to report are one store for the whole process.
+    /// A command you ran for a session shows on it from when you ran it until the session has
+    /// been sent what it printed: working, waiting on the command, not on you.
+    #[test]
+    fn a_command_you_ran_shows_on_its_session_until_it_has_what_it_printed() {
+        let key = "claude:claude:terminal-yours-test";
+        let run = Run {
+            id: "run-test-yours".into(),
+            session: key.into(),
+            command: "cd /Users/me/projects/northwind-app && npm test".into(),
+            terminal: OWN.into(),
+            allowed_at: 1_000,
+            reports: true,
+            ..Default::default()
+        };
+        let shown = |s: &Session| (s.status, s.status_since, s.excerpt.clone(), s.asks, s.running.clone());
+        let yours = Session { status: Status::Unread, status_since: Some(500), last_prompt_at: 400, excerpt: Some("Run the tests yourself.".into()), ..crate::fixtures::session(key) };
+        let mut s = yours.clone();
+        overlay_yours(&mut s, 2_000);
+        assert_eq!(shown(&s), shown(&yours), "nothing of yours runs for it yet");
+
+        report(&run, true);
+        overlay_yours(&mut s, 2_000);
+        assert_eq!((s.status, s.status_since, s.excerpt.as_deref(), s.asks), (Status::Working, Some(1_000), Some("Waiting on your command · `npm test`"), false));
+        assert_eq!(s.running, Some(RunningIn { terminal: "Codealong".into(), command: "npm test".into(), yours: true }));
+        assert!(s.waits_in_background() && !crate::harness::turn_running(&s), "drawn waiting, with no turn to stop");
+
+        // Seen or not, and a reply that asked you something, which the command answers.
+        for waits in [Session { status: Status::Idle, ..yours.clone() }, Session { status: Status::Needs, asks: true, ..yours.clone() }] {
+            let mut s = waits.clone();
+            overlay_yours(&mut s, 2_000);
+            assert_eq!(s.status, Status::Working, "{:?}", waits.status);
+        }
+        // A turn of its own keeps its line; asking you to allow something or holding its turn on
+        // a question, stuck, stopped or failed, it stays as it is.
+        let others = [
+            Session { status: Status::Working, status_since: Some(900), excerpt: Some("Bash · `cargo test`".into()), ..yours.clone() },
+            Session { status: Status::Needs, excerpt: Some("Bash · `rm -rf build`".into()), ..yours.clone() },
+            Session { status: Status::Needs, excerpt: Some(format!("{}: which target?", crate::model::ASKS_YOU)), ..yours.clone() },
+            Session { stalled_since: Some(800), ..yours.clone() },
+            Session { status: Status::Stopped, ..yours.clone() },
+            Session { status: Status::Error, ..yours.clone() },
+        ];
+        for other in others {
+            let mut s = other.clone();
+            overlay_yours(&mut s, 2_000);
+            assert_eq!(shown(&s), shown(&other), "{:?} {:?}", other.status, other.excerpt);
+        }
+
+        // It ended, and its session is being told: it waits on it until the prompt comes.
+        mark(&run.id, |r| r.telling_since = Some(5_000));
+        let mut s = yours.clone();
+        overlay_yours(&mut s, 6_000);
+        assert_eq!(s.status, Status::Working, "being told");
+        let told = Session { last_prompt_at: 5_200, ..yours.clone() };
+        let mut s = told.clone();
+        overlay_yours(&mut s, 6_000);
+        assert_eq!(shown(&s), shown(&told), "the prompt came: the turn it takes on it is its own");
+        let mut s = yours.clone();
+        overlay_yours(&mut s, 5_000 + TOLD_LAPSE_MS);
+        assert_eq!(shown(&s), shown(&yours), "no prompt came: it waits on you again");
+        assert!(!forget_told(5_000 + TOLD_LAPSE_MS - 1));
+        assert!(forget_told(5_000 + TOLD_LAPSE_MS), "the board stops showing it");
+
+        // One its session can't be sent isn't shown, and one whose telling failed goes.
+        let pasted = Run { id: "run-test-yours-pasted".into(), allowed_at: 7_000, ..run.clone() };
+        report(&pasted, false);
+        let mut s = yours.clone();
+        overlay_yours(&mut s, 8_000);
+        assert_eq!(shown(&s), shown(&yours), "its app takes a message only pasted");
+        let failed = Run { id: "run-test-yours-failed".into(), allowed_at: 9_000, ..run.clone() };
+        report(&failed, true);
+        mark(&failed.id, |r| r.dropped = true);
+        let mut s = yours.clone();
+        overlay_yours(&mut s, 10_000);
+        assert_eq!(shown(&s), shown(&yours), "telling it failed");
+        assert!(forget_told(10_000));
+        mark(&pasted.id, |r| r.dropped = true);
+        forget_told(10_000);
     }
 
     #[test]

@@ -6931,6 +6931,11 @@ mod tests {
             said(at("working", "tie-a", Status::Working, 22, 22), "`make tie a`"),
             Session { background: Some("gh run watch".into()), ..said(at("working", "background", Status::Working, 25, 8), "Waiting on `gh run watch`") },
             Session { agents: vec!["Draft the release notes".into()], ..said(at("working", "agents", Status::Working, 27, 7), "Waiting on a background agent · Draft the release notes") },
+            // A command you ran for it, whose output it's sent when it ends (terminal.rs `overlay_yours`).
+            Session {
+                running: Some(RunningIn { terminal: "Codealong".into(), command: "npm test".into(), yours: true }),
+                ..said(at("working", "your-command", Status::Working, 29, 6), "Waiting on your command · `npm test`")
+            },
             Session { excerpt: None, status_since: None, ..at("working", "silent", Status::Working, 26, 12) },
             said(at("working", "finished-beside", Status::Unread, 1, 1), "Done."),
             at("working", "idle-beside-work", Status::Idle, 3, 2),

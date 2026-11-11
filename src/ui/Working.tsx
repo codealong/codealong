@@ -110,9 +110,11 @@ export function WorkingLine({ seed, since, word }: { seed: string; since: number
 
 /** In the working line's place, for a session whose turn is over that waits on a command or
  *  agents it left running in the background (lanes.ts `waitsInBackground`), or that waits on a
- *  command you allowed in your terminal (`Session.running`): the clock the list and its header
+ *  command in a terminal (`Session.running`): one you allowed, which its agent waits on, or one you
+ *  ran for it, whose output goes to it when it ends (`yours`). The clock the list and its header
  *  draw, and what it waits on, in the engine's words for its excerpt; the command on one line, all
- *  of it on hover, and the agents as the excerpt counts them, what each is for on hover. */
+ *  of it on hover, and the agents as the excerpt counts them, what each is for on hover. Where a
+ *  command of yours goes once it ends follows it, under it when the line has no room. */
 export function Waiting({ session: s, onGrow }: { session: Session; onGrow: () => void }) {
   useLayoutEffect(onGrow, [onGrow]);
   const run = s.running;
@@ -126,7 +128,7 @@ export function Waiting({ session: s, onGrow }: { session: Session; onGrow: () =
         <span className="ca-working-line">
           {run ? (
             <>
-              <span className="ca-working-word is-lead">Running in {run.terminal}</span>
+              <span className="ca-working-word is-lead">{run.yours ? `Your command in ${run.terminal}` : `Running in ${run.terminal}`}</span>
               <code className="ca-ic" title={run.command}>
                 {command}
               </code>
@@ -147,6 +149,7 @@ export function Waiting({ session: s, onGrow }: { session: Session; onGrow: () =
           )}
         </span>
       </span>
+      {run?.yours && <span className="ca-working-then">What it prints goes to {s.account} when it ends</span>}
     </div>
   );
 }

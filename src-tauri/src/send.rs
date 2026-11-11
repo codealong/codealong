@@ -624,6 +624,14 @@ pub fn way_in(board: &Board, cfg: &Config, key: &str) -> Result<Option<Way>> {
     first_way(board, cfg, key, |_, routes| routes)
 }
 
+/// Whether a session that `way_in` reaches this way takes a message Codealong sends with nobody
+/// at the Mac, as it sends what a command you ran for it printed (serve.rs `tell_run`): not one
+/// that takes a message only pasted into its app, which would come forward from the background
+/// with it on the clipboard and nobody there to paste it.
+pub fn takes_unattended(way: Option<&Way>) -> bool {
+    !matches!(way, Some(Way::ClaudeApp | Way::Antigravity | Way::Cursor))
+}
+
 /// The first of the session's ways in that `keep` keeps and that applies, as `send` tries them.
 fn first_way(board: &Board, cfg: &Config, key: &str, keep: impl FnOnce(&dyn crate::harness::Adapter, Vec<Route>) -> Vec<Route>) -> Result<Option<Way>> {
     let (session, account) = crate::harness::find(board, cfg, key)?;

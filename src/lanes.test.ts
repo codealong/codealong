@@ -558,6 +558,12 @@ describe('waitsInBackground', () => {
     expect(waitsInBackground({ ...agents, status: 'needs' })).toBe(false);
   });
 
+  it('is a working session waiting on a command you ran for it, not on one its agent waits on mid-turn', () => {
+    const yours = fx.session({ status: 'working', running: { terminal: 'Codealong', command: 'npm test', yours: true } });
+    expect(waitsInBackground(yours)).toBe(true);
+    expect(waitsInBackground({ ...yours, running: { terminal: 'Rex', command: 'npm test' } })).toBe(false);
+  });
+
   it('is a worktree whose working sessions all wait', () => {
     expect(laneWaits(fx.lane({ glyph: 'working', sessions: [waiting] }))).toBe(true);
     expect(laneWaits(fx.lane({ glyph: 'working', sessions: [waiting, busy] }))).toBe(false);

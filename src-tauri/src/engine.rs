@@ -448,7 +448,8 @@ impl Handle {
 
     /// A session Codealong runs started or ended a turn, or asked or stopped asking something;
     /// or a Claude Code session's hook handed the app a permission request, or took it back
-    /// (claude/asks.rs); or a session was switched to another mode (cycle.rs).
+    /// (claude/asks.rs); or a session was switched to another mode (cycle.rs); or a session began
+    /// waiting on a command in a terminal (terminal.rs).
     pub fn hosted_changed(&self) {
         let _ = self.tx.send(Msg::Hosted);
     }
@@ -1464,12 +1465,14 @@ struct Engine {
 
 /// What terminal.rs knows a session waits on, over Jev's read of it (`with_insights`), which can
 /// only guess from a command gone quiet: a command it asks you to allow (`overlay`, laid on as
-/// the sessions are built too, for Jev to read them with it) and a run you allowed that its agent
-/// waits on (`overlay_running`).
+/// the sessions are built too, for Jev to read them with it), a run you allowed that its agent
+/// waits on (`overlay_running`), and a command you ran for it, whose output it's sent when it ends
+/// (`overlay_yours`), which Jev reads as a turn that ended.
 fn with_runs(mut sessions: Vec<Session>, now: i64) -> Vec<Session> {
     for s in &mut sessions {
         crate::terminal::overlay(s);
         crate::terminal::overlay_running(s, now);
+        crate::terminal::overlay_yours(s, now);
     }
     sessions
 }
@@ -3298,8 +3301,9 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         if !self.reads.out_for(HELD_WARN_AFTER).is_empty() {
             self.dirty = true;
         }
-        // A run whose command stopped waiting on it is no longer shown on its session.
-        if crate::terminal::forget_unwaited(now_ms()) {
+        // A run whose command stopped waiting on it is no longer shown on its session, nor a run
+        // of yours whose session was told what it printed, or that couldn't be.
+        if crate::terminal::forget_unwaited(now_ms()) | crate::terminal::forget_told(now_ms()) {
             self.dirty = true;
         }
         perf::took(|| "engine tick".into(), t.elapsed());

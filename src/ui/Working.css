@@ -72,6 +72,13 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* Where a command of yours goes once it ends: beside the command while the line has room for
+   both, else under it, the command keeping its line. */
+.ca-working-then {
+  flex: 0 1 auto;
+  min-width: 0;
+  animation: ca-working-in var(--dur-base) ease-out;
+}
 /* Beside the word only as one line, since two there make the line a block: a tip longer than
    the room beside goes under, where it wraps only if it's longer than the whole line. */
 .ca-working-tip {
@@ -97,6 +104,7 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .ca-working-word,
+  .ca-working-then,
   .ca-working-tip {
     animation: none;
   }

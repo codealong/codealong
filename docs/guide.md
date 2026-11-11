@@ -3053,7 +3053,13 @@ it, with where it runs and the command ("Running in Ghostty · `npm run deploy`"
 goes without printing anything, rather than as stuck.
 You run commands this way yourself too, with `!` in a session's box (*Replying*) or Run on a block
 in its conversation (*Copy and Run*): no Allow, since you asked for it, and the session is told
-what it printed once it ends.
+what it printed once it ends. Meanwhile a session whose turn was over, waiting on your next message
+or on your answer to its reply, shows as working on it, drawn with a clock as one waiting on a
+command in the background is ("Waiting on your command · `npm test`"), out of Your turn and the
+notch's count, its conversation ending with the command and where what it prints goes; once it's
+sent, the turn the session takes on it is its own. A session taking a turn, or waiting on you to
+allow something or answer a question it holds its turn on, stays as it is, and so does one what it
+printed can't be sent to (below).
 A session that couldn't be told leaves a notice saying so, with where to read what it printed: one
 that's gone or waits on you, and one that takes a message only pasted into its app (a Claude app
 session that isn't running, Antigravity's app, Cursor's), which isn't brought forward for it.
