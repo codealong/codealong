@@ -162,6 +162,14 @@ describe('what a listening’s strip shows as it’s heard', () => {
     expect(c.lines[c.lines.length - 1].n).toBe(29);
   });
 
+  it('starts again from what it showed, unless lines were told between that and what it reads now', () => {
+    const before = withLines(NO_CAPTIONS, [line(4, 'You', 'd'), line(5, 'Them', 'e')]);
+    // Shown again with lines 6 and 7 not yet told: they follow on.
+    expect(texts(withLines(before, [line(6, 'You', 'f'), line(7, 'You', 'g')]))).toEqual(['d', 'e', 'f', 'g']);
+    // Lines 6 to 8 told while it wasn't shown: what it read is all it shows.
+    expect(texts(withLines(before, [line(9, 'You', 'i')]))).toEqual(['i']);
+  });
+
   it('keeps the lines its session has been told: the strip shows what’s heard, not what’s left to tell', () => {
     const c = withLines(NO_CAPTIONS, [line(1, 'You', 'a')]);
     expect(captionsHearing(c, { told: 1 } as never, 0)).toBe(c);

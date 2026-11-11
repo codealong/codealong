@@ -319,6 +319,8 @@ interface SessionsViewProps {
   onPlacePinned: (key: string, index: number) => void;
   /** Unpins a session: its row dragged from the pinned ones down to the list, or out of the window. */
   onUnpin: (key: string) => void;
+  /** Every pinned session, those listed under Listening while they hear among them. */
+  pinnedKeys: ReadonlySet<string>;
   /** What a session's row pins to the desktop when it's dragged out of the window, if it can be. */
   desktop: (row: SessionItem) => DesktopPinned | null;
   /** Archived sessions, listed under a fold at the end. */
@@ -359,7 +361,7 @@ interface SessionsViewProps {
 const NO_KEYS: ReadonlySet<string> = new Set();
 
 export function SessionsView(props: SessionsViewProps) {
-  const { listening, pinned, topHelpers, sections, groups, groupActs, sort, lines, now, selectedKey, picked, domId, onSelect, onPickThese, onOpen, onContextMenu, onPrMenu, onPrShow, onPrOpen, onPlacePinned, onUnpin, desktop, archived, showArchived, onToggleArchived, todosFor, helpersOf, helpersShown, onToggleHelpers, runsOf, onToggleRuns, sidesOf, sideGlancesOf, onToggleSides, onShowSide, helperActions, onShowTodo, onFilterLabel, saidOf } = props;
+  const { listening, pinned, topHelpers, sections, groups, groupActs, sort, lines, now, selectedKey, picked, domId, onSelect, onPickThese, onOpen, onContextMenu, onPrMenu, onPrShow, onPrOpen, onPlacePinned, onUnpin, pinnedKeys, desktop, archived, showArchived, onToggleArchived, todosFor, helpersOf, helpersShown, onToggleHelpers, runsOf, onToggleRuns, sidesOf, sideGlancesOf, onToggleSides, onShowSide, helperActions, onShowTodo, onFilterLabel, saidOf } = props;
   const shown = helpersShown ?? NO_KEYS;
   const allGroups = groups ? groupsOf(groups) : [];
   const listed = groups ? allGroups.flatMap((g) => g.rows) : sections.flatMap((s) => s.rows);
@@ -369,6 +371,8 @@ export function SessionsView(props: SessionsViewProps) {
     onPlace: onPlacePinned,
     joins: true,
     onLeave: onUnpin,
+    // A pinned session under Listening leaves the pins for the desktop as one under Pinned does.
+    ordered: (key) => pinnedKeys.has(key),
     desktop: (key) => {
       const r = byKey(key);
       return r ? desktop(r) : null;

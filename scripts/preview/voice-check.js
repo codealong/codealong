@@ -3,11 +3,12 @@
 // session does with what it hears and what it hears, won't start with nothing to hear, says why
 // a start failed and stays, and asks the engine as picked. A session that listens wears a chip
 // on its row, is named in the window's bar with how long it has listened (a click shows it), has
-// Stop listening in its menu, leads Sessions under Listening, and shows the meeting in its
+// Stop listening in its menu, leads Sessions under Listening (pinned, it's there and not under
+// Pinned, and leaves the pins for the desktop as a pinned row does), and shows the meeting in its
 // conversation (what was heard as lines, its agent's answers between them with a cue's lines kept
 // apart, an answer that says nothing not at all) and a strip over its box with the latest lines
 // heard as captions, told or not, each speaker's words being said, its notes and Stop, which keeps
-// its height whatever comes. And what's said with a key held to talk is typed where the
+// its height whatever comes and starts from what it showed when its session is shown again. And what's said with a key held to talk is typed where the
 // caret is, or else into the box of the session shown, or of the one the engine names.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/voice-check.js
 (function () {
@@ -48,6 +49,8 @@
       board.experimental = Object.assign({}, board.experimental, { voice: voice });
       board.listenings = undefined;
       if (listens) {
+        // Pinned too, as one you keep at hand would be.
+        board.pinned = [picked[0].key];
         board.listenings = {};
         board.listenings[picked[0].key] = { id: 'sample', startedAt: Date.now() - 247e3, role: 'coach', mic: true, playback: true, transcript: '/t/transcript.md', notes: '/t/notes.md', cueAt: 0 };
       }
@@ -130,7 +133,22 @@
     .then(function () {
       check('a session that listens wears a chip on its row', !!q('.ca-listeningchip', row(0)) && !q('.ca-listeningchip', row(1)));
       var first = q('.ca-board-list .ca-bayblock');
-      check('and it leads Sessions, under Listening', !!first && first.classList.contains('ca-listening') && first.contains(row(0)) && !first.contains(row(1)) && q('.ca-bay--section > span', first).textContent === 'Listening', first ? first.textContent.slice(0, 60) : 'no section');
+      check('and it leads Sessions, under Listening, pinned as it is', !!first && first.classList.contains('ca-listening') && first.contains(row(0)) && !first.contains(row(1)) && q('.ca-bay--section > span', first).textContent === 'Listening' && !(q('.ca-pinned') && q('.ca-pinned').contains(row(0))), first ? first.textContent.slice(0, 60) : 'no section');
+      // Out of the window to the desktop, it leaves the pins as one under Pinned does.
+      var r = row(0).getBoundingClientRect();
+      var press = function (target, type, x, y) { target.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, button: 0, buttons: type === 'pointerup' ? 0 : 1, clientX: x, clientY: y, pointerId: 1, isPrimary: true, pointerType: 'mouse' })); };
+      var pins = calls('set_pinned').length;
+      press(row(0), 'pointerdown', r.left + r.width / 2, r.top + 8);
+      press(window, 'pointermove', r.left + r.width / 2, r.top + 20);
+      press(window, 'pointermove', -40, r.top + 20);
+      press(window, 'pointerup', -40, r.top + 20);
+      window.__emit('desktop-drag-end', { kept: true });
+      var unpinned = calls('set_pinned').length > pins && last('set_pinned').keys.indexOf(picked[0].key) < 0;
+      check('dragged to the desktop from there, it leaves the pins', unpinned, JSON.stringify(last('set_pinned')));
+      // The click a drag ends in is the drag's own, for the moment after it.
+      return wait(50);
+    })
+    .then(function () {
       check('and its status is a recording light, the other session’s its own', !!q('.ca-glyph--listening', row(0)) && !q('.ca-glyph--listening', row(1)) && q('.ca-glyph--listening', row(0)).getAttribute('aria-label') === 'Listening');
       // The window's bar has it too, whatever the window shows: a click shows the session.
       var now = all('.ca-win-bar .ca-hearing-now');
@@ -211,6 +229,10 @@
     })
     .then(function () {
       check('told, they stay: the strip shows what’s heard, as the conversation gets it', stripLines().length > 3 && stripLines().pop().indexOf('Line 19') === 0 && Math.abs(strip().getBoundingClientRect().height - stripHeight) < 1, stripLines().length + ' lines, ' + strip().getBoundingClientRect().height);
+      return show(1).then(function () { return show(0); }).then(function () { return until(strip, 3000, 'its strip again'); });
+    })
+    .then(function () {
+      check('shown again, it starts from what it showed, not only from what’s left to tell', stripLines().length > 3 && stripLines().pop().indexOf('Line 19') === 0, stripLines().join(' / ').slice(0, 120));
       button(strip(), 'Notes').click();
       return until(function () { return q('.ca-live-notes', strip()); }, 2000, 'its notes');
     })

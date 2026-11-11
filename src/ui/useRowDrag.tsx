@@ -86,6 +86,10 @@ export interface RowDragOptions<T extends DropTarget = DropTarget> {
   joins?: boolean;
   /** An ordered row dropped on the rest of the list, or on the desktop, leaves them (an unpin). */
   onLeave?: (key: string) => void;
+  /** Whether a row shown apart from the ordered rows is one of them all the same (a pinned
+   *  session listed under Listening while it hears): it leaves them as it goes to the desktop, as
+   *  they do. */
+  ordered?: (key: string) => boolean;
   /** What a row is on the desktop: dragged out of the window, it's pinned there. Null for a row
    *  that can't be. */
   desktop?: (key: string) => DesktopPinned | null;
@@ -102,6 +106,8 @@ export interface RowDragOptions<T extends DropTarget = DropTarget> {
 interface Live<T> {
   key: string;
   inOrder: boolean;
+  /** Going to the desktop takes it out of the ordered rows: it's one of them. */
+  leaves: boolean;
   row: HTMLElement;
   /** The rows it can be dropped among are looked for in here. */
   list: HTMLElement | null;
@@ -155,7 +161,7 @@ export function useRowDrag<T extends DropTarget = DropTarget>(options: RowDragOp
   const [name] = useState(() => `drag${++drags}`);
   const live = useRef<Live<T> | null>(null);
   // A row let go outside the window: the engine says whether its card stayed on the desktop.
-  const out = useRef<{ key: string; inOrder: boolean; timer: number } | null>(null);
+  const out = useRef<{ key: string; leaves: boolean; timer: number } | null>(null);
   const ghost = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<{ key: string; inOrder: boolean; zone: Zone<T> } | null>(null);
 
@@ -210,6 +216,7 @@ export function useRowDrag<T extends DropTarget = DropTarget>(options: RowDragOp
     if (e.button !== 0 || chordMod(e) || e.shiftKey || (e.target as HTMLElement).closest('button, a, input, textarea, select')) return;
     const o = opts.current;
     const inOrder = index != null && !!o.onPlace;
+    const leaves = inOrder || !!o.ordered?.(key);
     const pin = o.desktop?.(key) ?? null;
     if (!inOrder && !(o.joins && o.onPlace) && !pin && !o.dropAt) return;
     live.current?.stop();
@@ -266,12 +273,12 @@ export function useRowDrag<T extends DropTarget = DropTarget>(options: RowDragOp
       else if (zone.at === 'list' && d.inOrder) opts.current.onLeave?.(d.key);
       else if (zone.at === 'out') {
         if (out.current) window.clearTimeout(out.current.timer);
-        out.current = { key: d.key, inOrder: d.inOrder, timer: window.setTimeout(() => (out.current = null), 2000) };
+        out.current = { key: d.key, leaves: d.leaves, timer: window.setTimeout(() => (out.current = null), 2000) };
       }
     };
 
     // Where the view names its own targets, what scrolls is around the row (a Kanban column).
-    live.current = { key, inOrder, row, list, scroller: scrollerOf(o.dropAt || !list ? row : list), pin, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, active: false, away: false, zone: { at: 'none' }, frame: 0, late: 0, stop };
+    live.current = { key, inOrder, leaves, row, list, scroller: scrollerOf(o.dropAt || !list ? row : list), pin, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, active: false, away: false, zone: { at: 'none' }, frame: 0, late: 0, stop };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', end);
     window.addEventListener('pointercancel', stop);
@@ -286,14 +293,14 @@ export function useRowDrag<T extends DropTarget = DropTarget>(options: RowDragOp
         if (o) {
           window.clearTimeout(o.timer);
           out.current = null;
-          if (kept && o.inOrder) opts.current.onLeave?.(o.key);
+          if (kept && o.leaves) opts.current.onLeave?.(o.key);
           return;
         }
         const d = live.current;
         if (!d?.active || !d.pin) return;
         if (kept) {
           d.stop();
-          if (d.inOrder) opts.current.onLeave?.(d.key);
+          if (d.leaves) opts.current.onLeave?.(d.key);
         } else {
           // Let go over this window: its own pointerup, on its way, says where.
           window.clearTimeout(d.late);

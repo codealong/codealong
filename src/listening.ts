@@ -160,12 +160,18 @@ export const CAPTIONS_KEPT = 12;
 export const SETTLING_MS = 1500;
 
 /** The lines a strip shows once `more` come in: each once, in the transcript's order, the latest
- *  `CAPTIONS_KEPT`. */
+ *  `CAPTIONS_KEPT` of the last run of lines one after another. A strip shown again starts from
+ *  what it showed before (ui/Listening.tsx), and lines its session was told while it wasn't
+ *  shown aren't among what it reads then: the run before them goes, rather than read on into
+ *  the lines after the gap as though nothing was said between. */
 export function withLines(c: Captions, more: readonly NumberedLine[]): Captions {
   if (more.length === 0) return c;
   const byN = new Map(c.lines.map((l) => [l.n, l]));
   for (const l of more) byN.set(l.n, l);
-  return { ...c, lines: [...byN.values()].sort((a, b) => a.n - b.n).slice(-CAPTIONS_KEPT) };
+  const all = [...byN.values()].sort((a, b) => a.n - b.n);
+  let from = all.length - 1;
+  while (from > 0 && all[from - 1].n === all[from].n - 1) from--;
+  return { ...c, lines: all.slice(Math.max(from, all.length - CAPTIONS_KEPT)) };
 }
 
 /** Captions once `h` is heard, at `at`. How far the session has been told changes nothing: the

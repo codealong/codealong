@@ -11,7 +11,7 @@
 
 import { useEffect, useState } from 'react';
 import { askMainToListen, hearingStatus, listeningOf, onHearing, onListenAsk, onListeningNotes, startListening, stopListening } from '../api';
-import { ASK, askProblem, captionsHearing, clock, heardLine, hears, macSays, NO_CAPTIONS, onAskedToListen, ROLES, settledGone, SETTLING_MS, withLines, type HeardLine, type ListenAsked, type Told as ToldWhat } from '../listening';
+import { ASK, askProblem, captionsHearing, clock, heardLine, hears, macSays, NO_CAPTIONS, onAskedToListen, ROLES, settledGone, SETTLING_MS, withLines, type Captions, type HeardLine, type ListenAsked, type Told as ToldWhat } from '../listening';
 import { errorText } from '../report';
 import { below, showContextMenu } from '../contextMenu';
 import { hearingNamed, hearingSays } from '../said';
@@ -78,15 +78,23 @@ export function Told({ told }: { told: ToldWhat }) {
   );
 }
 
+/** The lines each listening's strip showed last in this window, by the listening's id: one shown
+ *  again (its session picked again) starts from them, where the engine gives only what its session
+ *  hasn't been told yet (listen.rs `tail`). A few lines a listening, for as long as the window is
+ *  open. */
+const shownBefore = new Map<string, Captions['lines']>();
+const resumed = (id: string): Captions => ({ lines: shownBefore.get(id) ?? [], saying: NO_CAPTIONS.saying });
+
 /** What a hearing listening has heard, as captions (listening.ts `Captions`), kept up as it's
- *  heard, and its notes: read once as the strip shows, then from what the server sends. */
+ *  heard, and its notes: read once as the strip shows, then from what the server sends. A strip
+ *  is drawn afresh for each session and listening (`LiveStrip`), so it starts from what it showed
+ *  before and keeps what it shows as it goes. */
 function useHeard(key: string, id: string) {
-  const [captions, setCaptions] = useState(NO_CAPTIONS);
+  const [captions, setCaptions] = useState(() => resumed(id));
   const [notes, setNotes] = useState<string | null>(null);
+  useEffect(() => void shownBefore.set(id, captions.lines), [id, captions.lines]);
   useEffect(() => {
     let over = false;
-    setCaptions(NO_CAPTIONS);
-    setNotes(null);
     const read = (all: boolean) =>
       void listeningOf(key).then(
         (tail) => {
@@ -118,8 +126,13 @@ function useHeard(key: string, id: string) {
   return { captions, notes };
 }
 
-/** Over a listening session's box while it hears. */
+/** Over a listening session's box while it hears: one of its own for each session and listening,
+ *  so nothing of one is shown for another. */
 export function LiveStrip({ sessionKey, listening }: { sessionKey: string; listening: ListeningGlance }) {
+  return <Strip key={`${sessionKey}\n${listening.id}`} sessionKey={sessionKey} listening={listening} />;
+}
+
+function Strip({ sessionKey, listening }: { sessionKey: string; listening: ListeningGlance }) {
   // How long it's been listening goes on by the second, as a recording's clock does: on a clock
   // of the strip's own, since the panel's is for words like "5 minutes ago" and ticks far slower.
   const now = useNow(1000);

@@ -2811,6 +2811,7 @@ export function App() {
                 onPrShow={(r) => r.lane.pr && showPrOf(r.lane.pr, { key: r.key, select: () => picks.sessions.select(r, 'one') })}
                 onPrOpen={(r) => openLanePr(r.lane)}
                 onPlacePinned={(key, index) => sessionPins.place(pinnedRows.map((r) => r.session.key), key, index)}
+                pinnedKeys={sessionPins.set}
                 onUnpin={sessionPins.remove}
                 desktop={(r) => (r.lane.device || r.session.archived ? null : { ref: 'session', key: r.session.key })}
                 archived={archivedItems}
