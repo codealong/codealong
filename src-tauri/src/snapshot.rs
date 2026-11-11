@@ -734,13 +734,20 @@ fn open(_: &Args, rest: &[String]) -> Done {
 /// Where a click on a web link opens it, said without opening it.
 fn link(_: &Args, rest: &[String]) -> Done {
     let [url, ..] = rest else { return Err(Stop::Usage) };
-    let Some(lane) = engine::link_opens_as(&engine::snapshot(false, false), url) else {
-        return Ok("In the default browser: it isn't a link into a worktree's app that opens in a Chrome profile.".into());
-    };
-    let name = lane.preview.as_ref().and_then(|p| p.chrome_profile.clone()).unwrap_or_default();
-    Ok(match chrome::resolve(&name) {
-        Ok(p) => format!("In Chrome's {} profile ({}), as {}'s preview opens.", p.name, p.dir, lane.path),
-        Err(e) => format!("In the default browser, though it's {}'s app: {}", lane.path, util::words(e)),
+    let accounts = config::current().map_err(failed)?.accounts;
+    Ok(match engine::link_opens(&engine::snapshot(false, false), &accounts, url) {
+        engine::LinkOpens::Preview(lane) => {
+            let name = lane.preview.as_ref().and_then(|p| p.chrome_profile.clone()).unwrap_or_default();
+            match chrome::resolve(&name) {
+                Ok(p) => format!("In Chrome's {} profile ({}), as {}'s preview opens.", p.name, p.dir, lane.path),
+                Err(e) => format!("In the default browser, though it's {}'s app: {}", lane.path, util::words(e)),
+            }
+        }
+        engine::LinkOpens::Account { account, profile } => match engine::account_profile(&account, &profile) {
+            Ok(p) => format!("In Chrome's {} profile ({}), as {account}'s sessions made it.", p.name, p.dir),
+            Err(e) => format!("In the default browser, though {account}'s sessions made it: {}", util::words(e)),
+        },
+        engine::LinkOpens::Default => "In the default browser: it isn't a link into a worktree's app that opens in a Chrome profile, nor a page made on an account that names one.".into(),
     })
 }
 

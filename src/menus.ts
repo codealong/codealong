@@ -11,9 +11,9 @@
 // back where GitHub refuses the merge) is here.
 
 import { useEffect, useState } from 'react';
-import { closeSession, desktopPins, expandAttachments, forkSession, getAccounts, inPreview, moveSession, moveSessionTo, onDesktopPins, openUrl, ownSessions, pinToDesktop, resumeSession, sessionCancel, sessionWindow, stopListening, setPrNudge, setPrPrimary, setReusable, showQuick, unpinFromDesktop, type MergeDone } from './api';
+import { chromeProfiles, closeSession, desktopPins, expandAttachments, forkSession, getAccounts, inPreview, moveSession, moveSessionTo, onDesktopPins, openInChrome, openUrl, ownSessions, pinToDesktop, resumeSession, sessionCancel, sessionWindow, stopListening, setPrNudge, setPrPrimary, setReusable, showQuick, unpinFromDesktop, type MergeDone } from './api';
 import { archiveAhead, asideAhead, doneAhead, labelAhead, quietAhead, raiseAhead, seenAhead, unreadAhead } from './ahead';
-import type { MenuAction, MenuGroup, MenuImage, MenuSpec } from './contextMenu';
+import { showContextMenu, type MenuAction, type MenuGroup, type MenuImage, type MenuSpec } from './contextMenu';
 import { shortOf } from './devices';
 import { dueChoices } from './due';
 import { count } from './format';
@@ -26,7 +26,7 @@ import { reviewsSnoozeMenu, SNOOZE_CHORDS, snoozeChordIndex, snoozeChorded as ti
 import { rememberResumed, resumeAccount, resumedIn } from './start';
 import { accountOf, startAccountsNow } from './startAccounts';
 import { reviewChange, STATUSES, STATUS_WORD, todosPrompt, waitingChange, type TodoOp } from './todos';
-import type { AccountInfo, DesktopPinned, Label, Lane, PathKind, Pr, PrItem, Profile, Schedule, Session, StartAccount, StartPlace, Started, Todo } from './types';
+import type { AccountInfo, ChromeProfile, DesktopPinned, Label, Lane, PathKind, Pr, PrItem, Profile, Schedule, Session, StartAccount, StartPlace, Started, Todo } from './types';
 import { chordKeys as platformKeys, chordSigns as platformSigns, held as modsHeld } from './platform';
 import type { MergeForm } from './merge';
 import { mayApprove, prReady } from './prStatus';
@@ -1155,6 +1155,28 @@ export function fileMenu(path: string, kind: PathKind, can: FileCan): MenuSpec {
   const open: MenuSpec = kind === 'file' ? [{ label: 'Open', run: can.open }] : [];
   const copy = copyItem('Copy path', path, 'path', can.report);
   return sections([...open, { label: `Open in ${can.editor.name}`, run: can.edit }, { label: 'Reveal in Finder', run: can.reveal }], copy ? [copy] : []);
+}
+
+/** A web link's menu, wherever a window shows one (Markdown.tsx `Link`, a session's pages in its
+ *  header): Open link does what a click does (engine.rs `open_link`: a worktree's app in its
+ *  preview's Chrome profile, a page a session made in its account's), then an item for each of
+ *  Chrome's profiles, then the link copied. A profile is named as Chrome's picker names it, with
+ *  the account signed in to it where two share a name. */
+export function linkMenu(url: string, profiles: ChromeProfile[], can: { report: Report }): MenuSpec {
+  const tried = (work: Promise<void>) => void work.catch((e: unknown) => can.report.error(errorText(e)));
+  const shared = (p: ChromeProfile) => profiles.filter((o) => o.name.toLowerCase() === p.name.toLowerCase()).length > 1;
+  const named = (p: ChromeProfile) => (shared(p) ? `${p.name} · ${p.email ?? p.dir}` : p.name);
+  const chrome: MenuAction[] = profiles.map((p) => ({ label: profiles.length === 1 ? 'Open in Chrome' : `Open in Chrome (${named(p)})`, run: () => tried(openInChrome(url, p)) }));
+  const copy = copyItem('Copy link', url, 'link', can.report);
+  return sections([{ label: 'Open link', run: () => tried(openUrl(url)) }], chrome, copy ? [copy] : []);
+}
+
+/** Shows a web link's menu (`linkMenu`) for a right-click on it, once Chrome's profiles are read.
+ *  Profiles that can't be read leave their items out: the link still opens and copies. */
+export function showLinkMenu(url: string, report: Report): void {
+  void chromeProfiles()
+    .catch(() => [])
+    .then((profiles) => showContextMenu(linkMenu(url, profiles, { report })));
 }
 
 export interface RepoCan {

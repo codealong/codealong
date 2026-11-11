@@ -4912,7 +4912,7 @@ mod tests {
         use crate::model::{Meter, Severity, Usage};
         let home = fixtures::scratch("review-own-model");
         std::fs::write(home.join("settings.json"), r#"{"model": "opus"}"#).unwrap();
-        let account = |name: &str, harness: &str, home: String| AccountCfg { name: name.into(), harness: harness.into(), home, command: Some(harness.into()), start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let account = |name: &str, harness: &str, home: String| AccountCfg { name: name.into(), harness: harness.into(), home, command: Some(harness.into()), start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         let member = |a: &str| GroupMemberCfg { account: a.into(), model: String::new(), effort: String::new() };
         let mut cfg = Config { accounts: vec![account("codex", "codex", "/Users/me/.codex".into()), account("claude", "claude", home.to_string_lossy().into_owned())], ..Config::default() };
         cfg.routing.groups = vec![RoutingGroupCfg { name: "reviewers".into(), strategy: RoutingStrategy::Fallback, members: vec![member("codex"), member("claude")] }];
@@ -4928,7 +4928,7 @@ mod tests {
     #[test]
     fn a_review_after_an_error_starts_on_another_account_where_one_can() {
         use crate::config::{GroupMemberCfg, RoutingGroupCfg, RoutingStrategy};
-        let account = |name: &str, harness: &str| AccountCfg { name: name.into(), harness: harness.into(), home: format!("/Users/me/.{name}"), command: Some(harness.into()), start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let account = |name: &str, harness: &str| AccountCfg { name: name.into(), harness: harness.into(), home: format!("/Users/me/.{name}"), command: Some(harness.into()), start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         let member = |a: &str| GroupMemberCfg { account: a.into(), model: String::new(), effort: String::new() };
         let mut cfg = Config { accounts: vec![account("claude", "claude"), account("codex", "codex")], ..Config::default() };
         cfg.routing.groups = vec![RoutingGroupCfg { name: "reviewers".into(), strategy: RoutingStrategy::Fallback, members: vec![member("claude"), member("codex")] }];

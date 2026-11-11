@@ -77,6 +77,14 @@ pub struct AccountInfo {
     pub usage_cap: Option<u8>,
     /// Turned off (config.toml's `disabled`): Codealong starts nothing on it.
     pub disabled: bool,
+    /// config.toml's `chrome_profile`, named as there: the Chrome profile the pages its sessions
+    /// make open in.
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "chrome_profile")]
+    pub chrome_profile: Option<String>,
+    /// Its harness records the pages its sessions make (`Adapter::artifact_needles`), so a Chrome
+    /// profile set for it has something to open: Settings offers one only then.
+    #[serde(default)]
+    pub makes_pages: bool,
     pub folder_exists: bool,
     pub signed_in: bool,
     pub email: Option<String>,

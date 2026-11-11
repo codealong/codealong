@@ -1,18 +1,19 @@
 // Settings › Accounts: the Claude Code, Codex, OpenCode, Antigravity and Cursor accounts Codealong
 // reads, each with the MCP servers its agents have (mcp.rs), whether its provider may train on what
-// it sends (training.ts) and a switch that
-// turns it off (config.toml's `disabled`), and under Found on this Mac the ones it could (detect.rs). Saving rewrites the
+// it sends (training.ts), the Chrome profile the pages its sessions make open in (`chrome_profile`),
+// and a switch that turns it off (config.toml's `disabled`), and under Found on this Mac the ones it could (detect.rs). Saving rewrites the
 // [[accounts]] tables in config.toml and leaves the rest of the file as you wrote it. Adding an
 // account can put Codealong in it too (install.rs: the plugin in Claude Code, the skill elsewhere), as
 // Settings › Agents does; that page is where each account's plugin or skill shows.
 
 import { useEffect, useState } from 'react';
 import { installCliTask } from '../agentTasks';
-import { agentsStatus, askAgent, foundAccounts, getAccounts, installAgents, openUrl, saveAccounts, signIn, stopTraining } from '../api';
+import { agentsStatus, askAgent, chromeProfiles, foundAccounts, getAccounts, installAgents, openUrl, saveAccounts, signIn, stopTraining } from '../api';
 import { agoPhrase } from '../format';
 import { HARNESSES, HARNESS_WORD } from '../harness';
 import { afterStop, flagged, readNote, trainingOf, trainingTag } from '../training';
-import type { AccountCfg, AccountInfo, FoundAccount, Harness, Mcp, StartPlace, Training, Usage } from '../types';
+import type { AccountCfg, AccountInfo, ChromeProfile, FoundAccount, Harness, Mcp, StartPlace, Training, Usage } from '../types';
+import { ChromeProfileSelect, findChromeProfile } from './PreviewBits';
 import { Button, CheckBox, Chip, cx, Icon, Rich, Seg } from './primitives';
 import { asOfPhrase, UsageMeter } from './UsageBar';
 
@@ -31,6 +32,8 @@ interface Draft {
   perToken: boolean;
   /** The usage percentage (1-100) at which Auto and routing groups pass over this account; empty for 90%. */
   usageCap: string;
+  /** The Chrome profile the pages its sessions make open in; empty for the default browser. */
+  chromeProfile: string;
   /** Whether you typed in these fields; untouched ones follow the name. */
   touched: { home: boolean; command: boolean };
 }
@@ -192,7 +195,15 @@ export function suggestAccount(harness: Harness, taken: AccountCfg[]): Omit<Draf
   const nameFor = (i: number) => (i === 1 ? harness : `${harness}${i}`);
   while (names.has(nameFor(n)) || homes.has(defaultsFor(harness, nameFor(n)).home)) n++;
   const name = nameFor(n);
-  return { harness, name, start: null, monthly: '', perToken: false, usageCap: '', ...defaultsFor(harness, name) };
+  return { harness, name, start: null, monthly: '', perToken: false, usageCap: '', chromeProfile: '', ...defaultsFor(harness, name) };
+}
+
+/** Where an account's pages open, as its card says: Chrome's profile by the name its picker
+ *  shows, or the setting as written, saying so where Chrome has no such profile. */
+export function chromeWords(wanted: string, profiles: ChromeProfile[]): string {
+  const p = findChromeProfile(profiles, wanted);
+  if (p) return `Chrome’s ${p.name} profile`;
+  return profiles.length > 0 ? `Chrome’s ${wanted} profile, which Chrome doesn’t have` : `Chrome’s ${wanted} profile`;
 }
 
 /** A plan price as typed: dollars a month, or none for an empty or unreadable one. */
@@ -223,7 +234,7 @@ export function foundNote(f: FoundAccount, now: number): string {
 /** An account as config.toml has it. Saving writes every account's table anew, so whatever the
  *  form doesn't edit (its ACP command) goes back as it came. */
 function toCfg(a: AccountCfg): AccountCfg {
-  return { name: a.name, harness: a.harness, home: a.home, command: a.command, start: a.start ?? null, acp: a.acp ?? null, monthly: a.monthly ?? null, per_token: a.per_token ?? false, disabled: a.disabled ?? false, usage_cap: a.usage_cap ?? null };
+  return { name: a.name, harness: a.harness, home: a.home, command: a.command, start: a.start ?? null, acp: a.acp ?? null, monthly: a.monthly ?? null, per_token: a.per_token ?? false, disabled: a.disabled ?? false, usage_cap: a.usage_cap ?? null, chrome_profile: a.chrome_profile ?? null };
 }
 
 interface AccountsSectionProps {
@@ -248,6 +259,8 @@ export function AccountsSection({ focus, usage, training, mcp, terminal, now, on
   // Whether an account you add gets Codealong (the plugin, or the skill), so its agents can use
   // the board. Settings › Agents shows where each account stands.
   const [withSkill, setWithSkill] = useState(true);
+  // Chrome's profiles, for where an account's pages open: none until read, or where Chrome isn't.
+  const [profiles, setProfiles] = useState<ChromeProfile[]>([]);
 
   const load = () => {
     // Looking for accounts reads a few folders and asks the keychain; it can come after the list.
@@ -261,6 +274,10 @@ export function AccountsSection({ focus, usage, training, mcp, terminal, now, on
 
   useEffect(() => {
     void load();
+    // Without them the field shows only a profile already set, as written.
+    chromeProfiles()
+      .then(setProfiles)
+      .catch(() => setProfiles([]));
   }, []);
 
   const loaded = accounts !== null;
@@ -329,6 +346,7 @@ export function AccountsSection({ focus, usage, training, mcp, terminal, now, on
       monthly: a.monthly != null ? String(a.monthly) : '',
       perToken: a.per_token ?? false,
       usageCap: a.usage_cap != null ? String(a.usage_cap) : '',
+      chromeProfile: a.chrome_profile ?? '',
       touched: { home: true, command: true },
     });
   };
@@ -349,6 +367,7 @@ export function AccountsSection({ focus, usage, training, mcp, terminal, now, on
       per_token: draft.perToken,
       disabled: was?.disabled ?? false,
       usage_cap: usageCapOf(draft.usageCap),
+      chrome_profile: draft.chromeProfile.trim() || null,
     };
     const next = draft.original ? accounts.map((a) => (a.name === draft.original ? entry : a)) : [...accounts, entry];
     if (await save(next)) {
@@ -393,6 +412,9 @@ export function AccountsSection({ focus, usage, training, mcp, terminal, now, on
   };
 
   const draftPlaces = draft ? startPlaces(draft.harness, draft.home) : [];
+  // The account being edited, as the engine describes it: a new one isn't read yet, so whether
+  // its harness makes pages is known once it's added.
+  const draftEdits = draft?.original ? accounts?.find((a) => a.name === draft.original) : undefined;
   const draftStart = draft?.start && draftPlaces.includes(draft.start) ? draft.start : null;
 
   const form = draft && (
@@ -482,6 +504,13 @@ export function AccountsSection({ focus, usage, training, mcp, terminal, now, on
         </label>
         <small>Auto, routing groups and automatic reviews pass over this account once any limit a session would spend reaches this percentage (90% when empty).</small>
       </div>
+      {draftEdits?.makesPages && (profiles.length > 0 || draft.chromeProfile) && (
+        <div className="ca-field">
+          <span>Chrome profile</span>
+          <ChromeProfileSelect value={draft.chromeProfile} profiles={profiles} none="None: the default browser" onChange={(chromeProfile) => setDraft({ ...draft, chromeProfile })} />
+          <small>The pages its sessions make, such as Claude’s artifacts, open in this profile: pick the one signed in to this account. A right-click on a link offers every profile.</small>
+        </div>
+      )}
       {!draft.original && skillBox(draft.harness === 'claude' ? 'Install the Codealong plugin' : 'Install the Codealong skill')}
       <div className="ca-acct-actions">
         <Button variant="primary" size="sm" type="submit" disabled={busy}>
@@ -587,6 +616,12 @@ export function AccountsSection({ focus, usage, training, mcp, terminal, now, on
                 <>
                   <dt>Usage cap</dt>
                   <dd>{a.usage_cap}%</dd>
+                </>
+              )}
+              {a.chrome_profile && (
+                <>
+                  <dt>Pages open in</dt>
+                  <dd>{chromeWords(a.chrome_profile, profiles)}</dd>
                 </>
               )}
             </dl>

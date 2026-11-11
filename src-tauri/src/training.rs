@@ -107,7 +107,7 @@ mod tests {
     use std::time::{Duration, Instant};
 
     fn account(name: &str) -> AccountCfg {
-        AccountCfg { name: name.into(), harness: "claude".into(), home: format!("~/.{name}"), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false }
+        AccountCfg { name: name.into(), harness: "claude".into(), home: format!("~/.{name}"), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None }
     }
 
     fn reading(name: &str, state: State) -> Training {

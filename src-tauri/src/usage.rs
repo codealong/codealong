@@ -108,6 +108,8 @@ pub fn describe(a: &AccountCfg) -> AccountInfo {
         per_token: a.per_token,
         usage_cap: a.usage_cap,
         disabled: a.disabled,
+        chrome_profile: a.chrome_profile.clone(),
+        makes_pages: harness.is_some_and(|h| !h.artifact_needles().is_empty()),
         folder_exists: dir.is_dir(),
         signed_in,
         email,
@@ -142,7 +144,7 @@ mod tests {
     }
 
     fn account(name: &str) -> AccountCfg {
-        AccountCfg { name: name.into(), harness: "claude".into(), home: format!("~/.{name}"), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false }
+        AccountCfg { name: name.into(), harness: "claude".into(), home: format!("~/.{name}"), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None }
     }
 
     #[test]

@@ -2211,7 +2211,7 @@ mod tests {
         let ask = r#"{"type":"assistant","timestamp":"2026-09-30T20:33:55Z","message":{"content":[{"type":"tool_use","id":"toolu_q","name":"AskUserQuestion","input":{"questions":[{"question":"Which limit?","header":"Limit","multiSelect":false,"options":[{"label":"100 days (Recommended)","description":"A quarter and a bit."},{"label":"45 days"}]},{"question":"Which days?","multiSelect":true,"options":[{"label":"Mon"},{"label":"Tue"}]}]}}]}}"#;
         let answered = r#"{"type":"user","timestamp":"2026-09-30T20:40:10Z","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_q","content":"Your questions have been answered"}]},"toolUseResult":{"questions":[],"answers":{"Which limit?":"100 days (Recommended)","Which days?":["Mon","Tue"],"Blank":" "},"annotations":{}}}"#;
         std::fs::write(dir.join(format!("{id}.jsonl")), format!("{ask}\n")).unwrap();
-        let account = crate::config::AccountCfg { name: "claude".into(), harness: "claude".into(), home: home.to_string_lossy().into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let account = crate::config::AccountCfg { name: "claude".into(), harness: "claude".into(), home: home.to_string_lossy().into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         let ctx = crate::harness::Ctx { account: &account };
         let session = Session { status: crate::model::Status::Needs, live: true, pid: Some(4242), title: "Limits".into(), cwd: "/x".into(), ..Session::new(Harness::Claude, "claude", id) };
         let registry = |waiting_for: &str| std::fs::write(home.join("sessions/4242.json"), serde_json::json!({ "pid": 4242, "sessionId": id, "cwd": "/x", "status": "waiting", "waitingFor": waiting_for }).to_string()).unwrap();
@@ -2280,7 +2280,7 @@ mod tests {
         let blocked = |questions: &str| std::fs::write(home.join("jobs/1a2b3c4d/state.json"), format!(r#"{{"state":"working","tempo":"blocked","block":{{"questions":[{questions}]}}}}"#)).unwrap();
         let fruit = r#"{"question":"Which fruit?","options":[{"label":"Apple","description":"A red fruit"},{"label":"Pear","description":"A green fruit"}]}"#;
         blocked(fruit);
-        let account = crate::config::AccountCfg { name: "claude".into(), harness: "claude".into(), home: home.to_string_lossy().into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let account = crate::config::AccountCfg { name: "claude".into(), harness: "claude".into(), home: home.to_string_lossy().into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         let ctx = crate::harness::Ctx { account: &account };
         let session = Session { status: crate::model::Status::Needs, live: true, pid: Some(4242), title: "Fruit".into(), cwd: "/x".into(), ..Session::new(Harness::Claude, "claude", id) };
 
@@ -2443,7 +2443,7 @@ mod tests {
     fn a_copy_moved_from_another_account_goes_on_from_its_transcript_there_until_it_has_its_own() {
         use crate::harness::Reader as _;
         let (old_home, new_home) = (crate::fixtures::scratch("moved-from"), crate::fixtures::scratch("moved-to"));
-        let account = |name: &str, home: &Path| AccountCfg { name: name.into(), harness: "claude".into(), home: home.to_string_lossy().into_owned(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let account = |name: &str, home: &Path| AccountCfg { name: name.into(), harness: "claude".into(), home: home.to_string_lossy().into_owned(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         let (from, to) = (account("claude", &old_home), account("claude2", &new_home));
         let project = old_home.join("projects/-Users-me-app");
         std::fs::create_dir_all(&project).unwrap();
@@ -2490,7 +2490,7 @@ mod tests {
     fn the_claude_apps_forks_and_the_tasks_it_starts_come_from_their_sessions() {
         use crate::harness::Reader as _;
         let home = crate::fixtures::scratch("app-forks");
-        let account = AccountCfg { name: "claude".into(), harness: "claude".into(), home: home.to_string_lossy().into_owned(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let account = AccountCfg { name: "claude".into(), harness: "claude".into(), home: home.to_string_lossy().into_owned(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         let project = home.join("projects/-Users-me-app");
         std::fs::create_dir_all(&project).unwrap();
         let line = |session: &str, at: &str, text: &str| serde_json::json!({ "type": "user", "sessionId": session, "cwd": "/Users/me/app", "entrypoint": "claude-desktop", "timestamp": at, "origin": { "kind": "human" }, "message": { "role": "user", "content": text } }).to_string() + "\n";
@@ -2533,7 +2533,7 @@ mod tests {
         use crate::harness::Reader as _;
         use crate::origins::{Entry, Store};
         let (old_home, new_home) = (crate::fixtures::scratch("closed-copy-from"), crate::fixtures::scratch("closed-copy-to"));
-        let account = |name: &str, home: &Path| AccountCfg { name: name.into(), harness: "claude".into(), home: home.to_string_lossy().into_owned(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let account = |name: &str, home: &Path| AccountCfg { name: name.into(), harness: "claude".into(), home: home.to_string_lossy().into_owned(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         let (from, to) = (account("claude", &old_home), account("claude2", &new_home));
         let project = old_home.join("projects/-Users-me-app");
         std::fs::create_dir_all(&project).unwrap();
@@ -2596,7 +2596,7 @@ mod tests {
         let home = crate::fixtures::scratch("claude-reader");
         let project = home.join("projects/-Users-me-app");
         std::fs::create_dir_all(project.join("s1/subagents")).unwrap();
-        let account = AccountCfg { name: "claude9".into(), harness: "claude".into(), home: home.to_string_lossy().into_owned(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let account = AccountCfg { name: "claude9".into(), harness: "claude".into(), home: home.to_string_lossy().into_owned(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         let seen = crate::state::SeenState::default();
         let now = parse_rfc3339_ms("2026-09-23T16:00:00.000Z").unwrap();
         let look = Look { seen: &seen, since: 0, now, ps: Default::default() };

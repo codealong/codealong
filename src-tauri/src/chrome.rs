@@ -2,6 +2,9 @@
 //! one Google account and not another, so a preview can name the profile it opens in: its
 //! project's `chrome_profile` in config.toml, or its worktree's own (previews.rs). A link into
 //! the app, in a conversation or a PR's description, opens there too (`board::app_of_link`).
+//! An account can name the profile signed in to it, and the pages its sessions made open there
+//! (`AccountCfg::chrome_profile`, `engine::link_opens`). A link's right-click menu offers every
+//! profile (lib.rs `chrome_profiles`, `open_in_chrome`).
 //!
 //! Chrome lists its profiles in `Local State` (JSON) under `profile.info_cache`, keyed by folder
 //! (`Default`, `Profile 12`), each with the `name` its profile picker shows and the Google

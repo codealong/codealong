@@ -1037,7 +1037,7 @@ mod tests {
     use crate::config::Config;
 
     fn account(name: &str) -> AccountCfg {
-        AccountCfg { name: name.into(), harness: "claude".into(), home: "~/.claude".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false }
+        AccountCfg { name: name.into(), harness: "claude".into(), home: "~/.claude".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None }
     }
 
     fn call(id: &str, session: &str, at: i64, input: u64, output: u64) -> TokenUse {

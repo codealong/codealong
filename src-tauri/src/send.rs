@@ -1714,7 +1714,7 @@ mod tests {
         // runs; resumed out of sight where its harness goes on by a resume; sent by a way of its
         // harness's that takes it while it doesn't run; else nothing, as for one you archived or
         // whose account you turned off.
-        let account = crate::config::AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let account = crate::config::AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         let stopped = Session { live: false, ..s.clone() };
         let way = |s: &Session, a: &crate::config::AccountCfg, routes: Vec<Route>| waking(s, a, || routes, || Some(Place::Background));
         assert_eq!(way(&s, &account, vec![]), Waking::Send);

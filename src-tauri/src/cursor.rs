@@ -3051,7 +3051,7 @@ mod tests {
         let fixture = app_fixture();
         fixture.execute_batch("UPDATE cursorDiskKV SET value = json_set(CAST(value AS TEXT), '$.unifiedMode', 'chat') WHERE key = 'composerData:c2'; UPDATE composerHeaders SET value = json_set(value, '$.unifiedMode', 'chat') WHERE composerId = 'c2';").unwrap();
         fixture.execute("VACUUM INTO ?1", [path.to_string_lossy()]).unwrap();
-        let account = AccountCfg { name: "cursor".into(), harness: "cursor".into(), home: home.to_string_lossy().into_owned(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let account = AccountCfg { name: "cursor".into(), harness: "cursor".into(), home: home.to_string_lossy().into_owned(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         let seen = crate::state::SeenState::default();
         let look = Look { seen: &seen, since: 0, now: 10_000, ps: Default::default() };
         let mut reader = Reader::default();
@@ -3158,7 +3158,7 @@ mod tests {
     #[ignore]
     fn cursor_here() {
         let home = crate::util::home().join(".cursor");
-        let account = AccountCfg { name: "cursor".into(), harness: "cursor".into(), home: home.to_string_lossy().into_owned(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let account = AccountCfg { name: "cursor".into(), harness: "cursor".into(), home: home.to_string_lossy().into_owned(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         let started = Instant::now();
         let db = app_db(&home).and_then(|p| crate::harness::open_database(&p)).expect("Cursor's database");
         let mut chats = read(&db);
@@ -3188,7 +3188,7 @@ mod tests {
 
     #[test]
     fn starts_and_resumes_in_a_terminal() {
-        let account = AccountCfg { name: "cursor".into(), harness: "cursor".into(), home: "~/.cursor".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let account = AccountCfg { name: "cursor".into(), harness: "cursor".into(), home: "~/.cursor".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         let id = "6ea31b00-0a64-4c8c-bfd0-f71170a1bf7f";
         let ask = |prompt: &'static str, model: Option<&'static str>, worktree: bool| crate::harness::StartAsk { prompt, session_id: id, model, effort: None, worktree, images_dir: Path::new("/i"), files_dir: Path::new("/f") };
         let typed = Cursor.start_in_terminal(&account, &ask("-v please", Some("gpt-5"), true));
@@ -3203,7 +3203,7 @@ mod tests {
     #[test]
     fn reads_skills_from_its_folders_and_the_ones_it_shares_and_names_them_with_a_slash() {
         // An account kept elsewhere still reads your home's.
-        let account = AccountCfg { name: "cursor".into(), harness: "cursor".into(), home: "~/elsewhere/cursor".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let account = AccountCfg { name: "cursor".into(), harness: "cursor".into(), home: "~/elsewhere/cursor".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         let home = crate::util::home();
         // Commands of the command line's, which follows a link out of a folder only among yours.
         let how = |personal: bool| Some(crate::skills::AsCommands { surface: "cli", contained: !personal });
@@ -3224,7 +3224,7 @@ mod tests {
     #[test]
     fn reads_privacy_mode_as_whether_cursor_trains_on_the_account() {
         use crate::training::State;
-        let account = AccountCfg { name: "cursor".into(), harness: "cursor".into(), home: "~/.cursor".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let account = AccountCfg { name: "cursor".into(), harness: "cursor".into(), home: "~/.cursor".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         let read = |v: Value| privacy_training(&account, &v);
         let off = read(json!({"privacyMode": "PRIVACY_MODE_NO_TRAINING", "accountPrivacyMode": "PRIVACY_MODE_NO_TRAINING"}));
         assert_eq!((off.state, off.can_stop, off.url.as_deref()), (State::Off, false, Some(PRIVACY_PAGE)));

@@ -2581,7 +2581,7 @@ mod tests {
         steps.execute_batch("CREATE TABLE steps (idx INTEGER PRIMARY KEY, step_type INTEGER NOT NULL DEFAULT 0, status INTEGER NOT NULL DEFAULT 0); INSERT INTO steps VALUES (0, 14, 3), (6, 132, 9);").unwrap();
         drop(steps);
 
-        let account = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: root.join("antigravity").to_string_lossy().into_owned(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let account = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: root.join("antigravity").to_string_lossy().into_owned(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         let seen = crate::state::SeenState::default();
         let look = Look { seen: &seen, since: 0, now: parse_rfc3339_ms("2026-10-01T16:56:00Z").unwrap(), ps: Default::default() };
         let mut reader = Reader::default();
@@ -2662,7 +2662,7 @@ mod tests {
         let steps = Connection::open(dir.join("conversations/c1.db")).unwrap();
         steps.execute_batch("CREATE TABLE steps (idx INTEGER PRIMARY KEY, step_type INTEGER NOT NULL DEFAULT 0, status INTEGER NOT NULL DEFAULT 0); INSERT INTO steps VALUES (0, 14, 3), (1, 15, 3), (2, 132, 2);").unwrap();
 
-        let account = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: dir.to_string_lossy().into_owned(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let account = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: dir.to_string_lossy().into_owned(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         let seen = crate::state::SeenState::default();
         let look = Look { seen: &seen, since: 0, now: parse_rfc3339_ms("2026-10-01T16:56:00Z").unwrap(), ps: Default::default() };
         let mut reader = Reader { processes: vec![Process { pid: 7, conversation: Some("c1".into()), terminal: true, logs: Vec::new() }], looked_at: Some(Instant::now()), ..Reader::default() };
@@ -2806,7 +2806,7 @@ mod tests {
     /// turn when that went in the default mode; and from the latest turn alone otherwise.
     #[test]
     fn the_board_says_the_mode_its_terminal_ui_is_in() {
-        let account = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: "/h/.gemini/antigravity-cli".into(), command: None, start: None, usage_cap: None, acp: None, monthly: None, per_token: false, disabled: false };
+        let account = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: "/h/.gemini/antigravity-cli".into(), command: None, start: None, usage_cap: None, acp: None, monthly: None, per_token: false, disabled: false, chrome_profile: None };
         let ui = Process { pid: 41, conversation: Some("c1".into()), terminal: true, logs: Vec::new() };
         let said = |lines: &[&str]| {
             let mut said = Said { agent_mode: Some("default".into()), ..Said::default() };
@@ -2932,7 +2932,7 @@ mod tests {
         let note = [began(at), error_note("agent executor error: request failed: Post \"https://daily-cloudcode-pa.googleapis.com/\": write tcp [2001:db8::1]:60363->[2001:db8::2]:443: write: broken pipe", Some(TERMINATED))].concat();
         steps.execute("INSERT INTO steps VALUES (2, 17, 3, ?1)", [note]).unwrap();
 
-        let account = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: dir.to_string_lossy().into_owned(), command: None, start: None, usage_cap: None, acp: None, monthly: None, per_token: false, disabled: false };
+        let account = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: dir.to_string_lossy().into_owned(), command: None, start: None, usage_cap: None, acp: None, monthly: None, per_token: false, disabled: false, chrome_profile: None };
         let seen = crate::state::SeenState::default();
         let look = Look { seen: &seen, since: 0, now: at + 60_000, ps: Default::default() };
         let mut reader = Reader { processes: vec![Process { pid: 7, conversation: Some("c1".into()), terminal: true, logs: Vec::new() }], looked_at: Some(Instant::now()), ..Reader::default() };
@@ -2973,7 +2973,7 @@ mod tests {
             std::fs::OpenOptions::new().append(true).open(&log).unwrap().write_all(format!("{l}\n").as_bytes()).unwrap();
         };
 
-        let account = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: dir.to_string_lossy().into_owned(), command: None, start: None, usage_cap: None, acp: None, monthly: None, per_token: false, disabled: false };
+        let account = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: dir.to_string_lossy().into_owned(), command: None, start: None, usage_cap: None, acp: None, monthly: None, per_token: false, disabled: false, chrome_profile: None };
         let seen = crate::state::SeenState::default();
         let look = Look { seen: &seen, since: 0, now: on_14th("17:50:00.000"), ps: Default::default() };
         let mut reader = Reader { processes: vec![Process { pid: 7, conversation: Some("c1".into()), terminal: true, logs: vec![log.clone()] }], looked_at: Some(Instant::now()), ..Reader::default() };
@@ -3021,7 +3021,7 @@ mod tests {
     #[test]
     fn starts_and_resumes_in_its_terminal_ui() {
         use crate::harness::Adapter as _;
-        let a = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: "~/.gemini/antigravity".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let a = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: "~/.gemini/antigravity".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         let ask = |prompt: &'static str, model: Option<&'static str>| crate::harness::StartAsk { prompt, session_id: "unused", model, effort: None, worktree: false, images_dir: Path::new("/i"), files_dir: Path::new("/f") };
         // With nothing to say it only opens; it names the conversation itself.
         let bare = Antigravity.start_in_terminal(&a, &ask("", None));
@@ -3182,7 +3182,7 @@ mod tests {
     #[test]
     fn an_account_with_a_command_of_its_own_has_its_quotas_read() {
         use crate::harness::Adapter as _;
-        let account = AccountCfg { name: "agy".into(), harness: "antigravity".into(), home: "~/.gemini/antigravity".into(), command: Some("/opt/agy/bin/agy".into()), start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let account = AccountCfg { name: "agy".into(), harness: "antigravity".into(), home: "~/.gemini/antigravity".into(), command: Some("/opt/agy/bin/agy".into()), start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         assert!(Antigravity.polls_usage(&account) && Antigravity.no_limits(&account).is_none());
         // And it signs in with that command, whatever's installed.
         assert_eq!(Antigravity.sign_in_command(&account), "/opt/agy/bin/agy");
@@ -3192,7 +3192,7 @@ mod tests {
     fn a_prompt_reaches_a_conversation_where_it_runs() {
         use crate::harness::Adapter as _;
         use crate::send::Route;
-        let a = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: "~/.gemini/antigravity".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let a = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: "~/.gemini/antigravity".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         let c = Conversation { id: "c1".into(), cli: true, ..Default::default() };
         let ui = Process { pid: 41, conversation: Some("c1".into()), terminal: true, logs: Vec::new() };
         let session = |c: &Conversation, p: Option<&Process>| crate::board::antigravity_session(&a, c, p, true, 0, 0);
@@ -3216,7 +3216,7 @@ mod tests {
         let name = format!("codealong-agy-live-{}", std::process::id());
         let folder = std::env::temp_dir().join(&name);
         std::fs::create_dir_all(&folder).unwrap();
-        let account = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: "~/.gemini/antigravity".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let account = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: "~/.gemini/antigravity".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         let accounts = std::slice::from_ref(&account);
         let seen = crate::state::SeenState::default();
         let look = || {
@@ -3302,7 +3302,7 @@ mod tests {
     #[test]
     fn reads_enable_telemetry_as_whether_google_trains_on_the_account() {
         use crate::training::State;
-        let account = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: "~/.gemini/antigravity".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let account = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: "~/.gemini/antigravity".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         let read = |v: Value| telemetry_training(&account, &v);
         let off = read(serde_json::json!({"userSettings": {}, "regionCode": "US"}));
         assert_eq!((off.state, off.can_stop), (State::Off, false));
@@ -3409,7 +3409,7 @@ mod tests {
         std::fs::write(logs.join("transcript_full.jsonl"), format!("{}\n{}\n", LINES[0], ASKED[0])).unwrap();
         let steps = Connection::open(dir.join("conversations/c1.db")).unwrap();
         steps.execute_batch("CREATE TABLE steps (idx INTEGER PRIMARY KEY, step_type INTEGER NOT NULL DEFAULT 0, status INTEGER NOT NULL DEFAULT 0); INSERT INTO steps VALUES (0, 14, 3), (5, 15, 3), (6, 132, 9);").unwrap();
-        let account = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: root.join("antigravity").to_string_lossy().into_owned(), command: None, start: None, usage_cap: None, acp: None, monthly: None, per_token: false, disabled: false };
+        let account = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: root.join("antigravity").to_string_lossy().into_owned(), command: None, start: None, usage_cap: None, acp: None, monthly: None, per_token: false, disabled: false, chrome_profile: None };
         let ctx = Ctx { account: &account };
         let session = Session { surface: Surface::Cli, pid: Some(999_999), cwd: "/r/app".into(), ..Session::new(Harness::Antigravity, "antigravity", "c1") };
         use crate::harness::{Adapter as _, Answer};

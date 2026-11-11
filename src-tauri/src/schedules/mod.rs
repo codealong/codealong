@@ -1634,7 +1634,7 @@ mod tests {
     #[test]
     fn asks_for_a_schedules_emblem_where_its_needed() {
         let now = 1_800_000_000_000;
-        let account = crate::config::AccountCfg { name: "atlas".into(), harness: "claude".into(), home: "/Users/me/.atlas".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let account = crate::config::AccountCfg { name: "atlas".into(), harness: "claude".into(), home: "/Users/me/.atlas".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         let cfg = Config { accounts: vec![account], ..Config::default() };
         let board = Board::default();
         let item = |s: Schedule| Item { schedule: Schedule { id: "s".into(), name: "S".into(), when: When::Fired, run: Run { prompt: "Look".into(), ..Run::default() }, ..s }, ..Item::default() };

@@ -386,7 +386,7 @@ mod tests {
 
     fn cfg(minutes: u32) -> Config {
         let mut cfg = Config::default();
-        cfg.accounts = vec![AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false }];
+        cfg.accounts = vec![AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None }];
         cfg.sessions.hibernate_after = minutes;
         cfg
     }

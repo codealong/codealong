@@ -1351,7 +1351,7 @@ mod tests {
 
     #[test]
     fn forks_a_thread_in_its_accounts_terminal_ui() {
-        let a = crate::config::AccountCfg { name: "codex2".into(), harness: "codex".into(), home: "~/.codex2".into(), command: Some("CODEX_HOME=~/.codex2 codex".into()), start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let a = crate::config::AccountCfg { name: "codex2".into(), harness: "codex".into(), home: "~/.codex2".into(), command: Some("CODEX_HOME=~/.codex2 codex".into()), start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         let f = fork_of(&a, "01a0e375-1c2d-7e3f-8a9b-0c1d2e3f4a5b");
         assert_eq!(f.input, "CODEX_HOME=~/.codex2 codex -c check_for_update_on_startup=false fork 01a0e375-1c2d-7e3f-8a9b-0c1d2e3f4a5b\n");
         assert_eq!(f.key, None);
@@ -1363,7 +1363,7 @@ mod tests {
     /// own before it made its session (2026-10-14).
     #[test]
     fn its_terminal_ui_opens_without_the_update_offer_and_is_still_known() {
-        let a = crate::config::AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: Some("codex".into()), start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let a = crate::config::AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: Some("codex".into()), start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         use crate::harness::Adapter;
         let ask = crate::harness::StartAsk { prompt: "Review the branch", session_id: "unused", model: None, effort: None, worktree: false, images_dir: Path::new("/i"), files_dir: Path::new("/f") };
         let start = Codex.start_in_terminal(&a, &ask);
@@ -1387,7 +1387,7 @@ mod tests {
     /// too (0.162.1's `codex resume --help`).
     #[test]
     fn starts_and_resumes_on_the_model_and_effort_asked_for() {
-        let a = crate::config::AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: Some("codex".into()), start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let a = crate::config::AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: Some("codex".into()), start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         use crate::harness::Adapter;
         let ask = crate::harness::StartAsk { prompt: "Review the branch", session_id: "unused", model: Some("gpt-6-sol"), effort: Some("xhigh"), worktree: false, images_dir: Path::new("/i"), files_dir: Path::new("/f") };
         let start = Codex.start_in_terminal(&a, &ask);
@@ -1417,7 +1417,7 @@ mod tests {
         let mut file = std::fs::File::create(&path).unwrap();
         writeln!(file, r#"{{"type":"session_meta","payload":{{"id":"thread","cwd":"/codealong-test-missing-repo","thread_source":"user"}}}}"#).unwrap();
         writeln!(file, r#"{{"timestamp":"2026-09-24T18:00:00.000Z","type":"event_msg","payload":{{"type":"task_complete","last_agent_message":"Earlier result"}}}}"#).unwrap();
-        let account = AccountCfg { name: "studio".into(), harness: "codex".into(), home: home.to_string_lossy().into_owned(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let account = AccountCfg { name: "studio".into(), harness: "codex".into(), home: home.to_string_lossy().into_owned(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         let accounts = std::slice::from_ref(&account);
         let seen = crate::state::SeenState::default();
         let now = parse_rfc3339_ms("2026-09-24T18:35:00.000Z").unwrap();
@@ -1482,7 +1482,7 @@ mod tests {
         let id = "01a1654e-b202-7d20-8f43-1e676c07126b";
         std::fs::create_dir_all(home.join("archived_sessions")).unwrap();
         std::fs::write(home.join(format!("archived_sessions/rollout-2026-10-22T13-30-18-{id}.jsonl")), "{\"type\":\"session_meta\",\"payload\":{\"id\":\"x\",\"cwd\":\"/codealong-test-missing-repo\"}}\n").unwrap();
-        let account = AccountCfg { name: "studio".into(), harness: "codex".into(), home: home.to_string_lossy().into_owned(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let account = AccountCfg { name: "studio".into(), harness: "codex".into(), home: home.to_string_lossy().into_owned(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         assert!(already_archived(&home, id));
         assert!(!already_archived(&home, "01a1654e-b202-7d20-8f43-1e676c07126c"));
         assert!(Codex.archive(&account, id, true).is_ok());
@@ -1498,7 +1498,7 @@ mod tests {
         let home = crate::fixtures::scratch("codex-early");
         let dir = home.join("sessions/2026/10/22");
         std::fs::create_dir_all(&dir).unwrap();
-        let account = AccountCfg { name: "studio".into(), harness: "codex".into(), home: home.to_string_lossy().into_owned(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let account = AccountCfg { name: "studio".into(), harness: "codex".into(), home: home.to_string_lossy().into_owned(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         let accounts = std::slice::from_ref(&account);
         let seen = crate::state::SeenState::default();
         let now = parse_rfc3339_ms("2026-10-22T20:31:00.000Z").unwrap();
@@ -1544,7 +1544,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("rollout-2026-10-17T15-00-00-01a146ca-bab1-7a31-b58d-61410c87a9ad.jsonl");
         std::fs::write(&path, "{\"type\":\"session_meta\",\"payload\":{\"id\":\"thread\",\"cwd\":\"/codealong-test-missing-repo\",\"thread_source\":\"user\"}}\n{\"timestamp\":\"2026-10-17T22:03:55.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"task_started\"}}\n").unwrap();
-        let account = AccountCfg { name: "studio".into(), harness: "codex".into(), home: home.to_string_lossy().into_owned(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let account = AccountCfg { name: "studio".into(), harness: "codex".into(), home: home.to_string_lossy().into_owned(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         let accounts = std::slice::from_ref(&account);
         let seen = crate::state::SeenState::default();
         let now = parse_rfc3339_ms("2026-10-17T22:30:00.000Z").unwrap();
@@ -1580,7 +1580,7 @@ mod tests {
         let archived = home.join("archived_sessions");
         std::fs::create_dir_all(&archived).unwrap();
         std::fs::write(archived.join(&name), format!("{{\"type\":\"session_meta\",\"payload\":{{\"id\":\"{id}\",\"cwd\":\"/codealong-test-missing-repo\",\"thread_source\":\"user\"}}}}\n")).unwrap();
-        let account = AccountCfg { name: "studio".into(), harness: "codex".into(), home: home.to_string_lossy().into_owned(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let account = AccountCfg { name: "studio".into(), harness: "codex".into(), home: home.to_string_lossy().into_owned(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         let accounts = std::slice::from_ref(&account);
         let key = Session::key_for(Harness::Codex, "studio", id);
         let now = crate::util::now_ms();
@@ -1604,7 +1604,7 @@ mod tests {
     #[test]
     fn a_prompt_for_an_app_thread_goes_to_the_app() {
         use crate::harness::Adapter as _;
-        let account = AccountCfg { name: "codex".into(), harness: "codex".into(), home: "/h".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let account = AccountCfg { name: "codex".into(), harness: "codex".into(), home: "/h".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         let s = Session { surface: crate::model::Surface::App, status: crate::model::Status::Working, live: true, ..Session::new(Harness::Codex, "codex", "abc") };
         assert_eq!(Codex.routes(&account, &s), vec![ipc::InApp.into()]);
     }

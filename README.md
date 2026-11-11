@@ -743,6 +743,7 @@ usage_cap = 90                 # Auto, routing groups and reviews pass over it o
 monthly = 200                  # what its plan costs you a month, in dollars: Paid in the Usage window
 # per_token = true             # it pays by the token (an API key): what its work cost at API prices was paid
 # disabled = true              # turned off: Codealong starts nothing on it and leaves it out of the usage bar; its sessions still show
+# chrome_profile = "Work"      # the Chrome profile signed in to it: the pages its sessions make (Claude's artifacts) open there; without it, the default browser
 
 [[accounts]]
 name = "codex"

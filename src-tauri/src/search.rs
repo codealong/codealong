@@ -623,7 +623,7 @@ mod tests {
 
     #[test]
     fn accounts_in_another_order_keep_what_was_read() {
-        let account = |name: &str| AccountCfg { name: name.into(), harness: "claude".into(), home: format!("~/.{name}"), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let account = |name: &str| AccountCfg { name: name.into(), harness: "claude".into(), home: format!("~/.{name}"), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         let scope = |names: &[&str], days: u32| Scope { accounts: names.iter().map(|n| account(n)).collect(), days };
         let mut ix = Index { scope: scope(&["a", "b"], 14), ready: true, ..Index::default() };
         ix.files.insert(PathBuf::from("/s.jsonl"), FileText { key: "claude:a:s".into(), harness: Harness::Claude, offset: 10, entries: Vec::new() });

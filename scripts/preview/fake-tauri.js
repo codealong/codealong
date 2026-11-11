@@ -646,6 +646,8 @@ window.__TAURI_INTERNALS__ = {
       return Promise.resolve(((args || {}).paths || []).map(function (p) { return /gone/.test(p) ? null : /\/$|\/[^/.]+$/.test(p) ? 'folder' : 'file'; }));
     }
     if (cmd === 'your_editor') return Promise.resolve({ id: 'cursor', name: 'Cursor' });
+    // Chrome's profiles, for a link's menu and an account's pages: this Mac's, as Settings has them.
+    if (cmd === 'chrome_profiles') return fetch('./config.json').then(function (r) { return r.ok ? r.json() : {}; }).then(function (v) { return v.chromeProfiles || []; });
     // Try again on an agent review that didn't get done says what the engine did.
     if (cmd === 'review_pr_again') return Promise.resolve('Reviewing #' + String((args || {}).key).split('#')[1] + ' again: its card says how it goes.');
     if (cmd === 'plugin:menu|new') return Promise.resolve([window.__calls.length, 'menu-' + window.__calls.length]);

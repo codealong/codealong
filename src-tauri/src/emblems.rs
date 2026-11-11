@@ -1292,7 +1292,7 @@ mod tests {
     #[test]
     #[ignore]
     fn draws_with_codex() {
-        let account = AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let account = AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         let s = Session { first_prompt: Some("Add 30 minutes and next Monday to the snooze menu".into()), ..session("x", "Snooze duration options") };
         let cwd = std::env::temp_dir().join("codealong-emblem-drawing");
         std::fs::create_dir_all(&cwd).unwrap();

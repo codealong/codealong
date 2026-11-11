@@ -360,7 +360,7 @@ mod tests {
     #[test]
     fn a_routing_group_or_auto_with_nothing_on_here_cant_run_it() {
         let z = rule::tests::Fake::utc();
-        let account = |name: &str, disabled| crate::config::AccountCfg { name: name.into(), harness: "claude".into(), home: "~/.claude".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled };
+        let account = |name: &str, disabled| crate::config::AccountCfg { name: name.into(), harness: "claude".into(), home: "~/.claude".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled, chrome_profile: None };
         let member = |a: &str| crate::config::GroupMemberCfg { account: a.into(), ..crate::config::GroupMemberCfg::default() };
         let mut cfg = Config::default();
         cfg.accounts = vec![account("claude", true), account("codex", false)];

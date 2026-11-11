@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { asideAhead, doneAhead, labelAhead, quietAhead, raiseAhead, seenAhead } from './ahead';
-import { getAccounts, moveSession, moveSessionTo, resumeSession, setPrPrimary, type Done, type MergeDone } from './api';
+import { getAccounts, moveSession, moveSessionTo, openInChrome, openUrl, resumeSession, setPrPrimary, type Done, type MergeDone } from './api';
 import type { MenuAction, MenuGroup, MenuSpec } from './contextMenu';
-import { carryOnIn, chordLetter, chordSigns, chorded, CHORDS, DONE_HOLD_MS, SUGGESTION_CHORDS, suggestionChord, doneTitle, fileMenu, keyed, laneActions, laneMenu, lanesActions, lanesMenu, mergesWith, prMenu, prsActions, prsMenu, repoMenu, sessionActions, sessionMenu, sessionsActions, sessionsMenu, todoMenu, todoPanelMenu, todosMenu, toggleWaiting, type MergeDoneAsk, type SessionCan, type SessionsCan, type TodoEdit } from './menus';
+import { carryOnIn, chordLetter, chordSigns, chorded, CHORDS, DONE_HOLD_MS, SUGGESTION_CHORDS, suggestionChord, doneTitle, fileMenu, keyed, laneActions, laneMenu, lanesActions, lanesMenu, mergesWith, prMenu, prsActions, prsMenu, repoMenu, sessionActions, sessionMenu, sessionsActions, sessionsMenu, todoMenu, todoPanelMenu, todosMenu, toggleWaiting, linkMenu, type MergeDoneAsk, type SessionCan, type SessionsCan, type TodoEdit } from './menus';
 import type { MergeForm } from './merge';
 import { openLabel } from './open';
 import { setPlatform } from './platform';
@@ -15,7 +15,7 @@ import type { Label, Lane, PrItem, Session, Todo } from './types';
 // What the engine says to Mark as done: done, unless a test says otherwise.
 vi.mock('./ahead', async (original) => ({ ...(await original<typeof import('./ahead')>()), doneAhead: vi.fn(), labelAhead: vi.fn(() => Promise.resolve()), quietAhead: vi.fn(() => Promise.resolve()), raiseAhead: vi.fn(() => Promise.resolve()), asideAhead: vi.fn(() => Promise.resolve()), seenAhead: vi.fn(() => Promise.resolve()) }));
 // No accounts to move to, unless a test says otherwise; what a move gives back, as a test says.
-vi.mock('./api', async (original) => ({ ...(await original<typeof import('./api')>()), getAccounts: vi.fn(() => Promise.resolve([])), moveSession: vi.fn(), moveSessionTo: vi.fn(), resumeSession: vi.fn(), setPrPrimary: vi.fn(() => Promise.resolve()) }));
+vi.mock('./api', async (original) => ({ ...(await original<typeof import('./api')>()), getAccounts: vi.fn(() => Promise.resolve([])), moveSession: vi.fn(), moveSessionTo: vi.fn(), openInChrome: vi.fn(() => Promise.resolve()), openUrl: vi.fn(() => Promise.resolve()), resumeSession: vi.fn(), setPrPrimary: vi.fn(() => Promise.resolve()) }));
 // No accounts to resume in, unless a test says otherwise.
 vi.mock('./startAccounts', async (original) => ({ ...(await original<typeof import('./startAccounts')>()), startAccountsNow: vi.fn(() => []) }));
 
@@ -250,7 +250,7 @@ describe('sessionMenu', () => {
       sessionActions(lane(), session(), base);
       await settled();
     };
-    const c2 = { name: 'c2', harness: 'claude' as const, home: '~/.claude-c2', command: 'claude-c2', folderExists: true, signedIn: true, email: null, signInNote: null };
+    const c2 = { name: 'c2', harness: 'claude' as const, home: '~/.claude-c2', command: 'claude-c2', makesPages: true, folderExists: true, signedIn: true, email: null, signInNote: null };
     try {
       // One turned off isn't offered.
       await readAccounts([{ ...c2, disabled: true }], later);
@@ -844,6 +844,40 @@ describe('fileMenu', () => {
     const menu = fileMenu('/Users/me/a.md', 'file', { ...can, ...run }).filter((i): i is MenuAction => i !== 'separator' && !('items' in i));
     menu.slice(0, 3).forEach((i) => i.run());
     expect([run.open, run.edit, run.reveal].map((f) => f.mock.calls.length)).toEqual([1, 1, 1]);
+  });
+});
+
+describe('linkMenu', () => {
+  const URL = 'https://claude.ai/artifact/Pq7';
+  const personal = { id: 'Personal', name: 'Personal', dir: 'Default', email: 'me@example.com' };
+  const work = { id: 'Work', name: 'Work', dir: 'Profile 3', email: 'me@work.example' };
+
+  it('opens it as a click does, in each of Chrome’s profiles, and copies it', () => {
+    expect(labels(linkMenu(URL, [personal, work], { report }))).toEqual(['Open link', '-', 'Open in Chrome (Personal)', 'Open in Chrome (Work)', '-', 'Copy link']);
+  });
+
+  it('names one profile alone by nothing, and leaves Chrome out where it has none', () => {
+    expect(labels(linkMenu(URL, [work], { report }))).toEqual(['Open link', '-', 'Open in Chrome', '-', 'Copy link']);
+    expect(labels(linkMenu(URL, [], { report }))).toEqual(['Open link', '-', 'Copy link']);
+  });
+
+  it('tells profiles of one name apart by who’s signed in, or their folders', () => {
+    const me = [{ ...personal, name: 'Me' }, { ...work, name: 'me', email: null }];
+    expect(labels(linkMenu(URL, me, { report }))).toEqual(['Open link', '-', 'Open in Chrome (Me · me@example.com)', 'Open in Chrome (me · Profile 3)', '-', 'Copy link']);
+  });
+
+  it('opens the link where each says, and says what went wrong', async () => {
+    const errors: string[] = [];
+    vi.mocked(openInChrome).mockClear();
+    vi.mocked(openInChrome).mockImplementationOnce(() => Promise.reject(new Error('Chrome didn’t answer.')));
+    const menu = linkMenu(URL, [personal, work], { report: { error: (m) => errors.push(m), info: noop } }).filter((i): i is MenuAction => i !== 'separator' && !('items' in i));
+    menu[0].run();
+    menu[2].run();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(vi.mocked(openUrl).mock.calls.at(-1)).toEqual([URL]);
+    expect(vi.mocked(openInChrome).mock.calls).toEqual([[URL, work]]);
+    expect(errors).toEqual(['Chrome didn’t answer.']);
   });
 });
 

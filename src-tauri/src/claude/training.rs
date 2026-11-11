@@ -71,7 +71,7 @@ mod tests {
     use super::*;
 
     fn account() -> AccountCfg {
-        AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false }
+        AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None }
     }
 
     /// As the endpoint answered on 2026-10-13, with the rest of the settings left out.

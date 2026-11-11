@@ -838,18 +838,47 @@ pub fn open_team_file(b: &Board, slug: &str) -> Result<()> {
     editors::open(&your_editor(b).id, &file)
 }
 
-/// Opens a web link: one into a worktree's app where its preview opens, so the app has that
-/// Chrome profile's sign-in (`board::app_of_link`), any other in the default browser. A profile
-/// Chrome no longer has opens the link in the default browser rather than not at all: a link's
-/// click has nowhere to say why, and the preview's own Open says it.
+/// Opens a web link where `link_opens` says. A profile Chrome no longer has opens the link in
+/// the default browser rather than not at all: a link's click has nowhere to say why, and the
+/// preview's own Open and `codealong config check` say it.
 pub fn open_link(b: &Board, url: &str) -> Result<()> {
-    match link_opens_as(b, url) {
-        Some(lane) => open_as_preview(url, &lane).or_else(|e| {
-            eprintln!("Opening {url} in the default browser: {e:#}");
-            launch::open_url(url)
-        }),
-        None => launch::open_url(url),
+    let accounts = config::current().map(|c| c.accounts).unwrap_or_default();
+    let opened = match link_opens(b, &accounts, url) {
+        LinkOpens::Preview(lane) => open_as_preview(url, &lane),
+        LinkOpens::Account { account, profile } => account_profile(&account, &profile).and_then(|p| chrome::open(url, &p)),
+        LinkOpens::Default => return launch::open_url(url),
+    };
+    opened.or_else(|e| {
+        eprintln!("Opening {url} in the default browser: {e:#}");
+        launch::open_url(url)
+    })
+}
+
+/// Where a click on a web link opens it (`open_link`), by what it's a link to.
+pub enum LinkOpens {
+    /// Into a worktree's app whose preview opens in a Chrome profile: there, so the app has that
+    /// profile's sign-in (`board::app_of_link`).
+    Preview(Lane),
+    /// A page a session made, whose account names a Chrome profile (`AccountCfg::chrome_profile`):
+    /// there, where you're signed in to that account and can see it (`board::sessions_with_page`).
+    Account { account: String, profile: String },
+    /// Anything else: the default browser.
+    Default,
+}
+
+/// Where a click on `url` opens it. When sessions on more than one account made the page, the
+/// one that last did something with it and has a profile decides.
+pub fn link_opens(board: &Board, accounts: &[config::AccountCfg], url: &str) -> LinkOpens {
+    if let Some(lane) = board::app_of_link(&board.lanes, url) {
+        return LinkOpens::Preview(lane.clone());
     }
+    let profile_of = |name: &str| accounts.iter().find(|a| a.name == name)?.chrome_profile.as_deref().map(str::trim).filter(|p| !p.is_empty()).map(str::to_string);
+    board::sessions_with_page(&board.lanes, url).into_iter().find_map(|s| Some(LinkOpens::Account { account: s.account.clone(), profile: profile_of(&s.account)? })).unwrap_or(LinkOpens::Default)
+}
+
+/// The Chrome profile an account names, or why Chrome has none by that name.
+pub fn account_profile(account: &str, name: &str) -> Result<chrome::Profile> {
+    chrome::resolve(name).map_err(|e| anyhow!("{e} It's set for {account} in config.toml."))
 }
 
 /// Opens a lane's target where it lives (`open_on`), and keeps an editor picked from an Open in
@@ -983,12 +1012,6 @@ fn open_as_preview(url: &str, lane: &Lane) -> Result<()> {
     let whose = if preview.chrome_profile_set { "this worktree".to_string() } else { format!("{} in config.toml", lane.project) };
     let profile = chrome::resolve(name).map_err(|e| anyhow!("{e} It's set for {whose}."))?;
     chrome::open(url, &profile)
-}
-
-/// The worktree whose preview a web link opens as (`Handle::open_link`), or None when it opens
-/// in the default browser.
-pub fn link_opens_as(board: &Board, url: &str) -> Option<Lane> {
-    board::app_of_link(&board.lanes, url).cloned()
 }
 
 /// The board before the first scan has finished: loading, with the theme, zoom, shortcuts and
@@ -4796,10 +4819,31 @@ mod tests {
         use super::*;
         let stopped = crate::model::Session { live: false, resume_command: Some("claude --resume stopped".into()), ..crate::fixtures::session("stopped") };
         let board = Board { lanes: vec![crate::fixtures::lane("/r", vec![stopped])], ..Board::default() };
-        let off = config::AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: true };
+        let off = config::AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: true, chrome_profile: None };
         let cfg = config::Config { accounts: vec![off], ..config::Config::default() };
         let e = open_with(&board, &cfg, "/r", "s|stopped|resume").unwrap_err().to_string();
         assert_eq!(e, "claude is turned off in Settings › Accounts.");
+    }
+
+    /// A page a session made opens in the Chrome profile its account names: the latest session's
+    /// that names one, past a later one on an account that doesn't. Other links, and pages on
+    /// accounts without one, open in the default browser.
+    #[test]
+    fn a_page_opens_in_its_accounts_chrome_profile() {
+        use super::*;
+        let made = |at: i64| crate::model::Artifact { url: "https://claude.ai/artifact/Pq7".into(), title: "Roles".into(), note: None, at };
+        let on = |key: &str, account: &str, at: i64| crate::model::Session { account: account.into(), artifacts: vec![made(at)], ..crate::fixtures::session(key) };
+        let board = Board { lanes: vec![crate::fixtures::lane("/r", vec![on("claude:claude:a", "claude", 20), on("claude:claude2:b", "claude2", 10)])], ..Board::default() };
+        let account = |name: &str, profile: Option<&str>| config::AccountCfg { name: name.into(), harness: "claude".into(), home: format!("~/.{name}"), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: profile.map(String::from) };
+        let says = |accounts: &[config::AccountCfg], url: &str| match link_opens(&board, accounts, url) {
+            LinkOpens::Preview(lane) => format!("preview {}", lane.id),
+            LinkOpens::Account { account, profile } => format!("{account} in {profile}"),
+            LinkOpens::Default => "default".into(),
+        };
+        assert_eq!(says(&[account("claude", None), account("claude2", Some("Work"))], "https://claude.ai/artifact/Pq7"), "claude2 in Work");
+        assert_eq!(says(&[account("claude", Some("Personal")), account("claude2", Some("Work"))], "https://claude.ai/artifact/Pq7"), "claude in Personal");
+        assert_eq!(says(&[account("claude", Some(" ")), account("claude2", None)], "https://claude.ai/artifact/Pq7"), "default");
+        assert_eq!(says(&[account("claude2", Some("Work"))], "https://example.com/elsewhere"), "default");
     }
 
     #[test]

@@ -771,6 +771,9 @@ export interface AccountCfg {
   /** Turned off: Codealong starts nothing on it and leaves it out of the usage bar; its sessions
    *  still show. */
   disabled?: boolean;
+  /** The Chrome profile signed in to it, where the pages its sessions make open (by its name, the
+   *  account signed in to it or its folder); absent opens them in the default browser. */
+  chrome_profile?: string | null;
 }
 
 /** How a routing group picks among its members with room (config.rs `RoutingStrategy`). */
@@ -1488,6 +1491,8 @@ export interface ChromeProfile {
 }
 
 export interface AccountInfo extends AccountCfg {
+  /** Its harness records the pages its sessions make, so a Chrome profile for them does something. */
+  makesPages: boolean;
   folderExists: boolean;
   signedIn: boolean;
   email: string | null;

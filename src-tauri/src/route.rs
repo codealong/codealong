@@ -943,7 +943,7 @@ mod tests {
         use crate::model::{Meter, Severity};
         let (one, two) = (crate::fixtures::scratch("needs-one"), crate::fixtures::scratch("needs-two"));
         std::fs::write(one.join("settings.json"), r#"{"model": "claude-fable-5-1"}"#).unwrap();
-        let account = |name: &str, dir: &std::path::Path| crate::config::AccountCfg { name: name.into(), harness: "claude".into(), home: dir.to_string_lossy().into_owned(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let account = |name: &str, dir: &std::path::Path| crate::config::AccountCfg { name: name.into(), harness: "claude".into(), home: dir.to_string_lossy().into_owned(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         let cfg = crate::config::Config { accounts: vec![account("claude", &one), account("claude2", &two)], ..Default::default() };
         let meter = |key: &str, percent: f64, model: Option<&str>| Meter { key: key.into(), label: key.into(), window: key.into(), percent, resets_at: None, severity: if percent >= 90.0 { Severity::Critical } else { Severity::Normal }, model: model.map(String::from) };
         let usage = |a: &crate::config::AccountCfg, meters: Vec<Meter>| crate::model::Usage { meters, as_of: Some(NOW), loading: false, ..crate::usage::loading(a) };

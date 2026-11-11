@@ -2568,6 +2568,23 @@ pub fn app_of_link<'a>(lanes: &'a [Lane], url: &str) -> Option<&'a Lane> {
     })
 }
 
+/// The sessions on this Mac that made the page a web link is to (`Session.artifacts`), the one
+/// that last did something with it first: its account's Chrome profile is where you're signed in
+/// to see it (`engine::link_opens`). A trailing slash doesn't make it another page. Another
+/// device's sessions are its accounts', not this Mac's.
+pub fn sessions_with_page<'a>(lanes: &'a [Lane], url: &str) -> Vec<&'a Session> {
+    let page = |u: &str| u.trim_end_matches('/').to_string();
+    let wanted = page(url);
+    let mut found: Vec<(&Session, i64)> = lanes
+        .iter()
+        .filter(|l| l.device.is_none())
+        .flat_map(|l| &l.sessions)
+        .filter_map(|s| s.artifacts.iter().find(|a| page(&a.url) == wanted).map(|a| (s, a.at)))
+        .collect();
+    found.sort_by_key(|(_, at)| Reverse(*at));
+    found.into_iter().map(|(s, _)| s).collect()
+}
+
 /// What a session's Chrome item says: Show in Chrome while one of its tabs is open, else Reopen
 /// with the site of its last page, and the profile when Chrome has more than one. `chromeLabel`
 /// in `src/open.ts` says the same.
@@ -2990,7 +3007,7 @@ mod tests {
     const NOW: i64 = 1_790_200_000_000;
 
     fn acct(name: &str) -> AccountCfg {
-        AccountCfg { name: name.into(), harness: "claude".into(), home: format!("~/.{name}"), command: Some(name.into()), start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false }
+        AccountCfg { name: name.into(), harness: "claude".into(), home: format!("~/.{name}"), command: Some(name.into()), start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None }
     }
 
     #[test]
@@ -5363,7 +5380,7 @@ mod tests {
 
     #[test]
     fn maps_codex_statuses() {
-        let a = AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let a = AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         let mut th = ThreadInfo { id: "01a0c4a6".into(), cwd: "/r".into(), last_ts: NOW - 1_000, turn_open: true, turn_started_at: Some(NOW - 5_000), ..Default::default() };
         assert_eq!(codex_session(&a, &th, Some("Photo tools"), None, None, false, 0, NOW, None).status, Status::Working);
         assert_eq!(codex_session(&a, &th, None, None, None, false, 0, NOW, None).open_target, "s|codex:codex:01a0c4a6|codex");
@@ -5398,7 +5415,7 @@ mod tests {
 
     #[test]
     fn a_codex_turn_no_process_holds_was_cut_off() {
-        let a = AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let a = AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         let th = ThreadInfo {
             id: "01a1315d".into(),
             cwd: "/r".into(),
@@ -5429,7 +5446,7 @@ mod tests {
 
     #[test]
     fn a_codex_turn_the_app_stopped_as_it_quit_was_cut_off() {
-        let a = AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let a = AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         // Stopped as the Mac restarted, and written to by the app opening it again after.
         let th = ThreadInfo {
             id: "01a0f3c7".into(),
@@ -5464,7 +5481,7 @@ mod tests {
     /// Codealong sent it; a name wins over both.
     #[test]
     fn an_unnamed_codex_thread_goes_by_its_first_prompt() {
-        let a = AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let a = AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         let th = ThreadInfo {
             id: "01a0f2c7".into(),
             cwd: "/r".into(),
@@ -5483,7 +5500,7 @@ mod tests {
 
     #[test]
     fn a_codex_cli_thread_opens_in_its_terminal() {
-        let a = AccountCfg { name: "codex2".into(), harness: "codex".into(), home: "~/.codex2".into(), command: Some("CODEX_HOME=~/.codex2 codex".into()), start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let a = AccountCfg { name: "codex2".into(), harness: "codex".into(), home: "~/.codex2".into(), command: Some("CODEX_HOME=~/.codex2 codex".into()), start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         let th = ThreadInfo { id: "01a0e375".into(), cwd: "/r".into(), last_ts: NOW - 1_000, cli: true, ..Default::default() };
         let open = codex_session(&a, &th, None, Some(42), None, false, 0, NOW, None);
         assert_eq!((open.surface, open.live, open.pid, open.open_target.as_str()), (Surface::Cli, true, Some(42), "s|codex:codex2:01a0e375|focus"));
@@ -5499,7 +5516,7 @@ mod tests {
 
     #[test]
     fn maps_opencode_statuses() {
-        let a = AccountCfg { name: "opencode".into(), harness: "opencode".into(), home: "~/.local/share/opencode".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let a = AccountCfg { name: "opencode".into(), harness: "opencode".into(), home: "~/.local/share/opencode".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         let mut row = SessionRow {
             id: "ses_abc1234567".into(),
             directory: "/r".into(),
@@ -5548,7 +5565,7 @@ mod tests {
 
     #[test]
     fn maps_antigravity_statuses() {
-        let a = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: "~/.gemini/antigravity".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let a = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: "~/.gemini/antigravity".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         // The app's conversation, with a turn under way while the app's agent is up.
         let mut c = Conversation {
             id: "c1".into(),
@@ -5595,7 +5612,7 @@ mod tests {
 
     #[test]
     fn a_command_line_conversation_runs_while_its_process_has_it() {
-        let a = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: "~/.gemini/antigravity".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let a = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: "~/.gemini/antigravity".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         let c = Conversation { id: "c2".into(), cli: true, preview: Some("Fix the build".into()), status: "cascade_run_status_running".into(), not_fully_idle: true, last_modified: NOW - 2 * ANTIGRAVITY_STALE_MS, last_input: Some(NOW - 3 * ANTIGRAVITY_STALE_MS), ..Default::default() };
         // In its terminal UI: it works however long it's been quiet, and its tab is where it opens.
         let ui = Process { pid: 41, conversation: Some("c2".into()), terminal: true, logs: Vec::new() };
@@ -5660,7 +5677,7 @@ mod tests {
     #[test]
     fn an_antigravity_turn_that_failed_says_why() {
         use crate::antigravity::Failed;
-        let a = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: "~/.gemini/antigravity".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let a = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: "~/.gemini/antigravity".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         let ui = Process { pid: 41, conversation: Some("c3".into()), terminal: true, logs: Vec::new() };
         let mut c = Conversation { id: "c3".into(), cli: true, status: "cascade_run_status_idle".into(), last_modified: NOW - 1_000, last_input: Some(NOW - 60_000), ..Default::default() };
         c.tail.last_text = Some("Running the browser checks now; I'll proceed once they finish.".into());
@@ -5696,7 +5713,7 @@ mod tests {
     #[test]
     fn maps_cursor_statuses() {
         use crate::cursor::{Call, Chat};
-        let a = AccountCfg { name: "cursor".into(), harness: "cursor".into(), home: "~/.cursor".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let a = AccountCfg { name: "cursor".into(), harness: "cursor".into(), home: "~/.cursor".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         // The app's chat, generating while the app is up.
         let mut c = Chat { id: "c1".into(), title: Some("Fix the build".into()), cwd: Some("/r".into()), status: "generating".into(), created_at: NOW - 9_000, last_updated: NOW - 1_000, model: Some("gpt-5.5".into()), branch: Some("fix".into()), messages: 4, ..Default::default() };
         c.tail.last_tool = Some("Run · `cargo test`".into());
@@ -5738,7 +5755,7 @@ mod tests {
     #[test]
     fn a_cursor_command_line_chat_runs_while_its_process_has_it() {
         use crate::cursor::{Chat, Process};
-        let a = AccountCfg { name: "cursor".into(), harness: "cursor".into(), home: "~/.cursor".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let a = AccountCfg { name: "cursor".into(), harness: "cursor".into(), home: "~/.cursor".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         let mut c = Chat { id: "c2".into(), cli: true, title: Some("Fix the build".into()), created_at: NOW - 9_000, last_updated: NOW - 2_000, ..Default::default() };
         c.tail.turn_open = true;
         let ui = Process { pid: 41, chat: Some("c2".into()), terminal: true, prompt: None, started: None };
@@ -5795,7 +5812,7 @@ mod tests {
     #[test]
     fn a_cursor_chat_resumed_after_its_turn_was_cut_off_waits_at_its_box() {
         use crate::cursor::{Chat, Process};
-        let a = AccountCfg { name: "cursor".into(), harness: "cursor".into(), home: "~/.cursor".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let a = AccountCfg { name: "cursor".into(), harness: "cursor".into(), home: "~/.cursor".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         const HOUR: i64 = 3_600_000;
         // The transcript stopped an hour ago; resuming touched only the chat's database, a minute ago.
         let mut cut = Chat { id: "c4".into(), cli: true, title: Some("Review PR 7".into()), created_at: NOW - 2 * HOUR, last_updated: NOW - 60_000, transcript_at: Some(NOW - HOUR), ..Default::default() };
@@ -6454,6 +6471,24 @@ mod tests {
     }
 
     #[test]
+    fn a_page_is_the_sessions_that_made_it_latest_first() {
+        let made = |url: &str, at: i64| Artifact { url: url.into(), title: "Roles".into(), note: None, at };
+        let session = |key: &str, account: &str, artifacts: Vec<Artifact>| Session { account: account.into(), artifacts, ..crate::fixtures::session(key) };
+        let mine = Lane {
+            sessions: vec![session("claude:claude:a", "claude", vec![made("https://claude.ai/artifact/Pq7", 10)]), session("claude:claude2:b", "claude2", vec![made("https://claude.ai/artifact/Zx1", 5), made("https://claude.ai/artifact/Pq7", 20)])],
+            ..crate::fixtures::lane("/r/atlas", vec![])
+        };
+        let keys = |lanes: &[Lane], url: &str| sessions_with_page(lanes, url).iter().map(|s| s.key.clone()).collect::<Vec<_>>();
+        let lanes = vec![mine.clone()];
+        assert_eq!(keys(&lanes, "https://claude.ai/artifact/Pq7"), ["claude:claude2:b", "claude:claude:a"]);
+        assert_eq!(keys(&lanes, "https://claude.ai/artifact/Zx1/"), ["claude:claude2:b"]);
+        assert!(keys(&lanes, "https://claude.ai/artifact/Other").is_empty());
+        // Another machine's sessions are signed in to its accounts, not this Mac's.
+        let elsewhere = DeviceTag { name: "Mini".into(), short: "abc".into(), color: "blue".into(), online: true, last_seen: None };
+        assert!(keys(&[Lane { device: Some(elsewhere), ..mine }], "https://claude.ai/artifact/Pq7").is_empty());
+    }
+
+    #[test]
     fn builds_targets_with_app_names() {
         let apps = AppNames { terminal: "Ghostty".into(), terminal_id: "ghostty".into(), editor: "Cursor".into(), editor_id: "cursor".into(), ..Default::default() };
         let a = acct("claude2");
@@ -6466,7 +6501,7 @@ mod tests {
         assert_eq!(t[0].label, "Respond in Rex");
         assert!(t.iter().all(|x| !x.id.ends_with("|claude-app")), "claude2 isn't the Claude app's account");
         assert!(t.iter().any(|x| x.label == "Open in Cursor"));
-        let main = AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let main = AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         let mine = claude_session(&main, Some(&reg("waiting", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
         let (t, _) = targets(&seed("/r/spark-portal", "portal"), &[mine], None, None, &apps);
         let app = |t: &[Target]| t.iter().find(|x| x.id.ends_with("|claude-app")).map(|x| (x.label.clone(), x.detail.clone().unwrap_or_default(), x.disabled));

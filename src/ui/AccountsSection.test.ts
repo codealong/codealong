@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { FoundAccount } from '../types';
-import { commandOf, foundNote, missingCliNote, monthlyOf, startPlaces } from './AccountsSection';
+import { chromeWords, commandOf, foundNote, missingCliNote, monthlyOf, startPlaces } from './AccountsSection';
 
 describe('monthlyOf', () => {
   it('reads a plan price as typed, a dollar sign and commas too, and nothing for one it can’t', () => {
@@ -72,5 +72,20 @@ describe('missingCliNote', () => {
   it('says which command line isn’t here, and nothing when it is', () => {
     expect(missingCliNote({ name: 'cursor', harness: 'cursor', missingCli: 'cursor-agent' })).toBe('cursor-agent, Cursor’s command line, isn’t on this machine, so Codealong starts none of cursor’s sessions that need it. An agent on another account can install it.');
     expect(missingCliNote({ name: 'cursor', harness: 'cursor' })).toBeNull();
+  });
+});
+
+describe('chromeWords', () => {
+  const profiles = [{ id: 'Work', name: 'Work', dir: 'Profile 3', email: 'me@work.example' }];
+
+  it('names the profile as Chrome’s picker does, however the setting names it', () => {
+    expect(chromeWords('work', profiles)).toBe('Chrome’s Work profile');
+    expect(chromeWords('me@work.example', profiles)).toBe('Chrome’s Work profile');
+    expect(chromeWords('Profile 3', profiles)).toBe('Chrome’s Work profile');
+  });
+
+  it('says so of one Chrome doesn’t have, and keeps it as written where Chrome lists none', () => {
+    expect(chromeWords('Play', profiles)).toBe('Chrome’s Play profile, which Chrome doesn’t have');
+    expect(chromeWords('Play', [])).toBe('Chrome’s Play profile');
   });
 });

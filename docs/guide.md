@@ -572,8 +572,8 @@ of the session's on a click (in the floating windows, in PRs), opens it on GitHu
 and shows the PR's card on hover, which merges an open PR there (see *Merging*), with the todo it's
 on and +N for the rest. Beside its PRs is the latest page on the web it
 made: an artifact Claude Code published, made from a type or opened, its subagents' included, as a
-chip with its title, lavender fading into pink so it can't be taken for a label or a state, that opens it in the browser on a click, what it last did with it and when on
-hover. When it made more, "+N more" beside the chip (naming them on hover) lists the rest under the
+chip with its title, lavender fading into pink so it can't be taken for a label or a state, that opens it in the browser on a click (in the Chrome profile its account names, Settings › Accounts), what it last did with it and when on
+hover, and a link's menu on a right-click. When it made more, "+N more" beside the chip (naming them on hover) lists the rest under the
 links, the latest first, each with what was last done with it and how long ago, and "fewer" puts
 them away, as the sessions that came of it go under its title. An artifact published again is one
 page, as it last stood. Below is its whole conversation, read from the session's own record
@@ -591,7 +591,10 @@ place. A long one shows its first ten lines, fading out, until Show all (Show le
 and shows whole while ⌘F finds something in it. A device whose build is from before gets the note
 it showed, the message's first line under who it's from; so does the phone, as a note. An artifact Claude Code published shows under its call as its title, a link that opens it,
 with what the call did (Published · version 3), and stays out of a fold; web links in a tool's
-output open too. Questions a Claude Code session asked you (its AskUserQuestion) stay out of a fold
+output open too. A right-click on a web link anywhere in a conversation (a reply's, a tool's output,
+a page a call made) offers **Open link**, which does what a click does, **Open in Chrome** for each
+of Chrome's profiles (by the name its picker shows, with the account signed in to it where two
+share a name), and **Copy link**; one that doesn't open says why beside the link. Questions a Claude Code session asked you (its AskUserQuestion) stay out of a fold
 too, as a line that opens to each question with its choices, your picks marked; your answers show
 under it, where you gave them, as a message of yours: a line for each question, by its header (the
 whole question on hover), with what you picked or wrote. The agent's reply after them heads itself
@@ -2295,6 +2298,17 @@ about a pull request, and no pick of it by Auto or in the quick panel. Its usage
 leaves the usage bar and Settings › Agents. Its sessions still show on the board, and running ones
 still take what you send them. **Turn on** brings it back; **Remove** stops reading it at all.
 
+An account whose sessions make pages on the web (Claude Code's artifacts) can name the Chrome
+profile signed in to it, in its Edit form (**Chrome profile**) or as `chrome_profile` in its
+`[[accounts]]` table, by the name Chrome's profile picker shows, the Google account signed in to
+it, or its folder. A page one of its sessions made then opens there, signed in to see it, wherever
+its link is clicked: its chip in the session's header, the list under it, the line under the call
+that made it, or the page's link in a reply. With more than one account having made the same page,
+the session that last did something with it and whose account names a profile decides. Without
+one, its pages open in the default browser as any link does. The card says where its pages open,
+and a profile Chrome doesn't have opens them in the default browser (`codealong --snapshot --link
+<url>` says why).
+
 Each card lists the MCP servers its agents have wherever they run: the first three, then **+N**,
 which shows the rest (**Fewer** folds them again), each saying on hover where it comes from and how
 many tools it has where that's known. They're read at launch, every hour and when you click the
@@ -3554,7 +3568,9 @@ worktrees, and a worktree can pick its own in its Preview URL sheet or with `cod
 --chrome-profile <name>`. Profiles are named as Chrome's profile picker shows them, by the account
 signed in to them, or by folder, and are read from Chrome's `Local State`. A link into a worktree's
 app, in a conversation or a PR's description, opens in that profile too: one at its URL's host and
-port, or at the port of the server that serves it; any other link opens in the default browser.
+port, or at the port of the server that serves it. A page a session made opens in the profile its
+account names (Settings › Accounts); any other link opens in the default browser, or in a profile
+you pick from its right-click menu.
 Servers are found from the kernel's list of your processes' listening ports every 10 seconds (a few
 milliseconds for every worktree at once), each new one is asked for its front page once, and the
 kernel says the moment one exits, so nothing is polled over HTTP. Only worktrees in projects are

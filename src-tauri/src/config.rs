@@ -1452,6 +1452,12 @@ pub struct AccountCfg {
     /// percent); None is 90%.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usage_cap: Option<u8>,
+    /// The Chrome profile signed in to this account's provider, by its name, the account signed
+    /// in to it or its folder (chrome.rs `find`): a page its sessions made (`Session.artifacts`,
+    /// a Claude artifact) opens there, wherever its link is clicked (`engine::open_link`). None
+    /// opens them in the default browser.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chrome_profile: Option<String>,
 }
 
 impl AccountCfg {
@@ -1707,6 +1713,9 @@ pub fn check_accounts(accounts: &[AccountCfg]) -> std::result::Result<(), String
                 return Err(format!("{}'s usage_cap is {cap}; it goes from 1 to 100 (percent).", a.name));
             }
         }
+        if a.chrome_profile.as_deref().is_some_and(|c| c.trim().is_empty()) {
+            return Err(format!("{}'s chrome_profile is empty; take the line out to open its pages in the default browser.", a.name));
+        }
     }
     Ok(())
 }
@@ -1900,6 +1909,9 @@ fn set_accounts(doc: &mut toml_edit::DocumentMut, accounts: &[AccountCfg]) {
             }
             if let Some(cap) = a.usage_cap {
                 t["usage_cap"] = value(i64::from(cap));
+            }
+            if let Some(c) = a.chrome_profile.as_deref().map(str::trim).filter(|c| !c.is_empty()) {
+                t["chrome_profile"] = value(c);
             }
             t
         })
@@ -3067,7 +3079,7 @@ pub fn render(cfg: &Config) -> String {
         s.push_str(&format!("meeting_calendars_off = {}\n", list(&cfg.voice.meeting_calendars_off)));
         s.push_str(&format!("on_speakers = {}\n", cfg.voice.on_speakers));
     }
-    s.push_str("\n# Harness accounts. `name` is what you type and what the board shows.\n# `start` is where new sessions start: \"terminal\", \"background\", \"claude-app\", \"codex-app\" or \"codealong\". A start from the quick panel sets it.\n# `acp`: the command that runs the account's Agent Client Protocol adapter, for sessions Codealong runs itself.\n# `usage_cap`: where Auto and routing groups pass over this account for one with more room (1 to 100 percent; default 90).\n# `monthly`: what its plan costs you a month, in dollars; `per_token = true`: it pays for each token\n# at API prices. The Usage window counts both as paid.\n# `disabled = true`: Codealong starts nothing on it and leaves it out of the usage bar; its sessions still show.\n");
+    s.push_str("\n# Harness accounts. `name` is what you type and what the board shows.\n# `start` is where new sessions start: \"terminal\", \"background\", \"claude-app\", \"codex-app\" or \"codealong\". A start from the quick panel sets it.\n# `acp`: the command that runs the account's Agent Client Protocol adapter, for sessions Codealong runs itself.\n# `usage_cap`: where Auto and routing groups pass over this account for one with more room (1 to 100 percent; default 90).\n# `monthly`: what its plan costs you a month, in dollars; `per_token = true`: it pays for each token\n# at API prices. The Usage window counts both as paid.\n# `disabled = true`: Codealong starts nothing on it and leaves it out of the usage bar; its sessions still show.\n# `chrome_profile`: the Chrome profile signed in to it, where the pages its sessions make (Claude's artifacts) open.\n");
     for a in &cfg.accounts {
         s.push_str("\n[[accounts]]\n");
         s.push_str(&format!("name = {}\n", q(&a.name)));
@@ -3093,6 +3105,9 @@ pub fn render(cfg: &Config) -> String {
         }
         if let Some(cap) = a.usage_cap {
             s.push_str(&format!("usage_cap = {cap}\n"));
+        }
+        if let Some(c) = &a.chrome_profile {
+            s.push_str(&format!("chrome_profile = {}\n", q(c)));
         }
     }
     s.push_str("\n# Projects group repos (by pattern) and plain folders.\n");
@@ -3156,8 +3171,8 @@ mod tests {
             appearance: AppearanceCfg { theme: Theme::Dark, ..AppearanceCfg::default() },
             shortcuts: ShortcutsCfg { quick_panel: "Cmd+Ctrl+K".into(), chat: "Cmd+Ctrl+C".into(), waiting: "Ctrl+Option+N".into(), improve: "Ctrl+Option+I".into(), main_window: "Ctrl+Option+M".into(), talk: "Ctrl+Option+T".into(), talk_orchestrator: "Ctrl+Option+O".into() },
             accounts: vec![
-                AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, acp: None, monthly: None, per_token: false, usage_cap: Some(85), disabled: false },
-                AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false },
+                AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, acp: None, monthly: None, per_token: false, usage_cap: Some(85), disabled: false, chrome_profile: None },
+                AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None },
             ],
             projects: vec![ProjectCfg {
                 name: "Spruce".into(),
@@ -3200,14 +3215,14 @@ mod tests {
     #[test]
     fn saving_accounts_keeps_the_rest_of_the_file() {
         let text = render(&Config {
-            accounts: vec![AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false }],
+            accounts: vec![AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None }],
             projects: vec![ProjectCfg { name: "Spruce".into(), repos: vec!["github.com/sprucehq/*".into()], folders: vec![], chrome_profile: None }],
             ..Config::default()
         });
         let text = text.replace("[apps]\n", "[apps]\n# my editor of choice\n");
         let accounts = vec![
-            AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false },
-            AccountCfg { name: "claude3".into(), harness: "claude".into(), home: "~/.claude3".into(), command: Some("CLAUDE_CONFIG_DIR=~/.claude3 claude".into()), start: Some("background".into()), acp: None, monthly: None, per_token: false, usage_cap: Some(80), disabled: false },
+            AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None },
+            AccountCfg { name: "claude3".into(), harness: "claude".into(), home: "~/.claude3".into(), command: Some("CLAUDE_CONFIG_DIR=~/.claude3 claude".into()), start: Some("background".into()), acp: None, monthly: None, per_token: false, usage_cap: Some(80), disabled: false, chrome_profile: None },
         ];
         let out = with_accounts(&text, &accounts).unwrap();
         assert!(out.contains("# my editor of choice"));
@@ -3220,7 +3235,7 @@ mod tests {
 
     #[test]
     fn rejects_bad_accounts() {
-        let a = |name: &str, home: &str| AccountCfg { name: name.into(), harness: "claude".into(), home: home.into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let a = |name: &str, home: &str| AccountCfg { name: name.into(), harness: "claude".into(), home: home.into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         assert!(check_accounts(&[a("claude", "~/.claude"), a("claude", "~/.claude2")]).is_err());
         assert!(check_accounts(&[a("claude", "~/.claude"), a("claude2", "~/.claude")]).is_err());
         assert!(check_accounts(&[a("my claude", "~/.claude")]).is_err());
@@ -3257,7 +3272,7 @@ mod tests {
     fn setting_the_theme_adds_appearance_after_apps() {
         // A file written before there was a theme: no [appearance] table.
         let text = render(&Config {
-            accounts: vec![AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false }],
+            accounts: vec![AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None }],
             projects: vec![ProjectCfg { name: "Spruce".into(), repos: vec!["github.com/sprucehq/*".into()], folders: vec![], chrome_profile: None }],
             ..Config::default()
         });
@@ -3510,8 +3525,8 @@ mod tests {
             appearance: AppearanceCfg { theme: Theme::Dark, ..AppearanceCfg::default() },
             shortcuts: ShortcutsCfg::default(),
             accounts: vec![
-                AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false },
-                AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false },
+                AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None },
+                AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None },
             ],
             projects: vec![
                 ProjectCfg { name: "Spruce".into(), repos: vec!["github.com/sprucehq/*".into()], folders: vec!["~/projects/sparkhq/vault".into()], chrome_profile: None },

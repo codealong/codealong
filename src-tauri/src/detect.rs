@@ -63,7 +63,7 @@ pub struct Found {
 
 impl Found {
     pub fn account(&self) -> AccountCfg {
-        AccountCfg { name: self.name.clone(), harness: self.harness.clone(), home: self.home.clone(), command: self.command.clone(), start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false }
+        AccountCfg { name: self.name.clone(), harness: self.harness.clone(), home: self.home.clone(), command: self.command.clone(), start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None }
     }
 
     /// An account config.toml lists that nothing on this Mac turned up: what config.toml says of it.
@@ -548,7 +548,7 @@ fn inspect(f: &mut Folder) {
     if !f.exists {
         return;
     }
-    let info = crate::usage::describe(&AccountCfg { name: String::new(), harness: f.harness.to_string(), home: d.to_string_lossy().into_owned(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false });
+    let info = crate::usage::describe(&AccountCfg { name: String::new(), harness: f.harness.to_string(), home: d.to_string_lossy().into_owned(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None });
     f.signed_in = info.signed_in;
     f.email = info.email;
     f.sign_in_note = info.sign_in_note;
@@ -831,14 +831,14 @@ MY_CLAUDE_CONFIG_DIR=~/.decoy
 
         // Against config.toml: listed folders drop out, clashing names get a number and keep
         // their command, and folders Codealong has read before aren't new.
-        let accounts = vec![AccountCfg { name: "claude-work".into(), harness: "claude".into(), home: "/Users/me/.claude-work-old".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false }];
+        let accounts = vec![AccountCfg { name: "claude-work".into(), harness: "claude".into(), home: "/Users/me/.claude-work-old".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None }];
         let rest = not_configured(found, &accounts, &["/Users/me/.codex".to_string()]);
         let summary: Vec<(&str, Option<&str>, bool)> = rest.iter().map(|f| (f.name.as_str(), f.command.as_deref(), f.new)).collect();
         assert_eq!(
             summary,
             vec![("claude", Some("claude"), true), ("claude-work2", Some("CLAUDE_CONFIG_DIR=/Users/me/.claude-work claude"), true), ("codex", None, false)]
         );
-        let rest = not_configured(rest, &[AccountCfg { name: "x".into(), harness: "claude".into(), home: "/Users/me/.claude/".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false }], &[]);
+        let rest = not_configured(rest, &[AccountCfg { name: "x".into(), harness: "claude".into(), home: "/Users/me/.claude/".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None }], &[]);
         assert!(rest.iter().all(|f| f.home != "/Users/me/.claude"));
     }
 

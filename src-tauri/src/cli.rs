@@ -9183,7 +9183,7 @@ mod tests {
 
     #[test]
     fn mcp_notes_what_it_couldnt_read() {
-        let account = |name: &str, disabled: bool| AccountCfg { name: name.into(), harness: "claude".into(), home: format!("~/.{name}"), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled };
+        let account = |name: &str, disabled: bool| AccountCfg { name: name.into(), harness: "claude".into(), home: format!("~/.{name}"), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled, chrome_profile: None };
         let reading = |name: &str, note: Option<&str>, stale: Option<&str>| crate::mcp::Mcp { account: name.into(), servers: Vec::new(), note: note.map(String::from), as_of: Some(1_000), stale: stale.map(String::from) };
         let accounts = [account("claude", false), account("atlas", false), account("kestrel", false), account("northwind", false), account("off", true)];
         let readings = [reading("claude", None, None), reading("atlas", Some("The connectors couldn't be read: sign in again."), None), reading("kestrel", None, Some("mcp.json doesn't parse."))];

@@ -850,15 +850,42 @@ async fn review_in_codex(url: String) -> Result<(), String> {
 }
 
 /// Opens a web link (in a conversation, a PR's description) in the browser: one into a
-/// worktree's app in the Chrome profile its preview opens in (`engine::open_link`).
+/// worktree's app in the Chrome profile its preview opens in, a page a session made in the one
+/// its account names (`engine::open_link`).
 #[tauri::command]
 async fn open_url(mirror: State<'_, view::Mirror>, url: String) -> Result<(), String> {
     let mirror = mirror.inner().clone();
     blocking(move || {
-        if !(url.starts_with("https://") || url.starts_with("http://")) {
-            return Err("Only web links open from here.".into());
-        }
+        web_link(&url)?;
         mirror.read(|b| engine::open_link(b, &url)).map_err(words)
+    })
+    .await?
+}
+
+/// Only web links open from the windows: a link in a transcript is the agent's to write.
+fn web_link(url: &str) -> Result<(), String> {
+    if url.starts_with("https://") || url.starts_with("http://") {
+        Ok(())
+    } else {
+        Err("Only web links open from here.".into())
+    }
+}
+
+/// Chrome's profiles, in its picker's order, for a link's menu (`src/linkMenu.ts`): none when
+/// Chrome isn't set up here. It reads Chrome's own file, which is small.
+#[tauri::command]
+async fn chrome_profiles() -> Result<Vec<chrome::Profile>, String> {
+    blocking(|| Ok(chrome::profiles())).await?
+}
+
+/// Opens a web link in one of Chrome's profiles, by its folder (`chrome::Profile::dir`), as a
+/// link's menu offers. It can wait on Chrome to start.
+#[tauri::command]
+async fn open_in_chrome(url: String, dir: String) -> Result<(), String> {
+    blocking(move || {
+        web_link(&url)?;
+        let profile = chrome::profiles().into_iter().find(|p| p.dir == dir).ok_or_else(|| format!("Chrome no longer has the profile in {dir}."))?;
+        chrome::open(&url, &profile).map_err(words)
     })
     .await?
 }
@@ -1442,7 +1469,7 @@ fn watch_main_thread(app: tauri::AppHandle) {
 /// it's one of its calls (`forward`).
 macro_rules! app_commands {
     ($($then:tt)*) => {
-        $($then)*![get_board, open_target, open_config, editor_icons, open_from_bar, peek_open, pr_at, session_at, perf_mark, page_unfocused, window_keys, pointer_probe, popup_menu, fit_bar, show_main, take_opened_link, peek_ready, peek_fit, peek_focus, peek_hide, peek_resize, peek_drag, keep_session, kept_session, kept_ready, kept_focus, kept_resize, kept_close, session_window, session_put_back, session_windows, side_window, side_windows, terminal_window, terminal_put_back, terminal_windows, kept_terminal, bar_feed, desktop_pins, pin_to_desktop, drag_to_desktop, unpin_from_desktop, desktop_feed, fit_desktop, desktop_hover, lineage_feed, show_quick, hide_quick, quick_ready, show_waiting, waiting_asked, start_from_quick, quick_shortcut, pause_quick_shortcut, bar_on, set_bar_on, bar_mode, notch_shape, notch_drag, set_bar_mode, set_notch_open, notch_keys, keep_notch_session, review_in_codex, open_url, open_harness_link, open_pr_file, run_command, play_sound, update_status, check_for_updates, restart_to_update, open_at_login, set_open_at_login, terminal_awake, set_terminal_awake, open_team_file, link_code_qr, start_session, move_session, resume_session, fork_session, sign_in, board_answer, schedule_times, save_attachment, import_attachment, expand_attachments, open_attachment, open_file, reveal_file, edit_file, your_editor, path_kinds, open_project_window]
+        $($then)*![get_board, open_target, open_config, editor_icons, open_from_bar, peek_open, pr_at, session_at, perf_mark, page_unfocused, window_keys, pointer_probe, popup_menu, fit_bar, show_main, take_opened_link, peek_ready, peek_fit, peek_focus, peek_hide, peek_resize, peek_drag, keep_session, kept_session, kept_ready, kept_focus, kept_resize, kept_close, session_window, session_put_back, session_windows, side_window, side_windows, terminal_window, terminal_put_back, terminal_windows, kept_terminal, bar_feed, desktop_pins, pin_to_desktop, drag_to_desktop, unpin_from_desktop, desktop_feed, fit_desktop, desktop_hover, lineage_feed, show_quick, hide_quick, quick_ready, show_waiting, waiting_asked, start_from_quick, quick_shortcut, pause_quick_shortcut, bar_on, set_bar_on, bar_mode, notch_shape, notch_drag, set_bar_mode, set_notch_open, notch_keys, keep_notch_session, review_in_codex, open_url, chrome_profiles, open_in_chrome, open_harness_link, open_pr_file, run_command, play_sound, update_status, check_for_updates, restart_to_update, open_at_login, set_open_at_login, terminal_awake, set_terminal_awake, open_team_file, link_code_qr, start_session, move_session, resume_session, fork_session, sign_in, board_answer, schedule_times, save_attachment, import_attachment, expand_attachments, open_attachment, open_file, reveal_file, edit_file, your_editor, path_kinds, open_project_window]
     };
 }
 

@@ -417,12 +417,14 @@ export type ProjectSummary = Holds<Same<
 
 export type AccountInfo = Holds<Same<
   | "acp"
+  | "chrome_profile"
   | "command"
   | "disabled"
   | "email"
   | "folderExists"
   | "harness"
   | "home"
+  | "makesPages"
   | "missingCli"
   | "monthly"
   | "name"
@@ -770,6 +772,7 @@ export type ProjectThere = Holds<Same<
 
 export type AccountCfg = Holds<Same<
   | "acp"
+  | "chrome_profile"
   | "command"
   | "disabled"
   | "harness"

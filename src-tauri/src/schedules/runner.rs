@@ -1559,7 +1559,7 @@ mod tests {
     /// The account `atlas`, in a home of the tests' own, which nothing looks into for what's
     /// installed.
     fn atlas() -> crate::config::Config {
-        let account = crate::config::AccountCfg { name: "atlas".into(), harness: "claude".into(), home: "/Users/me/.atlas".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let account = crate::config::AccountCfg { name: "atlas".into(), harness: "claude".into(), home: "/Users/me/.atlas".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         crate::config::Config { accounts: vec![account], ..crate::config::Config::default() }
     }
 
@@ -1628,7 +1628,7 @@ mod tests {
     #[test]
     fn a_session_it_sends_to_thats_gone_has_a_new_one_take_its_place() {
         let mut cfg = crate::config::Config::default();
-        cfg.accounts = vec![crate::config::AccountCfg { name: "work".into(), harness: "claude".into(), home: "~/.claude-work".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false }];
+        cfg.accounts = vec![crate::config::AccountCfg { name: "work".into(), harness: "claude".into(), home: "~/.claude-work".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None }];
         let s = Schedule { run: Run { to: To::Session, session: "claude:work:abc".into(), folder: "/r".into(), prompt: "Did the atlas deploy go out?".into(), ..Run::default() }, ..schedule("a", When::Fired) };
         let asked = std::cell::RefCell::new(Vec::new());
         let kept = |a: &crate::config::AccountCfg, was: &Session| {
@@ -1868,7 +1868,7 @@ mod tests {
 
         fn plan_at(s: &Schedule, runs: &Runs, b: &Board, noticed: &HashMap<String, (i64, i64)>, woke_at: i64, now: i64) -> (Vec<Job>, Vec<Note>, Vec<(String, i64)>) {
             let mut cfg = crate::config::Config::default();
-            cfg.accounts = vec![crate::config::AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false }];
+            cfg.accounts = vec![crate::config::AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None }];
             plan_in(&File { schedules: vec![s.clone()], ..File::default() }, runs, b, &HashSet::new(), &Cx { cfg: &cfg, noticed, woke_at }, now, &Fake::utc())
         }
 

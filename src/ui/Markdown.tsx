@@ -25,7 +25,7 @@ import { editFile, openFile, openUrl, revealFile, yourEditor } from '../api';
 import { BARE_SOURCE, codealongLinkOf, codealongNameOf, type CodealongLink } from '../codealongLinks';
 import { showContextMenu } from '../contextMenu';
 import { pathIn, usePathKind, type PathAt } from '../filePaths';
-import { fileMenu } from '../menus';
+import { fileMenu, showLinkMenu } from '../menus';
 import type { PathKind } from '../types';
 import { ATTRS, attrsOf, cardAt, cardFields, cardKind, COMMENT, opensCard, tonesOf, toneLabel, type Card } from '../directives';
 import { BOLD, BOLD_UNDER, ITALIC } from '../emphasis';
@@ -67,8 +67,10 @@ function OwnLink({ to, words, unknown, plain }: { to: CodealongLink; words?: Rea
 
 /** A web link that opens in the browser, never in the app's own window, but for a PR's, which
  *  shows in Codealong (PrLink.tsx). A bare one (`children` left out) reads as its URL, or a PR's as
- *  GitHub shortens it; `plain` keeps a PR's as it is. */
+ *  GitHub shortens it; `plain` keeps a PR's as it is. A right-click offers each of Chrome's
+ *  profiles and the link copied (menus.ts `linkMenu`), and says beside it what went wrong. */
 export function Link({ url, children, plain }: { url: string; children?: ReactNode; plain?: boolean }) {
+  const [why, setWhy] = useState<string | null>(null);
   const pr = prRefOf(url);
   if (pr) {
     return (
@@ -78,18 +80,28 @@ export function Link({ url, children, plain }: { url: string; children?: ReactNo
     );
   }
   return (
-    <a
-      className="ca-md-a"
-      href={url}
-      title={url}
-      onClick={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        void openUrl(url);
-      }}
-    >
-      {children ?? url}
-    </a>
+    <>
+      <a
+        className="ca-md-a"
+        href={url}
+        title={url}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          void openUrl(url);
+        }}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setWhy(null);
+          // A copied link needs no word; one that couldn't be copied says so with the rest.
+          showLinkMenu(url, { error: setWhy, info: () => {} });
+        }}
+      >
+        {children ?? url}
+      </a>
+      <FileWhy why={why} />
+    </>
   );
 }
 
