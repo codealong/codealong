@@ -168,6 +168,11 @@ describe('what a listening’s strip shows as it’s heard', () => {
     expect(texts(withLines(before, [line(6, 'You', 'f'), line(7, 'You', 'g')]))).toEqual(['d', 'e', 'f', 'g']);
     // Lines 6 to 8 told while it wasn't shown: what it read is all it shows.
     expect(texts(withLines(before, [line(9, 'You', 'i')]))).toEqual(['i']);
+    // All of what was heard while it wasn't shown told already: nothing to read, and nothing of
+    // what it showed is the latest any more.
+    expect(texts(withLines(before, [], 11))).toEqual([]);
+    // Nothing heard since: what it showed still is.
+    expect(withLines(before, [], 6)).toBe(before);
   });
 
   it('keeps the lines its session has been told: the strip shows what’s heard, not what’s left to tell', () => {

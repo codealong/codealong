@@ -159,14 +159,17 @@ export const CAPTIONS_KEPT = 12;
 /** How long settled words wait for their line before they go anyway. */
 export const SETTLING_MS = 1500;
 
-/** The lines a strip shows once `more` come in: each once, in the transcript's order, the latest
+/** The lines a strip shows once `more` come in, `first` the number of the first of them (which
+ *  says where they start when there are none): each once, in the transcript's order, the latest
  *  `CAPTIONS_KEPT` of the last run of lines one after another. A strip shown again starts from
  *  what it showed before (ui/Listening.tsx), and lines its session was told while it wasn't
  *  shown aren't among what it reads then: the run before them goes, rather than read on into
- *  the lines after the gap as though nothing was said between. */
-export function withLines(c: Captions, more: readonly NumberedLine[]): Captions {
-  if (more.length === 0) return c;
-  const byN = new Map(c.lines.map((l) => [l.n, l]));
+ *  the lines after the gap, or stand for the latest, as though nothing was said since. */
+export function withLines(c: Captions, more: readonly NumberedLine[], first = more[0]?.n): Captions {
+  const last = c.lines[c.lines.length - 1];
+  const before = last && first !== undefined && last.n < first - 1 ? [] : c.lines;
+  if (more.length === 0) return before === c.lines ? c : { ...c, lines: before };
+  const byN = new Map(before.map((l) => [l.n, l]));
   for (const l of more) byN.set(l.n, l);
   const all = [...byN.values()].sort((a, b) => a.n - b.n);
   let from = all.length - 1;

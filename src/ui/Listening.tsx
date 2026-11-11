@@ -100,7 +100,7 @@ function useHeard(key: string, id: string) {
         (tail) => {
           if (over || !tail || tail.listening.id !== id) return;
           setNotes(tail.notes ?? null);
-          if (all) setCaptions((c) => withLines(c, tail.untold.map((said, i) => ({ n: tail.first + i, said }))));
+          if (all) setCaptions((c) => withLines(c, tail.untold.map((said, i) => ({ n: tail.first + i, said })), tail.first));
         },
         // The strip shows what comes from here on; the conversation has the rest.
         () => {},
