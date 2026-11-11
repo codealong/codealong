@@ -87,3 +87,9 @@
 .ca-artifact-age {
   font-variant-numeric: tabular-nums;
 }
+
+/* Why something picked from a page's menu didn't happen, beside the chip or under the list. */
+.ca-artifact-why {
+  color: var(--ink-3);
+  font: var(--type-meta);
+}

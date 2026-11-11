@@ -715,6 +715,13 @@ pub trait Adapter: Sync {
         None
     }
 
+    /// Whether a link is to a page a session made, whose URL as its records have it is `made`
+    /// (board.rs `sessions_with_page`): the same address, by default, whatever its query,
+    /// fragment or trailing slash. A harness whose pages have more than one address says so.
+    fn same_page(&self, made: &str, link: &str) -> bool {
+        crate::artifacts::same_address(made, link)
+    }
+
     // ---- Starting a session (start.rs) ----
 
     /// The models a start can ask for, as the harness's command line takes them, when it takes

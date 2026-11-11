@@ -621,6 +621,11 @@ pub(super) fn name_artifacts(items: &mut [Item], made: &[crate::model::Artifact]
     }
 }
 
+/// Whether two claude.ai links open one artifact, whichever way each is written (`artifact_id`).
+pub(super) fn same_artifact(a: &str, b: &str) -> bool {
+    artifact_id(a).is_some_and(|id| artifact_id(b) == Some(id))
+}
+
 /// The artifact a claude.ai link opens: `/code/artifact/<uuid>`, as the Claude app writes a
 /// comment's, or `/artifact/<id>`, as Claude Code writes what it published, the same 128 bits in
 /// base58 (Bitcoin's letters; one published here was both, 2026-10-26).

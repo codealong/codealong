@@ -1010,6 +1010,12 @@ impl crate::harness::Adapter for ClaudeCode {
         conversation::artifact_made(line)
     }
 
+    /// An artifact is one page at `/artifact/<base58>`, as Claude Code writes what it published,
+    /// and at `/code/artifact/<uuid>`, as the Claude app writes one you comment on or look at.
+    fn same_page(&self, made: &str, link: &str) -> bool {
+        conversation::same_artifact(made, link) || crate::artifacts::same_address(made, link)
+    }
+
     // ---- Starting a session ----
 
     fn models(&self, _account: &AccountCfg) -> Vec<crate::start::ModelOption> {

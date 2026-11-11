@@ -32,6 +32,13 @@ pub fn in_text(text: &str) -> Vec<Artifact> {
     text.lines().filter_map(line_artifact).collect()
 }
 
+/// Whether two web addresses are of one page: the same but for a query, a fragment or a trailing
+/// slash.
+pub fn same_address(a: &str, b: &str) -> bool {
+    let page = |u: &str| u.split(['?', '#']).next().unwrap_or(u).trim_end_matches('/').to_string();
+    page(a) == page(b)
+}
+
 /// Adds what a line says of an artifact to a session's, which stay the latest first. One it has
 /// already (by its URL) is taken as the later of the two says it, its title and what was done
 /// with it included: a session's own log and its subagents' are read apart, and a scan's lines

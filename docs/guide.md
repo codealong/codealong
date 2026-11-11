@@ -2303,7 +2303,7 @@ profile signed in to it, in its Edit form (**Chrome profile**) or as `chrome_pro
 `[[accounts]]` table, by the name Chrome's profile picker shows, the Google account signed in to
 it, or its folder. A page one of its sessions made then opens there, signed in to see it, wherever
 its link is clicked: its chip in the session's header, the list under it, the line under the call
-that made it, or the page's link in a reply. With more than one account having made the same page,
+that made it, or the page's link in a reply (as Claude Code links what it published, or as the Claude app links one you look at or comment on). With more than one account having made the same page,
 the session that last did something with it and whose account names a profile decides. Without
 one, its pages open in the default browser as any link does. The card says where its pages open,
 and a profile Chrome doesn't have opens them in the default browser (`codealong --snapshot --link

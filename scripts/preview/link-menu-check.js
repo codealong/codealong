@@ -92,6 +92,9 @@
       if (chip) {
         labels = await menuOf(chip);
         check('and a right-click on it has the link’s menu', labels.join(' | ') === WANT.join(' | '), labels.join(' | '));
+        menuItem('Open in Chrome (Work)')();
+        await until(function () { return q('.ca-sessinsp-links .ca-artifact-why'); }, 3000, 'the header said nothing of a profile that didn’t open');
+        check('one that doesn’t open says why beside the chip', /Work profile/.test(q('.ca-sessinsp-links .ca-artifact-why').textContent), q('.ca-sessinsp-links .ca-artifact-why').textContent);
       }
 
       // Two profiles of one name are told apart by who's signed in; one profile alone needs no name.

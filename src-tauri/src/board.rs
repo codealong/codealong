@@ -2570,16 +2570,18 @@ pub fn app_of_link<'a>(lanes: &'a [Lane], url: &str) -> Option<&'a Lane> {
 
 /// The sessions on this Mac that made the page a web link is to (`Session.artifacts`), the one
 /// that last did something with it first: its account's Chrome profile is where you're signed in
-/// to see it (`engine::link_opens`). A trailing slash doesn't make it another page. Another
-/// device's sessions are its accounts', not this Mac's.
+/// to see it (`engine::link_opens`). Its harness says which links are to it (`Adapter::same_page`:
+/// a Claude artifact has two addresses). Another device's sessions are its accounts', not this
+/// Mac's.
 pub fn sessions_with_page<'a>(lanes: &'a [Lane], url: &str) -> Vec<&'a Session> {
-    let page = |u: &str| u.trim_end_matches('/').to_string();
-    let wanted = page(url);
     let mut found: Vec<(&Session, i64)> = lanes
         .iter()
         .filter(|l| l.device.is_none())
         .flat_map(|l| &l.sessions)
-        .filter_map(|s| s.artifacts.iter().find(|a| page(&a.url) == wanted).map(|a| (s, a.at)))
+        .filter_map(|s| {
+            let harness = crate::harness::adapter(s.harness);
+            s.artifacts.iter().find(|a| harness.same_page(&a.url, url)).map(|a| (s, a.at))
+        })
         .collect();
     found.sort_by_key(|(_, at)| Reverse(*at));
     found.into_iter().map(|(s, _)| s).collect()
@@ -6474,18 +6476,24 @@ mod tests {
     fn a_page_is_the_sessions_that_made_it_latest_first() {
         let made = |url: &str, at: i64| Artifact { url: url.into(), title: "Roles".into(), note: None, at };
         let session = |key: &str, account: &str, artifacts: Vec<Artifact>| Session { account: account.into(), artifacts, ..crate::fixtures::session(key) };
+        // One artifact as Claude Code links what it published, which the Claude app links by its
+        // uuid; and another.
+        let roles = "https://claude.ai/artifact/Lra3DKxkDb6AU1Apmc4F19";
+        let viewed = "https://claude.ai/code/artifact/a0c97093-8bbc-43cc-852c-63bff702d568";
+        let other = "https://claude.ai/artifact/6zxdiitFmMYwA7d92F7zSo";
         let mine = Lane {
-            sessions: vec![session("claude:claude:a", "claude", vec![made("https://claude.ai/artifact/Pq7", 10)]), session("claude:claude2:b", "claude2", vec![made("https://claude.ai/artifact/Zx1", 5), made("https://claude.ai/artifact/Pq7", 20)])],
+            sessions: vec![session("claude:claude:a", "claude", vec![made(roles, 10)]), session("claude:claude2:b", "claude2", vec![made(other, 5), made(roles, 20)])],
             ..crate::fixtures::lane("/r/atlas", vec![])
         };
         let keys = |lanes: &[Lane], url: &str| sessions_with_page(lanes, url).iter().map(|s| s.key.clone()).collect::<Vec<_>>();
         let lanes = vec![mine.clone()];
-        assert_eq!(keys(&lanes, "https://claude.ai/artifact/Pq7"), ["claude:claude2:b", "claude:claude:a"]);
-        assert_eq!(keys(&lanes, "https://claude.ai/artifact/Zx1/"), ["claude:claude2:b"]);
+        assert_eq!(keys(&lanes, roles), ["claude:claude2:b", "claude:claude:a"]);
+        assert_eq!(keys(&lanes, viewed), ["claude:claude2:b", "claude:claude:a"]);
+        assert_eq!(keys(&lanes, &format!("{other}/?v=2#top")), ["claude:claude2:b"]);
         assert!(keys(&lanes, "https://claude.ai/artifact/Other").is_empty());
         // Another machine's sessions are signed in to its accounts, not this Mac's.
         let elsewhere = DeviceTag { name: "Mini".into(), short: "abc".into(), color: "blue".into(), online: true, last_seen: None };
-        assert!(keys(&[Lane { device: Some(elsewhere), ..mine }], "https://claude.ai/artifact/Pq7").is_empty());
+        assert!(keys(&[Lane { device: Some(elsewhere), ..mine }], roles).is_empty());
     }
 
     #[test]
