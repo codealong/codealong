@@ -954,6 +954,22 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
     // The view is another element once an error has shown in its place.
   }, [failedView, toEnd, follows]);
 
+  // The view's own height changes with what's under it (the box as you write, a listening's strip
+  // coming or going): one at the end stays there, rather than its last lines going under the edge
+  // until something new comes in.
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    let view = el.clientHeight;
+    const watch = new ResizeObserver(() => {
+      if (el.clientHeight === view) return;
+      view = el.clientHeight;
+      if (follows()) toEnd(el);
+    });
+    watch.observe(el);
+    return () => watch.disconnect();
+  }, [failedView, toEnd, follows]);
+
   const loadedNow = useRef(onLoaded);
   loadedNow.current = onLoaded;
   useLayoutEffect(() => {

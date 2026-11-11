@@ -4,7 +4,8 @@
 // put it, batch after batch, and so does a scroll up made just before a batch, before the view has
 // heard it. Back at the end, it follows again; the reply growing shorter there, which brings the
 // end up to meet the view, isn't a scroll up, and it goes on following. Scrolled well up, nothing
-// moves it. Drawn at a zoom, where a slow scroll moves less than a pixel at a time, each step of
+// moves it. The view itself growing shorter (the box under it growing, a listening's strip coming)
+// keeps the end in view, and leaves one scrolled up where it was. Drawn at a zoom, where a slow scroll moves less than a pixel at a time, each step of
 // half a pixel past the end's pixel is a scroll up, with a batch after each. A side
 // conversation's answer (SideStrip.tsx) follows its end the same way: a few pixels up holds,
 // before its scroll is heard too. Runs on the real clock, since scroll events come with frames:
@@ -134,6 +135,29 @@
         .then(more)
         .then(more)
         .then(function () { stays('scrolled well up, nothing moves it', top); });
+    })
+    .then(function () {
+      thread().scrollTop = thread().scrollHeight;
+      return frames();
+    })
+    .then(function () {
+      var was = thread().clientHeight;
+      var under = document.createElement('div');
+      under.className = 'follow-under';
+      under.style.cssText = 'flex: none; height: 120px';
+      thread().after(under);
+      return frames().then(function () {
+        check('at the end, the view growing shorter keeps the end in view', thread().clientHeight < was - 100 && gap() < 2, 'view ' + was + ' to ' + thread().clientHeight + ', ' + gap() + ' from the end');
+        var top = up(400);
+        return frames().then(function () {
+          under.style.height = '200px';
+          return frames().then(function () {
+            stays('scrolled up, it leaves the view where it was', top);
+            under.remove();
+            return frames();
+          });
+        });
+      });
     })
     .then(function () {
       // At twice the size, as a card in a window that floats can be drawn (zoom.ts): half a pixel

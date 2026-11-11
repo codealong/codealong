@@ -3,10 +3,11 @@
 // session does with what it hears and what it hears, won't start with nothing to hear, says why
 // a start failed and stays, and asks the engine as picked. A session that listens wears a chip
 // on its row, is named in the window's bar with how long it has listened (a click shows it), has
-// Stop listening in its menu, and shows the meeting in its conversation (what was
-// heard as lines, its agent's answers between them with a cue's lines kept apart, an answer that
-// says nothing not at all) and a strip over its box with what it hasn't been told yet, the words
-// being said, its notes and Stop. And what's said with a key held to talk is typed where the
+// Stop listening in its menu, leads Sessions under Listening, and shows the meeting in its
+// conversation (what was heard as lines, its agent's answers between them with a cue's lines kept
+// apart, an answer that says nothing not at all) and a strip over its box with the latest lines
+// heard as captions, told or not, each speaker's words being said, its notes and Stop, which keeps
+// its height whatever comes. And what's said with a key held to talk is typed where the
 // caret is, or else into the box of the session shown, or of the one the engine names.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/voice-check.js
 (function () {
@@ -68,7 +69,9 @@
   var aside = function () { var a = q('.ca-listendlg-aside', dialog()); return a ? a.textContent.trim() : ''; };
   var strip = function () { return q('.ca-sessinsp .ca-live'); };
   var stripLines = function () { return all('.ca-live-lines .ca-heard-line:not(.is-live)', strip()).map(function (l) { return l.querySelector('.ca-heard-text').textContent; }); };
-  var live = function () { var l = q('.ca-live-lines .ca-heard-line.is-live', strip()); return l ? l.querySelector('.ca-heard-who').textContent + ': ' + l.querySelector('.ca-heard-text').textContent : ''; };
+  var lives = function () { return all('.ca-live-lines .ca-heard-line.is-live', strip()).map(function (l) { return l.querySelector('.ca-heard-who').textContent + ': ' + l.querySelector('.ca-heard-text').textContent; }); };
+  var live = function () { return lives()[0] || ''; };
+  var stripHeight = 0;
   var hearing = function (h) { window.__emit('hearing', Object.assign({ session: picked[0].key }, h)); return wait(80); };
   var field = function () { return q('.ca-sessinsp .ca-composer textarea'); };
   var draft = function (key) { try { return JSON.parse(localStorage.getItem('codealong.draft.' + key)).text; } catch (e) { return ''; } };
@@ -126,6 +129,8 @@
     })
     .then(function () {
       check('a session that listens wears a chip on its row', !!q('.ca-listeningchip', row(0)) && !q('.ca-listeningchip', row(1)));
+      var first = q('.ca-board-list .ca-bayblock');
+      check('and it leads Sessions, under Listening', !!first && first.classList.contains('ca-listening') && first.contains(row(0)) && !first.contains(row(1)) && q('.ca-bay--section > span', first).textContent === 'Listening', first ? first.textContent.slice(0, 60) : 'no section');
       check('and its status is a recording light, the other session’s its own', !!q('.ca-glyph--listening', row(0)) && !q('.ca-glyph--listening', row(1)) && q('.ca-glyph--listening', row(0)).getAttribute('aria-label') === 'Listening');
       // The window's bar has it too, whatever the window shows: a click shows the session.
       var now = all('.ca-win-bar .ca-hearing-now');
@@ -155,7 +160,9 @@
       var lines = all('.ca-md p', cue).map(function (p) { return p.textContent; });
       check('a cue’s lines stay lines', lines.length === 2 && lines[1] === 'They haven’t named a budget owner yet.', lines.join(' / '));
       check('the strip says it’s listening, for how long and to what', /^Listening\s*4:\d\d · You and this Mac’s audio/.test(q('.ca-live-head', strip()).textContent), q('.ca-live-head', strip()).textContent);
-      check('with what it hasn’t been told yet', stripLines().join(' / ') === 'Could Dana join us Thursday? / I’ll ask her today.', stripLines().join(' / '));
+      check('with the latest lines heard', stripLines().join(' / ') === 'Could Dana join us Thursday? / I’ll ask her today.', stripLines().join(' / '));
+      // Its height, which nothing that's heard changes from here on.
+      stripHeight = strip().getBoundingClientRect().height;
       // Its clock goes on by the second, whatever the panel's own does.
       var clockSays = function () { return (/\d+:\d\d/.exec(q('.ca-live-meta', strip()).textContent) || [''])[0]; };
       var was = clockSays();
@@ -175,10 +182,35 @@
     })
     .then(function () {
       check('settled, they’re a line', live() === '' && stripLines().length === 3 && stripLines()[2] === 'And one more thing.', stripLines().join(' / '));
-      return hearing({ told: 9 });
+      return hearing({ who: 'Them', text: 'so the budget' });
+    })
+    .then(function () { return hearing({ who: 'You', text: 'right' }); })
+    .then(function () { return hearing({ who: 'Them', text: 'so the budget owner is' }); })
+    .then(function () {
+      check('two talking at once each have their words, in the order they began', lives().join(' | ') === 'Them: so the budget owner is | You: right', lives().join(' | '));
+      return hearing({ who: 'Them', text: '' });
     })
     .then(function () {
-      check('told, they leave the strip for the conversation', stripLines().length === 0 && !!strip(), stripLines().join(' / '));
+      check('settled words keep their place until their line comes', lives().join(' | ') === 'Them: so the budget owner is | You: right', lives().join(' | '));
+      return hearing({ line: 10, said: '[14:05:09] Them: So the budget owner is Dana.' });
+    })
+    .then(function () {
+      check('which takes it, the other’s words staying', lives().join(' | ') === 'You: right' && stripLines()[3] === 'So the budget owner is Dana.', lives().join(' | ') + ' / ' + stripLines().join(' / '));
+      var more = Promise.resolve();
+      for (var n = 11; n < 20; n++) {
+        (function (n) { more = more.then(function () { return hearing({ line: n, said: '[14:05:' + n + '] You: Line ' + n + ' of what was said, long enough that it goes onto a second line in a strip as narrow as this one.' }); }); })(n);
+      }
+      return more;
+    })
+    .then(function () {
+      var w = q('.ca-live-window', strip()).getBoundingClientRect();
+      var lastLine = all('.ca-live-lines .ca-heard-line', strip()).pop().getBoundingClientRect();
+      check('many lines later, the latest is at the bottom of its window and the older go up out of it', Math.abs(lastLine.bottom - w.bottom) < 2 && all('.ca-live-lines .ca-heard-line', strip())[0].getBoundingClientRect().bottom < w.top, lastLine.bottom + ' vs ' + w.bottom);
+      check('and the strip is as tall as it was', Math.abs(strip().getBoundingClientRect().height - stripHeight) < 1, strip().getBoundingClientRect().height + ' vs ' + stripHeight);
+      return hearing({ told: 19 });
+    })
+    .then(function () {
+      check('told, they stay: the strip shows what’s heard, as the conversation gets it', stripLines().length > 3 && stripLines().pop().indexOf('Line 19') === 0 && Math.abs(strip().getBoundingClientRect().height - stripHeight) < 1, stripLines().length + ' lines, ' + strip().getBoundingClientRect().height);
       button(strip(), 'Notes').click();
       return until(function () { return q('.ca-live-notes', strip()); }, 2000, 'its notes');
     })

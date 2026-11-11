@@ -68,8 +68,8 @@
       }
       board.scrollTop = 0;
       var sortIcons = Array.prototype.map.call(document.querySelectorAll('.ca-listtools button'), function (b) { return !!b.querySelector('svg') && !b.textContent.trim() && !!b.getAttribute('aria-label') && !!b.title; });
-      // Sort by's two, Group by's three and Rows' two.
-      check('the bar’s buttons are icons, each named and with a tooltip', sortIcons.length === 7 && sortIcons.every(Boolean), sortIcons.join(','));
+      // Sort by's two, Group by's three, Started sessions' two and Rows' two.
+      check('the bar’s buttons are icons, each named and with a tooltip', sortIcons.length === 9 && sortIcons.every(Boolean), sortIcons.join(','));
       check('headings by status, Pinned first, as the other views head them', headings()[0] === 'Pinned' && inOrderOf(headings(), STATUS_HEADS), headings().join(' | '));
       var counts = Array.prototype.map.call(document.querySelectorAll('.ca-sessionlist .ca-bayblock'), function (b) { return Number(b.querySelector('.ca-bay-count').textContent) === b.querySelectorAll('.ca-lane').length; });
       check('each heading counts the rows under it', counts.length > 1 && counts.every(Boolean));

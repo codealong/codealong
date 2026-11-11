@@ -567,8 +567,9 @@ export function App() {
     archivedItems,
     saidOf,
     shownSessionCount,
+    listeningRows,
     pinnedRows,
-    pinnedHelpers,
+    topHelpers,
     sessionSecs,
     groupedSecs,
     groupedPrs,
@@ -2774,8 +2775,9 @@ export function App() {
             )}
             {view === 'sessions' && (
               <SessionsView
+                listening={listeningRows}
                 pinned={pinnedRows}
-                pinnedHelpers={pinnedHelpers}
+                topHelpers={topHelpers}
                 sections={sessionSecs}
                 groups={groupedSecs}
                 groupActs={groupActs}

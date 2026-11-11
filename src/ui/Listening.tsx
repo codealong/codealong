@@ -3,15 +3,15 @@
 // - `Told`: what Codealong told it, in its conversation. What was heard is drawn as the meeting
 //   (the time, who, the words), so the conversation reads as what was said and what its agent made
 //   of it, in turn; that its listening began and ended are a line each.
-// - `LiveStrip`: over its box while it hears: that it's listening and to what, the lines heard
-//   that it hasn't been told of yet, the words being said right now, its notes, and Stop.
+// - `LiveStrip`: over its box while it hears: that it's listening and to what, what's heard as
+//   captions (the latest lines and the words being said right now), its notes, and Stop.
 // - `ListeningChip`: on its row.
 // - `ListenHost`: the dialog a session's Listen… opens, which the board's windows show; any other
 //   window hands the asking to the main window, which has the room for it.
 
 import { useEffect, useState } from 'react';
 import { askMainToListen, hearingStatus, listeningOf, onHearing, onListenAsk, onListeningNotes, startListening, stopListening } from '../api';
-import { ASK, askProblem, clock, heardLine, hears, macSays, onAskedToListen, ROLES, type HeardLine, type ListenAsked, type Told as ToldWhat } from '../listening';
+import { ASK, askProblem, captionsHearing, clock, heardLine, hears, macSays, NO_CAPTIONS, onAskedToListen, ROLES, settledGone, SETTLING_MS, withLines, type HeardLine, type ListenAsked, type Told as ToldWhat } from '../listening';
 import { errorText } from '../report';
 import { below, showContextMenu } from '../contextMenu';
 import { hearingNamed, hearingSays } from '../said';
@@ -78,27 +78,21 @@ export function Told({ told }: { told: ToldWhat }) {
   );
 }
 
-/** What a hearing listening has heard that its session hasn't been told of yet, kept up as it's
+/** What a hearing listening has heard, as captions (listening.ts `Captions`), kept up as it's
  *  heard, and its notes: read once as the strip shows, then from what the server sends. */
 function useHeard(key: string, id: string) {
-  const [lines, setLines] = useState<{ n: number; said: string }[]>([]);
-  const [saying, setSaying] = useState<{ who: string; text: string } | null>(null);
+  const [captions, setCaptions] = useState(NO_CAPTIONS);
   const [notes, setNotes] = useState<string | null>(null);
   useEffect(() => {
     let over = false;
-    setLines([]);
-    setSaying(null);
+    setCaptions(NO_CAPTIONS);
     setNotes(null);
-    // What was told while the read was out, so it doesn't bring those lines back.
-    let told = 0;
     const read = (all: boolean) =>
       void listeningOf(key).then(
         (tail) => {
           if (over || !tail || tail.listening.id !== id) return;
           setNotes(tail.notes ?? null);
-          if (!all) return;
-          const heard = tail.untold.map((said, i) => ({ n: tail.first + i, said })).filter((l) => l.n > Math.max(told, tail.listening.told));
-          setLines((now) => [...heard.filter((l) => !now.some((have) => have.n === l.n)), ...now].sort((a, b) => a.n - b.n));
+          if (all) setCaptions((c) => withLines(c, tail.untold.map((said, i) => ({ n: tail.first + i, said }))));
         },
         // The strip shows what comes from here on; the conversation has the rest.
         () => {},
@@ -106,17 +100,11 @@ function useHeard(key: string, id: string) {
     read(true);
     const offHearing = onHearing((h) => {
       if (h.session !== key) return;
-      if (h.told !== undefined) {
-        const upTo = h.told;
-        told = Math.max(told, upTo);
-        setLines((now) => now.filter((l) => l.n > upTo));
-      } else if (h.line !== undefined && h.said !== undefined) {
-        const line = { n: h.line, said: h.said };
-        setLines((now) => (now.some((l) => l.n === line.n) ? now : [...now, line]));
-        setSaying(null);
-      } else if (h.who !== undefined) {
-        setSaying(h.text ? { who: h.who, text: h.text } : null);
-      }
+      const at = Date.now();
+      setCaptions((c) => captionsHearing(c, h, at));
+      // Words that settled wait for their line, but not for ever.
+      const who = h.who;
+      if (who !== undefined && !h.text) window.setTimeout(() => !over && setCaptions((c) => settledGone(c, who, at)), SETTLING_MS);
     });
     const offNotes = onListeningNotes((session) => {
       if (session === key) read(false);
@@ -127,19 +115,15 @@ function useHeard(key: string, id: string) {
       offNotes();
     };
   }, [key, id]);
-  return { lines, saying, notes };
+  return { captions, notes };
 }
-
-/** How many of the lines not yet told the strip shows: the latest, since the rest are on their
- *  way into the conversation above it. */
-const SHOWN = 4;
 
 /** Over a listening session's box while it hears. */
 export function LiveStrip({ sessionKey, listening }: { sessionKey: string; listening: ListeningGlance }) {
   // How long it's been listening goes on by the second, as a recording's clock does: on a clock
   // of the strip's own, since the panel's is for words like "5 minutes ago" and ticks far slower.
   const now = useNow(1000);
-  const { lines, saying, notes } = useHeard(sessionKey, listening.id);
+  const { captions, notes } = useHeard(sessionKey, listening.id);
   const [showNotes, setShowNotes] = useState(false);
   const [stopping, setStopping] = useState(false);
   // Why it didn't stop, said here, where Stop was pressed.
@@ -152,7 +136,7 @@ export function LiveStrip({ sessionKey, listening }: { sessionKey: string; liste
       setError(errorText(e));
     });
   };
-  const shown = lines.slice(-SHOWN);
+  const quiet = captions.lines.length === 0 && captions.saying.size === 0;
   return (
     <section className="ca-live" aria-label="Listening">
       <header className="ca-live-head">
@@ -181,15 +165,19 @@ export function LiveStrip({ sessionKey, listening }: { sessionKey: string; liste
           <Markdown text={notes} />
         </div>
       )}
-      {(shown.length > 0 || saying) && (
+      {/* A window of its own height whatever comes, so nothing around the strip moves as words
+          come in: the latest at the bottom, the older going up out of it. */}
+      <div className="ca-live-window">
         <ol className="ca-heard-lines ca-live-lines" aria-live="off">
-          {lines.length > shown.length && <li className="ca-heard-aside">{lines.length - shown.length} more heard</li>}
-          {shown.map((l) => (
+          {quiet && <li className="ca-heard-aside">What’s said shows here as it’s heard.</li>}
+          {captions.lines.map((l) => (
             <Line key={l.n} line={heardLine(l.said)} />
           ))}
-          {saying && <Line line={{ at: '', who: saying.who, text: saying.text }} live />}
+          {[...captions.saying].map(([who, words]) => (
+            <Line key={`saying:${who}`} line={{ at: '', who, text: words.text }} live />
+          ))}
         </ol>
-      )}
+      </div>
     </section>
   );
 }

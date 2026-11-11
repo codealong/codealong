@@ -658,6 +658,22 @@ export function inPinOrder<T>(rows: T[], keys: string[], keyOf: (r: T) => string
   return keys.flatMap((k) => byKey.get(k) ?? []);
 }
 
+/** What leads Sessions, above its headings, and the rest for them (SessionsView.tsx
+ *  `sessionSections`). First the sessions hearing a meeting now (`Session.listening`), in a group
+ *  of their own while they hear, in the list's order (lanes.ts `bySession`); a pinned one is there
+ *  rather than among the pinned, and back in its place once it stops. Then the pinned ones, in your
+ *  order. Each with the helpers listed under it (`helpersUnder`), and with `started` under, the
+ *  sessions it started, which leave the rest with it. */
+export function sessionTops(shown: SessionItem[], pins: Pick<Pins, 'keys' | 'set'>, started: StartedPlace): { listening: SessionItem[]; pinned: SessionItem[]; under: Map<string, SessionItem[]>; rest: SessionItem[] } {
+  const listening = shown.filter((r) => r.session.listening).sort((a, b) => bySession(a.session, b.session));
+  const hearing = new Set(listening.map((r) => r.session.key));
+  const pinned = inPinOrder(shown, pins.keys, (r) => r.session.key).filter((r) => !hearing.has(r.session.key));
+  const heads = hearing.size > 0 ? new Set([...hearing, ...pins.set]) : pins.set;
+  const under = helpersUnder(shown, heads, started);
+  const listed = new Set([...heads, ...[...under.values()].flat().map((r) => r.session.key)]);
+  return { listening, pinned, under, rest: shown.filter((r) => !listed.has(r.session.key)) };
+}
+
 /** Each session by its worktree's id and its key, in the worktree it's listed under. */
 export function sessionIndexOf(lanes: Lane[]): Map<string, { lane: Lane; session: Session }> {
   const m = new Map<string, { lane: Lane; session: Session }>();
@@ -1086,19 +1102,11 @@ export function useBoardLists(input: ListsInput) {
   const sidesOf = useCallback((k: string) => sides.get(k), [sides]);
   const sideGlancesOf = useCallback((k: string) => board?.sides?.[k], [board?.sides]);
   const shownSessionCount = useMemo(() => recentSessionCount(sessionItems, cutoff, sessionPins.set), [sessionItems, cutoff, sessionPins.set]);
-  const pinnedRows = useMemo(() => inPinOrder(shownSessions, sessionPins.keys, (r) => r.session.key), [shownSessions, sessionPins.keys]);
-  // A pinned session's helpers go under it among the pinned ones, not among the rest, and so do
-  // the sessions it started when they go under it.
-  const pinnedHelpers = useMemo(() => helpersUnder(shownSessions, sessionPins.set, sessionStarted), [shownSessions, sessionPins.set, sessionStarted]);
-  const sessionSecs = useMemo(() => {
-    const underPins = new Set([...pinnedHelpers.values()].flat().map((r) => r.session.key));
-    return sessionSections(
-      shownSessions.filter((r) => !sessionPins.set.has(r.session.key) && !underPins.has(r.session.key)),
-      sessionSort,
-      now,
-      sessionStarted,
-    );
-  }, [shownSessions, sessionPins.set, pinnedHelpers, sessionSort, now, sessionStarted]);
+  // The sessions hearing a meeting lead the list, then the pinned ones, each with its helpers
+  // under it (and the sessions it started when they go under it), not among the rest.
+  const tops = useMemo(() => sessionTops(shownSessions, sessionPins, sessionStarted), [shownSessions, sessionPins, sessionStarted]);
+  const { listening: listeningRows, pinned: pinnedRows, under: topHelpers } = tops;
+  const sessionSecs = useMemo(() => sessionSections(tops.rest, sessionSort, now, sessionStarted), [tops.rest, sessionSort, now, sessionStarted]);
   // Grouped by worktree or repo (SessionsView.tsx `groupSessions`): the pinned groups after the
   // pinned sessions, then each group under its first session's heading. A pinned group with no
   // session listed still shows while only the age narrows the list.
@@ -1109,8 +1117,8 @@ export function useBoardLists(input: ListsInput) {
   );
   const sessionList = useMemo<ListRow[]>(() => (groupedSecs ? groupedRows(groupedSecs) : sessionSecs.flatMap((s) => s.rows)), [groupedSecs, sessionSecs]);
   const sessionRows = useMemo<ListRow[]>(
-    () => [...pinnedRows.flatMap((r) => [r, ...(pinnedHelpers.get(r.session.key) ?? [])]), ...sessionList, ...(showArchived ? archivedItems : [])],
-    [pinnedRows, pinnedHelpers, sessionList, showArchived, archivedItems],
+    () => [...[...listeningRows, ...pinnedRows].flatMap((r) => [r, ...(topHelpers.get(r.session.key) ?? [])]), ...sessionList, ...(showArchived ? archivedItems : [])],
+    [listeningRows, pinnedRows, topHelpers, sessionList, showArchived, archivedItems],
   );
   // What waits on you, for working through it from a session's panel (useWaitingQueue.ts).
   const waitingRows = useMemo(() => waitingQueue(shownSessions), [shownSessions]);
@@ -1259,8 +1267,9 @@ export function useBoardLists(input: ListsInput) {
     shownSessions,
     saidOf,
     shownSessionCount,
+    listeningRows,
     pinnedRows,
-    pinnedHelpers,
+    topHelpers,
     sessionSecs,
     groupedSecs,
     groupedPrs,

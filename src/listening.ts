@@ -9,7 +9,7 @@
 
 import { useSyncExternalStore } from 'react';
 import { homeOf } from './lanes';
-import type { BarListening, Board, HearingStatus, Lane, ListenAsk, ListeningGlance, ListenRole, Status } from './types';
+import type { BarListening, Board, Hearing, HearingStatus, Lane, ListenAsk, ListeningGlance, ListenRole, Status } from './types';
 
 /** Voice as the last board had it: whether it's turned on, and the sessions hearing now. */
 export interface Voice {
@@ -131,6 +131,68 @@ export function heardLine(line: string): HeardLine {
   const aside = /^\[(\d\d:\d\d:\d\d)\] \((.*)\)$/.exec(line);
   if (aside) return { at: aside[1], who: null, text: aside[2] };
   return { at: '', who: null, text: line };
+}
+
+/** A line of a transcript with its number, counted from 1 (listen.rs `Listening.lines`). */
+export interface NumberedLine {
+  n: number;
+  said: string;
+}
+
+/** What a listening's strip shows as it's heard (ui/Listening.tsx `LiveStrip`), as captions: the
+ *  latest lines heard, told to its session or not, and the words each speaker is saying now. You
+ *  and the others can talk at once, and each settles by itself, so their words are kept apart by
+ *  who says them, in the order each began. `settled` is when a speaker's words were heard
+ *  settling: they stay until the line they settled into comes, which the engine sends just after,
+ *  so the strip doesn't lose a row for a moment and take it back. */
+export interface Captions {
+  lines: readonly NumberedLine[];
+  saying: ReadonlyMap<string, { text: string; settled: number | null }>;
+}
+
+export const NO_CAPTIONS: Captions = { lines: [], saying: new Map() };
+
+/** How many lines a strip keeps: more than its window shows, so the window is full once a meeting
+ *  has gone on a little. The rest are in the conversation, or on their way to it. */
+export const CAPTIONS_KEPT = 12;
+
+/** How long settled words wait for their line before they go anyway. */
+export const SETTLING_MS = 1500;
+
+/** The lines a strip shows once `more` come in: each once, in the transcript's order, the latest
+ *  `CAPTIONS_KEPT`. */
+export function withLines(c: Captions, more: readonly NumberedLine[]): Captions {
+  if (more.length === 0) return c;
+  const byN = new Map(c.lines.map((l) => [l.n, l]));
+  for (const l of more) byN.set(l.n, l);
+  return { ...c, lines: [...byN.values()].sort((a, b) => a.n - b.n).slice(-CAPTIONS_KEPT) };
+}
+
+/** Captions once `h` is heard, at `at`. How far the session has been told changes nothing: the
+ *  strip shows what's heard, whether or not the conversation above has it yet. */
+export function captionsHearing(c: Captions, h: Pick<Hearing, 'who' | 'text' | 'line' | 'said'>, at: number): Captions {
+  if (h.line !== undefined && h.said !== undefined) {
+    const next = withLines(c, [{ n: h.line, said: h.said }]);
+    // The line takes the place of the words it settled from.
+    const who = heardLine(h.said).who;
+    return who !== null && next.saying.has(who) ? { ...next, saying: without(next.saying, who) } : next;
+  }
+  if (h.who === undefined) return c;
+  const was = c.saying.get(h.who);
+  if (!h.text) return was ? { ...c, saying: new Map(c.saying).set(h.who, { text: was.text, settled: at }) } : c;
+  return { ...c, saying: new Map(c.saying).set(h.who, { text: h.text, settled: null }) };
+}
+
+/** Captions once `who`'s words that settled at `at` have waited `SETTLING_MS` for their line: gone,
+ *  unless they've been taken up again since. */
+export function settledGone(c: Captions, who: string, at: number): Captions {
+  return c.saying.get(who)?.settled === at ? { ...c, saying: without(c.saying, who) } : c;
+}
+
+function without<V>(m: ReadonlyMap<string, V>, key: string): Map<string, V> {
+  const next = new Map(m);
+  next.delete(key);
+  return next;
 }
 
 /** What Codealong told a listening session, read back from its conversation. */

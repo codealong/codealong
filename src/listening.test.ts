@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { asCue, ASK, askProblem, clock, cuesYou, heardLine, hearingNow, hearingShows, hears, macSays, noteVoice, saysNothing, toldIn, voiceNow } from './listening';
+import { asCue, ASK, askProblem, CAPTIONS_KEPT, captionsHearing, clock, cuesYou, heardLine, hearingNow, hearingShows, hears, macSays, NO_CAPTIONS, noteVoice, saysNothing, settledGone, toldIn, voiceNow, withLines, type Captions } from './listening';
 import * as fx from './testing/fixtures';
 import type { ListeningGlance } from './types';
 
@@ -143,6 +143,58 @@ describe('a listening, in words', () => {
     expect(askProblem({ ...ASK, mic: false, system: false })).toBe('Pick something to listen to: the microphone, this Mac’s audio, or both.');
     expect(askProblem({ ...ASK, role: 'custom' })).toBe('Say what the session should do with what it hears.');
     expect(askProblem({ ...ASK, role: 'custom', prompt: 'Count the ums.' })).toBeNull();
+  });
+});
+
+describe('what a listening’s strip shows as it’s heard', () => {
+  const line = (n: number, who: string, text: string) => ({ n, said: `[14:0${n % 10}:00] ${who}: ${text}` });
+  const says = (c: Captions) => [...c.saying].map(([who, w]) => `${who}: ${w.text}${w.settled === null ? '' : ' (settled)'}`);
+  const texts = (c: Captions) => c.lines.map((l) => heardLine(l.said).text);
+
+  it('keeps the latest lines heard, each once, in the transcript’s order', () => {
+    let c = withLines(NO_CAPTIONS, [line(3, 'You', 'c'), line(2, 'Them', 'b')]);
+    c = captionsHearing(c, { line: 4, said: line(4, 'Them', 'd').said }, 0);
+    // Read again as a window starts showing it, the lines it has already aren't doubled.
+    c = withLines(c, [line(3, 'You', 'c'), line(4, 'Them', 'd')]);
+    expect(texts(c)).toEqual(['b', 'c', 'd']);
+    for (let n = 5; n < 30; n++) c = captionsHearing(c, { line: n, said: line(n, 'You', `l${n}`).said }, 0);
+    expect(c.lines).toHaveLength(CAPTIONS_KEPT);
+    expect(c.lines[c.lines.length - 1].n).toBe(29);
+  });
+
+  it('keeps the lines its session has been told: the strip shows what’s heard, not what’s left to tell', () => {
+    const c = withLines(NO_CAPTIONS, [line(1, 'You', 'a')]);
+    expect(captionsHearing(c, { told: 1 } as never, 0)).toBe(c);
+  });
+
+  it('keeps each speaker’s words apart, so two talking at once don’t take turns in one place', () => {
+    let c = captionsHearing(NO_CAPTIONS, { who: 'Them', text: 'and the other' }, 0);
+    c = captionsHearing(c, { who: 'You', text: 'right' }, 0);
+    c = captionsHearing(c, { who: 'Them', text: 'and the other thing' }, 0);
+    expect(says(c)).toEqual(['Them: and the other thing', 'You: right']);
+  });
+
+  it('keeps settled words in their place until their line comes, which takes it', () => {
+    let c = captionsHearing(NO_CAPTIONS, { who: 'Them', text: 'and the other thing' }, 0);
+    c = captionsHearing(c, { who: 'You', text: 'right' }, 0);
+    c = captionsHearing(c, { who: 'Them', text: '' }, 10);
+    expect(says(c)).toEqual(['Them: and the other thing (settled)', 'You: right']);
+    c = captionsHearing(c, { line: 1, said: line(1, 'Them', 'And the other thing.').said }, 20);
+    expect(says(c)).toEqual(['You: right']);
+    expect(texts(c)).toEqual(['And the other thing.']);
+    // Someone who says nothing settles nothing.
+    expect(captionsHearing(c, { who: 'Them', text: '' }, 30)).toBe(c);
+  });
+
+  it('lets settled words go when their line doesn’t come, unless they were taken up again', () => {
+    let c = captionsHearing(NO_CAPTIONS, { who: 'You', text: 'um' }, 0);
+    c = captionsHearing(c, { who: 'You', text: '' }, 10);
+    expect(says(settledGone(c, 'You', 10))).toEqual([]);
+    const again = captionsHearing(c, { who: 'You', text: 'so' }, 20);
+    expect(says(settledGone(again, 'You', 10))).toEqual(['You: so']);
+    // Settled again since: only the last settling's wait takes it.
+    const later = captionsHearing(again, { who: 'You', text: '' }, 30);
+    expect(settledGone(later, 'You', 10)).toBe(later);
   });
 });
 

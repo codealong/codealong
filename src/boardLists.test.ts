@@ -43,6 +43,7 @@ import {
   sessionInFilter,
   sessionInQuery,
   sessionItemsOf,
+  sessionTops,
   saidLinesOf,
   shownSessionsOf,
   todoInQuery,
@@ -585,6 +586,32 @@ describe('the Sessions view’s lists', () => {
       // Session and helper both pinned: the helper's helper under it, and nothing twice.
       const both = helpersUnder(family, new Set([boss.key, kid.key]));
       expect([...both].map(([k, rs]) => [k, rs.map((r) => r.session.key)])).toEqual([[kid.key, [grandkid.key]]]);
+    });
+
+    it('leads with the sessions hearing a meeting, pinned or not, then the pinned ones, each with its helpers', () => {
+      const meeting = session('claude:claude:meeting', { status: 'idle', listening: true, lastActivity: NOW - 1000 });
+      const call = session('claude:claude:call', { status: 'working', listening: true, lastActivity: NOW });
+      const todo = helper('codex:codex:todo', 'working', { parent: meeting.key });
+      const other = session('claude:claude:other');
+      const rows = placeHelpers(sessionItemsOf([lane('/r/a', [boss, busy, meeting, todo, call, other])]), false);
+      const pins = (keys: string[]) => ({ keys, set: new Set(keys) });
+      const tops = sessionTops(rows, pins([meeting.key, boss.key]), 'apart');
+      // Hearing, in the list's order, the pinned one with them rather than among the pins.
+      expect(keysOf(tops.listening)).toEqual([call.key, meeting.key]);
+      expect(keysOf(tops.pinned)).toEqual([boss.key]);
+      expect([...tops.under].map(([k, rs]) => [k, keysOf(rs)])).toEqual([
+        [boss.key, [busy.key]],
+        [meeting.key, [todo.key]],
+      ]);
+      expect(keysOf(tops.rest)).toEqual([other.key]);
+      // Once it stops, it's back in its place among the pins.
+      const quiet = rows.map((r) => (r.session.listening ? { ...r, session: { ...r.session, listening: undefined } } : r));
+      const after = sessionTops(quiet, pins([meeting.key, boss.key]), 'apart');
+      expect(keysOf(after.listening)).toEqual([]);
+      expect(keysOf(after.pinned)).toEqual([meeting.key, boss.key]);
+      expect(keysOf(after.rest)).toEqual([call.key, other.key]);
+      // Nothing hearing and nothing pinned: all of it is the rest.
+      expect(sessionTops(quiet, pins([]), 'apart').rest).toEqual(quiet);
     });
 
     it('leaves a helper out while it doesn’t need you when its session isn’t listed, and a review always, unless a search finds it', () => {

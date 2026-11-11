@@ -3448,8 +3448,11 @@ So the session's conversation is the meeting and what its agent made of it, in t
 how it's drawn: what was heard as the meeting's lines, the agent's answers between them, and an
 answer that says there's nothing to say (a dash, as it's asked to give most of the time) not at
 all. Over its box a strip says it's listening, for how long (a clock that goes on by the second)
-and to what, with the lines heard that it hasn't been told of yet, the words being said right
-now, its notes, and Stop. Its row wears a Listening chip, and its status is a recording light
+and to what, with its notes, Stop, and what's heard as captions: the latest lines, whether or not
+the session has been told of them yet, and under them the words each speaker is saying right now,
+yours and the others' apart when you talk at once. The captions are four lines high from the
+start, the latest at the bottom and the older going up out of sight, so neither the strip nor the
+conversation above it moves as words come in. Its row wears a Listening chip, and its status is a recording light
 wherever the session shows (its row, its card, its panel's header), in place of the working and
 idle glyphs it would change between every few seconds; one that needs you, or failed, still says
 that. A coach's latest answer, or a call's requests as they're filed, opens
@@ -3464,8 +3467,9 @@ first, with the same light, whatever project the bar shows: a click shows the se
 notch's pills or, from the floating bar, in Codealong's window (as does a click on its cue there,
 which has the pills' place while it shows). It's that pill's alone while it
 listens (its turns come and go every few seconds, so it isn't among the working sessions or the
-recent ones), but when it needs you; the menu bar item's menu lists it first, under Listening.
-And the main window's bar names it, with how long it has listened, whatever the window shows: a
+recent ones), but when it needs you; the menu bar item's menu lists it first, under Listening, and
+so does Sessions in the main window, above Pinned (a pinned one is there while it hears, and back
+in its place after). And the main window's bar names it, with how long it has listened, whatever the window shows: a
 click there shows it too. Several sessions hearing at once are counted in the one light, and a
 click drops a menu of them.
 

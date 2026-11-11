@@ -141,8 +141,32 @@
 .ca-live-waiting {
   color: var(--ink-3);
 }
+/* What's heard, as captions: four lines high from the start whatever comes, the latest at the
+   bottom and the older going up out of it under a fade, so neither the strip nor the conversation
+   above it moves as words come in. */
+.ca-live-window {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  height: calc(4lh + 3 * 2px);
+  overflow: hidden;
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--line);
+  font: var(--type-meta);
+  mask-image: linear-gradient(to bottom, transparent, var(--ink) 1lh);
+}
 .ca-live-lines {
-  padding: 0 0 0 var(--space-3);
+  flex: none;
+  padding: 0;
+  border-left: 0;
+}
+/* The time's and who's columns keep their width as lines come and go: the words still being said
+   have no time yet, and You is narrower than Them. */
+.ca-live-lines .ca-heard-at {
+  min-width: 5ch;
+}
+.ca-live-lines .ca-heard-who {
+  min-width: 2.5em;
 }
 .ca-live-notes {
   max-height: 240px;

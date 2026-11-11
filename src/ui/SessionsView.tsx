@@ -1,4 +1,5 @@
-// The Sessions view: every session in the project, Pinned first in your order.
+// The Sessions view: every session in the project, the ones hearing a meeting first, under
+// Listening while they hear, then Pinned in your order (boardLists.ts `sessionTops`).
 // The rest go by status under the headings the other views have (Needs you, Your turn, Working,
 // Snoozed, then the days they were last active), or by when they started, under the days they
 // started; the bar over the list picks which, whether they're grouped by worktree or by repo,
@@ -278,9 +279,11 @@ export function SessionsBar({ sort, onSort, group, onGroup, started, onStarted, 
 }
 
 interface SessionsViewProps {
+  /** The sessions hearing a meeting now, which lead the list while they hear, pinned or not. */
+  listening: SessionItem[];
   pinned: SessionItem[];
-  /** The helpers listed under each pinned session (boardLists.ts `helpersUnder`). */
-  pinnedHelpers?: Map<string, SessionItem[]>;
+  /** The helpers listed under each listening and pinned session (`helpersUnder`). */
+  topHelpers?: Map<string, SessionItem[]>;
   /** The rest under their headings, in `sort`'s order. */
   sections: SessionSection[];
   /** The rest grouped instead, when the list is grouped (`groupSessions`), and what the groups'
@@ -356,11 +359,11 @@ interface SessionsViewProps {
 const NO_KEYS: ReadonlySet<string> = new Set();
 
 export function SessionsView(props: SessionsViewProps) {
-  const { pinned, pinnedHelpers, sections, groups, groupActs, sort, lines, now, selectedKey, picked, domId, onSelect, onPickThese, onOpen, onContextMenu, onPrMenu, onPrShow, onPrOpen, onPlacePinned, onUnpin, desktop, archived, showArchived, onToggleArchived, todosFor, helpersOf, helpersShown, onToggleHelpers, runsOf, onToggleRuns, sidesOf, sideGlancesOf, onToggleSides, onShowSide, helperActions, onShowTodo, onFilterLabel, saidOf } = props;
+  const { listening, pinned, topHelpers, sections, groups, groupActs, sort, lines, now, selectedKey, picked, domId, onSelect, onPickThese, onOpen, onContextMenu, onPrMenu, onPrShow, onPrOpen, onPlacePinned, onUnpin, desktop, archived, showArchived, onToggleArchived, todosFor, helpersOf, helpersShown, onToggleHelpers, runsOf, onToggleRuns, sidesOf, sideGlancesOf, onToggleSides, onShowSide, helperActions, onShowTodo, onFilterLabel, saidOf } = props;
   const shown = helpersShown ?? NO_KEYS;
   const allGroups = groups ? groupsOf(groups) : [];
   const listed = groups ? allGroups.flatMap((g) => g.rows) : sections.flatMap((s) => s.rows);
-  const byKey = (key: string) => pinned.find((r) => r.session.key === key) ?? [...(pinnedHelpers?.values() ?? [])].flat().find((r) => r.session.key === key) ?? listed.find((r) => r.session.key === key);
+  const byKey = (key: string) => [...listening, ...pinned].find((r) => r.session.key === key) ?? [...(topHelpers?.values() ?? [])].flat().find((r) => r.session.key === key) ?? listed.find((r) => r.session.key === key);
   // Only the pinned rows carry an index: the others join them when dropped among them.
   const drag = useRowDrag({
     onPlace: onPlacePinned,
@@ -472,6 +475,15 @@ export function SessionsView(props: SessionsViewProps) {
   const listedCount = pinned.length + (groups ? groups.pinned.length + groups.sections.length : sections.length);
   return (
     <>
+      {listening.length > 0 && (
+        // Above the list its rows are dragged in, so a session that's hearing isn't dragged among
+        // the pins: it keeps its place here while it hears, and goes out of the window to the
+        // desktop as any row does.
+        <section className="ca-bayblock ca-listening">
+          <SectionHeader icon="microphone" label="Listening" count={listening.length} />
+          <div className="ca-bay-lanes">{listening.map((r) => family(r, topHelpers?.get(r.session.key) ?? [], null, listedRow))}</div>
+        </section>
+      )}
       {listedCount > 0 && (
         <div className="ca-sessionlist" data-drag-list>
           {/* The first pin lands at the top of the list. */}
@@ -480,7 +492,7 @@ export function SessionsView(props: SessionsViewProps) {
             <PinnedSection
               items={pinned}
               // Its helpers under it, not pinned themselves: they move with it.
-              row={(r, i) => family(r, pinnedHelpers?.get(r.session.key) ?? [], i, (x, at) => drag.rowProps(x.session.key, at, pinned.length))}
+              row={(r, i) => family(r, topHelpers?.get(r.session.key) ?? [], i, (x, at) => drag.rowProps(x.session.key, at, pinned.length))}
             />
           )}
           {groups && groupActs ? (
