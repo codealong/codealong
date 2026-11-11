@@ -3489,8 +3489,9 @@ takes the whole day, one that was called off, one you declined, time you set asi
 others in it). Settings lists your calendars under the account each is from, all ticked: untick
 one and its meetings aren't offered (`meeting_calendars_off`, by the calendar's id). A meeting
 you're invited to at several of your addresses is in each account's calendar: it's offered and
-listed once, your own addresses aren't among who else is in it, it stays while any of its
-calendars is ticked, and saying no to it at one address is saying no to it.
+listed once, your own addresses aren't among who else is in it, and it stays while any of its
+calendars is ticked. Saying no to it at one address is saying no to it, unless you said yes at
+another.
 
 The calendar is macOS's own, the one the Calendar app shows: whichever accounts you added to this
 Mac in System Settings › Internet Accounts (Google, iCloud, Exchange), so there's nothing to sign

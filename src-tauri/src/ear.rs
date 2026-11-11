@@ -14,6 +14,7 @@
 //! engine. Everything here that needs it fails in words for the person where it's missing.
 //! What macOS asks the person before it lets Codealong hear is in .claude/rules/voice.md.
 
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::process::Command;
 use std::time::Duration;
@@ -346,18 +347,67 @@ pub struct Meeting {
     pub calendar: String,
     #[serde(skip_serializing_if = "String::is_empty")]
     pub calendar_id: String,
-    /// The others in it, by name, or by address where the calendar has no name for them: not
-    /// the person, at any address the calendars say is theirs.
+    /// The others in it, by name, or by address where the calendar has no name for them
+    /// (`meetings`).
     pub attendees: Vec<String>,
-    /// The person said no to it.
+    /// What the person answered in this calendar's copy of it: no, or yes (a maybe too).
+    /// Neither while they haven't.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub declined: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub accepted: bool,
     /// The link to its call, found in its link, its place or its notes.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub link: Option<String>,
     /// For one that repeats, what its occurrences share.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub series: Option<String>,
+}
+
+/// Someone in an event, as the calendar has them.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+struct Person {
+    name: String,
+    address: String,
+    /// The calendar says they're the person: the owner of the account the event is in.
+    me: bool,
+    /// "yes" (a maybe too), "no", or nothing while they haven't answered.
+    answer: String,
+}
+
+/// An event as the helper reads it: what a `Meeting` keeps of it, and the people in it.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+struct Invited {
+    #[serde(flatten)]
+    meeting: Meeting,
+    people: Vec<Person>,
+}
+
+/// The events the helper read as the person's meetings: who else is in each, and what the
+/// person answered. The calendar says which of an event's people is them, but only of the
+/// address of the account the event is in. Someone invited at two of their addresses has the
+/// event in both accounts' calendars, and in each copy their other address is one more guest:
+/// so an address the calendar calls theirs in any event read is theirs in all of them. What a
+/// calendar or an account is called says nothing of whose an address is: a calendar someone
+/// shares is named for theirs. The person's answer is the one beside the address this copy
+/// calls theirs, before another of theirs.
+fn meetings(events: Vec<Invited>) -> Vec<Meeting> {
+    let mine: HashSet<String> = events.iter().flat_map(|e| &e.people).filter(|p| p.me && !p.address.is_empty()).map(|p| p.address.to_lowercase()).collect();
+    let is_mine = |p: &Person| p.me || mine.contains(&p.address.to_lowercase());
+    events
+        .into_iter()
+        .map(|e| {
+            let you = e.people.iter().find(|p| p.me).or_else(|| e.people.iter().find(|p| is_mine(p)));
+            Meeting {
+                attendees: e.people.iter().filter(|p| !is_mine(p)).filter_map(|p| [&p.name, &p.address].into_iter().find(|s| !s.is_empty()).cloned()).collect(),
+                declined: you.is_some_and(|p| p.answer == "no"),
+                accepted: you.is_some_and(|p| p.answer == "yes"),
+                ..e.meeting
+            }
+        })
+        .collect()
 }
 
 /// An account macOS's calendar has calendars from: its name there (often its address) and its
@@ -399,7 +449,16 @@ pub struct Calendar {
 /// when its server does, a terminal when a shell does.
 pub fn calendar(ask_first: bool, from: i64, to: i64) -> Result<Calendar, Refused> {
     let answer = ask("calendar", json!({ "ask": ask_first, "from": from, "to": to }), if ask_first { ASKING } else { ASK })?;
-    serde_json::from_value(answer).map_err(|e| Refused { code: "unread".into(), message: format!("The helper's answer about the calendar didn't read ({e}).") })
+    read_calendar(answer).map_err(|e| Refused { code: "unread".into(), message: format!("The helper's answer about the calendar didn't read ({e}).") })
+}
+
+/// The helper's answer about the calendar, its events as the person's meetings (`meetings`).
+fn read_calendar(mut answer: Value) -> serde_json::Result<Calendar> {
+    let events = match answer.as_object_mut().and_then(|o| o.remove("events")) {
+        Some(events) => serde_json::from_value(events)?,
+        None => Vec::new(),
+    };
+    Ok(Calendar { events: meetings(events), ..serde_json::from_value(answer)? })
 }
 
 /// Loads the speech model, downloading it first where it isn't on this Mac, so the next thing
@@ -434,19 +493,57 @@ mod tests {
         assert_eq!(serde_json::to_value(&status).unwrap()["systemAudio"], "unasked");
         assert_eq!(serde_json::from_value::<Status>(json!({ "available": true })).unwrap().system_audio, "");
         // The calendar as the helper answers it, and one it may not read.
-        let read: Calendar = serde_json::from_value(json!({
+        let read = read_calendar(json!({
             "access": "allowed",
             "sources": [{ "title": "sam@northwind.example", "kind": "caldav" }],
             "calendars": [{ "id": "C1", "title": "Work", "source": "sam@northwind.example" }],
-            "events": [{ "id": "E1@1794330000000", "title": "Renewal call", "start": 1_794_330_000_000i64, "end": 1_794_331_800_000i64, "calendar": "Work", "calendarId": "C1", "attendees": ["Dana Kestrel"], "declined": false, "link": "https://meet.example/abc", "series": "E1" }]
+            "events": [{ "id": "E1@1794330000000", "title": "Renewal call", "start": 1_794_330_000_000i64, "end": 1_794_331_800_000i64, "calendar": "Work", "calendarId": "C1", "people": [{ "name": "Sam Northwind", "address": "sam@northwind.example", "me": true, "answer": "yes" }, { "name": "Dana Kestrel", "address": "dana@kestrel.example" }], "link": "https://meet.example/abc", "series": "E1" }]
         }))
         .unwrap();
         assert_eq!((read.calendars[0].id.as_str(), read.events[0].calendar_id.as_str()), ("C1", "C1"));
-        assert_eq!((read.access.as_str(), read.sources[0].kind.as_str(), read.events[0].attendees.len(), read.events[0].link.as_deref()), ("allowed", "caldav", 1, Some("https://meet.example/abc")));
-        assert_eq!(serde_json::from_value::<Calendar>(json!({ "access": "unasked" })).unwrap(), Calendar { access: "unasked".into(), ..Calendar::default() });
+        assert_eq!((read.access.as_str(), read.sources[0].kind.as_str(), read.events[0].link.as_deref()), ("allowed", "caldav", Some("https://meet.example/abc")));
+        assert_eq!((read.events[0].attendees.clone(), read.events[0].accepted, read.events[0].declined), (vec!["Dana Kestrel".to_string()], true, false));
+        assert_eq!(read_calendar(json!({ "access": "unasked" })).unwrap(), Calendar { access: "unasked".into(), ..Calendar::default() });
+        assert!(read_calendar(json!({ "access": "allowed", "events": "none" })).is_err());
         // A newer helper's line, and an answer nobody waits for any more.
         assert_eq!(event(&line(r#"{"method":"something-new","params":{}}"#)), None);
         assert_eq!(event(&line(r#"{"id":4,"result":{}}"#)), None);
+    }
+
+    #[test]
+    fn who_else_is_in_a_meeting_is_everyone_but_you_at_any_of_your_addresses() {
+        let person = |name: &str, address: &str, me: bool, answer: &str| Person { name: name.into(), address: address.into(), me, answer: answer.into() };
+        let event = |id: &str, calendar: &str, people: Vec<Person>| Invited { meeting: Meeting { id: id.into(), calendar: calendar.into(), ..Meeting::default() }, people };
+        let dana = || person("Dana Kestrel", "dana@kestrel.example", false, "yes");
+        let got = meetings(vec![
+            // Invited at work and at home: the event is in both accounts' calendars, each
+            // calling its own address yours and the other a guest. Neither calendar is named
+            // for an address.
+            event("m", "Work", vec![person("Sam Northwind", "sam@northwind.example", true, "yes"), person("", "sam@atlas.example", false, ""), dana()]),
+            event("m", "Home", vec![person("Sam Northwind", "Sam@Northwind.example", false, "yes"), person("", "sam@atlas.example", true, ""), dana()]),
+            // Only at work, with your home address a guest, which you said no at: your answer is
+            // the one this calendar calls yours.
+            event("n", "Work", vec![person("", "SAM@atlas.example", false, "no"), person("", "sam@northwind.example", true, "yes"), person("", "lee@atlas.example", false, "")]),
+            // One that calls nobody you, where an address of yours said no.
+            event("o", "Team", vec![person("", "sam@atlas.example", false, "no"), dana()]),
+            // Someone's calendar they share with you, named for their address: they're no more
+            // you for it, and nor is anyone in an event that has nobody of yours.
+            event("p", "dana@kestrel.example", vec![dana(), person("Lee Atlas", "", false, "no"), person("", "", false, "")]),
+        ]);
+        let said: Vec<(&str, &str, Vec<&str>, bool, bool)> = got.iter().map(|m| (m.id.as_str(), m.calendar.as_str(), m.attendees.iter().map(String::as_str).collect(), m.accepted, m.declined)).collect();
+        assert_eq!(
+            said,
+            vec![
+                ("m", "Work", vec!["Dana Kestrel"], true, false),
+                ("m", "Home", vec!["Dana Kestrel"], false, false),
+                ("n", "Work", vec!["lee@atlas.example"], true, false),
+                ("o", "Team", vec!["Dana Kestrel"], false, true),
+                ("p", "dana@kestrel.example", vec!["Dana Kestrel", "Lee Atlas"], false, false),
+            ]
+        );
+        // With no copy of it in the other account, nothing says that address is yours.
+        let alone = meetings(vec![event("m", "Work", vec![person("", "sam@northwind.example", true, ""), person("", "sam@atlas.example", false, "")])]);
+        assert_eq!(alone[0].attendees, vec!["sam@atlas.example".to_string()]);
     }
 
     #[test]

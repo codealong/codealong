@@ -9,7 +9,8 @@
 //!
 //! A meeting is an event with a time of day that someone else is in, or that's held on a call
 //! (`is_meeting`), and that you didn't say no to. One you're invited to at several of your
-//! addresses is in each account's calendar and counts once (`counted`). It's on offer from a
+//! addresses is in each account's calendar and counts once, as one you said yes to when you
+//! did at any of them (`counted`). It's on offer from a
 //! minute before it starts until ten minutes in, or its end (`on_offer`); one you took or passed
 //! on isn't offered again, which `meetings.json` beside config.toml keeps across a server started
 //! again, nor is one a session is hearing.
@@ -270,22 +271,26 @@ fn state() -> MutexGuard<'static, State> {
 // The rules.
 
 /// Whether an event is a meeting to take notes of: someone else is in it or it's held on a call,
-/// you didn't say no to it, and it isn't hours long. A block of time you set aside for yourself
-/// isn't one, nor a day away with others in it. Events that take the whole day, and ones called
-/// off, the helper leaves out as it reads (`calendar` in main.swift).
+/// and it isn't hours long. A block of time you set aside for yourself isn't one, nor a day away
+/// with others in it. Events that take the whole day, and ones called off, the helper leaves out
+/// as it reads (`calendar` in main.swift); one you said no to, `counted` does.
 pub fn is_meeting(m: &Meeting) -> bool {
-    !m.declined && (!m.attendees.is_empty() || m.link.is_some()) && m.end - m.start <= LONGEST_MS
+    (!m.attendees.is_empty() || m.link.is_some()) && m.end - m.start <= LONGEST_MS
 }
 
-/// The events that count under the rules, one of each meeting. A meeting you're invited to at
-/// several of your addresses is an event in each account's calendar, and the helper gives the
-/// copies one id (main.swift `name(of:)`): it counts once, as its first copy in a calendar that
-/// counts, so leaving one of those calendars out leaves the meeting in; and not at all once you
-/// said no to it in any of them, where you'd answer it the once.
+/// The events that count under the rules, one of each meeting, without the ones you said no to.
+/// A meeting you're invited to at several of your addresses is an event in each account's
+/// calendar, and the helper gives the copies one id (main.swift `name(of:)`): it counts once, as
+/// its first copy in a calendar that counts, so leaving one of those calendars out leaves the
+/// meeting in, and what a copy there says counts for nothing. You answer such a meeting in one
+/// calendar and leave the rest: it's one you said no to when you did in some copy and yes in
+/// none, so a second invitation turned down doesn't lose the meeting you took at the first.
 fn counted<'a>(events: &'a [Meeting], rules: &Rules) -> Vec<&'a Meeting> {
-    let declined: HashSet<&str> = events.iter().filter(|m| m.declined).map(|m| m.id.as_str()).collect();
+    let copies: Vec<&Meeting> = events.iter().filter(|m| rules.counts(m)).collect();
+    let ids = |said: fn(&Meeting) -> bool| copies.iter().filter(|m| said(m)).map(|m| m.id.as_str()).collect::<HashSet<_>>();
+    let (yes, no) = (ids(|m| m.accepted), ids(|m| m.declined));
     let mut seen = HashSet::new();
-    events.iter().filter(|m| rules.counts(m) && !declined.contains(m.id.as_str()) && seen.insert(m.id.as_str())).collect()
+    copies.into_iter().filter(|m| (yes.contains(m.id.as_str()) || !no.contains(m.id.as_str())) && seen.insert(m.id.as_str())).collect()
 }
 
 /// A meeting by its id: the copy that counts (`counted`), else whichever has it, as one being
@@ -634,7 +639,12 @@ mod tests {
         let alone = Meeting { attendees: Vec::new(), ..m.clone() };
         assert!(!is_meeting(&alone));
         assert!(is_meeting(&Meeting { link: Some("https://meet.example/abc".into()), ..alone }));
-        assert!(!is_meeting(&Meeting { declined: true, ..m.clone() }));
+        // One you said no to is neither offered nor listed.
+        let none = HashMap::new();
+        let declined = [Meeting { declined: true, ..m.clone() }];
+        assert_eq!(on_offer(&declined, &PLAIN, &none, &[], NOW), None);
+        assert!(ahead_of(&declined, &PLAIN, &none, &[], NOW).is_empty());
+        assert_eq!(on_offer(&[m.clone()], &PLAIN, &none, &[], NOW).map(|m| m.id.as_str()), Some("a"));
         // Hours long, with others in it: a day away, not a meeting to take notes of.
         assert!(is_meeting(&Meeting { end: m.start + LONGEST_MS, ..m.clone() }));
         assert!(!is_meeting(&Meeting { end: m.start + LONGEST_MS + MIN, ..m }));
@@ -687,11 +697,20 @@ mod tests {
         let answered = HashMap::from([("m".to_string(), NOW)]);
         assert_eq!(on_offer(&events, &PLAIN, &answered, &[], NOW), None);
         assert_eq!(on_offer(&events, &PLAIN, &answered, &[], NOW + MIN).map(|m| m.id.as_str()), Some("other"));
-        // Said no to at one address, it's one you said no to, whichever calendars count.
+        // Said no to at one address and left at the other, it's one you said no to; with that
+        // calendar left out, what its copy says counts for nothing.
         let events = [copy("home"), Meeting { declined: true, ..copy("work") }];
         assert_eq!(on_offer(&events, &PLAIN, &none, &[], NOW), None);
-        assert_eq!(on_offer(&events, &without(&["work"]), &none, &[], NOW), None);
         assert!(ahead_of(&events, &PLAIN, &none, &[], NOW).is_empty());
+        assert_eq!(on_offer(&events, &without(&["work"]), &none, &[], NOW).map(|m| m.calendar_id.as_str()), Some("home"));
+        // Said yes to at one and no at the other, it's one you took, in either order.
+        let events = [Meeting { declined: true, ..copy("home") }, Meeting { accepted: true, ..copy("work") }];
+        assert_eq!(on_offer(&events, &PLAIN, &none, &[], NOW).map(|m| m.id.as_str()), Some("m"));
+        assert_eq!(ahead_of(&events, &PLAIN, &none, &[], NOW).len(), 1);
+        let events = [Meeting { accepted: true, ..copy("home") }, Meeting { declined: true, ..copy("work") }];
+        assert_eq!(on_offer(&events, &PLAIN, &none, &[], NOW).map(|m| m.id.as_str()), Some("m"));
+        // The yes in a calendar left out doesn't count either: what's left is the no.
+        assert_eq!(on_offer(&events, &without(&["home"]), &none, &[], NOW), None);
     }
 
     #[test]

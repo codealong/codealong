@@ -126,14 +126,15 @@ What macOS's speech recognition and audio capture take and give, as codealong-ea
   separate events to EventKit (`calendarItemIdentifier` differs); what they share is
   `calendarItemExternalIdentifier`, the UID their server gave the event, which is what a
   meeting's `id` is made from (`name(of:)` in main.swift) so that the engine counts it once.
-- `EKParticipant.isCurrentUser` marks only the address of the account the event is in: in each
-  copy of such a meeting the person's other addresses were ordinary guests, and the offer said
-  the meeting was with themselves. Nothing public says which addresses are the person's. What
-  the helper goes by (`ownAddresses`): an account named for its address, and a calendar the
-  person can write to that's named for one, which is how a Google account's main calendar
-  comes. On this Mac one of five accounts and five of eighteen calendars were named for an
-  address; a calendar someone else shares is named for theirs, and is told apart only by
-  being read-only.
+- `EKParticipant.isCurrentUser` marks only the address of the account the event is in (Apple's
+  header: "whether this participant represents the owner of this account"): in each copy of
+  such a meeting the person's other addresses were ordinary guests, and the offer said the
+  meeting was with themselves. Nothing public lists the person's addresses, so the engine
+  gathers them from the marks themselves, across every event read (ear.rs `meetings`). A
+  calendar's or an account's name is no evidence: on this Mac one of five accounts and five of
+  eighteen calendars were named for an address, and a calendar someone else shares is named
+  for theirs. Not seen: whether an event in a calendar shared by someone marks them or the
+  account's owner; were it them, they'd be taken for the person.
 
 ## Unchecked
 

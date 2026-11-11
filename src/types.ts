@@ -910,7 +910,9 @@ export interface Meeting {
   calendarId?: string;
   /** The others in it, by name, or by address where the calendar has no name. */
   attendees: string[];
+  /** What you answered in this calendar's copy of it; neither while you haven't. */
   declined?: boolean;
+  accepted?: boolean;
   /** The link to its call. */
   link?: string;
   /** For one that repeats, what its occurrences share. */
