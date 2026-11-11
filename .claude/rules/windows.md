@@ -281,10 +281,10 @@ under `src-tauri/src/`.
   after the click in the Finder takes the keyboard, and that the panel takes drops (wry's handler)
   while it isn't key and Codealong isn't active; that it takes the keyboard back once the file
   lands, the caret in the box; that a click elsewhere still folds or hides it once the button comes
-  up; that a file let go on the folded chip opens it again; and whether a file let go the instant
-  it reaches the panel is missed: a look that sees the button up before Tauri's drag-enter event
-  reaches the main thread (both come through the event loop) puts the panel aside, which hides an
-  empty one. The preview shows the page keeping files let go on the list, the shadow and the chip
+  up; that a file let go on the folded chip opens it again; and that `SETTLE` is long enough for a
+  file let go the instant it reaches the panel: its drag events come from the other app once it
+  sees the button up, behind the look that saw it, and a panel put aside before they arrive hides
+  if it's empty. The preview shows the page keeping files let go on the list, the shadow and the chip
   (`quick-drop-check.js`).
 - Not yet checked by hand (2026-11-09): a session popped out of the main window's panel (kept.rs
   `pop_session`) in the real app: where its window opens beside the main window, or over its

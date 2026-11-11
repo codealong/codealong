@@ -64,6 +64,10 @@ const PANEL: panel::Config = panel::Config { keys: panel::Keys::Always, level: p
 /// How often the panel looks at the mouse button while it waits to see whether a file is on its
 /// way to it (`lost_keys`).
 const LOOK_EVERY: Duration = Duration::from_millis(30);
+/// How long it waits once the button is up before it's put aside with no drag over it: a file
+/// let go the instant it reached the panel has its drag events still on their way, sent by the
+/// app the drag started in once that app sees the button come up, and queued behind the looks.
+const SETTLE: Duration = Duration::from_millis(100);
 /// How long it waits for a file dragged over it to land once the button is up: the drop comes
 /// from the app the drag started in, after that app sees the button come up.
 const DROP_WAIT: Duration = Duration::from_millis(500);
@@ -454,9 +458,9 @@ fn put_aside(app: &AppHandle) {
 
 /// The panel lost the keyboard to another window or app. With the mouse button down, what's held
 /// may be a file on its way to the panel, dragged out of the window the click went to (the
-/// Finder's, say): the panel stays as it is until the button comes up, and is put aside then
-/// unless a file landed on it (`dragged`). With the button up it's put aside at once. On the main
-/// thread.
+/// Finder's, say): the panel stays as it is until the button comes up, and is put aside a moment
+/// after unless a file lands on it (`dragged`, `still_waits`). With the button up it's put aside
+/// at once. On the main thread.
 fn lost_keys(app: &AppHandle) {
     let (Some(state), Some(window)) = (app.try_state::<Quick>(), app.get_webview_window(LABEL)) else { return };
     if !panel::is_visible(&window) || is_folded(&state) || !panel::button_down() {
@@ -493,10 +497,11 @@ fn look(app: &AppHandle, n: u64) {
 }
 
 /// Whether the panel that lost the keyboard with the mouse button down still waits before it's
-/// put aside: while the button is down (`released_for` none), and once it's up, for as long as a
-/// file dragged over the panel may still land on it.
+/// put aside: while the button is down (`released_for` none), and once it's up, until drag
+/// events sent as it came up have had time to arrive, and for as long as a file dragged over the
+/// panel may still land on it.
 fn still_waits(over: bool, released_for: Option<Duration>) -> bool {
-    released_for.is_none_or(|t| over && t < DROP_WAIT)
+    released_for.is_none_or(|t| t < SETTLE || (over && t < DROP_WAIT))
 }
 
 /// It's no longer waiting to see whether a file is coming; whether it was.
@@ -848,10 +853,14 @@ mod tests {
         // With the button down, whatever's held may yet come to the panel.
         assert!(still_waits(false, None));
         assert!(still_waits(true, None));
-        // Let go with nothing over the panel: a click elsewhere, or a drag let go elsewhere.
-        assert!(!still_waits(false, Some(Duration::ZERO)));
+        // Just let go with nothing over the panel yet: a file let go the instant it reached the
+        // panel has its drag events still on their way, behind the look that saw the button up.
+        assert!(still_waits(false, Some(Duration::ZERO)));
+        assert!(still_waits(false, Some(SETTLE / 2)));
+        // Then still nothing: a click elsewhere, or a drag let go elsewhere.
+        assert!(!still_waits(false, Some(SETTLE)));
         // Let go over the panel, it waits for the drop the other app sends, but not for ever.
-        assert!(still_waits(true, Some(Duration::from_millis(100))));
+        assert!(still_waits(true, Some(SETTLE)));
         assert!(!still_waits(true, Some(DROP_WAIT)));
     }
 
