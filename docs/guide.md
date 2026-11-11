@@ -2506,16 +2506,21 @@ conversation says the model its latest turn ran on, whose name has its level (Ge
 
 Where Codealong types into its terminal or runs it, that chip's menu has its account's models,
 with its effort levels under them, the one it's on checked: picking either switches that session
-alone, between turns (`/model <name>` or `/effort <level>` typed into a Claude Code session, or
-handed to a background job by its account's background service, as a send is; its agent's model
-or effort for one Codealong runs); mid-turn the models wait for the turn to end,
-while a move to another account from the same menu doesn't. Claude Code asks before a switch while the
-conversation is cached for what it's on ("Your next response will be slower"); Codealong answers
-yes, as picking it meant. It also saves what it's switched to as the account's default for new
-sessions; Codealong puts the default back a few seconds later, so the switch stays with that
-session, and the box says what happened once that's done. Meanwhile the account's other running
-sessions may follow the new default. A Codex session in a terminal is switched there, with its own
-`/model`; one Codealong runs is switched from the chip.
+alone (`/model <name>` or `/effort <level>` typed into a Claude Code session, or handed to a
+background job by its account's background service, as a send is; its agent's model or effort for
+one Codealong runs). A Claude Code session in a terminal or a background job is switched mid-turn
+too, as its own terminal does it: the turn goes on, and its next step runs on the new model and
+effort. One Codealong runs is switched between turns, and mid-turn its models wait for the turn to
+end, as they do while a session waits on you, while a move to another account from the same menu
+doesn't. Claude Code asks before a switch to another model while the conversation is cached for
+what it's on ("Your next response will be slower"), mid-turn too; Codealong answers yes, as
+picking it meant. It also saves what it's switched to as the account's default for new sessions;
+Codealong puts the default back a few seconds later, so the switch stays with that session, and the
+box says what happened once that's done. Mid-turn Claude Code says what it switched only in its
+terminal, so Codealong goes by that default it saved; `max` effort saves none, and is taken as
+typed. Meanwhile the account's other running sessions may follow the new default. A Codex session
+in a terminal is switched there, with its own `/model`; one Codealong runs is switched from the
+chip.
 
 A thread in the Codex app is switched from the chip too, running or not: the app takes the model
 or level for the thread's next turn, as a pick in its own box does, and its box shows it. A model

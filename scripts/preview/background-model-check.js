@@ -2,7 +2,7 @@
 // Codealong hands a job `/model` and `/effort` through its account's background service as it
 // hands it a prompt (send.rs `Route::as_typed`), so between turns the chip's menu lists the
 // account's models and its levels, and a pick asks the engine to switch that job, sending no
-// prompt; mid-turn the models wait for the turn to end.
+// prompt; mid-turn too, since Claude Code runs the command at once, for the turn's next step.
 //   scripts/preview.sh peek '' scripts/preview/background-model-check.js
 (function () {
   // This runs before the app's script: pick a Claude Code session of this Mac's to make a job of.
@@ -24,6 +24,7 @@
   });
   if (!picked) { stopped('no Claude Code session whose account switches models (start-options.json)'); return; }
   var acct = account(picked);
+  if (!acct.switchesMidTurn) { stopped('the job’s account doesn’t say it switches mid-turn (start-options.json)'); return; }
   localStorage.setItem('codealong.preview.peek', picked.key);
   localStorage.removeItem('codealong.draft.' + picked.key);
 
@@ -66,16 +67,19 @@
       var asked = sent('switch_session_model')[0];
       check('picking one switches that job', asked.key === picked.key && acct.models.some(function (m) { return m.id === asked.model; }), JSON.stringify(asked));
       check('nothing was sent as a prompt', calls('send_to_session').length === 0, String(calls('send_to_session').length));
-      // Its turn runs: the command would wait in its box as a prompt does, so the models wait.
+      // Its turn runs: Claude Code runs the command typed at once (`switchesMidTurn`), for the
+      // turn's next step, so the models still switch it.
       become(job('working'));
-      return until(function () { return !!chip() && /once its turn ends/.test(chip().title); }, 5000, 'mid-turn the chip still switches at once: ' + (chip() ? chip().title : 'no chip'));
+      return wait(200);
     })
     .then(function () {
+      check('mid-turn the chip still switches that job alone', !!chip() && /for this session alone/.test(chip().title) && !chip().disabled, chip() ? chip().title : 'no chip');
       chip().click();
       return until(function () { return !!menu() && !!own(); }, 3000, 'no menu mid-turn');
     })
     .then(function () {
-      check('mid-turn its models wait for the turn to end', models().length > 0 && models().every(function (o) { return o.disabled; }), models().map(function (o) { return o.disabled ? 'off' : 'on'; }).join());
+      check('mid-turn its models still switch it', models().length > 0 && models().every(function (o) { return !o.disabled; }), models().map(function (o) { return o.disabled ? 'off' : 'on'; }).join());
+      check('and so do its levels', !!q('.ca-peek .ca-modelmenu .ca-picker-foot .ca-segctl'), 'no effort row');
     })
     .then(done, stopped);
 })();

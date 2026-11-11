@@ -4,7 +4,7 @@
 //! the defaults `/model` and `/effort` save beyond the session.
 
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{anyhow, bail, Result};
 use serde_json::value::RawValue;
@@ -37,6 +37,11 @@ const EFFORT_LEVEL: &str = "effortLevel";
 /// saves the default again (seen on 2026-10-14).
 const ECHO_WAIT: Duration = Duration::from_secs(3);
 
+/// The level `/effort` sets for the session alone: it saves no default, so mid-turn nothing at all
+/// says it was taken (2.1.299's words, "max being session-only"; 2.1.322 left settings.json as it
+/// was).
+const SESSION_ONLY_EFFORT: &str = "max";
+
 /// Types a switch by `typ` and sees it through. While the conversation is cached for what it's
 /// on, Claude Code asks first ("Switch model?", "Change effort level?", 2.1.299; checked in tmux
 /// on 2026-10-14), Yes picked, and writes what it did (`<local-command-stdout>`) only once that's
@@ -48,6 +53,14 @@ const ECHO_WAIT: Duration = Duration::from_secs(3);
 /// waiting, when the session it's for may have gone on to a turn. Answers what it's on now: a
 /// level over the account's cap is set to the cap. `records` are the session's own transcript,
 /// where the command writes, even for one whose conversation another's record holds until then.
+///
+/// Mid-turn the commands run at once too (2.1.322, in tmux on 2026-11-10): `/model` to another
+/// model asks the same question under the running turn, and the turn's next step goes on what
+/// they set. But what they did shows only on screen, and nothing reaches the transcript, then or
+/// after the turn; so there the default they save says they took it, settings.json being written
+/// again whenever one is taken, even with nothing in it changed. `/effort` asked nothing mid-turn,
+/// and the level it keeps for the session alone saves nothing, so that's taken as typed. Return
+/// in an empty box mid-turn does nothing.
 pub(super) fn typed(account: &AccountCfg, session: &Session, records: &dyn Fn() -> Vec<PathBuf>, to: Switch, text: &str, typ: &mut dyn FnMut(&str) -> Result<bool>) -> Result<Option<String>> {
     static SWITCHING: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let _one_at_a_time = match SWITCHING.try_lock() {
@@ -59,18 +72,21 @@ pub(super) fn typed(account: &AccountCfg, session: &Session, records: &dyn Fn() 
     let from = records().first().and_then(|t| std::fs::metadata(t).ok()).map_or(0, |m| m.len());
     let settings = account.home_path().join("settings.json");
     let before = settings_now(&settings);
+    // Mid-turn the transcript says nothing, and the settings written again do.
+    let mid_turn = crate::harness::turn_running(session);
+    let saves = mid_turn.then(|| (settings.as_path(), written_at(&settings)));
     // A typing that failed may still have gone in (`send::MayHaveArrived`): what it said and saved
     // is looked for, and only a question it surely brought up is answered.
     let typed = typ(text);
     if matches!(typed, Ok(false)) {
         return Ok(None);
     }
-    let mut said = said_after(records, from, SAID_WAIT);
+    let mut took = took_after(records, from, saves, SAID_WAIT);
     let mut pressed = Ok(());
-    if said.is_none() && typed.is_ok() {
+    if took.is_none() && typed.is_ok() {
         pressed = press_return(account, session);
         if pressed.is_ok() {
-            said = said_after(records, from, ANSWERED_WAIT);
+            took = took_after(records, from, saves, ANSWERED_WAIT);
         }
     }
     // What it saved is put back however the switch went.
@@ -79,7 +95,12 @@ pub(super) fn typed(account: &AccountCfg, session: &Session, records: &dyn Fn() 
     }
     typed?;
     pressed?;
-    let said = said.ok_or_else(|| anyhow!("Claude Code didn't say it took the switch: it may be asking about it in its terminal."))?;
+    let said = match took {
+        Some(Took::Said(said)) => said,
+        Some(Took::Saved) => return Ok(Some(to.value().to_string())),
+        None if mid_turn && to == Switch::Effort(SESSION_ONLY_EFFORT) => return Ok(Some(to.value().to_string())),
+        None => bail!("Claude Code didn't say it took the switch: it may be asking about it in its terminal."),
+    };
     let now = match to {
         Switch::Model(model) => super::transcript::model_set(&said).map(|_| model.to_string()),
         Switch::Effort(_) => super::transcript::effort_set(&said).flatten(),
@@ -91,10 +112,20 @@ pub(super) fn typed(account: &AccountCfg, session: &Session, records: &dyn Fn() 
     Ok(Some(now))
 }
 
-/// What Claude Code wrote of a local command's outcome in the session's transcript (`records`'
-/// first) after byte `from`, waiting up to `wait` for it: the first such line's text,
-/// `<local-command-stdout>` and all.
-fn said_after(records: &dyn Fn() -> Vec<PathBuf>, from: u64, wait: Duration) -> Option<String> {
+/// What says Claude Code took a switch.
+#[derive(Debug, PartialEq)]
+enum Took {
+    /// What it wrote of the command's outcome, `<local-command-stdout>` and all.
+    Said(String),
+    /// Mid-turn, where it writes nothing: the settings it saves the default in were written again.
+    Saved,
+}
+
+/// What says Claude Code took a switch, waiting up to `wait` for it: the outcome it wrote in the
+/// session's transcript (`records`' first) after byte `from`, the first such line's; or, given
+/// `saves` (the settings and when they were last written before the switch), the settings
+/// written since. Another write of them in those seconds would be taken for the switch's.
+fn took_after(records: &dyn Fn() -> Vec<PathBuf>, from: u64, saves: Option<(&Path, Option<SystemTime>)>, wait: Duration) -> Option<Took> {
     let deadline = Instant::now() + wait;
     loop {
         if let Some(tail) = records().first().and_then(|t| crate::util::read_tail(t, from).ok()) {
@@ -104,15 +135,23 @@ fn said_after(records: &dyn Fn() -> Vec<PathBuf>, from: u64, wait: Duration) -> 
                 let text = content.as_str().or_else(|| content.as_array()?.iter().find_map(|i| i.get("text")?.as_str()))?;
                 (v.get("type")?.as_str()? == "user" && text.starts_with("<local-command-stdout>")).then(|| text.to_string())
             });
-            if said.is_some() {
-                return said;
+            if let Some(said) = said {
+                return Some(Took::Said(said));
             }
+        }
+        if saves.is_some_and(|(settings, was)| written_at(settings) != was) {
+            return Some(Took::Saved);
         }
         if Instant::now() >= deadline {
             return None;
         }
         std::thread::sleep(Duration::from_millis(100));
     }
+}
+
+/// When the settings were last written, None while there are none.
+fn written_at(settings: &Path) -> Option<SystemTime> {
+    std::fs::metadata(settings).and_then(|m| m.modified()).ok()
 }
 
 /// Presses Return where a session runs, its tab or a background job's terminal, to answer the
@@ -300,16 +339,43 @@ mod tests {
         let path = dir.join("t.jsonl");
         let records = || vec![path.clone()].into_iter().filter(|p| p.is_file()).collect();
         // A session with no transcript yet says nothing until the command starts one.
-        assert_eq!(said_after(&records, 0, Duration::ZERO), None);
+        assert_eq!(took_after(&records, 0, None, Duration::ZERO), None);
         let line = |content: &str| format!("{}\n", json!({ "type": "user", "message": { "role": "user", "content": content } }));
         std::fs::write(&path, line("<local-command-stdout>Set effort level to low (this session only): Quick</local-command-stdout>")).unwrap();
         let from = std::fs::metadata(&path).unwrap().len();
         // What came before the switch isn't what it said, and nothing yet is nothing.
-        assert_eq!(said_after(&records, from, Duration::ZERO), None);
+        assert_eq!(took_after(&records, from, None, Duration::ZERO), None);
         let caveat = line("<local-command-caveat>The command below was run directly in Claude Code.</local-command-caveat>");
         let said = "<local-command-stdout>Set effort level to high (saved as your default for new sessions): Comprehensive</local-command-stdout>";
         std::fs::write(&path, format!("{}{caveat}{}", std::fs::read_to_string(&path).unwrap(), line(said))).unwrap();
-        assert_eq!(said_after(&records, from, Duration::ZERO).as_deref(), Some(said));
+        assert_eq!(took_after(&records, from, None, Duration::ZERO), Some(Took::Said(said.to_string())));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Mid-turn Claude Code writes nothing of a switch in the transcript, and the settings it
+    /// saves the default in being written again, with the same text or not, say it took it.
+    #[test]
+    fn a_switch_mid_turn_is_seen_by_the_settings_it_saves() {
+        let dir = crate::store::test_dir("switch-saved");
+        let (path, settings) = (dir.join("t.jsonl"), dir.join("settings.json"));
+        std::fs::write(&path, "").unwrap();
+        let records = || vec![path.clone()];
+        std::fs::write(&settings, SETTINGS).unwrap();
+        let was = written_at(&settings);
+        assert!(was.is_some());
+        // Nothing written since: nothing says it was taken.
+        assert_eq!(took_after(&records, 0, Some((&settings, was)), Duration::ZERO), None);
+        // As Claude Code saves a default it already had: the same text, written again.
+        let file = std::fs::File::options().write(true).open(&settings).unwrap();
+        file.set_modified(was.unwrap() + Duration::from_secs(1)).unwrap();
+        assert_eq!(took_after(&records, 0, Some((&settings, was)), Duration::ZERO), Some(Took::Saved));
+        // Not looked at between turns, where the transcript says what it did.
+        assert_eq!(took_after(&records, 0, None, Duration::ZERO), None);
+        // Settings that weren't there before and are now were written too.
+        let fresh = dir.join("fresh.json");
+        assert_eq!(written_at(&fresh), None);
+        std::fs::write(&fresh, "{}").unwrap();
+        assert_eq!(took_after(&records, 0, Some((&fresh, None)), Duration::ZERO), Some(Took::Saved));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

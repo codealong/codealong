@@ -1217,9 +1217,11 @@ pub fn switch_mode(board: &Board, cfg: &Config, key: &str, mode: &str) -> Result
 /// for its next turn (`Own::switch`), any other by its harness's command typed into its terminal
 /// or a background job's box (`Adapter::model_command`, `effort_command`), the way a prompt is
 /// typed, and seen through as its harness needs (`Adapter::type_switch`). Only typed
-/// (`Route::as_typed`): another way in would take the command as a prompt. Not mid-turn, where it
-/// would wait as a prompt does, nor while the session waits on you, where it would answer; the app
-/// takes it whenever, running or not.
+/// (`Route::as_typed`): another way in would take the command as a prompt. Mid-turn only where its
+/// harness runs the command at once (`Adapter::switches_mid_turn`), for the turn's next step; in
+/// another's it would wait as a prompt does, and Codealong's own agents aren't switched mid-turn.
+/// Never while the session waits on you, where it would answer; the app takes it whenever,
+/// running or not.
 fn switch(board: &Board, cfg: &Config, key: &str, to: Switch) -> Result<String> {
     let (session, account) = crate::harness::find(board, cfg, key)?;
     let adapter = crate::harness::adapter(session.harness);
@@ -1247,7 +1249,8 @@ fn switch(board: &Board, cfg: &Config, key: &str, to: Switch) -> Result<String> 
     if !session.live {
         bail!("{title} isn't running: pick its {what} as it resumes.");
     }
-    if crate::harness::turn_running(session) {
+    let mid_turn = crate::harness::turn_running(session);
+    if mid_turn && (session.hosted || !adapter.switches_mid_turn()) {
         bail!("{title} is in the middle of a turn: switch its {what} once the turn ends.");
     }
     ensure_not_waiting(session, &Sender::You)?;
@@ -1272,7 +1275,8 @@ fn switch(board: &Board, cfg: &Config, key: &str, to: Switch) -> Result<String> 
     };
     if let Some(now) = adapter.type_switch(account, session, to, &text, &mut typ)? {
         let capped = if now == value { String::new() } else { format!(" ({value} is over the account's cap)") };
-        return Ok(format!("Switched {title} to {}{capped}: `{text}` went into its terminal.", label(&now)));
+        let from = if mid_turn { " from its next step" } else { "" };
+        return Ok(format!("Switched {title} to {}{capped}{from}: `{text}` went into its terminal.", label(&now)));
     }
     bail!("Codealong can't type into {title}'s terminal{}, so its {what} wasn't switched. Run `{text}` there.", why.map(|w| format!(" ({w})")).unwrap_or_default())
 }
@@ -1871,19 +1875,28 @@ mod tests {
     }
 
     /// Switching a running session's model is refused where the command would go in as a
-    /// prompt or answer what's asked, and for a model the account doesn't take.
+    /// prompt or answer what's asked, and for a model the account doesn't take. Claude Code runs
+    /// it mid-turn, for the turn's next step, so there it goes ahead.
     #[test]
-    fn switches_a_model_only_between_turns() {
+    fn switches_a_model_only_where_the_command_goes_in_as_one() {
         let cfg: Config = serde_json::from_value(json!({ "accounts": [{ "name": "claude", "harness": "claude", "home": "/h" }, { "name": "codex", "harness": "codex", "home": "/c" }] })).unwrap();
         let refused = |s: Session, model: &str| switch_model(&board_with(s.clone()), &cfg, &s.key, model).unwrap_err().to_string();
         let idle = session(Harness::Claude, Surface::Cli, Status::Idle, true, Some(7));
         assert_eq!(refused(Session { live: false, status: Status::Stopped, ..idle.clone() }, "haiku"), "“Fix the build” isn't running: pick its model as it resumes.");
-        assert_eq!(refused(Session { status: Status::Working, ..idle.clone() }, "haiku"), "“Fix the build” is in the middle of a turn: switch its model once the turn ends.");
+        // Mid-turn it's typed, here into no terminal at all; one stuck mid-turn the same.
+        let working = Session { status: Status::Working, pid: None, ..idle.clone() };
+        let untyped = "Codealong can't type into “Fix the build”'s terminal, so its model wasn't switched. Run `/model haiku` there.";
+        assert_eq!(refused(working.clone(), "haiku"), untyped);
+        assert_eq!(refused(Session { stalled_since: Some(1), ..working.clone() }, "haiku"), untyped);
+        // Not one Codealong runs, whose agent takes a switch only between turns.
+        assert_eq!(refused(Session { hosted: true, ..working.clone() }, "haiku"), "“Fix the build” is in the middle of a turn: switch its model once the turn ends.");
         assert!(refused(Session { status: Status::Needs, ..idle.clone() }, "haiku").contains("is waiting on you"));
         assert!(refused(idle.clone(), "haiku; rm -rf ~").contains("isn't a model Codealong can switch"));
         // A Codex terminal is switched there: Codealong types no command into one.
         let thread = Session { key: "codex:codex:t1".into(), account: "codex".into(), harness: Harness::Codex, ..idle.clone() };
         assert_eq!(refused(thread.clone(), "gpt-6-sol"), "Codex has no command to switch a running session's model.");
+        // A harness whose terminal would hold a command typed mid-turn as a prompt waits for the turn.
+        assert_eq!(refused(Session { status: Status::Working, ..thread.clone() }, "gpt-6-sol"), "“Fix the build” is in the middle of a turn: switch its model once the turn ends.");
         // A thread in the Codex app is switched there, from its next turn, running or not: here
         // no app is running to take it.
         let app = Session { surface: Surface::App, pid: None, live: false, status: Status::Idle, ..thread.clone() };
@@ -1892,7 +1905,8 @@ mod tests {
         assert_eq!(switch_effort(&board_with(app.clone()), &cfg, &app.key, "high").unwrap_err().to_string(), "The Codex app isn't running.");
         // An effort level the same way, and only one of the account's.
         let refused = |s: Session, effort: &str| switch_effort(&board_with(s.clone()), &cfg, &s.key, effort).unwrap_err().to_string();
-        assert_eq!(refused(Session { status: Status::Working, ..idle.clone() }, "high"), "“Fix the build” is in the middle of a turn: switch its effort once the turn ends.");
+        assert_eq!(refused(Session { status: Status::Working, pid: None, ..idle.clone() }, "high"), "Codealong can't type into “Fix the build”'s terminal, so its effort wasn't switched. Run `/effort high` there.");
+        assert_eq!(refused(Session { status: Status::Working, hosted: true, ..idle.clone() }, "high"), "“Fix the build” is in the middle of a turn: switch its effort once the turn ends.");
         assert!(refused(idle.clone(), "turbo").contains("isn't an effort level Codealong can switch"));
         assert_eq!(refused(thread.clone(), "high"), "Codex has no command to switch a running session's effort.");
         assert!(refused(thread, "turbo").contains("isn't an effort level Codealong can switch"));

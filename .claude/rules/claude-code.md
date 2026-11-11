@@ -351,6 +351,16 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   from its service's `reply` as typed commands, and the question's Return through `attach`: a
   Sonnet job switched to `low`, then to `haiku`, wrote both outcomes, its next reply named
   `claude-haiku-5-5` at `low`, and the defaults they saved went back (2.1.322, 2026-11-09).
+- `/model` and `/effort` are `immediate` commands (2.1.322's command table, `immediate:!0` on the
+  `local-jsx` ones): submitted while a turn runs they run at once instead of waiting in the queue
+  as a prompt does, a different model's "Switch model?" coming up under the running turn, and the
+  turn's next step goes on what they set (a Sonnet turn's next step ran on `claude-haiku-5-5` at
+  `perTurnEffort: low`). What they did shows only on screen then, and nothing of it reaches the
+  transcript, during the turn or after; they still save the default, settings.json being written
+  again even with nothing in it changed, and `/effort max` writes nothing. `/effort` asked no
+  question, mid-turn or between turns. Return in an empty box mid-turn does nothing. All in tmux,
+  2026-11-10: `claude/switch.rs` (`typed`), `claude/mod.rs` (`switches_mid_turn`). A background
+  job's through its service's `reply` mid-turn wasn't tried.
 - `--effort`'s levels and what a model that doesn't take one gets (2.1.284): `claude/start.rs`
   (`EFFORTS`). Without it a session starts on `settings.json`'s
   `modelSettings.<model>.effortLevel`, else its `effortLevel`, else the model's own default (the

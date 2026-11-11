@@ -1082,6 +1082,7 @@ export type StartAccount = Holds<Same<
   | "resumes"
   | "switchesEffort"
   | "switchesInApp"
+  | "switchesMidTurn"
   | "switchesModel"
   | "unavailable"
   | "usageCap"

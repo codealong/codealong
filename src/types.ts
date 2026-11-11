@@ -2400,6 +2400,9 @@ export interface StartAccount {
   /** Its running sessions that Codealong types into can be switched to another of `efforts`;
    *  those Codealong runs can be where their agent offers the level. */
   switchesEffort?: boolean;
+  /** Its harness takes those switches while a turn runs, for the turn's next step, where others
+   *  wait for the turn to end. Missing from Macs before 2026-11-10. */
+  switchesMidTurn?: boolean;
   /** Its sessions that go on in its app can be switched to another of `models` and `efforts`
    *  there, running or not, from their next turn. Missing from Macs before 2026-10-17. */
   switchesInApp?: boolean;

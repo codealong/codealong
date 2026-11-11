@@ -854,6 +854,13 @@ impl crate::harness::Adapter for ClaudeCode {
         Some("/effort")
     }
 
+    /// Both are commands its terminal runs at once while a turn runs, rather than holding them
+    /// for after it as it holds a prompt (`immediate`, 2.1.322), and the turn's next step goes
+    /// on the model and level they set: switch.rs (`typed`) says what they show and save then.
+    fn switches_mid_turn(&self) -> bool {
+        true
+    }
+
     fn mode(&self, id: &str) -> Option<crate::model::SessionMode> {
         session_mode(id)
     }

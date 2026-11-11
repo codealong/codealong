@@ -423,6 +423,9 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
   // into, by its harness's commands. One whose app goes on with it is switched in the app,
   // running or not, from its next turn (the Codex app's, codex/ipc.rs `codex_settings_request`).
   const inApp = goesOnWithIt && !!account?.switchesInApp;
+  // Where its harness runs the commands it types at once, a turn needn't end first (Claude
+  // Code's; send.rs `switch`); Codealong's own agents take a switch only between turns.
+  const midTurn = !s.hosted && !!account?.switchesMidTurn;
   const switchable = s.live && (!!s.hosted || typesCommands(way));
   const switches = !!account && (account.models?.length ?? 0) > 0 && (inApp || (switchable && (!!s.hosted || !!account.switchesModel)));
   const switchesEffort = !!account && (account.efforts?.length ?? 0) > 0 && (inApp || (switchable && (!!s.hosted || !!account.switchesEffort)));
@@ -1115,7 +1118,7 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
                     ? {
                         switches,
                         switchesEffort,
-                        busy: switching || (!inApp && (s.status === 'working' || !!s.stalledSince || !!waiting)),
+                        busy: switching ? 'once this switch is done' : inApp ? null : waiting ? 'once you’ve answered it' : !midTurn && (s.status === 'working' || !!s.stalledSince) ? 'once its turn ends' : null,
                         nextTurn: inApp,
                         onSwitch: (model) => switchTo(switchSessionModel(s.key, model)),
                         onEffort: (effort) => switchTo(switchSessionEffort(s.key, effort)),

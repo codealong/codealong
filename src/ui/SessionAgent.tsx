@@ -8,9 +8,11 @@
 //   (SessionReply.tsx `typesCommands`), `StartAccount.switchesModel` and
 //   `switchesEffort`; one whose app goes on with it, through the app, `switchesInApp`), and the
 //   levels under them, its own checked; a pick switches that session alone (send.rs
-//   `switch_model`, `switch_effort`), on whichever device it's on. Not while its turn runs or it
-//   waits on you, where the command would go in as a prompt or answer it; the app takes a switch
-//   whenever, for the session's next turn (`nextTurn`). The model it's on is the one its latest
+//   `switch_model`, `switch_effort`), on whichever device it's on. Not while it waits on you,
+//   where the command would answer it, nor while its turn runs where its harness would hold the
+//   command as a prompt: one that runs it at once (`StartAccount.switchesMidTurn`) goes on with
+//   the turn's next step on the new model. The app takes a switch whenever, for the session's
+//   next turn (`nextTurn`). The model it's on is the one its latest
 //   reply came from, or that it was switched to since (`Session.model`), and none is checked: a
 //   reply names the model without its context size.
 // - Not running, what it goes on with (start.ts `resumeChoice`): its account's own model or one
@@ -34,8 +36,10 @@ import { AccountHead, agentLine } from './StartControls';
 export interface LiveSwitch {
   switches: boolean;
   switchesEffort: boolean;
-  /** Its turn runs or it waits on you: a switch waits for it. */
-  busy: boolean;
+  /** Why it can't be switched now, as a sentence ends (`once its turn ends`), or null when it
+   *  can: it waits on you, a switch is under way, or its turn runs where a command typed would
+   *  wait for it. */
+  busy: string | null;
   nextTurn: boolean;
   onSwitch: (model: string) => void;
   onEffort: (effort: string) => void;
@@ -70,6 +74,11 @@ export function moveTarget(id: string): string | null {
   return id.startsWith(MOVE) ? id.slice(MOVE.length) : null;
 }
 
+/** A phrase as a sentence of its own: `once its turn ends` as `Once its turn ends`. */
+function sentence(phrase: string): string {
+  return phrase.charAt(0).toUpperCase() + phrase.slice(1);
+}
+
 /** Whether there's anything to pick for a session that isn't running: more than one place, or a
  *  model. */
 export function offersResume(chosen: ChosenStart | null): chosen is ChosenStart {
@@ -99,7 +108,7 @@ export function SessionAgent({ session: s, account, live, resume, moves, onMove,
     own.push(
       ...agentOptions([a], models, null)
         .filter((o) => o.model)
-        .map((o) => ({ ...agentLine(o, a, models, null), disabled: live.busy, title: live.busy ? 'Once its turn ends' : undefined })),
+        .map((o) => ({ ...agentLine(o, a, models, null), disabled: !!live.busy, title: live.busy ? sentence(live.busy) : undefined })),
     );
   }
   const sections: PickerSection[] = [];
@@ -148,7 +157,7 @@ export function SessionAgent({ session: s, account, live, resume, moves, onMove,
       </span>
     );
   }
-  const what = live ? (live.busy ? 'Its account; its model and effort switch once its turn ends' : live.nextTurn ? 'Its account, and its model and effort from its next turn' : 'Its account, model and effort, for this session alone') : 'Its account, and the model, effort and place it goes on with';
+  const what = live ? (live.busy ? `Its account; its model and effort can be switched ${live.busy}` : live.nextTurn ? 'Its account, and its model and effort from its next turn' : 'Its account, model and effort, for this session alone') : 'Its account, and the model, effort and place it goes on with';
   return (
     <BoxMenu
       kind="model"

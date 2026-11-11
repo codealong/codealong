@@ -226,6 +226,13 @@ pub trait Adapter: Sync {
         None
     }
 
+    /// Whether `model_command` and `effort_command`, typed into a running session's terminal
+    /// while its turn runs, take effect at once, for the turn's next step, where another
+    /// harness's would wait for the turn as a prompt does (`send::switch`).
+    fn switches_mid_turn(&self) -> bool {
+        false
+    }
+
     /// One of its modes, by the id its records and its ACP agent give it (Claude Code's
     /// `acceptEdits`), named as its own windows name it. None for one it doesn't know, which a
     /// session Codealong runs names in its agent's words (acp.rs `overlay`).

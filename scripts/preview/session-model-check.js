@@ -2,8 +2,9 @@
 // ModelMenu.tsx): after its account, quieter, it says the model its latest reply came from; where
 // Codealong types into its terminal, its account's models are lines of the chip's menu under its
 // account, without the account's own (`/model` takes a name), and picking one asks the engine to
-// switch that session; the box stays the height it was; and a session in the middle of a turn
-// can't be switched until it ends. After the model is the effort it's on as its harness writes it,
+// switch that session; the box stays the height it was; a session in the middle of a turn is
+// switched still where its harness runs the command at once (`switchesMidTurn`, Claude Code's),
+// and waits for the turn to end elsewhere; one waiting on you waits for your answer. After the model is the effort it's on as its harness writes it,
 // which follows the session, and the longest of both isn't cut off; the mode under the box is
 // lowercase. Under the models are the account's levels, its own not among them, the session's
 // checked, and picking another switches that session's effort and closes the menu; there's no
@@ -122,9 +123,11 @@
         });
     })
     .then(function () {
-      // Its turn starts: it can't be switched until it ends; it can still be moved.
+      // Its turn starts. Where its harness runs the command typed at once (Claude Code's), it's
+      // still switched, for the turn's next step; elsewhere it waits for the turn to end.
       window.__emit('board', withSession(function (s) { s.status = 'working'; }));
-      return until(function () { return chip() && /once its turn ends/.test(chip().title); }, 3000, 'a working session’s chip doesn’t say its switches wait: ' + (chip() && chip().title));
+      var waits = acct.switchesMidTurn ? null : 'once its turn ends';
+      return until(function () { return chip() && (waits ? chip().title.indexOf(waits) >= 0 : /for this session alone/.test(chip().title)); }, 3000, 'a working session’s chip: ' + (chip() && chip().title));
     })
     .then(function () {
       chip().click();
@@ -133,8 +136,25 @@
     .then(function () {
       var menu = q('.ca-peek .ca-modelmenu .ca-picker');
       var lines = all('.ca-picker-opt', ownSection(menu));
-      check('mid-turn its models wait for the turn to end', lines.length > 0 && lines.every(function (b) { return b.disabled && /once its turn ends/i.test(b.title); }), lines.map(function (b) { return b.disabled + ' ' + b.title; }).join(', '));
-      check('and there’s no effort row to switch', !q('.ca-picker-foot .ca-segctl', menu), 'an effort row');
+      if (!acct.switchesMidTurn) {
+        check('mid-turn its models wait for the turn to end', lines.length > 0 && lines.every(function (b) { return b.disabled && /once its turn ends/i.test(b.title); }), lines.map(function (b) { return b.disabled + ' ' + b.title; }).join(', '));
+        check('and there’s no effort row to switch', !q('.ca-picker-foot .ca-segctl', menu), 'an effort row');
+        return;
+      }
+      check('mid-turn its models still switch it', lines.length > 0 && lines.every(function (b) { return !b.disabled; }), lines.map(function (b) { return b.disabled ? 'off' : 'on'; }).join());
+      check('and so do its levels', !acct.switchesEffort || !!q('.ca-picker-foot .ca-segctl', menu), 'no effort row');
+      chip().click();
+      // It waits on you: a command typed now would answer what it asks.
+      window.__emit('board', withSession(function (s) { s.status = 'needs'; s.need = 'approval'; }));
+      return until(function () { return chip() && /once you’ve answered it/.test(chip().title); }, 3000, 'a session waiting on you: ' + (chip() && chip().title))
+        .then(function () {
+          chip().click();
+          return until(function () { return !!q('.ca-peek .ca-modelmenu .ca-picker'); }, 3000, 'no menu while it waits on you');
+        })
+        .then(function () {
+          var waiting = all('.ca-picker-opt', ownSection(q('.ca-peek .ca-modelmenu .ca-picker')));
+          check('while it waits on you its models wait for your answer', waiting.length > 0 && waiting.every(function (b) { return b.disabled && b.title === 'Once you’ve answered it'; }), waiting.map(function (b) { return b.disabled + ' ' + b.title; }).join(', '));
+        });
     })
     .then(done, stopped);
 })();

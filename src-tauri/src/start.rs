@@ -217,6 +217,7 @@ pub fn options(accounts_in: &[AccountCfg], terminal: &str, codex_projects: Vec<S
                 resumes,
                 switches_model: tuned && adapter.model_command().is_some(),
                 switches_effort: tuned && !adapter.efforts().is_empty() && adapter.effort_command().is_some(),
+                switches_mid_turn: tuned && adapter.switches_mid_turn(),
                 switches_in_app: tuned && matches!(adapter.app_way(), Some(crate::send::Route::Own(own)) if own.switches()),
             }
         })
@@ -2271,6 +2272,9 @@ mod tests {
         assert!(switches("claude") && switches("claude2") && !switches("codex") && !switches("opencode"));
         let switches_effort = |name: &str| o.accounts.iter().find(|a| a.name == name).unwrap().switches_effort;
         assert!(switches_effort("claude") && !switches_effort("codex") && !switches_effort("opencode"));
+        // Claude Code runs those commands mid-turn too, for the turn's next step.
+        let mid_turn = |name: &str| o.accounts.iter().find(|a| a.name == name).unwrap().switches_mid_turn;
+        assert!(mid_turn("claude") && mid_turn("claude2") && !mid_turn("codex") && !mid_turn("opencode"));
         // The Codex app sets the model and effort a thread's next turn runs on.
         let in_app = |name: &str| o.accounts.iter().find(|a| a.name == name).unwrap().switches_in_app;
         assert!(in_app("codex") && !in_app("claude") && !in_app("opencode"));

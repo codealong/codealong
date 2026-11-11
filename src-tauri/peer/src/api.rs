@@ -1198,6 +1198,11 @@ pub struct StartAccount {
     /// Missing from Macs before 2026-10-14.
     #[serde(default)]
     pub switches_effort: bool,
+    /// Its harness takes those switches typed while a turn runs, for the turn's next step, where
+    /// others wait for the turn to end (`session-model`, `session-effort`). Missing from Macs
+    /// before 2026-11-10, which switch a session only between turns.
+    #[serde(default)]
+    pub switches_mid_turn: bool,
     /// Its sessions that go on in its app (`Way::CodexApp`) can be switched to another of
     /// `models` and `efforts` there, running or not, from their next turn (`session-model`,
     /// `session-effort`). Missing from Macs before 2026-10-17.
