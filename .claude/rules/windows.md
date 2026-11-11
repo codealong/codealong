@@ -276,6 +276,16 @@ under `src-tauri/src/`.
   open that unfolds it, and that the caret comes back where it was; that ⌥⌘/ unfolds it from
   another app; that × puts it away without unfolding first; and that the chip follows onto
   another app's full-screen Space. The preview shows the page's side (`quick-fold-check.js`).
+- Not yet checked by hand (2026-11-10): a file dragged onto the quick panel from the Finder in the
+  real app (quick.rs `lost_keys`, `dragged`). That the panel stays up while the button is down
+  after the click in the Finder takes the keyboard, and that the panel takes drops (wry's handler)
+  while it isn't key and Codealong isn't active; that it takes the keyboard back once the file
+  lands, the caret in the box; that a click elsewhere still folds or hides it once the button comes
+  up; that a file let go on the folded chip opens it again; and whether a file let go the instant
+  it reaches the panel is missed: a look that sees the button up before Tauri's drag-enter event
+  reaches the main thread (both come through the event loop) puts the panel aside, which hides an
+  empty one. The preview shows the page keeping files let go on the list, the shadow and the chip
+  (`quick-drop-check.js`).
 - Not yet checked by hand (2026-11-09): a session popped out of the main window's panel (kept.rs
   `pop_session`) in the real app: where its window opens beside the main window, or over its
   panel's side when there's no room (`beside`, `SESSION_SIZE`), that it takes the keyboard in its

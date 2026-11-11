@@ -337,7 +337,7 @@ export function Quick() {
   const [picker, setPicker] = useState<PickerKind | null>(null);
   const now = useNow(30_000);
   const input = useRef<HTMLTextAreaElement>(null);
-  const inputBox = useRef<HTMLDivElement>(null);
+  const root = useRef<HTMLDivElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const textNow = useLatest(text);
@@ -862,12 +862,15 @@ export function Quick() {
       .catch((e: unknown) => setError(errorText(e)));
   };
 
-  // Attachments go into the strip below the input rather than as markdown in the text box.
+  // Attachments go into the strip below the input rather than as markdown in the text box. A file
+  // let go anywhere on the panel is attached, the chip it folds to too: Codealong keeps the panel
+  // up while a file comes from another app, and brings it back with the keyboard once it lands
+  // (quick.rs `lost_keys`, `dragged`).
   const addAttachments = (kept: Attachment[]) => {
     setAttached((prev) => mergeAttachments(prev, kept));
     refocus();
   };
-  useFileDrop(inputBox, addAttachments, setError);
+  useFileDrop(root, addAttachments, setError);
 
   /* ---- The list ---- */
 
@@ -2049,6 +2052,7 @@ export function Quick() {
   // Its rows say a worktree's or a PR's project where it isn't the one picked (ProjectSaid.tsx).
   const page = (
     <div
+      ref={root}
       className={cx('ca-quick-root', folded && 'is-folded')}
       onMouseDown={(e) => {
         // The shadow around the card is part of the window; a click there is a click outside, which
@@ -2063,7 +2067,7 @@ export function Quick() {
       {drag.ghost}
       {folded && <QuickFold chip={foldChip} words={foldedWords(text, attached.length)} shortcut={shortcut} />}
       <div className="ca-quick" role="dialog" aria-label="Codealong" style={{ height: cardHeight(room) }}>
-        <div ref={inputBox} className="ca-quick-head">
+        <div className="ca-quick-head">
         <div className="ca-quick-input">
           <div className="ca-quick-pick">
             <button type="button" data-picker-trigger className="ca-quick-project" title={keysIn('Project (⌘P)')} aria-haspopup="dialog" aria-expanded={picker === 'project'} onClick={() => togglePicker('project')}>

@@ -16,6 +16,11 @@
 //! on it or the shortcut opens it again as it was, or you send it, press Escape or put it away
 //! (`put_aside`, Quick.tsx `__quickFold`).
 //!
+//! A file dragged from another app has to start with a click in that app, which takes the
+//! keyboard: so while the mouse button is down after the panel loses it, the panel stays as it
+//! is, and a file let go on it brings the keyboard back with the file attached; folded, one let go
+//! on the chip opens it again (`lost_keys`, `dragged`, Quick.tsx `useFileDrop`).
+//!
 //! Opening is one script. Codealong runs `window.__quickOpen` in the page with what it opens for
 //! and the board; the page lays itself out and returns its height before the script ends
 //! (Quick.tsx); only then does the panel show, at that height, so it never flashes what it
@@ -31,7 +36,7 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tauri::{AppHandle, Emitter, Manager, Window, WindowEvent};
+use tauri::{AppHandle, DragDropEvent, Emitter, Manager, Window, WindowEvent};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
 
 use crate::geometry::{screen_holding, Rect, Screen};
@@ -56,6 +61,12 @@ const READY_WAIT: Duration = Duration::from_millis(600);
 /// front, full-screen ones too, coming and going. Unlike the others it allows no tooltips while
 /// Codealong is in the background: it never has.
 const PANEL: panel::Config = panel::Config { keys: panel::Keys::Always, level: panel::Level::Quick, spaces: panel::Spaces::Transient, unconstrained: false, tooltips: false, steps: panel::Steps::One };
+/// How often the panel looks at the mouse button while it waits to see whether a file is on its
+/// way to it (`lost_keys`).
+const LOOK_EVERY: Duration = Duration::from_millis(30);
+/// How long it waits for a file dragged over it to land once the button is up: the drop comes
+/// from the app the drag started in, after that app sees the button come up.
+const DROP_WAIT: Duration = Duration::from_millis(500);
 
 #[derive(Default)]
 struct Quick {
@@ -67,6 +78,7 @@ struct Quick {
     waiting: Mutex<Option<u64>>,
     /// Folded to the chip that holds what you wrote (`put_aside`), with the height it had open.
     folded: Mutex<Option<f64>>,
+    lost: Mutex<Lost>,
     shortcut: Mutex<ShortcutState>,
     chat_shortcut: Mutex<ShortcutState>,
     waiting_shortcut: Mutex<ShortcutState>,
@@ -137,6 +149,19 @@ impl Quick {
     }
 }
 
+/// The panel lost the keyboard with the mouse button down, and waits to see whether what's held
+/// is a file on its way to it before it folds or hides (`lost_keys`).
+#[derive(Default)]
+struct Lost {
+    /// Counts the waits, so a look from one that's over does nothing.
+    n: u64,
+    waiting: bool,
+    /// A drag is over the panel: Tauri said it came in and hasn't said it left or landed.
+    over: bool,
+    /// When a look first saw the button up.
+    released: Option<Instant>,
+}
+
 #[derive(Default)]
 struct ShortcutState {
     /// As config.toml has it; None until it's first read.
@@ -174,6 +199,8 @@ pub fn setup(app: &AppHandle) -> Result<()> {
 /// thread.
 pub fn open(app: &AppHandle, context: Value) {
     let (Some(state), Some(window)) = (app.try_state::<Quick>(), app.get_webview_window(LABEL)) else { return };
+    // Opened while it waited to see whether a file was coming (`lost_keys`): it isn't put aside.
+    stop_waiting(&state);
     let id = {
         let Ok(mut opens) = state.opens.lock() else { return };
         *opens += 1;
@@ -361,6 +388,7 @@ pub fn hide(app: &AppHandle) {
             *w = None;
         }
         unfold(&state);
+        stop_waiting(&state);
     }
     if let Some(window) = app.get_webview_window(LABEL) {
         if panel::is_visible(&window) {
@@ -421,6 +449,90 @@ fn put_aside(app: &AppHandle) {
     if let Err(e) = asked {
         eprintln!("Couldn't ask the quick panel's page to fold: {e}");
         hide(app);
+    }
+}
+
+/// The panel lost the keyboard to another window or app. With the mouse button down, what's held
+/// may be a file on its way to the panel, dragged out of the window the click went to (the
+/// Finder's, say): the panel stays as it is until the button comes up, and is put aside then
+/// unless a file landed on it (`dragged`). With the button up it's put aside at once. On the main
+/// thread.
+fn lost_keys(app: &AppHandle) {
+    let (Some(state), Some(window)) = (app.try_state::<Quick>(), app.get_webview_window(LABEL)) else { return };
+    if !panel::is_visible(&window) || is_folded(&state) || !panel::button_down() {
+        put_aside(app);
+        return;
+    }
+    let n = {
+        let Ok(mut lost) = state.lost.lock() else { return };
+        lost.n += 1;
+        lost.waiting = true;
+        lost.over = false;
+        lost.released = None;
+        lost.n
+    };
+    panel::poll(app, LOOK_EVERY, move |app| app.try_state::<Quick>().is_some_and(|s| s.lost.lock().is_ok_and(|l| l.waiting && l.n == n)), move |app| look(app, n));
+}
+
+/// A look at the mouse button while the panel waits (`lost_keys`). On the main thread.
+fn look(app: &AppHandle, n: u64) {
+    let Some(state) = app.try_state::<Quick>() else { return };
+    let down = panel::button_down();
+    {
+        let Ok(mut lost) = state.lost.lock() else { return };
+        if !lost.waiting || lost.n != n {
+            return;
+        }
+        let released_for = if down { None } else { Some(lost.released.get_or_insert_with(Instant::now).elapsed()) };
+        if still_waits(lost.over, released_for) {
+            return;
+        }
+        lost.waiting = false;
+    }
+    put_aside(app);
+}
+
+/// Whether the panel that lost the keyboard with the mouse button down still waits before it's
+/// put aside: while the button is down (`released_for` none), and once it's up, for as long as a
+/// file dragged over the panel may still land on it.
+fn still_waits(over: bool, released_for: Option<Duration>) -> bool {
+    released_for.is_none_or(|t| over && t < DROP_WAIT)
+}
+
+/// It's no longer waiting to see whether a file is coming; whether it was.
+fn stop_waiting(state: &Quick) -> bool {
+    state.lost.lock().is_ok_and(|mut l| std::mem::replace(&mut l.waiting, false))
+}
+
+/// A file dragged over the panel from another app, which the page keeps where it's let go
+/// (Quick.tsx `useFileDrop`). Let go there, it brings the panel back with the keyboard: one that
+/// was waiting to see (`lost_keys`) takes it back, and a folded one opens again as it was. On the
+/// main thread.
+fn dragged(app: &AppHandle, event: &DragDropEvent) {
+    let (Some(state), Some(window)) = (app.try_state::<Quick>(), app.get_webview_window(LABEL)) else { return };
+    match event {
+        DragDropEvent::Enter { .. } | DragDropEvent::Over { .. } => {
+            if let Ok(mut l) = state.lost.lock() {
+                l.over = true;
+            }
+        }
+        DragDropEvent::Leave => {
+            if let Ok(mut l) = state.lost.lock() {
+                l.over = false;
+            }
+        }
+        DragDropEvent::Drop { .. } => {
+            if let Ok(mut l) = state.lost.lock() {
+                l.over = false;
+            }
+            let waited = stop_waiting(&state);
+            if is_folded(&state) {
+                open(app, serde_json::json!({ "keep": true }));
+            } else if waited && panel::is_visible(&window) {
+                panel::take_keys(&window);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -512,13 +624,20 @@ pub fn is_up(app: &AppHandle) -> bool {
 }
 
 /// Window events for the panel: it hides or folds when another window or app takes the keyboard,
-/// and closing it (⌘W) only hides it. On the main thread.
+/// unless a file may be on its way to it, closing it (⌘W) only hides it, and a file let go on it
+/// brings it back. On the main thread.
 pub fn on_window_event(window: &Window, event: &WindowEvent) {
     if window.label() != LABEL {
         return;
     }
     match event {
-        WindowEvent::Focused(false) => put_aside(window.app_handle()),
+        WindowEvent::Focused(false) => lost_keys(window.app_handle()),
+        WindowEvent::Focused(true) => {
+            if let Some(state) = window.app_handle().try_state::<Quick>() {
+                stop_waiting(&state);
+            }
+        }
+        WindowEvent::DragDrop(event) => dragged(window.app_handle(), event),
         WindowEvent::CloseRequested { api, .. } => {
             api.prevent_close();
             hide(window.app_handle());
@@ -722,6 +841,18 @@ mod tests {
         assert_eq!(folded_frame((376.0, 775.0), (379.4, 84.0)), Rect { x: 376.0 + 190.0, y: 775.0 - 84.0, w: 380.0, h: 84.0 });
         // Never wider than the panel.
         assert_eq!(folded_frame((0.0, 500.0), (900.0, 84.0)).w, WIDTH);
+    }
+
+    #[test]
+    fn waits_for_a_file_held_on_its_way_to_the_panel() {
+        // With the button down, whatever's held may yet come to the panel.
+        assert!(still_waits(false, None));
+        assert!(still_waits(true, None));
+        // Let go with nothing over the panel: a click elsewhere, or a drag let go elsewhere.
+        assert!(!still_waits(false, Some(Duration::ZERO)));
+        // Let go over the panel, it waits for the drop the other app sends, but not for ever.
+        assert!(still_waits(true, Some(Duration::from_millis(100))));
+        assert!(!still_waits(true, Some(DROP_WAIT)));
     }
 
     #[test]

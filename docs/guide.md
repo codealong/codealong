@@ -2734,6 +2734,11 @@ made a JPEG as it goes in (a PNG where it has see-through parts), and a TIFF a P
 goes as any screenshot does. One that holds several pictures, a scan of several pages or a burst,
 stays a file, as does every such picture on Linux, which has nothing to make them with.
 
+In the quick panel a file let go anywhere on it is attached. Dragging one from the Finder starts
+with a click there, which takes the keyboard, so the panel stays up as long as the mouse button is
+down, and takes the keyboard back once the file lands on it; let go elsewhere, it hides or folds as
+it would have. Folded, a file let go on the chip opens the panel again with the file attached.
+
 #### Chats
 
 **No project**, first in the worktree picker, starts a chat for a question that belongs to none of
