@@ -465,8 +465,8 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
       return;
     }
   }
-  // ⌃⌘1 to ⌃⌘7 snooze, and nothing else: on a row that can't be snoozed they don't fall
-  // through to ⌘ and the same digit, which open things.
+  // ⌃⌘1 to ⌃⌘8 snooze, and nothing else: on a row that can't be snoozed, or has no time
+  // suggested for ⌃⌘8, they don't fall through to ⌘ and the same digit, which open things.
   if (chord && snoozeChordIndex(key) >= 0) {
     e.preventDefault();
     return;

@@ -1016,7 +1016,7 @@ fn tag(engine: &Handle, c: &Call) -> Result<Value, String> {
     let Some(session) = engine.read(|b| b.session(key).map(|(_, s)| s.clone())) else {
         return Err("Codealong doesn't list that session.".into());
     };
-    let insight = crate::tags::read(&p).map_err(words)?;
+    let insight = crate::tags::read(&p, crate::util::now_ms()).map_err(words)?;
     // What was read is where the tag speaks from; without it (an older Mac's agent), where it stands.
     let read = p.prompt_at.unwrap_or(session.last_prompt_at);
     if insight.is_some() {

@@ -20,7 +20,7 @@ import { VIEW_CHORDS } from './mainKeys';
 import { CHORDS, PR_CHORDS, SUGGESTION_CHORDS } from './menus';
 import { QUEUE_CHORDS } from './queue';
 import { shortcutKeys, shortcutLabel } from './quick';
-import { SNOOZE_CHORDS } from './snooze';
+import { SNOOZE_CHORDS, SUGGESTED_CHORD } from './snooze';
 
 /** Where a tip can show: the main window's board, a session's conversation, the waiting window,
  *  the quick panel, a PR's panel and the PRs view, the end of what waits on you (the notch's and
@@ -87,6 +87,7 @@ export const TIPS: readonly Tip[] = [
   { id: 'mark-done', places: SESSION_KEYS, says: says`${key(CHORDS.done)} marks a session done: it's closed where it runs, marked seen and archived.` },
   { id: 'mark-seen', places: SESSION_KEYS, says: says`${key(CHORDS.seen)} marks a finished turn seen, which takes it off the bar and out of what waits on you.` },
   { id: 'snooze', places: SESSION_KEYS, says: says`${key(SNOOZE_CHORDS[0])} to ${key(SNOOZE_CHORDS[SNOOZE_CHORDS.length - 1])} snooze a session for one of the Snooze menu's times. It comes back when the time is up.` },
+  { id: 'snooze-suggested', places: SESSION_KEYS, says: says`When a reply says its work waits for a later day, ${key(SUGGESTED_CHORD)} snoozes the session until that morning.` },
   { id: 'bar-peek', places: ['board', 'session', 'working'], says: says`Click a session's pill in the notch, or rest the pointer on one in the floating bar, to read and answer it without leaving your app.` },
   { id: 'history', places: SESSION_KEYS, says: says`${key(QUEUE_CHORDS.historyBack[0])} goes back to the session you looked at before, and ${key(QUEUE_CHORDS.historyForward[0])} forward again.` },
   { id: 'terminal', places: ['board', 'session'], says: says`${key(CHORDS.terminal)} opens a terminal in the folder of what's shown, as VS Code does: for a session, in a drawer under its box by default.` },

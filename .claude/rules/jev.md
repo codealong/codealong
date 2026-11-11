@@ -82,3 +82,18 @@ docs.typesafe.ai, 2026-09-25, and its models and images pages with requests trie
   at 0.73 and 0.75, the todo at 0.1 and 0.13. Sessions that said what they were for were their todos
   at 1.0 either way. The ledger's `jev` table (feature `todos`) has an answer 2 ms before such a
   todo's `updatedAt`, within a second of a helper's start.
+- The day a reply says its work waits for (insights.rs `waits_question`, `WAITS_UNTIL`, 1.14,
+  2026-11-11, 22 made-up replies written as if on a Wednesday, beside the turn's other questions,
+  options in the order serde writes them, sorted by key). With options named by weekday alone
+  ("monday": "On Monday."), the days said by name read right (nothing in progress until a
+  Thursday's steps 0.95, "tomorrow morning" 1.00), and the ones said by date or count
+  didn't: "until the 11-14 walkthrough" came back spread over next week, later and Friday,
+  "expires on November 16th" as later 0.79, "check back in two days" as Tuesday 0.36. With each
+  day's option saying every way it's named ("Friday, in two days, or November 13 (11-13, 11/13,
+  the 13th)") and keyed by its date, all three read 0.94 to 1.00, and the rest held: the eight
+  replies that waited for a day read 0.71 to 1.00 ("the freeze lasts through Friday … next week"
+  the lowest, Friday taking 0.24), and replies that only named a day stayed under: a plan's days
+  0.47, a deadline it's working to 0.34, a release it asks a question about 0.27, a day gone by
+  0.00 to 0.07. "CI usually takes about 20 minutes" and "opens at 5 PM today" read as today (0.97,
+  1.00), which has an option so they don't land on tomorrow. The question took a turn's request
+  from 909 input tokens to 1,443.

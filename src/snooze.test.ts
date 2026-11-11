@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { askWords, reviewSnoozeMenu, snoozeChoices, snoozeChorded, snoozeMenu, untilWords } from './snooze';
+import { askWords, reviewSnoozeMenu, snoozeChoices, snoozeChorded, snoozeMenu, suggestedIn, suggestedSnooze, untilWords } from './snooze';
 import type { MenuAction, MenuGroup } from './contextMenu';
 
 // Local times, so the tests read the same in any time zone.
@@ -80,6 +80,41 @@ describe('snooze', () => {
     const chorded = snoozeMenu(['k'], NOW, { onDone, chords: true });
     expect((chorded.items[4] as MenuAction).accelerator).toBe('Ctrl+Cmd+5');
     expect(snoozeChorded(chorded, '5')).toBe(chorded.items[4]);
+  });
+
+  it('offers a snooze until the time a session’s last reply says its work goes on', () => {
+    const thursday = oct(1, 9);
+    const read = { archived: false, insight: { waitsUntil: thursday } };
+    expect(suggestedSnooze(read, NOW)).toEqual({ until: thursday, by: 'Jev’s read' });
+    // An agent's tag says who, and why where it said.
+    const tagged = { archived: false, insight: { waitsUntil: thursday, by: 'claude:claude:boss', byTitle: 'Orchestrator', note: 'The release is Thursday' } };
+    expect(suggestedSnooze(tagged, NOW)?.by).toBe('Tagged by Orchestrator: The release is Thursday');
+    // Not for a reply that names no time, a time all but here or gone by, nor a session that's
+    // snoozed already or archived.
+    expect(suggestedSnooze({ archived: false, insight: { landing: 'pushed' } }, NOW)).toBeNull();
+    expect(suggestedSnooze({ archived: false }, NOW)).toBeNull();
+    expect(suggestedSnooze({ archived: false, insight: { waitsUntil: at(28, 14, 12) } }, NOW)).toBeNull();
+    expect(suggestedSnooze({ archived: false, insight: { waitsUntil: at(28, 9) } }, NOW)).toBeNull();
+    expect(suggestedSnooze({ ...read, snoozedUntil: at(28, 15) }, NOW)).toBeNull();
+    expect(suggestedSnooze({ ...read, archived: true }, NOW)).toBeNull();
+  });
+
+  it('puts the suggested time first in the menu, with a chord of its own', () => {
+    const onDone = () => {};
+    const menu = snoozeMenu(['k'], NOW, { onDone, suggested: oct(1, 9), chords: true });
+    expect(labels(menu).slice(0, 3)).toEqual(['Until Thu 9 AM, as its reply says', '-', 'For 15 minutes']);
+    expect(labels(menu)).toHaveLength(10);
+    const first = menu.items[0] as MenuAction;
+    expect(first.accelerator).toBe('Ctrl+Cmd+8');
+    expect(snoozeChorded(menu, '8')).toBe(first);
+    expect(suggestedIn(menu)).toBe(first);
+    // The times keep their own chords.
+    expect(snoozeChorded(menu, '1')?.label).toBe('For 15 minutes');
+    // None suggested: its chord picks nothing, and there's nothing to offer by itself.
+    const plain = snoozeMenu(['k'], NOW, { onDone });
+    expect(snoozeChorded(plain, '8')).toBeNull();
+    expect(suggestedIn(plain)).toBeNull();
+    expect(suggestedIn(undefined)).toBeNull();
   });
 
   it('names a review’s snooze as the review’s, with the same times', () => {

@@ -2146,16 +2146,17 @@ Commands:
               rows use, after reading its conversation (`session transcript`): whether
               its last reply asks its user something, how far its code change got,
               whether what was asked for is done, how risky the call it waits on looks,
-              and what a command it left running in the background does. Each shows on
-              the session in Codealong as Jev's read does (Asks you, Landed, Pushed,
-              Destructive, Looks finished…), over Jev's for the same moment, with who
-              tagged it and the note; an orchestrator going over its sessions tags them
-              so the user sees at a glance where each stands, with `[jev] sessions` on
-              or off. Say only what you read: a field left out stays Jev's. Give
-              --prompt-at the session's `lastPromptAt` as you read it: the tag is turned
-              down if the user replied since, or while it takes a turn, and goes once
-              anything is sent to it or a turn of its starts (`changes` says which, as
-              `untagged`); tagging again replaces it, and --clear takes it away. The
+              what a command it left running in the background does, and when its reply
+              says the work goes on. Each shows on the session in Codealong as Jev's
+              read does (Asks you, Landed, Pushed, Destructive, Looks finished, a snooze
+              offered until the time it waits for…), over Jev's for the same moment,
+              with who tagged it and the note; an orchestrator going over its sessions
+              tags them so the user sees at a glance where each stands, with `[jev]
+              sessions` on or off. Say only what you read: a field left out stays Jev's.
+              Give --prompt-at the session's `lastPromptAt` as you read it: the tag is
+              turned down if the user replied since, or while it takes a turn, and goes
+              once anything is sent to it or a turn of its starts (`changes` says which,
+              as `untagged`); tagging again replaces it, and --clear takes it away. The
               session's `insight` in `session show` and `sessions` is the read it shows
               now, Jev's, yours (`by`) or both
   label       Put labels on a session, or take them off, as Labels in its menu in
@@ -2668,17 +2669,17 @@ Options:
 Tag a session with your read of where it stands, in the words Codealong's rows use,
 after reading its conversation (`session transcript`): whether its last reply asks its
 user something, how far its code change got, whether what was asked for is done, how
-risky the call it waits on looks, and what a command it left running in the background
-does. Each shows on the session in Codealong as Jev's read does (Asks you, Landed,
-Pushed, Destructive, Looks finished…), over Jev's for the same moment, with who tagged
-it and the note; an orchestrator going over its sessions tags them so the user sees at a
-glance where each stands, with `[jev] sessions` on or off. Say only what you read: a
-field left out stays Jev's. Give --prompt-at the session's `lastPromptAt` as you read
-it: the tag is turned down if the user replied since, or while it takes a turn, and goes
-once anything is sent to it or a turn of its starts (`changes` says which, as
-`untagged`); tagging again replaces it, and --clear takes it away. The session's
-`insight` in `session show` and `sessions` is the read it shows now, Jev's, yours (`by`)
-or both
+risky the call it waits on looks, what a command it left running in the background does,
+and when its reply says the work goes on. Each shows on the session in Codealong as
+Jev's read does (Asks you, Landed, Pushed, Destructive, Looks finished, a snooze offered
+until the time it waits for…), over Jev's for the same moment, with who tagged it and
+the note; an orchestrator going over its sessions tags them so the user sees at a glance
+where each stands, with `[jev] sessions` on or off. Say only what you read: a field left
+out stays Jev's. Give --prompt-at the session's `lastPromptAt` as you read it: the tag
+is turned down if the user replied since, or while it takes a turn, and goes once
+anything is sent to it or a turn of its starts (`changes` says which, as `untagged`);
+tagging again replaces it, and --clear takes it away. The session's `insight` in
+`session show` and `sessions` is the read it shows now, Jev's, yours (`by`) or both
 
 Usage: codealong session tag [OPTIONS] <KEY>
 
@@ -2742,6 +2743,15 @@ Options:
           (stuck, or waiting on its user)
           
           [possible values: polling, job, server, stalled]
+
+      --waits-until <WHEN>
+          When its last reply says the work goes on, with nothing for it or its user to
+          do before then, as `session snooze` reads a time: a day (thu, tomorrow, next
+          week, 2026-11-16: that morning at 9), a day and a time (thu 2pm), a time (5pm)
+          or a span (3h). Codealong then offers its user a snooze until then, in the
+          session's Snooze menu and above its box, and the session isn't Finished. Only
+          where the reply says so ("nothing to do until Thursday's cutover", "the freeze
+          lifts Monday"): not a deadline it's working to, nor a day it merely names
 
       --note <NOTE>
           Why, in a sentence or two; shown with the tag

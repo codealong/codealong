@@ -10,8 +10,9 @@
 use crate::schedules::rule::{time_of_day, Zone};
 use crate::util::{civil_from_days, days_from_civil};
 
-/// The hour a snooze to a day ends at, as the menus' next morning does.
-const MORNING: i64 = 9;
+/// The hour a snooze to a day ends at, as the menus' next morning does, and the hour of the day
+/// a reply says its work waits for (insights.rs `waits_until`).
+pub const MORNING: i64 = 9;
 
 const EXAMPLES: &str = "Give a span (30m, 2h, 3d), a time (5pm, 17:30), a day (tomorrow, fri, next week, 2026-11-03) or both (tomorrow 2pm, fri 17:00).";
 

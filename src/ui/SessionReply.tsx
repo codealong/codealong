@@ -90,7 +90,7 @@
 // now, which moves a running command to the background so the agent reads the message at once,
 // and Codex's and OpenCode's steer.
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ClipboardEvent } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ClipboardEvent, type ReactNode } from 'react';
 import { answerAhead, sendAhead, sending, useAhead } from '../ahead';
 import { shortOf } from '../devices';
 import { dismissSuggestions, forkSession, runCommand, sessionCancel, sessionPending, sessionShellWay, sessionWay, sideAsk, sideWindow, switchSessionEffort, switchSessionMode, switchSessionModel } from '../api';
@@ -260,6 +260,10 @@ interface ComposerProps {
    *  asks whether to move it there (`onMove`, MoveAccount.tsx). */
   moves?: AccountMoves;
   onMove?: (to: string) => void;
+  /** What its panel offers above the box, with the replies suggested for it: a snooze until the
+   *  time its last reply says the work goes on (SnoozeSuggestion.tsx). Not over a side
+   *  conversation's box. */
+  above?: ReactNode;
 }
 
 type Note = { text: string; error: boolean };
@@ -367,7 +371,7 @@ function land(key: string, note: Note): boolean {
   return true;
 }
 
-function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting, onSending, onSent, onFailed, onNext, onAsked, keyed = false, onAllow, onDeny, onDenySaying, asked = false, runIn, runsUnder = false, sayKeys = false, moves, onMove }: ComposerProps) {
+function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting, onSending, onSent, onFailed, onNext, onAsked, keyed = false, onAllow, onDeny, onDenySaying, asked = false, runIn, runsUnder = false, sayKeys = false, moves, onMove, above }: ComposerProps) {
   // A side conversation shows above the box, in this window and every other, so the box is its.
   const aside = useAside(s.key) || onlyAside;
   // Out in a window of its own, where what's asked of it here shows.
@@ -964,6 +968,7 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
   return (
     <div ref={root} className={cx('ca-composer', aside && 'is-aside')}>
       {listing && <SlashList options={options} active={at} onPick={complete} onHover={setPicked} />}
+      {!aside && !listing && above}
       {suggested && (
         <SuggestedReplies
           ref={suggestionList}
@@ -1866,6 +1871,8 @@ export interface ReplyProps {
   /** Its account is a menu of the accounts it can move to (`ComposerProps.moves`). */
   moves?: AccountMoves;
   onMove?: (to: string) => void;
+  /** What its panel offers above the box (`ComposerProps.above`). */
+  above?: ReactNode;
 }
 
 /** A session's side conversation in a window of its own (kept.rs `pop_side`, Peek.tsx): the
@@ -1883,7 +1890,7 @@ export function SideReply({ session, terminal, inWindow }: { session: Session; t
 /** The bottom of a session's panel: what it waits on you for, if anything, its side conversation
  *  while it has one, and the box that sends it a message. The box is the same one throughout, so
  *  it keeps what's in it as the session starts and stops waiting. */
-export function Reply({ session, terminal, runIn, runsUnder, onOpen, autoFocus, keys, onSending, onSent, onFailed, onAnswered, onNext, onAsked, sayKeys, moves, onMove }: ReplyProps) {
+export function Reply({ session, terminal, runIn, runsUnder, onOpen, autoFocus, keys, onSending, onSent, onFailed, onAnswered, onNext, onAsked, sayKeys, moves, onMove, above }: ReplyProps) {
   const waiting = !takesReply(session);
   // What the box's ⌘⏎ and ⌘⌫ do, once there's a call to answer here.
   const [call, setCall] = useState<CallKeys | null>(null);
@@ -1895,7 +1902,7 @@ export function Reply({ session, terminal, runIn, runsUnder, onOpen, autoFocus, 
       {waiting && <Approval key={`wait:${session.key}`} session={session} terminal={terminal} onOpen={onOpen} onAnswered={onAnswered} keys={keys} onKeys={takeKeys} onNext={onNext} />}
       <SideStrip key={`side:${session.key}`} sideKey={session.key} words={SESSION_SIDES} />
       {/* A session Codealong runs takes a message while it waits, after its current turn. */}
-      <Composer key={`box:${session.key}`} session={session} terminal={terminal} autoFocus={autoFocus} waiting={waiting && !session.hosted} onSending={onSending} onSent={onSent} onFailed={onFailed} onNext={onNext} onAsked={onAsked} keyed={keys} onAllow={callKeys?.allow} onDeny={callKeys?.deny} onDenySaying={callKeys?.denySaying} asked={callKeys?.asked} runIn={runIn} runsUnder={runsUnder} sayKeys={sayKeys} moves={moves} onMove={onMove} />
+      <Composer key={`box:${session.key}`} session={session} terminal={terminal} autoFocus={autoFocus} waiting={waiting && !session.hosted} onSending={onSending} onSent={onSent} onFailed={onFailed} onNext={onNext} onAsked={onAsked} keyed={keys} onAllow={callKeys?.allow} onDeny={callKeys?.deny} onDenySaying={callKeys?.denySaying} asked={callKeys?.asked} runIn={runIn} runsUnder={runsUnder} sayKeys={sayKeys} moves={moves} onMove={onMove} above={above} />
     </>
   );
 }

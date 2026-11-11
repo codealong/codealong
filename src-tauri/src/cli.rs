@@ -646,7 +646,7 @@ enum SessionCmd {
     Wait(SessionWaitArgs),
     /// Suggest replies to a session for its user to send with one click: what they might answer it, written by an agent that read it (a supervisor going over the sessions that wait on its user: `codealong sessions --waiting`, then `session transcript` for each). Codealong shows them above the session's box, wherever that shows; picking one sends it as the user's own message, and the user can type their own instead. Nothing reaches the session until they pick. Give --prompt-at the session's `lastPromptAt` as you read it: they're turned down if the user replied since (they'd answer the turn before), or while it takes a turn. They stay until something is sent to the session or a turn of its starts (`changes` says which, as `unsuggested`); suggesting again replaces them, and --clear takes them away. Write each as the user would send it, in their words and ready to go as it is: short, and the best first. Say why, or what to weigh, in --note. A session that asks its user questions (`session pending` shows them, with their choices) takes no replies, which would only decline them: --pick picks one of a question's own choices instead, with why in a few words after it, and its question box shows it picked, with why beside it, to answer with one click. The session's `suggestions` in `session show` and `sessions` are the ones it has now.
     Suggest(SuggestArgs),
-    /// Tag a session with your read of where it stands, in the words Codealong's rows use, after reading its conversation (`session transcript`): whether its last reply asks its user something, how far its code change got, whether what was asked for is done, how risky the call it waits on looks, and what a command it left running in the background does. Each shows on the session in Codealong as Jev's read does (Asks you, Landed, Pushed, Destructive, Looks finished…), over Jev's for the same moment, with who tagged it and the note; an orchestrator going over its sessions tags them so the user sees at a glance where each stands, with `[jev] sessions` on or off. Say only what you read: a field left out stays Jev's. Give --prompt-at the session's `lastPromptAt` as you read it: the tag is turned down if the user replied since, or while it takes a turn, and goes once anything is sent to it or a turn of its starts (`changes` says which, as `untagged`); tagging again replaces it, and --clear takes it away. The session's `insight` in `session show` and `sessions` is the read it shows now, Jev's, yours (`by`) or both.
+    /// Tag a session with your read of where it stands, in the words Codealong's rows use, after reading its conversation (`session transcript`): whether its last reply asks its user something, how far its code change got, whether what was asked for is done, how risky the call it waits on looks, what a command it left running in the background does, and when its reply says the work goes on. Each shows on the session in Codealong as Jev's read does (Asks you, Landed, Pushed, Destructive, Looks finished, a snooze offered until the time it waits for…), over Jev's for the same moment, with who tagged it and the note; an orchestrator going over its sessions tags them so the user sees at a glance where each stands, with `[jev] sessions` on or off. Say only what you read: a field left out stays Jev's. Give --prompt-at the session's `lastPromptAt` as you read it: the tag is turned down if the user replied since, or while it takes a turn, and goes once anything is sent to it or a turn of its starts (`changes` says which, as `untagged`); tagging again replaces it, and --clear takes it away. The session's `insight` in `session show` and `sessions` is the read it shows now, Jev's, yours (`by`) or both.
     Tag(TagArgs),
     /// Put labels on a session, or take them off, as Labels in its menu in Codealong does: the labels todos wear (`todo labels`), by name, any case, a new name made a label in the next color. They sort the work for your user: they show on its row, its Sessions view filters by them, and a board whose rule names a label takes in the sessions with it (`board rule --label`). Unlike a tag (`session tag`), which is a read of one turn and goes when the next starts, a label stays until it's taken off; put one on only when your user asked, or an orchestrator's labelling is what they set it to do. A session on another of your Macs is labelled there, with that Mac's labels. Prints the labels it has now; `session show`, `sessions` (`--label` to list only those with one) say them too.
     Label(LabelArgs),
@@ -781,6 +781,9 @@ struct TagArgs {
     /// What the command its turn left running in the background does: polling (checks again and again for something outside), job (one long piece of work that ends by itself), server (keeps running until stopped; its turn is over) or stalled (stuck, or waiting on its user).
     #[arg(long, value_name = "KIND", value_parser = clap::builder::PossibleValuesParser::new(insights::BACKGROUND.map(|(k, _)| k)))]
     background: Option<String>,
+    /// When its last reply says the work goes on, with nothing for it or its user to do before then, as `session snooze` reads a time: a day (thu, tomorrow, next week, 2026-11-16: that morning at 9), a day and a time (thu 2pm), a time (5pm) or a span (3h). Codealong then offers its user a snooze until then, in the session's Snooze menu and above its box, and the session isn't Finished. Only where the reply says so ("nothing to do until Thursday's cutover", "the freeze lifts Monday"): not a deadline it's working to, nor a day it merely names.
+    #[arg(long, value_name = "WHEN")]
+    waits_until: Option<String>,
     /// Why, in a sentence or two; shown with the tag.
     #[arg(long, allow_hyphen_values = true)]
     note: Option<String>,
@@ -788,7 +791,7 @@ struct TagArgs {
     #[arg(long, value_name = "MS", required_unless_present = "clear")]
     prompt_at: Option<i64>,
     /// Take the session's tag away.
-    #[arg(long, conflicts_with_all = ["asks_you", "ending", "landing", "finished", "risk", "background", "note", "prompt_at"])]
+    #[arg(long, conflicts_with_all = ["asks_you", "ending", "landing", "finished", "risk", "background", "waits_until", "note", "prompt_at"])]
     clear: bool,
 }
 
@@ -4605,6 +4608,10 @@ fn insight_words(i: &crate::model::SessionInsight) -> String {
     if let Some(b) = &i.background {
         parts.push(format!("background {b}"));
     }
+    if let Some(t) = i.waits_until {
+        // As a snooze's time is said.
+        parts.push(format!("waits until {}", crate::snoozewhen::words_at(t, crate::util::now_ms(), &crate::schedules::rule::Local)));
+    }
     if let Some(c) = i.confidence {
         parts.push(format!("confidence {c:.2}"));
     }
@@ -4626,13 +4633,15 @@ fn session_tag(c: &mut Client, a: TagArgs, json: bool) -> Result<()> {
     let params = if a.clear {
         params::Tag::default()
     } else {
-        if a.asks_you.is_none() && a.ending.is_none() && a.landing.is_none() && a.finished.is_none() && a.risk.is_none() && a.background.is_none() {
-            bail!("Say something about it (--asks-you, --ending, --landing, --finished, --risk or --background), or --clear to take its tag away.");
+        if a.asks_you.is_none() && a.ending.is_none() && a.landing.is_none() && a.finished.is_none() && a.risk.is_none() && a.background.is_none() && a.waits_until.is_none() {
+            bail!("Say something about it (--asks-you, --ending, --landing, --finished, --risk, --background or --waits-until), or --clear to take its tag away.");
         }
+        // Read on this Mac's clock, as a snooze's time is.
+        let waits_until = a.waits_until.as_deref().map(|when| crate::snoozewhen::until(when, crate::util::now_ms(), &crate::schedules::rule::Local).map_err(|e| anyhow!(e))).transpose()?;
         // An ending says whether the reply asks, and that goes with it: a Mac from before endings
         // reads only that, and would take a tag that says nothing else for one taking its tag away.
         let asks_you = unit(a.asks_you).or_else(|| a.ending.as_deref().map(|e| if insights::asking(e) { 1.0 } else { 0.0 }));
-        params::Tag { asks_you, ending: a.ending, landing: a.landing, finished: unit(a.finished), risk: a.risk.map(f64::from), background: a.background, note: a.note, prompt_at: a.prompt_at, ..Default::default() }
+        params::Tag { asks_you, ending: a.ending, landing: a.landing, finished: unit(a.finished), risk: a.risk.map(f64::from), background: a.background, waits_until, note: a.note, prompt_at: a.prompt_at, ..Default::default() }
     };
     let params = params::Tag { by: me.clone(), by_title, ..params };
     let got = c.act(api::SESSION_TAG, &key, params, me)?;
@@ -8091,6 +8100,9 @@ mod tests {
         let cli = parse_from(["codealong", "session", "tag", "abc", "--ending", "handoff", "--prompt-at", "4"]).unwrap();
         assert!(matches!(cli.cmd, Cmd::Session { cmd: SessionCmd::Tag(ref a) } if a.ending.as_deref() == Some("handoff") && a.asks_you.is_none()));
         assert!(Cli::try_parse_from(["codealong", "session", "tag", "abc", "--ending", "done", "--prompt-at", "4"]).is_err());
+        let cli = parse_from(["codealong", "session", "tag", "abc", "--waits-until", "thu 2pm", "--prompt-at", "4"]).unwrap();
+        assert!(matches!(cli.cmd, Cmd::Session { cmd: SessionCmd::Tag(ref a) } if a.waits_until.as_deref() == Some("thu 2pm") && a.ending.is_none()));
+        assert!(Cli::try_parse_from(["codealong", "session", "tag", "abc", "--clear", "--waits-until", "thu"]).is_err());
         // The finished ones, alone or among what waits.
         let cli = parse_from(["codealong", "sessions", "--finished", "--waiting"]).unwrap();
         assert!(matches!(cli.cmd, Cmd::Sessions(ref a) if a.filter.finished && a.filter.waiting));

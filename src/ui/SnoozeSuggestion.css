@@ -1,0 +1,21 @@
+/* A snooze offered for a session whose last reply says its work goes on later
+   (SnoozeSuggestion.tsx): one line above the box, drawn as a suggested reply is
+   (SuggestedReplies.css). Its key always shows: the chord works wherever the session's own do,
+   not only from the box. Why it's offered follows the time, quieter, and is cut short first
+   where the line has little room. */
+.ca-snoozesuggest .ca-suggest-reply > .ca-kbds {
+  display: inline-flex;
+}
+.ca-snoozesuggest .ca-suggest-text {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  white-space: nowrap;
+}
+.ca-snoozesuggest-why {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--ink-3);
+  font: var(--type-meta);
+}

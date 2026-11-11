@@ -6,7 +6,9 @@
 //!   reports; the chance of the first two is whether it asks you, and the likeliest of the six is
 //!   kept too, `SessionInsight::ending`), how far did the work get (landed, pushed, committed…),
 //!   and is what you asked for done. The work's landing isn't asked when the reply's first line says it in the words
-//!   CLAUDE.md's *Landing work* asks agents for (`landing_said`): that's exact, and free.
+//!   CLAUDE.md's *Landing work* asks agents for (`landing_said`): that's exact, and free. And
+//!   whether the reply says the work waits for a later day, and which (`waits_question`): the
+//!   windows offer a snooze until then (`SessionInsight::waits_until`).
 //! - A busy Claude session gone quiet on a command: is the command waiting for typing, or is it
 //!   long work.
 //! - A Claude session whose turn left a command running in the background: is it polling for
@@ -29,7 +31,8 @@ use serde_json::{json, Map, Value};
 
 use crate::jev;
 use crate::model::{Session, SessionInsight, Status};
-use crate::util::DAY_MS;
+use crate::schedules::rule::{Local, Zone};
+use crate::util::{civil_from_days, days_from_civil, DAY_MS};
 
 /// Turns that ended longer ago than this aren't asked about: a first run shouldn't ask about
 /// every session of the past two weeks.
@@ -176,7 +179,83 @@ pub fn asking(ending: &str) -> bool {
 
 /// What a turn is asked, by name, in its signature: a change to the questions makes each recent
 /// turn a moment to ask about again, so what the board shows follows the new questions.
-const TURN_QUESTIONS: &str = "endings with waiting, the likeliest kept";
+const TURN_QUESTIONS: &str = "endings with waiting, the likeliest kept; the day it waits for";
+
+/// How sure Jev must be of the day a reply says the work waits for, for a snooze until then to
+/// be offered: only offered, so a wrong day costs a glance. On 22 made-up replies (1.14,
+/// 2026-11-11, beside the turn's other questions), the ones that waited for a day read 0.71 to
+/// 1.00, and the ones that only named one (a deadline it's working to, a plan's days, a release
+/// it asks about) 0.47 at most.
+const WAITS_UNTIL: f64 = 0.6;
+
+/// How many days ahead a reply's day is read. Each is an option of its own, since Jev matches
+/// words and doesn't count days.
+const WAITS_DAYS: i64 = 7;
+
+/// The question of when the end of a reply written at `from` says the work goes on, with nothing
+/// for anyone to do before: a choice among no time said, later the same day, each of the next
+/// seven days, and later than those. A day's option says every way a reply names it (tomorrow,
+/// its weekday, its date in words and in numbers, in so many days, next week for its Monday) and
+/// is named by its date, so its answer says the day whenever it's read (`waits_until`). Jev is
+/// weak at dates and counting (jev.rs), and with only weekdays for options it put "until the
+/// 11-14 walkthrough", "expires on November 16th" and "check back in two days" on other days or
+/// on none; with each day's date and count in its option it read all three at 0.94 to 1.00.
+/// Later the same day has an option so that "CI takes about 20 minutes" has somewhere to go that
+/// isn't tomorrow: no snooze is offered for it, since the choice can't say the hour.
+fn waits_question(from: i64, zone: &dyn Zone) -> Value {
+    const WEEKDAYS: [&str; 7] = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    const MONTHS: [&str; 12] = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+    const COUNTS: [&str; 5] = ["two", "three", "four", "five", "six"];
+    let ordinal = |n: i64| {
+        let end = match (n % 100, n % 10) {
+            (11..=13, _) => "th",
+            (_, 1) => "st",
+            (_, 2) => "nd",
+            (_, 3) => "rd",
+            _ => "th",
+        };
+        format!("{n}{end}")
+    };
+    let at = zone.civil(from);
+    let today = days_from_civil(at.year, at.month, at.day);
+    let mut criteria = Map::new();
+    criteria.insert("none".into(), json!("It names no later time or day that the work waits for: it's done, it asks something now, it goes on now, or it waits on something with no time said."));
+    criteria.insert("today".into(), json!("Later today: at a time today, this afternoon, this evening, tonight, or in some minutes or hours."));
+    for n in 1..=WAITS_DAYS {
+        let day = today + n;
+        let (_, month, date) = civil_from_days(day);
+        // 1970-01-01 was a Thursday.
+        let name = WEEKDAYS[(day + 4).rem_euclid(7) as usize];
+        let dated = format!("{} {date} ({month}-{date}, {month}/{date}, the {})", MONTHS[(month - 1) as usize], ordinal(date));
+        // Next week with no day named is its Monday, as a snooze typed that way is (snoozewhen.rs).
+        let week = if name == "Monday" { ", or next week with no day named" } else { "" };
+        let says = match n {
+            1 => format!("Tomorrow, in the morning, {name}, or {dated}{week}."),
+            WAITS_DAYS => format!("{name} of next week, a week from now, or {dated}{week}."),
+            _ => format!("{name}, in {} days, or {dated}{week}.", COUNTS[(n - 2) as usize]),
+        };
+        criteria.insert(crate::todos::day_text(day), json!(says));
+    }
+    criteria.insert("later".into(), json!("Later than a week from now: in two weeks or more, next month, a date further off."));
+    json!({
+        "type": "choice",
+        "instructions": "Does the end of the agent's last reply say that nothing more happens, and nothing is needed from the user, until a later time or day? Which?",
+        "criteria": criteria,
+    })
+}
+
+/// The time the answer to `waits_question` says the work waits for: the morning of the day Jev
+/// picked, at the hour a snooze to a day ends (snoozewhen.rs `MORNING`), when it's sure enough of
+/// it (`WAITS_UNTIL`). None for no time said, the same day, or later than the days asked about.
+fn waits_until(response: &Value, zone: &dyn Zone) -> Option<i64> {
+    let picks = jev::choice(response, "waits_until");
+    let (pick, p) = picks.first()?;
+    if *p < WAITS_UNTIL {
+        return None;
+    }
+    let (year, month, day) = civil_from_days(crate::todos::due_day(pick)?);
+    zone.at(year, month, day, crate::snoozewhen::MORNING, 0)
+}
 
 /// What a command left running in the background can be doing, by name, with what each means.
 pub const BACKGROUND: [(&str, &str); 4] = [
@@ -218,6 +297,11 @@ pub fn waiting_words(p: &crate::harness::Pending) -> Option<String> {
 /// The request for a session's moment. `waiting` is the whole call a session waits on you to
 /// allow, when its harness shows it (`waiting_words`), for an approval's risk.
 pub fn request(s: &Session, kind: Kind, model: &str, waiting: Option<&str>) -> Value {
+    request_in(s, kind, model, waiting, &Local)
+}
+
+/// `request`, on a clock of the caller's.
+fn request_in(s: &Session, kind: Kind, model: &str, waiting: Option<&str>, zone: &dyn Zone) -> Value {
     let mut state = Map::new();
     state.insert("session title".into(), json!(jev::clip(&s.title, 200)));
     if let Some(p) = s.first_prompt.as_deref().filter(|p| !p.trim().is_empty()) {
@@ -252,6 +336,8 @@ pub fn request(s: &Session, kind: Kind, model: &str, waiting: Option<&str>) -> V
                     "criteria": Value::Object(LANDING.iter().map(|(k, v)| (k.to_string(), json!(v))).collect()),
                 });
             }
+            // The days are counted from when the reply was written, not from when it's asked about.
+            q["waits_until"] = waits_question(s.turn_ended.unwrap_or(s.last_activity), zone);
             q
         }
         Kind::Quiet => {
@@ -291,6 +377,11 @@ pub fn request(s: &Session, kind: Kind, model: &str, waiting: Option<&str>) -> V
 
 /// Jev's answer as the board keeps it, with how sure it was of its least sure answer.
 pub fn read(kind: Kind, response: &Value) -> SessionInsight {
+    read_in(kind, response, &Local)
+}
+
+/// `read`, on a clock of the caller's.
+fn read_in(kind: Kind, response: &Value, zone: &dyn Zone) -> SessionInsight {
     let mut out = SessionInsight::default();
     let asked: &[&str] = match kind {
         Kind::Turn => {
@@ -299,6 +390,9 @@ pub fn read(kind: Kind, response: &Value) -> SessionInsight {
             out.ending = endings.first().map(|(k, _)| k.clone());
             out.landing = jev::choice(response, "landing").first().map(|(k, _)| k.clone());
             out.finished = jev::noul(response, "finished");
+            // Not among the answers whose least sure one is the read's confidence: its own
+            // chance is what it's offered by.
+            out.waits_until = waits_until(response, zone);
             &["asks_you", "landing", "finished"]
         }
         Kind::Quiet => {
@@ -347,6 +441,9 @@ pub fn merged(jev: Option<&SessionInsight>, said: Option<&str>, tag: Option<&Ses
         }
         if t.finished.is_some() {
             o.finished = t.finished;
+        }
+        if t.waits_until.is_some() {
+            o.waits_until = t.waits_until;
         }
         if t.risk.is_some() {
             o.risk = t.risk;
@@ -559,6 +656,7 @@ mod tests {
         assert_eq!(turn["questions"]["asks_you"]["criteria"].as_object().unwrap().len(), 6);
         assert_eq!(turn["questions"]["landing"]["criteria"].as_object().unwrap().len(), 6);
         assert_eq!(turn["questions"]["finished"]["instructions"], "Is the task the user asked for complete, with nothing left for the agent to do?");
+        assert_eq!(turn["questions"]["waits_until"]["criteria"].as_object().unwrap().len(), 10, "no time, today, seven days and later");
         let approval = request(&session(Status::Needs), Kind::Approval, "m", None);
         assert_eq!(approval["state"]["command waiting for approval"], "rm -rf build");
         assert_eq!(approval["questions"]["risk"]["criteria"].as_array().unwrap().len(), 4);
@@ -639,6 +737,47 @@ mod tests {
         assert_eq!(read(Kind::Approval, &json!({ "answers": { "risk": { "score": 2.6 } } })).risk, Some(2.6));
     }
 
+    /// The day a reply waits for is asked by every way a reply names it, counted from the day
+    /// the reply was written, and read back as that day's morning.
+    #[test]
+    fn asks_the_day_a_reply_waits_for_and_reads_its_morning() {
+        use crate::schedules::rule::tests::{ms, Fake};
+        // Wednesday, 2026-11-11, 2:10 PM on a clock 8 hours behind UTC.
+        let z = Fake { offset_hours: -8, summer: None };
+        let mut s = session(Status::Unread);
+        s.turn_ended = Some(ms(&z, 2026, 11, 11, 14, 10));
+        // Asked about days later, the days are still the reply's.
+        s.last_activity = ms(&z, 2026, 11, 13, 8, 0);
+        let q = request_in(&s, Kind::Turn, "m", None, &z)["questions"]["waits_until"].clone();
+        assert_eq!(q["type"], "choice");
+        let says = |key: &str| q["criteria"][key].as_str().unwrap_or_default().to_string();
+        assert_eq!(says("2026-11-12"), "Tomorrow, in the morning, Thursday, or November 12 (11-12, 11/12, the 12th).");
+        assert_eq!(says("2026-11-13"), "Friday, in two days, or November 13 (11-13, 11/13, the 13th).");
+        assert_eq!(says("2026-11-16"), "Monday, in five days, or November 16 (11-16, 11/16, the 16th), or next week with no day named.");
+        assert_eq!(says("2026-11-18"), "Wednesday of next week, a week from now, or November 18 (11-18, 11/18, the 18th).");
+        assert!(says("2026-11-11").is_empty() && says("2026-11-19").is_empty(), "the next seven days, not the reply's own");
+        assert!(!says("none").is_empty() && !says("today").is_empty() && !says("later").is_empty());
+        // Over a month's end, and the dates that end in 1, 2 and 3.
+        s.turn_ended = Some(ms(&z, 2026, 10, 29, 23, 30));
+        let q = request_in(&s, Kind::Turn, "m", None, &z)["questions"]["waits_until"].clone();
+        let says = |key: &str| q["criteria"][key].as_str().unwrap_or_default().to_string();
+        assert_eq!(says("2026-10-31"), "Saturday, in two days, or October 31 (10-31, 10/31, the 31st).");
+        assert_eq!(says("2026-11-02"), "Monday, in four days, or November 2 (11-2, 11/2, the 2nd), or next week with no day named.");
+        assert_eq!(says("2026-11-03"), "Tuesday, in five days, or November 3 (11-3, 11/3, the 3rd).");
+
+        let answer = |probabilities: Value| json!({ "answers": { "waits_until": { "type": "choice", "probabilities": probabilities } } });
+        let until = |probabilities: Value| read_in(Kind::Turn, &answer(probabilities), &z).waits_until;
+        assert_eq!(until(json!({ "2026-11-12": 0.88, "none": 0.1, "today": 0.02 })), Some(ms(&z, 2026, 11, 12, 9, 0)), "the morning of the day");
+        assert_eq!(until(json!({ "2026-11-16": 0.47, "none": 0.39, "2026-11-13": 0.14 })), None, "not sure enough of a day the reply only names");
+        assert_eq!(until(json!({ "none": 0.97, "2026-11-12": 0.03 })), None);
+        assert_eq!(until(json!({ "today": 0.97, "none": 0.03 })), None, "later the same day has no hour to snooze to");
+        assert_eq!(until(json!({ "later": 1.0 })), None);
+        assert_eq!(read_in(Kind::Turn, &json!({ "answers": {} }), &z).waits_until, None);
+        // How sure it is of the day is no part of how sure the read is.
+        let both = json!({ "answers": { "finished": { "noul": 0.9, "confidence": 0.8 }, "waits_until": { "probabilities": { "2026-11-12": 0.7, "none": 0.3 }, "confidence": 0.2 } } });
+        assert_eq!(read_in(Kind::Turn, &both, &z).confidence, Some(0.8));
+    }
+
     /// An agent's tag stands over Jev's read where the agent said, and the status line over
     /// Jev's landing; what nobody said stays Jev's.
     #[test]
@@ -653,6 +792,10 @@ mod tests {
         let bg = SessionInsight { background: Some("server".into()), ..Default::default() };
         assert_eq!(merged(None, None, Some(&bg)).unwrap().background_p, Some(1.0), "an agent's word is sure");
         assert_eq!(merged(None, None, None), None);
+        // When the reply says the work goes on is the agent's where it said, and Jev's otherwise.
+        let waits = |until: i64| SessionInsight { waits_until: Some(until), ..Default::default() };
+        assert_eq!(merged(Some(&waits(5)), None, Some(&tag)).unwrap().waits_until, Some(5));
+        assert_eq!(merged(Some(&waits(5)), None, Some(&SessionInsight { by: tag.by.clone(), ..waits(9) })).unwrap().waits_until, Some(9));
         // How the reply ends is Jev's to say under an agent's word on whether it asks, while the
         // two agree; the agent's own ending stands over both.
         let ends = |ending: &str| SessionInsight { asks_you: Some(0.1), ending: Some(ending.into()), ..Default::default() };

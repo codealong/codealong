@@ -378,7 +378,8 @@ pub mod params {
     /// left out where the agent didn't say (`asks_you` and `finished` 0 or 1, `risk` 0 to 3,
     /// `landing`, `background` and `ending` by their names), in place of any tag it had; with
     /// every field left out, the tag is taken away. A Mac from before 2026-11-10 doesn't know
-    /// `ending` and tags without it. `by` and `by_title` name the tagging session as its own
+    /// `ending` and tags without it, nor one from before 2026-11-11 `waits_until` (when the reply
+    /// says the work goes on, in ms since the epoch). `by` and `by_title` name the tagging session as its own
     /// device knows it, `note` is why in a sentence or two, and `prompt_at` is the session's
     /// last prompt as the agent read it: the tag is turned down when the session's been sent
     /// another since, and goes once it is.
@@ -399,6 +400,8 @@ pub mod params {
         pub background: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         pub ending: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub waits_until: Option<i64>,
         #[serde(skip_serializing_if = "Option::is_none")]
         pub note: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]

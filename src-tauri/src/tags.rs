@@ -1,7 +1,8 @@
 //! Tags an agent put on sessions (`codealong session tag`): an orchestrator that read a session's
 //! conversation says where it stands in the words Jev's read uses (`SessionInsight`): whether its
 //! last reply asks its user something, how far the work got, whether it's finished, how risky
-//! what it waits on looks, what a command it left running does. The board shows a tag as it
+//! what it waits on looks, what a command it left running does, when its reply says the work
+//! goes on. The board shows a tag as it
 //! shows Jev's read, the agent's fields over Jev's for the same moment and named by who tagged
 //! it (`insights::merged`, `board::apply_insight`), whether or not `[jev] sessions` is on.
 //!
@@ -71,10 +72,10 @@ pub fn moved_on(s: &Session, t: &Tag) -> Option<MovedOn> {
     crate::board::moved_on(s, t.prompt_at, t.at)
 }
 
-/// An agent's read as the request gives it, checked: each field as `SessionInsight` has it, by
-/// name where it's a name, and the note trimmed and held short. None when it says nothing, which
-/// takes a tag away. An error says what doesn't read.
-pub fn read(p: &crate::actions::params::Tag) -> Result<Option<SessionInsight>> {
+/// An agent's read as the request gives it at `now`, checked: each field as `SessionInsight` has
+/// it, by name where it's a name, and the note trimmed and held short. None when it says nothing,
+/// which takes a tag away. An error says what doesn't read.
+pub fn read(p: &crate::actions::params::Tag, now: i64) -> Result<Option<SessionInsight>> {
     let unit = |v: Option<f64>, what: &str| -> Result<Option<f64>> {
         match v {
             Some(x) if !(0.0..=1.0).contains(&x) => bail!("{what} is 0 (no) to 1 (yes), not {x}."),
@@ -94,6 +95,10 @@ pub fn read(p: &crate::actions::params::Tag) -> Result<Option<SessionInsight>> {
     let note = p.note.as_deref().map(|n| n.split_whitespace().collect::<Vec<_>>().join(" ")).filter(|n| !n.is_empty());
     if note.as_ref().is_some_and(|n| n.chars().count() > NOTE_LONGEST) {
         bail!("The note is at most {NOTE_LONGEST} characters: a sentence or two on why.");
+    }
+    // A snooze is offered until then: a time gone by offers nothing.
+    if p.waits_until.is_some_and(|t| t <= now) {
+        bail!("The time it waits until has passed: say one still to come, or leave it out.");
     }
     let background = named(p.background.clone(), &BACKGROUND, "background")?;
     // How a reply ends says whether it asks: an ending given alone says that too, and one given
@@ -115,6 +120,7 @@ pub fn read(p: &crate::actions::params::Tag) -> Result<Option<SessionInsight>> {
         background_p: background.as_ref().map(|_| 1.0),
         background,
         ending,
+        waits_until: p.waits_until,
         ..Default::default()
     };
     if tag == SessionInsight::default() {
@@ -212,6 +218,7 @@ mod tests {
     #[test]
     fn reads_a_request_by_the_names_the_board_uses() {
         let p = params::Tag { landing: Some("Pushed".into()), finished: Some(1.0), risk: Some(2.0), background: Some("polling".into()), note: Some("  PR #12\n is up ".into()), by: Some("claude:claude:boss".into()), by_title: Some("Orchestrator".into()), ..Default::default() };
+        let read = |p: &params::Tag| super::read(p, 1_000);
         let i = read(&p).unwrap().unwrap();
         assert_eq!((i.landing.as_deref(), i.finished, i.risk, i.background.as_deref(), i.background_p), (Some("pushed"), Some(1.0), Some(2.0), Some("polling"), Some(1.0)));
         assert_eq!((i.note.as_deref(), i.by.as_deref(), i.by_title.as_deref()), (Some("PR #12 is up"), Some("claude:claude:boss"), Some("Orchestrator")));
@@ -233,6 +240,10 @@ mod tests {
         assert_eq!(ends("question", Some(1.0)).unwrap().unwrap().asks_you, Some(1.0));
         assert!(ends("report", Some(1.0)).unwrap_err().to_string().contains("doesn't ask"));
         assert!(ends("done", None).unwrap_err().to_string().contains("ending is one of question, blocked"));
+        // When its reply says the work goes on is a read by itself, while that's still to come.
+        let waits = |until: i64| read(&params::Tag { waits_until: Some(until), ..Default::default() });
+        assert_eq!(waits(5_000).unwrap().unwrap().waits_until, Some(5_000));
+        assert!(waits(1_000).unwrap_err().to_string().contains("has passed"));
     }
 
     #[test]

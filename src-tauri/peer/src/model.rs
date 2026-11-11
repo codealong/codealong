@@ -1069,6 +1069,13 @@ pub struct SessionInsight {
     /// nothing is. None where it wasn't read, and from Macs before 2026-11-10.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ending: Option<String>,
+    /// When its last reply says the work goes on: nothing happens, and nothing is needed from
+    /// you, before then, so a snooze could run to it and the windows offer one (snooze.ts
+    /// `suggestedUntil`). Jev reads a day, which is that morning (insights.rs `waits_question`);
+    /// an agent's tag says any time. None where the reply names none, once the time has come,
+    /// and from Macs before 2026-11-11.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub waits_until: Option<i64>,
 }
 
 /// That a session's work is done with nothing left for you, and why (`Session::finished`).

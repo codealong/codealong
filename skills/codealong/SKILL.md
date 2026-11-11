@@ -284,7 +284,11 @@ status, over Jev's for the same moment.
    yours), a wait on what it started itself `waiting`, and anything else `report`
    (`--asks-you yes|no` says only whether it asks). `--risk 0-3` for a call it waits on the user
    to allow (0 reads only, 3 destructive); `--background polling|job|server|stalled` for a
-   command its turn left running. Give the `lastPromptAt` from step 2: a tag is turned down if
+   command its turn left running. `--waits-until <when>` where its reply says the work goes on
+   at a later time with nothing for it or the user to do before then ("nothing to do until Thursday's
+   cutover", "the freeze lifts Monday"), when as `session snooze` reads it (`thu`, `tomorrow
+   2pm`, `3h`): Codealong then offers the user a snooze until then, which they take with a
+   click. Not for a deadline it's working to, or a day it only names. Give the `lastPromptAt` from step 2: a tag is turned down if
    the user replied since you read it, or while the session takes a turn. Read it again and tag
    for where it stands.
 4. Tag again to replace it; `--clear` takes it away. A tag goes by itself once anything is sent

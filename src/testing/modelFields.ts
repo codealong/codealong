@@ -227,7 +227,8 @@ export type SessionInsight = Holds<Same<
   | "landing"
   | "note"
   | "risk"
-  | "waitsForInput",
+  | "waitsForInput"
+  | "waitsUntil",
   Names<Types.SessionInsight>
 >>;
 

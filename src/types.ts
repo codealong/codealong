@@ -1790,6 +1790,11 @@ export interface SessionInsight {
   /** How its last reply leaves things with you, by the likeliest way a reply can end
    *  (insights.rs `ENDINGS`). `asksYou` is the chance of the first two together. */
   ending?: Ending;
+  /** When its last reply says the work goes on, with nothing for you or it to do before then: a
+   *  snooze is offered until then (snooze.ts `suggestedUntil`). Jev reads a day, which is that
+   *  morning; an agent's tag says any time. Missing where the reply names none, once the time
+   *  has come, and from older Macs. */
+  waitsUntil?: number;
 }
 
 /** How a reply can leave things with you: it asks you something, can't go on until you do

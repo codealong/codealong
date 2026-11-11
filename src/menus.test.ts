@@ -1187,7 +1187,7 @@ describe('actions by name', () => {
     const press = (key: string, ctrl = true) => chorded(acts, { key, code: '', metaKey: true, ctrlKey: ctrl, altKey: false, shiftKey: false });
     expect(press('1')).toBe(times[0]);
     expect(press('7')).toBe(times[times.length - 2]);
-    // ⌘1 opens things, and there's no eighth time.
+    // ⌘1 opens things, and ⌃⌘8 is the time its reply suggests, which this one has none of.
     expect(press('1', false)).toBeNull();
     expect(press('8')).toBeNull();
     setPlatform('linux');
@@ -1199,13 +1199,35 @@ describe('actions by name', () => {
     expect(keyed(acts, '2', true)).toEqual({ id: 'snooze', action: times[1] });
     expect(keyed(acts, '2')).toBeNull();
     expect(chordLetter('3')).toBe(true);
-    expect(chordLetter('8')).toBe(false);
+    expect(chordLetter('8')).toBe(true);
+    expect(chordLetter('9')).toBe(false);
     press('2')?.run();
     expect(left).toEqual(['snoozed']);
     // Where no window takes the chords, the menu doesn't show them; one that can't be snoozed has none.
     const plain = sessionActions(lane(), session(), base).snooze?.items ?? [];
     expect(plain.some((i) => i !== 'separator' && 'accelerator' in i && i.accelerator)).toBe(false);
     expect(chorded(sessionActions(lane(), { ...session(), archived: true }, can), { key: '1', code: '', metaKey: true, ctrlKey: true, altKey: false, shiftKey: false })).toBeNull();
+  });
+
+  it('offers a snooze until the time its reply says the work goes on, first in the menu and on ⌃⌘8', () => {
+    const left: string[] = [];
+    const can: SessionCan = { ...base, keys: 'chords', left: (done) => left.push(done) };
+    const until = Date.now() + 3 * 24 * 3_600_000;
+    const waits = { ...session(), insight: { waitsUntil: until } };
+    const press = (acts: ReturnType<typeof sessionActions>) => chorded(acts, { key: '8', code: '', metaKey: true, ctrlKey: true, altKey: false, shiftKey: false });
+    const acts = sessionActions(lane(), waits, can);
+    const [first, rule] = acts.snooze?.items ?? [];
+    expect(first !== 'separator' && first.label).toMatch(/^Until .+, as its reply says$/);
+    expect(first !== 'separator' && !('items' in first) && first.accelerator).toBe('Ctrl+Cmd+8');
+    expect(rule).toBe('separator');
+    expect(press(acts)).toBe(first);
+    expect(keyed(acts, '8', true)).toEqual({ id: 'snooze', action: first });
+    // It leaves what waits on you as any snooze does.
+    press(acts)?.run();
+    expect(left).toEqual(['snoozed']);
+    // Snoozed already, or archived, nothing is suggested.
+    expect(press(sessionActions(lane(), { ...waits, snoozedUntil: until - 1000 }, can))).toBeNull();
+    expect(press(sessionActions(lane(), { ...waits, archived: true }, can))).toBeNull();
   });
 
   it('closes a session’s terminal on ⌃⌘W, which no letter alone does, and says it left', () => {

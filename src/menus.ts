@@ -22,7 +22,7 @@ import { EDITS, HARNESS_WORD, MOVES_ACCOUNTS, MOVES_FOLDERS, renames } from './h
 import { chromeLabel, openLabel } from './open';
 import { asideable, closable, exitsItsOwnWay, seenable, stoppable, unreadable, waitsInBackground } from './lanes';
 import { chordPressed, QUEUE_CHORDS, type Key } from './queue';
-import { reviewsSnoozeMenu, SNOOZE_CHORDS, snoozeChordIndex, snoozeChorded as timeChorded, snoozeMenu } from './snooze';
+import { reviewsSnoozeMenu, SNOOZE_CHORDS, snoozeChordIndex, snoozeChorded as timeChorded, snoozeMenu, suggestedSnooze } from './snooze';
 import { rememberResumed, resumeAccount, resumedIn } from './start';
 import { accountOf, startAccountsNow } from './startAccounts';
 import { reviewChange, STATUSES, STATUS_WORD, todosPrompt, waitingChange, type TodoOp } from './todos';
@@ -506,8 +506,9 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
     // Kept on the Mac it runs on, so it's first on every device. It joins the top of what waits
     // on you rather than leaving it, so a window working through that stays.
     raise: s.archived ? undefined : { label: s.raised ? 'Back in line' : 'Move to top', run: () => void raiseAhead([s.key], !s.raised).catch((e: unknown) => report.error(errorText(e))) },
-    // On the Mac it runs on, which keeps it, so it's snoozed on every device.
-    snooze: s.archived ? undefined : snoozeMenu([s.key], Date.now(), { until: s.snoozedUntil, onDone: settle('snoozed'), chords: !!can.keys }),
+    // On the Mac it runs on, which keeps it, so it's snoozed on every device. The time its last
+    // reply says the work goes on is offered first.
+    snooze: s.archived ? undefined : snoozeMenu([s.key], Date.now(), { until: s.snoozedUntil, suggested: suggestedSnooze(s, Date.now())?.until, onDone: settle('snoozed'), chords: !!can.keys }),
     // Kept on the Mac it runs on too. Quieted, a turn that ended leaves what waits on you, and a
     // window working through that goes on; one that needs you stays.
     quiet: s.archived
@@ -1207,8 +1208,8 @@ export const KEYS: Partial<Record<keyof SessionActions | keyof LaneActions, stri
 /** The same actions' chords, which work in every view and from Sessions' box, where letters alone
  *  do nothing: ⌘E marks seen (and goes on, where a window works through what waits on you: it's
  *  the queue's key, queue.ts), ⇧⌘E marks done, beside it, ⇧⌘M asks to merge the PR and mark it
- *  done (Merge and done…), ⌃⌘0 moves a session to the top, beside ⌃⌘1 to ⌃⌘7's snoozes, and ⌃⌘
- *  and the letter runs the rest. Closing a session's terminal,
+ *  done (Merge and done…), ⌃⌘0 moves a session to the top, beside ⌃⌘1 to ⌃⌘7's snoozes and ⌃⌘8's
+ *  to the time its reply suggests, and ⌃⌘ and the letter runs the rest. Closing a session's terminal,
  *  marking it done, which closes it too, and merging have a chord and no letter of their own:
  *  they're not ones to press by mistake. */
 export const CHORDS: typeof KEYS = { seen: QUEUE_CHORDS.seen[0], done: 'Shift+Cmd+E', mergeDone: 'Shift+Cmd+M', unread: 'Ctrl+Cmd+U', pin: 'Ctrl+Cmd+P', raise: 'Ctrl+Cmd+0', archive: 'Ctrl+Cmd+A', rename: 'Ctrl+Cmd+R', close: 'Ctrl+Cmd+W', terminal: TERMINAL_CHORD, ownTerminal: TERMINAL_CHORD };
@@ -1227,9 +1228,10 @@ export function suggestionChord(e: Key): number | null {
   return index >= 0 ? index : null;
 }
 
-// Snoozing has a chord for each of its times, ⌃⌘1 to ⌃⌘7 (snooze.ts `SNOOZE_CHORDS`), which its
-// menu shows beside them. The keys for getting from one session to the next are queue.ts
-// `QUEUE_CHORDS`, written the same way.
+// Snoozing has a chord for each of its times, ⌃⌘1 to ⌃⌘7 (snooze.ts `SNOOZE_CHORDS`), and ⌃⌘8 for
+// the time suggested for a session (`SUGGESTED_CHORD`), which its menu shows beside them. The
+// keys for getting from one session to the next are queue.ts `QUEUE_CHORDS`, written the same
+// way.
 const CTRL_CMD = 'Ctrl+Cmd+';
 
 declare global {

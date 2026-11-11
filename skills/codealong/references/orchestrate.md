@@ -119,6 +119,13 @@ Go over each session in `waiting` that `changed` this tick or has neither `sugge
   report when it finishes") and `report` for one that only reports. A handoff shows as *Next
   step is yours* and a wait as *Waits on its own work*, so your user sees which finished turns
   want something of them.
+- Where its reply says the work goes on at a later time, with nothing for it or your user to do
+  before then ("nothing more to do here until Thursday's cutover", "the freeze lifts Monday",
+  "the vendor answers tomorrow"), add `--waits-until <when>` to its tag, as `session snooze`
+  reads a time (`thu`, `tomorrow 2pm`, `2026-11-16`, `3h`): Codealong offers your user a snooze
+  until then, on the session and first in its Snooze menu, which they take with a click. Don't
+  snooze it yourself: whether it leaves their list is theirs to say. Only where the reply says
+  so, not for a deadline it's working to, a day it merely names, or a wait with no time.
 - A row in `waiting` with `finished` is only your user's to read: Codealong worked out that its
   work is done and nothing is left for them (its PRs merged, its todos done, a reply that asks
   nothing; `why` says which, and `sure` is false when only the read of its reply says so), and

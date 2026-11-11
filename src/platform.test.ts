@@ -4,7 +4,7 @@ import { VIEW_CHORDS } from './mainKeys';
 import { appKeyInTerminal, capsSaid, chordKeys, chordPressed, chordSigns, cmd, contextPress, ctrl, emacsCtrl, held, keysIn, keysSaid, parseChord, platform, platformChord, setPlatform, terminalClipboard, writeChord } from './platform';
 import { AWAY_CHORD, QUEUE_CHORDS } from './queue';
 import { RELOAD_CHORD } from './reload';
-import { SNOOZE_CHORDS } from './snooze';
+import { SNOOZE_CHORDS, SUGGESTED_CHORD } from './snooze';
 
 afterEach(() => setPlatform(null));
 
@@ -19,6 +19,7 @@ const APP_CHORDS = [
   ...Object.values(QUEUE_CHORDS).flat(),
   ...SUGGESTION_CHORDS,
   ...SNOOZE_CHORDS,
+  SUGGESTED_CHORD,
   ...Object.values(VIEW_CHORDS),
   AWAY_CHORD,
   RELOAD_CHORD,

@@ -3115,6 +3115,17 @@ back as Your turn, so a snooze always brings its session back. A running session
 while snoozed, and sending a session a prompt ends its snooze. A session on another device is
 snoozed on its Mac, so it's snoozed there too.
 
+When a session's last reply says its work goes on at a later time, with nothing for you or it to
+do before then ("nothing more to do here until Thursday's cutover", "the freeze lifts
+Monday"), Codealong offers a snooze until then: **Snooze until Thu 9 AM** on a line above its box,
+the first line of its Snooze menu, and ⌃⌘8, in every window. It's only offered: nothing snoozes by
+itself. Jev reads the day ([Session status from Jev](#session-status-from-jev)): tomorrow, a
+weekday, a date, in so many days or next week, up to a week ahead, and the snooze runs to 9 that
+morning; an agent that read the session can say any time (`codealong session tag <session>
+--waits-until <when>`, when as `session snooze` reads it). The offer is for the reply it read: it
+goes once the session is sent something or takes a turn, once it's snoozed, and when the time
+comes. Such a session isn't [Finished](#finished-sessions).
+
 #### Quiet
 
 **Quiet** (beside Snooze, in a session's menu anywhere, or for several picked in Sessions) is for a
@@ -3637,7 +3648,9 @@ whose sessions all read as done says *Looks finished*. A turn that's yours to re
 it leaves things with you, where that says more than Your turn does: *Next step is yours* (its
 work is done and it leaves you a step to take yourself, such as merging or deploying), *Waits on
 its own work* (it isn't done, and goes on by itself once what it started ends) or *Offers more*;
-one that only reports says nothing more. A reply whose first line opens with the
+one that only reports says nothing more. A reply that says the work goes on at a later day,
+with nothing to do before then, is offered a snooze until that morning ([Snooze](#snooze)); one
+that only names a day (a deadline it's working to, a plan's dates) isn't. A reply whose first line opens with the
 status line CLAUDE.md asks agents for (`Landed:`, `Pushed:`, `Committed:`, `Not committed:`) says
 its landing itself, exactly, and Jev isn't asked it. A turn its harness ended (the connection lost,
 a usage limit, cut off) isn't read: its reply is an error. Answers are kept in insights.json, with
@@ -3650,9 +3663,9 @@ turn that's only yours to read is told from one that wants something. Codealong 
 what it knows of the session's work and from the read of its last reply (Jev's, or an agent's
 tag), neither alone:
 
-- Never while its reply may ask you something, hands you a next step or waits on what it started;
-  while it says its change is uncommitted, committed but not pushed, or blocked; or while its
-  reply reads as not done.
+- Never while its reply may ask you something, hands you a next step, waits on what it started
+  or says its work goes on at a later time; while it says its change is uncommitted, committed
+  but not pushed, or blocked; or while its reply reads as not done.
 - Never while a PR it worked on is open, a todo linked to it isn't done, or a worktree that's its
   alone holds uncommitted files or commits on no remote (a main checkout, or a worktree another
   session of the same work is in, isn't weighed: whose those changes are isn't known).
@@ -3678,8 +3691,8 @@ show` and `changes` says whether it's sure and why.
 An agent that reads a session can say the same things itself, with `[jev] sessions` on or off: an
 orchestrator going over the sessions it started (`codealong sessions`, then `codealong session
 transcript` for each) tags each one with `codealong session tag` (asks you or how its reply ends,
-how far the work got, finished, how risky the waiting call is, what a background command does, and
-why in a note). A tag
+how far the work got, finished, how risky the waiting call is, what a background command does,
+when its reply says the work goes on, and why in a note). A tag
 shows exactly as Jev's read does, in the same chips and status, and stands over Jev's for the
 same moment where the agent said; a field it left out stays Jev's. The chip's tooltip says who
 tagged it and the note. A tag is for the reply the agent read: one written after you'd replied
