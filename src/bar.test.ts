@@ -254,9 +254,10 @@ describe('the bar docked in the notch', () => {
     expect(end.radius).toBe(NOTCH.radius.session);
   });
 
-  it('shows the most urgent group beside the camera, in the bar’s order', () => {
-    expect(notchCount({ needs: 2, reviews: 3, unread: 1, working: 5 })).toEqual({ kind: 'needs', n: 2 });
-    expect(notchCount({ needs: 0, reviews: 3, unread: 1, working: 5 })).toEqual({ kind: 'reviews', n: 3 });
+  it('counts everything that waits beside the camera, as the most urgent kind among it', () => {
+    expect(notchCount({ needs: 2, reviews: 3, unread: 1, working: 5 })).toEqual({ kind: 'needs', n: 6 });
+    expect(notchCount({ needs: 5, reviews: 0, unread: 16, working: 4 })).toEqual({ kind: 'needs', n: 21 });
+    expect(notchCount({ needs: 0, reviews: 3, unread: 1, working: 5 })).toEqual({ kind: 'reviews', n: 4 });
     expect(notchCount({ needs: 0, reviews: 0, unread: 1, working: 5 })).toEqual({ kind: 'unread', n: 1 });
     expect(notchCount({ needs: 0, reviews: 0, unread: 0, working: 5 })).toEqual({ kind: 'working', n: 5 });
     expect(notchCount({ needs: 0, reviews: 0, unread: 0, working: 0 })).toBeNull();

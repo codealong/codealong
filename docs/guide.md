@@ -3192,9 +3192,10 @@ you (*Sounds*).
 
 **In the notch**, where the bar starts on a Mac, it docks at the top of the screen: one black
 shape with the notch, dark whatever the theme, showing the mark on the camera's left and, on its
-right, the most urgent
-thing and how many (Needs you, then PRs that wait on your review, then Your turn, then Working; a
-new one that needs you pulses). Your other Macs' sessions are among them while those Macs are
+right, how many things wait on you: what needs you, the PRs that wait on your review and Your
+turn added up, which is what ⌥⌘. goes through, with the glyph of the most urgent of them (Needs
+you, then a review, then Your turn; a new one that needs you pulses). With nothing waiting, it
+counts what's working. Your other Macs' sessions are among them while those Macs are
 connected, each pill with its Mac's color (*Your other devices*). Rest the pointer on it for a moment, or click it, and it opens down
 into the bar's pills, with the project and every count beside the camera; it closes a moment after
 the pointer leaves, and stays open while one of its menus is up. The pin at the end of its right

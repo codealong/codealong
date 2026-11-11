@@ -1,9 +1,10 @@
-// Checks the bar docked in the notch (Notch.tsx): closed it shows the most urgent count and tells
-// Codealong its shape; pointing at it grows it a little at once and opens it after a moment, the
-// clip only ever growing and the window never resized; leaving closes it after a moment; a click
-// opens it at once, on the current session; a peek up elsewhere (a card's on the desktop) doesn't hold it open, since a
-// docked bar has none of its own; and Codealong's own word of the pointer (`notch-pointer`) works
-// as the page's events do. The session it shows under its pills has notch-session-check.js.
+// Checks the bar docked in the notch (Notch.tsx): closed it counts all that waits on you, as the
+// most urgent kind, which open shows kind by kind, and tells Codealong its shape; pointing at it
+// grows it a little at once and opens it after a moment, the clip only ever growing and the
+// window never resized; leaving closes it after a moment; a click opens it at once, on the current
+// session; a peek up elsewhere (a card's on the desktop) doesn't hold it open, since a docked bar
+// has none of its own; and Codealong's own word of the pointer (`notch-pointer`) works as the
+// page's events do. The session it shows under its pills has notch-session-check.js.
 //   PREVIEW_WAIT=40000 scripts/preview.sh notch '' scripts/preview/notch-check.js
 (function () {
   var notch = function () { return document.querySelector('.ca-notch'); };
@@ -23,6 +24,11 @@
   var enter = function () { shape().dispatchEvent(new PointerEvent('pointerover', { bubbles: true })); };
   var leave = function () { shape().dispatchEvent(new PointerEvent('pointerout', { bubbles: true, relatedTarget: document.body })); };
   var closedW = 185 + 2 * 44;
+  // Each count beside the camera: its kind and its number.
+  var counts = function () {
+    return all('.ca-notch-count').map(function (c) { return { kind: /is-(needs|reviews|unread|working)/.exec(c.className)[1], n: Number(c.textContent) }; });
+  };
+  var shut;
 
   say('notch check: waiting for it');
   var windowAtStart;
@@ -34,7 +40,8 @@
       fitsAtStart = fits().length;
       var s = lastShape();
       check('says its closed shape', s.w === closedW && s.h === 32 && s.y === 0, JSON.stringify(s));
-      check('shows the most urgent count', !!document.querySelector('.ca-notch-side.is-right .ca-notch-count'));
+      check('shows a count', !!document.querySelector('.ca-notch-side.is-right .ca-notch-count'));
+      shut = counts()[0];
       check('dark', document.documentElement.dataset.theme === 'dark');
       enter();
       return wait(100);
@@ -68,6 +75,11 @@
           check('the shadow shows open', getComputedStyle(document.querySelector('.ca-notch-shadow')).opacity === '1');
           check('says its open shape', lastShape().w > closedW && lastShape().h > 32, JSON.stringify(lastShape()));
           check('pills below', notch().querySelectorAll('.ca-notch-body .ca-hud-pill').length > 0);
+          // Closed, the count was all of what each kind open counts that waits on you, or what's
+          // working with nothing waiting, as the first kind open.
+          var open = counts();
+          var waits = open.filter(function (c) { return c.kind !== 'working'; }).reduce(function (sum, c) { return sum + c.n; }, 0);
+          check('closed it counted all that waits, as its most urgent kind', shut.kind === open[0].kind && shut.n === (waits || open[0].n), JSON.stringify(shut) + ' closed, ' + JSON.stringify(open) + ' open');
         });
     })
     .then(function () {

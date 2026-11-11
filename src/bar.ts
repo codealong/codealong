@@ -229,11 +229,15 @@ export type NotchKind = Group | 'reviews';
  *  needs you, after the sessions that do. */
 export const NOTCH_ORDER: NotchKind[] = [...WAITS, 'working'];
 
-/** What the closed notch shows beside the camera: the most urgent kind with anything in it and
- *  how many; none when nothing needs you, waits for you or runs. */
+/** What the closed notch shows beside the camera: everything that waits on you (the sessions that
+ *  need you, the PRs waiting on your review and Your turn, which the queue works through), drawn
+ *  as the most urgent kind among it; with nothing waiting, what's working; none when nothing runs
+ *  either. The most urgent kind's count alone read as all there was: 5 need you, with 16 more
+ *  Your turn unsaid (asked 2026-11-11). Open, each kind shows its own count. */
 export function notchCount(counts: Record<NotchKind, number>): { kind: NotchKind; n: number } | null {
   const kind = NOTCH_ORDER.find((k) => counts[k] > 0);
-  return kind ? { kind, n: counts[kind] } : null;
+  if (!kind) return null;
+  return { kind, n: kind === 'working' ? counts.working : WAITS.reduce((sum, k) => sum + counts[k], 0) };
 }
 
 // ---- What the notch works through (NotchSession.tsx, NotchReview.tsx) ----
