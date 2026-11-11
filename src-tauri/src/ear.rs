@@ -392,18 +392,24 @@ struct Invited {
 /// so an address the calendar calls theirs in any event read is theirs in all of them. What a
 /// calendar or an account is called says nothing of whose an address is: a calendar someone
 /// shares is named for theirs. The person's answer is the one beside the address this copy
-/// calls theirs, before another of theirs.
+/// calls theirs. Where it calls none of them theirs, it's what their addresses in it answered
+/// between them, a yes at one over a no at another, as between a meeting's copies (meetings.rs
+/// `counted`).
 fn meetings(events: Vec<Invited>) -> Vec<Meeting> {
     let mine: HashSet<String> = events.iter().flat_map(|e| &e.people).filter(|p| p.me && !p.address.is_empty()).map(|p| p.address.to_lowercase()).collect();
     let is_mine = |p: &Person| p.me || mine.contains(&p.address.to_lowercase());
     events
         .into_iter()
         .map(|e| {
-            let you = e.people.iter().find(|p| p.me).or_else(|| e.people.iter().find(|p| is_mine(p)));
+            let you: Vec<&Person> = match e.people.iter().find(|p| p.me) {
+                Some(me) => vec![me],
+                None => e.people.iter().filter(|p| is_mine(p)).collect(),
+            };
+            let said = |answer: &str| you.iter().any(|p| p.answer == answer);
             Meeting {
                 attendees: e.people.iter().filter(|p| !is_mine(p)).filter_map(|p| [&p.name, &p.address].into_iter().find(|s| !s.is_empty()).cloned()).collect(),
-                declined: you.is_some_and(|p| p.answer == "no"),
-                accepted: you.is_some_and(|p| p.answer == "yes"),
+                declined: said("no") && !said("yes"),
+                accepted: said("yes"),
                 ..e.meeting
             }
         })
@@ -526,6 +532,12 @@ mod tests {
             event("n", "Work", vec![person("", "SAM@atlas.example", false, "no"), person("", "sam@northwind.example", true, "yes"), person("", "lee@atlas.example", false, "")]),
             // One that calls nobody you, where an address of yours said no.
             event("o", "Team", vec![person("", "sam@atlas.example", false, "no"), dana()]),
+            // And ones where both of yours are, with different answers: a yes at one is a yes,
+            // whichever comes first, and a no beside none yet is a no.
+            event("q", "Team", vec![person("", "sam@atlas.example", false, "no"), person("", "sam@northwind.example", false, "yes"), dana()]),
+            event("r", "Team", vec![person("", "sam@northwind.example", false, "yes"), person("", "sam@atlas.example", false, "no"), dana()]),
+            event("s", "Team", vec![person("", "sam@northwind.example", false, ""), person("", "sam@atlas.example", false, "no"), dana()]),
+            event("t", "Team", vec![person("", "sam@atlas.example", false, "no"), person("", "sam@northwind.example", false, ""), dana()]),
             // Someone's calendar they share with you, named for their address: they're no more
             // you for it, and nor is anyone in an event that has nobody of yours.
             event("p", "dana@kestrel.example", vec![dana(), person("Lee Atlas", "", false, "no"), person("", "", false, "")]),
@@ -538,6 +550,10 @@ mod tests {
                 ("m", "Home", vec!["Dana Kestrel"], false, false),
                 ("n", "Work", vec!["lee@atlas.example"], true, false),
                 ("o", "Team", vec!["Dana Kestrel"], false, true),
+                ("q", "Team", vec!["Dana Kestrel"], true, false),
+                ("r", "Team", vec!["Dana Kestrel"], true, false),
+                ("s", "Team", vec!["Dana Kestrel"], false, true),
+                ("t", "Team", vec!["Dana Kestrel"], false, true),
                 ("p", "dana@kestrel.example", vec!["Dana Kestrel", "Lee Atlas"], false, false),
             ]
         );
