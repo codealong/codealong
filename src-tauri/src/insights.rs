@@ -93,6 +93,12 @@ fn turn_ended(s: &Session) -> bool {
 /// What to ask about a session now, and the signature that moment is kept under: `<kind>-<hash>`
 /// of what the answer depends on. None when there's nothing to ask.
 pub fn ask(s: &Session, now: i64) -> Option<(Kind, String)> {
+    moment(s, now, true)
+}
+
+/// `ask`, for a turn that ended however long ago unless `recent`: the moment an answer to it
+/// was kept under, to find one that outlasts the time it's asked within (`Store::put_off`).
+fn moment(s: &Session, now: i64, recent: bool) -> Option<(Kind, String)> {
     if s.archived || s.visitor.is_some() {
         return None;
     }
@@ -120,7 +126,7 @@ pub fn ask(s: &Session, now: i64) -> Option<(Kind, String)> {
         // what it asks isn't asked of you, and a script's hundreds of runs would each be a read. A
         // turn its harness ended (the connection lost, a usage limit, cut off) has an error for a
         // reply, which Jev would take for the agent being blocked.
-        if now - s.last_activity > RECENT_MS || s.helps_an_agent() || s.headless || s.connection_lost.is_some() || s.cut_off.is_some() || s.limit.is_some() {
+        if (recent && now - s.last_activity > RECENT_MS) || s.helps_an_agent() || s.headless || s.connection_lost.is_some() || s.cut_off.is_some() || s.limit.is_some() {
             return None;
         }
         // The same reply to another prompt is another moment: finished is asked about the prompt.
@@ -512,6 +518,16 @@ impl Store {
         self.kept.get(key).filter(|k| k.signature == signature).map(|k| &k.insight)
     }
 
+    /// The time a session's last reply was read to put its work off to, for a turn that ended
+    /// too long ago for the rest of its read to stand (`RECENT_MS`): a reply that waits for a day
+    /// next week is the one whose read has to last till then, for the snooze it's offered and for
+    /// its work not to pass for done. The rest of that read (how it ended, how far it got) stays
+    /// out, as it did.
+    pub fn put_off(&self, s: &Session, now: i64) -> Option<i64> {
+        let (kind, signature) = moment(s, now, false)?;
+        self.for_session(&s.key, &signature).filter(|_| kind == Kind::Turn)?.waits_until
+    }
+
     /// Whether to ask now: not answered for this moment, and not failed a moment ago.
     pub fn wants(&self, key: &str, signature: &str, now: i64) -> bool {
         self.for_session(key, signature).is_none() && self.failed.get(signature).is_none_or(|at| now - at > RETRY_MS)
@@ -821,6 +837,28 @@ mod tests {
         assert_eq!(merged(Some(&ends("handoff")), None, Some(&tag)).unwrap().ending.as_deref(), Some("handoff"), "a tag that doesn't say whether it asks leaves it");
         let said = SessionInsight { ending: Some("waiting".into()), ..asks(0.0) };
         assert_eq!(merged(Some(&ends("report")), None, Some(&said)).unwrap().ending.as_deref(), Some("waiting"));
+    }
+
+    /// A reply that puts its work off for days is read once, and what it waits for stands until
+    /// the session moves on, though the rest of its read lapses with the turn's two days.
+    #[test]
+    fn the_time_work_is_put_off_to_outlasts_the_rest_of_the_read() {
+        let s = session(Status::Unread);
+        let monday = NOW + 5 * DAY_MS;
+        let mut store = Store::default();
+        store.answered(s.key.clone(), ask(&s, NOW).unwrap().1, SessionInsight { landing: Some("pushed".into()), waits_until: Some(monday), ..Default::default() }, NOW);
+        let later = NOW + 3 * DAY_MS;
+        assert_eq!(ask(&s, later), None, "too long ago to ask about, or for its read to stand");
+        assert_eq!(store.put_off(&s, later), Some(monday));
+        assert_eq!(store.put_off(&s, monday + DAY_MS), Some(monday), "and once it's come, the work is due, not done");
+        // Not once the session has said something else, nor for a read that names no time.
+        let mut next = session(Status::Unread);
+        next.reply_tail = Some("Done.".into());
+        assert_eq!(store.put_off(&next, later), None);
+        store.answered(s.key.clone(), ask(&s, NOW).unwrap().1, SessionInsight { landing: Some("pushed".into()), ..Default::default() }, NOW);
+        assert_eq!(store.put_off(&s, later), None);
+        // An archived session, or a helper, has no turn of yours to keep a read of.
+        assert_eq!(store.put_off(&Session { archived: true, ..session(Status::Unread) }, later), None);
     }
 
     #[test]

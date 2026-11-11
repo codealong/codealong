@@ -1881,8 +1881,16 @@ impl Engine {
         }
         for s in &mut sessions {
             let tag = tags.sessions.get(&s.key).filter(|t| tags::holds(s, t)).map(|t| &t.insight);
+            // A turn too long ago for its read to stand keeps the time its reply put the work off
+            // to, and nothing else of the read (`Store::put_off`).
+            let put_off;
             let (jev, said) = if self.cfg.jev.sessions {
-                let jev = crate::insights::ask(s, now).and_then(|(_, signature)| self.insights.for_session(&s.key, &signature));
+                let asked = crate::insights::ask(s, now);
+                put_off = match asked {
+                    Some(_) => None,
+                    None => self.insights.put_off(s, now).map(|until| SessionInsight { waits_until: Some(until), ..Default::default() }),
+                };
+                let jev = asked.and_then(|(_, signature)| self.insights.for_session(&s.key, &signature)).or(put_off.as_ref());
                 (jev, crate::insights::landing_said(s))
             } else {
                 (None, None)
