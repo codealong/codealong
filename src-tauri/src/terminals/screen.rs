@@ -295,6 +295,9 @@ pub struct Screen {
     dragged_at: Option<(f64, f64, bool)>,
     /// When the screen was made: a click's time is counted from it.
     born: Instant,
+    /// When the left button last began a selection, counted from `born`: a Shift-click as soon
+    /// after as a double-click's second press counts as that, not as taking the selection on.
+    pressed_at: Option<Duration>,
     /// The buttons held, which a drag goes by.
     held: Vec<MouseButton>,
     /// A selection is being made with the left button.
@@ -375,6 +378,7 @@ impl Screen {
             tick: AutoscrollTickEvent::new()?,
             dragged_at: None,
             born: Instant::now(),
+            pressed_at: None,
             held: Vec::new(),
             selecting: false,
             size: size_cell,
@@ -473,6 +477,8 @@ impl Screen {
                 });
             }
             Input::Select { all } => {
+                // A Shift-click after takes nothing on from a click made before.
+                self.gesture.reset(&self.term);
                 if *all {
                     if let Ok(Some(sel)) = self.term.select_all() {
                         let _ = self.term.set_selection(Some(&sel));
@@ -547,12 +553,13 @@ impl Screen {
     }
 
     /// Something was typed: the view goes back to the bottom and the selection goes, as in
-    /// Ghostty.
+    /// Ghostty, and so does where it began: a Shift-click after starts afresh.
     pub fn typed(&mut self) {
         self.term.scroll_viewport(ScrollViewport::Bottom);
         if self.term.selection().ok().flatten().is_some() {
             let _ = self.term.set_selection(None);
         }
+        self.gesture.reset(&self.term);
     }
 
     fn key(&mut self, code: &str, text: Option<&str>, layout: Option<&str>, mods: Mods4, action: KeyAction) {
@@ -663,6 +670,29 @@ impl Screen {
         }
     }
 
+    /// Whether a Shift-click now takes the selection on rather than starting one: there's a click
+    /// it began from, still on the screen shown (not one from before a program took the whole
+    /// screen, nor before something was typed), and this isn't as soon after it as a double-click.
+    fn extends(&self, since: Duration) -> bool {
+        let soon = self.pressed_at.is_some_and(|at| since.saturating_sub(at) <= CLICK_INTERVAL);
+        !soon && matches!(self.gesture.anchor(&self.term), Ok(Some(_)))
+    }
+
+    /// Takes the selection being made on to the pointer at `x`, `y`. Past the top or bottom (the
+    /// window keeps sending moves there while the button's held), it scrolls on from there
+    /// (`autoscroll`).
+    fn drag_to(&mut self, x: f64, y: f64, rectangle: bool) {
+        let geometry = self.geometry();
+        self.dragged_at = Some((x, y, rectangle));
+        if let Ok(grid) = self.term.grid_ref(self.point(x, y)) {
+            if let Ok(drag) = self.drag.set_rectangle(rectangle).and_then(|d| d.set_position(x, y)) {
+                if let Ok(sel) = drag.apply(&mut self.gesture, &self.term, grid, geometry) {
+                    let _ = self.term.set_selection(sel.as_ref());
+                }
+            }
+        }
+    }
+
     fn mouse(&mut self, action: MouseAction, button: Option<MouseButton>, x: f64, y: f64, mods4: Mods4) {
         let mods = mods4.mods();
         let tracking = self.term.is_mouse_tracking().unwrap_or(false);
@@ -678,10 +708,19 @@ impl Screen {
                 if button == Some(MouseButton::Left) && selects {
                     self.selecting = true;
                     self.dragged_at = None;
+                    let since = self.born.elapsed();
+                    // Shift and a click takes the selection from where it began (a click, a
+                    // drag, a double-click's word) to here, as in Ghostty, Terminal and iTerm2:
+                    // a long one is a click at one end, a scroll, and a Shift-click at the other.
+                    // Held and dragged, it goes on as a drag does.
+                    if mods.contains(Mods::SHIFT) && self.extends(since) {
+                        self.drag_to(x, y, mods.contains(Mods::ALT));
+                        return;
+                    }
+                    self.pressed_at = Some(since);
                     let s = self.size.get();
                     let point = self.point(x, y);
                     if let Ok(grid) = self.term.grid_ref(point) {
-                        let since = self.born.elapsed();
                         if let Ok(press) = self.press.set_repeat_distance(f64::from(s.cell_width)).and_then(|p| p.set_time(since)).and_then(|p| p.set_position(x, y)) {
                             if let Ok(sel) = press.apply(&mut self.gesture, &self.term, grid) {
                                 let _ = self.term.set_selection(sel.as_ref());
@@ -703,19 +742,8 @@ impl Screen {
             }
             MouseAction::Move => {
                 if self.selecting {
-                    let geometry = self.geometry();
                     // Option drags a rectangle, as in Ghostty on macOS.
-                    let rectangle = mods.contains(Mods::ALT);
-                    // Past the top or bottom (the window keeps sending moves there while the
-                    // button's held), the drag scrolls on from here (`autoscroll`).
-                    self.dragged_at = Some((x, y, rectangle));
-                    if let Ok(grid) = self.term.grid_ref(self.point(x, y)) {
-                        if let Ok(drag) = self.drag.set_rectangle(rectangle).and_then(|d| d.set_position(x, y)) {
-                            if let Ok(sel) = drag.apply(&mut self.gesture, &self.term, grid, geometry) {
-                                let _ = self.term.set_selection(sel.as_ref());
-                            }
-                        }
-                    }
+                    self.drag_to(x, y, mods.contains(Mods::ALT));
                     return;
                 }
             }
@@ -1287,6 +1315,84 @@ mod tests {
         s.input(&mouse(MouseAction::Up, 80.0));
         assert!(!s.autoscrolling(), "the button let go stops it");
         assert!(s.take_out().is_empty(), "nothing went to the program");
+    }
+
+    /// As if `ms` went by: a click's time is counted from when the screen was made.
+    fn wait(s: &mut Screen, ms: u64) {
+        s.born -= Duration::from_millis(ms);
+    }
+
+    fn left(action: MouseAction, x: f64, y: f64, shift: bool) -> Input {
+        Input::Mouse { action, button: Some(MouseButton::Left), x, y, mods: Mods4 { shift, ..Default::default() } }
+    }
+
+    fn click(s: &mut Screen, x: f64, y: f64, shift: bool) {
+        s.input(&left(MouseAction::Down, x, y, shift));
+        s.input(&left(MouseAction::Up, x, y, shift));
+    }
+
+    /// A click at one end, a scroll back through the scrollback and a Shift-click at the other
+    /// selects everything between, as in Ghostty, Terminal and iTerm2; another Shift-click moves
+    /// the far end again from the same place.
+    #[test]
+    fn a_shift_click_selects_from_a_click_across_a_scroll() {
+        let (mut s, _) = screen();
+        for i in 0..20 {
+            s.feed(format!("line {i}\r\n").as_bytes());
+        }
+        // 4 rows of 16 px: the view shows lines 17 to 19 and the prompt's empty row. A click just
+        // past the end of line 18 selects nothing yet.
+        click(&mut s, 60.0, 20.0, false);
+        assert_eq!(s.selection_text(), None);
+        s.input(&Input::Wheel { rows: -10.0, x: 1.0, y: 1.0, mods: Mods4::default() });
+        wait(&mut s, 1000);
+        // The view now starts at line 7.
+        click(&mut s, 1.0, 4.0, true);
+        let text = s.selection_text().unwrap();
+        assert!(text.starts_with("line 7\n") && text.ends_with("line 18"), "{text:?}");
+        assert_eq!(text.lines().count(), 12);
+        wait(&mut s, 1000);
+        click(&mut s, 1.0, 36.0, true);
+        let text = s.selection_text().unwrap();
+        assert!(text.starts_with("line 9\n") && text.ends_with("line 18"), "{text:?}");
+        assert!(s.take_out().is_empty(), "nothing went to the program");
+    }
+
+    /// A Shift-click after a double-click goes on by words, and one after a triple-click by lines.
+    #[test]
+    fn a_shift_click_goes_on_by_what_the_selection_began_with() {
+        let (mut s, _) = screen();
+        s.feed(b"one two three four\r\nfive six");
+        click(&mut s, 33.0, 4.0, false);
+        click(&mut s, 33.0, 4.0, false);
+        assert_eq!(s.selection_text().as_deref(), Some("two"));
+        wait(&mut s, 1000);
+        click(&mut s, 115.0, 4.0, true);
+        assert_eq!(s.selection_text().as_deref(), Some("two three four"));
+        for _ in 0..3 {
+            click(&mut s, 1.0, 4.0, false);
+        }
+        assert_eq!(s.selection_text().as_deref(), Some("one two three four"));
+        wait(&mut s, 1000);
+        click(&mut s, 1.0, 20.0, true);
+        assert_eq!(s.selection_text().as_deref(), Some("one two three four\nfive six"));
+    }
+
+    /// A Shift-click as quick after a click as a double-click's second counts as that, and one
+    /// after something was typed, or with nothing clicked before, starts afresh.
+    #[test]
+    fn a_shift_click_starts_afresh_when_its_a_double_click_or_after_typing() {
+        let (mut s, _) = screen();
+        s.feed(b"one two three");
+        click(&mut s, 33.0, 4.0, true);
+        assert_eq!(s.selection_text(), None, "nothing clicked before: a plain click");
+        click(&mut s, 33.0, 4.0, true);
+        assert_eq!(s.selection_text().as_deref(), Some("two"), "as quick as a double-click");
+        s.input(&Input::Text { text: "x".into() });
+        assert_eq!(s.selection_text(), None);
+        wait(&mut s, 1000);
+        click(&mut s, 100.0, 4.0, true);
+        assert_eq!(s.selection_text(), None, "typing forgot where it began");
     }
 
     /// A program that asks for the mouse (htop, vim with `mouse=a`) is sent clicks and the wheel
