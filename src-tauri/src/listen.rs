@@ -1133,8 +1133,10 @@ fn told(engine: &Handle, board: &Board, l: Listening) -> Result<Listening> {
 /// ending of its own (`begin_ending`), begun once any that's under way is over, so nothing else
 /// is writing its last words into what this removes; and its helper is stopped, not dropped,
 /// which waits for what it was in the middle of saying to reach `heard`, so no line is written
-/// to its transcript once that's gone. An ending that's still under way after `ENDING_WAIT` has
-/// it, and may yet write: then nothing is removed, and it's left as that ending leaves it.
+/// to its transcript once that's gone. Where that can't be known, nothing is removed: an ending
+/// still under way after `ENDING_WAIT` has it, and it's left as that ending leaves it; and a
+/// helper that didn't take the stop (`Ear::stop`) may yet hand a line over, so the listening is
+/// left ended and done with, what it heard where it was.
 fn forget(l: &Listening) -> bool {
     let since = Instant::now();
     let (running, _ending) = loop {
@@ -1147,8 +1149,16 @@ fn forget(l: &Listening) -> bool {
         }
         std::thread::sleep(Duration::from_millis(50));
     };
-    if let Some(ear) = running.and_then(|r| r.ear) {
-        ear.stop();
+    if running.and_then(|r| r.ear).is_some_and(|ear| !ear.stop()) {
+        eprintln!("listening {}: it wasn't taken back, since its helper didn't stop when asked", l.id);
+        update(&l.id, |l| {
+            if l.ended_at.is_none() {
+                l.ended_at = Some(util::now_ms());
+                l.why_ended = Some("Codealong's hearing didn't stop when asked".into());
+            }
+            l.done = true;
+        });
+        return false;
     }
     let _ = change(|all| all.retain(|old| old.id != l.id));
     // Its own folder goes with it; a meeting's is the meeting's, and only what this put there

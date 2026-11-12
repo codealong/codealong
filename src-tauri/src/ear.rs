@@ -250,11 +250,21 @@ impl Ear {
     }
 
     /// Stops capturing and waits for the last words, which reach `on` before this returns; then
-    /// the helper ends.
-    pub fn stop(self) {
-        let _ = self.client.request("stop", Value::Null, Some(STOP));
+    /// the helper ends. Whether it did wait for them (`handed_over`): a helper that never took
+    /// the stop, or didn't answer it in time, may still have something on its way to `on`.
+    pub fn stop(self) -> bool {
+        let stopped = self.client.request("stop", Value::Null, Some(STOP));
         self.client.end(Duration::from_secs(2));
+        handed_over(&stopped)
     }
+}
+
+/// Whether everything a helper said before its stop was answered has reached `on`: the answer,
+/// an error for one or the end of its output each come after it, in the order the helper wrote
+/// them, on the one thread that reads it. A stop that wasn't written, or wasn't answered in
+/// time, says nothing of what that thread is in the middle of.
+fn handed_over(stopped: &std::result::Result<Value, Failure>) -> bool {
+    !matches!(stopped, Err(Failure::Timeout | Failure::Write(_)))
 }
 
 /// What this Mac can hear with, found without asking the person anything.
@@ -593,6 +603,10 @@ mod tests {
         assert_eq!(refused.to_string(), "Codealong isn't allowed to use the microphone.");
         assert_eq!(Refused::of(Failure::Closed(vec!["dyld: symbol not found".into()]), "to start").message, "Codealong's hearing stopped: dyld: symbol not found");
         assert_eq!(Refused::of(Failure::Timeout, "to start").code, "timeout");
+        // A stop that was answered, refused or outlived by the helper's output came after all
+        // the helper had said; one that timed out or couldn't be written may not have.
+        assert!(handed_over(&Ok(Value::Null)) && handed_over(&Err(Failure::Refused(json!({})))) && handed_over(&Err(Failure::Closed(Vec::new()))));
+        assert!(!handed_over(&Err(Failure::Timeout)) && !handed_over(&Err(Failure::Write(std::io::Error::other("the pipe is closed")))));
     }
 
     /// Against the real helper, on a Mac that can transcribe (macOS 26): `CODEALONG_EAR="$(
