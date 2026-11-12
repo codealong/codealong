@@ -170,7 +170,8 @@ floating bar, browser icon and running Dock icon stay in sync across projects.
 
 The screenshots in the README (`docs/images/`) are the real app's UI drawn against a made-up
 board, by `npm run shots` in the codealong-website repo; its `studio/readme.mjs` says which shots
-they are and copies them here, light and dark.
+they are and copies them here, light and dark. The film the README opens on (`notch-demo.gif`) is
+its `studio/reel.mjs`: the same UI, driven through what waits on you and recorded frame by frame.
 
 ## How the agent skill and plugin are packaged
 

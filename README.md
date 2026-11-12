@@ -42,12 +42,12 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/notch-open-dark.webp" alt="The bar docked in the MacBook notch, open on a session that wants to run git push, with Deny, Always and Allow." width="620" />
+  <img src="docs/images/notch-demo.gif" alt="A short film of the bar docked in the MacBook notch, working through what waits on you: Command-Return allows a session's git push and goes on to a session that asks a question, an answer is picked, a teammate's pull request that an agent already reviewed is approved, three finished turns are marked seen, and the notch closes with nothing waiting and six agents at work." width="100%" />
 </p>
 
 <p align="center">
-  <sub>An agent wants to run <code>git push</code>. Codealong opens it in the notch, over whatever app you're in:<br />
-  ⌘⏎ allows it and brings up the next agent waiting.</sub>
+  <sub>Everything that waits on you, a keystroke each, over whatever app you're in:<br />
+  allow a command, answer a question, sign off on a pull request an agent has reviewed.</sub>
 </p>
 
 ## Why Codealong
@@ -61,37 +61,36 @@ doing, and brings the ones that need you to wherever you are. Your agents keep r
 their makers ship them: Codealong reads the records each one already writes. It doesn't wrap,
 proxy or replace anything, and it needs no account, no API key and no server.
 
-## Your notch is an inbox for your agents
+## Every agent, account and machine on one board
 
 <p align="center">
-  <img src="docs/images/notch-closed-dark.webp" alt="The notch closed: the Codealong mark on the camera's left and, on its right, the seven things that wait on you." width="284" />
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/sessions-dark.webp" />
+    <img src="docs/images/sessions-light.webp" alt="Codealong's Sessions view: every agent session on two machines in one list, the three that need you first, then finished turns and running agents. One open on the right wants to run git push, with Deny, Always and Allow. Plan usage for every account runs across the top." width="100%" />
+  </picture>
 </p>
 
-Codealong docks in your MacBook's notch. Closed, it counts everything that waits on you: agents
-that want to run something, questions, pull requests to review, finished turns. Press **⌥⌘.** in
-any app and it opens on the agent that has waited longest, with the call it wants to run and
-**Allow**, **Always** and **Deny**. **⌘⏎** answers and brings up the next one. You never leave
-your editor.
+Every session from every agent and account, wherever you started it: your terminal tabs,
+background jobs, the Claude and Codex apps. Sorted into *Needs you*, *Your turn*, *Working*, *In
+review* and *Idle*, and organized the way your work is:
+**project → repo → worktree → branch → pull request**.
 
-- **Approvals, questions and replies.** A question comes as choices to pick, with a box for an
-  answer of your own. Deny a call and say what to do instead in the same keystroke.
-- **Pull requests too.** A PR waiting on your review is in the same queue, with its diff and its
-  checks: ⌘⏎ approves it.
-- **No notch needed.** An external display gets one drawn for it. Or float the bar over every app,
-  as it does on Linux, keep it in the menu bar, pin a session to your desktop, or work through
-  everything in the *Waiting on you* window.
-- **Later is a key away.** ⌃⌘1 to ⌃⌘7 snooze what can wait, and a short sound says when something
-  new needs you.
-
-Approvals and questions are answered there for Claude Code, OpenCode, Antigravity's command line
-and any agent you run inside Codealong, Codex among them; the rest show what they wait on and open
-where they ask ([what works with each agent](#what-works-with-each-agent)). More in
-[Answer agents without switching apps](#answer-agents-without-switching-apps).
+- **Read and reply.** Any session's whole conversation, with its tool calls, images and links,
+  searchable, and a box to reply. Or double-click to open it where it lives: its exact terminal
+  tab, its Claude app session or its Codex thread.
+- **Know where your plan limits stand.** Each account's limits across the top, always in view, and
+  what your sessions used against what your plans cost.
+- **All your machines.** Link them and each shows the others' sessions beside its own; allow it,
+  and you answer an agent on your desktop from your laptop. An
+  [iPhone app](https://github.com/codealong/codealong-ios) is on the way.
 
 ## An agent reviews every pull request, at no extra cost
 
 <p align="center">
-  <img src="docs/images/notch-review-dark.webp" alt="The notch open on a teammate's pull request that waits on your review, which an agent has read first: its pill says Agent approves, and its Reviews tab shows the review the agent drafted on your account, with a comment on a line of the migration. Command-Return approves with it." width="620" />
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/pr-review-dark.webp" />
+    <img src="docs/images/pr-review-light.webp" alt="The PRs view: a teammate's pull request waiting on your review, which an agent has read first. Its pill says Agent approves, and its Reviews tab shows the review the agent drafted on your account, with a comment on a line of the migration and a box to approve, comment or ask for changes." width="100%" />
+  </picture>
 </p>
 
 Turn on automatic reviews and each pull request that asks for your review is read by an agent
@@ -120,6 +119,29 @@ sign-off is one keystroke from the notch.
 that has read the whole diff. More in
 [Pull requests, with their agents](#pull-requests-with-their-agents).
 
+## Your notch is an inbox for your agents
+
+Codealong docks in your MacBook's notch. Closed, it counts everything that waits on you: agents
+that want to run something, questions, pull requests to review, finished turns. Press **⌥⌘.** in
+any app and it opens on the agent that has waited longest, with the call it wants to run and
+**Allow**, **Always** and **Deny**. **⌘⏎** answers and brings up the next one. You never leave
+your editor.
+
+- **Approvals, questions and replies.** A question comes as choices to pick, with a box for an
+  answer of your own. Deny a call and say what to do instead in the same keystroke.
+- **Pull requests too.** A PR waiting on your review is in the same queue, with its diff and its
+  checks: ⌘⏎ approves it.
+- **No notch needed.** An external display gets one drawn for it. Or float the bar over every app,
+  as it does on Linux, keep it in the menu bar, pin a session to your desktop, or work through
+  everything in the *Waiting on you* window.
+- **Later is a key away.** ⌃⌘1 to ⌃⌘7 snooze what can wait, and a short sound says when something
+  new needs you.
+
+Approvals and questions are answered there for Claude Code, OpenCode, Antigravity's command line
+and any agent you run inside Codealong, Codex among them; the rest show what they wait on and open
+where they ask ([what works with each agent](#what-works-with-each-agent)). More in
+[Answer agents without switching apps](#answer-agents-without-switching-apps).
+
 ## Say what you want done, from any app
 
 <p align="center">
@@ -138,29 +160,6 @@ Leave the account on *Auto* and the work goes where there's room: an account nea
 is passed over, and among the rest it picks the one whose week resets soonest, so no week's
 allowance goes unused. More in
 [The quick panel](#the-quick-panel-say-what-you-want-done).
-
-## Every agent, account and machine on one board
-
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/sessions-dark.webp" />
-    <img src="docs/images/sessions-light.webp" alt="Codealong's Sessions view: every agent session on two machines in one list, the three that need you first, then finished turns and running agents. One open on the right wants to run git push, with Deny, Always and Allow. Plan usage for every account runs across the top." width="100%" />
-  </picture>
-</p>
-
-Every session from every agent and account, wherever you started it: your terminal tabs,
-background jobs, the Claude and Codex apps. Sorted into *Needs you*, *Your turn*, *Working*, *In
-review* and *Idle*, and organized the way your work is:
-**project → repo → worktree → branch → pull request**.
-
-- **Read and reply.** Any session's whole conversation, with its tool calls, images and links,
-  searchable, and a box to reply. Or double-click to open it where it lives: its exact terminal
-  tab, its Claude app session or its Codex thread.
-- **Know where your plan limits stand.** Each account's limits across the top, always in view, and
-  what your sessions used against what your plans cost.
-- **All your machines.** Link them and each shows the others' sessions beside its own; allow it,
-  and you answer an agent on your desktop from your laptop. An
-  [iPhone app](https://github.com/codealong/codealong-ios) is on the way.
 
 ## And a lot more
 
@@ -367,13 +366,6 @@ waiting on, and open where they ask.
 </p>
 
 ### Pull requests, with their agents
-
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/pr-review-dark.webp" />
-    <img src="docs/images/pr-review-light.webp" alt="The PRs view: a teammate's PR waiting on your review first, which an agent has read and approves, then yours with the sessions that worked on them. The one picked shows the review the agent drafted for you, its comment on a line of the code, and a box to approve, comment or ask for changes." width="100%" />
-  </picture>
-</p>
 
 Every pull request in your repos is joined to the worktree and sessions behind it, including the
 agent that opened it, pushed to it or commented on it. Colored pills show its review, checks and
