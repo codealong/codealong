@@ -12,8 +12,9 @@
 </p>
 
 <p align="center">
-  Free and open source, for macOS and Linux.<br />
-  Claude Code, Codex, OpenCode, Antigravity and Cursor, on every account and machine you have.
+  It works beside the agents you already run: Claude Code, Codex, OpenCode, Antigravity and Cursor,<br />
+  in your own terminal and in their desktop apps, on every account and machine you have.<br />
+  Free and open source, for macOS and Linux.
 </p>
 
 <p align="center">
@@ -56,10 +57,11 @@ Running coding agents in parallel gets messy fast: a dozen terminal tabs, the Cl
 apps, two or three accounts, and no way to tell which agent is waiting on you without clicking
 through all of them. Then the pull requests they open pile up, waiting on a review.
 
-Codealong finds every agent session on your machine, wherever it started, shows what each one is
-doing, and brings the ones that need you to wherever you are. Your agents keep running exactly as
-their makers ship them: Codealong reads the records each one already writes. It doesn't wrap,
-proxy or replace anything, and it needs no account, no API key and no server.
+**Codealong works beside the agents you already run. There's nothing to move into.** It finds
+every agent session on your machine, wherever it started, shows what each one is doing, and brings
+the ones that need you to wherever you are. Keep starting agents in your own terminal and in the
+Claude, Codex and Cursor apps: Codealong reads the records each one already writes. It doesn't
+wrap, proxy or replace anything, and it needs no account, no API key and no server.
 
 ## Every agent, account and machine on one board
 
@@ -83,6 +85,25 @@ review* and *Idle*, and organized the way your work is:
 - **All your machines.** Link them and each shows the others' sessions beside its own; allow it,
   and you answer an agent on your desktop from your laptop. An
   [iPhone app](https://github.com/codealong/codealong-ios) is on the way.
+
+## Keep the agents you already run, where you run them
+
+Apps that host your agents, in their own window or their own terminal panes, see only what you
+start inside them. Codealong sees what you already run, and leaves it running where it is.
+
+- **Start agents the way you do now.** In your own terminal, as a background job, in the Claude,
+  Codex, Cursor or Antigravity app. Each shows on the board as it starts: nothing has to be
+  launched from Codealong, and the quick panel is there for when it's quicker.
+- **The desktop apps are on the board too.** A Claude app session or a Codex thread sits beside
+  your terminal sessions, with its conversation and its status. It takes your reply from
+  Codealong, and a double-click opens it in its own app.
+- **Each agent stays its maker's.** Its own tools, prompts and permission rules, and its new
+  features the day they ship. Nothing sits between an agent and its model.
+- **Nothing to move out of, either.** Quit Codealong and every agent in your terminal or its app
+  carries on, asking you the usual way.
+
+[What works with each agent](#what-works-with-each-agent) says what Codealong can do with every
+one. Where it can't act, it opens the session where it lives.
 
 ## An agent reviews every pull request, at no extra cost
 
@@ -990,9 +1011,10 @@ build and install it yourself (Get the iPhone app, in Settings › Devices, has 
 you). Today you can answer an agent from any of your machines: link them, and turn on remote
 control on the machine the agent runs on.
 
-**How is it different from apps that run agents in their own window?**
-Those apps see only the agents they launched. Codealong reads the agents you already run, across
-harnesses, accounts and machines, and sends new work to the right one.
+**How is it different from apps that run agents in their own window, or their own terminal?**
+Those apps see only the agents you start inside them. Codealong reads the agents you already run,
+wherever they run, the Claude and Codex apps among them, across harnesses, accounts and machines,
+and sends new work to the right one. You keep your terminal and your apps.
 [How Codealong compares](https://www.codealong.com/compare/) goes through them one by one.
 
 ### If something's missing
