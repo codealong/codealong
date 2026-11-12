@@ -486,7 +486,7 @@ export function AccountsSection({ focus, usage, training, mcp, terminal, now, on
           onPick={(p) => setDraft({ ...draft, perToken: p === 'token' })}
         />
         {draft.perToken ? (
-          <small>An API key: what its sessions cost at API prices is what was paid, in the Usage window.</small>
+          <small>An API key: what its sessions cost at API prices is what was paid, in the Analytics window.</small>
         ) : (
           <label className="ca-acct-monthly">
             <span>$</span>
@@ -494,7 +494,7 @@ export function AccountsSection({ focus, usage, training, mcp, terminal, now, on
             <span>a month</span>
           </label>
         )}
-        {!draft.perToken && <small>What the plan costs you, which the Usage window counts as paid, a day’s share at a time, against what its sessions would have cost at API prices. Empty leaves it out.</small>}
+        {!draft.perToken && <small>What the plan costs you, which the Analytics window counts as paid, a day’s share at a time, against what its sessions would have cost at API prices. Empty leaves it out.</small>}
       </div>
       <div className="ca-field">
         <span>Usage cap</span>

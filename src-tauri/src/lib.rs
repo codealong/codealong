@@ -1387,7 +1387,7 @@ const NEW_WINDOW_MENU_ID: &str = "new-window";
 const CLOSE_IDLE_MENU_ID: &str = "close-idle";
 const CLOSE_STALE_MENU_ID: &str = "close-stale";
 
-/// Puts Usage… (⇧⌘U) at the foot of the View menu: the window that says what sessions used and
+/// Puts Analytics… (⇧⌘U) at the foot of the View menu: the window that says what sessions used and
 /// cost (src/ui/UsageDialog.tsx), a dialog the front board window opens, or the main window when
 /// none is open.
 fn add_usage_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
@@ -1398,7 +1398,7 @@ fn add_usage_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
         _ => None,
     });
     let Some(view) = view else { return Ok(()) };
-    let item = MenuItem::with_id(app, USAGE_MENU_ID, "Usage…", true, Some("CmdOrCtrl+Shift+U"))?;
+    let item = MenuItem::with_id(app, USAGE_MENU_ID, "Analytics…", true, Some("CmdOrCtrl+Shift+U"))?;
     view.append_items(&[&PredefinedMenuItem::separator(app)?, &item])?;
     app.on_menu_event(|app, event| {
         if event.id().as_ref() != USAGE_MENU_ID {

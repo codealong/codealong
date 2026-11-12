@@ -1,4 +1,4 @@
-// View › Usage… (⇧⌘U), and a click on the usage bar: what sessions used and cost over the last
+// View › Analytics… (⇧⌘U), and a click on the usage bar: what sessions used and cost over the last
 // days, from the token ledger (ledger.rs). It leads with what the work would have cost at API
 // prices against what was paid (plans a day's share at a time, Claude's extra usage, accounts that
 // pay by the token), then two charts over the same days, the running totals and each day's cost
@@ -99,7 +99,7 @@ export function UsageDialog({ board, account: first, now, onClose, onShowSession
   return (
     <Dialog
       className="ca-usage"
-      title="Usage"
+      title="Analytics"
       onClose={onClose}
       aside={<span className="ca-usage-asof">{report ? (readNote(report) ?? (report.asOf ? `Read ${agoPhrase(report.asOf, now)}` : 'Reading…')) : ''}</span>}
       foot={

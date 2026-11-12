@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BEGAN, HANDS, STANCES, cameIn, countOf, countTicks, markLines, partByProject, percent, responses, secondHandCost, secondHandSessions, segments, stanceStack, stoodStack, yours } from './analytics';
+import { BEGAN, HANDS, STANCES, cameIn, countOf, countTicks, markLines, partByProject, percent, responses, segments, stanceStack, stoodStack, yourCost, yours, yourSessions } from './analytics';
 import type { Outcomes, Part, PartRow, Spent } from './types';
 
 const spent = (key: string, api: number): Spent => ({ key, api, paid: 0, tokens: { input: 0, cacheRead: 0, cacheWrite: 0, output: 0, reasoning: 0 }, calls: 1, unpriced: 0, lastAt: 0 });
@@ -64,23 +64,23 @@ describe('what your prompts did', () => {
     expect(markLines(part({}))).toEqual([]);
     const lines = markLines(part({ marks: { ...marks, mid: 1, afterStop: 2, pickedFirst: 3, pickedOffered: 1, ownWords: 0, allowed: 12, denied: 1, suggested: 1 } }));
     expect(lines).toEqual([
-      '1 was sent while the agent worked',
-      '2 came after you stopped its turn',
-      '4 answers to its questions: 3 its first choice, 1 another, 0 in your own words',
-      '12 calls allowed and 1 denied from Codealong',
-      '1 suggested reply sent as written',
+      '1 sent while the agent was working',
+      '2 sent after you stopped it',
+      '4 answers to the agent’s questions: 3 its first option, 1 another option, 0 in your own words',
+      '13 permission requests answered in Codealong: 12 allowed, 1 denied',
+      '1 suggested reply sent unchanged',
     ]);
   });
 });
 
-describe('second hand', () => {
-  it('is what the turns others began cost, of what is known', () => {
-    expect(secondHandCost([spent('you', 60), spent('agent', 30), spent('codealong', 10), spent('', 25)])).toEqual({ second: 40, known: 100 });
-    expect(secondHandCost([spent('', 25)])).toBeNull();
-    expect(secondHandCost(undefined)).toBeNull();
+describe('your share', () => {
+  it('is what the turns you started cost, of what is known', () => {
+    expect(yourCost([spent('you', 60), spent('agent', 30), spent('codealong', 10), spent('', 25)])).toEqual({ yours: 60, known: 100 });
+    expect(yourCost([spent('', 25)])).toBeNull();
+    expect(yourCost(undefined)).toBeNull();
   });
 
-  it('is the sessions agents and Codealong began; a copy you made is yours', () => {
+  it('is the sessions you started, a copy you made among them', () => {
     const began = [
       { key: 'you', n: 10 },
       { key: 'fork', n: 2 },
@@ -88,7 +88,7 @@ describe('second hand', () => {
       { key: 'review', n: 3 },
       { key: '', n: 7 },
     ];
-    expect(secondHandSessions(began)).toEqual({ second: 8, known: 20 });
+    expect(yourSessions(began)).toEqual({ yours: 12, known: 20 });
   });
 });
 

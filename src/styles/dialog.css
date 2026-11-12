@@ -41,7 +41,7 @@
   display: grid;
   gap: var(--space-3);
   /* Room above its first row for a control's focus ring (--shadow-focus), which the scroll
-     would cut: the Usage window's opens on its span and account. */
+     would cut: the Analytics window's opens on its span and account. */
   padding: var(--space-1) var(--space-5) var(--space-5);
   overflow: auto;
 }

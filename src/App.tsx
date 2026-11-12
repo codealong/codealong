@@ -394,7 +394,7 @@ export function App() {
       .then((needed) => needed && setSetup(true))
       .catch(() => {});
   }, []);
-  // View › Usage… and the usage bar (ui/UsageDialog.tsx), for one account or all of them.
+  // View › Analytics… and the usage bar (ui/UsageDialog.tsx), for one account or all of them.
   const [usageOf, setUsageOf] = useState<{ account: string | null } | null>(null);
   // Your meetings (ui/Meetings.tsx), opened from the window's bar while voice is on.
   const [meetingsOpen, setMeetingsOpen] = useState(false);

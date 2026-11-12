@@ -1,4 +1,4 @@
-// What the Usage window says of a token report (ledger.rs `Report`), worked out as pure functions
+// What the Analytics window says of a token report (ledger.rs `Report`), worked out as pure functions
 // so tests can pin them: money and token counts in words, what was paid against what the work
 // would have cost at API prices, the running totals the chart draws, its axis, the colors of the
 // accounts, and the report's folders gathered into the board's projects.

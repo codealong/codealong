@@ -99,7 +99,7 @@
 # newest page, from --snapshot --transcript) and what it waits on you to allow (--pending);
 # other sessions show their title and excerpt there. PREVIEW_BEFORE=<cursor> shows the page
 # before that place in its record (a byte offset at a line's start) in place of the newest.
-# PREVIEW_TOKENS=<file> answers the Usage window with the token report in it (`codealong --snapshot
+# PREVIEW_TOKENS=<file> answers the Analytics window with the token report in it (`codealong --snapshot
 # --tokens [days] > file` prints this Mac's); without one it gets a report made up from the board.
 # PREVIEW_NOTICES=<file> shows the background failures in it (scripts/preview/notices-sample.json
 # has two) in the accounts bar, in place of the snapshot's, which usually has none.
@@ -121,7 +121,7 @@
 # PREVIEW_EMBLEMS=1 gives every session an emblem made up from its key, as `[emblems] kind = "emoji"`
 # would once Jev had picked them; PREVIEW_EMBLEMS=drawn a picture of scripts/preview/emblems/, as
 # `"drawn"` would once they were drawn.
-# PREVIEW_ANALYTICS=1 turns `[experimental] analytics` on, with a made-up report for the Usage
+# PREVIEW_ANALYTICS=1 turns `[experimental] analytics` on, with a made-up report for the Analytics
 # window's Your part and Sessions (scripts/preview/usage-part-init.js opens them).
 # PREVIEW_GROUP=worktree|repo shows Sessions, PRs and Todo grouped by worktree or by repo (Group
 # by, over each list); without it, as the window was left: not grouped.

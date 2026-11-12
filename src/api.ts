@@ -466,7 +466,7 @@ export function onCloseStale(cb: () => void): () => void {
   return onWindowEvent('close-stale', () => cb());
 }
 
-/** View › Usage… (⇧⌘U), sent to the front board window (lib.rs `add_usage_menu`). */
+/** View › Analytics… (⇧⌘U), sent to the front board window (lib.rs `add_usage_menu`). */
 export function onUsageMenu(cb: () => void): () => void {
   if (!inTauri) return () => {};
   let cancelled = false;

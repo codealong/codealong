@@ -1,4 +1,4 @@
-// The words and sums for the Usage window's Your part and Sessions (ui/UsageAnalytics.tsx):
+// The words and sums for the Analytics window's Your part and Sessions (ui/UsageAnalytics.tsx):
 // what came in to your sessions and who from, what your prompts did, how sessions began and how
 // you left them (analytics.rs). Pure, so the tests pin them.
 
@@ -57,7 +57,7 @@ export const STOOD: Series[] = [
   { id: 'unknown', label: 'Not known', color: 'var(--line-strong)' },
 ];
 
-/** The beginnings that are yours: the rest are second hand. */
+/** The beginnings that are yours: the rest are agents' or Codealong's. */
 const YOURS = new Set(['you', 'fork']);
 
 export function sum(values: Iterable<number>): number {
@@ -129,19 +129,20 @@ export function responses(stances: Count[]): { agreed: number; steered: number; 
   return { agreed, steered, redirected, all: agreed + steered + redirected };
 }
 
-/** What the turns others began came to, at API prices, against all of it whose turn is known:
- *  the second-hand share of the cost. Null when nothing's known. */
-export function secondHandCost(hands: Spent[] | undefined): { second: number; known: number } | null {
+/** What the turns you started came to, at API prices, against all of it whose turn is known:
+ *  your share of the cost. Null when nothing's known. */
+export function yourCost(hands: Spent[] | undefined): { yours: number; known: number } | null {
   if (!hands?.length) return null;
   const known = sum(hands.filter((h) => h.key !== '').map((h) => h.api));
   if (known <= 0) return null;
-  return { second: sum(hands.filter((h) => h.key !== '' && h.key !== 'you').map((h) => h.api)), known };
+  return { yours: sum(hands.filter((h) => h.key === 'you').map((h) => h.api)), known };
 }
 
-/** Sessions begun by agents or by Codealong, against the ones whose beginning is known. */
-export function secondHandSessions(began: Count[]): { second: number; known: number } {
+/** Sessions you started, a copy you made of one among them, against the ones whose beginning is
+ *  known. */
+export function yourSessions(began: Count[]): { yours: number; known: number } {
   const known = began.filter((b) => b.key !== '');
-  return { second: sum(known.filter((b) => !YOURS.has(b.key)).map((b) => b.n)), known: sum(known.map((b) => b.n)) };
+  return { yours: sum(known.filter((b) => YOURS.has(b.key)).map((b) => b.n)), known: sum(known.map((b) => b.n)) };
 }
 
 /** A row's prompts of yours: every one has a stance, read or not. Not `counts.you`, which also
@@ -176,11 +177,11 @@ export function markLines(part: Part): string[] {
   const s = (n: number, one: string, many: string) => `${count(n)} ${n === 1 ? one : many}`;
   const answers = m.pickedFirst + m.pickedOffered + m.ownWords;
   return [
-    m.mid > 0 && `${s(m.mid, 'was', 'were')} sent while the agent worked`,
-    m.afterStop > 0 && `${s(m.afterStop, 'came', 'came')} after you stopped its turn`,
-    answers > 0 && `${s(answers, 'answer', 'answers')} to its questions: ${count(m.pickedFirst)} its first choice, ${count(m.pickedOffered)} another, ${count(m.ownWords)} in your own words`,
-    m.allowed + m.denied > 0 && `${s(m.allowed, 'call', 'calls')} allowed and ${count(m.denied)} denied from Codealong`,
-    m.suggested > 0 && `${s(m.suggested, 'suggested reply', 'suggested replies')} sent as written`,
+    m.mid > 0 && `${count(m.mid)} sent while the agent was working`,
+    m.afterStop > 0 && `${count(m.afterStop)} sent after you stopped it`,
+    answers > 0 && `${s(answers, 'answer', 'answers')} to the agent’s questions: ${count(m.pickedFirst)} its first option, ${count(m.pickedOffered)} another option, ${count(m.ownWords)} in your own words`,
+    m.allowed + m.denied > 0 && `${s(m.allowed + m.denied, 'permission request', 'permission requests')} answered in Codealong: ${count(m.allowed)} allowed, ${count(m.denied)} denied`,
+    m.suggested > 0 && `${s(m.suggested, 'suggested reply', 'suggested replies')} sent unchanged`,
   ].filter((l): l is string => !!l);
 }
 

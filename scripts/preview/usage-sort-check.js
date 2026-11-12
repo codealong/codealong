@@ -1,7 +1,7 @@
 // Checks dragging a chip along the usage bar (useSort.ts): a press that barely moves
 // is no drag; one that moves along the row lifts the chip and the chips it passes make way;
 // Escape puts it back; letting go puts its account in the new place, writes the order
-// (order_accounts) and opens nothing. A click still opens the Usage window on its account.
+// (order_accounts) and opens nothing. A click still opens the Analytics window on its account.
 //   scripts/preview.sh sessions '' scripts/preview/usage-sort-check.js
 (function () {
   var row = function () { return q('.ca-usagebar-accts'); };
@@ -15,7 +15,7 @@
     return { x: (r.left + r.right) / 2, y: (r.top + r.bottom) / 2, right: r.right };
   };
   var shift = function (el) { return el.style.transform; };
-  // A chip's click opens the Usage window, or signs in for one that asks to.
+  // A chip's click opens the Analytics window, or signs in for one that asks to.
   var opens = function () { return calls('token_report').length + calls('sign_in').length; };
   var before;
 
@@ -87,8 +87,8 @@
       pointer(chip, 'pointerdown', at.x, at.y);
       pointer(chip, 'pointerup', at.x, at.y);
       chip.click();
-      return until(function () { return q('.ca-usage') && last('token_report') && last('token_report').account === name; }, 5000, 'the Usage window').then(function () {
-        check('a click still opens the Usage window on its account', true);
+      return until(function () { return q('.ca-usage') && last('token_report') && last('token_report').account === name; }, 5000, 'the Analytics window').then(function () {
+        check('a click still opens the Analytics window on its account', true);
       });
     })
     .then(done)

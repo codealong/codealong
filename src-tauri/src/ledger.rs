@@ -24,7 +24,7 @@
 //!
 //! Codealong's own requests to TypeSafe's Jev (jev.rs) are kept here too, a row each in a table
 //! of their own (`note_jev`), by the feature that asked: they belong to no session or account,
-//! and Settings › Jev reports them (`jev_report`), not the Usage window.
+//! and Settings › Jev reports them (`jev_report`), not the Analytics window.
 //!
 //! With `[experimental] analytics` on, the same file keeps what came in to each session and who
 //! from (turns.rs, which gives each call its turn), where each session came from (began.rs) and
@@ -394,13 +394,13 @@ fn problem_slot() -> &'static Mutex<Option<String>> {
     SLOT.get_or_init(|| Mutex::new(None))
 }
 
-/// What the last read of the records couldn't read, in words, for a notice and the Usage
+/// What the last read of the records couldn't read, in words, for a notice and the Analytics
 /// window: its numbers leave those records out until a read gets them.
 pub fn problem() -> Option<String> {
     problem_slot().lock().unwrap_or_else(|e| e.into_inner()).clone()
 }
 
-/// Asks the background thread to read what's new now: the Usage window is opening.
+/// Asks the background thread to read what's new now: the Analytics window is opening.
 pub fn nudge() {
     if let Some(tx) = nudger().lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
         let _ = tx.send(());

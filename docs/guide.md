@@ -4065,7 +4065,7 @@ bar's refresh, and an account whose provider may train on it, or where nothing's
 has its chip in amber with a crossed-out shield. Its card, on hover, says which setting it is and
 when it was read, and stays up while the pointer is on it: **Turn off training** turns it off from
 Codealong and reads it back to check (a toast says how it went), and **Open settings** opens the
-provider's page for it. A click on the chip still opens the Usage window. Settings › Accounts says
+provider's page for it. A click on the chip still opens the Analytics window. Settings › Accounts says
 where every account stands (*Not trained on*, *Training on*) and offers the same.
 
 - Claude (Pro and Max): *Help improve Claude* in claude.ai's privacy settings, one setting for the
@@ -4086,9 +4086,9 @@ where every account stands (*Not trained on*, *Training on*) and offers the same
 
 #### What sessions used and cost
 
-*View › Usage… (⇧⌘U), the bar's Usage button, or a click on an account's chip*
+*View › Analytics… (⇧⌘U), the bar's Analytics button, or a click on an account's chip*
 
-The Usage window says what your sessions used over the last 7, 30 or 90 days or the year, for every
+The Analytics window says what your sessions used over the last 7, 30 or 90 days or the year, for every
 account or one: what the work would have cost at API prices, what you paid, how many dollars of
 work each dollar paid bought (leverage), and the tokens, with how much of what went in was read
 from the cache (most of it, and at a tenth of the price or less, which is why a token count alone
@@ -4135,13 +4135,14 @@ the same from the command line.
 
 Most of what sets an agent going isn't typed by you: a background task reports back, another
 session sends a message, Codealong passes on a PR's news or runs a schedule. With analytics on, the
-Usage window has two more views beside **Cost** that say what your own part was.
+Analytics window has two more views beside **Cost** that say what your own part was.
 
 **Your part** counts everything that came in to your sessions over the days, by who it was from:
 you, another agent, Codealong, or the session itself (a background task or a subagent reporting
 back, a wakeup it set, a loop's tick). Each of those begins a turn, and every model call is counted
-with the turn it was made in, so the tiles say what share of the turns you began and what the
-turns others began cost at API prices: the second-hand share. Two rules decide what a turn counts
+with the turn it was made in, so the tiles say what share of the turns you started and what share
+of the cost at API prices they came to, and how often you agreed when you replied to what an agent
+had said (rather than steering or redirecting it). Two rules decide what a turn counts
 as. One the session began itself counts with the turn it follows, since it's the same work going
 on. And the first prompt of a session an agent or Codealong started is theirs, though it's typed in
 as yours would be. Subagents' calls are their session's, and are said apart.
@@ -4169,15 +4170,16 @@ than its end. Or an agent can read them: `codealong analytics prompts` lists the
 and `codealong analytics tag <id> <stance>` says what one did, which stands over Jev's read.
 Unread ones are drawn as Not read, never left out.
 
-The view also says what the records are sure of besides: how many prompts you sent while the
-agent worked or after you stopped its turn, how your answers to its questions went, the calls
-you allowed and denied from Codealong, and the suggested replies you sent as written. A table
-lists it by account, project or session, and your latest prompts that steered or redirected are
-listed with the session each was in.
+Under **More about your prompts** it says what the records are sure of besides: how many prompts
+you sent while the agent was working or after you stopped it, how your answers to its questions
+went, the permission requests you answered in Codealong, and the suggested replies you sent
+unchanged. A table lists it by account, project or session, and your latest prompts that steered
+or redirected are listed with the session each was in.
 
 **Sessions** says how the sessions active in those days began (you; a copy of another you made;
 an agent, as its helper or not; Codealong, for a review or on a schedule; a headless run), with
-what each kind cost, and how the ones you were done with stood. Mark as done, Archive and Close
+what share you started and what each kind cost, and how sessions stood when you were done with
+them. Mark as done, Archive and Close
 idle sessions each note where the session's work stood at that moment: finished (a PR it worked on
 merged, a todo linked to it is done, or its own status line says its change landed), looked
 finished (only the read of its last reply says so), nothing known, or unfinished, with why: it
@@ -4194,7 +4196,7 @@ back about 30 days, and how sessions stood is known only from then on. A prompt 
 with how it opens, for the lists; the whole of it and the end of the reply before it are kept
 only until it's been read, and never past 30 days. While analytics are off none of this is read
 or kept: no turns, prompts, beginnings or how a session stood. The ledger only notes, as it reads
-each call for the Usage window, whether a subagent made it.
+each call for the Analytics window, whether a subagent made it.
 `codealong analytics [--days N] [--account <name>]` prints the same, and `codealong tokens --by
 began` and `--by turn` what it cost. Cursor and Antigravity record no tokens, so their sessions
 have turns and no cost. Other machines' sessions aren't in it: each machine keeps its own.
@@ -4524,7 +4526,7 @@ emblem, the emoji Jev picked or the picture drawn for it, in `emblems.json`; eac
 allowed an agent to run in your terminal, with what it printed, for a week in `terminal-runs/`;
 what `codealong changes` saw at each of its last dozen looks, for a week, in `changes.json`; an
 orchestrator's answers, cursor and narrative in `orchestrator/`; what every
-model call used, and Claude's extra usage as it was read, in `ledger.sqlite` (the Usage window's).
+model call used, and Claude's extra usage as it was read, in `ledger.sqlite` (the Analytics window's).
 Todos and labels are in `todos.json`, which is watched, so an agent or an editor can add to it.
 The listenings (*Voice*) are in `listenings.json`, and each one's transcript and notes in a folder
 of its own in `listenings/`; a meeting taken from your calendar has its folder in `meetings/`

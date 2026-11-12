@@ -1094,7 +1094,7 @@ pub struct ExperimentalCfg {
     pub voice: bool,
     /// Analytics (turns.rs, left.rs, stance.rs): who began each session and each turn of its, what
     /// your prompts did with what the agent had said, and how the sessions you marked done stood,
-    /// kept in the ledger and shown in the Usage window.
+    /// kept in the ledger and shown in the Analytics window.
     #[serde(default)]
     pub analytics: bool,
 }
@@ -1468,7 +1468,7 @@ pub struct AccountCfg {
     /// Codealong runs itself (acp.rs). None uses the one `codealong install` adds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub acp: Option<String>,
-    /// What its plan costs you a month, in dollars: what the Usage window counts as paid for it,
+    /// What its plan costs you a month, in dollars: what the Analytics window counts as paid for it,
     /// a day's share at a time, against what its work would have cost at API prices (ledger.rs).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub monthly: Option<f64>,
@@ -1986,7 +1986,7 @@ const OWN_REVIEWS_COMMENT: &str = "# [reviews.own] auto: an agent reviews each o
 # review to the PR's primary session, once it runs and doesn't wait on you. drafts: review your draft PRs too.
 # Nothing goes on GitHub.
 ";
-const EXPERIMENTAL_COMMENT: &str = "# Features still being tried out, each off until it's turned on. boards: the main window's Board view, as\n# Kanban and as Canvas, Add to board in the menus, and `codealong board`. voice: a key held to talk to the\n# session you're looking at or to your orchestrator, and sessions that listen to a meeting ([voice]).\n# analytics: who began each session and turn, what your prompts did with what the agent had said, and how\n# the sessions you marked done stood, in the Usage window and `codealong analytics`.\n";
+const EXPERIMENTAL_COMMENT: &str = "# Features still being tried out, each off until it's turned on. boards: the main window's Board view, as\n# Kanban and as Canvas, Add to board in the menus, and `codealong board`. voice: a key held to talk to the\n# session you're looking at or to your orchestrator, and sessions that listen to a meeting ([voice]).\n# analytics: who began each session and turn, what your prompts did with what the agent had said, and how\n# the sessions you marked done stood, in the Analytics window and `codealong analytics`.\n";
 const VOICE_COMMENT: &str = "# Voice, once [experimental] voice is on. locale: the language spoken, such as \"en-US\"; \"\" for this Mac's own.\n# send_on_release: what you say to your orchestrator is sent as you let go of the key, not put in its box\n# first. tell_every: how often, in seconds, a session that listens is told what's new, at most.\n# meetings: as a meeting in your calendar is about to start, offer to take its notes, in a folder of its own\n# under meetings_folder (\"\" for meetings beside this file), by a session on meeting_account (an account, a\n# routing group, or \"\" for Auto) and meeting_model, meeting_lead minutes before it starts, but for the\n# calendars in meeting_calendars_off (by id; Settings lists them). on_speakers: take what the Mac plays out of the microphone\n# in every meeting; without it Codealong hears whether you're on speakers, and does it then.\n";
 const REPOS_COMMENT: &str = "# Your settings for one repo's pull requests, over [reviews] and [pull_requests] and over what the repo's\n# .codealong/config.toml sets for its team. Settings › Automation sets them with the repo picked.\n";
 /// What config.toml says above `[sounds]`: where the OS keeps the sounds it can name.
@@ -3130,7 +3130,7 @@ pub fn render(cfg: &Config) -> String {
         s.push_str(&format!("meeting_calendars_off = {}\n", list(&cfg.voice.meeting_calendars_off)));
         s.push_str(&format!("on_speakers = {}\n", cfg.voice.on_speakers));
     }
-    s.push_str("\n# Harness accounts. `name` is what you type and what the board shows.\n# `start` is where new sessions start: \"terminal\", \"background\", \"claude-app\", \"codex-app\" or \"codealong\". A start from the quick panel sets it.\n# `acp`: the command that runs the account's Agent Client Protocol adapter, for sessions Codealong runs itself.\n# `usage_cap`: where Auto and routing groups pass over this account for one with more room (1 to 100 percent; default 90).\n# `monthly`: what its plan costs you a month, in dollars; `per_token = true`: it pays for each token\n# at API prices. The Usage window counts both as paid.\n# `disabled = true`: Codealong starts nothing on it and leaves it out of the usage bar; its sessions still show.\n# `chrome_profile`: the Chrome profile signed in to it, where the pages its sessions make (Claude's artifacts) open.\n");
+    s.push_str("\n# Harness accounts. `name` is what you type and what the board shows.\n# `start` is where new sessions start: \"terminal\", \"background\", \"claude-app\", \"codex-app\" or \"codealong\". A start from the quick panel sets it.\n# `acp`: the command that runs the account's Agent Client Protocol adapter, for sessions Codealong runs itself.\n# `usage_cap`: where Auto and routing groups pass over this account for one with more room (1 to 100 percent; default 90).\n# `monthly`: what its plan costs you a month, in dollars; `per_token = true`: it pays for each token\n# at API prices. The Analytics window counts both as paid.\n# `disabled = true`: Codealong starts nothing on it and leaves it out of the usage bar; its sessions still show.\n# `chrome_profile`: the Chrome profile signed in to it, where the pages its sessions make (Claude's artifacts) open.\n");
     for a in &cfg.accounts {
         s.push_str("\n[[accounts]]\n");
         s.push_str(&format!("name = {}\n", q(&a.name)));

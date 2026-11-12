@@ -58,7 +58,7 @@ Commands:
              agent, Codealong, the session itself), what your prompts did with what the
              agent had said (set out new work, agreed, steered, redirected, asked), how
              sessions began, and how the ones you marked done stood (finished, or left
-             asking you something, not landed…). The Usage window's Your part and
+             asking you something, not landed…). The Analytics window's Your part and
              Sessions show the same; JSON has it all. `prompts` lists prompts of yours
              nothing has read yet, and `tag` says what one did
   whoami     Which session runs this command, its worktree, the other agents running in
@@ -441,9 +441,9 @@ Your part in the work, an experiment (`[experimental] analytics`, Settings ›
 Experimental): what came in to your sessions and who from (you, another agent,
 Codealong, the session itself), what your prompts did with what the agent had said (set
 out new work, agreed, steered, redirected, asked), how sessions began, and how the ones
-you marked done stood (finished, or left asking you something, not landed…). The Usage
-window's Your part and Sessions show the same; JSON has it all. `prompts` lists prompts
-of yours nothing has read yet, and `tag` says what one did
+you marked done stood (finished, or left asking you something, not landed…). The
+Analytics window's Your part and Sessions show the same; JSON has it all. `prompts`
+lists prompts of yours nothing has read yet, and `tag` says what one did
 
 Usage: codealong analytics [OPTIONS] [COMMAND]
 

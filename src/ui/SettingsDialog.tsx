@@ -2412,7 +2412,7 @@ function ExperimentalPane({ cfg, view, disabled, onSave }: PaneProps & { view: C
           <CheckBox checked={experimental.analytics} onChange={(on) => void onSave({ ...cfg, experimental: { ...experimental, analytics: on } })} />
           <span>Analytics</span>
           <small>
-            Your part in the work, in the Usage window: who began each session and each turn of its (you, another agent, Codealong, or the session carrying on by itself) and what that used, and how the sessions you marked done stood: finished, or left asking you something, still working or not landed. Read from the records your harnesses keep on this machine, into Codealong’s ledger; turning it on reads the ones still there. <code className="ca-ic">codealong analytics</code> prints the same.
+            Your part in the work, in the Analytics window: who began each session and each turn of its (you, another agent, Codealong, or the session carrying on by itself) and what that used, and how the sessions you marked done stood: finished, or left asking you something, still working or not landed. Read from the records your harnesses keep on this machine, into Codealong’s ledger; turning it on reads the ones still there. <code className="ca-ic">codealong analytics</code> prints the same.
           </small>
         </label>
         {experimental.analytics && (

@@ -1,11 +1,11 @@
-// The Usage window's Your part and Sessions (UsageDialog.tsx shows them once `[experimental]
+// The Analytics window's Your part and Sessions (UsageDialog.tsx shows them once `[experimental]
 // analytics` is on): what came in to your sessions and who from, what your prompts did with
 // what the agents had said, how sessions began, and how the ones you were done with stood
 // (analytics.rs). The words and sums are analytics.ts's, the charts' pieces UsageChart.tsx's,
 // and what the same days cost by who began the work comes with the token report.
 
 import { useMemo, useState } from 'react';
-import { BEGAN, byKey, cameIn, count, countOf, countTicks, HANDS, markLines, partByProject, percent, responses, secondHandCost, secondHandSessions, type Segment, segments, stanceStack, STANCES, stoodStack, sum, yours } from '../analytics';
+import { BEGAN, byKey, cameIn, count, countOf, countTicks, HANDS, markLines, partByProject, percent, responses, type Segment, segments, stanceStack, STANCES, stoodStack, sum, yourCost, yours, yourSessions } from '../analytics';
 import { agoPhrase } from '../format';
 import { dayLabel, laneOf, money } from '../spend';
 import type { Analytics, Board, PartDay, PartRow, Session, TokenReport } from '../types';
@@ -190,14 +190,14 @@ function PartTable({ analytics, by, lanes, sessions, onShowSession }: Props & { 
           <th scope="col" className="ca-usage-share-col">
             What they did
           </th>
-          <th scope="col" className="is-num" title="Turns that count as yours: the ones you began, and what each session went on to do by itself after">
+          <th scope="col" className="is-num" title="Turns you started, and what each session went on to do by itself after them">
             Your turns
           </th>
-          <th scope="col" className="is-num">
-            Agents’
+          <th scope="col" className="is-num" title="Turns other agents started">
+            Agent turns
           </th>
-          <th scope="col" className="is-num">
-            Codealong’s
+          <th scope="col" className="is-num" title="Turns Codealong started">
+            Codealong turns
           </th>
         </tr>
       </thead>
@@ -248,7 +248,7 @@ export function YourPart(props: Props) {
   const prompts = sum(part.stances.map((s) => s.n));
   const turns = sum(part.hands.map((h) => h.n));
   const went = responses(part.stances);
-  const second = secondHandCost(report?.hands);
+  const mine = yourCost(report?.hands);
   const itself = countOf(part.sources, 'itself');
   const cost = useMemo(() => Object.fromEntries((report?.hands ?? []).map((h) => [h.key, h.api])), [report]);
   const lines = markLines(part);
@@ -259,26 +259,26 @@ export function YourPart(props: Props) {
     <>
       <div className="ca-usage-stats">
         <Stat label="Your prompts" value={count(prompts)} note={`about ${count(Math.round(prompts / Math.max(1, part.days.length)))} a day`} />
-        <Stat label="Turns you began" value={percent(countOf(part.hands, 'you'), turns)} note={`${count(countOf(part.hands, 'you'))} of ${count(turns)}`} />
-        <Stat label="Second hand" value={second ? percent(second.second, second.known) : '—'} note={second ? `${money(second.second)} of ${money(second.known)} at API prices` : 'of the cost, once it’s read'} />
-        <Stat label="Went along" value={went.all > 0 ? percent(went.agreed, went.all) : '—'} note={went.all > 0 ? `of the ${count(went.all)} that answered a reply` : 'once your prompts are read'} />
+        <Stat label="Turns you started" value={percent(countOf(part.hands, 'you'), turns)} note={`${count(countOf(part.hands, 'you'))} of ${count(turns)}`} />
+        <Stat label="Cost of your turns" value={mine ? percent(mine.yours, mine.known) : '—'} note={mine ? `${money(mine.yours)} of ${money(mine.known)} at API prices` : 'once the cost is read'} />
+        <Stat label="You agreed" value={went.all > 0 ? percent(went.agreed, went.all) : '—'} note={went.all > 0 ? `of ${count(went.all)} replies to the agent` : 'once your prompts are read'} />
       </div>
       <StanceDays days={part.days} />
       <div className="ca-usage-chart">
         <div className="ca-usage-legend">
-          <span className="ca-usage-chart-title">Who began the work</span>
-          <span>turns, then what they used at API prices</span>
+          <span className="ca-usage-chart-title">Who started the work</span>
+          <span>by turns, then by cost at API prices</span>
         </div>
-        <Split parts={segments(HANDS, byKey(part.hands))} label="Turns, by who began them" />
-        <Split parts={segments(HANDS, cost)} label="Cost at API prices, by who began the turn" value={(s) => money(s.n)} />
+        <Split parts={segments(HANDS, byKey(part.hands))} label="Turns, by who started them" />
+        <Split parts={segments(HANDS, cost)} label="Cost at API prices, by who started the turn" value={(s) => money(s.n)} />
         <p className="ca-usage-fine">
-          {itself > 0 && `The session itself began ${count(itself)} of them (a background task reporting back, a wakeup it set): each counts with the turn it follows. `}
+          {itself > 0 && `${count(itself)} turns a session started on its own (a background task reporting back, a wakeup it set) count for whoever started the turn before. `}
           {report?.subagents && report.subagents.api > 0 && `Subagents made ${money(report.subagents.api)} of the cost.`}
         </p>
       </div>
       {lines.length > 0 && (
         <div className="ca-usage-chart">
-          <span className="ca-usage-chart-title">Of your prompts, for sure</span>
+          <span className="ca-usage-chart-title">More about your prompts</span>
           <ul className="ca-usage-marks">
             {lines.map((l) => (
               <li key={l}>{l}</li>
@@ -317,13 +317,13 @@ export function YourPart(props: Props) {
       <div className="ca-usage-notes">
         {part.unread > 0 &&
           (part.reading ? (
-            <p>{count(part.unread)} of your prompts wait on a read; Jev reads a few each minute.</p>
+            <p>Jev hasn’t read {count(part.unread)} of your prompts yet; it reads a few each minute.</p>
           ) : (
             <p>
-              {count(part.unread)} of your prompts haven’t been read for what they did. Settings › Experimental can have Jev read them, or an agent can: <code>codealong analytics prompts</code>.
+              {count(part.unread)} of your prompts haven’t been read for what they did. Jev can read them (Settings › Experimental), or an agent can: <code>codealong analytics prompts</code>.
             </p>
           ))}
-        <p>What a prompt did is a read of it against the reply before it, by Jev or an agent; everything else here is from your harnesses’ own records.</p>
+        <p>What each prompt did is Jev’s or an agent’s reading of it beside the reply before it. Everything else here comes from your harnesses’ own records.</p>
         {part.since && <p>Nothing is known of what came in before {new Date(part.since).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}.</p>}
       </div>
     </>
@@ -337,14 +337,14 @@ export function SessionsPart({ analytics, report, sessions, now, onShowSession }
   const o = analytics.outcomes;
   const began = segments(BEGAN, byKey(o.began));
   const all = sum(began.map((b) => b.n));
-  const second = secondHandSessions(o.began);
+  const mine = yourSessions(o.began);
   const cost = useMemo(() => Object.fromEntries((report?.origins ?? []).map((s) => [s.key, s.api])), [report]);
   const top = Math.max(1, ...began.map((b) => b.n));
   return (
     <>
       <div className="ca-usage-stats">
         <Stat label="Sessions" value={count(all)} note="active in these days" />
-        <Stat label="Second hand" value={percent(second.second, second.known)} note={`${count(second.second)} begun by agents or Codealong`} />
+        <Stat label="Sessions you started" value={percent(mine.yours, mine.known)} note={`${count(mine.yours)} of ${count(mine.known)}`} />
         <Stat label="Marked done" value={count(o.left)} note={o.left > 0 ? `${count(o.finished + o.lookedFinished)} of them finished` : 'none yet'} />
         <Stat label="Left unfinished" value={count(o.unfinished)} note={o.reopened > 0 ? `${count(o.reopened)} taken up again after` : 'of the ones you marked done'} />
       </div>
@@ -354,7 +354,7 @@ export function SessionsPart({ analytics, report, sessions, now, onShowSession }
         <table className="ca-usage-table">
           <thead>
             <tr>
-              <th scope="col">Begun by</th>
+              <th scope="col">Started by</th>
               <th scope="col" className="is-num">
                 Sessions
               </th>
@@ -386,7 +386,7 @@ export function SessionsPart({ analytics, report, sessions, now, onShowSession }
         </table>
       )}
       <div className="ca-usage-chart">
-        <span className="ca-usage-chart-title">How the ones you were done with stood</span>
+        <span className="ca-usage-chart-title">How sessions stood when you were done with them</span>
         {o.left === 0 ? (
           <p className="ca-usage-fine">Nothing marked done or archived in these days{o.since ? '' : ' since this was turned on'}.</p>
         ) : (
@@ -434,7 +434,7 @@ export function SessionsPart({ analytics, report, sessions, now, onShowSession }
   );
 }
 
-/** Which of the Usage window's views is up. */
+/** Which of the Analytics window's views is up. */
 export type UsageView = 'cost' | 'part' | 'sessions';
 
 export const VIEWS: { id: UsageView; label: string }[] = [

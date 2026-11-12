@@ -225,7 +225,7 @@ function boardOp(op) {
     return { board: b || null, id: id, project: b ? b.project : '' };
   });
 }
-// What the token ledger would report (ledger.rs `Report`), for the Usage window: the report in
+// What the token ledger would report (ledger.rs `Report`), for the Analytics window: the report in
 // tokens-fixture.json (PREVIEW_TOKENS; `--snapshot --tokens` prints a real one), else one made up
 // from the board, the same every time: its accounts, the worktrees' folders and sessions, a cost
 // for each day that rises and falls, and the first account paying $200 a month.
@@ -420,7 +420,7 @@ function sampleAnalytics(board, days, account) {
 // (`[experimental] voice`) is off, as a new config.toml has it, and on with PREVIEW_VOICE, which
 // also has the session named in `window.__LISTENS__` listening (`listeningSample`), if a check
 // or an init script named one. Analytics (`[experimental] analytics`) are off the same way, and
-// on with PREVIEW_ANALYTICS, which gives the Usage window its Your part and Sessions
+// on with PREVIEW_ANALYTICS, which gives the Analytics window its Your part and Sessions
 // (`sampleAnalytics`).
 function withExperiments(board) {
   var voice = !!window.__PREVIEW_VOICE__;

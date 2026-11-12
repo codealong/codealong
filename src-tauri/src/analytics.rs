@@ -1,7 +1,7 @@
 //! Your part in the work, as one report (with `[experimental] analytics` on): what came in to
 //! your sessions and who from, what your prompts did with what the agents had said (turns.rs,
 //! stance.rs), how sessions began (began.rs) and how the ones you were done with stood
-//! (dismissed.rs). The Usage window's Your part and Sessions show it, beside what the same days
+//! (dismissed.rs). The Analytics window's Your part and Sessions show it, beside what the same days
 //! cost by who began the work (`ledger::Report::hands`, `origins`), and `codealong analytics`
 //! prints it.
 

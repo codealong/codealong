@@ -279,7 +279,7 @@ fn jev_usage(_: &Args, rest: &[String]) -> Done {
     Ok(pretty(&crate::ledger::jev_report(days).map_err(failed)?))
 }
 
-/// `codealong --snapshot --analytics [days]`: what the Usage window's Your part and Sessions show
+/// `codealong --snapshot --analytics [days]`: what the Analytics window's Your part and Sessions show
 /// for the last `days` days (30 unless given), whether or not the experiment is on: this Mac's
 /// records read afresh into a ledger of the check's own (a temporary file, or `--into` one to keep
 /// and read on from), never the app's, with where each session came from as a board read now says.
@@ -355,7 +355,7 @@ fn training_off(_: &Args, rest: &[String]) -> Done {
     Ok(pretty(&crate::training::stop(a).map_err(failed)?))
 }
 
-/// `codealong --snapshot --tokens [days]`: what the Usage window shows for the last `days` days
+/// `codealong --snapshot --tokens [days]`: what the Analytics window shows for the last `days` days
 /// (30 unless given), from this Mac's records read afresh into a ledger of the check's own (a
 /// temporary file, or `--into` one to keep and read on from), never the app's. Only files written
 /// in those days are read. `--session <key>` prints that session's instead.

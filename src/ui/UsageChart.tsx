@@ -1,4 +1,4 @@
-// What the Usage window's charts share (UsageDialog.tsx's and UsageAnalytics.tsx's): their
+// What the Analytics window's charts share (UsageDialog.tsx's and UsageAnalytics.tsx's): their
 // width in their own units, so every chart's days line up under one another, the axes, the day
 // under the pointer and the tip that says it.
 

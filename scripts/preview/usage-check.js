@@ -1,5 +1,5 @@
-// Checks the Usage window (ui/UsageDialog.tsx) on the report fake-tauri.js makes up from the
-// board: View › Usage… opens it on every account for 30 days; its tiles say what the work would
+// Checks the Analytics window (ui/UsageDialog.tsx) on the report fake-tauri.js makes up from the
+// board: View › Analytics… opens it on every account for 30 days; its tiles say what the work would
 // have cost, what was paid and the leverage; the days and the account ask the ledger again; a
 // chip on the usage bar opens it on that account; a session's row shows the session; and Plan
 // prices… goes to Settings › Accounts.
@@ -12,7 +12,7 @@
     return until(function () {
       window.__emit('usage');
       return dialog() && q('.ca-usage-stats');
-    }, 20000, 'the Usage window');
+    }, 20000, 'the Analytics window');
   };
 
   say('usage check: opening');

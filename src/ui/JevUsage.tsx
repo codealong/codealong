@@ -1,6 +1,6 @@
 // Settings › Jev's usage: what Codealong's requests to Jev used today or over the last days, in
 // all and by the feature that asked, from the token ledger (ledger.rs `jev_report`). Its table
-// reads as the Usage window's does; the sums are jevUsage.ts's.
+// reads as the Analytics window's does; the sums are jevUsage.ts's.
 
 import { useEffect, useState } from 'react';
 import { jevUsage } from '../api';

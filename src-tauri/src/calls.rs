@@ -74,14 +74,14 @@ pub struct MergeDone {
 }
 
 calls! {
-    /// What sessions used and cost in the last `days` days, for the Usage window (ledger.rs), for
+    /// What sessions used and cost in the last `days` days, for the Analytics window (ledger.rs), for
     /// one account or all. Asking reads what's new in the background too, for the next time.
     fn token_report(c, days: u32, account: Option<String>) -> Result<ledger::Report, String> {
         ledger::nudge();
         ledger::report(days, account.as_deref()).map_err(words)
     }
 
-    /// Your part in the work over the last `days` days, for the Usage window's Your part and
+    /// Your part in the work over the last `days` days, for the Analytics window's Your part and
     /// Sessions (analytics.rs), for one account or all; empty while the experiment is off.
     fn analytics_report(c, days: u32, account: Option<String>) -> Result<analytics::Analytics, String> {
         analytics::report(Some(&c.engine.board()), days, account.as_deref()).map_err(words)

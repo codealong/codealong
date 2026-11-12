@@ -311,7 +311,7 @@ one on only when the user asked for it; `codealong sessions --label <name>` list
 ## Reading what your user's prompts did
 
 Analytics are an experiment, off until your user turns them on in Settings › Experimental: the
-Usage window then says who began each turn of their sessions and what each of their prompts did
+Analytics window then says who began each turn of their sessions and what each of their prompts did
 with the reply before it. While they're off every `codealong analytics` command says so. When
 your user asks you to read their prompts for it (Jev can too, once they turn that on):
 

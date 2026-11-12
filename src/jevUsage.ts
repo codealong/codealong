@@ -38,7 +38,7 @@ export function countedSince(r: JevReport, days: number): number | null {
 }
 
 /** Dollars fine enough for Jev, whose requests cost hundredths of a cent: `$0.0029` under a cent,
- *  and as the Usage window says them from a cent up. */
+ *  and as the Analytics window says them from a cent up. */
 export function jevMoney(n: number): string {
   if (n <= 0) return '$0';
   if (n < 0.0001) return '<$0.0001';

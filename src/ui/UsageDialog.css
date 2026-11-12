@@ -1,4 +1,4 @@
-/* The Usage window (UsageDialog.tsx): what sessions used and cost. Its charts are inline SVG on
+/* The Analytics window (UsageDialog.tsx): what sessions used and cost. Its charts are inline SVG on
    one width of their own units, scaled to the dialog's: thin marks, hairline grid, the accounts
    in the chart tokens, the lines and every word in ink. */
 

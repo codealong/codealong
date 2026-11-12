@@ -202,7 +202,7 @@ The Codealong mark shows the most urgent of them all at a glance: red for an err
 you're needed (a review request too), blue for finished work you haven't seen, green while agents
 work, and gray when all is quiet.
 
-Across the top, each account's plan limits. Click one for the Usage window: what your sessions
+Across the top, each account's plan limits. Click one for the Analytics window: what your sessions
 used and what that would have cost at API prices, against what your plans and any extra usage
 actually cost, day by day and by account, model, project and session. An account whose provider
 may train its models on what you send (Help improve Claude, ChatGPT's Improve the model for
@@ -716,7 +716,7 @@ check = true                   # look for a new version by itself (Settings › 
 [experimental]                 # features still being tried out, each off until it's turned on (Settings › Experimental)
 boards = false                 # the Board view, as Kanban and as Canvas, Add to board in the menus, and `codealong board`
 voice = false                  # the keys held to talk, sessions that listen to a meeting (Listen… in a session's menu), and `codealong listen`
-analytics = false              # who began each session and turn, what your prompts did, how the sessions you marked done stood (the Usage window, `codealong analytics`)
+analytics = false              # who began each session and turn, what your prompts did, how the sessions you marked done stood (the Analytics window, `codealong analytics`)
 
 [voice]                        # once [experimental] voice is on (Settings › Experimental)
 locale = ""                    # the language spoken, such as "en-US"; "" for this Mac's own
@@ -733,7 +733,7 @@ on_speakers = false            # true takes what the Mac plays out of the microp
 [debug]
 perf_log = false               # true logs timings to ~/Library/Logs/Codealong/perf.log, on Linux ~/.local/state/codealong/perf.log (Settings › Advanced)
 
-[prices."some-new-model"]      # API prices for a model Codealong has none for yet, dollars per million tokens (the Usage window)
+[prices."some-new-model"]      # API prices for a model Codealong has none for yet, dollars per million tokens (the Analytics window)
 input = 3
 output = 15
 
@@ -745,7 +745,7 @@ command = "claude-work"        # used for `claude-work --resume <id>`
 start = "background"           # where new sessions start: terminal, background, claude-app (~/.claude only), codex-app (~/.codex only), codealong; a start from the quick panel sets it
 # acp = "my-adapter --stdio"   # the Agent Client Protocol adapter Codealong runs its sessions through, in place of the installed one
 usage_cap = 90                 # Auto, routing groups and reviews pass over it once a meter reaches this percent (default 90)
-monthly = 200                  # what its plan costs you a month, in dollars: Paid in the Usage window
+monthly = 200                  # what its plan costs you a month, in dollars: Paid in the Analytics window
 # per_token = true             # it pays by the token (an API key): what its work cost at API prices was paid
 # disabled = true              # turned off: Codealong starts nothing on it and leaves it out of the usage bar; its sessions still show
 # chrome_profile = "Work"      # the Chrome profile signed in to it: the pages its sessions make (Claude's artifacts) open there; without it, the default browser

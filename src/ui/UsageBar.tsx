@@ -357,7 +357,7 @@ interface UsageBarProps {
   onRefresh: () => void;
   /** Opens Settings at Accounts, at one account when given. */
   onAccounts: (account?: string) => void;
-  /** Opens the Usage window (UsageDialog.tsx), at one account when given: what sessions used and
+  /** Opens the Analytics window (UsageDialog.tsx), at one account when given: what sessions used and
    *  cost. */
   onUsage: (account?: string) => void;
   onSignIn: (account: string) => void;
@@ -532,7 +532,7 @@ export function UsageBar({ usage: board, now, onRefresh, onAccounts, onUsage, on
           onClick={onRefresh}
         />
         <Button variant="ghost" size="sm" icon="chart-bar" title={keysIn('What sessions used and cost (⇧⌘U)')} onClick={() => onUsage()}>
-          Usage
+          Analytics
         </Button>
         <Button variant="ghost" size="sm" icon="settings" title={keysIn('Accounts, in Settings (⌘,)')} onClick={() => onAccounts()}>
           Accounts

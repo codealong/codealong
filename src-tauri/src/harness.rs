@@ -657,7 +657,7 @@ pub trait Adapter: Sync {
 
     // ---- What each model call used (ledger.rs) ----
 
-    /// Whether it records what its calls used where Codealong can read it. The Usage window
+    /// Whether it records what its calls used where Codealong can read it. The Analytics window
     /// names the accounts whose harness doesn't.
     fn records_tokens(&self) -> bool {
         false
@@ -687,7 +687,7 @@ pub trait Adapter: Sync {
 
     /// What model calls used, where the harness keeps them in a database rather than files: the
     /// ones written after `after` (ms), and when the newest of them was written; or why the
-    /// database couldn't be read, which the Usage window and a notice say.
+    /// database couldn't be read, which the Analytics window and a notice say.
     fn token_uses_since(&self, _account: &AccountCfg, after: i64) -> std::result::Result<(Vec<crate::ledger::TokenUse>, i64), String> {
         Ok((Vec::new(), after))
     }

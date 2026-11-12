@@ -672,7 +672,7 @@ export interface AccountPaid {
   tokens: number;
 }
 
-/** What model calls used and cost over some days (ledger.rs `Report`), for the Usage window. */
+/** What model calls used and cost over some days (ledger.rs `Report`), for the Analytics window. */
 export interface TokenReport {
   days: SpendDay[];
   total: Spent;
@@ -826,7 +826,7 @@ export interface Outcomes {
   since?: number;
 }
 
-/** Your part in the work (analytics.rs `Analytics`), for the Usage window's Your part and
+/** Your part in the work (analytics.rs `Analytics`), for the Analytics window's Your part and
  *  Sessions. `on` is false, and the rest empty, while `[experimental] analytics` is off. */
 export interface Analytics {
   on: boolean;
@@ -919,7 +919,7 @@ export interface AccountCfg {
   start?: StartPlace | null;
   /** The command that runs its Agent Client Protocol adapter. */
   acp?: string | null;
-  /** What its plan costs you a month, in dollars: what the Usage window counts as paid. */
+  /** What its plan costs you a month, in dollars: what the Analytics window counts as paid. */
   monthly?: number | null;
   /** It pays for each token at API prices (an API key). */
   per_token?: boolean;
@@ -1026,7 +1026,7 @@ export interface Config {
 /** `[experimental]` (config.rs `ExperimentalCfg`): features still being tried out, each off until
  *  it's turned on. `boards`: the Board view, as Kanban and as Canvas, and Add to board. `voice`:
  *  the keys held to talk, and sessions that listen. `analytics`: who began each session and turn,
- *  what your prompts did, and how the sessions you marked done stood (the Usage window's Your part
+ *  what your prompts did, and how the sessions you marked done stood (the Analytics window's Your part
  *  and Sessions). Missing from files and boards before it: off. */
 export interface ExperimentalCfg {
   boards: boolean;
