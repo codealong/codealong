@@ -400,8 +400,11 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   session, though a level it can save is still saved. The variable can come from a settings file's
   `env` (or the state file's): each source's is put in Claude Code's own environment after launch,
   in rank order, over what it started with, so the kernel's copy of its environment doesn't show it. The registry's `waiting` comes from a table of
-  Claude Code's dialogs (`permission prompt`, `input needed`, `dialog open`), where the panel a
-  command's question shows in has none, so `/model`'s question leaves it as it was.
+  Claude Code's dialogs (`permission prompt`, `input needed`, `dialog open`), and `/model`'s
+  question is a `dialog open` like any command's: a background job's "Switch model?" between
+  turns left it `waiting` / `dialog open` (2.1.322, 2026-11-12), and a check that took that for
+  something else to answer kept Codealong from answering its own switch. So Return goes to a
+  dialog that came up after the switch was typed (`claude/switch.rs` `waits_on_another`).
 - `--effort`'s levels and what a model that doesn't take one gets (2.1.284): `claude/start.rs`
   (`EFFORTS`). Without it a session starts on `settings.json`'s
   `modelSettings.<model>.effortLevel`, else its `effortLevel`, else the model's own default (the

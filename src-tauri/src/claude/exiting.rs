@@ -39,10 +39,7 @@ use crate::harness::{Ctx, Pending, Question};
 use crate::launch::Key;
 use crate::model::Session;
 
-use super::registry::{registry_of, RegistryEntry};
-
-/// What a session's registry entry says it waits on while a command's dialog is up.
-const DIALOG_OPEN: &str = "dialog open";
+use super::registry::{registry_of, RegistryEntry, DIALOG_OPEN};
 
 /// The dialog's title, which starts it on the screen.
 const TITLE: &str = "Exiting worktree session";

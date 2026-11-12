@@ -15,6 +15,8 @@ use crate::harness::{Switch, Switched};
 use crate::jsonedit::Node;
 use crate::model::Session;
 
+use super::registry::{RegistryEntry, DIALOG_OPEN};
+
 /// How long Claude Code is given to write what a switch did before its question is taken to be
 /// up, and then to write it once the question is answered; a test's stand-in writes at once.
 const SAID_WAIT: Duration = if cfg!(test) { Duration::from_millis(200) } else { Duration::from_millis(1500) };
@@ -95,6 +97,7 @@ fn see_through(account: &AccountCfg, session: &Session, records: &dyn Fn() -> Ve
     }
     // A typing that failed may still have gone in (`send::MayHaveArrived`): what it said and saved
     // is looked for, and only a question it surely brought up is answered.
+    let typed_at = crate::util::now_ms();
     let typed = typ(text);
     if matches!(typed, Ok(false)) {
         return Ok(None);
@@ -103,7 +106,7 @@ fn see_through(account: &AccountCfg, session: &Session, records: &dyn Fn() -> Ve
     let mut sign = sign_after(records, from, saves, if asks { SAID_WAIT } else { SAID_WAIT + ANSWERED_WAIT });
     let mut pressed = Ok(());
     if sign.is_none() && typed.is_ok() && asks {
-        pressed = press_return(account, session);
+        pressed = press_return(account, session, typed_at);
         if pressed.is_ok() {
             sign = sign_after(records, from, saves, ANSWERED_WAIT);
         }
@@ -184,23 +187,28 @@ fn written_at(settings: &Path) -> Option<SystemTime> {
 }
 
 /// Presses Return where a session runs, its tab or a background job's terminal, to answer the
-/// question up there.
-fn press_return(account: &AccountCfg, session: &Session) -> Result<()> {
+/// question the switch typed at `typed_at` brought up there.
+fn press_return(account: &AccountCfg, session: &Session, typed_at: i64) -> Result<()> {
     let home = account.home_path();
     let registry = super::session_entry(&home, session).ok_or_else(|| anyhow!("It isn't running any more."))?;
-    if let Some(why) = waits_on_another(&registry) {
+    if let Some(why) = waits_on_another(&registry, typed_at) {
         bail!("Its terminal shows something else to answer ({why}), which Return would answer: answer its question about the switch there.");
     }
     super::press_in(&home, session, &registry, crate::launch::Key::Return, "Claude Code may be asking about the switch there: answer it in its terminal.")
 }
 
-/// What a session waits on that isn't a switch's question, by its registry: Claude Code marks it
-/// waiting for a permission prompt, a question, a held message or another dialog of its own, never
-/// for the panel a command's question shows in (2.1.322's table of them: `/model`'s has no
-/// `waitingFor`). A turn going on under the switch can bring one up meanwhile, and Return would
-/// answer it.
-fn waits_on_another(registry: &super::RegistryEntry) -> Option<&str> {
-    (registry.status == "waiting").then(|| registry.waiting_for.as_deref().unwrap_or("a prompt"))
+/// What a session waits on that isn't the question of a switch typed at `typed_at`, by its
+/// registry: Claude Code marks it waiting for a permission prompt, a question, a held message or
+/// a command's dialog, and the switch's question is one of those (`DIALOG_OPEN`, which a
+/// background job's "Switch model?" showed on 2.1.322, 2026-11-12), saying no more of which. So
+/// a dialog that came up after the switch was typed is taken for its question; anything else, a
+/// dialog up before it among them, is another thing to answer, which a turn going on under the
+/// switch can bring up meanwhile, and Return would answer it.
+fn waits_on_another(registry: &RegistryEntry, typed_at: i64) -> Option<&str> {
+    if registry.status != "waiting" || (registry.waits_on(DIALOG_OPEN) && registry.status_updated_at.is_some_and(|at| at >= typed_at)) {
+        return None;
+    }
+    Some(registry.waiting_for.as_deref().unwrap_or("a prompt"))
 }
 
 /// The account's settings as they are now: `{}` when it has none, None when they don't parse,
@@ -452,7 +460,7 @@ mod tests {
     }
 
     /// A level the session's environment or settings fix isn't typed mid-turn, `auto` there
-    /// included; nor is Return pressed while its terminal shows something else to answer.
+    /// included.
     #[test]
     fn a_fixed_level_or_another_prompt_up_keeps_a_switch_out() {
         let none = std::iter::empty::<String>;
@@ -470,9 +478,23 @@ mod tests {
         assert_eq!(fixed_effort(None, [set("low"), "{}".into(), "not json".into(), set("auto")].into_iter(), "high").as_deref(), Some("auto"));
         // Set empty, it fixes none, whatever it started with.
         assert_eq!(fixed_effort(launched("low"), [set("")].into_iter(), "high"), None);
-        let registry = |status: &str, waiting: Option<&str>| super::super::RegistryEntry { status: status.into(), waiting_for: waiting.map(str::to_string), ..Default::default() };
-        assert_eq!(waits_on_another(&registry("busy", None)), None);
-        assert_eq!(waits_on_another(&registry("waiting", Some("permission prompt"))), Some("permission prompt"));
-        assert_eq!(waits_on_another(&registry("waiting", None)), Some("a prompt"));
+    }
+
+    /// Return answers a switch's question, which shows as a dialog that came up once the switch
+    /// was typed, and nothing else up: a prompt or a question, or a dialog up before it.
+    #[test]
+    fn return_goes_only_to_the_dialog_a_switch_brought_up() {
+        let typed_at = 1_794_524_086_000;
+        let registry = |status: &str, waiting: Option<&str>, since: Option<i64>| RegistryEntry { status: status.into(), waiting_for: waiting.map(str::to_string), status_updated_at: since, ..Default::default() };
+        let after = Some(typed_at + 400);
+        assert_eq!(waits_on_another(&registry("busy", None, after), typed_at), None);
+        assert_eq!(waits_on_another(&registry("idle", None, after), typed_at), None);
+        assert_eq!(waits_on_another(&registry("waiting", Some(DIALOG_OPEN), after), typed_at), None);
+        assert_eq!(waits_on_another(&registry("waiting", Some(DIALOG_OPEN), Some(typed_at)), typed_at), None);
+        assert_eq!(waits_on_another(&registry("waiting", Some(DIALOG_OPEN), Some(typed_at - 1)), typed_at), Some(DIALOG_OPEN));
+        assert_eq!(waits_on_another(&registry("waiting", Some(DIALOG_OPEN), None), typed_at), Some(DIALOG_OPEN));
+        assert_eq!(waits_on_another(&registry("waiting", Some("permission prompt"), after), typed_at), Some("permission prompt"));
+        assert_eq!(waits_on_another(&registry("waiting", Some("input needed"), after), typed_at), Some("input needed"));
+        assert_eq!(waits_on_another(&registry("waiting", None, after), typed_at), Some("a prompt"));
     }
 }

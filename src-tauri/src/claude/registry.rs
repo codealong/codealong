@@ -17,6 +17,9 @@ use crate::util::mtime_ms;
 pub const PERMISSION_PROMPT: &str = "permission prompt";
 /// Or its questions (`AskUserQuestion`).
 pub const INPUT_NEEDED: &str = "input needed";
+/// Or a command's dialog: `/exit`'s about its worktree, `/model`'s "Switch model?", `/config`…
+/// (2.1.322), which say nothing more of which one is up.
+pub const DIALOG_OPEN: &str = "dialog open";
 
 /// A process's entry in the registry, `<home>/sessions/<pid>.json`: what a running Claude Code
 /// says of itself. Everything that reads one reads it as this (`registry_of`).
