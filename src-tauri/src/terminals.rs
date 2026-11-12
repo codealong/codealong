@@ -51,6 +51,9 @@ const FRAME_EVERY: Duration = Duration::from_millis(16);
 const WATCH_FOR: Duration = Duration::from_secs(20);
 /// How often what's in front on a terminal is looked at.
 const LOOK_EVERY: Duration = Duration::from_secs(1);
+/// How long a terminal's program has printed nothing, and nothing's been typed into it, before
+/// what's before its cursor may be a question it waits on you for (`Asking`).
+const QUIET_BEFORE_ASKING: Duration = Duration::from_secs(2);
 /// How long a hung-up process has to end before it's killed.
 const HANG_UP_WAIT: Duration = Duration::from_secs(3);
 /// The size a terminal starts at when the window opening it hasn't measured.
@@ -91,6 +94,13 @@ pub struct Glance {
     /// resume it in Codealong's terminal (launch/codealong.rs), not a terminal beside it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub hosts: bool,
+    /// What its program waits on you to type, as it asks it: the text before the cursor
+    /// (`Continue? [y/N]`), once it has gone quiet with nothing under it at work (`Asking`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asks: Option<String>,
+    /// Since when it has asked: when its program last printed, or something was typed into it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asks_since: Option<i64>,
 }
 
 /// What a terminal's thread is told.
@@ -228,6 +238,14 @@ pub fn glances() -> BTreeMap<String, Vec<Glance>> {
     by
 }
 
+/// What a terminal's program waits on you to type, and since when (`Glance::asks`), by the
+/// terminal's id.
+pub fn asking(id: &str) -> Option<(String, i64)> {
+    let st = state();
+    let g = &st.list.iter().find(|e| e.glance.id == id)?.glance;
+    Some((g.asks.clone()?, g.asks_since?))
+}
+
 /// One terminal's glance.
 #[cfg(test)]
 pub fn glance(id: &str) -> Option<Glance> {
@@ -300,6 +318,8 @@ pub fn open(o: Open) -> Result<Glance, String> {
         bell_at: None,
         tty: opened.tty.clone(),
         hosts: false,
+        asks: None,
+        asks_since: None,
     };
     let pid = opened.pid();
     let pty::Pty { master, mut child, .. } = opened;
@@ -869,6 +889,10 @@ fn run(id: &str, pid: u32, master: OwnedFd, how: How, rx: Receiver<Msg>, out: Se
     let mut last_look = Instant::now();
     let mut last_scroll = Instant::now();
     let mut running = true;
+    // When the program last printed or something was typed into it, and whether it waits on
+    // an answer.
+    let mut stirred = Instant::now();
+    let mut asking = Asking::default();
     loop {
         let now = Instant::now();
         let watched = watchers.values().any(|until| *until > now);
@@ -897,6 +921,7 @@ fn run(id: &str, pid: u32, master: OwnedFd, how: How, rx: Receiver<Msg>, out: Se
             match msg {
                 Msg::Output(bytes) => {
                     screen.feed(&bytes);
+                    stirred = Instant::now();
                     let attached = !taps.is_empty();
                     // Without what the program asks, which the emulator here answers: the other
                     // terminal would answer again (queries.rs).
@@ -942,6 +967,8 @@ fn run(id: &str, pid: u32, master: OwnedFd, how: How, rx: Receiver<Msg>, out: Se
                         g.running = false;
                         g.exit = Some(code);
                         g.program = None;
+                        g.asks = None;
+                        g.asks_since = None;
                     });
                     // Its Close comes back here as a message, after what's left of this batch.
                     if close_on_exit {
@@ -955,11 +982,15 @@ fn run(id: &str, pid: u32, master: OwnedFd, how: How, rx: Receiver<Msg>, out: Se
                     let bytes = screen.take_out();
                     if !bytes.is_empty() && running {
                         let _ = out.send(bytes);
+                        stirred = Instant::now();
                     }
                     dirty = true;
                 }
                 Msg::Paste { text, unsafe_ok, reply } => {
                     let pasted = running && screen.paste(&text, unsafe_ok);
+                    if pasted {
+                        stirred = Instant::now();
+                    }
                     let _ = reply.send(pasted);
                     dirty = true;
                 }
@@ -998,6 +1029,7 @@ fn run(id: &str, pid: u32, master: OwnedFd, how: How, rx: Receiver<Msg>, out: Se
                     if running && !bytes.is_empty() {
                         screen.typed();
                         let _ = out.send(bytes);
+                        stirred = Instant::now();
                         dirty = true;
                     }
                 }
@@ -1086,11 +1118,26 @@ fn run(id: &str, pid: u32, master: OwnedFd, how: How, rx: Receiver<Msg>, out: Se
                 }
             });
         }
-        if running && last_look.elapsed() >= LOOK_EVERY {
+        // A program asking that prints, or is typed into, is looked at again at once: it isn't
+        // asking any more, and its session shouldn't need you a second longer.
+        let answered = asking.asks.is_some() && stirred.elapsed() < QUIET_BEFORE_ASKING;
+        if running && (last_look.elapsed() >= LOOK_EVERY || answered) {
             last_look = Instant::now();
             let front = pty::foreground(master.as_raw_fd()).filter(|g| *g != pid);
             let program = front.and_then(|g| crate::procs::parent_and_name(g).map(|(_, name)| name));
-            update(id, |g| g.program = program);
+            // Only a command can ask: a shell at its own prompt waits on you too, and a session's
+            // own process says what it waits on through its harness.
+            let (hosts, command) = state().list.iter().find(|e| e.glance.id == id).map_or((true, false), |e| (e.glance.hosts, e.glance.command.is_some()));
+            let may_ask = !hosts && (command || program.is_some()) && stirred.elapsed() >= QUIET_BEFORE_ASKING;
+            let changed = asking.look(may_ask.then(|| screen.before_cursor()), || crate::procs::tree(pid));
+            let (asks, since) = (asking.asks.clone(), now_ms() - stirred.elapsed().as_millis() as i64);
+            update(id, |g| {
+                g.program = program;
+                if changed {
+                    g.asks_since = asks.is_some().then_some(since);
+                    g.asks = asks;
+                }
+            });
         }
         if screen.autoscrolling() && last_scroll.elapsed() >= screen::AUTOSCROLL_EVERY {
             last_scroll = Instant::now();
@@ -1111,6 +1158,56 @@ fn run(id: &str, pid: u32, master: OwnedFd, how: How, rx: Receiver<Msg>, out: Se
         }
     }
     Ok(())
+}
+
+/// Whether a terminal's program waits on an answer typed into it, worked out at each look
+/// (`LOOK_EVERY`). Nothing a program may ask of the kernel without root says a process is
+/// reading its terminal (macOS's `ps` shows no wait channel), so it's read from what shows: the
+/// program has printed nothing for a while (`QUIET_BEFORE_ASKING`), the cursor sits after text
+/// that reads as a question (`reads_as_asking`), and the processes under the terminal were at
+/// rest between two looks (`procs::Tree::rested_since`), so a build whose progress line sits
+/// still while it compiles isn't taken for one. Once asking, only what shows ends it: the
+/// program printing, something typed, the question changing or a process starting or ending,
+/// not a runtime's timer using a moment of CPU.
+#[derive(Default)]
+struct Asking {
+    /// What was before the cursor at the last look, and the processes then, while it read as a
+    /// question: the next look compares with it.
+    last: Option<(String, crate::procs::Tree)>,
+    /// What it asks, once two looks agreed.
+    asks: Option<String>,
+}
+
+impl Asking {
+    /// The next look: `before` is what's before the cursor, None until the program has been
+    /// quiet a while or for a terminal that can't ask; `tree` reads the processes under it.
+    /// True when what it asks changed.
+    fn look(&mut self, before: Option<String>, tree: impl FnOnce() -> Option<crate::procs::Tree>) -> bool {
+        let was = self.asks.take();
+        let now = before.filter(|b| reads_as_asking(b)).and_then(|b| tree().map(|t| (b, t)));
+        if let (Some((b, t)), Some((last_b, last_t))) = (&now, &self.last) {
+            let same = b == last_b && t.pids == last_t.pids;
+            if same && (was.is_some() || t.rested_since(last_t)) {
+                self.asks = Some(b.clone());
+            }
+        }
+        self.last = now;
+        self.asks != was
+    }
+}
+
+/// Whether what's before a quiet terminal's cursor reads as a question: any text, but a line
+/// that says the program is busy (`Restoring the clone...`, `Downloading 45%`), which one waiting
+/// on the network leaves the cursor after too, unless it names a key to press
+/// (`Press any key to continue...`).
+fn reads_as_asking(before: &str) -> bool {
+    let t = before.trim();
+    if t.is_empty() {
+        return false;
+    }
+    let lower = t.to_lowercase();
+    let keyed = lower.contains("y/n") || lower.contains("yes/no") || lower.split(|c: char| !c.is_alphanumeric()).any(|w| matches!(w, "press" | "hit" | "enter" | "return" | "type"));
+    keyed || !(t.ends_with("...") || t.ends_with('…') || t.ends_with('%'))
 }
 
 /// A new size for the screen and the terminal, which signals the program in front.
@@ -1171,6 +1268,67 @@ mod tests {
         input(&g.id, vec![Input::Key { code: "Enter".into(), text: None, unshifted: None, mods: Default::default(), action: Default::default() }]).unwrap();
         assert!(wait_for(|| text(&g.id).is_ok_and(|t| t.contains("got hi"))), "{:?}", text(&g.id));
         close(&g.id).unwrap();
+    }
+
+    /// A command that stops at a question is listed as asking it once it has sat there a moment,
+    /// and stops asking as it's answered; one whose line sits still while it works at something
+    /// never asks.
+    #[test]
+    fn a_command_at_a_question_asks_it_until_its_answered() {
+        let g = open(Open { session: "test:asks:one".into(), folder: std::env::temp_dir(), command: Some("printf 'Continue? [y/N] '; read answer; echo \"got $answer\"; sleep 5".into()), size: Some(DEFAULT_SIZE), ..Default::default() }).unwrap();
+        assert!(wait_for(|| glance(&g.id).is_some_and(|g| g.asks.is_some())), "{:?}", glance(&g.id));
+        let asked = glance(&g.id).unwrap();
+        assert_eq!(asked.asks.as_deref(), Some("Continue? [y/N]"));
+        assert!(asked.asks_since.is_some_and(|t| t <= now_ms() - QUIET_BEFORE_ASKING.as_millis() as i64), "since it last printed");
+        write_to(&g.id, b"y\r".to_vec()).unwrap();
+        assert!(wait_for(|| text(&g.id).is_ok_and(|t| t.contains("got y"))), "{:?}", text(&g.id));
+        assert!(glance(&g.id).is_some_and(|g| g.asks.is_none() && g.asks_since.is_none()), "answered: {:?}", glance(&g.id));
+        close(&g.id).unwrap();
+
+        let busy = open(Open { session: "test:asks:two".into(), folder: std::env::temp_dir(), command: Some("printf 'Building [==>   ] 3/9: kestrel'; i=0; while [ $i -lt 3000000 ]; do i=$((i+1)); done".into()), size: Some(DEFAULT_SIZE), ..Default::default() }).unwrap();
+        let since = Instant::now();
+        while since.elapsed() < QUIET_BEFORE_ASKING + 3 * LOOK_EVERY && glance(&busy.id).is_some_and(|g| g.running) {
+            assert_eq!(glance(&busy.id).and_then(|g| g.asks), None, "at work, not asking");
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        close(&busy.id).unwrap();
+    }
+
+    #[test]
+    fn a_quiet_line_reads_as_a_question_unless_it_says_its_busy() {
+        for asking in ["Continue? [y/N]", "operator:", "Password:", "Press any key to continue...", "Hit enter to go on…", "Overwrite (yes/no)?", "❯ northwind", ">"] {
+            assert!(reads_as_asking(asking), "{asking}");
+        }
+        for not in ["", "   ", "Restoring the clone...", "Waiting for atlas…", "Downloading 45%", "Entering the kestrel folder..."] {
+            assert!(!reads_as_asking(not), "{not:?}");
+        }
+    }
+
+    /// Two looks that agree make a question: the same text with the same processes at rest. One
+    /// look alone doesn't, nor work between the two; once asking, a moment of CPU doesn't end it,
+    /// and the program printing (no text to read) or a process starting does.
+    #[test]
+    fn a_question_is_two_looks_at_rest_and_lasts_till_something_shows() {
+        let tree = |pids: &[u32], cpu_ms: u64| {
+            let pids = pids.to_vec();
+            move || Some(crate::procs::Tree { pids, cpu_ns: cpu_ms * 1_000_000 })
+        };
+        let q = || Some("Continue? [y/N]".to_string());
+        let mut a = Asking::default();
+        assert!(!a.look(q(), tree(&[1, 2], 0)), "one look");
+        assert!(!a.look(q(), tree(&[1, 2], 500)), "at work between them");
+        assert!(a.look(q(), tree(&[1, 2], 505)), "at rest");
+        assert_eq!(a.asks.as_deref(), Some("Continue? [y/N]"));
+        assert!(!a.look(q(), tree(&[1, 2], 600)), "a timer's moment of CPU doesn't end it");
+        assert!(a.look(None, tree(&[1, 2], 600)), "printed, or typed into");
+        assert_eq!(a.asks, None);
+        assert!(!a.look(q(), tree(&[1, 2], 600)));
+        assert!(a.look(q(), tree(&[1, 2], 600)));
+        assert!(a.look(q(), tree(&[1, 2, 3], 600)), "a process started");
+        assert!(!a.look(Some("Restoring...".into()), tree(&[1, 2], 600)) && a.asks.is_none(), "busy words");
+        assert!(!a.look(q(), || None), "the process has gone");
+        assert!(!a.look(q(), tree(&[1], 0)));
+        assert!(!a.look(Some("Name?".into()), tree(&[1], 0)) && a.asks.is_none(), "another question starts again");
     }
 
     /// Closing a terminal hangs up on what runs in it.

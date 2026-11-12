@@ -142,7 +142,7 @@ export interface RunningIn {
 /** Why a session needs you (model.rs `Need`): waiting for you to allow something, for your
  *  answer to a question it holds its turn on, on a reply that asks you something, holding
  *  another session's message, or stuck. */
-export type Need = 'approval' | 'question' | 'reply' | 'message' | 'stuck' | 'other';
+export type Need = 'approval' | 'question' | 'reply' | 'message' | 'stuck' | 'input' | 'other';
 
 export interface Session {
   key: string;
@@ -3389,6 +3389,10 @@ export interface TerminalGlance {
   /** The session's own process runs in it (a start or resume in Codealong's terminal): where the
    *  session lives, shown in its panel, not a terminal beside it. */
   hosts?: boolean;
+  /** What its program waits on you to type, as it asks it (`Continue? [y/N]`). */
+  asks?: string;
+  /** Since when it has asked. */
+  asksSince?: number;
 }
 
 /** A terminal's size: in cells, and a cell's in pixels. */

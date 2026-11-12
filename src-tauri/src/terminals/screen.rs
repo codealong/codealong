@@ -552,6 +552,27 @@ impl Screen {
         bytes.map(|b| String::from_utf8_lossy(&b).into_owned()).unwrap_or_default()
     }
 
+    /// What's on the cursor's row before it, trailing spaces cut: what a program that waits on an
+    /// answer leaves the cursor after (`Continue? [y/N] `, `Password:`). Empty with the cursor at
+    /// the start of its row or after nothing but spaces, as it sits under a line a program printed
+    /// whole.
+    pub fn before_cursor(&self) -> String {
+        let (Ok(x), Ok(y)) = (self.term.cursor_x(), self.term.cursor_y()) else { return String::new() };
+        let mut out = String::new();
+        let mut buf = ['\0'; 16];
+        for cx in 0..x {
+            let Ok(at) = self.term.grid_ref(Point::Active(PointCoordinate { x: cx, y: u32::from(y) })) else { continue };
+            if matches!(at.cell().and_then(|c| c.wide()), Ok(CellWide::SpacerTail | CellWide::SpacerHead)) {
+                continue;
+            }
+            match at.graphemes(&mut buf) {
+                Ok(n) if n > 0 => out.extend(&buf[..n]),
+                _ => out.push(' '),
+            }
+        }
+        out.trim_end().to_string()
+    }
+
     /// Something was typed: the view goes back to the bottom and the selection goes, as in
     /// Ghostty, and so does where it began: a Shift-click after starts afresh.
     pub fn typed(&mut self) {
@@ -1042,6 +1063,21 @@ mod tests {
         let written = Arc::new(Mutex::new(Vec::new()));
         let w = written.clone();
         (Screen::new(SIZE, move |b| w.lock().unwrap().extend_from_slice(b)).unwrap(), written)
+    }
+
+    /// A prompt leaves the cursor after its text; a line printed whole leaves it at the start of
+    /// the next row, which reads as nothing, however much the row above says.
+    #[test]
+    fn what_is_before_the_cursor_is_the_prompt_it_sits_after() {
+        let (mut s, _) = screen();
+        s.feed(b"Cloning...\r\nContinue? [y/N] ");
+        assert_eq!(s.before_cursor(), "Continue? [y/N]");
+        s.feed(b"y\r\n");
+        assert_eq!(s.before_cursor(), "", "under a line printed whole");
+        s.feed("名前: ".as_bytes());
+        assert_eq!(s.before_cursor(), "名前:", "wide characters once each");
+        s.feed(b"\r\n    ");
+        assert_eq!(s.before_cursor(), "", "nothing but spaces");
     }
 
     fn row_text(frame: &Frame, y: u16) -> String {

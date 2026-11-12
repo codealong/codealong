@@ -117,6 +117,9 @@
 .ca-termtab-state.is-busy {
   color: var(--unread);
 }
+.ca-termtab-state.is-asks {
+  color: var(--attn);
+}
 .ca-termtab-state.is-failed {
   color: var(--alert);
 }

@@ -302,10 +302,11 @@ export function closable(s: Session): boolean {
 
 /** Whether it waits on you to answer a prompt, where what's typed would answer it (send.rs
  *  `waits_on_you`): not one whose reply only asks you something, nor one that's stuck, which sits
- *  at no prompt and takes a message as it would in its own terminal. */
+ *  at no prompt and takes a message as it would in its own terminal, nor one whose command waits
+ *  for input in its terminal, where the answer is typed. */
 export function waitsOnYou(s: Pick<Session, 'status' | 'need' | 'stalledSince' | 'asks'>): boolean {
   const need = needOf(s);
-  return s.status === 'needs' && need !== 'reply' && need !== 'stuck';
+  return s.status === 'needs' && need !== 'reply' && need !== 'stuck' && need !== 'input';
 }
 
 /** Why a session needs you (model.rs `Session::need`). What a session says of itself outright
@@ -479,6 +480,9 @@ function truncate(s: string, max: number): string {
   return [...s].length <= max ? s : `${[...s].slice(0, max - 1).join('').trimEnd()}…`;
 }
 
+/** How a session's excerpt starts while a command it runs waits for input (model.rs `TERMINAL_ASKS`). */
+export const TERMINAL_ASKS = 'Waiting for input · ';
+
 /** What a session set aside says before what it asked on the side (board.rs `ASKING_ON_THE_SIDE`). */
 const ASKING_ON_THE_SIDE = 'Asking on the side · ';
 
@@ -500,6 +504,9 @@ export function sessionHeadline(s: Session): [string, string | null] {
         // Another session's message it holds for you to allow (claude/held.rs): who it's from below.
         case 'message':
           return [`${acct} holds a message for you · ${s.title}`, s.excerpt?.slice('Held message '.length) ?? null];
+        // A command it runs stopped at a question in its terminal: what it asks below.
+        case 'input':
+          return [`${acct}'s command asks you · ${s.title}`, s.excerpt?.startsWith(TERMINAL_ASKS) ? s.excerpt.slice(TERMINAL_ASKS.length) : null];
         case 'approval':
           return [`${acct} ${s.harness === 'claude' ? 'is waiting for approval' : 'asks for approval'} · ${s.title}`, s.excerpt];
         default:
@@ -599,6 +606,8 @@ export function sessionFlag(s: Session): InsightLabel | null {
       return { label: 'Message', tone: 'warn', title: 'Another session sent it a message, which it holds until you deliver or deny it.' };
     case 'approval':
       return { label: 'Needs approval', tone: 'warn', title: 'It’s waiting for you to allow what it wants to run.' };
+    case 'input':
+      return { label: 'Needs input', tone: 'warn', title: 'A command it runs in its terminal waits for you to type something there.' };
     default:
       return null;
   }

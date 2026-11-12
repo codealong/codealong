@@ -203,6 +203,67 @@ fn list_fds(pid: libc::c_int, fds: &mut Vec<libc::proc_fdinfo>) -> bool {
     }
 }
 
+/// One of your processes and every one under it, with the CPU they've used, from the kernel:
+/// `proc_listchildpids` for each one's children and `proc_pid_rusage` for its CPU, which arm64
+/// Macs count in the clock's ticks, not nanoseconds (`mach_timebase_info` says how many go to
+/// one). None when the process has gone.
+pub fn tree(pid: u32) -> Option<super::Tree> {
+    let mut pids = vec![pid];
+    let mut i = 0;
+    while i < pids.len() && pids.len() < super::TREE_MOST {
+        let mut kids = [0 as libc::pid_t; 64];
+        // SAFETY: proc_listchildpids writes at most the buffer's size in bytes into it. It counts
+        // what it wrote in pids on one macOS and in bytes on another, so only the slots it filled
+        // (the buffer starts zeroed, and no pid is 0) are taken.
+        let n = unsafe { libc::proc_listchildpids(pids[i] as libc::pid_t, kids.as_mut_ptr() as *mut libc::c_void, std::mem::size_of_val(&kids) as libc::c_int) };
+        if n > 0 {
+            pids.extend(kids.iter().filter(|&&k| k > 0).map(|&k| k as u32).filter(|k| !pids.contains(k)).collect::<Vec<_>>());
+        }
+        i += 1;
+    }
+    pids.truncate(super::TREE_MOST);
+    let mut ticks: u64 = 0;
+    for (at, &p) in pids.iter().enumerate() {
+        // SAFETY: proc_pid_rusage fills a plain-old-data struct of the flavor asked for.
+        let used = unsafe {
+            let mut info: libc::rusage_info_v0 = std::mem::zeroed();
+            let ok = libc::proc_pid_rusage(p as libc::c_int, libc::RUSAGE_INFO_V0, &mut info as *mut libc::rusage_info_v0 as *mut libc::rusage_info_t) == 0;
+            ok.then(|| info.ri_user_time.saturating_add(info.ri_system_time))
+        };
+        match used {
+            Some(t) => ticks = ticks.saturating_add(t),
+            None if at == 0 => return None,
+            // One that ended between the listing and now: the next look won't list it.
+            None => {}
+        }
+    }
+    let (numer, denom) = timebase();
+    Some(super::Tree { pids, cpu_ns: (u128::from(ticks) * u128::from(numer) / u128::from(denom.max(1))) as u64 })
+}
+
+/// How the clock's ticks turn into nanoseconds: one to one on an Intel Mac, 125 to 3 on arm64.
+fn timebase() -> (u32, u32) {
+    #[repr(C)]
+    struct Timebase {
+        numer: u32,
+        denom: u32,
+    }
+    extern "C" {
+        fn mach_timebase_info(info: *mut Timebase) -> libc::c_int;
+    }
+    static BASE: std::sync::OnceLock<(u32, u32)> = std::sync::OnceLock::new();
+    *BASE.get_or_init(|| {
+        let mut t = Timebase { numer: 1, denom: 1 };
+        // SAFETY: mach_timebase_info fills the two numbers of the struct it's given.
+        let ok = unsafe { mach_timebase_info(&mut t) } == 0;
+        if ok && t.denom > 0 {
+            (t.numer, t.denom)
+        } else {
+            (1, 1)
+        }
+    })
+}
+
 /// How many descriptors one of your processes holds of each kind, from the kernel, opening none
 /// itself: what a server that ran out of them was holding (server.rs `out_of_files`).
 pub fn open_kinds(pid: u32) -> Option<super::Kinds> {

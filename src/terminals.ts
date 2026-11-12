@@ -119,6 +119,17 @@ export function shownOf(drawer: Drawer, terminals: TerminalGlance[]): TerminalGl
   return terminals.find((t) => t.id === drawer.active) ?? terminals[terminals.length - 1] ?? null;
 }
 
+/** What each terminal that asks something asks (terminals.rs `Glance::asks`), by its id. */
+export function askingNow(terminals: TerminalGlance[]): Map<string, string> {
+  return new Map(terminals.flatMap((t) => (t.running && t.asks ? [[t.id, t.asks] as const] : [])));
+}
+
+/** The terminals that started asking since `before` (what each asked then, `askingNow`): one
+ *  that asks another question counts again, as does each that asks as the drawer first shows. */
+export function startedAsking(terminals: TerminalGlance[], before: Map<string, string>): TerminalGlance[] {
+  return terminals.filter((t) => t.running && t.asks && before.get(t.id) !== t.asks);
+}
+
 /** What a tab calls a terminal: the title its program set, else the program in front, else the
  *  command it was opened for, else its shell. */
 export function terminalName(t: TerminalGlance): string {

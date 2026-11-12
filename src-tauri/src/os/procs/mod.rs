@@ -21,6 +21,32 @@ pub struct Kinds {
     pub other: usize,
 }
 
+/// A process and every one under it, as one look found them (`tree`): which they are and the CPU
+/// they've used between them. Two looks a moment apart tell a command at rest, waiting on
+/// something (you, the network, a timer), from one at work (terminals.rs `Asking`).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Tree {
+    /// The process first, then those under it, nearest first.
+    pub pids: Vec<u32>,
+    /// Nanoseconds of CPU, their own and the kernel's for them, of the processes there now.
+    pub cpu_ns: u64,
+}
+
+impl Tree {
+    /// The most CPU a tree at rest uses between two looks a second apart: a runtime's timers
+    /// (Go's, a Node program's) wake now and then, which comes to a few milliseconds.
+    pub const AT_REST_NS: u64 = 20_000_000;
+
+    /// Whether nothing happened between `before` and this look: no process started or ended, and
+    /// together they used next to no CPU.
+    pub fn rested_since(&self, before: &Tree) -> bool {
+        self.pids == before.pids && self.cpu_ns.saturating_sub(before.cpu_ns) < Tree::AT_REST_NS
+    }
+}
+
+/// The most processes a tree is followed to: a command's are a handful.
+const TREE_MOST: usize = 256;
+
 /// A process as `ps` lists it: its parent, short name, terminal device and the process group in
 /// the foreground of that terminal.
 pub(crate) struct Listed {

@@ -1468,12 +1468,14 @@ struct Engine {
 /// only guess from a command gone quiet: a command it asks you to allow (`overlay`, laid on as
 /// the sessions are built too, for Jev to read them with it), a run you allowed that its agent
 /// waits on (`overlay_running`), and a command you ran for it, whose output it's sent when it ends
-/// (`overlay_yours`), which Jev reads as a turn that ended.
+/// (`overlay_yours`), which Jev reads as a turn that ended; and either of those runs stopped at a
+/// question in Codealong's terminal (`overlay_input`), which waits for you to type there.
 fn with_runs(mut sessions: Vec<Session>, now: i64) -> Vec<Session> {
     for s in &mut sessions {
         crate::terminal::overlay(s);
         crate::terminal::overlay_running(s, now);
         crate::terminal::overlay_yours(s, now);
+        crate::terminal::overlay_input(s, now, crate::terminals::asking);
     }
     sessions
 }

@@ -16,7 +16,7 @@ use crate::util::{home, now_ms};
 
 // The kernel's process table (os/procs).
 use crate::os::procs::listed;
-pub use crate::os::procs::{cwd_of, environment, listeners, open_files, open_kinds, parent_pid, proc_start_ms, tty};
+pub use crate::os::procs::{cwd_of, environment, listeners, open_files, open_kinds, parent_pid, proc_start_ms, tree, tty, Tree};
 
 pub fn pid_alive(pid: u32) -> bool {
     if pid == 0 {
@@ -640,6 +640,31 @@ mod tests {
         assert!(!tree(&[(300, 1)]).active_since(&before));
         assert!(tree(&[(300, 1), (301, 98)]).active_since(&before));
         assert!(tree(&[(300, 1), (301, 88), (310, 0)]).active_since(&before));
+    }
+
+    /// A tree is the process and everything under it, with the CPU they've used; it's at rest
+    /// while nothing starts or ends and next to no CPU is used.
+    #[test]
+    fn a_process_tree_lists_what_runs_under_it_and_counts_its_cpu() {
+        let mut child = std::process::Command::new("/bin/sleep").arg("30.25").spawn().unwrap();
+        let me = std::process::id();
+        let t = super::tree(me).expect("this test's own process");
+        assert_eq!(t.pids[0], me);
+        assert!(t.pids.contains(&child.id()), "{t:?} lists {}", child.id());
+        assert!(t.cpu_ns > 0, "a test that has run has used CPU");
+        let mut n: u64 = 0;
+        let started = std::time::Instant::now();
+        while started.elapsed() < std::time::Duration::from_millis(100) {
+            n = std::hint::black_box(n.wrapping_add(1));
+        }
+        let after = super::tree(me).unwrap();
+        assert!(after.cpu_ns >= t.cpu_ns + 50_000_000, "a tenth of a second at work counts: {} then {}", t.cpu_ns, after.cpu_ns);
+        assert!(!after.rested_since(&t));
+        let _ = child.kill();
+        let _ = child.wait();
+        assert!(!super::tree(me).unwrap().pids.contains(&child.id()), "an ended process leaves it");
+        assert!(super::Tree { pids: vec![1, 2], cpu_ns: 5_000_000 }.rested_since(&super::Tree { pids: vec![1, 2], cpu_ns: 0 }));
+        assert!(!super::Tree { pids: vec![1], cpu_ns: 0 }.rested_since(&super::Tree { pids: vec![1, 2], cpu_ns: 0 }));
     }
 
     use super::*;

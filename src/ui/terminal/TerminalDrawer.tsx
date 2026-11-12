@@ -9,7 +9,7 @@ import { useEffect, useRef, useState } from 'react';
 import { errorText } from '../../report';
 import { terminalClose, terminalPutBack, terminalWindow } from '../../api';
 import { useStored, type Codec } from '../../stored';
-import { drawerOf, openTerminal, setDrawer, shownOf, terminalName, useDrawer, usePoppedTerminals } from '../../terminals';
+import { askingNow, drawerOf, openTerminal, setDrawer, shownOf, startedAsking, terminalName, useDrawer, usePoppedTerminals } from '../../terminals';
 import type { TerminalGlance } from '../../types';
 import { Button, cx, Icon } from '../primitives';
 import { TerminalView } from './TerminalView';
@@ -34,8 +34,9 @@ export interface TerminalDrawerProps {
 }
 
 /** What a tab says of how its terminal stands, beside its name. */
-function stateOf(t: TerminalGlance): { word: string; tone: 'quiet' | 'busy' | 'failed' | 'ended' } | null {
+function stateOf(t: TerminalGlance): { word: string; tone: 'quiet' | 'busy' | 'asks' | 'failed' | 'ended' } | null {
   if (!t.running) return { word: t.exit === 0 ? 'done' : `exit ${t.exit ?? '?'}`, tone: t.exit === 0 ? 'ended' : 'failed' };
+  if (t.asks) return { word: 'needs input', tone: 'asks' };
   if (t.program) return { word: t.program, tone: 'busy' };
   return null;
 }
@@ -65,6 +66,17 @@ export function TerminalDrawer({ sessionKey, folder, terminals, onLeave }: Termi
       if (last && drawerOf(sessionKey).active !== last.id) setDrawer(sessionKey, { open: true, active: last.id });
     }
     seen.current = now;
+  }, [terminals, sessionKey]);
+
+  // One whose command stops at a question shows itself, as the drawer shows or once it asks,
+  // so what it asks is in front of you; the keyboard stays where it was (⌃` takes it there).
+  // Folded while it still asks, it stays folded.
+  const asked = useRef(new Map<string, string>());
+  useEffect(() => {
+    const asking = startedAsking(terminals, asked.current);
+    const last = asking[asking.length - 1];
+    if (last) setDrawer(sessionKey, { open: true, active: last.id });
+    asked.current = askingNow(terminals);
   }, [terminals, sessionKey]);
 
   if (!terminals.length) return null;
@@ -101,7 +113,7 @@ export function TerminalDrawer({ sessionKey, folder, terminals, onLeave }: Termi
                 role="tab"
                 aria-selected={active}
                 className="ca-termtab-name"
-                title={`${terminalName(t)} · ${t.folder}`}
+                title={t.running && t.asks ? `${terminalName(t)} asks: ${t.asks}` : `${terminalName(t)} · ${t.folder}`}
                 onClick={() => setDrawer(sessionKey, active ? { open: false } : { open: true, active: t.id, focusAt: Date.now() })}
               >
                 <Icon name="terminal" size={12} />

@@ -102,3 +102,16 @@ describe('a terminal’s text in a session’s box', () => {
     expect(added).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('a terminal that asks something', () => {
+  const glance = (id: string, asks?: string, running = true) => ({ id, session: 's', title: '', shell: 'zsh', folder: '/Users/me/projects/northwind-app', startedAt: 0, running, asks });
+  it('shows once as it starts asking, again for another question, and not while it goes on asking the same', async () => {
+    const t = await fresh();
+    const first = [glance('a', 'Continue? [y/N]'), glance('b'), glance('c', 'Name?', false)];
+    expect(t.startedAsking(first, new Map()).map((g) => g.id)).toEqual(['a']);
+    const before = t.askingNow(first);
+    expect([...before]).toEqual([['a', 'Continue? [y/N]']]);
+    expect(t.startedAsking(first, before)).toEqual([]);
+    expect(t.startedAsking([glance('a', 'Password:'), glance('b', 'operator:')], before).map((g) => g.id)).toEqual(['a', 'b']);
+  });
+});

@@ -105,6 +105,9 @@ pub enum Need {
     Message,
     /// It says it's busy, but nothing has happened for a long while (`Session::stalled_since`).
     Stuck,
+    /// A command it runs in a terminal of Codealong's waits for you to type something there: what
+    /// you'd type in its box goes to the session, not the command.
+    Input,
     /// A device of a later build said something this one doesn't know.
     #[serde(other)]
     Other,
@@ -114,6 +117,9 @@ pub enum Need {
 pub const ASKS_YOU: &str = "Asks you";
 /// How a session's excerpt starts while it holds another session's message for you to allow.
 pub const HELD_MESSAGE: &str = "Held message from ";
+/// How a session's excerpt starts while a command it runs waits for you to type something, what
+/// the command asks after it.
+pub const TERMINAL_ASKS: &str = "Waiting for input · ";
 
 /// Board bays, in board order.
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
@@ -631,6 +637,8 @@ impl Session {
             Some(Need::Question)
         } else if excerpt.is_some_and(|e| e.starts_with(HELD_MESSAGE)) {
             Some(Need::Message)
+        } else if excerpt.is_some_and(|e| e.starts_with(TERMINAL_ASKS)) {
+            Some(Need::Input)
         } else {
             excerpt.map(|_| Need::Approval)
         }
@@ -653,10 +661,10 @@ impl Session {
 
     /// Whether it waits on you to answer a prompt (a permission, a question through its
     /// harness, a held message), where what's typed would answer it: not one whose reply only
-    /// asks you something, nor a stuck one, which sits at no prompt. `src/lanes.ts`
-    /// `waitsOnYou` says the same for the windows.
+    /// asks you something, nor a stuck one, which sits at no prompt, nor one whose command waits
+    /// for input in its own terminal. `src/lanes.ts` `waitsOnYou` says the same for the windows.
     pub fn waits_at_a_prompt(&self) -> bool {
-        self.status == Status::Needs && !matches!(self.need(), Some(Need::Reply | Need::Stuck))
+        self.status == Status::Needs && !matches!(self.need(), Some(Need::Reply | Need::Stuck | Need::Input))
     }
 
     /// A helper whose turns are for what it helps, not for you: every helper, but one you're
@@ -1522,6 +1530,8 @@ mod tests {
         assert_eq!(s(Status::Needs, Some("Asks you · Which color?")).need(), Some(Need::Question));
         assert_eq!(s(Status::Needs, Some("Held message from “Review 12”")).need(), Some(Need::Message));
         assert_eq!(Session { asks: true, ..s(Status::Needs, Some("Asks you · Want the PR?")) }.need(), Some(Need::Reply));
+        let input = s(Status::Needs, Some("Waiting for input · `Continue? [y/N]`"));
+        assert_eq!(input.need(), Some(Need::Input));
         // With nothing more to say, it only needs you; and what a session that doesn't need you
         // last wrote is no need, whatever its words.
         assert_eq!(s(Status::Needs, None).need(), None);
@@ -1535,6 +1545,7 @@ mod tests {
             assert!(at_a_prompt.waits_at_a_prompt());
         }
         assert!(!stuck.waits_at_a_prompt());
+        assert!(!input.waits_at_a_prompt(), "what's typed in its box goes to the session, not the command");
         assert!(!Session { asks: true, ..s(Status::Needs, None) }.waits_at_a_prompt());
         assert!(!s(Status::Working, None).waits_at_a_prompt());
     }

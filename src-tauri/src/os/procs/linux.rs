@@ -192,6 +192,45 @@ pub fn listeners() -> Vec<Listener> {
     out
 }
 
+/// A process and every one under it, with the CPU they've used: each one's children from its
+/// threads' `task/<tid>/children`, and its CPU from its `stat` (`utime` and `stime`, the
+/// fourteenth and fifteenth fields, in clock ticks). None when the process has gone.
+pub fn tree(pid: u32) -> Option<super::Tree> {
+    let mut pids = vec![pid];
+    let mut i = 0;
+    while i < pids.len() && pids.len() < super::TREE_MOST {
+        let mut kids = Vec::new();
+        for task in std::fs::read_dir(format!("/proc/{}/task", pids[i])).into_iter().flatten().flatten() {
+            let listed = std::fs::read_to_string(task.path().join("children")).unwrap_or_default();
+            kids.extend(listed.split_whitespace().filter_map(|k| k.parse::<u32>().ok()));
+        }
+        for k in kids {
+            if !pids.contains(&k) {
+                pids.push(k);
+            }
+        }
+        i += 1;
+    }
+    pids.truncate(super::TREE_MOST);
+    let hz = boot().map_or(100, |(_, hz)| hz).max(1) as u64;
+    let mut ticks: u64 = 0;
+    for (at, &p) in pids.iter().enumerate() {
+        match std::fs::read_to_string(format!("/proc/{p}/stat")).ok().and_then(|l| cpu_ticks(&l)) {
+            Some(t) => ticks = ticks.saturating_add(t),
+            None if at == 0 => return None,
+            // One that ended between the listing and now: the next look won't list it.
+            None => {}
+        }
+    }
+    Some(super::Tree { pids, cpu_ns: ticks.saturating_mul(1_000_000_000 / hz) })
+}
+
+/// A `stat` line's `utime` and `stime` together, counted from the last `)` as `parse_stat` does.
+fn cpu_ticks(line: &str) -> Option<u64> {
+    let f: Vec<&str> = line.get(line.rfind(')')? + 1..)?.split_whitespace().collect();
+    Some(f.get(11)?.parse::<u64>().ok()? + f.get(12)?.parse::<u64>().ok()?)
+}
+
 /// The files it has open: its descriptors that link to a path, not a socket, pipe or the like.
 /// What each of `/proc/<pid>/fd`'s links names: a path, `socket:[…]`, `pipe:[…]`, or an
 /// `anon_inode:` (an eventfd or epoll), counted as the others. Reading the folder takes a

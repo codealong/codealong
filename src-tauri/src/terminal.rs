@@ -61,7 +61,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::config::support_dir;
-use crate::model::{AppNames, Lane, RunningIn, Session, Status};
+use crate::model::{AppNames, Lane, RunningIn, Session, Status, TERMINAL_ASKS};
 use crate::os::{self, Os};
 use crate::procs;
 use crate::util::{code, now_ms, one_line, sh_quote, tilde, truncate, without_cd, words, DAY_MS};
@@ -389,6 +389,30 @@ pub fn overlay_yours(s: &mut Session, now: i64) {
     s.asks = false;
     s.excerpt = Some(yours_label(&run));
     s.running = Some(RunningIn { terminal: run.terminal.clone(), command: without_cd(run.command.trim()).to_string(), yours: true });
+}
+
+/// The line the windows show for a session whose command waits for you to type something: what
+/// it asks, as its terminal shows it.
+pub fn input_label(asks: &str) -> String {
+    format!("{TERMINAL_ASKS}{}", code(&truncate(&one_line(asks, 200), 120)))
+}
+
+/// Lays a run that stopped at a question over its session, after `overlay_running` and
+/// `overlay_yours` laid the run itself (engine.rs `with_runs`): the command the session waits
+/// on, its agent's or yours, runs in a terminal of Codealong's whose program waits for you to
+/// type something (terminals.rs `Glance::asks`, which `asking` reads by the terminal's id), so the
+/// session needs you, for that, since it asked. Until you answer, nothing goes on: its agent
+/// waits on the run, or the session on what it prints. A run in your terminal app is left
+/// out: Codealong can't read the screen of a tab of its.
+pub fn overlay_input(s: &mut Session, now: i64, asking: impl Fn(&str) -> Option<(String, i64)>) {
+    let Some(yours) = s.running.as_ref().map(|r| r.yours) else { return };
+    let run = if yours { yours_going(&s.key, s.last_prompt_at, now) } else { waited_on(&s.key, now) };
+    let Some((asks, since)) = run.and_then(|r| r.own_terminal).and_then(|id| asking(&id)) else { return };
+    s.status = Status::Needs;
+    s.status_since = Some(since);
+    s.excerpt = Some(input_label(&asks));
+    s.stalled_since = None;
+    s.asks = false;
 }
 
 /// Holds a request as a connection would, for other modules' tests; the receiver hears its answer.
@@ -1609,6 +1633,52 @@ mod tests {
         forget_told(12_000);
     }
 
+    /// A run that stops at a question in Codealong's terminal has its session need you, for the
+    /// question, since it asked: one you ran and one its agent waits on alike. One with no
+    /// question, one in your terminal app (whose screen can't be read) and a session no run is
+    /// laid over stay as they were.
+    #[test]
+    fn a_run_at_a_question_has_its_session_need_you() {
+        use crate::model::Need;
+        let asking = |id: &str| (id == "term-test-asks").then(|| ("Continue? [y/N]".to_string(), 1_500));
+        let key = "claude:claude:terminal-input-test";
+        let run = Run { id: "run-test-input".into(), session: key.into(), command: "./scripts/restore.sh".into(), terminal: OWN.into(), own_terminal: Some("term-test-asks".into()), allowed_at: 1_000, reports: true, ..Default::default() };
+        report(&run, true);
+        let yours = Session { status: Status::Unread, status_since: Some(500), last_prompt_at: 400, ..crate::fixtures::session(key) };
+        let mut s = yours.clone();
+        overlay_yours(&mut s, 2_000);
+        overlay_input(&mut s, 2_000, asking);
+        assert_eq!((s.status, s.status_since, s.excerpt.as_deref(), s.need()), (Status::Needs, Some(1_500), Some("Waiting for input · `Continue? [y/N]`"), Some(Need::Input)));
+        assert!(!s.waits_at_a_prompt(), "what's typed in its box goes to the session");
+        assert_eq!(s.running.as_ref().map(|r| r.yours), Some(true), "what it waits on is still said");
+        let mut s = yours.clone();
+        overlay_yours(&mut s, 2_000);
+        let ran = s.clone();
+        overlay_input(&mut s, 2_000, |_| None);
+        assert_eq!((s.status, s.excerpt), (ran.status, ran.excerpt), "no question");
+        let mut s = yours.clone();
+        overlay_input(&mut s, 2_000, asking);
+        assert_eq!(s.status, Status::Unread, "no run laid over it");
+        mark(&run.id, |r| r.dropped = true);
+        forget_told(2_000);
+
+        let key = "codex:codex:terminal-input-test";
+        let theirs = Run { id: "run-test-input-agent".into(), session: key.into(), command: "gh auth login".into(), terminal: OWN.into(), own_terminal: Some("term-test-asks".into()), allowed_at: 3_000, ..Default::default() };
+        let at = |run: &Run| RunStatus { run: run.clone(), state: State::Running, exit_code: None, ended_at: None };
+        note_waited(&at(&theirs), key, 3_100);
+        let working = Session { status: Status::Working, ..crate::fixtures::session(key) };
+        let mut s = working.clone();
+        overlay_running(&mut s, 3_200);
+        overlay_input(&mut s, 3_200, asking);
+        assert_eq!((s.need(), s.excerpt.as_deref()), (Some(Need::Input), Some("Waiting for input · `Continue? [y/N]`")));
+        note_waited(&at(&Run { own_terminal: None, terminal: "Ghostty".into(), ..theirs.clone() }), key, 3_300);
+        let mut s = working.clone();
+        overlay_running(&mut s, 3_400);
+        overlay_input(&mut s, 3_400, asking);
+        assert_eq!(s.status, Status::Working, "in your terminal app");
+        forget_unwaited(3_300 + WAIT_LAPSE_MS);
+    }
+
     #[test]
     fn a_tab_that_wont_open_is_said_where_it_was_allowed() {
         let (tx, rx) = channel();
@@ -1996,6 +2066,32 @@ mod tests {
             std::thread::sleep(Duration::from_millis(50));
         }
         assert!(!crate::terminals::glances().get("test:own:run").is_some_and(|l| l.iter().any(|t| t.id == own)), "its terminal closed with it");
+        TEST_RUNS.with(|r| *r.borrow_mut() = None);
+    }
+
+    /// A run that stops at a question in Codealong's terminal is read as asking it, through the
+    /// wrapper and `script` it runs under, until it's answered there.
+    #[test]
+    fn a_run_at_a_question_in_codealongs_terminal_asks_it() {
+        let scratch = crate::fixtures::scratch("terminal-own-asks");
+        TEST_RUNS.with(|r| *r.borrow_mut() = Some(scratch.join("runs")));
+        let (id, at) = new_id();
+        let asked = Asked { id, ask: Ask { session: "test:own:asks".into(), command: "printf 'Restore the atlas clone? [y/N] '; read answer; echo \"got $answer\"".into(), cwd: scratch.to_path_buf(), token: None }, at };
+        let run = start(&asked, &AppNames::default(), &[], "A test", true).expect("a run");
+        let own = run.own_terminal.clone().expect("its terminal");
+        let waited = Instant::now();
+        while crate::terminals::asking(&own).is_none() && waited.elapsed() < Duration::from_secs(20) {
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        assert_eq!(crate::terminals::asking(&own).map(|(asks, _)| asks).as_deref(), Some("Restore the atlas clone? [y/N]"));
+        crate::terminals::write_to(&own, b"y\r".to_vec()).unwrap();
+        let waited = Instant::now();
+        while !status(&run.id).is_ok_and(|s| s.state == State::Exited) && waited.elapsed() < Duration::from_secs(20) {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert_eq!(status(&run.id).unwrap().exit_code, Some(0));
+        assert!(output(&run.id, 20, 0, None).unwrap().lines.iter().any(|(_, l)| l.contains("got y")));
+        close(&run.id).expect("closed");
         TEST_RUNS.with(|r| *r.borrow_mut() = None);
     }
 

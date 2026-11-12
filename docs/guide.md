@@ -2966,7 +2966,8 @@ in, with the keyboard, and from the box again shows the drawer; ⌃` in a termin
 and gives the box the keyboard back, as VS Code's ⌃` hides its terminal. Each is a tab along the drawer's top, named by the title its program sets, else the
 program running in it (`vim`, `npm`), else its shell; + opens another, × closes one (ending what
 runs in it), and the chevron folds the drawer to its tabs. A tab says how a command ended, red
-when it failed. Drag the drawer's top edge to make it taller; it stays that tall for every session.
+when it failed, and "needs input" while a command in it waits at a question (*Commands in your
+terminal*), the drawer opening on it as it starts asking. Drag the drawer's top edge to make it taller; it stays that tall for every session.
 The terminal is a real one: your login shell, with your profile, aliases and sign-ins, full-screen
 programs, colors, the mouse where a program asks for it (Shift selects anyway), and Ghostty's own
 emulator underneath, so what runs in Ghostty runs here. Drag to select, double-click a word,
@@ -3072,6 +3073,19 @@ notch's count, its conversation ending with the command and where what it prints
 sent, the turn the session takes on it is its own. A session taking a turn, or waiting on you to
 allow something or answer a question it holds its turn on, stays as it is, and so does one what it
 printed can't be sent to (below).
+Either way, when the command stops at a question in a terminal under the session (`Continue?
+[y/N]`, a password, `Press Enter to start`), the session needs you: it's flagged Needs input, with
+the question ("Waiting for input · `Continue? [y/N]`"), in Needs you, the notch's count and
+Waiting on you, since it asked; the drawer opens on that terminal, whose tab says "needs input",
+so the question is in front of you (⌃` takes the keyboard there). What you type in the session's
+box still goes to the session, not the command: you answer in the terminal, and once you type
+there the session goes back to working on it. Nothing tells Codealong that a program is reading
+what you type, so it reads the terminal as you would: the command has printed nothing for a couple
+of seconds, the cursor sits after text on its line (not at the start of a fresh one), and nothing
+under the command is using the CPU, so a build whose progress line sits still while it compiles
+isn't taken for a question. A line that says it's busy (`Restoring the clone...`, `45%`) isn't
+one either, unless it names a key to press. A command in a tab of your terminal app (`run_in =
+"terminal"`) isn't flagged: Codealong can't read that screen as it shows.
 A session that couldn't be told leaves a notice saying so, with where to read what it printed: one
 that's gone or waits on you, and one that takes a message only pasted into its app (a Claude app
 session that isn't running, Antigravity's app, Cursor's), which isn't brought forward for it.

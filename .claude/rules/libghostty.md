@@ -80,6 +80,16 @@ terminal (`example/ghostling_rs`, the best map of the API), checked by `cargo te
   know answers `CSI ? u` (2.1.317, by `TERM_PROGRAM`: Ghostty's it turns on unasked); Codex pushes
   `CSI > 7 u` itself. Without it the encoder sends Shift+Return as xterm's `CSI 27;2;13~`, as
   Ghostty does.
+- `Terminal::cursor_x`/`cursor_y` place the cursor in the active area (whatever the view's
+  scrolled to), and `grid_ref(Point::Active(…))` reads one cell, its text through `graphemes`
+  (0 for an empty cell, `OutOfSpace` for a buffer too small): `screen.rs` `before_cursor`.
+- Whether a program is reading its terminal can't be asked on macOS without root: `ps -o wchan`
+  shows `-` for a process blocked in a tty read, as for any other (macOS 26, 2026-11-12), and
+  `proc_pidinfo`'s thread info has no wait reason. So `terminals.rs` `Asking` reads a question from
+  what shows (quiet, the cursor after text) and from the process tree being at rest
+  (`proc_listchildpids`, `proc_pid_rusage`, whose CPU times arm64 counts in clock ticks:
+  `mach_timebase_info`, os/procs/macos.rs `tree`). A run's terminal is raw throughout: `script`
+  puts its own terminal in raw mode, so the outer terminal's modes say nothing of the command's.
 - The `libghostty-vt-sys` build script clones Ghostty into its `OUT_DIR` and runs `zig build
   -Demit-lib-vt`, Debug in a cargo build whose profile has debug info, else ReleaseFast; across
   targets it passes `-Dtarget` (x86_64 macOS builds from an arm64 Mac, 2026-11-03).
