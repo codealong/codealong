@@ -19,6 +19,12 @@ Times are epoch milliseconds. Ids take a unique prefix. A session is named by it
 (claude:claude2:<uuid>) or its id; `me` means the session running this command (see
 whoami). A worktree is named by its path; `.` means the one the current folder is in.
 
+A session or a todo named in a reply Codealong shows is written as a link to it, with
+its title: `[title](codealong://session/<key>)`, `[title](codealong://todo/<id>)`.
+Codealong draws it as what it names, as it stands now, and a click shows it. Leave links
+out of what leaves Codealong (a commit, a PR, another service), where they open nothing.
+A command that takes a key or an id takes its link too.
+
 Usage: codealong [OPTIONS] <COMMAND>
 
 Commands:
