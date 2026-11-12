@@ -79,7 +79,6 @@ import { CODEALONG_PROJECT, IMPROVE_PLACEHOLDER, improvePrompt, improveWords, re
 import { devSetupTask, type AgentTask } from '../agentTasks';
 import { askProblem, LISTEN_KEPT, listenKept, macSays, nowAsk, nowMeeting, nowPlaceholder, nowRow } from '../listening';
 import { meetingTime, meetingWith } from '../meetings';
-import { latestTalk } from '../said';
 import { saidAfter } from '../drafts';
 import { place } from '../talk';
 import { boardAhead, sendAhead, useAhead } from '../ahead';
@@ -1484,6 +1483,8 @@ export function Quick() {
   /** Starts a session: in the worktree chosen below, or where a suggestion says; on what's typed,
    *  or on a `prompt` of the panel's own (Switch to Codealong Dev?'s), which nothing is added to. */
   const start = (over?: { lane: Lane; newWorktree: boolean; agent?: string; only?: string[]; prompt?: string }) => {
+    // Not while a press is heard into the box: what it shows isn't what it holds yet.
+    if (hearingHere) return;
     const where = over?.lane ?? lane;
     const sgChoice = over?.agent ? choiceForAgent(over.agent, over.newWorktree, over.only) : null;
     const targetAccount = sgChoice ? sgChoice.account : account;
@@ -1597,6 +1598,8 @@ export function Quick() {
    *  which shows on the board once it has the listening. The panel closes at once; a start that
    *  fails brings it back with what you wrote and why. Files attached aren't passed on. */
   const listenToIt = () => {
+    // Not while a press is heard into the box, as a start isn't.
+    if (hearingHere) return;
     if (listenProblem) {
       setError(listenProblem);
       return;
@@ -1652,6 +1655,11 @@ export function Quick() {
 
   /* ---- Talking ---- */
 
+  // The latest press the panel was told of, with the open it began in, noted at the first word
+  // of it: what a press may do here goes by what the panel was then, not by what it has become
+  // since. And the press the panel was opened to hear, once that has begun.
+  const pressRef = useRef<{ id: number; opens: number } | null>(null);
+  const heardFor = useRef<number | null>(null);
   // What's heard of a press whose words are for this panel, and what came of it. One that
   // failed says why here; one that heard nothing says so, or, when the panel was opened only to
   // hear it and holds nothing, puts the panel away again, so a key pressed by mistake leaves you
@@ -1660,42 +1668,62 @@ export function Quick() {
     () =>
       onTalk((t) => {
         if (t.to !== 'looking') return;
-        setTalk((shown) => latestTalk(shown, t));
-        const at = heardRef.current;
-        if (t.phase === 'listening' || t.phase === 'settling') {
-          // A press not placed yet shows in the box when the box has the keyboard and holds the
-          // prompt (not while it finds a session to send to): over what's selected in it now.
-          // What's heard for another field of the panel's shows nowhere, and is typed there.
+        const latest = pressRef.current;
+        // An earlier press, settling after the next began: what it came to says and does
+        // nothing over the one being heard. Its words still come (`talked`).
+        if (latest && t.id < latest.id) return;
+        setTalk(t);
+        const going = t.phase === 'listening' || t.phase === 'settling';
+        if (!latest || latest.id < t.id) {
+          pressRef.current = { id: t.id, opens: opensNow.current };
+          if (openedToHear.current) heardFor.current = t.id;
+          openedToHear.current = false;
+          // It shows in the box when the box has the keyboard and holds the prompt (not while it
+          // finds a session to send to), over what's selected there. While an earlier press's
+          // words still show in the box, that's where those are going, and the field's own
+          // selection is of what's drawn, not of what it holds: this one goes on from there.
           const el = input.current;
-          if ((!at || at.id < t.id) && shownNow.current && el && document.activeElement === el && !inSendToNow.current) {
-            setHeard({ id: t.id, opens: opensNow.current, start: el.selectionStart, end: el.selectionEnd });
+          const before = heardRef.current;
+          if (going && shownNow.current && el && document.activeElement === el && !inSendToNow.current) {
+            const at = before && before.opens === opensNow.current ? before : { start: el.selectionStart, end: el.selectionEnd };
+            setHeard({ id: t.id, opens: opensNow.current, start: at.start, end: at.end });
           }
-          return;
         }
+        if (going) return;
         // Over, with what was said typed (`talked`, before this) or nothing to type.
-        if (at?.id === t.id) setHeard(null);
-        const unasked = openedToHear.current && !textNow.current.trim() && attachedNow.current.length === 0;
-        openedToHear.current = false;
+        if (heardRef.current?.id === t.id) setHeard(null);
+        const unasked = heardFor.current === t.id && !textNow.current.trim() && attachedNow.current.length === 0;
+        if (heardFor.current === t.id) heardFor.current = null;
         if (!shownNow.current) return;
         if (t.phase === 'failed') setError(t.message ?? 'Codealong couldn’t listen.');
         else if (t.phase === 'nothing' && unasked) void hideQuick();
-        else if (t.phase === 'nothing') setInfo(t.message ?? 'Nothing heard.');
+        else if (t.phase === 'nothing' && t.message) setInfo(t.message);
       }),
     [textNow, attachedNow, shownNow, inSendToNow, opensNow],
   );
+  // Put away while a press is heard into it (Escape, a click elsewhere): the press is dropped,
+  // its microphone off and what it heard put nowhere, rather than left listening behind a panel
+  // that's gone, or bringing the panel back with it.
+  useEffect(() => {
+    if (shown || !heardRef.current) return;
+    setHeard(null);
+    // Not said when it fails: a press ends by itself as its key comes up, or after three minutes.
+    void talkTo(false, true).catch(() => {});
+  }, [shown]);
   // Shift was down as the key came up (`Talked.start`): what was said starts as ⌘⏎ would, or set
-  // to listen, as ⏎ would. Only for a press this box showed and took, in the open it began in:
+  // to listen, as ⏎ would. Only for the press this box showed and took, in the open it began in:
   // asked a turn after it's typed, of the panel as it is by then.
   const startSpoken = useLatest((opened: number) => {
-    if (opened !== opens || inSendTo) return;
+    if (opened !== opens || inSendTo || hearingHere) return;
     if (listen) listenToIt();
     else start();
   });
   // What was said (`talked`), put where its press was heard: typed over what was selected in the
   // box as the press began, as typing would be, so the box's own code hears it and one Undo takes
-  // it out. A press this box didn't show (another field of the panel's had the keyboard, the
-  // panel has been opened for something else since) is put as any window puts it (talk.ts
-  // `place`), where the keyboard is now, and starts nothing.
+  // it out. An earlier press's words, said before the one the box is showing now, are typed
+  // there too, and that one goes on after them. A press the box didn't show (another field of
+  // the panel's had the keyboard, the panel has been opened for something else since) is put as
+  // any window puts it (talk.ts `place`), where the keyboard is now, and starts nothing.
   useEffect(
     () =>
       onTalked((said) => {
@@ -1704,14 +1732,20 @@ export function Quick() {
         if (!shownNow.current) return void showQuick({ prompt: said.text }).catch(() => {});
         const at = heardRef.current;
         const el = input.current;
-        const here = at && el && at.id === said.id && at.opens === opensNow.current && !inSendToNow.current ? at : null;
+        const inBox = at && el && said.id !== undefined && said.id <= at.id && at.opens === opensNow.current && !inSendToNow.current ? at : null;
+        if (!inBox || !el) {
+          if (at && at.id === said.id) flushSync(() => setHeard(null));
+          return place({ ...said, start: false });
+        }
         // The box as it was before the press, for what was said to be typed into.
         flushSync(() => setHeard(null));
-        if (!here || !el) return place({ ...said, start: false });
         el.focus();
-        el.setSelectionRange(here.start, here.end);
-        const typed = document.execCommand('insertText', false, saidAfter(el.value.slice(0, here.start), said.text));
-        if (typed && said.start) window.setTimeout(() => startSpoken.current(here.opens), 0);
+        el.setSelectionRange(inBox.start, inBox.end);
+        const typed = document.execCommand('insertText', false, saidAfter(el.value.slice(0, inBox.start), said.text));
+        if (said.id !== inBox.id) {
+          const caret = el.selectionStart;
+          flushSync(() => setHeard({ ...inBox, start: caret, end: caret }));
+        } else if (typed && said.start) window.setTimeout(() => startSpoken.current(inBox.opens), 0);
       }),
     [shownNow, inSendToNow, opensNow, startSpoken],
   );
@@ -1796,6 +1830,8 @@ export function Quick() {
   };
 
   const activate = (key: string, alt: boolean) => {
+    // Nothing is done with the prompt while a press is still being heard into it.
+    if (hearingHere) return;
     const row = rows.find((r) => r.key === key);
     if (row) noteRow(row, alt);
     // Send to has no new session's row to fall back on.
@@ -1842,6 +1878,15 @@ export function Quick() {
 
   const onInputKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.nativeEvent.isComposing) return;
+    // While a press is heard into the box, what it shows isn't what it holds yet, so nothing is
+    // done with it. ⏎ ends a press begun with the microphone: what was said is typed, to read.
+    if (hearingHere) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        void talkTo(false).catch((err: unknown) => setError(errorText(err)));
+      }
+      return;
+    }
     // Set to listen there's nothing listed to move through, and no earlier prompts to bring
     // back: ⏎ starts listening, and ⇧⏎ is a new line.
     if (listen) {
@@ -1984,6 +2029,8 @@ export function Quick() {
         else void hideQuick();
         return;
       }
+      // The panel's other keys wait for a press that's being heard into the box.
+      if (hearingHere) return;
       // ⌥⌘ digits switch projects, as in the main window. ⌥ changes the character, so they go by
       // the key's code.
       const digit = /^Digit(\d)$/.exec(e.code);

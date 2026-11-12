@@ -8,7 +8,7 @@
 // meanwhile kept as a draft; with nothing picked to hear it says so and asks for nothing; and an
 // ordinary open after lists and starts as before, with no draft made of a meeting's name.
 //   PREVIEW_VOICE=1 PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/quick-listen-check.js
-// The board needs a worktree to pick.
+// The board needs a worktree the picker lists.
 (function () {
   ['codealong.quick.listen', 'codealong.quick.draft', 'codealong.quick.history'].forEach(function (k) { localStorage.removeItem(k); });
   localStorage.setItem('codealong.quick.project', 'All projects');
@@ -33,8 +33,6 @@
     .then(function () { return window.__TAURI_INTERNALS__.invoke('get_board'); })
     .then(function (b) {
       board = Object.assign({}, b, { listenShortcut: 'Option+Cmd+=' });
-      lane = board.lanes.filter(function (l) { return !l.startsChats && !l.device; })[0];
-      if (!lane) throw new Error('the board has no worktree to pick');
       return open();
     })
     .then(function () {
@@ -107,9 +105,12 @@
       });
     })
     .then(function () {
-      var o = all('.ca-picker-opt').filter(function (x) { return x.textContent.indexOf(lane.callsign) >= 0; })[0];
-      if (!o) throw new Error('the picker doesn’t list ' + lane.callsign);
-      o.click();
+      // A worktree the picker lists: which of the board's those are depends on the project.
+      var lanes = board.lanes.filter(function (l) { return !l.startsChats && !l.device; });
+      var listed = all('.ca-picker-opt').map(function (o) { return { o: o, lane: lanes.filter(function (l) { return o.textContent.indexOf(l.callsign) >= 0; })[0] }; }).filter(function (x) { return x.lane; })[0];
+      if (!listed) throw new Error('the picker lists no worktree of the board’s');
+      lane = listed.lane;
+      listed.o.click();
       return until(function () { return chip().textContent.indexOf(lane.callsign) >= 0; }, 5000, 'the worktree picked');
     })
     .then(function () {

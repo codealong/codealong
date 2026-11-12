@@ -3406,7 +3406,9 @@ panel away again. Nothing is sent: a machine heard it, and it's yours to read ov
 one exception is yours to make: keep Shift down as you let go into the quick panel, and it
 starts a session with what you said at once, as ⌘⏎ would, with a line saying it was dictated
 and may be misheard. The quick panel has a microphone beside its box too, while voice is on: a
-click starts hearing and another ends it, for when you'd rather not hold a key. Hold ⌥⌘] instead
+click starts hearing and another ends it, or ⏎, for when you'd rather not hold a key. While it
+hears, the panel does nothing with its prompt (what shows isn't settled yet), and putting it
+away (Escape, a click elsewhere) drops what was being said, the microphone off. Hold ⌥⌘] instead
 to talk to your orchestrator
 (*An orchestrator*: the session started on `/codealong:orchestrate`, or failing that one called an
 orchestrator), whatever you're looking at: what you said is in its box, with Codealong's window

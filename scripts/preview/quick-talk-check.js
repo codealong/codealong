@@ -6,8 +6,12 @@
 // coming to nothing leaves the selection as it was; an earlier press ending says nothing over
 // the one being heard; a press that fails says why; opened only to hear, with nothing said, the
 // panel puts itself away; with Shift down as the key comes up, what was said starts a session
-// at once, said to be dictated; and a press the panel has been opened for something else since
-// is typed where the keyboard is and starts nothing.
+// at once, said to be dictated; a press the panel has been opened for something else since is
+// typed where the keyboard is and starts nothing, and so is one begun while another field had
+// the keyboard; while a press is heard nothing is done with the prompt, and ⏎ ends it; two
+// presses one after the other are typed in the order they were said, with what follows them
+// kept; an earlier press coming to nothing doesn't put the panel away under a later one; and
+// the panel put away while it hears drops the press.
 //   PREVIEW_VOICE=1 PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/quick-talk-check.js
 (function () {
   ['codealong.quick.draft', 'codealong.quick.history'].forEach(function (k) { localStorage.removeItem(k); });
@@ -157,6 +161,92 @@
     .then(function (starts) {
       check('a press from before the panel was opened again starts nothing', sent('start_from_quick').length === starts, String(sent('start_from_quick').length - starts));
       check('and is typed where the keyboard is', input().value.indexOf('Another prompt Deploy it.') === 0, input().value);
+      // Begun while the box didn't have the keyboard, then the panel opened again: not the
+      // box's to show, in this open or the next, and nothing of it starts.
+      window.__quickOpen({}, board);
+      input().blur();
+      id = 7;
+      talk({ text: 'Ship' });
+      window.__quickOpen({}, board);
+      talk({ text: 'Ship it' });
+      return wait(300);
+    })
+    .then(function () {
+      check('a press begun outside the box isn’t shown in it, in a later open either', input().value === '' && !input().readOnly, input().value);
+      var starts = sent('start_from_quick').length;
+      said('Ship it.\n\n' + NOTE, { start: true });
+      talk({ phase: 'started', text: 'Ship it.' });
+      return wait(600).then(function () { return starts; });
+    })
+    .then(function (starts) {
+      check('and starts nothing', sent('start_from_quick').length === starts && input().value.indexOf('Ship it.') === 0, input().value);
+      // While a press is heard into the box, nothing is done with the prompt; ⏎ ends the press.
+      window.__quickOpen({}, board);
+      type(input(), 'An old draft');
+      input().setSelectionRange(0, 12);
+      id = 8;
+      talk({ text: 'A new prompt' });
+      return until(function () { return input().value === 'A new prompt'; }, 3000, 'the words over the draft');
+    })
+    .then(function () {
+      var starts = sent('start_from_quick').length;
+      var presses = sent('talk').length;
+      key(input(), { key: 'Enter', metaKey: true });
+      return wait(400).then(function () { return [starts, presses]; });
+    })
+    .then(function (was) {
+      check('while a press is heard, ⌘⏎ starts nothing', sent('start_from_quick').length === was[0], String(sent('start_from_quick').length - was[0]));
+      check('and ⏎ ends the press', sent('talk').length === was[1] + 1 && last('talk').on === false && !last('talk').drop, JSON.stringify(last('talk')));
+      said('A new prompt.');
+      talk({ phase: 'asked', text: 'A new prompt.' });
+      return until(function () { return input().value === 'A new prompt.' && !input().readOnly; }, 3000, 'what was said typed over the draft');
+    })
+    .then(function () {
+      // Two presses, the second begun while the first's words still show: typed in the order
+      // they were said, and what follows them in the box is kept.
+      type(input(), 'Keep suffix');
+      input().setSelectionRange(5, 5);
+      id = 9;
+      talk({ text: 'one phrase' });
+      return until(function () { return input().value === 'Keep one phrasesuffix'; }, 3000, 'the first press shown');
+    })
+    .then(function () {
+      id = 10;
+      talk({ text: 'two' });
+      return until(function () { return input().value === 'Keep twosuffix'; }, 3000, 'the second press shown from the same place');
+    })
+    .then(function () {
+      window.__emit('talked', { id: 9, text: 'One.' });
+      window.__emit('talk', { id: 9, phase: 'asked', to: 'looking', text: 'One.', level: 0 });
+      return until(function () { return input().value === 'Keep One. twosuffix'; }, 3000, 'the first typed, the second after it');
+    })
+    .then(function () {
+      check('an earlier press is typed first, and the one being heard goes on after it', selected() === ' two' && mic().classList.contains('is-on'), input().value + ' [' + selected() + ']');
+      said('Two.');
+      talk({ phase: 'asked', text: 'Two.' });
+      return until(function () { return input().value === 'Keep One. Two.suffix'; }, 3000, 'both typed, in order');
+    })
+    .then(function () {
+      check('both are typed in the order they were said, with what follows kept', input().value === 'Keep One. Two.suffix', input().value);
+      // Opened to hear a press that came to nothing while a later one is being heard: it stays.
+      window.__quickOpen({ talk: true }, board);
+      var hides = calls('hide_quick').length;
+      id = 11;
+      talk({});
+      id = 12;
+      talk({ text: 'Second press' });
+      window.__emit('talk', { id: 11, phase: 'nothing', to: 'looking', text: '', level: 0, message: 'Nothing heard. Hold the keys down while you talk.' });
+      return wait(400).then(function () { return hides; });
+    })
+    .then(function (hides) {
+      check('an earlier press coming to nothing doesn’t put the panel away under a later one', calls('hide_quick').length === hides && input().value === 'Second press' && mic().classList.contains('is-on'), input().value);
+      // Put away while it hears: the press is dropped, not left listening.
+      var presses = sent('talk').length;
+      window.__emit('quick-hidden', null);
+      return until(function () { return sent('talk').length > presses; }, 3000, 'the press dropped');
+    })
+    .then(function () {
+      check('put away while it hears, the panel drops the press', last('talk').drop === true, JSON.stringify(last('talk')));
       done();
     })
     .catch(stopped);

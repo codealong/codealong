@@ -159,6 +159,8 @@ struct Live {
     released: bool,
     /// Shift was down as the key came up.
     shift: bool,
+    /// It was dropped (`drop_press`): what it heard goes nowhere.
+    dropped: bool,
 }
 
 static LIVE: Mutex<Option<Live>> = Mutex::new(None);
@@ -221,7 +223,7 @@ pub fn press(app: &AppHandle, to: To) {
     };
     let id = NEXT.fetch_add(1, Ordering::SeqCst);
     // On the main thread, as every press is: none has begun since the look above.
-    *live() = Some(Live { id, to, window: window.clone(), ear: None, heard: Arc::default(), released: false, shift: false });
+    *live() = Some(Live { id, to, window: window.clone(), ear: None, heard: Arc::default(), released: false, shift: false, dropped: false });
     show(app, window.as_deref(), &Talk { id, phase: "listening", to: word(to), ..Talk::default() });
     let app = app.clone();
     std::thread::spawn(move || begin(&app, id, to));
@@ -333,6 +335,22 @@ pub fn release(app: &AppHandle) {
     over(app, &mut live);
 }
 
+/// Drops the press that's going: the microphone is off as when the key comes up, and what was
+/// heard is put nowhere. The quick panel asks it as it's put away while it hears (Escape, a
+/// click elsewhere): a panel that's gone shouldn't come back with what was being said to it, nor
+/// leave a press begun with its microphone listening on. On the main thread.
+pub fn drop_press(app: &AppHandle) {
+    let mut live = live();
+    let Some(l) = live.as_mut() else { return };
+    l.dropped = true;
+    if l.ear.is_none() {
+        // Still starting: `begin` finishes it once it's capturing.
+        l.released = true;
+        return;
+    }
+    over(app, &mut live);
+}
+
 /// A press that's over, and what says its helper has stopped, its last words in.
 type Over = (AppHandle, Live, std::sync::mpsc::Receiver<()>);
 
@@ -393,6 +411,11 @@ fn finish_in_turn(app: &AppHandle, mut over: Live) {
 fn deliver(app: &AppHandle, l: Live) {
     let id = l.id;
     let to = word(l.to);
+    if l.dropped {
+        // Over, with nothing to say of it: whoever dropped it knows.
+        show(app, l.window.as_deref(), &Talk { id, phase: "nothing", to, ..Talk::default() });
+        return;
+    }
     let (text, failed, waiting) = {
         let heard = lock(&l.heard);
         (heard.text(), heard.failed.clone(), heard.waiting.is_some())
