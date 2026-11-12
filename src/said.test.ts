@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CUE_SHOWS, hearingNamed, hearingSays, latestTalk, lingers, saidNow, saidUntil, talkSays } from './said';
+import { CUE_SHOWS, heardLine, hearingNamed, hearingSays, latestTalk, lingers, saidNow, saidUntil, talkSays } from './said';
 import type { BarListening, Talk } from './types';
 
 const talk = (over: Partial<Talk> = {}): Talk => ({ id: 1, phase: 'listening', to: 'looking', text: '', level: 0, ...over });
@@ -82,6 +82,13 @@ describe('what the bar shows of voice', () => {
     expect(talkSays(talk({ phase: 'asked' }))).toBe('In the quick panel');
     // Shift was down as the key came up into the quick panel.
     expect(talkSays(talk({ phase: 'started' }))).toBe('Starting a session with it');
+    // In one line, where a window stands in for the bar: what's heard so far while it's going,
+    // the end of it when it's long, then where it went or why it came to nothing.
+    expect(heardLine(talk())).toBe('Listening');
+    expect(heardLine(talk({ text: 'Rebase the release branch' }))).toBe('Listening: Rebase the release branch');
+    expect(heardLine(talk({ text: `${'word '.repeat(30)}and the last of it` }))).toMatch(/^Listening: ….{80}$/);
+    expect(heardLine(talk({ phase: 'typed', text: 'Rebase the release branch.' }))).toBe('Typed');
+    expect(heardLine(talk({ phase: 'nothing', message: 'Nothing heard. Hold the keys down while you talk.' }))).toBe('Nothing heard: Nothing heard. Hold the keys down while you talk.');
     expect(talkSays(talk({ phase: 'nothing' }))).toBe('Nothing heard');
   });
 });

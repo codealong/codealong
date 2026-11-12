@@ -3416,16 +3416,17 @@ misheard. With no orchestrator running the quick panel has it. The keys are `tal
 `talk_orchestrator` under `[shortcuts]`, set with Voice in Settings › Experimental; editors fold
 code with the defaults, which these take from them while voice is on.
 
-What's heard shows as it goes, in two places. Where it's going: the words sit at the caret of
-the field they're for as they're heard, selected, since they change until the key comes up,
-when what you said takes their place (one Undo takes it out). And on the bar: docked in the
+What's heard shows as it goes. In the quick panel, when that's where it's going: the words show
+in its box as they're heard, selected, since they change until the key comes up, when what you
+said is typed in their place (one Undo takes it out); until then the box holds only what it
+held, so nothing is looked for on words that aren't settled. And on the bar: docked in the
 notch, a card opens under the pills with the words as they're heard and to whom, then where
-they went; floating, a line in the bar. So with the bar in the menu bar, or off, what's heard is
-still in sight where it lands. In a Codealong window it never takes the keyboard from what
-you're in; from another app the quick panel takes it as the key goes down, as it would have once
-you let go. Hearing starts as the key goes down, before the speech model has loaded, so the
-first words aren't lost; a key that never comes up is let go of after three minutes, and so is
-the microphone's click.
+they went; floating, a line in the bar. With the bar in the menu bar, or off, there's no bar to
+show it, and the window the words are for says it instead, in a line at its foot. In a
+Codealong window it never takes the keyboard from what you're in; from another app the quick
+panel takes it as the key goes down, as it would have once you let go. Hearing starts as the
+key goes down, before the speech model has loaded, so the first words aren't lost; a key that
+never comes up is let go of after three minutes, and so is the microphone's click.
 
 **A session that listens.** *Listen…* in a session's menu has it hear a meeting as it's said.
 Tell the session first what you want from the meeting, as you'd tell it anything, then pick:
@@ -3611,8 +3612,8 @@ takes one nor asks macOS for your calendar.
 
 Not yet checked by hand: talking into the quick panel in the real app (the panel opening as
 the key goes down from another app and going away when nothing was said, the words in its box as
-they're heard, its microphone, Shift starting a session; the preview shows the page's side of
-each); Listen now in the real app (⌥⌘= from another app, the microphone and
+they're heard, its microphone, Shift starting a session, and the line at a window's foot with
+the bar off; the preview shows the page's side of each); Listen now in the real app (⌥⌘= from another app, the microphone and
 the session that follows it, the light under a meeting's name while its session starts, and a
 meeting started by mistake put away: the preview shows the panel and what it asks for, the
 engine's rules are tested, and what it would start is `--snapshot --listen-plan`'s); the Mac's

@@ -1264,10 +1264,12 @@ export interface Talk {
   message?: string;
 }
 
-/** What a window is handed to put where its caret is (dictation.rs `Talked`): `key` when it's
- *  for one session's box whatever the window shows; `start` for the quick panel alone, when Shift
- *  was down as the key came up, which starts a session with it at once. */
+/** What a window is handed to put where its caret is (dictation.rs `Talked`): `id` is the press
+ *  it was said in, as `Talk.id` has it; `key` when it's for one session's box whatever the window
+ *  shows; `start` for the quick panel alone, when Shift was down as the key came up, which
+ *  starts a session with it at once. */
 export interface Talked {
+  id?: number;
   text: string;
   key?: string;
   start?: boolean;

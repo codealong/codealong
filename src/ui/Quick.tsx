@@ -26,9 +26,10 @@
 //
 // With voice on, the box takes what you say too (src-tauri/src/dictation.rs): the key held to
 // talk opens the panel from another app as it goes down, and the microphone beside the box does
-// the same with a click. The words sit in the box as they're heard, selected until they're
-// settled (talk.ts), and with Shift down as the key comes up they start a session at once, as
-// ⌘⏎ would.
+// the same with a click. The words show in the box as they're heard, selected, where they'll be
+// typed once they're settled, and with Shift down as the key comes up they start a session at
+// once, as ⌘⏎ would. What the box holds isn't touched until then: the words heard are drawn
+// into it, not written to it.
 //
 // Opened to listen (`[shortcuts] listen`, Listen now in the windows) it's set to that instead:
 // the box asks what the meeting is, nothing is listed or looked for, and ⏎ has Codealong hear it
@@ -79,6 +80,8 @@ import { devSetupTask, type AgentTask } from '../agentTasks';
 import { askProblem, LISTEN_KEPT, listenKept, macSays, nowAsk, nowMeeting, nowPlaceholder, nowRow } from '../listening';
 import { meetingTime, meetingWith } from '../meetings';
 import { latestTalk } from '../said';
+import { saidAfter } from '../drafts';
+import { place } from '../talk';
 import { boardAhead, sendAhead, useAhead } from '../ahead';
 import { filesToAttach, keepFiles, useFileDrop } from '../attachInput';
 import { deviceLabel, floatingLanes, shortOf } from '../devices';
@@ -187,6 +190,15 @@ const RETRY_MS = 5_000;
 const HERE = 'here';
 
 type PickerKind = 'project' | 'device' | 'worktree' | 'agent';
+
+/** Where in the box a press that's being heard shows (dictation.rs `Talk::id`): the open of the
+ *  panel it began in, and what was selected in the box then. */
+interface Heard {
+  id: number;
+  opens: number;
+  start: number;
+  end: number;
+}
 
 const GROUP_WORD: Record<RowGroup, string> = { suggested: 'Suggested', skills: 'Skills', top: 'Moved to top', needs: 'Needs you', reviews: 'Review requested', unread: 'Your turn', working: 'Working', found: 'Sessions', sendto: 'Send to', todos: 'Todos', prs: 'PRs', ready: 'Ready todos', recent: 'Last 24 hours' };
 
@@ -370,6 +382,16 @@ export function Quick() {
   const [talk, setTalk] = useState<Talk | null>(null);
   const talking = talk !== null && (talk.phase === 'listening' || talk.phase === 'settling');
   const openedToHear = useRef(false);
+  // The press whose words show in the box: which press, the open it began in, and what was
+  // selected in the box as it began, which what's said is typed over. None while what's heard is
+  // for another field of the panel's, or nothing is. Kept in a ref too, for what hears the
+  // engine between two draws.
+  const [heardAt, setHeardAt] = useState<Heard | null>(null);
+  const heardRef = useRef<Heard | null>(null);
+  const setHeard = (at: Heard | null) => {
+    heardRef.current = at;
+    setHeardAt(at);
+  };
   const [error, setError] = useState<string | null>(null);
   // What a menu's action did (copied, closed), for a moment.
   const [info, setInfo] = useState<string | null>(null);
@@ -422,6 +444,29 @@ export function Quick() {
   // under it as written; null while the box holds the prompt.
   const [sendTo, setSendTo] = useState<string | null>(null);
   const inSendTo = sendTo !== null;
+  const inSendToNow = useLatest(inSendTo);
+  const opensNow = useLatest(opens);
+  // What the box shows while a press is heard into it: what it holds, with the words so far
+  // where they'll be typed, in place of what was selected. Only shown: `text` is as it was, so
+  // nothing is looked for, kept as a draft or lost on what's still changing, and what's said is
+  // typed over the selection itself once it's settled (one Undo takes it out).
+  const hearingHere = heardAt && talking && talk?.id === heardAt.id && heardAt.opens === opens && !inSendTo ? heardAt : null;
+  const heardWords = hearingHere && talk ? saidAfter(text.slice(0, hearingHere.start), talk.text) : '';
+  const boxText = hearingHere && heardWords ? text.slice(0, hearingHere.start) + heardWords + text.slice(hearingHere.end) : text;
+  // The words heard are selected while they show, and what was selected before them is again
+  // once they go (a field whose value is set loses its selection).
+  const heardShown = useRef<Heard | null>(null);
+  useLayoutEffect(() => {
+    const el = input.current;
+    if (!el) return;
+    if (hearingHere && heardWords) {
+      el.setSelectionRange(hearingHere.start, hearingHere.start + heardWords.length);
+      heardShown.current = hearingHere;
+    } else if (heardShown.current) {
+      el.setSelectionRange(heardShown.current.start, heardShown.current.end);
+      heardShown.current = null;
+    }
+  }, [hearingHere, heardWords]);
   const [recall, setRecall] = useState<number | null>(null);
   const keepPrompt = (prompt: string) => setHistory((h) => historyWith(h, prompt));
   const todoIdsNow = useLatest(todoIds);
@@ -656,7 +701,7 @@ export function Quick() {
     if (el.style.height === `${tallest}px` && el.scrollHeight > el.clientHeight) return;
     el.style.height = 'auto';
     el.style.height = `${Math.min(el.scrollHeight, tallest)}px`;
-  }, [text, sendTo, opens]);
+  }, [boxText, sendTo, opens]);
 
   // Not out of a menu that opened since: a press on another menu's button closes the one open,
   // which asks for this, and its click can open the other before the frame comes.
@@ -1616,7 +1661,19 @@ export function Quick() {
       onTalk((t) => {
         if (t.to !== 'looking') return;
         setTalk((shown) => latestTalk(shown, t));
-        if (t.phase === 'listening' || t.phase === 'settling') return;
+        const at = heardRef.current;
+        if (t.phase === 'listening' || t.phase === 'settling') {
+          // A press not placed yet shows in the box when the box has the keyboard and holds the
+          // prompt (not while it finds a session to send to): over what's selected in it now.
+          // What's heard for another field of the panel's shows nowhere, and is typed there.
+          const el = input.current;
+          if ((!at || at.id < t.id) && shownNow.current && el && document.activeElement === el && !inSendToNow.current) {
+            setHeard({ id: t.id, opens: opensNow.current, start: el.selectionStart, end: el.selectionEnd });
+          }
+          return;
+        }
+        // Over, with what was said typed (`talked`, before this) or nothing to type.
+        if (at?.id === t.id) setHeard(null);
         const unasked = openedToHear.current && !textNow.current.trim() && attachedNow.current.length === 0;
         openedToHear.current = false;
         if (!shownNow.current) return;
@@ -1624,18 +1681,39 @@ export function Quick() {
         else if (t.phase === 'nothing' && unasked) void hideQuick();
         else if (t.phase === 'nothing') setInfo(t.message ?? 'Nothing heard.');
       }),
-    [textNow, attachedNow, shownNow],
+    [textNow, attachedNow, shownNow, inSendToNow, opensNow],
   );
-  // Shift was down as the key came up (`Talked.start`): what was said is in the box by now, put
-  // there by the listener that hears this first (talk.ts), and it starts as ⌘⏎ would; set to
-  // listen, as ⏎ would. A turn later, so the start is of the box as it's drawn with it.
-  const startSpoken = useLatest(() => (listen ? listenToIt() : start()));
+  // Shift was down as the key came up (`Talked.start`): what was said starts as ⌘⏎ would, or set
+  // to listen, as ⏎ would. Only for a press this box showed and took, in the open it began in:
+  // asked a turn after it's typed, of the panel as it is by then.
+  const startSpoken = useLatest((opened: number) => {
+    if (opened !== opens || inSendTo) return;
+    if (listen) listenToIt();
+    else start();
+  });
+  // What was said (`talked`), put where its press was heard: typed over what was selected in the
+  // box as the press began, as typing would be, so the box's own code hears it and one Undo takes
+  // it out. A press this box didn't show (another field of the panel's had the keyboard, the
+  // panel has been opened for something else since) is put as any window puts it (talk.ts
+  // `place`), where the keyboard is now, and starts nothing.
   useEffect(
     () =>
       onTalked((said) => {
-        if (said.start && shownNow.current) window.setTimeout(() => startSpoken.current(), 0);
+        // The engine opens the panel on what was said when it isn't up; one that came anyway
+        // goes the same way. Not said when it fails: there's nowhere left to say it.
+        if (!shownNow.current) return void showQuick({ prompt: said.text }).catch(() => {});
+        const at = heardRef.current;
+        const el = input.current;
+        const here = at && el && at.id === said.id && at.opens === opensNow.current && !inSendToNow.current ? at : null;
+        // The box as it was before the press, for what was said to be typed into.
+        flushSync(() => setHeard(null));
+        if (!here || !el) return place({ ...said, start: false });
+        el.focus();
+        el.setSelectionRange(here.start, here.end);
+        const typed = document.execCommand('insertText', false, saidAfter(el.value.slice(0, here.start), said.text));
+        if (typed && said.start) window.setTimeout(() => startSpoken.current(here.opens), 0);
       }),
-    [shownNow, startSpoken],
+    [shownNow, inSendToNow, opensNow, startSpoken],
   );
   const talkKeys = shortcutLabel(board?.talkShortcut);
 
@@ -2268,7 +2346,9 @@ export function Quick() {
           </div>
           <textarea
             ref={input}
-            value={inSendTo ? sendTo : text}
+            value={inSendTo ? sendTo : boxText}
+            // Not typed into while it shows words that aren't settled: they're drawn, not written.
+            readOnly={boxText !== text}
             rows={1}
             spellCheck={!inSendTo}
             aria-label={inSendTo ? SEND_TO_PLACEHOLDER : listen ? 'What the meeting is' : 'Search or prompt'}

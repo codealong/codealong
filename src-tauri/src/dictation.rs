@@ -24,10 +24,11 @@
 //! (`send_to_session`). That's why only the microphone is ever heard here. What a meeting says is
 //! other people's words, and listen.rs keeps those apart.
 //!
-//! What's heard shows as it goes (the `talk` event), in two places: on the bar (the notch's card
-//! or the floating bar's line, src/ui/Said.tsx), with to whom and where it went; and in the
-//! window the words are for, which puts them where they'll land as they're heard (src/talk.ts),
-//! so there's something to see whatever the bar is set to, and with no bar at all.
+//! What's heard shows as it goes (the `talk` event): on the bar (the notch's card or the floating
+//! bar's line, src/ui/Said.tsx), with to whom and where it went; in the quick panel's box, when
+//! that's where the words go (src/ui/Quick.tsx); and, where there's no bar to show it (it's in
+//! the menu bar, or off), at the foot of the window the words are for (src/talk.ts `hear`). So
+//! there's something to see whatever the bar is set to (`show`).
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -85,6 +86,9 @@ pub struct Talk {
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Talked {
+    /// The press it was said in (`Talk::id`): the quick panel puts it where that press was
+    /// heard, and starts nothing for a press it didn't show.
+    id: u64,
     text: String,
     /// The session whose box it's for, when it's for one whatever the window shows.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -105,14 +109,15 @@ enum Lands {
     Quick,
 }
 
-/// Where `text` goes: to the window that had the keyboard as the key went down (`window`, by its
-/// label, when it's still there), which for the quick panel is only while it's up (`quick_up`),
-/// and which only the quick panel takes as something to start (`shift`).
-fn lands(window: Option<&str>, quick_up: bool, shift: bool, text: &str) -> Lands {
+/// Where what press `id` heard (`text`) goes: to the window that had the keyboard as the key
+/// went down (`window`, by its label, when it's still there), which for the quick panel is only
+/// while it's up (`quick_up`), and which only the quick panel takes as something to start
+/// (`shift`).
+fn lands(id: u64, window: Option<&str>, quick_up: bool, shift: bool, text: &str) -> Lands {
     match window {
         Some(label) if label == crate::quick::LABEL && !quick_up => Lands::Quick,
-        Some(label) if label == crate::quick::LABEL && shift => Lands::Window(Talked { text: dictated(text), key: None, start: true }),
-        Some(_) => Lands::Window(Talked { text: text.to_string(), key: None, start: false }),
+        Some(label) if label == crate::quick::LABEL && shift => Lands::Window(Talked { id, text: dictated(text), key: None, start: true }),
+        Some(_) => Lands::Window(Talked { id, text: text.to_string(), key: None, start: false }),
         None => Lands::Quick,
     }
 }
@@ -168,13 +173,21 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 /// Says what's heard of a press: to the bar, and to the window its words are for (`window`,
-/// the one that had the keyboard as the key went down, or the quick panel opened to hear it),
-/// which shows them where they'll land.
+/// the one that had the keyboard as the key went down, or the quick panel opened to hear it)
+/// when that window is to show it too (`shown_in`).
 fn show(app: &AppHandle, window: Option<&str>, talk: &Talk) {
     let _ = app.emit_to(crate::bar::LABEL, "talk", talk);
-    if let Some(label) = window.filter(|label| *label != crate::bar::LABEL) {
+    if let Some(label) = shown_in(window, crate::bar::mode_of(app).has_window()) {
         let _ = app.emit_to(label, "talk", talk);
     }
+}
+
+/// The window, beside the bar, that shows what's heard of a press whose words are for `window`:
+/// the quick panel always, which shows them in its box as they're heard; any other only where
+/// there's no bar to (`bar_up`: it floats or is docked, not in the menu bar or off), for which
+/// the window then stands in (src/talk.ts `hear`).
+fn shown_in(window: Option<&str>, bar_up: bool) -> Option<&str> {
+    window.filter(|label| *label != crate::bar::LABEL && (*label == crate::quick::LABEL || !bar_up))
 }
 
 fn word(to: To) -> &'static str {
@@ -396,7 +409,7 @@ fn deliver(app: &AppHandle, l: Live) {
         return;
     }
     let done = match l.to {
-        To::Looking => to_window(app, l.window.as_deref(), &text, l.shift),
+        To::Looking => to_window(app, id, l.window.as_deref(), &text, l.shift),
         To::Orchestrator => to_orchestrator(app, &text, l.shift),
     };
     show(app, l.window.as_deref(), &Talk { id, to, text, ..done });
@@ -405,9 +418,9 @@ fn deliver(app: &AppHandle, l: Live) {
 /// Hands what was said to the window that had the keyboard, or to the quick panel where no
 /// window of Codealong's did (`lands`). The quick panel starts a session with it when Shift
 /// was down as the key came up.
-fn to_window(app: &AppHandle, window: Option<&str>, text: &str, shift: bool) -> Talk {
+fn to_window(app: &AppHandle, id: u64, window: Option<&str>, text: &str, shift: bool) -> Talk {
     let window = window.filter(|label| app.get_webview_window(label).is_some());
-    match lands(window, quick_up(app), shift, text) {
+    match lands(id, window, quick_up(app), shift, text) {
         Lands::Window(talked) => {
             let phase = match (talked.start, window == Some(crate::quick::LABEL)) {
                 (true, _) => "started",
@@ -479,7 +492,7 @@ fn reveal(app: &AppHandle, key: &str, text: &str) {
         if let Err(e) = crate::front::show_main(&handle, reveal) {
             eprintln!("Couldn't bring the main window forward for what was said: {e:#}");
         }
-        let _ = handle.emit_to("main", "talked", Talked { text, key: Some(key), start: false });
+        let _ = handle.emit_to("main", "talked", Talked { id: 0, text, key: Some(key), start: false });
     });
 }
 
@@ -509,25 +522,38 @@ mod tests {
 
     #[test]
     fn what_was_said_goes_to_the_window_that_had_the_keyboard_or_the_quick_panel() {
-        let typed = |text: &str| Lands::Window(Talked { text: text.into(), key: None, start: false });
+        let typed = |text: &str| Lands::Window(Talked { id: 4, text: text.into(), key: None, start: false });
         // A window of Codealong's had the keyboard: it types it where its caret is, Shift or not.
-        assert_eq!(lands(Some("main"), false, false, "Fix the login redirect."), typed("Fix the login redirect."));
-        assert_eq!(lands(Some("main"), true, true, "Fix the login redirect."), typed("Fix the login redirect."));
+        assert_eq!(lands(4, Some("main"), false, false, "Fix the login redirect."), typed("Fix the login redirect."));
+        assert_eq!(lands(4, Some("main"), true, true, "Fix the login redirect."), typed("Fix the login redirect."));
         // None did (another app was in front, and the key's own open of the panel didn't come
         // up): the quick panel is opened on it.
-        assert_eq!(lands(None, false, false, "Fix it."), Lands::Quick);
+        assert_eq!(lands(4, None, false, false, "Fix it."), Lands::Quick);
         // The quick panel had it, opened to hear this or open already: into its box.
-        assert_eq!(lands(Some(crate::quick::LABEL), true, false, "Fix it."), typed("Fix it."));
+        assert_eq!(lands(4, Some(crate::quick::LABEL), true, false, "Fix it."), typed("Fix it."));
         // With Shift down as the key came up, it starts a session with it, said to be dictated.
         assert_eq!(
-            lands(Some(crate::quick::LABEL), true, true, "Fix it."),
-            Lands::Window(Talked { text: "Fix it.\n\n(Dictated, and sent as I let go of the key: some words may be misheard.)".into(), key: None, start: true })
+            lands(4, Some(crate::quick::LABEL), true, true, "Fix it."),
+            Lands::Window(Talked { id: 4, text: "Fix it.\n\n(Dictated, and sent as I let go of the key: some words may be misheard.)".into(), key: None, start: true })
         );
         // Put away before the key came up: it's opened again on what was said, nothing started.
-        assert_eq!(lands(Some(crate::quick::LABEL), false, true, "Fix it."), Lands::Quick);
-        // As a window reads it: nothing of starting unless it's to start.
-        assert_eq!(serde_json::to_value(Talked { text: "Hi.".into(), key: None, start: false }).unwrap(), json!({ "text": "Hi." }));
-        assert_eq!(serde_json::to_value(Talked { text: "Hi.".into(), key: Some("k".into()), start: true }).unwrap(), json!({ "text": "Hi.", "key": "k", "start": true }));
+        assert_eq!(lands(4, Some(crate::quick::LABEL), false, true, "Fix it."), Lands::Quick);
+        // As a window reads it: the press it was said in, and nothing of starting unless it's to.
+        assert_eq!(serde_json::to_value(Talked { id: 4, text: "Hi.".into(), key: None, start: false }).unwrap(), json!({ "id": 4, "text": "Hi." }));
+        assert_eq!(serde_json::to_value(Talked { id: 4, text: "Hi.".into(), key: Some("k".into()), start: true }).unwrap(), json!({ "id": 4, "text": "Hi.", "key": "k", "start": true }));
+    }
+
+    #[test]
+    fn whats_heard_shows_in_the_quick_panel_and_elsewhere_only_for_want_of_a_bar() {
+        // The quick panel shows it in its box, bar or no bar.
+        assert_eq!(shown_in(Some(crate::quick::LABEL), true), Some(crate::quick::LABEL));
+        assert_eq!(shown_in(Some(crate::quick::LABEL), false), Some(crate::quick::LABEL));
+        // Another window stands in for the bar only where there's none: in the menu bar, or off.
+        assert_eq!(shown_in(Some("main"), true), None);
+        assert_eq!(shown_in(Some("main"), false), Some("main"));
+        // The bar is told as the bar, once; and with no window the words are for, nobody else is.
+        assert_eq!(shown_in(Some(crate::bar::LABEL), false), None);
+        assert_eq!(shown_in(None, false), None);
     }
 
     #[test]

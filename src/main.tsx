@@ -75,7 +75,8 @@ createRoot(document.getElementById('root')!).render(
   </StrictMode>,
 );
 // What's said with a key held to talk is typed where this window's caret is (talk.ts).
-if (!isBar && !isDesktop && !isLineage) typeWhatsSaid();
+// The quick panel takes what's said into its box itself, and shows it there as it's heard (Quick.tsx).
+if (!isBar && !isQuick && !isDesktop && !isLineage) typeWhatsSaid();
 
 watchCaret();
 

@@ -72,6 +72,19 @@ export function hearingNamed(listenings: readonly BarListening[]): string {
   return listenings.length === 1 ? listenings[0].title : `${listenings.length} sessions listening`;
 }
 
+/** How much of what's heard a line at a window's foot holds: the end of it, which is what's new. */
+const FOOT_LINE = 80;
+
+/** A key held to talk in one line, for a window that stands in for the bar where there's none
+ *  (talk.ts `hear`): what it is (`talkSays`), and after it the end of what's heard so far while
+ *  it's going, or what there is to know of how it ended. */
+export function heardLine(talk: Talk): string {
+  const going = talk.phase === 'listening' || talk.phase === 'settling';
+  const more = (going ? talk.text : '') || talk.message || '';
+  const words = more.length > FOOT_LINE ? `…${more.slice(-FOOT_LINE)}` : more;
+  return words ? `${talkSays(talk)}: ${words}` : talkSays(talk);
+}
+
 /** What a key held to talk says of itself, over the words: who's listening, and where they went. */
 export function talkSays(talk: Talk): string {
   const whom = talk.title ?? (talk.to === 'orchestrator' ? 'your orchestrator' : null);
