@@ -422,8 +422,8 @@ columns of your own, and agents can put their work on a board with `codealong bo
 are an experiment, off until you turn them on in Settings › Experimental.
 
 Voice is an experiment too (macOS 26, Settings › Experimental). Hold ⌥⌘[ and talk, and what you
-said is typed where your caret is in Codealong; hold ⌥⌘] to talk to your orchestrator from any
-app. And a session can listen to a meeting: it keeps notes, coaches you a few words at a time
+said is typed where your caret is in Codealong, or from another app into the quick panel, which
+opens to hear it; hold ⌥⌘] to talk to your orchestrator from any app. And a session can listen to a meeting: it keeps notes, coaches you a few words at a time
 beside your camera, or files a todo for each thing a customer asks for. Press ⌥⌘= as one begins
 (Listen now) and Codealong hears it from then on, with a session started for it; or have a
 session you already have listen (Listen… in its menu). Speech becomes text on your Mac, with

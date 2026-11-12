@@ -8,9 +8,13 @@
 //! words have settled the text goes where it's for, after any said before it:
 //!
 //! - `talk`: to the Codealong window you're in, which types it where its caret is, or failing
-//!   that into the box of the session it shows (src/talk.ts). In another app, or a window with
-//!   nowhere to put it, it opens the quick panel on it, which finds the session it's for or
-//!   starts one. Nothing is sent: what a machine heard is yours to read over first.
+//!   that into the box of the session it shows (src/talk.ts). In another app the quick panel
+//!   opens as the key goes down, to hear it: what you say goes into its box, and it finds the
+//!   session it's for or starts one. Nothing is sent: what a machine heard is yours to read
+//!   over first, unless Shift is down as you let go into the quick panel, which starts a
+//!   session with it at once (as ⌘⏎ would), with a line saying it was dictated. The quick
+//!   panel's own microphone button is the same press and release (`talk`, lib.rs), without the
+//!   key held.
 //! - `talk_orchestrator`: to the session that runs as your orchestrator (board.rs
 //!   `orchestrator`), whatever you're looking at. Into its box, the main window brought forward on
 //!   it; or, with `[voice] send_on_release` or Shift held as you let go, sent, with a line saying
@@ -20,9 +24,10 @@
 //! (`send_to_session`). That's why only the microphone is ever heard here. What a meeting says is
 //! other people's words, and listen.rs keeps those apart.
 //!
-//! The notch shows it as it goes (the `talk` event, src/ui/Talk.tsx): that it's listening and to
-//! whom, the words as they're heard, where they went. Without the bar there's nothing to show it
-//! on, and it works the same unseen.
+//! What's heard shows as it goes (the `talk` event), in two places: on the bar (the notch's card
+//! or the floating bar's line, src/ui/Said.tsx), with to whom and where it went; and in the
+//! window the words are for, which puts them where they'll land as they're heard (src/talk.ts),
+//! so there's something to see whatever the bar is set to, and with no bar at all.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -77,13 +82,39 @@ pub struct Talk {
 }
 
 /// What a window is handed to put where its caret is (the `talked` event).
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Talked {
     text: String,
     /// The session whose box it's for, when it's for one whatever the window shows.
     #[serde(skip_serializing_if = "Option::is_none")]
     key: Option<String>,
+    /// For the quick panel: Shift was down as the key came up, so it starts a session with what
+    /// was said at once, as ⌘⏎ would. The text says it was dictated (`dictated`).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    start: bool,
+}
+
+/// Where what was said to whatever you're looking at goes (`To::Looking`).
+#[derive(Clone, Debug, PartialEq)]
+enum Lands {
+    /// Handed to a window, to put where its caret is.
+    Window(Talked),
+    /// The quick panel is opened on it: no window of Codealong's had the keyboard, or the quick
+    /// panel did and was put away before the key came up.
+    Quick,
+}
+
+/// Where `text` goes: to the window that had the keyboard as the key went down (`window`, by its
+/// label, when it's still there), which for the quick panel is only while it's up (`quick_up`),
+/// and which only the quick panel takes as something to start (`shift`).
+fn lands(window: Option<&str>, quick_up: bool, shift: bool, text: &str) -> Lands {
+    match window {
+        Some(label) if label == crate::quick::LABEL && !quick_up => Lands::Quick,
+        Some(label) if label == crate::quick::LABEL && shift => Lands::Window(Talked { text: dictated(text), key: None, start: true }),
+        Some(_) => Lands::Window(Talked { text: text.to_string(), key: None, start: false }),
+        None => Lands::Quick,
+    }
 }
 
 /// What's been heard of one press.
@@ -136,8 +167,14 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-fn show(app: &AppHandle, talk: &Talk) {
+/// Says what's heard of a press: to the bar, and to the window its words are for (`window`,
+/// the one that had the keyboard as the key went down, or the quick panel opened to hear it),
+/// which shows them where they'll land.
+fn show(app: &AppHandle, window: Option<&str>, talk: &Talk) {
     let _ = app.emit_to(crate::bar::LABEL, "talk", talk);
+    if let Some(label) = window.filter(|label| *label != crate::bar::LABEL) {
+        let _ = app.emit_to(label, "talk", talk);
+    }
 }
 
 fn word(to: To) -> &'static str {
@@ -154,19 +191,25 @@ fn key_window(app: &AppHandle) -> Option<String> {
 
 /// One of the keys held to talk went down. On the main thread.
 pub fn press(app: &AppHandle, to: To) {
-    let id = {
-        let mut live = live();
-        if live.is_some() {
-            // Down again without having come up: its release was lost, and this is it.
-            drop(live);
-            release(app);
-            return;
+    if live().is_some() {
+        // Down again without having come up: its release was lost, and this is it.
+        release(app);
+        return;
+    }
+    // With no window of Codealong's to type into (you're in another app), the quick panel is
+    // opened to hear it, and is where the words go: there as you say them, whatever the bar
+    // shows or doesn't, where it would otherwise open only once the key came up.
+    let window = match (key_window(app), to) {
+        (None, To::Looking) => {
+            crate::quick::open(app, json!({ "talk": true }));
+            Some(crate::quick::LABEL.to_string())
         }
-        let id = NEXT.fetch_add(1, Ordering::SeqCst);
-        *live = Some(Live { id, to, window: key_window(app), ear: None, heard: Arc::default(), released: false, shift: false });
-        id
+        (window, _) => window,
     };
-    show(app, &Talk { id, phase: "listening", to: word(to), ..Talk::default() });
+    let id = NEXT.fetch_add(1, Ordering::SeqCst);
+    // On the main thread, as every press is: none has begun since the look above.
+    *live() = Some(Live { id, to, window: window.clone(), ear: None, heard: Arc::default(), released: false, shift: false });
+    show(app, window.as_deref(), &Talk { id, phase: "listening", to: word(to), ..Talk::default() });
     let app = app.clone();
     std::thread::spawn(move || begin(&app, id, to));
 }
@@ -175,12 +218,12 @@ pub fn press(app: &AppHandle, to: To) {
 /// yet to ask them for the microphone.
 fn begin(app: &AppHandle, id: u64, to: To) {
     let cfg = crate::config::current().unwrap_or_default();
-    let heard = match live().as_ref().filter(|l| l.id == id) {
-        Some(l) => l.heard.clone(),
+    let (heard, window) = match live().as_ref().filter(|l| l.id == id) {
+        Some(l) => (l.heard.clone(), l.window.clone()),
         None => return,
     };
     let spec = Spec { sources: vec![Source { name: crate::listen::YOU.into(), from: ear::From::Mic { cancel_echo: false } }], locale: cfg.voice.locale.clone(), hints: hints(&cfg) };
-    let (shows, into) = (app.clone(), heard.clone());
+    let (shows, shown_in, into) = (app.clone(), window.clone(), heard.clone());
     let started = Ear::start(&spec, move |event| {
         let talk = {
             let mut heard = lock(&into);
@@ -203,7 +246,7 @@ fn begin(app: &AppHandle, id: u64, to: To) {
             heard.shown = Some(Instant::now());
             Talk { id, phase: "listening", to: word(to), text: heard.text(), level: heard.level, message: heard.waiting.clone(), ..Talk::default() }
         };
-        show(&shows, &talk);
+        show(&shows, shown_in.as_deref(), &talk);
     });
     let ear = match started {
         Ok(ear) => ear,
@@ -213,7 +256,7 @@ fn begin(app: &AppHandle, id: u64, to: To) {
                 *live = None;
             }
             drop(live);
-            show(app, &Talk { id, phase: "failed", to: word(to), message: Some(crate::listen::refusal(refused).to_string()), ..Talk::default() });
+            show(app, window.as_deref(), &Talk { id, phase: "failed", to: word(to), message: Some(crate::listen::refusal(refused).to_string()), ..Talk::default() });
             return;
         }
     };
@@ -297,9 +340,9 @@ fn finish_in_turn(app: &AppHandle, mut over: Live) {
     let ear = over.ear.take();
     // Said from the thread that stops it, not from here: nothing that might wait on the main
     // thread is done under the lock the main thread takes as a key goes down.
-    let settling = (app.clone(), Talk { id: over.id, phase: "settling", to: word(over.to), text: lock(&over.heard).text(), ..Talk::default() });
+    let settling = (app.clone(), over.window.clone(), Talk { id: over.id, phase: "settling", to: word(over.to), text: lock(&over.heard).text(), ..Talk::default() });
     std::thread::spawn(move || {
-        show(&settling.0, &settling.1);
+        show(&settling.0, settling.1.as_deref(), &settling.2);
         if let Some(ear) = ear {
             ear.stop();
         }
@@ -349,26 +392,46 @@ fn deliver(app: &AppHandle, l: Live) {
             None if waiting => Talk { id, phase: "failed", to, message: Some("macOS is still downloading the speech model. Try again in a minute.".into()), ..Talk::default() },
             None => Talk { id, phase: "nothing", to, message: Some("Nothing heard. Hold the keys down while you talk.".into()), ..Talk::default() },
         };
-        show(app, &talk);
+        show(app, l.window.as_deref(), &talk);
         return;
     }
     let done = match l.to {
-        To::Looking => to_window(app, l.window.as_deref(), &text),
+        To::Looking => to_window(app, l.window.as_deref(), &text, l.shift),
         To::Orchestrator => to_orchestrator(app, &text, l.shift),
     };
-    show(app, &Talk { id, to, text, ..done });
+    show(app, l.window.as_deref(), &Talk { id, to, text, ..done });
 }
 
 /// Hands what was said to the window that had the keyboard, or to the quick panel where no
-/// window of Codealong's did.
-fn to_window(app: &AppHandle, window: Option<&str>, text: &str) -> Talk {
-    match window.filter(|label| app.get_webview_window(label).is_some()) {
-        Some(label) => {
-            let _ = app.emit_to(label, "talked", Talked { text: text.to_string(), key: None });
-            Talk { phase: "typed", ..Talk::default() }
+/// window of Codealong's did (`lands`). The quick panel starts a session with it when Shift
+/// was down as the key came up.
+fn to_window(app: &AppHandle, window: Option<&str>, text: &str, shift: bool) -> Talk {
+    let window = window.filter(|label| app.get_webview_window(label).is_some());
+    match lands(window, quick_up(app), shift, text) {
+        Lands::Window(talked) => {
+            let phase = match (talked.start, window == Some(crate::quick::LABEL)) {
+                (true, _) => "started",
+                (false, true) => "asked",
+                (false, false) => "typed",
+            };
+            if let Some(label) = window {
+                let _ = app.emit_to(label, "talked", talked);
+            }
+            Talk { phase, ..Talk::default() }
         }
-        None => to_quick(app, text, None),
+        Lands::Quick => to_quick(app, text, None),
     }
+}
+
+/// Whether the quick panel is up, asked of the main thread, which is where its window is looked
+/// at. Not, when the main thread doesn't say in time.
+fn quick_up(app: &AppHandle) -> bool {
+    let (said, heard) = std::sync::mpsc::channel();
+    let handle = app.clone();
+    let asked = app.run_on_main_thread(move || {
+        let _ = said.send(crate::quick::is_up(&handle));
+    });
+    asked.is_ok() && heard.recv_timeout(Duration::from_secs(2)).unwrap_or(false)
 }
 
 /// Opens the quick panel on what was said: it finds the session it's for, or starts one.
@@ -416,7 +479,7 @@ fn reveal(app: &AppHandle, key: &str, text: &str) {
         if let Err(e) = crate::front::show_main(&handle, reveal) {
             eprintln!("Couldn't bring the main window forward for what was said: {e:#}");
         }
-        let _ = handle.emit_to("main", "talked", Talked { text, key: Some(key) });
+        let _ = handle.emit_to("main", "talked", Talked { text, key: Some(key), start: false });
     });
 }
 
@@ -442,6 +505,29 @@ mod tests {
         assert_eq!(words(&["Hello, orchestrator.".into(), " Please check what waits on me. ".into()], "and tell"), "Hello, orchestrator. Please check what waits on me. and tell");
         assert_eq!(words(&[], "  "), "");
         assert_eq!(words(&["One.".into()], ""), "One.");
+    }
+
+    #[test]
+    fn what_was_said_goes_to_the_window_that_had_the_keyboard_or_the_quick_panel() {
+        let typed = |text: &str| Lands::Window(Talked { text: text.into(), key: None, start: false });
+        // A window of Codealong's had the keyboard: it types it where its caret is, Shift or not.
+        assert_eq!(lands(Some("main"), false, false, "Fix the login redirect."), typed("Fix the login redirect."));
+        assert_eq!(lands(Some("main"), true, true, "Fix the login redirect."), typed("Fix the login redirect."));
+        // None did (another app was in front, and the key's own open of the panel didn't come
+        // up): the quick panel is opened on it.
+        assert_eq!(lands(None, false, false, "Fix it."), Lands::Quick);
+        // The quick panel had it, opened to hear this or open already: into its box.
+        assert_eq!(lands(Some(crate::quick::LABEL), true, false, "Fix it."), typed("Fix it."));
+        // With Shift down as the key came up, it starts a session with it, said to be dictated.
+        assert_eq!(
+            lands(Some(crate::quick::LABEL), true, true, "Fix it."),
+            Lands::Window(Talked { text: "Fix it.\n\n(Dictated, and sent as I let go of the key: some words may be misheard.)".into(), key: None, start: true })
+        );
+        // Put away before the key came up: it's opened again on what was said, nothing started.
+        assert_eq!(lands(Some(crate::quick::LABEL), false, true, "Fix it."), Lands::Quick);
+        // As a window reads it: nothing of starting unless it's to start.
+        assert_eq!(serde_json::to_value(Talked { text: "Hi.".into(), key: None, start: false }).unwrap(), json!({ "text": "Hi." }));
+        assert_eq!(serde_json::to_value(Talked { text: "Hi.".into(), key: Some("k".into()), start: true }).unwrap(), json!({ "text": "Hi.", "key": "k", "start": true }));
     }
 
     #[test]

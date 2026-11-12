@@ -88,6 +88,33 @@ html.is-quick body {
   letter-spacing: 0.04em;
   color: var(--ink-3);
 }
+/* The microphone, while voice is on: talks into the box (dictation.rs). While it hears, its
+   bars are how loud. */
+.ca-quick-mic {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin-top: 2px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.ca-quick-mic:hover {
+  background: var(--neutral-tint);
+  color: var(--ink);
+}
+.ca-quick-mic:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+.ca-quick-mic.is-on {
+  background: var(--alert-tint);
+}
 .ca-quick-attached {
   padding: 0 14px 10px 14px;
 }

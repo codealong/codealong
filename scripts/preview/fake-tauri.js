@@ -1382,6 +1382,9 @@ window.__TAURI_INTERNALS__ = {
       return Promise.resolve({ notes: '# Renewal call\n\n- Signed by end of June, live in September.\n- Dana signs off over ten seats.\n', transcript: '[14:03:22] Them: Can it export to CSV?\n[14:03:27] You: Not yet.\n[14:03:40] (Codealong’s hearing stopped and started again here: some of what was said is missing.)\n' });
     }
     if (cmd === 'listen') return window.__LISTEN_FAILS__ ? Promise.reject(new Error(window.__LISTEN_FAILS__)) : Promise.resolve({ id: 'sample', session: (args || {}).key });
+    // The quick panel's microphone (dictation.rs, lib.rs `talk`): begun and ended, which a check
+    // reads from `sent('talk')`. What's heard is the check's to say, with `__emit('talk', …)`.
+    if (cmd === 'talk') return Promise.resolve(null);
     // Listen now (meetings.rs `now`), which a check reads from `sent('listen_now')`: the listening
     // it started, with the session started for it, or why not (`window.__LISTEN_FAILS__`), at
     // once or after `window.__LISTEN_AFTER__` milliseconds, as a session that takes its time does.

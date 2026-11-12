@@ -24,6 +24,12 @@
 // window (Waiting.tsx), which goes on from there to the rest that waits on you: the panel finds
 // and starts, and answering is that window's.
 //
+// With voice on, the box takes what you say too (src-tauri/src/dictation.rs): the key held to
+// talk opens the panel from another app as it goes down, and the microphone beside the box does
+// the same with a click. The words sit in the box as they're heard, selected until they're
+// settled (talk.ts), and with Shift down as the key comes up they start a session at once, as
+// ⌘⏎ would.
+//
 // Opened to listen (`[shortcuts] listen`, Listen now in the windows) it's set to that instead:
 // the box asks what the meeting is, nothing is listed or looked for, and ⏎ has Codealong hear it
 // from then on, with a session started for it (meetings.rs `now`) in a chat of its own unless a
@@ -53,6 +59,8 @@ import {
   onBoard,
   onDevices,
   onQuickHidden,
+  onTalk,
+  onTalked,
   openUrl,
   routeQuick,
   saveConfig,
@@ -61,6 +69,7 @@ import {
   showWaiting,
   startFromQuick,
   startOptions,
+  talkTo,
   tellOpener,
   todoOp,
   type QuickOpen,
@@ -69,6 +78,7 @@ import { CODEALONG_PROJECT, IMPROVE_PLACEHOLDER, improvePrompt, improveWords, re
 import { devSetupTask, type AgentTask } from '../agentTasks';
 import { askProblem, LISTEN_KEPT, listenKept, macSays, nowAsk, nowMeeting, nowPlaceholder, nowRow } from '../listening';
 import { meetingTime, meetingWith } from '../meetings';
+import { latestTalk } from '../said';
 import { boardAhead, sendAhead, useAhead } from '../ahead';
 import { filesToAttach, keepFiles, useFileDrop } from '../attachInput';
 import { deviceLabel, floatingLanes, shortOf } from '../devices';
@@ -111,10 +121,11 @@ import { alreadyOnWords, duplicateOf, rankedBy, routeChoice, routeDone, sameStar
 import { dueWords } from '../due';
 import { liveOrLatest, sessionHomes, sessionWhy } from '../lanes';
 import { blockedBy, mergeAttachments, newTodo, primaryHolds, snippet, splitAttachments, todoAgent, todoItem, todoProjects, todoPrompt, todosPrompt, withAttachments } from '../todos';
-import type { Attachment, Board, DesktopPinned, DevicesView, FolderLook, HearingStatus, Lane, ListenAsk, MeetingAhead, PrItem, Route, RouteChoice, RouteNote, Session, StartOptions, StartPlace, StartSpec } from '../types';
+import type { Attachment, Board, DesktopPinned, DevicesView, FolderLook, HearingStatus, Lane, ListenAsk, MeetingAhead, PrItem, Route, RouteChoice, RouteNote, Session, StartOptions, StartPlace, StartSpec, Talk } from '../types';
 import { AttachmentStrip } from './DescriptionEditor';
 import { DevSetupDialog } from './DevSetupDialog';
 import { ListenChoices } from './Listening';
+import { Level } from './Said';
 import { Picker, type PickerOption, type PickerSection } from './Picker';
 import { addsTo, anotherFolderOption, chatOption, folderOptions, laneSections } from './pickerOptions';
 import { AgentFoot } from './AgentMenu';
@@ -352,6 +363,13 @@ export function Quick() {
   const [hearing, setHearing] = useState<HearingStatus | null>(null);
   const [meetings, setMeetings] = useState<MeetingAhead[]>([]);
   const [notMeeting, setNotMeeting] = useState<string | null>(null);
+  // What's being heard with the key held to talk, or the microphone beside the box, while the
+  // panel is the window its words are for (dictation.rs): the words themselves show in the box
+  // as they're heard (talk.ts), and the microphone says it's listening and how loud. Opened
+  // only to hear it, from another app, the panel goes away again when nothing was said.
+  const [talk, setTalk] = useState<Talk | null>(null);
+  const talking = talk !== null && (talk.phase === 'listening' || talk.phase === 'settling');
+  const openedToHear = useRef(false);
   const [error, setError] = useState<string | null>(null);
   // What a menu's action did (copied, closed), for a moment.
   const [info, setInfo] = useState<string | null>(null);
@@ -445,6 +463,7 @@ export function Quick() {
     };
     const apply = (ctx: QuickOpen, b: Board | null) => {
       caretKept.current = !!ctx.keep && foldedNow.current;
+      openedToHear.current = !!ctx.talk;
       setFolded(false);
       setPicker(null);
       setRoom(ctx.room ?? null);
@@ -967,7 +986,8 @@ export function Quick() {
   // and its suggestions lead the list, so ⏎ does the likeliest. A word or two alone is a search
   // and isn't sent.
   const routePrompt = query ? withShots(withAttachments(query, attached)) : '';
-  const routeFor = board?.jev?.quick_panel && !todo && worthRouting(routePrompt) ? `${current}\n${routePrompt}` : null;
+  // Not while it's being said: the words change until the key comes up.
+  const routeFor = board?.jev?.quick_panel && !todo && !talking && worthRouting(routePrompt) ? `${current}\n${routePrompt}` : null;
   const [routed, setRouted] = useState<{ for: string; route: Route } | null>(null);
   const [routeError, setRouteError] = useState<{ for: string; message: string } | null>(null);
   useEffect(() => {
@@ -1584,6 +1604,40 @@ export function Quick() {
         });
       });
   };
+
+  /* ---- Talking ---- */
+
+  // What's heard of a press whose words are for this panel, and what came of it. One that
+  // failed says why here; one that heard nothing says so, or, when the panel was opened only to
+  // hear it and holds nothing, puts the panel away again, so a key pressed by mistake leaves you
+  // where you were.
+  useEffect(
+    () =>
+      onTalk((t) => {
+        if (t.to !== 'looking') return;
+        setTalk((shown) => latestTalk(shown, t));
+        if (t.phase === 'listening' || t.phase === 'settling') return;
+        const unasked = openedToHear.current && !textNow.current.trim() && attachedNow.current.length === 0;
+        openedToHear.current = false;
+        if (!shownNow.current) return;
+        if (t.phase === 'failed') setError(t.message ?? 'Codealong couldn’t listen.');
+        else if (t.phase === 'nothing' && unasked) void hideQuick();
+        else if (t.phase === 'nothing') setInfo(t.message ?? 'Nothing heard.');
+      }),
+    [textNow, attachedNow, shownNow],
+  );
+  // Shift was down as the key came up (`Talked.start`): what was said is in the box by now, put
+  // there by the listener that hears this first (talk.ts), and it starts as ⌘⏎ would; set to
+  // listen, as ⏎ would. A turn later, so the start is of the box as it's drawn with it.
+  const startSpoken = useLatest(() => (listen ? listenToIt() : start()));
+  useEffect(
+    () =>
+      onTalked((said) => {
+        if (said.start && shownNow.current) window.setTimeout(() => startSpoken.current(), 0);
+      }),
+    [shownNow, startSpoken],
+  );
+  const talkKeys = shortcutLabel(board?.talkShortcut);
 
   /** Keeps what's typed as a todo, linked to the worktree. Improve Codealong's pictures go into
    *  its description. */
@@ -2218,7 +2272,7 @@ export function Quick() {
             rows={1}
             spellCheck={!inSendTo}
             aria-label={inSendTo ? SEND_TO_PLACEHOLDER : listen ? 'What the meeting is' : 'Search or prompt'}
-            placeholder={inSendTo ? SEND_TO_PLACEHOLDER : listen ? nowPlaceholder(listenHow.role) : improve ? IMPROVE_PLACEHOLDER : draft ? `${QUICK_PLACEHOLDER} ↑ brings back your draft` : history.length ? `${QUICK_PLACEHOLDER} ↑ for earlier prompts` : QUICK_PLACEHOLDER}
+            placeholder={inSendTo ? SEND_TO_PLACEHOLDER : talking ? 'Listening…' : listen ? nowPlaceholder(listenHow.role) : improve ? IMPROVE_PLACEHOLDER : draft ? `${QUICK_PLACEHOLDER} ↑ brings back your draft` : history.length ? `${QUICK_PLACEHOLDER} ↑ for earlier prompts` : QUICK_PLACEHOLDER}
             onChange={(e) => {
               setActiveKey(null);
               if (inSendTo) {
@@ -2240,10 +2294,30 @@ export function Quick() {
                 .catch((err: unknown) => setError(errorText(err)));
             }}
           />
-          {shortcut && !text && !inSendTo && (
+          {shortcut && !text && !inSendTo && !talking && (
             <span className="ca-quick-hotkey" title="Opens this panel from any app. Change it in Settings.">
               {shortcut}
             </span>
+          )}
+          {/* Talking into the box (dictation.rs), while voice is on: a click begins it and another
+              ends it, as the key held to talk going down and coming up. */}
+          {board?.experimental?.voice && !inSendTo && (
+            <button
+              type="button"
+              className={cx('ca-quick-mic', talking && 'is-on')}
+              aria-pressed={talking}
+              aria-label={talking ? 'Stop listening' : 'Talk'}
+              title={keysIn(
+                talking
+                  ? 'Listening: click, or let go of the key, and what you said is typed here. With Shift held as you do, it starts a session with it at once.'
+                  : `Talk, and what you say is typed here: click, and click again when you’re done${talkKeys ? `, or hold ${talkKeys} from any app` : ''}. With Shift held as you stop, it starts a session with it at once.`,
+              )}
+              // The keyboard stays in the box, where the words go.
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => void talkTo(!talking).catch((e: unknown) => setError(errorText(e)))}
+            >
+              {talking && talk ? <Level level={talk.level} /> : <Icon name="microphone" size={15} />}
+            </button>
           )}
         </div>
         {inSendTo && (

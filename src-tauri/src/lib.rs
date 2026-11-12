@@ -737,6 +737,21 @@ fn hide_quick(app: tauri::AppHandle) {
     quick::hide(&app);
 }
 
+/// The quick panel's microphone button: talking to what you're looking at as the key held to
+/// talk does (dictation.rs), begun with `on` and ended without, so it needs no key held. Shift
+/// down as it ends starts a session with what was said, as it does as the key comes up.
+#[tauri::command]
+fn talk(app: tauri::AppHandle, on: bool) -> Result<(), String> {
+    let cfg = config::current().map_err(words)?;
+    listen::turned_on(&cfg).map_err(words)?;
+    if on {
+        dictation::press(&app, dictation::To::Looking);
+    } else {
+        dictation::release(&app);
+    }
+    Ok(())
+}
+
 /// The quick panel's page is laid out for the open it was asked for, at this height.
 #[tauri::command]
 fn quick_ready(app: tauri::AppHandle, height: f64) {
@@ -1474,7 +1489,7 @@ fn watch_main_thread(app: tauri::AppHandle) {
 /// it's one of its calls (`forward`).
 macro_rules! app_commands {
     ($($then:tt)*) => {
-        $($then)*![get_board, open_target, open_config, editor_icons, open_from_bar, peek_open, pr_at, session_at, perf_mark, page_unfocused, window_keys, pointer_probe, popup_menu, fit_bar, show_main, take_opened_link, peek_ready, peek_fit, peek_focus, peek_hide, peek_resize, peek_drag, keep_session, kept_session, kept_ready, kept_focus, kept_resize, kept_close, session_window, session_put_back, session_windows, side_window, side_windows, terminal_window, terminal_put_back, terminal_windows, kept_terminal, bar_feed, desktop_pins, pin_to_desktop, drag_to_desktop, unpin_from_desktop, desktop_feed, fit_desktop, desktop_hover, lineage_feed, show_quick, hide_quick, quick_ready, show_waiting, waiting_asked, start_from_quick, quick_shortcut, pause_quick_shortcut, bar_on, set_bar_on, bar_mode, notch_shape, notch_drag, set_bar_mode, set_notch_open, notch_keys, keep_notch_session, review_in_codex, open_url, chrome_profiles, open_in_chrome, open_harness_link, open_pr_file, run_command, play_sound, update_status, check_for_updates, restart_to_update, open_at_login, set_open_at_login, terminal_awake, set_terminal_awake, open_team_file, link_code_qr, start_session, move_session, resume_session, fork_session, sign_in, board_answer, schedule_times, save_attachment, import_attachment, expand_attachments, open_attachment, open_file, reveal_file, edit_file, your_editor, path_kinds, open_project_window]
+        $($then)*![get_board, open_target, open_config, editor_icons, open_from_bar, peek_open, pr_at, session_at, perf_mark, page_unfocused, window_keys, pointer_probe, popup_menu, fit_bar, show_main, take_opened_link, peek_ready, peek_fit, peek_focus, peek_hide, peek_resize, peek_drag, keep_session, kept_session, kept_ready, kept_focus, kept_resize, kept_close, session_window, session_put_back, session_windows, side_window, side_windows, terminal_window, terminal_put_back, terminal_windows, kept_terminal, bar_feed, desktop_pins, pin_to_desktop, drag_to_desktop, unpin_from_desktop, desktop_feed, fit_desktop, desktop_hover, lineage_feed, show_quick, hide_quick, talk, quick_ready, show_waiting, waiting_asked, start_from_quick, quick_shortcut, pause_quick_shortcut, bar_on, set_bar_on, bar_mode, notch_shape, notch_drag, set_bar_mode, set_notch_open, notch_keys, keep_notch_session, review_in_codex, open_url, chrome_profiles, open_in_chrome, open_harness_link, open_pr_file, run_command, play_sound, update_status, check_for_updates, restart_to_update, open_at_login, set_open_at_login, terminal_awake, set_terminal_awake, open_team_file, link_code_qr, start_session, move_session, resume_session, fork_session, sign_in, board_answer, schedule_times, save_attachment, import_attachment, expand_attachments, open_attachment, open_file, reveal_file, edit_file, your_editor, path_kinds, open_project_window]
     };
 }
 

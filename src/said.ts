@@ -86,6 +86,8 @@ export function talkSays(talk: Talk): string {
       return whom ? `Sent to ${whom}` : 'Sent';
     case 'asked':
       return 'In the quick panel';
+    case 'started':
+      return 'Starting a session with it';
     case 'nothing':
       return 'Nothing heard';
     case 'failed':

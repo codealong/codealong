@@ -2306,7 +2306,7 @@ const TALK_SHORTCUTS: typeof SHORTCUTS = [
     title: 'Talk to what you’re looking at',
     name: 'Shortcut held to talk',
     called: 'the shortcut held to talk',
-    says: 'Hold it and talk; let go and what you said is typed where your caret is in Codealong: a session’s box, the quick panel, a todo. From another app it opens the quick panel on what you said. Nothing is sent until you send it.',
+    says: 'Hold it and talk; let go and what you said is typed where your caret is in Codealong: a session’s box, the quick panel, a todo. From another app the quick panel opens to hear it. Nothing is sent until you send it, unless you keep Shift down as you let go there, which starts a session with it at once.',
   },
   {
     which: 'talkorchestrator',

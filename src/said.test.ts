@@ -80,6 +80,8 @@ describe('what the bar shows of voice', () => {
     expect(talkSays(talk({ phase: 'typed', to: 'orchestrator', title: 'Orchestrator' }))).toBe('In Orchestrator’s box');
     expect(talkSays(talk({ phase: 'sent', to: 'orchestrator', title: 'Orchestrator' }))).toBe('Sent to Orchestrator');
     expect(talkSays(talk({ phase: 'asked' }))).toBe('In the quick panel');
+    // Shift was down as the key came up into the quick panel.
+    expect(talkSays(talk({ phase: 'started' }))).toBe('Starting a session with it');
     expect(talkSays(talk({ phase: 'nothing' }))).toBe('Nothing heard');
   });
 });

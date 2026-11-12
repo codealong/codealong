@@ -1256,7 +1256,7 @@ export interface BarListening extends ListeningGlance {
 /** A key held to talk, as the notch is told of it (dictation.rs `Talk`). */
 export interface Talk {
   id: number;
-  phase: 'listening' | 'settling' | 'typed' | 'sent' | 'asked' | 'nothing' | 'failed';
+  phase: 'listening' | 'settling' | 'typed' | 'sent' | 'asked' | 'started' | 'nothing' | 'failed';
   to: 'looking' | 'orchestrator';
   title?: string;
   text: string;
@@ -1265,10 +1265,12 @@ export interface Talk {
 }
 
 /** What a window is handed to put where its caret is (dictation.rs `Talked`): `key` when it's
- *  for one session's box whatever the window shows. */
+ *  for one session's box whatever the window shows; `start` for the quick panel alone, when Shift
+ *  was down as the key came up, which starts a session with it at once. */
 export interface Talked {
   text: string;
   key?: string;
+  start?: boolean;
 }
 
 /** `[pull_requests]` (config.rs `PullRequestsCfg`). */

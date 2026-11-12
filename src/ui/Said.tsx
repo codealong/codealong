@@ -42,8 +42,9 @@ export function useSaid(listenings: readonly BarListening[] | undefined): { said
   return { said, dismiss: () => setDismissed(cueAt) };
 }
 
-/** How loud the microphone is, as three bars. */
-function Level({ level }: { level: number }) {
+/** How loud the microphone is, as three bars: on the bar, and on the quick panel's microphone
+ *  while it hears (Quick.tsx). */
+export function Level({ level }: { level: number }) {
   // Speech sits low on the scale: a square root spreads it over the bars.
   const loud = Math.min(1, Math.sqrt(level) * 1.6);
   return (

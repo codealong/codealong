@@ -9,7 +9,8 @@
 // apart, an answer that says nothing not at all) and a strip over its box with the latest lines
 // heard as captions, told or not, each speaker's words being said, its notes and Stop, which keeps
 // its height whatever comes and starts from what it showed when its session is shown again. And what's said with a key held to talk is typed where the
-// caret is, or else into the box of the session shown, or of the one the engine names.
+// caret is, or else into the box of the session shown, or of the one the engine names, and shows
+// at the caret as it's heard.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/voice-check.js
 (function () {
   // This runs before the app's script: the board it gets has two sessions made from real ones
@@ -259,6 +260,27 @@
     })
     .then(function () {
       check('or of the session the engine names', field().value === 'Hello rebase onto main. Then run the tests.', field().value);
+      // What's heard shows where it will land as it's heard (the `talk` event), whatever the bar
+      // shows: at the caret, selected, until what was said takes its place.
+      var f = field();
+      f.focus();
+      f.setSelectionRange(f.value.length, f.value.length);
+      window.__emit('talk', { id: 7, phase: 'listening', to: 'looking', text: 'And push', level: 0.2 });
+      return until(function () { return field().value === 'Hello rebase onto main. Then run the tests. And push'; }, 2000, 'the words as they’re heard, at the caret');
+    })
+    .then(function () {
+      var f = field();
+      check('what’s heard shows at the caret as it’s heard, selected', f.value.slice(f.selectionStart, f.selectionEnd) === ' And push', f.value.slice(f.selectionStart, f.selectionEnd));
+      // What's for your orchestrator goes to its box, not to this caret.
+      window.__emit('talk', { id: 8, phase: 'listening', to: 'orchestrator', text: 'Check the queue', level: 0.2 });
+      window.__emit('talk', { id: 7, phase: 'settling', to: 'looking', text: 'And push it', level: 0 });
+      window.__emit('talked', { text: 'And push it.' });
+      window.__emit('talk', { id: 7, phase: 'typed', to: 'looking', text: 'And push it.', level: 0 });
+      return until(function () { return field().value === 'Hello rebase onto main. Then run the tests. And push it.'; }, 2000, 'what was said in its place');
+    })
+    .then(function () {
+      var f = field();
+      check('and what was said takes its place, the caret after it', f.selectionStart === f.value.length && f.selectionEnd === f.value.length, f.selectionStart + ' of ' + f.value.length);
       check('and nothing is sent', sent('send_to_session').length === 0 && sent('resume_session').length === 0);
       button(strip(), 'Stop').click();
       return until(function () { var l = last('listen'); return l && l.on === false; }, 2000, 'the engine asked to stop');

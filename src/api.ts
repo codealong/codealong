@@ -2020,6 +2020,9 @@ export interface QuickOpen {
   improve?: boolean | { shots: Attachment[] };
   /** Starts in a chat of its own, in no project (`[shortcuts] chat`), in place of `laneId`. */
   chat?: boolean;
+  /** Opened to hear what's said with the key held to talk (dictation.rs `press`), from another
+   *  app: an ordinary open, which goes away again by itself when nothing was heard. */
+  talk?: boolean;
   /** Listen now (`[shortcuts] listen`, meetings.rs `now`): the panel asks what the meeting is
    *  and ⏎ has Codealong hear it from then on, with a session started for it, in a chat of its
    *  own unless a worktree is picked. */
@@ -2392,9 +2395,18 @@ export function onListeningNotes(cb: (session: string) => void): () => void {
   return onServerEvent<{ session: string }>('listening-notes', (p) => cb(p.session));
 }
 
-/** What a key held to talk hears and where it went, for the bar. */
+/** What a key held to talk hears and where it went: for the bar, and for the window its words
+ *  are for, which shows them where they'll land (talk.ts). */
 export function onTalk(cb: (talk: Talk) => void): () => void {
   return onWindowEvent<Talk>('talk', cb);
+}
+
+/** Talks to what you're looking at without the key held (the quick panel's microphone): begun
+ *  with `on`, ended without, as the key held to talk going down and coming up (dictation.rs).
+ *  Rejects with why when it can't: voice is off. */
+export async function talkTo(on: boolean): Promise<void> {
+  if (!inTauri) return;
+  await invoke('talk', { on });
 }
 
 /** What was said for this window to put where its caret is (talk.ts). */

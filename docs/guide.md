@@ -3399,9 +3399,15 @@ for what's picked in it. Linux has none of this yet.
 
 **Talking to a session.** Hold ⌥⌘[ and talk; let go, and what you said is typed where your caret
 is in the Codealong window you're in: a session's box, the quick panel, a todo's description, a
-review. With no caret it goes into the box of the session the window shows, and from another app
-the quick panel opens on it, to find the session it's for or start one. Nothing is sent: a machine
-heard it, and it's yours to read over first. Hold ⌥⌘] instead to talk to your orchestrator
+review. With no caret it goes into the box of the session the window shows. From another app
+the quick panel opens as the key goes down, to hear it: what you say goes into its box, to find
+the session it's for or start one, and a key pressed by mistake, with nothing said, puts the
+panel away again. Nothing is sent: a machine heard it, and it's yours to read over first. The
+one exception is yours to make: keep Shift down as you let go into the quick panel, and it
+starts a session with what you said at once, as ⌘⏎ would, with a line saying it was dictated
+and may be misheard. The quick panel has a microphone beside its box too, while voice is on: a
+click starts hearing and another ends it, for when you'd rather not hold a key. Hold ⌥⌘] instead
+to talk to your orchestrator
 (*An orchestrator*: the session started on `/codealong:orchestrate`, or failing that one called an
 orchestrator), whatever you're looking at: what you said is in its box, with Codealong's window
 brought forward on it. Keep Shift down as you let go, or turn on *Send what I say to my
@@ -3410,11 +3416,16 @@ misheard. With no orchestrator running the quick panel has it. The keys are `tal
 `talk_orchestrator` under `[shortcuts]`, set with Voice in Settings › Experimental; editors fold
 code with the defaults, which these take from them while voice is on.
 
-The bar shows it as it goes: docked in the notch, a card opens under the pills with the words as
-they're heard and to whom, then where they went; floating, a line in the bar. It never takes the
-keyboard from what you're in. Hearing starts as the key goes down, before the speech model has
-loaded, so the first words aren't lost; a key that never comes up is let go of after three
-minutes.
+What's heard shows as it goes, in two places. Where it's going: the words sit at the caret of
+the field they're for as they're heard, selected, since they change until the key comes up,
+when what you said takes their place (one Undo takes it out). And on the bar: docked in the
+notch, a card opens under the pills with the words as they're heard and to whom, then where
+they went; floating, a line in the bar. So with the bar in the menu bar, or off, what's heard is
+still in sight where it lands. In a Codealong window it never takes the keyboard from what
+you're in; from another app the quick panel takes it as the key goes down, as it would have once
+you let go. Hearing starts as the key goes down, before the speech model has loaded, so the
+first words aren't lost; a key that never comes up is let go of after three minutes, and so is
+the microphone's click.
 
 **A session that listens.** *Listen…* in a session's menu has it hear a meeting as it's said.
 Tell the session first what you want from the meeting, as you'd tell it anything, then pick:
@@ -3598,7 +3609,10 @@ three minutes, so one that runs over is heard to its end; and when you take the 
 last one's ends. Taking a meeting is yours to do, in Codealong's windows: the command neither
 takes one nor asks macOS for your calendar.
 
-Not yet checked by hand: Listen now in the real app (⌥⌘= from another app, the microphone and
+Not yet checked by hand: talking into the quick panel in the real app (the panel opening as
+the key goes down from another app and going away when nothing was said, the words in its box as
+they're heard, its microphone, Shift starting a session; the preview shows the page's side of
+each); Listen now in the real app (⌥⌘= from another app, the microphone and
 the session that follows it, the light under a meeting's name while its session starts, and a
 meeting started by mistake put away: the preview shows the panel and what it asks for, the
 engine's rules are tested, and what it would start is `--snapshot --listen-plan`'s); the Mac's
