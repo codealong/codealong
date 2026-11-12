@@ -78,10 +78,13 @@ them. The paths have spaces in them, so quote them:
   title, times and `attendees`, and the `session` that took it). `codealong listen status` says
   where those folders are: take only `meetingsFolder` from it. That folder is the record of
   every meeting taken, so list it, and search its notes for a name or a subject (`grep -ril
-  "<words>" "<meetingsFolder>"/*/notes.md`). No such folder means none has been taken yet.
-- One a session was asked to listen to (Listen… in its menu) is in no calendar and isn't among
-  those: its folder is `<dataDir>/listenings/<id>` (`codealong status` has `dataDir`), so find
-  it by what its notes say (`grep -ril "<words>" "<dataDir>/listenings"/*/notes.md`).
+  --include=notes.md "<words>" "<meetingsFolder>"`). No such folder means none has been taken
+  yet.
+- One a session was asked to listen to (Listen… in its menu) is in no calendar and isn't in
+  that folder: its files are in `<dataDir>/listenings/<id>` (`codealong status` has `dataDir`),
+  with a `meeting.json` of its own that names it for its session (`title`). Find it by that
+  name or by what its notes say (`grep -ril --include=meeting.json --include=notes.md "<words>"
+  "<dataDir>/listenings"`). The app's Meetings window lists both kinds together.
 
 ## Reading it
 

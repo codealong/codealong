@@ -33,6 +33,11 @@
 //! Codealong hears from the moment it's asked, before the session it starts has come up
 //! (`begin`), and one you stop right away with nothing heard leaves nothing behind (`stray`).
 //!
+//! A meeting a session was asked to listen to (Listen… in its menu, listen.rs `start`) is one of
+//! your meetings too, in no calendar and named for its session. Its files stay where its
+//! listening put them, a folder of its own among Codealong's files (`listen::own`), which says
+//! which meeting it is as a taken one's does (`note_heard`), so it's listed with them (`yours`).
+//!
 //! Only this Mac's calendar and sessions: nothing of it goes to your other devices.
 
 use std::collections::{HashMap, HashSet};
@@ -213,15 +218,80 @@ pub fn kept(root: &Path) -> Vec<Kept> {
             Some(Kept { name: util::file_name(&folder), folder: folder.to_string_lossy().into_owned(), record, notes, lines })
         })
         .collect();
-    all.sort_by(|a, b| b.record.meeting.start.cmp(&a.record.meeting.start).then_with(|| b.name.cmp(&a.name)));
+    all.sort_by(latest_first);
     all
 }
 
+fn latest_first(a: &Kept, b: &Kept) -> std::cmp::Ordering {
+    b.record.meeting.start.cmp(&a.record.meeting.start).then_with(|| b.name.cmp(&a.name))
+}
+
+/// Your meetings, the latest first: the ones that were taken, in the folder they're kept in
+/// (`root`), and the ones a session was asked to listen to, each where its listening put it
+/// (`listen::own`).
+pub fn yours(cfg: &Config) -> Vec<Kept> {
+    both(&root(cfg), &listen::own())
+}
+
+/// `yours`, of the two folders. One a session was asked to listen to isn't a meeting until
+/// something was heard: Listen… picked by mistake, and stopped, lists nothing.
+fn both(taken: &Path, heard: &Path) -> Vec<Kept> {
+    let mut all = kept(taken);
+    if heard != taken {
+        all.extend(kept(heard).into_iter().filter(|k| k.lines > 0));
+    }
+    all.sort_by(latest_first);
+    all
+}
+
+/// The folders your meetings' folders are in (`yours`).
+pub fn roots(cfg: &Config) -> Vec<PathBuf> {
+    vec![root(cfg), listen::own()]
+}
+
+/// What the folder of a listening a session was asked for says of it, as a taken meeting's
+/// does: a meeting in no calendar, begun when its listening was, and named for its session
+/// (`title`), or for what you typed when the session has no name. None for a recording's, which
+/// is heard to try something out, at another time than it was said, and for a taken meeting's,
+/// whose folder says already (`begin`).
+fn heard_record(l: &Listening, title: &str) -> Option<Record> {
+    let recording = l.sources.iter().any(|s| matches!(s.from, ear::From::File { .. }));
+    if l.folder.is_some() || l.session.is_empty() || recording {
+        return None;
+    }
+    let name = if title.trim().is_empty() { l.prompt.as_str() } else { title };
+    let meeting = Meeting { id: format!("heard:{}", l.id), ..unplanned(name, l.started_at) };
+    Some(Record { meeting, listening: l.id.clone(), session: l.session.clone(), role: l.role, taken_at: l.started_at })
+}
+
+/// Says which meeting a listening a session was asked for is, in its own folder
+/// (`heard_record`). A folder that says is left as it is, and one that's gone stays gone.
+pub fn note_heard(l: &Listening, title: &str) {
+    let path = l.dir().join("meeting.json");
+    if path.exists() || !l.dir().is_dir() {
+        return;
+    }
+    if let Some(record) = heard_record(l, title) {
+        write_record(&path, &record);
+    }
+}
+
+/// Has the listenings sessions were asked for before their folders said which meeting they are
+/// say so (`note_heard`), each named for its session as the board has it now: the ones heard
+/// before a session's own were listed among your meetings.
+pub fn adopt(board: &crate::model::Board, all: &[Listening]) {
+    for l in all {
+        let title = board.session(&l.session).map(|(_, s)| s.title.clone()).unwrap_or_default();
+        note_heard(l, &title);
+    }
+}
+
 /// A kept meeting's notes and transcript, for the window that shows it. Only of a folder among
-/// your meetings that says which meeting it is: nothing else is read by asking for it here.
-pub fn files(root: &Path, folder: &str) -> Result<Files> {
+/// your meetings (in one of `roots`) that says which meeting it is: nothing else is read by
+/// asking for it here.
+pub fn files(roots: &[PathBuf], folder: &str) -> Result<Files> {
     let folder = Path::new(folder);
-    if folder.parent() != Some(root) || !folder.join("meeting.json").is_file() {
+    if !roots.iter().any(|root| folder.parent() == Some(root.as_path())) || !folder.join("meeting.json").is_file() {
         bail!("That isn't one of your meetings.");
     }
     let read = |name: &str| std::fs::read_to_string(folder.join(name)).ok().filter(|text| !text.trim().is_empty());
@@ -745,9 +815,6 @@ fn write_record(path: &Path, record: &Record) {
 /// `goes_on_as`: one that had stopped was resumed as a copy, with another key), so *Its session*
 /// in the window that lists your meetings goes to the one that has the conversation.
 pub fn follow(l: &Listening) {
-    if l.folder.is_none() {
-        return;
-    }
     let path = l.dir().join("meeting.json");
     let Some(mut record) = std::fs::read_to_string(&path).ok().and_then(|text| serde_json::from_str::<Record>(&text).ok()) else { return };
     if record.listening == l.id && record.session != l.session {
@@ -1022,14 +1089,57 @@ mod tests {
         assert_eq!(all[1].folder, first.to_string_lossy());
         assert!(all[1].name.ends_with(" Renewal call"), "{}", all[1].name);
         // Its files are read as they are; an empty one is none; and only a meeting's are read.
-        let got = files(&root, &all[1].folder).unwrap();
+        let roots = [root.clone()];
+        let got = files(&roots, &all[1].folder).unwrap();
         assert_eq!(got.notes.as_deref(), Some("# Renewal call\n\n- Signed by June.\n"));
         assert!(got.transcript.unwrap().starts_with("[10:00:00] You: Hello."));
-        assert_eq!(files(&root, &later.to_string_lossy()).unwrap(), Files::default());
+        assert_eq!(files(&roots, &later.to_string_lossy()).unwrap(), Files::default());
         for other in [root.join("scratch"), root.clone(), std::env::temp_dir(), first.join("..").join("..")] {
-            assert_eq!(files(&root, &other.to_string_lossy()).unwrap_err().to_string(), "That isn't one of your meetings.", "{}", other.display());
+            assert_eq!(files(&roots, &other.to_string_lossy()).unwrap_err().to_string(), "That isn't one of your meetings.", "{}", other.display());
         }
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_meeting_a_session_listened_to_is_one_of_yours_once_something_was_heard() {
+        let dir = store::test_dir("meetings-yours");
+        let (taken, heard) = (dir.join("meetings"), dir.join("listenings"));
+        let keep = |folder: PathBuf, record: &Record, transcript: &str| {
+            std::fs::create_dir_all(&folder).unwrap();
+            std::fs::write(folder.join("meeting.json"), serde_json::to_string_pretty(record).unwrap()).unwrap();
+            std::fs::write(folder.join("transcript.md"), transcript).unwrap();
+        };
+        // What its folder says of it: in no calendar, begun as its listening was, by its
+        // session's name; or by what was typed, for a session with none.
+        let sources = listen::Ask { mic: true, ..listen::Ask::default() }.sources().unwrap();
+        let l = Listening { id: "abc".into(), session: "claude:work:1".into(), sources, prompt: "Room audio\nNames matter.".into(), started_at: NOW + 60 * MIN, ..Listening::default() };
+        let record = heard_record(&l, " Kestrel on-site ").unwrap();
+        assert_eq!((record.meeting.title.as_str(), record.meeting.start, record.meeting.unplanned), ("Kestrel on-site", NOW + 60 * MIN, true));
+        assert_eq!((record.listening.as_str(), record.session.as_str(), record.meeting.id.as_str()), ("abc", "claude:work:1", "heard:abc"));
+        assert_eq!(heard_record(&l, " ").unwrap().meeting.title, "Room audio");
+        // Not a taken meeting's, whose folder says already, one with no session yet, or a recording's.
+        assert_eq!(heard_record(&Listening { folder: Some("/Users/me/Meetings/x".into()), ..l.clone() }, "x"), None);
+        assert_eq!(heard_record(&Listening { session: String::new(), ..l.clone() }, "x"), None);
+        let recording = listen::Ask { file: Some("/tmp/call.m4a".into()), ..listen::Ask::default() }.sources().unwrap();
+        assert_eq!(heard_record(&Listening { sources: recording, ..l.clone() }, "x"), None);
+
+        let m = meeting("a", NOW, 30);
+        let record_of = |m: &Meeting| Record { meeting: m.clone(), listening: "l".into(), session: "claude:work:2".into(), role: Role::Notes, taken_at: m.start };
+        keep(new_folder(&taken, &m).unwrap(), &record_of(&m), "");
+        keep(heard.join("abc"), &record, "[11:00:00] You: Hello.\n");
+        // Listen… picked and stopped with nothing heard: its folder says, and it isn't one.
+        keep(heard.join("def"), &heard_record(&Listening { id: "def".into(), ..l.clone() }, "By mistake").unwrap(), "");
+        // Both kinds, the latest first; a taken one is listed whatever was heard.
+        let all = both(&taken, &heard);
+        assert_eq!(all.iter().map(|k| (k.record.meeting.title.as_str(), k.lines)).collect::<Vec<_>>(), vec![("Kestrel on-site", 1), ("Renewal call", 0)]);
+        assert_eq!(all[0].folder, heard.join("abc").to_string_lossy());
+        // One folder for both lists each once.
+        assert_eq!(both(&taken, &taken).len(), 1);
+        // Its files are read from where its listening put them, and nothing beside the two folders.
+        let roots = [taken.clone(), heard.clone()];
+        assert!(files(&roots, &all[0].folder).unwrap().transcript.unwrap().starts_with("[11:00:00] You: Hello."));
+        assert_eq!(files(&roots[..1], &all[0].folder).unwrap_err().to_string(), "That isn't one of your meetings.");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -6,8 +6,8 @@
 // in the main window's bar and the floating bar (one line) and under the notch's pills (a card,
 // which opens the notch without taking the keyboard). In the main window, the bar's Meetings
 // button opens your meetings (ui/Meetings.tsx): the day ahead, where one that's going on can be
-// taken, and the ones that were kept, the latest first, the one picked with its notes and its
-// transcript.
+// taken, and the ones that were heard, the latest first (a taken meeting's and one a session was
+// asked to listen to alike), the one picked with its notes and its transcript.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/voice-meeting-check.js
 //   PREVIEW_WAIT=60000 scripts/preview.sh bar '' scripts/preview/voice-meeting-check.js
 //   PREVIEW_SIZE=1512,720 PREVIEW_WAIT=60000 scripts/preview.sh notch '' scripts/preview/voice-meeting-check.js
@@ -46,11 +46,12 @@
     check('with voice on, the window’s bar opens your meetings', !!opens);
     if (!opens) return null;
     opens.click();
-    return until(function () { return dialog() && all('.ca-meetings-row', dialog()).length === 2 && q('.ca-meetings-body .ca-md-h1', dialog()); }, 5000, 'your meetings')
+    return until(function () { return dialog() && all('.ca-meetings-row', dialog()).length === 3 && q('.ca-meetings-body .ca-md-h1', dialog()); }, 5000, 'your meetings')
       .then(function () {
         var rows = all('.ca-meetings-row', dialog());
         check('they’re listed, the latest first, and the latest is shown', rows[0].classList.contains('is-on') && q('.ca-meetings-title', rows[0]).textContent === 'Renewal call' && q('.ca-meetings-title', rows[1]).textContent === 'Standup', rows.map(function (r) { return r.textContent; }).join(' | '));
         check('each says who was in it, and when nothing was heard', q('.ca-meetings-who', rows[0]).textContent === 'with Dana Kestrel and Lee Atlas' && q('.ca-meetings-who', rows[1]).textContent === 'with Sam Northwind · nothing heard', q('.ca-meetings-who', rows[1]).textContent);
+        check('one a session was asked to listen to is among them, by its session’s name', q('.ca-meetings-title', rows[2]).textContent === 'Kestrel on-site' && q('.ca-meetings-who', rows[2]).textContent === '', rows[2].textContent);
         check('with its notes, as they were kept', q('.ca-meetings-body .ca-md-h1', dialog()).textContent === 'Renewal call' && all('.ca-meetings-body li', dialog()).length === 2);
         check('read from its own folder', calls('meeting_files')[0][1].folder === '/Users/me/Library/Application Support/Codealong/meetings/2026-11-10 1400 Renewal call', JSON.stringify(calls('meeting_files')[0]));
         all('.ca-meetings-head button', dialog()).filter(function (b) { return b.textContent.trim() === 'Transcript'; })[0].click();

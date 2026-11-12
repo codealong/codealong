@@ -1,7 +1,7 @@
 // Your meetings (src-tauri/src/meetings.rs): the ones in the day ahead, as your calendar has
-// them (`ahead`), and the ones Codealong took, the latest first (`kept`: the folders among your
-// meetings that say which meeting they are), the one picked with its notes and its transcript
-// as its files have them. A dialog in the main window, opened from its bar. A meeting that's
+// them (`ahead`), and the ones Codealong heard, the latest first (`yours`: the folders that say
+// which meeting they are, a taken meeting's and one a session was asked to listen to alike),
+// the one picked with its notes and its transcript as its files have them. A dialog in the main window, opened from its bar. A meeting that's
 // going on or about to start can be taken from here, before or after its offer; the folders are
 // the record of the rest, so this lists what's there now.
 
@@ -119,7 +119,7 @@ export function MeetingsDialog({ onClose, onShowSession, onListen }: { onClose: 
   return (
     <Dialog
       title="Meetings"
-      lede="The meetings in the day ahead, and the ones whose notes Codealong took, the latest first. Each of those is a folder of plain files, yours to read, move or share."
+      lede="The meetings in the day ahead, and the ones Codealong heard, the latest first. Each of those is a folder of plain files, yours to read, move or share."
       onClose={onClose}
       busy={taking !== null}
       className="ca-meetingsdlg"
@@ -140,7 +140,7 @@ export function MeetingsDialog({ onClose, onShowSession, onListen }: { onClose: 
       <div className="ca-dialog-body">
         {none ? (
           <p className="ca-meetings-none">
-            No meetings yet. Listen now has Codealong hear one from the moment you say, and it’s kept here. With Offer to take a meeting’s notes as it starts on (Settings › Experimental), Codealong asks as one in your calendar is about to start, and the day’s meetings are listed here too.
+            No meetings yet. Listen now has Codealong hear one from the moment you say, and it’s kept here; so is one a session listens to (Listen… in its menu). With Offer to take a meeting’s notes as it starts on (Settings › Experimental), Codealong asks as one in your calendar is about to start, and the day’s meetings are listed here too.
           </p>
         ) : (
           <div className="ca-meetings">
@@ -166,8 +166,8 @@ export function MeetingsDialog({ onClose, onShowSession, onListen }: { onClose: 
               )}
               {(kept ?? []).length > 0 && (
                 <>
-                  <h3 className="ca-meetings-group">Taken</h3>
-                  <ul aria-label="Taken">
+                  <h3 className="ca-meetings-group">Heard</h3>
+                  <ul aria-label="Heard">
                     {(kept ?? []).map((m) => (
                       <li key={m.folder}>
                         <button type="button" className={cx('ca-meetings-row', m.folder === picked && 'is-on')} aria-current={m.folder === picked || undefined} onClick={() => setPicked(m.folder)}>
@@ -186,7 +186,7 @@ export function MeetingsDialog({ onClose, onShowSession, onListen }: { onClose: 
                 <header className="ca-meetings-head">
                   <Seg label="What to read" look="text" options={PARTS} value={part} onPick={setPart} />
                   <span className="ca-meetings-acts">
-                    <Button variant="ghost" size="sm" icon="message" title="Show the session that took its notes" onClick={show}>
+                    <Button variant="ghost" size="sm" icon="message" title="Show the session that listened to it" onClick={show}>
                       Its session
                     </Button>
                     <Button variant="ghost" size="sm" icon="folder" title={shown.folder} onClick={() => void revealFile(`${shown.folder}/meeting.json`).catch((e: unknown) => setFailed(errorText(e)))}>
@@ -205,7 +205,7 @@ export function MeetingsDialog({ onClose, onShowSession, onListen }: { onClose: 
                 </div>
               </section>
             ) : (
-              <p className="ca-meetings-none">None taken yet: the notes and transcript of the ones you take show here.</p>
+              <p className="ca-meetings-none">None heard yet: the notes and transcript of each meeting Codealong hears show here.</p>
             )}
           </div>
         )}

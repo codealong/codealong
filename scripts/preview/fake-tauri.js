@@ -441,7 +441,11 @@ function meetingsSample() {
   var kept = function (name, title, ago, attendees, lines, notes) {
     return { folder: root + name, name: name, id: name, title: title, start: Date.now() - ago, end: Date.now() - ago + 1800e3, calendar: 'Work', attendees: attendees, listening: 'sample', session: 'claude:work:' + name, role: 'notes', takenAt: Date.now() - ago, notes: notes, lines: lines };
   };
-  return [kept('2026-11-10 1400 Renewal call', 'Renewal call', 2 * 3600e3, ['Dana Kestrel', 'Lee Atlas'], 42, true), kept('2026-11-09 0930 Standup', 'Standup', day + 6 * 3600e3, ['Sam Northwind'], 0, false)];
+  // One a session was asked to listen to (meetings.rs `note_heard`): in no calendar, named for
+  // its session, in its listening's own folder.
+  var heard = Object.assign(kept('mwsample1', 'Kestrel on-site', 3 * day, [], 310, true), { folder: '/Users/me/Library/Application Support/Codealong/listenings/mwsample1', id: 'heard:mwsample1', end: Date.now() - 3 * day, unplanned: true });
+  delete heard.calendar;
+  return [kept('2026-11-10 1400 Renewal call', 'Renewal call', 2 * 3600e3, ['Dana Kestrel', 'Lee Atlas'], 42, true), kept('2026-11-09 0930 Standup', 'Standup', day + 6 * 3600e3, ['Sam Northwind'], 0, false), heard];
 }
 // Three calendars from two accounts (ear.rs `CalendarInfo`), by account then name.
 function calendarsSample() {
@@ -1371,7 +1375,7 @@ window.__TAURI_INTERNALS__ = {
     // `window.__MEETING_FAILS__`, and the calendar stands as `window.__CALENDAR__` has it.
     if (cmd === 'meeting') return window.__MEETING_FAILS__ && (args || {}).take ? Promise.reject(new Error(window.__MEETING_FAILS__)) : Promise.resolve((args || {}).take ? { id: 'sample', session: 'claude:work:meeting-taken' } : null);
     if (cmd === 'calendar_access') return Promise.resolve(window.__CALENDAR__ || calendarSample());
-    // Your meetings (meetings.rs `kept`), and one's notes and transcript.
+    // Your meetings (meetings.rs `yours`), and one's notes and transcript.
     if (cmd === 'meetings_kept') return Promise.resolve(window.__MEETINGS__ || meetingsSample());
     if (cmd === 'meetings_ahead') return Promise.resolve(window.__AHEAD__ || aheadSample());
     if (cmd === 'meeting_files') {

@@ -1,7 +1,7 @@
 // Has a meeting on offer (meetings.rs `Offer`), for a screenshot of it wherever it shows: the
 // card under the notch's pills, the line ahead of the floating bar's pills, the line beside the
 // main window's notices. With PREVIEW_MEETINGS=1 in the page's address it also opens the main
-// window's Meetings dialog, on the stub's two kept meetings.
+// window's Meetings dialog, on the stub's kept meetings.
 //   PREVIEW_SIZE=1512,420 PREVIEW_NAME=voice-meeting PREVIEW_INIT=scripts/preview/voice-meeting-init.js scripts/preview.sh notch
 //   PREVIEW_NAME=voice-meeting-main PREVIEW_INIT=scripts/preview/voice-meeting-init.js scripts/preview.sh sessions
 (function () {

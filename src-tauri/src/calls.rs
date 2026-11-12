@@ -885,11 +885,11 @@ calls! {
         actions::run(&c.engine, &c.peers, actions::LISTEN_NOW, "", actions::params::ListenNow { meeting, lane: lane.unwrap_or_default(), ask: ask.unwrap_or_default() })
     }
 
-    /// Your meetings, the latest first (meetings.rs `kept`): the folders among them that say which
-    /// meeting they are.
+    /// Your meetings, the latest first (meetings.rs `yours`): the folders that say which meeting
+    /// they are, the ones taken and the ones a session was asked to listen to.
     fn meetings_kept(c) -> Result<Vec<crate::meetings::Kept>, String> {
         let cfg = config::current().map_err(words)?;
-        Ok(crate::meetings::kept(&crate::meetings::root(&cfg)))
+        Ok(crate::meetings::yours(&cfg))
     }
 
     /// The meetings in the day ahead (meetings.rs `ahead`), the first to start first, with whether
@@ -902,7 +902,7 @@ calls! {
     /// A kept meeting's notes and transcript (meetings.rs `files`), by its folder.
     fn meeting_files(c, folder: String) -> Result<crate::meetings::Files, String> {
         let cfg = config::current().map_err(words)?;
-        crate::meetings::files(&crate::meetings::root(&cfg), &folder).map_err(words)
+        crate::meetings::files(&crate::meetings::roots(&cfg), &folder).map_err(words)
     }
 
     /// Has macOS ask whether Codealong may read your calendar, when it hasn't yet, and says where

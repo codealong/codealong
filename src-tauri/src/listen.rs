@@ -259,9 +259,14 @@ pub fn path() -> PathBuf {
     support_dir().join("listenings.json")
 }
 
+/// Where the listenings that aren't a taken meeting's keep their files, a folder each.
+pub fn own() -> PathBuf {
+    support_dir().join("listenings")
+}
+
 /// Where a listening's transcript and notes are.
 pub fn folder(id: &str) -> PathBuf {
-    support_dir().join("listenings").join(id)
+    own().join(id)
 }
 
 fn change<R>(f: impl FnOnce(&mut Vec<Listening>) -> R) -> Result<R> {
@@ -965,7 +970,10 @@ pub fn start(engine: &Handle, key: &str, ask: &Ask) -> Result<Listening> {
     }
     // What its session last said was said before this, and is no cue.
     let l = begin(&cfg, key, Some(session.reply_tail.clone()), sources, ask, None, || format!("{} is listening already.", send::quoted(&session.title)))?;
-    told(engine, &board, l)
+    let l = told(engine, &board, l)?;
+    // It's one of your meetings from here, by its session's name (meetings.rs `yours`).
+    crate::meetings::note_heard(&l, &session.title);
+    Ok(l)
 }
 
 /// Starts a listening ahead of its session, for a meeting whose session is still being started
@@ -1291,10 +1299,26 @@ pub fn stop(key: &str) -> Result<Listening> {
     end_as(&l.id, None, crate::meetings::stray).ok_or_else(|| anyhow!("That listening has ended already."))
 }
 
+/// Once in a server's life, at the first look with a board to name sessions from: the
+/// listenings from before theirs were listed among your meetings are (meetings.rs `adopt`).
+fn adopt(engine: &Handle, all: &[Listening]) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static ADOPTED: AtomicBool = AtomicBool::new(false);
+    if ADOPTED.load(Ordering::Relaxed) {
+        return;
+    }
+    let board = engine.board();
+    if !board.loading {
+        ADOPTED.store(true, Ordering::Relaxed);
+        crate::meetings::adopt(&board, all);
+    }
+}
+
 /// One look at every listening: helpers started again, what's due told, what its session said
 /// since the last look and whether its notes were written. On the listenings' thread.
 fn look(engine: &Handle) {
     let all = list();
+    adopt(engine, &all);
     if all.iter().all(|l| l.done) {
         return;
     }
