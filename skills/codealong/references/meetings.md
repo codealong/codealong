@@ -55,9 +55,10 @@ first. Each has:
   calendar or begun with Listen now: its `title`, `start`, `end` and `attendees` (`unplanned`
   for one that was in no calendar).
 - `startedAt` and `endedAt`, in milliseconds since 1970 (`date -r <seconds>` on a Mac, `date -d
-  @<seconds>` on Linux, says the day), and `whyEnded`. One still hearing has no `endedAt`. One
-  that ended by itself went on hearing after the last words, for up to half an hour: the talk
-  ended at the transcript's last line.
+  @<seconds>` on Linux, says the day). One still hearing has no `endedAt`. `whyEnded` says why
+  hearing stopped when it wasn't your user who stopped it: for quiet, it went on half an hour
+  past the last words; for anything else (eight hours of it, hearing that failed) it may have
+  stopped with the meeting still going, so the last line isn't the meeting's end.
 - `sources`, what was heard, each by its `kind`: the microphone (`mic`), what the Mac played
   (`system`, or `apps` for only some apps), or a recording (`file`).
 - `transcript`, the path of its transcript, with `lines` in it; `notes`, the path of its notes,
@@ -109,8 +110,8 @@ them. The paths have spaces in them, so quote them:
      nothing to rest on, say whose side a line is from, or that it isn't known, rather than name
      someone on a guess. A name the notes put to a line is their session's reading of it.
    - A line in brackets is Codealong's own, marking where some of the meeting is missing
-     (`grep -n '^\[[0-9:]*\] (' transcript.md` finds them). It doesn't say how much: the times
-     of the lines either side do.
+     (`grep -n '^\[[0-9:]*\] (' transcript.md` finds them). How much isn't known: the times
+     of the lines either side say only the most it can be.
    - A listening started early or left running has talk at either end that isn't the meeting's.
    - A recording a session was given to hear (a source of kind `file`) is all `Them`, your
      user's words among them, and its times and `startedAt` are when it was transcribed, not
@@ -125,12 +126,13 @@ them. The paths have spaces in them, so quote them:
      week", "by Friday", "days"), not for "commit".
    - When the whole meeting is what's asked for, read it all, in parts, start to finish: an
      account made from the notes alone isn't one of the transcript.
-4. **What its session did with it**, when that bears on what you're asked: `codealong session
-   transcript <key>` has the newest part of its conversation, which is what your user asked it
-   once the meeting was over and what it made then (a follow-up it drafted, say). During the
-   meeting it was told the transcript's own lines, a few at a time, so there's little to learn
-   further back; `--before <cursor>`, with the `before` the last part gave, reads the part
-   before.
+4. **What its session said**, which the transcript doesn't have: a coach's advice is only in
+   its replies, a `requests` session's replies say which todos it filed and what failed, and
+   what your user typed to it as the meeting went is their own note of it. `codealong session
+   transcript <key>` has the newest part of its conversation, which is often what came after
+   the meeting (a follow-up your user had it draft, say); `--before <cursor>`, with the `before`
+   the last part gave, goes back through the meeting, a part at a time, where what it was told
+   is the transcript's lines again. Read as far back as the question needs.
 
 ## What to make of it
 
