@@ -3733,7 +3733,7 @@ fn analytics_on(cfg: &Config) -> Result<()> {
 fn began_words(word: &str) -> &str {
     match word {
         "you" => "You",
-        "fork" => "You, as a copy of another",
+        "fork" => "You, forked from another",
         "helper" => "An agent, as its helper",
         "agent" => "An agent",
         "review" => "Codealong, to review a PR",

@@ -40,7 +40,7 @@ export const SOURCES: Series[] = [HANDS[0], HANDS[1], HANDS[2], { id: 'itself', 
 /** How a session began (began.rs `Began::word`). */
 export const BEGAN: Series[] = [
   { id: 'you', label: 'You', color: 'var(--chart-1)' },
-  { id: 'fork', label: 'You, as a copy of another', color: 'var(--chart-1)' },
+  { id: 'fork', label: 'You, forked from another', color: 'var(--chart-1)' },
   { id: 'helper', label: 'An agent, as its helper', color: 'var(--chart-2)' },
   { id: 'agent', label: 'An agent', color: 'var(--chart-2)' },
   { id: 'review', label: 'Codealong, to review a PR', color: 'var(--chart-3)' },

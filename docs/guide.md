@@ -4180,7 +4180,7 @@ went, the tool calls you allowed and denied in Codealong, and the suggested repl
 unchanged. A table lists it by account, project or session, and your latest prompts that steered
 or redirected are listed with the session each was in.
 
-**Sessions** says how the sessions active in those days began (you; a copy of another you made;
+**Sessions** says how the sessions active in those days began (you; a fork you made of another;
 an agent, as its helper or not; Codealong, for a review or on a schedule; a headless run), with
 what share you started and what each kind cost, and how sessions stood when you were done with
 them. Mark as done, Archive and Close
