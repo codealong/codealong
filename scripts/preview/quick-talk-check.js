@@ -10,8 +10,9 @@
 // typed where the keyboard is and starts nothing, and so is one begun while another field had
 // the keyboard; while a press is heard nothing is done with the prompt, and ⏎ ends it; two
 // presses one after the other are typed in the order they were said, with what follows them
-// kept; an earlier press coming to nothing doesn't put the panel away under a later one; and
-// the panel put away while it hears drops the press.
+// kept; an earlier press coming to nothing doesn't put the panel away under a later one, nor a
+// press it was opened to hear once it's been opened for something else; and the panel put away
+// while it hears drops that press, by its id, whichever of its fields had the keyboard.
 //   PREVIEW_VOICE=1 PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/quick-talk-check.js
 (function () {
   ['codealong.quick.draft', 'codealong.quick.history'].forEach(function (k) { localStorage.removeItem(k); });
@@ -47,6 +48,7 @@
     })
     .then(function () {
       check('the microphone says it’s listening, the box still empty', mic().getAttribute('aria-pressed') === 'true' && !!mic().querySelector('.ca-spoken-level') && input().value === '' && input().placeholder === 'Listening…', input().placeholder);
+      check('and the box isn’t typed into while it’s heard into, from the first', input().readOnly === true);
       talk({ text: 'Fix the login' });
       return until(function () { return input().value === 'Fix the login'; }, 3000, 'the words as they’re heard');
     })
@@ -246,7 +248,35 @@
       return until(function () { return sent('talk').length > presses; }, 3000, 'the press dropped');
     })
     .then(function () {
-      check('put away while it hears, the panel drops the press', last('talk').drop === true, JSON.stringify(last('talk')));
+      check('put away while it hears, the panel drops that press', last('talk').drop === 12, JSON.stringify(last('talk')));
+      // A press begun with the keyboard on the microphone itself isn't shown in the box, and is
+      // the panel's to drop all the same.
+      window.__quickOpen({}, board);
+      mic().focus();
+      id = 13;
+      talk({ text: 'Heard for the panel' });
+      return wait(300);
+    })
+    .then(function () {
+      check('a press begun with the keyboard on the microphone isn’t drawn into the box', input().value === '' && !input().readOnly && mic().classList.contains('is-on'), input().value);
+      var presses = sent('talk').length;
+      window.__emit('quick-hidden', null);
+      return until(function () { return sent('talk').length > presses; }, 3000, 'that press dropped too');
+    })
+    .then(function () {
+      check('and is dropped as the panel is put away', last('talk').drop === 13, JSON.stringify(last('talk')));
+      // Opened to hear a press, then opened for something else: that press coming to nothing
+      // leaves the panel as it is now.
+      window.__quickOpen({ talk: true }, board);
+      id = 14;
+      talk({});
+      window.__quickOpen({}, board);
+      var hides = calls('hide_quick').length;
+      talk({ phase: 'nothing', message: 'Nothing heard. Hold the keys down while you talk.' });
+      return wait(400).then(function () { return hides; });
+    })
+    .then(function (hides) {
+      check('a press the panel was opened to hear doesn’t put away what it was opened for since', calls('hide_quick').length === hides, String(calls('hide_quick').length - hides));
       done();
     })
     .catch(stopped);

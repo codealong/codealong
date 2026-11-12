@@ -1655,10 +1655,11 @@ export function Quick() {
 
   /* ---- Talking ---- */
 
-  // The latest press the panel was told of, with the open it began in, noted at the first word
-  // of it: what a press may do here goes by what the panel was then, not by what it has become
-  // since. And the press the panel was opened to hear, once that has begun.
-  const pressRef = useRef<{ id: number; opens: number } | null>(null);
+  // The latest press the panel was told of (the engine tells it of the ones whose words are for
+  // it), with the open it began in, noted at the first word of it: what a press may do here
+  // goes by what the panel was then, not by what it has become since. `over` once it has ended
+  // or the panel has dropped it. And the press the panel was opened to hear, once that has begun.
+  const pressRef = useRef<{ id: number; opens: number; over: boolean } | null>(null);
   const heardFor = useRef<number | null>(null);
   // What's heard of a press whose words are for this panel, and what came of it. One that
   // failed says why here; one that heard nothing says so, or, when the panel was opened only to
@@ -1675,7 +1676,7 @@ export function Quick() {
         setTalk(t);
         const going = t.phase === 'listening' || t.phase === 'settling';
         if (!latest || latest.id < t.id) {
-          pressRef.current = { id: t.id, opens: opensNow.current };
+          pressRef.current = { id: t.id, opens: opensNow.current, over: false };
           if (openedToHear.current) heardFor.current = t.id;
           openedToHear.current = false;
           // It shows in the box when the box has the keyboard and holds the prompt (not while it
@@ -1691,8 +1692,12 @@ export function Quick() {
         }
         if (going) return;
         // Over, with what was said typed (`talked`, before this) or nothing to type.
+        const press = pressRef.current;
+        if (press) press.over = true;
         if (heardRef.current?.id === t.id) setHeard(null);
-        const unasked = heardFor.current === t.id && !textNow.current.trim() && attachedNow.current.length === 0;
+        // Put away again only as the open that was for hearing it: opened for something else
+        // since, the panel stays.
+        const unasked = heardFor.current === t.id && press?.opens === opensNow.current && !textNow.current.trim() && attachedNow.current.length === 0;
         if (heardFor.current === t.id) heardFor.current = null;
         if (!shownNow.current) return;
         if (t.phase === 'failed') setError(t.message ?? 'Codealong couldn’t listen.');
@@ -1701,14 +1706,18 @@ export function Quick() {
       }),
     [textNow, attachedNow, shownNow, inSendToNow, opensNow],
   );
-  // Put away while a press is heard into it (Escape, a click elsewhere): the press is dropped,
-  // its microphone off and what it heard put nowhere, rather than left listening behind a panel
-  // that's gone, or bringing the panel back with it.
+  // Put away while a press whose words are for it is going (Escape, a click elsewhere): the
+  // press is dropped, its microphone off and what it heard put nowhere, rather than left
+  // listening behind a panel that's gone, or bringing the panel back with it. Whichever field
+  // of the panel's it was heard for, and wherever it has got to: the engine drops it by its id.
   useEffect(() => {
-    if (shown || !heardRef.current) return;
-    setHeard(null);
+    if (shown) return;
+    if (heardRef.current) setHeard(null);
+    const press = pressRef.current;
+    if (!press || press.over) return;
+    press.over = true;
     // Not said when it fails: a press ends by itself as its key comes up, or after three minutes.
-    void talkTo(false, true).catch(() => {});
+    void talkTo(false, press.id).catch(() => {});
   }, [shown]);
   // Shift was down as the key came up (`Talked.start`): what was said starts as ⌘⏎ would, or set
   // to listen, as ⏎ would. Only for the press this box showed and took, in the open it began in:
@@ -1730,6 +1739,8 @@ export function Quick() {
         // The engine opens the panel on what was said when it isn't up; one that came anyway
         // goes the same way. Not said when it fails: there's nowhere left to say it.
         if (!shownNow.current) return void showQuick({ prompt: said.text }).catch(() => {});
+        const press = pressRef.current;
+        if (press && press.id === said.id) press.over = true;
         const at = heardRef.current;
         const el = input.current;
         const inBox = at && el && said.id !== undefined && said.id <= at.id && at.opens === opensNow.current && !inSendToNow.current ? at : null;
@@ -2394,8 +2405,10 @@ export function Quick() {
           <textarea
             ref={input}
             value={inSendTo ? sendTo : boxText}
-            // Not typed into while it shows words that aren't settled: they're drawn, not written.
-            readOnly={boxText !== text}
+            // Not typed into while a press is heard into it, from its first word to its last:
+            // where the words go is where the box was when it began, and what shows meanwhile
+            // is drawn, not written.
+            readOnly={!!hearingHere}
             rows={1}
             spellCheck={!inSendTo}
             aria-label={inSendTo ? SEND_TO_PLACEHOLDER : listen ? 'What the meeting is' : 'Search or prompt'}

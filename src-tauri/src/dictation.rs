@@ -165,6 +165,9 @@ struct Live {
 
 static LIVE: Mutex<Option<Live>> = Mutex::new(None);
 static NEXT: AtomicU64 = AtomicU64::new(1);
+/// The presses dropped once their keys had come up (`drop_press`), by id: each is put nowhere
+/// when its turn to be delivered comes (`was_dropped`).
+static DROPPED: Mutex<Vec<u64>> = Mutex::new(Vec::new());
 
 fn live() -> MutexGuard<'static, Option<Live>> {
     LIVE.lock().unwrap_or_else(|e| e.into_inner())
@@ -335,13 +338,19 @@ pub fn release(app: &AppHandle) {
     over(app, &mut live);
 }
 
-/// Drops the press that's going: the microphone is off as when the key comes up, and what was
-/// heard is put nowhere. The quick panel asks it as it's put away while it hears (Escape, a
-/// click elsewhere): a panel that's gone shouldn't come back with what was being said to it, nor
-/// leave a press begun with its microphone listening on. On the main thread.
-pub fn drop_press(app: &AppHandle) {
+/// Drops press `id`: what it heard is put nowhere, and if it's still going its microphone is
+/// off as when its key comes up. The quick panel asks it of the press it was hearing as it's
+/// put away (Escape, a click elsewhere): a panel that's gone shouldn't come back with what was
+/// being said to it, nor leave a press begun with its microphone listening on. By id, since the
+/// press that's going by then may be another (one for your orchestrator, begun since), and the
+/// one meant may have had its key come up and be waiting its turn (`finish_in_turn`), where it's
+/// noted for `deliver` to find. On the main thread.
+pub fn drop_press(app: &AppHandle, id: u64) {
     let mut live = live();
-    let Some(l) = live.as_mut() else { return };
+    let Some(l) = live.as_mut().filter(|l| l.id == id) else {
+        lock(&DROPPED).push(id);
+        return;
+    };
     l.dropped = true;
     if l.ear.is_none() {
         // Still starting: `begin` finishes it once it's capturing.
@@ -349,6 +358,15 @@ pub fn drop_press(app: &AppHandle) {
         return;
     }
     over(app, &mut live);
+}
+
+/// Whether press `id`, whose turn to be delivered has come, was dropped after its key came up
+/// (`noted`, the ids `drop_press` kept). Presses are delivered in the order they began, so this
+/// one's note and any older are done with.
+fn was_dropped(noted: &mut Vec<u64>, id: u64) -> bool {
+    let was = noted.contains(&id);
+    noted.retain(|other| *other > id);
+    was
 }
 
 /// A press that's over, and what says its helper has stopped, its last words in.
@@ -411,7 +429,7 @@ fn finish_in_turn(app: &AppHandle, mut over: Live) {
 fn deliver(app: &AppHandle, l: Live) {
     let id = l.id;
     let to = word(l.to);
-    if l.dropped {
+    if was_dropped(&mut lock(&DROPPED), id) || l.dropped {
         // Over, with nothing to say of it: whoever dropped it knows.
         show(app, l.window.as_deref(), &Talk { id, phase: "nothing", to, ..Talk::default() });
         return;
@@ -577,6 +595,21 @@ mod tests {
         // The bar is told as the bar, once; and with no window the words are for, nobody else is.
         assert_eq!(shown_in(Some(crate::bar::LABEL), false), None);
         assert_eq!(shown_in(None, false), None);
+    }
+
+    #[test]
+    fn a_press_dropped_after_its_key_came_up_is_put_nowhere_when_its_turn_comes() {
+        // Noted while it waited its turn: found, once, and older notes go with it.
+        let mut noted = vec![3, 5];
+        assert!(!was_dropped(&mut noted, 4));
+        assert_eq!(noted, [5]);
+        assert!(was_dropped(&mut noted, 5));
+        assert!(noted.is_empty());
+        // One that wasn't, and a note for a press delivered long ago, which goes at the next.
+        assert!(!was_dropped(&mut noted, 6));
+        noted.push(2);
+        assert!(!was_dropped(&mut noted, 7));
+        assert!(noted.is_empty());
     }
 
     #[test]

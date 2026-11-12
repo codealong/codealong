@@ -740,14 +740,14 @@ fn hide_quick(app: tauri::AppHandle) {
 /// The quick panel's microphone button: talking to what you're looking at as the key held to
 /// talk does (dictation.rs), begun with `on` and ended without, so it needs no key held. Shift
 /// down as it ends starts a session with what was said, as it does as the key comes up. With
-/// `drop` the press that's going ends with what it heard put nowhere, begun by the key or the
-/// button: the panel asks that as it's put away while it hears.
+/// `drop`, the press of that id (`Talk::id`) ends with what it heard put nowhere, begun by the
+/// key or the button: the panel asks that of the press it was hearing as it's put away.
 #[tauri::command]
-fn talk(app: tauri::AppHandle, on: bool, drop: Option<bool>) -> Result<(), String> {
+fn talk(app: tauri::AppHandle, on: bool, drop: Option<u64>) -> Result<(), String> {
     let cfg = config::current().map_err(words)?;
     listen::turned_on(&cfg).map_err(words)?;
-    if drop == Some(true) {
-        dictation::drop_press(&app);
+    if let Some(id) = drop {
+        dictation::drop_press(&app, id);
     } else if on {
         dictation::press(&app, dictation::To::Looking);
     } else {
