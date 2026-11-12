@@ -339,13 +339,21 @@ pub fn running_label(run: &Run) -> String {
 /// Lays a run its agent waits on over the session, as the engine reads it, after Jev's read
 /// (engine.rs `with_runs`): it's working, on that, there, since you allowed it. The command it
 /// waits with has printed nothing, so its harness and Jev may take it for stuck; Codealong knows
-/// it's running. What the session asks you meanwhile (an approval, another command to allow)
-/// stays as it is, and so does a session that has stopped or failed.
+/// it's running. What the session asks you meanwhile (an approval, another command to allow, a
+/// reply asking you something since you allowed it) stays as it is, and so does a session that
+/// has stopped or failed. A reply that asked you something before you allowed it doesn't: an
+/// agent that waits on the run in the background ends its turn asking you to allow it, and once
+/// you have, its next turn is the one on what the run prints, not your answer.
 pub fn overlay_running(s: &mut Session, now: i64) {
-    if matches!(s.status, Status::Stopped | Status::Error) || (s.status == Status::Needs && s.need() != Some(crate::model::Need::Stuck)) {
+    use crate::model::Need;
+    if matches!(s.status, Status::Stopped | Status::Error) {
         return;
     }
     let Some(run) = waited_on(&s.key, now) else { return };
+    let answered = s.need() == Some(Need::Reply) && s.status_since.is_none_or(|t| t <= run.allowed_at);
+    if s.status == Status::Needs && s.need() != Some(Need::Stuck) && !answered {
+        return;
+    }
     if s.status != Status::Working {
         s.status = Status::Working;
         s.status_since = Some(run.allowed_at);
@@ -1450,6 +1458,25 @@ mod tests {
             overlay_running(&mut s, 10_700);
             assert_eq!(shown(&s), shown(&asks), "{status:?}");
         }
+
+        // Its turn ended asking you to allow the run its command waits on in the background:
+        // allowed, it's working on that, not waiting on your answer. A reply asking you something
+        // since you allowed it is something new, and stays.
+        let replied = |since| Session {
+            status: Status::Needs,
+            status_since: Some(since),
+            asks: true,
+            excerpt: Some("Asks you · Allow the publish in Codealong.".into()),
+            ..crate::fixtures::session(key)
+        };
+        let mut s = replied(900);
+        overlay_running(&mut s, 10_700);
+        assert_eq!((s.status, s.status_since, s.asks, s.excerpt.as_deref()), (Status::Working, Some(1_000), false, Some("Running in Rex · `node scripts/publish.mjs`")));
+        assert_eq!(s.need(), None);
+        let after = replied(1_100);
+        let mut s = after.clone();
+        overlay_running(&mut s, 10_700);
+        assert_eq!(shown(&s), shown(&after), "asked since");
 
         // Its command stopped asking: given up, or stopped by its agent.
         let mut s = stuck.clone();
