@@ -117,15 +117,34 @@ describe('a terminal’s text in a session’s box', () => {
     expect(added).not.toHaveBeenCalled();
   });
 
-  it('that doesn’t go is put in the session’s box, before what was written there', async () => {
+  it('that doesn’t go is put in the session’s box, before what was written there, and the box shows it', async () => {
+    const told: { key: string; text: string; focus: boolean }[] = [];
+    vi.stubGlobal('window', { dispatchEvent: (e: CustomEvent) => told.push(e.detail), setInterval: () => 0, clearInterval: () => {}, setTimeout, clearTimeout });
     const { sendToTheSession } = await import('./terminals');
     const api = await import('./api');
     const drafts = await import('./drafts');
     const { session } = await import('./testing/fixtures');
-    vi.spyOn(api, 'sendToSession').mockRejectedValue(new Error('It isn’t running.'));
+    vi.spyOn(api, 'sendToSession').mockRejectedValue(new Error('It isn’t running'));
     drafts.writeDraft('s2', 'what about this');
-    await expect(sendToTheSession(session({ key: 's2' }), 'npm test')).rejects.toThrow('It isn’t running.');
+    await expect(sendToTheSession(session({ key: 's2' }), 'npm test')).rejects.toThrow('It isn’t running. It’s in the session’s box.');
     expect(drafts.readDraft('s2')).toBe('```\nnpm test\n```\n\nwhat about this');
+    // This window's box hears it too, not only another window's, which hears storage change.
+    expect(told).toEqual([{ key: 's2', text: '```\nnpm test\n```\n\nwhat about this', focus: false }]);
+  });
+
+  it('that can’t be kept as a file is neither sent nor said to be in the box', async () => {
+    const { sendToTheSession, BOX_LINES } = await import('./terminals');
+    const api = await import('./api');
+    const drafts = await import('./drafts');
+    const { session } = await import('./testing/fixtures');
+    vi.spyOn(api, 'saveAttachment').mockRejectedValue(new Error('The disk is full.'));
+    const sent = vi.spyOn(api, 'sendToSession');
+    const long = Array.from({ length: BOX_LINES + 1 }, () => 'x').join('\n');
+    const failed = sendToTheSession(session({ key: 's3' }), long);
+    await expect(failed).rejects.toThrow('Couldn’t keep the selection as a file to send: The disk is full.');
+    await expect(failed).rejects.not.toThrow(/session’s box/);
+    expect(sent).not.toHaveBeenCalled();
+    expect(drafts.readDraft('s3')).toBe('');
   });
 });
 

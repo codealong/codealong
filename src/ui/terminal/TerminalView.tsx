@@ -106,7 +106,7 @@ export function TerminalView({ id, focusAt, onLeave, session }: TerminalViewProp
                 if (!text) return said('Nothing’s selected to send.');
                 sendToTheSession(s, text).then(
                   (sent) => said(!sent ? 'Nothing’s selected to send.' : sentWorthSaying(sent) ? sent.message : 'Sent the selection to the session.'),
-                  (e: unknown) => said(`${errorText(e)} It’s in the session’s box.`, true),
+                  (e: unknown) => said(errorText(e), true),
                 );
               });
             void showContextMenu(

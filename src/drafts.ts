@@ -153,6 +153,14 @@ export function addToDraft(key: string, text: string, focus = true, store: Draft
   tell(key, next, focus);
 }
 
+/** Puts back what's written to a session, for words that went elsewhere and came back (a send
+ *  that didn't go, ahead.ts `sendAhead`): every box shows it, this window's too, whatever sent it.
+ *  The box doesn't take the cursor. */
+export function restoreDraft(key: string, text: string, store: DraftStorage | null = storage(), now = Date.now()): void {
+  writeDraft(key, text, store, now);
+  tell(key, text, false);
+}
+
 /** `said` as it goes on after `before`: a space between, unless there's nothing before or it ends
  *  in white space already. Empty when nothing was said. */
 export function saidAfter(before: string, said: string): string {

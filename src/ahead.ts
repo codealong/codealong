@@ -35,7 +35,7 @@
 
 import { useSyncExternalStore } from 'react';
 import { archiveSession, asideSessions, emitAhead, labelSessions, markSeen, markUnread, mergePr, onAhead, quietSessions, raiseSessions, renameSession, resumeSession, reviewPr, sendToSession, sessionAnswer, sessionDone, sessionSteer, sessionUnqueue, snoozeReviews, snoozeSessions, windowLabel, type Done, type MergeDone } from './api';
-import { readDraft, writeDraft } from './drafts';
+import { readDraft, restoreDraft } from './drafts';
 import { nameShown } from './harness';
 import { heldForAgent } from './prStatus';
 import { byRaise, needOf, relaned, sessionHeadline, stuckMidTurn, unreadable } from './lanes';
@@ -1133,7 +1133,7 @@ export function sendAhead(s: Session, text: string, { toDraft = true, now = fals
         const later = list.slice(list.indexOf(mine) + 1);
         for (const q of later) q.failed = e;
         const texts = [mine, ...later].map((q) => q.text);
-        if (toDraft) writeDraft(key, [...texts, readDraft(key)].filter((t) => t.trim()).join('\n\n'));
+        if (toDraft) restoreDraft(key, [...texts, readDraft(key)].filter((t) => t.trim()).join('\n\n'));
         for (const q of [mine, ...later]) drop(q.id, true);
       }
       leave();

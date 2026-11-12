@@ -1239,7 +1239,8 @@ window.__TAURI_INTERNALS__ = {
       setTimeout(function () { window.__emit('session-windows', window.__keptSessions.slice()); }, 0);
       return Promise.resolve(null);
     }
-    if (cmd === 'send_to_session') return Promise.resolve({ message: 'Sent (in the preview nothing is typed anywhere).', opened: false });
+    // A check that sets `__failSend` has every send turned down, with that as why.
+    if (cmd === 'send_to_session') return window.__failSend ? Promise.reject(new Error(window.__failSend)) : Promise.resolve({ message: 'Sent (in the preview nothing is typed anywhere).', opened: false });
     if (cmd === 'dismiss_suggestions') return Promise.resolve(null);
     if (cmd === 'resume_session') return Promise.resolve({ message: 'Resumed (in the preview nothing starts anywhere).', opened: false });
     if (cmd === 'switch_session_model') return Promise.resolve('Switched its model (in the preview nothing is typed anywhere).');

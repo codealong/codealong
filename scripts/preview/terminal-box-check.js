@@ -49,6 +49,18 @@
     check('the terminal says it went', /Sent the selection to the session/.test(note.textContent), note.textContent);
     check('and the box is left as it was', box.value === '' && document.activeElement !== box, JSON.stringify(box.value));
 
+    // One that doesn't go is in the box of the window it was sent from, as a box's own send is.
+    window.__failSend = 'Its terminal is gone.';
+    await menuOf(canvas);
+    menuItem(SEND)();
+    var failed = await until(function () { var n = q('.ca-term-added.is-error', panel); return n; }, 3000, 'a note that it didn’t go');
+    check('a send that doesn’t go says why and where it is', /Its terminal is gone\. It’s in the session’s box\./.test(failed.textContent), failed.textContent);
+    await until(function () { return /```\nnpm test\n```/.test(box.value); }, 3000, 'the unsent selection in the box');
+    check('and it’s in this window’s box', box.value === '```\nnpm test\n```', JSON.stringify(box.value));
+    window.__failSend = null;
+    box.value = '';
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+
     menuItem(ADD)();
     await until(function () { return /```\nnpm test\n```/.test(box.value); }, 3000, 'the selection in the box');
     check('the selection goes into the box as a code block', /```\nnpm test\n```$/.test(box.value), JSON.stringify(box.value));

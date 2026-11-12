@@ -17,6 +17,7 @@ import { sendAhead } from './ahead';
 import { inTauri, onTerminalWindows, onWindowKeys, saveAttachment, terminalOpen, terminalWindows, windowKeys } from './api';
 import { shortOf } from './devices';
 import { addToDraft } from './drafts';
+import { errorText } from './report';
 import { attachmentRef } from './todos';
 import type { Sent, Session, TerminalGlance, TerminalSize, TerminalTheme } from './types';
 
@@ -299,10 +300,19 @@ export async function addToBox(key: string, text: string): Promise<boolean> {
 
 /** Sends a terminal's text to a session at once, as Add to the session's box would put it there,
  *  leaving what you're writing in the box alone: shown as sending in its thread, and back in its
- *  box with why if it doesn't go (`sendAhead`). Null when there was nothing to send. */
+ *  box if it doesn't go (`sendAhead`). Null when there was nothing to send. What it rejects with
+ *  says why, and where the text is. */
 export async function sendToTheSession(s: Session, text: string): Promise<Sent | null> {
-  const words = await boxedWords(text);
-  return words ? sendAhead(s, words) : null;
+  let words: string | null;
+  try {
+    words = await boxedWords(text);
+  } catch (e) {
+    throw new Error(`Couldn’t keep the selection as a file to send: ${errorText(e)}`);
+  }
+  if (!words) return null;
+  return sendAhead(s, words).catch((e: unknown) => {
+    throw new Error(`${errorText(e).replace(/[\s.]*$/, '.')} It’s in the session’s box.`);
+  });
 }
 
 /** Opens a terminal for a session in `folder`, a shell or `command`, and shows it in the session's
