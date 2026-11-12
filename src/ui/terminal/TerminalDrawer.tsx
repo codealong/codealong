@@ -56,14 +56,16 @@ export function TerminalDrawer({ sessionKey, folder, terminals, onLeave }: Termi
   }, [drawer.active, terminals, sessionKey]);
 
   // One that opens while the session is shown (Run on a command, an agent's you allowed) shows
-  // itself, leaving the keyboard where it was; those it had when it was shown stay as they were.
+  // itself, leaving the keyboard where it was (no `focusAt`: a terminal mounted with one takes the
+  // keyboard, and the drawer's last one would stand); those it had when it was shown stay as they
+  // were.
   const seen = useRef<Set<string> | null>(null);
   useEffect(() => {
     const now = new Set(terminals.map((t) => t.id));
     if (seen.current) {
       const fresh = terminals.filter((t) => !seen.current?.has(t.id) && Date.now() - t.startedAt < 15_000);
       const last = fresh[fresh.length - 1];
-      if (last && drawerOf(sessionKey).active !== last.id) setDrawer(sessionKey, { open: true, active: last.id });
+      if (last && drawerOf(sessionKey).active !== last.id) setDrawer(sessionKey, { open: true, active: last.id, focusAt: 0 });
     }
     seen.current = now;
   }, [terminals, sessionKey]);
@@ -75,7 +77,7 @@ export function TerminalDrawer({ sessionKey, folder, terminals, onLeave }: Termi
   useEffect(() => {
     const asking = startedAsking(terminals, asked.current);
     const last = asking[asking.length - 1];
-    if (last) setDrawer(sessionKey, { open: true, active: last.id });
+    if (last) setDrawer(sessionKey, { open: true, active: last.id, focusAt: 0 });
     asked.current = askingNow(terminals);
   }, [terminals, sessionKey]);
 

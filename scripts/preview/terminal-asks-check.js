@@ -70,11 +70,18 @@
       return until(function () { return tabs().length === 2; }, 5000);
     })
     .then(function () {
+      // You had the run's terminal in front before (its tab clicked, which asks for the
+      // keyboard), then folded it and went back to the box.
+      tabs()[0].querySelector('.ca-termtab-name').click();
+      return until(function () { return drawer() && drawer().classList.contains('is-open'); }, 3000);
+    })
+    .then(function () {
       var fold = document.querySelector('.ca-sessinsp .ca-termdrawer-act[aria-label="Fold the terminals"]');
       if (fold) fold.click();
       return until(function () { return drawer() && !drawer().classList.contains('is-open'); }, 3000);
     })
     .then(function () {
+      document.querySelector('.ca-sessinsp textarea').focus();
       check('not flagged before it asks', !row().querySelector('.ca-insight') || row().textContent.indexOf('Needs input') < 0, row().textContent);
       asking = true;
       window.__terminals[picked.key][0] = Object.assign({}, window.__terminals[picked.key][0], { asks: question, asksSince: Date.now() - 20e3 });
@@ -82,6 +89,10 @@
     })
     .then(function () {
       return until(function () { return row().textContent.indexOf('Needs input') >= 0 && drawer() && drawer().classList.contains('is-open'); }, 5000);
+    })
+    .then(function () {
+      // Long enough for the terminal that shows to have taken the keyboard, were it to.
+      return wait(500);
     })
     .then(function () {
       var flag = Array.prototype.filter.call(row().querySelectorAll('.ca-insight'), function (c) { return c.textContent === 'Needs input'; })[0];
@@ -97,7 +108,7 @@
       check('the other tab says nothing of it', !tabs()[1].querySelector('.ca-termtab-state.is-asks'));
       check('no Allow or Deny: the answer goes in the terminal', !document.querySelector('.ca-sessinsp .ca-composer.is-approval'));
       check('the box still writes to the session', !!document.querySelector('.ca-sessinsp textarea'));
-      check('the keyboard stays where it was', !document.activeElement || !document.activeElement.closest('.ca-term'), document.activeElement && document.activeElement.className);
+      check('the keyboard stays in the box, though the terminal had it before', document.activeElement === document.querySelector('.ca-sessinsp textarea'), document.activeElement && document.activeElement.className);
       if (window.__terminal_screenshot) return;
       // Folded while it goes on asking the same, it stays folded.
       document.querySelector('.ca-sessinsp .ca-termdrawer-act[aria-label="Fold the terminals"]').click();

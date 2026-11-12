@@ -154,6 +154,9 @@ pub struct Handed {
     #[serde(default)]
     pub theme: Option<Theme>,
     pub close_on_exit: bool,
+    /// Its `Open::done`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub done: Option<PathBuf>,
     #[serde(default)]
     pub snapshot: Option<PathBuf>,
     /// What was on its way to the program and not written yet, written first by the next build.
@@ -272,6 +275,10 @@ pub struct Open {
     /// Typed into it as it starts, before its shell reads anything, as Ghostty's `initial input`
     /// is: the line that starts or resumes a session in it.
     pub input: Option<String>,
+    /// A file its command makes as it ends, while the terminal's process goes on: a run's wrapper
+    /// writes its exit status, then offers a shell, which is no question of the command's
+    /// (`Asking`).
+    pub done: Option<PathBuf>,
 }
 
 /// The size and colors a window last gave a terminal, for one opened without a window's.
@@ -323,7 +330,7 @@ pub fn open(o: Open) -> Result<Glance, String> {
     };
     let pid = opened.pid();
     let pty::Pty { master, mut child, .. } = opened;
-    let started = Started { glance, pid, master, size, theme, close_on_exit: o.close_on_exit, input: o.input.map(String::into_bytes).unwrap_or_default(), snapshot: None };
+    let started = Started { glance, pid, master, size, theme, close_on_exit: o.close_on_exit, done: o.done, input: o.input.map(String::into_bytes).unwrap_or_default(), snapshot: None };
     spawn(started, move || child.wait().map(|s| exit_code(&s)).unwrap_or(-1))
 }
 
@@ -336,6 +343,7 @@ struct Started {
     size: Size,
     theme: Option<Theme>,
     close_on_exit: bool,
+    done: Option<PathBuf>,
     /// For the program as it starts: the line a start types, or what a hand-over hadn't written.
     input: Vec<u8>,
     snapshot: Option<Vec<u8>>,
@@ -344,7 +352,7 @@ struct Started {
 /// Starts a terminal's threads and lists it: its process waited on with `wait` (reaped however
 /// the rest goes), its output read, its input written, and its screen run.
 fn spawn(st: Started, wait: impl FnOnce() -> i32 + Send + 'static) -> Result<Glance, String> {
-    let Started { glance, pid, master, size, theme, close_on_exit, input, snapshot } = st;
+    let Started { glance, pid, master, size, theme, close_on_exit, done, input, snapshot } = st;
     let id = glance.id.clone();
     let (tx, rx) = mpsc::channel();
     // Its reader and writer wait in poll, never in a read or a write (`read`, `write`).
@@ -389,7 +397,7 @@ fn spawn(st: Started, wait: impl FnOnce() -> i32 + Send + 'static) -> Result<Gla
         }
         let (id, stop) = (id.clone(), stop.clone());
         std::thread::Builder::new().name(format!("terminal-{id}")).spawn(move || {
-            let how = How { size, theme, close_on_exit, snapshot, written, stop_writing };
+            let how = How { size, theme, close_on_exit, done, snapshot, written, stop_writing };
             if let Err(e) = run(&id, pid, master, how, rx, out_tx, stop.clone()) {
                 eprintln!("Terminal {id} stopped: {e}");
                 abandon(&id, pid, &stop);
@@ -514,7 +522,10 @@ pub fn take_over(handed: Vec<Handed>) -> usize {
         });
         let pid = h.pid;
         let id = h.glance.id.clone();
-        let started = Started { glance: h.glance, pid, master, size: sane(h.size), theme: h.theme, close_on_exit: h.close_on_exit, input: h.pending, snapshot };
+        // What it asked is worked out again here (`Asking`): kept as it was handed, an answer typed
+        // meanwhile would leave it asking.
+        let glance = Glance { asks: None, asks_since: None, ..h.glance };
+        let started = Started { glance, pid, master, size: sane(h.size), theme: h.theme, close_on_exit: h.close_on_exit, done: h.done, input: h.pending, snapshot };
         match spawn(started, move || wait_pid(pid)) {
             Ok(_) => taken += 1,
             Err(e) => eprintln!("Couldn't take terminal {id} over: {e}"),
@@ -835,6 +846,7 @@ struct How {
     size: Size,
     theme: Option<Theme>,
     close_on_exit: bool,
+    done: Option<PathBuf>,
     /// The screen another server handed over, as its snapshot.
     snapshot: Option<Vec<u8>>,
     /// What the writer hadn't written as it ended: nothing once it has written all there was,
@@ -845,7 +857,7 @@ struct How {
 
 /// A terminal's thread: its emulator, fed and asked, and its frames sent while a window shows it.
 fn run(id: &str, pid: u32, master: OwnedFd, how: How, rx: Receiver<Msg>, out: Sender<Vec<u8>>, closed: Arc<AtomicBool>) -> Result<(), String> {
-    let How { size, theme, close_on_exit, snapshot, written, stop_writing } = how;
+    let How { size, theme, close_on_exit, done, snapshot, written, stop_writing } = how;
     let answers = out.clone();
     let answer = move |b: &[u8]| {
         let _ = answers.send(b.to_vec());
@@ -1082,7 +1094,7 @@ fn run(id: &str, pid: u32, master: OwnedFd, how: How, rx: Receiver<Msg>, out: Se
                 eprintln!("Terminal {id}'s reader didn't stop in time: what it reads from here on is lost to the next build.");
             }
             let glance = state().list.iter().find(|e| e.glance.id == id).map(|e| e.glance.clone());
-            let handed = glance.zip(if running { pty::inheritable(master.as_raw_fd()) } else { None }).map(|(glance, fd)| Handed { glance, fd, pid, size: screen.size(), theme: theme_now.clone(), close_on_exit, snapshot: None, pending: Vec::new() });
+            let handed = glance.zip(if running { pty::inheritable(master.as_raw_fd()) } else { None }).map(|(glance, fd)| Handed { glance, fd, pid, size: screen.size(), theme: theme_now.clone(), close_on_exit, done: done.clone(), snapshot: None, pending: Vec::new() });
             let snapshot = screen.snapshot();
             drop(screen);
             drop(out);
@@ -1125,10 +1137,12 @@ fn run(id: &str, pid: u32, master: OwnedFd, how: How, rx: Receiver<Msg>, out: Se
             last_look = Instant::now();
             let front = pty::foreground(master.as_raw_fd()).filter(|g| *g != pid);
             let program = front.and_then(|g| crate::procs::parent_and_name(g).map(|(_, name)| name));
-            // Only a command can ask: a shell at its own prompt waits on you too, and a session's
-            // own process says what it waits on through its harness.
+            // Only a command can ask, and only till it ends: a shell at its own prompt waits on
+            // you too, as a run's wrapper does once its command has ended, and a session's own
+            // process says what it waits on through its harness.
             let (hosts, command) = state().list.iter().find(|e| e.glance.id == id).map_or((true, false), |e| (e.glance.hosts, e.glance.command.is_some()));
-            let may_ask = !hosts && (command || program.is_some()) && stirred.elapsed() >= QUIET_BEFORE_ASKING;
+            let quiet = stirred.elapsed() >= QUIET_BEFORE_ASKING;
+            let may_ask = !hosts && (command || program.is_some()) && quiet && !done.as_ref().is_some_and(|d| d.exists());
             let changed = asking.look(may_ask.then(|| screen.before_cursor()), || crate::procs::tree(pid));
             let (asks, since) = (asking.asks.clone(), now_ms() - stirred.elapsed().as_millis() as i64);
             update(id, |g| {
@@ -1401,6 +1415,28 @@ mod tests {
         assert!(text(&g.id).is_ok_and(|t| t.contains("then:second")));
         close(&g.id).unwrap();
         assert!(wait_for(|| glance(&g.id).is_none()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A terminal handed over while its command asks something comes across asking nothing, and
+    /// works it out again: an answer typed meanwhile would otherwise leave it asking. The file its
+    /// command makes as it ends goes across with it.
+    #[test]
+    fn a_terminal_handed_over_while_it_asks_works_it_out_again() {
+        let done = std::env::temp_dir().join(format!("codealong-handover-done-{}", std::process::id()));
+        let g = open(Open { folder: std::env::temp_dir(), command: Some("printf 'Name? '; read a; echo \"got:$a\"; sleep 30".into()), size: Some(DEFAULT_SIZE), done: Some(done.clone()), ..Default::default() }).unwrap();
+        assert!(wait_for(|| asking(&g.id).is_some()), "{:?}", glance(&g.id));
+        let dir = std::env::temp_dir().join(format!("codealong-handover-asks-{}", std::process::id()));
+        let handed = hand_over_these(&dir, |t| t.id == g.id);
+        assert_eq!(handed.len(), 1);
+        assert_eq!(handed[0].done.as_deref(), Some(done.as_path()));
+        state().list.retain(|e| e.glance.id != g.id);
+        assert_eq!(take_over(handed), 1);
+        assert_eq!(asking(&g.id), None, "taken back asking nothing");
+        write_to(&g.id, b"kestrel\r".to_vec()).unwrap();
+        assert!(wait_for(|| text(&g.id).is_ok_and(|t| t.contains("got:kestrel"))), "{:?}", text(&g.id));
+        assert_eq!(asking(&g.id), None, "answered");
+        close(&g.id).unwrap();
         let _ = std::fs::remove_dir_all(&dir);
     }
 
