@@ -12,7 +12,8 @@
 // presses one after the other are typed in the order they were said, with what follows them
 // kept; an earlier press coming to nothing doesn't put the panel away under a later one, nor a
 // press it was opened to hear once it's been opened for something else; and the panel put away
-// while it hears drops that press, by its id, whichever of its fields had the keyboard.
+// while it hears, or folded to its chip, drops that press, by its id, whichever of its fields
+// had the keyboard.
 //   PREVIEW_VOICE=1 PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/quick-talk-check.js
 (function () {
   ['codealong.quick.draft', 'codealong.quick.history'].forEach(function (k) { localStorage.removeItem(k); });
@@ -277,6 +278,22 @@
     })
     .then(function (hides) {
       check('a press the panel was opened to hear doesn’t put away what it was opened for since', calls('hide_quick').length === hides, String(calls('hide_quick').length - hides));
+      // Holding a prompt, a click in another app folds the panel to its chip rather than
+      // putting it away: a press begun with the microphone is dropped then too.
+      window.__quickOpen({}, board);
+      type(input(), 'Fix the login redirect on the settings page, and add a test for it');
+      id = 15;
+      talk({ text: 'and then' });
+      return until(function () { return mic().classList.contains('is-on'); }, 3000, 'the microphone listening over a prompt');
+    })
+    .then(function () {
+      var presses = sent('talk').length;
+      var chip = window.__quickFold();
+      check('holding a prompt, the panel folds to its chip', !!chip && !!q('.ca-quick-root.is-folded'), JSON.stringify(chip));
+      return until(function () { return sent('talk').length > presses; }, 3000, 'the press dropped as it folds');
+    })
+    .then(function () {
+      check('and folded while it hears, it drops the press', last('talk').drop === 15, JSON.stringify(last('talk')));
       done();
     })
     .catch(stopped);

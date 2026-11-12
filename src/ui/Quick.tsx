@@ -1706,19 +1706,20 @@ export function Quick() {
       }),
     [textNow, attachedNow, shownNow, inSendToNow, opensNow],
   );
-  // Put away while a press whose words are for it is going (Escape, a click elsewhere): the
+  // Put away while a press whose words are for it is going (Escape, a click elsewhere), or
+  // folded to its chip, which is what a click elsewhere does to a panel that holds a prompt: the
   // press is dropped, its microphone off and what it heard put nowhere, rather than left
   // listening behind a panel that's gone, or bringing the panel back with it. Whichever field
   // of the panel's it was heard for, and wherever it has got to: the engine drops it by its id.
   useEffect(() => {
-    if (shown) return;
+    if (shown && !folded) return;
     if (heardRef.current) setHeard(null);
     const press = pressRef.current;
     if (!press || press.over) return;
     press.over = true;
     // Not said when it fails: a press ends by itself as its key comes up, or after three minutes.
     void talkTo(false, press.id).catch(() => {});
-  }, [shown]);
+  }, [shown, folded]);
   // Shift was down as the key came up (`Talked.start`): what was said starts as ⌘⏎ would, or set
   // to listen, as ⏎ would. Only for the press this box showed and took, in the open it began in:
   // asked a turn after it's typed, of the panel as it is by then.
