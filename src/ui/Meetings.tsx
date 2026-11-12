@@ -12,6 +12,7 @@ import { meetingTime, meetingWith } from '../meetings';
 import { useLatest } from '../latest';
 import { errorText } from '../report';
 import type { KeptMeeting, MeetingAhead, MeetingFiles } from '../types';
+import { CopyButton } from './CopyButton';
 import { HeardLines } from './Listening';
 import { Markdown } from './Markdown';
 import { Button, cx, Dialog, Seg } from './primitives';
@@ -186,6 +187,15 @@ export function MeetingsDialog({ onClose, onShowSession, onListen }: { onClose: 
                 <header className="ca-meetings-head">
                   <Seg label="What to read" look="text" options={PARTS} value={part} onPick={setPart} />
                   <span className="ca-meetings-acts">
+                    {/* What's shown, as its file has it: the notes' Markdown, or the transcript's
+                        lines. A new one for each, so one doesn't say the other was copied. */}
+                    <CopyButton
+                      key={`${shown.folder}:${part}`}
+                      label={part === 'notes' ? 'Copy notes' : 'Copy transcript'}
+                      title={part === 'notes' ? 'Copy its notes, as their file has them' : 'Copy its transcript, a line for each thing said'}
+                      text={text ?? ''}
+                      disabled={!text}
+                    />
                     <Button variant="ghost" size="sm" icon="message" title="Show the session that listened to it" onClick={show}>
                       Its session
                     </Button>

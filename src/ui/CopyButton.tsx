@@ -3,29 +3,41 @@
 // commands (RunButton.tsx).
 
 import { useContext, useEffect, useState, type ReactNode } from 'react';
-import { cx, Icon } from './primitives';
+import { Button, cx, Icon } from './primitives';
 import { isCommandBlock, RunButton, RunContext, useShellCommands, type RunPlace } from './RunButton';
 
-export function CopyButton({ text, title = 'Copy', className }: { text: string; title?: string; className?: string }) {
+/** With a `label` it's one of a window's own actions, drawn as they are (a labeled button),
+ *  and says how it went where its label was; without one it's the small button a code block or
+ *  a message has, which says so beside its icon. */
+export function CopyButton({ text, title = 'Copy', className, label, disabled }: { text: string; title?: string; className?: string; label?: string; disabled?: boolean }) {
   const [copied, setCopied] = useState<'yes' | 'no' | null>(null);
   useEffect(() => {
     if (!copied) return;
     const id = window.setTimeout(() => setCopied(null), 1500);
     return () => window.clearTimeout(id);
   }, [copied]);
+  const copy = (e: { stopPropagation: () => void }) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(text).then(
+      () => setCopied('yes'),
+      () => setCopied('no'),
+    );
+  };
+  if (label !== undefined) {
+    return (
+      <Button variant="ghost" size="sm" icon={copied === 'yes' ? 'check' : 'copy'} title={title} disabled={disabled} className={className} onClick={copy}>
+        {copied === 'yes' ? 'Copied' : copied === 'no' ? 'Couldn’t copy' : label}
+      </Button>
+    );
+  }
   return (
     <button
       type="button"
       className={cx('ca-copybtn', copied === 'yes' && 'is-copied', className)}
       title={copied === 'yes' ? 'Copied' : copied === 'no' ? 'Couldn’t copy' : title}
       aria-label={title}
-      onClick={(e) => {
-        e.stopPropagation();
-        navigator.clipboard.writeText(text).then(
-          () => setCopied('yes'),
-          () => setCopied('no'),
-        );
-      }}
+      disabled={disabled}
+      onClick={copy}
     >
       <Icon name={copied === 'yes' ? 'check' : 'copy'} size={13} stroke={copied === 'yes' ? 2.25 : 1.75} />
       {copied && <span>{copied === 'yes' ? 'Copied' : 'Couldn’t copy'}</span>}

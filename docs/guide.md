@@ -3582,7 +3582,8 @@ asked what was said last week; `codealong listen status` tells an agent anywhere
 on) opens your meetings: the ones in the day ahead, as your calendar has them, where one that's
 going on or starts within ten minutes has *Take notes* (before its offer, or after you passed on
 it); and the ones that were taken, the latest first, the one picked with its notes or its
-transcript, *Its session* to go to the session that took it, and *Show in Finder* for its folder.
+transcript, *Copy notes* or *Copy transcript* to put the one shown on the clipboard as its file
+has it, *Its session* to go to the session that took it, and *Show in Finder* for its folder.
 A meeting a session was asked to listen to (Listen… in its menu) is listed with them once something
 was heard, named for its session: its files stay in its listening's own folder in `listenings/`,
 which says which meeting it is with a `meeting.json` as a taken one's does. A recording a session

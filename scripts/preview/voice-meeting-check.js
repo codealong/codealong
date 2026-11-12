@@ -7,13 +7,17 @@
 // which opens the notch without taking the keyboard). In the main window, the bar's Meetings
 // button opens your meetings (ui/Meetings.tsx): the day ahead, where one that's going on can be
 // taken, and the ones that were heard, the latest first (a taken meeting's and one a session was
-// asked to listen to alike), the one picked with its notes and its transcript.
+// asked to listen to alike), the one picked with its notes and its transcript, either of which
+// Copy puts on the clipboard as its file has it.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/voice-meeting-check.js
 //   PREVIEW_WAIT=60000 scripts/preview.sh bar '' scripts/preview/voice-meeting-check.js
 //   PREVIEW_SIZE=1512,720 PREVIEW_WAIT=60000 scripts/preview.sh notch '' scripts/preview/voice-meeting-check.js
 (function () {
   // This runs before the app's script: the board and the bar's feed it gets have the meeting.
   window.__PREVIEW_VOICE__ = true;
+  // Headless Chrome may refuse the clipboard; the check wants what was asked of it.
+  var copied = [];
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: function (t) { copied.push(t); return Promise.resolve(); } } });
   var soon = function (over) {
     return Object.assign({ id: 'E1@1794330000000', title: 'Renewal call', start: Date.now() + 55e3, end: Date.now() + 31 * 60e3, calendar: 'Work', attendees: ['Dana Kestrel', 'Lee Atlas'] }, over);
   };
@@ -42,6 +46,7 @@
   var library = function () {
     var taken = 0;
     var dialog = function () { return q('.ca-dialog.ca-meetingsdlg'); };
+    var copies = function () { return all('.ca-meetings-acts button', dialog())[0]; };
     var opens = q('.ca-win-bar button[aria-label="Meetings"]');
     check('with voice on, the window’s bar opens your meetings', !!opens);
     if (!opens) return null;
@@ -54,10 +59,22 @@
         check('one a session was asked to listen to is among them, by its session’s name', q('.ca-meetings-title', rows[2]).textContent === 'Kestrel on-site' && q('.ca-meetings-who', rows[2]).textContent === '', rows[2].textContent);
         check('with its notes, as they were kept', q('.ca-meetings-body .ca-md-h1', dialog()).textContent === 'Renewal call' && all('.ca-meetings-body li', dialog()).length === 2);
         check('read from its own folder', calls('meeting_files')[0][1].folder === '/Users/me/Library/Application Support/Codealong/meetings/2026-11-10 1400 Renewal call', JSON.stringify(calls('meeting_files')[0]));
+        check('its notes can be copied', !!copies() && copies().textContent.trim() === 'Copy notes' && !copies().disabled, copies() && copies().textContent);
+        copies().click();
+        return until(function () { return copies().textContent.trim() === 'Copied'; }, 2000, 'the notes to be copied');
+      })
+      .then(function () {
+        check('as their file has them, and the button says so', copied.length === 1 && copied[0].indexOf('# Renewal call\n') === 0, JSON.stringify(copied));
         all('.ca-meetings-head button', dialog()).filter(function (b) { return b.textContent.trim() === 'Transcript'; })[0].click();
         return until(function () { return all('.ca-meetings-body .ca-heard-line', dialog()).length === 2; }, 3000, 'its transcript');
       })
       .then(function () {
+        check('the transcript’s Copy is its own, and hasn’t copied yet', copies().textContent.trim() === 'Copy transcript', copies().textContent);
+        copies().click();
+        return until(function () { return copied.length === 2; }, 2000, 'the transcript to be copied');
+      })
+      .then(function () {
+        check('and copies the transcript’s lines', copied[1].indexOf('[14:03:22] Them: Can it export to CSV?\n') === 0, copied[1]);
         var said = all('.ca-meetings-body .ca-heard-line', dialog()).map(function (l) { return q('.ca-heard-who', l).textContent; });
         check('and its transcript, as the meeting’s lines', said.join(',') === 'Them,You' && all('.ca-meetings-body .ca-heard-aside', dialog()).length === 1, said.join(','));
         all('.ca-meetings-head button', dialog()).filter(function (b) { return b.textContent.trim() === 'Its session'; })[0].click();
