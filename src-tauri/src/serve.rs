@@ -280,7 +280,9 @@ pub fn start() -> Result<Ctx, String> {
     // The terminals the server handed over as it became this build, before the socket answers, so
     // the first board a window gets has them.
     if let Some(handed) = HANDED.lock().ok().and_then(|mut h| h.take()) {
-        let n = terminals::take_over(handed.terminals);
+        let mut taken = handed.terminals;
+        crate::terminal::fill_done(&mut taken);
+        let n = terminals::take_over(taken);
         eprintln!("Took over {n} of Codealong's terminals from the server's last build.");
     }
     // Sessions that lived in the last server's terminals and didn't come across ended with it (a

@@ -820,6 +820,27 @@ pub fn status(id: &str) -> Result<RunStatus> {
     Ok(RunStatus { run, state, exit_code: exit, ended_at })
 }
 
+/// Gives each run's terminal handed over without the file its command makes as it ends
+/// (`terminals::Open::done`) that file, from the runs kept: a server of a build from before that
+/// hands them over without one (serve.rs), and the wrapper's offer of a shell would be read as
+/// the command's question once it has ended.
+pub fn fill_done(handed: &mut [crate::terminals::Handed]) {
+    for h in handed.iter_mut().filter(|h| h.done.is_none() && h.glance.command.is_some() && !h.glance.hosts) {
+        h.done = done_file_of(&h.glance.id);
+    }
+}
+
+/// The file a run in a terminal of Codealong's makes as its command ends, by that terminal's id.
+/// None for a terminal no run is in.
+fn done_file_of(terminal: &str) -> Option<PathBuf> {
+    let entries = std::fs::read_dir(runs_dir()).ok()?;
+    entries
+        .flatten()
+        .filter_map(|e| e.file_name().to_str().filter(|n| is_id(n)).map(String::from))
+        .find(|id| record(id).is_ok_and(|r| r.own_terminal.as_deref() == Some(terminal)))
+        .map(|id| dir(&id).join(EXIT))
+}
+
 /// Every run kept, the newest first; only those `session` asked for when it names one.
 pub fn list(session: Option<&str>) -> Vec<RunStatus> {
     let Ok(entries) = std::fs::read_dir(runs_dir()) else { return Vec::new() };
@@ -2108,6 +2129,17 @@ mod tests {
         let asked = Asked { id, ask: Ask { session: "test:own:asks".into(), command: "printf 'Restore the atlas clone? [y/N] '; read answer; echo \"got $answer\"".into(), cwd: scratch.to_path_buf(), token: None }, at };
         let run = start(&asked, &AppNames::default(), &[], "A test", true).expect("a run");
         let own = run.own_terminal.clone().expect("its terminal");
+        // Handed over by a server of a build from before, as it writes one (no `done`), its
+        // terminal is given the file again; one no run is in isn't.
+        let glance = crate::terminals::glances().get("test:own:asks").and_then(|l| l.iter().find(|t| t.id == own).cloned()).expect("listed");
+        let old = |glance: &crate::terminals::Glance| -> crate::terminals::Handed {
+            serde_json::from_value(json!({ "glance": glance, "fd": -1, "pid": 1, "size": crate::terminals::DEFAULT_SIZE, "closeOnExit": true })).expect("an older server's hand-over reads")
+        };
+        let mut handed = [old(&glance), old(&crate::terminals::Glance { id: "term-no-run".into(), ..glance.clone() })];
+        assert_eq!(handed[0].done, None);
+        fill_done(&mut handed);
+        assert_eq!(handed[0].done, Some(dir(&run.id).join(EXIT)));
+        assert_eq!(handed[1].done, None);
         let waited = Instant::now();
         while crate::terminals::asking(&own).is_none() && waited.elapsed() < Duration::from_secs(20) {
             std::thread::sleep(Duration::from_millis(100));
