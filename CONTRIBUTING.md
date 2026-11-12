@@ -15,7 +15,7 @@ a person stands behind every pull request and can explain every line of it.
 
 The most welcome contributions are another harness (Gemini CLI, Copilot CLI, Amp, Pi, or
 whichever one you run) and Windows support; the README's
-[Agents and systems](README.md#agents-and-systems) says where each starts.
+[Contributing](README.md#contributing) says where each starts.
 
 ## Pull requests
 

@@ -2265,7 +2265,7 @@ it later.
 *⌘, (comma), the app menu, or the foot of the sidebar*
 
 A form for everything in config.toml. General has the folders searched for repos, the shortcuts
-that work in any app, the terminal and editor, Keep <terminal> awake (on macOS: whether macOS may
+that work in any app, the terminal and editor, Keep \<terminal> awake (on macOS: whether macOS may
 nap your terminal while other apps' windows cover it; see *How a prompt gets to a session*), the theme, and
 Open at login (off until you turn it
 on; the system keeps it rather than config.toml: on macOS System Settings › General › Login Items
@@ -2525,7 +2525,7 @@ an approval or an open failed, until you brought Ghostty forward. Codealong wait
 answer before it starts timing, and when Ghostty doesn't answer in time and macOS may nap it, the
 note says so. Rex's app naps the same way, and was slow to go to a session's tab, so Codealong
 waits a second for it and lets Rex go there by itself once it comes forward. Settings › General ›
-Keep <terminal> awake keeps the terminal you picked from napping (its `NSAppSleepDisabled`, which
+Keep \<terminal> awake keeps the terminal you picked from napping (its `NSAppSleepDisabled`, which
 `defaults write` sets too), from the next time it opens: quit and reopen it. Rex's terminals keep
 running when its app quits.
 

@@ -7,20 +7,139 @@
 <p align="center"><strong>Every coding agent you run, in one window.</strong></p>
 
 <p align="center">
-  A free, open-source macOS and Linux app for people who run more than one coding agent at a time:<br />
-  Claude Code, Codex, OpenCode, Antigravity and Cursor, on every account you have.
+  Answer your agents from your MacBook's notch. Have an agent review every pull request,<br />
+  on the plans you already pay for. Start work from any app, on the account with room.
+</p>
+
+<p align="center">
+  Free and open source, for macOS and Linux.<br />
+  Claude Code, Codex, OpenCode, Antigravity and Cursor, on every account and machine you have.
+</p>
+
+<p align="center">
+  <a href="https://www.codealong.com/download"><img src="docs/images/download.svg" alt="Download for macOS" width="232" height="48" /></a>
+</p>
+
+<p align="center">
+  or <code>brew install --cask codealong/tap/codealong</code>
+</p>
+
+<p align="center">
+  <a href="https://github.com/codealong/codealong/releases/latest"><img src="https://img.shields.io/github/v/release/codealong/codealong?label=release&color=1f6feb" alt="Latest release" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache_2.0-1f6feb" alt="Apache License 2.0" /></a>
+  <a href="#what-works-with-each-agent"><img src="https://img.shields.io/badge/macOS_13%2B_%C2%B7_Linux-555" alt="macOS 13 or later, and Linux" /></a>
+  <a href="https://github.com/codealong/codealong/stargazers"><img src="https://img.shields.io/github/stars/codealong/codealong?style=flat&color=d4a72c" alt="Stars on GitHub" /></a>
 </p>
 
 <p align="center">
   <a href="https://www.codealong.com"><strong>codealong.com</strong></a>
-  &nbsp;·&nbsp; <a href="https://github.com/codealong/codealong/releases/latest"><strong>Download for macOS</strong></a>
-  &nbsp;·&nbsp; <a href="#on-linux">Build for Linux</a>
   &nbsp;·&nbsp; <a href="#get-started">Get started</a>
   &nbsp;·&nbsp; <a href="#a-tour">Tour</a>
   &nbsp;·&nbsp; <a href="#what-works-with-each-agent">Supported agents</a>
   &nbsp;·&nbsp; <a href="#faq">FAQ</a>
   &nbsp;·&nbsp; <a href="docs/guide.md">Full guide</a>
+  &nbsp;·&nbsp; <a href="#on-linux">Build for Linux</a>
 </p>
+
+<p align="center">
+  <img src="docs/images/notch-open-dark.webp" alt="The bar docked in the MacBook notch, open on a session that wants to run git push, with Deny, Always and Allow." width="620" />
+</p>
+
+<p align="center">
+  <sub>An agent wants to run <code>git push</code>. Codealong opens it in the notch, over whatever app you're in:<br />
+  ⌘⏎ allows it and brings up the next agent waiting.</sub>
+</p>
+
+## Why Codealong
+
+Running coding agents in parallel gets messy fast: a dozen terminal tabs, the Claude and Codex
+apps, two or three accounts, and no way to tell which agent is waiting on you without clicking
+through all of them. Then the pull requests they open pile up, waiting on a review.
+
+Codealong finds every agent session on your machine, wherever it started, shows what each one is
+doing, and brings the ones that need you to wherever you are. Your agents keep running exactly as
+their makers ship them: Codealong reads the records each one already writes. It doesn't wrap,
+proxy or replace anything, and it needs no account, no API key and no server.
+
+## Your notch is an inbox for your agents
+
+<p align="center">
+  <img src="docs/images/notch-closed-dark.webp" alt="The notch closed: the Codealong mark on the camera's left and, on its right, the seven things that wait on you." width="284" />
+</p>
+
+Codealong docks in your MacBook's notch. Closed, it counts everything that waits on you: agents
+that want to run something, questions, pull requests to review, finished turns. Press **⌥⌘.** in
+any app and it opens on the agent that has waited longest, with the call it wants to run and
+**Allow**, **Always** and **Deny**. **⌘⏎** answers and brings up the next one. You never leave
+your editor.
+
+- **Approvals, questions and replies.** A question comes as choices to pick, with a box for an
+  answer of your own. Deny a call and say what to do instead in the same keystroke.
+- **Pull requests too.** A PR waiting on your review is in the same queue, with its diff and its
+  checks: ⌘⏎ approves it.
+- **No notch needed.** An external display gets one drawn for it. Or float the bar over every app,
+  as it does on Linux, keep it in the menu bar, pin a session to your desktop, or work through
+  everything in the *Waiting on you* window.
+- **Later is a key away.** ⌃⌘1 to ⌃⌘7 snooze what can wait, and a short sound says when something
+  new needs you.
+
+Approvals and questions are answered there for Claude Code, OpenCode, Antigravity's command line
+and any agent you run inside Codealong, Codex among them; the rest show what they wait on and open
+where they ask ([what works with each agent](#what-works-with-each-agent)). More in
+[Answer agents without switching apps](#answer-agents-without-switching-apps).
+
+## An agent reviews every pull request, at no extra cost
+
+<p align="center">
+  <img src="docs/images/notch-review-dark.webp" alt="The notch open on a teammate's pull request that waits on your review, which an agent has read first: its pill says Agent approves, and its Reviews tab shows the review the agent drafted on your account, with a comment on a line of the migration. Command-Return approves with it." width="620" />
+</p>
+
+Turn on automatic reviews and each pull request that asks for your review is read by an agent
+first, on the account, model and effort you pick, told what to look for by instructions you can
+edit. It leaves a **draft review on your own GitHub account**, its comments on the lines they're
+about, for you to finish and submit; it can approve for you when it finds nothing that needs
+fixing. The PR waits on you only once the agent is done, new commits are reviewed again, and your
+sign-off is one keystroke from the notch.
+
+- **No new bill.** A review is an ordinary agent session on the Claude or ChatGPT plan you already
+  pay for, on whichever account has room. No review bot to pay for by the seat, no API key, no
+  charge by the token. The Analytics window shows what your sessions would have cost at API prices,
+  against what your plans cost.
+- **Nothing to install on GitHub.** No GitHub App, no admin to ask, no review service in between:
+  the agent runs on your machine in your checkout, reads the PR through your own `gh` sign-in, and
+  your code goes only to the model provider you already use.
+- **Another model reads what one wrote.** The reviewer prefers another agent than the one that
+  wrote the PR: Codex reviews what Claude Code wrote, and the other way round.
+- **Your own agents' PRs too.** Each PR a session of yours opens can be reviewed the same way, and
+  the review handed back to the session that wrote it to fix, before a teammate looks. Nothing
+  goes on GitHub.
+- **Shared with your team.** A `.codealong/config.toml` committed to the repo carries what every
+  review looks for, and which verdicts an agent may never submit.
+
+*Review with…* (⌃⌘R) starts the same review by hand on any PR, and *Ask* puts questions to an agent
+that has read the whole diff. More in
+[Pull requests, with their agents](#pull-requests-with-their-agents).
+
+## Say what you want done, from any app
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/quick-dark.webp" />
+    <img src="docs/images/quick-light.webp" alt="The quick panel: a prompt typed, the todo it matches found, and the agent menu open on Auto, which would start it on claude-work with Opus, above each account's plan usage and models." width="640" />
+  </picture>
+</p>
+
+Press **⌥⌘/** and type. Codealong finds the session, todo or pull request you mean, by its title,
+its branch or what was said in it. Or keep typing a prompt and start it: in the worktree it belongs
+in or a new one, in a terminal tab, in the background or in the Claude or Codex app, on this
+machine or another of yours.
+
+Leave the account on *Auto* and the work goes where there's room: an account near its plan's limit
+is passed over, and among the rest it picks the one whose week resets soonest, so no week's
+allowance goes unused. More in
+[The quick panel](#the-quick-panel-say-what-you-want-done).
+
+## Every agent, account and machine on one board
 
 <p align="center">
   <picture>
@@ -29,65 +148,46 @@
   </picture>
 </p>
 
-## What it is
+Every session from every agent and account, wherever you started it: your terminal tabs,
+background jobs, the Claude and Codex apps. Sorted into *Needs you*, *Your turn*, *Working*, *In
+review* and *Idle*, and organized the way your work is:
+**project → repo → worktree → branch → pull request**.
 
-Running coding agents in parallel gets messy fast: a dozen terminal tabs, the Claude and Codex
-apps, two or three accounts, and no way to tell which agent is waiting on you without clicking
-through all of them.
+- **Read and reply.** Any session's whole conversation, with its tool calls, images and links,
+  searchable, and a box to reply. Or double-click to open it where it lives: its exact terminal
+  tab, its Claude app session or its Codex thread.
+- **Know where your plan limits stand.** Each account's limits across the top, always in view, and
+  what your sessions used against what your plans cost.
+- **All your machines.** Link them and each shows the others' sessions beside its own; allow it,
+  and you answer an agent on your desktop from your laptop. An
+  [iPhone app](https://github.com/codealong/codealong-ios) is on the way.
 
-Codealong finds every agent session on your machine, wherever it started, and puts them all on one
-board, organized the way your work is: **project → repo → worktree → branch → pull request**. It
-shows what each agent is doing, brings the ones that need you to the front, lets you answer them
-without switching apps, and opens any session right where it lives.
+## And a lot more
 
-Your agents keep running exactly as their makers ship them. Codealong reads the records each one
-already writes. It doesn't wrap, proxy or replace anything, and it needs no account, no API key
-and no server.
+- **[Todos your agents can work.](#todos-your-agents-can-work)** A list for work you mean to hand
+  an agent, which agents read, pick up and finish themselves.
+- **[Schedules.](#schedules)** Start a session, or message one, every weekday at 9, when a deploy
+  goes out, when a PR merges or its checks fail. Nothing is spent watching: an agent runs only
+  when something happens.
+- **Sessions that pick themselves back up.** Out of plan usage mid-task? A Claude Code session
+  offers to move to an account with room and carry on, or moves by itself if you let it. Lid closed
+  and the network dropped? It's told to carry on once the connection is back.
+- **Agents that hear about their PRs.** Turn on nudges and a review, a request for changes or a
+  failing check goes to the session that opened the PR, which takes it from there. It's never told
+  to merge.
+- **[A board your agents can read too.](#a-board-your-agents-can-read-too)** With the `codealong`
+  command, agents see what the others are doing in the same repo, message one another and hand
+  work to another model. One can keep watch over all of them for you.
+- **Ask on the side.** `/side <question>` asks a throwaway copy of a session, which never hears of
+  it. Fork a session, or switch its model or effort, without starting over.
+- **[Boards and a canvas](#boards-and-the-canvas)**, and **[voice](#voice-and-meetings)**: your
+  work as a Kanban or laid out in space, a key held to talk, a session that takes a meeting's
+  notes. Experiments, off until you turn them on.
+- **An app you can change.** Press **⌥⌘,** and a session opens on Codealong's own source, with a
+  picture of every window: describe what to change, and it improves Codealong itself.
 
-- **See everything at once.** Every session from every agent and account, sorted into *Needs
-  you*, *Your turn*, *Working*, *In review* and *Idle*. Questions, approvals, stuck agents and
-  errors stand out.
-- **Answer without switching apps.** Allow a command, answer a question or send a reply from
-  your MacBook's notch, a floating bar, a session pinned to your desktop, or a *Waiting on you*
-  window that walks you through everything, one agent at a time.
-- **Start work in the right place.** Press ⌥⌘/ in any app, say what you want, and start it in the
-  right worktree on the account with room, or send it to the agent that's already on it.
-- **Read any conversation.** The whole transcript of any session, with its tool calls, images and
-  links, searchable, and a box to reply.
-- **Pull requests and todos beside the agents doing them.** Every PR is joined to the worktree
-  and sessions behind it; review, approve and merge in place. Keep a todo list your agents can
-  read and work through.
-- **Schedules.** Start a session, or message one, every weekday at 9, every two hours, whenever a
-  command you give it prints something new (a deploy went out), when a PR merges or a todo is
-  ready, or when a script fires it. Nothing is spent watching: an agent runs only when something
-  happens.
-- **Know where your plan limits stand.** Each account's limits (weekly, 5-hour where the plan has
-  them, or monthly where it counts by the month), always in view, and new work goes to the account
-  with room.
-- **All your machines on one board.** Link them and see, and if you allow it act on, the sessions
-  running on any of them. An [iPhone app](https://github.com/codealong/codealong-ios) is on the way.
-
-## Agents and systems
-
-**Agents:** Claude Code (in a terminal, as background jobs and in the Claude app), Codex (the CLI
-and the app), OpenCode, Antigravity and Cursor (new). [What works with each
-agent](#what-works-with-each-agent) says what Codealong can do with every one.
-
-**Systems:** macOS 13 or later, on Apple silicon or Intel. Linux too, under X11, [built from
-source](#on-linux) for now: sessions run in tmux, shown in your terminal emulator, and a few things are
-macOS's alone, the notch and the Claude and Codex apps among them ([what
-differs](docs/development.md#linux)). Windows isn't supported yet.
-
-**Contributions are welcome**, most of all another harness (Gemini CLI, Copilot CLI, Amp, Pi, or
-whichever one you run) and Windows support. A harness is one module behind the `Adapter` and
-`Reader` in `src-tauri/src/harness.rs`, and [adding a harness](.claude/rules/adding-a-harness.md)
-says what one needs. Everything Codealong asks of the OS is in `src-tauri/src/os/`: each area that
-makes the OS's own calls has a `macos.rs` and a `linux.rs` giving the same functions, and what
-merely differs, a path or a program to run, goes by `os::current()`. Windows starts with a
-`windows.rs` beside each and a third case there. [Building from source](#building-from-source) and
-[docs/development.md](docs/development.md) have the rest, and
-[CONTRIBUTING.md](CONTRIBUTING.md) what a pull request needs: an issue first for anything bigger
-than a fix, and screenshots of any changed UI.
+If Codealong is useful to you, [star it](https://github.com/codealong/codealong/stargazers): it's
+how other people who run agents find it.
 
 ## Get started
 
@@ -95,15 +195,18 @@ than a fix, and screenshots of any changed UI.
 
 #### On macOS
 
-1. Download `Codealong.dmg` from the [latest release](https://github.com/codealong/codealong/releases/latest).
-2. Open it and drag Codealong into Applications.
-3. Open Codealong.
-
-Or with [Homebrew](https://brew.sh), which also puts the `codealong` command on your PATH:
+With [Homebrew](https://brew.sh), which also puts the `codealong` command on your PATH:
 
 ```bash
 brew install --cask codealong/tap/codealong
 ```
+
+Or by hand:
+
+1. [Download `Codealong.dmg`](https://www.codealong.com/download), the
+   [latest release](https://github.com/codealong/codealong/releases/latest)'s.
+2. Open it and drag Codealong into Applications.
+3. Open Codealong.
 
 It runs on Apple silicon and Intel Macs, is signed and notarized by Apple, and keeps itself up to
 date: when a new version is ready, *Restart to update* shows at the foot of the sidebar. Prefer to
@@ -211,10 +314,6 @@ turns that off.
 
 ### Answer agents without switching apps
 
-<p align="center">
-  <img src="docs/images/notch-open-dark.webp" alt="The bar docked in the MacBook notch, open on a session that wants to run git push, with Deny, Always and Allow." width="560" />
-</p>
-
 When an agent wants to run a command, Codealong shows the call with **Allow**, **Always** and
 **Deny**. When it asks you a question, you get its choices to pick from and a box for your own
 answer. You can deny a call and say what to do instead in the same keystroke. The agent's own
@@ -267,14 +366,44 @@ waiting on, and open where they ask.
   </picture>
 </p>
 
-### The quick panel: say what you want done
+### Pull requests, with their agents
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/quick-dark.webp" />
-    <img src="docs/images/quick-light.webp" alt="The quick panel: a prompt typed, the todo it matches found, and the agent menu open on Auto, which would start it on claude-work with Opus, above each account's plan usage and models." width="640" />
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/pr-review-dark.webp" />
+    <img src="docs/images/pr-review-light.webp" alt="The PRs view: a teammate's PR waiting on your review first, which an agent has read and approves, then yours with the sessions that worked on them. The one picked shows the review the agent drafted for you, its comment on a line of the code, and a box to approve, comment or ask for changes." width="100%" />
   </picture>
 </p>
+
+Every pull request in your repos is joined to the worktree and sessions behind it, including the
+agent that opened it, pushed to it or commented on it. Colored pills show its review, checks and
+conflicts, and rows that are your move are marked. Select one for its description, reviews,
+checks, comments and diffs.
+
+- **Review, approve and merge** without opening GitHub: merge commit, squash or rebase,
+  auto-merge, the merge queue, updating the branch. A merge shows everywhere as you confirm it,
+  and comes back with why if GitHub refuses it.
+- **Snooze** a review request until later.
+- **Nudge a PR's agent**: its primary session (the one that pushed to it most, usually the one that
+  opened it, or one you pick) is told when someone reviews, asks for changes or comments, or when
+  checks fail, so it takes it from there; it's never told to merge.
+- **Ask about a PR**: put questions to an agent that has read its whole diff.
+- **Automatic reviews** (optional): an agent on the account, model and effort you pick reviews each PR
+  that asks for your review, told what to look for by instructions you can edit (which can have it
+  start subagents of its own), and leaves a draft review on your account with its comments on the
+  lines they're about, for you to finish and submit. The agent says whether it would approve or ask
+  for changes, which the PR's box suggests, and it can approve for you when it finds nothing that
+  needs fixing. The PR waits on you only once it's done, and new commits get reviewed again.
+- **A second opinion on your agents' PRs** (optional): each PR a session of yours opens is
+  reviewed by an agent on another model or provider (Codex reviews what Claude Code wrote, say),
+  kept in Codealong and handed back to its primary session to act on. Nothing goes on
+  GitHub.
+- **Settings per repo, and shared with your team**: pick a repo in Settings › Automation to set how
+  its PRs are reviewed and nudged. A `.codealong/config.toml` committed to the repo shares words
+  for every review, which verdicts an agent may never submit, and what to suggest turning on, with
+  everyone on the team; each person takes the suggestions or doesn't.
+
+### The quick panel: say what you want done
 
 Press **⌥⌘/** in any app. With nothing typed, it lists what needs you. Start typing and it finds
 sessions (by title, branch or PR, or by what was said in them), todos and pull requests. Or keep
@@ -333,43 +462,6 @@ dropped? Codealong tells the session to carry on once the connection is back. Te
 partway through a turn? The session says it was cut off, and Carry on picks it up; one running in
 Codealong itself is told to carry on as Codealong comes back from a restart.
 
-### Pull requests, with their agents
-
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/prs-dark.webp" />
-    <img src="docs/images/prs-light.webp" alt="The PRs view: a teammate's PR waiting on your review first, then yours with the sessions that worked on them. The one picked shows its description, checks and a box to approve, comment or ask for changes." width="100%" />
-  </picture>
-</p>
-
-Every pull request in your repos is joined to the worktree and sessions behind it, including the
-agent that opened it, pushed to it or commented on it. Colored pills show its review, checks and
-conflicts, and rows that are your move are marked. Select one for its description, reviews,
-checks, comments and diffs.
-
-- **Review, approve and merge** without opening GitHub: merge commit, squash or rebase,
-  auto-merge, the merge queue, updating the branch. A merge shows everywhere as you confirm it,
-  and comes back with why if GitHub refuses it.
-- **Snooze** a review request until later.
-- **Nudge a PR's agent**: its primary session (the one that pushed to it most, usually the one that
-  opened it, or one you pick) is told when someone reviews, asks for changes or comments, or when
-  checks fail, so it takes it from there; it's never told to merge.
-- **Ask about a PR**: put questions to an agent that has read its whole diff.
-- **Automatic reviews** (optional): an agent on the account, model and effort you pick reviews each PR
-  that asks for your review, told what to look for by instructions you can edit (which can have it
-  start subagents of its own), and leaves a draft review on your account with its comments on the
-  lines they're about, for you to finish and submit. The agent says whether it would approve or ask
-  for changes, which the PR's box suggests, and it can approve for you when it finds nothing that
-  needs fixing. The PR waits on you only once it's done, and new commits get reviewed again.
-- **A second opinion on your agents' PRs** (optional): each PR a session of yours opens is
-  reviewed by an agent on another model or provider (Codex reviews what Claude Code wrote, say),
-  kept in Codealong and handed back to its primary session to act on. Nothing goes on
-  GitHub.
-- **Settings per repo, and shared with your team**: pick a repo in Settings › Automation to set how
-  its PRs are reviewed and nudged. A `.codealong/config.toml` committed to the repo shares words
-  for every review, which verdicts an agent may never submit, and what to suggest turning on, with
-  everyone on the team; each person takes the suggestions or doesn't.
-
 ### Todos your agents can work
 
 <p align="center">
@@ -402,32 +494,6 @@ fire`). Each run goes on the account, routing group or Auto you pick, picked aga
 what it was for goes to the agent as a file to read, not as words of yours. The Schedules view
 (⇧⌘L) lists them with every run and how it went; a run missed while the Mac slept goes once it's
 back.
-
-### Boards and the canvas
-
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/canvas-dark.webp" />
-    <img src="docs/images/canvas-light.webp" alt="A project's board as a canvas: a frame per repo and a column per worktree, with its session, todo and PR cards, and the project's todos that aren't in a worktree yet beside them." width="100%" />
-  </picture>
-</p>
-
-Your project laid out in space, to remember work by where it is. *Tidy* lays it out in a frame per
-repo and a column per worktree, and new work comes in by itself beside what it belongs to. Add
-notes and frames, pan and zoom as in Figma, and zoomed out, every card becomes a block in its
-status color. The canvas and the Kanban are two ways of showing a board you make, for the whole
-project or for a release, a fix or an investigation, holding what its rule takes in (a label, a
-stage, a repo, what needs you) and what you add from any row's menu. A board's Kanban can have
-columns of your own, and agents can put their work on a board with `codealong board add`. Boards
-are an experiment, off until you turn them on in Settings › Experimental.
-
-Voice is an experiment too (macOS 26, Settings › Experimental). Hold ⌥⌘[ and talk, and what you
-said is typed where your caret is in Codealong, or from another app into the quick panel, which
-opens to hear it; hold ⌥⌘] to talk to your orchestrator from any app. And a session can listen to a meeting: it keeps notes, coaches you a few words at a time
-beside your camera, or files a todo for each thing a customer asks for. Press ⌥⌘= as one begins
-(Listen now) and Codealong hears it from then on, with a session started for it; or have a
-session you already have listen (Listen… in its menu). Speech becomes text on your Mac, with
-macOS's own model, and no audio is kept ([the guide](docs/guide.md#voice) has the rest).
 
 ### Open anything where it lives
 
@@ -478,7 +544,44 @@ orchestrator, which asks what you'd
 like it to do, then tags what waits on you, suggests replies, and flags agents getting in each
 other's way, without messaging any of them ([its skill](skills/codealong/references/orchestrate.md)).
 
+### Boards and the canvas
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/canvas-dark.webp" />
+    <img src="docs/images/canvas-light.webp" alt="A project's board as a canvas: a frame per repo and a column per worktree, with its session, todo and PR cards, and the project's todos that aren't in a worktree yet beside them." width="100%" />
+  </picture>
+</p>
+
+Your project laid out in space, to remember work by where it is. *Tidy* lays it out in a frame per
+repo and a column per worktree, and new work comes in by itself beside what it belongs to. Add
+notes and frames, pan and zoom as in Figma, and zoomed out, every card becomes a block in its
+status color. The canvas and the Kanban are two ways of showing a board you make, for the whole
+project or for a release, a fix or an investigation, holding what its rule takes in (a label, a
+stage, a repo, what needs you) and what you add from any row's menu. A board's Kanban can have
+columns of your own, and agents can put their work on a board with `codealong board add`. Boards
+are an experiment, off until you turn them on in Settings › Experimental.
+
+### Voice and meetings
+
+Voice is an experiment too (macOS 26, Settings › Experimental). Hold ⌥⌘[ and talk, and what you
+said is typed where your caret is in Codealong, or from another app into the quick panel, which
+opens to hear it; hold ⌥⌘] to talk to your orchestrator from any app. And a session can listen to a meeting: it keeps notes, coaches you a few words at a time
+beside your camera, or files a todo for each thing a customer asks for. Press ⌥⌘= as one begins
+(Listen now) and Codealong hears it from then on, with a session started for it; or have a
+session you already have listen (Listen… in its menu). Speech becomes text on your Mac, with
+macOS's own model, and no audio is kept ([the guide](docs/guide.md#voice) has the rest).
+
 ## What works with each agent
+
+**Agents:** Claude Code (in a terminal, as background jobs and in the Claude app), Codex (the CLI
+and the app), OpenCode, Antigravity and Cursor (new). The table below says what Codealong can do with every
+one.
+
+**Systems:** macOS 13 or later, on Apple silicon or Intel. Linux too, under X11, [built from
+source](#on-linux) for now: sessions run in tmux, shown in your terminal emulator, and a few things are
+macOS's alone, the notch and the Claude and Codex apps among them ([what
+differs](docs/development.md#linux)). Windows isn't supported yet.
 
 Codealong reads what every agent already writes, so it sees all of them. What it can do from
 there depends on what each one lets another program do. **Where it can't act, it opens the
@@ -514,7 +617,8 @@ From any app (change them in Settings › General):
 | ⌥⌘, | Improve Codealong: the quick panel on Codealong's own project, with pictures of its windows |
 | ⌥⌘; | Codealong's window, the one you were in last; pressed there, it hides Codealong |
 
-In Codealong:
+<details>
+<summary>Every key in Codealong's own windows</summary>
 
 | Keys | What they do |
 | --- | --- |
@@ -548,6 +652,8 @@ In Codealong:
 | ⌘R | Reload: read again what the window shows, from GitHub too, keeping your place |
 | ⇧⌘U | Analytics: what sessions used and cost, at API prices and paid |
 | ⌘, | Settings |
+
+</details>
 
 In the quick panel: **⏎** does the selected row, **⌘⏎** always starts a session, **⌥⏎** opens a
 session where it lives, **⇥** answers a session in the *Waiting on you* window, **⌘1** – **⌘9** pick
@@ -841,6 +947,12 @@ Yes. It's free and open source under the Apache License 2.0, with no account, no
 tier. You pay only for what you already pay for: your agents' subscriptions, and a TypeSafe key if
 you turn on Jev.
 
+**What do automatic reviews of pull requests cost?**
+Nothing beyond the plans you already pay for. A review is an agent session on one of your accounts,
+so it counts against that plan's usage as any session does, and a reviewer passes over an account
+that's near its limit. There's no fee by the seat and no API key. An account that pays by the
+token, with an API key of its own, pays for a review's tokens as for any other work.
+
 **Do I have to start my agents from Codealong?**
 No. Codealong finds every session on your machine, wherever it started: your terminal tabs, Claude
 Code's background jobs, the Claude and Codex apps. Keep starting agents the way you do now, and use
@@ -878,8 +990,7 @@ commands. Some of what macOS gives it has no counterpart there, the notch among 
 [the development notes](docs/development.md#linux) say what, and how to try it in a VM.
 
 **And Windows?**
-Not yet, and help is welcome: [Agents and systems](#agents-and-systems) says where Windows support
-starts.
+Not yet, and help is welcome: [Contributing](#contributing) says where Windows support starts.
 
 **Can I answer my agents from my phone?**
 Soon: [Codealong for iPhone](https://github.com/codealong/codealong-ios) is early, and for now you
@@ -890,6 +1001,7 @@ control on the machine the agent runs on.
 **How is it different from apps that run agents in their own window?**
 Those apps see only the agents they launched. Codealong reads the agents you already run, across
 harnesses, accounts and machines, and sends new work to the right one.
+[How Codealong compares](https://www.codealong.com/compare/) goes through them one by one.
 
 ### If something's missing
 
@@ -902,9 +1014,22 @@ harnesses, accounts and machines, and sends new work to the right one.
 - **Codealong can't bring a terminal tab forward or type into it.** On macOS, allow it under
   System Settings › Privacy & Security › Automation.
 - **Your terminal answers only once you bring it forward.** macOS naps it while it's behind other
-  windows. Turn on Settings › General › Keep <terminal> awake, then quit and reopen the terminal.
+  windows. Turn on Settings › General › Keep \<terminal> awake, then quit and reopen the terminal.
 - **Something stopped working in the background.** Codealong says so in a chip at the end of the
   accounts bar; click it for what happened and what to open to fix it.
+
+## Contributing
+
+**Contributions are welcome**, most of all another harness (Gemini CLI, Copilot CLI, Amp, Pi, or
+whichever one you run) and Windows support. A harness is one module behind the `Adapter` and
+`Reader` in `src-tauri/src/harness.rs`, and [adding a harness](.claude/rules/adding-a-harness.md)
+says what one needs. Everything Codealong asks of the OS is in `src-tauri/src/os/`: each area that
+makes the OS's own calls has a `macos.rs` and a `linux.rs` giving the same functions, and what
+merely differs, a path or a program to run, goes by `os::current()`. Windows starts with a
+`windows.rs` beside each and a third case there. [Building from source](#building-from-source) and
+[docs/development.md](docs/development.md) have the rest, and
+[CONTRIBUTING.md](CONTRIBUTING.md) what a pull request needs: an issue first for anything bigger
+than a fix, and screenshots of any changed UI.
 
 ## Building from source
 
