@@ -2,13 +2,16 @@
 // for the screen and, over it, a text field nobody sees that holds the keyboard, so an input
 // method composes in it and a paste lands in it with the clipboard's text. It takes the keyboard
 // when its drawer asks (`focusAt`), as a terminal just opened does. Its right-click menu copies,
-// and for a terminal beside a session, adds the selection or all its text to the session's box
-// (terminals.ts `addToBox`).
+// and for a terminal beside a session, sends the selection to the session or adds it, or all its
+// text, to the session's box (terminals.ts `sendToTheSession`, `addToBox`).
 
 import { useEffect, useRef, useState } from 'react';
+import { sentWorthSaying } from '../../ahead';
 import { showContextMenu } from '../../contextMenu';
-import { addToBox } from '../../terminals';
-import { Button } from '../primitives';
+import { errorText } from '../../report';
+import { addToBox, sendToTheSession } from '../../terminals';
+import type { Session } from '../../types';
+import { Button, cx } from '../primitives';
 import { TerminalController } from './controller';
 
 export interface TerminalViewProps {
@@ -17,12 +20,13 @@ export interface TerminalViewProps {
   focusAt: number;
   /** ⌃` in the terminal: the keyboard goes back. */
   onLeave: () => void;
-  /** The session whose box its text can be added to: the one it's beside, not one it hosts. */
-  session?: string;
+  /** The session its text can be sent to or added to the box of: the one it's beside, not one it
+   *  hosts. */
+  session?: Session;
 }
 
-/** How long the note that text went into the box stays. */
-const ADDED_MS = 4000;
+/** How long the note of where its text went stays. */
+const NOTE_MS = 4000;
 
 export function TerminalView({ id, focusAt, onLeave, session }: TerminalViewProps) {
   const wrap = useRef<HTMLDivElement>(null);
@@ -34,12 +38,13 @@ export function TerminalView({ id, focusAt, onLeave, session }: TerminalViewProp
   const [unsafe, setUnsafe] = useState<string | null>(null);
   const [cursor, setCursor] = useState('text');
   const [failed, setFailed] = useState<string | null>(null);
-  const [added, setAdded] = useState<string | null>(null);
+  const [note, setNote] = useState<{ text: string; error: boolean } | null>(null);
+  const said = (text: string, error = false) => setNote({ text, error });
   useEffect(() => {
-    if (!added) return;
-    const t = window.setTimeout(() => setAdded(null), ADDED_MS);
+    if (!note) return;
+    const t = window.setTimeout(() => setNote(null), NOTE_MS);
     return () => window.clearTimeout(t);
-  }, [added]);
+  }, [note]);
 
   useEffect(() => {
     if (!wrap.current || !canvas.current) return;
@@ -91,7 +96,18 @@ export function TerminalView({ id, focusAt, onLeave, session }: TerminalViewProp
             // nothing adds nothing, as Copy copies nothing.
             const toBox = (key: string, all: boolean) =>
               c.read(all, async (text) => {
-                if (text && (await addToBox(key, text))) setAdded(all ? 'Added all its text to the session’s box.' : 'Added the selection to the session’s box.');
+                if (text && (await addToBox(key, text))) said(all ? 'Added all its text to the session’s box.' : 'Added the selection to the session’s box.');
+              });
+            // Sent, it goes from here as a message from the box would; one that didn't go is in
+            // the session's box, with what you were writing there. The terminal's keys don't wait
+            // for it: what's typed meanwhile goes on to the terminal.
+            const toSession = (s: Session) =>
+              c.read(false, (text) => {
+                if (!text) return said('Nothing’s selected to send.');
+                sendToTheSession(s, text).then(
+                  (sent) => said(!sent ? 'Nothing’s selected to send.' : sentWorthSaying(sent) ? sent.message : 'Sent the selection to the session.'),
+                  (e: unknown) => said(`${errorText(e)} It’s in the session’s box.`, true),
+                );
               });
             void showContextMenu(
               [
@@ -99,7 +115,14 @@ export function TerminalView({ id, focusAt, onLeave, session }: TerminalViewProp
                 { label: 'Select all', run: () => c.selectAll() },
                 'separator',
                 { label: 'Copy all text', run: () => c.copyAll() },
-                ...(session ? (['separator', { label: 'Add to the session’s box', run: () => toBox(session, false) }, { label: 'Add all text to the session’s box', run: () => toBox(session, true) }] as const) : []),
+                ...(session
+                  ? ([
+                      'separator',
+                      { label: 'Send to the session', run: () => toSession(session) },
+                      { label: 'Add to the session’s box', run: () => toBox(session.key, false) },
+                      { label: 'Add all text to the session’s box', run: () => toBox(session.key, true) },
+                    ] as const)
+                  : []),
               ],
               { x: e.clientX, y: e.clientY },
             ).catch(() => {
@@ -171,9 +194,9 @@ export function TerminalView({ id, focusAt, onLeave, session }: TerminalViewProp
           {failed}
         </p>
       )}
-      {added && !failed && (
-        <p className="ca-term-added" role="status">
-          {added}
+      {note && !failed && (
+        <p className={cx('ca-term-added', note.error && 'is-error')} role="status">
+          {note.text}
         </p>
       )}
     </div>

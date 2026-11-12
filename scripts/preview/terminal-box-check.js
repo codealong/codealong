@@ -2,10 +2,11 @@
 // and the edges of its window when it's popped out (ui/terminal/TerminalView.tsx, terminals.ts
 // `addToBox`, TerminalWindow.tsx, useSizeGrips.tsx). In a session's drawer: a drag that goes
 // past the terminal's top is sent with where it went, which the engine scrolls on from
-// (screen.rs `autoscroll`); its right-click menu adds the selection to the session's box as a
-// code block, the box taking the keyboard, and all its text, longer than a box takes, as a file
-// attached. Popped out: the menu has the same, and its right edge, bottom edge and the corner
-// between them size its window (kept_resize), clear of the terminal itself.
+// (screen.rs `autoscroll`); its right-click menu sends the selection to the session as a code
+// block, leaving the box as it was, adds it to the session's box, the box taking the keyboard,
+// and all its text, longer than a box takes, as a file attached. Popped out: the menu has the
+// same, and its right edge, bottom edge and the corner between them size its window
+// (kept_resize), clear of the terminal itself.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/terminal-box-check.js
 //   PREVIEW_WAIT=30000 scripts/preview.sh terminal '' scripts/preview/terminal-box-check.js
 (function () {
@@ -14,6 +15,7 @@
   };
   // setPointerCapture needs a real pointer: the stand-in keeps the drag going.
   Element.prototype.setPointerCapture = function () {};
+  var SEND = 'Send to the session';
   var ADD = 'Add to the session’s box';
   var ADD_ALL = 'Add all text to the session’s box';
 
@@ -36,8 +38,17 @@
     check('a drag past the top is sent from where it went, above the screen', moves.some(function (m) { return m.y < 0; }), JSON.stringify(moves));
 
     var labels = await menuOf(canvas);
-    check('its menu adds the selection, or everything, to the session’s box', labels.indexOf(ADD) >= 0 && labels.indexOf(ADD_ALL) >= 0, labels.join(' | '));
+    check('its menu sends the selection to the session, or adds it or everything to the session’s box', labels.indexOf(SEND) >= 0 && labels.indexOf(ADD) >= 0 && labels.indexOf(ADD_ALL) >= 0, labels.join(' | '));
+    box.value = '';
     box.blur();
+    menuItem(SEND)();
+    var send = await until(function () { return calls('send_to_session')[0]; }, 3000, 'the selection sent');
+    var shownKey = panel.getAttribute('data-shows-session');
+    check('the selection goes to the session shown, as a code block', send[1].key === shownKey && send[1].text === '```\nnpm test\n```', JSON.stringify(send[1]));
+    var note = await until(function () { var n = q('.ca-term-added', panel); return n && /Sent/.test(n.textContent) ? n : null; }, 3000, 'a note that it went');
+    check('the terminal says it went', /Sent the selection to the session/.test(note.textContent), note.textContent);
+    check('and the box is left as it was', box.value === '' && document.activeElement !== box, JSON.stringify(box.value));
+
     menuItem(ADD)();
     await until(function () { return /```\nnpm test\n```/.test(box.value); }, 3000, 'the selection in the box');
     check('the selection goes into the box as a code block', /```\nnpm test\n```$/.test(box.value), JSON.stringify(box.value));
@@ -59,7 +70,7 @@
     var canvas = await until(function () { return q('.ca-termwin .ca-term-canvas'); }, 20000, 'the terminal in its window');
     await until(function () { return canvas.dataset.renderer; }, 5000, 'a renderer');
     var labels = await menuOf(canvas);
-    check('its menu adds to its session’s box there too', labels.indexOf(ADD) >= 0 && labels.indexOf(ADD_ALL) >= 0, labels.join(' | '));
+    check('its menu sends to its session and adds to its box there too', labels.indexOf(SEND) >= 0 && labels.indexOf(ADD) >= 0 && labels.indexOf(ADD_ALL) >= 0, labels.join(' | '));
 
     var grip = function (edge) { return q('.ca-termwin-grip.is-' + edge); };
     check('it has a right edge, a bottom edge and a corner to size it by', !!grip('side') && !!grip('far') && !!grip('corner'));

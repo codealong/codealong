@@ -2981,11 +2981,15 @@ or triple-click, as in Ghostty, Terminal and iTerm2: for a long one, click at on
 the other and Shift-click there. Typing forgets where it began. ⌘C copies the selection, ⌘V pastes (a paste
 with line breaks into a shell that would run each line asks first), ⌘A selects everything, and
 ⌘-click opens a web address. A right-click has Copy, Select all and Copy all text, which copies its
-scrollback too, and Add to the session's box and Add all text to the session's box, which put the
-selection or everything it holds at the end of what you're writing to the session, for you to say
-what it's for and send: what you ran yourself in a tab an agent's command opened, say. Up to 40
-lines go in as a code block; more go as a text file attached to the box, which the agent reads.
-Nothing goes to the session until you send it. ⌘ keys stay
+scrollback too, then Send to the session, Add to the session's box and Add all text to the
+session's box. Send to the session sends the selection to the session at once, as a message from
+its box would go, leaving what you're writing there alone: for what speaks for itself, like what a
+command an agent asked you to run printed. A note under the terminal says it went; one that
+doesn't go says why and is put in the session's box. The other two put the selection or
+everything it holds at the end of what you're writing to the session, for you to say what it's for
+and send: what you ran yourself in a tab an agent's command opened, say. Either way, up to 40
+lines go as a code block; more go as a text file attached, which the agent reads. Nothing goes to
+the session but what you send. ⌘ keys stay
 Codealong's; ⌃ and ⌥ go to the program. On Linux copy and paste are Ctrl+Shift+C and V, and Ctrl
 alone goes to the program. So in the notch, with a terminal holding the keyboard, Escape goes to
 the program (Claude Code's interrupt, say) rather than putting the notch away: ⌘W puts it away,

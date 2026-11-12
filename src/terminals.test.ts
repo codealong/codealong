@@ -101,6 +101,32 @@ describe('a terminal’s text in a session’s box', () => {
     expect(await addToBox('s1', '\n')).toBe(false);
     expect(added).toHaveBeenCalledTimes(2);
   });
+
+  it('is sent to the session as it would go in the box, leaving what’s written there alone', async () => {
+    const { sendToTheSession } = await import('./terminals');
+    const api = await import('./api');
+    const drafts = await import('./drafts');
+    const { session } = await import('./testing/fixtures');
+    const sent = vi.spyOn(api, 'sendToSession').mockResolvedValue({ message: 'Sent.', opened: false });
+    const added = vi.spyOn(drafts, 'addToDraft').mockImplementation(() => {});
+    const s = session({ key: 's1' });
+    expect(await sendToTheSession(s, 'Ended organization admin access.\n')).toEqual({ message: 'Sent.', opened: false });
+    expect(sent).toHaveBeenLastCalledWith('s1', '```\nEnded organization admin access.\n```', false);
+    expect(await sendToTheSession(s, ' \n')).toBeNull();
+    expect(sent).toHaveBeenCalledTimes(1);
+    expect(added).not.toHaveBeenCalled();
+  });
+
+  it('that doesn’t go is put in the session’s box, before what was written there', async () => {
+    const { sendToTheSession } = await import('./terminals');
+    const api = await import('./api');
+    const drafts = await import('./drafts');
+    const { session } = await import('./testing/fixtures');
+    vi.spyOn(api, 'sendToSession').mockRejectedValue(new Error('It isn’t running.'));
+    drafts.writeDraft('s2', 'what about this');
+    await expect(sendToTheSession(session({ key: 's2' }), 'npm test')).rejects.toThrow('It isn’t running.');
+    expect(drafts.readDraft('s2')).toBe('```\nnpm test\n```\n\nwhat about this');
+  });
 });
 
 describe('a terminal that asks something', () => {

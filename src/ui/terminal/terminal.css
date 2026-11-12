@@ -217,12 +217,16 @@
   color: var(--alert);
   font: var(--type-meta);
 }
-/* Where text added to the session's box went, for a moment. */
+/* Where text sent to the session or added to its box went, for a moment; a send that didn't go
+   says why in the alert color. */
 .ca-term-added {
   margin: 0;
   padding: var(--space-1) var(--space-3);
   color: var(--ink-2);
   font: var(--type-meta);
+}
+.ca-term-added.is-error {
+  color: var(--alert);
 }
 
 /* Where a terminal popped out into a window of its own was: what it is, and the ways to it. */

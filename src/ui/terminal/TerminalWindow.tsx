@@ -85,7 +85,7 @@ export function TerminalWindow() {
           </button>
         </div>
         {/* ⌃` puts a session's back where it came from; one that's no session's stays. */}
-        <TerminalView id={glance.id} focusAt={focusAt} onLeave={() => mine && void keptClose()} session={mine && !glance.hosts ? glance.session : undefined} />
+        <TerminalView id={glance.id} focusAt={focusAt} onLeave={() => mine && void keptClose()} session={mine && !glance.hosts ? session : undefined} />
         {failed && (
           <p className="ca-term-failed" role="status">
             {failed}

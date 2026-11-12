@@ -10,7 +10,7 @@ import { errorText } from '../../report';
 import { terminalClose, terminalPutBack, terminalWindow } from '../../api';
 import { useStored, type Codec } from '../../stored';
 import { askingNow, drawerOf, openTerminal, setDrawer, shownOf, startedAsking, terminalName, useDrawer, usePoppedTerminals } from '../../terminals';
-import type { TerminalGlance } from '../../types';
+import type { Session, TerminalGlance } from '../../types';
 import { Button, cx, Icon } from '../primitives';
 import { TerminalView } from './TerminalView';
 
@@ -25,7 +25,7 @@ const DEFAULT_HEIGHT = 260;
 const LEAST_HEIGHT = 96;
 
 export interface TerminalDrawerProps {
-  sessionKey: string;
+  session: Session;
   /** Where a new one starts: the session's folder on this Mac. */
   folder: string;
   terminals: TerminalGlance[];
@@ -41,7 +41,8 @@ function stateOf(t: TerminalGlance): { word: string; tone: 'quiet' | 'busy' | 'a
   return null;
 }
 
-export function TerminalDrawer({ sessionKey, folder, terminals, onLeave }: TerminalDrawerProps) {
+export function TerminalDrawer({ session, folder, terminals, onLeave }: TerminalDrawerProps) {
+  const sessionKey = session.key;
   const [error, setError] = useState<string | null>(null);
   const onError = (e: unknown) => setError(errorText(e));
   const drawer = useDrawer(sessionKey);
@@ -157,7 +158,7 @@ export function TerminalDrawer({ sessionKey, folder, terminals, onLeave }: Termi
           </Button>
         </div>
       )}
-      {open && shown && !away && <TerminalView key={shown.id} id={shown.id} focusAt={drawer.focusAt} onLeave={onLeave} session={shown.hosts ? undefined : sessionKey} />}
+      {open && shown && !away && <TerminalView key={shown.id} id={shown.id} focusAt={drawer.focusAt} onLeave={onLeave} session={shown.hosts ? undefined : session} />}
     </section>
   );
 }

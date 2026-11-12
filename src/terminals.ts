@@ -8,15 +8,17 @@
 // (`themeOf`) so programs that ask for the colors get them.
 //
 // What a terminal beside a session shows can go to the session: its selection, or all its text,
-// into the session's box (`addToBox`), for you to say what it's for and send. It's never sent
-// without you: the shell there is yours, and so is what it printed.
+// into the session's box (`addToBox`), for you to say what it's for and send, or its selection
+// sent as it is (`sendToTheSession`), when the text says enough by itself. It's never sent
+// without you asking: the shell there is yours, and so is what it printed.
 
 import { useSyncExternalStore } from 'react';
+import { sendAhead } from './ahead';
 import { inTauri, onTerminalWindows, onWindowKeys, saveAttachment, terminalOpen, terminalWindows, windowKeys } from './api';
 import { shortOf } from './devices';
 import { addToDraft } from './drafts';
 import { attachmentRef } from './todos';
-import type { TerminalGlance, TerminalSize, TerminalTheme } from './types';
+import type { Sent, Session, TerminalGlance, TerminalSize, TerminalTheme } from './types';
 
 /** A session's drawer: open or folded to its tabs, the tab shown, and when it last asked for the
  *  keyboard (a new terminal does); and when the terminal the session runs in last asked for it,
@@ -277,15 +279,30 @@ export function boxedText(text: string): { block: string } | { file: string } | 
   return { block: `${fence}\n${t}\n${fence}` };
 }
 
+/** A terminal's text as a message to a session says it (`boxedText`): a code block, or a file
+ *  kept and linked. Null when there's nothing to say. */
+async function boxedWords(text: string): Promise<string | null> {
+  const boxed = boxedText(text);
+  if (!boxed) return null;
+  return 'block' in boxed ? boxed.block : attachmentRef(await saveAttachment(new Blob([boxed.file], { type: 'text/plain' }), 'terminal.txt'));
+}
+
 /** Adds a terminal's text to the end of a session's box: the box in this window takes the
  *  cursor, and the session's box shows it in every other window (drafts.ts). False when there was
  *  nothing to add. */
 export async function addToBox(key: string, text: string): Promise<boolean> {
-  const boxed = boxedText(text);
-  if (!boxed) return false;
-  const words = 'block' in boxed ? boxed.block : attachmentRef(await saveAttachment(new Blob([boxed.file], { type: 'text/plain' }), 'terminal.txt'));
+  const words = await boxedWords(text);
+  if (!words) return false;
   addToDraft(key, words);
   return true;
+}
+
+/** Sends a terminal's text to a session at once, as Add to the session's box would put it there,
+ *  leaving what you're writing in the box alone: shown as sending in its thread, and back in its
+ *  box with why if it doesn't go (`sendAhead`). Null when there was nothing to send. */
+export async function sendToTheSession(s: Session, text: string): Promise<Sent | null> {
+  const words = await boxedWords(text);
+  return words ? sendAhead(s, words) : null;
 }
 
 /** Opens a terminal for a session in `folder`, a shell or `command`, and shows it in the session's

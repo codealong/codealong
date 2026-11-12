@@ -506,7 +506,7 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
           )}
           {folder !== null && terminals && !away && (
             <TerminalDrawer
-              sessionKey={key}
+              session={s}
               folder={folder}
               terminals={besideOf(terminals)}
               onLeave={() => {
