@@ -190,7 +190,8 @@ pub struct Kept {
     pub name: String,
     #[serde(flatten)]
     pub record: Record,
-    /// Whether notes were kept of it, and how many lines were heard.
+    /// Whether notes were kept of it, and how many lines were said (`listen::spoken`: not the
+    /// ones Codealong wrote of the transcript itself).
     pub notes: bool,
     pub lines: usize,
 }
@@ -213,7 +214,7 @@ pub fn kept(root: &Path) -> Vec<Kept> {
         .filter_map(|entry| {
             let folder = entry.path();
             let record: Record = serde_json::from_str(&std::fs::read_to_string(folder.join("meeting.json")).ok()?).ok()?;
-            let lines = std::fs::read_to_string(folder.join("transcript.md")).map(|t| t.lines().filter(|l| l.starts_with('[')).count()).unwrap_or(0);
+            let lines = std::fs::read_to_string(folder.join("transcript.md")).map(|t| t.lines().filter(|l| listen::spoken(l)).count()).unwrap_or(0);
             let notes = std::fs::metadata(folder.join("notes.md")).is_ok_and(|m| m.len() > 0);
             Some(Kept { name: util::file_name(&folder), folder: folder.to_string_lossy().into_owned(), record, notes, lines })
         })
@@ -1127,8 +1128,10 @@ mod tests {
         let record_of = |m: &Meeting| Record { meeting: m.clone(), listening: "l".into(), session: "claude:work:2".into(), role: Role::Notes, taken_at: m.start };
         keep(new_folder(&taken, &m).unwrap(), &record_of(&m), "");
         keep(heard.join("abc"), &record, "[11:00:00] You: Hello.\n");
-        // Listen… picked and stopped with nothing heard: its folder says, and it isn't one.
+        // Listen… picked and stopped with nothing heard: its folder says, and it isn't one,
+        // though its hearing was started again meanwhile, which its transcript notes.
         keep(heard.join("def"), &heard_record(&Listening { id: "def".into(), ..l.clone() }, "By mistake").unwrap(), "");
+        keep(heard.join("ghi"), &heard_record(&Listening { id: "ghi".into(), ..l.clone() }, "Quiet").unwrap(), "[11:00:00] (Codealong's hearing stopped and started again here: some of what was said is missing.)\n");
         // Both kinds, the latest first; a taken one is listed whatever was heard.
         let all = both(&taken, &heard);
         assert_eq!(all.iter().map(|k| (k.record.meeting.title.as_str(), k.lines)).collect::<Vec<_>>(), vec![("Kestrel on-site", 1), ("Renewal call", 0)]);

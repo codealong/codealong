@@ -506,6 +506,12 @@ fn aside(at: &str, text: &str) -> String {
     format!("[{at}] ({text})\n")
 }
 
+/// Whether a transcript's line is something that was said (`line`), not Codealong's own word on
+/// the transcript (`aside`).
+pub fn spoken(line: &str) -> bool {
+    line.split_once("] ").is_some_and(|(at, rest)| at.starts_with('[') && !rest.starts_with('('))
+}
+
 const MISSING: &str = "Codealong's hearing stopped and started again here: some of what was said is missing.";
 
 fn append(transcript: &Path, line: &str) -> Result<()> {
@@ -1310,7 +1316,12 @@ fn adopt(engine: &Handle, all: &[Listening]) {
     let board = engine.board();
     if !board.loading {
         ADOPTED.store(true, Ordering::Relaxed);
-        crate::meetings::adopt(&board, all);
+        // Not the ones this server started (they're running before they're in the file,
+        // `begin`): `start` says which meeting each of those is, under the key its session
+        // went on with, and would find this had said first, with the key it had before.
+        let ours: HashSet<String> = state().running.keys().cloned().collect();
+        let before: Vec<Listening> = all.iter().filter(|l| !ours.contains(&l.id)).cloned().collect();
+        crate::meetings::adopt(&board, &before);
     }
 }
 
@@ -1935,6 +1946,9 @@ mod tests {
     fn a_line_is_one_line_whatever_was_said() {
         assert_eq!(line("14:03:22", YOU, "  Hello,\nthere.  "), "[14:03:22] You: Hello, there.\n");
         assert_eq!(aside("14:03:22", MISSING), format!("[14:03:22] ({MISSING})\n"));
+        // What was said is told from what Codealong says of the transcript, whatever the words.
+        assert!(spoken(&line("14:03:22", YOU, "(laughs) Right.")) && spoken("[14:03:22] Them: Hi."));
+        assert!(!spoken(&aside("14:03:22", MISSING)) && !spoken("") && !spoken("(an older one, with no time)"));
     }
 
     #[test]
