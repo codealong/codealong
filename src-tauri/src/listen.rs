@@ -977,9 +977,10 @@ pub fn start(engine: &Handle, key: &str, ask: &Ask) -> Result<Listening> {
     // What its session last said was said before this, and is no cue.
     let l = begin(&cfg, key, Some(session.reply_tail.clone()), sources, ask, None, || format!("{} is listening already.", send::quoted(&session.title)))?;
     let l = told(engine, &board, l)?;
-    // It's one of your meetings from here, by its session's name (meetings.rs `yours`), under
-    // the key its session has now that it's been told.
-    crate::meetings::note_heard(&l, &session.title);
+    // It's one of your meetings from here, by its session's name (meetings.rs `yours`): said
+    // under the file's lock, of the listening as the file has it by now, as `goes_on_as` and
+    // `adopt` say theirs.
+    update(&l.id, |now| crate::meetings::note_heard(now, &session.title, true));
     Ok(l)
 }
 
@@ -1205,11 +1206,12 @@ fn goes_on_as(id: &str, key: &str) -> Option<Listening> {
         running.session = key.to_string();
         running.moved_at = Some(util::now_ms());
     }
-    let now = update(id, |l| l.session = key.to_string());
-    // A meeting's own record says which session took it, so it follows.
-    if let Some(l) = &now {
+    // A meeting's own record says which session took it, so it follows, under the same lock:
+    // of two changes of key, the later one's is the record's too.
+    let now = update(id, |l| {
+        l.session = key.to_string();
         crate::meetings::follow(l);
-    }
+    });
     changed();
     now
 }
@@ -1307,7 +1309,9 @@ pub fn stop(key: &str) -> Result<Listening> {
 }
 
 /// Once in a server's life, at the first look with a board to name sessions from: the
-/// listenings from before theirs were listed among your meetings are (meetings.rs `adopt`).
+/// listenings sessions were asked for before theirs were listed among your meetings say which
+/// meeting they are (meetings.rs `note_heard`), each named for its session as the board has it
+/// now. Only the ones whose folders don't say yet, each under the file's lock, as it is then.
 fn adopt(engine: &Handle, all: &[Listening]) {
     use std::sync::atomic::{AtomicBool, Ordering};
     static ADOPTED: AtomicBool = AtomicBool::new(false);
@@ -1317,7 +1321,10 @@ fn adopt(engine: &Handle, all: &[Listening]) {
     let board = engine.board();
     if !board.loading {
         ADOPTED.store(true, Ordering::Relaxed);
-        crate::meetings::adopt(&board, all);
+        for l in all.iter().filter(|l| l.folder.is_none() && !l.dir().join("meeting.json").exists()) {
+            let title = board.session(&l.session).map(|(_, s)| s.title.clone()).unwrap_or_default();
+            update(&l.id, |now| crate::meetings::note_heard(now, &title, false));
+        }
     }
 }
 

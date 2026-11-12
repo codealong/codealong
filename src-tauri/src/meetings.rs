@@ -266,49 +266,23 @@ fn heard_record(l: &Listening, title: &str) -> Option<Record> {
 }
 
 /// Says which meeting a listening a session was asked for is, in its own folder
-/// (`heard_record`), as the listening starts (listen.rs `start`). Its word is the last: all the
-/// folder can say by then is what `adopt` made of the listening a moment before, from a look
-/// that had its session under the key it had before it was told.
-pub fn note_heard(l: &Listening, title: &str) {
-    say_heard(&l.dir(), l, title, true);
+/// (`heard_record`): as it starts, `over` whatever the folder says (listen.rs `start`), or for
+/// one heard before a session's own were listed among your meetings, only where the folder
+/// doesn't say yet (listen.rs `adopt`). A folder that's gone stays gone.
+///
+/// Every word on which session heard a meeting is written under the listenings' lock, from
+/// the listening as the file has it then (listen.rs `update`): this, and `follow`. So whatever
+/// order they come in, the last one written has the key its session goes on under.
+pub fn note_heard(l: &Listening, title: &str, over: bool) {
+    say_heard(&l.dir(), l, title, over);
 }
 
-/// Has the listenings sessions were asked for before their folders said which meeting they are
-/// say so, each named for its session as the board has it now: the ones heard before a
-/// session's own were listed among your meetings. Only a folder that doesn't say yet is
-/// written, and one that's gone stays gone.
-pub fn adopt(board: &crate::model::Board, all: &[Listening]) {
-    for l in all {
-        let title = board.session(&l.session).map(|(_, s)| s.title.clone()).unwrap_or_default();
-        say_heard(&l.dir(), l, &title, false);
-    }
-}
-
-/// Writes what `folder` says of the meeting listening `l` heard, where it's one a session was
-/// asked for (`heard_record`): `over` whatever it says, or only if it doesn't say yet.
 fn say_heard(folder: &Path, l: &Listening, title: &str, over: bool) {
     let Some(record) = heard_record(l, title) else { return };
     let path = folder.join("meeting.json");
-    if over {
+    if folder.is_dir() && (over || !path.exists()) {
         write_record(&path, &record);
-    } else {
-        write_unsaid(&path, &record);
     }
-}
-
-/// Writes a meeting's record where there's none, whole or not at all: whether it did. It's
-/// written beside its place and linked into it, which fails where a record is, so one written
-/// at the same moment is never written over, as looking first and writing after could.
-fn write_unsaid(path: &Path, record: &Record) -> bool {
-    let Ok(text) = serde_json::to_string_pretty(record) else { return false };
-    let beside = path.with_extension(format!("json.new-{}", std::process::id()));
-    // No folder to write in: it was removed, and stays so.
-    if util::write_whole(&beside, &text).is_err() {
-        return false;
-    }
-    let made = std::fs::hard_link(&beside, path).is_ok();
-    let _ = std::fs::remove_file(&beside);
-    made
 }
 
 /// A kept meeting's notes and transcript, for the window that shows it. Only of a folder among
@@ -840,7 +814,11 @@ fn write_record(path: &Path, record: &Record) {
 /// `goes_on_as`: one that had stopped was resumed as a copy, with another key), so *Its session*
 /// in the window that lists your meetings goes to the one that has the conversation.
 pub fn follow(l: &Listening) {
-    let path = l.dir().join("meeting.json");
+    follow_in(&l.dir(), l);
+}
+
+fn follow_in(folder: &Path, l: &Listening) {
+    let path = folder.join("meeting.json");
     let Some(mut record) = std::fs::read_to_string(&path).ok().and_then(|text| serde_json::from_str::<Record>(&text).ok()) else { return };
     if record.listening == l.id && record.session != l.session {
         record.session = l.session.clone();
@@ -1156,21 +1134,25 @@ mod tests {
         // though its hearing was started again meanwhile, which its transcript notes.
         keep(heard.join("def"), &heard_record(&Listening { id: "def".into(), ..l.clone() }, "By mistake").unwrap(), "");
         keep(heard.join("ghi"), &heard_record(&Listening { id: "ghi".into(), ..l.clone() }, "Quiet").unwrap(), "[11:00:00] (Codealong's hearing stopped and started again here: some of what was said is missing.)\n");
-        // Which meeting a folder is, is said once by a look at what was heard before, and
-        // `start` has the last word on its own: its session may have gone on under another key
-        // (`claude:work:9`) between that look and its being told.
+        // Which meeting a folder is: said once for one heard before, by the key its session had
+        // then; the record follows its session to another key; and `start` says it over
+        // whatever's there, of the listening as it is by then.
         let folder = dir.join("said");
-        let resumed = Listening { session: "claude:work:9".into(), ..l.clone() };
-        let says = |folder: &Path| serde_json::from_str::<Record>(&std::fs::read_to_string(folder.join("meeting.json")).unwrap()).unwrap().session;
+        let says = |folder: &Path| serde_json::from_str::<Record>(&std::fs::read_to_string(folder.join("meeting.json")).unwrap()).unwrap();
         say_heard(&folder, &l, "Kestrel on-site", false);
         assert!(!folder.exists(), "a folder that's gone stays gone");
         std::fs::create_dir_all(&folder).unwrap();
         say_heard(&folder, &l, "Kestrel on-site", false);
-        say_heard(&folder, &resumed, "Kestrel on-site", true);
-        assert_eq!(says(&folder), "claude:work:9");
-        say_heard(&folder, &l, "Kestrel on-site", false);
-        assert_eq!(says(&folder), "claude:work:9", "one that says is left as it is");
-        assert_eq!(std::fs::read_dir(&folder).unwrap().count(), 1, "and nothing is left beside it");
+        assert_eq!(says(&folder).session, "claude:work:1");
+        let resumed = Listening { session: "claude:work:9".into(), ..l.clone() };
+        follow_in(&folder, &resumed);
+        follow_in(&folder, &Listening { id: "another".into(), session: "claude:work:7".into(), ..l.clone() });
+        assert_eq!(says(&folder).session, "claude:work:9", "its own listening's session, and no other's");
+        say_heard(&folder, &l, "Renamed since", false);
+        assert_eq!((says(&folder).session.as_str(), says(&folder).meeting.title.as_str()), ("claude:work:9", "Kestrel on-site"), "one that says is left as it is");
+        say_heard(&folder, &resumed, "Renamed since", true);
+        assert_eq!((says(&folder).session.as_str(), says(&folder).meeting.title.as_str()), ("claude:work:9", "Renamed since"));
+        assert_eq!(std::fs::read_dir(&folder).unwrap().count(), 1);
 
         // Both kinds, the latest first; a taken one is listed whatever was heard.
         let all = both(&taken, &heard);
