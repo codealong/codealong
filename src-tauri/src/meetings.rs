@@ -266,25 +266,49 @@ fn heard_record(l: &Listening, title: &str) -> Option<Record> {
 }
 
 /// Says which meeting a listening a session was asked for is, in its own folder
-/// (`heard_record`). A folder that says is left as it is, and one that's gone stays gone.
+/// (`heard_record`), as the listening starts (listen.rs `start`). Its word is the last: all the
+/// folder can say by then is what `adopt` made of the listening a moment before, from a look
+/// that had its session under the key it had before it was told.
 pub fn note_heard(l: &Listening, title: &str) {
-    let path = l.dir().join("meeting.json");
-    if path.exists() || !l.dir().is_dir() {
-        return;
-    }
-    if let Some(record) = heard_record(l, title) {
-        write_record(&path, &record);
-    }
+    say_heard(&l.dir(), l, title, true);
 }
 
 /// Has the listenings sessions were asked for before their folders said which meeting they are
-/// say so (`note_heard`), each named for its session as the board has it now: the ones heard
-/// before a session's own were listed among your meetings.
+/// say so, each named for its session as the board has it now: the ones heard before a
+/// session's own were listed among your meetings. Only a folder that doesn't say yet is
+/// written, and one that's gone stays gone.
 pub fn adopt(board: &crate::model::Board, all: &[Listening]) {
     for l in all {
         let title = board.session(&l.session).map(|(_, s)| s.title.clone()).unwrap_or_default();
-        note_heard(l, &title);
+        say_heard(&l.dir(), l, &title, false);
     }
+}
+
+/// Writes what `folder` says of the meeting listening `l` heard, where it's one a session was
+/// asked for (`heard_record`): `over` whatever it says, or only if it doesn't say yet.
+fn say_heard(folder: &Path, l: &Listening, title: &str, over: bool) {
+    let Some(record) = heard_record(l, title) else { return };
+    let path = folder.join("meeting.json");
+    if over {
+        write_record(&path, &record);
+    } else {
+        write_unsaid(&path, &record);
+    }
+}
+
+/// Writes a meeting's record where there's none, whole or not at all: whether it did. It's
+/// written beside its place and linked into it, which fails where a record is, so one written
+/// at the same moment is never written over, as looking first and writing after could.
+fn write_unsaid(path: &Path, record: &Record) -> bool {
+    let Ok(text) = serde_json::to_string_pretty(record) else { return false };
+    let beside = path.with_extension(format!("json.new-{}", std::process::id()));
+    // No folder to write in: it was removed, and stays so.
+    if util::write_whole(&beside, &text).is_err() {
+        return false;
+    }
+    let made = std::fs::hard_link(&beside, path).is_ok();
+    let _ = std::fs::remove_file(&beside);
+    made
 }
 
 /// A kept meeting's notes and transcript, for the window that shows it. Only of a folder among
@@ -1132,6 +1156,22 @@ mod tests {
         // though its hearing was started again meanwhile, which its transcript notes.
         keep(heard.join("def"), &heard_record(&Listening { id: "def".into(), ..l.clone() }, "By mistake").unwrap(), "");
         keep(heard.join("ghi"), &heard_record(&Listening { id: "ghi".into(), ..l.clone() }, "Quiet").unwrap(), "[11:00:00] (Codealong's hearing stopped and started again here: some of what was said is missing.)\n");
+        // Which meeting a folder is, is said once by a look at what was heard before, and
+        // `start` has the last word on its own: its session may have gone on under another key
+        // (`claude:work:9`) between that look and its being told.
+        let folder = dir.join("said");
+        let resumed = Listening { session: "claude:work:9".into(), ..l.clone() };
+        let says = |folder: &Path| serde_json::from_str::<Record>(&std::fs::read_to_string(folder.join("meeting.json")).unwrap()).unwrap().session;
+        say_heard(&folder, &l, "Kestrel on-site", false);
+        assert!(!folder.exists(), "a folder that's gone stays gone");
+        std::fs::create_dir_all(&folder).unwrap();
+        say_heard(&folder, &l, "Kestrel on-site", false);
+        say_heard(&folder, &resumed, "Kestrel on-site", true);
+        assert_eq!(says(&folder), "claude:work:9");
+        say_heard(&folder, &l, "Kestrel on-site", false);
+        assert_eq!(says(&folder), "claude:work:9", "one that says is left as it is");
+        assert_eq!(std::fs::read_dir(&folder).unwrap().count(), 1, "and nothing is left beside it");
+
         // Both kinds, the latest first; a taken one is listed whatever was heard.
         let all = both(&taken, &heard);
         assert_eq!(all.iter().map(|k| (k.record.meeting.title.as_str(), k.lines)).collect::<Vec<_>>(), vec![("Kestrel on-site", 1), ("Renewal call", 0)]);

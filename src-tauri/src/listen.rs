@@ -977,7 +977,8 @@ pub fn start(engine: &Handle, key: &str, ask: &Ask) -> Result<Listening> {
     // What its session last said was said before this, and is no cue.
     let l = begin(&cfg, key, Some(session.reply_tail.clone()), sources, ask, None, || format!("{} is listening already.", send::quoted(&session.title)))?;
     let l = told(engine, &board, l)?;
-    // It's one of your meetings from here, by its session's name (meetings.rs `yours`).
+    // It's one of your meetings from here, by its session's name (meetings.rs `yours`), under
+    // the key its session has now that it's been told.
     crate::meetings::note_heard(&l, &session.title);
     Ok(l)
 }
@@ -1316,12 +1317,7 @@ fn adopt(engine: &Handle, all: &[Listening]) {
     let board = engine.board();
     if !board.loading {
         ADOPTED.store(true, Ordering::Relaxed);
-        // Not the ones this server started (they're running before they're in the file,
-        // `begin`): `start` says which meeting each of those is, under the key its session
-        // went on with, and would find this had said first, with the key it had before.
-        let ours: HashSet<String> = state().running.keys().cloned().collect();
-        let before: Vec<Listening> = all.iter().filter(|l| !ours.contains(&l.id)).cloned().collect();
-        crate::meetings::adopt(&board, &before);
+        crate::meetings::adopt(&board, all);
     }
 }
 
