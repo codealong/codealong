@@ -69,8 +69,9 @@
 
 /* Its header, kept to a few lines so the tabs are near the top: the number and title with the
    panel's buttons beside them, as a session's header has them (SessionHeader.css); one line of
-   where it comes from, which gives way at the branch; a line of where it stands; and where it
-   lives on this Mac, as chips (PanelSession.css). With its details open the title is whole, and
+   where it comes from, which gives way at the branch; a lane of where it stands on GitHub; and
+   where it lives on this Mac, as chips (PanelSession.css). Two lanes, by what they're about, so
+   none holds a chip or two on a line of its own. With its details open the title is whole, and
    the rest is under the merge box. */
 .ca-prinsp-head {
   display: grid;
@@ -143,7 +144,9 @@
   font: var(--type-code);
   color: var(--ink-2);
 }
-/* Where it stands: its review, its pills, its checks and its size, a chip's gap apart. */
+/* Where it stands: its review, its pills, the checks that fail, its size and its labels, a
+   chip's gap apart and wrapping as one lane. The failing checks and the labels keep their own
+   look (Inspector.css, PrLabels.css) but not a line of their own. */
 .ca-prinsp-status {
   display: flex;
   flex-wrap: wrap;
@@ -151,7 +154,9 @@
   gap: var(--space-1) var(--chip-gap);
   min-width: 0;
 }
-.ca-prinsp-status .ca-prpills {
+.ca-prinsp-status .ca-prpills,
+.ca-prinsp-status .ca-prcard-failing,
+.ca-prinsp-status .ca-prlabels {
   display: contents;
 }
 .ca-prinsp-status .ca-tag {
@@ -159,9 +164,6 @@
 }
 .ca-prinsp-size {
   white-space: nowrap;
-}
-.ca-prinsp-head .ca-prcard-failing {
-  margin-top: -2px;
 }
 /* The file count goes to the files. */
 .ca-prinsp-files {

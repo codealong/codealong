@@ -1,6 +1,7 @@
 // A PR in the right sidebar: a short header first, as a session's is (SessionHeader.tsx): its
-// number and title with the panel's buttons, one line of where it comes from, its pills and size,
-// its labels (PrLabels.tsx), and where it lives as chips (the worktrees and the sessions that worked on it, on this
+// number and title with the panel's buttons, one line of where it comes from, one lane of where it
+// stands on GitHub (its pills, the checks that fail, its size and its labels, PrLabels.tsx), and
+// one of where it lives as chips (the worktrees and the sessions that worked on it, on this
 // Mac and your others, PanelSession.tsx `PanelPlaces`). Its details, open for every PR once you open them, add the
 // whole title, its times and commits, and the chips as a tree, under the merge box. Then its
 // parts as tabs, one shown at a time, by whose words they are: Description (the author's, as
@@ -434,6 +435,16 @@ export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpe
             requested && <span className="ca-tag is-attn">Your review requested</span>
           )}
           <PrPills pr={pr} />
+          {/* Which checks fail, after the pill that says how many. */}
+          {pr.checks.failing.length > 0 && (
+            <span className="ca-prcard-failing">
+              {pr.checks.failing.slice(0, 8).map((name) => (
+                <code key={name} className="ca-ic">
+                  {name}
+                </code>
+              ))}
+            </span>
+          )}
           {/* The pills say a failing check over the ones still running: these say they run. */}
           {pr.checks.pending > 0 && pr.checks.failed > 0 && <span className="ca-meta">{pr.checks.pending} running</span>}
           <span className="ca-meta ca-prinsp-size">
@@ -446,17 +457,8 @@ export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpe
               `${pr.changedFiles} ${pr.changedFiles === 1 ? 'file' : 'files'}`
             )}
           </span>
+          <PrLabels labels={pr.labels} />
         </div>
-        <PrLabels labels={pr.labels} />
-        {pr.checks.failing.length > 0 && (
-          <div className="ca-prcard-failing">
-            {pr.checks.failing.slice(0, 8).map((name) => (
-              <code key={name} className="ca-ic">
-                {name}
-              </code>
-            ))}
-          </div>
-        )}
         {places.length > 0 && !open && <PanelPlaces {...placesProps} open={false} />}
       </header>
       <MergeBox key={pr.key} pr={pr} lead={lead} trail={trail} goesOn={goesOn} report={report} />

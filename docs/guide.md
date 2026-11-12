@@ -1621,8 +1621,9 @@ repo's PRs, and another shows them all again. A label shows with a dot in its co
 lines as many as fit in a little under half the line. All of them show in its header and on a
 link's card. The search finds a PR by a label's name. A label added on GitHub shows within ten minutes,
 when the repo's PRs are next read in full. Selecting a PR shows a short header: its number and
-title, one line of its repo, branch, author and last update, its pills and size, its labels, and
-the worktrees and sessions behind it on this Mac as chips (a worktree's
+title, one line of its repo, branch, author and last update, one of where it stands on GitHub
+(its pills, the names of any checks that fail, its size and its labels, wrapping as one), and one
+of the worktrees and sessions behind it on this Mac as chips (a worktree's
 chip, then its sessions', each named by its title with its account on hover, the PR's primary
 session marked and first, after its worktree's chip; a click on a session or a worktree shows it in the panel,
 and a right-click gives either's menu). A PR's row on two lines names one of its sessions the same
