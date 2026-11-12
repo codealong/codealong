@@ -4415,6 +4415,7 @@ mod tests {
         // macOS's sounds aren't on every computer the test runs on.
         cfg.sounds.needs_you = String::new();
         cfg.sounds.your_turn = String::new();
+        cfg.sounds.meeting = String::new();
         for ok in ["Option+Cmd+/", "Option+Shift+Space", "Cmd+Ctrl+K", "ctrl+alt+space", "F18", ""] {
             cfg.shortcuts.quick_panel = ok.into();
             assert!(check(&cfg).is_ok(), "{ok:?}: {:?}", check(&cfg));
