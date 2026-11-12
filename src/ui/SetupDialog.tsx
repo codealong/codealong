@@ -18,10 +18,19 @@ import { foundNote } from './AccountsSection';
 import { Button, CheckBox, cx, Dialog, Icon, Kbd } from './primitives';
 import { ProfileSelect, type SettingsSection } from './SettingsDialog';
 
-/** What the last step suggests setting up once the basics are in. Jev and devices are off until
- *  turned on, and so are Automation's reviews and moves; what it has on already (carrying on after
- *  a lost connection or a lifted limit) isn't what it's pitched for here. */
+/** What the last step suggests setting up once the basics are in. Pull request reviews lead, as
+ *  the one most worth having and the least likely to be found alone: they're off until turned on,
+ *  and Settings › Automation, where they are, opens on them. Jev and devices are off too, and so
+ *  are Automation's nudges and moves; what it has on already (carrying on after a lost connection
+ *  or a lifted limit) isn't what it's pitched for here. */
 const MORE: { section: SettingsSection; icon: string; title: string; says: string; button: string }[] = [
+  {
+    section: 'automation',
+    icon: 'pr',
+    title: 'Pull request reviews',
+    says: 'Has an agent review each pull request that asks for your review before you get to it, leaving a draft review only you see, and another model review the ones your sessions open. Reviews change nothing, and run on your accounts’ usage.',
+    button: 'Set up reviews',
+  },
   {
     section: 'jev',
     icon: 'sparkles',
@@ -40,7 +49,7 @@ const MORE: { section: SettingsSection; icon: string; title: string; says: strin
     section: 'automation',
     icon: 'bolt',
     title: 'Automation',
-    says: 'Can have an agent review the pull requests waiting on you, tell a pull request’s session when it’s approved or gets comments, and move a session that hits its usage limit to an account with room.',
+    says: 'Can tell a pull request’s session when it’s approved or gets comments, and move a session that hits its usage limit to an account with room.',
     button: 'Set up automation',
   },
 ];
@@ -274,7 +283,7 @@ export function SetupDialog({ onClose, onDone, onSettings, now }: { onClose: () 
                 When you’re ready
               </h4>
               {MORE.map((m) => (
-                <div key={m.section} className="ca-setup-more-row">
+                <div key={m.title} className="ca-setup-more-row">
                   <Icon name={m.icon} size={16} className="ca-setup-more-icon" />
                   <span className="ca-setup-text">
                     <span className="ca-setup-label">{m.title}</span>

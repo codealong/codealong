@@ -2248,10 +2248,12 @@ a wizard over the main window has you confirm it, in four steps:
 - **Ready**: putting Codealong in the accounts you kept (the plugin in Claude Code, the skill
   elsewhere) and the `codealong` command on your PATH, as Settings › Agents does, ticked; and
   opening Codealong when you log in, not. Under *When you're ready* it points at what's worth
-  setting up later: Jev and your other devices, both off until you turn them on, and automation,
-  whose reviews of pull requests waiting on you and moves to an account with room are off too
-  (carrying on after a lost connection, a restart or a lifted usage limit is on already). Each
-  one's button finishes as Done does and opens it in Settings.
+  setting up later, all off until you turn them on: pull request reviews first (an agent reviewing
+  each pull request that asks for your review before you read it, and another model the ones your
+  sessions open; Set up reviews opens Settings › Automation on them), then Jev, your other
+  devices, and the rest of automation, its nudges to a pull request's session and its moves to an
+  account with room (carrying on after a lost connection, a restart or a lifted usage limit is on
+  already). Each one's button finishes as Done does and opens it in Settings.
 
 Nothing is saved until **Done**. **Skip setup**, Escape or the ✕ keep what the first run wrote.
 Either way it doesn't show by itself again (state.json's `setupDone`), and Settings changes all of
