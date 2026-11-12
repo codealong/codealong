@@ -67,7 +67,7 @@ describe('what your prompts did', () => {
       '1 sent while the agent was working',
       '2 sent after you stopped it',
       '4 answers to the agent’s questions: 3 its first option, 1 another option, 0 in your own words',
-      '13 permission requests answered in Codealong: 12 allowed, 1 denied',
+      '12 tool calls allowed and 1 denied in Codealong',
       '1 suggested reply sent unchanged',
     ]);
   });

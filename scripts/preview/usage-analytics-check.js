@@ -42,7 +42,7 @@
           check('it leads with your prompts', /Your prompts[\d,]+about \d+ a day/.test(tiles()[0]), tiles()[0]);
           check('and the share of turns you started', /Turns you started\d+%[\d,]+ of [\d,]+/.test(tiles()[1]), tiles()[1]);
           check('and what the turns you started cost', /Cost of your turns\d+%\$[\d,.]+ of \$[\d,.]+ at API prices/.test(tiles()[2]), tiles()[2]);
-          check('and how often you agreed', /You agreed\d+%of [\d,]+ replies to the agent/.test(tiles()[3]), tiles()[3]);
+          check('and how often you agreed', /You agreed\d+%(the other [\d,]+|none) steered or redirected/.test(tiles()[3]), tiles()[3]);
           check('each of the 30 days has its prompts stacked', all('.ca-usage-bar').length === 30, all('.ca-usage-bar').length);
           var keys = all('.ca-usage-chart .ca-usage-legend .ca-usage-key').map(function (k) { return k.textContent; });
           check('the chart names what a prompt did', ['Set out new work', 'Agreed', 'Steered', 'Redirected'].every(function (k) { return keys.indexOf(k) >= 0; }), keys.slice(0, 8).join(', '));

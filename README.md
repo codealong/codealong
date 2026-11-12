@@ -546,7 +546,7 @@ In Codealong:
 | ⌃⌘S | Open or fold the sidebar |
 | ⌘= · ⌘- · ⌘0 | Zoom in, out, actual size |
 | ⌘R | Reload: read again what the window shows, from GitHub too, keeping your place |
-| ⇧⌘U | Usage: what sessions used and cost, at API prices and paid |
+| ⇧⌘U | Analytics: what sessions used and cost, at API prices and paid |
 | ⌘, | Settings |
 
 In the quick panel: **⏎** does the selected row, **⌘⏎** always starts a session, **⌥⏎** opens a
@@ -559,7 +559,7 @@ show every action's keys.
 On Linux, ⌘ is Ctrl, and ⌥ and ⌃ are Alt, but for a few keys that would clash there: ⌥⌘1 – ⌥⌘9
 are Alt and the digit, ⌃⏎ is Ctrl+Shift+Enter, ⌃\` is Ctrl+\`, and ⌃⌘↑ / ⌃⌘↓ are
 Ctrl+Shift+PageUp / PageDown. The menus and buttons show every key as Linux has it. ⇧⌘N and ⇧⌘U
-are the macOS menu bar's, which Linux doesn't have; the usage bar's Usage button opens Usage there.
+are the macOS menu bar's, which Linux doesn't have; the usage bar's Analytics button opens Analytics there.
 
 ## Settings
 

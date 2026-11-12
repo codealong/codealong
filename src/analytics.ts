@@ -180,7 +180,7 @@ export function markLines(part: Part): string[] {
     m.mid > 0 && `${count(m.mid)} sent while the agent was working`,
     m.afterStop > 0 && `${count(m.afterStop)} sent after you stopped it`,
     answers > 0 && `${s(answers, 'answer', 'answers')} to the agent’s questions: ${count(m.pickedFirst)} its first option, ${count(m.pickedOffered)} another option, ${count(m.ownWords)} in your own words`,
-    m.allowed + m.denied > 0 && `${s(m.allowed + m.denied, 'permission request', 'permission requests')} answered in Codealong: ${count(m.allowed)} allowed, ${count(m.denied)} denied`,
+    m.allowed + m.denied > 0 && `${s(m.allowed, 'tool call', 'tool calls')} allowed and ${count(m.denied)} denied in Codealong`,
     m.suggested > 0 && `${s(m.suggested, 'suggested reply', 'suggested replies')} sent unchanged`,
   ].filter((l): l is string => !!l);
 }

@@ -4172,7 +4172,7 @@ Unread ones are drawn as Not read, never left out.
 
 Under **More about your prompts** it says what the records are sure of besides: how many prompts
 you sent while the agent was working or after you stopped it, how your answers to its questions
-went, the permission requests you answered in Codealong, and the suggested replies you sent
+went, the tool calls you allowed and denied in Codealong, and the suggested replies you sent
 unchanged. A table lists it by account, project or session, and your latest prompts that steered
 or redirected are listed with the session each was in.
 

@@ -1,4 +1,4 @@
-// Opens the Analytics window (ui/UsageDialog.tsx) from the usage bar's Usage button, for a screenshot:
+// Opens the Analytics window (ui/UsageDialog.tsx) from the usage bar's Analytics button, for a screenshot:
 //   PREVIEW_INIT=scripts/preview/usage-init.js PREVIEW_NAME=usage scripts/preview.sh
 (function () {
   var tries = 0;

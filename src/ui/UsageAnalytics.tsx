@@ -261,7 +261,7 @@ export function YourPart(props: Props) {
         <Stat label="Your prompts" value={count(prompts)} note={`about ${count(Math.round(prompts / Math.max(1, part.days.length)))} a day`} />
         <Stat label="Turns you started" value={percent(countOf(part.hands, 'you'), turns)} note={`${count(countOf(part.hands, 'you'))} of ${count(turns)}`} />
         <Stat label="Cost of your turns" value={mine ? percent(mine.yours, mine.known) : '—'} note={mine ? `${money(mine.yours)} of ${money(mine.known)} at API prices` : 'once the cost is read'} />
-        <Stat label="You agreed" value={went.all > 0 ? percent(went.agreed, went.all) : '—'} note={went.all > 0 ? `of ${count(went.all)} replies to the agent` : 'once your prompts are read'} />
+        <Stat label="You agreed" value={went.all > 0 ? percent(went.agreed, went.all) : '—'} note={went.all === 0 ? 'once your prompts are read' : went.agreed === went.all ? 'none steered or redirected' : `the other ${count(went.all - went.agreed)} steered or redirected`} />
       </div>
       <StanceDays days={part.days} />
       <div className="ca-usage-chart">
