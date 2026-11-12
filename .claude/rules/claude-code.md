@@ -403,8 +403,12 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   Claude Code's dialogs (`permission prompt`, `input needed`, `dialog open`), and `/model`'s
   question is a `dialog open` like any command's: a background job's "Switch model?" between
   turns left it `waiting` / `dialog open` (2.1.322, 2026-11-12), and a check that took that for
-  something else to answer kept Codealong from answering its own switch. So Return goes to a
-  dialog that came up after the switch was typed (`claude/switch.rs` `waits_on_another`).
+  something else to answer kept Codealong from answering its own switch. By 2.1.323's code
+  (`isShowingLocalJSXCommand && !isResponseStreaming`) a command's panel is `dialog open` only
+  while no reply streams, and a dialog of its own outranks it, among them the two a turn brings up
+  when it can't go on ("retry on fallback model or edit prompt", "continue on usage credits or
+  switch models", both `dialog open`). So between turns Return goes to a dialog that came up
+  after the switch was typed, and mid-turn to none (`claude/switch.rs` `waits_on_another`).
 - `--effort`'s levels and what a model that doesn't take one gets (2.1.284): `claude/start.rs`
   (`EFFORTS`). Without it a session starts on `settings.json`'s
   `modelSettings.<model>.effortLevel`, else its `effortLevel`, else the model's own default (the
