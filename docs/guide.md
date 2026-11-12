@@ -4183,7 +4183,9 @@ or redirected are listed with the session each was in.
 **Sessions** says how the sessions active in those days began (you; a fork you made of another;
 an agent, as its helper or not; Codealong, for a review or on a schedule; a headless run), with
 what share you started and what each kind cost, and how sessions stood when you were done with
-them. Mark as done, Archive and Close
+them. A session moved to another account counts as one you began, not as a fork, though a copy
+in the same account (moved to another folder, a background job resumed as a copy, `/background`)
+still counts as a fork. Mark as done, Archive and Close
 idle sessions each note where the session's work stood at that moment: finished (a PR it worked on
 merged, a todo linked to it is done, or its own status line says its change landed), looked
 finished (only the read of its last reply says so), nothing known, or unfinished, with why: it

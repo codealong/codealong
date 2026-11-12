@@ -478,6 +478,9 @@ pub fn pass_since(db: &Connection, accounts: &[AccountCfg], caught: &mut Caught,
     if let Err(e) = crate::began::backfill(db, &crate::origins::current()) {
         caught.failed.push(format!("where earlier sessions came from: {e:#}"));
     }
+    if let Err(e) = crate::began::moves_are_yours(db) {
+        caught.failed.push(format!("which earlier sessions were moves: {e:#}"));
+    }
     let mut files = Vec::new();
     for account in accounts {
         let Some(adapter) = crate::harness::of(account) else { continue };
