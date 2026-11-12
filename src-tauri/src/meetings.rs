@@ -626,9 +626,12 @@ fn begin(engine: &Handle, cfg: &Config, meeting: &Meeting, lane: &str, ask: &lis
     let listening = match session_for(engine, meeting, &lane, pick).and_then(|key| listen::attach(engine, &ahead.id, &key)) {
         Ok(listening) => listening,
         Err(e) => {
-            listen::abandon(&ahead.id);
-            let _ = std::fs::remove_file(folder.join("meeting.json"));
-            let _ = std::fs::remove_dir(&folder);
+            // Nothing of it is kept, unless an ending of it never finished and may yet write to
+            // its transcript: then what's there stays one of your meetings, said to be one.
+            if listen::abandon(&ahead.id) {
+                let _ = std::fs::remove_file(folder.join("meeting.json"));
+                let _ = std::fs::remove_dir(&folder);
+            }
             return Err(e);
         }
     };

@@ -598,9 +598,10 @@ struct State {
     ending: HashSet<String>,
 }
 
-/// How long an ending under way is waited for (`ending_over`): a helper writes its last words in
-/// a fraction of a second, and one that hangs isn't waited on for ever.
-const ENDING_WAIT: Duration = Duration::from_secs(15);
+/// How long an ending under way is waited for (`ending_over`, `forget`): a helper writes its last
+/// words in a fraction of a second, and this is past what one that hangs is given to stop
+/// (ear.rs `STOP`), so an ending still under way after it isn't going to be over.
+const ENDING_WAIT: Duration = Duration::from_secs(40);
 
 /// Waits until no ending of listening `id` is under way (`end_when`).
 fn ending_over(id: &str) {
@@ -608,6 +609,18 @@ fn ending_over(id: &str) {
     while state().ending.contains(id) && since.elapsed() < ENDING_WAIT {
         std::thread::sleep(Duration::from_millis(50));
     }
+}
+
+/// Begins an ending of listening `id`, unless one is under way: its helper, to stop, and the
+/// mark that an ending is under way, there until it's dropped. From here on no helper is started
+/// for it, whatever a look read of it before (`plan`). Asked with the state's lock held, which is
+/// the lock a listening started ahead is given its session under (`attach`).
+fn begin_ending(state: &mut State, id: &str) -> Option<(Option<Running>, Ending)> {
+    if !state.ending.insert(id.to_string()) {
+        return None;
+    }
+    state.ended.insert(id.to_string());
+    Some((state.running.remove(id), Ending(id.to_string())))
 }
 
 /// An ending under way (`State::ending`), over when this goes, however the ending went.
@@ -1042,12 +1055,13 @@ fn claim(l: &mut Listening, key: &str, now: i64) -> bool {
 }
 
 /// Takes back a listening started ahead whose session never came (`start_ahead`): its hearing
-/// stops, and nothing of it is kept.
-pub fn abandon(id: &str) {
-    if let Some(l) = list().into_iter().find(|l| l.id == id) {
-        forget(&l);
-        changed();
-    }
+/// stops, and nothing of it is kept. Whether nothing is: not when an ending of it never finished
+/// (`forget`), which may yet write to its transcript.
+pub fn abandon(id: &str) -> bool {
+    let Some(l) = list().into_iter().find(|l| l.id == id) else { return true };
+    let gone = forget(&l);
+    changed();
+    gone
 }
 
 /// Files a new listening for session `key` (none yet when it's empty) and starts its helper:
@@ -1115,14 +1129,27 @@ fn told(engine: &Handle, board: &Board, l: Listening) -> Result<Listening> {
     Ok(l)
 }
 
-/// Takes back a listening that didn't get going, leaving nothing of it. Ended as one that got
-/// going is, so a look that read it from the file in the meantime starts no helper for it once
-/// its record is gone. An ending of it that's under way is waited for first: its last words
-/// would be written into what this removes.
-fn forget(l: &Listening) {
-    ending_over(&l.id);
-    let ear = take_running(&l.id).and_then(|r| r.ear);
-    drop(ear);
+/// Takes back a listening that didn't get going, leaving nothing of it: whether it did. It's an
+/// ending of its own (`begin_ending`), begun once any that's under way is over, so nothing else
+/// is writing its last words into what this removes; and its helper is stopped, not dropped,
+/// which waits for what it was in the middle of saying to reach `heard`, so no line is written
+/// to its transcript once that's gone. An ending that's still under way after `ENDING_WAIT` has
+/// it, and may yet write: then nothing is removed, and it's left as that ending leaves it.
+fn forget(l: &Listening) -> bool {
+    let since = Instant::now();
+    let (running, _ending) = loop {
+        if let Some(mine) = begin_ending(&mut state(), &l.id) {
+            break mine;
+        }
+        if since.elapsed() >= ENDING_WAIT {
+            eprintln!("listening {}: it wasn't taken back, since its ending never finished", l.id);
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    if let Some(ear) = running.and_then(|r| r.ear) {
+        ear.stop();
+    }
     let _ = change(|all| all.retain(|old| old.id != l.id));
     // Its own folder goes with it; a meeting's is the meeting's, and only what this put there
     // goes (its transcript).
@@ -1130,6 +1157,7 @@ fn forget(l: &Listening) {
         Some(_) => std::fs::remove_file(l.transcript()),
         None => std::fs::remove_dir_all(folder(&l.id)),
     };
+    true
 }
 
 /// Files a new listening, unless its session is hearing already: looked for and filed in one
@@ -1175,15 +1203,6 @@ fn tell(engine: &Handle, board: &Board, l: &Listening, text: &str) -> Result<Opt
     }
 }
 
-/// Takes the helper of a listening that didn't get going from what's running, to drop it
-/// (`forget`), and marks the listening ended in the same breath, under the lock a look plans its
-/// helpers under: from here on none is started for it (`plan`), whatever a look read of it before.
-fn take_running(id: &str) -> Option<Running> {
-    let mut state = state();
-    state.ended.insert(id.to_string());
-    state.running.remove(id)
-}
-
 /// Stops the hearing of listening `id`, its last words written first. Its session is told on
 /// the next look (`step`). `why` when it wasn't the person who ended it.
 fn end(id: &str, why: Option<String>) -> Option<Listening> {
@@ -1218,10 +1237,7 @@ fn end_when(id: &str, why: Option<String>, still: Option<&dyn Fn(&Listening) -> 
                 return None;
             }
         }
-        state.ending.insert(id.to_string());
-        // From here on no helper is started for it, whatever a look read of it before (`plan`).
-        state.ended.insert(id.to_string());
-        (state.running.remove(id), Ending(id.to_string()))
+        begin_ending(&mut state, id)?
     };
     // Outside the lock: the helper's last words come through `heard`, which takes it.
     if let Some(ear) = running.and_then(|r| r.ear) {
@@ -1608,6 +1624,20 @@ mod tests {
         let was = ended.clone();
         assert!(!claim(&mut ended, "claude:work:abc", NOW));
         assert_eq!(ended, was);
+    }
+
+    #[test]
+    fn a_listening_has_one_ending_at_a_time() {
+        let id = "one-ending-at-a-time";
+        let mut state = State::default();
+        state.running.insert(id.into(), Running::default());
+        // The first ending takes its helper, and from then no helper is started for it.
+        let first = begin_ending(&mut state, id);
+        assert!(first.as_ref().is_some_and(|(running, _)| running.is_some()));
+        assert!(state.ended.contains(id) && !state.running.contains_key(id));
+        // While that's under way, another (Stop pressed again, a failed start taking it back)
+        // gets nothing to stop and nothing to say of how it ended.
+        assert!(begin_ending(&mut state, id).is_none());
     }
 
     #[test]
