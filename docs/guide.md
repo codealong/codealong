@@ -3495,6 +3495,15 @@ and have a session hear a recording (`start --file`), which is transcribed as fa
 or with `--at-speed` at the speed it plays, the session told as it goes: a way to try a coach on a
 meeting you recorded.
 
+**Afterwards.** Any session can work from a meeting once it's over: ask one what was said or who
+promised what, for a todo for each thing asked for, or for a draft of the follow-up. The codealong
+skill says how (`references/meetings.md`; in Claude Code, `/codealong:meetings`): it finds the
+meeting with `codealong listen list`, which has every listening of the last week with what its
+session is called and where its transcript and notes are (`title`, `transcript` and `notes` in the
+JSON), reads the notes, searches the transcript for the words themselves, and answers with the
+times of the lines it rests on. A meeting's words are yours and other people's: the skill has an
+agent put none of them in a repo, a PR or a message unless you ask.
+
 **Listen now.** For a meeting that's beginning, with no session to ask: press ⌥⌘= from any app
 (`[shortcuts] listen`, set with Voice in Settings › Experimental), or the microphone in the main
 window's bar (there while nothing is being heard, where the recording light shows once something
@@ -3567,7 +3576,8 @@ as its session keeps them; and `meeting.json`, what the calendar said of it and 
 took it. The folders are side by side in `meetings` beside config.toml, or wherever `[voice]
 meetings_folder` says (a folder you sync, or your notes app's). That folder is the record: nothing
 else lists your meetings, and a session started in it can read them all, which is how one is
-asked what was said last week. The calendar button in the main window's bar (there while voice is
+asked what was said last week; `codealong listen status` tells an agent anywhere else where it is
+(`meetingsFolder`). The calendar button in the main window's bar (there while voice is
 on) opens your meetings: the ones in the day ahead, as your calendar has them, where one that's
 going on or starts within ten minutes has *Take notes* (before its offer, or after you passed on
 it); and the ones that were taken, the latest first, the one picked with its notes or its

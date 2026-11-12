@@ -5329,7 +5329,9 @@ Commands:
   list    The listenings, the latest first: the session each is for, whether it's still
           hearing or when and why it ended, how many lines its transcript has and how
           many its session has been told of, and where the transcript and the session's
-          notes are
+          notes are (`transcript` and `notes` in the JSON, with the session's `title`).
+          One that ended is listed for a week at least; its transcript and notes stay
+          where they are until its user removes them
   start   Has a session hear a recording: a sound file (anything macOS plays: m4a, mp3,
           wav, aiff), transcribed on this Mac as fast as it can be, or with --at-speed
           at the speed it plays, its words filed as Them's. The session is told what's
@@ -5342,7 +5344,8 @@ Commands:
           use the microphone and hear what this Mac plays, the apps that record or play
           right now, and, with meetings offered (`[voice] meetings`), whether it may
           read your calendar, the accounts it has calendars from and how many meetings
-          are in the day ahead (never their names). Codealong's server answers
+          are in the day ahead (never their names); and where the meetings Codealong
+          took are kept, a folder each (`meetingsFolder`). Codealong's server answers
           (`answeredBy: server` in the JSON); with no server it's this command's own
           shell that's asked, whose answers on the two are its terminal's (`shell`).
           Asks the user for nothing
@@ -5367,7 +5370,9 @@ Options:
 ```
 The listenings, the latest first: the session each is for, whether it's still hearing or
 when and why it ended, how many lines its transcript has and how many its session has
-been told of, and where the transcript and the session's notes are
+been told of, and where the transcript and the session's notes are (`transcript` and
+`notes` in the JSON, with the session's `title`). One that ended is listed for a week at
+least; its transcript and notes stay where they are until its user removes them
 
 Usage: codealong listen list [OPTIONS]
 
@@ -5476,10 +5481,11 @@ What this Mac can hear with: whether it can transcribe speech and in which langu
 whether that language's model is on it yet, whether Codealong may use the microphone and
 hear what this Mac plays, the apps that record or play right now, and, with meetings
 offered (`[voice] meetings`), whether it may read your calendar, the accounts it has
-calendars from and how many meetings are in the day ahead (never their names).
-Codealong's server answers (`answeredBy: server` in the JSON); with no server it's this
-command's own shell that's asked, whose answers on the two are its terminal's (`shell`).
-Asks the user for nothing
+calendars from and how many meetings are in the day ahead (never their names); and where
+the meetings Codealong took are kept, a folder each (`meetingsFolder`). Codealong's
+server answers (`answeredBy: server` in the JSON); with no server it's this command's
+own shell that's asked, whose answers on the two are its terminal's (`shell`). Asks the
+user for nothing
 
 Usage: codealong listen status [OPTIONS]
 

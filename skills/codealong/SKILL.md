@@ -1,6 +1,6 @@
 ---
 name: codealong
-description: Codealong todos, sessions and accounts on this Mac, through the `codealong` command. Use when the user asks for something done with a Codealong todo (adding, starting, changing or finishing one) or the session was started on one, when you need to know what other agents or sessions did in this repo or to message one (on any account or harness), when you'd have another account, harness or model (Codex, say) review, check or take on part of your work (a helper, started here rather than with its own CLI or plugin), when asked to go over the sessions that wait on the user and suggest replies or to run as their orchestrator, when asked to visualize or lay out their sessions on Codealong's canvas, or to make a board of some work or put work on one, when choosing which account to start something on, or when a task needs a service you have no tool for (Slack, Figma, a mailbox) that another account's MCP servers or connectors may reach.
+description: Codealong todos, sessions and accounts on this Mac, through the `codealong` command. Use when the user asks for something done with a Codealong todo (adding, starting, changing or finishing one) or the session was started on one, when you need to know what other agents or sessions did in this repo or to message one (on any account or harness), when you'd have another account, harness or model (Codex, say) review, check or take on part of your work (a helper, started here rather than with its own CLI or plugin), when asked to go over the sessions that wait on the user and suggest replies or to run as their orchestrator, when asked to visualize or lay out their sessions on Codealong's canvas, or to make a board of some work or put work on one, when asked about a meeting Codealong heard (its transcript or notes), when choosing which account to start something on, or when a task needs a service you have no tool for (Slack, Figma, a mailbox) that another account's MCP servers or connectors may reach.
 ---
 
 # Codealong
@@ -417,6 +417,13 @@ Voice is an experiment, off until your user turns it on in Settings › Experime
 listening through the microphone or the Mac's audio is theirs to do: `codealong listen list`
 lists them with where each transcript is, `listen stop <session>` ends one, and
 `listen start <session> --file <recording>` has a session hear a recording.
+
+A meeting's transcript, and the notes its session kept of it, stay on the Mac once it's over.
+`codealong listen list` has the last week's, each with its `transcript` and `notes`, and
+`codealong listen status` says where the folders of the meetings Codealong took are
+(`meetingsFolder`). When your user asks about a meeting Codealong heard, or wants something made
+of one (an answer, what was decided and promised, todos, a follow-up; in Claude Code,
+`/codealong:meetings`), read `references/meetings.md` and follow it.
 
 ## PRs
 

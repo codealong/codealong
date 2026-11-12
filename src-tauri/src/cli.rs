@@ -1516,7 +1516,7 @@ enum ScheduleEventArg {
 
 #[derive(Subcommand, Debug)]
 enum ListenCmd {
-    /// The listenings, the latest first: the session each is for, whether it's still hearing or when and why it ended, how many lines its transcript has and how many its session has been told of, and where the transcript and the session's notes are.
+    /// The listenings, the latest first: the session each is for, whether it's still hearing or when and why it ended, how many lines its transcript has and how many its session has been told of, and where the transcript and the session's notes are (`transcript` and `notes` in the JSON, with the session's `title`). One that ended is listed for a week at least; its transcript and notes stay where they are until its user removes them.
     List,
     /// Has a session hear a recording: a sound file (anything macOS plays: m4a, mp3, wav, aiff), transcribed on this Mac as fast as it can be, or with --at-speed at the speed it plays, its words filed as Them's. The session is told what's going on and then what was heard, as it would be of a meeting as it's said, and that it's over when the recording runs out.
     Start {
@@ -1543,7 +1543,7 @@ enum ListenCmd {
         /// The session's key, or `me` for the one running this command.
         session: String,
     },
-    /// What this Mac can hear with: whether it can transcribe speech and in which language, whether that language's model is on it yet, whether Codealong may use the microphone and hear what this Mac plays, the apps that record or play right now, and, with meetings offered (`[voice] meetings`), whether it may read your calendar, the accounts it has calendars from and how many meetings are in the day ahead (never their names). Codealong's server answers (`answeredBy: server` in the JSON); with no server it's this command's own shell that's asked, whose answers on the two are its terminal's (`shell`). Asks the user for nothing.
+    /// What this Mac can hear with: whether it can transcribe speech and in which language, whether that language's model is on it yet, whether Codealong may use the microphone and hear what this Mac plays, the apps that record or play right now, and, with meetings offered (`[voice] meetings`), whether it may read your calendar, the accounts it has calendars from and how many meetings are in the day ahead (never their names); and where the meetings Codealong took are kept, a folder each (`meetingsFolder`). Codealong's server answers (`answeredBy: server` in the JSON); with no server it's this command's own shell that's asked, whose answers on the two are its terminal's (`shell`). Asks the user for nothing.
     Status,
 }
 
@@ -2302,6 +2302,33 @@ fn calendar_said(c: &crate::meetings::Status) -> Option<String> {
     })
 }
 
+/// A listening as `listen list` gives it: its record, with what its session is called and where
+/// its transcript and notes are, which the record leaves to be worked out from its id or its
+/// meeting's folder. An agent asked about a meeting has only this to find it by.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ListenRow<'a> {
+    #[serde(flatten)]
+    listening: &'a crate::listen::Listening,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    title: Option<String>,
+    transcript: std::path::PathBuf,
+    /// Only when there are some: a coach keeps none, and a note-taker's can have been removed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    notes: Option<std::path::PathBuf>,
+}
+
+impl<'a> ListenRow<'a> {
+    fn of(listening: &'a crate::listen::Listening, title: Option<String>) -> Self {
+        ListenRow {
+            listening,
+            title: title.map(|title| title.trim().to_string()).filter(|title| !title.is_empty()),
+            transcript: listening.transcript(),
+            notes: Some(listening.notes()).filter(|notes| notes.is_file()),
+        }
+    }
+}
+
 /// `codealong listen`. The server keeps the listenings and runs their hearing, so everything but
 /// the list needs it.
 fn listen(cmd: ListenCmd, c: &mut Client, json: bool) -> Result<()> {
@@ -2315,21 +2342,30 @@ fn listen(cmd: ListenCmd, c: &mut Client, json: bool) -> Result<()> {
     match cmd {
         ListenCmd::List => {
             let all = listen::list();
+            // What each one's session is called, where the board still has it. The list is the
+            // file's, and is still one when no board can be had.
+            let titles: Vec<Option<String>> = match c.board() {
+                Ok(board) => all.iter().map(|l| board.session(&l.session).map(|(_, s)| s.title.clone())).collect(),
+                Err(_) => vec![None; all.len()],
+            };
+            let listed: Vec<ListenRow> = all.iter().zip(titles).map(|(l, title)| ListenRow::of(l, title)).collect();
             if json {
-                return print_json(&all);
+                return print_json(&listed);
             }
-            let board = c.board()?.clone();
             let now = now_ms();
-            let rows = all
+            let rows = listed
                 .iter()
-                .map(|l| {
-                    let title = board.session(&l.session).map_or_else(|| l.session.clone(), |(_, s)| s.title.clone());
+                .map(|listed| {
+                    let l = listed.listening;
+                    // One with no session to name it yet, or any more, goes by its meeting.
+                    let meeting = || l.meeting.as_ref().map(|m| m.title.trim().to_string()).filter(|title| !title.is_empty());
+                    let title = listed.title.clone().or_else(meeting).unwrap_or_else(|| l.session.clone());
                     let state = match (l.ended_at, &l.why_ended) {
                         (None, _) => format!("hearing, {}", ago(now - l.started_at).replace(" ago", "")),
                         (Some(at), Some(why)) => format!("ended {} ({why})", ago(now - at)),
                         (Some(at), None) => format!("ended {}", ago(now - at)),
                     };
-                    vec![title, state, format!("{} of {} told", l.told, l.lines), crate::util::tilde(&l.transcript())]
+                    vec![title, state, format!("{} of {} told", l.told, l.lines), crate::util::tilde(&listed.transcript)]
                 })
                 .collect();
             print!("{}", table_text(&["SESSION", "STATE", "LINES", "TRANSCRIPT"], rows));
@@ -2344,10 +2380,14 @@ fn listen(cmd: ListenCmd, c: &mut Client, json: bool) -> Result<()> {
             let mut heard = c.act(actions::HEARING, "", serde_json::json!({}), me)?;
             let status: crate::ear::Status = serde_json::from_value(heard["status"].clone())?;
             let apps: Vec<crate::ear::App> = serde_json::from_value(heard["apps"].clone()).unwrap_or_default();
+            // Where the meetings Codealong took are, a folder each: the one list of them there
+            // is, which an agent asked about an old one has to be told the place of.
+            let meetings_folder = crate::meetings::root(&cfg);
             if json {
                 // Whose answer it is, for whoever reads only this: `shell` is this command's own
                 // terminal, whose microphone isn't Codealong's.
                 heard["answeredBy"] = serde_json::json!(if served { "server" } else { "shell" });
+                heard["meetingsFolder"] = serde_json::json!(meetings_folder);
                 return print_json(&heard);
             }
             if !served {
@@ -2389,6 +2429,7 @@ fn listen(cmd: ListenCmd, c: &mut Client, json: bool) -> Result<()> {
                     }
                 }
             }
+            println!("The meetings Codealong took are kept in {}, a folder each.", crate::util::tilde(&meetings_folder));
             Ok(())
         }
         ListenCmd::Start { session, file, at_speed, role, start_sessions, prompt } => {
@@ -8093,6 +8134,29 @@ mod tests {
         assert!(plugin_words(&p(Some("0.2.1+aaaa"), false, None), None, Some("/x/skills/codealong")).ends_with("; an older copy of the skill is still at /x/skills/codealong"));
     }
     use clap::CommandFactory;
+
+    #[test]
+    fn a_listed_listening_says_where_its_transcript_and_notes_are() {
+        let dir = crate::store::test_dir("listen-list");
+        let l = crate::listen::Listening { id: "abc".into(), session: "claude:main:1".into(), lines: 12, folder: Some(dir.display().to_string()), ..Default::default() };
+        // A coach's, or one whose notes aren't written yet: only the transcript.
+        let said = serde_json::to_value(ListenRow::of(&l, Some("  Renewal call ".into()))).unwrap();
+        assert_eq!(said["transcript"], dir.join("transcript.md").display().to_string());
+        assert_eq!(said["title"], "Renewal call");
+        assert!(said.get("notes").is_none(), "{said}");
+        // Its record's own fields are beside them, as they were.
+        assert_eq!((&said["id"], &said["session"], &said["lines"]), (&json!("abc"), &json!("claude:main:1"), &json!(12)));
+        std::fs::write(dir.join("notes.md"), "# Renewal call\n").unwrap();
+        // A session the board no longer has, or one with no name yet, gives it no title.
+        for title in [None, Some(" ".to_string())] {
+            let said = serde_json::to_value(ListenRow::of(&l, title)).unwrap();
+            assert_eq!(said["notes"], dir.join("notes.md").display().to_string());
+            assert!(said.get("title").is_none(), "{said}");
+        }
+        // One that isn't a meeting's is in a folder of its own among Codealong's files.
+        let own = crate::listen::Listening { id: "abc".into(), ..Default::default() };
+        assert!(ListenRow::of(&own, None).transcript.ends_with("listenings/abc/transcript.md"));
+    }
 
     #[test]
     fn a_command_for_the_users_terminal_parses_whole() {

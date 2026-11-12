@@ -524,7 +524,7 @@ mod tests {
     #[test]
     fn the_shipped_skills_fit_the_agent_skills_limits() {
         let plugin = Path::new(env!("CARGO_MANIFEST_DIR")).join("../plugin/skills");
-        for folder in ["codealong", "orchestrate", "visualize"] {
+        for folder in ["codealong", "orchestrate", "visualize", "meetings"] {
             let text = std::fs::read_to_string(plugin.join(folder).join("SKILL.md")).unwrap();
             let (front, _) = front_matter(&text);
             assert!(front["name"].chars().count() <= 64, "{folder}'s name");
