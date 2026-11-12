@@ -2249,8 +2249,9 @@ a wizard over the main window has you confirm it, in four steps:
   elsewhere) and the `codealong` command on your PATH, as Settings › Agents does, ticked; and
   opening Codealong when you log in, not. Under *When you're ready* it points at what's worth
   setting up later, all off until you turn them on: pull request reviews first (an agent reviewing
-  each pull request that asks for your review before you read it, and another model the ones your
-  sessions open; Set up reviews opens Settings › Automation on them), then Jev, your other
+  each pull request that asks for your review before you read it, and another agent, of another
+  harness where one can start, the ones your sessions open, handing what it finds back to them;
+  Set up reviews opens Settings › Automation on them), then Jev, your other
   devices, and the rest of automation, its nudges to a pull request's session and its moves to an
   account with room (carrying on after a lost connection, a restart or a lifted usage limit is on
   already). Each one's button finishes as Done does and opens it in Settings.

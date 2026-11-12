@@ -28,7 +28,7 @@ const MORE: { section: SettingsSection; icon: string; title: string; says: strin
     section: 'automation',
     icon: 'pr',
     title: 'Pull request reviews',
-    says: 'Has an agent review each pull request that asks for your review before you get to it, leaving a draft review only you see, and another model review the ones your sessions open. Reviews change nothing, and run on your accounts’ usage.',
+    says: 'Has an agent review each pull request that asks for your review before you get to it, leaving a draft review only you see, and another agent review the ones your sessions open, handing what it finds back to them. The reviewers change nothing, and run on your accounts’ usage.',
     button: 'Set up reviews',
   },
   {
