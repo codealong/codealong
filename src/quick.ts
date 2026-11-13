@@ -567,11 +567,12 @@ export function repoChoices(lanes: Lane[], pinned: string[]): RepoChoice[] {
   return [...repos.values()].sort((a, b) => pin(a) - pin(b) || b.lanes[0].lastActivity - a.lanes[0].lastActivity);
 }
 
-/** A repo's worktrees as its worktree menu lists them. First where a new session starts on new
- *  work: a new worktree made from `from`, the reusable worktrees ready for it (free before
- *  landed), the main checkout, and the ones you pinned. Then, folded away, the ones a new session
- *  would join other work in: reusable worktrees with work under way, and the rest, each kept for
- *  one piece of work. Each list the most recently active first. */
+/** A repo's worktrees as its worktree menu lists them. First the main checkout, the one you
+ *  know the repo by (asked 2026-11-13), then where else a new session starts on new work: a new
+ *  worktree made from `from`, the reusable worktrees ready for it (free before landed), and the
+ *  ones you pinned. Then, folded away, the ones a new session would join other work in: reusable
+ *  worktrees with work under way, and the rest, each kept for one piece of work. Each list the
+ *  most recently active first. */
 export interface RepoWorktrees {
   /** The checkout a new worktree is made from, as the harness makes it under the checkout it
    *  starts in: the main checkout, else the latest; none for a repo of plain folders. */

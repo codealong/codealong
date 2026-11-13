@@ -3,7 +3,7 @@
 // Another folder…, then each repo once and no worktree, until what's typed names no repo, when it
 // lists the worktrees it names, a pick of one starting there. A repo picked starts where new work
 // goes in it: a reusable worktree ready for it, else its main checkout. ⌘B's menu lists that
-// repo's worktrees, New worktree first, then the ones ready for new work, the main checkout and
+// repo's worktrees, its main checkout first, then New worktree, the ones ready for new work and
 // the pinned ones, and the rest behind one row that says how many, which opens them under Work
 // under way and Other worktrees; New worktree, where the account makes one, and main each say so
 // on the chip and on the start row, and a start with New worktree goes from the main checkout.
@@ -93,7 +93,7 @@
     })
     .then(function () {
       var listed = titles();
-      check('⌘B lists the repo’s worktrees, New worktree first', listed[0] === 'New worktree', listed.join(' | '));
+      check('⌘B lists the repo’s worktrees, main first, then New worktree', listed[0] === 'main' && listed[1] === 'New worktree', listed.join(' | '));
       var front = repo.lanes.filter(function (l) { return l.origin === 'main' || l.reuse === 'free' || l.reuse === 'landed' || pinned.indexOf(l.id) >= 0; }).length;
       var rest = repo.lanes.length - front;
       var row = more();

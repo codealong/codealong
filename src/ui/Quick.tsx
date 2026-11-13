@@ -2194,16 +2194,17 @@ export function Quick() {
       ];
   const repoValue = lane ? (lane.startsChats ? lane.id : `${REPO}${repoKey(lane)}`) : null;
 
-  // The worktree menu: the repo's, where new work starts first, the ones that hold other work
-  // folded away (quick.ts `repoWorktrees`). Listening makes no worktree.
+  // The worktree menu: the repo's, its main checkout first, then where new work starts, the ones
+  // that hold other work folded away (quick.ts `repoWorktrees`). Listening makes no worktree.
   const inRepo = repoNow ? repoWorktrees(repoNow.lanes, pinnedWorktrees ?? []) : null;
   const worktreeSections: PickerSection[] = inRepo
     ? [
         {
           key: 'new-work',
           options: [
+            ...(inRepo.main ? [worktreeOption(inRepo.main)] : []),
             ...(inRepo.from && !listen ? [newWorktreeOption(newWorktreeDetail(harnessMakesWorktree, placeNow, harness, worktreeName(inRepo.from)), newWorktreeTitle(harnessMakesWorktree, placeNow, harness), !harnessMakesWorktree)] : []),
-            ...[...inRepo.ready, ...(inRepo.main ? [inRepo.main] : []), ...inRepo.pinned].map(worktreeOption),
+            ...[...inRepo.ready, ...inRepo.pinned].map(worktreeOption),
           ],
         },
         { key: 'under-way', head: 'Work under way', folded: true, options: inRepo.underWay.map(worktreeOption) },

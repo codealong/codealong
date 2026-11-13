@@ -2637,8 +2637,8 @@ a pinned worktree first, with where a session would start in it under its name; 
 lists the worktrees it names. A repo picked starts where new work goes in it: its main checkout
 when that holds no work, else a reusable worktree ready for new work, else the main checkout
 anyway; never another worktree with work under way. The worktree menu lists that repo's
-worktrees: *New worktree* first (where the account makes one, below), then the reusable ones
-ready for new work, the main checkout (*main*) and the ones you pinned; the reusable ones with
+worktrees: the main checkout (*main*) first, then *New worktree* (where the account makes one,
+below), the reusable ones ready for new work and the ones you pinned; the reusable ones with
 work under way and the rest, each kept for the one piece of work it was made for, fold away
 under *N more*, which opens on a click or ⏎ and while what you type matches one of them. Then
 pick the account and model in one menu (⌘L, every account on every model it can start on, with its limits, and the effort under them: Default, Low, Medium, High, Extra or Max, for Codex
