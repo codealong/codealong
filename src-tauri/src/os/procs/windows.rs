@@ -502,17 +502,42 @@ pub fn wait_writable<P>(_pipe: &P, wait: Duration) {
 /// thread of its own writes its input and one reads each output, handing what it reads over a
 /// channel, since Windows' anonymous pipes can't be read or written without waiting. A process
 /// the child left behind can hold its pipes open past it, so the threads are stopped as the
-/// command is done with (`Drop`), their reads and writes cancelled. std reads and writes a
-/// child's pipes as overlapped I/O, which only `CancelIoEx` on the pipe's handle cancels: this
-/// keeps a copy of each handle for that, which keeps the pipe open, so the number is never
-/// another's by the time it's cancelled.
+/// command is done with (`Drop`).
 pub struct Pipes {
     got: std::sync::mpsc::Receiver<(bool, Option<Vec<u8>>)>,
     out: (Vec<u8>, bool),
     err: (Vec<u8>, bool),
+    workers: Option<Workers>,
+}
+
+/// The threads that read and write a child's pipes, and what stops them. std reads and writes a
+/// child's pipes as overlapped I/O, which only `CancelIoEx` on the pipe's handle cancels: copies
+/// of the handles are kept for that, which keep the pipes open, so a number is never another's by
+/// the time it's cancelled. The input's copy goes as soon as the input is written, since the child
+/// reads the end of its input only once every handle that writes to it is closed.
+struct Workers {
     threads: Vec<std::thread::JoinHandle<()>>,
-    handles: Vec<std::os::windows::io::OwnedHandle>,
+    reads: Vec<std::os::windows::io::OwnedHandle>,
+    input: std::sync::Arc<std::sync::Mutex<Option<std::os::windows::io::OwnedHandle>>>,
     stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl Workers {
+    fn done(&self) -> bool {
+        self.threads.iter().all(|t| t.is_finished())
+    }
+
+    /// Cancels whatever the threads wait on now.
+    fn cancel(&self) {
+        use std::os::windows::io::AsRawHandle;
+        use windows_sys::Win32::System::IO::CancelIoEx;
+        let input = self.input.lock().unwrap_or_else(|e| e.into_inner());
+        for h in self.reads.iter().chain(input.as_ref()) {
+            // SAFETY: a handle of this struct's own, open while it's held (the input's while its
+            // lock is); a pipe with nothing waiting on it just answers there was nothing to cancel.
+            unsafe { CancelIoEx(h.as_raw_handle(), std::ptr::null()) };
+        }
+    }
 }
 
 impl Pipes {
@@ -523,23 +548,17 @@ impl Pipes {
         use std::sync::atomic::Ordering;
         let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let mut threads = Vec::new();
-        let mut handles = Vec::new();
-        let mut keep = |pipe: &dyn AsHandle| handles.extend(pipe.as_handle().try_clone_to_owned());
-        if let Some(stdin) = &child.stdin {
-            keep(stdin);
-        }
-        if let Some(stdout) = &child.stdout {
-            keep(stdout);
-        }
-        if let Some(stderr) = &child.stderr {
-            keep(stderr);
-        }
+        let copy = |pipe: &dyn AsHandle| pipe.as_handle().try_clone_to_owned().ok();
+        let reads: Vec<_> = [child.stdout.as_ref().and_then(|p| copy(p)), child.stderr.as_ref().and_then(|p| copy(p))].into_iter().flatten().collect();
+        let held = std::sync::Arc::new(std::sync::Mutex::new(child.stdin.as_ref().and_then(|p| copy(p))));
         if let Some(mut stdin) = child.stdin.take() {
-            let input = input.to_vec();
-            // Closed once it's all written, so the program sees the end of its input; a program
-            // that closes it without reading it all ends the write, which is its call.
+            let (input, held) = (input.to_vec(), held.clone());
+            // Closed once it's all written, its copy first, so the program sees the end of its
+            // input; a program that closes it without reading it all ends the write, which is its
+            // call.
             threads.push(std::thread::spawn(move || {
                 let _ = stdin.write_all(&input);
+                held.lock().unwrap_or_else(|e| e.into_inner()).take();
             }));
         }
         let (tx, got) = std::sync::mpsc::channel();
@@ -562,7 +581,7 @@ impl Pipes {
         };
         let out = child.stdout.take().map(|p| threads.push(reader(Box::new(p), false, tx.clone()))).is_some();
         let err = child.stderr.take().map(|p| threads.push(reader(Box::new(p), true, tx))).is_some();
-        Pipes { got, out: (Vec::new(), out), err: (Vec::new(), err), threads, handles, stop }
+        Pipes { got, out: (Vec::new(), out), err: (Vec::new(), err), workers: Some(Workers { threads, reads, input: held, stop }) }
     }
 
     /// The input goes on its thread.
@@ -607,25 +626,22 @@ impl Pipes {
 }
 
 impl Drop for Pipes {
-    /// Stops the threads still waiting on a pipe: each is told to, and what it waits on cancelled.
-    /// A reader between two reads as it's cancelled sees it's to stop before it reads again; one
-    /// that had only just checked, or a writer that hadn't yet written, is cancelled again, a few
-    /// times over some milliseconds.
+    /// Stops the threads still waiting on a pipe, as when a process the child left behind holds
+    /// one: each is told to stop and what it waits on is cancelled. A thread can start another
+    /// read or write just after that, so one still going is left to a thread of its own, which
+    /// cancels again every 50 ms until each has ended. A command whose pipes all closed has none.
     fn drop(&mut self) {
-        use std::os::windows::io::AsRawHandle;
-        use windows_sys::Win32::System::IO::CancelIoEx;
-        self.stop.store(true, std::sync::atomic::Ordering::SeqCst);
-        for _ in 0..10 {
-            if self.threads.iter().all(|t| t.is_finished()) {
-                return;
-            }
-            for h in &self.handles {
-                // SAFETY: a handle of this struct's own, open while it's held; a pipe with nothing
-                // waiting on it just answers that there was nothing to cancel.
-                unsafe { CancelIoEx(h.as_raw_handle(), std::ptr::null()) };
-            }
-            std::thread::sleep(Duration::from_millis(1));
+        let Some(workers) = self.workers.take() else { return };
+        workers.stop.store(true, std::sync::atomic::Ordering::SeqCst);
+        if workers.done() {
+            return;
         }
+        std::thread::spawn(move || {
+            while !workers.done() {
+                workers.cancel();
+                std::thread::sleep(Duration::from_millis(50));
+            }
+        });
     }
 }
 

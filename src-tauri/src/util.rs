@@ -487,46 +487,55 @@ pub fn program_and_rest(command: &str) -> Option<(&str, &str)> {
 
 /// The arguments after a command line's program (`program_and_rest`), as words. `ps` joins them
 /// with spaces, so on macOS and Linux they're the words between spaces; Windows keeps a command
-/// line as it was started, its arguments quoted by its own rules (`CommandLineToArgvW`'s): `"`
-/// groups words, and backslashes are a backslash's but before a `"`, where each two are one and
-/// one more makes the `"` a character of its own.
+/// line as it was started, its arguments quoted by its own rules, which std's parser follows
+/// (library/std/src/sys/args/windows.rs): spaces and tabs part them; `"` groups words, and two
+/// inside a group are one of its characters; backslashes are a backslash's but before a `"`,
+/// where each two are one and one more makes the `"` a character of its own.
 pub fn args(rest: &str) -> Vec<String> {
     if !crate::os::is_windows() {
         return rest.split_whitespace().map(String::from).collect();
     }
-    let (mut out, mut word, mut quoted, mut started, mut slashes) = (Vec::new(), String::new(), false, false, 0usize);
-    for c in rest.chars() {
+    let (mut out, mut word, mut quoted, mut started) = (Vec::new(), String::new(), false, false);
+    let mut chars = rest.chars().peekable();
+    while let Some(c) = chars.next() {
         match c {
             '\\' => {
-                slashes += 1;
-                continue;
-            }
-            '"' => {
-                word.extend(std::iter::repeat_n('\\', slashes / 2));
-                if slashes % 2 == 1 {
-                    word.push('"');
+                let mut slashes = 1;
+                while chars.next_if_eq(&'\\').is_some() {
+                    slashes += 1;
+                }
+                if chars.peek() == Some(&'"') {
+                    word.extend(std::iter::repeat_n('\\', slashes / 2));
+                    if slashes % 2 == 1 {
+                        chars.next();
+                        word.push('"');
+                    }
                 } else {
-                    quoted = !quoted;
+                    word.extend(std::iter::repeat_n('\\', slashes));
                 }
                 started = true;
             }
-            c if c.is_whitespace() && !quoted => {
-                word.extend(std::iter::repeat_n('\\', slashes));
-                if started || !word.is_empty() {
+            '"' if quoted && chars.peek() == Some(&'"') => {
+                chars.next();
+                word.push('"');
+            }
+            '"' => {
+                quoted = !quoted;
+                started = true;
+            }
+            ' ' | '\t' if !quoted => {
+                if started {
                     out.push(std::mem::take(&mut word));
                 }
                 started = false;
             }
             c => {
-                word.extend(std::iter::repeat_n('\\', slashes));
                 word.push(c);
                 started = true;
             }
         }
-        slashes = 0;
     }
-    word.extend(std::iter::repeat_n('\\', slashes));
-    if started || !word.is_empty() {
+    if started {
         out.push(word);
     }
     out
@@ -963,11 +972,14 @@ mod tests {
 
     #[test]
     fn arguments_are_words_and_on_windows_quoted_as_windows_quotes_them() {
+        use crate::os::{as_if, Os};
         let line = r#" -C "C:\work\my app" say \"hi\" C:\a\ x"#;
-        assert_eq!(args(line), [r"-C", r#""C:\work\my"#, r#"app""#, "say", r#"\"hi\""#, r"C:\a\", "x"]);
-        let _windows = crate::os::AsIf::new(crate::os::Os::Windows);
+        assert_eq!(as_if(Os::MacOs, || args(line)), [r"-C", r#""C:\work\my"#, r#"app""#, "say", r#"\"hi\""#, r"C:\a\", "x"]);
+        let _windows = crate::os::AsIf::new(Os::Windows);
         assert_eq!(args(line), [r"-C", r"C:\work\my app", "say", r#""hi""#, r"C:\a\", "x"]);
         assert_eq!(args(r#"a\\"b c" "" d"#), [r"a\b c", "", "d"]);
+        // Two quotes in a group are one; only spaces and tabs part words.
+        assert_eq!(args("\"ex\"\"ec\" a\u{a0}b\tc"), ["ex\"ec", "a\u{a0}b", "c"]);
     }
 
     #[test]
