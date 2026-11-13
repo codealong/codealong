@@ -99,13 +99,18 @@ Step 'Node 24'
 $node = "$env:ProgramFiles\nodejs\node.exe"
 if (-not ((Test-Path $node) -and ((& $node --version) -match '^v24\.'))) {
     # The newest 24 (the Node the Linux VM and CI use). Node's index doesn't list its Arm64 MSIs,
-    # though every release since 20 has one.
-    $version = (Invoke-RestMethod 'https://nodejs.org/dist/index.json' |
+    # though every release since 20 has one. Windows PowerShell's Invoke-RestMethod hands a JSON
+    # array on as one object, all the versions at once; in parentheses it goes one release at a time.
+    $version = ((Invoke-RestMethod 'https://nodejs.org/dist/index.json') |
         Where-Object { $_.version -like 'v24.*' } | Select-Object -First 1).version
     $msi = Get-File "https://nodejs.org/dist/$version/node-$version-arm64.msi" "node-$version-arm64.msi"
     Run msiexec.exe "/i `"$msi`" /qn /norestart" @(0, 3010)
 }
 Refresh-Path
+# npm, npx and what npm installs (claude, codex) are PowerShell scripts as well as .cmd files, and
+# PowerShell finds the scripts first, which Windows PowerShell runs only where its policy lets local
+# scripts run; SSH's commands run in it (firstlogon.ps1). This script itself runs with Bypass.
+Set-ExecutionPolicy -Scope LocalMachine RemoteSigned -Force
 
 Step 'Rust'
 $cargo = "$env:USERPROFILE\.cargo\bin\cargo.exe"
@@ -129,6 +134,8 @@ if (-not ((Test-Path "$zig\zig.exe") -and ((& "$zig\zig.exe" version) -eq $zigVe
 Add-MachinePath $zig
 
 Step 'Claude Code and Codex'
+# Where npm installs for dev, which `npm ls -g` fails on until something has been installed there.
+New-Item -ItemType Directory -Force "$env:APPDATA\npm" | Out-Null
 foreach ($package in '@anthropic-ai/claude-code', '@openai/codex') {
     npm ls -g --depth=0 $package | Out-Null
     if ($LASTEXITCODE) {

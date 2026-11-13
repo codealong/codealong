@@ -1,6 +1,26 @@
 fn main() {
     engine_id();
-    tauri_build::build()
+    let mut attributes = tauri_build::Attributes::new();
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        attributes = attributes.windows_attributes(tauri_build::WindowsAttributes::new_without_app_manifest());
+        common_controls();
+    }
+    // As tauri_build::build() does with its error, which takes the default attributes.
+    if let Err(error) = tauri_build::try_build(attributes) {
+        println!("{error:#}");
+        std::process::exit(1);
+    }
+}
+
+/// Windows: a manifest asking for Common Controls 6, the comctl32.dll that has TaskDialogIndirect,
+/// which the binary imports (Tauri's dialogs); Windows won't start a binary without it
+/// (STATUS_ENTRYPOINT_NOT_FOUND). Tauri embeds that manifest in the app alone, so the linker
+/// writes it into every binary of this crate instead, the tests' too.
+fn common_controls() {
+    println!("cargo:rustc-link-arg=/MANIFEST:EMBED");
+    println!(
+        "cargo:rustc-link-arg=/MANIFESTDEPENDENCY:type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'"
+    );
 }
 
 /// `CODEALONG_ENGINE`: a hash of what the engine is built from, the Rust of this crate and

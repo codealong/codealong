@@ -132,8 +132,8 @@ them as Linux has them (⌘ is Ctrl, ⌥ and ⌃ are Alt); `PREVIEW_PLATFORM=lin
 ## Windows
 
 The engine and the app build for Windows 10 (1803) and later, x64 and Arm64, with WebView2. It's
-a first cut: it compiles, and its tests compile, but it hasn't run there yet, and some of what
-Linux has isn't there either (below). Two scripts check it from a Mac:
+a first cut: it compiles, and most of the engine's tests pass in the VM below, but the app hasn't
+run there yet, and some of what Linux has isn't there either (below). Two scripts check it from a Mac:
 
 ```bash
 scripts/windows-check.sh [--tests]   # cargo check for Windows, cross-compiled here (cargo-xwin)

@@ -222,7 +222,8 @@ start() {
 # The VM's copy of the checkout: what's in this one, committed or not, without what it built,
 # sent as a tarball (Windows has tar but no rsync). What was there is taken away first but for
 # node_modules, so a file removed here is gone there too; the files keep their times, so cargo
-# builds again only what changed.
+# builds again only what changed. tar.exe is given $HOME, not ~, which PowerShell expands only for
+# its own commands.
 sync() {
   start
   local tarball
@@ -232,7 +233,7 @@ sync() {
   ssh_vm "New-Item -ItemType Directory -Force ~/$copy | Out-Null"
   scp_vm "$tarball" "dev@127.0.0.1:$copy.tgz"
   rm -f "$tarball"
-  ssh_vm "Get-ChildItem -Force ~/$copy | Where-Object Name -ne 'node_modules' | Remove-Item -Recurse -Force; tar -xzf ~/$copy.tgz -C ~/$copy; \$s = \$LASTEXITCODE; Remove-Item ~/$copy.tgz; exit \$s"
+  ssh_vm "Get-ChildItem -Force ~/$copy | Where-Object Name -ne 'node_modules' | Remove-Item -Recurse -Force; tar -xzf \$HOME/$copy.tgz -C \$HOME/$copy; \$s = \$LASTEXITCODE; Remove-Item ~/$copy.tgz; exit \$s"
 }
 
 frontend() {

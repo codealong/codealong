@@ -11,3 +11,9 @@ target-dir = "../codealong-target"
 # going by file times and linking that checkout's copy (src-tauri/src/lib.rs, CHECKOUT).
 [env]
 CODEALONG_CHECKOUT = { value = ".", relative = true }
+
+# Windows on Arm links with LLVM's lld-link, from Visual Studio's clang (which ring needs there
+# anyway): Ghostty's terminal library bundles Zig's compiler runtime, whose weak definitions of
+# helpers like __udivti3 Microsoft's link.exe takes for a conflict with Rust's own (LNK1227).
+[target.aarch64-pc-windows-msvc]
+linker = "lld-link"

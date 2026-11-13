@@ -72,6 +72,20 @@ the app's windows, not this. Paths are under `src-tauri/src/`.
   `ZIG_LIBC` or `--libc` reach the host tools Ghostty's build compiles too, which then fail.
   `scripts/windows/zig-check.sh` builds it for the GNU ABI instead, enough for a check, which links
   nothing.
+- Ghostty's static library bundles Zig's compiler runtime on every OS (`GhosttyLibVt.zig`
+  `bundle_compiler_rt`), whose weak definition of `__udivti3` Microsoft's link.exe takes for a
+  conflict with Rust's compiler_builtins on Arm64 (LNK1227); lld-link, from the same clang, links
+  it (`.cargo/config.toml`). x86_64 hasn't been linked.
+- Tauri embeds its manifest, the one asking for Common Controls 6, in the app's binary alone, and
+  the engine imports `TaskDialogIndirect`, which only that comctl32.dll has: a test binary without
+  it isn't started (STATUS_ENTRYPOINT_NOT_FOUND), so build.rs has the linker write it into every
+  binary (`/MANIFESTDEPENDENCY`, which link.exe and lld-link both take without merging files).
+- Windows PowerShell 5.1, SSH's shell in the VM: `Invoke-RestMethod` hands a JSON array on as one
+  object (in parentheses it goes one item at a time); `~` is expanded for its own commands only,
+  never for a program's arguments (tar.exe gets `$HOME`); and it runs no local script, npm's
+  `.ps1` shims included, until the machine's policy is RemoteSigned (tools.ps1).
+- npm 11 on a fresh Windows: `npm ls -g` fails until `%APPDATA%\npm` exists, and Claude Code's
+  postinstall isn't run (install scripts need allowing); `claude` runs without it (2.1.325).
 
 ## The VM
 
@@ -120,5 +134,7 @@ the app's windows, not this. Paths are under `src-tauri/src/`.
 
 - 2026-11-13: everything at run time. The app, the server, the socket, the process table, the
   windows on the desktop, Windows Terminal starts, sounds, Open at login, Credential Manager and
-  every harness's sessions there have only been compiled, and the tests have only compiled for
-  Windows, never run there.
+  every harness's sessions there have only been compiled. The engine's tests ran in the VM on
+  2026-11-13: 1989 passed and 128 failed, most of them tests that start `/bin/sh` or
+  `/bin/sleep` as a stand-in, fixtures with Unix paths, and canonical paths in Windows' `\\?\`
+  form; the binary's and codealong-peer's tests haven't run.
