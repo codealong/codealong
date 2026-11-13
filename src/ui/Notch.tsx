@@ -506,7 +506,10 @@ export function NotchShell({ notch, logoStatus, moment, counts, screen, onPillsR
             </div>
           </div>
         </div>
-        <div ref={body} className="ca-notch-body" style={{ left: Math.round((sizes.full.w - natural.body.w) / 2) }} aria-hidden={!open}>
+        {/* No wider than the room the pills have: what still doesn't fit once every group has
+            folded (the pills that don't fold, a note) goes onto another line, the shape as much
+            taller, rather than past its sides. */}
+        <div ref={body} className="ca-notch-body" style={{ left: Math.round((sizes.full.w - natural.body.w) / 2), maxWidth: pillsRoom }} aria-hidden={!open}>
           {children}
         </div>
         {/* The session, under the pills: as wide as the shape and as tall as it opens, with the

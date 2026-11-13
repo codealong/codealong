@@ -188,12 +188,15 @@ html.is-notch body {
   color: var(--ink);
 }
 /* What opens below the notch: the bar's pills, at their own width, faded in once the shape has
-   room for them. */
+   room for them. They're folded to fit the shape (Bar.tsx); what still doesn't fit wraps onto
+   another line, centered, within the width Notch.tsx gives them. */
 .ca-notch-body {
   position: absolute;
   top: var(--notch-h);
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  justify-content: center;
   gap: var(--space-1);
   width: max-content;
   opacity: 0;

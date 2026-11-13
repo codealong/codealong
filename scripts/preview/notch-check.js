@@ -1,9 +1,9 @@
 // Checks the bar docked in the notch (Notch.tsx): closed it counts all that waits on you, as the
 // most urgent kind, which open shows kind by kind, and tells Codealong its shape; pointing at it
 // grows it a little at once and opens it after a moment, the clip only ever growing and the
-// window never resized; open, a note on the bar folds pills rather than widening it; leaving
-// closes it after a moment; a click opens it at once, on the current
-// session; a peek up elsewhere (a card's on the desktop) doesn't hold it open, since a docked bar
+// window never resized; open, it keeps one width, a note folding pills and what still overflows
+// wrapping onto another line rather than widening it; leaving closes it after a moment; a click
+// opens it at once, on the current session; a peek up elsewhere (a card's on the desktop) doesn't hold it open, since a docked bar
 // has none of its own; and Codealong's own word of the pointer (`notch-pointer`) works as the
 // page's events do. The session it shows under its pills has notch-session-check.js.
 //   PREVIEW_WAIT=40000 scripts/preview.sh notch '' scripts/preview/notch-check.js
@@ -108,6 +108,40 @@
         .then(function () { return wait(300); })
         .then(function () {
           check('and it keeps that width as the note goes', lastShape().w === openW, JSON.stringify(lastShape()));
+        });
+    })
+    .then(function () {
+      // More than fits with every group folded (five sessions hearing, whose pills never fold):
+      // they go onto another line, the shape taller and no wider, none of them cut off.
+      var openW = lastShape().w;
+      var feed;
+      return fetch('./bar-feed.json')
+        .then(function (r) { return r.json(); })
+        .then(function (f) {
+          feed = Object.assign({}, f, { loading: false });
+          var hearing = [1, 2, 3, 4, 5].map(function (i) {
+            return { key: 'hearing-' + i, laneId: 'hearing-lane-' + i, title: 'A long call about the renewal, number ' + i, id: String(i), startedAt: Date.now() - 60e3, role: 'coach', mic: true, playback: true, transcript: '', notes: '', cueAt: 0 };
+          });
+          window.__emit('bar-feed', Object.assign({}, feed, { listenings: hearing }));
+          return until(function () { return all('.ca-notch-body .ca-hud-pill.is-hearing').length === 5; }, 3000, 'the sessions hearing');
+        })
+        .then(function () { return wait(400); })
+        .then(function () {
+          var s = lastShape();
+          var box = notch().getBoundingClientRect();
+          var left = box.left + inset();
+          var out = all('.ca-notch-body .ca-hud-pill').filter(function (p) {
+            var r = p.getBoundingClientRect();
+            return r.left < left - 0.5 || r.right > left + s.w + 0.5 || r.bottom > box.top + s.h + 0.5;
+          });
+          check('pills that don’t fit go onto another line, no wider', s.w === openW && all('.ca-notch-body .ca-hud-pill.is-hearing').length === 5, openW + ' then ' + JSON.stringify(s));
+          check('none of them cut off', out.length === 0, out.length + ' outside: ' + out.map(function (p) { return p.textContent; }).join(', '));
+          window.__emit('bar-feed', feed);
+          return until(function () { return all('.ca-notch-body .ca-hud-pill.is-hearing').length === 0; }, 3000, 'the sessions hearing gone');
+        })
+        .then(function () { return wait(400); })
+        .then(function () {
+          check('and it keeps its width as they go', lastShape().w === openW, JSON.stringify(lastShape()));
         });
     })
     .then(function () {
