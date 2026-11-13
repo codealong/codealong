@@ -6,7 +6,7 @@
 // repo's worktrees, New worktree first, then the ones ready for new work, the main checkout and
 // the pinned ones, and the rest behind one row that says how many, which opens them under Work
 // under way and Other worktrees; New worktree, where the account makes one, and main each say so
-// on the chip and on the start row.
+// on the chip and on the start row, and a start with New worktree goes from the main checkout.
 //   PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/quick-repo-check.js
 // The board needs a repo with its main checkout and a worktree that isn't reusable.
 (function () {
@@ -50,7 +50,7 @@
       check('No project and Another folder… first', listed[0] === 'No project' && listed[1] === 'Another folder…', listed.slice(0, 2).join(' | '));
       var repos = listed.slice(2);
       var once = repos.filter(function (t, i) { return repos.indexOf(t) === i; });
-      check('then repos, each once a project', heads().every(function (h) { return h !== 'Worktrees'; }) && repos.length > 0, repos.length + ' rows, ' + once.length + ' names');
+      check('then each repo once', heads().every(function (h) { return h !== 'Worktrees'; }) && repos.length > 0 && once.length === repos.length, repos.length + ' rows, ' + once.length + ' names');
       check('no worktree but a repo’s main checkout is listed', !listed.some(function (t) { return /\(main checkout\)$/.test(t); }), listed.join(' | '));
       // A worktree's name that names no repo.
       var buried = repo.lanes.filter(function (l) { return l.origin !== 'main' && !l.reuse && pinned.indexOf(l.id) < 0; });
@@ -78,7 +78,8 @@
       return wait(100);
     })
     .then(function () {
-      var row = options().filter(function (o) { return o.querySelector('.ca-picker-title').textContent === repo.repo; })[0];
+      // Named after its project too, where the panel lists several.
+      var row = options().filter(function (o) { var t = o.querySelector('.ca-picker-title').textContent; return t === repo.repo || t === repo.project + ' · ' + repo.repo; })[0];
       check('the repo is a row of its own', !!row, titles().join(' | '));
       row.click();
       return closed();
@@ -109,6 +110,13 @@
         return closed().then(function () {
           check('New worktree says so on the chip', said(treeChip) === 'New worktree', said(treeChip));
           check('and on the start row', startTitle() === 'Start in a new worktree of ' + repo.repo, startTitle());
+          type(input(), 'Tidy the release notes');
+          key(input(), { key: 'Enter', metaKey: true });
+          return until(function () { return sent('start_from_quick').length > 0; }, 5000, 'the start');
+        }).then(function () {
+          var spec = sent('start_from_quick').pop().spec;
+          var main = repo.lanes.filter(function (l) { return l.origin === 'main'; })[0];
+          check('which its harness makes from the main checkout, whichever worktree was picked', spec.worktree === true && spec.laneId === main.id, JSON.stringify({ laneId: spec.laneId, worktree: spec.worktree }));
           press('b');
           return opened().then(function () { return named('main'); });
         });

@@ -26,19 +26,18 @@ export function laneOption(l: Lane, id: string = l.id): PickerOption {
 }
 
 /** A repo in the quick panel's repo menu, picked by `REPO` and its key (quick.ts `repoKey`), with
- *  where a session would start in it. */
+ *  where a session would start in it; named after its project too where the panel lists several,
+ *  as laneGroups' headings are. */
 export const REPO = 'repo:';
-export function repoOption(r: RepoChoice, startsIn: string): PickerOption {
-  return { id: `${REPO}${r.key}`, text: `${r.repo} ${r.project}`, label: r.repo, detail: startsIn || undefined, lead: <Icon name="folder" size={12} /> };
+export function repoOption(r: RepoChoice, startsIn: string, withProject = false): PickerOption {
+  return { id: `${REPO}${r.key}`, text: `${r.repo} ${r.project}`, label: withProject ? `${r.project} · ${r.repo}` : r.repo, detail: startsIn || undefined, lead: <Icon name="folder" size={12} /> };
 }
 
-/** The repo menu's repos, in `repoChoices`' order: under their projects' names where the panel
- *  lists several. */
+/** The repo menu's repos, in `repoChoices`' order (the ones with a pinned worktree first,
+ *  whatever their project). */
 export function repoSections(repos: RepoChoice[], startsIn: (r: RepoChoice) => string): PickerSection[] {
-  const projects = [...new Set(repos.map((r) => r.project))];
-  const options = (rs: RepoChoice[]) => rs.map((r) => repoOption(r, startsIn(r)));
-  if (projects.length <= 1) return [{ key: 'repos', options: options(repos) }];
-  return projects.map((p) => ({ key: `repos:${p}`, head: p, options: options(repos.filter((r) => r.project === p)) }));
+  const several = new Set(repos.map((r) => r.project)).size > 1;
+  return [{ key: 'repos', options: repos.map((r) => repoOption(r, startsIn(r), several)) }];
 }
 
 /** A worktree beside its repo, in the quick panel's worktree menu: by its name there (the main

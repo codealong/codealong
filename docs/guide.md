@@ -2621,8 +2621,8 @@ app thread.
 **New session**, the panel's last row: pick the repo (⌘T) and the worktree in it (⌘B). It starts
 at whatever's selected in Codealong: a worktree, a session's, a PR's, or for a PR with none here
 its repo's main checkout; with nothing selected, the repo of a pinned worktree, else the latest.
-The repo menu lists each repo once, ones with a pinned worktree first, with where a session would
-start in it under its name; a worktree's name or branch typed there, where it names no repo,
+The repo menu lists each repo once (after its project's name, where it lists several), ones with
+a pinned worktree first, with where a session would start in it under its name; a worktree's name or branch typed there, where it names no repo,
 lists the worktrees it names. A repo picked starts where new work goes in it: its main checkout
 when that holds no work, else a reusable worktree ready for new work, else the main checkout
 anyway; never another worktree with work under way. The worktree menu lists that repo's
