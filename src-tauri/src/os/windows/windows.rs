@@ -6,10 +6,12 @@
 //!
 //! Windows counts in physical pixels from the top left of the primary monitor, y growing down,
 //! each monitor with a scale of its own. Rectangles are turned into AppKit's way of counting,
-//! from the bottom left of the primary screen with y growing up (geometry.rs `Rect`): a place in
-//! physical pixels over the primary monitor's scale, one scale for the whole desktop so that a
-//! frame read on one monitor goes back where it was on another, and a size in the window's own
-//! points, its monitor's, which are what its page measures itself in, as AppKit's sizes are.
+//! from the bottom left of the primary screen with y growing up, in points: physical pixels over
+//! the primary monitor's scale, one scale for the whole desktop so that a frame read on one
+//! monitor goes back where it was on another, and a rectangle's place and size add up
+//! (geometry.rs `Rect`). A window's page measures itself in its own monitor's points, so on a
+//! monitor scaled otherwise than the primary one it's sized by their ratio too big or too small:
+//! not settled.
 
 use std::sync::OnceLock;
 
@@ -163,18 +165,16 @@ pub fn on_screen(w: &WebviewWindow) -> bool {
 /// title bar and border Windows draws round a board window, as AppKit's frame is.
 pub fn frame(w: &WebviewWindow) -> Option<Rect> {
     let (main, scale) = primary()?;
-    let own = w.scale_factor().ok()?;
     let at = w.outer_position().ok()?;
     let size = w.outer_size().ok()?;
-    Some(flipped((at.x as f64, at.y as f64, size.width as f64, size.height as f64), main, scale, own))
+    Some(flipped((at.x as f64, at.y as f64, size.width as f64, size.height as f64), main, scale))
 }
 
 /// Puts the window's outside where `frame` reads it. Tauri places a window by its outside and
 /// sizes its inside, so the border comes off the size.
 pub fn set_frame(w: &WebviewWindow, r: Rect) {
     let Some((main, scale)) = primary() else { return };
-    let own = w.scale_factor().unwrap_or(scale);
-    let (x, y, width, height) = unflipped(r, main, scale, own);
+    let (x, y, width, height) = unflipped(r, main, scale);
     let (bw, bh) = match (w.outer_size(), w.inner_size()) {
         (Ok(o), Ok(i)) => (o.width.saturating_sub(i.width) as f64, o.height.saturating_sub(i.height) as f64),
         _ => (0.0, 0.0),
@@ -239,8 +239,7 @@ pub fn screens() -> Vec<Screen> {
 pub fn tops() -> Vec<Top> {
     let all = monitors();
     let Some((main, scale)) = all.first().map(|m| (m.frame, m.scale)) else { return Vec::new() };
-    // A screen's size in the desktop's points, as its place is: what fits on it is told in those.
-    all.iter().map(|m| Top { screen: Screen { frame: flipped(m.frame, main, scale, scale), visible: flipped(m.work, main, scale, scale) }, safe_top: 0.0, sides: (0.0, 0.0), id: m.name.clone() }).collect()
+    all.iter().map(|m| Top { screen: Screen { frame: flipped(m.frame, main, scale), visible: flipped(m.work, main, scale) }, safe_top: 0.0, sides: (0.0, 0.0), id: m.name.clone() }).collect()
 }
 
 /// Whether Shift is down, whichever app has the keyboard.
@@ -257,7 +256,7 @@ pub fn pointer() -> Option<(f64, f64)> {
         return None;
     }
     let (main, scale) = primary()?;
-    let r = flipped((p.x as f64, p.y as f64, 0.0, 0.0), main, scale, scale);
+    let r = flipped((p.x as f64, p.y as f64, 0.0, 0.0), main, scale);
     Some((r.x, r.y))
 }
 
@@ -267,18 +266,16 @@ pub fn button_down() -> bool {
     unsafe { GetAsyncKeyState(VK_LBUTTON as i32) as u16 & 0x8000 != 0 }
 }
 
-/// A rectangle in Windows' physical pixels, as AppKit would count it: its place in points of the
-/// primary monitor's `scale`, from the bottom left of the primary monitor, `main`, with y growing
-/// up, and its size in points of its own monitor's scale, `own`.
-fn flipped((x, y, w, h): (f64, f64, f64, f64), main: (f64, f64, f64, f64), scale: f64, own: f64) -> Rect {
-    Rect { x: (x - main.0) / scale, y: (main.1 + main.3 - y - h) / scale, w: w / own, h: h / own }
+/// A rectangle in Windows' physical pixels, as AppKit would count it: in points of the primary
+/// monitor's `scale`, from the bottom left of the primary monitor, `main`, with y growing up.
+fn flipped((x, y, w, h): (f64, f64, f64, f64), main: (f64, f64, f64, f64), scale: f64) -> Rect {
+    Rect { x: (x - main.0) / scale, y: (main.1 + main.3 - y - h) / scale, w: w / scale, h: h / scale }
 }
 
 /// Where Windows puts the top left corner of a rectangle counted as AppKit does, and its size,
 /// all in physical pixels: `flipped` the other way.
-fn unflipped(r: Rect, main: (f64, f64, f64, f64), scale: f64, own: f64) -> (f64, f64, f64, f64) {
-    let (w, h) = (r.w * own, r.h * own);
-    (r.x * scale + main.0, main.1 + main.3 - r.y * scale - h, w, h)
+fn unflipped(r: Rect, main: (f64, f64, f64, f64), scale: f64) -> (f64, f64, f64, f64) {
+    (r.x * scale + main.0, main.1 + main.3 - (r.y + r.h) * scale, r.w * scale, r.h * scale)
 }
 
 // ---- What macOS's AppKit and WebKit are asked of any window, which WebView2 isn't ----
@@ -321,21 +318,11 @@ mod tests {
         // A primary monitor of 2880 by 1800 pixels at 200%.
         let main = (0.0, 0.0, 2880.0, 1800.0);
         // A window 600 by 200 pixels at its top left is 300 by 100 points at its top.
-        assert_eq!(flipped((0.0, 0.0, 600.0, 200.0), main, 2.0, 2.0), Rect { x: 0.0, y: 800.0, w: 300.0, h: 100.0 });
-        assert_eq!(unflipped(Rect { x: 0.0, y: 800.0, w: 300.0, h: 100.0 }, main, 2.0, 2.0), (0.0, 0.0, 600.0, 200.0));
+        assert_eq!(flipped((0.0, 0.0, 600.0, 200.0), main, 2.0), Rect { x: 0.0, y: 800.0, w: 300.0, h: 100.0 });
+        assert_eq!(unflipped(Rect { x: 0.0, y: 800.0, w: 300.0, h: 100.0 }, main, 2.0), (0.0, 0.0, 600.0, 200.0));
         // A monitor left of the primary one starts at negative x.
-        let left = flipped((-1920.0, 0.0, 1920.0, 1080.0), main, 2.0, 2.0);
+        let left = flipped((-1920.0, 0.0, 1920.0, 1080.0), main, 2.0);
         assert_eq!(left, Rect { x: -960.0, y: 360.0, w: 960.0, h: 540.0 });
-        assert_eq!(unflipped(left, main, 2.0, 2.0), (-1920.0, 0.0, 1920.0, 1080.0));
-    }
-
-    /// A window on a monitor at 100% beside a primary one at 200% is as big in its own points as
-    /// its page measures it, and goes back where it was.
-    #[test]
-    fn a_windows_size_is_in_its_own_monitors_points() {
-        let main = (0.0, 0.0, 2880.0, 1800.0);
-        let r = flipped((2880.0, 0.0, 400.0, 300.0), main, 2.0, 1.0);
-        assert_eq!(r, Rect { x: 1440.0, y: 750.0, w: 400.0, h: 300.0 });
-        assert_eq!(unflipped(r, main, 2.0, 1.0), (2880.0, 0.0, 400.0, 300.0));
+        assert_eq!(unflipped(left, main, 2.0), (-1920.0, 0.0, 1920.0, 1080.0));
     }
 }

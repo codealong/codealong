@@ -502,12 +502,16 @@ pub fn wait_writable<P>(_pipe: &P, wait: Duration) {
 /// thread of its own writes its input and one reads each output, handing what it reads over a
 /// channel, since Windows' anonymous pipes can't be read or written without waiting. A process
 /// the child left behind can hold its pipes open past it, so the threads are stopped as the
-/// command is done with (`Drop`), their waits cancelled.
+/// command is done with (`Drop`), their reads and writes cancelled. std reads and writes a
+/// child's pipes as overlapped I/O, which only `CancelIoEx` on the pipe's handle cancels: this
+/// keeps a copy of each handle for that, which keeps the pipe open, so the number is never
+/// another's by the time it's cancelled.
 pub struct Pipes {
     got: std::sync::mpsc::Receiver<(bool, Option<Vec<u8>>)>,
     out: (Vec<u8>, bool),
     err: (Vec<u8>, bool),
     threads: Vec<std::thread::JoinHandle<()>>,
+    handles: Vec<std::os::windows::io::OwnedHandle>,
     stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
@@ -515,9 +519,21 @@ impl Pipes {
     /// Takes the child's pipes, with `input` to write to it, each to a thread of its own.
     pub fn new(child: &mut std::process::Child, input: &[u8]) -> Pipes {
         use std::io::{Read, Write};
+        use std::os::windows::io::AsHandle;
         use std::sync::atomic::Ordering;
         let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let mut threads = Vec::new();
+        let mut handles = Vec::new();
+        let mut keep = |pipe: &dyn AsHandle| handles.extend(pipe.as_handle().try_clone_to_owned());
+        if let Some(stdin) = &child.stdin {
+            keep(stdin);
+        }
+        if let Some(stdout) = &child.stdout {
+            keep(stdout);
+        }
+        if let Some(stderr) = &child.stderr {
+            keep(stderr);
+        }
         if let Some(mut stdin) = child.stdin.take() {
             let input = input.to_vec();
             // Closed once it's all written, so the program sees the end of its input; a program
@@ -546,7 +562,7 @@ impl Pipes {
         };
         let out = child.stdout.take().map(|p| threads.push(reader(Box::new(p), false, tx.clone()))).is_some();
         let err = child.stderr.take().map(|p| threads.push(reader(Box::new(p), true, tx))).is_some();
-        Pipes { got, out: (Vec::new(), out), err: (Vec::new(), err), threads, stop }
+        Pipes { got, out: (Vec::new(), out), err: (Vec::new(), err), threads, handles, stop }
     }
 
     /// The input goes on its thread.
@@ -591,22 +607,22 @@ impl Pipes {
 }
 
 impl Drop for Pipes {
-    /// Stops the threads still waiting on a pipe: each is told to, and its wait cancelled. One
-    /// that was between two reads as it was cancelled sees it's to stop before it reads again;
-    /// one that had only just checked is cancelled again, a few times over some milliseconds.
+    /// Stops the threads still waiting on a pipe: each is told to, and what it waits on cancelled.
+    /// A reader between two reads as it's cancelled sees it's to stop before it reads again; one
+    /// that had only just checked, or a writer that hadn't yet written, is cancelled again, a few
+    /// times over some milliseconds.
     fn drop(&mut self) {
         use std::os::windows::io::AsRawHandle;
-        use windows_sys::Win32::System::IO::CancelSynchronousIo;
+        use windows_sys::Win32::System::IO::CancelIoEx;
         self.stop.store(true, std::sync::atomic::Ordering::SeqCst);
         for _ in 0..10 {
-            let waiting: Vec<_> = self.threads.iter().filter(|t| !t.is_finished()).collect();
-            if waiting.is_empty() {
+            if self.threads.iter().all(|t| t.is_finished()) {
                 return;
             }
-            for t in waiting {
-                // SAFETY: the thread's handle is its JoinHandle's, open while it's held; a thread
-                // waiting on no I/O just answers that there was none to cancel.
-                unsafe { CancelSynchronousIo(t.as_raw_handle()) };
+            for h in &self.handles {
+                // SAFETY: a handle of this struct's own, open while it's held; a pipe with nothing
+                // waiting on it just answers that there was nothing to cancel.
+                unsafe { CancelIoEx(h.as_raw_handle(), std::ptr::null()) };
             }
             std::thread::sleep(Duration::from_millis(1));
         }

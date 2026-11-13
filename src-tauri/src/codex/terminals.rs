@@ -86,7 +86,8 @@ pub fn terminals(processes: &[crate::procs::PsLine]) -> Vec<Terminal> {
 /// command line as it was started: `codex.exe`, its path quoted where it has a space.
 pub fn terminal_args(command: &str) -> Option<(Option<String>, Option<PathBuf>)> {
     let (program, rest) = crate::util::program_and_rest(command)?;
-    let mut words = rest.split_whitespace().peekable();
+    let args = crate::util::args(rest);
+    let mut words = args.iter().map(String::as_str).peekable();
     if crate::util::program_name(program) != "codex" || program.contains("/packages/") || program.contains(".app/") && !command.contains(TERMINAL_UI) {
         return None;
     }
@@ -233,7 +234,10 @@ mod tests {
         assert_eq!(terminal_args("/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex -c check_for_update_on_startup=false -- Review"), Some((None, None)));
         // Windows' command lines, as it keeps them.
         assert_eq!(terminal_args(&format!(r#""C:\Program Files\nodejs\codex.exe" resume {id}"#)), Some((Some(id.into()), None)));
+        let _windows = crate::os::AsIf::new(crate::os::Os::Windows);
         assert_eq!(terminal_args(r"C:\Users\me\AppData\Roaming\npm\codex.cmd -C C:\work\atlas"), Some((None, Some(PathBuf::from(r"C:\work\atlas")))));
+        assert_eq!(terminal_args(r#"codex.exe -C "C:\work\my app""#), Some((None, Some(PathBuf::from(r"C:\work\my app")))));
+        drop(_windows);
         // Anything else the app runs it for isn't one.
         assert_eq!(terminal_args("/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex --version"), None);
     }

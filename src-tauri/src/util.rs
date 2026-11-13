@@ -485,6 +485,53 @@ pub fn program_and_rest(command: &str) -> Option<(&str, &str)> {
     (end > 0).then(|| command.split_at(end))
 }
 
+/// The arguments after a command line's program (`program_and_rest`), as words. `ps` joins them
+/// with spaces, so on macOS and Linux they're the words between spaces; Windows keeps a command
+/// line as it was started, its arguments quoted by its own rules (`CommandLineToArgvW`'s): `"`
+/// groups words, and backslashes are a backslash's but before a `"`, where each two are one and
+/// one more makes the `"` a character of its own.
+pub fn args(rest: &str) -> Vec<String> {
+    if !crate::os::is_windows() {
+        return rest.split_whitespace().map(String::from).collect();
+    }
+    let (mut out, mut word, mut quoted, mut started, mut slashes) = (Vec::new(), String::new(), false, false, 0usize);
+    for c in rest.chars() {
+        match c {
+            '\\' => {
+                slashes += 1;
+                continue;
+            }
+            '"' => {
+                word.extend(std::iter::repeat_n('\\', slashes / 2));
+                if slashes % 2 == 1 {
+                    word.push('"');
+                } else {
+                    quoted = !quoted;
+                }
+                started = true;
+            }
+            c if c.is_whitespace() && !quoted => {
+                word.extend(std::iter::repeat_n('\\', slashes));
+                if started || !word.is_empty() {
+                    out.push(std::mem::take(&mut word));
+                }
+                started = false;
+            }
+            c => {
+                word.extend(std::iter::repeat_n('\\', slashes));
+                word.push(c);
+                started = true;
+            }
+        }
+        slashes = 0;
+    }
+    word.extend(std::iter::repeat_n('\\', slashes));
+    if started || !word.is_empty() {
+        out.push(word);
+    }
+    out
+}
+
 /// The name of the program a path names, as a process table has it: its file name, after a `/`
 /// or Windows' `\`, without the extension Windows runs it by (`codex.exe` is `codex`).
 pub fn program_name(path: &str) -> &str {
@@ -912,6 +959,15 @@ mod tests {
         assert_eq!(program_name(r"C:\npm\codex.cmd"), "codex");
         assert_eq!(program_name(".exe"), ".exe");
         assert_eq!(program_name("codex-exec"), "codex-exec");
+    }
+
+    #[test]
+    fn arguments_are_words_and_on_windows_quoted_as_windows_quotes_them() {
+        let line = r#" -C "C:\work\my app" say \"hi\" C:\a\ x"#;
+        assert_eq!(args(line), [r"-C", r#""C:\work\my"#, r#"app""#, "say", r#"\"hi\""#, r"C:\a\", "x"]);
+        let _windows = crate::os::AsIf::new(crate::os::Os::Windows);
+        assert_eq!(args(line), [r"-C", r"C:\work\my app", "say", r#""hi""#, r"C:\a\", "x"]);
+        assert_eq!(args(r#"a\\"b c" "" d"#), [r"a\b c", "", "d"]);
     }
 
     #[test]

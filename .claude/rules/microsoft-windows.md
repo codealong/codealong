@@ -20,8 +20,10 @@ the app's windows, not this. Paths are under `src-tauri/src/`.
   matter) always passes.
 - An anonymous pipe can't be read or written without waiting the way POSIX's can: one set to
   `PIPE_NOWAIT` answers a read with nothing by `ERROR_NO_DATA`, which std reads as a broken pipe.
-  So a command's pipes are threads on Windows (`os/procs/windows.rs` `Pipes`), stopped with
-  `CancelSynchronousIo` once the command is done, as a process it left behind may hold them. And
+  So a command's pipes are threads on Windows (`os/procs/windows.rs` `Pipes`), stopped once the
+  command is done, as a process it left behind may hold them. std reads and writes a child's
+  pipes as overlapped I/O (Rust 1.98), which `CancelIoEx` on the pipe cancels and
+  `CancelSynchronousIo` on the thread doesn't. And
   rpc.rs's writes to a child wait until it reads, so a write's deadline isn't kept there: a child
   that stops reading holds the line until it ends (not settled; it wants a write of its own
   thread, tried on Windows).
@@ -50,6 +52,12 @@ the app's windows, not this. Paths are under `src-tauri/src/`.
 - A read-only file can't be deleted on Windows, and a folder's read-only flag stops nothing:
   `os::files::set_mode` sets the flag from the owner's write bit, and `mode_of` reads it back.
   Making a link takes Developer Mode or an administrator (`os::files::symlink`).
+- A window's page measures itself in its own monitor's points, and `os/windows/windows.rs`
+  counts every rectangle in the primary monitor's, so place and size add up: on a monitor scaled
+  otherwise than the primary, a panel comes out too big or too small by their ratio. Not settled;
+  it wants each monitor's points mapped onto the desktop's.
+- A command line on Windows is kept as it was started, quoted by Windows' rules: util.rs `args`
+  splits it so, where `ps`'s on macOS and Linux are split at spaces.
 - A key combination with Ctrl and Alt is AltGr on many layouts (German, French…), which types
   `@`, `[` or `€`: the windows' Ctrl+Alt chords and the default shortcuts (Ctrl+Alt+/…) may take
   a character someone types. Not settled.

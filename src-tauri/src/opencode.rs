@@ -882,7 +882,8 @@ pub struct Terminal {
 /// the folder argument. None for anything else.
 pub fn terminal_args(command: &str) -> Option<(Option<String>, Option<PathBuf>)> {
     let (program, rest) = crate::util::program_and_rest(command)?;
-    let words = rest.split_whitespace();
+    let args = crate::util::args(rest);
+    let words = args.iter().map(String::as_str);
     if crate::util::program_name(program) != "opencode" {
         return None;
     }
