@@ -130,7 +130,7 @@ import { chordedReply, SuggestedReplies, SuggestionHead, type Denies, type PickH
 import { useLatest } from '../latest';
 import { useVoice } from '../listening';
 import { shortcutLabel } from '../quick';
-import { goingNow, talksHere, useGoing } from '../talk';
+import { dropBegunIn, goingNow, talkedInto, talkInto, talksHere, useGoing } from '../talk';
 import { Level } from './Said';
 import type { AccountMoves } from '../menus';
 import { errorText } from '../report';
@@ -1017,12 +1017,13 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
           onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
           onBlur={() => setEscaped(false)}
           onKeyDown={(e) => {
-            // ⏎ ends a press whose words are this box's, as a second click on the microphone does:
-            // what was said is typed, to read over, rather than what the box held sent without it.
+            // ⏎ ends a press whose words are this box's, as a second click on the microphone does,
+            // and while its last words settle does nothing: what was said is typed, to read over,
+            // rather than what the box held sent without it.
             const going = goingNow();
-            if (e.key === 'Enter' && going?.talk.phase === 'listening' && going.field === e.currentTarget && !e.nativeEvent.isComposing) {
+            if (e.key === 'Enter' && going?.field === e.currentTarget && !e.nativeEvent.isComposing) {
               e.preventDefault();
-              void talkTo(false).catch((err: unknown) => setNote({ text: errorText(err), error: true }));
+              if (going.talk.phase === 'listening') void talkTo(false).catch((err: unknown) => setNote({ text: errorText(err), error: true }));
               return;
             }
             // The list's keys come first while it's up: the arrows choose, ⇥ finishes the name,
@@ -1199,10 +1200,18 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
 /** The box's microphone, while voice is on, in a window that types what's said (not the bar's):
  *  a click begins talking into the box, its caret where the words go, and another ends it. It
  *  shows listening, and how loud, for a press whose words are this box's, begun by it or by the
- *  key held to talk while the box had the keyboard (talk.ts `useGoing`). */
+ *  key held to talk while the box had the keyboard (talk.ts `useGoing`), and drops one it began
+ *  as the box goes. */
 function TalkButton({ box, onFailed }: { box: RefObject<HTMLTextAreaElement | null>; onFailed: (text: string) => void }) {
   const voice = useVoice();
   const going = useGoing();
+  // A press it began is dropped as the box goes (talk.ts `dropBegunIn`).
+  useEffect(() => {
+    const field = box.current;
+    return () => {
+      if (field) dropBegunIn(field);
+    };
+  }, [box]);
   if (!voice.on || !talksHere()) return null;
   const mine = going && box.current && going.field === box.current ? going.talk : null;
   const keys = shortcutLabel(voice.talkKeys);
@@ -1221,9 +1230,9 @@ function TalkButton({ box, onFailed }: { box: RefObject<HTMLTextAreaElement | nu
       // The keyboard stays in the box, where the words go.
       onMouseDown={(e) => e.preventDefault()}
       onClick={() => {
-        if (mine) return void talkTo(false).catch(fail);
-        box.current?.focus();
-        void talkTo(true).catch(fail);
+        const field = box.current;
+        if (!field) return;
+        void (mine ? talkedInto(field) : talkInto(field)).catch(fail);
       }}
     >
       {mine ? <Level level={mine.level} /> : <Icon name="microphone" size={14} stroke={2} />}
