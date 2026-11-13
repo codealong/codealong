@@ -1,10 +1,12 @@
 // A session a PR's or todo's panel lists shows in the peek, beside the panel (MainPanel.tsx
 // `peekFromPanel`, PanelSession.tsx, peek.rs `beside`), not in the panel's place: a click on its
-// chip asks for the peek ready to answer, by the panel's sides and the line of chips the session's
-// worktree has, and the PR's or todo's panel stays, its row still selected. With the details
-// open, a click on a session's row waits a moment for a second before it asks, by that row, and a
-// double-click opens the session where it runs without the peek (in Sessions, for one Codealong
-// runs). In the peek's own page, an open with a search's words opens its find bar on them.
+// chip asks for the peek ready to answer, by the panel's sides and the chip's line, and the PR's
+// or todo's panel stays, its row still selected. With the details open, a click on a session's
+// row waits a moment for a second before it asks, by that row, and a double-click opens the
+// session where it runs without the peek (in Sessions, for one Codealong runs). What another
+// window asks the main window to say shows as a toast. In the peek's own page, an open with a
+// search's words opens its find bar on them, and what goes wrong in a peek opened beside the main
+// window is said there as a toast, where one opened from a pill says it on the bar.
 //   scripts/preview.sh prs '' scripts/preview/panel-peek-check.js
 //   PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh todo '' scripts/preview/panel-peek-check.js
 //   scripts/preview.sh peek '' scripts/preview/panel-peek-check.js
@@ -59,7 +61,7 @@
     press(chip);
     return wait(400)
       .then(function () {
-        asked('a click on a session’s chip', from, panel(), chip.closest('.ca-places-group'), chip);
+        asked('a click on a session’s chip', from, panel(), chip, chip);
         check('the ' + kind + '’s panel stays', !!panel() && !q('.ca-panelback') && !q('.ca-sessinsp'));
         check('its row still selected', row().getAttribute('aria-selected') === 'true');
         press(q('.ca-detailsbtn', panel()));
@@ -89,6 +91,12 @@
       })
       .then(function () {
         if (panel()) press(q('.ca-detailsbtn', panel()));
+        // What the peek says went wrong, as it asks this window to say it.
+        window.__emit('toast', 'Didn’t send to it, so it’s back in its box: Ghostty said no.');
+        return until(function () { return q('.ca-toast'); }, 3000, 'the toast');
+      })
+      .then(function (t) {
+        check('what the peek says went wrong shows as a toast here', t.textContent.indexOf('Ghostty said no.') >= 0, t.textContent);
       });
   };
 
@@ -112,20 +120,45 @@
     });
   };
 
-  // The peek's page, opened as the main window asks it with a search's words: its conversation's
-  // find bar opens on them, leaving the box the keyboard.
+  // Keeping the session on the desktop fails, for something the peek says went wrong.
+  var real = window.__TAURI_INTERNALS__.invoke;
+  window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
+    if (cmd !== 'keep_session') return real.apply(this, arguments);
+    window.__calls.push([cmd, args, options]);
+    return Promise.reject('There’s no room on the desktop.');
+  };
+  var emitted = function (event) { return calls('plugin:event|emit_to').filter(function (c) { return c[1] && c[1].event === event; }).map(function (c) { return c[1]; }); };
+
+  // The peek's page, opened as the main window asks it, with a search's words: its conversation's
+  // find bar opens on them, leaving the box the keyboard; and what goes wrong is said in the main
+  // window as a toast, where one opened from a pill says it on the bar.
   var peek = function () {
     var field = function () { return q('.ca-peek .ca-thread-find input'); };
-    return until(function () { return q('.ca-peek .ca-sessinsp-head'); }, 20000, 'the peek’s session').then(function () {
-      check('opened from the bar, no find bar', !field());
-      var lane = board.lanes.filter(function (l) { return l.sessions.length > 0; })[0];
-      var s = lane.sessions[0];
-      window.__emit('peek-open', { id: 7, lane: lane, session: s, terminal: board.apps.terminal, apps: board.apps, theme: board.theme, zoom: board.zoom, room: 700, below: true, focus: true, rename: false, find: 'quokka bridge' });
-      return until(function () { return !!field(); }, 5000, 'the find bar').then(function () {
+    var keep = function () { return q('.ca-peek .ca-sessinsp-head button[aria-label="Keep on the desktop"]'); };
+    return until(function () { return q('.ca-peek .ca-sessinsp-head'); }, 20000, 'the peek’s session')
+      .then(function () {
+        check('opened from the bar, no find bar', !field());
+        keep().click();
+        return until(function () { return emitted('bar-note').length > 0; }, 3000, 'the bar’s note');
+      })
+      .then(function () {
+        check('opened from the bar, what goes wrong goes on the bar', emitted('bar-note')[0].payload.message === 'There’s no room on the desktop.' && emitted('toast').length === 0, JSON.stringify(emitted('bar-note')));
+        var lane = board.lanes.filter(function (l) { return l.sessions.length > 0; })[0];
+        var s = lane.sessions[0];
+        window.__emit('peek-open', { id: 7, lane: lane, session: s, terminal: board.apps.terminal, apps: board.apps, theme: board.theme, zoom: board.zoom, room: 700, below: true, focus: true, rename: false, find: 'quokka bridge', beside: 'main' });
+        return until(function () { return !!field(); }, 5000, 'the find bar');
+      })
+      .then(function () {
         check('opened with a search’s words, its find bar is on them', field().value === 'quokka bridge', field().value);
         check('without the keyboard', document.activeElement !== field());
+        var notes = emitted('bar-note').length;
+        keep().click();
+        return until(function () { return emitted('toast').length > 0; }, 3000, 'the toast').then(function () {
+          var t = emitted('toast')[0];
+          check('opened beside the main window, it’s said there as a toast', t.target && (t.target.label || t.target) && JSON.stringify(t.target).indexOf('main') >= 0 && t.payload === 'There’s no room on the desktop.', JSON.stringify(t));
+          check('and not on the bar', emitted('bar-note').length === notes);
+        });
       });
-    });
   };
 
   say('panel peek check: waiting for the list');

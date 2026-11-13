@@ -122,6 +122,18 @@ pub fn frame(w: &WebviewWindow) -> Option<Rect> {
     Some(flipped((at.x, at.y, size.width, size.height), primary()?))
 }
 
+/// Where a window's page is, in screen points: its inside, under the title bar and within the
+/// border the window manager draws round a board window.
+pub fn content(w: &WebviewWindow) -> Option<Rect> {
+    if !main_thread() {
+        return None;
+    }
+    let scale = w.scale_factor().ok()?;
+    let at = w.inner_position().ok()?.to_logical::<f64>(scale);
+    let size = w.inner_size().ok()?.to_logical::<f64>(scale);
+    Some(flipped((at.x, at.y, size.width, size.height), primary()?))
+}
+
 /// Puts the window's outside where `frame` reads it. Tauri places a window by its outside and
 /// sizes its inside, so the border comes off the size (`border`).
 pub fn set_frame(w: &WebviewWindow, r: Rect) {

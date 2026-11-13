@@ -1686,7 +1686,8 @@ of those sessions, here or in a todo's panel (or a review's Session link), shows
 beside the panel, level with what you clicked and ready to answer, as a card on the desktop does:
 its conversation, on the words a search found the PR by when it did, and a box to answer it. The
 PR or todo stays in the panel and selected in the list; ⏎ sends and puts the peek away, as do
-Escape and a click in the window, and the peek's Main window button shows the session in Sessions,
+Escape and a click in the window (a send that doesn't go says so in a toast there, its words back
+in the box), and the peek's Main window button shows the session in Sessions,
 in its list and among what waits on you, to go on from there. In the tree a click waits a quarter
 of a second for a second one, and double-click or its arrow opens the session where it runs.
 

@@ -1986,6 +1986,18 @@ export async function barNote(note: BarNote): Promise<void> {
   await emitTo('bar', 'bar-note', note);
 }
 
+/** Asks a board window (by its label) to say something as a toast: how something done from the
+ *  peek it opened went (Peek.tsx). */
+export async function windowToast(label: string, message: string): Promise<void> {
+  if (!inTauri) return;
+  await emitTo(label, 'toast', message);
+}
+
+/** Calls `cb` with what another window asks this one to say as a toast. */
+export function onWindowToast(cb: (message: string) => void): () => void {
+  return onWindowEvent<string>('toast', cb);
+}
+
 /** Calls `cb` with notes other windows ask the bar to show. */
 export function onBarNote(cb: (note: BarNote) => void): () => void {
   return onWindowEvent<BarNote>('bar-note', cb);

@@ -431,9 +431,13 @@ fn peek_open(app: tauri::AppHandle, window: tauri::WebviewWindow, mirror: State<
     if !rename && kept::raise_session(&app, &key, focus.unwrap_or(false)) {
         return Ok(());
     }
-    // The pill is in the window that asked: the bar, a card on the desktop or the main window.
-    let pill = pill.and_then(|p| panel::frame(&window).map(|host| (host, p)));
-    peek::open(&app, target, pill, beside.unwrap_or(false), focus.unwrap_or(false) || rename, rename).map_err(words)
+    // The pill is in the window that asked: the bar or a card on the desktop, measured from its
+    // frame, or a row in a board window's page, from its inside, which is under the title bar on
+    // Linux and Windows.
+    let beside = beside.unwrap_or(false).then(|| window.label().to_string());
+    let host = if beside.is_some() { panel::content(&window) } else { panel::frame(&window) };
+    let pill = pill.and_then(|p| host.map(|host| (host, p)));
+    peek::open(&app, target, pill, beside, focus.unwrap_or(false) || rename, rename).map_err(words)
 }
 
 /// A session with its worktree and the apps, as the board has them: for a window that doesn't

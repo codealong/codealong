@@ -22,8 +22,8 @@ import { ProjectSaidHere } from './ProjectSaid';
 /** What the Primary tag on a todo's session means. */
 export const TODO_PRIMARY = "The todo's primary session: where the work on it goes on. Sessions started for it while this one runs work alongside it.";
 
-/** A click on one of a panel's sessions. `at` is what was clicked, its row or its worktree's line
- *  of chips, which the main window opens the peek level with (MainPanel.tsx `peekFromPanel`). */
+/** A click on one of a panel's sessions. `at` is what was clicked, its row or its chip, which the
+ *  main window opens the peek level with (MainPanel.tsx `peekFromPanel`). */
 export type ShowSession = (lane: Lane, session: Session, at: Element) => void;
 
 interface PanelSessionProps {
@@ -169,8 +169,9 @@ export function primaryFirst(places: Place[], key: string | null | undefined): P
 /** The worktrees and sessions behind a PR or a todo: chips, or with `open` the tree. */
 export function PanelPlaces({ places: given, open, label, project, now, onShowLane, onLaneMenu, onShowSession, onOpenSession, onSessionMenu, primary = null }: PanelPlacesProps) {
   const places = primaryFirst(given, primary?.key);
-  // Each worktree's line of chips, by its id: a session's chip opens the peek level with it.
-  const groups = useRef(new Map<string, Element>());
+  // The chip a click is on, noted as the click comes down to it (a chip says nothing of itself to
+  // what it does): a session's opens the peek level with its own line, the chips wrapping.
+  const clicked = useRef<Element | null>(null);
   if (open) {
     return (
       <div className="ca-tree" role="tree" aria-label={label}>
@@ -193,17 +194,16 @@ export function PanelPlaces({ places: given, open, label, project, now, onShowLa
     );
   }
   return (
-    <div className="ca-places" role="list" aria-label={label}>
+    <div
+      className="ca-places"
+      role="list"
+      aria-label={label}
+      onClickCapture={(e) => {
+        clicked.current = (e.target as Element).closest('.ca-chip');
+      }}
+    >
       {places.map(({ lane, sessions, note }) => (
-        <span
-          key={lane.id}
-          ref={(el) => {
-            if (el) groups.current.set(lane.id, el);
-            else groups.current.delete(lane.id);
-          }}
-          className="ca-places-group"
-          role="listitem"
-        >
+        <span key={lane.id} className="ca-places-group" role="listitem">
           <ProjectSaidHere project={project}>
             <WorktreeChip lane={lane} short note={note} onShow={() => onShowLane(lane)} onMenu={() => onLaneMenu(lane)} />
           </ProjectSaidHere>
@@ -217,8 +217,7 @@ export function PanelPlaces({ places: given, open, label, project, now, onShowLa
                 className={cx(s.visitor && 'is-visitor', s.archived && 'is-archived')}
                 detail={`${s.visitor ?? sessionWhy(s.detail, s.headline, now)}${main ? `\nPrimary: ${primary.means}` : ''}`}
                 onShow={() => {
-                  const at = groups.current.get(lane.id);
-                  if (at) onShowSession(lane, s, at);
+                  if (clicked.current) onShowSession(lane, s, clicked.current);
                 }}
                 onMenu={() => onSessionMenu(lane, s)}
               >

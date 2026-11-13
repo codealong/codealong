@@ -166,7 +166,7 @@ export function MainPanel(props: MainPanelProps) {
   const bySchedule = useMemo(() => scheduleBySession(board?.schedules), [board?.schedules]);
 
   /** A session a PR's or todo's panel lists, in the peek beside the panel, level with what was
-   *  clicked (`at`: its row, its worktree's chips, a review's Session link), ready to answer and on
+   *  clicked (`at`: its row, its chip, a review's Session link), ready to answer and on
    *  the words a search found it by. The PR or todo stays where it was, and its Main window button
    *  shows the session in Sessions, its list and the queue. */
   const peekFromPanel: ShowSession = (_lane, session, at) => {

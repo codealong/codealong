@@ -3116,6 +3116,9 @@ export interface PeekOpen {
   /** The words its conversation's find bar opens on: what a search in the main window found it
    *  by. */
   find?: string | null;
+  /** The window it opened beside (the main window's PR or todo panel), by its label: what goes
+   *  wrong is said there, as a toast, rather than on the bar, which may not be up. */
+  beside?: string | null;
   /** `[debug] perf_log` is on, so the page reports its timings. */
   perfLog?: boolean;
 }

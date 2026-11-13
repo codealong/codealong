@@ -11,7 +11,7 @@
 
 import { useCallback, useMemo, useRef, useState, useEffect } from 'react';
 import type { PrTab } from '../agentReview';
-import { barNote, getBoard, prAt, showMain, zoomWindows } from '../api';
+import { barNote, getBoard, prAt, showMain, windowToast, zoomWindows } from '../api';
 import { boardView, lanesAhead, observe, useAhead } from '../ahead';
 import { showContextMenu } from '../contextMenu';
 import { deviceOf, shortOf } from '../devices';
@@ -248,14 +248,19 @@ export interface CardHost {
  *  the PR links in the conversation (PrLink.tsx): a click on one shows the PR as a click on its
  *  chip does (`followPr`, in the window's own place for it), a PR's card shows its sessions in
  *  the main window, and their menus are their own; and for the links to a session or a todo
- *  (SessionLink.tsx), which show in the main window too. */
-export function useCardHost({ sessionKey, anchor, live, apps, terminal, away, followPr }: { sessionKey: string | null; /** The pill the bar says things by, where the card isn't a session's (the reviews pill). */ anchor?: string; live: Pick<LiveSession, 'board' | 'needBoard' | 'there'>; apps: Board['apps'] | undefined; terminal: string; away: () => void; followPr?: (pr: PrItem, tab: PrTab | null) => void }): CardHost {
+ *  (SessionLink.tsx), which show in the main window too. What goes wrong is said on the bar, by
+ *  the pill, or in the window the card opened `beside` as a toast. */
+export function useCardHost({ sessionKey, anchor, beside, live, apps, terminal, away, followPr }: { sessionKey: string | null; /** The pill the bar says things by, where the card isn't a session's (the reviews pill). */ anchor?: string; /** The board window the peek opened beside, by its label (PeekOpen `beside`). */ beside?: string | null; live: Pick<LiveSession, 'board' | 'needBoard' | 'there'>; apps: Board['apps'] | undefined; terminal: string; away: () => void; followPr?: (pr: PrItem, tab: PrTab | null) => void }): CardHost {
   const onDesktop = menus.useDesktopPins();
   const icons = useEditorIcons(apps);
   const by = anchor ?? sessionKey;
+  const say = (message: string, tone: 'error' | 'info') => {
+    if (beside) void windowToast(beside, message);
+    else if (by) void barNote({ key: by, message, tone });
+  };
   const report: Report = {
-    error: (message) => void (by && barNote({ key: by, message, tone: 'error' })),
-    info: (message) => void (by && barNote({ key: by, message, tone: 'info' })),
+    error: (message) => say(message, 'error'),
+    info: (message) => say(message, 'info'),
   };
   const showSession = (l: Lane, s: Session) => {
     away();

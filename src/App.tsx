@@ -15,7 +15,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { below, showContextMenu, type MenuAction, type MenuSpec } from './contextMenu';
 import { useEditorIcons } from './editors';
 import { homeOf, narrowed, runsShownKey, sidesShownKey, type BoardRow, type Filter } from './lanes';
-import { answerLink, barMode, harnessSchedules, onBarMode, onCloseIdle, onCloseStale, onUsageMenu, onWebsiteMenu, onNewWindow, onReveal, takeOpenedLink, onSettings, onSetupMenu, onCheckUpdates, openConfig, openHarnessLink, openProjectWindow, openUrl, orderAccounts, refresh, refreshUsage, scheduleOp, setBarMode, startOptions, setPinned, setPinnedPrs, setPinnedRepos, setPinnedWorktrees, setTheme, setupNeeded, showQuick, startFromQuick, signIn, stopTraining, terminalWindow, windowLabel, zoomWindows, onZoomMenu, onReloadMenu, WEBSITE, type BarMode, type Reveal } from './api';
+import { answerLink, barMode, harnessSchedules, onBarMode, onCloseIdle, onCloseStale, onUsageMenu, onWebsiteMenu, onWindowToast, onNewWindow, onReveal, takeOpenedLink, onSettings, onSetupMenu, onCheckUpdates, openConfig, openHarnessLink, openProjectWindow, openUrl, orderAccounts, refresh, refreshUsage, scheduleOp, setBarMode, startOptions, setPinned, setPinnedPrs, setPinnedRepos, setPinnedWorktrees, setTheme, setupNeeded, showQuick, startFromQuick, signIn, stopTraining, terminalWindow, windowLabel, zoomWindows, onZoomMenu, onReloadMenu, WEBSITE, type BarMode, type Reveal } from './api';
 import { count, middleTruncate } from './format';
 import * as menus from './menus';
 import { prRefOf } from './prLinks';
@@ -401,6 +401,9 @@ export function App() {
   useEffect(() => onUsageMenu(() => setUsageOf({ account: null })), []);
   // Help › Codealong Website opens the website in the browser.
   useEffect(() => onWebsiteMenu(() => void openUrl(WEBSITE).catch((e: unknown) => setToast(errorText(e)))), [setToast]);
+  // How something done in the peek a PR's or todo's panel opened went: a send that didn't go,
+  // which is back in its box (Peek.tsx), as the bar says it for one opened from a pill.
+  useEffect(() => onWindowToast(setToast), [setToast]);
   // The sidebar's GitHub button opens Codealong's repo in the browser.
   const openRepo = () => void openUrl(CODEALONG_REPO).catch((e: unknown) => setToast(errorText(e)));
   // The worktree whose preview URL is being set (ui/PreviewBits.tsx), by id.

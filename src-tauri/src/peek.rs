@@ -203,6 +203,9 @@ struct Opening {
     rename: bool,
     /// The words its conversation's find bar opens on.
     find: Option<String>,
+    /// The window it opens beside (`Inner::beside`), which says what goes wrong as a toast: the
+    /// bar may not be up to say it by a pill.
+    beside: Option<String>,
     /// `[debug] perf_log` is on, so the page reports its timings.
     perf_log: bool,
 }
@@ -220,9 +223,9 @@ struct Inner {
     host: Option<Rect>,
     /// Its pill on the screen.
     pill: Option<Rect>,
-    /// The pill is a row in a window it opens beside (`beside`), not the bar or a card it hangs
-    /// from.
-    beside: bool,
+    /// The pill is a row in this window, which it opens beside (`beside`), not the bar or a card
+    /// it hangs from: the window's label.
+    beside: Option<String>,
     place: Option<Place>,
     opens: u64,
     /// The open the page hasn't answered yet.
@@ -278,15 +281,16 @@ pub fn target(shown: crate::shown::Shown, key: &str) -> Option<Target> {
 
 /// Shows a session in the peek, for a hover over its pill (`pill`: the window it's in, the bar or
 /// a card on the desktop, and the pill as that window's page measured it) or, with `focus`, ready
-/// to type into, its name with `rename`. With `beside`, the pill is a row in a window the peek
-/// opens beside (the main window's PR and todo panels). Without a pill it opens where it last
-/// was. A hover doesn't take the peek from a session you're typing to. On the main thread.
-pub fn open(app: &AppHandle, target: Target, pill: Option<(Rect, PageRect)>, beside: bool, focus: bool, rename: bool) -> Result<()> {
+/// to type into, its name with `rename`. With `beside` (that window's label), the pill is a row in
+/// a window the peek opens beside (the main window's PR and todo panels), measured from its inside.
+/// Without a pill it opens where it last was. A hover doesn't take the peek from a session you're
+/// typing to. On the main thread.
+pub fn open(app: &AppHandle, target: Target, pill: Option<(Rect, PageRect)>, beside: Option<String>, focus: bool, rename: bool) -> Result<()> {
     let Some(state) = app.try_state::<Peek>() else { return Ok(()) };
     let bar = crate::bar::frame(app);
     let pill = pill.map(|(host, p)| (host, p.to_screen(host)));
     let key = target.session.key.clone();
-    let (id, room, below) = {
+    let (id, room, below, beside) = {
         let mut s = state.inner.lock().map_err(|_| anyhow!("The peek is unavailable."))?;
         let same = s.key.as_deref() == Some(key.as_str());
         // Nor from one you're dragging, whose pointer may cross other pills on its way.
@@ -310,7 +314,7 @@ pub fn open(app: &AppHandle, target: Target, pill: Option<(Rect, PageRect)>, bes
         // goes by the shape (`bar::peek_frame`).
         let by = if host.is_some() && host == bar { crate::bar::peek_frame(app) } else { host };
         if let (Some(h), Some(a), Some(sc)) = (by, anchor, screen) {
-            s.place = Some(if s.beside { self::beside(a, sc, target.zoom) } else { place(h, a, sc, target.zoom) });
+            s.place = Some(if s.beside.is_some() { self::beside(a, sc, target.zoom) } else { place(h, a, sc, target.zoom) });
         }
         s.opens += 1;
         s.waiting = Some(s.opens);
@@ -319,10 +323,10 @@ pub fn open(app: &AppHandle, target: Target, pill: Option<(Rect, PageRect)>, bes
         s.away_since = None;
         s.sized = false;
         s.drag = None;
-        (s.opens, s.place.map_or(MAX_HEIGHT, |p| p.room), s.place.is_none_or(|p| p.below))
+        (s.opens, s.place.map_or(MAX_HEIGHT, |p| p.room), s.place.is_none_or(|p| p.below), s.beside.clone())
     };
     let Target { lane, session, terminal, apps, theme, zoom, find } = target;
-    let _ = app.emit_to(LABEL, "peek-open", Opening { id, lane, session, terminal, apps, theme, zoom, room, below, focus, rename, find, perf_log: crate::perf::enabled() });
+    let _ = app.emit_to(LABEL, "peek-open", Opening { id, lane, session, terminal, apps, theme, zoom, room, below, focus, rename, find, beside, perf_log: crate::perf::enabled() });
     // A page that doesn't answer doesn't keep the peek from showing.
     let handle = app.clone();
     std::thread::spawn(move || {

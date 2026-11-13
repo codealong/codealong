@@ -417,6 +417,12 @@ pub fn frame(w: &WebviewWindow) -> Option<Rect> {
     ns(w).map(|n| rect(n.frame()))
 }
 
+/// Where a window's page is, in screen points: its whole frame, since the board windows draw
+/// their pages under an Overlay title bar and the panels have none.
+pub fn content(w: &WebviewWindow) -> Option<Rect> {
+    frame(w)
+}
+
 /// A rectangle as AppKit takes it.
 pub fn ns_rect(r: Rect) -> NSRect {
     NSRect::new(NSPoint::new(r.x, r.y), NSSize::new(r.w, r.h))

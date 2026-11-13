@@ -28,7 +28,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { barNote, getBoard, getDevices, inPreview, keepSession, keptClose, keptFocus, keptReady, keptResize, keptSession, onKeptKeys, onPeekHidden, onPeekOpen, onPeekShown, peekDrag, peekFit, peekFocus, peekHide, peekOpen, peekReady, peekResize, sessionPutBack, sideClose } from '../api';
+import { getBoard, getDevices, inPreview, keepSession, keptClose, keptFocus, keptReady, keptResize, keptSession, onKeptKeys, onPeekHidden, onPeekOpen, onPeekShown, peekDrag, peekFit, peekFocus, peekHide, peekOpen, peekReady, peekResize, sessionPutBack, sideClose } from '../api';
 import { renameAhead, sentWorthSaying } from '../ahead';
 import { BAR_PROJECT_KEY } from '../bar';
 import { shortOf } from '../devices';
@@ -334,9 +334,10 @@ export function Peek({ kept = false, side = false }: { kept?: boolean; side?: bo
     void peekDrag(dx, dy);
   };
 
-  // What's around the session shows in the main window, and what comes of an open or a menu is
-  // said on the bar by the peek's own session (cardHost.ts).
-  const host = useCardHost({ sessionKey: key, live, apps: open?.apps, terminal: open?.terminal ?? 'Terminal', away });
+  // What's around the session shows in the main window, and what comes of an open, a menu or a
+  // send is said on the bar by the peek's own session, or as a toast in the window it opened
+  // beside, where the bar may not be up (cardHost.ts).
+  const host = useCardHost({ sessionKey: key, beside: open?.beside, live, apps: open?.apps, terminal: open?.terminal ?? 'Terminal', away });
 
   // A kept session's window is never empty: a clear window would take the clicks meant for what's
   // under it. Until the board has read the session it says so, and so it does when the board has
@@ -460,12 +461,12 @@ export function Peek({ kept = false, side = false }: { kept?: boolean; side?: bo
           closeTitle={kept ? undefined : 'Close (esc)'}
           onSending={away}
           onSent={(sent) => {
-            // What you'd want to know goes on the bar: the prompt is on the clipboard, say, or it
-            // may not have gone in.
-            if (sentWorthSaying(sent)) void barNote({ key: session.key, message: sent.message, tone: 'info' });
+            // What you'd want to know goes on the bar (or the window it opened beside): the prompt
+            // is on the clipboard, say, or it may not have gone in.
+            if (sentWorthSaying(sent)) report.info(sent.message);
           }}
           // It's back in the box for when the peek shows it again.
-          onFailed={(why) => void barNote({ key: session.key, message: why, tone: 'error' })}
+          onFailed={report.error}
           onAnswered={() => {
             // What you wrote while it waited is likely what you'd send next.
             if (!readDraft(session.key)) away();
