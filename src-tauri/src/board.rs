@@ -296,13 +296,14 @@ pub fn claude_tasks(r: &RegistryEntry, t: &TranscriptInfo, now: i64) -> Vec<Back
 }
 
 /// What a Codex thread runs in background terminals, for its list (`Session::tasks`): the
-/// commands its rollout says still run, while a Codex process has the thread loaded (`held`; one
-/// nothing holds runs none, its terminals having gone with the process that ran them, which may
-/// have written no end for them), then those that ended in the last few minutes
-/// (`TASK_ENDED_SHOWN_MS`), oldest first in each.
-pub fn codex_tasks(th: &ThreadInfo, held: Option<bool>, now: i64) -> Vec<BackgroundTask> {
+/// commands its rollout says still run, while a Codex process has the thread loaded (`held`) and
+/// they started after it did (`holder_since`, when the earliest process holding it started),
+/// then those that ended in the last few minutes (`TASK_ENDED_SHOWN_MS`), oldest first in each.
+/// Terminals go with the process that ran them, which may write no end for them as it goes: one
+/// nothing holds runs none, and one a later process loaded runs none of the earlier one's.
+pub fn codex_tasks(th: &ThreadInfo, held: Option<bool>, holder_since: Option<i64>, now: i64) -> Vec<BackgroundTask> {
     let t = &th.terminals;
-    let running = t.running.iter().filter(|_| held != Some(false));
+    let running = t.running.iter().filter(|r| held != Some(false) && holder_since.map_or(true, |since| r.at >= since));
     let ended = t.ended.iter().filter(|e| e.ended.as_ref().is_some_and(|(at, _, _)| now - at < TASK_ENDED_SHOWN_MS));
     running
         .chain(ended)
@@ -658,7 +659,6 @@ pub fn codex_session(account: &AccountCfg, th: &ThreadInfo, name: Option<&str>, 
         // `codex resume` goes on in the same rollout, which still says `exec`: someone is at it
         // while a terminal has it, and it's headless again once that ends, as Claude's is.
         headless: th.exec && terminal.is_none(),
-        tasks: codex_tasks(th, held, now),
         ..known
     }
 }
@@ -5539,14 +5539,15 @@ mod tests {
             terminals: Terminals { running: vec![terminal("19957", NOW - 20 * MIN, None)], ended: vec![terminal("1", NOW - 40 * MIN, Some(NOW - 30 * MIN)), terminal("2", NOW - 9 * MIN, Some(NOW - 5 * MIN))], ..Default::default() },
             ..ThreadInfo::default()
         };
-        let listed = |held| codex_tasks(&th, held, NOW).into_iter().map(|t| (t.id, t.command, t.ended_at, t.exit_code)).collect::<Vec<_>>();
+        let listed = |held, since| codex_tasks(&th, held, since, NOW).into_iter().map(|t| (t.id, t.command, t.ended_at, t.exit_code)).collect::<Vec<_>>();
         let running = ("19957".to_string(), "run 19957".to_string(), None, None);
         let ended = ("2".to_string(), "run 2".to_string(), Some(NOW - 5 * MIN), Some(2));
-        assert_eq!(listed(Some(true)), [running.clone(), ended.clone()]);
-        assert_eq!(listed(None), [running, ended.clone()], "a look that failed takes the rollout's word");
-        // A thread no Codex process holds runs nothing: its terminals went with what ran them.
-        assert_eq!(listed(Some(false)), [ended]);
-        assert_eq!(codex_session(&acct("codex"), &th, None, None, Some(true), false, 0, NOW, None).tasks.len(), 2);
+        assert_eq!(listed(Some(true), Some(NOW - 60 * MIN)), [running.clone(), ended.clone()]);
+        assert_eq!(listed(None, None), [running, ended.clone()], "a look that failed takes the rollout's word");
+        // A thread no Codex process holds runs nothing: its terminals went with what ran them; nor
+        // does one a process that started since loaded.
+        assert_eq!(listed(Some(false), None), [ended.clone()]);
+        assert_eq!(listed(Some(true), Some(NOW - 10 * MIN)), [ended]);
     }
 
     #[test]

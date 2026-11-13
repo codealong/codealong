@@ -332,7 +332,7 @@ pub trait Adapter: Sync {
 
     /// Stops a command the session left running in the background (`Session::tasks`): the process
     /// running it (`shell_script`) that's a child of the session's own process, or one whose
-    /// environment names the session (`session_var`; macOS doesn't give another process the
+    /// environment names the session and no other (`session_var`; macOS doesn't give another process the
     /// environment of its own programs, `/bin/zsh` among them, so that finds only a command a
     /// shell handed on to a program of its own, `node`, say), and what that started, for its
     /// harness to tell the agent it ended. Only one may run it: two running the same command
@@ -346,7 +346,7 @@ pub trait Adapter: Sync {
             bail!("{} didn't record that command, so Codealong can't tell which process runs it.", self.harness().word());
         }
         let table = crate::hygiene::processes()?;
-        let named = |pid: u32| self.session_var().is_some_and(|var| crate::procs::environment(pid).is_some_and(|env| env.get(var) == Some(&session.id)));
+        let named = |pid: u32| crate::procs::environment(pid).is_some_and(|env| names_only(&env, self.harness(), &session.id));
         let shell = task_shell(&table, session.pid, command, |c| self.shell_script(c), named)?;
         Ok(crate::hygiene::stopped(&crate::hygiene::end_tree(&table, shell)))
     }
@@ -1138,6 +1138,13 @@ pub fn task_shell(table: &[crate::hygiene::Proc], root: Option<u32>, command: &s
     }
 }
 
+/// Whether an environment names the session `id` of `harness` and no other session: each
+/// harness's commands keep the variables of whatever started it (`started_under`), so a command
+/// of an agent a session started can name both, and isn't the first's.
+pub fn names_only(env: &HashMap<String, String>, harness: Harness, id: &str) -> bool {
+    started_under(env) == [(harness, id.to_string())]
+}
+
 /// A reader for each harness, in the adapters' order.
 pub fn readers(wake: &Wake) -> Vec<Box<dyn Reader>> {
     ADAPTERS.iter().map(|a| a.reader(wake.clone())).collect()
@@ -1435,6 +1442,16 @@ mod tests {
         assert_eq!(read().unwrap(), "last line");
         std::fs::remove_dir_all(dir).unwrap();
         assert!(read().unwrap_err().to_string().starts_with("Its output is gone"));
+    }
+
+    #[test]
+    fn an_environment_is_a_sessions_only_where_it_names_no_other() {
+        let env = |vars: &[(&str, &str)]| vars.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect::<HashMap<_, _>>();
+        assert!(names_only(&env(&[("CODEX_THREAD_ID", "a"), ("PATH", "/bin")]), Harness::Codex, "a"));
+        assert!(!names_only(&env(&[("CODEX_THREAD_ID", "b")]), Harness::Codex, "a"));
+        // A command of a Claude Code session a Codex thread started keeps the thread's id too.
+        assert!(!names_only(&env(&[("CODEX_THREAD_ID", "a"), ("CLAUDE_CODE_SESSION_ID", "b")]), Harness::Codex, "a"));
+        assert!(!names_only(&env(&[]), Harness::Codex, "a"));
     }
 
     #[test]

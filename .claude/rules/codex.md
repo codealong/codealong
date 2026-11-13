@@ -93,10 +93,13 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
   and `\012`), and a plain command takes its shell's place, so the table shows the command itself
   (`zsh -c 'sleep 8'` is `sleep 8`; checked through Codex's own exec tool too). So the table is
   no sign of whether one runs: a thread runs its terminals while a Codex process holds its
-  rollout (`codex/mod.rs` `let_go_now`, which looks at threads with terminals running as at open
-  turns). Stop finds one under the thread's own terminal UI, or for the app's threads by
-  `CODEX_THREAD_ID`, which macOS hides from other processes for its own programs (`/bin/zsh`), so
-  only once the command is a program of its own (`node`): `harness::task_shell`.
+  rollout and they started after it did (`codex/mod.rs` `let_go_now`, which looks at threads with
+  terminals running as at open turns; `codex/terminals.rs` `held_rollouts`), since a process that
+  goes may write no end for them and a later one that loads the thread doesn't have them. Stop
+  finds one under the thread's own terminal UI, or for the app's threads by `CODEX_THREAD_ID`
+  where no other session's variable is there too (`harness::names_only`), which macOS hides from
+  other processes for its own programs (`/bin/zsh`), so only once the command is a program of its
+  own (`node`): `harness::task_shell`.
 - A thread's commands are given `CODEX_THREAD_ID` and `CODEX_SESSION_ID`, both the thread's ID,
   and keep what Codex was started with (a `CLAUDE_CODE_SESSION_ID` among them): `codex exec` on
   0.156.1 (codex-acp's) and on 0.163.0-alpha.10.2 (the app's, which adds `CODEX_TOOL_CALL_ID`),

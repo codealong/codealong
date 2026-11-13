@@ -777,6 +777,10 @@ pub struct Reader {
     /// When Codex's processes were last looked at, and the rollouts of open turns none of them
     /// held then, by file name (`let_go_now`); None when that couldn't be told.
     let_go: Option<(i64, HashSet<OsString>)>,
+    /// When the earliest process holding each rollout started, as of the last look at them
+    /// (`held_rollouts`): what a background terminal is told apart from one of a process gone
+    /// by (`board::codex_tasks`).
+    holders: HashMap<OsString, i64>,
     /// How long each open turn's rollout was at that look.
     open_lens: HashMap<PathBuf, u64>,
     /// When the app's processes ended, for the turns stopped (`applog`).
@@ -842,7 +846,9 @@ impl Reader {
             .collect();
         let len_now = |p: &Path| std::fs::metadata(p).ok().map(|m| m.len());
         let lens: HashMap<PathBuf, u64> = open.iter().filter_map(|(p, _)| Some((p.to_path_buf(), len_now(p)?))).collect();
-        let gone = if open.is_empty() { Some(HashSet::new()) } else { held_rollouts(look.ps.all()).map(|held| let_go(&open, &held, |p| lens.get(p).copied())) };
+        let held = if open.is_empty() { Some(HashMap::new()) } else { held_rollouts(look.ps.all()) };
+        let gone = held.as_ref().map(|held| let_go(&open, held, |p| lens.get(p).copied()));
+        self.holders = held.unwrap_or_default();
         self.open_lens = lens;
         // As of the processes' listing, which can be older than the look (the engine lists them
         // off its thread): a rollout written since may be a process it didn't list (`held`).
@@ -1079,7 +1085,10 @@ impl crate::harness::Reader for Reader {
                 let key = Session::key_for(Harness::Codex, &account.name, &th.id);
                 let name = index.and_then(|i| i.get(&th.id)).map(|(n, _)| n.as_str());
                 let asked = asks::waiting(th, &self.notes).map(|n| (n.what(), n.at));
-                let mut s = crate::board::codex_session(account, th, name, terminals.get(&th.id).copied(), self.held(path, th), self.stopped_by_quit.contains(path), look.seen.seen_at(&key), look.now, asked);
+                let held = self.held(path, th);
+                let mut s = crate::board::codex_session(account, th, name, terminals.get(&th.id).copied(), held, self.stopped_by_quit.contains(path), look.seen.seen_at(&key), look.now, asked);
+                let holder_since = path.file_name().and_then(|n| self.holders.get(n)).copied();
+                s.tasks = crate::board::codex_tasks(th, held, holder_since, look.now);
                 s.archived = path.starts_with(&archived_dir);
                 // What its terminal UI's `/permissions` lists, which Codealong picks from there
                 // (cycle.rs), where that can be told; `cycle::overlay` keeps them where that tab
@@ -1124,11 +1133,11 @@ fn held_by(let_go: Option<&(i64, HashSet<OsString>)>, path: &Path, last_ts: i64)
     Some(last_ts > *at || !path.file_name().is_some_and(|n| gone.contains(n)))
 }
 
-fn let_go(open: &[(&Path, u64)], held: &HashSet<OsString>, len_now: impl Fn(&Path) -> Option<u64>) -> HashSet<OsString> {
+fn let_go(open: &[(&Path, u64)], held: &HashMap<OsString, i64>, len_now: impl Fn(&Path) -> Option<u64>) -> HashSet<OsString> {
     open.iter()
         .filter(|(path, read)| len_now(path) == Some(*read))
         .filter_map(|(path, _)| path.file_name())
-        .filter(|n| !held.contains(*n))
+        .filter(|n| !held.contains_key(*n))
         .map(OsString::from)
         .collect()
 }
@@ -1338,7 +1347,7 @@ mod tests {
     #[test]
     fn an_open_turn_no_process_holds_is_let_go_unless_its_rollout_grew_or_ps_failed() {
         let (a, b, c) = (Path::new("/c/sessions/rollout-a.jsonl"), Path::new("/c/sessions/rollout-b.jsonl"), Path::new("/c/sessions/rollout-c.jsonl"));
-        let held: HashSet<OsString> = [OsString::from("rollout-b.jsonl")].into();
+        let held: HashMap<OsString, i64> = [(OsString::from("rollout-b.jsonl"), 0)].into();
         // c wrote its end since it was read.
         let lens = |p: &Path| Some(if p == c { 350 } else if p == a { 100 } else { 200 });
         assert_eq!(let_go(&[(a, 100), (b, 200), (c, 300)], &held, lens), [OsString::from("rollout-a.jsonl")].into());
@@ -1368,7 +1377,19 @@ mod tests {
         let ps = Listing::of(std::sync::Arc::new(Listed { at: listed_at, lines: vec![PsLine { pid: 1, ppid: 0, tty: "??".into(), cpu: None, command: "launchd".into() }] }));
         reader.let_go = reader.let_go_now(&Look { seen: &seen, since: 0, now: listed_at + 5_000, ps });
         assert_eq!(reader.held(&path, &th), Some(false));
-        assert!(crate::board::codex_tasks(&th, reader.held(&path, &th), listed_at + 5_000).is_empty());
+        assert!(crate::board::codex_tasks(&th, reader.held(&path, &th), None, listed_at + 5_000).is_empty());
+        // Loaded again by a process that started since, it runs none of the earlier one's, as
+        // its own `/ps` lists none of them; one that process starts is listed.
+        let name = path.file_name().unwrap().to_os_string();
+        let reloaded: HashMap<OsString, i64> = [(name.clone(), listed_at + 20_000)].into();
+        let again = ThreadInfo { last_ts: listed_at + 30_000, ..th.clone() };
+        assert!(crate::board::codex_tasks(&again, Some(true), reloaded.get(&name).copied(), listed_at + 40_000).is_empty());
+        let mut later = again.clone();
+        later.terminals.running.push(background::LeftRunning { id: "55001".into(), at: listed_at + 30_000, command: "npm test -- --watch".into(), ended: None });
+        let shown: Vec<String> = crate::board::codex_tasks(&later, Some(true), reloaded.get(&name).copied(), listed_at + 40_000).into_iter().map(|t| t.id).collect();
+        assert_eq!(shown, ["55001"]);
+        // Held all along by the process that ran it, it runs.
+        assert_eq!(crate::board::codex_tasks(&th, Some(true), Some(listed_at - 3_600_000), listed_at).len(), 1);
         // One with neither an open turn nor a terminal isn't looked at, and stands as held.
         let quiet = ThreadInfo { terminals: background::Terminals::default(), ..th.clone() };
         reader.rollouts.insert(path.clone(), ("codex".into(), Some((quiet.clone(), 3))));

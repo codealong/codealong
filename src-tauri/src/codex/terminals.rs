@@ -1,7 +1,7 @@
 //! Codex's terminal UIs on this Mac and the threads they show, the threads Codex's processes
 //! have loaded, and its command as a terminal can run it.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
@@ -26,19 +26,27 @@ pub struct Terminal {
 ///
 /// Codex's processes are the ones whose executable is called `codex`, which the command line
 /// can't always tell: the one Codealong runs agents through is under "Application Support".
-pub fn held_rollouts(processes: &[crate::procs::PsLine]) -> Option<HashSet<OsString>> {
+/// Each rollout held comes with when the earliest of the processes holding it started: a
+/// background terminal started before that isn't theirs (`board::codex_tasks`).
+pub fn held_rollouts(processes: &[crate::procs::PsLine]) -> Option<HashMap<OsString, i64>> {
     // No processes at all is a `ps` that failed or ran out of time (`procs::Listing`): this one
     // at least is running.
     if processes.is_empty() {
         return None;
     }
-    let mut held = HashSet::new();
+    let mut held: HashMap<OsString, i64> = HashMap::new();
     for p in processes.iter().filter(|p| p.command.contains("codex")) {
         if !crate::procs::parent_and_name(p.pid).is_some_and(|(_, name)| name == "codex") {
             continue;
         }
         match crate::procs::open_files(p.pid) {
-            Some(files) => held.extend(files.iter().filter_map(|f| f.file_name()).filter(|n| is_rollout(n)).map(OsString::from)),
+            Some(files) => {
+                let since = crate::procs::proc_start_ms(p.pid).unwrap_or(0);
+                for name in files.iter().filter_map(|f| f.file_name()).filter(|n| is_rollout(n)) {
+                    let at = held.entry(OsString::from(name)).or_insert(since);
+                    *at = (*at).min(since);
+                }
+            }
             // Gone since the list was made: it holds nothing now.
             None if !crate::procs::pid_alive(p.pid) => {}
             None => return None,
