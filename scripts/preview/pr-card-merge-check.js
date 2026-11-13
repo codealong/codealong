@@ -3,8 +3,9 @@
 // no Show in Codealong, which a click on the chip does, and an open PR's card ends in GitHub's
 // merge box (MergeBox.tsx), read as the card shows and once for it, its button GitHub's pick for
 // you with Open on GitHub after it in the row. Left untouched, the card goes as the pointer leaves it.
-// Pressing the merge button opens a dialog over the window with the commit, and the card stays up
-// under it from then on as the pointer leaves, and as the pointer passes over another PR's chip;
+// Pressing the merge button opens a dialog over the window with the commit, and the card stays up,
+// out of sight while the dialog is, from then on as the pointer leaves, and as the pointer passes
+// over another PR's chip;
 // a press in the dialog, keys typed into the commit and Tab and Space on its box don't put it
 // away, a right-click in the commit is the field's own menu and elsewhere on the card none, and
 // Escape there puts the dialog away and leaves the card. ⌘⏎ merges the PR with what was written,
@@ -112,7 +113,8 @@
       return wait(500);
     })
     .then(function () {
-      check('the card stays up under it as the pointer leaves, and on a press in the dialog', !!card() && !!commit());
+      check('the card stays up as the pointer leaves, and on a press in the dialog', !!card() && !!commit());
+      check('out of sight and the pointer’s way while the dialog is up', card().classList.contains('is-behind') && getComputedStyle(card()).opacity === '0' && getComputedStyle(card()).pointerEvents === 'none');
       check('and inside the window', inWindow(), JSON.stringify(card().getBoundingClientRect()));
       key(commit(), { key: 'a' });
       return wait(50);
@@ -148,7 +150,7 @@
       return wait(50);
     })
     .then(function () {
-      check('Escape there puts the dialog away and leaves the card', !!card() && !q('.ca-mergedlg') && !!main());
+      check('Escape there puts the dialog away and leaves the card, in sight again', !!card() && !q('.ca-mergedlg') && !!main() && !card().classList.contains('is-behind'));
       press(main());
       return until(function () { return !!commit(); }, 2000, 'the commit again');
     })

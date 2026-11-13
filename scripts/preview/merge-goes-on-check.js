@@ -2,8 +2,8 @@
 // `mergeAhead`): the merge leaves what waits on you as a review does, so confirming it goes on to
 // the next at once, before GitHub answers, the strip saying it merged; and one GitHub refuses
 // (the stub refuses a commit titled "fail") comes back round, the strip saying why. The commit is
-// written in a dialog over the card, not the window. A session needs you and two PRs ask for your
-// review; nothing else waits.
+// written in a dialog over the card, not the window, and ⌘F there doesn't go to the PR's files
+// behind it. A session needs you and two PRs ask for your review; nothing else waits.
 //   PREVIEW_WAIT=60000 scripts/preview.sh waiting '' scripts/preview/merge-goes-on-check.js
 (function () {
   localStorage.removeItem('codealong.merge.methods');
@@ -71,6 +71,9 @@
     .then(function () {
       var scrim = q('.ca-mergedlg').closest('.ca-scrim');
       check('the commit is written in a dialog over the card', !!scrim && scrim.parentElement === q('.ca-prreview'), scrim && scrim.parentElement && scrim.parentElement.className);
+      title().focus();
+      key(title(), { key: 'f', code: 'KeyF', metaKey: true });
+      check('⌘F in it stays in it, not the files behind', document.activeElement === title(), document.activeElement && document.activeElement.outerHTML.slice(0, 80));
       type(title(), 'Ship X');
       key(title(), { key: 'Enter', metaKey: true });
     })

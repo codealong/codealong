@@ -10,8 +10,10 @@
 // it's beside as the page scrolls and as it grows, under it or over it, wherever there's more
 // room, and stays on its side once pressed, so it doesn't jump from under the pointer. A
 // right-click on it shows no menu but a text field's own, for copy and paste. A dialog opened
-// from it (a merge's commit, MergeBox.tsx) keeps it up under the dialog, held, and puts nothing
-// of it away until the dialog has gone (primitives.tsx `DialogHost`).
+// from it (a merge's commit, MergeBox.tsx) keeps it up, held, but out of sight and out of the
+// pointer's way, and puts nothing of it away until the dialog has gone (primitives.tsx
+// `DialogHost`): the dialog may be drawn inside a card in a floating window, under the card's
+// stacking, where this would show over it.
 
 import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type MutableRefObject, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
@@ -189,7 +191,7 @@ export function HoverCard({ card: c, label, className, children }: { card: Hover
   return createPortal(
     <div
       ref={el}
-      className={cx('ca-hovercard', className)}
+      className={cx('ca-hovercard', className, dialogs > 0 && 'is-behind')}
       role="dialog"
       aria-label={label}
       onMouseEnter={c.show}

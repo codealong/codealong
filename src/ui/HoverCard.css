@@ -23,6 +23,12 @@
 .ca-hovercard p {
   margin: 0;
 }
+/* Under a dialog opened from it, which may be drawn where this would show over it: out of sight,
+   but still there to hand the keyboard back to. */
+.ca-hovercard.is-behind {
+  opacity: 0;
+  pointer-events: none;
+}
 .ca-hovercard-head {
   display: flex;
   flex-wrap: wrap;

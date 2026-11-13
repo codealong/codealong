@@ -33,8 +33,12 @@ export function findArea(): Element | null {
   return areas.find((el) => el.getAttribute('data-find') === 'window') ?? areas[0] ?? null;
 }
 
-/** Whether ⌘F is for the place that finds around `el`. */
+/** Whether ⌘F is for the place that finds around `el`. Not while a dialog is up that it isn't
+ *  in, even one drawn inside its place (a card's, primitives.tsx `DialogHost`): what's typed next
+ *  is the dialog's. */
 export function findsAt(el: Element | null | undefined): boolean {
+  const modal = document.querySelector('[aria-modal="true"]');
+  if (modal && el && !modal.contains(el)) return false;
   const area = el?.closest(AREA);
   return !!area && area === findArea();
 }
