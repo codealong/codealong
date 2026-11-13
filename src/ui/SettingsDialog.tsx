@@ -2354,77 +2354,90 @@ function ExperimentalPane({ cfg, view, disabled, onSave }: PaneProps & { view: C
   const voice = { ...VOICE_DEFAULT, ...cfg.voice };
   const setVoice = (next: Partial<VoiceCfg>) => void onSave({ ...cfg, voice: { ...voice, ...next } });
   const shortcut = (key: keyof Config['shortcuts']) => cfg.shortcuts?.[key] ?? view.defaultShortcuts?.[key] ?? '';
+  const voiceShortcut = (field: (typeof TALK_SHORTCUTS)[number]) => (
+    <div className="ca-field" key={field.which}>
+      <span>{field.title}</span>
+      <ShortcutField
+        which={field.which}
+        name={field.name}
+        fallback={view.defaultShortcuts?.[field.key] ?? ''}
+        value={shortcut(field.key)}
+        others={[...SHORTCUTS, ...TALK_SHORTCUTS].filter((o) => o !== field).map((o) => ({ value: shortcut(o.key), name: o.called }))}
+        onChange={(keys) => void onSave({ ...cfg, shortcuts: { ...cfg.shortcuts, [field.key]: keys } })}
+      />
+      <small>{keysIn(typeof field.says === 'string' ? field.says : field.says[platform()])}</small>
+    </div>
+  );
   return (
     <>
       <div className="ca-settings-intro">
         <h3>Experimental</h3>
         <p>Features still being tried out. Each is off until you turn it on, and may change or go away.</p>
       </div>
+      {/* Each experiment is a group of its own, headed by the box that turns it on, with its
+          settings under it while it's on. Voice's are split by what you do with it: talk to a
+          session, or have one listen to a meeting. */}
       <fieldset className="ca-settings-fields" disabled={disabled}>
-        <label className="ca-field ca-settings-check">
-          <CheckBox checked={experimental.boards} onChange={(on) => void onSave({ ...cfg, experimental: { ...experimental, boards: on } })} />
-          <span>Boards</span>
-          <small>
-            The Board view: a project's work as Kanban columns or laid out on a canvas, and boards of your own for a release or a fix. Add to board in the menus, and <code className="ca-ic">codealong board</code> for agents.
-          </small>
-        </label>
-        <label className="ca-field ca-settings-check">
-          <CheckBox checked={experimental.voice} onChange={(on) => void onSave({ ...cfg, experimental: { ...experimental, voice: on } })} />
-          <span>Voice</span>
-          <small>
-            Talk to a session by holding a key, and have a session listen to a meeting: it keeps notes, coaches you as it goes, or files a todo for each thing a customer asks for (Listen now, or Listen… in a session’s menu). Speech is turned into text on this Mac, by macOS 26’s own model, and no audio is kept. macOS asks before Codealong may use the microphone or hear what the Mac plays.
-          </small>
-        </label>
-        {experimental.voice && (
-          <>
-            {TALK_SHORTCUTS.map((field) => (
-              <div className="ca-field" key={field.which}>
-                <span>{field.title}</span>
-                <ShortcutField
-                  which={field.which}
-                  name={field.name}
-                  fallback={view.defaultShortcuts?.[field.key] ?? ''}
-                  value={shortcut(field.key)}
-                  others={[...SHORTCUTS, ...TALK_SHORTCUTS].filter((o) => o !== field).map((o) => ({ value: shortcut(o.key), name: o.called }))}
-                  onChange={(keys) => void onSave({ ...cfg, shortcuts: { ...cfg.shortcuts, [field.key]: keys } })}
-                />
-                <small>{keysIn(typeof field.says === 'string' ? field.says : field.says[platform()])}</small>
-              </div>
-            ))}
-            <label className="ca-field ca-settings-check">
-              <CheckBox checked={voice.send_on_release} onChange={(on) => setVoice({ send_on_release: on })} />
-              <span>Send what I say to my orchestrator as I let go</span>
-              <small>Without reading it over first, so it goes with a line saying it was dictated and may be misheard. Off, it waits in the orchestrator’s box for you to send.</small>
-            </label>
-            <label className="ca-field">
-              <span>Language spoken</span>
-              <ProfileSelect value={voice.locale} profiles={SPOKEN} onChange={(locale) => setVoice({ locale })} />
-              <small>One language at a time. Its speech model is downloaded by macOS the first time it’s used.</small>
-            </label>
-            <label className="ca-field">
-              <span>A session that listens is told what’s new</span>
-              <ProfileSelect value={String(voice.tell_every)} profiles={TELL_EVERY} onChange={(s) => setVoice({ tell_every: Number(s) })} />
-              <small>At a pause in what’s said, and never while its last answer is still being written. Sooner makes a coach quicker and uses more of the account’s plan: each telling is a turn.</small>
-            </label>
-            <MeetingsFields cfg={cfg} voice={voice} setVoice={setVoice} />
-          </>
-        )}
-        <label className="ca-field ca-settings-check">
-          <CheckBox checked={experimental.analytics} onChange={(on) => void onSave({ ...cfg, experimental: { ...experimental, analytics: on } })} />
-          <span>Analytics</span>
-          <small>
-            Your part in the work, in the Analytics window: who began each session and each turn of its (you, another agent, Codealong, or the session carrying on by itself) and what that used, and how the sessions you marked done stood: finished, or left asking you something, still working or not landed. Read from the records your harnesses keep on this machine, into Codealong’s ledger; turning it on reads the ones still there. <code className="ca-ic">codealong analytics</code> prints the same.
-          </small>
-        </label>
-        {experimental.analytics && (
-          <label className="ca-field ca-settings-check">
-            <CheckBox checked={!!cfg.jev?.prompts} onChange={(on) => void onSave({ ...cfg, jev: { ...JEV_OFF, ...cfg.jev, prompts: on } })} />
-            <span>Have Jev read what your prompts did</span>
+        <section className="ca-settings-group">
+          <label className="ca-field ca-settings-check ca-settings-experiment">
+            <CheckBox checked={experimental.boards} onChange={(on) => void onSave({ ...cfg, experimental: { ...experimental, boards: on } })} />
+            <span>Boards</span>
             <small>
-              Whether each prompt you typed set out new work, agreed with what the agent had said, steered it, redirected it or asked it something. Sends TypeSafe the prompt and the end of the reply before it, once per prompt, with the key in Settings › Jev. Off, only what the records say for sure is counted: the first prompt of a session, an offered answer picked, a suggested reply sent as written.
+              The Board view: a project's work as Kanban columns or laid out on a canvas, and boards of your own for a release or a fix. Add to board in the menus, and <code className="ca-ic">codealong board</code> for agents.
             </small>
           </label>
-        )}
+        </section>
+        <section className="ca-settings-group">
+          <label className="ca-field ca-settings-check ca-settings-experiment">
+            <CheckBox checked={experimental.voice} onChange={(on) => void onSave({ ...cfg, experimental: { ...experimental, voice: on } })} />
+            <span>Voice</span>
+            <small>
+              Talk to a session by holding a key, and have a session listen to a meeting: it keeps notes, coaches you as it goes, or files a todo for each thing a customer asks for (Listen now, or Listen… in a session’s menu). Speech is turned into text on this Mac, by macOS 26’s own model, and no audio is kept. macOS asks before Codealong may use the microphone or hear what the Mac plays.
+            </small>
+          </label>
+          {experimental.voice && (
+            <>
+              <label className="ca-field">
+                <span>Language spoken</span>
+                <ProfileSelect value={voice.locale} profiles={SPOKEN} onChange={(locale) => setVoice({ locale })} />
+                <small>One language at a time, as you talk and in meetings. Its speech model is downloaded by macOS the first time it’s used.</small>
+              </label>
+              <h4 className="ca-label ca-settings-subhead">Talk</h4>
+              {TALK_SHORTCUTS.filter((f) => f.which !== 'listen').map(voiceShortcut)}
+              <label className="ca-field ca-settings-check">
+                <CheckBox checked={voice.send_on_release} onChange={(on) => setVoice({ send_on_release: on })} />
+                <span>Send what I say to my orchestrator as I let go</span>
+                <small>Without reading it over first, so it goes with a line saying it was dictated and may be misheard. Off, it waits in the orchestrator’s box for you to send.</small>
+              </label>
+              <h4 className="ca-label ca-settings-subhead">Meetings</h4>
+              {TALK_SHORTCUTS.filter((f) => f.which === 'listen').map(voiceShortcut)}
+              <label className="ca-field">
+                <span>A session that listens is told what’s new</span>
+                <ProfileSelect value={String(voice.tell_every)} profiles={TELL_EVERY} onChange={(s) => setVoice({ tell_every: Number(s) })} />
+                <small>At a pause in what’s said, and never while its last answer is still being written. Sooner makes a coach quicker and uses more of the account’s plan: each telling is a turn.</small>
+              </label>
+              <MeetingsFields cfg={cfg} voice={voice} setVoice={setVoice} />
+            </>
+          )}
+        </section>
+        <section className="ca-settings-group">
+          <label className="ca-field ca-settings-check ca-settings-experiment">
+            <CheckBox checked={experimental.analytics} onChange={(on) => void onSave({ ...cfg, experimental: { ...experimental, analytics: on } })} />
+            <span>Analytics</span>
+            <small>
+              Your part in the work, in the Analytics window: who began each session and each turn of its (you, another agent, Codealong, or the session carrying on by itself) and what that used, and how the sessions you marked done stood: finished, or left asking you something, still working or not landed. Read from the records your harnesses keep on this machine, into Codealong’s ledger; turning it on reads the ones still there. <code className="ca-ic">codealong analytics</code> prints the same.
+            </small>
+          </label>
+          {experimental.analytics && (
+            <label className="ca-field ca-settings-check">
+              <CheckBox checked={!!cfg.jev?.prompts} onChange={(on) => void onSave({ ...cfg, jev: { ...JEV_OFF, ...cfg.jev, prompts: on } })} />
+              <span>Have Jev read what your prompts did</span>
+              <small>
+                Whether each prompt you typed set out new work, agreed with what the agent had said, steered it, redirected it or asked it something. Sends TypeSafe the prompt and the end of the reply before it, once per prompt, with the key in Settings › Jev. Off, only what the records say for sure is counted: the first prompt of a session, an offered answer picked, a suggested reply sent as written.
+              </small>
+            </label>
+          )}
+        </section>
       </fieldset>
     </>
   );

@@ -174,6 +174,33 @@
 .ca-settings-check small {
   grid-column: 2;
 }
+/* Settings › Experimental: each experiment a group of its own with a line between them, headed by
+   the box that turns it on, its name as a heading; Voice's settings under two labels, Talk and
+   Meetings. A search shows what it finds without the lines, as it shows any section's. */
+.ca-settings-group {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+.ca-settings-group + .ca-settings-group {
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--line);
+}
+.ca-settings-found .ca-settings-group {
+  padding-top: 0;
+  border-top: 0;
+}
+.ca-settings-experiment > span:not(.ca-checkbox) {
+  font: var(--type-heading);
+  color: var(--ink);
+}
+/* The 14px box sits on the middle of the heading's first line, 18px tall. */
+.ca-settings-experiment > .ca-checkbox {
+  margin-top: 2px;
+}
+.ca-settings-subhead {
+  margin-top: var(--space-2);
+}
 /* The calendars whose meetings are offered (MeetingsFields): a column of ticks under each
    account's name. */
 .ca-settings-calendars {

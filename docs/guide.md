@@ -2310,8 +2310,10 @@ primary session, moving a session that hits its usage limit, and telling one a l
 stopped to carry on, everywhere or for one repo with its team's settings (see *Settings for one
 repo, and its team's*); Projects groups repos by pattern; Advanced turns
 the performance log on and shows where the files are; Experimental turns on features still being
-tried out, each off until you do: boards (see *Boards*), and voice, with its shortcuts and
-settings (see *Voice*). Each change is saved in its place in the file,
+tried out, each off until you do and each in a part of its own: boards (see *Boards*); voice,
+with its language and then its settings under Talk (the shortcuts held to talk, and sending to
+your orchestrator as you let go) and Meetings (Listen now, how often a listening session is told
+what's new, and the offer to take a meeting's notes) (see *Voice*); and analytics. Each change is saved in its place in the file,
 so comments and order stay as you wrote them. The config.toml section edits the file itself, for
 anything the form doesn't cover, and says what's wrong when it doesn't parse.
 
