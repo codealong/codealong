@@ -297,13 +297,14 @@ pub fn claude_tasks(r: &RegistryEntry, t: &TranscriptInfo, now: i64) -> Vec<Back
 
 /// What a Codex thread runs in background terminals, for its list (`Session::tasks`): the
 /// commands its rollout says still run, while a Codex process has the thread loaded (`held`) and
-/// they started after it did (`holder_since`, when the earliest process holding it started),
-/// then those that ended in the last few minutes (`TASK_ENDED_SHOWN_MS`), oldest first in each.
-/// Terminals go with the process that ran them, which may write no end for them as it goes: one
-/// nothing holds runs none, and one a later process loaded runs none of the earlier one's.
-pub fn codex_tasks(th: &ThreadInfo, held: Option<bool>, holder_since: Option<i64>, now: i64) -> Vec<BackgroundTask> {
+/// they started since it took the thread up as far as that's known (`since`, codex/mod.rs
+/// `terminals_since`), then those that ended in the last few minutes (`TASK_ENDED_SHOWN_MS`),
+/// oldest first in each. Terminals go with the process that ran them, which may write no end for
+/// them as it goes: one nothing holds runs none, and one another process took up runs none of the
+/// earlier one's.
+pub fn codex_tasks(th: &ThreadInfo, held: Option<bool>, since: Option<i64>, now: i64) -> Vec<BackgroundTask> {
     let t = &th.terminals;
-    let running = t.running.iter().filter(|r| held != Some(false) && holder_since.map_or(true, |since| r.at >= since));
+    let running = t.running.iter().filter(|r| held != Some(false) && since.map_or(true, |since| r.at >= since));
     let ended = t.ended.iter().filter(|e| e.ended.as_ref().is_some_and(|(at, _, _)| now - at < TASK_ENDED_SHOWN_MS));
     running
         .chain(ended)

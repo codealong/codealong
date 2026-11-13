@@ -778,9 +778,10 @@ pub struct Reader {
     /// held then, by file name (`let_go_now`); None when that couldn't be told.
     let_go: Option<(i64, HashSet<OsString>)>,
     /// When the earliest process holding each rollout started, as of the last look at them
-    /// (`held_rollouts`): what a background terminal is told apart from one of a process gone
-    /// by (`board::codex_tasks`).
+    /// (`held_rollouts`), and when each was last seen held by none: a background terminal that
+    /// started before either was a process's gone by (`terminals_since`).
     holders: HashMap<OsString, i64>,
+    unheld: HashMap<OsString, i64>,
     /// How long each open turn's rollout was at that look.
     open_lens: HashMap<PathBuf, u64>,
     /// When the app's processes ended, for the turns stopped (`applog`).
@@ -852,7 +853,36 @@ impl Reader {
         self.open_lens = lens;
         // As of the processes' listing, which can be older than the look (the engine lists them
         // off its thread): a rollout written since may be a process it didn't list (`held`).
-        Some((look.ps.at().unwrap_or(look.now), gone?))
+        let at = look.ps.at().unwrap_or(look.now);
+        for name in gone.iter().flatten() {
+            self.unheld.insert(name.clone(), at);
+        }
+        Some((at, gone?))
+    }
+
+    /// The earliest a background terminal of the thread whose rollout is `path` can have started
+    /// and still run (`board::codex_tasks`): after the process holding it started, and after the
+    /// last look that found nothing holding it. A process that goes may write no end for its
+    /// terminals, and one that loads the thread later has none of them, even one that was running
+    /// already (the app's app-server taking up a thread a terminal UI ran). None where nothing
+    /// says. Not known across a relaunch of Codealong: an older process taking a thread up while
+    /// Codealong wasn't running isn't told.
+    fn terminals_since(&self, path: &Path) -> Option<i64> {
+        let name = path.file_name()?;
+        self.holders.get(name).copied().max(self.unheld.get(name).copied())
+    }
+
+    /// `terminals_since` for each thread whose rollout says a command still runs, for whether a
+    /// look changed what the board lists of them.
+    fn terminals_since_all(&self) -> Vec<(PathBuf, Option<i64>)> {
+        let mut all: Vec<(PathBuf, Option<i64>)> = self
+            .rollouts
+            .iter()
+            .filter(|(_, (_, parsed))| parsed.as_ref().is_some_and(|(th, _)| !th.terminals.running.is_empty()))
+            .map(|(path, _)| (path.clone(), self.terminals_since(path)))
+            .collect();
+        all.sort();
+        all
     }
 
     /// The rollouts whose last turn was stopped as the app quit (`applog::Quits`), as of this look.
@@ -1057,9 +1087,13 @@ impl crate::harness::Reader for Reader {
             let fresh = terminals(look.ps.all());
             out.dirty |= fresh != self.terminals;
             self.terminals = fresh;
+            let since = self.terminals_since_all();
             let let_go = self.let_go_now(look);
             out.dirty |= self.let_go_differs(&let_go);
             self.let_go = let_go;
+            // A thread taken up by another process lists none of the background terminals the one
+            // before ran, whatever else changed.
+            out.dirty |= self.terminals_since_all() != since;
             // The app writes the turns it stops as it quits before it's gone, so they're told from
             // yours once a look finds it gone.
             let stopped = self.stopped_by_quit_now(look);
@@ -1087,8 +1121,7 @@ impl crate::harness::Reader for Reader {
                 let asked = asks::waiting(th, &self.notes).map(|n| (n.what(), n.at));
                 let held = self.held(path, th);
                 let mut s = crate::board::codex_session(account, th, name, terminals.get(&th.id).copied(), held, self.stopped_by_quit.contains(path), look.seen.seen_at(&key), look.now, asked);
-                let holder_since = path.file_name().and_then(|n| self.holders.get(n)).copied();
-                s.tasks = crate::board::codex_tasks(th, held, holder_since, look.now);
+                s.tasks = crate::board::codex_tasks(th, held, self.terminals_since(path), look.now);
                 s.archived = path.starts_with(&archived_dir);
                 // What its terminal UI's `/permissions` lists, which Codealong picks from there
                 // (cycle.rs), where that can be told; `cycle::overlay` keeps them where that tab
@@ -1390,12 +1423,45 @@ mod tests {
         assert_eq!(shown, ["55001"]);
         // Held all along by the process that ran it, it runs.
         assert_eq!(crate::board::codex_tasks(&th, Some(true), Some(listed_at - 3_600_000), listed_at).len(), 1);
+        // Taken up after that by a process already running before it started (the app's
+        // app-server taking up a thread a terminal UI ran): the look that found it held by none
+        // says the terminal wasn't that process's.
+        reader.holders = [(name.clone(), listed_at - 3_600_000)].into();
+        assert_eq!(reader.terminals_since(&path), Some(listed_at));
+        assert!(crate::board::codex_tasks(&th, Some(true), reader.terminals_since(&path), listed_at + 40_000).is_empty());
+        let shown: Vec<String> = crate::board::codex_tasks(&later, Some(true), reader.terminals_since(&path), listed_at + 40_000).into_iter().map(|t| t.id).collect();
+        assert_eq!(shown, ["55001"]);
         // One with neither an open turn nor a terminal isn't looked at, and stands as held.
         let quiet = ThreadInfo { terminals: background::Terminals::default(), ..th.clone() };
         reader.rollouts.insert(path.clone(), ("codex".into(), Some((quiet.clone(), 3))));
         let ps = Listing::of(std::sync::Arc::new(Listed { at: listed_at, lines: vec![PsLine { pid: 1, ppid: 0, tty: "??".into(), cpu: None, command: "launchd".into() }] }));
         reader.let_go = reader.let_go_now(&Look { seen: &seen, since: 0, now: listed_at + 5_000, ps });
         assert_eq!(reader.held(&path, &quiet), Some(true));
+        std::fs::remove_dir_all(home).unwrap();
+    }
+
+    /// A look that changes when a thread's terminals can have started from redraws the board,
+    /// whatever else it changed: the published board would list a terminal another process's
+    /// thread no longer runs until something else moved.
+    #[test]
+    fn a_look_that_changes_which_terminals_run_redraws_the_board() {
+        use crate::harness::Reader as _;
+        use crate::procs::{Listed, Listing, PsLine};
+        let home = crate::fixtures::scratch("codex-terminal-dirty");
+        let path = home.join("rollout-2026-11-12T13-00-00-a.jsonl");
+        std::fs::write(&path, "{}\n").unwrap();
+        let listed_at = 1_794_000_000_000;
+        let left = background::LeftRunning { id: "19957".into(), at: listed_at - 60_000, command: "npm run dev".into(), ended: None };
+        let th = ThreadInfo { last_ts: listed_at - 60_000, terminals: background::Terminals { running: vec![left], ..Default::default() }, ..Default::default() };
+        let mut reader = Reader::default();
+        reader.rollouts.insert(path.clone(), ("codex".into(), Some((th, 3))));
+        let seen = crate::state::SeenState::default();
+        let account: AccountCfg = serde_json::from_value(serde_json::json!({ "name": "codex", "harness": "codex", "home": home.to_string_lossy() })).unwrap();
+        let look = |at: i64| Look { seen: &seen, since: 0, now: at + 5_000, ps: Listing::of(std::sync::Arc::new(Listed { at, lines: vec![PsLine { pid: 1, ppid: 0, tty: "??".into(), cpu: None, command: "launchd".into() }] })) };
+        assert!(reader.processes(std::slice::from_ref(&account), &look(listed_at)).dirty, "found held by none");
+        assert_eq!(reader.terminals_since(&path), Some(listed_at));
+        // Found so again later, it moves on, and says so.
+        assert!(reader.processes(std::slice::from_ref(&account), &look(listed_at + 10_000)).dirty);
         std::fs::remove_dir_all(home).unwrap();
     }
 

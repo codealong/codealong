@@ -93,9 +93,11 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
   and `\012`), and a plain command takes its shell's place, so the table shows the command itself
   (`zsh -c 'sleep 8'` is `sleep 8`; checked through Codex's own exec tool too). So the table is
   no sign of whether one runs: a thread runs its terminals while a Codex process holds its
-  rollout and they started after it did (`codex/mod.rs` `let_go_now`, which looks at threads with
-  terminals running as at open turns; `codex/terminals.rs` `held_rollouts`), since a process that
-  goes may write no end for them and a later one that loads the thread doesn't have them. Stop
+  rollout and they started after it took the thread up, as far as that's known: after it started,
+  and after the last look that found the thread held by none (`codex/mod.rs` `let_go_now`, which
+  looks at threads with terminals running as at open turns, `terminals_since`;
+  `codex/terminals.rs` `held_rollouts`), since a process that goes may write no end for them and
+  one that loads the thread later, even one running already, doesn't have them. Stop
   finds one under the thread's own terminal UI, or for the app's threads by `CODEX_THREAD_ID`
   where no other session's variable is there too (`harness::names_only`), which macOS hides from
   other processes for its own programs (`/bin/zsh`), so only once the command is a program of its

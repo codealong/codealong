@@ -3867,7 +3867,7 @@ exit code; a session whose process has gone runs none, Claude Code having stoppe
 exited. A Codex thread's come from its rollout: a command still running when its call returned,
 which Codex calls a background terminal, ended as Codex writes that its process exited; its output
 is what the agent read of it, or all of it once it ended. While no Codex process has the thread
-loaded, it runs none. Only what the harness started is listed: a server a command left behind as it
+loaded, it runs none, and a process that takes the thread up later runs none of the one before's. Only what the harness started is listed: a server a command left behind as it
 exited (a dev server that went to the background on its own) isn't. *Stop* ends the command's
 process and everything it started: the one running exactly that command right under the session's
 own process, or for a thread of the Codex app, the program it runs, which carries the thread's id.
