@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calendarsByAccount, calendarSays, calendarsOff, firstPick, heardIn, keptBehind, meetingStands, meetingTime, meetingWhen, meetingWith, startWords } from './meetings';
+import { calendarsByAccount, calendarSays, calendarsOff, firstPick, heardIn, keptBehind, meetingCountdown, meetingStands, meetingTime, meetingWhen, meetingWith, startWords } from './meetings';
 import type { CalendarStatus, MeetingAhead } from './types';
 
 const NOW = 1_794_330_000_000;
@@ -15,6 +15,16 @@ describe('the meeting on offer, in words', () => {
     expect(meetingWhen(m, NOW + 59_000)).toBe('now');
     expect(meetingWhen(m, NOW + MIN)).toBe('started 1 min ago');
     expect(meetingWhen(m, NOW + 9.5 * MIN)).toBe('started 9 min ago');
+  });
+
+  it('counts down to it in minutes, rounded up, where there’s little room', () => {
+    const m = { start: NOW };
+    expect(meetingCountdown(m, NOW - 5 * MIN)).toBe('5m');
+    expect(meetingCountdown(m, NOW - 4 * MIN - 20_000)).toBe('5m');
+    expect(meetingCountdown(m, NOW - 4 * MIN)).toBe('4m');
+    expect(meetingCountdown(m, NOW - 30_000)).toBe('1m');
+    // Never none: it's counted down to only until it's offered, at the latest as it starts.
+    expect(meetingCountdown(m, NOW)).toBe('1m');
   });
 
   it('says who else is in it, as the engine does', () => {

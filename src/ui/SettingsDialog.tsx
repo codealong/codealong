@@ -2287,7 +2287,7 @@ function AdvancedPane({ cfg, view, disabled, onSave }: PaneProps & { view: Confi
 const EXPERIMENTS_OFF: Required<ExperimentalCfg> = { boards: false, voice: false, analytics: false };
 
 /** `[voice]` as a file without the table has it (config.rs `VoiceCfg`). */
-export const VOICE_DEFAULT: Required<VoiceCfg> = { locale: '', send_on_release: false, tell_every: 20, meetings: false, meetings_folder: '', meeting_account: '', meeting_model: '', meeting_lead: 1, meeting_calendars_off: [] };
+export const VOICE_DEFAULT: Required<VoiceCfg> = { locale: '', send_on_release: false, tell_every: 20, meetings: false, meetings_folder: '', meeting_account: '', meeting_model: '', meeting_lead: 1, meeting_countdown: 5, meeting_calendars_off: [] };
 
 /** How long before a meeting starts it's offered, in minutes. */
 const MEETING_LEAD: Profile[] = [
@@ -2296,6 +2296,16 @@ const MEETING_LEAD: Profile[] = [
   { id: '2', name: '2 minutes before' },
   { id: '5', name: '5 minutes before' },
   { id: '10', name: '10 minutes before' },
+];
+
+/** From how long before a meeting starts it's counted down to, in minutes (0: never). */
+const MEETING_COUNTDOWN: Profile[] = [
+  { id: '0', name: 'Never' },
+  { id: '2', name: '2 minutes before' },
+  { id: '5', name: '5 minutes before' },
+  { id: '10', name: '10 minutes before' },
+  { id: '15', name: '15 minutes before' },
+  { id: '30', name: '30 minutes before' },
 ];
 
 /** The two shortcuts held to talk and the one that starts listening, as `SHORTCUTS` has the
@@ -2485,7 +2495,7 @@ function MeetingsFields({ cfg, voice, setVoice }: { cfg: Config; voice: Required
         <CheckBox checked={voice.meetings} onChange={turn} />
         <span>Offer to take a meeting’s notes as it starts</span>
         <small>
-          A minute before a meeting in your calendar, Codealong asks whether to take its notes. Take notes starts a session that listens to your microphone and what this Mac plays, and keeps the notes and the transcript in a folder of the meeting’s own
+          As a meeting in your calendar is about to start, Codealong asks whether to take its notes. Take notes starts a session that listens to your microphone and what this Mac plays, and keeps the notes and the transcript in a folder of the meeting’s own
           {calendar?.folder ? ` under ${calendar.folder}` : ''}. The calendar is macOS’s own, with whichever accounts you added to this Mac, so there’s nothing to sign in to: macOS asks once whether Codealong may read it.
         </small>
         {says && <small>{says}</small>}
@@ -2503,6 +2513,11 @@ function MeetingsFields({ cfg, voice, setVoice }: { cfg: Config; voice: Required
             <span>A meeting is offered</span>
             <ProfileSelect value={String(voice.meeting_lead)} profiles={MEETING_LEAD} onChange={(minutes) => setVoice({ meeting_lead: Number(minutes) })} />
             <small>And until ten minutes into it. Events that take the whole day, ones you declined, ones with nobody else in them and no link to a call, and ones longer than four hours are never offered.</small>
+          </label>
+          <label className="ca-field">
+            <span>A countdown shows</span>
+            <ProfileSelect value={String(voice.meeting_countdown)} profiles={MEETING_COUNTDOWN} onChange={(minutes) => setVoice({ meeting_countdown: Number(minutes) })} />
+            <small>Until it’s offered, the minutes to go show beside the notch’s camera, in the floating bar and on the Meetings button, with no sound; a click on them offers it then. One that starts no earlier than the offer never shows.</small>
           </label>
           {(calendar?.calendars?.length ?? 0) > 0 && (
             <div className="ca-field">

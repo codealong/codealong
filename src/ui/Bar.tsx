@@ -29,7 +29,7 @@ import { useViewKeys } from '../mainKeys';
 import { barAhead, barView, observe, seenAhead, snoozeAhead, useAhead } from '../ahead';
 import { ALL_PROJECTS, inProject } from '../quick';
 import { snoozeMenu, untilWords } from '../snooze';
-import type { BarFeed, BarItem, BarListening, BarRecent, BarReview, BarSnoozed, BarTodo, PeekShown, Status } from '../types';
+import type { BarFeed, BarItem, BarListening, BarRecent, BarReview, BarSnoozed, BarTodo, MeetingOffer, PeekShown, Status } from '../types';
 import { MarkLive } from './MarkLive';
 import { cx, Icon, SessionEmblem, STATUS_WORD, StatusGlyph } from './primitives';
 import { applyTheme } from './ThemeSwitch';
@@ -46,7 +46,7 @@ import { openWhere, openWords } from '../open';
 import { dueWords } from '../due';
 import { asText, readStored, writeStored } from '../stored';
 import { SaidCard, SaidLine, useSaid } from './Said';
-import { MeetingOffered } from './Meeting';
+import { MeetingOffered, MeetingSoon } from './Meeting';
 import { hearingSays } from '../said';
 
 /** Room around the bar for its shadow: the window is this much bigger on every side. */
@@ -498,8 +498,20 @@ export function Bar() {
   // else is there, without the keyboard, which stays with whatever you're in.
   const { said, dismiss: dismissSaid } = useSaid(feed?.listenings);
   const saying = stage.open ? null : said;
+  // The meeting counted down to before its offer (meetings.rs `counting_down`), and whether a
+  // click on its countdown asked for its offer early (`early`, its id): then it's offered here as
+  // if it were on offer, until it is, or it's answered, or (docked) the pointer leaves it.
+  const soon = feed?.meetingSoon ?? null;
+  const [early, setEarly] = useState<string | null>(null);
+  const asked: MeetingOffer | null = soon && early === soon.id ? soon : null;
+  const askSoon = () => {
+    if (!soon) return;
+    // Docked, its card goes where a session would: one shown there is put away for it.
+    stage.close();
+    setEarly((was) => (was === soon.id ? null : soon.id));
+  };
   // The meeting on offer (meetings.rs): in the same place, ahead of what's said, until answered.
-  const meeting = feed?.meeting ?? null;
+  const meeting = asked ?? feed?.meeting ?? null;
   const offering = stage.open ? null : meeting;
   const hearing = hearingSays(feed?.listenings);
   // The shortcut that goes through what waits on you, docked in the notch: the notch opens on the
@@ -548,7 +560,7 @@ export function Bar() {
         room,
       ),
     );
-  }, [items, listenings, meeting, notch, snoozed, recent, reviews, todos, picking, current, others, fontsReady]);
+  }, [items, listenings, meeting, soon, notch, snoozed, recent, reviews, todos, picking, current, others, fontsReady]);
 
   // The window follows the bar's size: after every render, since WebKit holds back resize
   // notifications while the window is hidden, and on resizes renders don't cause (fonts).
@@ -937,7 +949,9 @@ export function Bar() {
     if (listenings.length) sections.unshift(listenings.map((l) => <ListeningPill key={`hearing-${l.key}`} listening={l} peeked={shownKey === l.key} onOpen={() => clickHearing(l)} />));
   }
   // The meeting on offer goes ahead of everything, floating, among what the bar is fitted to;
-  // docked, it's the card under the pills.
+  // docked, it's the card under the pills. So does the countdown to the next, while its offer
+  // isn't showing: docked, it's beside the camera.
+  if (soon && !asked && !notch) sections.unshift([<MeetingSoon key="meeting-soon" meeting={soon} look="pill" onOpen={askSoon} />]);
   if (meeting && !notch) sections.unshift([<MeetingOffered key="meeting" offer={meeting} look="line" />]);
   if (failed && !failedShown) sections.push([failedPill()]);
 
@@ -948,6 +962,11 @@ export function Bar() {
       {meeting && !notch && (
         <span data-listening="">
           <MeetingOffered offer={meeting} look="line" />
+        </span>
+      )}
+      {soon && !asked && !notch && (
+        <span data-listening="">
+          <MeetingSoon meeting={soon} look="pill" onOpen={() => {}} />
         </span>
       )}
       {listenings.map((l) => (
@@ -1044,7 +1063,13 @@ export function Bar() {
           sessionEnd={stage.open ? stage.kind === 'end' : saying !== null || offering !== null}
           sessionKeys={stage.open && stage.keys}
           hearing={hearing}
-          onSessionLeft={stage.close}
+          soon={soon && <MeetingSoon meeting={soon} look="notch" onOpen={askSoon} />}
+          onSessionLeft={() => {
+            // A meeting's offer asked for early goes with the pointer, as a session without the
+            // keyboard does; one that's on offer stays until it's answered.
+            setEarly(null);
+            stage.close();
+          }}
           onPress={stage.press}
           onMove={stage.close}
           onCount={(kind) => {

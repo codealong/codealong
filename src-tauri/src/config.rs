@@ -1143,6 +1143,10 @@ pub struct VoiceCfg {
     /// How many minutes before a meeting starts it's offered.
     #[serde(default = "default_meeting_lead")]
     pub meeting_lead: u32,
+    /// How many minutes before a meeting starts the windows count down to it, quietly, until
+    /// it's offered; 0 for no countdown.
+    #[serde(default = "default_meeting_countdown")]
+    pub meeting_countdown: u32,
     /// The calendars whose meetings aren't offered, by the ids macOS has for them: Settings
     /// lists every calendar to pick from.
     #[serde(default)]
@@ -1160,6 +1164,7 @@ impl Default for VoiceCfg {
             meeting_account: String::new(),
             meeting_model: String::new(),
             meeting_lead: default_meeting_lead(),
+            meeting_countdown: default_meeting_countdown(),
             meeting_calendars_off: Vec::new(),
         }
     }
@@ -1171,6 +1176,13 @@ fn default_meeting_lead() -> u32 {
 
 /// The most `[voice] meeting_lead` can be, in minutes: an offer is for a meeting about to start.
 pub const MEETING_LEAD_MAX: u32 = 30;
+
+fn default_meeting_countdown() -> u32 {
+    5
+}
+
+/// The most `[voice] meeting_countdown` can be, in minutes.
+pub const MEETING_COUNTDOWN_MAX: u32 = 60;
 
 fn default_tell_every() -> u32 {
     20
@@ -1980,7 +1992,7 @@ const OWN_REVIEWS_COMMENT: &str = "# [reviews.own] auto: an agent reviews each o
 # Nothing goes on GitHub.
 ";
 const EXPERIMENTAL_COMMENT: &str = "# Features still being tried out, each off until it's turned on. boards: the main window's Board view, as\n# Kanban and as Canvas, Add to board in the menus, and `codealong board`. voice: a key held to talk to the\n# session you're looking at or to your orchestrator, and sessions that listen to a meeting ([voice]).\n# analytics: who began each session and turn, what your prompts did with what the agent had said, and how\n# the sessions you marked done stood, in the Analytics window and `codealong analytics`.\n";
-const VOICE_COMMENT: &str = "# Voice, once [experimental] voice is on. locale: the language spoken, such as \"en-US\"; \"\" for this Mac's own.\n# send_on_release: what you say to your orchestrator is sent as you let go of the key, not put in its box\n# first. tell_every: how often, in seconds, a session that listens is told what's new, at most.\n# meetings: as a meeting in your calendar is about to start, offer to take its notes, in a folder of its own\n# under meetings_folder (\"\" for meetings beside this file), by a session on meeting_account (an account, a\n# routing group, or \"\" for Auto) and meeting_model, meeting_lead minutes before it starts, but for the\n# calendars in meeting_calendars_off (by id; Settings lists them).\n";
+const VOICE_COMMENT: &str = "# Voice, once [experimental] voice is on. locale: the language spoken, such as \"en-US\"; \"\" for this Mac's own.\n# send_on_release: what you say to your orchestrator is sent as you let go of the key, not put in its box\n# first. tell_every: how often, in seconds, a session that listens is told what's new, at most.\n# meetings: as a meeting in your calendar is about to start, offer to take its notes, in a folder of its own\n# under meetings_folder (\"\" for meetings beside this file), by a session on meeting_account (an account, a\n# routing group, or \"\" for Auto) and meeting_model, meeting_lead minutes before it starts, but for the\n# calendars in meeting_calendars_off (by id; Settings lists them). meeting_countdown: from how many minutes\n# before, the notch, the floating bar and the Meetings button count down to it (0 for none).\n";
 const REPOS_COMMENT: &str = "# Your settings for one repo's pull requests, over [reviews] and [pull_requests] and over what the repo's\n# .codealong/config.toml sets for its team. Settings › Automation sets them with the repo picked.\n";
 /// What config.toml says above `[sounds]`: where the OS keeps the sounds it can name.
 fn sounds_comment() -> String {
@@ -2269,6 +2281,9 @@ pub fn check(cfg: &Config) -> std::result::Result<(), String> {
     }
     if cfg.voice.meeting_lead > MEETING_LEAD_MAX {
         return Err(format!("[voice] meeting_lead is {}; it's in minutes, {MEETING_LEAD_MAX} at the most.", cfg.voice.meeting_lead));
+    }
+    if cfg.voice.meeting_countdown > MEETING_COUNTDOWN_MAX {
+        return Err(format!("[voice] meeting_countdown is {}; it's in minutes, {MEETING_COUNTDOWN_MAX} at the most.", cfg.voice.meeting_countdown));
     }
     let on = cfg.voice.meeting_account.trim();
     if !on.is_empty() && on != "auto" && !cfg.accounts.iter().any(|a| a.name == on) && !cfg.routing.groups.iter().any(|g| g.name == on) {
@@ -2601,6 +2616,7 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
         set_value(&mut doc["voice"]["meeting_account"], Value::from(cfg.voice.meeting_account.trim()));
         set_value(&mut doc["voice"]["meeting_model"], Value::from(cfg.voice.meeting_model.trim()));
         set_value(&mut doc["voice"]["meeting_lead"], Value::from(cfg.voice.meeting_lead as i64));
+        set_value(&mut doc["voice"]["meeting_countdown"], Value::from(cfg.voice.meeting_countdown as i64));
         set_value(&mut doc["voice"]["meeting_calendars_off"], Value::Array(Array::from_iter(cfg.voice.meeting_calendars_off.iter().map(|s| s.trim()))));
         // `on_speakers` had the microphone's voice processing on in every meeting for three days
         // (2026-11-10), until it was found to silence the Mac's audio and turn the call down
@@ -3125,6 +3141,7 @@ pub fn render(cfg: &Config) -> String {
         s.push_str(&format!("meeting_account = {}\n", q(&cfg.voice.meeting_account)));
         s.push_str(&format!("meeting_model = {}\n", q(&cfg.voice.meeting_model)));
         s.push_str(&format!("meeting_lead = {}\n", cfg.voice.meeting_lead));
+        s.push_str(&format!("meeting_countdown = {}\n", cfg.voice.meeting_countdown));
         s.push_str(&format!("meeting_calendars_off = {}\n", list(&cfg.voice.meeting_calendars_off)));
     }
     s.push_str("\n# Harness accounts. `name` is what you type and what the board shows.\n# `start` is where new sessions start: \"terminal\", \"background\", \"claude-app\", \"codex-app\" or \"codealong\". A start from the quick panel sets it.\n# `acp`: the command that runs the account's Agent Client Protocol adapter, for sessions Codealong runs itself.\n# `usage_cap`: where Auto and routing groups pass over this account for one with more room (1 to 100 percent; default 90).\n# `monthly`: what its plan costs you a month, in dollars; `per_token = true`: it pays for each token\n# at API prices. The Analytics window counts both as paid.\n# `disabled = true`: Codealong starts nothing on it and leaves it out of the usage bar; its sessions still show.\n# `chrome_profile`: the Chrome profile signed in to it, where the pages its sessions make (Claude's artifacts) open.\n");
@@ -3251,7 +3268,7 @@ mod tests {
             repos: BTreeMap::from([("github.com/sprucehq/web".to_string(), RepoCfg { reviews: ReviewsPatch { auto: Some(true), account: Some("codex".into()), post: Some(ReviewPost::Draft), own: OwnReviewsPatch { send: Some(false), ..OwnReviewsPatch::default() }, ..ReviewsPatch::default() }, pull_requests: PullRequestsPatch { nudge_about: Some(NudgeAbout::Feedback), ..PullRequestsPatch::default() } })]),
             sounds: SoundsCfg { needs_you: "Tink".into(), your_turn: String::new(), review_requested: "Purr".into(), meeting: "Glass".into(), volume: 35 },
             experimental: ExperimentalCfg { boards: true, voice: true, analytics: true },
-            voice: VoiceCfg { locale: "en-GB".into(), send_on_release: true, tell_every: 45, meetings: true, meetings_folder: "~/Meetings".into(), meeting_account: String::new(), meeting_model: "haiku".into(), meeting_lead: 2, meeting_calendars_off: vec!["C1".into(), "C2".into()] },
+            voice: VoiceCfg { locale: "en-GB".into(), send_on_release: true, tell_every: 45, meetings: true, meetings_folder: "~/Meetings".into(), meeting_account: String::new(), meeting_model: "haiku".into(), meeting_lead: 2, meeting_countdown: 10, meeting_calendars_off: vec!["C1".into(), "C2".into()] },
             debug: DebugCfg::default(),
             prices: BTreeMap::new(),
         };
@@ -3667,7 +3684,7 @@ mod tests {
     fn voice_is_off_until_the_file_turns_it_on_and_brings_its_settings_and_keys() {
         let none = toml::from_str::<Config>("").unwrap();
         assert!(!none.experimental.voice);
-        assert_eq!(none.voice, VoiceCfg { locale: String::new(), send_on_release: false, tell_every: 20, meetings: false, meetings_folder: String::new(), meeting_account: String::new(), meeting_model: String::new(), meeting_lead: 1, meeting_calendars_off: Vec::new() });
+        assert_eq!(none.voice, VoiceCfg { locale: String::new(), send_on_release: false, tell_every: 20, meetings: false, meetings_folder: String::new(), meeting_account: String::new(), meeting_model: String::new(), meeting_lead: 1, meeting_countdown: 5, meeting_calendars_off: Vec::new() });
         let old = render(&full());
         assert!(!old.contains("\n[voice]\n") && !old.contains("\ntalk = ") && !old.contains("voice = "), "{old}");
         // Turned on in a file from before it: the flag, and the keys held to talk, which the
@@ -3681,10 +3698,10 @@ mod tests {
         assert_eq!(parse(&out).unwrap(), on);
         assert_eq!(parse(&render(&on)).unwrap(), on);
         // Its settings get their table once one isn't the default, after the experiments.
-        let set = Config { voice: VoiceCfg { locale: "en-GB".into(), send_on_release: true, tell_every: 45, meetings: true, meetings_folder: "~/Meetings".into(), meeting_model: "haiku".into(), meeting_lead: 5, meeting_calendars_off: vec!["C1".into()], ..VoiceCfg::default() }, ..on.clone() };
+        let set = Config { voice: VoiceCfg { locale: "en-GB".into(), send_on_release: true, tell_every: 45, meetings: true, meetings_folder: "~/Meetings".into(), meeting_model: "haiku".into(), meeting_lead: 5, meeting_countdown: 15, meeting_calendars_off: vec!["C1".into()], ..VoiceCfg::default() }, ..on.clone() };
         let out = with_config(&out, &set).unwrap();
         assert!(
-            out.contains(&format!("{VOICE_COMMENT}[voice]\nlocale = \"en-GB\"\nsend_on_release = true\ntell_every = 45\nmeetings = true\nmeetings_folder = \"~/Meetings\"\nmeeting_account = \"\"\nmeeting_model = \"haiku\"\nmeeting_lead = 5\nmeeting_calendars_off = [\"C1\"]\n")),
+            out.contains(&format!("{VOICE_COMMENT}[voice]\nlocale = \"en-GB\"\nsend_on_release = true\ntell_every = 45\nmeetings = true\nmeetings_folder = \"~/Meetings\"\nmeeting_account = \"\"\nmeeting_model = \"haiku\"\nmeeting_lead = 5\nmeeting_countdown = 15\nmeeting_calendars_off = [\"C1\"]\n")),
             "{out}"
         );
         assert!(out.find("\n[experimental]\n").unwrap() < out.find("\n[voice]\n").unwrap(), "{out}");
@@ -3706,6 +3723,8 @@ mod tests {
         assert_eq!(err, "[voice] tell_every is 1; it's in seconds, 5 at the least.");
         let err = check(&Config { voice: VoiceCfg { meeting_lead: 45, ..VoiceCfg::default() }, ..full() }).unwrap_err();
         assert_eq!(err, "[voice] meeting_lead is 45; it's in minutes, 30 at the most.");
+        let err = check(&Config { voice: VoiceCfg { meeting_countdown: 90, ..VoiceCfg::default() }, ..full() }).unwrap_err();
+        assert_eq!(err, "[voice] meeting_countdown is 90; it's in minutes, 60 at the most.");
         // A meeting's session starts on an account or a routing group there is, or on Auto.
         let err = check(&Config { voice: VoiceCfg { meeting_account: "nobody".into(), ..VoiceCfg::default() }, ..full() }).unwrap_err();
         assert_eq!(err, "[voice] meeting_account is nobody, which is no account or routing group here.");

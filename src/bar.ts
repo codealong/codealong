@@ -178,9 +178,10 @@ export interface NotchSizes {
  *  leave the window as it was: a window resized by the engine lands a moment after the page has
  *  laid out for it, and the shape jumped across in between. `endH` is how tall the end of what
  *  waits is at its width: it's as tall as that, a session dragged shorter or not, within the
- *  most the layout has. */
-export function notchSizes(notch: { width: number; height: number }, body: Size, side: number, room: number, screen: Size, want?: Size | null, zoom = 1, endH = 0): NotchSizes {
-  const closed = { w: notch.width + 2 * NOTCH.wing, h: notch.height };
+ *  most the layout has. `soon` is how much wider each side is closed, for the countdown to a
+ *  meeting beside the camera (Meeting.tsx `MeetingSoon`): the shape stays centered on it. */
+export function notchSizes(notch: { width: number; height: number }, body: Size, side: number, room: number, screen: Size, want?: Size | null, zoom = 1, endH = 0, soon = 0): NotchSizes {
+  const closed = { w: notch.width + 2 * (NOTCH.wing + Math.ceil(soon)), h: notch.height };
   // As much wider than closed on each side, in whole points: the clip's edges then fall on whole
   // points, where they're sharp.
   const widened = (w: number) => closed.w + 2 * Math.ceil(Math.max(0, w - closed.w) / 2);

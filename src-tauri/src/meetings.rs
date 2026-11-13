@@ -14,7 +14,10 @@
 //! minute before it starts until ten minutes in, or its end (`on_offer`); one you took or passed
 //! on isn't offered again, which `meetings.json` beside config.toml keeps across a server started
 //! again, nor is one a session is hearing.
-//! What's on offer is on the board (`Board::meeting`), which every window draws from.
+//! What's on offer is on the board (`Board::meeting`), which every window draws from. Before
+//! that, from `[voice] meeting_countdown` minutes before it starts, the windows count down to it
+//! quietly, with no sound and nothing opening by itself (`counting_down`, `Board::meeting_soon`):
+//! a click on the countdown shows its offer then, to take it early.
 //!
 //! Taking one (`take`) starts a session for it as a chat of its own, on the account and model
 //! `[voice]` names (or the ones Auto picks), and has it listen to your microphone and what the
@@ -61,21 +64,27 @@ const LATE_MS: i64 = 10 * 60 * 1000;
 /// in it, an offsite, a conference.
 const LONGEST_MS: i64 = 4 * 60 * 60 * 1000;
 
-/// A meeting that's going on, or starts within this long, can be taken from the list of what's
-/// ahead, before or after its offer.
+/// A meeting that's going on, or starts within this long (or the countdown's, when that's
+/// longer), is the one to take from the list of what's ahead, before or after its offer.
 const SOON_MS: i64 = 10 * 60 * 1000;
 
 /// What `[voice]` says of which meetings are offered: not those of the calendars left out, and
-/// from how long before one starts.
+/// from how long before one starts; and from how long before the windows count down to it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Rules {
     pub off: Vec<String>,
     pub lead_ms: i64,
+    pub countdown_ms: i64,
 }
 
 impl Rules {
     pub fn of(cfg: &Config) -> Rules {
-        Rules { off: cfg.voice.meeting_calendars_off.clone(), lead_ms: i64::from(cfg.voice.meeting_lead.min(config::MEETING_LEAD_MAX)) * 60 * 1000 }
+        let minutes = |m: u32| i64::from(m) * 60 * 1000;
+        Rules {
+            off: cfg.voice.meeting_calendars_off.clone(),
+            lead_ms: minutes(cfg.voice.meeting_lead.min(config::MEETING_LEAD_MAX)),
+            countdown_ms: minutes(cfg.voice.meeting_countdown.min(config::MEETING_COUNTDOWN_MAX)),
+        }
     }
 
     /// Whether an event is one to offer at all: a meeting (`is_meeting`), in a calendar that
@@ -160,7 +169,7 @@ fn ahead_of(events: &[Meeting], rules: &Rules, answered: &HashMap<String, i64>, 
         .filter(|m| m.end > now)
         .map(|m| {
             let listening = hearing.iter().find(|(id, _)| *id == m.id).map(|(_, l)| l.clone());
-            Ahead { takeable: now >= m.start - SOON_MS && listening.is_none(), answered: answered.contains_key(&m.id), heard: listening.is_some(), listening, meeting: m.clone() }
+            Ahead { takeable: now >= m.start - SOON_MS.max(rules.countdown_ms) && listening.is_none(), answered: answered.contains_key(&m.id), heard: listening.is_some(), listening, meeting: m.clone() }
         })
         .collect();
     ahead.sort_by(|a, b| a.meeting.start.cmp(&b.meeting.start).then_with(|| a.meeting.id.cmp(&b.meeting.id)));
@@ -346,6 +355,8 @@ struct State {
     /// The one whose session is being started.
     taking: Option<String>,
     offer: Option<Offer>,
+    /// The one counted down to (`counting_down`).
+    soon: Option<Meeting>,
 }
 
 fn state() -> MutexGuard<'static, State> {
@@ -391,6 +402,18 @@ pub fn on_offer<'a>(events: &'a [Meeting], rules: &Rules, answered: &HashMap<Str
         .into_iter()
         .filter(|m| !answered.contains_key(&m.id) && !heard.contains(&m.id))
         .filter(|m| now >= m.start - rules.lead_ms && now < m.end.min(m.start + LATE_MS))
+        .min_by(|a, b| a.start.cmp(&b.start).then_with(|| a.id.cmp(&b.id)))
+}
+
+/// The meeting the windows count down to at `now`: one that starts within the countdown and
+/// isn't on offer yet, that you haven't answered, no session is hearing and isn't being taken.
+/// The first to start, of several. None when the countdown is no longer than the lead, which
+/// offers it as soon.
+pub fn counting_down<'a>(events: &'a [Meeting], rules: &Rules, answered: &HashMap<String, i64>, heard: &[String], taking: Option<&str>, now: i64) -> Option<&'a Meeting> {
+    counted(events, rules)
+        .into_iter()
+        .filter(|m| !answered.contains_key(&m.id) && !heard.contains(&m.id) && taking != Some(m.id.as_str()))
+        .filter(|m| now >= m.start - rules.countdown_ms && now < m.start - rules.lead_ms)
         .min_by(|a, b| a.start.cmp(&b.start).then_with(|| a.id.cmp(&b.id)))
 }
 
@@ -500,7 +523,7 @@ fn look(engine: &Handle) {
     if !turned_on(&cfg) {
         let had = {
             let mut state = state();
-            let had = state.offer.take().is_some();
+            let had = state.offer.take().is_some() | state.soon.take().is_some();
             *state = State { answered: std::mem::take(&mut state.answered), answers_read: state.answers_read, ..State::default() };
             had
         };
@@ -563,8 +586,10 @@ fn settle(engine: &Handle, now: i64) {
     let changed = {
         let mut state = state();
         let offer = offer_of(&state.calendar.events, &rules, &state.answered, &heard, state.taking.as_deref(), now);
-        let changed = offer != state.offer;
+        let soon = counting_down(&state.calendar.events, &rules, &state.answered, &heard, state.taking.as_deref(), now).cloned();
+        let changed = offer != state.offer || soon != state.soon;
         state.offer = offer;
+        state.soon = soon;
         changed
     };
     if changed {
@@ -575,6 +600,11 @@ fn settle(engine: &Handle, now: i64) {
 /// The meeting on offer now, for the board.
 pub fn offered() -> Option<Offer> {
     state().offer.clone()
+}
+
+/// The meeting counted down to now (`counting_down`), for the board.
+pub fn soon() -> Option<Meeting> {
+    state().soon.clone()
 }
 
 /// Where the calendar stands (`Status`), as last read.
@@ -849,8 +879,8 @@ mod tests {
 
     const NOW: i64 = 1_794_330_000_000;
     const MIN: i64 = 60_000;
-    /// As a new config.toml has it: every calendar, a minute before.
-    const PLAIN: Rules = Rules { off: Vec::new(), lead_ms: MIN };
+    /// As a new config.toml has it: every calendar, a minute before, counted down from five.
+    const PLAIN: Rules = Rules { off: Vec::new(), lead_ms: MIN, countdown_ms: 5 * MIN };
 
     fn meeting(id: &str, start: i64, minutes: i64) -> Meeting {
         Meeting { id: id.into(), title: "Renewal call".into(), start, end: start + minutes * MIN, calendar: "Work".into(), attendees: vec!["Dana Kestrel".into()], ..Meeting::default() }
@@ -883,22 +913,26 @@ mod tests {
         let none = HashMap::new();
         // Both count until one's calendar is left out; an event that names no calendar counts.
         assert_eq!(on_offer(&events, &PLAIN, &none, &[], NOW).map(|m| m.id.as_str()), Some("h"));
-        let rules = Rules { off: vec!["home".into()], lead_ms: 5 * MIN };
+        let rules = Rules { off: vec!["home".into()], lead_ms: 5 * MIN, countdown_ms: 0 };
         assert!(rules.counts(&work) && !rules.counts(&home) && rules.counts(&meeting("x", NOW, 30)));
         assert_eq!(on_offer(&events, &rules, &none, &[], NOW).map(|m| m.id.as_str()), Some("w"));
         // Offered from as long before as asked, and at its start with none.
         assert_eq!(on_offer(&events, &rules, &none, &[], NOW - 5 * MIN).map(|m| m.id.as_str()), Some("w"));
         assert_eq!(on_offer(&events, &rules, &none, &[], NOW - 6 * MIN), None);
-        let at_start = Rules { off: Vec::new(), lead_ms: 0 };
+        let at_start = Rules { off: Vec::new(), lead_ms: 0, countdown_ms: 0 };
         assert_eq!(on_offer(&events, &at_start, &none, &[], NOW - 1), None);
         assert!(on_offer(&events, &at_start, &none, &[], NOW).is_some());
         // As config.toml has them, the lead in minutes and never more than the most.
         let mut cfg: Config = toml::from_str("").unwrap();
+        assert_eq!(Rules::of(&cfg), PLAIN);
         cfg.voice.meeting_lead = 2;
+        cfg.voice.meeting_countdown = 10;
         cfg.voice.meeting_calendars_off = vec!["home".into()];
-        assert_eq!(Rules::of(&cfg), Rules { off: vec!["home".into()], lead_ms: 2 * MIN });
+        assert_eq!(Rules::of(&cfg), Rules { off: vec!["home".into()], lead_ms: 2 * MIN, countdown_ms: 10 * MIN });
         cfg.voice.meeting_lead = 500;
+        cfg.voice.meeting_countdown = 500;
         assert_eq!(Rules::of(&cfg).lead_ms, i64::from(config::MEETING_LEAD_MAX) * MIN);
+        assert_eq!(Rules::of(&cfg).countdown_ms, i64::from(config::MEETING_COUNTDOWN_MAX) * MIN);
     }
 
     #[test]
@@ -910,7 +944,7 @@ mod tests {
         let ids = |rules: &Rules| ahead_of(&events, rules, &none, &[], NOW).into_iter().map(|a| (a.meeting.id, a.meeting.calendar_id)).collect::<Vec<_>>();
         assert_eq!(ids(&PLAIN), vec![("m".to_string(), "home".to_string()), ("other".to_string(), "work".to_string())]);
         // With one of its calendars left out it's the other's, and still a meeting; with both, not.
-        let without = |off: &[&str]| Rules { off: off.iter().map(|c| c.to_string()).collect(), lead_ms: MIN };
+        let without = |off: &[&str]| Rules { off: off.iter().map(|c| c.to_string()).collect(), lead_ms: MIN, countdown_ms: 0 };
         assert_eq!(ids(&without(&["home"])), vec![("m".to_string(), "work".to_string()), ("other".to_string(), "work".to_string())]);
         assert_eq!(found(&events, &without(&["home"]), "m").map(|m| m.calendar_id.as_str()), Some("work"));
         assert_eq!(ids(&without(&["home", "work"])), vec![]);
@@ -948,7 +982,7 @@ mod tests {
             meeting("soon", NOW + 9 * MIN, 30),
             Meeting { calendar_id: "home".into(), ..meeting("home", NOW + 2 * MIN, 30) },
         ];
-        let rules = Rules { off: vec!["home".into()], lead_ms: MIN };
+        let rules = Rules { off: vec!["home".into()], lead_ms: MIN, countdown_ms: 0 };
         let answered = HashMap::from([("soon".to_string(), NOW)]);
         let hearing = [("going".to_string(), "l2".to_string())];
         let got: Vec<(String, bool, bool, bool, Option<String>)> = ahead_of(&events, &rules, &answered, &hearing, NOW).into_iter().map(|a| (a.meeting.id, a.takeable, a.answered, a.heard, a.listening)).collect();
@@ -972,6 +1006,40 @@ mod tests {
         let short = [meeting("s", NOW, 5)];
         assert_eq!(on_offer(&short, &PLAIN, &none, &[], NOW + 4 * MIN).map(|m| m.id.as_str()), Some("s"));
         assert_eq!(on_offer(&short, &PLAIN, &none, &[], NOW + 5 * MIN), None);
+    }
+
+    #[test]
+    fn a_meeting_is_counted_down_to_from_the_countdown_until_its_offer() {
+        let events = [meeting("a", NOW, 30), meeting("b", NOW + 3 * MIN, 30)];
+        let none = HashMap::new();
+        let soon = |rules: &Rules, answered: &HashMap<String, i64>, heard: &[String], taking: Option<&str>, now: i64| counting_down(&events, rules, answered, heard, taking, now).map(|m| m.id.as_str());
+        // From five minutes before until it's offered, a minute before; then the next one.
+        assert_eq!(soon(&PLAIN, &none, &[], None, NOW - 5 * MIN - 1), None);
+        assert_eq!(soon(&PLAIN, &none, &[], None, NOW - 5 * MIN), Some("a"));
+        assert_eq!(soon(&PLAIN, &none, &[], None, NOW - MIN - 1), Some("a"));
+        assert_eq!(on_offer(&events, &PLAIN, &none, &[], NOW - MIN - 1), None);
+        assert_eq!(soon(&PLAIN, &none, &[], None, NOW - MIN), Some("b"));
+        assert_eq!(on_offer(&events, &PLAIN, &none, &[], NOW - MIN).map(|m| m.id.as_str()), Some("a"));
+        assert_eq!(soon(&PLAIN, &none, &[], None, NOW + 2 * MIN), None);
+        // One you answered, one being heard and one being taken (as a click on the countdown
+        // may have it) aren't counted down to; the next one is.
+        let answered = HashMap::from([("a".to_string(), NOW)]);
+        assert_eq!(soon(&PLAIN, &answered, &[], None, NOW - 2 * MIN), Some("b"));
+        assert_eq!(soon(&PLAIN, &none, &["a".to_string()], None, NOW - 2 * MIN), Some("b"));
+        assert_eq!(soon(&PLAIN, &none, &[], Some("a"), NOW - 2 * MIN), Some("b"));
+        // No countdown, or one no longer than the lead: nothing is counted down to.
+        let none_counted = Rules { countdown_ms: 0, ..PLAIN };
+        let as_offered = Rules { countdown_ms: MIN, ..PLAIN };
+        for now in [NOW - 5 * MIN, NOW - 2 * MIN, NOW - MIN] {
+            assert_eq!(soon(&none_counted, &none, &[], None, now), None);
+            assert_eq!(soon(&as_offered, &none, &[], None, now), None);
+        }
+        // A countdown longer than the list's ten minutes makes what it counts down to takeable
+        // from the list as long.
+        let long = Rules { countdown_ms: 30 * MIN, ..PLAIN };
+        assert_eq!(soon(&long, &none, &[], None, NOW - 25 * MIN), Some("a"));
+        let takeable = |rules: &Rules| ahead_of(&events, rules, &none, &[], NOW - 25 * MIN).iter().any(|a| a.meeting.id == "a" && a.takeable);
+        assert!(takeable(&long) && !takeable(&PLAIN));
     }
 
     #[test]

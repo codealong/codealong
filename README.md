@@ -847,6 +847,7 @@ meetings_folder = ""           # where your meetings are kept, a folder each (tr
 meeting_account = ""           # the account a meeting's session starts on: an account, a routing group, or "" for Auto
 meeting_model = ""             # and its model; "" for the account's own
 meeting_lead = 1               # how many minutes before a meeting starts it's offered (0 for as it starts, 30 at the most)
+meeting_countdown = 5          # from how many minutes before it starts the notch, the floating bar and the Meetings button count down to it, quietly, until it's offered (0 for none, 60 at the most)
 meeting_calendars_off = []     # the calendars whose meetings aren't offered, by id; Settings lists them to untick
 
 [debug]

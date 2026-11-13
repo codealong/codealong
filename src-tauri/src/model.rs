@@ -176,6 +176,10 @@ pub struct Board {
     /// (meetings.rs `on_offer`). This Mac's own: not sent to other devices.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub meeting: Option<crate::meetings::Offer>,
+    /// The meeting the windows count down to before it's offered (meetings.rs
+    /// `counting_down`). This Mac's own: not sent to other devices.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub meeting_soon: Option<crate::ear::Meeting>,
     /// Pinned session keys, in order.
     pub pinned: Vec<String>,
     /// Pinned worktrees (lane ids), in order.

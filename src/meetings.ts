@@ -20,6 +20,12 @@ export function meetingWhen(m: Pick<Meeting, 'start'>, now: number): string {
   return `started ${Math.floor(-until / 60_000)} min ago`;
 }
 
+/** The minutes until a meeting starts, as a countdown says them where there's little room: "4m",
+ *  rounded up, so it says "1m" until it starts rather than "0m". */
+export function meetingCountdown(m: Pick<Meeting, 'start'>, now: number): string {
+  return `${Math.max(1, Math.ceil((m.start - now) / 60_000))}m`;
+}
+
 /** The others in a meeting: "with Dana and Lee", the first four and how many more of a crowd, or
  *  nothing when it's only you (meetings.rs `with_whom`). */
 export function meetingWith(m: Pick<Meeting, 'attendees'>): string {

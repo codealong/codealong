@@ -4163,6 +4163,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         board.terminals = crate::terminals::glances();
         board.listenings = listenings;
         board.meeting = crate::meetings::offered();
+        board.meeting_soon = crate::meetings::soon();
         board.github_polled = self.github.polled();
         board.github_current = self.github.current();
         board.when_limited = self.cfg.limits.when_hit;

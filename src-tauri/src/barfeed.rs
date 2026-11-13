@@ -88,6 +88,9 @@ pub struct BarFeed {
     /// The meeting on offer (`Board::meeting`): the bar asks whether to take its notes.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub meeting: Option<crate::meetings::Offer>,
+    /// The meeting counted down to before its offer (`Board::meeting_soon`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub meeting_soon: Option<crate::ear::Meeting>,
     /// Voice is turned on (`[experimental] voice`): the menu bar item's menu has Listen now.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub voice: bool,
@@ -347,6 +350,7 @@ pub fn feed(shown: Shown) -> BarFeed {
             listenings
         },
         meeting: board.meeting.clone(),
+        meeting_soon: board.meeting_soon.clone(),
         voice: board.experimental.voice,
     }
 }
@@ -451,6 +455,11 @@ mod tests {
         b.meeting = Some(crate::meetings::Offer { meeting: crate::ear::Meeting { id: "e".into(), title: "Renewal call".into(), start: NOW, end: NOW + 1_800_000, ..Default::default() }, taking: false });
         let sent = serde_json::to_value(feed(Shown::here(&b))).unwrap();
         assert_eq!((sent["meeting"]["id"].as_str(), sent["meeting"]["title"].as_str(), sent["meeting"].get("taking")), (Some("e"), Some("Renewal call"), None));
+        // So is the one counted down to.
+        assert!(sent.get("meetingSoon").is_none());
+        b.meeting_soon = Some(crate::ear::Meeting { id: "n".into(), title: "Standup".into(), start: NOW + 240_000, end: NOW + 1_140_000, ..Default::default() });
+        let sent = serde_json::to_value(feed(Shown::here(&b))).unwrap();
+        assert_eq!((sent["meetingSoon"]["id"].as_str(), sent["meetingSoon"]["start"].as_i64()), (Some("n"), Some(NOW + 240_000)));
     }
 
     #[test]

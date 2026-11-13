@@ -3094,6 +3094,7 @@ pub fn compose(inp: Inputs) -> Board {
         terminals: Default::default(),
         listenings: Default::default(),
         meeting: None,
+        meeting_soon: None,
         pinned: pinned.to_vec(),
         pinned_worktrees: Vec::new(),
         pinned_prs: Vec::new(),

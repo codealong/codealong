@@ -131,6 +131,13 @@ describe('the bar docked in the notch', () => {
     expect(sizes({ w: 600, h: 24 }, 60).closed).toEqual({ w: 185 + 2 * NOTCH.wing, h: 32 });
   });
 
+  it('is wider on both hands while closed by what a meeting’s countdown takes, in whole points', () => {
+    const counting = notchSizes(notch, { w: 200, h: 24 }, 60, room, screen, null, 1, 0, 36.4);
+    expect(counting.closed).toEqual({ w: 185 + 2 * (NOTCH.wing + 37), h: 32 });
+    // The pills are never narrower than that.
+    expect(counting.pills.w).toBeGreaterThanOrEqual(counting.closed.w);
+  });
+
   it('shows its pills as wide as they or the sides need, never narrower than closed', () => {
     // 620 across, but as much wider on each side in whole points: 621, the closed 273 and 174 a side.
     expect(sizes({ w: 600, h: 24 }, 60).pills).toEqual({ w: 621, h: 32 + 24 + NOTCH.pad });

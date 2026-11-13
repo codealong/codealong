@@ -3626,7 +3626,18 @@ take its notes: a card under the notch's pills, a line ahead of the floating bar
 pills, and a line in the main window beside its notices, with the meeting's name, when it starts
 and who else is in it. A sound comes with it (*Sounds*, `[sounds] meeting`), since the notch may
 be on another screen than the one you're looking at. The offer
-stays until ten minutes into the meeting, or its end. **Take notes** starts a session for it, a
+stays until ten minutes into the meeting, or its end.
+
+Before that, from five minutes before it starts (*A countdown shows*, `meeting_countdown`: never,
+or up to an hour before), the minutes to go show quietly: beside the notch's camera, ahead of
+its counts, the closed notch a little wider for them; as a pill with the meeting's name in the
+floating bar; and beside the calendar on the main window's Meetings button. There's no sound and
+nothing opens by itself. A click on the countdown offers the meeting then: under the notch it
+goes again when the pointer leaves, and in the floating bar it stays as the offer would. Your
+meetings, from the Meetings button, open on it, and Listen now offers it, for as long as it's
+counted down to. A countdown that starts no earlier than the offer never shows. Then the offer comes as above.
+
+**Take notes** starts a session for it, a
 chat of its own named for the meeting, and has it listen to your microphone and to what the Mac
 plays as its note-taker, with nothing more to set up; **Not this one** puts the offer away, and
 that meeting isn't offered again. A meeting is an event with a time of day that someone else is

@@ -430,8 +430,10 @@ function withExperiments(board) {
     // Said on the session too, as the engine says it (board.rs `apply_listening`).
     (out.lanes || []).forEach(function (l) { l.sessions.forEach(function (s) { if (s.key === window.__LISTENS__) s.listening = true; }); });
   }
-  // The meeting on offer (meetings.rs `Offer`), when a check or an init script set one.
+  // The meeting on offer (meetings.rs `Offer`), and the one counted down to before its offer
+  // (`counting_down`), when a check or an init script set them.
   if (voice && window.__MEETING__) out.meeting = window.__MEETING__;
+  if (voice && window.__MEETING_SOON__) out.meetingSoon = window.__MEETING_SOON__;
   return out;
 }
 // Two meetings kept (meetings.rs `Kept`): one with notes, and one in which nothing was heard.
@@ -711,6 +713,7 @@ window.__TAURI_INTERNALS__ = {
           feed.recent = (feed.recent || []).filter(function (i) { return i.key !== window.__LISTENS__; });
         }
         if (window.__PREVIEW_VOICE__ && window.__MEETING__) feed.meeting = window.__MEETING__;
+        if (window.__PREVIEW_VOICE__ && window.__MEETING_SOON__) feed.meetingSoon = window.__MEETING_SOON__;
         if (window.__PREVIEW_EMBLEMS__) (feed.items || []).forEach(function (i) { i.emblem = emblemOf(i.key); });
         if (!all[1] || all[1].cfg.in_bar === false) return feed;
         return window.__TAURI_INTERNALS__.invoke('devices').then(function (view) {

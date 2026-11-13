@@ -106,7 +106,8 @@ import type { FindAsk } from './ui/ThreadFind';
 import { Toasts, useToasts } from './ui/Toasts';
 import { NewSessionPanel } from './ui/NewSession';
 import { ListenHost, ListeningNow } from './ui/Listening';
-import { MeetingOffered } from './ui/Meeting';
+import { MeetingCountdown, MeetingOffered } from './ui/Meeting';
+import { meetingWhen } from './meetings';
 import { MeetingsDialog } from './ui/Meetings';
 import { hearingNow } from './listening';
 import { ageListingChain, ageListingPr, chainOf, currentProject, FACET_WORD, facetsIn, facetsOn, harnessSchedulesIn, labelPick, laneInQuery, onlyPick, prInDone, prInFilter, prInQuery, projectOfCard, revealing, unarchived, scheduleSessions, schedulesIn, sessionInFacets, sessionInFilter, sessionInQuery, sessionItemOf, sessionItemsOf, showingHelper, todoInQuery, togglePick, toggleShown, useBoardLists, projectsOf, type Facets } from './boardLists';
@@ -2390,7 +2391,18 @@ export function App() {
             onListen={board?.experimental?.voice ? () => void showQuick({ listen: true, project: projectNow.current, opener: windowLabel() }) : undefined}
             shortcut={shortcutLabel(board?.listenShortcut)}
           />
-          {board?.experimental?.voice && <Button icon="calendar" aria-label="Meetings" title="Meetings: the notes and transcripts of the ones Codealong took" onClick={() => setMeetingsOpen(true)} />}
+          {/* With a meeting counted down to (meetings.rs `counting_down`), the minutes to go are
+              on it, and its dialog opens on that meeting (meetings.rs `Ahead::takeable`). */}
+          {board?.experimental?.voice && (
+            <Button
+              icon="calendar"
+              aria-label="Meetings"
+              title={board.meetingSoon ? `${board.meetingSoon.title.trim() || 'A meeting'}, ${meetingWhen(board.meetingSoon, now)}: take its notes from Meetings` : 'Meetings: the notes and transcripts of the ones Codealong took'}
+              onClick={() => setMeetingsOpen(true)}
+            >
+              {board.meetingSoon ? <MeetingCountdown meeting={board.meetingSoon} /> : undefined}
+            </Button>
+          )}
           <Seg
             className="ca-barplace"
             label="Agents bar"

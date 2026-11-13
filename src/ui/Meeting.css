@@ -116,3 +116,50 @@
   outline: none;
   box-shadow: var(--shadow-focus);
 }
+
+/* The meeting counted down to (Meeting.tsx `MeetingSoon`). Beside the notch's camera it reads as
+   the counts there do; in the floating bar, as a pill with its name. */
+.ca-meeting-soon {
+  appearance: none;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  margin: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  white-space: nowrap;
+  cursor: default;
+}
+.ca-meeting-soon > svg {
+  flex: none;
+  color: var(--ink-3);
+}
+.ca-meeting-soon:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+.ca-meeting-soon.is-notch {
+  gap: 3px;
+  padding: 0;
+  font: var(--type-code-heading);
+  font-variant-numeric: tabular-nums;
+}
+.ca-meeting-soon.is-notch .ca-meeting-when {
+  color: inherit;
+  font: inherit;
+}
+.ca-meeting-soon.is-pill {
+  flex: 0 1 auto;
+  gap: var(--space-2);
+  min-width: 0;
+  max-width: 280px;
+  height: 24px;
+  padding: 0 var(--space-3);
+  box-sizing: border-box;
+  border-radius: var(--radius-pill);
+  font: var(--type-meta-strong);
+}
+.ca-meeting-soon.is-pill:hover {
+  background: var(--surface-hover);
+}

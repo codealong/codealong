@@ -1078,6 +1078,7 @@ export interface VoiceCfg {
   meeting_model?: string;
   /** How many minutes before a meeting starts it's offered. */
   meeting_lead?: number;
+  meeting_countdown?: number;
   /** The calendars whose meetings aren't offered, by the ids macOS has for them. */
   meeting_calendars_off?: string[];
 }
@@ -1837,6 +1838,9 @@ export interface Board {
   /** The meeting in your calendar that's about to start or just has, on offer to take its notes
    *  (meetings.rs). This Mac's own. Absent when none is. */
   meeting?: MeetingOffer;
+  /** The meeting counted down to before it's offered (meetings.rs `counting_down`), from
+   *  `[voice] meeting_countdown` minutes before it starts. This Mac's own. Absent when none is. */
+  meetingSoon?: Meeting;
   /** Pinned session keys, in order. */
   pinned: string[];
   /** Pinned worktrees (lane ids), in order. */
@@ -2877,6 +2881,8 @@ export interface BarFeed {
   listenings?: BarListening[];
   /** The meeting on offer (`Board.meeting`): the bar asks whether to take its notes. */
   meeting?: MeetingOffer;
+  /** The meeting counted down to before its offer (`Board.meetingSoon`). */
+  meetingSoon?: Meeting;
   /** Voice is turned on: the menu bar item's menu has Listen now. Missing while it's off. */
   voice?: boolean;
 }

@@ -112,6 +112,11 @@ html.is-notch body {
 .ca-notch-side.is-left .ca-notch-side-in {
   flex-direction: row-reverse;
 }
+/* The countdown to a meeting (Meeting.tsx `MeetingSoon`), ahead of the counts, closed too. */
+.ca-notch-soon {
+  flex: none;
+  display: inline-flex;
+}
 /* What shows only open: the project beside the mark, the counts after the first. */
 .ca-notch-extra {
   opacity: 0;

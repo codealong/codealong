@@ -111,11 +111,14 @@ export interface NotchShellProps {
   /** Which sessions are hearing, in words, while any is (said.ts `hearingSays`): the mark's center
    *  is red for as long, closed too, and its tooltip says this. */
   hearing?: string | null;
+  /** The countdown to a meeting about to be offered (Meeting.tsx `MeetingSoon`), while there's
+   *  one: next to the camera, ahead of the counts, closed too, the shape as much wider. */
+  soon?: ReactNode;
   /** The bar's pills, shown below while it's open. */
   children: ReactNode;
 }
 
-export function NotchShell({ notch, logoStatus, moment, counts, room, screen, zoom, project, held, session, sessionOpen, sessionEnd, sessionKeys, onSessionLeft, onCount, onPress, onMove, keepOpen, onKeepOpen, onMark, onMenu, hearing, children }: NotchShellProps) {
+export function NotchShell({ notch, logoStatus, moment, counts, room, screen, zoom, project, held, session, sessionOpen, sessionEnd, sessionKeys, onSessionLeft, onCount, onPress, onMove, keepOpen, onKeepOpen, onMark, onMenu, hearing, soon, children }: NotchShellProps) {
   // The pills show, under the pointer or pinned; a session shows under them.
   const [open, setOpen] = useState(keepOpen);
   // The pointer is on the shape.
@@ -135,7 +138,8 @@ export function NotchShell({ notch, logoStatus, moment, counts, room, screen, zo
   const body = useRef<HTMLDivElement>(null);
   const left = useRef<HTMLDivElement>(null);
   const right = useRef<HTMLDivElement>(null);
-  const [natural, setNatural] = useState<{ body: Size; side: number }>({ body: { w: 0, h: 0 }, side: 0 });
+  const soonBox = useRef<HTMLSpanElement>(null);
+  const [natural, setNatural] = useState<{ body: Size; side: number; soon: number }>({ body: { w: 0, h: 0 }, side: 0, soon: 0 });
   // The end of what waits, and how tall it is at its width.
   const endBox = useRef<HTMLDivElement>(null);
   const [endH, setEndH] = useState(0);
@@ -168,19 +172,23 @@ export function NotchShell({ notch, logoStatus, moment, counts, room, screen, zo
       cancelAnimationFrame(second);
     };
   }, [zooming, zoom]);
-  const sizes = notchSizes(notch, natural.body, natural.side, room, screen, want, zoomFactor(zoom), endH);
+  const sizes = notchSizes(notch, natural.body, natural.side, room, screen, want, zoomFactor(zoom), endH, natural.soon);
   const state: NotchState = moving ? 'closed' : sessionOpen ? (sessionEnd ? 'end' : 'session') : open ? 'pills' : on ? 'hover' : 'closed';
   const clip = notchClip(sizes, state);
   // Something shows under the notch.
   const below = state === 'pills' || state === 'session' || state === 'end';
 
-  // What opens below, and what the sides hold open, measured at their own size.
+  // What opens below, and what the sides hold open, measured at their own size; and the
+  // countdown to a meeting with the gap after it, which the closed shape is as much wider for.
   useLayoutEffect(() => {
     const measure = () => {
       const b = body.current?.getBoundingClientRect();
       const side = Math.max(left.current?.scrollWidth ?? 0, right.current?.scrollWidth ?? 0);
-      const next = { body: { w: Math.ceil(b?.width ?? 0), h: Math.ceil(b?.height ?? 0) }, side: Math.ceil(side) };
-      setNatural((was) => (was.body.w === next.body.w && was.body.h === next.body.h && was.side === next.side ? was : next));
+      const counting = soonBox.current;
+      const gap = counting?.parentElement ? parseFloat(getComputedStyle(counting.parentElement).columnGap) || 0 : 0;
+      const soonW = counting ? Math.ceil(counting.getBoundingClientRect().width + gap) : 0;
+      const next = { body: { w: Math.ceil(b?.width ?? 0), h: Math.ceil(b?.height ?? 0) }, side: Math.ceil(side), soon: soonW };
+      setNatural((was) => (was.body.w === next.body.w && was.body.h === next.body.h && was.side === next.side && was.soon === next.soon ? was : next));
     };
     measure();
     const observer = new ResizeObserver(measure);
@@ -448,6 +456,11 @@ export function NotchShell({ notch, logoStatus, moment, counts, room, screen, zo
           <div className="ca-notch-cam" aria-hidden="true" />
           <div className="ca-notch-side is-right">
             <div ref={right} className="ca-notch-side-in">
+              {soon && (
+                <span ref={soonBox} className="ca-notch-soon">
+                  {soon}
+                </span>
+              )}
               {shown.map((k, i) => {
                 const total = i === 0 && !below && lead;
                 return (
