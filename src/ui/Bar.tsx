@@ -339,9 +339,16 @@ function ProjectButton({ name, others, open, onOpen, measure }: { name: string; 
 
 /** What went wrong opening something, or what a send from the peek did that you should know
  *  (the prompt is on the clipboard, say), in the place of the pill it came from. A click clears it. */
-function NotePill({ message, tone: kind, onDismiss }: { message: string; tone: 'error' | 'info'; onDismiss: () => void }) {
+function NotePill({ message, tone: kind, onDismiss, measure }: { message: string; tone: 'error' | 'info'; onDismiss?: () => void; measure?: boolean }) {
   return (
-    <button type="button" className={`ca-hud-pill ${kind === 'error' ? 'is-failed' : 'is-info'}`} role={kind === 'error' ? 'alert' : 'status'} title={message} onClick={onDismiss}>
+    <button
+      type="button"
+      className={`ca-hud-pill ${kind === 'error' ? 'is-failed' : 'is-info'}`}
+      role={measure ? undefined : kind === 'error' ? 'alert' : 'status'}
+      title={measure ? undefined : message}
+      data-note={measure ? '' : undefined}
+      onClick={onDismiss}
+    >
       <Icon name={kind === 'error' ? 'alert' : 'check'} size={12} stroke={1.75} />
       <span>{message}</span>
     </button>
@@ -531,36 +538,50 @@ export function Bar() {
   // The session the peek shows, or the notch: its pill is marked.
   const shownKey = notch ? (stage.open && stage.kind !== 'end' ? stage.key : null) : peeked.key;
 
-  // Every pill measured at full size, then folded until the bar fits the screen.
-  useLayoutEffect(() => {
+  // The room the pills have docked in the notch, as it says (NotchShell `onPillsRoom`): the open
+  // notch's width, which they fold to fit rather than widen.
+  const notchRoom = useRef<number | null>(null);
+  // Every pill measured at full size, then folded until the bar fits: the screen floating, the
+  // notch docked. Docked, the mark and the project button are beside the camera, not among the
+  // pills, which have no padding of their own there.
+  const fit = useLatest(() => {
     const el = measure.current;
-    if (!el) return;
+    const room = notch ? notchRoom.current : Math.min(MAX_WIDTH, window.screen.availWidth - SCREEN_ROOM);
+    if (!el || room === null) return;
     const width = (sel: string) => el.querySelector<HTMLElement>(sel)?.getBoundingClientRect().width ?? 0;
     const pills: Record<Group, number[]> = { needs: [], unread: [], working: [] };
     el.querySelectorAll<HTMLElement>('[data-pill]').forEach((p) => pills[p.dataset.pill as Group].push(p.getBoundingClientRect().width));
     const fold = { needs: width('[data-fold="needs"]'), unread: width('[data-fold="unread"]'), working: width('[data-fold="working"]') };
     const hearing = Array.from(el.querySelectorAll<HTMLElement>('[data-listening]'), (p) => p.getBoundingClientRect().width);
-    const room = Math.min(MAX_WIDTH, window.screen.availWidth - SCREEN_ROOM);
-    setFits(
-      fitGroups(
-        {
-          pills,
-          fold,
-          mark: MARK,
-          project: picking ? width('[data-project]') : 0,
-          hearing,
-          snoozed: snoozed.length ? width('[data-snoozed]') : 0,
-          recent: recent.length ? width('[data-recent]') : 0,
-          reviews: reviews.length ? width('[data-reviews]') : 0,
-          todos: todos.length ? width('[data-todos]') : 0,
-          gap: GAP,
-          divider: DIVIDER,
-          padding: PADDING,
-        },
-        room,
-      ),
+    const next = fitGroups(
+      {
+        pills,
+        fold,
+        mark: notch ? 0 : MARK,
+        project: picking && !notch ? width('[data-project]') : 0,
+        hearing,
+        snoozed: snoozed.length ? width('[data-snoozed]') : 0,
+        recent: recent.length ? width('[data-recent]') : 0,
+        reviews: reviews.length ? width('[data-reviews]') : 0,
+        todos: todos.length ? width('[data-todos]') : 0,
+        note: width('[data-note]'),
+        gap: GAP,
+        divider: DIVIDER,
+        padding: notch ? 0 : PADDING,
+      },
+      room,
     );
-  }, [items, listenings, meeting, soon, notch, snoozed, recent, reviews, todos, picking, current, others, fontsReady]);
+    // The same fit keeps the bar as it is: a session dragged wider asks again every frame.
+    setFits((was) => (was && was.every((f, i) => f.shown === next[i]?.shown && f.folded === next[i]?.folded) ? was : next));
+  });
+  useLayoutEffect(() => fit.current(), [fit, items, listenings, meeting, soon, notch, snoozed, recent, reviews, todos, picking, current, others, failed, fontsReady]);
+  const fitNotch = useCallback(
+    (room: number) => {
+      notchRoom.current = room;
+      fit.current();
+    },
+    [fit],
+  );
 
   // The window follows the bar's size: after every render, since WebKit holds back resize
   // notifications while the window is hidden, and on resizes renders don't cause (fonts).
@@ -983,6 +1004,7 @@ export function Bar() {
       {reviews.length > 0 && <ReviewsPill prs={reviews} measure />}
       {todos.length > 0 && <TodosPill todos={todos} measure />}
       {picking && <ProjectButton name={current} others={others} measure />}
+      {failed && <NotePill message={failed.message} tone={failed.tone ?? 'error'} measure />}
     </div>
   );
 
@@ -994,8 +1016,8 @@ export function Bar() {
           logoStatus={logoStatus}
           moment={moment}
           counts={{ needs: byGroup.needs.length, reviews: reviews.length, unread: byGroup.unread.length, working: byGroup.working.length }}
-          room={Math.min(MAX_WIDTH, window.screen.availWidth - SCREEN_ROOM)}
           screen={{ w: window.screen.availWidth, h: window.screen.height }}
+          onPillsRoom={fitNotch}
           zoom={feed?.zoom}
           project={picking ? <ProjectButton name={current} others={others} open={projectMenuOpen} onOpen={projectMenu} /> : null}
           held={projectMenuOpen || menusUp > 0 || dragging !== null}

@@ -5,7 +5,9 @@
 // as the most urgent of them, else how many are running (bar.ts `notchCount`). Pointing at it for
 // a moment, or clicking it, opens it down into the bar's pills, with the project and each kind's
 // own count beside the camera; it closes a moment after the pointer leaves, unless a menu is up
-// or its pin keeps it open. And a click opens it further, into
+// or its pin keeps it open. Open, it's one width whatever it shows, the session's: the pills fold
+// to fit it (Bar.tsx), so it never widens or narrows as they come and go. And a click opens it
+// further, into
 // a session under the pills, to read and answer (NotchSession.tsx): a click on a session's pill
 // into that one, a click on the notch itself into the current one, and a second click on either
 // puts it away; with nothing to show, the end of what waits (QueueEnd.tsx) opens under the pills
@@ -30,7 +32,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { fitBar, notchDrag, notchShape, onNotchDragEnd, onNotchPointer, type Notch } from '../api';
-import { NOTCH, NOTCH_ORDER, notchClip, notchCount, notchDragged, notchSizes, type Group, type NotchEdge, type NotchKind, type NotchState, type Size } from '../bar';
+import { NOTCH, NOTCH_ORDER, notchClip, notchCount, notchDragged, notchPillsRoom, notchSizes, type Group, type NotchEdge, type NotchKind, type NotchState, type Size } from '../bar';
 import type { Moment } from '../mark';
 import type { LogoStatus } from '../types';
 import { MarkLive } from './MarkLive';
@@ -78,9 +80,11 @@ export interface NotchShellProps {
   /** How many sessions are in each of the bar's groups, and how many open PRs wait on your
    *  review. */
   counts: Record<NotchKind, number>;
-  /** The widest the pills below can get, and the screen, which a session fits. */
-  room: number;
+  /** The screen, which a session fits. */
   screen: Size;
+  /** Says the room the pills have across the open notch, as it changes (a session dragged
+   *  wider): the bar folds them to fit it. */
+  onPillsRoom: (room: number) => void;
   /** The zoom, in percent: the session shown draws at it, and opens as much bigger (zoom.ts). */
   zoom?: number;
   /** The project button, beside the mark while it's open. */
@@ -121,7 +125,7 @@ export interface NotchShellProps {
   children: ReactNode;
 }
 
-export function NotchShell({ notch, logoStatus, moment, counts, room, screen, zoom, project, held, session, sessionOpen, sessionEnd, sessionKeys, onSessionLeft, onCount, onPress, onMove, keepOpen, onKeepOpen, onMark, onMenu, hearing, soon, children }: NotchShellProps) {
+export function NotchShell({ notch, logoStatus, moment, counts, screen, onPillsRoom, zoom, project, held, session, sessionOpen, sessionEnd, sessionKeys, onSessionLeft, onCount, onPress, onMove, keepOpen, onKeepOpen, onMark, onMenu, hearing, soon, children }: NotchShellProps) {
   // The pills show, under the pointer or pinned; a session shows under them.
   const [open, setOpen] = useState(keepOpen);
   // The pointer is on the shape.
@@ -175,7 +179,7 @@ export function NotchShell({ notch, logoStatus, moment, counts, room, screen, zo
       cancelAnimationFrame(second);
     };
   }, [zooming, zoom]);
-  const sizes = notchSizes(notch, natural.body, natural.side, room, screen, want, zoomFactor(zoom), endH, natural.soon);
+  const sizes = notchSizes(notch, natural.body.h, natural.side, screen, want, zoomFactor(zoom), endH, natural.soon);
   const state: NotchState = moving ? 'closed' : sessionOpen ? (sessionEnd ? 'end' : 'session') : open ? 'pills' : on ? 'hover' : 'closed';
   const clip = notchClip(sizes, state);
   // Something shows under the notch.
@@ -208,6 +212,10 @@ export function NotchShell({ notch, logoStatus, moment, counts, room, screen, zo
     observer.observe(el);
     return () => observer.disconnect();
   }, [sessionEnd]);
+
+  // The pills fit the shape, which doesn't follow them.
+  const pillsRoom = notchPillsRoom(sizes);
+  useLayoutEffect(() => onPillsRoom(pillsRoom), [pillsRoom, onPillsRoom]);
 
   // The window keeps one size; the shape it shows, where the window takes clicks, changes.
   const reported = useRef('');
@@ -382,7 +390,7 @@ export function NotchShell({ notch, logoStatus, moment, counts, room, screen, zo
     if (!d?.moved) return;
     cancelAnimationFrame(d.frame);
     setSizing(false);
-    const s = notchSizes(notch, natural.body, natural.side, room, screen, d.to, zoomFactor(zoom), endH);
+    const s = notchSizes(notch, natural.body.h, natural.side, screen, d.to, zoomFactor(zoom), endH);
     const kept = { w: s.session.w, h: s.session.h - s.pills.h };
     setWant(kept);
     writeStored(SIZE_KEY, SIZE_STORED, kept);
@@ -502,8 +510,7 @@ export function NotchShell({ notch, logoStatus, moment, counts, room, screen, zo
           {children}
         </div>
         {/* The session, under the pills: as wide as the shape and as tall as it opens, with the
-            edges that size it over its foot; or the end of what waits, at the top, as wide as the
-            shape is then. */}
+            edges that size it over its foot; or the end of what waits, at the top. */}
         <div className="ca-notch-session" style={{ top: sizes.pills.h, left: (sizes.full.w - sizes.session.w) / 2, width: sizes.session.w, height: sizes.session.h - sizes.pills.h }} aria-hidden={!sessionOpen}>
           {sessionEnd ? (
             <div ref={endBox} className="ca-notch-end-box" style={{ width: sizes.end.w }}>

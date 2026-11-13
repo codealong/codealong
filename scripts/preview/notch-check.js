@@ -1,7 +1,8 @@
 // Checks the bar docked in the notch (Notch.tsx): closed it counts all that waits on you, as the
 // most urgent kind, which open shows kind by kind, and tells Codealong its shape; pointing at it
 // grows it a little at once and opens it after a moment, the clip only ever growing and the
-// window never resized; leaving closes it after a moment; a click opens it at once, on the current
+// window never resized; open, a note on the bar folds pills rather than widening it; leaving
+// closes it after a moment; a click opens it at once, on the current
 // session; a peek up elsewhere (a card's on the desktop) doesn't hold it open, since a docked bar
 // has none of its own; and Codealong's own word of the pointer (`notch-pointer`) works as the
 // page's events do. The session it shows under its pills has notch-session-check.js.
@@ -80,6 +81,33 @@
           var open = counts();
           var waits = open.filter(function (c) { return c.kind !== 'working'; }).reduce(function (sum, c) { return sum + c.n; }, 0);
           check('closed it counted all that waits, as its most urgent kind', shut.kind === open[0].kind && shut.n === (waits || open[0].n), JSON.stringify(shut) + ' closed, ' + JSON.stringify(open) + ' open');
+        });
+    })
+    .then(function () {
+      // Open, it's one width whatever the pills are: a note on the bar (how a review went, say)
+      // folds pills to make room rather than widening it, and the pills fit inside it.
+      var openW = lastShape().w;
+      var shown = function () {
+        var left = notch().getBoundingClientRect().left + inset();
+        var body = document.querySelector('.ca-notch-body').getBoundingClientRect();
+        return { fits: body.left >= left - 0.5 && body.right <= left + openW + 0.5, says: Math.round(body.left) + ' to ' + Math.round(body.right) + ' in ' + Math.round(left) + ' to ' + Math.round(left + openW) };
+      };
+      var before = shown();
+      check('its pills fit inside it', before.fits, before.says);
+      var note = function () { return document.querySelector('.ca-notch-body .ca-hud-pill.is-info'); };
+      window.__emit('bar-note', { key: 'not-on-the-bar', message: 'Approved #1477, and a good deal more said about how it went.', tone: 'info' });
+      return until(note, 2000, 'the note on the bar')
+        .then(function () { return wait(300); })
+        .then(function () {
+          check('a note on the bar leaves its width as it was', lastShape().w === openW, openW + ' then ' + JSON.stringify(lastShape()));
+          var after = shown();
+          check('the pills fit inside it with the note among them', after.fits, after.says);
+          note().click();
+          return until(function () { return !note(); }, 2000, 'the note gone');
+        })
+        .then(function () { return wait(300); })
+        .then(function () {
+          check('and it keeps that width as the note goes', lastShape().w === openW, JSON.stringify(lastShape()));
         });
     })
     .then(function () {

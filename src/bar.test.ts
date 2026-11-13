@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { barWidth, currentRow, elsewhereWaits, fitGroups, NOTCH, notchClip, notchCount, notchDragged, notchRows, notchSizes, plain, projectWaits, ROW_READS, waitingRow, waitingRows, type Metrics, type NotchRow } from './bar';
+import { barWidth, currentRow, elsewhereWaits, fitGroups, NOTCH, notchClip, notchCount, notchDragged, notchPillsRoom, notchRows, notchSizes, plain, projectWaits, ROW_READS, waitingRow, waitingRows, type Metrics, type NotchRow } from './bar';
 import { inQueueOrder, placeOf } from './queue';
 import { ALL_PROJECTS, QUEUE_READS, queueRows } from './quick';
 import * as fx from './testing/fixtures';
@@ -22,6 +22,7 @@ describe('fitGroups', () => {
     recent: 0,
     reviews,
     todos: 0,
+    note: 0,
     gap: 4,
     divider: 1,
     padding: 5,
@@ -81,6 +82,29 @@ describe('fitGroups', () => {
   it('keeps empty groups off the bar', () => {
     expect(barWidth(fitGroups(metrics([], [80], []), 10_000), metrics([], [80], []))).toBe(10 + 24 + 1 + 80 + 2 * 4);
   });
+
+  it('counts a note at the end, folding pills to make room for it rather than outgrowing the room', () => {
+    expect(barWidth([], metrics([], [], [], 0, { note: 120 }))).toBe(10 + 24 + 1 + 120 + 2 * 4);
+    const m = metrics([100], [100, 100], [100]);
+    const room = barWidth(fitGroups(m, 10_000), m);
+    const noted = { ...m, note: 150 };
+    const fits = fitGroups(noted, room);
+    expect(fits.map((f) => [f.shown, f.folded])).toEqual([
+      [1, 0],
+      [0, 2],
+      [0, 1],
+    ]);
+    expect(barWidth(fits, noted)).toBeLessThanOrEqual(room);
+  });
+
+  it('docked in the notch, counts only the pills, the mark and the project button being beside the camera', () => {
+    // Two pills and a gap; Needs you and Your turn with a divider between.
+    const docked = metrics([100, 50], [], [], 0, { mark: 0, padding: 0 });
+    expect(barWidth(fitGroups(docked, 10_000), docked)).toBe(150 + 4);
+    const two = metrics([100], [80], [], 0, { mark: 0, padding: 0 });
+    expect(barWidth(fitGroups(two, 10_000), two)).toBe(100 + 1 + 80 + 2 * 4);
+    expect(barWidth([], metrics([], [], [], 0, { mark: 0, padding: 0 }))).toBe(0);
+  });
 });
 
 describe('plain', () => {
@@ -121,81 +145,78 @@ describe('project counts', () => {
 });
 
 describe('the bar docked in the notch', () => {
-  // A 14-inch MacBook Pro's notch and screen, and room for pills 900 wide.
+  // A 14-inch MacBook Pro's notch and screen, and pills 24 tall.
   const notch = { width: 185, height: 32 };
-  const room = 900;
   const screen = { w: 1512, h: 982 };
-  const sizes = (body: { w: number; h: number }, side: number, on = screen, want: { w: number; h: number } | null = null) => notchSizes(notch, body, side, room, on, want);
+  const sizes = (side = 60, on = screen, want: { w: number; h: number } | null = null) => notchSizes(notch, 24, side, on, want);
 
   it('is the notch with a side on each hand while closed', () => {
-    expect(sizes({ w: 600, h: 24 }, 60).closed).toEqual({ w: 185 + 2 * NOTCH.wing, h: 32 });
+    expect(sizes().closed).toEqual({ w: 185 + 2 * NOTCH.wing, h: 32 });
   });
 
   it('is wider on both hands while closed by what a meeting’s countdown takes, in whole points', () => {
-    const counting = notchSizes(notch, { w: 200, h: 24 }, 60, room, screen, null, 1, 0, 36.4);
+    const counting = notchSizes(notch, 24, 60, screen, null, 1, 0, 36.4);
     expect(counting.closed).toEqual({ w: 185 + 2 * (NOTCH.wing + 37), h: 32 });
     // The pills are never narrower than that.
     expect(counting.pills.w).toBeGreaterThanOrEqual(counting.closed.w);
   });
 
-  it('shows its pills as wide as they or the sides need, never narrower than closed', () => {
-    // 620 across, but as much wider on each side in whole points: 621, the closed 273 and 174 a side.
-    expect(sizes({ w: 600, h: 24 }, 60).pills).toEqual({ w: 621, h: 32 + 24 + NOTCH.pad });
-    expect(sizes({ w: 601, h: 24 }, 60).pills.w).toBe(621);
-    // Wide sides beside the camera: room for each on its hand.
-    expect(sizes({ w: 100, h: 24 }, 200).pills.w).toBe(185 + 2 * (200 + NOTCH.pad));
-    // Nothing below yet: at least the closed width.
-    expect(sizes({ w: 0, h: 0 }, 0).pills.w).toBe(185 + 2 * NOTCH.wing);
+  it('opens one width whatever it shows, the session’s, which the pills fold to fit', () => {
+    // The session's usual 680, as much wider than closed on each side in whole points: 681, the
+    // closed 273 and 204 a side.
+    const s = sizes();
+    expect(s.pills).toEqual({ w: 681, h: 32 + 24 + NOTCH.pad });
+    expect(s.session.w).toBe(681);
+    expect(s.end.w).toBe(681);
+    expect(notchPillsRoom(s)).toBe(681 - 2 * NOTCH.pad);
+    // A session dragged wider: the pills have its width too, whether it shows or not.
+    const wide = sizes(60, screen, { w: 800, h: 300 });
+    expect(wide.pills.w).toBe(801);
+    expect(notchPillsRoom(wide)).toBe(801 - 2 * NOTCH.pad);
+    // Sides beside the camera wider than that: room for each on its hand.
+    expect(sizes(400).pills.w).toBe(185 + 2 * (400 + NOTCH.pad));
+    expect(sizes(400).session.w).toBe(sizes(400).pills.w);
   });
 
-  it('shows a session under the pills, as wide as they are and no narrower than a session reads', () => {
-    // Few pills: the session's own width, as much wider than closed on each side in whole points.
-    const few = sizes({ w: 300, h: 24 }, 60);
-    expect(few.session.w).toBe(681);
-    expect((few.session.w - few.pills.w) % 2).toBe(0);
-    expect(few.session.h).toBe(few.pills.h + NOTCH.session.height);
-    // Many: as wide as the pills.
-    const many = sizes({ w: 800, h: 24 }, 60);
-    expect(many.session.w).toBe(many.pills.w);
+  it('shows a session under the pills, as tall as a session reads', () => {
+    const s = sizes();
+    expect(s.session.h).toBe(s.pills.h + NOTCH.session.height);
   });
 
   it('opens a session no taller than the screen has room for, and never too short to read', () => {
-    const short = sizes({ w: 300, h: 24 }, 60, { w: 1512, h: 500 });
-    expect(short.session.h).toBe(500 - NOTCH.session.clear);
-    expect(sizes({ w: 300, h: 24 }, 60, { w: 1512, h: 200 }).session.h).toBe(66 + NOTCH.session.least);
+    expect(sizes(60, { w: 1512, h: 500 }).session.h).toBe(500 - NOTCH.session.clear);
+    expect(sizes(60, { w: 1512, h: 200 }).session.h).toBe(66 + NOTCH.session.least);
   });
 
   it('takes the size you drag the session to, within what there’s room for', () => {
-    const body = { w: 300, h: 24 };
-    const dragged = sizes(body, 60, screen, { w: 800, h: 700 });
-    expect(dragged.session).toEqual({ w: 801, h: 66 + 700 });
-    // No narrower than a session reads or than the pills, no shorter than one reads.
-    expect(sizes(body, 60, screen, { w: 100, h: 50 }).session).toEqual({ w: 681, h: 66 + NOTCH.session.least });
-    expect(sizes({ w: 800, h: 24 }, 60, screen, { w: 100, h: 520 }).session.w).toBe(821);
+    expect(sizes(60, screen, { w: 800, h: 700 }).session).toEqual({ w: 801, h: 66 + 700 });
+    // No narrower than a session reads, no shorter than one reads.
+    expect(sizes(60, screen, { w: 100, h: 50 }).session).toEqual({ w: 681, h: 66 + NOTCH.session.least });
     // No bigger than the biggest it gets, which leaves some of the screen clear.
-    const far = sizes(body, 60, screen, { w: 5000, h: 5000 });
+    const far = sizes(60, screen, { w: 5000, h: 5000 });
     expect(far.session).toEqual(far.full);
     expect(far.full).toEqual({ w: 1041, h: 982 - NOTCH.session.clear });
     // A small screen has less room.
-    expect(sizes(body, 60, { w: 1000, h: 700 }, { w: 5000, h: 5000 }).session).toEqual({ w: 905, h: 700 - NOTCH.session.clear });
+    expect(sizes(60, { w: 1000, h: 700 }, { w: 5000, h: 5000 }).session).toEqual({ w: 905, h: 700 - NOTCH.session.clear });
   });
 
   it('opens a zoomed session as much bigger, within the screen, and leaves a dragged one as it was', () => {
-    const body = { w: 300, h: 24 };
-    const zoomed = notchSizes(notch, body, 60, room, screen, null, 1.25);
+    const zoomed = notchSizes(notch, 24, 60, screen, null, 1.25);
     // 850 across, widened to whole points a side; 650 under the pills.
     expect(zoomed.session).toEqual({ w: 851, h: 66 + 650 });
+    // The pills open as wide.
+    expect(zoomed.pills.w).toBe(851);
     // The window stays as it was, so the zoom resizes only the shape inside it.
-    expect(zoomed.full).toEqual(sizes(body, 60).full);
-    expect(zoomed.window).toEqual(sizes(body, 60).window);
+    expect(zoomed.full).toEqual(sizes().full);
+    expect(zoomed.window).toEqual(sizes().window);
     // Past the most it gets, it grows to the zoomed usual size, within what the screen leaves clear.
-    const big = notchSizes(notch, body, 60, room, screen, null, 2);
+    const big = notchSizes(notch, 24, 60, screen, null, 2);
     expect(big.session.w).toBe(1361);
     expect(big.full.w).toBe(1361);
-    expect(notchSizes(notch, body, 60, room, { w: 1200, h: 982 }, null, 2).session.w).toBe(1105);
-    expect(notchSizes(notch, body, 60, room, { w: 1512, h: 700 }, null, 2).session.h).toBe(700 - NOTCH.session.clear);
+    expect(notchSizes(notch, 24, 60, { w: 1200, h: 982 }, null, 2).session.w).toBe(1105);
+    expect(notchSizes(notch, 24, 60, { w: 1512, h: 700 }, null, 2).session.h).toBe(700 - NOTCH.session.clear);
     // A size you dragged it to stays, if it's no narrower than the zoomed usual width.
-    expect(notchSizes(notch, body, 60, room, screen, { w: 900, h: 500 }, 1.25).session).toEqual({ w: 901, h: 66 + 500 });
+    expect(notchSizes(notch, 24, 60, screen, { w: 900, h: 500 }, 1.25).session).toEqual({ w: 901, h: 66 + 500 });
   });
 
   it('pulls a corner out as far on the other side, the notch staying centered', () => {
@@ -208,17 +229,15 @@ describe('the bar docked in the notch', () => {
   });
 
   it('keeps one window whatever shows, as big as a session can be dragged', () => {
-    const a = sizes({ w: 300, h: 24 }, 60);
-    const b = sizes({ w: 700, h: 24 }, 60, screen, { w: 900, h: 300 });
+    const a = sizes();
+    const b = sizes(60, screen, { w: 900, h: 300 });
     expect(a.window).toEqual(b.window);
     // Room for the corners and the shadow, whichever reaches further.
     expect(a.window).toEqual({ w: a.full.w + 2 * Math.max(NOTCH.ear.open, NOTCH.shadow.side), h: a.full.h + NOTCH.shadow.bottom });
-    // Never narrower than the pills can get.
-    expect(sizes({ w: 300, h: 24 }, 60, { w: 800, h: 700 }).full.w).toBeGreaterThanOrEqual(room + 2 * NOTCH.pad);
   });
 
   it('shows each state through the clip: the notch, a little wider under the pointer, the pills, the session', () => {
-    const s = sizes({ w: 400, h: 24 }, 60);
+    const s = sizes();
     const closed = notchClip(s, 'closed');
     expect(s.full.w - 2 * closed.side).toBe(s.closed.w);
     expect(Number.isInteger(closed.side)).toBe(true);
@@ -237,27 +256,20 @@ describe('the bar docked in the notch', () => {
     expect(session.radius).toBe(NOTCH.radius.session);
   });
 
-  it('shows the end of what waits under the pills as tall as it needs, never narrower than its least', () => {
-    // Narrow pills: the end's own least, in whole points a side (273 closed, 64 more a side).
-    const narrow = notchSizes(notch, { w: 200, h: 24 }, 60, room, screen, null, 1, 150.4);
-    expect(narrow.end).toEqual({ w: 401, h: narrow.pills.h + 151 });
-    // Wide pills: as wide as they are.
-    const wide = notchSizes(notch, { w: 600, h: 24 }, 60, room, screen, null, 1, 150);
-    expect(wide.end.w).toBe(wide.pills.w);
+  it('shows the end of what waits under the pills as tall as it needs', () => {
+    const s = notchSizes(notch, 24, 60, screen, null, 1, 150.4);
+    expect(s.end).toEqual({ w: 681, h: s.pills.h + 151 });
     // As tall as it needs with the session dragged shorter than it, its tip and Next tip included;
     // never past the most the layout has.
-    const short = notchSizes(notch, { w: 200, h: 24 }, 60, room, screen, { w: 300, h: 100 }, 1, 300);
+    const short = notchSizes(notch, 24, 60, screen, { w: 300, h: 100 }, 1, 300);
     expect(short.session.h).toBe(66 + NOTCH.session.least);
     expect(short.end.h).toBe(66 + 300);
-    const tallest = notchSizes(notch, { w: 200, h: 24 }, 60, room, screen, { w: 300, h: 100 }, 1, 5000);
+    const tallest = notchSizes(notch, 24, 60, screen, { w: 300, h: 100 }, 1, 5000);
     expect(tallest.end.h).toBe(tallest.full.h);
-    const small = notchSizes(notch, { w: 200, h: 24 }, 60, room, { w: 380, h: 700 }, null, 1, 150);
-    expect(small.session.w).toBeLessThan(401);
-    expect(small.end.w).toBe(small.session.w);
-    const end = notchClip(narrow, 'end');
-    expect(narrow.full.w - 2 * end.side).toBe(narrow.end.w);
+    const end = notchClip(s, 'end');
+    expect(s.full.w - 2 * end.side).toBe(s.end.w);
     expect(Number.isInteger(end.side)).toBe(true);
-    expect(narrow.full.h - end.bottom).toBe(narrow.end.h);
+    expect(s.full.h - end.bottom).toBe(s.end.h);
     expect(end.radius).toBe(NOTCH.radius.session);
   });
 

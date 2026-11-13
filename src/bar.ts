@@ -33,7 +33,8 @@ export interface Metrics {
   pills: Record<Group, number[]>;
   /** A pill holding folded ones, per group. */
   fold: Record<Group, number>;
-  /** The bar's mark, and the project menu's button beside it (0 when there is none). */
+  /** The bar's mark, and the project menu's button beside it (0 for one that isn't among the
+   *  pills: docked in the notch, both are beside the camera). */
   mark: number;
   project: number;
   /** The pills of the sessions that are hearing, each its own width, first after those. */
@@ -44,6 +45,10 @@ export interface Metrics {
   recent: number;
   reviews: number;
   todos: number;
+  /** A note on the bar (a failed open, what a review did), 0 while there's none. It's counted in
+   *  a section of its own at the end, the most it takes, whether it shows there or in the place
+   *  of the pill it came from. */
+  note: number;
   /** Space between neighbors, a divider's own width, and the bar's padding on each side. */
   gap: number;
   divider: number;
@@ -52,16 +57,13 @@ export interface Metrics {
 
 /** The bar's width with the groups laid out as `fits` say. Sections sit apart by dividers. */
 export function barWidth(fits: GroupFit[], m: Metrics): number {
-  const sections: number[][] = [[m.mark, m.project].filter((w) => w > 0)];
-  if (m.hearing.length) sections.push(m.hearing);
-  for (const f of fits) {
-    const widths = [...m.pills[f.group].slice(0, f.shown), ...(f.folded > 0 ? [m.fold[f.group]] : [])];
-    if (widths.length) sections.push(widths);
-  }
-  const last = [m.snoozed, m.recent, m.reviews, m.todos].filter((w) => w > 0);
-  if (last.length) sections.push(last);
-  const pieces = sections.flat();
-  const dividers = sections.length - 1;
+  const sections: number[][] = [[m.mark, m.project].filter((w) => w > 0), m.hearing];
+  for (const f of fits) sections.push([...m.pills[f.group].slice(0, f.shown), ...(f.folded > 0 ? [m.fold[f.group]] : [])]);
+  sections.push([m.snoozed, m.recent, m.reviews, m.todos].filter((w) => w > 0), m.note > 0 ? [m.note] : []);
+  const shown = sections.filter((s) => s.length > 0);
+  if (!shown.length) return 2 * m.padding;
+  const pieces = shown.flat();
+  const dividers = shown.length - 1;
   const children = pieces.length + dividers;
   return 2 * m.padding + pieces.reduce((a, b) => a + b, 0) + dividers * m.divider + (children - 1) * m.gap;
 }
@@ -129,8 +131,7 @@ export function elsewhereWaits(waits: Record<string, WaitCounts>, projects: stri
  *  size of your own, never narrower than `width` or shorter than `least`, nor wider than `widest`
  *  or taller than `tallest`, and leaving `clear` of the screen beside and under it; and the room
  *  the window keeps beside and under the shape for its shadow (app.css `--shadow-notch` reaches
- *  16 beside it and 30 under it). The end of what waits under the pills is never narrower than
- *  `end`. */
+ *  16 beside it and 30 under it). */
 export const NOTCH = {
   wing: 44,
   hover: 4,
@@ -138,7 +139,6 @@ export const NOTCH = {
   radius: { closed: 12, open: 22, session: 26 },
   pad: 10,
   session: { width: 680, height: 520, least: 240, widest: 1040, tallest: 900, clear: 96 },
-  end: 400,
   shadow: { side: 20, bottom: 32 },
 };
 
@@ -156,8 +156,8 @@ export interface NotchSizes {
   closed: Size;
   pills: Size;
   session: Size;
-  /** With the end of what waits under the pills: as wide as they are, or `NOTCH.end`, and as tall
-   *  as it needs, whatever size you dragged the session to. */
+  /** With the end of what waits under the pills: as tall as it needs, whatever size you dragged
+   *  the session to. */
   end: Size;
   /** The biggest the shape can get, a session dragged as far as it goes: what everything is laid
    *  out in. */
@@ -165,39 +165,53 @@ export interface NotchSizes {
   window: Size;
 }
 
-/** The docked bar's shape in each state, and its window. With the pills it's as wide as they or
- *  the sides beside the camera need, never narrower than closed; with a session it's the
- *  session's width and as much taller, at the size you dragged it to (`want`: its width, and its
- *  height under the pills) or its usual one, within what the screen has room for. Everything is
- *  laid out once in the biggest it can get (`full`) and shown through a clip (`notchClip`). The
- *  window is that big too, with room for the corners and the shadow, so it keeps its size
- *  whatever shows, a session being dragged bigger included, and never cuts the shadow off.
- *  `room` is the widest the pills can get. At a `zoom` (a factor) the session's card draws bigger
- *  (zoom.ts), so its usual size is as much bigger, within the screen; a size you dragged it to
- *  stays as you left it. The most it can get grows only for a usual size past it, so most zooms
- *  leave the window as it was: a window resized by the engine lands a moment after the page has
- *  laid out for it, and the shape jumped across in between. `endH` is how tall the end of what
- *  waits is at its width: it's as tall as that, a session dragged shorter or not, within the
- *  most the layout has. `soon` is how much wider each side is closed, for the countdown to a
- *  meeting beside the camera (Meeting.tsx `MeetingSoon`): the shape stays centered on it. */
-export function notchSizes(notch: { width: number; height: number }, body: Size, side: number, room: number, screen: Size, want?: Size | null, zoom = 1, endH = 0, soon = 0): NotchSizes {
+/** The docked bar's shape in each state, and its window. Open, it's one width whatever it shows
+ *  (the pills, a session under them, the end of what waits): the session's, at the width you
+ *  dragged it to (`want`: its width, and its height under the pills) or its usual one, within
+ *  what the screen has room for, and never narrower than the sides beside the camera need. The
+ *  pills fold to fit it (Bar.tsx) rather than widen it: a shape that grew and shrank with each
+ *  pill that came and went, a note's included, moved what you were reading (asked 2026-11-13).
+ *  `pillsH` is how tall the pills are; a session under them is as much taller as it is.
+ *  Everything is laid out once in the biggest it can get (`full`) and shown through a clip
+ *  (`notchClip`). The window is that big too, with room for the corners and the shadow, so it
+ *  keeps its size whatever shows, a session being dragged bigger included, and never cuts the
+ *  shadow off. At a `zoom` (a factor) the session's card draws bigger (zoom.ts), so its usual
+ *  size is as much bigger, within the screen; a size you dragged it to stays as you left it. The
+ *  most it can get grows only for a usual size past it, so most zooms leave the window as it
+ *  was: a window resized by the engine lands a moment after the page has laid out for it, and
+ *  the shape jumped across in between. `endH` is how tall the end of what waits is at its width:
+ *  it's as tall as that, a session dragged shorter or not, within the most the layout has.
+ *  `soon` is how much wider each side is closed, for the countdown to a meeting beside the
+ *  camera (Meeting.tsx `MeetingSoon`): the shape stays centered on it. */
+export function notchSizes(notch: { width: number; height: number }, pillsH: number, side: number, screen: Size, want?: Size | null, zoom = 1, endH = 0, soon = 0): NotchSizes {
   const closed = { w: notch.width + 2 * (NOTCH.wing + Math.ceil(soon)), h: notch.height };
   // As much wider than closed on each side, in whole points: the clip's edges then fall on whole
   // points, where they're sharp.
   const widened = (w: number) => closed.w + 2 * Math.ceil(Math.max(0, w - closed.w) / 2);
-  const pills = { w: widened(Math.max(body.w + 2 * NOTCH.pad, notch.width + 2 * (side + NOTCH.pad))), h: Math.ceil(notch.height + body.h + NOTCH.pad) };
+  const top = Math.ceil(notch.height + pillsH + NOTCH.pad);
   const across = screen.w - NOTCH.session.clear;
-  const roomDown = Math.floor(screen.h - pills.h - NOTCH.session.clear);
+  const roomDown = Math.floor(screen.h - top - NOTCH.session.clear);
   const usual = { w: Math.min(Math.round(NOTCH.session.width * zoom), across), h: Math.min(Math.round(NOTCH.session.height * zoom), roomDown) };
-  const narrowest = Math.max(pills.w, widened(usual.w));
+  const narrowest = Math.max(widened(usual.w), widened(notch.width + 2 * (side + NOTCH.pad)));
   const widest = Math.max(narrowest, widened(Math.min(NOTCH.session.widest, across)));
+  const w = Math.min(widest, Math.max(narrowest, widened(want?.w ?? usual.w)));
   const tallest = Math.max(NOTCH.session.least, usual.h, Math.min(NOTCH.session.tallest, roomDown));
   const tall = Math.min(tallest, Math.max(NOTCH.session.least, Math.round(want?.h ?? usual.h)));
-  const session = { w: Math.min(widest, Math.max(narrowest, widened(want?.w ?? usual.w))), h: pills.h + tall };
-  const full = { w: Math.max(widest, widened(room + 2 * NOTCH.pad)), h: pills.h + tallest };
-  const end = { w: Math.min(session.w, Math.max(pills.w, widened(NOTCH.end))), h: Math.min(full.h, pills.h + Math.ceil(endH)) };
+  const full = { w: widest, h: top + tallest };
   const margin = Math.max(NOTCH.ear.open, NOTCH.shadow.side);
-  return { closed, pills, session, end, full, window: { w: full.w + 2 * margin, h: full.h + NOTCH.shadow.bottom } };
+  return {
+    closed,
+    pills: { w, h: top },
+    session: { w, h: top + tall },
+    end: { w, h: Math.min(full.h, top + Math.ceil(endH)) },
+    full,
+    window: { w: full.w + 2 * margin, h: full.h + NOTCH.shadow.bottom },
+  };
+}
+
+/** The room the pills have across the open notch, which the bar folds them to fit. */
+export function notchPillsRoom(s: Pick<NotchSizes, 'pills'>): number {
+  return s.pills.w - 2 * NOTCH.pad;
 }
 
 /** How much of the layout shows: its insets from the sides and the bottom, and the radius of its

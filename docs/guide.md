@@ -3296,7 +3296,9 @@ you, then a review, then Your turn; a new one that needs you pulses). With nothi
 counts what's working. Your other Macs' sessions are among them while those Macs are
 connected, each pill with its Mac's color (*Your other devices*). Rest the pointer on it for a moment, or click it, and it opens down
 into the bar's pills, with the project and every count beside the camera; it closes a moment after
-the pointer leaves, and stays open while one of its menus is up. The pin at the end of its right
+the pointer leaves, and stays open while one of its menus is up. Open, it's one width whatever it
+shows, a session's (its usual width, or the one you dragged it to): the pills fold into a count to
+fit it, a note such as how a review went included, rather than widening it as they come and go. The pin at the end of its right
 side, or Keep the notch open in its right-click menu, keeps it open until you unpin it, across
 launches. There's no peek beside a docked bar: click a session's pill and the notch opens further,
 into that session under the pills, its header, its conversation and the box that answers it, dark as
