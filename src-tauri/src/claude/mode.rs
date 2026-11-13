@@ -35,18 +35,26 @@ pub(super) fn permission_mode(registry: Option<&RegistryEntry>, transcripts: &[P
 /// transcript only with the first prompt, a second or so after the session is in its registry,
 /// and a message Codealong sends a session it has just started goes before that. Without it, a
 /// meeting's brief claimed no mode and a session that skips prompts held it for you (2.1.323,
-/// 2026-11-13: held 0.3 s before the transcript was made). It's the command line's
-/// (`--permission-mode`, `--dangerously-skip-permissions`), else the settings' `defaultMode`, but
-/// not Bypass where settings turn it off; none where nothing says. `command` is its process's
-/// command line (a background job's is its spare's, which names no mode), `home` the account's
-/// folder and `cwd` the session's.
+/// 2026-11-13: held 0.3 s before the transcript was made). As 2.1.323's code decides it: the
+/// first of `--dangerously-skip-permissions`, `--permission-mode` and the settings' `defaultMode`
+/// that isn't a Bypass settings turn off; none where nothing says. A default of Bypass or Auto
+/// counts only where the account's or the managed settings say it themselves ("only
+/// policy/user/flag settings may grant bypass mode (projectSettings and localSettings are
+/// repo-controllable)"), else it starts in Manual. `command` is its process's command line (a
+/// background job's is its spare's, which names no mode), `home` the account's folder and `cwd`
+/// the session's.
 pub(super) fn starting_mode(home: &Path, cwd: &Path, command: Option<&str>) -> Option<String> {
     starting_by(&offers(&settings_files(home, cwd), &super::trust::state_file(home)), command.unwrap_or_default())
 }
 
 fn starting_by(offers: &Offers, command: &str) -> Option<String> {
-    let mode = started_in(command).mode.or_else(|| offers.default_mode.clone())?;
-    (mode != "bypassPermissions" || !offers.no_bypass).then_some(mode)
+    let started = started_in(command);
+    let default = offers.default_mode.clone().map(|m| match m.as_str() {
+        "bypassPermissions" | "auto" if !offers.default_granted => "default".to_string(),
+        _ => m,
+    });
+    let skips = started.skips.then(|| "bypassPermissions".to_string());
+    skips.into_iter().chain(started.mode).chain(default).find(|m| m != "bypassPermissions" || !offers.no_bypass)
 }
 
 /// A mode as Claude Code writes it (`permissionMode`), named as its own terminal and the Claude
@@ -82,7 +90,7 @@ fn cycled_by(offers: &Offers, recorded: Option<&str>, command: Option<&str>) -> 
     let started = started_in(command.unwrap_or_default());
     let starts = started.mode.as_deref().or(offers.default_mode.as_deref());
     // Offered to a session that started bypassing, or was let to (`isBypassPermissionsModeAvailable`).
-    let bypass = !offers.no_bypass && (starts == Some("bypassPermissions") || started.may_bypass || recorded == Some("bypassPermissions"));
+    let bypass = !offers.no_bypass && (started.skips || starts == Some("bypassPermissions") || started.may_bypass || recorded == Some("bypassPermissions"));
     // Offered unless settings or Anthropic's flag turn it off (`q_`, whose default is on), or
     // the flag leaves it to an opt-in this session shows it took. Whether the model takes it
     // isn't known here.
@@ -105,12 +113,14 @@ pub fn mode_id(raw: &str) -> &str {
 }
 
 /// What a session's command line says of its modes: `--permission-mode`, and whether
-/// `--dangerously-skip-permissions` started it bypassing or `--allow-dangerously-skip-permissions`
-/// let it. A word of the prompt can't be told from an argument in `ps`'s line, so a prompt that
-/// is one of these words alone counts too.
+/// `--dangerously-skip-permissions` started it bypassing (`skips`, which wins over the mode
+/// wherever it comes) or `--allow-dangerously-skip-permissions` let it. A word of the prompt can't
+/// be told from an argument in `ps`'s line, so a prompt that is one of these words alone counts
+/// too.
 #[derive(Debug, Default, PartialEq)]
 struct Started {
     mode: Option<String>,
+    skips: bool,
     may_bypass: bool,
 }
 
@@ -121,7 +131,7 @@ fn started_in(command: &str) -> Started {
         match w.split_once('=') {
             Some(("--permission-mode", mode)) => out.mode = Some(mode.to_string()),
             _ if w == "--permission-mode" => out.mode = words.next().map(str::to_string),
-            _ if w == "--dangerously-skip-permissions" => out.mode = Some("bypassPermissions".into()),
+            _ if w == "--dangerously-skip-permissions" => out.skips = true,
             _ if w == "--allow-dangerously-skip-permissions" => out.may_bypass = true,
             _ => {}
         }
@@ -135,6 +145,9 @@ fn started_in(command: &str) -> Started {
 struct Offers {
     /// `permissions.defaultMode`: the mode a session starts in without `--permission-mode`.
     default_mode: Option<String>,
+    /// Whether the account's or the managed settings say that default themselves, which a
+    /// default of Bypass or Auto needs (`starting_by`).
+    default_granted: bool,
     /// `permissions.disableBypassPermissionsMode: "disable"`.
     no_bypass: bool,
     /// `disableAutoMode: "disable"`, at the top or under `permissions`.
@@ -149,8 +162,12 @@ struct Offers {
 /// account's state file.
 fn offers(settings: &[PathBuf], state: &Path) -> Offers {
     let files: Vec<Offers> = settings.iter().map(|f| file_offers(f)).collect();
+    let default_mode = files.iter().rev().find_map(|f| f.default_mode.clone());
+    // The account's are the first of `settings_files`, the managed ones the last.
+    let default_granted = default_mode.is_some() && [files.first(), files.last()].into_iter().flatten().any(|f| f.default_mode == default_mode);
     Offers {
-        default_mode: files.iter().rev().find_map(|f| f.default_mode.clone()),
+        default_mode,
+        default_granted,
         no_bypass: files.iter().any(|f| f.no_bypass),
         no_auto: files.iter().any(|f| f.no_auto),
         auto_flag: file_offers(state).auto_flag,
@@ -197,6 +214,8 @@ fn offers_in(file: &Value) -> Offers {
         no_bypass: said("/permissions/disableBypassPermissionsMode").as_deref() == Some("disable"),
         no_auto: ["/disableAutoMode", "/permissions/disableAutoMode"].iter().any(|p| said(p).as_deref() == Some("disable")),
         auto_flag: said("/cachedGrowthBookFeatures/tengu_auto_mode_config/enabled"),
+        // Which file says it is for `offers`.
+        default_granted: false,
     }
 }
 
@@ -270,17 +289,27 @@ mod tests {
         set(3, r#"{"permissions":{"disableBypassPermissionsMode":"disable","defaultMode":"bypassPermissions"}}"#);
         assert_eq!(ids(Some("bypassPermissions"), None), ["default", "acceptEdits", "plan", "auto"]);
         assert_eq!(cycled_by(&offers(&files, &state), Some("auto"), None)[3].label, "Auto");
-        // The mode one starts in, before its transcript says: the flag over the settings, and
-        // no Bypass where it's turned off.
+        // The mode one starts in, before its transcript says: the flags over the settings, the
+        // skip over the mode, and no Bypass where it's turned off.
         let starts = |command: &str| starting_by(&offers(&files, &state), command);
-        assert_eq!(starts("claude bg-spare --bg-spare /tmp/s.sock"), None, "turned off, so not known");
+        assert_eq!(starts("claude bg-spare --bg-spare /tmp/s.sock"), None, "the managed default is turned off");
         assert_eq!(starts("claude --permission-mode plan").as_deref(), Some("plan"));
+        assert_eq!(starts("claude --dangerously-skip-permissions --permission-mode plan").as_deref(), Some("plan"), "the skip turned off");
         set(3, "{}");
         assert_eq!(starts("claude bg-spare --bg-spare /tmp/s.sock").as_deref(), Some("acceptEdits"), "the local default");
+        assert_eq!(starts("claude --permission-mode default --dangerously-skip-permissions").as_deref(), Some("bypassPermissions"), "the skip wins wherever it comes");
         set(2, "{}");
-        assert_eq!(starts("claude --session-id 1 hi").as_deref(), Some("bypassPermissions"));
+        assert_eq!(starts("claude --session-id 1 hi").as_deref(), Some("default"), "a repo's own Bypass is ignored");
+        set(0, r#"{"permissions":{"defaultMode":"bypassPermissions"}}"#);
+        assert_eq!(starts("claude --session-id 1 hi").as_deref(), Some("bypassPermissions"), "the account's grants it");
         assert_eq!(starts("claude --permission-mode=default").as_deref(), Some("default"));
-        set(1, "{}");
+        set(1, r#"{"permissions":{"defaultMode":"auto"}}"#);
+        assert_eq!(starts("claude --session-id 1 hi").as_deref(), Some("default"), "nor a repo's own Auto");
+        set(3, r#"{"permissions":{"defaultMode":"auto"}}"#);
+        assert_eq!(starts("claude --session-id 1 hi").as_deref(), Some("auto"), "the managed ones grant it");
+        for i in 0..4 {
+            set(i, "{}");
+        }
         assert_eq!(starts("claude --session-id 1 hi"), None, "nothing says");
         assert_eq!(starts("claude --dangerously-skip-permissions").as_deref(), Some("bypassPermissions"));
         // Where Claude Code looks for them.

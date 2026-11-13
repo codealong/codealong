@@ -2163,11 +2163,15 @@ fn clears_context_in(texts: impl Iterator<Item = String>) -> bool {
     texts.filter_map(|t| serde_json::from_str::<Value>(&t).ok()?.get("showClearContextOnPlanAccept")?.as_bool()).last().unwrap_or(false)
 }
 
-/// The permission mode a live session runs in, as its files have it, else the one it starts in
-/// (`mode::starting_mode`): they say none until its first prompt is written, and a message sent
-/// it meanwhile, as Codealong sends one it has just started, would claim none.
+/// The permission mode a live session runs in, as its files have it, else, while it has no
+/// transcript yet, the one it starts in (`mode::starting_mode`): there's none until its first
+/// prompt is written, and a message sent it meanwhile, as Codealong sends one it has just
+/// started, would claim none. A transcript that doesn't say (its mode further back than
+/// `permission_mode` reads) says nothing of how it started, since it may have been switched.
 fn live_mode(account: &AccountCfg, s: &Session, registry: Option<&registry::RegistryEntry>) -> Option<String> {
-    permission_mode(registry, &records_in(account, s, home_of_account)).or_else(|| mode::starting_mode(&account.home_path(), Path::new(&s.cwd), s.pid.and_then(procs::command_line).as_deref()))
+    let records = records_in(account, s, home_of_account);
+    let starts = || mode::starting_mode(&account.home_path(), Path::new(&s.cwd), s.pid.and_then(procs::command_line).as_deref());
+    permission_mode(registry, &records).or_else(|| records.is_empty().then(starts).flatten())
 }
 
 /// Whether a session in `mode` holds another session's message whose sender doesn't claim
