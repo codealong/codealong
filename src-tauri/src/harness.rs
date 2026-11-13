@@ -330,13 +330,13 @@ pub trait Adapter: Sync {
         Ok(crate::util::terminal_text(whole))
     }
 
-    /// Stops a command the session left running in the background (`Session::tasks`): the shell
-    /// running it (`shell_script`) under the session's own process, or where it has none here,
-    /// the one it gave its ID (`session_var`; a Claude Code shell's starting environment was
-    /// found empty, so that's no way to find one there), and what that started, for its harness
-    /// to tell the agent it ended. Only one of the session's shells may run it: two running the
-    /// same command can't be told apart, and neither is guessed at. Returns what happened, in a
-    /// sentence.
+    /// Stops a command the session left running in the background (`Session::tasks`): the process
+    /// running it (`shell_script`) that's a child of the session's own process, or one whose
+    /// environment names the session (`session_var`; macOS doesn't give another process the
+    /// environment of its own programs, `/bin/zsh` among them, so that finds only a command a
+    /// shell handed on to a program of its own, `node`, say), and what that started, for its
+    /// harness to tell the agent it ended. Only one may run it: two running the same command
+    /// can't be told apart, and neither is guessed at. Returns what happened, in a sentence.
     fn stop_task(&self, _ctx: &Ctx, session: &Session, task: &BackgroundTask) -> Result<String> {
         if task.ended_at.is_some() {
             bail!("That command has already ended.");
@@ -1112,27 +1112,25 @@ pub fn started_under(env: &HashMap<String, String>) -> Vec<(Harness, String)> {
     ADAPTERS.iter().filter_map(|a| Some((a.harness(), env.get(a.session_var()?)?.clone()))).collect()
 }
 
-/// Whether what a shell runs, as `ps` gives its command line (`listed`), is `command`: the same,
-/// where the command is printable ASCII, else as far as that goes, since `ps` writes the rest its
-/// own way (macOS's a newline as `\012`). For finding a background command's process
-/// (`Adapter::stop_task`, codex/background.rs `alive`).
+/// Whether what a process runs, as `ps` gives its command line (`listed`), is `command`, the whole
+/// of it: as written, or as macOS's `ps` writes a control character, in octal (a tab `\011`, a
+/// newline `\012`; letters beyond ASCII it leaves as they are). Where it's written some other
+/// way it isn't found, rather than taken for another that starts the same. For finding a
+/// background command's process (`Adapter::stop_task`).
 pub fn listed_as(listed: &str, command: &str) -> bool {
-    let command = command.trim();
-    let plain = command.find(|c: char| !(c == ' ' || c.is_ascii_graphic())).unwrap_or(command.len());
-    if plain == command.len() {
-        return !command.is_empty() && listed.trim() == command;
-    }
-    let head = command[..plain].trim_end();
-    !head.is_empty() && listed.trim_start().starts_with(head)
+    let (listed, command) = (listed.trim(), command.trim());
+    let octal: String = command.chars().map(|c| if c.is_control() && (c as u32) < 0x80 { format!("\\{:03o}", c as u32) } else { c.to_string() }).collect();
+    !command.is_empty() && (listed == command || listed == octal)
 }
 
-/// The one shell in `table` of a session's that runs `command` (`Adapter::stop_task`): under its
-/// process `root`, or one whose environment names the session (`named`, asked only of shells
-/// running the command), `script` saying what a shell's command line runs. None found, or more
-/// than one, is an error: Stop never guesses.
+/// The one process in `table` of a session's that runs `command` (`Adapter::stop_task`): a child
+/// of its process `root`, not any deeper (an agent it started has shells of its own under it),
+/// or one whose environment names the session (`named`, asked only of processes running the
+/// command), `script` saying what a process's command line runs. None found, or more than one,
+/// is an error: Stop never guesses.
 pub fn task_shell(table: &[crate::hygiene::Proc], root: Option<u32>, command: &str, script: impl Fn(&str) -> Option<String>, named: impl Fn(u32) -> bool) -> Result<u32> {
-    let ours = |pid: u32| root.is_some_and(|r| crate::hygiene::descends_from(table, pid, r)) || named(pid);
-    let found: Vec<u32> = table.iter().filter(|p| script(&p.command).is_some_and(|c| listed_as(&c, command))).map(|p| p.pid).filter(|p| ours(*p)).collect();
+    let ours = |p: &crate::hygiene::Proc| root.is_some_and(|r| p.ppid == r) || named(p.pid);
+    let found: Vec<u32> = table.iter().filter(|p| script(&p.command).is_some_and(|c| listed_as(&c, command))).filter(|p| ours(p)).map(|p| p.pid).collect();
     match found[..] {
         [shell] => Ok(shell),
         [] => bail!("Codealong couldn't find the process running it: it may have just ended."),
@@ -1452,13 +1450,16 @@ mod tests {
             // A shell under a server its agent started (app-server → shell).
             row(500, 1, "codex app-server"),
             row(510, 500, "sh -c cargo watch"),
+            // An agent it started, whose own shell runs a command of the same name.
+            row(600, 100, "claude -p review"),
+            row(610, 600, "sh -c npm test"),
         ];
         let nobody = |_: u32| false;
         assert_eq!(task_shell(&table, Some(100), "npm run dev", script, nobody).unwrap(), 300);
         // With no process of its own here, the one whose environment names it.
         assert_eq!(task_shell(&table, None, "cargo watch", script, |p| p == 510).unwrap(), 510);
         assert!(task_shell(&table, None, "npm run dev", script, nobody).is_err(), "neither shell is known to be its");
-        assert!(task_shell(&table, Some(100), "npm test", script, nobody).is_err());
+        assert!(task_shell(&table, Some(100), "npm test", script, nobody).is_err(), "its agent's shell isn't its own");
         // Two of its own running the same command: neither is guessed at.
         let twice = [&table[..], &[row(302, 100, "sh -c npm run dev")]].concat();
         assert!(task_shell(&twice, Some(100), "npm run dev", script, nobody).unwrap_err().to_string().starts_with("2 of its processes"));
@@ -1467,11 +1468,14 @@ mod tests {
     #[test]
     fn a_command_is_found_by_its_command_line_as_ps_writes_it() {
         assert!(listed_as("npm run dev -- --port 4321", " npm run dev -- --port 4321 "));
-        assert!(!listed_as("npm run dev -- --port 4321 --open", "npm run dev -- --port 4321"), "a plain command is the whole of it");
-        // Past a newline or a letter beyond ASCII, as far as it's plain: ps writes the rest its way.
-        assert!(listed_as("cargo build\\012cargo test", "cargo build\ncargo test"));
-        assert!(listed_as("echo caf\\M-C\\M-) done", "echo café done"));
-        assert!(!listed_as("anything", "") && !listed_as("é", "é"));
+        assert!(!listed_as("npm run dev -- --port 4321 --open", "npm run dev -- --port 4321"), "the whole of it");
+        // macOS's ps writes a tab and a newline in octal, a letter beyond ASCII as it is.
+        assert!(listed_as("cargo build\\011-q\\012cargo test", "cargo build\t-q\ncargo test"));
+        assert!(listed_as("echo café; npm run dev", "echo café; npm run dev"));
+        // Never one that only starts the same.
+        assert!(!listed_as("cargo build --release", "cargo build\ncargo test"));
+        assert!(!listed_as("echo cafeteria; npm run prod", "echo café; npm run dev"));
+        assert!(!listed_as("anything", ""));
     }
 
     #[test]

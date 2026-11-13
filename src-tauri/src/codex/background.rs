@@ -299,27 +299,17 @@ pub fn output_of(rollout: &Path, id: &str) -> String {
     whole.unwrap_or_else(|| parts.into_iter().rev().collect())
 }
 
-/// Which of the commands a thread's rollout says still run (`Terminals::running`) the process
-/// table shows (`listed`): a shell running its command (`shell_script`). None without a listing
-/// to go by. One whose command wasn't recorded can't be found, so it isn't among them: a
-/// terminal whose process went with the app-server that ran it (the app quitting) is never said
-/// to have ended.
-pub fn alive(t: &Terminals, listed: &[crate::procs::PsLine]) -> Option<Vec<String>> {
-    if listed.is_empty() {
-        return None;
-    }
-    let runs = |command: &str| listed.iter().any(|p| shell_script(&p.command).is_some_and(|c| crate::harness::listed_as(&c, command)));
-    Some(t.running.iter().filter(|r| runs(&r.command)).map(|r| r.id.clone()).collect())
-}
-
-/// The command a shell Codex runs one in is running: `/bin/zsh -c <command>`, or `-lc` for a
-/// login shell, as `ps` gives the arguments joined (0.162.1 on this Mac). None for any other
-/// process.
-pub fn shell_script(cmdline: &str) -> Option<String> {
-    let (program, rest) = cmdline.split_once(' ')?;
-    let shell = program.rsplit('/').next().is_some_and(|p| matches!(p, "zsh" | "bash" | "sh" | "fish"));
-    let script = rest.strip_prefix("-c ").or_else(|| rest.strip_prefix("-lc "))?;
-    shell.then(|| script.to_string())
+/// What a process Codex runs a command in is running, by its command line as `ps` gives it: the
+/// script of a shell, `/bin/zsh -c <command>` (`-lc` for a login shell; 0.162.1 on this Mac), or
+/// the command line itself, since a shell given one plain command runs it in its own place
+/// (`zsh -c 'sleep 8'` is `sleep 8` in the table).
+pub fn shell_script(cmdline: &str) -> String {
+    let wrapped = cmdline.split_once(' ').and_then(|(program, rest)| {
+        let shell = program.rsplit('/').next().is_some_and(|p| matches!(p, "zsh" | "bash" | "sh" | "fish"));
+        let script = rest.strip_prefix("-c ").or_else(|| rest.strip_prefix("-lc "))?;
+        shell.then_some(script)
+    });
+    wrapped.unwrap_or(cmdline).to_string()
 }
 
 /// The commands a code-mode script starts, in the order it calls `exec_command`: each call's
@@ -478,21 +468,12 @@ text(await tools.write_stdin({session_id:19957,chars:"",yield_time_ms:1000}));"#
     }
 
     #[test]
-    fn a_command_runs_while_the_process_table_has_its_shell() {
-        let row = |pid: u32, command: &str| crate::procs::PsLine { pid, ppid: 1, tty: "??".into(), cpu: Some(0), command: command.into() };
-        let left = |id: &str, command: &str| LeftRunning { id: id.into(), at: 1, command: command.into(), ended: None };
-        let t = Terminals { running: vec![left("1", "npm run dev"), left("2", "cargo watch\n-x test"), left("3", ""), left("4", "gone")], ..Default::default() };
-        // macOS's ps writes a newline in a command as `\012`.
-        let listed = [row(10, "/bin/zsh -c npm run dev"), row(11, "/bin/zsh -lc cargo watch\\012-x test"), row(12, "node gone")];
-        assert_eq!(alive(&t, &listed), Some(vec!["1".to_string(), "2".to_string()]));
-        assert_eq!(alive(&t, &[]), None, "no listing to go by");
-    }
-
-    #[test]
     fn reads_the_command_a_shell_runs() {
-        assert_eq!(shell_script("/bin/zsh -c codealong session transcript claude:x --full").as_deref(), Some("codealong session transcript claude:x --full"));
-        assert_eq!(shell_script("/bin/zsh -lc npm run dev").as_deref(), Some("npm run dev"));
-        assert_eq!((shell_script("node server.mjs -c x"), shell_script("/bin/zsh")), (None, None));
+        assert_eq!(shell_script("/bin/zsh -c codealong session transcript claude:x --full"), "codealong session transcript claude:x --full");
+        assert_eq!(shell_script("/bin/zsh -lc npm run dev"), "npm run dev");
+        // A plain command its shell ran in its own place.
+        assert_eq!(shell_script("sleep 8"), "sleep 8");
+        assert_eq!(shell_script("node server.mjs -c x"), "node server.mjs -c x");
     }
 
     #[test]

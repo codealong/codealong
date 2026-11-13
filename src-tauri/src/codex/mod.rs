@@ -306,10 +306,10 @@ impl crate::harness::Adapter for Codex {
         }
     }
 
-    /// A command runs in its own shell, `/bin/zsh -c <command>` (`-lc` for a login shell), which
-    /// `ps` gives as the arguments joined (background.rs).
+    /// A command runs in its own shell, `/bin/zsh -c <command>` (`-lc` for a login shell), or in
+    /// the shell's place where it's one plain command (background.rs).
     fn shell_script(&self, cmdline: &str) -> Option<String> {
-        background::shell_script(cmdline)
+        Some(background::shell_script(cmdline))
     }
 
     /// The last of what a command left running in a background terminal printed, as the agent
@@ -827,15 +827,18 @@ impl Reader {
         changed
     }
 
-    /// The rollouts of turns left open that no Codex process holds now (`held_rollouts`), as of
-    /// this look, and keeps how long each open turn's rollout is for the next. Codex's processes
-    /// are looked at only while some turn is open.
+    /// The rollouts of turns left open, or of threads whose rollouts say they left commands running
+    /// in background terminals, that no Codex process holds now (`held_rollouts`), as of this
+    /// look, and keeps how long each one's rollout is for the next. Codex's processes are looked
+    /// at only while some turn is open or some command runs. A thread nothing holds runs no
+    /// terminals: they went with the process that ran it, which may have written no end for them
+    /// (`board::codex_tasks`).
     fn let_go_now(&mut self, look: &Look) -> Option<(i64, HashSet<OsString>)> {
         // Each as long as it was at the last look, else as far as it's been read.
         let open: Vec<(&Path, u64)> = self
             .rollouts
             .iter()
-            .filter_map(|(path, (_, parsed))| parsed.as_ref().filter(|(th, _)| th.turn_open).map(|(_, read)| (path.as_path(), self.open_lens.get(path).copied().unwrap_or(*read))))
+            .filter_map(|(path, (_, parsed))| parsed.as_ref().filter(|(th, _)| th.turn_open || !th.terminals.running.is_empty()).map(|(_, read)| (path.as_path(), self.open_lens.get(path).copied().unwrap_or(*read))))
             .collect();
         let len_now = |p: &Path| std::fs::metadata(p).ok().map(|m| m.len());
         let lens: HashMap<PathBuf, u64> = open.iter().filter_map(|(p, _)| Some((p.to_path_buf(), len_now(p)?))).collect();
@@ -1076,10 +1079,7 @@ impl crate::harness::Reader for Reader {
                 let key = Session::key_for(Harness::Codex, &account.name, &th.id);
                 let name = index.and_then(|i| i.get(&th.id)).map(|(n, _)| n.as_str());
                 let asked = asks::waiting(th, &self.notes).map(|n| (n.what(), n.at));
-                let held = self.held(path, th);
-                let mut s = crate::board::codex_session(account, th, name, terminals.get(&th.id).copied(), held, self.stopped_by_quit.contains(path), look.seen.seen_at(&key), look.now, asked);
-                // What it left in background terminals, as far as the process table bears it out.
-                s.tasks = crate::board::codex_tasks(th, held, background::alive(&th.terminals, look.ps.all()).as_deref(), look.now);
+                let mut s = crate::board::codex_session(account, th, name, terminals.get(&th.id).copied(), self.held(path, th), self.stopped_by_quit.contains(path), look.seen.seen_at(&key), look.now, asked);
                 s.archived = path.starts_with(&archived_dir);
                 // What its terminal UI's `/permissions` lists, which Codealong picks from there
                 // (cycle.rs), where that can be told; `cycle::overlay` keeps them where that tab
@@ -1348,6 +1348,34 @@ mod tests {
         assert_eq!(let_go(&[(c, 350)], &held, lens), [OsString::from("rollout-c.jsonl")].into());
         // A ps that failed lists nothing, which says nothing about who holds what.
         assert_eq!(held_rollouts(&[]), None);
+    }
+
+    /// A thread whose turn is over but whose rollout says a command still runs in a background
+    /// terminal is looked at too: once no Codex process holds it, its terminals are gone with what
+    /// ran them, which may have written no end for them.
+    #[test]
+    fn a_thread_with_a_terminal_running_is_let_go_once_nothing_holds_it() {
+        use crate::procs::{Listed, Listing, PsLine};
+        let home = crate::fixtures::scratch("codex-terminal-let-go");
+        let path = home.join("rollout-2026-11-12T12-00-00-a.jsonl");
+        std::fs::write(&path, "{}\n").unwrap();
+        let listed_at = 1_794_000_000_000;
+        let left = background::LeftRunning { id: "19957".into(), at: listed_at - 60_000, command: "npm run dev".into(), ended: None };
+        let th = ThreadInfo { last_ts: listed_at - 60_000, terminals: background::Terminals { running: vec![left], ..Default::default() }, ..Default::default() };
+        let mut reader = Reader::default();
+        reader.rollouts.insert(path.clone(), ("codex".into(), Some((th.clone(), 3))));
+        let seen = crate::state::SeenState::default();
+        let ps = Listing::of(std::sync::Arc::new(Listed { at: listed_at, lines: vec![PsLine { pid: 1, ppid: 0, tty: "??".into(), cpu: None, command: "launchd".into() }] }));
+        reader.let_go = reader.let_go_now(&Look { seen: &seen, since: 0, now: listed_at + 5_000, ps });
+        assert_eq!(reader.held(&path, &th), Some(false));
+        assert!(crate::board::codex_tasks(&th, reader.held(&path, &th), listed_at + 5_000).is_empty());
+        // One with neither an open turn nor a terminal isn't looked at, and stands as held.
+        let quiet = ThreadInfo { terminals: background::Terminals::default(), ..th.clone() };
+        reader.rollouts.insert(path.clone(), ("codex".into(), Some((quiet.clone(), 3))));
+        let ps = Listing::of(std::sync::Arc::new(Listed { at: listed_at, lines: vec![PsLine { pid: 1, ppid: 0, tty: "??".into(), cpu: None, command: "launchd".into() }] }));
+        reader.let_go = reader.let_go_now(&Look { seen: &seen, since: 0, now: listed_at + 5_000, ps });
+        assert_eq!(reader.held(&path, &quiet), Some(true));
+        std::fs::remove_dir_all(home).unwrap();
     }
 
     /// The engine lists the processes off its thread, so a look's listing can be older than the

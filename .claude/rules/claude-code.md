@@ -44,10 +44,12 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   summary's "(exit code N)" / "failed with exit code N" (2.1.323). The file ends `[exited with code
   N]` once it's done. A notification is in a `queue-operation` `enqueue` as the shell ends, before
   the turn takes it in: `claude/transcript.rs` (`Background`, `notifications`, `output_file`),
-  `board.rs` (`claude_tasks`). Stop finds its shell as a child of the session's process
-  (`harness::task_shell`): a background job's shell and its command read with an empty starting
-  environment (`procs::environment`, 0 variables; the session's variables are set inside the
-  shell, 2.1.323, 2026-11-12), so `CLAUDE_CODE_SESSION_ID` is no way to find one.
+  `board.rs` (`claude_tasks`). Stop finds its shell as a direct child of the session's process
+  (`harness::task_shell`). Not by `CLAUDE_CODE_SESSION_ID`: macOS gives no other process the
+  environment of its own programs, and `procs::environment` read 0 variables for the session's
+  `/bin/zsh` shells, `/bin/sleep` and `caffeinate`, even for one it started with a variable set,
+  while it read Claude Code's own process and itself whole (2026-11-12, inside and outside the
+  sandbox). A shell's script is a compound command, so its shell stays in the table.
 - Agents and workflows run in the background keep the registry `busy` with the session's turn over
   (2.1.322's code: its status is `isLoading || delegatedActive ? "busy" : "idle"`, `delegatedActive`
   any running `local_agent`, `remote_agent`, `in_process_teammate` or `local_workflow` task, and
