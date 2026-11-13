@@ -91,6 +91,20 @@ What macOS's speech recognition and audio capture take and give, as codealong-ea
   the moment the listening stopped. So the helper doesn't use voice processing (main.swift `Mic`),
   and nothing is taken out of the microphone on speakers. Whether a tap in another process than
   the voice processing stays audible wasn't tried; the turning down rules it out anyway.
+- The camera, run once (2026-11-13, macOS 26.6.2, Teams' Mac app opened while a listening heard
+  the microphone and the Mac's audio): Teams showed its camera before joining. The camera went off
+  as it joined the call and didn't come back until Teams was quit and opened again, by then with
+  the listening stopped. The unified log puts the hang inside Teams: going from its preview to the
+  call, its media stack's `AVCaptureSession stopRunning` never finished (no
+  `AVCaptureSessionDidStopRunningNotification`, no input cleanup), though the camera daemon had
+  stopped the stream. The helper never opened the camera (it was never a `VDCAssistant` client)
+  and logged nothing while Teams hung. With the listening still on, Chrome used the same camera,
+  switched it off and on in 0.2 s, and stopped it cleanly. The load average was about 800 on 10
+  cores, and frames reached Teams up to 0.6 s late (33 ms apart), in the run that worked too. So
+  nothing ties it to the helper, though one run can't rule it out; if it's seen again, compare a
+  call with and without a listening. What to read: `log show` for `appleh13camerad` (`start
+  streaming for client`, `StopStreaming`), `VDCAssistant` (`Client Connect for PID`) and the
+  app's own `AVCaptureSession` lines.
 - A tap takes the processes it was made with, by their Core Audio object ids
   (`kAudioHardwarePropertyProcessObjectList`, each with `kAudioProcessPropertyPID`,
   `…BundleID`, `…IsRunningInput`, `…IsRunningOutput`). An app's audio often comes from a helper
