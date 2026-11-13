@@ -25,6 +25,7 @@
   var enter = function () { key(input(), { key: 'Enter' }); };
   var board;
   var lane;
+  var budget;
   var open = function () {
     window.__quickOpen({ listen: true }, board);
     return until(function () { return box('Design review'); }, 5000, 'the calendar’s meeting');
@@ -77,18 +78,28 @@
     })
     .then(function () {
       check('with it ticked, ⏎ takes that meeting', last('listen_now').meeting === 'E-now@1', String(last('listen_now').meeting));
-      // Opened for a later meeting, picked in your meetings: it's of that one, whatever its time,
-      // and from the moment it opens, before the day ahead is read (this one isn't in the stub's).
+      // A later meeting, read by an open while it was being heard.
       var start = Date.now() + 2 * 3600e3;
-      window.__quickOpen({ listen: true, meeting: { id: 'E-budget@1', title: 'Budget sync', start: start, end: start + 1800e3, calendar: 'Work', attendees: ['Lee Atlas'], takeable: false } }, board);
+      budget = { id: 'E-budget@1', title: 'Budget sync', start: start, end: start + 1800e3, calendar: 'Work', attendees: ['Lee Atlas'], takeable: false };
+      window.__AHEAD__ = [Object.assign({}, budget, { heard: true })];
+      var reads = sent('meetings_ahead').length;
+      window.__quickOpen({ listen: true }, board);
+      return until(function () { return sent('meetings_ahead').length > reads && !box('Design review'); }, 5000, 'the day ahead read with it heard');
+    })
+    .then(function () {
+      // Heard no more, and picked in your meetings: the panel is of it, whatever its time, from
+      // the moment it opens, whatever that earlier read said; this open's read never comes in.
+      window.__AHEAD__ = new Promise(function () {});
+      window.__quickOpen({ listen: true, meeting: budget }, board);
       return until(function () { return box('Budget sync'); }, 5000, 'the meeting it was opened for');
     })
     .then(function () {
-      check('opened for a meeting later on, it’s of that one, ticked', box('Budget sync').querySelector('input').checked && !box('Design review') && title() === 'Listen to “Budget sync”', title());
+      check('opened for a meeting later on, it’s of that one, ticked, before the day ahead is read', box('Budget sync').querySelector('input').checked && !box('Design review') && title() === 'Listen to “Budget sync”', title());
       enter();
       return until(function () { return sent('listen_now').length === 3; }, 5000, 'the later meeting asked for');
     })
     .then(function () {
+      delete window.__AHEAD__;
       check('and ⏎ takes it', last('listen_now').meeting === 'E-budget@1', String(last('listen_now').meeting));
       return open();
     })

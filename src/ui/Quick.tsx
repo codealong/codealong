@@ -534,6 +534,10 @@ export function Quick() {
         setListen(!!ctx.listen);
         setNotMeeting(null);
         setAskedMeeting(ctx.listen ? (ctx.meeting ?? null) : null);
+        // Opened for a meeting picked elsewhere: what an earlier open read of the day ahead
+        // said of it (that it was being heard, say) may be so no longer, and only this open's
+        // read is to say otherwise (`nowMeeting`).
+        if (ctx.listen && ctx.meeting) setMeetings([]);
         setAsChat(!!ctx.chat || !!ctx.listen);
         const at = improving ? (b?.improve?.laneId ?? null) : (ctx.laneId ?? null);
         setProject(improving && b?.improve?.project ? b.improve.project : (ctx.project ?? readStored(PROJECT_KEY, asText, ALL_PROJECTS)));

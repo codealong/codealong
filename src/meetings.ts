@@ -74,6 +74,13 @@ export function firstPick(kept: readonly Pick<KeptMeeting, 'folder'>[], ahead: r
   return ahead[0] ? { ahead: ahead[0].id } : null;
 }
 
+/** Whether your meetings as read are behind the day ahead: a meeting there is being heard whose
+ *  folder isn't among them, or doesn't name its session yet (meetings.rs `begin` writes it as
+ *  the hearing starts, and its session once that has come up). */
+export function keptBehind(ahead: readonly Pick<MeetingAhead, 'id' | 'heard'>[], kept: readonly Pick<KeptMeeting, 'id' | 'session'>[]): boolean {
+  return ahead.some((m) => m.heard && !kept.some((k) => k.id === m.id && k.session !== ''));
+}
+
 /** Your calendars by the account each is from, in the order they came (by account, then name),
  *  for Settings to list under each account's name. */
 export function calendarsByAccount(calendars: readonly CalendarInfo[]): { source: string; calendars: CalendarInfo[] }[] {

@@ -10,7 +10,7 @@
 import { useEffect, useState } from 'react';
 import { answerMeeting, keptMeetings, meetingFiles, meetingsAhead, openUrl, revealFile } from '../api';
 import { heardLine } from '../listening';
-import { firstPick, meetingStands, meetingTime, meetingWith, startWords, type MeetingPick } from '../meetings';
+import { firstPick, keptBehind, meetingStands, meetingTime, meetingWith, startWords, type MeetingPick } from '../meetings';
 import { useLatest } from '../latest';
 import { errorText } from '../report';
 import type { KeptMeeting, MeetingAhead, MeetingFiles } from '../types';
@@ -86,14 +86,12 @@ export function MeetingsDialog({ onClose, onShowSession, onListen }: { onClose: 
     };
   }, []);
   // A meeting ahead that comes to be heard while the dialog is open (taken in another window)
-  // has a folder among your meetings now: they're read again, so its pane links to its notes.
-  // A read that fails leaves the list there is.
-  const heardAhead = ahead
-    .filter((m) => m.heard)
-    .map((m) => m.id)
-    .join(' ');
+  // has a folder among your meetings, which names its session once that has come up: they're
+  // read again at each look until both are there (`keptBehind`), so its pane links to its
+  // notes and those to its session. A read that fails leaves the list there is, for the next.
+  const behind = kept !== null && keptBehind(ahead, kept);
   useEffect(() => {
-    if (!heardAhead) return;
+    if (!behind) return;
     let over = false;
     keptMeetings().then(
       (all) => !over && setKept(all),
@@ -102,7 +100,7 @@ export function MeetingsDialog({ onClose, onShowSession, onListen }: { onClose: 
     return () => {
       over = true;
     };
-  }, [heardAhead]);
+  }, [behind, now]);
   const folder = picked && 'kept' in picked ? picked.kept : null;
   useEffect(() => {
     if (!folder) return;

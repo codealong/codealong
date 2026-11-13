@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calendarsByAccount, calendarSays, calendarsOff, firstPick, meetingStands, meetingTime, meetingWhen, meetingWith, startWords } from './meetings';
+import { calendarsByAccount, calendarSays, calendarsOff, firstPick, keptBehind, meetingStands, meetingTime, meetingWhen, meetingWith, startWords } from './meetings';
 import type { CalendarStatus, MeetingAhead } from './types';
 
 const NOW = 1_794_330_000_000;
@@ -54,6 +54,15 @@ describe('a meeting in the day ahead, in your meetings', () => {
     expect(firstPick(kept, [later, ahead({ id: 'e3', takeable: true, heard: true })])).toEqual({ kept: '/m/2026-11-10 1400 Renewal call' });
     expect(firstPick([], [later])).toEqual({ ahead: 'e2' });
     expect(firstPick([], [])).toBeNull();
+  });
+
+  it('says your meetings are behind while one being heard has no folder, or no session in it yet', () => {
+    const heard = [ahead({ id: 'e2', heard: true }), ahead({ id: 'e3' })];
+    expect(keptBehind([ahead()], [])).toBe(false);
+    expect(keptBehind(heard, [])).toBe(true);
+    // Its folder is written as the hearing starts, its session once that has come up.
+    expect(keptBehind(heard, [{ id: 'e2', session: '' }])).toBe(true);
+    expect(keptBehind(heard, [{ id: 'e2', session: 'claude:work:meeting' }])).toBe(false);
   });
 });
 
