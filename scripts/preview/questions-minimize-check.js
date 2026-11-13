@@ -2,9 +2,9 @@
 // box's head leaves the head alone, saying the question showing on one line and how many more
 // there are, and gives the room to the conversation above; a click on the question (or ⌘⏎, where
 // ⌘⏎ answers) shows the box again with your picks and the question you were on, and answers
-// nothing. The conversation's line for the call never opens a copy of its questions that can't be
-// answered: minimized, a click on it shows the box again; the line of another call it waits on at
-// the same time opens its own. In the main window the box stays
+// nothing. The conversation has no line for the call the box shows, minimized or not: the box
+// stands in its place at the conversation's end (questionsBox.ts); the line of another call it
+// waits on at the same time shows, and opens its own. In the main window the box stays
 // minimized as you go to another session and back, and the next call it waits on shows whole
 // though it asks the same. ⌘⏎ is Ctrl+Enter on Linux.
 //   PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/questions-minimize-check.js
@@ -110,13 +110,9 @@
     })
     .then(function () {
       choice('Tue').click();
-      // While the box shows the questions, their line above opens no copy of them.
-      check('its line in the conversation', !!line() && /Color, Days/.test(lineHead().textContent), line() ? lineHead().textContent : 'none');
-      if (!lineHead().disabled) lineHead().click();
-      return wait(100);
-    })
-    .then(function () {
-      check('opens no copy of the questions while the box shows them', !q('.ca-questions', line()));
+      // While the box shows the questions, the conversation says them only there.
+      check('no line for the call in the conversation', !line() && !q('.ca-questions', thread()), line() ? lineHead().textContent : 'none');
+      check('the rest of the conversation shows', /Two things to settle first/.test(thread().textContent));
       before = thread().clientHeight;
       check('a button minimizes it', !!fold() && fold().getAttribute('aria-expanded') === 'true' && fold().getAttribute('aria-label') === 'Minimize');
       fold().click();
@@ -130,19 +126,10 @@
       check('on one line', text.scrollHeight <= text.clientHeight + 1 && box().offsetHeight < 60, 'box ' + box().offsetHeight + 'px');
       check('the conversation takes the room', thread().clientHeight > before + 100, before + ' → ' + thread().clientHeight);
       check('the button shows it again', fold().getAttribute('aria-expanded') === 'false' && fold().getAttribute('aria-label') === 'Show the questions');
+      // Minimized, the box's head still says the call, so the conversation has no line for it.
+      check('minimized, still no line for it in the conversation', !line());
       if (window.__questions_minimized) return;
-      // Minimized, its line in the conversation shows the box again, rather than a copy of the
-      // questions that can't be answered.
-      check('its line shows the box again', !!lineHead() && !lineHead().disabled && lineHead().title === 'Show the questions' && lineHead().getAttribute('aria-expanded') === 'false', lineHead() ? lineHead().title : 'none');
-      lineHead().click();
-      return until(function () { return !folded() && q('.ca-question-choice', box()); }, 2000, 'the box shown from its line')
-        .then(function () {
-          check('a click on its line shows the box again', !q('.ca-questions', line()));
-          check('on the question it was on, with your picks', /Which days/.test(showing()) && on(choice('Tue')), showing());
-          fold().click();
-          return until(function () { return folded(); }, 2000, 'minimized again');
-        })
-        .then(showAgain);
+      return showAgain();
     })
     .then(done)
     .catch(stopped);
@@ -198,7 +185,7 @@
           return until(function () { return folded(); }, 2000, 'minimized');
         })
         .then(function () {
-          check('another call’s line doesn’t show the box', lineHead().title !== 'Show the questions', lineHead().title);
+          check('another call’s line stays in the conversation', !!line() && /Color, Days/.test(lineHead().textContent), line() ? lineHead().textContent : 'none');
           lineHead().click();
           return until(function () { return q('.ca-questions', line()); }, 2000, 'its own questions');
         })

@@ -1,7 +1,8 @@
 // Checks questions a session asks that Codealong can't answer (Claude Code's AskUserQuestion when
 // the plugin's hook didn't hand them over): the reply area shows each question with its numbered
 // choices and their descriptions, no Answer, and Open in the session's terminal; the thread names
-// a question call by its headers and, opened, shows an earlier call's questions with your picks.
+// a question call by its headers and, opened, shows an earlier call's questions with your picks,
+// and has no line for the call the reply area shows (questionsBox.ts).
 //   PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/questions-elsewhere-check.js
 // As PREVIEW_INIT (with PREVIEW_NAME=questions-elsewhere) it leaves the panel open, the answered
 // call opened, for a screenshot. Then the session does something that leaves its line as it was
@@ -85,7 +86,7 @@
     .then(function () {
       row().dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
       row().click();
-      return until(function () { return box() && tools().length === 2; }, 5000);
+      return until(function () { return box() && tools().length === 1; }, 5000);
     })
     .then(function () {
       var b = box();
@@ -99,9 +100,9 @@
       check('open where it runs', !!open, buttons.join('|'));
       check('says where', /^Answer them in /.test(text(b.querySelector('.ca-composer-note'))), text(b.querySelector('.ca-composer-note')));
       var labels = Array.prototype.map.call(tools(), function (t) { return text(t.querySelector('.ca-thread-toollabel')); });
-      check('lines by their headers', labels[0] === 'Asks you · INR-AAR, Days' && labels[1] === 'Asks you · RPL-TRC, PIY-RIS', labels.join('|'));
-      // The waiting call stays shut: the reply area below has its questions.
-      check('waiting call shut', !tools()[1].querySelector('.ca-questions'));
+      check('a line by its headers', labels[0] === 'Asks you · INR-AAR, Days', labels.join('|'));
+      // The waiting call has no line: the reply area below says it.
+      check('no line for the waiting call', labels.length === 1, labels.join('|'));
       var before = window.__calls.length;
       if (!window.__questions_screenshot) open.click();
       tools()[0].querySelector('.ca-thread-toolhead').click();

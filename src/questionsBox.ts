@@ -1,20 +1,22 @@
-// The box of questions under a session's conversation (SessionReply.tsx `Approval`), as the
-// conversation above it sees it. While the box shows the questions a session waits on you for,
-// the conversation's line for that call (SessionThread.tsx `ToolLine`) opens no copy of them, which
-// couldn't be answered: once the box is minimized, a click on the line shows the box again. The
-// line looks like the box's own head, and a copy opened from it read as the box losing its choices
-// (asked 2026-11-04).
+// The call a session waits on you for, as the box under its conversation shows it (SessionReply.tsx
+// `Approval`: questions to answer or a call to allow), and as the conversation above it sees it.
+// While the box shows the call, the conversation leaves out its line (SessionThread.tsx), which
+// said it again just above the box: the box stands in its place at the conversation's end, and
+// minimized, its head still says the question and shows the box again (asked 2026-11-13). Before,
+// the line stayed and opened no copy of the questions, since a copy read as the box losing its
+// choices (asked 2026-11-04). Once it's answered, the call is a line of the conversation as any
+// other is.
 //
-// The line is known for the box's by the questions it asks, not only by its session: a session
-// can wait on two calls at once (a subagent's and its own), and the box shows the one asked first
-// where the conversation marks the latest. Each window keeps its own: a box and the conversation
-// above it are in the same window.
+// The line is known for the box's by what the call asks (`askedOf`, `calledOf`), not only by its
+// session: a session can wait on two calls at once (a subagent's and its own), and the box shows
+// the one asked first where the conversation marks the latest. One the box doesn't show keeps its
+// line. Each window keeps its own: a box and the conversation above it are in the same window.
 
 import { useSyncExternalStore } from 'react';
 import type { Question } from './types';
 
-/** The questions a session's box shows: its call, and what it asks (`askedOf`). */
-export interface ShownQuestions {
+/** The call a session's box shows: its id there, and what it asks (`askedOf`, `calledOf`). */
+export interface ShownCall {
   call: string;
   asked: string;
 }
@@ -22,8 +24,8 @@ export interface ShownQuestions {
 /** The call whose questions you minimized, by session, so its box stays minimized as you go to
  *  another session and back. The next call it waits on shows whole, whatever it asks. */
 const minimized = new Map<string, string>();
-/** What each session's box shows, while it shows questions. */
-const shown = new Map<string, ShownQuestions>();
+/** What each session's box shows, while it shows a call. */
+const shown = new Map<string, ShownCall>();
 const heard = new Set<() => void>();
 
 function tell() {
@@ -43,8 +45,15 @@ export function askedOf(questions: Pick<Question, 'question' | 'options'>[]): st
   return JSON.stringify(questions.map((q) => [q.question.trim(), q.options.map((o) => o.label.trim())]));
 }
 
-/** Says a session's box shows `call`'s questions, until the function it returns is called. */
-export function showQuestions(key: string, call: string, asked: string): () => void {
+/** What a call to allow asks, to know its line in the conversation for the box's: its label, which
+ *  the conversation's line has too where the harness makes both alike (Claude Code's
+ *  `tool_request`). Where they differ, the line stays. */
+export function calledOf(label: string): string {
+  return JSON.stringify(label.trim());
+}
+
+/** Says a session's box shows `call`, until the function it returns is called. */
+export function showCall(key: string, call: string, asked: string): () => void {
   const showing = { call, asked };
   shown.set(key, showing);
   tell();
@@ -64,8 +73,8 @@ export function foldQuestions(key: string, call: string, on: boolean) {
   tell();
 }
 
-/** What a session's box shows, while it shows questions. */
-export function shownQuestions(key: string): ShownQuestions | null {
+/** What a session's box shows, while it shows a call. */
+export function shownCall(key: string): ShownCall | null {
   return shown.get(key) ?? null;
 }
 
@@ -74,9 +83,9 @@ export function questionsFolded(key: string, call: string | null): boolean {
   return call !== null && minimized.get(key) === call;
 }
 
-/** `shownQuestions`, as it changes. */
-export function useShownQuestions(key: string): ShownQuestions | null {
-  return useSyncExternalStore(hear, () => shownQuestions(key));
+/** `shownCall`, as it changes. */
+export function useShownCall(key: string): ShownCall | null {
+  return useSyncExternalStore(hear, () => shownCall(key));
 }
 
 /** `questionsFolded`, as it changes. */
