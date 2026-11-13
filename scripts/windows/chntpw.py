@@ -6,9 +6,8 @@
 # one value and leaves a key's others as they are (hivex_node_set_value; hivexsh's setval replaces
 # them all). It takes only the commands convert.sh sends: `cd <key>` from the key it's at, `nv 1
 # <name>` (a string value), `ed <name>` with the value on the next line, `q`, and `y` to save. Any
-# other fails, so a convert.sh that asks for more says so rather than building a broken ISO; since
-# convert.sh goes on after a command fails, a failure also makes the file CHNTPW_FAILED names,
-# which uup-iso.sh looks for. HIVEX_LIB names libhivex.dylib; uup-iso.sh sets both.
+# other fails, so a convert.sh that asks for more says so rather than building a broken ISO.
+# HIVEX_LIB names libhivex.dylib; uup-iso.sh sets it.
 import ctypes
 import ctypes.util
 import os
@@ -25,9 +24,6 @@ OPEN_WRITE = 4
 
 
 def fail(why):
-    if os.environ.get("CHNTPW_FAILED"):
-        with open(os.environ["CHNTPW_FAILED"], "a") as failed:
-            failed.write(f"{why}\n")
     sys.exit(f"chntpw (hivex's stand-in): {why}")
 
 
