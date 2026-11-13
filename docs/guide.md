@@ -580,13 +580,12 @@ its worktree's), each a chip that says where the PR stands as its header leads w
 merge, Review requested, Approved, Changes requested, Draft, Merged), shows the PR's panel in place
 of the session's on a click (in the floating windows, in PRs), opens it on GitHub on a double-click
 and shows the PR's card on hover, which merges an open PR there (see *Merging*), with the todo it's
-on and +N for the rest. Beside its PRs is the latest page on the web it
-made: an artifact Claude Code published, made from a type or opened, its subagents' included, as a
+on and +N for the rest. Beside its PRs are the pages on the web it
+made: artifacts Claude Code published, made from a type or opened, its subagents' included, each a
 chip with its title, lavender fading into pink so it can't be taken for a label or a state, that opens it in the browser on a click (in the Chrome profile its account names, Settings › Accounts), what it last did with it and when on
-hover, and a link's menu on a right-click. When it made more, "+N more" beside the chip (naming them on hover) lists the rest under the
-links, the latest first, each with what was last done with it and how long ago, and "fewer" puts
-them away, as the sessions that came of it go under its title. An artifact published again is one
-page, as it last stood. Where its agent left commands running in the background (a Claude Code
+hover, and a link's menu on a right-click. The latest come first, three of them as with its PRs,
+and +N after them names the rest on hover and shows them all as chips on a click. An artifact
+published again is one page, as it last stood. Where its agent left commands running in the background (a Claude Code
 session's shells and Monitors, a Codex thread's background terminals), a chip says how many run (*2
 running*, green), or how many ended in the last ten minutes once none does (*1 ended*), naming them
 on hover. A click lists them under the links, as Claude Code's `/tasks` and Codex's `/ps` do: each

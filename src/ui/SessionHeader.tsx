@@ -52,7 +52,7 @@ import { sessionTokens } from '../api';
 import { cacheShare, money, tokenCount, totalTokens } from '../spend';
 import type { Board, DeviceView, Label, Lane, Pr, Session, SessionSpent, SideGlance, Target, Todo } from '../types';
 import { closedWord, isOpen, newId, nextColor, panelTodos, STATUS_WORD as TODO_WORD } from '../todos';
-import { ArtifactChip, ArtifactList } from './ArtifactBits';
+import { ArtifactChip } from './ArtifactBits';
 import { BackgroundChip, BackgroundList } from './BackgroundBits';
 import { DeviceBadge } from './DeviceBadge';
 import { InsightChips } from './InsightBits';
@@ -67,8 +67,19 @@ import { runFolder } from './RunButton';
 import { AddChip, LabelChip, TodoGlyph } from './TodoBits';
 import { keysIn } from '../platform';
 
-/** PRs shown before a "+N": a long session can have made many. */
-const PRS_SHOWN = 3;
+/** The PRs it worked on, and the pages it made, each shown as chips before a "+N": a long session
+ *  can have made many of either. */
+const CHIPS_SHOWN = 3;
+
+/** "+N" after the first few of a session's PRs or pages, naming the rest on hover. A click shows
+ *  them all as chips beside the others. */
+function MoreChips({ names, onShow }: { names: string[]; onShow: () => void }) {
+  return (
+    <button type="button" className="ca-linkbtn ca-sessinsp-more" title={names.join('\n')} onClick={onShow}>
+      +{names.length}
+    </button>
+  );
+}
 
 export interface SessionHeaderProps {
   lane: Lane;
@@ -582,41 +593,14 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
       )}
       {/* Hidden when it has nothing to show (SessionHeader.css), Jev's chip included. */}
       <div className="ca-sessinsp-links">
-        {(allPrs ? prs : prs.slice(0, PRS_SHOWN)).map((pr) => (
+        {(allPrs ? prs : prs.slice(0, CHIPS_SHOWN)).map((pr) => (
           <PrChipCard key={pr.url} pr={pr} onShow={onShowPr && (() => onShowPr(pr))} onOpen={onOpenPr && (() => onOpenPr(pr))} onMenu={onPrMenu && (() => onPrMenu(pr))} />
         ))}
-        {!allPrs && prs.length > PRS_SHOWN && (
-          <button
-            type="button"
-            className="ca-linkbtn ca-sessinsp-more"
-            title={prs
-              .slice(PRS_SHOWN)
-              .map((p) => `#${p.number} ${p.title}`)
-              .join('\n')}
-            onClick={() => setAllPrs(true)}
-          >
-            +{prs.length - PRS_SHOWN}
-          </button>
-        )}
-        {artifacts[0] && <ArtifactChip artifact={artifacts[0]} now={now} />}
-        {artifacts.length > 1 && (
-          <button
-            type="button"
-            className="ca-sessinsp-artifacts-more"
-            aria-expanded={allArtifacts}
-            title={
-              allArtifacts
-                ? 'Show only the latest'
-                : artifacts
-                    .slice(1)
-                    .map((a) => a.title)
-                    .join('\n')
-            }
-            onClick={() => setAllArtifacts(!allArtifacts)}
-          >
-            {allArtifacts ? 'fewer' : `+${artifacts.length - 1} more`}
-          </button>
-        )}
+        {!allPrs && prs.length > CHIPS_SHOWN && <MoreChips names={prs.slice(CHIPS_SHOWN).map((p) => `#${p.number} ${p.title}`)} onShow={() => setAllPrs(true)} />}
+        {(allArtifacts ? artifacts : artifacts.slice(0, CHIPS_SHOWN)).map((a) => (
+          <ArtifactChip key={a.url} artifact={a} now={now} />
+        ))}
+        {!allArtifacts && artifacts.length > CHIPS_SHOWN && <MoreChips names={artifacts.slice(CHIPS_SHOWN).map((a) => a.title)} onShow={() => setAllArtifacts(true)} />}
         <BackgroundChip session={s} now={now} open={tasksShown} onToggle={() => setAllTasks(!tasksShown)} />
         <PreviewChip preview={lane.preview} now={now} onOpen={() => onOpen('l|preview')} />
         <InsightChips session={s} />
@@ -641,7 +625,6 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
           </button>
         )}
       </div>
-      {allArtifacts && artifacts.length > 1 && <ArtifactList artifacts={artifacts.slice(1)} now={now} />}
       {tasksShown && <BackgroundList session={s} now={now} remote={!!device} />}
       {allTodos && (
         <div className="ca-insp-todos">
