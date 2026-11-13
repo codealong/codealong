@@ -1061,9 +1061,9 @@ pub struct Process {
 /// and for anything else. `ps` joins the arguments with spaces, so a prompt reads as words;
 /// only the words before it matter.
 pub fn cli_args(command: &str) -> Option<bool> {
-    let mut words = command.split_whitespace();
-    let program = words.next()?;
-    if program.rsplit('/').next() != Some(CLI) {
+    let (program, rest) = crate::util::program_and_rest(command)?;
+    let mut words = rest.split_whitespace();
+    if crate::util::program_name(program) != CLI {
         return None;
     }
     while let Some(w) = words.next() {

@@ -171,8 +171,8 @@ fn found_in(program: &OsStr, path: &str, here: &Path) -> Option<Found> {
             Some(line) => {
                 let line = line.split(|&b| b == b'\n').next().unwrap_or_default();
                 let interpreter = line.split(|&b| b == b' ' || b == b'\t').find(|w| !w.is_empty()).unwrap_or_default();
-                let interpreter = std::str::from_utf8(interpreter).unwrap_or_default();
-                (!interpreter.is_empty() && may_run(&here.join(interpreter))).then_some(Found::Runs(at))
+                let interpreter = crate::os::files::path_from_bytes(interpreter).unwrap_or_default();
+                (!interpreter.as_os_str().is_empty() && may_run(&here.join(interpreter))).then_some(Found::Runs(at))
             }
             None if BINARY.iter().any(|magic| head.starts_with(magic)) => Some(Found::Runs(at)),
             None => Some(Found::Script(at)),

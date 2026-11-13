@@ -1244,9 +1244,9 @@ pub struct Args {
 /// the bundle's `index.js` and the arguments, joined with spaces: a prompt reads as words, and
 /// only the words before it are options.
 pub fn cli_args(command: &str) -> Option<Args> {
-    let mut words = command.split_whitespace().peekable();
-    let program = words.next()?;
-    if !matches!(program.rsplit('/').next(), Some("cursor-agent" | "agent")) {
+    let (program, rest) = crate::util::program_and_rest(command)?;
+    let mut words = rest.split_whitespace().peekable();
+    if !matches!(crate::util::program_name(program), "cursor-agent" | "agent") {
         return None;
     }
     words.by_ref().find(|w| w.ends_with("/index.js") && w.contains("/cursor-agent/"))?;

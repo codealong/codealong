@@ -534,7 +534,7 @@ fn post(key: &str, body: &Value) -> Result<(String, String)> {
     if key.chars().any(|c| c.is_control() || c == '"' || c == '\\') {
         bail!("The TypeSafe API key has characters a key can't have. Paste it again in Settings › Jev.");
     }
-    let mut child = Command::new("/usr/bin/curl")
+    let mut child = Command::new(crate::http::curl())
         .args(["-sS", "-m", if has_images(body) { "40" } else { "15" }, "-w", "\n%{http_code}", "-K", "-"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

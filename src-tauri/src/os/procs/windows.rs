@@ -80,7 +80,12 @@ impl Process {
     fn open(pid: u32, access: u32) -> Option<Process> {
         // SAFETY: OpenProcess takes plain values; null is an error (gone, or not ours to open).
         let h = unsafe { OpenProcess(access, 0, pid) };
-        (!h.is_null()).then_some(Process(h))
+        // Built only once it's open: a Process drops by closing its handle.
+        if h.is_null() {
+            None
+        } else {
+            Some(Process(h))
+        }
     }
 
     /// When it started, and the CPU it has used, its own and the kernel's for it, in 100 ns.
@@ -495,30 +500,38 @@ pub fn wait_writable<P>(_pipe: &P, wait: Duration) {
 
 /// A child's stdin, stdout and stderr, driven without the caller's thread waiting on them: a
 /// thread of its own writes its input and one reads each output, handing what it reads over a
-/// channel, since Windows' anonymous pipes can't be read or written without waiting.
+/// channel, since Windows' anonymous pipes can't be read or written without waiting. A process
+/// the child left behind can hold its pipes open past it, so the threads are stopped as the
+/// command is done with (`Drop`), their waits cancelled.
 pub struct Pipes {
     got: std::sync::mpsc::Receiver<(bool, Option<Vec<u8>>)>,
     out: (Vec<u8>, bool),
     err: (Vec<u8>, bool),
+    threads: Vec<std::thread::JoinHandle<()>>,
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl Pipes {
     /// Takes the child's pipes, with `input` to write to it, each to a thread of its own.
     pub fn new(child: &mut std::process::Child, input: &[u8]) -> Pipes {
         use std::io::{Read, Write};
+        use std::sync::atomic::Ordering;
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let mut threads = Vec::new();
         if let Some(mut stdin) = child.stdin.take() {
             let input = input.to_vec();
             // Closed once it's all written, so the program sees the end of its input; a program
             // that closes it without reading it all ends the write, which is its call.
-            std::thread::spawn(move || {
+            threads.push(std::thread::spawn(move || {
                 let _ = stdin.write_all(&input);
-            });
+            }));
         }
         let (tx, got) = std::sync::mpsc::channel();
-        fn reader(mut pipe: impl Read + Send + 'static, is_err: bool, tx: std::sync::mpsc::Sender<(bool, Option<Vec<u8>>)>) {
+        let reader = |mut pipe: Box<dyn Read + Send>, is_err: bool, tx: std::sync::mpsc::Sender<(bool, Option<Vec<u8>>)>| {
+            let stop = stop.clone();
             std::thread::spawn(move || {
                 let mut buf = [0u8; 16 * 1024];
-                loop {
+                while !stop.load(Ordering::SeqCst) {
                     match pipe.read(&mut buf) {
                         Ok(0) | Err(_) => break,
                         Ok(n) => {
@@ -529,17 +542,17 @@ impl Pipes {
                     }
                 }
                 let _ = tx.send((is_err, None));
-            });
-        }
-        let out = child.stdout.take().map(|p| reader(p, false, tx.clone())).is_some();
-        let err = child.stderr.take().map(|p| reader(p, true, tx)).is_some();
-        Pipes { got, out: (Vec::new(), out), err: (Vec::new(), err) }
+            })
+        };
+        let out = child.stdout.take().map(|p| threads.push(reader(Box::new(p), false, tx.clone()))).is_some();
+        let err = child.stderr.take().map(|p| threads.push(reader(Box::new(p), true, tx))).is_some();
+        Pipes { got, out: (Vec::new(), out), err: (Vec::new(), err), threads, stop }
     }
 
     /// The input goes on its thread.
     pub fn write(&mut self) {}
 
-    /// The input's thread ends as the child does.
+    /// The input's thread ends as the child does, or as this is dropped.
     pub fn close_input(&mut self) {}
 
     fn take(&mut self, (is_err, chunk): (bool, Option<Vec<u8>>)) {
@@ -572,8 +585,31 @@ impl Pipes {
     }
 
     /// What it wrote to stdout and stderr.
-    pub fn output(self) -> (Vec<u8>, Vec<u8>) {
-        (self.out.0, self.err.0)
+    pub fn output(mut self) -> (Vec<u8>, Vec<u8>) {
+        (std::mem::take(&mut self.out.0), std::mem::take(&mut self.err.0))
+    }
+}
+
+impl Drop for Pipes {
+    /// Stops the threads still waiting on a pipe: each is told to, and its wait cancelled. One
+    /// that was between two reads as it was cancelled sees it's to stop before it reads again;
+    /// one that had only just checked is cancelled again, a few times over some milliseconds.
+    fn drop(&mut self) {
+        use std::os::windows::io::AsRawHandle;
+        use windows_sys::Win32::System::IO::CancelSynchronousIo;
+        self.stop.store(true, std::sync::atomic::Ordering::SeqCst);
+        for _ in 0..10 {
+            let waiting: Vec<_> = self.threads.iter().filter(|t| !t.is_finished()).collect();
+            if waiting.is_empty() {
+                return;
+            }
+            for t in waiting {
+                // SAFETY: the thread's handle is its JoinHandle's, open while it's held; a thread
+                // waiting on no I/O just answers that there was none to cancel.
+                unsafe { CancelSynchronousIo(t.as_raw_handle()) };
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
     }
 }
 

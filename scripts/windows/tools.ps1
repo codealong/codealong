@@ -28,10 +28,12 @@ function Add-MachinePath($dir) {
     Refresh-Path
 }
 
+# Returns the file's path and nothing else: what a function writes with Write-Output is returned
+# with it, so what it says goes to the host.
 function Get-File($url, $name) {
     $file = Join-Path $downloads $name
     if (-not (Test-Path $file)) {
-        Write-Output "  downloading $url"
+        Write-Host "  downloading $url"
         # curl.exe (in Windows since 2018) rather than Invoke-WebRequest, which is many times
         # slower for files of gigabytes in Windows PowerShell.
         curl.exe -fsSL --retry 5 -o "$file.part" $url

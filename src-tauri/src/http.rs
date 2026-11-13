@@ -50,6 +50,12 @@ fn config(method: &str, url: &str, headers: &[String], body: Option<&Value>) -> 
     out
 }
 
+/// The curl Codealong runs: macOS's and Linux's in /usr/bin; on Windows the one Windows has had
+/// since Windows 10 (1803), in System32, on every PATH.
+pub fn curl() -> &'static str {
+    if crate::os::is_windows() { "curl.exe" } else { "/usr/bin/curl" }
+}
+
 /// Calls `url` with `headers` ("Name: value") and `body` as JSON, waiting up to `timeout`.
 /// An error is in words: a sign-in that can't be sent, or why curl couldn't reach the server.
 pub fn call(method: &str, url: &str, headers: &[String], body: Option<&Value>, timeout: Duration) -> Result<Reply, String> {
@@ -58,7 +64,7 @@ pub fn call(method: &str, url: &str, headers: &[String], body: Option<&Value>, t
         return Err("the stored sign-in is unreadable".into());
     }
     let secs = timeout.as_secs().max(1).to_string();
-    let out = procs::run_stdin("/usr/bin/curl", &["-q", "-sS", "--http1.1", "-m", &secs, "-w", "\n%{http_code}", "-K", "-"], &config(method, url, headers, body), timeout + Duration::from_secs(5))
+    let out = procs::run_stdin(curl(), &["-q", "-sS", "--http1.1", "-m", &secs, "-w", "\n%{http_code}", "-K", "-"], &config(method, url, headers, body), timeout + Duration::from_secs(5))
         .map_err(|e| e.to_string().trim().trim_start_matches("curl: ").chars().take(120).collect::<String>())?;
     let (body, status) = out.rsplit_once('\n').unwrap_or(("", &out));
     match status.trim().parse() {

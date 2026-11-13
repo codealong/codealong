@@ -26,7 +26,12 @@ impl Waiter {
     pub fn new() -> Option<Waiter> {
         // SAFETY: an unnamed auto-reset event, unsignaled; null is an error.
         let wake = unsafe { CreateEventW(std::ptr::null(), 0, 0, std::ptr::null()) };
-        (!wake.is_null()).then_some(Waiter { wake, exits: Vec::new() })
+        // Built only once it's made: a Waiter drops by closing its handles.
+        if wake.is_null() {
+            None
+        } else {
+            Some(Waiter { wake, exits: Vec::new() })
+        }
     }
 
     pub fn waker(&self) -> Waker {

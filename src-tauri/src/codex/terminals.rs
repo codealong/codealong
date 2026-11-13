@@ -82,11 +82,12 @@ pub fn terminals(processes: &[crate::procs::PsLine]) -> Vec<Terminal> {
 
 /// For a process command line that is Codex's interactive UI: the thread it resumed, and the
 /// folder `-C` gave it. None for anything else. `ps` joins the arguments with spaces, so a
-/// prompt reads as words; only the first word that isn't an option matters.
+/// prompt reads as words; only the first word that isn't an option matters. Windows keeps the
+/// command line as it was started: `codex.exe`, its path quoted where it has a space.
 pub fn terminal_args(command: &str) -> Option<(Option<String>, Option<PathBuf>)> {
-    let mut words = command.split_whitespace().peekable();
-    let program = words.next()?;
-    if program.rsplit('/').next() != Some("codex") || program.contains("/packages/") || program.contains(".app/") && !command.contains(TERMINAL_UI) {
+    let (program, rest) = crate::util::program_and_rest(command)?;
+    let mut words = rest.split_whitespace().peekable();
+    if crate::util::program_name(program) != "codex" || program.contains("/packages/") || program.contains(".app/") && !command.contains(TERMINAL_UI) {
         return None;
     }
     let mut dir = None;
@@ -230,6 +231,9 @@ mod tests {
         assert_eq!(terminal_args("/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex -c features.code_mode_host=true app-server --analytics-default-enabled"), None);
         // The CLI inside the app, run in a terminal when the PATH has no `codex`.
         assert_eq!(terminal_args("/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex -c check_for_update_on_startup=false -- Review"), Some((None, None)));
+        // Windows' command lines, as it keeps them.
+        assert_eq!(terminal_args(&format!(r#""C:\Program Files\nodejs\codex.exe" resume {id}"#)), Some((Some(id.into()), None)));
+        assert_eq!(terminal_args(r"C:\Users\me\AppData\Roaming\npm\codex.cmd -C C:\work\atlas"), Some((None, Some(PathBuf::from(r"C:\work\atlas")))));
         // Anything else the app runs it for isn't one.
         assert_eq!(terminal_args("/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex --version"), None);
     }

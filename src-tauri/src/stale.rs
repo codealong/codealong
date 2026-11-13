@@ -216,8 +216,8 @@ fn short_command(command: &str) -> String {
 /// A command line's program by its file name: `/usr/bin/login -flp me` is `login`, and a login
 /// shell's `-/bin/zsh` is `zsh`.
 fn program(command: &str) -> &str {
-    let first = command.trim().split(' ').next().unwrap_or_default();
-    first.rsplit('/').next().unwrap_or(first).trim_start_matches('-')
+    let first = crate::util::program_and_rest(command).map_or("", |(p, _)| p);
+    crate::util::program_name(first).trim_start_matches('-')
 }
 
 /// Whether Close stale terminals lists a terminal's tabs: an app sessions open in whose tabs

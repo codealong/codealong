@@ -474,6 +474,27 @@ pub fn truncate(s: &str, max: usize) -> String {
     format!("{}…", cut.trim_end())
 }
 
+/// A command line's program and what follows it: its first word, or the quoted path that starts
+/// it, as Windows writes a program's path that has a space (`"C:\Program Files\x\x.exe" -v`).
+pub fn program_and_rest(command: &str) -> Option<(&str, &str)> {
+    let command = command.trim_start();
+    if let Some(quoted) = command.strip_prefix('"') {
+        return quoted.split_once('"');
+    }
+    let end = command.find(char::is_whitespace).unwrap_or(command.len());
+    (end > 0).then(|| command.split_at(end))
+}
+
+/// The name of the program a path names, as a process table has it: its file name, after a `/`
+/// or Windows' `\`, without the extension Windows runs it by (`codex.exe` is `codex`).
+pub fn program_name(path: &str) -> &str {
+    let name = path.rsplit(['/', '\\']).next().unwrap_or(path);
+    [".exe", ".cmd", ".bat", ".com"]
+        .iter()
+        .find_map(|ext| name.len().checked_sub(ext.len()).filter(|&at| at > 0 && name.is_char_boundary(at) && name[at..].eq_ignore_ascii_case(ext)).map(|at| &name[..at]))
+        .unwrap_or(name)
+}
+
 /// `s` in single quotes for the shell, each quote in it closed, escaped and reopened.
 pub fn sh_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
@@ -880,6 +901,19 @@ mod tests {
     }
 
     /// Whatever the zone the tests run in, the time read back on the clock is the one given.
+    #[test]
+    fn a_command_lines_program_is_named_by_its_file_whatever_the_os() {
+        assert_eq!(program_and_rest("/opt/homebrew/bin/codex resume x"), Some(("/opt/homebrew/bin/codex", " resume x")));
+        assert_eq!(program_and_rest(r#""C:\Program Files\Codex\codex.exe" resume x"#), Some((r"C:\Program Files\Codex\codex.exe", " resume x")));
+        assert_eq!(program_and_rest("  codex"), Some(("codex", "")));
+        assert_eq!(program_and_rest(""), None);
+        assert_eq!(program_name("/opt/homebrew/bin/codex"), "codex");
+        assert_eq!(program_name(r"C:\Users\me\.local\bin\claude.EXE"), "claude");
+        assert_eq!(program_name(r"C:\npm\codex.cmd"), "codex");
+        assert_eq!(program_name(".exe"), ".exe");
+        assert_eq!(program_name("codex-exec"), "codex-exec");
+    }
+
     #[test]
     fn reads_a_time_on_this_macs_clock() {
         let ms = local_ms(2026, 10, 14, 17, 45, 37, 928).unwrap();

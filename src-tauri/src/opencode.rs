@@ -725,7 +725,7 @@ fn title_case(s: &str) -> String {
 /// A GET on the service. The password goes to curl on stdin, never on the command line.
 fn get(svc: &Service, path: &str) -> Option<Value> {
     let url = format!("{}{path}", svc.url);
-    let out = procs::run_stdin("/usr/bin/curl", &["-sS", "-m", "5", "-K", "-", "-H", "Accept: application/json", &url], &sign_in(svc), Duration::from_secs(8)).ok()?;
+    let out = procs::run_stdin(crate::http::curl(), &["-sS", "-m", "5", "-K", "-", "-H", "Accept: application/json", &url], &sign_in(svc), Duration::from_secs(8)).ok()?;
     serde_json::from_str(&out).ok()
 }
 
@@ -756,7 +756,7 @@ fn send_waiting(svc: &Service, method: &str, path: &str, body: &Value, secs: u64
     let url = format!("{}{path}", svc.url);
     let wait = secs.to_string();
     let out = procs::run_stdin(
-        "/usr/bin/curl",
+        crate::http::curl(),
         &["-sS", "--fail-with-body", "-m", &wait, "-K", "-", "-X", method, "-H", "Content-Type: application/json", "-H", "Accept: application/json", &url],
         &config,
         Duration::from_secs(secs + 5),
@@ -881,10 +881,9 @@ pub struct Terminal {
 /// For a process command line that is an interactive OpenCode: the session it was given, and
 /// the folder argument. None for anything else.
 pub fn terminal_args(command: &str) -> Option<(Option<String>, Option<PathBuf>)> {
-    let mut words = command.split_whitespace();
-    let program = words.next()?;
-    let name = program.rsplit('/').next().unwrap_or(program);
-    if name != "opencode" {
+    let (program, rest) = crate::util::program_and_rest(command)?;
+    let words = rest.split_whitespace();
+    if crate::util::program_name(program) != "opencode" {
         return None;
     }
     let mut session = None;
@@ -898,7 +897,7 @@ pub fn terminal_args(command: &str) -> Option<(Option<String>, Option<PathBuf>)>
             }
             "mini" => {}
             _ if w.starts_with('-') => {}
-            _ if dir.is_none() && (w.starts_with('/') || w.starts_with('~') || w.starts_with('.')) => dir = Some(crate::util::expand(w)),
+            _ if dir.is_none() && (w.starts_with('/') || w.starts_with('~') || w.starts_with('.') || Path::new(w).is_absolute()) => dir = Some(crate::util::expand(w)),
             // Any other word is a subcommand: not a terminal.
             _ => return None,
         }

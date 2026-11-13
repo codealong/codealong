@@ -445,12 +445,14 @@ fn word(status: &Status) -> String {
 /// table. `ps` on a Mac that stalls can take a long while, so it's given one. Windows' table is
 /// read instead, having no `ps`.
 pub fn processes() -> anyhow::Result<Vec<Proc>> {
-    let now = crate::util::now_ms();
     if let Some(rows) = crate::os::procs::table() {
+        let now = crate::util::now_ms();
         return Ok(rows.into_iter().filter_map(|r| Some(Proc { pid: r.pid, ppid: r.ppid, age_ms: now - r.started_ms?, started: r.started_ms?, command: r.command })).collect());
     }
     let out = crate::procs::run("/bin/ps", &["-axww", "-o", "pid=,ppid=,etime=,command="], None, Duration::from_secs(60))?;
-    Ok(parse_ps(&out, now))
+    // Read after `ps` answers, which its ages count back from: one that took a while would
+    // otherwise put every start that much early.
+    Ok(parse_ps(&out, crate::util::now_ms()))
 }
 
 fn parse_ps(out: &str, now: i64) -> Vec<Proc> {

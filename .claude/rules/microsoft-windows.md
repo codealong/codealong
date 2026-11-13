@@ -20,8 +20,11 @@ the app's windows, not this. Paths are under `src-tauri/src/`.
   matter) always passes.
 - An anonymous pipe can't be read or written without waiting the way POSIX's can: one set to
   `PIPE_NOWAIT` answers a read with nothing by `ERROR_NO_DATA`, which std reads as a broken pipe.
-  So a command's pipes are threads on Windows (`os/procs/windows.rs` `Pipes`), and rpc.rs's writes
-  to a child wait until it reads.
+  So a command's pipes are threads on Windows (`os/procs/windows.rs` `Pipes`), stopped with
+  `CancelSynchronousIo` once the command is done, as a process it left behind may hold them. And
+  rpc.rs's writes to a child wait until it reads, so a write's deadline isn't kept there: a child
+  that stops reading holds the line until it ends (not settled; it wants a write of its own
+  thread, tried on Windows).
 - Rust's `Command` finds `name.exe` alone on the PATH, never a `.cmd`, which is what npm installs
   for a command (`claude.cmd`). `os::procs::names_to_find` gives a program's names with PATHEXT's
   extensions, which `procs::command`, harness detection (detect.rs) and the editors use.
