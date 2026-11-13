@@ -114,9 +114,9 @@ pub fn mode_id(raw: &str) -> &str {
 
 /// What a session's command line says of its modes: `--permission-mode`, and whether
 /// `--dangerously-skip-permissions` started it bypassing (`skips`, which wins over the mode
-/// wherever it comes) or `--allow-dangerously-skip-permissions` let it. A word of the prompt can't
-/// be told from an argument in `ps`'s line, so a prompt that is one of these words alone counts
-/// too.
+/// wherever it comes) or `--allow-dangerously-skip-permissions` let it. Nothing after `--` is
+/// read; before it, a word of the prompt can't be told from an argument in `ps`'s line, so a
+/// prompt that is one of these words alone counts too.
 #[derive(Debug, Default, PartialEq)]
 struct Started {
     mode: Option<String>,
@@ -133,6 +133,8 @@ fn started_in(command: &str) -> Started {
             _ if w == "--permission-mode" => out.mode = words.next().map(str::to_string),
             _ if w == "--dangerously-skip-permissions" => out.skips = true,
             _ if w == "--allow-dangerously-skip-permissions" => out.may_bypass = true,
+            // The rest is the prompt, as a background start's always is.
+            _ if w == "--" => break,
             _ => {}
         }
     }
@@ -303,6 +305,7 @@ mod tests {
         set(0, r#"{"permissions":{"defaultMode":"bypassPermissions"}}"#);
         assert_eq!(starts("claude --session-id 1 hi").as_deref(), Some("bypassPermissions"), "the account's grants it");
         assert_eq!(starts("claude --permission-mode=default").as_deref(), Some("default"));
+        assert_eq!(starts("claude --permission-mode plan -- Explain --permission-mode default").as_deref(), Some("plan"), "the prompt's words aren't flags");
         set(1, r#"{"permissions":{"defaultMode":"auto"}}"#);
         assert_eq!(starts("claude --session-id 1 hi").as_deref(), Some("default"), "nor a repo's own Auto");
         set(3, r#"{"permissions":{"defaultMode":"auto"}}"#);
