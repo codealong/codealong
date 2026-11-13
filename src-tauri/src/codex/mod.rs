@@ -778,13 +778,12 @@ pub struct Reader {
     /// held then, by file name (`let_go_now`); None when that couldn't be told.
     let_go: Option<(i64, HashSet<OsString>)>,
     /// The processes holding each rollout looked at (`held_rollouts`), each with when it
-    /// started, as of the last look that could say; and when each rollout was last let go of or
-    /// handed from a process that's gone to another (`note_holders`): a background terminal that
-    /// started before either was a process's gone by (`terminals_since`).
-    holders: HashMap<OsString, Vec<(u32, i64)>>,
+    /// started, and when that look was, the last at that rollout that could say (a quiet thread
+    /// isn't looked at); and when each rollout was last let go of or handed from a process that's
+    /// gone to another (`note_holders`): a background terminal that started before either was a
+    /// process's gone by (`terminals_since`).
+    holders: HashMap<OsString, (Vec<(u32, i64)>, i64)>,
     taken_up: HashMap<OsString, i64>,
-    /// When the last look that noted the holders was made (`note_holders`).
-    holders_at: Option<i64>,
     /// How long each open turn's rollout was at that look.
     open_lens: HashMap<PathBuf, u64>,
     /// When the app's processes ended, for the turns stopped (`applog`).
@@ -868,15 +867,15 @@ impl Reader {
     /// end, and one that takes the thread up after it doesn't have them, even one that was running
     /// already (the app's app-server taking up a thread a terminal UI ran). One let go of is taken
     /// up afresh as of this look, since nothing starts a terminal in a thread nothing holds. One
-    /// handed from a process that's gone to another between two looks is as of the look before,
-    /// the last that saw the one before: the handover came some time after it, and a terminal the
-    /// new one started before this look is its own.
+    /// handed from a process that's gone to another between two looks is as of the last look at
+    /// it that saw the one before: the handover came some time after it, and a terminal the new
+    /// one started before this look is its own.
     fn note_holders(&mut self, names: &[OsString], held: HashMap<OsString, Vec<(u32, i64)>>, at: i64) {
         for name in names {
             let now: Vec<u32> = held.get(name).map(|h| h.iter().map(|(pid, _)| *pid).collect()).unwrap_or_default();
             let taken = match self.holders.get(name) {
-                Some(before) if now.is_empty() && !before.is_empty() => Some(at),
-                Some(before) if !now.is_empty() && before.iter().any(|(pid, _)| !now.contains(pid)) => Some(self.holders_at.unwrap_or(at)),
+                Some((before, _)) if now.is_empty() && !before.is_empty() => Some(at),
+                Some((before, seen)) if !now.is_empty() && before.iter().any(|(pid, _)| !now.contains(pid)) => Some(*seen),
                 Some(_) => None,
                 // The first look at it finds it held by none.
                 None => now.is_empty().then_some(at),
@@ -885,9 +884,9 @@ impl Reader {
                 self.taken_up.insert(name.clone(), taken);
             }
         }
-        self.holders.retain(|name, _| !names.contains(name));
-        self.holders.extend(names.iter().map(|name| (name.clone(), held.get(name).cloned().unwrap_or_default())));
-        self.holders_at = Some(at);
+        for name in names {
+            self.holders.insert(name.clone(), (held.get(name).cloned().unwrap_or_default(), at));
+        }
     }
 
     /// The earliest a background terminal of the thread whose rollout is `path` can have started
@@ -897,7 +896,7 @@ impl Reader {
     /// wasn't running isn't told.
     fn terminals_since(&self, path: &Path) -> Option<i64> {
         let name = path.file_name()?;
-        let started = self.holders.get(name).and_then(|h| h.iter().map(|(_, at)| *at).min());
+        let started = self.holders.get(name).and_then(|(h, _)| h.iter().map(|(_, at)| *at).min());
         started.max(self.taken_up.get(name).copied())
     }
 
@@ -1522,6 +1521,16 @@ mod tests {
         // The same app-server still holding it later moves nothing on.
         reader.note_holders(&names, [(name.clone(), vec![(20, 1_000)])].into(), 40_000);
         assert_eq!(reader.terminals_since(&path), Some(20_000));
+        // A look that leaves a quiet thread out says nothing of when it was last seen: handed on
+        // after that, it's as of the last look at it.
+        let quiet = PathBuf::from("/c/sessions/rollout-2026-11-12T15-00-00-b.jsonl");
+        let x = [quiet.file_name().unwrap().to_os_string()];
+        reader.note_holders(&x, [(x[0].clone(), vec![(30, 2_000)])].into(), 10_000);
+        reader.note_holders(&[], HashMap::new(), 30_000);
+        reader.note_holders(&x, [(x[0].clone(), vec![(40, 3_000)])].into(), 40_000);
+        assert_eq!(reader.terminals_since(&quiet), Some(10_000));
+        let resumed = ThreadInfo { terminals: background::Terminals { running: vec![left("77001", 25_000)], ..Default::default() }, ..Default::default() };
+        assert_eq!(crate::board::codex_tasks(&resumed, Some(true), reader.terminals_since(&quiet), 50_000).len(), 1);
         // Let go of, it's as of the look that finds it so: nothing started one since.
         reader.note_holders(&names, HashMap::new(), 50_000);
         assert_eq!(reader.terminals_since(&path), Some(50_000));
