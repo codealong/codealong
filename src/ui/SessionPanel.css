@@ -12,6 +12,11 @@
 .ca-win-body.is-panel-max .ca-sessinsp > * {
   padding-inline: max(var(--space-4), (100% - 860px) / 2);
 }
+/* A call to allow or questions to answer is a card as wide as the message box under it
+   (SessionReply.css), so it keeps to the same column, by its margins. */
+.ca-win-body.is-panel-max .ca-sessinsp > .ca-thread + .ca-composer.is-approval {
+  margin-inline: max(var(--space-4), (100% - 860px) / 2);
+}
 
 .ca-sessinsp-now {
   margin: 0;

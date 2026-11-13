@@ -13,7 +13,7 @@
 // line. Each window keeps its own: a box and the conversation above it are in the same window.
 
 import { useSyncExternalStore } from 'react';
-import type { Question } from './types';
+import type { Question, TranscriptItem } from './types';
 
 /** The call a session's box shows: its id there, and what it asks (`askedOf`, `calledOf`). */
 export interface ShownCall {
@@ -45,11 +45,19 @@ export function askedOf(questions: Pick<Question, 'question' | 'options'>[]): st
   return JSON.stringify(questions.map((q) => [q.question.trim(), q.options.map((o) => o.label.trim())]));
 }
 
-/** What a call to allow asks, to know its line in the conversation for the box's: its label, which
- *  the conversation's line has too where the harness makes both alike (Claude Code's
- *  `tool_request`). Where they differ, the line stays. */
-export function calledOf(label: string): string {
-  return JSON.stringify(label.trim());
+/** What a call to allow asks, to know its line in the conversation for the box's: its label and its
+ *  input, which the conversation's line has alike where the harness makes both the same way
+ *  (Claude Code's `tool_request`, and `clip_input` of `claude_input`). The input as well, since a
+ *  label can leave out what the call was given (an MCP tool's is its name alone): two calls of one
+ *  tool waiting at once have the same label, and the box shows the one asked first. Where they
+ *  differ, the line stays. */
+export function calledOf(label: string, input: string | null | undefined): string {
+  return JSON.stringify([label.trim(), (input ?? '').trim()]);
+}
+
+/** Whether the box shows the call a line of the conversation is for, by what each asks. */
+export function showsCall(box: ShownCall | null, call: Pick<TranscriptItem, 'text' | 'input' | 'questions'>): boolean {
+  return !!box && box.asked === (call.questions?.length ? askedOf(call.questions) : calledOf(call.text, call.input));
 }
 
 /** Says a session's box shows `call`, until the function it returns is called. */

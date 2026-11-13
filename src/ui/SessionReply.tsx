@@ -1462,7 +1462,7 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
   // The call it shows, which the conversation above leaves out its line for (questionsBox.ts), and
   // its questions' box minimized to its head, to read the conversation above while you think.
   const showing = pending ? pending.id : null;
-  const asked = pending ? (pending.questions?.length ? askedOf(pending.questions) : calledOf(pending.label)) : '';
+  const asked = pending ? (pending.questions?.length ? askedOf(pending.questions) : calledOf(pending.label, pending.input)) : '';
   useEffect(() => (showing === null ? undefined : showCall(s.key, showing, asked)), [s.key, showing, asked]);
   const asking = pending?.questions?.length ? pending.id : null;
   const folded = useQuestionsFolded(s.key, asking);

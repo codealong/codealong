@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Question } from './types';
-import { askedOf, calledOf, foldQuestions, questionsFolded, showCall, shownCall } from './questionsBox';
+import { askedOf, calledOf, foldQuestions, questionsFolded, showCall, shownCall, showsCall } from './questionsBox';
 
 describe('questionsBox', () => {
   it('says what the box shows while it shows it, and whether it’s minimized', () => {
@@ -42,12 +42,28 @@ describe('questionsBox', () => {
     expect(askedOf([approach, { question: 'Which days?', options: [] }])).not.toBe(asked);
   });
 
-  it('knows a call to allow by its label, and never for questions', () => {
-    const called = calledOf('Bash · `npm test`');
-    expect(calledOf(' Bash · `npm test` ')).toBe(called);
-    expect(calledOf('Bash · `npm run build`')).not.toBe(called);
+  it('knows a call to allow by its label and its input, and never for questions', () => {
+    const called = calledOf('Bash · `npm test`', 'npm test');
+    expect(calledOf(' Bash · `npm test` ', 'npm test\n')).toBe(called);
+    expect(calledOf('Bash · `npm run build`', 'npm run build')).not.toBe(called);
     // A call labeled as questions are asked still isn't them.
     const color: Question = { question: 'Which color?', options: [{ label: 'Red' }] };
-    expect(calledOf('Asks you · Which color?')).not.toBe(askedOf([color]));
+    expect(calledOf('Asks you · Which color?', null)).not.toBe(askedOf([color]));
+  });
+
+  it('tells the line of the call the box shows from another call waiting with the same label', () => {
+    // Two calls of one MCP tool, whose label is its name alone: the box shows the one asked first,
+    // and the conversation marks the latest, which keeps its line.
+    const label = 'mcp__linear__create_issue';
+    const box = { call: 'ask-1', asked: calledOf(label, '{"title":"First"}') };
+    expect(showsCall(box, { text: label, input: '{"title":"First"}' })).toBe(true);
+    expect(showsCall(box, { text: label, input: '{"title":"Second"}' })).toBe(false);
+    expect(showsCall(box, { text: label })).toBe(false);
+    expect(showsCall(null, { text: label, input: '{"title":"First"}' })).toBe(false);
+    // Questions are known by what they ask, whatever the call's label.
+    const color: Question = { question: 'Which color?', options: [{ label: 'Red' }, { label: 'Blue' }] };
+    const asking = { call: 'ask-2', asked: askedOf([color]) };
+    expect(showsCall(asking, { text: 'AskUserQuestion', input: '{}', questions: [{ ...color, header: 'Color' }] })).toBe(true);
+    expect(showsCall(asking, { text: 'AskUserQuestion', input: '{}', questions: [{ ...color, options: [{ label: 'Red' }] }] })).toBe(false);
   });
 });

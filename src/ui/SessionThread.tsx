@@ -73,7 +73,7 @@ import { Button, Chip, cx, Icon, Rich, StatusGlyph } from './primitives';
 import { useAside } from '../side';
 import { waitsInBackground } from '../lanes';
 import { answeredOf, QuestionList } from './QuestionList';
-import { askedOf, calledOf, useShownCall } from '../questionsBox';
+import { showsCall, useShownCall } from '../questionsBox';
 import { RunContext, type RunPlace } from './RunButton';
 import { useReloads } from '../reload';
 import { errorText } from '../report';
@@ -1184,7 +1184,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
   // The call the box below shows, questions to answer or a call to allow, has no line here: the box
   // stands in its place at the conversation's end (questionsBox.ts).
   const shownBelow = useShownCall(s.key);
-  const inBox = (it: TranscriptItem) => !!shownBelow && stateOf(it) === 'asks' && shownBelow.asked === (it.questions?.length ? askedOf(it.questions) : calledOf(it.text));
+  const inBox = (it: TranscriptItem) => stateOf(it) === 'asks' && showsCall(shownBelow, it);
 
   // A follow-up Codex offers (Markdown.tsx FollowUp) goes in the box below, where there is one, as
   // a prompt taken back does.

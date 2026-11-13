@@ -14,21 +14,28 @@
    room between the conversation and the field, which runs down to it and fades out under its top
    edge (SessionThread.css), with a call to allow or questions to answer between them. A wait keeps
    its tinted strip, and the notch its black (Notch.css), which is the notch's own. */
-:is(.ca-thread, .ca-composer.is-approval) + .ca-composer:not(.is-approval, .is-waiting, .ca-notch-card *) {
+.ca-thread + .ca-composer:not(.is-approval, .is-waiting, .ca-notch-card *) {
   padding-top: 0;
   border-top: 0;
 }
 /* A call to allow or questions to answer, there: a tinted card as wide as the field, just over it,
    as suggested replies are, rather than a strip across the panel with a rule under it. Its sides
-   are as near its edge as its top, which keeps a command's line as wide as the strip had it. */
+   are as near its edge as its top, which keeps a command's line as wide as it can. It takes no
+   more height than the strip did: in a card too short for its questions they're at their least
+   already (`.is-questions`), and more would push the field out of the card. */
 .ca-thread + .ca-composer.is-approval:not(.ca-notch-card *) {
-  margin: 0 var(--space-4) var(--space-2);
+  margin-inline: var(--space-4);
   padding: var(--space-3);
   border-top: 0;
   border-radius: var(--radius-lg);
 }
+.ca-composer.is-approval + .ca-composer:not(.is-approval, .is-waiting, .ca-notch-card *) {
+  padding-top: var(--space-2);
+  border-top: 0;
+}
 .ca-reply > .ca-thread + .ca-composer.is-approval:not(.ca-notch-card *) {
   margin-inline: 12px;
+  padding: 10px 12px;
 }
 /* The box itself, as chat apps draw theirs: what's attached, then the text across the box's whole
    width, its scrollbar at the box's edge once it has one, then a row at its foot: the mode it runs
