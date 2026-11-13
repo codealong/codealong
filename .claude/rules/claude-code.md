@@ -34,7 +34,18 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   Monitor's events come without one; TaskStop's result `task_id`, which no notification follows),
   and the process table whether one still runs: `claude/transcript.rs` (`background_step`),
   `board.rs` (`untold_shell`). Read as a turn that ended, an ACP session's reply saying it waited
-  on what its Monitor would report was taken by Jev for asking you (2026-10-29).
+  on what its Monitor would report was taken by Jev for asking you (2026-10-29). What a session's
+  header lists of them (`Session::tasks`): each shell named by its call's `command` and
+  `description` (a Bash call's, or a Monitor's with `timeout_ms`), the file its output goes to
+  from the result's words ("Output is being written to: /private/tmp/claude-<uid>/<encoded
+  folder>/<session>/tasks/<id>.output"; the folder is the one the session started in, not always
+  its transcript's project; a call moved there past its timeout has `timedOutAfterMs` and what it
+  printed instead) or the notification's `<output-file>`, and how it ended from `<status>` and the
+  summary's "(exit code N)" / "failed with exit code N" (2.1.323). The file ends `[exited with code
+  N]` once it's done. A notification is in a `queue-operation` `enqueue` as the shell ends, before
+  the turn takes it in: `claude/transcript.rs` (`Background`, `notifications`, `output_file`),
+  `board.rs` (`claude_tasks`). Its Bash shells have `CLAUDE_CODE_SESSION_ID` in their environment,
+  which Stop finds one by (`harness::Adapter::stop_task`).
 - Agents and workflows run in the background keep the registry `busy` with the session's turn over
   (2.1.322's code: its status is `isLoading || delegatedActive ? "busy" : "idle"`, `delegatedActive`
   any running `local_agent`, `remote_agent`, `in_process_teammate` or `local_workflow` task, and

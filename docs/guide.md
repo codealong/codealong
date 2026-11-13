@@ -587,7 +587,14 @@ chip with its title, lavender fading into pink so it can't be taken for a label 
 hover, and a link's menu on a right-click. When it made more, "+N more" beside the chip (naming them on hover) lists the rest under the
 links, the latest first, each with what was last done with it and how long ago, and "fewer" puts
 them away, as the sessions that came of it go under its title. An artifact published again is one
-page, as it last stood. Below is its whole conversation, read from the session's own record
+page, as it last stood. Where its agent left commands running in the background (a Claude Code
+session's shells and Monitors, a Codex thread's background terminals), a chip says how many run (*2
+running*, green), or how many ended in the last ten minutes once none does (*1 ended*), naming them
+on hover. A click lists them under the links, as Claude Code's `/tasks` and Codex's `/ps` do: each
+command, what the agent said it's for, and where it stands (*Running · 12m*, *Done · 3m ago*,
+*Failed · exit 1 · just now*); *Output* shows the last 40 lines of what it printed, read again every
+few seconds while it runs, with a link to the local address a server printed when the session runs
+on this machine; and a running one has *Stop* (see *Commands left running*). Below is its whole conversation, read from the session's own record
 (Claude Code's transcript, Codex's rollout, OpenCode's database): your prompts and the agent's
 replies, their Markdown drawn (a prompt keeps its line breaks and indentation as you typed them,
 and a glob written without backticks, `apps/*` or `*.ts`, isn't read as italics), and every tool call, which opens to its input and output; runs of calls fold into one
@@ -3851,6 +3858,20 @@ own word, whether or not a turn runs. A session whose transcript says its turn e
 them still running waits on them (*Waiting on 3 background agents*), as on a command, until each
 has reported; agents an earlier process of it started went with that process. One that's busy
 mid-turn is working, whatever runs beside it.
+
+Every command an agent left running in the background is listed in its session's header (see
+*Sessions*), as its harness lists them itself. A Claude Code session's come from its transcript: a
+Bash call run in the background, or moved there past its timeout, and a Monitor, with the file
+Claude Code writes its output to and, once it ends, the notification that says how and with what
+exit code; a session whose process has gone runs none, Claude Code having stopped them as it
+exited. A Codex thread's come from its rollout: a command still running when its call returned,
+which Codex calls a background terminal, ended as Codex writes that its process exited; its output
+is what the agent read of it, or all of it once it ended. While no Codex process has the thread
+loaded, it runs none. Only what the harness started is listed: a server a command left behind as it
+exited (a dev server that went to the background on its own) isn't. *Stop* ends the command's
+process and everything it started, found by the session's id, which both harnesses give the
+commands they run; the harness then tells the agent it ended. Another device's sessions need remote
+control on there to stop one.
 
 ### Where a session came from
 

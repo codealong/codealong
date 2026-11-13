@@ -245,6 +245,8 @@ const REQUESTS: &[Request] = &[
     Request { name: api::SESSION_CANCEL, here: cancel, ..ANY },
     Request { name: api::SESSION_STEER, here: steer, ..ANY },
     Request { name: api::SESSION_UNQUEUE, here: unqueue, ..ANY },
+    Request { name: api::SESSION_TASK_OUTPUT, here: task_output, ..ANY },
+    Request { name: api::SESSION_TASK_STOP, here: task_stop, ..ANY },
     Request { name: api::SESSION_ARCHIVE, here: archive, ..ANY },
     Request { name: api::SESSION_RENAME, here: rename, ..ANY },
     Request { name: api::MARK_SEEN, here: mark_seen, ..ANY },
@@ -1175,6 +1177,29 @@ fn unqueue(engine: &Handle, c: &Call) -> Result<Value, String> {
         let removed = harness::adapter(s.harness).remove_queued(&harness::Ctx { account }, s, &p.id).map_err(words)?;
         serde_json::to_value(removed).map_err(words)
     })
+}
+
+/// The session `key` and the command it left running in the background that `id` names
+/// (`Session::tasks`), with its account, for what its harness does to one.
+fn with_task<T>(engine: &Handle, key: &str, id: &str, act: impl FnOnce(&dyn harness::Adapter, &harness::Ctx, &crate::model::Session, &crate::model::BackgroundTask) -> anyhow::Result<T>) -> Result<T, String> {
+    let (cfg, board) = (cfg()?, engine.board());
+    let (s, account) = harness::find(&board, &cfg, key).map_err(words)?;
+    let task = s.tasks.iter().find(|t| t.id == id).ok_or("That command isn't on the session's list any more.")?;
+    act(harness::adapter(s.harness), &harness::Ctx { account }, s, task).map_err(words)
+}
+
+/// The last of what a command a session left running in the background printed
+/// (`Adapter::task_output`).
+fn task_output(engine: &Handle, c: &Call) -> Result<Value, String> {
+    let p: params::Task = c.read()?;
+    to_value(with_task(engine, c.session()?, &p.id, |a, ctx, s, t| a.task_output(ctx, s, t))?)
+}
+
+/// Stops a command a session left running in the background (`Adapter::stop_task`), saying how
+/// it went.
+fn task_stop(engine: &Handle, c: &Call) -> Result<Value, String> {
+    let p: params::Task = c.read()?;
+    to_value(with_task(engine, c.session()?, &p.id, |a, ctx, s, t| a.stop_task(ctx, s, t))?)
 }
 
 /// The time of this device's board that shows a change, for a window here to know when the

@@ -23,10 +23,13 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
-use anyhow::{bail, Result};
+use anyhow::{anyhow, bail, Result};
 
 use crate::config::{AccountCfg, Config};
-use crate::model::{Harness, Session, Target, Usage};
+use crate::model::{BackgroundTask, Harness, Session, Target, Usage};
+
+/// How much of the end of a background command's output is read for its list (`Adapter::task_output`).
+pub const TASK_OUTPUT_BYTES: u64 = 16 * 1024;
 use crate::state::SeenState;
 use crate::transcript::Page;
 
@@ -311,6 +314,40 @@ pub trait Adapter: Sync {
     /// there's no such hook.
     fn install_prompt_hook(&self, _account: &AccountCfg, _codealong: &mut dyn FnMut() -> Result<PathBuf>) -> Result<bool> {
         Ok(false)
+    }
+
+    /// The last of what a command the session left running in the background printed
+    /// (`Session::tasks`), as a terminal would show it: by default from the file its harness
+    /// writes it to (`BackgroundTask::output`).
+    fn task_output(&self, _ctx: &Ctx, _session: &Session, task: &BackgroundTask) -> Result<String> {
+        let path = task.output.as_deref().ok_or_else(|| anyhow!("{} keeps no output for that command.", self.harness().word()))?;
+        let len = std::fs::metadata(path).map_err(|_| anyhow!("Its output is gone: {} kept it in {}.", self.harness().word(), crate::util::tilde(Path::new(path))))?.len();
+        let tail = crate::util::read_tail(Path::new(path), len.saturating_sub(TASK_OUTPUT_BYTES))?;
+        Ok(crate::util::terminal_text(&tail.text()))
+    }
+
+    /// Stops a command the session left running in the background (`Session::tasks`): the shell
+    /// running it (`shell_script`) that the session gave its ID (`session_var`), and what that
+    /// started, for its harness to tell the agent it ended. Returns what happened, in a sentence.
+    fn stop_task(&self, _ctx: &Ctx, session: &Session, task: &BackgroundTask) -> Result<String> {
+        let Some(var) = self.session_var() else { bail!("Codealong can't stop a {} session's background commands.", self.harness().word()) };
+        let command = task.command.trim();
+        if command.is_empty() {
+            bail!("{} didn't record that command, so Codealong can't tell which process runs it.", self.harness().word());
+        }
+        let table = crate::hygiene::processes()?;
+        let shell = table
+            .iter()
+            .filter(|p| self.shell_script(&p.command).is_some_and(|c| c.trim() == command))
+            .find(|p| crate::procs::environment(p.pid).is_some_and(|env| env.get(var) == Some(&session.id)))
+            .ok_or_else(|| anyhow!("No process of that session runs it any more."))?;
+        Ok(crate::hygiene::stopped(&crate::hygiene::end_tree(&table, shell.pid)))
+    }
+
+    /// The command a shell the harness runs a command in is running, by the shell's command line
+    /// as `ps` gives it; None for any other process. What `stop_task` finds a command by.
+    fn shell_script(&self, _cmdline: &str) -> Option<String> {
+        None
     }
 
     /// What the session waits on you to allow, if anything. Only asked of sessions that need you.

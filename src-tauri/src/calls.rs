@@ -361,6 +361,19 @@ calls! {
         Ok(said.as_str().unwrap_or_default().to_string())
     }
 
+    /// The last of what a command a session left running in the background printed, read
+    /// where it runs.
+    fn session_task_output(c, key: String, id: String) -> Result<String, String> {
+        let said = actions::run(&c.engine, &c.peers, api::SESSION_TASK_OUTPUT, &key, actions::params::Task { id, ..Default::default() })?;
+        Ok(said.as_str().unwrap_or_default().to_string())
+    }
+
+    /// Stops a command a session left running in the background, and says how it went.
+    fn session_task_stop(c, key: String, id: String) -> Result<String, String> {
+        let said = actions::run(&c.engine, &c.peers, api::SESSION_TASK_STOP, &key, actions::params::Task { id, ..Default::default() })?;
+        Ok(said.as_str().unwrap_or_default().to_string())
+    }
+
     /// Takes a message a session's harness holds until its turn ends out of what it holds.
     fn session_unqueue(c, key: String, id: String) -> Result<Value, String> {
         actions::run(&c.engine, &c.peers, api::SESSION_UNQUEUE, &key, actions::params::Steer { id, ..Default::default() })

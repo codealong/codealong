@@ -308,6 +308,12 @@ pub struct Session {
     /// ends, and the windows draw it as they draw `background`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub agents: Vec<String>,
+    /// The commands its agent started in the background, as its harness's own list has them
+    /// (Claude Code's `/tasks`, Codex's `/ps`): the ones still running, then the ones that ended a
+    /// little while ago, oldest first in each. Only what the harness started: a server a command
+    /// left behind as it exited isn't among them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tasks: Vec<BackgroundTask>,
     /// Set while its agent waits on a command you allowed in your terminal (`codealong terminal
     /// run`), or while a command you ran for it goes (`RunningIn::yours`): where it runs and what.
     /// Working, the windows say that at the end of its conversation, in place of a turn's word or
@@ -745,6 +751,7 @@ impl Session {
             need: None,
             background: None,
             agents: Vec::new(),
+            tasks: Vec::new(),
             running: None,
             queued_at: None,
             queued: Vec::new(),
@@ -995,6 +1002,36 @@ pub struct AgentSeen {
     /// What the turn came to, in a sentence, when the agent said.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
+}
+
+/// A command a session's agent started in the background (`Session::tasks`): a Claude Code
+/// shell (a Bash call run in the background, or one moved there past its timeout) or Monitor, or
+/// a Codex background terminal (a command still running when its call returned).
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct BackgroundTask {
+    /// Its harness's id for it: Claude Code's task id (`b…`), Codex's process id.
+    pub id: String,
+    /// The command, or "" where its harness's record didn't say.
+    pub command: String,
+    /// What the agent said it's for (a Bash call's `description`), or "".
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub about: String,
+    /// A Claude Code Monitor: a command whose every line of output wakes the agent.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub monitor: bool,
+    pub started_at: i64,
+    /// When it ended, once its harness said so.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ended_at: Option<i64>,
+    /// How it ended, as its harness put it (`completed`, `failed`, `killed`, `stopped`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i64>,
+    /// The file its harness writes its output to, where it keeps one (Claude Code's).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output: Option<String>,
 }
 
 /// A command running in a terminal that a session waits on: one you allowed, which its agent

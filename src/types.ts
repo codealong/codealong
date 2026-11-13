@@ -126,6 +126,27 @@ export interface Suggestions {
   promptAt?: number;
 }
 
+/** A command a session's agent started in the background: a Claude Code shell or Monitor, or a
+ *  Codex background terminal (model.rs `BackgroundTask`). */
+export interface BackgroundTask {
+  /** Its harness's id for it: Claude Code's task id, Codex's process id. */
+  id: string;
+  /** The command, or "" where its harness's record didn't say. */
+  command: string;
+  /** What the agent said it's for. Missing when it didn't say. */
+  about?: string;
+  /** A Claude Code Monitor: every line it prints wakes the agent. */
+  monitor?: boolean;
+  startedAt: number;
+  /** When it ended, once its harness said so. Missing while it runs. */
+  endedAt?: number;
+  /** How it ended, as its harness put it (`completed`, `failed`, `killed`, `stopped`). */
+  status?: string;
+  exitCode?: number;
+  /** The file its harness writes its output to, where it keeps one. */
+  output?: string;
+}
+
 /** A command running in a terminal that a session waits on: one you allowed, which its agent
  *  waits on mid-turn, or one you ran for it (`yours`) (model.rs `RunningIn`). */
 export interface RunningIn {
@@ -205,6 +226,10 @@ export interface Session {
    *  waits on them (`waitsInBackground`). Missing when there are none, and from a board an older
    *  app sent. */
   agents?: string[];
+  /** The commands its agent started in the background, as its harness's own list has them: the
+   *  ones running, then the ones that ended a little while ago, oldest first in each (Claude Code
+   *  and Codex). Missing when there are none, and from a board an older app sent. */
+  tasks?: BackgroundTask[];
   /** While its agent waits on a command you allowed in your terminal (`codealong terminal run`),
    *  or while a command you ran for it goes (`RunningIn.yours`): where it runs and what, which
    *  the end of its conversation says (`Waiting`). Missing from a board an older app sent. */

@@ -12,6 +12,9 @@ mod applog;
 mod appserver;
 mod asks;
 mod automations;
+mod background;
+#[cfg(test)]
+pub use background::{LeftRunning, Terminals};
 mod conversation;
 mod draw;
 mod mcp;
@@ -301,6 +304,21 @@ impl crate::harness::Adapter for Codex {
             (crate::model::Surface::Cli, None) => false,
             _ => ctx.account.home_path().join("ipc/ipc.sock").exists(),
         }
+    }
+
+    /// A command runs in its own shell, `/bin/zsh -c <command>` (`-lc` for a login shell), which
+    /// `ps` gives as the arguments joined (background.rs).
+    fn shell_script(&self, cmdline: &str) -> Option<String> {
+        background::shell_script(cmdline)
+    }
+
+    /// The last of what a command left running in a background terminal printed, as the agent
+    /// read it: its record keeps each result's output, and the whole of it once it ended
+    /// (background.rs `output_of`).
+    fn task_output(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, task: &crate::model::BackgroundTask) -> anyhow::Result<String> {
+        let text = background::output_of(&record(self, ctx, s)?, &task.id);
+        let tail = text.char_indices().rev().nth(crate::harness::TASK_OUTPUT_BYTES as usize).map_or(text.as_str(), |(i, _)| &text[i..]);
+        Ok(crate::util::terminal_text(tail))
     }
 
     /// The approval Codex's hook handed over that the thread's turn waits on (asks.rs), which its

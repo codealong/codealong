@@ -32,7 +32,7 @@ fn is_tool_shell(command: &str) -> bool {
 }
 
 /// `zsh -c source … && eval 'gcloud auth login' < /dev/null && pwd -P >| …` → `gcloud auth login`.
-fn eval_command(cmdline: &str) -> Option<String> {
+pub(super) fn eval_command(cmdline: &str) -> Option<String> {
     let (_, rest) = cmdline.split_once("eval '")?;
     let inner = rest.rsplit_once("' < /dev/null").map(|(c, _)| c).unwrap_or(rest);
     Some(inner.replace("'\\''", "'")).filter(|c| !c.trim().is_empty())

@@ -84,6 +84,13 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
   `codex/conversation.rs` (`open_calls`, `call_items`), `codex/mod.rs` (`runs_its_commands`).
   The app's `exec` tool's `input` is JavaScript holding the command in a string literal
   (`tools.exec_command({cmd:\"…\"})`); a `function_call`'s `arguments` are JSON.
+- Background terminals, a command still running when its `exec_command` call returned (the TUI's
+  `/ps` lists them and `/stop` ends them all; the app-server has `thread/backgroundTerminals/list`,
+  `terminate` and `clean`): how the rollout says one started, what it printed and that it ended,
+  and why an end can come before its start there: `codex/background.rs` (module header),
+  `board.rs` (`codex_tasks`). Each runs as `/bin/zsh -c <command>` (`-lc` for a login shell) under
+  the Codex process that runs the thread, with `CODEX_THREAD_ID` in its environment, which Stop
+  finds it by.
 - A thread's commands are given `CODEX_THREAD_ID` and `CODEX_SESSION_ID`, both the thread's ID,
   and keep what Codex was started with (a `CLAUDE_CODE_SESSION_ID` among them): `codex exec` on
   0.156.1 (codex-acp's) and on 0.163.0-alpha.10.2 (the app's, which adds `CODEX_TOOL_CALL_ID`),

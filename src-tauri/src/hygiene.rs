@@ -608,6 +608,30 @@ pub fn end(found: &[Found], table: &[Proc], protected: &HashSet<u32>, board: &Bo
     out
 }
 
+/// Ends a process `table` lists and every process under it, as `end` ends what it finds: asked
+/// first (SIGTERM), killed if still there a few seconds on, each signalled only while it's the
+/// one the table listed. For Stop on a command an agent left running in the background
+/// (`Adapter::stop_task`). Returns the pids still running.
+pub fn end_tree(table: &[Proc], root: u32) -> Vec<u32> {
+    let kids = children_of(table);
+    let by_pid: HashMap<u32, &Proc> = table.iter().map(|p| (p.pid, p)).collect();
+    let tree: Vec<Target> = std::iter::once(root).chain(descendants(&kids, root)).filter_map(|p| by_pid.get(&p)).filter_map(|p| Target::of(p)).collect();
+    signal(&tree, libc::SIGTERM);
+    let rest = wait_gone(&tree, Duration::from_secs(3));
+    signal(&rest, libc::SIGKILL);
+    wait_gone(&rest, Duration::from_secs(2)).iter().map(|t| t.pid).collect()
+}
+
+/// What Stop on a background command says once `end_tree` has ended it, or failed to, under the
+/// command its list already names.
+pub fn stopped(left: &[u32]) -> String {
+    match left {
+        [] => "Stopped: it and what it started have ended, and its agent is told so.".to_string(),
+        [one] => format!("Asked it to stop, but one of its processes still runs ({one})."),
+        _ => format!("Asked it to stop, but {} of its processes still run ({}).", left.len(), left.iter().map(u32::to_string).collect::<Vec<_>>().join(", ")),
+    }
+}
+
 /// Appends a line for each to the log: when, pid, memory, how it went, kind, why and command.
 pub fn log(path: &Path, ended: &[Ended], found: &[Found]) -> std::io::Result<()> {
     use std::io::Write;

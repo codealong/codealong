@@ -2281,6 +2281,20 @@ export async function sessionSteer(key: string, id: string): Promise<string> {
   return invoke<string>('session_steer', { key, id });
 }
 
+/** The last of what a command a session left running in the background printed (`id`, one of
+ *  `Session.tasks`), read on the machine it runs on: as a terminal last showed it. */
+export async function sessionTaskOutput(key: string, id: string): Promise<string> {
+  if (!inTauri) throw new Error('Reading its output needs the app.');
+  return invoke<string>('session_task_output', { key, id });
+}
+
+/** Stops a command a session left running in the background: ends its process and what that
+ *  started, and its harness tells the agent it ended. Says how it went. */
+export async function sessionTaskStop(key: string, id: string): Promise<string> {
+  if (!inTauri) throw new Error('Stopping a command needs the app.');
+  return invoke<string>('session_task_stop', { key, id });
+}
+
 /** Takes a message a session's harness holds until its turn ends (`id`, one of `Session.queued`)
  *  out of what it holds, so it never goes, as the trash beside a queued message in the Codex app
  *  does. */

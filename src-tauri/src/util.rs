@@ -182,6 +182,47 @@ impl Tail {
 /// line drops that line, which belongs to whoever read up to there, and a last line with no
 /// newline yet is left for the next read. Nothing before `from` is read but the one byte that
 /// says whether a line starts there, however the rest decodes.
+/// What a program wrote to a terminal, as the terminal last showed it: escape sequences (colors,
+/// cursor moves, titles) taken out, and a line redrawn after carriage returns (a progress bar) as
+/// its last drawing. For a background command's output (`Adapter::task_output`).
+pub fn terminal_text(raw: &str) -> String {
+    let mut plain = String::with_capacity(raw.len());
+    let mut chars = raw.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\u{1b}' => match chars.next() {
+                // CSI: parameters, then a final byte from @ to ~.
+                Some('[') => {
+                    while let Some(n) = chars.next() {
+                        if ('@'..='~').contains(&n) {
+                            break;
+                        }
+                    }
+                }
+                // OSC: up to BEL or ESC \.
+                Some(']') => {
+                    while let Some(n) = chars.next() {
+                        if n == '\u{7}' || (n == '\u{1b}' && chars.next_if_eq(&'\\').is_some()) {
+                            break;
+                        }
+                    }
+                }
+                _ => {}
+            },
+            '\u{7}' | '\u{8}' => {}
+            c => plain.push(c),
+        }
+    }
+    plain
+        .split('\n')
+        .map(|line| {
+            let line = line.strip_suffix('\r').unwrap_or(line);
+            line.rsplit('\r').next().unwrap_or(line)
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 pub fn read_tail(path: &Path, from: u64) -> std::io::Result<Tail> {
     let mut f = File::open(path)?;
     let len = f.metadata()?.len();
@@ -760,6 +801,13 @@ pub fn write_whole(file: &Path, text: &str) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_terminals_text_is_as_it_last_showed() {
+        // Colors and a title out, a progress bar as last drawn, a Windows line end kept whole.
+        let raw = "\u{1b}]0;vite\u{7}\u{1b}[32m  ready\u{1b}[0m in 300 ms\n 10%\r 50%\r100% done\r\nnext\u{1b}]8;;http://x\u{1b}\\link\u{1b}]8;;\u{1b}\\";
+        assert_eq!(terminal_text(raw), "  ready in 300 ms\n100% done\nnextlink");
+    }
 
     #[test]
     fn provider_flags_scan_only_the_requested_history_past_large_or_invalid_lines() {

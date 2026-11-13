@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use crate::antigravity::{Conversation, FailedOn, Process};
-use crate::claude::{RegistryEntry, TranscriptInfo};
+use crate::claude::{RegistryEntry, Shell, TranscriptInfo};
 use crate::codex::ThreadInfo;
 use crate::opencode::{Live, SessionRow};
 use crate::config::AccountCfg;
@@ -245,10 +245,10 @@ pub fn moved_registry(r: &RegistryEntry, from: &TranscriptInfo) -> RegistryEntry
 /// UI: the Claude app's sessions, the ones Codealong runs over ACP and headless runs say `idle`
 /// (2.1.312's code maps their states to busy, waiting and idle alone). Theirs is a shell its
 /// transcript says it started since its process did and hasn't heard the end of
-/// (`TranscriptInfo::background`); whether one still runs is the process table's to say
+/// (`Background::shells`); whether one still runs is the process table's to say
 /// (`Quiet::running`).
 pub fn untold_shell(r: &RegistryEntry, t: &TranscriptInfo) -> bool {
-    r.status == "idle" && r.entrypoint.as_deref() != Some("cli") && t.background.iter().any(|(_, at)| r.started_at.map_or(true, |s| *at >= s))
+    r.status == "idle" && r.entrypoint.as_deref() != Some("cli") && t.background.shells.iter().any(|b| r.started_at.map_or(true, |s| b.at >= s))
 }
 
 /// What a Claude session its registry says is busy left running in the background with its turn
@@ -262,7 +262,59 @@ pub fn agents_left_running(r: &RegistryEntry, t: &TranscriptInfo) -> Vec<String>
     if r.status != "busy" || t.ended_at.is_none() {
         return Vec::new();
     }
-    t.agents.iter().filter(|a| r.started_at.map_or(true, |s| a.at >= s)).map(|a| a.about.clone()).collect()
+    t.background.agents.iter().filter(|a| r.started_at.map_or(true, |s| a.at >= s)).map(|a| a.about.clone()).collect()
+}
+
+/// How long a command a session ran in the background stays on its list once it ended
+/// (`Session::tasks`): long enough to read how it went.
+pub const TASK_ENDED_SHOWN_MS: i64 = 10 * 60 * 1000;
+
+/// What a live Claude session runs in the background, for its list (`Session::tasks`): the
+/// shells its transcript says it started since its process did, the running ones first, then
+/// those that ended in the last few minutes (`TASK_ENDED_SHOWN_MS`), oldest first in each. One
+/// whose process is gone runs none: Claude Code stops them as it exits.
+pub fn claude_tasks(r: &RegistryEntry, t: &TranscriptInfo, now: i64) -> Vec<BackgroundTask> {
+    let since = |s: &&Shell| r.started_at.map_or(true, |at| s.at >= at);
+    let bg = &t.background;
+    let running = bg.shells.iter().filter(since).filter(|s| s.ended.is_none());
+    let mut ended: Vec<&Shell> = bg.shells.iter().chain(&bg.ended).filter(since).filter(|s| s.ended.as_ref().is_some_and(|e| now - e.at < TASK_ENDED_SHOWN_MS)).collect();
+    ended.sort_by_key(|s| s.ended.as_ref().map(|e| e.at));
+    running
+        .chain(ended)
+        .map(|s| BackgroundTask {
+            id: s.id.clone(),
+            command: s.command.clone(),
+            about: s.about.clone(),
+            monitor: s.monitor,
+            started_at: s.at,
+            ended_at: s.ended.as_ref().map(|e| e.at),
+            status: s.ended.as_ref().map(|e| e.status.clone()),
+            exit_code: s.ended.as_ref().and_then(|e| e.exit_code),
+            output: s.output.clone(),
+        })
+        .collect()
+}
+
+/// What a Codex thread runs in background terminals, for its list (`Session::tasks`): the
+/// commands its rollout says still run, while a Codex process has the thread loaded (`held`; one
+/// nothing holds runs none, its terminals having gone with the process that ran them), then those
+/// that ended in the last few minutes (`TASK_ENDED_SHOWN_MS`), oldest first in each.
+pub fn codex_tasks(th: &ThreadInfo, held: Option<bool>, now: i64) -> Vec<BackgroundTask> {
+    let t = &th.terminals;
+    let running = t.running.iter().filter(|_| held != Some(false));
+    let ended = t.ended.iter().filter(|e| e.ended.as_ref().is_some_and(|(at, _, _)| now - at < TASK_ENDED_SHOWN_MS));
+    running
+        .chain(ended)
+        .map(|r| BackgroundTask {
+            id: r.id.clone(),
+            command: r.command.clone(),
+            started_at: r.at,
+            ended_at: r.ended.as_ref().map(|(at, _, _)| *at),
+            status: r.ended.as_ref().map(|(_, status, _)| status.clone()),
+            exit_code: r.ended.as_ref().and_then(|(_, _, code)| *code),
+            ..BackgroundTask::default()
+        })
+        .collect()
 }
 
 /// A session's excerpt while it waits on the agents its turn left running (`agents_left_running`).
@@ -278,7 +330,7 @@ pub fn waiting_on_agents(agents: &[String]) -> String {
 /// (`untold_shell`): the engine lists them every few seconds off its thread, and one listed
 /// before a shell started doesn't have it yet.
 pub fn listed_after_shells(listed_at: Option<i64>, t: &TranscriptInfo) -> bool {
-    listed_at.is_some_and(|at| t.background.iter().all(|(_, started)| *started <= at))
+    listed_at.is_some_and(|at| t.background.shells.iter().all(|b| b.at <= at))
 }
 
 /// How a session's excerpt starts while it holds another session's message for you to allow
@@ -475,6 +527,7 @@ pub fn claude_session(
         stalled_since,
         background: background.then(|| quiet.running.unwrap_or_default().to_string()),
         agents,
+        tasks: reg.zip(tr).map(|(r, t)| claude_tasks(r, t, now)).unwrap_or_default(),
         app_account: account.home_path() == crate::util::home().join(".claude"),
         limit,
         connection_lost,
@@ -604,6 +657,7 @@ pub fn codex_session(account: &AccountCfg, th: &ThreadInfo, name: Option<&str>, 
         // `codex resume` goes on in the same rollout, which still says `exec`: someone is at it
         // while a terminal has it, and it's headless again once that ends, as Claude's is.
         headless: th.exec && terminal.is_none(),
+        tasks: codex_tasks(th, held, now),
         ..known
     }
 }
@@ -5423,13 +5477,15 @@ mod tests {
         let a = acct("claude");
         // Run over ACP: its registry says idle with the turn's Monitor still running.
         let r = RegistryEntry { entrypoint: Some("sdk-ts".into()), ..reg("idle", NOW - 60_000) };
-        let t = TranscriptInfo { background: vec![("b7k2m9p4q".into(), NOW - 61_000)], ..tr() };
         let watch = "until [ -f /tmp/atlas/ready ]; do sleep 3; done";
+        let shell = Shell { id: "b7k2m9p4q".into(), at: NOW - 61_000, command: watch.into(), monitor: true, ..Shell::default() };
+        let t = TranscriptInfo { background: crate::claude::Background { shells: vec![shell], ..Default::default() }, ..tr() };
         let running = Quiet { running: Some(watch), ..Quiet::default() };
         let s = claude_session(&a, Some(&r), Some(&t), 0, NOW, &running).unwrap();
         assert_eq!((s.status, s.background.as_deref()), (Status::Working, Some(watch)));
         assert!(s.excerpt.as_deref().unwrap().starts_with("Waiting on `until [ -f"), "{:?}", s.excerpt);
         assert!(s.waits_in_background());
+        assert_eq!(s.tasks.iter().map(|t| (t.id.as_str(), t.command.as_str(), t.monitor)).collect::<Vec<_>>(), [("b7k2m9p4q", watch, true)]);
         // Jev is asked what the command does, not whether the reply asks you something.
         assert_eq!(crate::insights::ask(&s, NOW).map(|(k, _)| k), Some(crate::insights::Kind::Background));
         // Its turn is over when no shell of its runs one, whatever the transcript last heard;
@@ -5448,6 +5504,52 @@ mod tests {
     }
 
     #[test]
+    fn lists_what_a_live_session_runs_in_the_background_and_what_just_ended() {
+        use crate::claude::ShellEnd;
+        const MIN: i64 = 60_000;
+        let shell = |id: &str, at: i64, ended: Option<(i64, &str, i64)>| Shell { id: id.into(), at, command: format!("run {id}"), ended: ended.map(|(at, status, code)| ShellEnd { at, status: status.into(), exit_code: Some(code) }), ..Shell::default() };
+        let r = reg("idle", NOW - 60 * MIN);
+        let bg = crate::claude::Background {
+            // Ended in the queue, not yet told, and still running.
+            shells: vec![shell("b1", NOW - 50 * MIN, Some((NOW - MIN, "completed", 0))), shell("b2", NOW - 40 * MIN, None)],
+            // Ended a while ago, just now, and before this process started.
+            ended: vec![shell("b3", NOW - 45 * MIN, Some((NOW - 30 * MIN, "completed", 0))), shell("b4", NOW - 20 * MIN, Some((NOW - 3 * MIN, "failed", 1))), shell("b0", NOW - 90 * MIN, Some((NOW - 2 * MIN, "stopped", 0)))],
+            ..Default::default()
+        };
+        let t = TranscriptInfo { background: bg, ..tr() };
+        let tasks = claude_tasks(&r, &t, NOW);
+        let listed: Vec<_> = tasks.iter().map(|t| (t.id.as_str(), t.ended_at, t.status.as_deref(), t.exit_code)).collect();
+        assert_eq!(listed, [("b2", None, None, None), ("b4", Some(NOW - 3 * MIN), Some("failed"), Some(1)), ("b1", Some(NOW - MIN), Some("completed"), Some(0))]);
+        assert_eq!(tasks[0].command, "run b2");
+        // A session whose process is gone runs none.
+        let a = acct("claude");
+        assert!(claude_session(&a, None, Some(&t), 0, NOW, &Quiet::default()).unwrap().tasks.is_empty());
+        assert_eq!(claude_session(&a, Some(&r), Some(&t), 0, NOW, &Quiet::default()).unwrap().tasks, tasks);
+    }
+
+    #[test]
+    fn lists_the_commands_a_codex_thread_left_in_background_terminals() {
+        use crate::codex::{LeftRunning, Terminals};
+        const MIN: i64 = 60_000;
+        let terminal = |id: &str, at: i64, ended: Option<i64>| LeftRunning { id: id.into(), at, command: format!("run {id}"), ended: ended.map(|e| (e, "failed".to_string(), Some(2))) };
+        let th = ThreadInfo {
+            id: "t1".into(),
+            last_ts: NOW - MIN,
+            terminals: Terminals { running: vec![terminal("19957", NOW - 20 * MIN, None)], ended: vec![terminal("1", NOW - 40 * MIN, Some(NOW - 30 * MIN)), terminal("2", NOW - 9 * MIN, Some(NOW - 5 * MIN))], ..Default::default() },
+            ..ThreadInfo::default()
+        };
+        let listed = |held| codex_tasks(&th, held, NOW).into_iter().map(|t| (t.id, t.command, t.ended_at, t.exit_code)).collect::<Vec<_>>();
+        let running = ("19957".to_string(), "run 19957".to_string(), None, None);
+        let ended = ("2".to_string(), "run 2".to_string(), Some(NOW - 5 * MIN), Some(2));
+        assert_eq!(listed(Some(true)), [running.clone(), ended.clone()]);
+        assert_eq!(listed(None), [running, ended.clone()], "a look that failed takes the rollout's word");
+        // A thread no Codex process holds runs nothing: its terminals went with what ran them.
+        assert_eq!(listed(Some(false)), [ended]);
+        let s = codex_session(&acct("codex"), &th, None, None, Some(true), false, 0, NOW, None);
+        assert_eq!(s.tasks.len(), 2);
+    }
+
+    #[test]
     fn a_turn_that_ended_with_agents_running_waits_on_them() {
         use crate::claude::BackgroundAgent;
         const MIN: i64 = 60_000;
@@ -5462,7 +5564,7 @@ mod tests {
             last_ts: ended,
             last_prompt_at: Some(NOW - 40 * MIN),
             last_text_tail: Some("Shall I file it with these dates?".into()),
-            agents: vec![agent("a1", NOW - 35 * MIN, "Draft the drift corrections"), agent("a2", NOW - 35 * MIN, "")],
+            background: crate::claude::Background { agents: vec![agent("a1", NOW - 35 * MIN, "Draft the drift corrections"), agent("a2", NOW - 35 * MIN, "")], ..Default::default() },
             ..tr()
         };
         let quiet = Quiet { subagent_at: Some(NOW - 31 * MIN), ..Quiet::default() };
@@ -5473,7 +5575,7 @@ mod tests {
         assert!(!crate::harness::turn_running(&s), "there's no turn to stop");
         assert_eq!(serde_json::to_value(&s).unwrap()["agents"], serde_json::json!(["Draft the drift corrections", ""]));
         // One says what it's for.
-        let one = TranscriptInfo { agents: t.agents[..1].to_vec(), ..t.clone() };
+        let one = TranscriptInfo { background: crate::claude::Background { agents: t.background.agents[..1].to_vec(), ..Default::default() }, ..t.clone() };
         assert_eq!(claude_session(&a, Some(&r), Some(&one), 0, NOW, &quiet).unwrap().excerpt.as_deref(), Some("Waiting on a background agent · Draft the drift corrections"));
         // Jev reads its reply as a turn's: asking you, it Needs you until you've seen it.
         assert_eq!(crate::insights::ask(&s, NOW).map(|(k, _)| k), Some(crate::insights::Kind::Turn));

@@ -93,6 +93,7 @@ export type Session = Holds<Same<
   | "stoppable"
   | "suggestions"
   | "surface"
+  | "tasks"
   | "terminal"
   | "title"
   | "visitor",
@@ -198,6 +199,19 @@ export type AgentSeen = Holds<Same<
   | "at"
   | "note",
   Names<Types.AgentSeen>
+>>;
+
+export type BackgroundTask = Holds<Same<
+  | "about"
+  | "command"
+  | "endedAt"
+  | "exitCode"
+  | "id"
+  | "monitor"
+  | "output"
+  | "startedAt"
+  | "status",
+  Names<Types.BackgroundTask>
 >>;
 
 export type RunningIn = Holds<Same<

@@ -53,6 +53,7 @@ import { cacheShare, money, tokenCount, totalTokens } from '../spend';
 import type { Board, DeviceView, Label, Lane, Pr, Session, SessionSpent, SideGlance, Target, Todo } from '../types';
 import { closedWord, isOpen, newId, nextColor, panelTodos, STATUS_WORD as TODO_WORD } from '../todos';
 import { ArtifactChip, ArtifactList } from './ArtifactBits';
+import { BackgroundChip, BackgroundList } from './BackgroundBits';
 import { DeviceBadge } from './DeviceBadge';
 import { InsightChips } from './InsightBits';
 import { LabelPicker } from './LabelPicker';
@@ -387,7 +388,9 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
   const [allTodos, setAllTodos] = useState(false);
   const [allKin, setAllKin] = useState(false);
   const [allArtifacts, setAllArtifacts] = useState(false);
+  const [allTasks, setAllTasks] = useState(false);
   const artifacts = s.artifacts ?? [];
+  const tasksShown = allTasks && (s.tasks?.length ?? 0) > 0;
   // The latest started first: it's the one shown, and the rest open under it in the order they
   // started, so the list holds still as they work.
   const came = useMemo(() => cameLines(lineage), [lineage]);
@@ -614,6 +617,7 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
             {allArtifacts ? 'fewer' : `+${artifacts.length - 1} more`}
           </button>
         )}
+        <BackgroundChip session={s} now={now} open={tasksShown} onToggle={() => setAllTasks(!tasksShown)} />
         <PreviewChip preview={lane.preview} now={now} onOpen={() => onOpen('l|preview')} />
         <InsightChips session={s} />
         <SessionLabels session={s} relabel={actions?.relabel} adds={!compact} />
@@ -638,6 +642,7 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
         )}
       </div>
       {allArtifacts && artifacts.length > 1 && <ArtifactList artifacts={artifacts.slice(1)} now={now} />}
+      {tasksShown && <BackgroundList session={s} now={now} remote={!!device} />}
       {allTodos && (
         <div className="ca-insp-todos">
           {listed.map((t) => (

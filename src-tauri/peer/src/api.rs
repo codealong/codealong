@@ -73,6 +73,15 @@ pub const SESSION_STEER: &str = "session-steer";
 /// in the Codex app does; answering `Unqueued`. Macs before 2026-10-29 refuse it as a request
 /// they don't know.
 pub const SESSION_UNQUEUE: &str = "session-unqueue";
+/// The last of what a command a session left running in the background printed (`id`, one of
+/// `Session::tasks`), as its machine reads it: the file its harness writes it to, or what its
+/// record says the agent read of it; answering a string. Machines before 2026-11-12 refuse it as
+/// a request they don't know.
+pub const SESSION_TASK_OUTPUT: &str = "session-task-output";
+/// Stops a command a session left running in the background (`id`, one of `Session::tasks`):
+/// ends its process and what it started, and its harness tells the agent it ended; answering a
+/// sentence. Machines before 2026-11-12 refuse it as a request they don't know.
+pub const SESSION_TASK_STOP: &str = "session-task-stop";
 /// Where what you typed goes, as the quick panel suggests it: Jev's answer about this device's
 /// board (`Route`). Macs before 2026-09-29 refuse it as a request they don't know.
 pub const ROUTE: &str = "route";
@@ -263,6 +272,15 @@ pub mod params {
     #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
     #[serde(default)]
     pub struct Steer {
+        #[serde(skip_serializing_if = "String::is_empty")]
+        pub key: String,
+        pub id: String,
+    }
+
+    /// `session-task-output` and `session-task-stop`: the command, by its id in `Session::tasks`.
+    #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+    #[serde(default)]
+    pub struct Task {
         #[serde(skip_serializing_if = "String::is_empty")]
         pub key: String,
         pub id: String,
@@ -646,7 +664,7 @@ pub enum Reach {
 }
 
 /// Every request, with who may make it. A request missing here is one a device doesn't know.
-pub const REQUESTS: [(&str, Reach); 50] = [
+pub const REQUESTS: [(&str, Reach); 52] = [
     (SESSION_PAGE, Reach::Read),
     (SESSION_NEWER, Reach::Read),
     (SESSION_PENDING, Reach::Read),
@@ -654,6 +672,7 @@ pub const REQUESTS: [(&str, Reach); 50] = [
     (SESSION_STREAM, Reach::Read),
     (SESSION_WATCH, Reach::Read),
     (SESSION_SKILLS, Reach::Read),
+    (SESSION_TASK_OUTPUT, Reach::Read),
     (SIDE_GET, Reach::Read),
     (SIDE_PAST, Reach::Read),
     (SEARCH, Reach::Read),
@@ -682,6 +701,8 @@ pub const REQUESTS: [(&str, Reach); 50] = [
     (SESSION_CANCEL, Reach::Control),
     (SESSION_STEER, Reach::Control),
     (SESSION_UNQUEUE, Reach::Control),
+    // It ends a process an agent started, which the agent is then told of.
+    (SESSION_TASK_STOP, Reach::Control),
     (START, Reach::Control),
     (SESSION_FORK, Reach::Control),
     (SESSION_EDIT, Reach::Control),

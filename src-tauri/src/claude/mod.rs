@@ -73,9 +73,9 @@ use trust::{state_file, trust_folder};
 pub use conversation::conversation_items;
 pub use held::Held;
 pub use registry::RegistryEntry;
-pub use transcript::TranscriptInfo;
+pub use transcript::{Shell, TranscriptInfo};
 #[cfg(test)]
-pub use transcript::BackgroundAgent;
+pub use transcript::{Background, BackgroundAgent, ShellEnd};
 
 /// Claude Code's send-now key, Ctrl+X Ctrl+S (`chat:sendNow`; Ctrl+Enter is bound to it too, but
 /// a terminal without the kitty keyboard protocol sends it as Return). Pressed with a prompt in
@@ -265,6 +265,11 @@ impl crate::harness::Adapter for ClaudeCode {
 
     fn writing(&self, s: &crate::model::Session) -> Option<String> {
         live::stream(&s.key)
+    }
+
+    /// Its Bash tool's shells run the command as `eval '<command>'` (shells.rs).
+    fn shell_script(&self, cmdline: &str) -> Option<String> {
+        shells::eval_command(cmdline)
     }
 
     fn pending(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> Option<crate::harness::Pending> {

@@ -1,0 +1,113 @@
+/* What a session's agent left running in the background (BackgroundBits.tsx), in its header: a
+   chip among the links, and the list it opens under them. */
+
+/* Neutral while it only says what ended; green while something runs, as a worktree's app is
+   while its server is up (PreviewBits.css). */
+.ca-chip.ca-taskchip > .ca-icon {
+  flex: none;
+}
+.ca-chip.ca-taskchip.is-running {
+  background: var(--pr-open-tint);
+  color: var(--pr-open);
+}
+.ca-chip.ca-taskchip.is-running .ca-icon {
+  color: var(--pr-open);
+}
+.ca-chip.ca-taskchip.is-running.ca-chip--button:hover {
+  background: var(--pr-open-tint);
+  color: var(--pr-open);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 45%, transparent);
+}
+
+/* A row each, under the links, as the pages it made list there. */
+.ca-tasks {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-1);
+  margin-top: -2px;
+}
+.ca-task {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.ca-task-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 22px;
+}
+.ca-task-head > .ca-icon {
+  flex: none;
+  color: var(--ink-3);
+}
+.ca-task.is-running .ca-task-head > .ca-icon {
+  color: var(--pr-open);
+}
+.ca-task-command {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font: var(--type-code-meta);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ca-task.is-ended .ca-task-command {
+  color: var(--ink-2);
+}
+.ca-task-state {
+  flex: none;
+  color: var(--ink-3);
+  font: var(--type-meta);
+  white-space: nowrap;
+}
+.ca-task-toggle {
+  flex: none;
+  margin-left: auto;
+  font: var(--type-meta);
+}
+.ca-task-head > .ca-btn {
+  flex: none;
+}
+.ca-task-about,
+.ca-task-said,
+.ca-task-note {
+  min-width: 0;
+  color: var(--ink-3);
+  font: var(--type-meta);
+}
+.ca-task-about,
+.ca-task-said {
+  padding-left: 18px;
+}
+.ca-task-said {
+  color: var(--ink-2);
+}
+/* The last of what it printed, as a terminal showed it: kept short, and scrolled within. */
+.ca-task-output {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+  margin-left: 18px;
+  padding: 6px var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+}
+.ca-task-output pre {
+  max-height: 180px;
+  margin: 0;
+  overflow: auto;
+  color: var(--ink-2);
+  font: var(--type-code-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.ca-task-address {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  justify-self: start;
+  font: var(--type-meta);
+}

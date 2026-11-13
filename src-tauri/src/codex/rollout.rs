@@ -80,6 +80,9 @@ pub struct ThreadInfo {
     /// `create_thread` tool answers the new thread's first turn with a `<codex_delegation>` that
     /// names it in `<source_thread_id>`.
     pub started_by: Option<String>,
+    /// The commands it left running in background terminals, and those that ended a little
+    /// while ago (`background::step`).
+    pub terminals: super::background::Terminals,
 }
 
 /// A tool call without its output yet.
@@ -372,6 +375,8 @@ pub fn parse_rollout(path: &Path, mtime: i64, prev: Option<(ThreadInfo, u64)>) -
     let len = std::fs::metadata(path).ok()?.len();
     // A large append rebuilds the tail's status, but flags in the already-read prefix are known.
     let (was_flagged, flag_from) = prev.as_ref().filter(|(_, off)| *off <= len).map(|(info, off)| (info.flagged, *off)).unwrap_or_default();
+    // So are the background terminals it ran, which the lines since only add to or end.
+    let ran = prev.as_ref().filter(|(_, off)| *off <= len).map(|(info, off)| (info.terminals.clone(), *off));
     // `floor` is where the lines after the session meta begin, on a first parse.
     let (mut info, tail, floor) = match prev.filter(|(_, off)| *off <= len && len - off <= 1024 * 1024) {
         Some((info, off)) => (info, read_tail(path, off).ok()?, None),
@@ -391,6 +396,7 @@ pub fn parse_rollout(path: &Path, mtime: i64, prev: Option<(ThreadInfo, u64)>) -
     };
     let events = parse_events(&tail.text());
     if let Some(floor) = floor {
+        info.terminals = terminals_before(path, ran, floor, tail.start);
         // Read before the events behind the tail, whose prompt is the latest one there.
         read_first_prompt(&mut info, path, floor, tail.start, FIRST_PROMPT_WITHIN);
         for v in earlier_events(path, floor, tail.start, &events) {
@@ -419,6 +425,27 @@ pub fn parse_rollout(path: &Path, mtime: i64, prev: Option<(ThreadInfo, u64)>) -
         info.last_ts = mtime;
     }
     Some((info, tail.end))
+}
+
+/// How far before its tail a first read looks for the background terminals a thread runs: a
+/// command's output is most of a rollout's bytes, and one started further back than that before
+/// Codealong first read the thread goes unlisted.
+const TERMINALS_BACK: u64 = 2 * 1024 * 1024;
+
+/// The background terminals a thread runs as of `end`: those known at an earlier offset carried
+/// on through the lines since (a large append is read afresh, but only its lines can start or end
+/// one), else what the lines in `TERMINALS_BACK` before it say.
+fn terminals_before(path: &Path, ran: Option<(super::background::Terminals, u64)>, floor: u64, end: u64) -> super::background::Terminals {
+    let (mut terminals, from) = ran.map(|(t, at)| (t, at.max(floor))).unwrap_or_else(|| (Default::default(), end.saturating_sub(TERMINALS_BACK).max(floor)));
+    let mut lines = Vec::new();
+    scan_lines_back(path, from, end, |line| {
+        if super::background::could_step(line) {
+            lines.extend(serde_json::from_str::<Value>(line).ok());
+        }
+        false
+    });
+    super::background::replay(&mut terminals, &lines);
+    terminals
 }
 
 /// The events before `end` that `later` has no newer copy of: the last turn event (started,
@@ -887,6 +914,7 @@ fn note_cwd(info: &mut ThreadInfo, p: &Value, at: Option<i64>) {
 fn apply_event(info: &mut ThreadInfo, v: &Value) {
     info.flagged |= flagged(v);
     let ts = v.get("timestamp").and_then(Value::as_str).and_then(parse_rfc3339_ms);
+    super::background::step(&mut info.terminals, v, ts);
     if let Some(t) = ts {
         info.last_ts = info.last_ts.max(t);
     }
