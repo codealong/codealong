@@ -237,13 +237,13 @@ impl crate::harness::Adapter for ClaudeCode {
             return claude_routes(s, None, &home, None, None);
         }
         let registry = session_entry(&home, s);
-        let mode = permission_mode(registry.as_ref(), &self.records(account, s));
+        let mode = live_mode(account, s, registry.as_ref());
         claude_routes(s, registry.as_ref(), &home, daemon_socket(&home).as_deref(), mode)
     }
 
     fn skips_permission_prompts(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> bool {
         let registry = session_entry(&ctx.account.home_path(), s);
-        registry.is_some() && permission_mode(registry.as_ref(), &self.records(ctx.account, s)).as_deref() == Some("bypassPermissions")
+        registry.is_some() && live_mode(ctx.account, s, registry.as_ref()).as_deref() == Some("bypassPermissions")
     }
 
     fn conversation_after(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, after: u64) -> anyhow::Result<Page> {
@@ -844,7 +844,7 @@ impl crate::harness::Adapter for ClaudeCode {
 
     fn would_hold_messages(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> bool {
         let registry = session_entry(&ctx.account.home_path(), s);
-        holds_in(permission_mode(registry.as_ref(), &self.records(ctx.account, s)).as_deref())
+        holds_in(live_mode(ctx.account, s, registry.as_ref()).as_deref())
     }
 
     fn resume(&self, account: &AccountCfg, s: &Session, ask: &crate::harness::StartAsk) -> anyhow::Result<(String, Vec<(String, String)>)> {
@@ -2163,10 +2163,17 @@ fn clears_context_in(texts: impl Iterator<Item = String>) -> bool {
     texts.filter_map(|t| serde_json::from_str::<Value>(&t).ok()?.get("showClearContextOnPlanAccept")?.as_bool()).last().unwrap_or(false)
 }
 
+/// The permission mode a live session runs in, as its files have it, else the one it starts in
+/// (`mode::starting_mode`): they say none until its first prompt is written, and a message sent
+/// it meanwhile, as Codealong sends one it has just started, would claim none.
+fn live_mode(account: &AccountCfg, s: &Session, registry: Option<&registry::RegistryEntry>) -> Option<String> {
+    permission_mode(registry, &records_in(account, s, home_of_account)).or_else(|| mode::starting_mode(&account.home_path(), Path::new(&s.cwd), s.pid.and_then(procs::command_line).as_deref()))
+}
+
 /// Whether a session in `mode` holds another session's message whose sender doesn't claim
 /// `bypass` (claude/peer.rs): in `bypassPermissions` it does, and in `plan` it may, since plan
-/// entered from bypass keeps bypass's class. A mode its transcript doesn't say (none in the part
-/// `permission_mode` reads) could be either, so it counts as holding.
+/// entered from bypass keeps bypass's class. A mode nothing says (`live_mode`) could be either,
+/// so it counts as holding.
 fn holds_in(mode: Option<&str>) -> bool {
     !matches!(mode, Some(m) if m != "bypassPermissions" && m != "plan")
 }

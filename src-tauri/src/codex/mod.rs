@@ -354,7 +354,7 @@ impl crate::harness::Adapter for Codex {
             Answer::Always => anyhow::bail!("Codex's prompt is answered here with Allow or Deny only; its other choices are in its terminal."),
         };
         let pid = s.pid.filter(|_| s.surface == crate::model::Surface::Cli && note.keyed()).ok_or_else(|| anyhow::anyhow!("Answer it where Codex asks it: Codealong can't from here."))?;
-        if keys_of_its_own(&ctx.account.home_path(), &cwd, pid) || command_line(pid).is_none_or(|c| c.contains("keymap")) {
+        if keys_of_its_own(&ctx.account.home_path(), &cwd, pid) || crate::procs::command_line(pid).is_none_or(|c| c.contains("keymap")) {
             anyhow::bail!("Answer it in Codex's terminal: its keys may be set up its own way (tui.keymap).");
         }
         // Codex shows its prompt only once every hook it runs for it has finished.
@@ -1263,15 +1263,6 @@ impl Codex {
 fn keys_of_its_own(codex_home: &Path, cwd: &Path, pid: u32) -> bool {
     let Some(started_at) = crate::procs::proc_start_ms(pid) else { return true };
     std::fs::read_to_string(codex_home.join("config.toml")).is_ok_and(|text| text.contains("keymap")) || others_may_say(cwd, codex_home, started_at, &["keymap"])
-}
-
-/// A process's command line as `ps` has it, its arguments joined with spaces; Windows' own where
-/// it keeps one.
-fn command_line(pid: u32) -> Option<String> {
-    if let Some(line) = crate::os::procs::command_line(pid) {
-        return Some(line);
-    }
-    crate::procs::run("/bin/ps", &["-o", "command=", "-p", &pid.to_string()], None, std::time::Duration::from_secs(3)).ok()
 }
 
 /// Whether `command` runs in a process under `pid`: a terminal UI runs what it was allowed as

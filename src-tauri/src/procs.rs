@@ -34,6 +34,15 @@ pub fn foreground_group(pid: u32) -> Option<u32> {
     (p.tdev != u32::MAX && p.tpgid > 0).then_some(p.tpgid as u32)
 }
 
+/// A process's command line as `ps` has it, its arguments joined with spaces; Windows' own where
+/// it keeps one.
+pub fn command_line(pid: u32) -> Option<String> {
+    if let Some(line) = crate::os::procs::command_line(pid) {
+        return Some(line);
+    }
+    run("/bin/ps", &["-o", "command=", "-p", &pid.to_string()], None, Duration::from_secs(3)).ok()
+}
+
 /// A process and its ancestors up to launchd, nearest first.
 pub fn ancestors(pid: u32) -> Vec<u32> {
     let mut out = vec![pid];

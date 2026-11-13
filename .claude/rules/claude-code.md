@@ -560,7 +560,11 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   2.1.292, 2026-10-07): `claude/held.rs` (module header). It expires after settings.json's
   `dialogExpiry` (`60s`, `5m`, `10m`, `never`; `CLAUDE_CODE_USER_DIALOG_TIMEOUT_MS` wins), five
   minutes by default, except in a background job nobody is attached to, and the sender is
-  told it expired as it's told of a denial. Under the Claude app (stream-json) a hold is only a `{"type":
+  told it expired as it's told of a denial. A terminal session's transcript, where Codealong reads
+  its mode, is made only with its first prompt, a second or so after its registry entry, so a
+  message sent a session just started goes by the mode it starts in (`claude/mode.rs`
+  `starting_mode`, `claude/mod.rs` `live_mode`): without it a meeting's brief, sent 0.3 s before
+  the transcript was made, claimed no mode and was held (2.1.323, 2026-11-13). Under the Claude app (stream-json) a hold is only a `{"type":
   "system","subtype":"peer_message_hold","state":"held"}` line to the app, which (2.9939.2) has
   no code for it: the message is never shown or delivered, and the sender never hears.
 - A Claude app session's permission mode is in the app's record of it, a terminal session's on

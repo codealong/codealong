@@ -31,6 +31,24 @@ pub(super) fn permission_mode(registry: Option<&RegistryEntry>, transcripts: &[P
     mode
 }
 
+/// The mode a session starts in, for one whose files say none yet: Claude Code writes its
+/// transcript only with the first prompt, a second or so after the session is in its registry,
+/// and a message Codealong sends a session it has just started goes before that. Without it, a
+/// meeting's brief claimed no mode and a session that skips prompts held it for you (2.1.323,
+/// 2026-11-13: held 0.3 s before the transcript was made). It's the command line's
+/// (`--permission-mode`, `--dangerously-skip-permissions`), else the settings' `defaultMode`, but
+/// not Bypass where settings turn it off; none where nothing says. `command` is its process's
+/// command line (a background job's is its spare's, which names no mode), `home` the account's
+/// folder and `cwd` the session's.
+pub(super) fn starting_mode(home: &Path, cwd: &Path, command: Option<&str>) -> Option<String> {
+    starting_by(&offers(&settings_files(home, cwd), &super::trust::state_file(home)), command.unwrap_or_default())
+}
+
+fn starting_by(offers: &Offers, command: &str) -> Option<String> {
+    let mode = started_in(command).mode.or_else(|| offers.default_mode.clone())?;
+    (mode != "bypassPermissions" || !offers.no_bypass).then_some(mode)
+}
+
 /// A mode as Claude Code writes it (`permissionMode`), named as its own terminal and the Claude
 /// app name it (2.1.296's table of modes: `default` is Manual, and `manual` is taken for it),
 /// Bypass Permissions shortened to Bypass for the line under the reply box. None for a mode it
@@ -252,6 +270,19 @@ mod tests {
         set(3, r#"{"permissions":{"disableBypassPermissionsMode":"disable","defaultMode":"bypassPermissions"}}"#);
         assert_eq!(ids(Some("bypassPermissions"), None), ["default", "acceptEdits", "plan", "auto"]);
         assert_eq!(cycled_by(&offers(&files, &state), Some("auto"), None)[3].label, "Auto");
+        // The mode one starts in, before its transcript says: the flag over the settings, and
+        // no Bypass where it's turned off.
+        let starts = |command: &str| starting_by(&offers(&files, &state), command);
+        assert_eq!(starts("claude bg-spare --bg-spare /tmp/s.sock"), None, "turned off, so not known");
+        assert_eq!(starts("claude --permission-mode plan").as_deref(), Some("plan"));
+        set(3, "{}");
+        assert_eq!(starts("claude bg-spare --bg-spare /tmp/s.sock").as_deref(), Some("acceptEdits"), "the local default");
+        set(2, "{}");
+        assert_eq!(starts("claude --session-id 1 hi").as_deref(), Some("bypassPermissions"));
+        assert_eq!(starts("claude --permission-mode=default").as_deref(), Some("default"));
+        set(1, "{}");
+        assert_eq!(starts("claude --session-id 1 hi"), None, "nothing says");
+        assert_eq!(starts("claude --dangerously-skip-permissions").as_deref(), Some("bypassPermissions"));
         // Where Claude Code looks for them.
         let (home, repo) = (Path::new("/h/.claude2"), Path::new("/r/app"));
         assert_eq!(settings_files(home, repo)[..3], [home.join("settings.json"), repo.join(".claude/settings.json"), repo.join(".claude/settings.local.json")]);
