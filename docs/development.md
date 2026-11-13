@@ -148,8 +148,10 @@ scripts/windows-vm.sh shell [cmd…]   # PowerShell in the VM's copy of the chec
 header says how); it takes a minute or two, where the VM's first build takes many. The VM installs
 itself from Microsoft's ISO with no clicks (`scripts/windows/`: the answer file, OpenSSH at first
 logon, then Visual Studio's build tools, Rust, Node, Git for Windows and Zig over SSH), which takes
-an hour or two the first time. Microsoft's download page sometimes refuses a script; then download
-the Arm64 ISO in a browser and give it as `WINDOWS_ISO=<file>`.
+an hour or two the first time. Microsoft's download page sometimes refuses a script; then the ISO
+is made from Windows Update's own files through UUP dump instead (`scripts/windows/uup-iso.sh`,
+which needs `brew install aria2 cabextract wimlib cdrtools hivex`), or `WINDOWS_ISO=<file>` takes
+one you downloaded.
 
 Each area of `src-tauri/src/os/` has a `windows.rs` beside its `macos.rs` and `linux.rs`, through
 Win32 (`windows-sys`). What macOS and Linux share, POSIX's, is a `posix.rs` where an area has

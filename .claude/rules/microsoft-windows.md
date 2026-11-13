@@ -77,10 +77,30 @@ the app's windows, not this. Paths are under `src-tauri/src/`.
 
 - Microsoft's download page hands a script the ISO only after the ov-df.microsoft.com session
   handshake its page does (`scripts/windows/iso-url.sh`), and refuses VPN and datacenter
-  addresses. It refused this Mac too on 2026-11-13, after a morning of tries ("Sentinel marked
-  this request as rejected"): then `WINDOWS_ISO=<file>`, downloaded in a browser.
+  addresses. It refused this Mac on 2026-11-13, after a morning of tries ("Sentinel marked this
+  request as rejected"), and a browser here too. Then the ISO is made from Windows Update's files
+  (`scripts/windows/uup-iso.sh`): UUP dump lists them on Microsoft's update servers (68 files, 9 GB
+  for 26H2's Pro in English, its cumulative update among them) and hands out its convert.sh,
+  pinned by hash, which runs on macOS with Homebrew's aria2, cabextract, wimlib and cdrtools. It
+  asks chntpw, which Homebrew hasn't, to set two values in boot.wim's registry; hivex's library
+  sets them instead (`scripts/windows/chntpw.py`; hivexsh's `setval` would replace the key's
+  other values).
+- The ISO convert.sh makes is the release's base build (26100.1 for 24H2 to 26H2: they share
+  24H2's base), without updates, its install image named "Windows 11 Professional" where
+  Microsoft's is "Windows 11 Pro"; both describe it as "Windows 11 Pro", which the answer file
+  picks it by. Its boot catalog has a BIOS image first and the EFI one after, both said to be for
+  x86 (mkisofs's `-b` alone), which UEFI boots all the same; noprompt.py finds efisys.bin among
+  them. Its Windows PE, made from the recovery image, hangs as anything starts its network
+  (`wpeutil InitializeNetwork`, Setup's first step, a `drvload` of NetKVM behind them), whatever
+  the NIC: the answer file turns Setup's network off (`EnableNetwork`), which Setup doesn't need.
+- The firmware reads Windows PE (boot.wim, 450 MB) over emulated USB, which took from 3 to 15
+  minutes before Setup's window showed (2026-11-13), the spinner under the firmware's logo all
+  the while. Setup's own copying is quick.
 - The virtio-win ISO's Windows 11 driver files are hard links to its Server 2025 ones, so the
   whole driver's folder is extracted, and what's extracted is read-only.
+- HVF has no GICv2 (QEMU refuses `gic-version=2`); `its=off`, `vectors=0` and
+  `disable-legacy=on` on virtio-net changed nothing of the hang above. Windows PE has no driver
+  for `usb-net` or `e1000e` either.
 - QEMU's `-nic` takes no `romfile=`: the network is `-netdev` and `-device virtio-net-pci`.
 - The VM's machine boots to its firmware with both drives on 2026-11-13 (QEMU 11.1.3, HVF, an
   M1 Max); Windows' install itself hasn't run yet.

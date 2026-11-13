@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Windows 11 Arm64 with no clicks, for scripts/windows-vm.sh, which puts this file at the root of
      the medium it makes with the password it generated in place of @PASSWORD@: the NVMe disk wiped,
-     Windows 11 Pro, a local administrator "dev" that logs on by itself at every start, then
+     Windows 11 Pro (picked by its description, "Windows 11 Pro" in Microsoft's ISO and in one UUP
+     dump's converter makes, which names it "Windows 11 Professional"), a local administrator "dev" that logs on by itself at every start, then
      \setup\firstlogon.ps1 from the same medium, which turns on OpenSSH. Setup loads the network's
      driver (NetKVM, for QEMU's virtio-net) from \$WinPEDriver$ on that medium too, and copies it
      into the installed Windows. The checks for TPM, Secure Boot, RAM and CPU are skipped: QEMU's
@@ -83,7 +84,7 @@
         <OSImage>
           <InstallFrom>
             <MetaData wcm:action="add">
-              <Key>/IMAGE/NAME</Key>
+              <Key>/IMAGE/DESCRIPTION</Key>
               <Value>Windows 11 Pro</Value>
             </MetaData>
           </InstallFrom>
@@ -99,6 +100,10 @@
         <Enable>false</Enable>
         <WillShowUI>Never</WillShowUI>
       </DynamicUpdate>
+      <!-- Windows PE has no network to start: the one an ISO made from Windows Update's files
+           (scripts/windows/uup-iso.sh) has, from its recovery image, hangs as Setup starts it,
+           and Setup needs none. The installed Windows starts its own, with NetKVM. -->
+      <EnableNetwork>false</EnableNetwork>
       <UserData>
         <AcceptEula>true</AcceptEula>
         <FullName>dev</FullName>

@@ -21,9 +21,10 @@
 #   scripts/windows-vm.sh stop | delete
 #
 # Microsoft's download page refuses a script now and then ("Sentinel marked this request as
-# rejected", and always from VPN and datacenter addresses): then download the Arm64 ISO from
-# https://www.microsoft.com/software-download/windows11arm64 in a browser and give it as
-# WINDOWS_ISO=<file>. Its install runs detached and survives this script ending; run the script
+# rejected", and always from VPN and datacenter addresses): then the ISO is made from Windows
+# Update's own files through UUP dump (scripts/windows/uup-iso.sh, `brew install aria2 cabextract
+# wimlib cdrtools hivex` first), or WINDOWS_ISO=<file> takes one downloaded from
+# https://www.microsoft.com/software-download/windows11arm64 in a browser. Its install runs detached and survives this script ending; run the script
 # again to wait for it and go on. Setup's screen shows only in `screenshot`, and RDP reaches the
 # desktop at localhost:3390 (dev, with the password in the VM's folder).
 #
@@ -84,7 +85,9 @@ download() {
 
 # Microsoft's Windows 11 Arm64 ISO, checked against the SHA-256 its page lists: the one given as
 # WINDOWS_ISO, else one this downloads (scripts/windows/iso-url.sh). A partial download goes on
-# where it stopped, with a fresh link when the last one has expired (they last 24 hours).
+# where it stopped, with a fresh link when the last one has expired (they last 24 hours). When
+# the page won't give a link, the ISO is made from Windows Update's own files instead
+# (scripts/windows/uup-iso.sh), which takes longer and needs a few tools from Homebrew.
 windows_iso() {
   if [ -n "${WINDOWS_ISO:-}" ]; then
     [ -f "$WINDOWS_ISO" ] || { say "WINDOWS_ISO=$WINDOWS_ISO isn't a file"; exit 1; }
@@ -95,8 +98,9 @@ windows_iso() {
   [ -f "$iso" ] && return
   local link sha url
   if ! link="$(bash "$assets/iso-url.sh")"; then
-    say "Microsoft refused the download. Download the Arm64 ISO from https://www.microsoft.com/software-download/windows11arm64 in a browser, and run this again with WINDOWS_ISO=<the file>."
-    exit 1
+    say "Microsoft's page refused the download; making the ISO from Windows Update's files (an hour or so)"
+    bash "$assets/uup-iso.sh" "$iso"
+    return
   fi
   sha="${link%% *}" url="${link#* }"
   say "downloading Windows 11 Arm64 (about 8 GB)"

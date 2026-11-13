@@ -21,9 +21,12 @@ def sectors(lba, count=1):
     return iso.read(count * SECTOR)
 
 
-# El Torito: the boot record volume descriptor names the catalog; in it, the entries after a
-# section header for platform 0xEF are EFI images.
-def efi_image_lba():
+# El Torito: the boot record volume descriptor names the catalog, whose entries say where each
+# boot image is: those after a section header for platform 0xEF are EFI images, and are tried
+# first. An ISO made with mkisofs (UUP dump's convert.sh) says every image is for x86, a BIOS
+# one first and the EFI one after it, which UEFI firmware boots all the same; so the rest are
+# tried too, each checked to be efisys.bin before anything is written.
+def boot_image_lbas():
     for n in range(16, 64):
         d = sectors(n)
         if d[0] == 0 and d[7:30] == b"EL TORITO SPECIFICATION":
@@ -32,13 +35,14 @@ def efi_image_lba():
         if d[0] == 255:
             sys.exit("no El Torito boot record in the ISO")
     platform = catalog[1]  # the validation entry's, for the default entry after it
+    efi, other = [], []
     for i in range(32, SECTOR, 32):
         e = catalog[i : i + 32]
         if e[0] in (0x90, 0x91):
             platform = e[1]
-        elif e[0] == 0x88 and platform == 0xEF:
-            return struct.unpack("<I", e[8:12])[0]
-    sys.exit("no EFI boot image in the ISO's boot catalog")
+        elif e[0] == 0x88:
+            (efi if platform == 0xEF else other).append(struct.unpack("<I", e[8:12])[0])
+    return efi + other
 
 
 # UDF: anchor at sector 256 → volume descriptors (partition start, file set descriptor) → root
@@ -108,13 +112,15 @@ noprompt = read(folder["efisys_noprompt.bin"])
 if len(prompt) != len(noprompt):
     sys.exit("efisys.bin and efisys_noprompt.bin differ in size")
 
-lba = efi_image_lba()
-image = sectors(lba, (len(prompt) + SECTOR - 1) // SECTOR)[: len(prompt)]
-if image == noprompt:
-    print("the ISO already boots without asking")
-elif image != prompt:
-    sys.exit("the ISO's EFI boot image isn't efisys.bin; left as it is")
+for lba in boot_image_lbas():
+    image = sectors(lba, (len(prompt) + SECTOR - 1) // SECTOR)[: len(prompt)]
+    if image == noprompt:
+        print("the ISO already boots without asking")
+        break
+    if image == prompt:
+        iso.seek(lba * SECTOR)
+        iso.write(noprompt)
+        print(f"wrote efisys_noprompt.bin over the EFI boot image at sector {lba}")
+        break
 else:
-    iso.seek(lba * SECTOR)
-    iso.write(noprompt)
-    print(f"wrote efisys_noprompt.bin over the EFI boot image at sector {lba}")
+    sys.exit("none of the ISO's boot images is efisys.bin; left as it is")
