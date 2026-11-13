@@ -52,6 +52,10 @@ a change to what's sent shows there. What each harness records and accepts is in
      `Session::own_worktree`), `rename`,
      `interrupts` and `interrupt`, `archive`, `skips_permission_prompts`, `runs_its_commands`,
      `session_var` (the variable its commands are given the session's ID in);
+   - what it left running in the background (`Session::tasks`, which its reader fills): `task_output`
+     (the last of what one printed; by default the file `BackgroundTask::output` names), and
+     `stop_task`, which by default ends the shell running it, found by `shell_script` (what a
+     shell of its runs, by its command line) and `session_var`;
    - the Schedules view (schedules/harnesses.rs): `own_schedules`, the schedules the harness
      keeps itself (a loop in a session's process, its app's automations), and `open_link` for a
      link one of them gives;

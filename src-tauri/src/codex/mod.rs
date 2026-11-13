@@ -1076,7 +1076,10 @@ impl crate::harness::Reader for Reader {
                 let key = Session::key_for(Harness::Codex, &account.name, &th.id);
                 let name = index.and_then(|i| i.get(&th.id)).map(|(n, _)| n.as_str());
                 let asked = asks::waiting(th, &self.notes).map(|n| (n.what(), n.at));
-                let mut s = crate::board::codex_session(account, th, name, terminals.get(&th.id).copied(), self.held(path, th), self.stopped_by_quit.contains(path), look.seen.seen_at(&key), look.now, asked);
+                let held = self.held(path, th);
+                let mut s = crate::board::codex_session(account, th, name, terminals.get(&th.id).copied(), held, self.stopped_by_quit.contains(path), look.seen.seen_at(&key), look.now, asked);
+                // What it left in background terminals, as far as the process table bears it out.
+                s.tasks = crate::board::codex_tasks(th, held, background::alive(&th.terminals, look.ps.all()).as_deref(), look.now);
                 s.archived = path.starts_with(&archived_dir);
                 // What its terminal UI's `/permissions` lists, which Codealong picks from there
                 // (cycle.rs), where that can be told; `cycle::overlay` keeps them where that tab

@@ -338,7 +338,7 @@ pub trait Adapter: Sync {
         let table = crate::hygiene::processes()?;
         let shell = table
             .iter()
-            .filter(|p| self.shell_script(&p.command).is_some_and(|c| c.trim() == command))
+            .filter(|p| self.shell_script(&p.command).is_some_and(|c| listed_as(&c, command)))
             .find(|p| crate::procs::environment(p.pid).is_some_and(|env| env.get(var) == Some(&session.id)))
             .ok_or_else(|| anyhow!("No process of that session runs it any more."))?;
         Ok(crate::hygiene::stopped(&crate::hygiene::end_tree(&table, shell.pid)))
@@ -1105,6 +1105,20 @@ pub fn started_under(env: &HashMap<String, String>) -> Vec<(Harness, String)> {
     ADAPTERS.iter().filter_map(|a| Some((a.harness(), env.get(a.session_var()?)?.clone()))).collect()
 }
 
+/// Whether what a shell runs, as `ps` gives its command line (`listed`), is `command`: the same,
+/// where the command is printable ASCII, else as far as that goes, since `ps` writes the rest its
+/// own way (macOS's a newline as `\012`). For finding a background command's process
+/// (`Adapter::stop_task`, codex/background.rs `alive`).
+pub fn listed_as(listed: &str, command: &str) -> bool {
+    let command = command.trim();
+    let plain = command.find(|c: char| !(c == ' ' || c.is_ascii_graphic())).unwrap_or(command.len());
+    if plain == command.len() {
+        return !command.is_empty() && listed.trim() == command;
+    }
+    let head = command[..plain].trim_end();
+    !head.is_empty() && listed.trim_start().starts_with(head)
+}
+
 /// A reader for each harness, in the adapters' order.
 pub fn readers(wake: &Wake) -> Vec<Box<dyn Reader>> {
     ADAPTERS.iter().map(|a| a.reader(wake.clone())).collect()
@@ -1385,6 +1399,16 @@ pub fn find<'a>(board: &'a crate::model::Board, cfg: &'a Config, key: &str) -> R
 mod tests {
     use super::*;
     use crate::model::{Status, Surface};
+
+    #[test]
+    fn a_command_is_found_by_its_command_line_as_ps_writes_it() {
+        assert!(listed_as("npm run dev -- --port 4321", " npm run dev -- --port 4321 "));
+        assert!(!listed_as("npm run dev -- --port 4321 --open", "npm run dev -- --port 4321"), "a plain command is the whole of it");
+        // Past a newline or a letter beyond ASCII, as far as it's plain: ps writes the rest its way.
+        assert!(listed_as("cargo build\\012cargo test", "cargo build\ncargo test"));
+        assert!(listed_as("echo caf\\M-C\\M-) done", "echo café done"));
+        assert!(!listed_as("anything", "") && !listed_as("é", "é"));
+    }
 
     #[test]
     fn a_process_environment_names_the_sessions_whose_commands_started_it() {

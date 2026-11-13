@@ -250,6 +250,19 @@ pub fn output_of(rollout: &Path, id: &str) -> String {
     whole.unwrap_or_else(|| parts.into_iter().rev().collect())
 }
 
+/// Which of the commands a thread's rollout says still run (`Terminals::running`) the process
+/// table shows (`listed`): a shell running its command (`shell_script`). None without a listing
+/// to go by. One whose command wasn't recorded can't be found, so it isn't among them: a
+/// terminal whose process went with the app-server that ran it (the app quitting) is never said
+/// to have ended.
+pub fn alive(t: &Terminals, listed: &[crate::procs::PsLine]) -> Option<Vec<String>> {
+    if listed.is_empty() {
+        return None;
+    }
+    let runs = |command: &str| listed.iter().any(|p| shell_script(&p.command).is_some_and(|c| crate::harness::listed_as(&c, command)));
+    Some(t.running.iter().filter(|r| runs(&r.command)).map(|r| r.id.clone()).collect())
+}
+
 /// The command a shell Codex runs one in is running: `/bin/zsh -c <command>`, or `-lc` for a
 /// login shell, as `ps` gives the arguments joined (0.162.1 on this Mac). None for any other
 /// process.
@@ -413,6 +426,17 @@ text(await tools.write_stdin({session_id:19957,chars:"",yield_time_ms:1000}));"#
         assert_eq!(output_of(&path, "19957"), "compiling\nready\nbye\n");
         assert_eq!(output_of(&path, "1"), "");
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_command_runs_while_the_process_table_has_its_shell() {
+        let row = |pid: u32, command: &str| crate::procs::PsLine { pid, ppid: 1, tty: "??".into(), cpu: Some(0), command: command.into() };
+        let left = |id: &str, command: &str| LeftRunning { id: id.into(), at: 1, command: command.into(), ended: None };
+        let t = Terminals { running: vec![left("1", "npm run dev"), left("2", "cargo watch\n-x test"), left("3", ""), left("4", "gone")], ..Default::default() };
+        // macOS's ps writes a newline in a command as `\012`.
+        let listed = [row(10, "/bin/zsh -c npm run dev"), row(11, "/bin/zsh -lc cargo watch\\012-x test"), row(12, "node gone")];
+        assert_eq!(alive(&t, &listed), Some(vec!["1".to_string(), "2".to_string()]));
+        assert_eq!(alive(&t, &[]), None, "no listing to go by");
     }
 
     #[test]
