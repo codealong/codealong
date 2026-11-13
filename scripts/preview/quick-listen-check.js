@@ -1,6 +1,6 @@
 // Checks the quick panel set to listen (Quick.tsx, Listen now), as `[shortcuts] listen` opens it:
 // the box asks what the meeting is and the hint names that shortcut; nothing is listed or looked
-// for, whatever is typed; it's a chat of its own, with only the worktree to pick; the meeting the
+// for, whatever is typed; it's a chat of its own, with only the repo to pick; the meeting the
 // calendar has going on is the one it's of until you say it isn't; ⏎ asks for the listening with
 // what's typed, what's picked and where, and puts the panel away; how it was asked is kept for
 // the next one; a start that fails brings the panel back with what was typed and why, set to
@@ -8,12 +8,13 @@
 // meanwhile kept as a draft; with nothing picked to hear it says so and asks for nothing; and an
 // ordinary open after lists and starts as before, with no draft made of a meeting's name.
 //   PREVIEW_VOICE=1 PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/quick-listen-check.js
-// The board needs a worktree the picker lists.
+// The board needs a repo the picker lists.
 (function () {
   ['codealong.quick.listen', 'codealong.quick.draft', 'codealong.quick.history'].forEach(function (k) { localStorage.removeItem(k); });
   localStorage.setItem('codealong.quick.project', 'All projects');
   var input = function () { return q('.ca-quick-input textarea'); };
-  var chip = function () { return all('.ca-quick-chip').filter(function (b) { return /Worktree \(⌘T\)/.test(b.title); })[0]; };
+  var chip = function () { return all('.ca-quick-chip').filter(function (b) { return /Repo \(⌘T\)/.test(b.title); })[0]; };
+  var treeChip = function () { return all('.ca-quick-chip').filter(function (b) { return /Worktree \(⌘B\)/.test(b.title); })[0]; };
   var row = function () { return q('.ca-quick-compose'); };
   var title = function () { return (q('.ca-quick-compose .ca-quick-row-title') || {}).textContent; };
   var why = function () { return (q('.ca-quick-compose .ca-quick-row-why') || {}).textContent || ''; };
@@ -41,7 +42,7 @@
       check('the hint names the listen shortcut', !!hint && hint.textContent === '⌥⌘=', hint && hint.textContent);
       check('nothing is listed', all('[data-row]').length === 0 && all('.ca-quick-glabel').length === 0, all('[data-row]').length + ' rows');
       check('it’s a chat of its own', /No project/.test(chip().textContent), chip().textContent);
-      check('with only the worktree to pick', !q('.ca-quick-newtree') && q('.ca-quick-agent').hidden, String(!!q('.ca-quick-newtree')));
+      check('with only the repo to pick', !treeChip() && q('.ca-quick-agent').hidden, String(!!treeChip()));
       check('the card is its own height', Math.round(q('.ca-quick').getBoundingClientRect().height) === 500, String(q('.ca-quick').getBoundingClientRect().height));
       check('it’s of the meeting going on', box('Design review').querySelector('input').checked && title() === 'Listen to “Design review”', title());
       check('and says what ⏎ does', /hears you and this Mac’s audio from the moment you press ⏎, and a session started as a chat of its own keeps its notes/.test(why()), why());
@@ -101,17 +102,22 @@
         check('and ⏎ asks for nothing', sent('listen_now').length === before, String(sent('listen_now').length));
         box('through the microphone').querySelector('input').click();
         chip().click();
-        return until(function () { return all('.ca-picker-opt').length > 0; }, 5000, 'the worktree picker');
+        return until(function () { return all('.ca-picker-opt').length > 0; }, 5000, 'the repo picker');
       });
     })
     .then(function () {
-      // A worktree the picker lists: which of the board's those are depends on the project.
-      var lanes = board.lanes.filter(function (l) { return !l.startsChats && !l.device; });
-      var listed = all('.ca-picker-opt').map(function (o) { return { o: o, lane: lanes.filter(function (l) { return o.textContent.indexOf(l.callsign) >= 0; })[0] }; }).filter(function (x) { return x.lane; })[0];
-      if (!listed) throw new Error('the picker lists no worktree of the board’s');
-      lane = listed.lane;
-      listed.o.click();
-      return until(function () { return chip().textContent.indexOf(lane.callsign) >= 0; }, 5000, 'the worktree picked');
+      // The first repo the picker lists, after No project and Another folder…; the worktree chip
+      // says where in it the session starts.
+      var row = all('.ca-picker-opt')[2];
+      if (!row) throw new Error('the picker lists no repo');
+      row.click();
+      return until(function () { return !!treeChip(); }, 5000, 'the repo picked');
+    })
+    .then(function () {
+      var repo = chip().querySelector('span').textContent;
+      var at = treeChip().querySelector('span').textContent;
+      lane = board.lanes.filter(function (l) { return !l.startsChats && !l.device && l.repo === repo && (at === 'main' ? l.origin === 'main' : l.callsign === at); })[0];
+      if (!lane) throw new Error('no worktree of the board’s is ' + repo + ' ' + at);
     })
     .then(function () {
       check('a worktree picked is where its session starts', why().indexOf('a session started in ' + lane.callsign) >= 0, why());
@@ -155,7 +161,7 @@
       return until(function () { return q('[data-row="compose"]'); }, 5000, 'an ordinary open');
     })
     .then(function () {
-      check('an ordinary open after lists and starts as before', !q('.ca-quick-listen') && Math.round(q('.ca-quick').getBoundingClientRect().height) === 640 && !!q('.ca-quick-newtree'), String(q('.ca-quick').getBoundingClientRect().height));
+      check('an ordinary open after lists and starts as before', !q('.ca-quick-listen') && Math.round(q('.ca-quick').getBoundingClientRect().height) === 640 && !!treeChip(), String(q('.ca-quick').getBoundingClientRect().height));
       var draft = JSON.parse(localStorage.getItem('codealong.quick.draft') || 'null');
       check('and a meeting’s name is no draft to bring back', !!draft && draft.text === 'Fix the login redirect on the settings page' && /brings back your draft/.test(input().placeholder), JSON.stringify(draft));
       done();

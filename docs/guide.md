@@ -2431,9 +2431,9 @@ opens where it lives only on its own machine, so ⏎ and ⌥⏎ both show it in 
 it in the waiting window while that lists the machine's sessions (connected, with `[devices]
 in_bar` on), else shows it in Codealong too. Send to lists this machine's sessions only.
 ⌥⌘' (`[shortcuts] chat`) opens the same
-panel with the worktree picker on No project, so what you type starts a chat of its own, in a folder
+panel with the repo picker on No project, so what you type starts a chat of its own, in a folder
 of its own among Codealong's chats, rather than in a worktree; it finds sessions as ⌥⌘/ does, and
-the picker (⌘T) still goes to a worktree. With voice on, ⌥⌘= (`[shortcuts] listen`) opens it set
+the picker (⌘T) still goes to a repo. With voice on, ⌥⌘= (`[shortcuts] listen`) opens it set
 to listen to a meeting instead (*Voice*, Listen now). The shortcuts are yours to change in
 Settings › General; Settings names shortcuts macOS and common launchers already use.
 
@@ -2618,12 +2618,19 @@ app thread.
 
 ### New session
 
-**New session**, the panel's last row: pick the worktree (⌘T; it starts at whatever's selected in
-Codealong: a worktree, a session's, a PR's, or for a PR with none here its repo's main checkout;
-pinned ones first, then each repo's main checkout and reusable worktrees, and the rest folded
-away under *N more*, which opens on a click or ⏎ and while what you type matches one of them),
-the account and model in one menu (⌘L, every account on every model it can start
-on, with its limits, and the effort under them: Default, Low, Medium, High, Extra or Max, for Codex
+**New session**, the panel's last row: pick the repo (⌘T) and the worktree in it (⌘B). It starts
+at whatever's selected in Codealong: a worktree, a session's, a PR's, or for a PR with none here
+its repo's main checkout; with nothing selected, the repo of a pinned worktree, else the latest.
+The repo menu lists each repo once, ones with a pinned worktree first, with where a session would
+start in it under its name; a worktree's name or branch typed there, where it names no repo,
+lists the worktrees it names. A repo picked starts where new work goes in it: its main checkout
+when that holds no work, else a reusable worktree ready for new work, else the main checkout
+anyway; never another worktree with work under way. The worktree menu lists that repo's
+worktrees: *New worktree* first (where the account makes one, below), then the reusable ones
+ready for new work, the main checkout (*main*) and the ones you pinned; the reusable ones with
+work under way and the rest, each kept for the one piece of work it was made for, fold away
+under *N more*, which opens on a click or ⏎ and while what you type matches one of them. Then
+pick the account and model in one menu (⌘L, every account on every model it can start on, with its limits, and the effort under them: Default, Low, Medium, High, Extra or Max, for Codex
 Extra high and Ultra too, ← → to change it), and where it runs, a row under the effort (⌘O opens
 the same menu; the chip says the place after the account and model, and each place says what it
 is on hover). Each account has a place its sessions start in, its `start` in config.toml (Settings
@@ -2639,7 +2646,7 @@ control on over there).
 Your terminal (Ghostty, iTerm2, Terminal or Rex) starts Claude Code on your prompt, on the account's
 default model or the one you picked (Fable, Opus, Sonnet, Haiku, 1M context, Opus Plan Mode) at the
 effort you picked (`--effort`; Haiku takes none, and Default is the account's `effortLevel`), and
-with New worktree Claude Code makes a fresh worktree for it (`claude --worktree`: its folder, branch
+with New worktree Claude Code makes a fresh worktree for it from the repo's main checkout (`claude --worktree`: its folder, branch
 and base are Claude Code's choice). Codealong trusts the folder for that account first, as Yes at
 Claude Code's trust prompt does (the prompt's default answer quits, and `--bg` refuses a folder it
 hasn't trusted). Background starts it the same way under Claude Code's background service (`claude
@@ -3563,7 +3570,7 @@ moment, with a session started for it. Nothing needs typing. What you do type is
 name (its first line) and what you want from it, which the session is told you added. Under the
 box are the same choices a session's Listen… asks, as you left them last time: what it does
 (Notes to begin with) and what it hears (you and what the Mac plays). The session is a chat of
-its own, in no project, unless you pick a worktree for it (⌘T), and starts on the account and
+its own, in no project, unless you pick a repo or worktree for it (⌘T, ⌘B), and starts on the account and
 model Settings names for meetings (`[voice] meeting_account`, `meeting_model`), as a calendar
 meeting's does. The panel lists and searches nothing while it's set to listen, and a prompt you'd
 left unsent in it waits under ↑.

@@ -12,6 +12,10 @@ export const REUSE_WORDS: Record<Reuse, string> = {
   landed: 'Its work landed. New work can start here once it’s back on the default branch.',
 };
 
+/** What a reusable worktree holds, in a few words beside its name: Settings › Projects, the quick
+ *  panel's worktree menu. */
+export const REUSE_STATE: Record<Reuse, string> = { free: 'Ready for new work', open: 'Work under way', review: 'In review', landed: 'Landed' };
+
 /** Whether new work can start in a worktree without joining other work: reusable, and holding
  *  none. */
 export function takesNewWork(lane: Lane): boolean {

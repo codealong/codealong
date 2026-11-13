@@ -15,6 +15,7 @@ import { branchLabel, byStatusTime, sessionHomes, setAside, snoozedApart, unatte
 import { inQueueOrder, statusWaits, type Reads } from './queue';
 import { itemSection, sectionOf, todoItem, type TodoItem, type TodoSectionId } from './todos';
 import { prFlag } from './prStatus';
+import { newWorkIn, takesNewWork } from './reusable';
 import type { Codec } from './stored';
 import { platform } from './platform';
 import type { Attachment, Board, DeviceFound, DeviceView, FolderLook, Lane, PrItem, PrState, RoutePick, Session, TextHit, Todo } from './types';
@@ -499,8 +500,10 @@ export interface LaneGroup {
   more?: boolean;
 }
 
-/** Where a new session can start, for the worktree menus: pinned worktrees first, in your order,
- *  then the rest by repo, the most recently active repo first. In each repo its main checkout
+/** Where a new session can start, for the schedule dialog's worktree menu, which picks a folder
+ *  for every run: pinned worktrees first, in your order, then the rest by repo, the most recently
+ *  active repo first (the quick panel picks a repo, then a worktree in it: `repoChoices`,
+ *  `repoWorktrees`). In each repo its main checkout
  *  leads, then its reusable worktrees, the most recently active first: the main checkout can be
  *  on any branch, so its place is what finds it. A repo's other worktrees, each kept for one
  *  piece of work, are seldom started in again: they come after every repo's, as groups marked
@@ -531,6 +534,88 @@ export function laneGroups(lanes: Lane[], pinned: string[]): LaneGroup[] {
     ...repos.filter((r) => r.lanes.length > 0).map((r) => ({ label: r.label, lanes: r.lanes })),
     ...repos.filter((r) => r.rest.length > 0).map((r) => ({ label: r.label, lanes: r.rest, more: true })),
   ];
+}
+
+/** Which repo a worktree is of, as the quick panel tells them apart: by its project and the
+ *  repo's name, the panel listing one device's worktrees at a time. */
+export function repoKey(l: Pick<Lane, 'project' | 'repo'>): string {
+  return JSON.stringify([l.project, l.repo]);
+}
+
+/** A repo a new session can start in, with its worktrees, the most recently active first. */
+export interface RepoChoice {
+  key: string;
+  project: string;
+  repo: string;
+  lanes: Lane[];
+}
+
+/** The repos a new session can start in, for the quick panel's repo menu: a new session is new
+ *  work in a repo far more often than it joins a worktree's, and most worktrees are kept for the
+ *  one piece of work they were made for, so the repo is picked first and the worktree in it
+ *  follows (`startLaneIn`). Repos with a pinned worktree come first, in your order, then the most
+ *  recently active. */
+export function repoChoices(lanes: Lane[], pinned: string[]): RepoChoice[] {
+  const repos = new Map<string, RepoChoice>();
+  for (const l of [...lanes].sort((a, b) => b.lastActivity - a.lastActivity)) {
+    const key = repoKey(l);
+    const r = repos.get(key) ?? { key, project: l.project, repo: l.repo, lanes: [] };
+    r.lanes.push(l);
+    repos.set(key, r);
+  }
+  const pin = (r: RepoChoice) => Math.min(...r.lanes.map((l) => pinned.indexOf(l.id)).filter((i) => i >= 0));
+  return [...repos.values()].sort((a, b) => pin(a) - pin(b) || b.lanes[0].lastActivity - a.lanes[0].lastActivity);
+}
+
+/** A repo's worktrees as its worktree menu lists them. First where a new session starts on new
+ *  work: a new worktree made from `from`, the reusable worktrees ready for it (free before
+ *  landed), the main checkout, and the ones you pinned. Then, folded away, the ones a new session
+ *  would join other work in: reusable worktrees with work under way, and the rest, each kept for
+ *  one piece of work. Each list the most recently active first. */
+export interface RepoWorktrees {
+  /** The checkout a new worktree is made from, as the harness makes it under the checkout it
+   *  starts in: the main checkout, else the latest; none for a repo of plain folders. */
+  from: Lane | null;
+  ready: Lane[];
+  main: Lane | null;
+  pinned: Lane[];
+  underWay: Lane[];
+  others: Lane[];
+}
+
+export function repoWorktrees(lanes: Lane[], pinned: string[]): RepoWorktrees {
+  const latest = [...lanes].sort((a, b) => b.lastActivity - a.lastActivity);
+  const main = latest.find((l) => l.origin === 'main') ?? null;
+  const ready = latest.filter((l) => l !== main && takesNewWork(l)).sort((a, b) => Number(a.reuse !== 'free') - Number(b.reuse !== 'free'));
+  const pins = pinned.flatMap((id) => latest.find((l) => l.id === id && l !== main && !ready.includes(l)) ?? []);
+  const rest = latest.filter((l) => l !== main && !ready.includes(l) && !pins.includes(l));
+  return {
+    from: main ?? latest.find((l) => l.origin !== 'folder') ?? null,
+    ready,
+    main,
+    pinned: pins,
+    underWay: rest.filter((l) => !!l.reuse),
+    others: rest.filter((l) => !l.reuse),
+  };
+}
+
+/** Where a new session starts in a repo unless you pick its worktree: with a new worktree, the
+ *  checkout it's made from; else where new work goes from the main checkout (reusable.ts
+ *  `newWorkIn`, which Jev's suggestions go by), never joining work under way; else the main
+ *  checkout, else the latest worktree. */
+export function startLaneIn(lanes: Lane[], newWorktree: boolean): Lane | null {
+  const w = repoWorktrees(lanes, []);
+  if (newWorktree && w.from) return w.from;
+  const first = w.main ?? [...lanes].sort((a, b) => b.lastActivity - a.lastActivity)[0];
+  if (!first) return null;
+  const to = newWorkIn(first, 0, lanes, []);
+  return to && (takesNewWork(to) || to === w.main) ? to : first;
+}
+
+/** A worktree as the worktree chip and menu name it, beside its repo: the main checkout is
+ *  `main`, as git's "main worktree" (asked 2026-09-30). */
+export function worktreeName(l: Pick<Lane, 'origin' | 'callsign'>): string {
+  return l.origin === 'main' ? 'main' : l.callsign;
 }
 
 /** What's typed in the worktree menu names a folder: from your home folder or the top of the disk. */

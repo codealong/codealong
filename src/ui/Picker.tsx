@@ -56,8 +56,13 @@ interface PickerProps {
 /** The row that opens the folded sections, as an option: no option's id starts with a NUL. */
 const MORE = '\0more';
 
-/** Every filter word in the option's text. */
-function matches(o: PickerOption, words: string[]): boolean {
+/** The words of what's typed in the filter, each of which an option's text must have. */
+export function filterWords(filter: string): string[] {
+  return filter.toLowerCase().split(/\s+/).filter(Boolean);
+}
+
+/** Every filter word in the option's text: what the menu lists for what's typed. */
+export function matches(o: Pick<PickerOption, 'text'>, words: string[]): boolean {
   const t = o.text.toLowerCase();
   return words.every((w) => t.includes(w));
 }
@@ -68,7 +73,7 @@ export function Picker({ sections, value, placeholder, onPick, onClose, empty = 
     setFilter(text);
     onFilter?.(text);
   };
-  const words = useMemo(() => filter.toLowerCase().split(/\s+/).filter(Boolean), [filter]);
+  const words = useMemo(() => filterWords(filter), [filter]);
   const [unfolded, setUnfolded] = useState(false);
   const shown = useMemo(() => {
     const folded = sections.filter((s) => s.folded);

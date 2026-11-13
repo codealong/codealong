@@ -1,13 +1,15 @@
-// Worktrees and sessions as a picker's options (Picker.tsx), wherever one is picked: the quick
-// panel's worktree menu, and the schedule dialog's worktree and session fields. A worktree reads
-// as the quick panel has it, by name and branch with its status; a session by its title, where it
-// works and its account (said last), with its status and how long since it last did anything.
-// Both worktree menus list them in laneGroups' order, the seldom picked folded away. The quick
-// panel's also takes a folder's path, new or not on the board, as folderChoices offers it.
+// Repos, worktrees and sessions as a picker's options (Picker.tsx), wherever one is picked: the
+// quick panel's repo and worktree menus, and the schedule dialog's worktree and session fields. A
+// worktree reads by name and branch with its status; a session by its title, where it works and
+// its account (said last), with its status and how long since it last did anything. The schedule
+// dialog lists worktrees in laneGroups' order, the seldom picked folded away; the quick panel
+// lists repos (quick.ts `repoChoices`), then the worktrees of the one picked (`repoWorktrees`).
+// Its repo menu also takes a folder's path, new or not on the board, as folderChoices offers it.
 
 import { ago } from '../format';
 import { laneWaits } from '../lanes';
-import { laneBranch, NO_PROJECT, type FolderChoice, type LaneGroup } from '../quick';
+import { laneBranch, NO_PROJECT, worktreeName, type FolderChoice, type LaneGroup, type RepoChoice } from '../quick';
+import { REUSE_STATE } from '../reusable';
 import type { Lane, Session } from '../types';
 import type { PickerOption, PickerSection } from './Picker';
 import { Icon, SessionGlyph, StatusGlyph } from './primitives';
@@ -23,7 +25,42 @@ export function laneOption(l: Lane, id: string = l.id): PickerOption {
   };
 }
 
-/** The worktree menus' sections, from quick.ts `laneGroups`: a repo's worktrees other than its
+/** A repo in the quick panel's repo menu, picked by `REPO` and its key (quick.ts `repoKey`), with
+ *  where a session would start in it. */
+export const REPO = 'repo:';
+export function repoOption(r: RepoChoice, startsIn: string): PickerOption {
+  return { id: `${REPO}${r.key}`, text: `${r.repo} ${r.project}`, label: r.repo, detail: startsIn || undefined, lead: <Icon name="folder" size={12} /> };
+}
+
+/** The repo menu's repos, in `repoChoices`' order: under their projects' names where the panel
+ *  lists several. */
+export function repoSections(repos: RepoChoice[], startsIn: (r: RepoChoice) => string): PickerSection[] {
+  const projects = [...new Set(repos.map((r) => r.project))];
+  const options = (rs: RepoChoice[]) => rs.map((r) => repoOption(r, startsIn(r)));
+  if (projects.length <= 1) return [{ key: 'repos', options: options(repos) }];
+  return projects.map((p) => ({ key: `repos:${p}`, head: p, options: options(repos.filter((r) => r.project === p)) }));
+}
+
+/** A worktree beside its repo, in the quick panel's worktree menu: by its name there (the main
+ *  checkout is `main`), with what a reusable one holds and its branch. */
+export function worktreeOption(l: Lane): PickerOption {
+  return { ...laneOption(l), label: worktreeName(l), detail: [l.reuse ? REUSE_STATE[l.reuse] : null, laneBranch(l)].filter(Boolean).join(' · ') || undefined };
+}
+
+/** A worktree found by its name in the quick panel's repo menu, among every repo's: with its
+ *  repo and its branch. */
+export function namedWorktreeOption(l: Lane): PickerOption {
+  return { ...laneOption(l), detail: [l.repo, laneBranch(l)].filter(Boolean).join(' · ') };
+}
+
+/** The worktree menu's New worktree: one its harness makes for the session (start.ts
+ *  `newWorktreeDetail` says who, or why it can't). */
+export const NEW_WORKTREE = 'worktree:new';
+export function newWorktreeOption(detail: string, title: string, disabled: boolean): PickerOption {
+  return { id: NEW_WORKTREE, text: 'new worktree', label: 'New worktree', detail, title, disabled, lead: <Icon name="plus" size={12} /> };
+}
+
+/** The schedule dialog's worktree menu's sections, from quick.ts `laneGroups`: a repo's worktrees other than its
  *  main checkout and reusable ones folded away under a heading of their own. */
 export function laneSections(groups: LaneGroup[], id?: (l: Lane) => string): PickerSection[] {
   return groups.map((g) => ({

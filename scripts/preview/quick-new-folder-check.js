@@ -1,4 +1,4 @@
-// Checks a folder that isn't on the board, picked in the quick panel's worktree menu (Quick.tsx,
+// Checks a folder that isn't on the board, picked in the quick panel's repo menu (Quick.tsx,
 // quick.ts `folderChoices`, newfolder.rs): Another folder… comes after No project and puts the
 // folder most main checkouts are in into the filter; a path typed there lists the folders in it
 // whose names start with what’s typed, ahead of making a folder of a name half typed, a click on
@@ -13,7 +13,7 @@
 // The board needs a project with a worktree in it.
 (function () {
   var input = function () { return q('.ca-quick-input textarea'); };
-  var chip = function () { return all('.ca-quick-chip').filter(function (b) { return /Worktree \(⌘T\)|Adding/.test(b.title); })[0]; };
+  var chip = function () { return all('.ca-quick-chip').filter(function (b) { return /Repo \(⌘T\)|Adding/.test(b.title); })[0]; };
   var filter = function () { return q('.ca-picker-filter'); };
   var options = function () { return all('.ca-picker-opt'); };
   var said = function (o) { return o.querySelector('.ca-picker-title').textContent + ' · ' + ((o.querySelector('.ca-picker-detail') || {}).textContent || ''); };
@@ -25,6 +25,7 @@
   };
   var project = null;
   var lane = null;
+  var repoLanes = [];
 
   // The panel on a project of the board's that has a worktree of this Mac's.
   fetch('./board.json')
@@ -32,6 +33,7 @@
     .then(function (board) {
       lane = board.lanes.filter(function (l) { return !l.device && !l.hidden && !l.startsChats && l.project !== 'Elsewhere' && l.origin === 'main'; })[0];
       if (!lane) throw new Error('no main checkout on the board to type the folder of');
+      repoLanes = board.lanes.filter(function (l) { return !l.device && l.project === lane.project && l.repo === lane.repo; }).map(function (l) { return l.id; });
       project = lane.project;
       localStorage.setItem('codealong.quick.project', project);
       say('quick new folder check: on ' + project + ', waiting for the panel');
@@ -40,13 +42,13 @@
     })
     .then(function () {
       chip().click();
-      return until(function () { return options().length > 0; }, 5000, 'the worktree menu');
+      return until(function () { return options().length > 0; }, 5000, 'the repo menu');
     })
     .then(function () {
       var o = named('Another folder…');
       var titles = options().map(function (x) { return x.querySelector('.ca-picker-title').textContent; });
       check('the menu offers another folder', !!o, titles.slice(0, 3).join(' | '));
-      check('after No project, ahead of the worktrees', titles.indexOf('Another folder…') === (titles[0] === 'No project' ? 1 : 0), titles.slice(0, 3).join(' | '));
+      check('after No project, ahead of the repos', titles.indexOf('Another folder…') === (titles[0] === 'No project' ? 1 : 0), titles.slice(0, 3).join(' | '));
       check('the filter says it takes a path', /folder’s path/.test(filter().placeholder), filter().placeholder);
       o.click();
       return wait(100);
@@ -108,7 +110,7 @@
       // Another folder added slowly, and a worktree picked before its answer comes.
       window.__ADD_FOLDER_DELAY__ = 1500;
       chip().click();
-      return until(function () { return options().length > 0; }, 5000, 'the worktree menu again');
+      return until(function () { return options().length > 0; }, 5000, 'the repo menu again');
     })
     .then(function () {
       return typeIn('~/projects/northwind', function () { return !!named('northwind'); });
@@ -119,24 +121,24 @@
     })
     .then(function () {
       chip().click();
-      return until(function () { return !!named(lane.callsign + ' (main checkout)'); }, 5000, lane.callsign + ' in the menu');
+      return until(function () { return !!named(lane.repo); }, 5000, lane.repo + ' in the menu');
     })
     .then(function () {
-      named(lane.callsign + ' (main checkout)').click();
+      named(lane.repo).click();
       return wait(2500);
     })
     .then(function () {
-      check('a worktree picked while a folder is added stays picked once its answer comes', chip().textContent === lane.callsign + ' (main)' && !/Adding/.test(chip().title), chip().textContent + ' / ' + chip().title);
+      check('a repo picked while a folder is added stays picked once its answer comes', chip().textContent === lane.repo && !/Adding/.test(chip().title), chip().textContent + ' / ' + chip().title);
       var before = calls('start_from_quick').length;
       key(input(), { key: 'Enter', metaKey: true });
       return until(function () { return calls('start_from_quick').length > before; }, 3000, 'the start').then(function () { return null; });
     })
     .then(function () {
       var spec = last('start_from_quick').spec;
-      check('and the start goes there', spec.laneId === lane.id, spec.laneId);
+      check('and the start goes there', repoLanes.indexOf(spec.laneId) >= 0, spec.laneId);
       // A folder added slowly again, and another project picked before its answer comes.
       chip().click();
-      return until(function () { return options().length > 0; }, 5000, 'the worktree menu a third time');
+      return until(function () { return options().length > 0; }, 5000, 'the repo menu a third time');
     })
     .then(function () {
       return typeIn('~/projects/osprey', function () { return !!named('osprey'); });

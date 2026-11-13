@@ -1,8 +1,8 @@
 // The quick panel's page (quick.rs has its window): one input, and below it what you can do
 // next. With nothing typed it lists the sessions that need you, then the ones whose turn ended,
 // then a few todos ready to start, then the other sessions started in the last day; typed words find sessions, todos and PRs; the last row starts a
-// new session with what you typed as its prompt, in the worktree, on the agent and in the app
-// chosen at the bottom.
+// new session with what you typed as its prompt, in the repo and the worktree in it, on the agent
+// and in the app chosen at the bottom.
 //
 // A slash and the start of a name that start the text list the skills of the project's repos
 // and of the accounts instead (skills.ts); one later on is words. ⏎ or ⇥ finishes the name,
@@ -14,7 +14,8 @@
 // ⏎ does the selected row and ⌘⏎ always starts. ⏎ on a session or a PR shows it in Codealong,
 // with its conversation or its details, and ⌥⏎ opens it where it lives (a PR on GitHub); ⌥⏎ on a
 // todo shows it in Codealong. ⌘1 to ⌘9 do a row, ⌘P picks the project and ⌥⌘1 to ⌥⌘9 switch
-// to one (⌥⌘0 to all of them), ⌘D picks the Mac (with others linked), ⌘T the worktree, ⌘L
+// to one (⌥⌘0 to all of them), ⌘D picks the Mac (with others linked), ⌘T the repo, ⌘B the
+// worktree in it (a new one, one ready for new work, the main checkout, or one with work), ⌘L
 // the agent, whose menu has the effort under its models (← → there), and ⌘O where it opens
 // (with more than one place), ↑ in the empty input brings back the last draft and earlier
 // prompts, and Escape closes. (⌘M is the Window menu's Minimize, which may take the key before
@@ -34,10 +35,11 @@
 // Opened to listen (`[shortcuts] listen`, Listen now in the windows) it's set to that instead:
 // the box asks what the meeting is, nothing is listed or looked for, and ⏎ has Codealong hear it
 // from then on, with a session started for it (meetings.rs `now`) in a chat of its own unless a
-// worktree is picked (⌘T). What it does with what it hears, and what's heard, are picked under
+// repo or worktree is picked (⌘T, ⌘B). What it does with what it hears, and what's heard, are picked under
 // the box as a session's Listen… asks them (Listening.tsx `ListenChoices`), and kept for next time.
 
 import { reuse } from '../reuse';
+import { REUSE_STATE } from '../reusable';
 import type { PrTab } from '../agentReview';
 import { aimAfter, aimAfterChange, aimedAt, aimedAtNothing, aimedByScroll, clickDoes, type Aim } from '../aim';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
@@ -94,13 +96,14 @@ import { ago, tildePath } from '../format';
 import { useLogo } from '../logo';
 import { useRowDrag } from './useRowDrag';
 import { prPills } from '../prStatus';
-import { ALL_PROJECTS, NO_PROJECT, attachmentsNote, attentionRows, draftCodec, findPrs, foldedWords, holdsPrompt as holdsAPrompt, findSessions, findTodos, folderChoices, folderStart, FOUND_SESSIONS, inProject, isFolderPath, laneGroups, macUnavailable, MAX_ROWS, nextDraft, primaryRunningWords, projectCounts, QUICK_PLACEHOLDER, queryWords, readyTodos, recallList, recentRows, SEND_TO_PLACEHOLDER, sendTargets, shortcutLabel, startTitle, todosStayNote, worktreeCount, type Machines, type PrRow, type QuickDraft, type ReviewRow, type RowGroup, type SessionRow, type TodoRow, withPrompt as historyWith } from '../quick';
+import { ALL_PROJECTS, NO_PROJECT, attachmentsNote, attentionRows, draftCodec, findPrs, foldedWords, holdsPrompt as holdsAPrompt, findSessions, findTodos, folderChoices, folderStart, FOUND_SESSIONS, inProject, isFolderPath, macUnavailable, MAX_ROWS, nextDraft, primaryRunningWords, projectCounts, QUICK_PLACEHOLDER, queryWords, readyTodos, recallList, recentRows, repoChoices, repoKey, repoWorktrees, SEND_TO_PLACEHOLDER, sendTargets, shortcutLabel, startLaneIn, startTitle, todosStayNote, worktreeCount, worktreeName, type Machines, type PrRow, type QuickDraft, type ReviewRow, type RowGroup, type SessionRow, type TodoRow, withPrompt as historyWith } from '../quick';
 import {
   agentChipWords,
   isAuto,
   isGroup,
   keepPlaceFailed,
   keepPlaceFor,
+  newWorktreeDetail,
   newWorktreeTitle,
   onModelWords,
   ownModels,
@@ -128,8 +131,8 @@ import { AttachmentStrip } from './DescriptionEditor';
 import { DevSetupDialog } from './DevSetupDialog';
 import { ListenChoices } from './Listening';
 import { Level } from './Said';
-import { Picker, type PickerOption, type PickerSection } from './Picker';
-import { addsTo, anotherFolderOption, chatOption, folderOptions, laneSections } from './pickerOptions';
+import { filterWords, matches, Picker, type PickerOption, type PickerSection } from './Picker';
+import { addsTo, anotherFolderOption, chatOption, folderOptions, namedWorktreeOption, NEW_WORKTREE, newWorktreeOption, REPO, repoOption, repoSections, worktreeOption } from './pickerOptions';
 import { AgentFoot } from './AgentMenu';
 import { agentMenuSections, placeIcon } from './StartControls';
 import { Button, CheckBox, Chip, cx, Icon, Kbd, Mark, Marked, SaidText, STATUS_WORD, SessionEmblem, SessionGlyph, StatusGlyph } from './primitives';
@@ -188,7 +191,7 @@ const RETRY_MS = 5_000;
 /** The device menu's id for this Mac; the others go by their short ids, which are hex. */
 const HERE = 'here';
 
-type PickerKind = 'project' | 'device' | 'worktree' | 'agent';
+type PickerKind = 'project' | 'device' | 'repo' | 'worktree' | 'agent';
 
 /** Where in the box a press that's being heard shows (dictation.rs `Talk::id`): the open of the
  *  panel it began in, and what was selected in the box then. */
@@ -746,13 +749,17 @@ export function Quick() {
     const extra = laneId && !mine.some((l) => l.id === laneId) ? worktrees.filter((l) => l.id === laneId) : [];
     return { lanes: [...mine, ...extra], chatLane: all.find((l) => l.startsChats) ?? null };
   }, [board?.lanes, devices?.lanes, deviceNow, current, laneId]);
-  const groups = useMemo(() => laneGroups(lanes, board?.pinnedWorktrees ?? []), [lanes, board?.pinnedWorktrees]);
-  // Without one asked for, the first on the list: a pinned one, else the latest. Opened by the
-  // chat shortcut, the chats lane, once the board has it: a panel opened before the first scan
-  // finished gets it with the board that has it.
+  const pinnedWorktrees = board?.pinnedWorktrees;
+  const repoList = useMemo(() => repoChoices(lanes, pinnedWorktrees ?? []), [lanes, pinnedWorktrees]);
+  // Without one asked for, where new work starts in the first repo on the list: one with a
+  // pinned worktree, else the latest (quick.ts `startLaneIn`). Opened by the chat shortcut, the
+  // chats lane, once the board has it: a panel opened before the first scan finished gets it
+  // with the board that has it.
   // Improving Codealong with no source on the board goes to no worktree by default (the note
   // says why), never to the project's first: that would start it in some other repo.
-  const lane = lanes.find((l) => l.id === laneId) ?? (chatLane && (chatLane.id === laneId || (asChat && !laneId)) ? chatLane : null) ?? (improve ? null : (groups[0]?.lanes[0] ?? null));
+  const lane = lanes.find((l) => l.id === laneId) ?? (chatLane && (chatLane.id === laneId || (asChat && !laneId)) ? chatLane : null) ?? (improve ? null : startLaneIn(repoList[0]?.lanes ?? [], newWorktree));
+  // The repo it starts in, whose worktrees the worktree menu lists.
+  const repoNow = lane && !lane.startsChats ? (repoList.find((r) => r.key === repoKey(lane)) ?? null) : null;
 
   const shownNow = useLatest(shown);
 
@@ -2076,14 +2083,14 @@ export function Quick() {
         return;
       }
       // The menus for a new session are put away in Send to, with their keys.
-      // And set to listen, all but the worktree's: its session starts on this Mac, on the
-      // account Settings names for meetings.
-      const startMenu = !inSendTo && (k === 't' || (!listen && (k === 'l' || (k === 'd' && macs.length > 0) || (k === 'o' && places.length > 1))));
+      // And set to listen, all but the repo's and the worktree's: its session starts on this
+      // Mac, on the account Settings names for meetings.
+      const startMenu = !inSendTo && (k === 't' || (k === 'b' && !!repoNow) || (!listen && (k === 'l' || (k === 'd' && macs.length > 0) || (k === 'o' && places.length > 1))));
       if (k === 'p' || startMenu) {
         e.preventDefault();
         // ⌘O opens the agent menu too, its ← → stepping where it runs, a row under its lines
         // (AgentMenu.tsx `AgentFoot`); with the menu up, ⌘O and ⌘L switch which row they step.
-        const kind = k === 'p' ? 'project' : k === 'd' ? 'device' : k === 't' ? 'worktree' : 'agent';
+        const kind = k === 'p' ? 'project' : k === 'd' ? 'device' : k === 't' ? 'repo' : k === 'b' ? 'worktree' : 'agent';
         const forPlace = k === 'o';
         if (kind === 'agent' && picker === 'agent' && forPlace !== stepsPlace) setStepsPlace(forPlace);
         else {
@@ -2126,11 +2133,11 @@ export function Quick() {
     { key: 'all', head: <span className="ca-picker-sep" />, options: [projectOption(ALL_PROJECTS)] },
   ];
 
-  // A folder's path typed in the worktree menu is looked up as it's typed; an answer goes only
+  // A folder's path typed in the repo menu is looked up as it's typed; an answer goes only
   // with what was typed for it. Another Mac's folders aren't this one's to look in.
   const typingFolder = !deviceNow && isFolderPath(folderTyped);
   useEffect(() => {
-    if (picker !== 'worktree' || !typingFolder) return;
+    if (picker !== 'repo' || !typingFolder) return;
     let live = true;
     lookFolder(folderTyped)
       .then((l) => live && setFolderLook(l))
@@ -2141,7 +2148,7 @@ export function Quick() {
     };
   }, [picker, typingFolder, folderTyped]);
   useEffect(() => {
-    if (picker !== 'worktree') setFolderTyped('');
+    if (picker !== 'repo') setFolderTyped('');
   }, [picker]);
   // A folder added comes onto the board in a moment, and is picked from then.
   useEffect(() => {
@@ -2149,18 +2156,74 @@ export function Quick() {
   }, [adding, board?.lanes]);
 
   const looked = typingFolder && folderLook?.typed === folderTyped ? folderLook : null;
-  const worktreeSections: PickerSection[] = typingFolder
+  // Where a pick in the repo menu would start, under the repo's name.
+  const startsInRepo = (lanes: Lane[]) => {
+    if (newWorktree && makesWorktree) return 'New worktree';
+    const l = startLaneIn(lanes, false);
+    return l ? `${worktreeName(l)}${l.origin !== 'main' && l.reuse ? `, ${REUSE_STATE[l.reuse].toLowerCase()}` : ''}` : '';
+  };
+  // A worktree's name or branch typed where it names no repo lists the worktrees it names, so
+  // one you know by name is a pick away from here too.
+  const typedWords = filterWords(folderTyped);
+  const namesRepo = typedWords.length === 0 || repoList.some((r) => matches(repoOption(r, ''), typedWords));
+  const repoMenuSections: PickerSection[] = typingFolder
     ? looked
       ? [{ key: 'folder', options: folderOptions(folderChoices(looked, current, projects.map((p) => p.name)), folderTyped, board?.lanes ?? []) }]
       : []
     : [
-        // First, so a long list of worktrees doesn't hide them: a chat in no project, and a
-        // folder the list doesn't have.
+        // First, so a long list of repos doesn't hide them: a chat in no project, and a folder
+        // the list doesn't have.
         { key: 'elsewhere', options: [...(chatLane ? [chatOption(chatLane.id)] : []), ...(deviceNow ? [] : [anotherFolderOption(folderStart(board?.lanes ?? []))])] },
-        ...laneSections(groups),
+        ...repoSections(repoList, (r) => startsInRepo(r.lanes)),
+        ...(namesRepo ? [] : [{ key: 'worktrees', head: 'Worktrees', options: lanes.map(namedWorktreeOption) }]),
       ];
+  const repoValue = lane ? (lane.startsChats ? lane.id : `${REPO}${repoKey(lane)}`) : null;
 
-  /** A worktree picked in its menu, or a folder typed there: added to the project its row says,
+  // The worktree menu: the repo's, where new work starts first, the ones that hold other work
+  // folded away (quick.ts `repoWorktrees`). Listening makes no worktree.
+  const inRepo = repoNow ? repoWorktrees(repoNow.lanes, pinnedWorktrees ?? []) : null;
+  const worktreeSections: PickerSection[] = inRepo
+    ? [
+        {
+          key: 'new-work',
+          options: [
+            ...(inRepo.from && !listen ? [newWorktreeOption(newWorktreeDetail(harnessMakesWorktree, placeNow, harness, worktreeName(inRepo.from)), newWorktreeTitle(harnessMakesWorktree, placeNow, harness), !harnessMakesWorktree)] : []),
+            ...[...inRepo.ready, ...(inRepo.main ? [inRepo.main] : []), ...inRepo.pinned].map(worktreeOption),
+          ],
+        },
+        { key: 'under-way', head: 'Work under way', folded: true, options: inRepo.underWay.map(worktreeOption) },
+        { key: 'others', head: 'Other worktrees', folded: true, options: inRepo.others.map(worktreeOption) },
+      ]
+    : [];
+
+  /** A repo picked in its menu: where new work starts in it, a new worktree's checkout while New
+   *  worktree is on, as the box was before the worktree menu took it in. */
+  const pickRepo = (id: string) => {
+    const r = id.startsWith(REPO) ? repoList.find((x) => x.key === id.slice(REPO.length)) : undefined;
+    if (!r) {
+      // A chat, a worktree named by what's typed, or a folder to add: just there, a worktree
+      // picked by name being where it starts.
+      if (!id.startsWith('folder:')) setNewWorktree(false);
+      pickWorktree(id);
+      return;
+    }
+    setPicker(null);
+    refocus();
+    dropAdding();
+    setLaneId(startLaneIn(r.lanes, newWorktree)?.id ?? null);
+  };
+
+  /** A worktree picked in the repo's menu; New worktree, its harness's, from the checkout it's
+   *  made from. */
+  const pickInRepo = (id: string) => {
+    const tree = id === NEW_WORKTREE;
+    const to = tree ? inRepo?.from?.id : id;
+    if (!to) return;
+    setNewWorktree(tree);
+    pickWorktree(to);
+  };
+
+  /** A worktree picked, or a folder typed in the repo menu: added to the project its row says,
    *  then picked once the board has it. */
   const pickWorktree = (id: string) => {
     setPicker(null);
@@ -2918,18 +2981,18 @@ export function Quick() {
               </div>
             )}
             <div className="ca-quick-pick">
-              <button type="button" data-picker-trigger className="ca-quick-chip" title={keysIn(addingNow ? `Adding ${addingNow.name}…` : lane ? `${lane.startsChats ? 'A chat of its own, in no project' : tildePath(lane.path)}\nWorktree (⌘T)` : 'Worktree (⌘T)')} disabled={lanes.length === 0 && !chatLane} aria-haspopup="dialog" aria-expanded={picker === 'worktree'} onClick={() => togglePicker('worktree')}>
+              <button type="button" data-picker-trigger className="ca-quick-chip" title={keysIn(addingNow ? `Adding ${addingNow.name}…` : lane ? `${lane.startsChats ? 'A chat of its own, in no project' : `${lane.repo}, in ${lane.project}`}\nRepo (⌘T)` : 'Repo (⌘T)')} disabled={lanes.length === 0 && !chatLane} aria-haspopup="dialog" aria-expanded={picker === 'repo'} onClick={() => togglePicker('repo')}>
                 <Icon name={addingNow ? 'folder-plus' : lane?.startsChats ? 'message-circle' : 'folder'} size={14} />
-                <span>{addingNow ? addingNow.name : lane ? (lane.startsChats ? NO_PROJECT : lane.origin === 'main' ? `${lane.callsign} (main)` : lane.callsign) : 'No worktree'}</span>
+                <span>{addingNow ? addingNow.name : lane ? (lane.startsChats ? NO_PROJECT : lane.repo) : 'No repo'}</span>
                 <Icon name="chevron-down" size={12} />
               </button>
-              {picker === 'worktree' && (
+              {picker === 'repo' && (
                 <Picker
-                  sections={worktreeSections}
-                  value={lane?.id ?? null}
-                  placeholder={deviceNow ? 'Worktree, branch or repo' : 'Worktree, branch, repo or a folder’s path'}
+                  sections={repoMenuSections}
+                  value={repoValue}
+                  placeholder={deviceNow ? 'Repo, or a worktree by name' : 'Repo, a worktree by name, or a folder’s path'}
                   empty={typingFolder ? 'Looking for it…' : undefined}
-                  onPick={pickWorktree}
+                  onPick={pickRepo}
                   onFilter={setFolderTyped}
                   onClose={() => {
                     setPicker(null);
@@ -2938,16 +3001,28 @@ export function Quick() {
                 />
               )}
             </div>
-            {listen && <span className="ca-quick-listen-on">Its session starts on the account Settings › Experimental names for meetings.</span>}
-            {!listen && (
-              <label
-                className={cx('ca-check', 'ca-quick-newtree', !makesWorktree && 'is-disabled')}
-                title={lane?.startsChats ? 'A chat has no repo to make a worktree of.' : newWorktreeTitle(makesWorktree, placeNow, harness)}
-              >
-                <CheckBox checked={inNewWorktree} disabled={!makesWorktree} onChange={setNewWorktree} />
-                New worktree
-              </label>
+            {lane && repoNow && !addingNow && (
+              <div className="ca-quick-pick">
+                <button type="button" data-picker-trigger className="ca-quick-chip" title={keysIn(`${inNewWorktree ? newWorktreeTitle(true, placeNow, harness) : tildePath(lane.path)}\nWorktree (⌘B)`)} aria-haspopup="dialog" aria-expanded={picker === 'worktree'} onClick={() => togglePicker('worktree')}>
+                  <Icon name={inNewWorktree ? 'plus' : 'branch'} size={14} />
+                  <span>{inNewWorktree ? 'New worktree' : worktreeName(lane)}</span>
+                  <Icon name="chevron-down" size={12} />
+                </button>
+                {picker === 'worktree' && (
+                  <Picker
+                    sections={worktreeSections}
+                    value={inNewWorktree ? NEW_WORKTREE : lane.id}
+                    placeholder="Worktree or branch"
+                    onPick={pickInRepo}
+                    onClose={() => {
+                      setPicker(null);
+                      refocus();
+                    }}
+                  />
+                )}
+              </div>
             )}
+            {listen && <span className="ca-quick-listen-on">Its session starts on the account Settings › Experimental names for meetings.</span>}
             <div className="ca-quick-pick ca-quick-agent" hidden={listen}>
               <button type="button" data-picker-trigger className="ca-quick-chip" title={keysIn('Account, model, effort (⌘L) and where it runs (⌘O)')} disabled={accounts.length === 0} aria-haspopup="dialog" aria-expanded={picker === 'agent'} onClick={() => { setStepsPlace(false); togglePicker('agent'); }}>
                 <Icon name={autoFor ? 'sparkles' : 'user'} size={14} />

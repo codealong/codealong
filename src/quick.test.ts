@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { agoPhrase } from './format';
-import { ALL_PROJECTS, attachmentsNote, attentionRows, draftCodec, folderChoices, foldedWords, holdsPrompt, folderStart, isFolderPath, macUnavailable, nextDraft, primaryRunningWords, queueRows, recallList, startTitle, todosStayNote, withPrompt, findPrs, findSessions, findTodos, heldSaid, laneGroups, projectCounts, readyTodos, recentRows, sendTargets, shortcutFromKey, shortcutKeys, shortcutLabel, stillSaid, TAKEN, takenFor, titleMarks, worktreeCount, deviceHits } from './quick';
+import { ALL_PROJECTS, attachmentsNote, attentionRows, draftCodec, folderChoices, foldedWords, holdsPrompt, folderStart, isFolderPath, macUnavailable, nextDraft, primaryRunningWords, queueRows, recallList, startTitle, todosStayNote, withPrompt, findPrs, findSessions, findTodos, heldSaid, laneGroups, projectCounts, repoChoices, repoWorktrees, startLaneIn, worktreeName, readyTodos, recentRows, sendTargets, shortcutFromKey, shortcutKeys, shortcutLabel, stillSaid, TAKEN, takenFor, titleMarks, worktreeCount, deviceHits } from './quick';
 import { setPlatform } from './platform';
 import * as fx from './testing/fixtures';
 import type { Board, FolderLook, Label, Lane, PrItem, Session, Todo } from './types';
@@ -475,6 +475,84 @@ describe('projectCounts', () => {
       Globex: { needs: 1, unread: 0 },
       [ALL_PROJECTS]: { needs: 2, unread: 1 },
     });
+  });
+});
+
+describe('repoChoices', () => {
+  it('lists each repo once with its worktrees, pinned ones\' repos first, then the latest active', () => {
+    const lanes = [
+      lane('a1', [], { repo: 'a', lastActivity: 5 }),
+      lane('a', [], { repo: 'a', origin: 'main', lastActivity: 1 }),
+      lane('b1', [], { repo: 'b', lastActivity: 9 }),
+      lane('c', [], { repo: 'c', origin: 'main', lastActivity: 2 }),
+      lane('p', [], { repo: 'c', lastActivity: 0 }),
+    ];
+    expect(repoChoices(lanes, []).map((r) => [r.repo, r.lanes.map((l) => l.id)])).toEqual([
+      ['b', ['b1']],
+      ['a', ['a1', 'a']],
+      ['c', ['c', 'p']],
+    ]);
+    expect(repoChoices(lanes, ['gone', 'p', 'a']).map((r) => r.repo)).toEqual(['c', 'a', 'b']);
+    // The same name in two projects is two repos.
+    expect(repoChoices([lane('x', [], { repo: 'r' }), lane('y', [], { repo: 'r', project: 'Globex' })], []).map((r) => r.project).sort()).toEqual(['Acme', 'Globex']);
+  });
+});
+
+describe('repoWorktrees', () => {
+  const lanes = [
+    lane('a', [], { repo: 'a', origin: 'main', reuse: 'open', lastActivity: 1 }),
+    lane('task-old', [], { repo: 'a', lastActivity: 2 }),
+    lane('landed', [], { repo: 'a', reuse: 'landed', lastActivity: 7 }),
+    lane('free', [], { repo: 'a', reuse: 'free', lastActivity: 3 }),
+    lane('busy', [], { repo: 'a', reuse: 'open', lastActivity: 6 }),
+    lane('review', [], { repo: 'a', reuse: 'review', lastActivity: 4 }),
+    lane('task-new', [], { repo: 'a', lastActivity: 8 }),
+  ];
+  const ids = (ls: Lane[]) => ls.map((l) => l.id);
+
+  it('puts where new work starts first and folds away the worktrees that hold other work', () => {
+    const w = repoWorktrees(lanes, []);
+    expect(w.from?.id).toBe('a');
+    expect(w.main?.id).toBe('a');
+    // Free before landed, which waits to be back on the default branch.
+    expect(ids(w.ready)).toEqual(['free', 'landed']);
+    expect(ids(w.underWay)).toEqual(['busy', 'review']);
+    expect(ids(w.others)).toEqual(['task-new', 'task-old']);
+  });
+
+  it('keeps a pinned worktree with the first ones, and makes a new worktree from the latest without a main checkout', () => {
+    const w = repoWorktrees(lanes, ['task-old', 'a']);
+    expect(ids(w.pinned)).toEqual(['task-old']);
+    expect(ids(w.others)).toEqual(['task-new']);
+    expect(repoWorktrees(lanes.filter((l) => l.origin !== 'main'), []).from?.id).toBe('task-new');
+    expect(repoWorktrees([lane('notes', [], { origin: 'folder' })], []).from).toBeNull();
+  });
+});
+
+describe('startLaneIn', () => {
+  it('starts new work where it goes in the repo, never joining work under way', () => {
+    const free = lane('free', [], { repo: 'a', reuse: 'free', lastActivity: 3 });
+    const busyMain = lane('a', [], { repo: 'a', origin: 'main', reuse: 'open', lastActivity: 9 });
+    const task = lane('task', [], { repo: 'a', lastActivity: 10 });
+    // The main checkout has work under way: a reusable worktree ready for new work takes it.
+    expect(startLaneIn([task, busyMain, free], false)?.id).toBe('free');
+    // A main checkout with none is where it starts.
+    expect(startLaneIn([task, { ...busyMain, reuse: 'free' }, free], false)?.id).toBe('a');
+    // None ready: the main checkout, though it has work under way.
+    expect(startLaneIn([task, busyMain, lane('busy', [], { repo: 'a', reuse: 'open', lastActivity: 11 })], false)?.id).toBe('a');
+    // No main checkout and nothing reusable: the latest worktree.
+    expect(startLaneIn([lane('old', [], { lastActivity: 1 }), task], false)?.id).toBe('task');
+    expect(startLaneIn([], false)).toBeNull();
+  });
+
+  it('starts a new worktree from the main checkout', () => {
+    const free = lane('free', [], { repo: 'a', reuse: 'free', lastActivity: 3 });
+    expect(startLaneIn([free, lane('a', [], { repo: 'a', origin: 'main', reuse: 'open' })], true)?.id).toBe('a');
+  });
+
+  it('names the main checkout main', () => {
+    expect(worktreeName({ origin: 'main', callsign: 'atlas' })).toBe('main');
+    expect(worktreeName({ origin: 'claude-app', callsign: 'atlas-2' })).toBe('atlas-2');
   });
 });
 

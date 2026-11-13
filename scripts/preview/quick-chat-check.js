@@ -1,6 +1,6 @@
-// Checks starting a chat in no project from the quick panel (Quick.tsx): the worktree picker
-// offers No project ahead of the worktrees, picking it says so on the chip, turns New worktree
-// off and words the start row for a chat, and ⌘⏎ starts in Codealong's chats lane with no
+// Checks starting a chat in no project from the quick panel (Quick.tsx): the repo picker offers
+// No project ahead of the repos, picking it says so on the chip, leaves no worktree to pick and
+// words the start row for a chat, and ⌘⏎ starts in Codealong's chats lane with no
 // worktree. Opened as the chat shortcut opens it, the panel is on No project, also when it opened
 // before the first scan finished and the board came after, and its hint names that shortcut; an
 // ordinary open after is on a worktree again.
@@ -9,31 +9,31 @@
 (function () {
   localStorage.setItem('codealong.quick.project', 'All projects');
   var input = function () { return q('.ca-quick-input textarea'); };
-  var chip = function () { return all('.ca-quick-chip').filter(function (b) { return /Worktree \(⌘T\)/.test(b.title); })[0]; };
+  var chip = function () { return all('.ca-quick-chip').filter(function (b) { return /Repo \(⌘T\)/.test(b.title); })[0]; };
   var options = function () { return all('.ca-picker-opt'); };
   var noProject = function () { return options().filter(function (o) { return o.textContent.indexOf('No project') >= 0; })[0]; };
   var board;
 
   say('quick chat check: waiting for the panel');
-  until(function () { return !!input() && !!chip() && !chip().disabled; }, 20000, 'the worktree chip')
+  until(function () { return !!input() && !!chip() && !chip().disabled; }, 20000, 'the repo chip')
     .then(function () {
       type(input(), 'What is the difference between a mutex and a semaphore?');
       chip().click();
-      return until(function () { return options().length > 0; }, 5000, 'the worktree picker');
+      return until(function () { return options().length > 0; }, 5000, 'the repo picker');
     })
     .then(function () {
       var opts = options();
       var o = noProject();
       check('the picker offers No project', !!o, opts.map(function (x) { return x.textContent; }).join(' | '));
-      check('ahead of the worktrees', !!o && opts[0] === o, opts.length + ' options');
+      check('ahead of the repos', !!o && opts[0] === o, opts.length + ' options');
       check('as a chat of its own', !!o && /A chat of its own/.test(o.textContent), o && o.textContent);
       o.click();
       return wait(300);
     })
     .then(function () {
       check('the chip says No project', /No project/.test(chip().textContent), chip().textContent);
-      var tree = q('.ca-quick-newtree input');
-      check('a chat has no new worktree', !!tree && tree.disabled && !tree.checked);
+      var tree = all('.ca-quick-chip').filter(function (b) { return /Worktree \(⌘B\)/.test(b.title); })[0];
+      check('a chat has no worktree to pick', !tree && !q('.ca-quick-newtree'));
       var title = q('.ca-quick-compose .ca-quick-row-title');
       var why = q('.ca-quick-compose .ca-quick-row-why');
       var where = q('.ca-quick-compose .ca-quick-row-where');

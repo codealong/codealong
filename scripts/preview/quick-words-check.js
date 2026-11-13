@@ -1,5 +1,5 @@
 // Checks what the quick panel says of what ⏎ would do (start.ts, route.ts, quick.ts): the start
-// row's title and line, the agent chip and the New worktree box, Jev's suggestions for a prompt
+// row's title and line, the agent chip and the worktree chip, Jev's suggestions for a prompt
 // (their titles, lines, places and tooltips), and the agent menu's lines. It notes every one of
 // them, so two builds run on one snapshot can be told apart by their notes.
 //   PREVIEW_ROUTE=scripts/preview/route-sample.json PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/quick-words-check.js
@@ -20,8 +20,8 @@
       check('the start row says what it does', !!text('.ca-quick-row-title', compose()) && !!text('.ca-quick-row-why', compose()), text('.ca-quick-row-why', compose()));
       note('start: ' + text('.ca-quick-row-title', compose()) + ' | ' + text('.ca-quick-row-why', compose()));
       note('agent chip: ' + agentChip().textContent);
-      var tree = q('.ca-quick-newtree');
-      note('new worktree: ' + (tree ? tree.title : 'none'));
+      var tree = all('.ca-quick-chip').filter(function (b) { return /Worktree \(⌘B\)/.test(b.title); })[0];
+      note('worktree: ' + (tree ? tree.textContent + ' / ' + tree.title.replace(/\n/g, ' / ') : 'none'));
       Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(box(), 'Fix the login page so it remembers the account');
       box().dispatchEvent(new Event('input', { bubbles: true }));
       return until(function () { return suggestions().length > 0; }, 10000);

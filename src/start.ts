@@ -892,11 +892,19 @@ export function effortDefaultTitle(harness: Harness | null): string {
   return harness === 'codex' ? 'The account’s own: config.toml’s model_reasoning_effort, else the model’s' : 'The account’s own: settings.json’s effortLevel, else the model’s';
 }
 
-/** What the New worktree box says of itself. */
+/** What the worktree menu's New worktree says of itself, on hover. */
 export function newWorktreeTitle(makesWorktree: boolean, place: StartPlace | null, harness: Harness | null): string {
   const who = harness ? HARNESS_WORD[harness] : 'It';
   if (makesWorktree) return `${who} makes the worktree: its folder, branch and base.`;
   return place && onCommandLine(place) ? `${who} can’t start in a new worktree from here.` : 'The app has its own worktree choice; pick it there before you send.';
+}
+
+/** What New worktree says under its name: who makes it from which checkout (`from`), or why it
+ *  can't be made from here. */
+export function newWorktreeDetail(makesWorktree: boolean, place: StartPlace | null, harness: Harness | null, from: string): string {
+  const who = harness ? HARNESS_WORD[harness] : 'It';
+  if (makesWorktree) return `${who} makes one from ${from}`;
+  return place && onCommandLine(place) ? `${who} can’t make one` : 'The app has its own choice';
 }
 
 /** The effort one step along from `effort` (null is the account's own), among `efforts`, kept

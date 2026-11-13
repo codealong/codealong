@@ -48,20 +48,32 @@
       if (!picked) return;
       var other = picked[0], model = picked[1];
       check('the chip says the account and model', agentChip().textContent.indexOf(model.label) >= 0, agentChip().textContent);
-      var tree = document.querySelector('.ca-quick-newtree input');
-      check('a new worktree is offered only where the harness makes one', !!tree && tree.disabled === !other.worktree, tree ? String(tree.disabled) : 'no checkbox');
-      var box = document.querySelector('.ca-quick-input textarea');
-      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(box, 'Say hello');
-      box.dispatchEvent(new Event('input', { bubbles: true }));
-      return wait(200).then(function () {
-        key(window, { key: 'Enter', metaKey: true });
-        return until(function () { return calls('start_from_quick').length > 0; }, 3000).then(function () {
+      // The worktree menu's New worktree (⌘B), then the menu put away.
+      var newTree = function () { return options().find(function (o) { return o.textContent.indexOf('New worktree') === 0; }); };
+      key(window, { key: 'b', metaKey: true });
+      return until(function () { return !!newTree(); }, 2000, 'the worktree menu')
+        .then(function () {
+          var tree = newTree();
+          check('a new worktree is offered only where the harness makes one', tree.disabled === !other.worktree, String(tree.disabled));
+          key(document.querySelector('.ca-picker-filter'), { key: 'Escape' });
+          return until(function () { return options().length === 0; }, 2000, 'the menu put away');
+        })
+        .then(function () {
+          var box = document.querySelector('.ca-quick-input textarea');
+          Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(box, 'Say hello');
+          box.dispatchEvent(new Event('input', { bubbles: true }));
+          return wait(200);
+        })
+        .then(function () {
+          key(window, { key: 'Enter', metaKey: true });
+          return until(function () { return calls('start_from_quick').length > 0; }, 3000);
+        })
+        .then(function () {
           var spec = calls('start_from_quick')[0][1].spec;
           var takes = function (p) { return ['terminal', 'background', 'codealong', 'codex-app'].indexOf(p) >= 0; };
           var where = takes(other.chosen) ? other.chosen : other.places.map(function (p) { return p.place; }).find(takes);
           check('the start asks for it where it opens, a place that takes one', spec.account === other.name && spec.model === model.id && spec.place === where && !spec.worktree, JSON.stringify({ account: spec.account, model: spec.model, place: spec.place, worktree: spec.worktree, expected: where }));
         });
-      });
     })
     .then(done)
     .catch(stopped);

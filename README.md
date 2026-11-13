@@ -422,7 +422,8 @@ Press **⌥⌘/** in any app. With nothing typed, it lists what needs you. Start
 sessions (by title, branch or PR, or by what was said in them), todos and pull requests. Or keep
 typing a prompt and start it, choosing:
 
-- **the worktree** (⌘T), or tick *New worktree* for a fresh one;
+- **the repo** (⌘T), which starts where new work goes in it, and **the worktree** in it (⌘B): a
+  new one, one ready for new work, the main checkout, or one with work under way;
 - **the account, model and effort** (⌘L), or leave it on *Auto*;
 - **where it runs** (⌘O, in the same menu): a terminal tab, in the background, the Claude or Codex
   app, or inside Codealong itself. Each account starts where Settings › Accounts says unless you
@@ -670,8 +671,8 @@ From any app (change them in Settings › General):
 
 In the quick panel: **⏎** does the selected row, **⌘⏎** always starts a session, **⌥⏎** opens a
 session where it lives, **⇥** answers a session in the *Waiting on you* window, **⌘1** – **⌘9** pick
-a row, and **⌘P**, **⌘T**, **⌘L**, **⌘O**, **⌘D** choose the project, worktree, agent, place and
-machine. On a PR waiting on your review, in the notch or the waiting window, **⌘⏎** approves it,
+a row, and **⌘P**, **⌘T**, **⌘B**, **⌘L**, **⌘O**, **⌘D** choose the project, repo, worktree,
+agent, place and machine. On a PR waiting on your review, in the notch or the waiting window, **⌘⏎** approves it,
 **⌥⌘⏎** comments, **⌃⌘R** has an agent review it and **⌃⌘G** opens it on GitHub. Right-click menus
 show every action's keys.
 

@@ -7,7 +7,7 @@
   localStorage.setItem('codealong.quick.project', 'All projects');
   var input = function () { return q('.ca-quick-input textarea'); };
   var project = function () { return q('.ca-quick-project'); };
-  var worktree = function () { return all('.ca-quick-chip').filter(function (b) { return /Worktree \(⌘T\)/.test(b.title); })[0]; };
+  var worktree = function () { return all('.ca-quick-chip').filter(function (b) { return /Repo \(⌘T\)/.test(b.title); })[0]; };
   var press = function (el) {
     el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, buttons: 1 }));
     el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
@@ -22,7 +22,7 @@
     })
     .then(function () {
       // The press and the click in one go, before a frame: the project menu's close asks for the
-      // prompt's focus on the next one, after the worktree menu has opened.
+      // prompt's focus on the next one, after the repo menu has opened.
       var chip = worktree();
       press(chip);
       chip.click();
@@ -30,7 +30,7 @@
     })
     .then(function () {
       var open = all('.ca-picker');
-      check('one menu is open, the worktree menu', open.length === 1 && !!filter() && filter().placeholder === 'Worktree, branch, repo or a folder’s path', open.length + ' open');
+      check('one menu is open, the repo menu', open.length === 1 && !!filter() && filter().placeholder === 'Repo, a worktree by name, or a folder’s path', open.length + ' open');
       check('with the keyboard in its filter', document.activeElement === filter(), document.activeElement ? document.activeElement.className : 'nothing');
       var before = input().value;
       type(filter(), 'zzqx');
