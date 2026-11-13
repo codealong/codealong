@@ -42,6 +42,11 @@
 // worked from the keyboard, which says its own keys on a strip (SessionPanel.tsx `QueueStrip`);
 // elsewhere the buttons' tooltips have them, as the rest of such a window does.
 //
+// With voice on, a microphone before the send button talks into the box (`TalkButton`): a click
+// begins it and another ends it, or ⏎, as the key held to talk going down and coming up
+// (dictation.rs), and its tooltip names that key. What was said is typed where the caret is, to
+// read over: nothing is sent.
+//
 // A few of Codealong's own slash commands work in the box (slash.ts): `/fork [prompt]` forks the
 // session into a copy that goes on in the background, on the prompt when there is one, and you
 // stay where you are; `/side <question>` (or `/btw`) asks a throwaway copy of it, whose answer
@@ -90,10 +95,10 @@
 // now, which moves a running command to the background so the agent reads the message at once,
 // and Codex's and OpenCode's steer.
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ClipboardEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ClipboardEvent, type ReactNode, type RefObject } from 'react';
 import { answerAhead, sendAhead, sending, useAhead } from '../ahead';
 import { shortOf } from '../devices';
-import { dismissSuggestions, forkSession, runCommand, sessionCancel, sessionPending, sessionShellWay, sessionWay, sideAsk, sideWindow, switchSessionEffort, switchSessionMode, switchSessionModel } from '../api';
+import { dismissSuggestions, forkSession, runCommand, sessionCancel, sessionPending, sessionShellWay, sessionWay, sideAsk, sideWindow, switchSessionEffort, switchSessionMode, switchSessionModel, talkTo } from '../api';
 import { filesToAttach, keepFiles, useFileDrop } from '../attachInput';
 import { answersDraft, onDraftChange, readAnswers, readDraft, sideDraft, writeDraft, writtenAnswers } from '../drafts';
 import { noteDraftTaken } from '../typingTrace';
@@ -123,6 +128,10 @@ import { SESSION_SIDES, SideStrip, type SideWindowCan } from './SideStrip';
 import { SlashList, type SlashOption } from './SlashList';
 import { chordedReply, SuggestedReplies, SuggestionHead, type Denies, type PickHow } from './SuggestedReplies';
 import { useLatest } from '../latest';
+import { useVoice } from '../listening';
+import { shortcutLabel } from '../quick';
+import { goingNow, talksHere, useGoing } from '../talk';
+import { Level } from './Said';
 import type { AccountMoves } from '../menus';
 import { errorText } from '../report';
 import { bare, chordPressed, cmd, held, keysIn, platform, typed } from '../platform';
@@ -1008,6 +1017,14 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
           onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
           onBlur={() => setEscaped(false)}
           onKeyDown={(e) => {
+            // ⏎ ends a press whose words are this box's, as a second click on the microphone does:
+            // what was said is typed, to read over, rather than what the box held sent without it.
+            const going = goingNow();
+            if (e.key === 'Enter' && going?.talk.phase === 'listening' && going.field === e.currentTarget && !e.nativeEvent.isComposing) {
+              e.preventDefault();
+              void talkTo(false).catch((err: unknown) => setNote({ text: errorText(err), error: true }));
+              return;
+            }
             // The list's keys come first while it's up: the arrows choose, ⇥ finishes the name,
             // and so does ⏎ unless the name is already whole, which sends it as ⏎ does. Escape
             // puts the list away, and stops nothing.
@@ -1148,6 +1165,7 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
                 onDone={() => box.current?.focus()}
               />
             )}
+            <TalkButton box={box} onFailed={(text) => setNote({ text, error: true })} />
             {/* A command, `/fork` or one led by `!`, runs here rather than going into the turn. */}
             {canSendNow && !empty && !command && !runs && (
               <button type="button" className="ca-composer-send is-now" aria-label="Send now" title={keysIn('Send now (⌃⏎), into the turn it’s taking')} onClick={() => send(true)}>
@@ -1175,6 +1193,41 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
         </div>
       </div>
     </div>
+  );
+}
+
+/** The box's microphone, while voice is on, in a window that types what's said (not the bar's):
+ *  a click begins talking into the box, its caret where the words go, and another ends it. It
+ *  shows listening, and how loud, for a press whose words are this box's, begun by it or by the
+ *  key held to talk while the box had the keyboard (talk.ts `useGoing`). */
+function TalkButton({ box, onFailed }: { box: RefObject<HTMLTextAreaElement | null>; onFailed: (text: string) => void }) {
+  const voice = useVoice();
+  const going = useGoing();
+  if (!voice.on || !talksHere()) return null;
+  const mine = going && box.current && going.field === box.current ? going.talk : null;
+  const keys = shortcutLabel(voice.talkKeys);
+  const fail = (err: unknown) => onFailed(errorText(err));
+  return (
+    <button
+      type="button"
+      className={cx('ca-composer-send', 'ca-composer-mic', mine && 'is-on')}
+      aria-pressed={!!mine}
+      aria-label={mine ? 'Stop listening' : 'Talk'}
+      title={keysIn(
+        mine
+          ? 'Listening: click again, or ⏎, and what you said is typed here, to read over before it’s sent.'
+          : `Talk, and what you say is typed here: click, and click again when you’re done${keys ? `, or hold ${keys}` : ''}.`,
+      )}
+      // The keyboard stays in the box, where the words go.
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={() => {
+        if (mine) return void talkTo(false).catch(fail);
+        box.current?.focus();
+        void talkTo(true).catch(fail);
+      }}
+    >
+      {mine ? <Level level={mine.level} /> : <Icon name="microphone" size={14} stroke={2} />}
+    </button>
   );
 }
 

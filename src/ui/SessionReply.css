@@ -142,6 +142,21 @@
   color: var(--ink);
   opacity: 1;
 }
+/* The microphone (`TalkButton`): quiet beside Send, as the quick panel's is beside its box, and
+   tinted while it listens, its bars showing how loud. */
+.ca-composer-mic {
+  background: transparent;
+  color: var(--ink-3);
+}
+.ca-composer-mic:hover:not(:disabled) {
+  background: var(--neutral-tint);
+  color: var(--ink);
+  opacity: 1;
+}
+.ca-composer-mic.is-on,
+.ca-composer-mic.is-on:hover:not(:disabled) {
+  background: var(--alert-tint);
+}
 .ca-composer-foot {
   display: flex;
   align-items: center;

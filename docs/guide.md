@@ -3460,7 +3460,11 @@ starts a session with what you said at once, as ⌘⏎ would, with a line saying
 and may be misheard. The quick panel has a microphone beside its box too, while voice is on: a
 click starts hearing and another ends it, or ⏎, for when you'd rather not hold a key. While it
 hears, the panel does nothing with its prompt (what shows isn't settled yet), and putting it
-away (Escape, a click elsewhere) drops what was being said, the microphone off. Hold ⌥⌘] instead
+away (Escape, a click elsewhere) drops what was being said, the microphone off. A session's box
+has one too, beside Send, whose tooltip names the key: a click puts the caret in the box and
+starts hearing, and another click, or ⏎, ends it, what you said typed where the caret is and
+nothing sent. It shows it's listening, and how loud, whichever began it, the click or the key
+held while the box had the keyboard. The notch's box has none. Hold ⌥⌘] instead
 to talk to your orchestrator
 (*An orchestrator*: the session started on `/codealong:orchestrate`, or failing that one called an
 orchestrator), whatever you're looking at: what you said is in its box, with Codealong's window

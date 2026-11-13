@@ -269,10 +269,20 @@ describe('voice, from the board', () => {
   afterEach(() => noteVoice({}));
 
   it('is off, with nothing listening, until a board says otherwise', () => {
-    expect(voiceNow()).toEqual({ on: false, listenings: {} });
+    expect(voiceNow()).toEqual({ on: false, talkKeys: '', listenings: {} });
     noteVoice({ experimental: { boards: false, voice: true }, listenings: { k: glance() } });
     expect(voiceNow().on).toBe(true);
     expect(voiceNow().listenings.k.id).toBe('a');
+  });
+
+  it('has the key held to talk, for the microphones that name it', () => {
+    noteVoice({ experimental: { boards: false, voice: true }, talkShortcut: 'Option+Cmd+[' });
+    expect(voiceNow().talkKeys).toBe('Option+Cmd+[');
+    const was = voiceNow();
+    noteVoice({ experimental: { boards: false, voice: true }, talkShortcut: 'Option+Cmd+[' });
+    expect(voiceNow()).toBe(was);
+    noteVoice({ experimental: { boards: false, voice: true }, talkShortcut: 'Option+Cmd+;' });
+    expect(voiceNow().talkKeys).toBe('Option+Cmd+;');
   });
 
   it('keeps what it had while a board says the same, so nothing draws again', () => {

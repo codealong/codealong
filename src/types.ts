@@ -1287,6 +1287,9 @@ export interface Talk {
   text: string;
   level: number;
   message?: string;
+  /** Told to the window the words are for where there's no bar to show them, which says them at
+   *  its foot instead (talk.ts `hear`). */
+  standsIn?: boolean;
 }
 
 /** What a window is handed to put where its caret is (dictation.rs `Talked`): `id` is the press

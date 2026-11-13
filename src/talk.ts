@@ -19,8 +19,14 @@
 // heard are in sight all the same. The line is only said: nothing the words will go into is
 // touched until they're settled.
 //
+// The window the words are for is told of its press whatever the bar does, and keeps the one
+// going (`useGoing`), with the field that had the keyboard as it began: a session's box shows its
+// microphone listening by it (ui/SessionReply.tsx `TalkButton`), the press begun by the key held
+// or by that microphone.
+//
 // Nothing here sends anything: what a machine heard is yours to read over first.
 
+import { useSyncExternalStore } from 'react';
 import { onTalk, onTalked, showQuick } from './api';
 import { addSpoken, saidAfter } from './drafts';
 import { heardLine, lingers } from './said';
@@ -80,9 +86,60 @@ export function hear(talk: Talk): void {
   if (stays !== null) lineGoes = window.setTimeout(() => line?.remove(), stays);
 }
 
-/** Has this window put what's said where its caret is, and say what's heard meanwhile when the
- *  engine tells it (there's no bar to), for as long as it's open. */
+/** A press whose words are for this window while it's heard (listening, then settling), and the
+ *  field that had the keyboard as it began. */
+export interface Going {
+  talk: Talk;
+  field: Element | null;
+}
+
+let going: Going | null = null;
+/** The latest press this window was told of: an earlier one settling after it says nothing. */
+let latest = 0;
+const watchers = new Set<() => void>();
+
+/** Notes what this window is told of a press, for `useGoing`. */
+function noteGoing(talk: Talk): void {
+  if (talk.id < latest) return;
+  const field = talk.id === latest ? (going?.field ?? null) : fieldWithKeys();
+  latest = talk.id;
+  const next = talk.phase === 'listening' || talk.phase === 'settling' ? { talk, field } : null;
+  if (!next && !going) return;
+  going = next;
+  for (const w of watchers) w();
+}
+
+const watchGoing = (w: () => void) => {
+  watchers.add(w);
+  return () => {
+    watchers.delete(w);
+  };
+};
+
+/** The press going in this window, if one is. */
+export function goingNow(): Going | null {
+  return going;
+}
+
+/** `goingNow`, drawn again as it changes. */
+export function useGoing(): Going | null {
+  return useSyncExternalStore(watchGoing, goingNow);
+}
+
+let typesHere = false;
+
+/** Whether this window types what's said: the bar's doesn't, so a box there has no microphone. */
+export function talksHere(): boolean {
+  return typesHere;
+}
+
+/** Has this window put what's said where its caret is, keep the press going (`useGoing`), and say
+ *  what's heard meanwhile where the engine says there's no bar to, for as long as it's open. */
 export function typeWhatsSaid(): void {
-  onTalk(hear);
+  typesHere = true;
+  onTalk((talk) => {
+    noteGoing(talk);
+    if (talk.standsIn) hear(talk);
+  });
   onTalked(place);
 }

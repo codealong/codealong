@@ -14,7 +14,7 @@
 //!   over first, unless Shift is down as you let go into the quick panel, which starts a
 //!   session with it at once (as ⌘⏎ would), with a line saying it was dictated. The quick
 //!   panel's own microphone button is the same press and release (`talk`, lib.rs), without the
-//!   key held.
+//!   key held, and so is a session's box's microphone (src/ui/SessionReply.tsx `TalkButton`).
 //! - `talk_orchestrator`: to the session that runs as your orchestrator (board.rs
 //!   `orchestrator`), whatever you're looking at. Into its box, the main window brought forward on
 //!   it; or, with `[voice] send_on_release` or Shift held as you let go, sent, with a line saying
@@ -28,7 +28,8 @@
 //! bar's line, src/ui/Said.tsx), with to whom and where it went; in the quick panel's box, when
 //! that's where the words go (src/ui/Quick.tsx); and, where there's no bar to show it (it's in
 //! the menu bar, or off), at the foot of the window the words are for (src/talk.ts `hear`). So
-//! there's something to see whatever the bar is set to (`show`).
+//! there's something to see whatever the bar is set to (`show`). That window is told whatever
+//! the bar does, so a session's box whose words they are shows its microphone listening.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -80,6 +81,10 @@ pub struct Talk {
     /// What went wrong, or what to know: no orchestrator runs, the microphone isn't allowed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+    /// Told to the window the words are for, where there's no bar to show them: it says them at
+    /// its foot instead (src/talk.ts `hear`).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub stands_in: bool,
 }
 
 /// What a window is handed to put where its caret is (the `talked` event).
@@ -178,21 +183,22 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 /// Says what's heard of a press: to the bar, and to the window its words are for (`window`,
-/// the one that had the keyboard as the key went down, or the quick panel opened to hear it)
-/// when that window is to show it too (`shown_in`).
+/// the one that had the keyboard as the key went down, or the quick panel opened to hear it),
+/// as `told` has it.
 fn show(app: &AppHandle, window: Option<&str>, talk: &Talk) {
     let _ = app.emit_to(crate::bar::LABEL, "talk", talk);
-    if let Some(label) = shown_in(window, crate::bar::mode_of(app).has_window()) {
-        let _ = app.emit_to(label, "talk", talk);
+    if let Some((label, stands_in)) = told(window, crate::bar::mode_of(app).has_window()) {
+        let _ = app.emit_to(label, "talk", Talk { stands_in, ..talk.clone() });
     }
 }
 
-/// The window, beside the bar, that shows what's heard of a press whose words are for `window`:
-/// the quick panel always, which shows them in its box as they're heard; any other only where
-/// there's no bar to (`bar_up`: it floats or is docked, not in the menu bar or off), for which
-/// the window then stands in (src/talk.ts `hear`).
-fn shown_in(window: Option<&str>, bar_up: bool) -> Option<&str> {
-    window.filter(|label| *label != crate::bar::LABEL && (*label == crate::quick::LABEL || !bar_up))
+/// The window, beside the bar, told what's heard of a press whose words are for `window`, and
+/// whether it says it at its foot, standing in for the bar where there's none (`bar_up`: it
+/// floats or is docked, not in the menu bar or off; src/talk.ts `hear`). Told whatever the bar
+/// does: the quick panel shows the words in its box as they're heard, and a session's box its
+/// microphone listening (src/ui/SessionReply.tsx `TalkButton`).
+fn told(window: Option<&str>, bar_up: bool) -> Option<(&str, bool)> {
+    window.filter(|label| *label != crate::bar::LABEL).map(|label| (label, !bar_up))
 }
 
 fn word(to: To) -> &'static str {
@@ -585,16 +591,19 @@ mod tests {
     }
 
     #[test]
-    fn whats_heard_shows_in_the_quick_panel_and_elsewhere_only_for_want_of_a_bar() {
-        // The quick panel shows it in its box, bar or no bar.
-        assert_eq!(shown_in(Some(crate::quick::LABEL), true), Some(crate::quick::LABEL));
-        assert_eq!(shown_in(Some(crate::quick::LABEL), false), Some(crate::quick::LABEL));
-        // Another window stands in for the bar only where there's none: in the menu bar, or off.
-        assert_eq!(shown_in(Some("main"), true), None);
-        assert_eq!(shown_in(Some("main"), false), Some("main"));
+    fn the_window_the_words_are_for_is_told_and_says_them_only_for_want_of_a_bar() {
+        // The quick panel is told, bar or no bar: it shows the words in its box.
+        assert_eq!(told(Some(crate::quick::LABEL), true), Some((crate::quick::LABEL, false)));
+        assert_eq!(told(Some(crate::quick::LABEL), false), Some((crate::quick::LABEL, true)));
+        // Another window is told too, for its box's microphone, and says what's heard at its foot
+        // only where there's no bar: in the menu bar, or off.
+        assert_eq!(told(Some("main"), true), Some(("main", false)));
+        assert_eq!(told(Some("main"), false), Some(("main", true)));
         // The bar is told as the bar, once; and with no window the words are for, nobody else is.
-        assert_eq!(shown_in(Some(crate::bar::LABEL), false), None);
-        assert_eq!(shown_in(None, false), None);
+        assert_eq!(told(Some(crate::bar::LABEL), false), None);
+        assert_eq!(told(None, false), None);
+        // As a window standing in is told it; the bar is told nothing of it (`the_notch_is_told_in_its_own_words`).
+        assert_eq!(serde_json::to_value(Talk { stands_in: true, ..Talk::default() }).unwrap()["standsIn"], json!(true));
     }
 
     #[test]
@@ -619,7 +628,7 @@ mod tests {
 
     #[test]
     fn the_notch_is_told_in_its_own_words() {
-        let talk = Talk { id: 3, phase: "sent", to: word(To::Orchestrator), title: Some("Orchestrator".into()), text: "Hi.".into(), level: 0.25, message: None };
+        let talk = Talk { id: 3, phase: "sent", to: word(To::Orchestrator), title: Some("Orchestrator".into()), text: "Hi.".into(), level: 0.25, message: None, stands_in: false };
         assert_eq!(serde_json::to_value(talk).unwrap(), json!({ "id": 3, "phase": "sent", "to": "orchestrator", "title": "Orchestrator", "text": "Hi.", "level": 0.25 }));
         assert_eq!(word(To::Looking), "looking");
     }

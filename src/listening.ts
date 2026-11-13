@@ -12,20 +12,22 @@ import { homeOf } from './lanes';
 import type { Codec } from './stored';
 import type { BarListening, Board, Hearing, HearingStatus, Lane, ListenAsk, ListeningGlance, ListenRole, MeetingAhead, Status } from './types';
 
-/** Voice as the last board had it: whether it's turned on, and the sessions hearing now. */
+/** Voice as the last board had it: whether it's turned on, the key held to talk to what you're
+ *  looking at (as config.toml writes it, empty when off), and the sessions hearing now. */
 export interface Voice {
   on: boolean;
+  talkKeys: string;
   listenings: Readonly<Record<string, ListeningGlance>>;
 }
 
-const NONE: Voice = { on: false, listenings: {} };
+const NONE: Voice = { on: false, talkKeys: '', listenings: {} };
 let voice: Voice = NONE;
 const watchers = new Set<() => void>();
 
 /** Takes what a board says of voice. The same as before changes nothing, so nothing draws again. */
-export function noteVoice(board: Pick<Board, 'experimental' | 'listenings'>): void {
-  const next: Voice = { on: !!board.experimental?.voice, listenings: board.listenings ?? NONE.listenings };
-  if (next.on === voice.on && JSON.stringify(next.listenings) === JSON.stringify(voice.listenings)) return;
+export function noteVoice(board: Pick<Board, 'experimental' | 'listenings' | 'talkShortcut'>): void {
+  const next: Voice = { on: !!board.experimental?.voice, talkKeys: board.talkShortcut ?? '', listenings: board.listenings ?? NONE.listenings };
+  if (next.on === voice.on && next.talkKeys === voice.talkKeys && JSON.stringify(next.listenings) === JSON.stringify(voice.listenings)) return;
   voice = next;
   for (const w of watchers) w();
 }
