@@ -26,15 +26,16 @@ pub struct Terminal {
 ///
 /// Codex's processes are the ones whose executable is called `codex`, which the command line
 /// can't always tell: the one Codealong runs agents through is under "Application Support".
-/// Each rollout held comes with when the earliest of the processes holding it started: a
-/// background terminal started before that isn't theirs (`board::codex_tasks`).
-pub fn held_rollouts(processes: &[crate::procs::PsLine]) -> Option<HashMap<OsString, i64>> {
+/// Each rollout held comes with the processes holding it, each with when it started: a
+/// background terminal started before them isn't theirs, nor is one a process that let go of the
+/// thread ran (codex/mod.rs `Reader::note_holders`).
+pub fn held_rollouts(processes: &[crate::procs::PsLine]) -> Option<HashMap<OsString, Vec<(u32, i64)>>> {
     // No processes at all is a `ps` that failed or ran out of time (`procs::Listing`): this one
     // at least is running.
     if processes.is_empty() {
         return None;
     }
-    let mut held: HashMap<OsString, i64> = HashMap::new();
+    let mut held: HashMap<OsString, Vec<(u32, i64)>> = HashMap::new();
     for p in processes.iter().filter(|p| p.command.contains("codex")) {
         if !crate::procs::parent_and_name(p.pid).is_some_and(|(_, name)| name == "codex") {
             continue;
@@ -43,8 +44,7 @@ pub fn held_rollouts(processes: &[crate::procs::PsLine]) -> Option<HashMap<OsStr
             Some(files) => {
                 let since = crate::procs::proc_start_ms(p.pid).unwrap_or(0);
                 for name in files.iter().filter_map(|f| f.file_name()).filter(|n| is_rollout(n)) {
-                    let at = held.entry(OsString::from(name)).or_insert(since);
-                    *at = (*at).min(since);
+                    held.entry(OsString::from(name)).or_default().push((p.pid, since));
                 }
             }
             // Gone since the list was made: it holds nothing now.
