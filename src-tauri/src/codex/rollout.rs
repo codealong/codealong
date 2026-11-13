@@ -396,12 +396,13 @@ pub fn parse_rollout(path: &Path, mtime: i64, prev: Option<(ThreadInfo, u64)>) -
     };
     let events = parse_events(&tail.text());
     if let Some(floor) = floor {
-        info.terminals = terminals_before(path, ran, floor, tail.start);
         // Read before the events behind the tail, whose prompt is the latest one there.
         read_first_prompt(&mut info, path, floor, tail.start, FIRST_PROMPT_WITHIN);
         for v in earlier_events(path, floor, tail.start, &events) {
             apply_event(&mut info, &v);
         }
+        // Its own look back, over whole lines in order, not those events, which are a few of them.
+        info.terminals = terminals_before(path, ran, floor, tail.start);
     }
     for v in &events {
         apply_event(&mut info, v);

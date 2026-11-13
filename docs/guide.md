@@ -3869,9 +3869,10 @@ which Codex calls a background terminal, ended as Codex writes that its process 
 is what the agent read of it, or all of it once it ended. While no Codex process has the thread
 loaded, it runs none. Only what the harness started is listed: a server a command left behind as it
 exited (a dev server that went to the background on its own) isn't. *Stop* ends the command's
-process and everything it started, found by the session's id, which both harnesses give the
-commands they run; the harness then tells the agent it ended. Another device's sessions need remote
-control on there to stop one.
+process and everything it started: the shell running it under the session's own process, or for a
+Codex app thread, the one Codex gave the thread's id. Where two of a session's shells run the very
+same command, it stops neither and says so. The harness then tells the agent it ended. Another
+device's sessions need remote control on there to stop one.
 
 ### Where a session came from
 

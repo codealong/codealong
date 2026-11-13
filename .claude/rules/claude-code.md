@@ -44,8 +44,10 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   summary's "(exit code N)" / "failed with exit code N" (2.1.323). The file ends `[exited with code
   N]` once it's done. A notification is in a `queue-operation` `enqueue` as the shell ends, before
   the turn takes it in: `claude/transcript.rs` (`Background`, `notifications`, `output_file`),
-  `board.rs` (`claude_tasks`). Its Bash shells have `CLAUDE_CODE_SESSION_ID` in their environment,
-  which Stop finds one by (`harness::Adapter::stop_task`).
+  `board.rs` (`claude_tasks`). Stop finds its shell as a child of the session's process
+  (`harness::task_shell`): a background job's shell and its command read with an empty starting
+  environment (`procs::environment`, 0 variables; the session's variables are set inside the
+  shell, 2.1.323, 2026-11-12), so `CLAUDE_CODE_SESSION_ID` is no way to find one.
 - Agents and workflows run in the background keep the registry `busy` with the session's turn over
   (2.1.322's code: its status is `isLoading || delegatedActive ? "busy" : "idle"`, `delegatedActive`
   any running `local_agent`, `remote_agent`, `in_process_teammate` or `local_workflow` task, and

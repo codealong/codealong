@@ -12,7 +12,10 @@
 //!   `input_text` parts: scripts here print each call's result as JSON, `{"i":0,"status":
 //!   "fulfilled","value":{"chunk_id","wall_time_seconds","session_id":19957,"output"}}`, `i` the
 //!   call's place in the script, with `exit_code` in place of `session_id` once it's done. What a
-//!   script prints is up to the agent, so a result it didn't print says nothing.
+//!   script prints is up to the agent, so a result it didn't print says nothing, and only a value
+//!   with a `chunk_id` is taken for one (a command's own output can hold JSON with a `session_id`).
+//!   A script still running at its own yield answers "Script running with cell ID 86", and a
+//!   `wait` call later (`{"cell_id":"86"}`) collects what it printed, as many times as it yields.
 //! - Its end: an `event_msg` `item_completed` whose item is a `CommandExecution` with
 //!   `process_id` "19957", `status` (`completed`, `failed`) and `exit_code`, written as the process
 //!   exits whether or not the agent was polling it (the item's `completed_at_ms` is the line's
@@ -67,12 +70,15 @@ pub struct LeftRunning {
 }
 
 /// A command call until its result: the commands it starts, in order (`None` where one isn't a
-/// plain string), and the processes it polls.
+/// plain string), and the processes it polls. A script that yielded is kept under the cell it
+/// runs as until it's done; a `wait` is kept until its result, naming the cell it collects.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Call {
     id: String,
     commands: Vec<Option<String>>,
     polls: Vec<String>,
+    cell: Option<String>,
+    waits: Option<String>,
 }
 
 /// What a result says of a process: its place among the call's commands where the script said,
@@ -88,7 +94,7 @@ struct Said {
 
 /// Whether a rollout line can start, name or end a background terminal, before it's parsed.
 pub fn could_step(line: &str) -> bool {
-    ["\"name\":\"exec\"", "\"name\":\"exec_command\"", "\"name\":\"write_stdin\"", "session_id", "Process running with session ID", "Process exited with code"].iter().any(|m| line.contains(m))
+    ["\"name\":\"exec\"", "\"name\":\"exec_command\"", "\"name\":\"write_stdin\"", "\"name\":\"wait\"", "session_id", "Process running with session ID", "Process exited with code", "Script running with cell ID"].iter().any(|m| line.contains(m))
         || (line.contains("\"CommandExecution\"") && line.contains("\"process_id\""))
 }
 
@@ -101,14 +107,18 @@ pub fn step(t: &mut Terminals, v: &Value, at: Option<i64>) {
         (Some("response_item"), "function_call" | "custom_tool_call") => {
             let input = p.get("input").or_else(|| p.get("arguments")).and_then(Value::as_str).unwrap_or_default();
             let args = || serde_json::from_str::<Value>(input).ok();
-            let (commands, polls) = match p.get("name").and_then(Value::as_str) {
-                Some("exec") => (js_commands(input), js_polls(input)),
-                Some("exec_command") => (vec![args().and_then(|a| Some(a.get("cmd")?.as_str()?.to_string()))], Vec::new()),
-                Some("write_stdin") => (Vec::new(), args().and_then(|a| a.get("session_id").map(process_id)).into_iter().flatten().collect()),
+            let (commands, polls, waits) = match p.get("name").and_then(Value::as_str) {
+                Some("exec") => (js_commands(input), js_polls(input), None),
+                Some("exec_command") => (vec![args().and_then(|a| Some(a.get("cmd")?.as_str()?.to_string()))], Vec::new(), None),
+                Some("write_stdin") => (Vec::new(), args().and_then(|a| a.get("session_id").map(process_id)).into_iter().flatten().collect(), None),
+                Some("wait") => match args().and_then(|a| a.get("cell_id").and_then(process_id)) {
+                    Some(cell) => (Vec::new(), Vec::new(), Some(cell)),
+                    None => return,
+                },
                 _ => return,
             };
             t.calls.retain(|c| c.id != call_id);
-            t.calls.push(Call { id: call_id.to_string(), commands, polls });
+            t.calls.push(Call { id: call_id.to_string(), commands, polls, cell: None, waits });
             if t.calls.len() > CALLS_MOST {
                 t.calls.remove(0);
             }
@@ -116,23 +126,24 @@ pub fn step(t: &mut Terminals, v: &Value, at: Option<i64>) {
         (Some("response_item"), "function_call_output" | "custom_tool_call_output") => {
             let Some(i) = t.calls.iter().position(|c| c.id == call_id) else { return };
             let call = t.calls.remove(i);
-            let Some(at) = at else { return };
-            for said in results(p.get("output").unwrap_or(&Value::Null)) {
-                let polled = || (call.polls.len() == 1).then(|| call.polls[0].clone());
-                match (said.process.or_else(polled), said.exit_code) {
-                    (Some(id), Some(code)) => end(t, &id, at, if code == 0 { "completed" } else { "failed" }, Some(code)),
-                    (Some(id), None) if !t.running.iter().any(|r| r.id == id) && !t.done.contains(&id) => {
-                        let named = match said.index {
-                            Some(i) => call.commands.get(i).cloned().flatten(),
-                            None if call.commands.len() == 1 => call.commands[0].clone(),
-                            None => None,
-                        };
-                        t.running.push(LeftRunning { id, at, command: named.unwrap_or_default(), ended: None });
-                        if t.running.len() > RUNNING_MOST {
-                            t.running.remove(0);
-                        }
-                    }
-                    _ => {}
+            // A `wait`'s result is what the script it collects printed.
+            let mut call = match &call.waits {
+                Some(cell) => match t.calls.iter().position(|c| c.cell.as_ref() == Some(cell)) {
+                    Some(j) => t.calls.remove(j),
+                    None => return,
+                },
+                None => call,
+            };
+            let output = p.get("output").unwrap_or(&Value::Null);
+            if let Some(at) = at {
+                read_results(t, &call, output, at);
+            }
+            // A script still running is kept for the `wait`s that collect the rest.
+            if let Some(cell) = yielded(output) {
+                call.cell = Some(cell);
+                t.calls.push(call);
+                if t.calls.len() > CALLS_MOST {
+                    t.calls.remove(0);
                 }
             }
         }
@@ -149,6 +160,41 @@ pub fn step(t: &mut Terminals, v: &Value, at: Option<i64>) {
             }
         }
         _ => {}
+    }
+}
+
+/// The cell a code-mode script runs on as, when its result says it's still running ("Script
+/// running with cell ID 86").
+fn yielded(output: &Value) -> Option<String> {
+    let first = match output {
+        Value::String(s) => s.as_str(),
+        Value::Array(parts) => parts.first()?.get("text")?.as_str()?,
+        _ => return None,
+    };
+    let cell = first.strip_prefix("Script running with cell ID ")?.split_whitespace().next()?;
+    Some(cell.to_string())
+}
+
+/// Takes in what a call's result says of the processes it ran (`results`): one still running
+/// starts, named by the call, and one with an exit code ends.
+fn read_results(t: &mut Terminals, call: &Call, output: &Value, at: i64) {
+    for said in results(output) {
+        let polled = || (call.polls.len() == 1).then(|| call.polls[0].clone());
+        match (said.process.or_else(polled), said.exit_code) {
+            (Some(id), Some(code)) => end(t, &id, at, if code == 0 { "completed" } else { "failed" }, Some(code)),
+            (Some(id), None) if !t.running.iter().any(|r| r.id == id) && !t.done.contains(&id) => {
+                let named = match said.index {
+                    Some(i) => call.commands.get(i).cloned().flatten(),
+                    None if call.commands.len() == 1 => call.commands[0].clone(),
+                    None => None,
+                };
+                t.running.push(LeftRunning { id, at, command: named.unwrap_or_default(), ended: None });
+                if t.running.len() > RUNNING_MOST {
+                    t.running.remove(0);
+                }
+            }
+            _ => {}
+        }
     }
 }
 
@@ -180,25 +226,27 @@ fn process_id(v: &Value) -> Option<String> {
 }
 
 /// What a command call's output says of the processes it ran (module header): a direct call's
-/// words, or the JSON a code-mode script printed, a line at a time.
+/// header, the lines before its `Output:` (what the command printed after it can say anything),
+/// or the JSON a code-mode script printed, a line at a time.
 fn results(output: &Value) -> Vec<Said> {
     let texts: Vec<&str> = match output {
-        Value::String(s) => vec![s.as_str()],
+        Value::String(s) => {
+            let Some((head, printed)) = s.split_once("\nOutput:\n") else { return Vec::new() };
+            let number = |after: &str| head.split(after).nth(1).and_then(|r| r.split(|c: char| c != '-' && !c.is_ascii_digit()).next()).filter(|n| !n.is_empty()).map(String::from);
+            let printed = Some(printed.to_string());
+            if let Some(id) = number("Process running with session ID ") {
+                return vec![Said { process: Some(id), output: printed, ..Said::default() }];
+            }
+            if let Some(code) = number("Process exited with code ").and_then(|c| c.parse().ok()) {
+                return vec![Said { exit_code: Some(code), output: printed, ..Said::default() }];
+            }
+            return Vec::new();
+        }
         Value::Array(parts) => parts.iter().filter_map(|p| p.get("text").and_then(Value::as_str)).collect(),
         _ => Vec::new(),
     };
     let mut found = Vec::new();
     for text in texts {
-        let number = |after: &str| text.split(after).nth(1).and_then(|r| r.split(|c: char| c != '-' && !c.is_ascii_digit()).next()).filter(|n| !n.is_empty()).map(String::from);
-        let output = text.split_once("\nOutput:\n").map(|(_, o)| o.to_string());
-        if let Some(id) = number("Process running with session ID ") {
-            found.push(Said { process: Some(id), output, ..Said::default() });
-            continue;
-        }
-        if let Some(code) = number("Process exited with code ").and_then(|c| c.parse().ok()) {
-            found.push(Said { exit_code: Some(code), output, ..Said::default() });
-            continue;
-        }
         for line in text.lines().map(str::trim).filter(|l| l.starts_with('{') || l.starts_with('[')) {
             match serde_json::from_str::<Value>(line) {
                 Ok(Value::Array(all)) => found.extend(all.iter().enumerate().filter_map(|(i, v)| said(v.get("value").unwrap_or(v), Some(i)))),
@@ -213,8 +261,9 @@ fn results(output: &Value) -> Vec<Said> {
     found
 }
 
-/// One `exec_command` or `write_stdin` result, as a script printed it.
+/// One `exec_command` or `write_stdin` result, as a script printed it: a value with a `chunk_id`.
 fn said(v: &Value, index: Option<usize>) -> Option<Said> {
+    v.get("chunk_id")?;
     let process = v.get("session_id").and_then(process_id);
     let exit_code = v.get("exit_code").and_then(Value::as_i64);
     let output = v.get("output").and_then(Value::as_str).map(String::from);
@@ -444,6 +493,40 @@ text(await tools.write_stdin({session_id:19957,chars:"",yield_time_ms:1000}));"#
         assert_eq!(shell_script("/bin/zsh -c codealong session transcript claude:x --full").as_deref(), Some("codealong session transcript claude:x --full"));
         assert_eq!(shell_script("/bin/zsh -lc npm run dev").as_deref(), Some("npm run dev"));
         assert_eq!((shell_script("node server.mjs -c x"), shell_script("/bin/zsh")), (None, None));
+    }
+
+    #[test]
+    fn a_commands_own_output_says_nothing_of_its_process() {
+        let mut t = Terminals::default();
+        let script = r#"const r = await tools.exec_command({cmd:"cat notes.txt"}); text(JSON.stringify(r));"#;
+        // It printed the words and some JSON with a session id, and exited.
+        let printed = json!({"chunk_id": "a", "exit_code": 0, "output": "Process running with session ID 4242\n{\"session_id\":7}\n"}).to_string();
+        let lines = [
+            line("2026-11-12T18:00:00.000Z", "response_item", json!({"type": "custom_tool_call", "call_id": "c1", "name": "exec", "input": script})),
+            line("2026-11-12T18:00:01.000Z", "response_item", json!({"type": "custom_tool_call_output", "call_id": "c1", "output": [{"type": "input_text", "text": "Script completed\nOutput:\n"}, {"type": "input_text", "text": printed}, {"type": "input_text", "text": "{\"session_id\":7}"}]})),
+            line("2026-11-12T18:00:02.000Z", "response_item", json!({"type": "function_call", "call_id": "d1", "name": "exec_command", "arguments": "{\"cmd\":\"grep -r session src\"}"})),
+            line("2026-11-12T18:00:03.000Z", "response_item", json!({"type": "function_call_output", "call_id": "d1", "output": "Chunk ID: 1\nWall time: 0.1 seconds\nProcess exited with code 0\nOutput:\nsrc/a.rs: Process running with session ID 9\n"})),
+        ];
+        replay(&mut t, &lines.iter().rev().cloned().collect::<Vec<_>>());
+        assert!(t.running.is_empty(), "{:?}", t.running);
+    }
+
+    #[test]
+    fn a_script_that_yields_hands_its_results_on_through_wait() {
+        let mut t = Terminals::default();
+        let js = r#"const r = await tools.exec_command({cmd:"npm run dev", yield_time_ms:10000}); text(JSON.stringify(r));"#;
+        let printed = |text: &str| json!([{"type": "input_text", "text": text}]);
+        let lines = [
+            line("2026-11-12T18:00:00.000Z", "response_item", json!({"type": "custom_tool_call", "call_id": "c1", "name": "exec", "input": js})),
+            line("2026-11-12T18:00:01.000Z", "response_item", json!({"type": "custom_tool_call_output", "call_id": "c1", "output": printed("Script running with cell ID 86\nWall time 1.0 seconds\nOutput:\n")})),
+            line("2026-11-12T18:00:02.000Z", "response_item", json!({"type": "function_call", "call_id": "w1", "name": "wait", "arguments": "{\"cell_id\":\"86\",\"yield_time_ms\":1000}"})),
+            line("2026-11-12T18:00:03.000Z", "response_item", json!({"type": "function_call_output", "call_id": "w1", "output": printed("Script running with cell ID 86\nWall time 1.0 seconds\nOutput:\n")})),
+            line("2026-11-12T18:00:12.000Z", "response_item", json!({"type": "function_call", "call_id": "w2", "name": "wait", "arguments": "{\"cell_id\":\"86\",\"yield_time_ms\":60000}"})),
+            line("2026-11-12T18:00:13.000Z", "response_item", json!({"type": "function_call_output", "call_id": "w2", "output": printed("Script completed\nWall time 12.0 seconds\nOutput:\n\n{\"chunk_id\":\"8d2407\",\"wall_time_seconds\":10.0,\"session_id\":29372,\"output\":\"ready\"}")})),
+        ];
+        replay(&mut t, &lines.iter().rev().cloned().collect::<Vec<_>>());
+        assert_eq!(t.running.iter().map(|r| (r.id.as_str(), r.command.as_str())).collect::<Vec<_>>(), [("29372", "npm run dev")]);
+        assert!(t.calls.is_empty(), "the script is done, and so are its waits");
     }
 
     #[test]

@@ -622,6 +622,20 @@ pub fn end_tree(table: &[Proc], root: u32) -> Vec<u32> {
     wait_gone(&rest, Duration::from_secs(2)).iter().map(|t| t.pid).collect()
 }
 
+/// Whether `pid` runs under `root` in `table`, however far down.
+pub fn descends_from(table: &[Proc], pid: u32, root: u32) -> bool {
+    let parent: HashMap<u32, u32> = table.iter().map(|p| (p.pid, p.ppid)).collect();
+    let mut at = pid;
+    for _ in 0..64 {
+        match parent.get(&at) {
+            Some(&up) if up == root => return true,
+            Some(&up) if up > 1 && up != at => at = up,
+            _ => return false,
+        }
+    }
+    false
+}
+
 /// What Stop on a background command says once `end_tree` has ended it, or failed to, under the
 /// command its list already names.
 pub fn stopped(left: &[u32]) -> String {

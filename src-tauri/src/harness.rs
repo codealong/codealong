@@ -322,26 +322,33 @@ pub trait Adapter: Sync {
     fn task_output(&self, _ctx: &Ctx, _session: &Session, task: &BackgroundTask) -> Result<String> {
         let path = task.output.as_deref().ok_or_else(|| anyhow!("{} keeps no output for that command.", self.harness().word()))?;
         let len = std::fs::metadata(path).map_err(|_| anyhow!("Its output is gone: {} kept it in {}.", self.harness().word(), crate::util::tilde(Path::new(path))))?.len();
-        let tail = crate::util::read_tail(Path::new(path), len.saturating_sub(TASK_OUTPUT_BYTES))?;
-        Ok(crate::util::terminal_text(&tail.text()))
+        // To the very end: a prompt, or a progress bar redrawn with carriage returns, has no
+        // newline yet. A start partway through a line leaves that line out.
+        let from = len.saturating_sub(TASK_OUTPUT_BYTES);
+        let read = crate::util::read_range(Path::new(path), from, len).ok_or_else(|| anyhow!("Its output couldn't be read."))?;
+        let whole = if from == 0 { read.as_str() } else { read.split_once('\n').map_or("", |(_, rest)| rest) };
+        Ok(crate::util::terminal_text(whole))
     }
 
     /// Stops a command the session left running in the background (`Session::tasks`): the shell
-    /// running it (`shell_script`) that the session gave its ID (`session_var`), and what that
-    /// started, for its harness to tell the agent it ended. Returns what happened, in a sentence.
+    /// running it (`shell_script`) under the session's own process, or where it has none here,
+    /// the one it gave its ID (`session_var`; a Claude Code shell's starting environment was
+    /// found empty, so that's no way to find one there), and what that started, for its harness
+    /// to tell the agent it ended. Only one of the session's shells may run it: two running the
+    /// same command can't be told apart, and neither is guessed at. Returns what happened, in a
+    /// sentence.
     fn stop_task(&self, _ctx: &Ctx, session: &Session, task: &BackgroundTask) -> Result<String> {
-        let Some(var) = self.session_var() else { bail!("Codealong can't stop a {} session's background commands.", self.harness().word()) };
+        if task.ended_at.is_some() {
+            bail!("That command has already ended.");
+        }
         let command = task.command.trim();
         if command.is_empty() {
             bail!("{} didn't record that command, so Codealong can't tell which process runs it.", self.harness().word());
         }
         let table = crate::hygiene::processes()?;
-        let shell = table
-            .iter()
-            .filter(|p| self.shell_script(&p.command).is_some_and(|c| listed_as(&c, command)))
-            .find(|p| crate::procs::environment(p.pid).is_some_and(|env| env.get(var) == Some(&session.id)))
-            .ok_or_else(|| anyhow!("No process of that session runs it any more."))?;
-        Ok(crate::hygiene::stopped(&crate::hygiene::end_tree(&table, shell.pid)))
+        let named = |pid: u32| self.session_var().is_some_and(|var| crate::procs::environment(pid).is_some_and(|env| env.get(var) == Some(&session.id)));
+        let shell = task_shell(&table, session.pid, command, |c| self.shell_script(c), named)?;
+        Ok(crate::hygiene::stopped(&crate::hygiene::end_tree(&table, shell)))
     }
 
     /// The command a shell the harness runs a command in is running, by the shell's command line
@@ -1119,6 +1126,20 @@ pub fn listed_as(listed: &str, command: &str) -> bool {
     !head.is_empty() && listed.trim_start().starts_with(head)
 }
 
+/// The one shell in `table` of a session's that runs `command` (`Adapter::stop_task`): under its
+/// process `root`, or one whose environment names the session (`named`, asked only of shells
+/// running the command), `script` saying what a shell's command line runs. None found, or more
+/// than one, is an error: Stop never guesses.
+pub fn task_shell(table: &[crate::hygiene::Proc], root: Option<u32>, command: &str, script: impl Fn(&str) -> Option<String>, named: impl Fn(u32) -> bool) -> Result<u32> {
+    let ours = |pid: u32| root.is_some_and(|r| crate::hygiene::descends_from(table, pid, r)) || named(pid);
+    let found: Vec<u32> = table.iter().filter(|p| script(&p.command).is_some_and(|c| listed_as(&c, command))).map(|p| p.pid).filter(|p| ours(*p)).collect();
+    match found[..] {
+        [shell] => Ok(shell),
+        [] => bail!("Codealong couldn't find the process running it: it may have just ended."),
+        _ => bail!("{} of its processes run exactly that, and Codealong can't tell which is this one: stop it where it runs.", found.len()),
+    }
+}
+
 /// A reader for each harness, in the adapters' order.
 pub fn readers(wake: &Wake) -> Vec<Box<dyn Reader>> {
     ADAPTERS.iter().map(|a| a.reader(wake.clone())).collect()
@@ -1399,6 +1420,49 @@ pub fn find<'a>(board: &'a crate::model::Board, cfg: &'a Config, key: &str) -> R
 mod tests {
     use super::*;
     use crate::model::{Status, Surface};
+
+    #[test]
+    fn a_background_commands_output_is_read_to_its_very_end() {
+        let dir = crate::fixtures::scratch("task-output");
+        let path = dir.join("b1.output");
+        let account: AccountCfg = serde_json::from_value(serde_json::json!({ "name": "claude", "harness": "claude", "home": dir.to_string_lossy() })).unwrap();
+        let session = Session::new(Harness::Claude, "claude", "s1");
+        let task = BackgroundTask { id: "b1".into(), command: "npm run dev".into(), output: Some(path.to_string_lossy().into_owned()), ..BackgroundTask::default() };
+        let read = || adapter(Harness::Claude).task_output(&Ctx { account: &account }, &session, &task);
+        // A progress bar redrawn on one line, with no newline after it yet.
+        std::fs::write(&path, "\u{1b}[32mready\u{1b}[0m\n 10%\r 60%").unwrap();
+        assert_eq!(read().unwrap(), "ready\n 60%");
+        // Past the bytes read, from the first whole line.
+        std::fs::write(&path, format!("{}\nlast line", "x".repeat(TASK_OUTPUT_BYTES as usize))).unwrap();
+        assert_eq!(read().unwrap(), "last line");
+        std::fs::remove_dir_all(dir).unwrap();
+        assert!(read().unwrap_err().to_string().starts_with("Its output is gone"));
+    }
+
+    #[test]
+    fn stop_finds_the_one_shell_of_the_session_running_the_command() {
+        let row = |pid: u32, ppid: u32, command: &str| crate::hygiene::Proc { pid, ppid, age_ms: 0, started: 0, command: command.into() };
+        let script = |c: &str| c.strip_prefix("sh -c ").map(String::from);
+        let table = [
+            row(100, 1, "claude"),
+            row(300, 100, "sh -c npm run dev"),
+            row(301, 300, "node vite"),
+            // Another session's, the same command.
+            row(400, 200, "sh -c npm run dev"),
+            // A shell under a server its agent started (app-server → shell).
+            row(500, 1, "codex app-server"),
+            row(510, 500, "sh -c cargo watch"),
+        ];
+        let nobody = |_: u32| false;
+        assert_eq!(task_shell(&table, Some(100), "npm run dev", script, nobody).unwrap(), 300);
+        // With no process of its own here, the one whose environment names it.
+        assert_eq!(task_shell(&table, None, "cargo watch", script, |p| p == 510).unwrap(), 510);
+        assert!(task_shell(&table, None, "npm run dev", script, nobody).is_err(), "neither shell is known to be its");
+        assert!(task_shell(&table, Some(100), "npm test", script, nobody).is_err());
+        // Two of its own running the same command: neither is guessed at.
+        let twice = [&table[..], &[row(302, 100, "sh -c npm run dev")]].concat();
+        assert!(task_shell(&twice, Some(100), "npm run dev", script, nobody).unwrap_err().to_string().starts_with("2 of its processes"));
+    }
 
     #[test]
     fn a_command_is_found_by_its_command_line_as_ps_writes_it() {
