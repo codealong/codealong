@@ -166,6 +166,9 @@ struct Live {
     shift: bool,
     /// It was dropped (`drop_press`): what it heard goes nowhere.
     dropped: bool,
+    /// A window's microphone began it (`click`), not a key: nothing will come up to end it, so
+    /// it's dropped as its window goes (`window_gone`).
+    clicked: bool,
 }
 
 static LIVE: Mutex<Option<Live>> = Mutex::new(None);
@@ -215,10 +218,22 @@ fn key_window(app: &AppHandle) -> Option<String> {
 
 /// One of the keys held to talk went down. On the main thread.
 pub fn press(app: &AppHandle, to: To) {
+    start(app, to, false);
+}
+
+/// A window's microphone was clicked: a press to what you're looking at, as the key's, which the
+/// next click ends (`release`). Its id, for the window to drop it by should the box it's for go
+/// first; none where it ended one that was going instead. On the main thread.
+pub fn click(app: &AppHandle) -> Option<u64> {
+    start(app, To::Looking, true)
+}
+
+/// Begins a press, and says its id. On the main thread.
+fn start(app: &AppHandle, to: To, clicked: bool) -> Option<u64> {
     if live().is_some() {
         // Down again without having come up: its release was lost, and this is it.
         release(app);
-        return;
+        return None;
     }
     // With no window of Codealong's to type into (you're in another app), the quick panel is
     // opened to hear it, and is where the words go: there as you say them, whatever the bar
@@ -232,10 +247,11 @@ pub fn press(app: &AppHandle, to: To) {
     };
     let id = NEXT.fetch_add(1, Ordering::SeqCst);
     // On the main thread, as every press is: none has begun since the look above.
-    *live() = Some(Live { id, to, window: window.clone(), ear: None, heard: Arc::default(), released: false, shift: false, dropped: false });
+    *live() = Some(Live { id, to, window: window.clone(), ear: None, heard: Arc::default(), released: false, shift: false, dropped: false, clicked });
     show(app, window.as_deref(), &Talk { id, phase: "listening", to: word(to), ..Talk::default() });
-    let app = app.clone();
-    std::thread::spawn(move || begin(&app, id, to));
+    let handle = app.clone();
+    std::thread::spawn(move || begin(&handle, id, to));
+    Some(id)
 }
 
 /// Starts the helper for press `id`, off the main thread: it waits on the person where macOS has
@@ -364,6 +380,31 @@ pub fn drop_press(app: &AppHandle, id: u64) {
         return;
     }
     over(app, &mut live);
+}
+
+/// Window `label` was closed or put away: a press its microphone began for it is dropped, as the
+/// quick panel drops the one it was hearing as it's put away (which it does itself), since no
+/// key will come up to end it and nothing is left to take its words. One begun by a key ends as
+/// the key comes up, as ever. On the main thread.
+pub fn window_gone(app: &AppHandle, label: &str) {
+    let id = live().as_ref().filter(|l| goes_with(l.clicked, l.window.as_deref(), label)).map(|l| l.id);
+    if let Some(id) = id {
+        drop_press(app, id);
+    }
+}
+
+/// Whether a press goes with window `label` as it's closed or put away: one its microphone began
+/// (`clicked`) for that window (`window`), but the quick panel's, which drops its own.
+fn goes_with(clicked: bool, window: Option<&str>, label: &str) -> bool {
+    clicked && label != crate::quick::LABEL && window == Some(label)
+}
+
+/// Window events: a window closed (⌘W, its close button) or destroyed (a kept session's, a side
+/// conversation's) takes a press its microphone began with it (`window_gone`). On the main thread.
+pub fn on_window_event(window: &tauri::Window, event: &tauri::WindowEvent) {
+    if matches!(event, tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed) {
+        window_gone(window.app_handle(), window.label());
+    }
 }
 
 /// Whether press `id`, whose turn to be delivered has come, was dropped after its key came up
@@ -588,6 +629,19 @@ mod tests {
         // As a window reads it: the press it was said in, and nothing of starting unless it's to.
         assert_eq!(serde_json::to_value(Talked { id: 4, text: "Hi.".into(), key: None, start: false }).unwrap(), json!({ "id": 4, "text": "Hi." }));
         assert_eq!(serde_json::to_value(Talked { id: 4, text: "Hi.".into(), key: Some("k".into()), start: true }).unwrap(), json!({ "id": 4, "text": "Hi.", "key": "k", "start": true }));
+    }
+
+    #[test]
+    fn a_press_a_microphone_began_goes_with_its_window() {
+        assert!(goes_with(true, Some("main"), "main"));
+        assert!(goes_with(true, Some("kept-1"), "kept-1"));
+        // Another window's going takes nothing of it.
+        assert!(!goes_with(true, Some("main"), "kept-1"));
+        // Begun by the key held: it ends as the key comes up, wherever its words then go.
+        assert!(!goes_with(false, Some("main"), "main"));
+        // The quick panel drops what it was hearing itself, by id, as it's put away.
+        assert!(!goes_with(true, Some(crate::quick::LABEL), crate::quick::LABEL));
+        assert!(!goes_with(true, None, "main"));
     }
 
     #[test]

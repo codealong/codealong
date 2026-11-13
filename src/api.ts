@@ -2438,13 +2438,14 @@ export function onTalk(cb: (talk: Talk) => void): () => void {
   return onWindowEvent<Talk>('talk', cb);
 }
 
-/** Talks to what you're looking at without the key held (the quick panel's microphone): begun
- *  with `on`, ended without, as the key held to talk going down and coming up (dictation.rs).
- *  `drop` ends the press of that id (`Talk.id`), however it began and wherever it has got to,
- *  with what it heard put nowhere. Rejects with why when it can't: voice is off. */
-export async function talkTo(on: boolean, drop?: number): Promise<void> {
-  if (!inTauri) return;
-  await invoke('talk', { on, drop: drop ?? null });
+/** Talks to what you're looking at without the key held (the quick panel's microphone, a
+ *  session's box's): begun with `on`, ended without, as the key held to talk going down and coming
+ *  up (dictation.rs). `drop` ends the press of that id (`Talk.id`), however it began and wherever
+ *  it has got to, with what it heard put nowhere. Resolves with the id of a press begun, null
+ *  otherwise; rejects with why when it can't: voice is off. */
+export async function talkTo(on: boolean, drop?: number): Promise<number | null> {
+  if (!inTauri) return null;
+  return (await invoke<number | null>('talk', { on, drop: drop ?? null })) ?? null;
 }
 
 /** What was said for this window to put where its caret is (talk.ts). */

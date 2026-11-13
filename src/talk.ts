@@ -87,64 +87,73 @@ export function hear(talk: Talk): void {
 }
 
 /** A press whose words are for a field of this window's, while it's heard (listening, then
- *  settling): the field that had the keyboard as it began, where its words go, and whether that
- *  field's microphone began it (`talkInto`) rather than the key held. None for a press to your
- *  orchestrator, whose words go to its session wherever you are, nor one begun with no field
- *  to type into. */
+ *  settling), and the field that had the keyboard as it began, where its words go. None for a
+ *  press to your orchestrator, whose words go to its session wherever you are, nor one begun with
+ *  no field to type into. */
 export interface Going {
   talk: Talk;
   field: Element;
-  clicked: boolean;
 }
 
 let going: Going | null = null;
 /** The latest press this window was told of: an earlier one settling after it says nothing. */
 let latest = 0;
-/** The field whose microphone was just clicked, until the press it began is told of. */
-let asked: Element | null = null;
 const watchers = new Set<() => void>();
 
 /** Notes what this window is told of a press, for `useGoing`. */
 function noteGoing(talk: Talk): void {
   if (talk.id < latest) return;
-  // As it begins: the field with the keyboard, and whether its microphone was what began it.
-  const begins = talk.id !== latest;
-  const field = begins ? (talk.to === 'looking' ? fieldWithKeys() : null) : (going?.field ?? null);
-  const clicked = begins ? !!field && field === asked : !!going?.clicked;
-  if (begins) asked = null;
+  const field = talk.id !== latest ? (talk.to === 'looking' ? fieldWithKeys() : null) : (going?.field ?? null);
   latest = talk.id;
-  const next = field && (talk.phase === 'listening' || talk.phase === 'settling') ? { talk, field, clicked } : null;
+  const next = field && (talk.phase === 'listening' || talk.phase === 'settling') ? { talk, field } : null;
   if (!next && !going) return;
   going = next;
   for (const w of watchers) w();
 }
 
+/** The press a field's microphone began last (`talkInto`): its id once the engine has said it,
+ *  and whether the field went first (`dropBegunIn`). */
+interface Begun {
+  field: Element;
+  id: number | null;
+  gone: boolean;
+}
+
+let begun: Begun | null = null;
+
 /** Begins talking into `field` with its microphone, as the key held to talk going down does
- *  (dictation.rs): the field gets the keyboard, where the words go. */
-export function talkInto(field: HTMLElement): Promise<void> {
+ *  (dictation.rs): the field gets the keyboard, where the words go. A field gone before the
+ *  engine says which press it began has that press dropped as soon as it does. */
+export async function talkInto(field: HTMLElement): Promise<void> {
   field.focus();
-  asked = field;
-  return talkTo(true).catch((err: unknown) => {
-    asked = null;
-    throw err;
-  });
+  const b: Begun = { field, id: null, gone: false };
+  begun = b;
+  b.id = await talkTo(true);
+  if (b.gone && b.id !== null) await talkTo(false, b.id);
 }
 
 /** Ends the press heard into `field`, with the keyboard given back to it first, so its words are
  *  typed at its caret however the press was stopped (a keyboard user's Space on the microphone
  *  leaves the keyboard there). */
-export function talkedInto(field: HTMLElement): Promise<void> {
+export async function talkedInto(field: HTMLElement): Promise<void> {
   field.focus();
-  return talkTo(false);
+  await talkTo(false);
 }
 
-/** Drops a press `field`'s microphone began that's still going, as the field goes (its peek put
- *  away, another session shown): no key held will end it, and its words would land in whatever
- *  has the keyboard next. A press begun by the key ends as the key comes up, as it always has. */
+/** Drops the press `field`'s microphone began, if it may still be going, as the field goes (its
+ *  peek put away, another session shown): no key held will end it, and its words would land in
+ *  whatever has the keyboard next. The engine drops it too as its window closes or hides
+ *  (dictation.rs `window_gone`). A press begun by the key ends as the key comes up, as ever. */
 export function dropBegunIn(field: Element): void {
-  if (!going?.clicked || going.field !== field) return;
+  const b = begun;
+  if (!b || b.field !== field) return;
+  begun = null;
+  b.gone = true;
+  // Its id not said yet: `talkInto` drops it once it is. Over already (told of, and not the
+  // one going): nothing to drop.
+  if (b.id === null || (b.id <= latest && going?.talk.id !== b.id)) return;
   // Not said when it fails: the box is gone, and a press ends by itself after three minutes.
-  void talkTo(false, going.talk.id).catch(() => {});
+  void talkTo(false, b.id).catch(() => {});
 }
 
 const watchGoing = (w: () => void) => {

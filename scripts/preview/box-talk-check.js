@@ -6,9 +6,10 @@
 // what was said is typed at the caret, and the microphone goes quiet once the press is over; a
 // click while it listens ends it, with the keyboard given back to the box first, so a keyboard
 // user's Space on it still types at the caret; a press begun while another field had the
-// keyboard isn't the box's, nor one to your orchestrator; the peek put away drops a press its
-// microphone began, but not one begun by the key held; and what's heard is said at the window's
-// foot only when the engine says the window stands in for the bar.
+// keyboard isn't the box's, nor one to your orchestrator; the box going (the peek put away)
+// drops a press its microphone began, by the id the engine gave it, even before the engine has
+// said so, but not one begun by the key held; and what's heard is said at the window's foot only
+// when the engine says the window stands in for the bar.
 //   PREVIEW_VOICE=1 PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/box-talk-check.js
 (function () {
   // This runs before the app's script: the peek shows a session that doesn't wait on you.
@@ -24,6 +25,22 @@
   localStorage.removeItem('codealong.draft.' + picked.key);
   var keys = board.talkShortcut ? board.talkShortcut : '';
 
+  // The engine's `talk`: a press begun says its id (dictation.rs `click`); held back while
+  // `holding`, until the check lets it through.
+  var id = 0;
+  var holding = false;
+  var held = null;
+  var real = window.__TAURI_INTERNALS__.invoke;
+  window.__TAURI_INTERNALS__.invoke = function (cmd, args) {
+    if (cmd !== 'talk') return real.apply(this, arguments);
+    window.__calls.push([cmd, args]);
+    if (!args.on || args.drop != null) return Promise.resolve(null);
+    id += 1;
+    var begun = id;
+    if (!holding) return Promise.resolve(begun);
+    return new Promise(function (r) { held = function () { r(begun); }; });
+  };
+
   var box = function () { return q('.ca-peek .ca-composer textarea'); };
   var mic = function () { return q('.ca-peek .ca-composer-mic'); };
   var on = function () { return !!mic() && mic().getAttribute('aria-pressed') === 'true'; };
@@ -31,7 +48,6 @@
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(el, text);
     el.dispatchEvent(new Event('input', { bubbles: true }));
   };
-  var id = 0;
   var talk = function (over) { window.__emit('talk', Object.assign({ id: id, phase: 'listening', to: 'looking', text: '', level: 0.3 }, over)); };
   var talks = function () { return sent('talk').length; };
   var opens = 1;
@@ -57,7 +73,6 @@
     .then(function () {
       check('a click begins a press', last('talk').on === true && last('talk').drop == null, JSON.stringify(last('talk')));
       check('with the box given the keyboard, where the words go', document.activeElement === box());
-      id = 1;
       talk({});
       return until(on, 3000, 'the microphone listening');
     })
@@ -92,7 +107,6 @@
       return until(function () { return talks() === 3; }, 3000, 'another press begun');
     })
     .then(function () {
-      id = 2;
       talk({});
       return until(on, 3000, 'the microphone listening again');
     })
@@ -112,17 +126,23 @@
     })
     .then(function () {
       check('so what was said is typed at that caret', box().value === 'Then: and Fix the login', box().value);
-      // A press to your orchestrator, begun while the box has the keyboard: its words go there.
-      id = 3;
+      // A press to your orchestrator, begun by its key while the box has the keyboard: its words
+      // go to the orchestrator's session.
+      id += 1;
       talk({ to: 'orchestrator' });
       return wait(150);
     })
     .then(function () {
       check('a press to your orchestrator isn’t the box’s', !on());
+      key(box(), { key: 'Enter' });
+      return wait(100);
+    })
+    .then(function () {
+      check('and ⏎ in the box doesn’t end it', talks() === 4, talks() + ' asked');
       talk({ to: 'orchestrator', phase: 'sent' });
       // A press begun while the keyboard is elsewhere: its words go there, not into the box.
       box().blur();
-      id = 4;
+      id += 1;
       talk({});
       return wait(150);
     })
@@ -133,21 +153,37 @@
       return until(function () { return talks() === 5; }, 3000, 'a press begun to be put away');
     })
     .then(function () {
-      id = 5;
       talk({});
       return until(on, 3000, 'the microphone listening');
     })
     .then(hide)
     .then(function () { return until(function () { return talks() === 6; }, 3000, 'the press dropped'); })
     .then(function () {
-      check('the peek put away drops the press its microphone began, by its id', last('talk').on === false && last('talk').drop === 5, JSON.stringify(last('talk')));
+      check('the box going drops the press its microphone began, by its id', last('talk').on === false && last('talk').drop === id, JSON.stringify(last('talk')));
       talk({ phase: 'nothing' });
+      return show();
+    })
+    .then(function () {
+      // Gone before the engine has said which press it began: dropped once it says.
+      holding = true;
+      mic().click();
+      return until(function () { return !!held; }, 3000, 'a press begun, its id held back');
+    })
+    .then(hide)
+    .then(function () {
+      check('nothing is dropped before the id is said', talks() === 7, talks() + ' asked');
+      holding = false;
+      held();
+      return until(function () { return talks() === 8; }, 3000, 'the press dropped once its id is said');
+    })
+    .then(function () {
+      check('a box gone before its press’s id came drops it as it comes', last('talk').on === false && last('talk').drop === id, JSON.stringify(last('talk')));
       return show();
     })
     .then(function () {
       // Begun by the key held while the box has the keyboard: the key's coming up ends it.
       box().focus();
-      id = 6;
+      id += 1;
       talk({});
       return until(on, 3000, 'the microphone listening for the key');
     })
@@ -157,9 +193,9 @@
     })
     .then(function () { return wait(150); })
     .then(function () {
-      check('and the peek put away doesn’t drop it', talks() === 6, JSON.stringify(last('talk')));
+      check('and the box going doesn’t drop it', talks() === 8, JSON.stringify(last('talk')));
       talk({ phase: 'nothing' });
-      id = 7;
+      id += 1;
       talk({ standsIn: true, text: 'Check the build' });
       return until(function () { return !!q('.ca-talking'); }, 3000, 'the line at the window’s foot');
     })

@@ -743,23 +743,25 @@ fn hide_quick(app: tauri::AppHandle) {
     quick::hide(&app);
 }
 
-/// The quick panel's microphone button: talking to what you're looking at as the key held to
-/// talk does (dictation.rs), begun with `on` and ended without, so it needs no key held. Shift
-/// down as it ends starts a session with what was said, as it does as the key comes up. With
-/// `drop`, the press of that id (`Talk::id`) ends with what it heard put nowhere, begun by the
-/// key or the button: the panel asks that of the press it was hearing as it's put away.
+/// The microphone buttons, the quick panel's and a session's box's: talking to what you're
+/// looking at as the key held to talk does (dictation.rs), begun with `on` and ended without, so
+/// it needs no key held. Shift down as it ends starts a session with what was said in the quick
+/// panel, as it does as the key comes up. With `drop`, the press of that id (`Talk::id`) ends
+/// with what it heard put nowhere, begun by the key or the button: the panel asks that of the
+/// press it was hearing as it's put away, a box of the one it began as it goes. Says the id of
+/// a press begun.
 #[tauri::command]
-fn talk(app: tauri::AppHandle, on: bool, drop: Option<u64>) -> Result<(), String> {
+fn talk(app: tauri::AppHandle, on: bool, drop: Option<u64>) -> Result<Option<u64>, String> {
     let cfg = config::current().map_err(words)?;
     listen::turned_on(&cfg).map_err(words)?;
     if let Some(id) = drop {
         dictation::drop_press(&app, id);
     } else if on {
-        dictation::press(&app, dictation::To::Looking);
+        return Ok(dictation::click(&app));
     } else {
         dictation::release(&app);
     }
-    Ok(())
+    Ok(None)
 }
 
 /// The quick panel's page is laid out for the open it was asked for, at this height.
@@ -1762,6 +1764,7 @@ pub fn run() {
             peek::on_window_event(window, event);
             desktop::on_window_event(window, event);
             kept::on_window_event(window, event);
+            dictation::on_window_event(window, event);
         })
         .register_asynchronous_uri_scheme_protocol("codealong-image", |_, request, responder| serve_image(request, responder))
         // A window's command is the app's own when it's one of these, and the server's when it's

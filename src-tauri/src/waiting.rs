@@ -100,10 +100,11 @@ pub fn asked(app: &AppHandle) -> Value {
     app.try_state::<Waiting>().and_then(|s| s.asked.lock().ok().map(|a| a.clone())).unwrap_or(Value::Null)
 }
 
-/// Puts the window away; `give_back` hands the keyboard to the app that had it when the shortcut
-/// brought the window up. On the main thread.
+/// Puts the window away, and a press its box's microphone began with it; `give_back` hands the
+/// keyboard to the app that had it when the shortcut brought the window up. On the main thread.
 pub fn hide(app: &AppHandle, give_back: bool) {
     let Some(w) = app.get_webview_window(LABEL) else { return };
+    crate::dictation::window_gone(app, LABEL);
     let _ = w.hide();
     let _ = app.emit_to(LABEL, "waiting-hidden", ());
     save(app);

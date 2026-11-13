@@ -3464,7 +3464,9 @@ away (Escape, a click elsewhere) drops what was being said, the microphone off. 
 has one too, beside Send, whose tooltip names the key: a click puts the caret in the box and
 starts hearing, and another click, or ⏎, ends it, what you said typed where the caret is and
 nothing sent. It shows it's listening, and how loud, whichever began it, the click or the key
-held while the box had the keyboard. The notch's box has none. Hold ⌥⌘] instead
+held while the box had the keyboard. What a click began is dropped, the microphone off, when its
+box goes before it ends (another session shown, the window closed or put away), as no key will
+come up to end it. The notch's box has none. Hold ⌥⌘] instead
 to talk to your orchestrator
 (*An orchestrator*: the session started on `/codealong:orchestrate`, or failing that one called an
 orchestrator), whatever you're looking at: what you said is in its box, with Codealong's window

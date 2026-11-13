@@ -492,8 +492,9 @@ pub fn take_keys(app: &AppHandle) {
     }
 }
 
-/// Hides the peek. On the main thread.
+/// Hides the peek, and a press its box's microphone began with it. On the main thread.
 pub fn hide(app: &AppHandle) {
+    crate::dictation::window_gone(app, LABEL);
     let (Some(state), Some(window)) = (app.try_state::<Peek>(), app.get_webview_window(LABEL)) else { return };
     let was = {
         let Ok(mut s) = state.inner.lock() else { return };
