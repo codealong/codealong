@@ -109,8 +109,12 @@ if (-not ((Test-Path $node) -and ((& $node --version) -match '^v24\.'))) {
 Refresh-Path
 # npm, npx and what npm installs (claude, codex) are PowerShell scripts as well as .cmd files, and
 # PowerShell finds the scripts first, which Windows PowerShell runs only where its policy lets local
-# scripts run; SSH's commands run in it (firstlogon.ps1). This script itself runs with Bypass.
-Set-ExecutionPolicy -Scope LocalMachine RemoteSigned -Force
+# scripts run; SSH's commands run in it (firstlogon.ps1). This script runs with Bypass, which
+# overrides the machine's policy, so setting it saves it and then throws that it's overridden.
+try { Set-ExecutionPolicy -Scope LocalMachine RemoteSigned -Force }
+catch [System.Security.SecurityException] {
+    if ((Get-ExecutionPolicy -Scope LocalMachine) -ne 'RemoteSigned') { throw }
+}
 
 Step 'Rust'
 $cargo = "$env:USERPROFILE\.cargo\bin\cargo.exe"
