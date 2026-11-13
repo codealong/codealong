@@ -1289,7 +1289,9 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
                   you allowed in your terminal, or whose turn is over and waits on a command it left
                   running in the background, says what it waits on. */}
               {loaded && s.status === 'working' && !s.stalledSince && (s.running || waitsInBackground(s) ? <Waiting session={s} onGrow={follow} /> : <Working session={s} tips={tips} onGrow={follow} />)}
-              {s.status === 'needs' && !pending && s.excerpt && (
+              {/* Not for a reply that asks you something: its excerpt is the reply's own question
+                  (board.rs `needs_your_answer`), which ends the conversation just above. */}
+              {s.status === 'needs' && !pending && s.excerpt && !s.asks && (
                 <div className="ca-thread-tool is-asks">
                   <div className="ca-thread-askrow">
                     <span>

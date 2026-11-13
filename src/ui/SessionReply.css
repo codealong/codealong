@@ -10,6 +10,14 @@
   border-top: 1px solid var(--line);
   background: var(--surface);
 }
+/* Under a session's conversation, the field's own edge is the only one: no rule and no strip of
+   room between the conversation and the field, which runs down to it and fades out under its top
+   edge (SessionThread.css). A box that's an approval or a wait keeps its tinted strip, and the
+   notch's its black (Notch.css), which is the notch's own. */
+.ca-thread + .ca-composer:not(.is-approval, .is-waiting, .ca-notch-card *) {
+  padding-top: 0;
+  border-top: 0;
+}
 /* The box itself, as chat apps draw theirs: what's attached, then the text across the box's whole
    width, its scrollbar at the box's edge once it has one, then a row at its foot: the mode it runs
    in and where it runs at the left (`.ca-composer-who`), and how full its context is, its account,
