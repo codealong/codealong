@@ -25,7 +25,8 @@
 //! again by the next, with a line in its transcript saying some of what was said is missing. The
 //! same line marks a helper that died and was started again. A listening ends when you end it,
 //! when its session is gone, when nothing has been said for half an hour (one left on by
-//! mistake shouldn't hear the rest of your day), or after eight hours.
+//! mistake shouldn't hear the rest of your day; a calendar's meeting taken before it begins
+//! counts that from its start), or after eight hours.
 //!
 //! A meeting's listening is started ahead of the session that takes it (`start_ahead`, meetings.rs
 //! `begin`): a session takes a while to come up, and a meeting asked for now has begun, so
@@ -350,7 +351,10 @@ pub fn step(l: &Listening, hearer: Option<Hearer>, now: i64, every_ms: i64, on: 
         if now - l.started_at >= LONGEST_MS {
             return Step::End("it had gone on for eight hours".into());
         }
-        if now - l.heard_at.max(l.started_at) >= QUIET_ENDS_MS {
+        // A calendar's meeting taken before it begins (from your meetings) is quiet until it
+        // does, which is no sign it was left on by mistake: its half hour counts from its start.
+        let begun = l.meeting.as_ref().filter(|m| !m.unplanned).map_or(l.started_at, |m| m.start.max(l.started_at));
+        if now - l.heard_at.max(begun) >= QUIET_ENDS_MS {
             return Step::End("nothing had been said for half an hour".into());
         }
         // A meeting that runs over is heard to its end: only its time being up and the talk
@@ -1611,6 +1615,22 @@ mod tests {
         let early = Listening { meeting: Some(ear::Meeting { end: NOW + 20 * 60_000, ..meeting }), heard_at: NOW - 10 * 60_000, ..hearing() };
         assert_eq!(step(&early, IDLE, NOW, EVERY, true), Step::Wait);
         assert_eq!(step(&Listening { heard_at: NOW - 10 * 60_000, ..hearing() }, IDLE, NOW, EVERY, true), Step::Wait);
+    }
+
+    #[test]
+    fn a_meeting_taken_before_it_begins_counts_its_quiet_from_its_start() {
+        // Taken an hour and a half ahead, from your meetings: nothing said since.
+        let start = NOW + 60 * 60_000;
+        let meeting = ear::Meeting { id: "e".into(), title: "Planning".into(), start, end: start + 30 * 60_000, attendees: vec!["Lee Atlas".into()], ..Default::default() };
+        let l = Listening { meeting: Some(meeting.clone()), started_at: NOW - 30 * 60_000, told_at: NOW - 30 * 60_000, heard_at: 0, ..hearing() };
+        // Its half hour of quiet comes before it begins, and ends nothing.
+        assert_eq!(step(&l, IDLE, NOW, EVERY, true), Step::Wait);
+        assert_eq!(step(&l, IDLE, start + QUIET_ENDS_MS - 1000, EVERY, true), Step::Wait);
+        // Nobody spoke for its first half hour: it was left on, or the meeting moved.
+        assert_eq!(step(&l, IDLE, start + QUIET_ENDS_MS, EVERY, true), Step::End("nothing had been said for half an hour".into()));
+        // One not from the calendar has no start to go by but its own.
+        let own = Listening { meeting: Some(ear::Meeting { unplanned: true, ..meeting }), ..l };
+        assert_eq!(step(&own, IDLE, NOW, EVERY, true), Step::End("nothing had been said for half an hour".into()));
     }
 
     #[test]

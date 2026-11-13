@@ -77,17 +77,19 @@
     })
     .then(function () {
       check('with it ticked, ⏎ takes that meeting', last('listen_now').meeting === 'E-now@1', String(last('listen_now').meeting));
-      // Opened for a later meeting, picked in your meetings: it's of that one, whatever its time.
-      window.__quickOpen({ listen: true, meeting: 'E-later@1' }, board);
-      return until(function () { return box('Planning'); }, 5000, 'the meeting it was opened for');
+      // Opened for a later meeting, picked in your meetings: it's of that one, whatever its time,
+      // and from the moment it opens, before the day ahead is read (this one isn't in the stub's).
+      var start = Date.now() + 2 * 3600e3;
+      window.__quickOpen({ listen: true, meeting: { id: 'E-budget@1', title: 'Budget sync', start: start, end: start + 1800e3, calendar: 'Work', attendees: ['Lee Atlas'], takeable: false } }, board);
+      return until(function () { return box('Budget sync'); }, 5000, 'the meeting it was opened for');
     })
     .then(function () {
-      check('opened for a meeting later on, it’s of that one, ticked', box('Planning').querySelector('input').checked && !box('Design review') && title() === 'Listen to “Planning”', title());
+      check('opened for a meeting later on, it’s of that one, ticked', box('Budget sync').querySelector('input').checked && !box('Design review') && title() === 'Listen to “Budget sync”', title());
       enter();
       return until(function () { return sent('listen_now').length === 3; }, 5000, 'the later meeting asked for');
     })
     .then(function () {
-      check('and ⏎ takes it', last('listen_now').meeting === 'E-later@1', String(last('listen_now').meeting));
+      check('and ⏎ takes it', last('listen_now').meeting === 'E-budget@1', String(last('listen_now').meeting));
       return open();
     })
     .then(function () {

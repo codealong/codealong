@@ -134,12 +134,15 @@ describe('Listen now', () => {
 
   it('is of the meeting it was opened for, whatever its time, until a session hears it', () => {
     const later = meeting({ id: 'e2', title: 'Planning', takeable: false });
-    expect(nowMeeting([meeting(), later], 'e2')?.id).toBe('e2');
-    expect(nowMeeting([later], 'e2')?.id).toBe('e2');
-    // Heard since, or gone from the day ahead: the one going on, as without.
-    expect(nowMeeting([meeting(), { ...later, heard: true }], 'e2')?.id).toBe('e1');
-    expect(nowMeeting([meeting()], 'e2')?.id).toBe('e1');
-    expect(nowMeeting([later], 'e3')).toBeNull();
+    expect(nowMeeting([meeting(), later], later)?.id).toBe('e2');
+    // As the latest read has it.
+    expect(nowMeeting([meeting(), { ...later, title: 'Planning, moved' }], later)?.title).toBe('Planning, moved');
+    // Before the panel has read the day ahead, or from one read before: as it was picked.
+    expect(nowMeeting([], later)).toBe(later);
+    expect(nowMeeting([meeting()], later)?.id).toBe('e2');
+    // Heard since: the one going on, as without.
+    expect(nowMeeting([meeting(), { ...later, heard: true }], later)?.id).toBe('e1');
+    expect(nowMeeting([{ ...later, heard: true }], later)).toBeNull();
   });
 
   it('says what ⏎ does, and what follows', () => {

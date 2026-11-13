@@ -128,12 +128,13 @@ export function nowAsk(kept: ListenKept, typed: string): ListenAsk {
 }
 
 /** The meeting in your calendar that Listen now would be of: the one it was opened for
- *  (`asked`, picked in your meetings), whatever its time, while it's ahead and no session hears
- *  it; else one that's going on or about to start and that no session hears yet (meetings.rs
- *  `Ahead`), the first to start. None while meetings aren't offered, since the calendar isn't
- *  read then. */
-export function nowMeeting(ahead: readonly MeetingAhead[], asked?: string | null): MeetingAhead | null {
-  return (asked ? ahead.find((m) => m.id === asked && !m.heard) : undefined) ?? ahead.find((m) => m.takeable && !m.heard) ?? null;
+ *  (`asked`, picked in your meetings), whatever its time, until a session hears it, as the
+ *  latest read of the day ahead has it or as it was picked before that read is in; else one
+ *  that's going on or about to start and that no session hears yet (meetings.rs `Ahead`), the
+ *  first to start. None while meetings aren't offered, since the calendar isn't read then. */
+export function nowMeeting(ahead: readonly MeetingAhead[], asked?: MeetingAhead | null): MeetingAhead | null {
+  const picked = asked ? (ahead.find((m) => m.id === asked.id) ?? asked) : null;
+  return picked && !picked.heard ? picked : (ahead.find((m) => m.takeable && !m.heard) ?? null);
 }
 
 /** What the session Listen now starts does with what it hears, as the end of a sentence. */

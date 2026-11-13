@@ -378,7 +378,7 @@ export function Quick() {
   const [meetings, setMeetings] = useState<MeetingAhead[]>([]);
   const [notMeeting, setNotMeeting] = useState<string | null>(null);
   // The meeting it was opened for, picked in your meetings, whatever its time (`nowMeeting`).
-  const [askedMeeting, setAskedMeeting] = useState<string | null>(null);
+  const [askedMeeting, setAskedMeeting] = useState<MeetingAhead | null>(null);
   // What's being heard with the key held to talk, or the microphone beside the box, while the
   // panel is the window its words are for (dictation.rs): the words themselves show in the box
   // as they're heard (talk.ts), and the microphone says it's listening and how loud. Opened

@@ -120,7 +120,7 @@
       })
       .then(function () {
         var ctx = quick()[quick().length - 1];
-        check('Listen… there opens the quick panel set to listen to that meeting, and the dialog gives way', ctx.listen === true && ctx.meeting === 'E-later@1' && !dialog(), JSON.stringify(ctx));
+        check('Listen… there opens the quick panel set to listen to that meeting, and the dialog gives way', ctx.listen === true && !!ctx.meeting && ctx.meeting.id === 'E-later@1' && ctx.meeting.title === 'Planning' && !dialog(), JSON.stringify(ctx));
         opens().click();
         return until(function () { return dialog() && shownName() === 'Design review'; }, 5000, 'your meetings again');
       })

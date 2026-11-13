@@ -36,7 +36,7 @@ const PARTS: { id: Part; label: string }[] = [
 ];
 
 /** `onListen`: Listen now in the quick panel, for the meeting ahead given or one you name. */
-export function MeetingsDialog({ onClose, onShowSession, onListen }: { onClose: () => void; onShowSession: (key: string) => boolean; onListen: (meeting?: string) => void }) {
+export function MeetingsDialog({ onClose, onShowSession, onListen }: { onClose: () => void; onShowSession: (key: string) => boolean; onListen: (meeting?: MeetingAhead) => void }) {
   const [kept, setKept] = useState<KeptMeeting[] | null>(null);
   const [ahead, setAhead] = useState<MeetingAhead[]>([]);
   const [failed, setFailed] = useState<string | null>(null);
@@ -85,6 +85,24 @@ export function MeetingsDialog({ onClose, onShowSession, onListen }: { onClose: 
       window.clearInterval(again);
     };
   }, []);
+  // A meeting ahead that comes to be heard while the dialog is open (taken in another window)
+  // has a folder among your meetings now: they're read again, so its pane links to its notes.
+  // A read that fails leaves the list there is.
+  const heardAhead = ahead
+    .filter((m) => m.heard)
+    .map((m) => m.id)
+    .join(' ');
+  useEffect(() => {
+    if (!heardAhead) return;
+    let over = false;
+    keptMeetings().then(
+      (all) => !over && setKept(all),
+      () => {},
+    );
+    return () => {
+      over = true;
+    };
+  }, [heardAhead]);
   const folder = picked && 'kept' in picked ? picked.kept : null;
   useEffect(() => {
     if (!folder) return;
@@ -197,7 +215,7 @@ export function MeetingsDialog({ onClose, onShowSession, onListen }: { onClose: 
                 heardIn={soon.heard ? (kept?.find((k) => k.id === soon.id) ?? null) : null}
                 taking={taking}
                 onTake={() => take(soon)}
-                onListen={() => onListen(soon.id)}
+                onListen={() => onListen(soon)}
                 onNotes={(f) => setPicked({ kept: f })}
                 onFailed={setFailed}
               />
