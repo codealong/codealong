@@ -783,6 +783,8 @@ pub struct Reader {
     /// started before either was a process's gone by (`terminals_since`).
     holders: HashMap<OsString, Vec<(u32, i64)>>,
     taken_up: HashMap<OsString, i64>,
+    /// When the last look that noted the holders was made (`note_holders`).
+    holders_at: Option<i64>,
     /// How long each open turn's rollout was at that look.
     open_lens: HashMap<PathBuf, u64>,
     /// When the app's processes ended, for the turns stopped (`applog`).
@@ -861,25 +863,31 @@ impl Reader {
         Some((at, gone?))
     }
 
-    /// Takes in which processes hold the rollouts looked at (`names`) as of `at`. One let go of,
-    /// or handed from a process that's gone to another, is taken up afresh as of then, once: the
-    /// background terminals the process before ran went with it, whether or not it wrote their
-    /// end, and the one that has it now doesn't have them, even one that was running already
-    /// (the app's app-server taking up a thread a terminal UI ran, between two looks).
+    /// Takes in which processes hold the rollouts looked at (`names`) as of `at`, once for each
+    /// change: the background terminals a process ran go with it, whether or not it wrote their
+    /// end, and one that takes the thread up after it doesn't have them, even one that was running
+    /// already (the app's app-server taking up a thread a terminal UI ran). One let go of is taken
+    /// up afresh as of this look, since nothing starts a terminal in a thread nothing holds. One
+    /// handed from a process that's gone to another between two looks is as of the look before,
+    /// the last that saw the one before: the handover came some time after it, and a terminal the
+    /// new one started before this look is its own.
     fn note_holders(&mut self, names: &[OsString], held: HashMap<OsString, Vec<(u32, i64)>>, at: i64) {
         for name in names {
             let now: Vec<u32> = held.get(name).map(|h| h.iter().map(|(pid, _)| *pid).collect()).unwrap_or_default();
-            let moved = match self.holders.get(name) {
-                Some(before) => (now.is_empty() && !before.is_empty()) || before.iter().any(|(pid, _)| !now.is_empty() && !now.contains(pid)),
+            let taken = match self.holders.get(name) {
+                Some(before) if now.is_empty() && !before.is_empty() => Some(at),
+                Some(before) if !now.is_empty() && before.iter().any(|(pid, _)| !now.contains(pid)) => Some(self.holders_at.unwrap_or(at)),
+                Some(_) => None,
                 // The first look at it finds it held by none.
-                None => now.is_empty(),
+                None => now.is_empty().then_some(at),
             };
-            if moved {
-                self.taken_up.insert(name.clone(), at);
+            if let Some(taken) = taken {
+                self.taken_up.insert(name.clone(), taken);
             }
         }
         self.holders.retain(|name, _| !names.contains(name));
         self.holders.extend(names.iter().map(|name| (name.clone(), held.get(name).cloned().unwrap_or_default())));
+        self.holders_at = Some(at);
     }
 
     /// The earliest a background terminal of the thread whose rollout is `path` can have started
@@ -1489,9 +1497,9 @@ mod tests {
     }
 
     /// A thread handed from one process to another between two looks (its terminal UI quit and
-    /// the app's app-server, running since before, took it up) is taken up as of the look that
-    /// finds it so, though no look found it held by none; one held by the same process stays as it
-    /// was.
+    /// the app's app-server, running since before, took it up) is taken up as of the last look
+    /// that saw the one before, though no look found it held by none; one held by the same process
+    /// stays as it was.
     #[test]
     fn a_thread_handed_to_an_older_process_between_looks_has_none_of_the_terminals_before() {
         let path = PathBuf::from("/c/sessions/rollout-2026-11-12T14-00-00-a.jsonl");
@@ -1503,14 +1511,20 @@ mod tests {
         assert_eq!(reader.terminals_since(&path), Some(5_000));
         reader.note_holders(&names, [(name.clone(), vec![(10, 5_000)])].into(), 20_000);
         assert_eq!(reader.terminals_since(&path), Some(5_000), "the same holder");
+        // Taken up by the app-server at 21_000, which started a terminal at 25_000: the look at
+        // 30_000 finds it, as of the look before, the last that saw the terminal UI.
         reader.note_holders(&names, [(name.clone(), vec![(20, 1_000)])].into(), 30_000);
-        assert_eq!(reader.terminals_since(&path), Some(30_000));
-        let left = background::LeftRunning { id: "19957".into(), at: 8_000, command: "npm run dev".into(), ended: None };
-        let th = ThreadInfo { terminals: background::Terminals { running: vec![left], ..Default::default() }, ..Default::default() };
-        assert!(crate::board::codex_tasks(&th, Some(true), reader.terminals_since(&path), 40_000).is_empty());
+        assert_eq!(reader.terminals_since(&path), Some(20_000));
+        let left = |id: &str, at: i64| background::LeftRunning { id: id.into(), at, command: "npm run dev".into(), ended: None };
+        let th = ThreadInfo { terminals: background::Terminals { running: vec![left("19957", 8_000), left("55001", 25_000)], ..Default::default() }, ..Default::default() };
+        let shown: Vec<String> = crate::board::codex_tasks(&th, Some(true), reader.terminals_since(&path), 40_000).into_iter().map(|t| t.id).collect();
+        assert_eq!(shown, ["55001"], "the terminal UI's is gone, the app-server's own runs");
         // The same app-server still holding it later moves nothing on.
         reader.note_holders(&names, [(name.clone(), vec![(20, 1_000)])].into(), 40_000);
-        assert_eq!(reader.terminals_since(&path), Some(30_000));
+        assert_eq!(reader.terminals_since(&path), Some(20_000));
+        // Let go of, it's as of the look that finds it so: nothing started one since.
+        reader.note_holders(&names, HashMap::new(), 50_000);
+        assert_eq!(reader.terminals_since(&path), Some(50_000));
     }
 
     /// The engine lists the processes off its thread, so a look's listing can be older than the
