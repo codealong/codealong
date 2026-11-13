@@ -18,15 +18,19 @@
 #   scripts/windows-vm.sh shell [cmd…]   PowerShell in the VM (or one command), in its copy of this
 #                                        checkout
 #   scripts/windows-vm.sh screenshot     the VM's screen, to .preview/windows.png
+#   scripts/windows-vm.sh click <x> <y>  clicks the VM's screen there, in that screenshot's pixels
 #   scripts/windows-vm.sh stop | delete
 #
 # Microsoft's download page refuses a script now and then ("Sentinel marked this request as
 # rejected", and always from VPN and datacenter addresses): then the ISO is made from Windows
 # Update's own files through UUP dump (scripts/windows/uup-iso.sh, `brew install aria2 cabextract
 # wimlib cdrtools hivex` first), or WINDOWS_ISO=<file> takes one downloaded from
-# https://www.microsoft.com/software-download/windows11arm64 in a browser. Its install runs detached and survives this script ending; run the script
-# again to wait for it and go on. Setup's screen shows only in `screenshot`, and RDP reaches the
-# desktop at localhost:3390 (dev, with the password in the VM's folder).
+# https://www.microsoft.com/software-download/windows11arm64 in a browser. Its install runs
+# detached and survives this script ending; run the script again to wait for it and go on.
+# Setup's screen shows only in `screenshot`, and RDP reaches the desktop at localhost:3390 (dev,
+# with the password in the VM's folder). A screen of Setup's that waits on a click takes one from
+# `click`: OOBE once stopped at "Something went wrong" (OOBEZDP, its check for updates) until Skip
+# was clicked.
 #
 # The app in the VM has the VM's home, nothing of the Mac's. Claude Code and Codex are installed
 # there, signed in to nothing; sign one in from `scripts/windows-vm.sh shell` to give the board
@@ -242,6 +246,22 @@ screenshot() {
   echo "$here/.preview/windows.png"
 }
 
+# A click at x,y in the last screenshot's pixels, with the USB tablet, whose coordinates run from 0
+# to 32767 across the screen; the press and the release go a moment apart, after the move, as a
+# hand's would.
+click() {
+  running || { say "the VM isn't running"; exit 1; }
+  local png="$here/.preview/windows.png" size x y
+  [ -f "$png" ] || screenshot >/dev/null
+  size="$(python3 -c 'import struct, sys; print(*struct.unpack(">II", open(sys.argv[1], "rb").read(24)[16:24]))' "$png")"
+  x=$(($1 * 32767 / ${size% *})) y=$(($2 * 32767 / ${size#* }))
+  qmp "{\"execute\":\"input-send-event\",\"arguments\":{\"events\":[{\"type\":\"abs\",\"data\":{\"axis\":\"x\",\"value\":$x}},{\"type\":\"abs\",\"data\":{\"axis\":\"y\",\"value\":$y}}]}}" >/dev/null
+  sleep 0.2
+  qmp '{"execute":"input-send-event","arguments":{"events":[{"type":"btn","data":{"down":true,"button":"left"}}]}}' >/dev/null
+  sleep 0.1
+  qmp '{"execute":"input-send-event","arguments":{"events":[{"type":"btn","data":{"down":false,"button":"left"}}]}}' >/dev/null
+}
+
 case "${1:-start}" in
   start) start ;;
   test)
@@ -274,6 +294,10 @@ case "${1:-start}" in
     fi
     ;;
   screenshot) screenshot ;;
+  click)
+    [ $# -eq 3 ] || { say "click <x> <y>, in the pixels of scripts/windows-vm.sh screenshot's picture"; exit 2; }
+    click "$2" "$3"
+    ;;
   stop)
     if running; then
       qmp '{"execute":"system_powerdown"}' >/dev/null
@@ -285,7 +309,7 @@ case "${1:-start}" in
     rm -rf "$dir"
     ;;
   *)
-    sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,37p' "$0" | sed 's/^# \{0,1\}//'
     exit 2
     ;;
 esac

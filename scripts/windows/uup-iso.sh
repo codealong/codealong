@@ -14,7 +14,8 @@
 # cdrtools and hivex (`brew install aria2 cabextract wimlib cdrtools hivex`); hivex stands in for
 # chntpw, which Homebrew hasn't (chntpw.py).
 set -euo pipefail
-out="$1"
+# Made absolute, as what's made is moved there from the folder it's made in.
+out="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
 release="${WINDOWS_UUP_RELEASE:-Windows 11, version 26H2}"
 assets="$(cd "$(dirname "$0")" && pwd)"
 work="$out.uup"
@@ -81,11 +82,16 @@ if grep -q . files.txt; then
   fetch -x16 -s16 -j5 -c -R -d UUPs -i files.txt
 fi
 
-# convert.sh makes two registry values in boot.wim with chntpw, which hivex does here.
+# convert.sh makes two registry values in boot.wim with chntpw, which hivex does here. It goes on
+# after a command fails, so the stand-in notes a failure in a file of its own.
 mkdir -p bin
 ln -sf "$assets/chntpw.py" bin/chntpw
-rm -f ./*.iso ./*.ISO
-PATH="$PWD/bin:$PATH" HIVEX_LIB="$libhivex" bash files/convert.sh wim UUPs 0
+rm -f ./*.iso ./*.ISO chntpw-failed
+PATH="$PWD/bin:$PATH" HIVEX_LIB="$libhivex" CHNTPW_FAILED="$PWD/chntpw-failed" bash files/convert.sh wim UUPs 0
+if [ -s chntpw-failed ]; then
+  echo "convert.sh couldn't set boot.wim's registry values, so its ISO would be broken: $(cat chntpw-failed)" >&2
+  exit 1
+fi
 made="$(find . -maxdepth 1 -iname '*.iso' | head -1)"
 [ -n "$made" ] || { echo "convert.sh made no ISO; $work has what it left" >&2; exit 1; }
 mv "$made" "$out"

@@ -141,13 +141,6 @@
           <Order>4</Order>
           <Path>reg.exe add HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System /v EnableFirstLogonAnimation /t REG_DWORD /d 0 /f</Path>
         </RunSynchronousCommand>
-        <!-- OOBE's own check for updates (its zero-day patch), which stopped at "Something went
-             wrong" (OOBEZDP) until Skip was clicked, on Windows made from Windows Update's files:
-             this policy is said to leave it out. -->
-        <RunSynchronousCommand wcm:action="add">
-          <Order>5</Order>
-          <Path>reg.exe add HKLM\SOFTWARE\Policies\Microsoft\Windows\CloudContent /v DisableCloudOptimizedContent /t REG_DWORD /d 1 /f</Path>
-        </RunSynchronousCommand>
       </RunSynchronous>
     </component>
     <component name="Microsoft-Windows-TerminalServices-LocalSessionManager" processorArchitecture="arm64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
