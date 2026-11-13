@@ -31,9 +31,14 @@
 //! sent the PR as it is now and what changed since the commit it last reviewed, and asked what of
 //! its findings is fixed; a session that isn't running goes on where `[reviews] start` lets it,
 //! and one that's gone, or can't go on there, is replaced by a new one, which closes it where it
-//! still runs and isn't at work (`ask`). A review whose PR moved on before it was done isn't
-//! posted: the next round covers it. Its session is marked done once its PR is merged, closed or
-//! no longer listed, and ended while it sits unused between rounds (reviewdone.rs).
+//! still runs and isn't at work (`ask`). A review whose PR moved on while it was written is read
+//! and posted all the same once its turn ends (`next`, `post`), opening with which commit it's of
+//! (`overtaken`) and never submitted as yours, and the next round reads the commits since: thrown
+//! away, its author heard nothing until the branch held still and a whole round more, and a
+//! branch pushed to more often than a review takes was never reviewed. Only a round whose
+//! reviewer is neither at work nor done by then makes way for the next. Its session is marked done
+//! once its PR is merged, closed or no longer listed, and ended while it sits unused between
+//! rounds (reviewdone.rs).
 //!
 //! A reviewer whose turn was cut off partway (`Session::cut_off`: what ran it ended, as Codealong
 //! restarting ends the sessions it runs) is told to carry on where it runs or can go on, as
@@ -1163,12 +1168,17 @@ fn waits_to_be_allowed(s: &Session) -> bool {
 /// What's next for a round under way on PR `pr`, which is at `head` now. The reviewer's turn is
 /// read once its session ended it, told to carry on when it was cut off partway (a few times at
 /// most), and fails once its session is gone a while; once it's settled, its review is posted,
-/// or the round ends without one. A round stuck while the PR moved on ends, for the next, once
-/// what its reviewer waits on has been offered to its harness to allow.
+/// or the round ends without one. A turn that ended is read, and its review posted, whatever
+/// commit the PR is at by then (`post`): a review finished 78 seconds after a push was thrown away
+/// unread, and its PR's author waited on it (2026-11-12). A round stuck while the PR moved on,
+/// its reviewer neither at work nor done, ends, for the next, once what its reviewer waits on has
+/// been offered to its harness to allow.
 fn next(r: &mut Round, board: &Board, pr: &PrItem, head: &str, wanted: bool, now: i64) -> Next {
     let working = |k: &str| board.session(k).is_some_and(|(_, s)| s.status == Status::Working);
     let to_allow = |k: &str| board.session(k).is_some_and(|(_, s)| waits_to_be_allowed(s));
-    if head != r.head && wanted && !r.parts.iter().filter(|p| p.reviewing()).any(|p| p.pending.is_some() || p.session.as_deref().is_some_and(working)) {
+    let ended = |p: &Part| p.session.as_deref().and_then(|k| board.session(k)).is_some_and(|(_, s)| turn_ended(s, p.at));
+    let goes_on = |p: &Part| p.pending.is_some() || p.session.as_deref().is_some_and(working) || ended(p);
+    if head != r.head && wanted && r.parts.iter().any(Part::reviewing) && !r.parts.iter().filter(|p| p.reviewing()).any(goes_on) {
         // A reviewer waiting on what its harness allows a review (a web search) is allowed it
         // before its round makes way: its turn goes on, and the next round is typed into it as
         // into any that worked while commits came. Ended at its prompt, the next round couldn't
@@ -2387,9 +2397,17 @@ fn in_draft(body: &str, pr_key_: &str, head: &str, round: i64, by_hand: bool) ->
 }
 
 fn draft(pr: &PrItem, head: &str, summary: &str, comments: Vec<LineComment>, agent: &str, round: i64, by_hand: bool) -> Went {
-    let diff = match crate::github::pr_diff(&pr.repo_slug, pr.number) {
-        Ok(d) => d,
-        Err(e) => return Went::PostFailed(format!("its diff couldn't be read: {e:#}")),
+    // A review of a commit the PR has moved on from numbers its lines by that commit, which the
+    // PR's diff no longer shows: its comments go into its text, under links to their lines there.
+    // A draft begun for it is begun at the commit the PR is at, which a rewritten branch still
+    // has, and where the next round's comments can go on their lines (`draft_plan`).
+    let moved = moved_to(pr, head);
+    let lines = match moved {
+        Some(_) => HashMap::new(),
+        None => match crate::github::pr_diff(&pr.repo_slug, pr.number) {
+            Ok(d) => commentable(&d),
+            Err(e) => return Went::PostFailed(format!("its diff couldn't be read: {e:#}")),
+        },
     };
     let (id, pending) = match crate::github::pending_review(&pr.repo_slug, pr.number) {
         Ok(p) => p,
@@ -2400,9 +2418,9 @@ fn draft(pr: &PrItem, head: &str, summary: &str, comments: Vec<LineComment>, age
         Some(Drafted::Another) => return Went::Failed(ELSEWHERE.into()),
         None => {}
     }
-    let plan = draft_plan(summary, comments, &commentable(&diff), pending.as_ref(), pr, head, agent, round);
+    let plan = draft_plan(summary, comments, &lines, pending.as_ref(), pr, head, agent, round);
     let done = match &plan.add_to {
-        None => crate::github::draft_review(&id, head, &plan.body, &plan.threads),
+        None => crate::github::draft_review(&id, moved.unwrap_or(head), &plan.body, &plan.threads),
         Some(review) => crate::github::add_to_draft(review, &plan.body, &plan.threads),
     };
     match done {
@@ -2701,8 +2719,25 @@ fn allow(engine: &Handle, session: &str) -> Went {
     }
 }
 
-/// Posts a round's review where config.toml says, unless the PR ended or moved on before it was
-/// done.
+/// The commit a PR is at now, when that's no longer `head`, the one a review of it read: new
+/// commits came in while the review was written.
+fn moved_to<'a>(pr: &'a PrItem, head: &str) -> Option<&'a str> {
+    pr.head_oid.as_deref().filter(|h| *h != head)
+}
+
+/// How a review of commit `head` opens when it's posted after its PR moved on to commit `now`
+/// (`post`), so nobody takes it for a review of the commits since: its last line names the commit
+/// too, in small print. `next`: those commits are reviewed by themselves.
+fn overtaken(head: &str, now: &str, next: bool) -> String {
+    let next = if next { ", and those commits are reviewed next" } else { "" };
+    format!("_This review is of {}. The PR has moved on to {} since{next}._", short(head), short(now))
+}
+
+/// Posts a round's review where config.toml says, unless the PR ended before it was done. One
+/// whose PR moved on while it was written is posted all the same, saying which commit it's of
+/// (`overtaken`): its author hears what was found without waiting for the next round, which then
+/// reads only the commits since, and a branch pushed to more often than a review takes still gets
+/// reviews. It's never submitted as yours (`submit_due`).
 fn post(engine: &Handle, pr: &PrItem, head: &str, review: &str, agent: &str, round: i64, by_hand: bool) -> Went {
     let board = engine.board();
     let cfg = match crate::config::current() {
@@ -2714,20 +2749,24 @@ fn post(engine: &Handle, pr: &PrItem, head: &str, review: &str, agent: &str, rou
     if !pr.state.is_open() {
         return Went::Kept(Some(format!("{not}: the PR was closed before the review was done.")));
     }
-    if pr.head_oid.as_deref().is_some_and(|h| h != head) {
-        return Went::Failed(format!("{not}: new commits came in before it was done."));
-    }
-    // Another machine of yours came to have the commit's review since this job was due.
-    if !by_hand && pr.auto_review.as_ref().is_some_and(|a| a.machine.is_some()) {
+    let moved = moved_to(pr, head);
+    // Another machine of yours came to have the commit's review since this job was due. What it
+    // has of a PR that moved on is the commits since, not this one.
+    if !by_hand && moved.is_none() && pr.auto_review.as_ref().is_some_and(|a| a.machine.is_some()) {
         return Went::Failed(ELSEWHERE.into());
     }
     // A review of a PR of yours stays here, and goes back to its session from there
-    // (`Job::Send`), never to GitHub.
+    // (`Job::Send`), never to GitHub; one the PR moved on from stays here unsent (`to_send`).
     if pr.mine {
         return Went::Kept(clean(review).then(|| "It found nothing to raise, so it isn't sent.".to_string()));
     }
+    let reviews = board.repo_settings.reviews(&cfg.reviews, pr);
     let (summary, comments) = parse_reply(review);
-    match board.repo_settings.reviews(&cfg.reviews, pr).post {
+    let summary = match moved {
+        Some(now) => format!("{}\n\n{summary}", overtaken(head, now, wanted(&reviews, &board.lanes, pr))),
+        None => summary,
+    };
+    match reviews.post {
         ReviewPost::None => Went::Kept(None),
         ReviewPost::Draft => draft(pr, head, &summary, comments, agent, round, by_hand),
         // Another machine of yours may have posted its review of the commit while this one wrote
@@ -4055,6 +4094,75 @@ mod tests {
         assert_eq!(kinds(&r.due(&moved, &on(), NOW + 10 + QUIET_MS)), [format!("review 7 2222222 since Some(\"1111111\") by auto in {S}")]);
     }
 
+    /// A review finished after new commits came in is read and posted as a review of the commit it
+    /// read, never submitted as yours, and the next round reads only the commits since. One
+    /// finished 78 seconds after a push was thrown away unread instead, its round said to have
+    /// failed, and the PR's author waited on it until the review was given by hand (2026-11-12).
+    #[test]
+    fn a_review_finished_after_its_pr_moved_on_is_posted_and_the_next_reads_the_commits_since() {
+        const APPROVES: &str = "Fine.\n\nVerdict: approve";
+        let cfg = ReviewsCfg { submit: ReviewSubmit::ApproveOrComment, ..on() };
+        let posts = [format!("post 7 {APPROVES:?} by Claude Code")];
+        let asked = || {
+            let mut r = Reviewer::default();
+            let jobs = r.due(&board(vec![pr(7, HEAD)], vec![]), &cfg, NOW);
+            r.told(&jobs[0], Went::Started(vec![started(AUTO, S, NOW)]), NOW).unwrap();
+            r
+        };
+        let mut r = asked();
+        // The push comes while it works: its turn is waited on.
+        assert!(r.due(&board(vec![pr(7, NEXT)], vec![session(Status::Working, NOW + 5)]), &cfg, NOW + 10).is_empty());
+        // Its turn ends: read, and posted as a review of the commit it read.
+        let done = board(vec![pr(7, NEXT)], vec![session(Status::Unread, NOW + 60_000)]);
+        read(&mut r, &done, &cfg, NOW + 61_000, APPROVES, "Claude Code");
+        let post = r.due(&done, &cfg, NOW + 62_000).pop().unwrap();
+        assert_eq!(kinds(std::slice::from_ref(&post)), posts);
+        assert!(matches!(&post, Job::Post { head, .. } if head == HEAD));
+        r.told(&post, Went::Posted("link".into()), NOW + 63_000).unwrap();
+        let round = &r.store.prs["o/r#7"].rounds[0];
+        assert_eq!((round.stage, round.head.as_str(), round.note.as_deref()), (ReviewStage::Posted, HEAD, None));
+        // Its approval isn't submitted as yours: the PR is at commits it didn't read.
+        assert!(r.due(&done, &cfg, NOW + 64_000).is_empty());
+        // The PR's card says it was reviewed, with the commits since to come, and holds it for them.
+        let mut prs = vec![PrItem { updated_at: NOW + 10, ..pr(7, NEXT) }];
+        apply(&mut prs, &r.store, &cfg, &Default::default(), &Default::default(), &[], &Default::default(), NOW + 64_000);
+        let a = prs[0].auto_review.as_ref().unwrap();
+        assert_eq!((a.stage, a.head.as_str(), a.behind, a.holds, a.approves.as_deref()), (ReviewStage::Posted, HEAD, true, true, Some(HEAD)));
+        // The next round, once the branch has held still, reads what changed since that commit.
+        assert!(r.due(&done, &cfg, NOW + 9 + QUIET_MS).is_empty(), "still settling");
+        assert_eq!(kinds(&r.due(&done, &cfg, NOW + 10 + QUIET_MS)), [format!("review 7 2222222 since Some(\"1111111\") by auto in {S}")]);
+
+        // One read just before the push is posted too.
+        let mut r = asked();
+        read(&mut r, &board(vec![pr(7, HEAD)], vec![session(Status::Unread, NOW + 60_000)]), &cfg, NOW + 61_000, APPROVES, "Claude Code");
+        assert_eq!(kinds(&r.due(&done, &cfg, NOW + 62_000)), posts);
+
+        // A reviewer that passed on the commit it read says so, whatever came in since.
+        let mut r = asked();
+        let job = r.due(&done, &cfg, NOW + 61_000).pop().unwrap();
+        r.told(&job, Went::Skipped("It's all generated files.".into()), NOW + 61_000).unwrap();
+        assert!(r.due(&done, &cfg, NOW + 62_000).is_empty());
+        let round = &r.store.prs["o/r#7"].rounds[0];
+        assert_eq!((round.stage, round.note.as_deref()), (ReviewStage::Skipped, Some("It's all generated files.")));
+    }
+
+    /// What's posted of a review whose PR moved on opens by saying which commit it's of, and in a
+    /// draft its comments go into its text, under links to their lines at that commit: the PR's
+    /// diff no longer numbers its lines as the review did.
+    #[test]
+    fn a_review_posted_after_its_pr_moved_on_says_which_commit_its_of() {
+        assert_eq!(moved_to(&pr(7, HEAD), HEAD), None);
+        assert_eq!(moved_to(&pr(7, NEXT), HEAD), Some(NEXT));
+        assert_eq!(moved_to(&PrItem { head_oid: None, ..pr(7, HEAD) }, HEAD), None);
+        assert_eq!(overtaken(HEAD, NEXT, true), "_This review is of 1111111. The PR has moved on to 2222222 since, and those commits are reviewed next._");
+        assert_eq!(overtaken(HEAD, NEXT, false), "_This review is of 1111111. The PR has moved on to 2222222 since._");
+        let comments = vec![LineComment { path: "src/a.rs".into(), line: 3, body: "Off by one.".into() }];
+        let plan = draft_plan("Two problems.", comments, &HashMap::new(), None, &pr(7, NEXT), HEAD, "Codex", NOW);
+        assert!(plan.threads.is_empty());
+        assert!(plan.body.contains("https://github.com/o/r/blob/1111111aaaa/src/a.rs#L3\n\nOff by one."), "{}", plan.body);
+        assert!(plan.body.contains("<sub>Reviewed 1111111 with Codex · drafted via Codealong</sub>"), "{}", plan.body);
+    }
+
     #[test]
     fn only_open_prs_that_wait_on_your_review_and_only_while_reviews_are_on() {
         let mut r = Reviewer::default();
@@ -4152,13 +4260,14 @@ mod tests {
         assert_eq!(stands(&r), (ReviewStage::Failed, Some(MOVED_ON.into())));
         assert_eq!(kinds(&r.due(&waits, &on(), now + QUIET_MS)), [format!("review 7 2222222 since None by auto in {S}")]);
 
-        // One whose turn ended on a question to you isn't offered: its round makes way at once.
+        // One whose turn ended on a question to you isn't offered: its turn is over, and what it
+        // wrote is read as any ended turn's is.
         let mut r = Reviewer::default();
         let jobs = r.due(&board(vec![pr(7, HEAD)], vec![]), &on(), NOW);
         r.told(&jobs[0], Went::Started(vec![started(AUTO, S, NOW)]), NOW).unwrap();
         let asks = board(vec![pr(7, NEXT)], vec![Session { asks: true, ..session(Status::Needs, NOW + 5) }]);
-        assert!(r.due(&asks, &on(), NOW + 6).is_empty());
-        assert_eq!(stands(&r), (ReviewStage::Failed, Some(MOVED_ON.into())));
+        assert_eq!(kinds(&r.due(&asks, &on(), NOW + 6)), [format!("read 7 part 0 in {S}")]);
+        assert_eq!(stands(&r), (ReviewStage::Reviewing, None));
     }
 
     /// What was left to you is offered again once its session has gone on from it: a reviewer
@@ -4667,9 +4776,11 @@ mod tests {
         let mut r = Reviewer::default();
         let jobs = r.due(&board(vec![pr(7, HEAD)], vec![]), &on(), NOW);
         r.told(&jobs[0], Went::Started(vec![started(AUTO, S, NOW)]), NOW).unwrap();
-        let stuck = board(vec![pr(7, NEXT)], vec![session(Status::Idle, NOW + 1)]);
+        // Its session never took the turn: idle since before it was asked.
+        let stuck = board(vec![pr(7, NEXT)], vec![session(Status::Idle, NOW - 1)]);
         r.due(&stuck, &on(), NOW + 2);
         assert_eq!(r.store.prs["o/r#7"].rounds[0].stage, ReviewStage::Failed);
+        assert_eq!(r.store.prs["o/r#7"].rounds[0].note.as_deref(), Some("New commits came in before it was done, so it's left for the next round."));
         assert_eq!(kinds(&r.due(&stuck, &on(), NOW + 3 + QUIET_MS)), [format!("review 7 2222222 since None by auto in {S}")]);
         let mut r = Reviewer::default();
         let jobs = r.due(&board(vec![pr(7, HEAD)], vec![]), &on(), NOW);
@@ -4780,14 +4891,15 @@ mod tests {
         assert!(round.errored());
         assert_eq!(kinds(&r.due(&failed, &on(), late + 2)), ["review 7 2222222 since None by auto instead of cursor"]);
 
-        // Its round made way while it waited on nothing, and its turn stopped so after.
+        // Its round made way while it waited on nothing, its turn never taken, and its turn
+        // stopped so after.
         let mut r = asked();
-        r.due(&board(vec![pr(7, NEXT)], vec![cursor(Status::Idle, NOW + 1)]), &on(), NOW + 2);
+        r.due(&board(vec![pr(7, NEXT)], vec![cursor(Status::Idle, NOW - 1)]), &on(), NOW + 2);
         assert!(!r.store.prs["o/r#7"].rounds[0].errored());
         let now = NOW + 3 + QUIET_MS;
         assert_eq!(kinds(&r.due(&board(vec![pr(7, NEXT)], vec![cursor(Status::Error, NOW + 3)]), &on(), now)), ["review 7 2222222 since None by auto instead of cursor"]);
         let mut r = asked();
-        r.due(&board(vec![pr(7, NEXT)], vec![cursor(Status::Idle, NOW + 1)]), &on(), NOW + 2);
+        r.due(&board(vec![pr(7, NEXT)], vec![cursor(Status::Idle, NOW - 1)]), &on(), NOW + 2);
         let limited = Session { limit: Some(crate::model::SessionLimit { at: NOW + 3, resets_at: None, ..Default::default() }), ..cursor(Status::Error, NOW + 3) };
         assert_eq!(kinds(&r.due(&board(vec![pr(7, NEXT)], vec![limited]), &on(), now)), ["review 7 2222222 since None by auto"], "a usage limit goes its own way");
     }

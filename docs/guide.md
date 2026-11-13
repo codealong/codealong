@@ -1284,7 +1284,13 @@ PR still waits on you, the same session reviews it again once the branch has hel
 minutes, told what changed since and asked what of its findings is fixed (a session that isn't
 running goes on where `[reviews] start` lets it, else a new one starts, and one that still runs
 but can't be handed the new commits, such as one waiting at what its harness asks before it
-starts, is closed). Nobody marks a review's session done, so Codealong does: once its PR is merged
+starts, is closed). A review whose turn ends after new commits came in is posted all the same,
+opening with which commit it's of and that the PR has moved on since, so its author hears what it
+found without waiting for the branch to hold still and another round; it's never submitted as
+yours, the next round reads only the commits since, and in a draft its comments on lines go into
+its text, each under a link to its line at that commit. A round makes way for the next only when
+its reviewer is neither at work nor done by then (stopped on an error, waiting on you to allow
+something, a turn it never took). Nobody marks a review's session done, so Codealong does: once its PR is merged
 or closed, it's marked done as Mark as done does (ended where it runs, and archived), and so is one
 whose PR the board no longer lists (a repo whose PRs aren't read hears only of those waiting on your
 review) once it has sat unused six hours; while the PR is open, one that has sat unused six hours
