@@ -21,7 +21,7 @@
 /* Over the message box (SessionReply.css), what's scrolled under its top edge fades out over the
    thread's foot, its padding there, so the box needs no rule of its own to stand off it. At the
    end there's nothing in that padding to fade. */
-.ca-thread:has(+ .ca-composer:not(.is-approval, .is-waiting, .ca-notch-card *)) {
+.ca-thread:has(+ .ca-composer:not(.is-waiting, .ca-notch-card *)) {
   -webkit-mask-image: linear-gradient(to top, transparent, #000 var(--space-4));
   mask-image: linear-gradient(to top, transparent, #000 var(--space-4));
 }
