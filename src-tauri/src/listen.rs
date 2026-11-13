@@ -1278,7 +1278,12 @@ pub fn end_meetings_but(keep: &str, why: &str) {
 
 /// The meetings being heard now, by their ids in the calendar: taken, whatever else knows it.
 pub fn meetings_heard() -> Vec<String> {
-    list().into_iter().filter(Listening::hearing).filter_map(|l| l.meeting.map(|m| m.id)).collect()
+    meetings_hearing().into_iter().map(|(meeting, _)| meeting).collect()
+}
+
+/// `meetings_heard`, each with the id of the listening that hears it.
+pub fn meetings_hearing() -> Vec<(String, String)> {
+    list().into_iter().filter(Listening::hearing).filter_map(|l| l.meeting.map(|m| (m.id, l.id))).collect()
 }
 
 /// Ends the listening of session `key`, as the person asks. A meeting's that was started by

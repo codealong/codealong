@@ -145,14 +145,23 @@ pub struct Ahead {
     pub answered: bool,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub heard: bool,
+    /// The listening hearing it, while one is. Its folder among your meetings names the same
+    /// (`Record::listening`), so the window that lists them tells the folder of the hearing going
+    /// on from one of an earlier time it was taken.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub listening: Option<String>,
 }
 
-/// The meetings ahead that count, the first to start first, with one that's going on.
-fn ahead_of(events: &[Meeting], rules: &Rules, answered: &HashMap<String, i64>, heard: &[String], now: i64) -> Vec<Ahead> {
+/// The meetings ahead that count, the first to start first, with one that's going on;
+/// `hearing` the meetings being heard, by id, with the listening that hears each.
+fn ahead_of(events: &[Meeting], rules: &Rules, answered: &HashMap<String, i64>, hearing: &[(String, String)], now: i64) -> Vec<Ahead> {
     let mut ahead: Vec<Ahead> = counted(events, rules)
         .into_iter()
         .filter(|m| m.end > now)
-        .map(|m| Ahead { takeable: now >= m.start - SOON_MS && !heard.contains(&m.id), answered: answered.contains_key(&m.id), heard: heard.contains(&m.id), meeting: m.clone() })
+        .map(|m| {
+            let listening = hearing.iter().find(|(id, _)| *id == m.id).map(|(_, l)| l.clone());
+            Ahead { takeable: now >= m.start - SOON_MS && listening.is_none(), answered: answered.contains_key(&m.id), heard: listening.is_some(), listening, meeting: m.clone() }
+        })
         .collect();
     ahead.sort_by(|a, b| a.meeting.start.cmp(&b.meeting.start).then_with(|| a.meeting.id.cmp(&b.meeting.id)));
     ahead
@@ -163,9 +172,9 @@ pub fn ahead(cfg: &Config) -> Vec<Ahead> {
     if !turned_on(cfg) {
         return Vec::new();
     }
-    let heard = listen::meetings_heard();
+    let hearing = listen::meetings_hearing();
     let state = state();
-    ahead_of(&state.calendar.events, &Rules::of(cfg), &state.answered, &heard, util::now_ms())
+    ahead_of(&state.calendar.events, &Rules::of(cfg), &state.answered, &hearing, util::now_ms())
 }
 
 /// What a meeting's folder says of it (`meeting.json`): what the calendar had, and what took it.
@@ -941,10 +950,12 @@ mod tests {
         ];
         let rules = Rules { off: vec!["home".into()], lead_ms: MIN };
         let answered = HashMap::from([("soon".to_string(), NOW)]);
-        let got: Vec<(String, bool, bool, bool)> = ahead_of(&events, &rules, &answered, &["going".to_string()], NOW).into_iter().map(|a| (a.meeting.id, a.takeable, a.answered, a.heard)).collect();
+        let hearing = [("going".to_string(), "l2".to_string())];
+        let got: Vec<(String, bool, bool, bool, Option<String>)> = ahead_of(&events, &rules, &answered, &hearing, NOW).into_iter().map(|a| (a.meeting.id, a.takeable, a.answered, a.heard, a.listening)).collect();
         // In order; one that's over, one that's no meeting and one in a calendar left out aren't
-        // listed. One being heard can't be taken again; one you passed on still can.
-        assert_eq!(got, vec![("going".to_string(), false, false, true), ("soon".to_string(), true, true, false), ("later".to_string(), false, false, false)]);
+        // listed. One being heard can't be taken again, and says which listening hears it; one
+        // you passed on still can.
+        assert_eq!(got, vec![("going".to_string(), false, false, true, Some("l2".to_string())), ("soon".to_string(), true, true, false, None), ("later".to_string(), false, false, false, None)]);
     }
 
     #[test]

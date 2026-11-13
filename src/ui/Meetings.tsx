@@ -10,7 +10,7 @@
 import { useEffect, useState } from 'react';
 import { answerMeeting, keptMeetings, meetingFiles, meetingsAhead, openUrl, revealFile } from '../api';
 import { heardLine } from '../listening';
-import { firstPick, keptBehind, meetingStands, meetingTime, meetingWith, startWords, type MeetingPick } from '../meetings';
+import { firstPick, heardIn, keptBehind, meetingStands, meetingTime, meetingWith, startWords, type MeetingPick } from '../meetings';
 import { useLatest } from '../latest';
 import { errorText } from '../report';
 import type { KeptMeeting, MeetingAhead, MeetingFiles } from '../types';
@@ -210,7 +210,7 @@ export function MeetingsDialog({ onClose, onShowSession, onListen }: { onClose: 
               <AheadShown
                 m={soon}
                 now={now}
-                heardIn={soon.heard ? (kept?.find((k) => k.id === soon.id) ?? null) : null}
+                hearing={heardIn(soon, kept ?? [])}
                 taking={taking}
                 onTake={() => take(soon)}
                 onListen={() => onListen(soon)}
@@ -263,8 +263,8 @@ export function MeetingsDialog({ onClose, onShowSession, onListen }: { onClose: 
  *  and the listening to start for it, whatever its time (`startWords` says what that does):
  *  Take notes, as its offer takes it, or Listen… to pick where its session starts and what it
  *  makes of what it hears. One being heard has its notes so far among the ones heard
- *  (`heardIn`). */
-function AheadShown({ m, now, heardIn, taking, onTake, onListen, onNotes, onFailed }: { m: MeetingAhead; now: number; heardIn: KeptMeeting | null; taking: string | null; onTake: () => void; onListen: () => void; onNotes: (folder: string) => void; onFailed: (why: string) => void }) {
+ *  (`hearing`, meetings.ts `heardIn`). */
+function AheadShown({ m, now, hearing, taking, onTake, onListen, onNotes, onFailed }: { m: MeetingAhead; now: number; hearing: KeptMeeting | null; taking: string | null; onTake: () => void; onListen: () => void; onNotes: (folder: string) => void; onFailed: (why: string) => void }) {
   const title = m.title.trim() || 'A meeting';
   const words = startWords(m);
   const link = m.link;
@@ -278,8 +278,8 @@ function AheadShown({ m, now, heardIn, taking, onTake, onListen, onNotes, onFail
               Join call
             </Button>
           )}
-          {heardIn && (
-            <Button variant="ghost" size="sm" icon="notes" title="Its notes and transcript so far" onClick={() => onNotes(heardIn.folder)}>
+          {hearing && (
+            <Button variant="ghost" size="sm" icon="notes" title="Its notes and transcript so far" onClick={() => onNotes(hearing.folder)}>
               Its notes
             </Button>
           )}

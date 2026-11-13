@@ -1158,11 +1158,13 @@ export interface CalendarInfo {
 }
 
 /** A meeting in the day ahead (meetings.rs `Ahead`): whether it can be taken now (it's going on,
- *  or about to), whether you answered its offer, and whether a session is hearing it. */
+ *  or about to), whether you answered its offer, and whether a session is hearing it, with the
+ *  listening that does (`listening`, which its folder among your meetings names too). */
 export interface MeetingAhead extends Meeting {
   takeable: boolean;
   answered?: boolean;
   heard?: boolean;
+  listening?: string;
 }
 
 /** What a listening session makes of what it hears (listen.rs `Role`). */

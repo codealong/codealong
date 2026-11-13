@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calendarsByAccount, calendarSays, calendarsOff, firstPick, keptBehind, meetingStands, meetingTime, meetingWhen, meetingWith, startWords } from './meetings';
+import { calendarsByAccount, calendarSays, calendarsOff, firstPick, heardIn, keptBehind, meetingStands, meetingTime, meetingWhen, meetingWith, startWords } from './meetings';
 import type { CalendarStatus, MeetingAhead } from './types';
 
 const NOW = 1_794_330_000_000;
@@ -56,13 +56,25 @@ describe('a meeting in the day ahead, in your meetings', () => {
     expect(firstPick([], [])).toBeNull();
   });
 
+  it('finds the folder of the hearing going on, of a meeting taken twice too', () => {
+    const first = { folder: '/m/2026-11-13 1100 Planning', listening: 'l1', session: 'claude:work:first' };
+    const again = { folder: '/m/2026-11-13 1100 Planning (2)', listening: 'l2', session: '' };
+    const heard = ahead({ id: 'e2', heard: true, listening: 'l2' });
+    expect(heardIn(heard, [first, again])).toBe(again);
+    expect(heardIn(heard, [first])).toBeNull();
+    expect(heardIn(ahead({ id: 'e2', listening: 'l1' }), [first])).toBeNull();
+  });
+
   it('says your meetings are behind while one being heard has no folder, or no session in it yet', () => {
-    const heard = [ahead({ id: 'e2', heard: true }), ahead({ id: 'e3' })];
+    const heard = [ahead({ id: 'e2', heard: true, listening: 'l2' }), ahead({ id: 'e3' })];
     expect(keptBehind([ahead()], [])).toBe(false);
     expect(keptBehind(heard, [])).toBe(true);
     // Its folder is written as the hearing starts, its session once that has come up.
-    expect(keptBehind(heard, [{ id: 'e2', session: '' }])).toBe(true);
-    expect(keptBehind(heard, [{ id: 'e2', session: 'claude:work:meeting' }])).toBe(false);
+    expect(keptBehind(heard, [{ listening: 'l2', session: '' }])).toBe(true);
+    expect(keptBehind(heard, [{ listening: 'l2', session: 'claude:work:meeting' }])).toBe(false);
+    // Taken again: the folder of the time before, with its session, isn't this hearing's.
+    expect(keptBehind(heard, [{ listening: 'l1', session: 'claude:work:first' }])).toBe(true);
+    expect(keptBehind(heard, [{ listening: 'l2', session: '' }, { listening: 'l1', session: 'claude:work:first' }])).toBe(true);
   });
 });
 
