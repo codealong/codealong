@@ -5,10 +5,12 @@
 // offer stays; Not this one passes on it; and the offer goes when the board has none. The same
 // in the main window's bar and the floating bar (one line) and under the notch's pills (a card,
 // which opens the notch without taking the keyboard). In the main window, the bar's Meetings
-// button opens your meetings (ui/Meetings.tsx): the day ahead, where one that's going on can be
-// taken, and the ones that were heard, the latest first (a taken meeting's and one a session was
-// asked to listen to alike), the one picked with its notes and its transcript, either of which
-// Copy puts on the clipboard as its file has it.
+// button opens your meetings (ui/Meetings.tsx): the day ahead, opened on the one going on, each
+// of which shows on a click with when it is and who's in it and can be listened to whatever its
+// time (Take notes, or Listen… for the quick panel set to listen to it), and the ones that were
+// heard, the latest first (a taken meeting's and one a session was asked to listen to alike),
+// the one picked with its notes and its transcript, either of which Copy puts on the clipboard
+// as its file has it.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/voice-meeting-check.js
 //   PREVIEW_WAIT=60000 scripts/preview.sh bar '' scripts/preview/voice-meeting-check.js
 //   PREVIEW_SIZE=1512,720 PREVIEW_WAIT=60000 scripts/preview.sh notch '' scripts/preview/voice-meeting-check.js
@@ -41,20 +43,46 @@
   };
   var asked = function () { return calls('meeting').map(function (c) { return c[1]; }); };
 
-  // Your meetings, from the main window's bar: the list, and the one picked with its notes and
-  // its transcript.
+  // Your meetings, from the main window's bar: the day ahead, opened on the one going on with
+  // what starting to listen to it does, where a later one can be picked and listened to all the
+  // same; and the ones that were heard, the one picked with its notes and its transcript.
   var library = function () {
     var taken = 0;
     var dialog = function () { return q('.ca-dialog.ca-meetingsdlg'); };
     var copies = function () { return all('.ca-meetings-acts button', dialog())[0]; };
-    var opens = q('.ca-win-bar button[aria-label="Meetings"]');
-    check('with voice on, the window’s bar opens your meetings', !!opens);
-    if (!opens) return null;
-    opens.click();
-    return until(function () { return dialog() && all('.ca-meetings-row', dialog()).length === 3 && q('.ca-meetings-body .ca-md-h1', dialog()); }, 5000, 'your meetings')
+    var heard = function () { return all('ul[aria-label="Heard"] .ca-meetings-row', dialog()); };
+    var ahead = function () { return all('ul[aria-label="Coming up"] .ca-meetings-row', dialog()); };
+    var named = function (word, within) { return all('button', within || dialog()).filter(function (b) { return b.textContent.trim() === word; })[0]; };
+    var shownName = function () { var h = q('.ca-meetings-name', dialog()); return h ? h.textContent : ''; };
+    var stands = function () { var s = q('.ca-meetings-stands', dialog()); return s ? s.textContent : ''; };
+    var starts = function () { return q('.ca-meetings-start', dialog()); };
+    var opens = function () { return q('.ca-win-bar button[aria-label="Meetings"]'); };
+    var quick = function () { return calls('show_quick').map(function (c) { return (c[1] || {}).context || {}; }); };
+    check('with voice on, the window’s bar opens your meetings', !!opens());
+    if (!opens()) return null;
+    opens().click();
+    return until(function () { return dialog() && heard().length === 3 && ahead().length === 2 && shownName(); }, 5000, 'your meetings')
       .then(function () {
-        var rows = all('.ca-meetings-row', dialog());
-        check('they’re listed, the latest first, and the latest is shown', rows[0].classList.contains('is-on') && q('.ca-meetings-title', rows[0]).textContent === 'Renewal call' && q('.ca-meetings-title', rows[1]).textContent === 'Standup', rows.map(function (r) { return r.textContent; }).join(' | '));
+        var rows = ahead();
+        check('the meetings ahead are listed, the first to start first', q('.ca-meetings-title', rows[0]).textContent === 'Design review' && q('.ca-meetings-title', rows[1]).textContent === 'Planning', rows.map(function (a) { return a.textContent; }).join(' | '));
+        check('with when each is and who’s in it', / – /.test(q('.ca-meetings-when', rows[0]).textContent) && q('.ca-meetings-who', rows[1]).textContent === 'with Lee Atlas and Sam Northwind', q('.ca-meetings-when', rows[0]).textContent + ' / ' + q('.ca-meetings-who', rows[1]).textContent);
+        check('it opens on the one going on, and says how long it’s been', rows[0].classList.contains('is-on') && shownName() === 'Design review' && /^Started \dm ago$/.test(stands()), shownName() + ' / ' + stands());
+        var facts = all('.ca-meetings-facts dd', dialog()).map(function (d) { return d.textContent; });
+        check('with when it is, its calendar and who’s in it', facts.length === 3 && / – /.test(facts[0]) && facts[1] === 'Work' && facts[2] === 'Dana Kestrel', facts.join(' | '));
+        check('and what starting to listen does, Take notes first', !!starts() && q('p', starts()).textContent.indexOf('from the moment you start') > 0 && named('Take notes', starts()).classList.contains('ca-btn--primary') && !!named('Listen…', starts()), starts() && starts().textContent);
+        check('one with no call has nothing to join, and no notes to copy', !named('Join call') && !named('Copy notes'));
+        rows[1].click();
+        return until(function () { return shownName() === 'Planning'; }, 2000, 'the later meeting shown');
+      })
+      .then(function () {
+        check('a later one shows on a click, and says when it starts', ahead()[1].classList.contains('is-on') && !ahead()[0].classList.contains('is-on') && /^Starts in [23]h/.test(stands()), stands());
+        check('and can be listened to before it begins, saying it hears from now', !!starts() && q('p', starts()).textContent.indexOf('It hasn’t begun') === 0 && named('Take notes', starts()).classList.contains('ca-btn--secondary') && !named('Take notes', starts()).disabled, starts() && starts().textContent);
+        heard()[0].click();
+        return until(function () { return q('.ca-meetings-body .ca-md-h1', dialog()); }, 5000, 'the latest heard’s notes');
+      })
+      .then(function () {
+        var rows = heard();
+        check('the heard are listed, the latest first, and a click shows one', rows[0].classList.contains('is-on') && !ahead()[1].classList.contains('is-on') && q('.ca-meetings-title', rows[0]).textContent === 'Renewal call' && q('.ca-meetings-title', rows[1]).textContent === 'Standup', rows.map(function (r) { return r.textContent; }).join(' | '));
         check('each says who was in it, and when nothing was heard', q('.ca-meetings-who', rows[0]).textContent === 'with Dana Kestrel and Lee Atlas' && q('.ca-meetings-who', rows[1]).textContent === 'with Sam Northwind · nothing heard', q('.ca-meetings-who', rows[1]).textContent);
         check('one a session was asked to listen to is among them, by its session’s name', q('.ca-meetings-title', rows[2]).textContent === 'Kestrel on-site' && q('.ca-meetings-who', rows[2]).textContent === '', rows[2].textContent);
         check('with its notes, as they were kept', q('.ca-meetings-body .ca-md-h1', dialog()).textContent === 'Renewal call' && all('.ca-meetings-body li', dialog()).length === 2);
@@ -65,7 +93,7 @@
       })
       .then(function () {
         check('as their file has them, and the button says so', copied.length === 1 && copied[0].indexOf('# Renewal call\n') === 0, JSON.stringify(copied));
-        all('.ca-meetings-head button', dialog()).filter(function (b) { return b.textContent.trim() === 'Transcript'; })[0].click();
+        named('Transcript').click();
         return until(function () { return all('.ca-meetings-body .ca-heard-line', dialog()).length === 2; }, 3000, 'its transcript');
       })
       .then(function () {
@@ -77,18 +105,28 @@
         check('and copies the transcript’s lines', copied[1].indexOf('[14:03:22] Them: Can it export to CSV?\n') === 0, copied[1]);
         var said = all('.ca-meetings-body .ca-heard-line', dialog()).map(function (l) { return q('.ca-heard-who', l).textContent; });
         check('and its transcript, as the meeting’s lines', said.join(',') === 'Them,You' && all('.ca-meetings-body .ca-heard-aside', dialog()).length === 1, said.join(','));
-        all('.ca-meetings-head button', dialog()).filter(function (b) { return b.textContent.trim() === 'Its session'; })[0].click();
+        named('Its session').click();
         return wait(200);
       })
       .then(function () {
         check('a session the board no longer has is said to be gone, and the dialog stays', !!dialog() && q('.ca-meetings-failed', dialog()).textContent.indexOf('no longer on the board') > 0);
-        // The day ahead is listed over them; one that's going on can be taken from here.
-        var ahead = all('.ca-meetings-ahead', dialog());
-        check('the meetings ahead are listed, the first to start first', ahead.length === 2 && q('.ca-meetings-title', ahead[0]).textContent === 'Design review' && q('.ca-meetings-title', ahead[1]).textContent === 'Planning', ahead.map(function (a) { return a.textContent; }).join(' | '));
-        check('with when each is and who’s in it', / – /.test(q('.ca-meetings-when', ahead[0]).textContent) && q('.ca-meetings-who', ahead[1]).textContent === 'with Lee Atlas and Sam Northwind', q('.ca-meetings-when', ahead[0]).textContent + ' / ' + q('.ca-meetings-who', ahead[1]).textContent);
-        check('one that’s going on can be taken, a later one not yet', !!q('button', ahead[0]) && q('button', ahead[0]).textContent.trim() === 'Take notes' && !q('button', ahead[1]));
+        ahead()[1].click();
+        return until(function () { return shownName() === 'Planning'; }, 2000, 'the later meeting shown again');
+      })
+      .then(function () {
+        var before = quick().length;
+        named('Listen…', starts()).click();
+        return until(function () { return quick().length > before && !dialog(); }, 3000, 'the quick panel asked for');
+      })
+      .then(function () {
+        var ctx = quick()[quick().length - 1];
+        check('Listen… there opens the quick panel set to listen to that meeting, and the dialog gives way', ctx.listen === true && ctx.meeting === 'E-later@1' && !dialog(), JSON.stringify(ctx));
+        opens().click();
+        return until(function () { return dialog() && shownName() === 'Design review'; }, 5000, 'your meetings again');
+      })
+      .then(function () {
         taken = asked().length;
-        q('button', ahead[0]).click();
+        named('Take notes', starts()).click();
         // It waits a few seconds for the new session to reach this window's board, to show it,
         // and gives way without it: the stub's board never has it.
         return until(function () { return asked().length > taken && !dialog(); }, 15000, 'the meeting to be taken and the dialog to give way');

@@ -2,7 +2,9 @@
 // to start, the board says so (`Board.meeting`), and the windows ask whether to take its notes
 // (ui/Meeting.tsx). And where your calendar stands, as Settings says it.
 
-import type { CalendarInfo, CalendarStatus, Meeting } from './types';
+import { duration } from './format';
+import { nowMeeting } from './listening';
+import type { CalendarInfo, CalendarStatus, KeptMeeting, Meeting, MeetingAhead } from './types';
 
 /** Names as a sentence lists them: "a", "a and b", "a, b and c" (util.rs `listed`). */
 function listed(names: readonly string[]): string {
@@ -37,6 +39,39 @@ function hour(at: number): string {
 export function meetingTime(m: Pick<Meeting, 'start' | 'end'>, now: number): string {
   const day = (at: number) => new Date(at).toDateString();
   return `${day(m.start) === day(now) ? '' : 'Tomorrow, '}${hour(m.start)} – ${hour(m.end)}`;
+}
+
+/** Where a meeting in the day ahead stands, said from `now`, for your meetings to head it with:
+ *  heard, how long until it starts, or how long it has been going on. */
+export function meetingStands(m: Pick<MeetingAhead, 'start' | 'heard'>, now: number): string {
+  if (m.heard) return 'Being heard now';
+  if (m.start - now > 30_000) return `Starts in ${duration(now, m.start)}`;
+  if (m.start - now > -60_000) return 'Starting now';
+  return `Started ${duration(m.start, now)} ago`;
+}
+
+/** What starting to listen to a meeting ahead does, said before you do: Codealong hears from
+ *  the moment you start (meetings.rs `begin`), so one that hasn't begun is heard from now. One
+ *  you haven't answered is offered as it's about to start (`on_offer`), which may be what you'd
+ *  rather wait for. Nothing for one being heard. */
+export function startWords(m: Pick<MeetingAhead, 'takeable' | 'heard' | 'answered'>): string {
+  if (m.heard) return '';
+  if (m.takeable) return 'Codealong hears it from the moment you start, with a session started for it that keeps its notes.';
+  const offered = m.answered ? '' : ' Codealong offers to take its notes as it’s about to start.';
+  return `It hasn’t begun: start now and Codealong hears from now, with a session started for it, so whatever is said until it begins is heard too.${offered}`;
+}
+
+/** The meeting your meetings show: one in the day ahead by its id, or one that was heard by its
+ *  folder. */
+export type MeetingPick = { ahead: string } | { kept: string };
+
+/** The meeting your meetings open on: the one going on that nothing hears yet, which is the one
+ *  you'd take, else the latest heard, else the first ahead. */
+export function firstPick(kept: readonly Pick<KeptMeeting, 'folder'>[], ahead: readonly MeetingAhead[]): MeetingPick | null {
+  const on = nowMeeting(ahead);
+  if (on) return { ahead: on.id };
+  if (kept[0]) return { kept: kept[0].folder };
+  return ahead[0] ? { ahead: ahead[0].id } : null;
 }
 
 /** Your calendars by the account each is from, in the order they came (by account, then name),

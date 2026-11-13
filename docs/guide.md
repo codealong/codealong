@@ -3606,7 +3606,8 @@ began and what you called it, with its transcript, its notes and `meeting.json`,
 Meetings dialog with the rest. It needs voice on and nothing more: not *Offer to take a meeting's
 notes*, and nothing of your calendar is read for it. When that setting is on and your calendar
 has a meeting going on or about to start, the panel offers it, ticked: left so, ⏎ takes that
-meeting, with its name and who's in it; unticked, it's a meeting of its own. Having no end in a
+meeting, with its name and who's in it; unticked, it's a meeting of its own. Opened from
+*Listen…* on a meeting in the Meetings dialog, it offers that one, whatever its time. Having no end in a
 calendar, one of its own ends when you stop it, or after half an hour of nothing said. And one
 you stop within two minutes of starting it, with nothing heard, was a mistake: its session is
 ended and archived rather than asked to sum up a meeting that never was, and its folder goes
@@ -3654,9 +3655,14 @@ meetings_folder` says (a folder you sync, or your notes app's). That folder is t
 else lists your meetings, and a session started in it can read them all, which is how one is
 asked what was said last week; `codealong listen status` tells an agent anywhere else where it is
 (`meetingsFolder`). The calendar button in the main window's bar (there while voice is
-on) opens your meetings: the ones in the day ahead, as your calendar has them, where one that's
-going on or starts within ten minutes has *Take notes* (before its offer, or after you passed on
-it); and the ones that were taken, the latest first, the one picked with its notes or its
+on) opens your meetings, on the one going on when there is one: the ones in the day ahead, as
+your calendar has them, each shown on a click with how soon it starts, when it is, its calendar,
+who's in it and *Join call* for its link, with *Take notes* to start a session that listens to it
+and keeps its notes as a chat of its own, and *Listen…* for the quick panel set to listen to it,
+to pick where its session starts and what it makes of what it hears. Either works whatever the
+meeting's time, before its offer or after you passed on it; Codealong hears from the moment you
+start, so one taken before it begins is heard from then, which the dialog says. One being heard
+has *Its notes* for its notes so far. And the ones that were taken, the latest first, the one picked with its notes or its
 transcript, *Copy notes* or *Copy transcript* to put the one shown on the clipboard as its file
 has it, *Its session* to go to the session that took it, and *Show in Finder* for its folder.
 A meeting a session was asked to listen to (Listen… in its menu) is listed with them once something

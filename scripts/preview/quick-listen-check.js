@@ -1,7 +1,8 @@
 // Checks the quick panel set to listen (Quick.tsx, Listen now), as `[shortcuts] listen` opens it:
 // the box asks what the meeting is and the hint names that shortcut; nothing is listed or looked
 // for, whatever is typed; it's a chat of its own, with only the repo to pick; the meeting the
-// calendar has going on is the one it's of until you say it isn't; ⏎ asks for the listening with
+// calendar has going on is the one it's of until you say it isn't, and one it was opened for
+// (from your meetings) whatever its time; ⏎ asks for the listening with
 // what's typed, what's picked and where, and puts the panel away; how it was asked is kept for
 // the next one; a start that fails brings the panel back with what was typed and why, set to
 // listen again even when it has been opened for something else since, a prompt written there
@@ -76,6 +77,17 @@
     })
     .then(function () {
       check('with it ticked, ⏎ takes that meeting', last('listen_now').meeting === 'E-now@1', String(last('listen_now').meeting));
+      // Opened for a later meeting, picked in your meetings: it's of that one, whatever its time.
+      window.__quickOpen({ listen: true, meeting: 'E-later@1' }, board);
+      return until(function () { return box('Planning'); }, 5000, 'the meeting it was opened for');
+    })
+    .then(function () {
+      check('opened for a meeting later on, it’s of that one, ticked', box('Planning').querySelector('input').checked && !box('Design review') && title() === 'Listen to “Planning”', title());
+      enter();
+      return until(function () { return sent('listen_now').length === 3; }, 5000, 'the later meeting asked for');
+    })
+    .then(function () {
+      check('and ⏎ takes it', last('listen_now').meeting === 'E-later@1', String(last('listen_now').meeting));
       return open();
     })
     .then(function () {

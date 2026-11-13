@@ -2976,9 +2976,9 @@ export function App() {
       {meetingsOpen && (
         <MeetingsDialog
           onClose={() => setMeetingsOpen(false)}
-          onListen={() => {
+          onListen={(meeting) => {
             setMeetingsOpen(false);
-            void showQuick({ listen: true, project: projectNow.current, opener: windowLabel() });
+            void showQuick({ listen: true, meeting, project: projectNow.current, opener: windowLabel() });
           }}
           onShowSession={(key) => {
             const home = homeOf(board?.lanes ?? [], key);

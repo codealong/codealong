@@ -132,6 +132,16 @@ describe('Listen now', () => {
     expect(nowMeeting([meeting({ answered: true })])?.id).toBe('e1');
   });
 
+  it('is of the meeting it was opened for, whatever its time, until a session hears it', () => {
+    const later = meeting({ id: 'e2', title: 'Planning', takeable: false });
+    expect(nowMeeting([meeting(), later], 'e2')?.id).toBe('e2');
+    expect(nowMeeting([later], 'e2')?.id).toBe('e2');
+    // Heard since, or gone from the day ahead: the one going on, as without.
+    expect(nowMeeting([meeting(), { ...later, heard: true }], 'e2')?.id).toBe('e1');
+    expect(nowMeeting([meeting()], 'e2')?.id).toBe('e1');
+    expect(nowMeeting([later], 'e3')).toBeNull();
+  });
+
   it('says what ⏎ does, and what follows', () => {
     const chat = nowRow({ kept: LISTEN_KEPT, meeting: null, where: 'as a chat of its own' });
     expect(chat).toEqual({ title: 'Listen now', why: 'Codealong hears you and this Mac’s audio from the moment you press ⏎, and a session started as a chat of its own keeps its notes. No audio is kept.' });

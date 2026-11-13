@@ -377,6 +377,8 @@ export function Quick() {
   const [hearing, setHearing] = useState<HearingStatus | null>(null);
   const [meetings, setMeetings] = useState<MeetingAhead[]>([]);
   const [notMeeting, setNotMeeting] = useState<string | null>(null);
+  // The meeting it was opened for, picked in your meetings, whatever its time (`nowMeeting`).
+  const [askedMeeting, setAskedMeeting] = useState<string | null>(null);
   // What's being heard with the key held to talk, or the microphone beside the box, while the
   // panel is the window its words are for (dictation.rs): the words themselves show in the box
   // as they're heard (talk.ts), and the microphone says it's listening and how loud. Opened
@@ -531,6 +533,7 @@ export function Quick() {
         // Listening starts a chat of its own too, until a worktree is picked for it.
         setListen(!!ctx.listen);
         setNotMeeting(null);
+        setAskedMeeting(ctx.listen ? (ctx.meeting ?? null) : null);
         setAsChat(!!ctx.chat || !!ctx.listen);
         const at = improving ? (b?.improve?.laneId ?? null) : (ctx.laneId ?? null);
         setProject(improving && b?.improve?.project ? b.improve.project : (ctx.project ?? readStored(PROJECT_KEY, asText, ALL_PROJECTS)));
@@ -1597,9 +1600,10 @@ export function Quick() {
 
   /* ---- Listen now ---- */
 
-  // The meeting in your calendar it would be of, when one is going on or about to start, unless
-  // you said it isn't that one; what it asks for, from how it was last asked and what's typed.
-  const calendarMeeting = listen ? nowMeeting(meetings) : null;
+  // The meeting in your calendar it would be of, the one it was opened for or one going on or
+  // about to start, unless you said it isn't that one; what it asks for, from how it was last
+  // asked and what's typed.
+  const calendarMeeting = listen ? nowMeeting(meetings, askedMeeting) : null;
   const itsMeeting = calendarMeeting && calendarMeeting.id !== notMeeting ? calendarMeeting : null;
   const listenAsk = nowAsk(listenHow, text);
   const setListenAsk = (next: Partial<ListenAsk>) => setListenHow((how) => ({ role: next.role ?? how.role, mic: next.mic ?? how.mic, system: next.system ?? how.system, start: next.start ?? how.start }));
@@ -1624,7 +1628,7 @@ export function Quick() {
       return;
     }
     // What the panel was set to, for a start that fails: it may be open for something else by then.
-    const kept = { text, attached, project, laneId, device, notMeeting };
+    const kept = { text, attached, project, laneId, device, notMeeting, askedMeeting };
     const id = Date.now();
     const to = opener ?? 'main';
     const named = itsMeeting?.title.trim() || listenAsk.prompt.split('\n')[0].trim();
@@ -1659,6 +1663,7 @@ export function Quick() {
           setLaneId(kept.laneId);
           setDevice(kept.device);
           setNotMeeting(kept.notMeeting);
+          setAskedMeeting(kept.askedMeeting);
           setText(kept.text);
           setAttached(kept.attached);
           setError(errorText(e));

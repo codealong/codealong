@@ -36,21 +36,6 @@
 .ca-meetings-group:first-child {
   margin-top: 0;
 }
-/* One that's ahead: what it is, and Take notes once it can be taken. */
-.ca-meetings-ahead {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 2px var(--space-2);
-  align-items: center;
-  padding: var(--space-2) var(--space-3);
-}
-.ca-meetings-ahead > span {
-  grid-column: 1;
-}
-.ca-meetings-ahead > .ca-btn {
-  grid-column: 2;
-  grid-row: 1 / span 3;
-}
 .ca-meetings-row {
   appearance: none;
   display: grid;
@@ -99,9 +84,12 @@
   min-width: 0;
   min-height: 0;
 }
+/* As tall as the segmented control a heard one's has, so the box under it stays put as you go
+   from one meeting to the next, whatever buttons each has. */
 .ca-meetings-head {
   display: flex;
   flex: none;
+  min-height: 28px;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
@@ -118,6 +106,43 @@
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   background: var(--surface);
+}
+/* One ahead, picked: where it stands, what it is, and the listening to start for it. */
+.ca-meetings-stands {
+  color: var(--ink-2);
+  font: var(--type-meta-strong);
+}
+.ca-meetings-name {
+  margin: 0 0 var(--space-3);
+  font: var(--type-heading);
+}
+.ca-meetings-facts {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-1) var(--space-4);
+  margin: 0;
+  font: var(--type-body);
+}
+.ca-meetings-facts dt {
+  color: var(--ink-3);
+}
+.ca-meetings-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.ca-meetings-start {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--line);
+}
+.ca-meetings-start p {
+  margin: 0;
+  color: var(--ink-2);
+  font: var(--type-body);
 }
 .ca-meetings-none {
   margin: 0;

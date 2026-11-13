@@ -2050,6 +2050,10 @@ export interface QuickOpen {
    *  and ⏎ has Codealong hear it from then on, with a session started for it, in a chat of its
    *  own unless a worktree is picked. */
   listen?: boolean;
+  /** With `listen`: the meeting in your calendar it's of, by its id, whatever its time (picked
+   *  in your meetings, ui/Meetings.tsx), in place of the one going on (listening.ts
+   *  `nowMeeting`). */
+  meeting?: string;
   /** How tall the panel's window can be: from its top edge to the bottom of the screen's usable
    *  part. quick.rs adds it to every open. */
   room?: number;
