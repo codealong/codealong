@@ -151,7 +151,10 @@ logon, then Visual Studio's build tools, Rust, Node, Git for Windows and Zig ove
 an hour or two the first time. Microsoft's download page sometimes refuses a script; then the ISO
 is made from Windows Update's own files through UUP dump instead (`scripts/windows/uup-iso.sh`,
 which needs `brew install aria2 cabextract wimlib cdrtools hivex`), or `WINDOWS_ISO=<file>` takes
-one you downloaded.
+one you downloaded. The VM has no window: `scripts/windows-vm.sh screenshot` shows its screen, and
+`scripts/windows-vm.sh click <x> <y>` clicks it at a point of that picture, for a screen of
+Setup's that waits on a click, as OOBE's check for updates once did ("Something went wrong",
+Skip).
 
 Each area of `src-tauri/src/os/` has a `windows.rs` beside its `macos.rs` and `linux.rs`, through
 Win32 (`windows-sys`). What macOS and Linux share, POSIX's, is a `posix.rs` where an area has
