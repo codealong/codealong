@@ -51,6 +51,9 @@ const SIZE_AFTER = 3;
 const MOVE_AFTER = 6;
 /** What has clicks of its own once the notch is open: a click elsewhere on it is the notch's. */
 const OWN_CLICKS = 'button, a, input, textarea, [role="button"], .ca-notch-session';
+/** What has clicks of its own closed too: the countdown to a meeting, a click on which offers it.
+ *  The notch doesn't keep the pointer pressed there, which would take the click from it. */
+const OWN_CLICKS_CLOSED = '.ca-notch-soon';
 
 /** The size you dragged the session to, as JSON; one that doesn't read is none. */
 const SIZE_STORED: Codec<Size | null> = {
@@ -309,7 +312,7 @@ export function NotchShell({ notch, logoStatus, moment, counts, room, screen, zo
   const press = useRef<{ x: number; y: number; moved: boolean } | null>(null);
   const pressNotch = (e: ReactPointerEvent<HTMLDivElement>) => {
     const target = e.target instanceof Element ? e.target : null;
-    const grabbed = e.button === 0 && target && !(open && target.closest(`${OWN_CLICKS}, .ca-notch-body`));
+    const grabbed = e.button === 0 && target && !target.closest(OWN_CLICKS_CLOSED) && !(open && target.closest(`${OWN_CLICKS}, .ca-notch-body`));
     press.current = grabbed ? { x: e.screenX, y: e.screenY, moved: false } : null;
     if (!grabbed) return;
     // The notch keeps the pointer while it's pressed: a press near its edge that moves off it

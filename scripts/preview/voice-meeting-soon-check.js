@@ -50,6 +50,20 @@
       check('and the first count still shows inside it', c.right <= shape.x + shape.w + 1, JSON.stringify({ count: [Math.round(c.left), Math.round(c.right)], shape: shape }));
     }
     check('its tooltip says which meeting and when', (countdown().getAttribute('title') || '').indexOf('Design review, in 4 min, with Dana Kestrel') === 0, countdown().getAttribute('title'));
+    // Closed, the notch keeps the pointer a press begins on it, to drag it to another screen,
+    // which sends the click to the notch: never a press on the countdown, whose click it'd take.
+    var kept = [];
+    var keep = Element.prototype.setPointerCapture;
+    Element.prototype.setPointerCapture = function (id) { kept.push(this); return keep.call(this, id); };
+    var press = function (el) {
+      el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, buttons: 1, pointerId: 1 }));
+      el.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, button: 0, pointerId: 1 }));
+    };
+    press(countdown());
+    var onCountdown = kept.length;
+    press(q('.ca-notch-cam'));
+    Element.prototype.setPointerCapture = keep;
+    check('closed, a press on it isn’t kept by the notch, as one elsewhere on it is', onCountdown === 0 && kept.length === 1, JSON.stringify({ onCountdown: onCountdown, all: kept.length }));
     window.__emit('notch-pointer', true);
     countdown().click();
     return until(function () { return offer() && q('.ca-notch').classList.contains('is-end'); }, 3000, 'its offer under the notch')
