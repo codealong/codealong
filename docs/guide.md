@@ -3502,14 +3502,15 @@ Tell the session first what you want from the meeting, as you'd tell it anything
 - what it hears: you, through the microphone; and everyone else, from what the Mac plays, or
   only from one app that's playing.
 
-Speakers or headphones isn't asked. On speakers the microphone hears the others too, and they'd
-be written down twice, once as you. Codealong hears which it is: a microphone that picks up what
-the Mac plays is never as quiet while the Mac is loud as it gets when the Mac is silent, and one
-on headphones is. After a few seconds of the others talking it knows, takes what the Mac plays
-out of the microphone from then on (the strip says *on speakers*), and starts over whenever what
-the Mac plays through changes, so headphones put on or taken off mid-meeting are followed.
-Speakers that say they are (the Mac's own, a display's) start that way. `[voice] on_speakers` in
-config.toml does it from the start of every meeting, for a setup it gets wrong.
+Speakers or headphones isn't asked. On speakers the microphone hears the others too, and some of
+what they say is written down a second time, as you; headphones keep the two apart. Codealong
+hears which it is: a microphone that picks up what the Mac plays is never as quiet while the Mac
+is loud as it gets when the Mac is silent, and one on headphones is. After a few seconds of the
+others talking it knows, and the strip says *on speakers*. It starts over whenever what the Mac
+plays through changes and goes by what it hears after that, so headphones put on or taken off
+mid-meeting are followed; speakers that say they are (the Mac's own, a display's) start that way.
+Nothing is taken out of the microphone: macOS's voice processing, which would, left the Mac's
+audio silent and turned the call down for you and for the others (tried on 2026-11-13).
 
 Codealong writes what's said to a transcript, a line for each thing said: the time, who (You for
 the microphone, Them for what the Mac plays), and the words. At a pause in the talk, and no more
@@ -3678,10 +3679,10 @@ they're heard, its microphone, Shift starting a session, and the line at a windo
 the bar off; the preview shows the page's side of each); Listen now in the real app (⌥⌘= from another app, the microphone and
 the session that follows it, the light under a meeting's name while its session starts, and a
 meeting started by mistake put away: the preview shows the panel and what it asks for, the
-engine's rules are tested, and what it would start is `--snapshot --listen-plan`'s); the Mac's
-audio giving anything but silence (the first real meeting, on
-2026-11-10, heard only the microphone, and the build that fixes what was found hasn't heard a
-call since); a real meeting offered and taken (the calendar itself has been read, with its
+engine's rules are tested, and what it would start is `--snapshot --listen-plan`'s); the others
+on a real call (the Mac's audio has been heard, a recording played aloud with the microphone
+listening too, since the voice processing that silenced it in the first meetings went); a real
+meeting offered and taken (the calendar itself has been read, with its
 accounts and the day's meetings); speakers told from headphones in a real room, which so far is
 only worked out on recordings; and what a listening does across sleep.
 

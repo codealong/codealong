@@ -1,7 +1,8 @@
 //! Speakers or headphones, worked out from the sound: whether the microphone hears what the Mac
 //! plays. A listening that hears both (listen.rs) has the others in a meeting twice over on
-//! speakers, once from the Mac and once, quieter, through the microphone as you; the helper can
-//! take the Mac's audio out of the microphone (ear.rs `Ear::echo`), and this says when to.
+//! speakers, once from the Mac and once, quieter, through the microphone as you; its strip says
+//! *on speakers* while this says so. Nothing is taken out of the microphone for it: the voice
+//! processing that did so silenced the Mac's audio and turned the call down (main.swift `Mic`).
 //!
 //! Nothing about the device settles it: a USB sound card or a dock's jack has either plugged
 //! in. What does is how quiet the microphone ever gets. While the Mac plays loudly, a
@@ -22,8 +23,9 @@
 //! apart far worse, your own voice being most of what a microphone hears.
 //!
 //! What the Mac plays through is the first guess (`plays_through`): speakers that say they are
-//! start with it taken out, and a change of device starts over. Once it's being taken out there
-//! is nothing left to hear of it, so it stays until the device changes.
+//! start as speakers, and a change of device starts over. What's heard then has the last word,
+//! each time there's enough of it to go by, since headphones plugged into a dock's jack leave
+//! the device as it was.
 
 use std::collections::VecDeque;
 
@@ -59,9 +61,7 @@ struct Bin {
 /// Whether one listening's microphone hears what its Mac plays.
 #[derive(Default)]
 pub struct Echo {
-    /// Asked for from the start (`Ask::speakers`): there's nothing to work out.
-    always: bool,
-    cancelling: bool,
+    speakers: bool,
     /// What the Mac plays through, by its id, as last said.
     output: Option<String>,
     /// The bin number of the first bin kept.
@@ -71,35 +71,26 @@ pub struct Echo {
 }
 
 impl Echo {
-    pub fn new(always: bool) -> Echo {
-        Echo { always, cancelling: always, ..Echo::default() }
-    }
-
-    /// Whether the Mac's audio is to be taken out of the microphone now.
-    pub fn cancelling(&self) -> bool {
-        self.cancelling
+    /// Whether the microphone hears what the Mac plays: you're on speakers.
+    pub fn speakers(&self) -> bool {
+        self.speakers
     }
 
     /// What the Mac plays through, as the helper says it (its id and `kind`: "speakers",
     /// "headphones" or "unknown"): said as it starts hearing, and when it changes. A change
-    /// starts over, from what the device says of itself. Returns whether to take the Mac's
-    /// audio out, for the helper to be told either way: one started again knows nothing.
-    pub fn plays_through(&mut self, device: &str, kind: &str) -> bool {
+    /// starts over, from what the device says of itself; the same device said again (the
+    /// helper started again) changes nothing.
+    pub fn plays_through(&mut self, device: &str, kind: &str) {
         if self.output.as_deref() != Some(device) {
             self.output = Some(device.to_string());
             self.bins.clear();
             self.judged_at = 0;
-            self.cancelling = self.always || kind == "speakers";
+            self.speakers = kind == "speakers";
         }
-        self.cancelling
     }
 
-    /// How loud a source was at `at` (ms): the microphone (`mine`) or what the Mac plays. True
-    /// when this shows the microphone hears the Mac: its audio is taken out from here on.
-    pub fn heard(&mut self, mine: bool, level: f64, at: i64) -> bool {
-        if self.cancelling {
-            return false;
-        }
+    /// How loud a source was at `at` (ms): the microphone (`mine`) or what the Mac plays.
+    pub fn heard(&mut self, mine: bool, level: f64, at: i64) {
         let bin = at.div_euclid(BIN_MS);
         if self.bins.is_empty() || bin < self.first {
             // The first reading, or a clock that went back: start from here.
@@ -114,18 +105,20 @@ impl Echo {
             self.bins.pop_front();
             self.first += 1;
         }
-        let Some(at_bin) = usize::try_from(bin - self.first).ok().and_then(|i| self.bins.get_mut(i)) else { return false };
+        let Some(at_bin) = usize::try_from(bin - self.first).ok().and_then(|i| self.bins.get_mut(i)) else { return };
         let slot = if mine { &mut at_bin.you } else { &mut at_bin.them };
         let level = level.clamp(0.0, 1.0) as f32;
         *slot = Some(slot.map_or(level, |was| was.max(level)));
         if bin - self.judged_at < JUDGED_EVERY {
-            return false;
+            return;
         }
         self.judged_at = bin;
-        // Not the bins still filling: the newest are judged once what follows them is in.
+        // Not the bins still filling: the newest are judged once what follows them is in. Too
+        // little to go by leaves it as it was.
         let settled = self.bins.len().saturating_sub(REACH + 1);
-        self.cancelling = quiets(self.bins.iter().take(settled).copied().collect::<Vec<_>>().as_slice()).is_some_and(|(loud, silent)| hears(loud, silent));
-        self.cancelling
+        if let Some((loud, silent)) = quiets(self.bins.iter().take(settled).copied().collect::<Vec<_>>().as_slice()) {
+            self.speakers = hears(loud, silent);
+        }
     }
 }
 
@@ -211,15 +204,28 @@ mod tests {
         out
     }
 
-    /// Whether it came to take the Mac's audio out, and after how many seconds of the call.
+    /// Whether it came to call it speakers, and after how many seconds of the call.
     fn found(mut echo: Echo, call: &[(bool, f64, i64)]) -> Option<i64> {
-        call.iter().find(|&&(mine, level, at)| echo.heard(mine, level, at)).map(|&(_, _, at)| (at - 1_000_000) / 1000)
+        call.iter()
+            .find(|&&(mine, level, at)| {
+                echo.heard(mine, level, at);
+                echo.speakers()
+            })
+            .map(|&(_, _, at)| (at - 1_000_000) / 1000)
+    }
+
+    /// Whether it was speakers once the readings were all in.
+    fn after(echo: &mut Echo, call: &[(bool, f64, i64)], shift: i64) -> bool {
+        for &(mine, level, at) in call {
+            echo.heard(mine, level, at + shift);
+        }
+        echo.speakers()
     }
 
     #[test]
     fn a_microphone_that_hears_the_mac_is_on_speakers_however_much_you_talk() {
         for (echo, room, you_talk) in [(0.2, 0.002, 0.5), (0.05, 0.002, 0.5), (0.05, 0.004, 0.5), (0.2, 0.002, 0.0), (0.2, 0.002, 0.7), (0.1, 0.01, 0.5)] {
-            let at = found(Echo::new(false), &call(echo, room, you_talk, 90));
+            let at = found(Echo::default(), &call(echo, room, you_talk, 90));
             assert!(at.is_some_and(|s| s <= 30), "echo {echo}, room {room}, you talk {you_talk}: {at:?}");
         }
     }
@@ -229,14 +235,14 @@ mod tests {
         // Heard so faintly that it's hardly over the room's own noise: nothing a transcript
         // would have twice, and not enough to go by.
         for (echo, room) in [(0.01, 0.004), (0.02, 0.01)] {
-            assert_eq!(found(Echo::new(false), &call(echo, room, 0.5, 90)), None, "echo {echo}, room {room}");
+            assert_eq!(found(Echo::default(), &call(echo, room, 0.5, 90)), None, "echo {echo}, room {room}");
         }
     }
 
     #[test]
     fn one_that_doesnt_is_on_headphones_whatever_the_room() {
         for (echo, room, you_talk) in [(0.0, 0.002, 0.5), (0.0, 0.01, 0.5), (0.0, 0.03, 0.7), (0.0, 0.002, 0.0), (0.004, 0.002, 0.5)] {
-            assert_eq!(found(Echo::new(false), &call(echo, room, you_talk, 90)), None, "echo {echo}, room {room}, you talk {you_talk}");
+            assert_eq!(found(Echo::default(), &call(echo, room, you_talk, 90)), None, "echo {echo}, room {room}, you talk {you_talk}");
         }
     }
 
@@ -246,58 +252,61 @@ mod tests {
         // the others are saying. As loud while the Mac plays as while it doesn't, measured alike.
         for (burst, room) in [(0.05, 0.002), (0.2, 0.002), (0.02, 0.006)] {
             let typing: Vec<_> = call(0.0, room, 0.0, 120).into_iter().map(|(mine, level, at)| (mine, if mine && (at / 200) % 2 == 0 { level + burst } else { level }, at)).collect();
-            assert_eq!(found(Echo::new(false), &typing), None, "bursts of {burst} in a room at {room}");
+            assert_eq!(found(Echo::default(), &typing), None, "bursts of {burst} in a room at {room}");
         }
         // And with you talking in the pauses as well.
         let both: Vec<_> = call(0.0, 0.002, 0.5, 120).into_iter().map(|(mine, level, at)| (mine, if mine && (at / 200) % 2 == 0 { level + 0.05 } else { level }, at)).collect();
-        assert_eq!(found(Echo::new(false), &both), None);
+        assert_eq!(found(Echo::default(), &both), None);
     }
 
     #[test]
     fn nothing_is_decided_until_theres_enough_of_both_to_go_by() {
         // Three seconds of a call is too little, on speakers as loud as they come.
-        assert_eq!(found(Echo::new(false), &call(0.3, 0.002, 0.5, 3)), None);
+        assert_eq!(found(Echo::default(), &call(0.3, 0.002, 0.5, 3)), None);
         // Only the microphone, or only the Mac: nothing to compare.
         let both = call(0.3, 0.002, 0.5, 90);
         for mine in [true, false] {
             let one: Vec<_> = both.iter().copied().filter(|&(m, _, _)| m == mine).collect();
-            assert_eq!(found(Echo::new(false), &one), None, "only {}", if mine { "the microphone" } else { "the Mac" });
+            assert_eq!(found(Echo::default(), &one), None, "only {}", if mine { "the microphone" } else { "the Mac" });
         }
         // The Mac never silent (music under the talk): no quiet to compare with, so nothing's said.
         let never: Vec<_> = both.iter().map(|&(mine, level, at)| (mine, if mine { level } else { level.max(0.05) }, at)).collect();
-        assert_eq!(found(Echo::new(false), &never), None);
+        assert_eq!(found(Echo::default(), &never), None);
         assert_eq!(quiets(&[]), None);
     }
 
     #[test]
     fn what_the_mac_plays_through_is_the_first_guess_and_a_change_starts_over() {
-        let mut echo = Echo::new(false);
-        assert!(!echo.cancelling());
+        let mut echo = Echo::default();
+        assert!(!echo.speakers());
         // A sound card says nothing of what's plugged into it: listened for.
-        assert!(!echo.plays_through("usb", "unknown"));
-        let speakers = call(0.2, 0.002, 0.5, 60);
-        assert!(speakers.iter().any(|&(mine, level, at)| echo.heard(mine, level, at)));
-        assert!(echo.cancelling());
-        // Taken out, there's nothing left to hear of it: it stays, the same device said again
-        // (the helper started again) included.
-        assert!(echo.plays_through("usb", "unknown"));
-        assert!(!speakers.iter().any(|&(mine, level, at)| echo.heard(mine, level, at + 100_000)));
-        assert!(echo.cancelling());
-        // Headphones plugged in: over, and listened for again; nothing's heard through them.
-        assert!(!echo.plays_through("airpods", "headphones"));
-        assert!(!call(0.0, 0.002, 0.5, 60).iter().any(|&(mine, level, at)| echo.heard(mine, level, at + 200_000)));
-        // Speakers that say they are start with it taken out.
-        assert!(echo.plays_through("built-in", "speakers"));
-        assert!(echo.cancelling());
+        echo.plays_through("usb", "unknown");
+        assert!(!echo.speakers());
+        assert!(after(&mut echo, &call(0.2, 0.002, 0.5, 60), 0));
+        // The same device said again (the helper started again) changes nothing.
+        echo.plays_through("usb", "unknown");
+        assert!(echo.speakers());
+        // Headphones picked: over, and listened for again; nothing's heard through them.
+        echo.plays_through("airpods", "headphones");
+        assert!(!echo.speakers());
+        assert!(!after(&mut echo, &call(0.0, 0.002, 0.5, 60), 100_000));
+        // Speakers that say they are start as speakers.
+        echo.plays_through("built-in", "speakers");
+        assert!(echo.speakers());
     }
 
     #[test]
-    fn asked_for_from_the_start_its_always_taken_out() {
-        let mut echo = Echo::new(true);
-        assert!(echo.cancelling());
-        assert!(echo.plays_through("airpods", "headphones"));
-        assert!(!call(0.0, 0.002, 0.5, 30).iter().any(|&(mine, level, at)| echo.heard(mine, level, at)));
-        assert!(echo.cancelling());
+    fn what_is_heard_has_the_last_word() {
+        // Headphones plugged into the dock's jack the speakers were on: the device stays, and
+        // once the minute and a half it goes by is past the speakers, it's headphones.
+        let mut echo = Echo::default();
+        echo.plays_through("usb", "unknown");
+        assert!(after(&mut echo, &call(0.2, 0.002, 0.5, 60), 0));
+        assert!(!after(&mut echo, &call(0.0, 0.002, 0.5, 120), 60_000));
+        // Speakers that say they are, that the microphone never hears (a display's, turned down).
+        echo.plays_through("display", "speakers");
+        assert!(echo.speakers());
+        assert!(!after(&mut echo, &call(0.0, 0.002, 0.5, 90), 200_000));
     }
 
     #[test]

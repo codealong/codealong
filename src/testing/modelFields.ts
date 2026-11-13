@@ -990,7 +990,6 @@ export type VoiceCfg = Holds<Same<
   | "meeting_model"
   | "meetings"
   | "meetings_folder"
-  | "on_speakers"
   | "send_on_release"
   | "tell_every",
   Names<Types.VoiceCfg>

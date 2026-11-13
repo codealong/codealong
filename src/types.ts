@@ -1080,8 +1080,6 @@ export interface VoiceCfg {
   meeting_lead?: number;
   /** The calendars whose meetings aren't offered, by the ids macOS has for them. */
   meeting_calendars_off?: string[];
-  /** You're on speakers in your meetings: what the Mac plays is taken out of the microphone. */
-  on_speakers?: boolean;
 }
 
 /** An event in your calendar with a time of day (ear.rs `Meeting`): times in milliseconds. */
@@ -1176,8 +1174,6 @@ export interface ListenAsk {
   system: boolean;
   /** Only what these apps play, by bundle id, in place of everything the Mac plays. */
   apps: string[];
-  /** On speakers: what the Mac plays is taken out of what the microphone hears. */
-  speakers: boolean;
   role: ListenRole;
   /** For `custom`, what to do with what's heard; for the others, anything to add. */
   prompt: string;
@@ -1193,8 +1189,8 @@ export interface ListeningGlance {
   mic: boolean;
   playback: boolean;
   apps?: string[];
-  /** What the Mac plays is being taken out of the microphone: you're on speakers, as you said or
-   *  as Codealong heard it to be (echo.rs). Missing while it isn't. */
+  /** You're on speakers, as Codealong heard it to be (echo.rs): the microphone hears the others
+   *  too, and a line of You's may repeat one of Them's. Missing while it isn't. */
   speakers?: boolean;
   transcript: string;
   notes: string;

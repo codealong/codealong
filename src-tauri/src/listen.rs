@@ -137,9 +137,6 @@ pub struct Ask {
     pub system: bool,
     /// Only what these apps play, by bundle id, in place of everything.
     pub apps: Vec<String>,
-    /// You're on speakers, so the microphone hears the others too: what the Mac plays is taken
-    /// out of it.
-    pub speakers: bool,
     pub role: Role,
     /// For `Role::Custom`, what to do with what's heard; for the others, anything to add.
     pub prompt: String,
@@ -165,7 +162,7 @@ impl Ask {
         let mut sources = Vec::new();
         let apps: Vec<String> = self.apps.iter().map(|a| a.trim().to_string()).filter(|a| !a.is_empty()).collect();
         if self.mic {
-            sources.push(Source { name: YOU.into(), from: ear::From::Mic { cancel_echo: self.speakers && (self.system || !apps.is_empty()) } });
+            sources.push(Source { name: YOU.into(), from: ear::From::Mic });
         }
         if !apps.is_empty() {
             sources.push(Source { name: THEM.into(), from: ear::From::Apps { bundles: apps } });
@@ -542,7 +539,7 @@ struct Running {
     /// (`ear::Status::system_audio`); empty until it has.
     may_hear: String,
     /// Whether its microphone hears what the Mac plays (you're on speakers), worked out from how
-    /// loud each is, for the helper to take it out.
+    /// loud each is.
     echo: crate::echo::Echo,
     /// Something wrong that it goes on through.
     problem: Option<String>,
@@ -583,8 +580,6 @@ impl Running {
         Running {
             session: l.session.clone(),
             silent_since: l.sources.iter().any(|s| matches!(s.from, ear::From::System | ear::From::Apps { .. })).then_some(now),
-            // Asked for from the start (`Ask::speakers`), or worked out as it goes.
-            echo: crate::echo::Echo::new(l.sources.iter().any(|s| matches!(s.from, ear::From::Mic { cancel_echo: true }))),
             ..Running::default()
         }
     }
@@ -688,8 +683,8 @@ pub struct Glance {
     pub playback: bool,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub apps: Vec<String>,
-    /// What the Mac plays is being taken out of the microphone: you're on speakers, as you said
-    /// or as it was heard to be (echo.rs).
+    /// You're on speakers, as it was heard to be (echo.rs): the microphone hears the others too,
+    /// and a line of You's may repeat one of Them's.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub speakers: bool,
     pub transcript: String,
@@ -737,10 +732,10 @@ pub fn glances() -> BTreeMap<String, Glance> {
             let glance = Glance {
                 started_at: l.started_at,
                 role: l.role,
-                mic: l.sources.iter().any(|s| matches!(s.from, ear::From::Mic { .. })),
-                playback: l.sources.iter().any(|s| !matches!(s.from, ear::From::Mic { .. })),
+                mic: l.sources.iter().any(|s| matches!(s.from, ear::From::Mic)),
+                playback: l.sources.iter().any(|s| !matches!(s.from, ear::From::Mic)),
                 apps: apps.unwrap_or_default(),
-                speakers: running.echo.cancelling(),
+                speakers: running.echo.speakers(),
                 transcript: l.transcript().to_string_lossy().into_owned(),
                 notes: l.notes().to_string_lossy().into_owned(),
                 problem: running.problem.clone(),
@@ -780,7 +775,7 @@ pub fn tail(key: &str) -> Option<Tail> {
 
 /// Sets what's said of a running listening, and has the board drawn again when it changed.
 fn say(id: &str, f: impl FnOnce(&mut Running)) {
-    let shown = |r: &Running| (r.problem.clone(), r.waiting.clone(), r.cue.clone(), r.echo.cancelling());
+    let shown = |r: &Running| (r.problem.clone(), r.waiting.clone(), r.cue.clone(), r.echo.speakers());
     let was;
     let is;
     {
@@ -834,23 +829,11 @@ fn heard(id: &str, event: Event) {
                 if !mine && level > 0.0 && r.silent_since.take().is_some() && r.problem.as_deref().is_some_and(|p| p.contains(SILENT)) {
                     r.problem = None;
                 }
-                // The microphone hears what the Mac plays: you're on speakers, and it's taken
-                // out from here on, so the others aren't written down twice.
-                if r.echo.heard(mine, level, util::now_ms()) {
-                    if let Some(ear) = &r.ear {
-                        ear.echo(true);
-                    }
-                }
+                // Whether the microphone hears what the Mac plays: you're on speakers.
+                r.echo.heard(mine, level, util::now_ms());
             });
         }
-        Event::Output { device, kind } => say(id, |r| {
-            let cancel = r.echo.plays_through(&device, &kind);
-            // Said either way: a helper started again knows only what its listening began with.
-            // One that hasn't answered its start yet has no ear here, and is told as it gets one.
-            if let Some(ear) = &r.ear {
-                ear.echo(cancel);
-            }
-        }),
+        Event::Output { device, kind } => say(id, |r| r.echo.plays_through(&device, &kind)),
         Event::Ready => say(id, |r| r.waiting = None),
         Event::Waiting { message } => say(id, |r| r.waiting = Some(message)),
         Event::Lost { source, message } => say(id, |r| r.problem = Some(format!("{source} can't be heard: {message}"))),
@@ -888,7 +871,7 @@ fn end_soon(id: &str, why: String) {
 const SILENT: &str = "Nothing has come from what this Mac plays";
 
 fn with_mic(l: &Listening) -> bool {
-    l.sources.iter().any(|s| matches!(s.from, ear::From::Mic { .. }))
+    l.sources.iter().any(|s| matches!(s.from, ear::From::Mic))
 }
 
 /// What a listening says while the Mac's own audio has given nothing at all. It's about that
@@ -1111,8 +1094,6 @@ fn begin(cfg: &crate::config::Config, key: &str, reply: Option<Option<String>>, 
         .and_then(|()| start_ear(&l).map_err(refusal))
         .map(|ear| {
             if let Some(running) = state().running.get_mut(&l.id) {
-                // What it plays through was said as it started, before there was an ear to tell.
-                ear.echo(running.echo.cancelling());
                 running.ear = Some(ear);
             }
         });
@@ -1533,10 +1514,7 @@ fn revive(l: &Listening, now: i64) {
                 Ok(ear) => {
                     let mut state = state();
                     match state.running.get_mut(&l.id) {
-                        Some(running) => {
-                            ear.echo(running.echo.cancelling());
-                            running.ear = Some(ear);
-                        }
+                        Some(running) => running.ear = Some(ear),
                         // Ended meanwhile: the helper goes with the ear.
                         None => drop(ear),
                     }
@@ -2026,10 +2004,8 @@ mod tests {
     fn an_ask_names_its_sources() {
         use ear::From;
         let sources = |ask: Ask| ask.sources().map(|s| s.into_iter().map(|s| (s.name, s.from)).collect::<Vec<_>>()).map_err(|e| e.to_string());
-        assert_eq!(sources(Ask { mic: true, system: true, ..Ask::default() }).unwrap(), vec![(YOU.to_string(), From::Mic { cancel_echo: false }), (THEM.to_string(), From::System)]);
-        // On speakers, what plays is taken out of the microphone; alone it has nothing to take out.
-        assert_eq!(sources(Ask { mic: true, system: true, speakers: true, ..Ask::default() }).unwrap()[0].1, From::Mic { cancel_echo: true });
-        assert_eq!(sources(Ask { mic: true, speakers: true, ..Ask::default() }).unwrap(), vec![(YOU.to_string(), From::Mic { cancel_echo: false })]);
+        assert_eq!(sources(Ask { mic: true, system: true, ..Ask::default() }).unwrap(), vec![(YOU.to_string(), From::Mic), (THEM.to_string(), From::System)]);
+        assert_eq!(sources(Ask { mic: true, ..Ask::default() }).unwrap(), vec![(YOU.to_string(), From::Mic)]);
         // Apps named are heard in place of everything.
         assert_eq!(sources(Ask { system: true, apps: vec![" us.example.meet ".into(), String::new()], ..Ask::default() }).unwrap(), vec![(THEM.to_string(), From::Apps { bundles: vec!["us.example.meet".into()] })]);
         assert_eq!(sources(Ask::default()).unwrap_err(), "Pick something to listen to: the microphone, this Mac's audio, or both.");

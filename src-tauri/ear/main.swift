@@ -65,8 +65,8 @@ func words(_ error: Error) -> String {
 // MARK: - Audio as the transcriber takes it
 
 /// One channel of 32-bit floats out of whatever a source gives: the first two channels averaged.
-/// A device with more (a voice-processing input has up to nine) keeps its speech in the first,
-/// and the rest aren't mixed in. Nil for a layout this doesn't read, which goes to the converter
+/// A device with more (a microphone array, an interface) is taken by its first, and the rest
+/// aren't mixed in. Nil for a layout this doesn't read, which goes to the converter
 /// as it is.
 func mono(_ buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
     let format = buffer.format
@@ -350,10 +350,13 @@ protocol Capture: AnyObject {
 /// picked, headphones plugged in) the engine stops, and this starts it again in the new format;
 /// and since an engine can go quiet without saying so (the Mac slept, a device went away
 /// mid-buffer), it's also started again whenever nothing has come from it for a few seconds.
+///
+/// It's heard as it is, without voice processing (`setVoiceProcessingEnabled`), which would take
+/// what the Mac plays out of it on speakers. Run (2026-11-13, macOS 26.6.2): with it on, the
+/// Mac's audio tapped in this process (`Tap`) gave nothing but silence, and on a call in a
+/// browser the others heard you fainter and you heard them quieter until the listening stopped.
 final class Mic: Capture {
     private var engine = AVAudioEngine()
-    /// Whether what the Mac plays is taken out of what's heard. Read and set on `queue`.
-    private var cancelEcho: Bool
     private let sink: (AVAudioPCMBuffer) -> Void
     private let lost: (String) -> Void
     private var watching: NSObjectProtocol?
@@ -364,8 +367,7 @@ final class Mic: Capture {
     private var lastHeard = Date()
     private var failures = 0
 
-    init(cancelEcho: Bool, sink: @escaping (AVAudioPCMBuffer) -> Void, lost: @escaping (String) -> Void) {
-        self.cancelEcho = cancelEcho
+    init(sink: @escaping (AVAudioPCMBuffer) -> Void, lost: @escaping (String) -> Void) {
         self.sink = sink
         self.lost = lost
     }
@@ -396,13 +398,6 @@ final class Mic: Capture {
         // A new engine each time: one that stopped under a changed device keeps its old format.
         engine = AVAudioEngine()
         let input = engine.inputNode
-        if cancelEcho {
-            // What the Mac plays is taken out of what the microphone hears, so that with
-            // speakers the others in a meeting aren't heard twice, once as you. It would also
-            // turn everything else down while it listens, which is told to do so as little as it can.
-            try? input.setVoiceProcessingEnabled(true)
-            input.voiceProcessingOtherAudioDuckingConfiguration = .init(enableAdvancedDucking: false, duckingLevel: .min)
-        }
         let format = input.outputFormat(forBus: 0)
         guard format.sampleRate > 0, format.channelCount > 0 else {
             throw Refusal(code: "no-microphone", message: "This Mac has no microphone to listen to.")
@@ -421,17 +416,6 @@ final class Mic: Capture {
 
     private func look() {
         if !stopped && (!engine.isRunning || quietFor > 4) { again() }
-    }
-
-    /// Takes what the Mac plays out of what's heard from here on, or stops: the engine found the
-    /// microphone hears it (you're on speakers), or what the Mac plays through changed. The
-    /// microphone is started again for it, which loses a moment of what's said.
-    func cancel(_ on: Bool) {
-        queue.async {
-            if self.stopped || on == self.cancelEcho { return }
-            self.cancelEcho = on
-            self.again()
-        }
     }
 
     /// Starts over. A microphone that stays away is said once, and looked for on.
@@ -955,7 +939,7 @@ actor Listening {
                 let capture: Capture
                 switch source["kind"] as? String ?? "" {
                 case "mic":
-                    capture = Mic(cancelEcho: source["cancel_echo"] as? Bool ?? false, sink: sink, lost: lost)
+                    capture = Mic(sink: sink, lost: lost)
                 case "system":
                     capture = Tap(bundles: [], sink: sink, lost: lost, permission: permission, output: output)
                 case "apps":
@@ -1008,13 +992,6 @@ actor Listening {
 
     /// Stops capturing, and answers once the last words are out. A model still loading is waited
     /// for, for what was said meanwhile; one still downloading isn't.
-    /// Has the microphone take what the Mac plays out of what it hears, or stop (`Mic.cancel`).
-    func echo(_ on: Bool) {
-        for capture in captures {
-            (capture as? Mic)?.cancel(on)
-        }
-    }
-
     func stop() async {
         for capture in captures { capture.stop() }
         captures = []
@@ -1216,7 +1193,6 @@ Thread.detachNewThread {
         case "warm": answer(id) { try await warm(params) }
         case "apps": answer(id) { ["apps": apps()] }
         case "calendar": answer(id) { await calendar(params) }
-        case "echo": answer(id) { await listening.echo(params["on"] as? Bool ?? false); return [:] }
         default:
             if let id { writeLine(["id": id, "error": ["code": -32601, "message": "\(method)?"]]) }
         }

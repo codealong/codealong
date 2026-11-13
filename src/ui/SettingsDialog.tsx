@@ -2287,7 +2287,7 @@ function AdvancedPane({ cfg, view, disabled, onSave }: PaneProps & { view: Confi
 const EXPERIMENTS_OFF: Required<ExperimentalCfg> = { boards: false, voice: false, analytics: false };
 
 /** `[voice]` as a file without the table has it (config.rs `VoiceCfg`). */
-export const VOICE_DEFAULT: Required<VoiceCfg> = { locale: '', send_on_release: false, tell_every: 20, meetings: false, meetings_folder: '', meeting_account: '', meeting_model: '', meeting_lead: 1, meeting_calendars_off: [], on_speakers: false };
+export const VOICE_DEFAULT: Required<VoiceCfg> = { locale: '', send_on_release: false, tell_every: 20, meetings: false, meetings_folder: '', meeting_account: '', meeting_model: '', meeting_lead: 1, meeting_calendars_off: [] };
 
 /** How long before a meeting starts it's offered, in minutes. */
 const MEETING_LEAD: Profile[] = [
@@ -2527,8 +2527,7 @@ function MeetingsFields({ cfg, voice, setVoice }: { cfg: Config; voice: Required
             <span>A meeting’s session starts on</span>
             <ProfileSelect value={voice.meeting_account} profiles={accounts} onChange={(account) => setVoice({ meeting_account: account })} />
             <small>
-              Auto picks as the quick panel does. Its model is the account’s own unless config.toml names one (meeting_model): a small one keeps notes well and costs little. Speakers or headphones isn’t asked: Codealong hears which, and on
-              speakers takes what this Mac plays out of the microphone, so the others aren’t written down twice.
+              Auto picks as the quick panel does. Its model is the account’s own unless config.toml names one (meeting_model): a small one keeps notes well and costs little.
             </small>
           </label>
         </>

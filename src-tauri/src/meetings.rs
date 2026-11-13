@@ -675,8 +675,7 @@ fn begin(engine: &Handle, cfg: &Config, meeting: &Meeting, lane: &str, ask: &lis
     let now = util::now_ms();
     let (lane, pick) = placed(cfg, &engine.board(), lane, now)?;
     let folder = new_folder(&root(cfg), meeting)?;
-    let ask = listen::Ask { speakers: ask.speakers || cfg.voice.on_speakers, ..ask.clone() };
-    let ahead = match listen::start_ahead(&ask, listen::Of { meeting: meeting.clone(), folder: folder.clone() }) {
+    let ahead = match listen::start_ahead(ask, listen::Of { meeting: meeting.clone(), folder: folder.clone() }) {
         Ok(ahead) => ahead,
         Err(e) => {
             // The folder made for it, when nothing else is in it.

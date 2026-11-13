@@ -80,6 +80,17 @@ What macOS's speech recognition and audio capture take and give, as codealong-ea
   You for a quarter of an hour while the call's app played, and the tap's IO proc was being called all the
   while (a `sample` of the helper), so a tap that gives nothing still hands over buffers, of
   silence. That build couldn't say whether it was allowed.
+- Run (2026-11-13, macOS 26.6.2, a Teams call in Chrome, then `say` recordings played aloud
+  through a dock's USB output under the server's helper): voice processing on the microphone
+  (`AVAudioInputNode.setVoiceProcessingEnabled(true)`, with
+  `voiceProcessingOtherAudioDuckingConfiguration` at `.min`) leaves a tap made in the same
+  process silent, its levels exactly 0, while macOS's preflight said allowed. The same
+  recording was heard as Them with the tap alone, and with the microphone without voice
+  processing; with it, neither source wrote a word. On the call it also turned things down: the
+  others said the person sounded faint, and both their microphone and what they heard got louder
+  the moment the listening stopped. So the helper doesn't use voice processing (main.swift `Mic`),
+  and nothing is taken out of the microphone on speakers. Whether a tap in another process than
+  the voice processing stays audible wasn't tried; the turning down rules it out anyway.
 - A tap takes the processes it was made with, by their Core Audio object ids
   (`kAudioHardwarePropertyProcessObjectList`, each with `kAudioProcessPropertyPID`,
   `…BundleID`, `…IsRunningInput`, `…IsRunningOutput`). An app's audio often comes from a helper
@@ -100,8 +111,10 @@ What macOS's speech recognition and audio capture take and give, as codealong-ea
   throughout included, where a correlation of the two loudnesses didn't tell them apart (your
   own voice is most of what a microphone hears). What the Mac plays through is the default
   output (`kAudioHardwarePropertyDefaultOutputDevice`), not where its alerts go
-  (`…DefaultSystemOutputDevice`), which stays put when headphones are picked for the rest. Not yet run on a real microphone and a real room, nor that voice processing
-  takes the Mac's audio out well enough that the others aren't written down as you.
+  (`…DefaultSystemOutputDevice`), which stays put when headphones are picked for the rest. Run
+  (2026-11-13): a `say` recording played aloud through the dock's speakers was judged speakers
+  within its second play, with the microphone writing it down as You as well as the tap as
+  Them; not yet run through a real call's turns.
 
 ## The calendar
 
@@ -154,15 +167,12 @@ What macOS's speech recognition and audio capture take and give, as codealong-ea
   and the next one's until its session shows, both hear; and how long a session takes to show,
   which is how long the transcript runs before anyone is told of it.
 - The microphone ran for real on 2026-11-10, under the server (Codealong Dev was asked and
-  allowed). Not yet seen: the tap giving anything but silence; whether making a tap asks the
+  allowed), and the tap on 2026-11-13, without voice processing (above). Not yet seen: the
+  others on a real call written down as Them; whether making a tap asks the
   person by itself (the helper asks through `TCCAccessRequest` either way); whether a tap made
   before the person said yes hears once they have, or only one made after (the helper makes it
   again, which covers both), and whether coreaudiod needs a new process for it; nor that the
   entitlement is needed on the helper as well as the app, which is why both have it.
-- Not yet run: voice processing on the input node (`setVoiceProcessingEnabled(true)`, for *I'm on
-  speakers*), which should take what the Mac plays out of the microphone, may give more than two
-  channels (the first is taken), and ducks other audio unless told not to
-  (`voiceProcessingOtherAudioDuckingConfiguration`, set to the least).
 - Not yet run: an aggregate device across a change of output (headphones plugged in), sleep and
   wake, and whether a tap's IO proc is called while nothing plays. The helper rebuilds the tap
   when the default output or an app's processes change, and when nothing was handed over for ten

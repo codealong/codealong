@@ -86,7 +86,7 @@ export const ROLES: { id: ListenRole; label: string; says: string }[] = [
 ];
 
 /** What a new listening asks for until you say otherwise: you and everyone else, for notes. */
-export const ASK: ListenAsk = { mic: true, system: true, apps: [], speakers: false, role: 'notes', prompt: '', start: false };
+export const ASK: ListenAsk = { mic: true, system: true, apps: [], role: 'notes', prompt: '', start: false };
 
 /** Why a listening can't be asked for as it stands, in the engine's words (listen.rs
  *  `Ask::sources`), or null when it can. */
@@ -171,7 +171,7 @@ export function macSays(status: HearingStatus['status'] | undefined, ask: Pick<L
 /** What a listening hears, in a few words: "You and this Mac’s audio". */
 export function hears(l: Pick<ListeningGlance, 'mic' | 'playback' | 'apps' | 'speakers'>, names: Record<string, string> = {}): string {
   const them = l.apps?.length ? l.apps.map((a) => names[a] ?? a).join(', ') : 'this Mac’s audio';
-  // On speakers, as it was heard to be: the Mac's audio is being taken out of the microphone.
+  // On speakers, as it was heard to be: the microphone hears the others too.
   if (l.mic && l.playback) return `You and ${them}${l.speakers ? ', on speakers' : ''}`;
   return l.mic ? 'Your microphone' : them.charAt(0).toUpperCase() + them.slice(1);
 }

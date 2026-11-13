@@ -50,12 +50,9 @@ const ASK: Duration = Duration::from_secs(10);
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum From {
-    /// The microphone. `cancel_echo` takes what the Mac plays out of it, for a meeting heard
-    /// over speakers, where the others would be heard twice, once as you.
-    Mic {
-        #[serde(default)]
-        cancel_echo: bool,
-    },
+    /// The microphone, as it hears: nothing is taken out of it (main.swift `Mic` says why).
+    /// Listenings kept by builds that did also have a `cancel_echo`, which is read past.
+    Mic,
     /// Everything the Mac plays.
     System,
     /// What these apps play, by bundle id.
@@ -236,17 +233,10 @@ impl Ear {
         }
         // A microphone the person hasn't been asked about yet is asked for now, and the start
         // waits on their answer.
-        let asking = spec.sources.iter().any(|s| matches!(s.from, From::Mic { .. }))
+        let asking = spec.sources.iter().any(|s| matches!(s.from, From::Mic))
             && client.request("status", json!({}), Some(ASK)).is_ok_and(|s| s.get("microphone").and_then(Value::as_str) == Some("unasked"));
         client.request("start", params, Some(if asking { ASKING } else { START })).map_err(|e| Refused::of(e, "to start"))?;
         Ok(Ear { client })
-    }
-
-    /// Has the microphone take what the Mac plays out of what it hears, or stop: you're on
-    /// speakers, or no longer (echo.rs). Not waited on, so it can be said from the thread that
-    /// reads what the helper says; one that didn't reach it is said again at its next start.
-    pub fn echo(&self, on: bool) {
-        let _ = self.client.notify("echo", json!({ "on": on }));
     }
 
     /// Stops capturing and waits for the last words, which reach `on` before this returns; then
@@ -579,7 +569,7 @@ mod tests {
     #[test]
     fn sources_are_written_as_the_helper_reads_them() {
         let sources = vec![
-            Source { name: "you".into(), from: From::Mic { cancel_echo: true } },
+            Source { name: "you".into(), from: From::Mic },
             Source { name: "them".into(), from: From::System },
             Source { name: "them".into(), from: From::Apps { bundles: vec!["us.example.meet".into()] } },
             Source { name: "file".into(), from: From::File { path: "/tmp/a.aiff".into(), paced: false } },
@@ -587,13 +577,16 @@ mod tests {
         assert_eq!(
             json!(sources),
             json!([
-                { "name": "you", "kind": "mic", "cancel_echo": true },
+                { "name": "you", "kind": "mic" },
                 { "name": "them", "kind": "system" },
                 { "name": "them", "kind": "apps", "bundles": ["us.example.meet"] },
                 { "name": "file", "kind": "file", "path": "/tmp/a.aiff", "paced": false },
             ])
         );
         assert_eq!(serde_json::from_value::<Vec<Source>>(json!(sources)).unwrap(), sources);
+        // A listening kept by a build that took the Mac's audio out of the microphone.
+        let kept: Source = serde_json::from_value(json!({ "name": "You", "kind": "mic", "cancel_echo": true })).unwrap();
+        assert_eq!(kept.from, From::Mic);
     }
 
     #[test]

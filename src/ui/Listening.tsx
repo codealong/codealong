@@ -286,9 +286,9 @@ export function ListenChoices({ ask, set, playing, children }: { ask: Pick<Liste
             />
           </div>
         )}
-        {/* Speakers or headphones isn't asked: the engine hears which (echo.rs), and on
-            speakers takes what the Mac plays out of the microphone by itself. */}
-        {ask.mic && ask.system && <small>On speakers the microphone hears the others too: Codealong notices, and takes what this Mac plays out of it, so they aren’t written down twice.</small>}
+        {/* Speakers or headphones isn't asked: the engine hears which (echo.rs) and says so on
+            the strip. Nothing is taken out of the microphone (main.swift `Mic` says why). */}
+        {ask.mic && ask.system && <small>On speakers the microphone hears the others too, so some of what they say can also be written down as yours. Headphones keep the two apart.</small>}
       </div>
     </>
   );

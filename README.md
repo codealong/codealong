@@ -848,7 +848,6 @@ meeting_account = ""           # the account a meeting's session starts on: an a
 meeting_model = ""             # and its model; "" for the account's own
 meeting_lead = 1               # how many minutes before a meeting starts it's offered (0 for as it starts, 30 at the most)
 meeting_calendars_off = []     # the calendars whose meetings aren't offered, by id; Settings lists them to untick
-on_speakers = false            # true takes what the Mac plays out of the microphone in every meeting; false, Codealong hears whether you're on speakers and does it then
 
 [debug]
 perf_log = false               # true logs timings to ~/Library/Logs/Codealong/perf.log, on Linux ~/.local/state/codealong/perf.log (Settings › Advanced)

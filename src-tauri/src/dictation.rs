@@ -262,7 +262,7 @@ fn begin(app: &AppHandle, id: u64, to: To) {
         Some(l) => (l.heard.clone(), l.window.clone()),
         None => return,
     };
-    let spec = Spec { sources: vec![Source { name: crate::listen::YOU.into(), from: ear::From::Mic { cancel_echo: false } }], locale: cfg.voice.locale.clone(), hints: hints(&cfg) };
+    let spec = Spec { sources: vec![Source { name: crate::listen::YOU.into(), from: ear::From::Mic }], locale: cfg.voice.locale.clone(), hints: hints(&cfg) };
     let (shows, shown_in, into) = (app.clone(), window.clone(), heard.clone());
     let started = Ear::start(&spec, move |event| {
         let talk = {
