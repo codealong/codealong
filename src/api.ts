@@ -1876,6 +1876,17 @@ export async function peekOpen(key: string, pill: PillRect | null, focus = false
   await invoke('peek_open', { key, pill, focus, rename });
 }
 
+/** Shows a session in the peek beside its row in the main window's PR or todo panel (`row`: the
+ *  panel's sides and the row's top and bottom, as the page measures them), ready to type into,
+ *  with its find bar on `find` (peek.rs `beside`). The window takes points, which a zoomed page's
+ *  pixels aren't. */
+export async function peekBeside(key: string, row: PillRect, find?: string | null): Promise<void> {
+  if (!inTauri) return;
+  const z = pageZoom();
+  const pill = { x: row.x * z, y: row.y * z, w: row.w * z, h: row.h * z };
+  await invoke('peek_open', { key, pill, beside: true, focus: true, find: find ?? null });
+}
+
 /** The peek's page is laid out for the open `id`, at this height: time to show it. */
 export async function peekReady(id: number, height: number): Promise<void> {
   if (!inTauri) return;

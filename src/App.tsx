@@ -994,24 +994,19 @@ export function App() {
     }
     return true;
   });
-  // A session shown in a PR's or todo's panel, from its list of sessions, or a PR in a session's,
-  // worktree's or todo's panel, from its chip (`showPrOf`), until you go back or press its row
-  // again (`pressRow`). It's tied to the panel it came from: selecting another row leaves it.
-  // Rows picked together show their own panel over it (MainPanel.tsx).
+  // A PR in a session's, worktree's or todo's panel, from its chip (`showPrOf`), or a worktree in
+  // any panel, from its chip or a link (`focusLane`), until you go back or press its row again
+  // (`pressRow`). It's tied to the panel it came from: selecting another row leaves it. Rows
+  // picked together show their own panel over it (MainPanel.tsx). A session a PR's or todo's panel
+  // lists shows in the peek instead (MainPanel.tsx `peekFromPanel`), and the canvas shows each
+  // thing on its own card, so nothing there shows in another's place.
   const [drill, setDrill] = useState<Drill | null>(null);
-  const panelFrom =
-    view === 'canvas'
-      ? canvasSel && (canvasSel.ref === 'pr' || canvasSel.ref === 'todo')
-        ? `${canvasSel.ref}:${canvasSel.key}`
-        : null
-      : pickedRows.length === 0
-        ? (selected?.key ?? null)
-        : null;
+  const panelFrom = view !== 'canvas' && pickedRows.length === 0 ? (selected?.key ?? null) : null;
   useEffect(() => {
     if (drill && drill.from !== panelFrom) setDrill(null);
   }, [drill, panelFrom]);
   /** A press on a list's row, before it selects the row. On the row whose panel shows a PR or
-   *  session in its place, it brings the row's own panel back, which selecting a row that's
+   *  worktree in its place, it brings the row's own panel back, which selecting a row that's
    *  selected already wouldn't. */
   const pressRow = (key: string, how: SelectHow) => {
     if (how === 'one' && drill?.from === key) setDrill(null);
@@ -1076,8 +1071,8 @@ export function App() {
   }, [selected?.key]);
 
   // The floating bar, the quick panel or a card on the desktop asks to show a session, worktree,
-  // PR or todo here: in its project, with no search or machine filter hiding it, nor one of its
-  // sessions shown in its panel's place (`drill`), which selecting what's selected already would
+  // PR or todo here: in its project, with no search or machine filter hiding it, nor a PR or
+  // worktree shown in its panel's place (`drill`), which selecting what's selected already would
   // leave.
   // Each time something asks to show a row here, which opens the group that folds it away even
   // when it's the row selected already.
@@ -1436,8 +1431,8 @@ export function App() {
     });
 
   // Back and forward through the sessions you looked at (history.ts): the one whose conversation
-  // the panel shows, in Sessions, under a schedule, in a PR's or todo's panel, or as the canvas's
-  // selected card.
+  // the panel shows, in Sessions, under a schedule, or as the canvas's selected card. One a PR's or
+  // todo's panel shows in the peek isn't among them: the panel stays on the PR or todo.
   const shownSession =
     view === 'schedules'
       ? (scheduleSessionShown?.session.key ?? null)
@@ -1445,11 +1440,9 @@ export function App() {
       ? selected?.kind === 'agent'
         ? selected.session.key
         : null
-      : drill && drill.from === panelFrom && homes.has(drill.key)
-        ? drill.key
-        : view === 'canvas' && canvasSel?.ref === 'session'
-          ? canvasSel.key
-          : null;
+      : view === 'canvas' && canvasSel?.ref === 'session'
+        ? canvasSel.key
+        : null;
   // Where ⌃` opens a terminal (mainKeys.ts): in the folder of that session, or of the session whose
   // line is selected on the board, else of the worktree a new session would start in.
   const terminalAt = useMemo(() => {
@@ -1630,7 +1623,7 @@ export function App() {
       return;
     }
     row?.select();
-    setDrill({ from, key: item.key, pr: true });
+    setDrill({ from, key: item.key, kind: 'pr' });
   };
   /** The right-click menu of a worktree's PR chip: the PR's own. */
   const lanePrMenu = (lane: Lane) => {
@@ -1863,7 +1856,7 @@ export function App() {
     const from = moved ? null : (row?.key ?? panelFrom);
     if (view !== 'canvas' && from) {
       row?.select();
-      setDrill({ from, key: lane.id, lane: true });
+      setDrill({ from, key: lane.id, kind: 'lane' });
       return;
     }
     setView('sessions');
@@ -2855,7 +2848,6 @@ export function App() {
             board={board}
             now={now}
             loading={loading}
-            lanes={lanes}
             laneById={laneById}
             homes={homes}
             devices={devices}

@@ -46,7 +46,7 @@ const NO_TERMINALS: TerminalGlance[] = [];
  *  the board gives its worktrees, for Move to worktree. */
 export type WindowCan = Pick<menus.SessionCan, 'report' | 'open' | 'reveal' | 'putBack' | 'reply' | 'rename' | 'left' | 'failed' | 'worktrees'>;
 
-interface SessionCardProps extends Pick<SessionPanelProps, 'zoom' | 'queue' |'notice' | 'hotkeys' | 'autoFocus' | 'keys' | 'renaming' | 'onRename' | 'onKeep' | 'keepTitle' | 'onClose' | 'closeTitle' | 'onSending' | 'onSent' | 'onFailed' | 'onAnswered' | 'onDone' | 'onLoaded' | 'device'> {
+interface SessionCardProps extends Pick<SessionPanelProps, 'zoom' | 'queue' | 'notice' | 'find' | 'hotkeys' | 'autoFocus' | 'keys' | 'renaming' | 'onRename' | 'onKeep' | 'keepTitle' | 'onClose' | 'closeTitle' | 'onSending' | 'onSent' | 'onFailed' | 'onAnswered' | 'onDone' | 'onLoaded' | 'device'> {
   lane: Lane;
   session: Session;
   /** The terminal's name and the editors installed, for the ways to open it. */

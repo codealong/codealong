@@ -267,6 +267,12 @@ under `src-tauri/src/`.
   `isKeyWindow` override.
 - Not yet checked by hand (2026-10-02): dragging the peek by its header in the real app; the
   preview only shows that the page asks for it (`peek-drag-check.js`).
+- Not yet checked by hand (2026-11-13): the peek opened from the main window's PR or todo panel
+  (peek.rs `beside`, `src/ui/MainPanel.tsx` `peekFromPanel`). That it shows beside the panel, its
+  card level with the row clicked, and takes the keyboard from the main window; that a click back
+  in the main window, Escape and ⏎ put it away and the main window has the keyboard again after;
+  and that it lands where the page measured at a zoom (`peekBeside` scales by the page zoom). The
+  engine's placement is tested and the preview shows what the page asks for (`panel-peek-check.js`).
 - Not yet checked by hand (2026-10-01): keeping, sizing, dragging and closing a kept session in
   the real app; the preview only shows the page and the commands it sends.
 - Not yet checked by hand (2026-10-30): the quick panel folding in the real app (quick.rs

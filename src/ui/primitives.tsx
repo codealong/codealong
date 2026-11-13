@@ -764,7 +764,7 @@ export function MoreChip({ names, className }: { names: string[]; className?: st
 
 /** A session's account and where it runs. With `onOpen`, a click opens it where it runs; with
  *  `inRow` too, it's on a list's row, where a click selects the row, so a double-click opens it.
- *  A panel that lists it (PanelSession.tsx `PanelPlaces`) shows it in its place instead
+ *  A panel that lists it (PanelSession.tsx `PanelPlaces`) shows it in the peek instead
  *  (`onShow`), with its menu on a right-click, and says more of it on hover (`detail`).
  *  `named` says its title instead, with the account on hover, where the chip stands for the
  *  session: on a PR's or a todo's row and in their panels, where nothing else names it. */
@@ -775,7 +775,7 @@ export function HarnessChip({ session, withStatus = true, named = false, onOpen,
     <Chip
       className={cx(named && 'ca-sesschip', className)}
       title={`${said}${detail ? `\n${detail}` : ''}`}
-      does={onShow ? 'show it here, right-click for its menu' : `open in ${sessionPlace(session, 'terminal')}`}
+      does={onShow ? 'show it in the peek, right-click for its menu' : `open in ${sessionPlace(session, 'terminal')}`}
       act={onShow ?? onOpen}
       inRow={inRow}
       onMenu={onMenu}

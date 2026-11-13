@@ -4,27 +4,33 @@
 // with the panel's details open, drawn like the sidebar's tree (`PanelPlace`), each session under
 // its worktree (`PanelSession`) with its title, then who runs it and what it's doing, as the
 // Sessions view says it. A worktree on another of your Macs wears that Mac's badge in both. A
-// click on a session, chip or row, shows it in the panel (with a way back); on a row, double-click
-// or the arrow opens it where it runs, as double-click does in every list, but for one on another
-// Mac, which has nowhere here to open. A click on a worktree shows it in Worktrees; a right-click
-// on either gives its menu.
+// click on a session, chip or row, shows it in the peek beside the panel, ready to answer
+// (`ShowSession`, peek.rs `beside`), the panel staying as it was; on a row, double-click or the
+// arrow opens it where it runs, as double-click does in every list, a click waiting a moment for
+// the second, but for one on another Mac, which has nowhere here to open. A click on a worktree
+// shows it in Worktrees; a right-click on either gives its menu.
 
+import { useRef } from 'react';
 import { absolute, ago } from '../format';
 import { sessionWhy } from '../lanes';
 import { flag, useStored } from '../stored';
 import type { Lane, Session } from '../types';
 import { DeviceBadge } from './DeviceBadge';
-import { Button, cx, HarnessChip, Icon, LaneGlyph, SessionEmblem, SessionGlyph, WorktreeChip } from './primitives';
+import { Button, chipHandlers, cx, HarnessChip, Icon, LaneGlyph, SessionEmblem, SessionGlyph, WorktreeChip, type ClickWait } from './primitives';
 import { ProjectSaidHere } from './ProjectSaid';
 
 /** What the Primary tag on a todo's session means. */
 export const TODO_PRIMARY = "The todo's primary session: where the work on it goes on. Sessions started for it while this one runs work alongside it.";
 
+/** A click on one of a panel's sessions. `at` is what was clicked, its row or its worktree's line
+ *  of chips, which the main window opens the peek level with (MainPanel.tsx `peekFromPanel`). */
+export type ShowSession = (lane: Lane, session: Session, at: Element) => void;
+
 interface PanelSessionProps {
   lane: Lane;
   session: Session;
   now: number;
-  onShow: (lane: Lane, session: Session) => void;
+  onShow: ShowSession;
   onOpen: (lane: Lane, session: Session) => void;
   onMenu: (lane: Lane, session: Session) => void;
   /** It's the todo's or the PR's primary session: what its Primary tag says that means. */
@@ -32,8 +38,15 @@ interface PanelSessionProps {
 }
 
 export function PanelSession({ lane, session: s, now, onShow, onOpen, onMenu, primary }: PanelSessionProps) {
-  // One on another of your Macs has nowhere here to open it: a click shows it in the panel.
+  // One on another of your Macs has nowhere here to open it: a click shows it at once.
   const opens = !!s.openTarget;
+  const main = useRef<HTMLButtonElement>(null);
+  // A click waiting for a second, which opens it where it runs instead, so the peek doesn't
+  // show and go again on a double-click.
+  const wait: ClickWait = useRef(null);
+  const show = () => {
+    if (main.current) onShow(lane, s, main.current);
+  };
   return (
     <div
       role="treeitem"
@@ -43,7 +56,13 @@ export function PanelSession({ lane, session: s, now, onShow, onOpen, onMenu, pr
         onMenu(lane, s);
       }}
     >
-      <button type="button" className="ca-psess-main" title={`${s.title}\nClick to show it here${opens ? ' · double-click to open it where it runs' : ''}`} onClick={() => onShow(lane, s)} onDoubleClick={opens ? () => onOpen(lane, s) : undefined}>
+      <button
+        ref={main}
+        type="button"
+        className="ca-psess-main"
+        title={`${s.title}\nClick to show it in the peek${opens ? ' · double-click to open it where it runs' : ''}`}
+        {...chipHandlers(show, false, opens ? { run: () => onOpen(lane, s), wait } : undefined)}
+      >
         <SessionGlyph s={s} size={10} />
         <span className="ca-psess-text">
           <span className="ca-psess-line1">
@@ -81,7 +100,7 @@ interface PanelPlaceProps {
   onShowLane: (lane: Lane) => void;
   /** A right-click on the worktree. */
   onLaneMenu: (lane: Lane) => void;
-  onShowSession: (lane: Lane, session: Session) => void;
+  onShowSession: ShowSession;
   onOpenSession: (lane: Lane, session: Session) => void;
   onSessionMenu: (lane: Lane, session: Session) => void;
   /** The todo's primary session, while it runs, or the PR's: its key, and what its Primary tag
@@ -150,6 +169,8 @@ export function primaryFirst(places: Place[], key: string | null | undefined): P
 /** The worktrees and sessions behind a PR or a todo: chips, or with `open` the tree. */
 export function PanelPlaces({ places: given, open, label, project, now, onShowLane, onLaneMenu, onShowSession, onOpenSession, onSessionMenu, primary = null }: PanelPlacesProps) {
   const places = primaryFirst(given, primary?.key);
+  // Each worktree's line of chips, by its id: a session's chip opens the peek level with it.
+  const groups = useRef(new Map<string, Element>());
   if (open) {
     return (
       <div className="ca-tree" role="tree" aria-label={label}>
@@ -174,7 +195,15 @@ export function PanelPlaces({ places: given, open, label, project, now, onShowLa
   return (
     <div className="ca-places" role="list" aria-label={label}>
       {places.map(({ lane, sessions, note }) => (
-        <span key={lane.id} className="ca-places-group" role="listitem">
+        <span
+          key={lane.id}
+          ref={(el) => {
+            if (el) groups.current.set(lane.id, el);
+            else groups.current.delete(lane.id);
+          }}
+          className="ca-places-group"
+          role="listitem"
+        >
           <ProjectSaidHere project={project}>
             <WorktreeChip lane={lane} short note={note} onShow={() => onShowLane(lane)} onMenu={() => onLaneMenu(lane)} />
           </ProjectSaidHere>
@@ -187,7 +216,10 @@ export function PanelPlaces({ places: given, open, label, project, now, onShowLa
                 named
                 className={cx(s.visitor && 'is-visitor', s.archived && 'is-archived')}
                 detail={`${s.visitor ?? sessionWhy(s.detail, s.headline, now)}${main ? `\nPrimary: ${primary.means}` : ''}`}
-                onShow={() => onShowSession(lane, s)}
+                onShow={() => {
+                  const at = groups.current.get(lane.id);
+                  if (at) onShowSession(lane, s, at);
+                }}
                 onMenu={() => onSessionMenu(lane, s)}
               >
                 {main && <span className="ca-places-primary">primary</span>}

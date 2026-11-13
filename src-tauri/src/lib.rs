@@ -419,19 +419,21 @@ async fn open_from_bar(app: tauri::AppHandle, mirror: State<'_, view::Mirror>, l
 }
 
 /// Shows a session in the floating bar's peek: for a hover over its pill or a click on a card on
-/// the desktop (where the window's page measured it), with `focus` ready to type into, or with
-/// `rename` its name ready to change (peek.rs).
+/// the desktop (where the window's page measured it), or with `beside` a click on its row in the
+/// main window's PR or todo panel; with `focus` ready to type into, with `rename` its name ready
+/// to change, and with `find` its conversation's find bar open on those words (peek.rs).
 #[tauri::command]
-fn peek_open(app: tauri::AppHandle, window: tauri::WebviewWindow, mirror: State<'_, view::Mirror>, floating: State<'_, Floating>, key: String, pill: Option<geometry::PageRect>, focus: Option<bool>, rename: Option<bool>) -> Result<(), String> {
+fn peek_open(app: tauri::AppHandle, window: tauri::WebviewWindow, mirror: State<'_, view::Mirror>, floating: State<'_, Floating>, key: String, pill: Option<geometry::PageRect>, beside: Option<bool>, focus: Option<bool>, rename: Option<bool>, find: Option<String>) -> Result<(), String> {
     let target = mirror.read(|b| floating.read(b, |shown| peek::target(shown, &key))).ok_or_else(|| "That session isn't on the board any more.".to_string())?;
+    let target = peek::Target { find, ..target };
     let rename = rename.unwrap_or(false);
     // Kept on the desktop, it's up already: its own window comes forward, to type into if asked.
     if !rename && kept::raise_session(&app, &key, focus.unwrap_or(false)) {
         return Ok(());
     }
-    // The pill is in the window that asked: the bar, or a card on the desktop.
+    // The pill is in the window that asked: the bar, a card on the desktop or the main window.
     let pill = pill.and_then(|p| panel::frame(&window).map(|host| (host, p)));
-    peek::open(&app, target, pill, focus.unwrap_or(false) || rename, rename).map_err(words)
+    peek::open(&app, target, pill, beside.unwrap_or(false), focus.unwrap_or(false) || rename, rename).map_err(words)
 }
 
 /// A session with its worktree and the apps, as the board has them: for a window that doesn't

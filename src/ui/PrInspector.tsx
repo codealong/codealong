@@ -40,7 +40,7 @@ import type { Board, Lane, PrDetail, PrFile, PrItem, Session, TeamFile, Usage } 
 import { PrReview } from './AgentReview';
 import { PrBoxView, usePrBox } from './PrBox';
 import { MergeBox, type MergeGoesOn } from './MergeBox';
-import { DetailsButton, PanelPlaces, useDetailsOpen } from './PanelSession';
+import { DetailsButton, PanelPlaces, useDetailsOpen, type ShowSession } from './PanelSession';
 import { PrFiles, type FileOpener, type FilesFinder } from './PrFiles';
 import { PrLabels } from './PrLabels';
 import { PrPills } from './PrPills';
@@ -125,8 +125,9 @@ export interface PrDetailsProps {
    *  the pointer from a right-click on the header (a PR's card, PrCard.tsx, takes one anywhere
    *  on it too). */
   onMenu?: (at?: { x: number; y: number }) => void;
-  /** Shows a session in the panel, in place of the PR until you go back. */
-  onShowSession: (lane: Lane, session: Session) => void;
+  /** Shows a session (`at`: what was clicked): the main window's panel in the peek beside it, a
+   *  PR's card in the session's place (PrCard.tsx). */
+  onShowSession: ShowSession;
   /** Opens a session where it runs. */
   onOpenSession: (lane: Lane, session: Session) => void;
   onShowLane: (lane: Lane) => void;

@@ -12,6 +12,13 @@
 //! the bar does meanwhile. Should another app take the keyboard while the pointer is still on the
 //! peek, it goes back to how a hover has it rather than closing under you.
 //!
+//! A card pinned to the desktop opens it the same way, under or over the card. The main window's
+//! PR and todo panels open it on a click on one of their sessions, ready to answer, beside the
+//! panel and level with the session's row there (`beside`): the session is something the PR or
+//! todo is about, so it's looked at and answered there and put away, the panel staying as it was.
+//! Its Main window button shows the session in Sessions, its list and the queue of what waits on
+//! you.
+//!
 //! Dragging its far edge or corner makes it bigger, and dragging its header moves it. Its Keep
 //! button or letting go of either drag keeps it on the desktop: the session gets a window of its
 //! own there (kept.rs), which stays up, and the peek goes back to being the peek.
@@ -128,6 +135,30 @@ pub fn place(bar: Rect, pill: Rect, screen: Rect, zoom: u32) -> Place {
     Place { x, w, edge: if below { below_edge } else { above_edge }, below, room: room.min((CARD.1 * z).round() + FAR + NEAR), full: room, wide: screen.right() - x }
 }
 
+/// Where the peek goes for a row in a window it would cover if it hung from it: a session in the
+/// main window's PR or todo panel (`row`: that panel's sides, the session's row's top and bottom).
+/// On the row's left, over the list beside the panel, else on its right, else at the screen's left
+/// edge; the card's top level with the row's, or higher where the row is too low on the screen for
+/// the tallest card. It hangs from its top edge, as it does under the bar, and is as much wider and
+/// may be as much taller at a `zoom` (a percent).
+pub fn beside(row: Rect, screen: Rect, zoom: u32) -> Place {
+    let z = crate::zoom::factor(zoom);
+    let w = (CARD.0 * z + 2.0 * MARGIN).min(screen.w).round();
+    let tallest = (CARD.1 * z).round() + FAR + NEAR;
+    // The window's edge at the row's, so its clear margin covers none of the row.
+    let x = if row.x - w >= screen.x {
+        row.x - w
+    } else if row.right() + w <= screen.right() {
+        row.right()
+    } else {
+        screen.x
+    };
+    // Hanging from its top edge, the card's top is `NEAR` under the window's.
+    let edge = (row.top() + NEAR).max(screen.y + tallest.min(screen.h)).min(screen.top());
+    let full = edge - screen.y;
+    Place { x: x.round(), w, edge, below: true, room: full.min(tallest), full, wide: screen.right() - x.round() }
+}
+
 /// The peek's frame dragged by its header: moved as far as the pointer has gone since the drag
 /// began, at the size it had.
 pub fn dragged(from: Rect, began: (f64, f64), pointer: (f64, f64)) -> Rect {
@@ -170,6 +201,8 @@ struct Opening {
     focus: bool,
     /// Its name is ready to change (Rename in the pill's menu).
     rename: bool,
+    /// The words its conversation's find bar opens on.
+    find: Option<String>,
     /// `[debug] perf_log` is on, so the page reports its timings.
     perf_log: bool,
 }
@@ -187,6 +220,9 @@ struct Inner {
     host: Option<Rect>,
     /// Its pill on the screen.
     pill: Option<Rect>,
+    /// The pill is a row in a window it opens beside (`beside`), not the bar or a card it hangs
+    /// from.
+    beside: bool,
     place: Option<Place>,
     opens: u64,
     /// The open the page hasn't answered yet.
@@ -229,20 +265,23 @@ pub struct Target {
     pub theme: Theme,
     /// The zoom, in percent: the card draws at it, and the window is as much bigger.
     pub zoom: u32,
+    /// The words its conversation's find bar opens on: what a search found it by.
+    pub find: Option<String>,
 }
 
 /// The session and its lane, on whichever Mac it's on (shown.rs).
 pub fn target(shown: crate::shown::Shown, key: &str) -> Option<Target> {
     let board = shown.board;
     let (lane, session) = shown.session(key).map(|(l, s)| (l.clone(), s.clone()))?;
-    Some(Target { lane, session, terminal: board.apps.terminal.clone(), apps: board.apps.clone(), theme: board.theme, zoom: board.zoom })
+    Some(Target { lane, session, terminal: board.apps.terminal.clone(), apps: board.apps.clone(), theme: board.theme, zoom: board.zoom, find: None })
 }
 
 /// Shows a session in the peek, for a hover over its pill (`pill`: the window it's in, the bar or
 /// a card on the desktop, and the pill as that window's page measured it) or, with `focus`, ready
-/// to type into, its name with `rename`. Without a pill it opens where it last was. A hover
-/// doesn't take the peek from a session you're typing to. On the main thread.
-pub fn open(app: &AppHandle, target: Target, pill: Option<(Rect, PageRect)>, focus: bool, rename: bool) -> Result<()> {
+/// to type into, its name with `rename`. With `beside`, the pill is a row in a window the peek
+/// opens beside (the main window's PR and todo panels). Without a pill it opens where it last
+/// was. A hover doesn't take the peek from a session you're typing to. On the main thread.
+pub fn open(app: &AppHandle, target: Target, pill: Option<(Rect, PageRect)>, beside: bool, focus: bool, rename: bool) -> Result<()> {
     let Some(state) = app.try_state::<Peek>() else { return Ok(()) };
     let bar = crate::bar::frame(app);
     let pill = pill.map(|(host, p)| (host, p.to_screen(host)));
@@ -257,6 +296,7 @@ pub fn open(app: &AppHandle, target: Target, pill: Option<(Rect, PageRect)>, foc
         if let Some((host, p)) = pill {
             s.host = Some(host);
             s.pill = Some(p);
+            s.beside = beside;
         }
         if s.visible && same && !focus {
             s.away_since = None;
@@ -270,7 +310,7 @@ pub fn open(app: &AppHandle, target: Target, pill: Option<(Rect, PageRect)>, foc
         // goes by the shape (`bar::peek_frame`).
         let by = if host.is_some() && host == bar { crate::bar::peek_frame(app) } else { host };
         if let (Some(h), Some(a), Some(sc)) = (by, anchor, screen) {
-            s.place = Some(place(h, a, sc, target.zoom));
+            s.place = Some(if s.beside { self::beside(a, sc, target.zoom) } else { place(h, a, sc, target.zoom) });
         }
         s.opens += 1;
         s.waiting = Some(s.opens);
@@ -281,8 +321,8 @@ pub fn open(app: &AppHandle, target: Target, pill: Option<(Rect, PageRect)>, foc
         s.drag = None;
         (s.opens, s.place.map_or(MAX_HEIGHT, |p| p.room), s.place.is_none_or(|p| p.below))
     };
-    let Target { lane, session, terminal, apps, theme, zoom } = target;
-    let _ = app.emit_to(LABEL, "peek-open", Opening { id, lane, session, terminal, apps, theme, zoom, room, below, focus, rename, perf_log: crate::perf::enabled() });
+    let Target { lane, session, terminal, apps, theme, zoom, find } = target;
+    let _ = app.emit_to(LABEL, "peek-open", Opening { id, lane, session, terminal, apps, theme, zoom, room, below, focus, rename, find, perf_log: crate::perf::enabled() });
     // A page that doesn't answer doesn't keep the peek from showing.
     let handle = app.clone();
     std::thread::spawn(move || {
@@ -636,6 +676,44 @@ mod tests {
         let short = Rect { h: 500.0, ..SCREEN };
         assert!(place(r(500.0, 250.0, 600.0, 56.0), r(600.0, 267.0, 120.0, 22.0), short, 100).below);
         assert!(!place(r(500.0, 200.0, 600.0, 56.0), r(600.0, 217.0, 120.0, 22.0), short, 100).below);
+    }
+
+    #[test]
+    fn opens_beside_a_panels_row_level_with_it() {
+        // The main window's PR panel from x 900 to 1400, a session's row in it 145 points from the
+        // screen's top.
+        let row = r(900.0, 700.0, 500.0, 30.0);
+        let p = beside(row, SCREEN, 100);
+        assert!(p.below);
+        // On the panel's left, the window's edge at the panel's, over the list.
+        assert_eq!((p.x, p.w), (900.0 - WIDTH, WIDTH));
+        // The card's top level with the row's: the window keeps `NEAR` over the card.
+        assert_eq!(p.edge, 730.0 + NEAR);
+        let f = p.frame(300.0);
+        assert_eq!((f.top(), f.right()), (730.0 + NEAR, 900.0));
+        assert_eq!(p.room, MAX_HEIGHT);
+        // A row low on the screen: the card starts higher, so the tallest still fits.
+        let low = beside(r(900.0, 100.0, 500.0, 30.0), SCREEN, 100);
+        assert_eq!(low.edge, MAX_HEIGHT);
+        assert_eq!(low.frame(5000.0), Rect { x: 900.0 - WIDTH, y: 0.0, w: WIDTH, h: MAX_HEIGHT });
+        // Near the screen's top it stays on the screen.
+        assert_eq!(beside(r(900.0, 860.0, 500.0, 30.0), SCREEN, 100).edge, 875.0);
+    }
+
+    #[test]
+    fn opens_on_the_other_side_of_a_panel_with_no_room_on_its_left() {
+        // A narrow window at the screen's left: the list beside the panel is narrower than the
+        // card.
+        let p = beside(r(300.0, 545.0, 400.0, 30.0), SCREEN, 100);
+        assert_eq!(p.x, 700.0);
+        assert_eq!(p.wide, 1500.0 - 700.0);
+        // No room on either side (a panel that takes the whole window): at the screen's left edge.
+        assert_eq!(beside(r(300.0, 545.0, 1000.0, 30.0), SCREEN, 100).x, 0.0);
+        // Zoomed, it's as much wider, and still on the screen.
+        let z = beside(r(900.0, 545.0, 500.0, 30.0), SCREEN, 125);
+        assert_eq!(z.w, CARD.0 * 1.25 + 2.0 * MARGIN);
+        assert_eq!(z.x, 900.0 - z.w);
+        assert_eq!(z.room, CARD.1 * 1.25 + FAR + NEAR);
     }
 
     #[test]

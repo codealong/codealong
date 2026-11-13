@@ -450,6 +450,8 @@ export function Peek({ kept = false, side = false }: { kept?: boolean; side?: bo
           onShowTodo={host.showTodo}
           onShowPr={host.showPr}
           autoFocus={open.focus}
+          // Opened from a PR's or todo's panel that a search found by what it said: on those words.
+          find={open.find ? { words: open.find, n: open.id } : null}
           onLoaded={loaded}
           renaming={open.rename || renameAsked === session.key}
           onRename={renamed}

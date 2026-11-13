@@ -2,14 +2,15 @@
 // worktree's (Inspector), a session's with its conversation (SessionPanel), a new session waiting
 // for its first prompt in its place (NewSession.tsx), or the sessions or
 // worktrees picked together, a PR's, a todo's or the todos picked together, the canvas's selected
-// card, or what to select. A PR's or todo's panel can show one of its sessions in its place, any
-// panel the worktree a chip or link shows, and a session's, worktree's or todo's the PR its chip
-// shows, with the way back (`drill`), the list staying as it was. The window passes what the
-// panels show and what their clicks do.
+// card, or what to select. Any panel can show the worktree a chip or link shows in its place, and
+// a session's, worktree's or todo's the PR its chip shows, with the way back (`drill`), the list
+// staying as it was. A session a PR's or todo's panel lists shows in the peek beside the panel
+// instead (`peekFromPanel`): the list, its queue and the panel stay as they were. The window
+// passes what the panels show and what their clicks do.
 
 import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { renameAhead } from '../ahead';
-import { dismissTodoHint, openUrl } from '../api';
+import { dismissTodoHint, openUrl, peekBeside } from '../api';
 import type { Entities } from '../canvas/model';
 import { showContextMenu, type MenuSpec } from '../contextMenu';
 import { deviceOf } from '../devices';
@@ -26,6 +27,7 @@ import type { WaitingQueue } from '../useWaitingQueue';
 import type { useListPicks } from '../useListPicks';
 import type { useTodoView } from '../useTodoView';
 import { Inspector } from './Inspector';
+import type { ShowSession } from './PanelSession';
 import { PrInspector } from './PrInspector';
 import type { PanelBackTo } from './primitives';
 import type { PrRowItem } from './PrsView';
@@ -40,13 +42,12 @@ import { TodoPanel, TodoPickPanel } from './TodoPanel';
  *  a new empty one with every board. */
 const NO_TERMINALS: TerminalGlance[] = [];
 
-/** A panel shown in place of another: `from` is the row whose panel it is, `key` the session it
- *  shows, with `pr` the PR, or with `lane` the worktree. */
+/** A panel shown in place of another: `from` is the row whose panel it is, `key` the PR or the
+ *  worktree it shows. */
 export interface Drill {
   from: string;
   key: string;
-  pr?: boolean;
-  lane?: boolean;
+  kind: 'pr' | 'lane';
 }
 
 /** What the canvas's selected card is, as its panel shows it; null when nothing is selected or
@@ -86,7 +87,6 @@ export interface MainPanelProps {
   board: Board | null;
   now: number;
   loading: boolean;
-  lanes: Lane[];
   laneById: Map<string, Lane>;
   homes: Map<string, Placed>;
   devices: DevicesView | null;
@@ -154,7 +154,7 @@ export interface MainPanelProps {
 }
 
 export function MainPanel(props: MainPanelProps) {
-  const { view, selected, selectedLane, canvasPicked, board, now, loading, lanes, laneById, homes, devices, projectTodos, todoStore, todoLinks, todosFor, prRowOf, pickedRows, picks, approving, drill, setDrill, queue, boxFocus, panelMax, togglePanelMax, prPanelMax, togglePrPanelMax, actionsRef, open, newSession, newSessionPanel, showLaneFromPanel, showSessionFromPanel, showSchedule, schedulePanel, scheduleSession, showTodoFromPanel, laneMenu, sessionMenu, sessionMenuSpec, lanePrMenu, showPr, prMenu, prChipMenu, approve, reviewMenuFrom, snoozeMenuFrom, reviewedPr, setPreviewFor, markSeen, setToast, findIn } = props;
+  const { view, selected, selectedLane, canvasPicked, board, now, loading, laneById, homes, devices, projectTodos, todoStore, todoLinks, todosFor, prRowOf, pickedRows, picks, approving, drill, setDrill, queue, boxFocus, panelMax, togglePanelMax, prPanelMax, togglePrPanelMax, actionsRef, open, newSession, newSessionPanel, showLaneFromPanel, showSessionFromPanel, showSchedule, schedulePanel, scheduleSession, showTodoFromPanel, laneMenu, sessionMenu, sessionMenuSpec, lanePrMenu, showPr, prMenu, prChipMenu, approve, reviewMenuFrom, snoozeMenuFrom, reviewedPr, setPreviewFor, markSeen, setToast, findIn } = props;
   const { startForTodo, startForTodos, todoMenu, todoLinkMenu, todoMoreMenu, labelMenu, projectsForTodos, duePick, duePicked, selectTodoRow, pickMenu } = props.todo;
   const runTodo = todoStore.run;
   const { run: runQueue } = queue;
@@ -164,6 +164,16 @@ export function MainPanel(props: MainPanelProps) {
   stripShown.current = false;
   // The schedule each session came from, for the line over its title.
   const bySchedule = useMemo(() => scheduleBySession(board?.schedules), [board?.schedules]);
+
+  /** A session a PR's or todo's panel lists, in the peek beside the panel, level with what was
+   *  clicked (`at`: its row, its worktree's chips, a review's Session link), ready to answer and on
+   *  the words a search found it by. The PR or todo stays where it was, and its Main window button
+   *  shows the session in Sessions, its list and the queue. */
+  const peekFromPanel: ShowSession = (_lane, session, at) => {
+    const row = at.getBoundingClientRect();
+    const panel = (at.closest('.ca-insp') ?? at).getBoundingClientRect();
+    peekBeside(session.key, { x: panel.left, y: row.top, w: panel.width, h: row.height }, findIn(session.key)?.words).catch((e: unknown) => setToast(errorText(e)));
+  };
 
   const todoPanel = (item: TodoItem) =>
     drilledPanel(item.key, middleTruncate(item.todo.title, 40)) ?? (
@@ -177,7 +187,7 @@ export function MainPanel(props: MainPanelProps) {
       now={now}
       onRun={runTodo}
       onStart={() => startForTodo(item)}
-      onShowSession={(_lane, session) => setDrill({ from: item.key, key: session.key })}
+      onShowSession={peekFromPanel}
       onOpenSession={(lane, session) => open(lane, session.openTarget)}
       onShowLane={showLaneFromPanel}
       onLaneMenu={(lane) => laneMenu(lane)}
@@ -223,9 +233,7 @@ export function MainPanel(props: MainPanelProps) {
       onReview={(el) => reviewMenuFrom(item.pr, el)}
       onSnooze={(el) => snoozeMenuFrom(item.pr, el)}
       onMenu={(at) => prMenu(item, at)}
-      // Shown in another's place, a session of it shows where Sessions lists it, as one in a
-      // session's or worktree's panel does; a panel shows one thing in its place at a time.
-      onShowSession={(lane, session) => (back ? showSessionFromPanel(lane, session) : setDrill({ from: item.key, key: session.key }))}
+      onShowSession={peekFromPanel}
       onOpenSession={(lane, session) => open(lane, session.openTarget)}
       onShowLane={showLaneFromPanel}
       onLaneMenu={laneMenu}
@@ -313,28 +321,20 @@ export function MainPanel(props: MainPanelProps) {
       />
     );
   };
-  /** What the panel of `from` was asked to show in its place, with the way back: a session a PR's
-   *  or todo's panel lists, the PR a session's, worktree's or todo's chip shows, or the worktree
-   *  a chip or link shows. */
+  /** What the panel of `from` was asked to show in its place, with the way back: the PR a
+   *  session's, worktree's or todo's chip shows, or the worktree a chip or link shows. */
   const drilledPanel = (from: string | undefined, label: string): ReactNode => {
     if (!drill || drill.from !== from) return null;
     const back = { label, onBack: () => setDrill(null) };
-    if (drill.lane) {
+    if (drill.kind === 'lane') {
       const lane = laneById.get(drill.key);
       return lane ? inspector(lane, null, back) : null;
     }
-    if (drill.pr) {
-      const pr = board?.prs.find((p) => p.key === drill.key);
-      // In Sessions it takes the session's panel's place in the whole window too, and gives the
-      // list back as that panel would.
-      const max = view === 'sessions' ? { on: panelMax, toggle: togglePanelMax } : undefined;
-      return pr ? prPanel(prRowOf(pr), max, back) : null;
-    }
-    for (const lane of lanes) {
-      const session = lane.sessions.find((x) => x.key === drill.key);
-      if (session) return sessionPanel(lane, session, back);
-    }
-    return null;
+    const pr = board?.prs.find((p) => p.key === drill.key);
+    // In Sessions it takes the session's panel's place in the whole window too, and gives the
+    // list back as that panel would.
+    const max = view === 'sessions' ? { on: panelMax, toggle: togglePanelMax } : undefined;
+    return pr ? prPanel(prRowOf(pr), max, back) : null;
   };
 
   /** The canvas's selected card as its view's panel shows it. */

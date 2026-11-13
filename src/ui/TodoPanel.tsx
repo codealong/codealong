@@ -19,7 +19,7 @@ import { branchLabel } from '../lanes';
 import { blockedBy, cantWaitOn, dependents, depsOf, isOpen, itemSection, newId, nextColor, SECTION_WORD, sectionOf, STATUSES, STATUS_WORD, todoSuggestions, waitsOnTodos, worthSuggesting, type TodoItem, type TodoOp } from '../todos';
 import type { Label, Lane, Session, Todo, TodoHint, TodoSuggested } from '../types';
 import { DescriptionEditor } from './DescriptionEditor';
-import { DetailsButton, PanelPlaces, TODO_PRIMARY, useDetailsOpen } from './PanelSession';
+import { DetailsButton, PanelPlaces, TODO_PRIMARY, useDetailsOpen, type ShowSession } from './PanelSession';
 import { PickList, PickPanel, PickRow } from './PickPanel';
 import { Button, Chip, cx, headerMenu, Icon, Seg } from './primitives';
 import { ProjectTag } from './ProjectSaid';
@@ -302,8 +302,8 @@ interface TodoPanelProps {
   onRun: (op: TodoOp) => void;
   /** Opens the new-session sheet for this todo. */
   onStart: () => void;
-  /** Shows a session in the panel, in place of the todo until you go back. */
-  onShowSession: (lane: Lane, session: Session) => void;
+  /** Shows a session in the peek beside the panel (`at` is what was clicked). */
+  onShowSession: ShowSession;
   /** Opens a session where it runs. */
   onOpenSession: (lane: Lane, session: Session) => void;
   onShowLane: (lane: Lane) => void;

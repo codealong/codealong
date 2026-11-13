@@ -26,6 +26,7 @@ import { againFor, againTitle, autoReviewWords, suggestWords, tryAgain } from '.
 import { strings, useStored } from '../stored';
 import type { AutoReview, Draft, DraftComment, Lane, LineComment, PrDetail, PrItem, Session, TeamFile, WrittenReview } from '../types';
 import { Markdown } from './Markdown';
+import type { ShowSession } from './PanelSession';
 import { BoxText, Button, cx, Icon, Seg } from './primitives';
 import { prIsOpen } from './PrsView';
 import { cmd, keysIn } from '../platform';
@@ -37,7 +38,7 @@ const short = (sha: string) => sha.slice(0, 7);
 const ARMED_MS = 4000;
 
 /** The way to a review's session and to where it went on GitHub. */
-function Links({ link, session, sessions, onShowSession }: { link: string | null | undefined; session: string | null | undefined; sessions: { lane: Lane; session: Session }[]; onShowSession: (lane: Lane, session: Session) => void }) {
+function Links({ link, session, sessions, onShowSession }: { link: string | null | undefined; session: string | null | undefined; sessions: { lane: Lane; session: Session }[]; onShowSession: ShowSession }) {
   const held = sessions.find((s) => s.session.key === session);
   const draft = link?.endsWith('/files');
   return (
@@ -48,7 +49,7 @@ function Links({ link, session, sessions, onShowSession }: { link: string | null
         </button>
       )}
       {held && (
-        <button type="button" className="ca-linkbtn" title="Show the session that reviewed it" onClick={() => onShowSession(held.lane, held.session)}>
+        <button type="button" className="ca-linkbtn" title="Show the session that reviewed it" onClick={(e) => onShowSession(held.lane, held.session, e.currentTarget)}>
           Session
         </button>
       )}
@@ -106,7 +107,7 @@ function LineNote({ comment, pr, head, detail }: { comment: LineComment; pr: PrI
 
 /** Where the PR's latest round stands, with its draft or comment and its session a click away;
  *  for a PR of yours, where it went back to, and Send while it hasn't. */
-function Standing({ pr, review, now, onGitHub, sessions, onShowSession, teamFiles }: { pr: PrItem; review: AutoReview; now: number; onGitHub?: { draft: boolean; submitted: string | null }; sessions: { lane: Lane; session: Session }[]; onShowSession: (lane: Lane, session: Session) => void; teamFiles?: TeamFile[] }) {
+function Standing({ pr, review, now, onGitHub, sessions, onShowSession, teamFiles }: { pr: PrItem; review: AutoReview; now: number; onGitHub?: { draft: boolean; submitted: string | null }; sessions: { lane: Lane; session: Session }[]; onShowSession: ShowSession; teamFiles?: TeamFile[] }) {
   const titleOf = (key: string | null | undefined) => sessions.find((s) => s.session.key === key)?.session.title ?? null;
   const { icon, says, note } = autoReviewWords(review, onGitHub, titleOf(review.sent));
   const rounds = `${review.rounds} ${review.rounds === 1 ? 'round' : 'rounds'} so far`;
@@ -316,7 +317,7 @@ const ROUNDS_SHOWN = 3;
 
 /** The review the agent wrote, from reviews.json: its text and comments on lines, each earlier
  *  commit's a click away. */
-function Written({ pr, review, detail, now, sessions, onShowSession }: { pr: PrItem; review: AutoReview; detail?: PrDetail; now: number; sessions: { lane: Lane; session: Session }[]; onShowSession: (lane: Lane, session: Session) => void }) {
+function Written({ pr, review, detail, now, sessions, onShowSession }: { pr: PrItem; review: AutoReview; detail?: PrDetail; now: number; sessions: { lane: Lane; session: Session }[]; onShowSession: ShowSession }) {
   // Read again as a round ends or begins, and as the window reloads; what was read stays up
   // meanwhile.
   const asked = `${pr.key}@${review.stage}:${review.at}:${review.rounds}`;
@@ -386,7 +387,7 @@ export interface PrReviewProps {
   yours?: Held;
   /** The PR's sessions, each with its worktree, for showing the one that reviewed it. */
   sessions: { lane: Lane; session: Session }[];
-  onShowSession: (lane: Lane, session: Session) => void;
+  onShowSession: ShowSession;
   /** The repos' team files: the Reviews tab says, once, what this PR's repo's team suggests. */
   teamFiles?: TeamFile[];
   /** Whether everyone's reviews follow it in the tab (PrReviewers.tsx); null while they're read. */

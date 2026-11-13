@@ -6,7 +6,7 @@
 // its line has. Clearing the search takes the line away. A session the quick panel shows (`reveal`
 // with `find`) opens with the bar on those words too, and again after the bar was closed when it's
 // shown once more, until another session is selected. A PR one of whose sessions said the words is
-// found in PRs, and that session shown in the PR's place opens with the bar on them. A search typed
+// found in PRs, and that session, shown in the peek from the PR's panel, asks it for the bar on them. A search typed
 // here retires what the quick panel asked: closing the bar and clearing the search doesn't bring
 // it back. With
 // PREVIEW_DEVICES, another device's session its own search found is listed as well. In the quick
@@ -169,11 +169,11 @@
           })
           .then(function (b) {
             b.click();
-            return shown('Said A');
+            return until(function () { return sent('peek_open').length > 0; }, 3000, 'the peek asked for');
           })
-          .then(function () { return until(function () { return !!field() && !!at(); }, 5000).catch(function () {}); })
           .then(function () {
-            check('the session shown in the PR’s place opens with the bar on the words', !!field() && field().value === 'quokka bridge', field() && field().value);
+            var p = sent('peek_open').pop();
+            check('the session, shown in the peek beside the PR’s panel, opens with the bar on the words', p.key === A.key && p.beside === true && p.find === 'quokka bridge', JSON.stringify(p));
           });
       })
       .then(function () {

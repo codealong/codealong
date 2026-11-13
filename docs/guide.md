@@ -71,8 +71,7 @@ a panel, a click does. A PR's chip is the same wherever it is, a row, a panel or
 shows the PR in Codealong, and a double-click opens it on GitHub; a PR Codealong doesn't list opens
 on GitHub on a click too. In Sessions, Todo and Kanban, the PR's panel shows in place of the one
 beside the list, the chip's row selected, with a link back to the row's own panel over it, so the
-list stays as it was; a click on the row goes back too. The same holds for a session shown in a PR's
-or todo's panel: a click on the PR's or todo's row is its own panel again. From PRs, the canvas (its card, when the canvas has one) and the floating
+list stays as it was; a click on the row goes back too. From PRs, the canvas (its card, when the canvas has one) and the floating
 windows, it's the PR's row in PRs. A click waits a quarter of a second for a second one, so a
 double-click doesn't show the PR first. After the number, a mark says where its review stands:
 approved, approved only before its latest commits (an amber clock), changes asked for, your review
@@ -1642,8 +1641,9 @@ title, one line of its repo, branch, author and last update, one of where it sta
 (its pills, the names of any checks that fail, its size and its labels, wrapping as one), and one
 of the worktrees and sessions behind it on this Mac as chips (a worktree's
 chip, then its sessions', each named by its title with its account on hover, the PR's primary
-session marked and first, after its worktree's chip; a click on a session or a worktree shows it in the panel,
-and a right-click gives either's menu). A PR's row on two lines names one of its sessions the same
+session marked and first, after its worktree's chip; a click on a session shows it in the peek beside
+the panel, a click on a worktree shows its panel in the PR's place, and a right-click gives either's
+menu). A PR's row on two lines names one of its sessions the same
 way, its primary one first, and how many more; a todo's row names up to three. The chevron
 beside the title opens its details, and they stay open for the next PR until you close them: the
 whole title, its repo, branch, author, when it was opened and its commits, and the chips as a tree.
@@ -1682,8 +1682,13 @@ else on Reviews when the agent's review is there to read and the PR waits on you
 asked for changes to a PR of yours, else on Description. The tree under On this Mac says whether the
 worktree has anything GitHub doesn't, and lists the agents that worked on the PR, including one
 that made the worktree from another folder, with each one's title and what it's doing. Clicking one
-of those sessions, here or in a todo's panel, shows it in the panel (its conversation, a box to
-answer it) with a link back; in the tree, double-click or its arrow opens it where it runs.
+of those sessions, here or in a todo's panel (or a review's Session link), shows it in the peek
+beside the panel, level with what you clicked and ready to answer, as a card on the desktop does:
+its conversation, on the words a search found the PR by when it did, and a box to answer it. The
+PR or todo stays in the panel and selected in the list; ⏎ sends and puts the peek away, as do
+Escape and a click in the window, and the peek's Main window button shows the session in Sessions,
+in its list and among what waits on you, to go on from there. In the tree a click waits a quarter
+of a second for a second one, and double-click or its arrow opens the session where it runs.
 
 #### Diffs
 
@@ -3133,7 +3138,8 @@ agent that needs you, whose turn just ended, or that's running, one for PRs wait
 to review it there), and one for todos ready to start. The project button beside the mark shows one
 project or all of them; a badge on it counts what needs you in the others. Rest the pointer on a
 session's pill and its peek opens under the bar: the session's conversation, as its panel shows it,
-and a box to answer it. The peek never takes the keyboard by itself, so passing over the bar can't
+and a box to answer it. (A click on a session in a card on the desktop opens it too, by the
+card, and one in a PR's or todo's panel in Codealong beside the panel.) The peek never takes the keyboard by itself, so passing over the bar can't
 take what you're typing elsewhere; click in it to type, and ⏎ sends where the session runs and puts
 it away (Escape does too, keeping what you wrote with the session). A session waiting on you to
 allow a tool call shows it with Allow and Deny above the box; its ⋯ button, or a right-click in it,
