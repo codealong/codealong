@@ -364,8 +364,7 @@ pub(super) fn hosted() -> Server {
     if socket.as_os_str().len() < 104 {
         Server::Socket(socket)
     } else {
-        // SAFETY: getuid can't fail.
-        Server::Socket(PathBuf::from(format!("/tmp/codealong-{}", unsafe { libc::getuid() })).join("tmux.sock"))
+        Server::Socket(PathBuf::from(format!("/tmp/codealong-{}", crate::os::tty::user_id())).join("tmux.sock"))
     }
 }
 
@@ -380,8 +379,7 @@ fn socket_folder(server: &Server) -> Result<()> {
     let Some(dir) = socket.parent() else { return Ok(()) };
     std::fs::create_dir_all(dir)?;
     if dir.starts_with("/tmp") {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
+        crate::os::files::set_mode(dir, 0o700)?;
     }
     Ok(())
 }

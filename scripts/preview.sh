@@ -39,6 +39,7 @@
 # PREVIEW_PLATFORM=linux draws the windows as Linux has them (src/platform.ts): its keys in
 # words (Ctrl+Alt+W for ⌃⌘W) and pressed as Linux presses them, and no room for macOS's window
 # buttons. The screenshot is <view>-linux.png (<view>-linux-dark.png with PREVIEW_SCHEME=dark).
+# PREVIEW_PLATFORM=windows draws them as Windows has them, which is Linux's way, <view>-windows.png.
 # The notch view renders the bar docked in a 14-inch MacBook Pro's notch (185 by 32 points),
 # closed, on a stand-in screen top with its menu bar (default 1512,320); PREVIEW_INIT can point
 # at it to open it, and click a pill to show its session under the pills, which wants a taller

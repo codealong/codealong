@@ -10,8 +10,6 @@
 //!   processes out as well as this one's other threads.
 
 use std::io::Write;
-use std::os::fd::AsRawFd;
-use std::os::unix::fs::OpenOptionsExt;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -91,7 +89,7 @@ fn put(path: &Path, bytes: &[u8], mode: u32) -> Result<()> {
         }
         // One a process of the same number left behind would keep its own permissions.
         let _ = std::fs::remove_file(&tmp);
-        let mut f = std::fs::OpenOptions::new().write(true).create_new(true).mode(mode).open(&tmp)?;
+        let mut f = crate::os::files::create_mode(std::fs::OpenOptions::new().write(true).create_new(true), mode).open(&tmp)?;
         f.write_all(bytes)?;
         drop(f);
         std::fs::rename(&tmp, path)
@@ -120,9 +118,8 @@ pub fn lock(path: &Path) -> Result<Lock> {
         Ok(f) => f,
         Err(e) => bail!("Couldn't lock {}: {e}", name(path)),
     };
-    // SAFETY: flock on a descriptor this process owns; LOCK_EX waits for the other holder.
-    while unsafe { libc::flock(f.as_raw_fd(), libc::LOCK_EX) } != 0 {
-        let e = std::io::Error::last_os_error();
+    // Waits for the other holder.
+    while let Err(e) = f.lock() {
         // A signal that arrives while it waits isn't a reason to give up.
         if e.kind() != std::io::ErrorKind::Interrupted {
             bail!("Couldn't lock {}: {e}", name(path));
@@ -242,7 +239,6 @@ pub fn test_dir(name: &str) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::os::unix::fs::PermissionsExt;
 
     fn files(dir: &Path) -> Vec<String> {
         let mut names: Vec<String> = std::fs::read_dir(dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
@@ -308,12 +304,15 @@ mod tests {
         assert_eq!(files(&dir), ["list.json", "list.json.lock"]);
 
         // Readable as any file this process makes is, unless it's private.
-        let mode = |name: &str| std::fs::metadata(dir.join(name)).unwrap().permissions().mode() & 0o777;
+        let mode = |name: &str| crate::os::files::mode_of(&std::fs::metadata(dir.join(name)).unwrap()) & 0o777;
         std::fs::write(dir.join("plain.json"), "[]").unwrap();
         write(&path, "[]").unwrap();
         write_private(&dir.join("private.json"), b"{}").unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "[]");
-        assert_eq!((mode("list.json"), mode("private.json")), (mode("plain.json"), 0o600));
+        // Only POSIX has modes: on Windows a file in your profile is yours alone already.
+        if cfg!(unix) {
+            assert_eq!((mode("list.json"), mode("private.json")), (mode("plain.json"), 0o600));
+        }
         std::fs::remove_file(dir.join("plain.json")).unwrap();
         assert_eq!(files(&dir), ["list.json", "list.json.lock", "private.json"]);
 

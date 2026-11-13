@@ -2052,9 +2052,8 @@ fn one_at_a_time(device: &str) -> std::sync::Arc<std::sync::Mutex<()>> {
 /// and no bigger than `most`.
 fn kept_image(file: &std::path::Path, most: usize) -> Result<Vec<u8>, String> {
     use std::io::Read;
-    use std::os::unix::fs::OpenOptionsExt;
     let gone = || "That image is gone from this Mac.".to_string();
-    let f = std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW).open(file).map_err(|_| gone())?;
+    let f = crate::os::files::open_no_follow(file).map_err(|_| gone())?;
     let meta = f.metadata().map_err(|_| gone())?;
     if !meta.is_file() {
         return Err(gone());
@@ -2320,7 +2319,7 @@ mod tests {
         std::fs::write(&secret, b"secret").unwrap();
         let link = dir.join("fedcba9876543210.png");
         let _ = std::fs::remove_file(&link);
-        std::os::unix::fs::symlink(&secret, &link).unwrap();
+        crate::os::files::symlink(&secret, &link).unwrap();
         assert!(kept_image(&link, 100).is_err());
         assert!(kept_image(&dir, 100).is_err());
         std::fs::remove_dir_all(&dir).unwrap();

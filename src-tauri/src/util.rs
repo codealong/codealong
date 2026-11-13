@@ -38,8 +38,10 @@ pub fn now_ms() -> i64 {
         .unwrap_or(0)
 }
 
+/// `$HOME` first, which is where macOS and Linux look anyway, so that on Windows too a copy given
+/// a home of its own (a test's, or one run to debug) keeps everything in it.
 pub fn home() -> PathBuf {
-    dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"))
+    std::env::var_os("HOME").filter(|h| !h.is_empty()).map(PathBuf::from).or_else(dirs::home_dir).unwrap_or_else(|| PathBuf::from("/"))
 }
 
 /// Expands a leading `~` to the home directory.
@@ -388,16 +390,14 @@ pub fn iso_utc(ms: i64) -> String {
 
 /// Today on this Mac's clock, as days since 1970-01-01.
 pub(crate) fn today_local() -> i64 {
-    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0) as libc::time_t;
-    // SAFETY: localtime_r fills the struct it's given; a zeroed tm is a valid one.
-    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-    unsafe { libc::localtime_r(&secs, &mut tm) };
+    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0) as i64;
+    let tm = crate::os::system::localtime(secs);
     days_from_civil(tm.tm_year as i64 + 1900, tm.tm_mon as i64 + 1, tm.tm_mday as i64)
 }
 
 /// A time on this Mac's clock, in its time zone as it was on that day, as epoch milliseconds.
 pub(crate) fn local_ms(year: i64, month: i64, day: i64, hour: i64, minute: i64, second: i64, millis: i64) -> Option<i64> {
-    // SAFETY: a zeroed tm is a valid one, and mktime only reads and normalizes the one it's given.
+    // SAFETY: a zeroed tm is a valid one.
     let mut tm: libc::tm = unsafe { std::mem::zeroed() };
     tm.tm_year = (year - 1900) as libc::c_int;
     tm.tm_mon = (month - 1) as libc::c_int;
@@ -407,8 +407,7 @@ pub(crate) fn local_ms(year: i64, month: i64, day: i64, hour: i64, minute: i64, 
     tm.tm_sec = second as libc::c_int;
     // Whether summer time applies is the zone's to say.
     tm.tm_isdst = -1;
-    let secs = unsafe { libc::mktime(&mut tm) };
-    (secs != -1).then(|| secs as i64 * 1000 + millis)
+    crate::os::system::mktime(&mut tm).map(|secs| secs * 1000 + millis)
 }
 
 /// Names as a sentence lists them, the last after `last` ("and", "or"): "a", "a or b", "a, b
@@ -782,12 +781,11 @@ pub fn parallel_map<T: Send, R: Send>(items: Vec<T>, f: impl Fn(T) -> Option<R> 
 /// it, as the harnesses write theirs, and readable only by you, as they keep them.
 pub fn write_whole(file: &Path, text: &str) -> anyhow::Result<()> {
     use std::io::Write;
-    use std::os::unix::fs::OpenOptionsExt;
     let target = std::fs::canonicalize(file).unwrap_or_else(|_| file.to_path_buf());
     let name = target.file_name().and_then(|n| n.to_str()).unwrap_or("file");
     let temp = target.with_file_name(format!("{name}.codealong-{}", std::process::id()));
     let written = (|| -> std::io::Result<()> {
-        let mut f = std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(&temp)?;
+        let mut f = crate::os::files::create_mode(std::fs::OpenOptions::new().write(true).create(true).truncate(true), 0o600).open(&temp)?;
         f.write_all(text.as_bytes())?;
         f.sync_all()?;
         std::fs::rename(&temp, &target)
@@ -886,10 +884,7 @@ mod tests {
     fn reads_a_time_on_this_macs_clock() {
         let ms = local_ms(2026, 10, 14, 17, 45, 37, 928).unwrap();
         assert_eq!(ms % 1000, 928);
-        let secs = (ms / 1000) as libc::time_t;
-        // SAFETY: localtime_r fills the struct it's given; a zeroed tm is a valid one.
-        let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-        unsafe { libc::localtime_r(&secs, &mut tm) };
+        let tm = crate::os::system::localtime(ms / 1000);
         assert_eq!((tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec), (2026, 10, 14, 17, 45, 37));
     }
 

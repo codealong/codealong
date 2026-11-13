@@ -316,9 +316,8 @@ pub fn plan_now(board: &Board, cfg: &Config, after_ms: i64) -> Plan {
 /// When something was last typed in the terminal `pid` runs in: its device's access time, which
 /// moves as the program there reads what was typed. None for a process with no terminal.
 fn typed_at(pid: u32) -> Option<i64> {
-    use std::os::unix::fs::MetadataExt;
     let m = std::fs::metadata(crate::procs::tty(pid)?).ok()?;
-    Some(m.atime() * 1000 + m.atime_nsec() / 1_000_000)
+    Some(m.accessed().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_millis() as i64)
 }
 
 /// The processes now, each with its command line; none when they couldn't be listed.

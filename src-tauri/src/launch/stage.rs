@@ -1493,6 +1493,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn things_open_through_macos_open_with_each_ones_arguments_wait_and_words() {
         let ok = |_: &Sent| Ok(String::new());
         let no = |s: &Sent| if s.what == "/usr/bin/open" { Err("/usr/bin/open no such app".to_string()) } else { Ok(String::new()) };
@@ -1518,7 +1519,7 @@ mod tests {
         std::fs::create_dir_all(&app).unwrap();
         // A link named as a picture, to a script, is the script's.
         let disguised = dir.join("chart.png");
-        std::os::unix::fs::symlink(&script, &disguised).unwrap();
+        crate::os::files::symlink(&script, &disguised).unwrap();
         let p = played(ok, || [&shot, &script, &program, &app, &disguised].map(|f| open_file(f).is_ok()));
         assert_eq!(p.got, [true; 5]);
         let shown = |f: &Path| f.to_string_lossy().into_owned();

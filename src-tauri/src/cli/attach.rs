@@ -8,13 +8,14 @@
 //! This terminal is put in raw mode while it's attached, so every key goes through as it is, and
 //! put back as it lets go, with the modes the program had it in turned off again.
 
-use std::io::{BufRead, BufReader, Read, Write};
-use std::os::unix::net::UnixStream;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::io::{BufRead, BufReader, IsTerminal, Read, Write};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::{anyhow, bail, Result};
 
+use crate::os::sock::UnixStream;
+use crate::os::tty;
 use crate::server::{AttachIn, Request};
 
 /// What this terminal sends for Ctrl+\, which lets go, as dtach's does: the byte itself, or its
@@ -34,17 +35,13 @@ const PUT_BACK: &str = "\x1b[?1049l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\
 /// How often this terminal's size is looked at.
 const SIZE_EVERY: Duration = Duration::from_millis(250);
 
-/// This terminal's settings before it was put in raw mode, put back as it lets go.
-static SAVED: OnceLock<libc::termios> = OnceLock::new();
-
 pub fn run(what: &str) -> Result<()> {
-    // SAFETY: isatty only asks about a descriptor.
-    if unsafe { libc::isatty(0) } != 1 || unsafe { libc::isatty(1) } != 1 {
+    if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
         bail!("`codealong terminal attach` shows a terminal of Codealong's in this one, so it runs only in a terminal.");
     }
     crate::serve::ensure(false, None).map_err(|e| anyhow!(e))?;
     let mut stream = UnixStream::connect(crate::server::path())?;
-    let (cols, rows) = size_of(1).unwrap_or((80, 24));
+    let (cols, rows) = tty::size().unwrap_or((80, 24));
     writeln!(stream, "{}", serde_json::to_string(&Request::TerminalAttach { terminal: what.to_string(), cols, rows })?)?;
     let mut reader = BufReader::new(stream.try_clone()?);
     let mut line = String::new();
@@ -55,7 +52,9 @@ pub fn run(what: &str) -> Result<()> {
     }
     let r = &reply["result"];
     let name = [r["title"].as_str(), r["shell"].as_str()].into_iter().flatten().map(str::trim).find(|n| !n.is_empty()).unwrap_or("the terminal").to_string();
-    raw_mode()?;
+    // Every key reaches the program as it's typed, nothing echoed or taken by this terminal's line
+    // discipline (Ctrl+C included, which goes to the program).
+    tty::raw()?;
     let writer = Arc::new(Mutex::new(stream));
     // What the program prints, to this terminal: the screen first, which is in the reader already.
     {
@@ -83,7 +82,7 @@ pub fn run(what: &str) -> Result<()> {
             let mut last = (cols, rows);
             loop {
                 std::thread::sleep(SIZE_EVERY);
-                if let Some(now) = size_of(1).filter(|now| *now != last) {
+                if let Some(now) = tty::size().filter(|now| *now != last) {
                     last = now;
                     if send(&writer, &AttachIn::Size { cols: now.0, rows: now.1 }).is_err() {
                         return;
@@ -92,29 +91,27 @@ pub fn run(what: &str) -> Result<()> {
             }
         });
     }
-    // What's typed here, until Ctrl+\. Read from the descriptor itself, not through a buffer of
-    // the standard library's, so a wait for more (`HOLD`) sees everything that came.
+    // What's typed here, until Ctrl+\. Read from stdin itself, not through a buffer of the standard
+    // library's, so a wait for more (`HOLD`) sees everything that came (`tty::read_stdin`).
     let mut buf = [0u8; 4096];
     let mut held: Vec<u8> = Vec::new();
     loop {
         // What's held for the let-go sequence goes as it is once nothing more comes in time (an
         // Escape alone, say); a character that hasn't come whole waits for the rest however long.
-        if waits_for_more(&held) && !crate::terminals::pty::readable(0, HOLD) {
+        if waits_for_more(&held) && !tty::stdin_ready(HOLD) {
             let now = timed_out(&mut held);
             if send(&writer, &AttachIn::Text { text: String::from_utf8_lossy(&now).into_owned() }).is_err() {
                 break;
             }
             continue;
         }
-        // SAFETY: read into a buffer of ours, of its length, from this process's stdin.
-        let n = unsafe { libc::read(0, buf.as_mut_ptr().cast(), buf.len()) };
-        if n <= 0 {
-            if n < 0 && std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
-                continue;
-            }
-            break;
-        }
-        let (text, lets_go) = typed(&mut held, &buf[..n as usize]);
+        let n = match tty::read_stdin(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => n,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => break,
+        };
+        let (text, lets_go) = typed(&mut held, &buf[..n]);
         if !text.is_empty() && send(&writer, &AttachIn::Text { text: String::from_utf8_lossy(&text).into_owned() }).is_err() {
             break;
         }
@@ -181,41 +178,11 @@ fn send(to: &Mutex<UnixStream>, what: &AttachIn) -> std::io::Result<()> {
 
 /// Puts this terminal back as it was and says why it let go.
 fn finish(said: &str) -> ! {
-    if let Some(saved) = SAVED.get() {
-        // SAFETY: tcsetattr with settings tcgetattr gave for the same descriptor.
-        unsafe { libc::tcsetattr(0, libc::TCSANOW, saved) };
-    }
+    tty::restore();
     let mut out = std::io::stdout();
     let _ = write!(out, "{PUT_BACK}\r\n{said}\r\n");
     let _ = out.flush();
     std::process::exit(0)
-}
-
-/// Raw mode: every key reaches the program as it's typed, nothing echoed or taken by this
-/// terminal's line discipline (Ctrl+C included, which goes to the program).
-fn raw_mode() -> Result<()> {
-    // SAFETY: tcgetattr fills a plain struct for an open descriptor; cfmakeraw and tcsetattr take it.
-    unsafe {
-        let mut t: libc::termios = std::mem::zeroed();
-        if libc::tcgetattr(0, &mut t) != 0 {
-            bail!("Couldn't read this terminal's settings: {}", std::io::Error::last_os_error());
-        }
-        let _ = SAVED.set(t);
-        libc::cfmakeraw(&mut t);
-        if libc::tcsetattr(0, libc::TCSANOW, &t) != 0 {
-            bail!("Couldn't put this terminal in raw mode: {}", std::io::Error::last_os_error());
-        }
-    }
-    Ok(())
-}
-
-/// A terminal's size in cells, by a descriptor on it.
-fn size_of(fd: i32) -> Option<(u16, u16)> {
-    // SAFETY: TIOCGWINSZ fills a plain struct for an open descriptor.
-    unsafe {
-        let mut ws: libc::winsize = std::mem::zeroed();
-        (libc::ioctl(fd, libc::TIOCGWINSZ, &mut ws) == 0 && ws.ws_col > 0 && ws.ws_row > 0).then_some((ws.ws_col, ws.ws_row))
-    }
 }
 
 #[cfg(test)]

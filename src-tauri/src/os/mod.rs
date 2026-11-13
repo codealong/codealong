@@ -1,24 +1,27 @@
-//! Everything Codealong asks of the operating system it runs on, macOS or Linux, in one place.
+//! Everything Codealong asks of the operating system it runs on, macOS, Linux or Windows, in one
+//! place.
 //! What differs between them is of two kinds, kept apart so that as much as can be is compiled
 //! and tested on either:
 //!
 //! - What only one OS has to call: AppKit and WebKit through objc2, GTK, and the kernel's own
 //!   calls (`proc_pidinfo`, `sysctl` and kqueue on macOS; `/proc`, eventfd and pidfds on Linux).
-//!   Each area of it here has a `macos.rs` and a `linux.rs` that give the same functions, and its
-//!   `mod.rs` picks one as Codealong is built. Here, and nowhere else, `cfg(target_os)` decides
+//!   On Windows, Win32 through windows-sys. Each area of it here has a `macos.rs`, a `linux.rs`
+//!   and a `windows.rs` that give the same functions, and its `mod.rs` picks one as Codealong is
+//!   built. Here, and nowhere else, `cfg(target_os)` decides
 //!   what's compiled (`tests::only_os_compiles_by_os`).
 //! - What differs by OS but calls nothing of it: where an app keeps its files, which program opens
 //!   a link, which terminals there are, how Claude Code keeps its sign-in. That goes by
 //!   `current()`, a value, so both OSes' ways compile and are tested on either, and a test can
 //!   ask as if on the other (`as_if`).
 //!
-//! What one OS has and the other hasn't: where there's nothing to do on the other (no App Nap, no
+//! What one OS has and another hasn't: where there's nothing to do on the other (no App Nap, no
 //! Dock icon), its side does nothing and its comment says why; where something was asked for that
-//! can't be done there (an app opened by its name), it fails with `only_on_macos`, in words the
-//! caller passes on.
+//! can't be done there (an app opened by its name), it fails with `only_on_macos`, or
+//! `not_on_windows` for what macOS and Linux have and Windows hasn't yet, in words the caller
+//! passes on.
 
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
-compile_error!("Codealong runs on macOS and Linux.");
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+compile_error!("Codealong runs on macOS, Linux and Windows.");
 
 pub mod apps;
 pub mod background;
@@ -30,9 +33,12 @@ pub mod naps;
 pub mod open;
 pub mod outline;
 pub mod procs;
+pub mod pty;
 pub mod secrets;
+pub mod sock;
 pub mod sound;
 pub mod system;
+pub mod tty;
 pub mod windows;
 
 /// An operating system Codealong runs on.
@@ -40,10 +46,17 @@ pub mod windows;
 pub enum Os {
     MacOs,
     Linux,
+    Windows,
 }
 
 /// The OS Codealong was built for, whatever a test asks as if on.
-pub const NATIVE: Os = if cfg!(target_os = "macos") { Os::MacOs } else { Os::Linux };
+pub const NATIVE: Os = if cfg!(target_os = "macos") {
+    Os::MacOs
+} else if cfg!(target_os = "windows") {
+    Os::Windows
+} else {
+    Os::Linux
+};
 
 /// The OS whose ways Codealong goes by: the one it runs on, or in a test the one it asks as if on.
 pub fn current() -> Os {
@@ -58,10 +71,21 @@ pub fn is_macos() -> bool {
     current() == Os::MacOs
 }
 
+pub fn is_windows() -> bool {
+    current() == Os::Windows
+}
+
 /// What's said of something asked for that only macOS does: "Opening an app by its name is only
 /// on macOS."
 pub fn only_on_macos(what: &str) -> anyhow::Error {
     anyhow::anyhow!("{what} is only on macOS.")
+}
+
+/// What's said of something macOS and Linux do that Windows doesn't yet: "Typing into a terminal
+/// isn't on Windows yet."
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn not_on_windows(what: &str) -> anyhow::Error {
+    anyhow::anyhow!("{what} isn't on Windows yet.")
 }
 
 #[cfg(test)]

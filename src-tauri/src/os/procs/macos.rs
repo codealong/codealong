@@ -402,7 +402,7 @@ extern "C" {
 /// another thread starts in that moment would get them too, which is why the server hands over
 /// one socket this way rather than its terminals (serve.rs `hand_over`). Returns only when it
 /// couldn't: why.
-pub fn exec_keeping(exe: &std::path::Path, args: &[std::ffi::OsString], env: &[(std::ffi::OsString, std::ffi::OsString)], keep: &[std::os::fd::RawFd]) -> std::io::Error {
+pub fn exec_keeping(exe: &std::path::Path, args: &[std::ffi::OsString], env: &[(std::ffi::OsString, std::ffi::OsString)], keep: &[super::Fd]) -> std::io::Error {
     use std::ffi::CString;
     use std::os::unix::ffi::OsStrExt;
     let c = |bytes: &[u8]| CString::new(bytes).map_err(|_| std::io::Error::other("a NUL in what to run"));

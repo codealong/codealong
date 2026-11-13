@@ -2,7 +2,8 @@
 //! it and is nobody's child but the system's: the app, or the `codealong` command run in a
 //! terminal or an agent's shell, which may be in a sandbox the server mustn't inherit. On macOS
 //! it's a launchd job in your login session, given the environment the Dock gives an app; on Linux
-//! a process in a session of its own (`setsid`), which a closing terminal doesn't take with it.
+//! a process in a session of its own (`setsid`), which a closing terminal doesn't take with it, and
+//! on Windows one detached from the starter's console, process group and job.
 //! Stopping it is asking it to quit over its socket (server.rs); on macOS the job is then taken
 //! out of launchd too (`unload`), so nothing starts it again.
 
@@ -40,12 +41,12 @@ pub fn label(support: &Path) -> String {
 pub fn start(job: &Job, support: &Path) -> Result<()> {
     match super::current() {
         Os::MacOs => start_in_launchd(job, support),
-        Os::Linux => start_detached(job),
+        Os::Linux | Os::Windows => start_detached(job),
     }
 }
 
-/// Takes the server's job out of launchd, stopping it if it still runs. Nothing to do on Linux,
-/// where it isn't anyone's job and asking it to quit was all.
+/// Takes the server's job out of launchd, stopping it if it still runs. Nothing to do on Linux
+/// and Windows, where it isn't anyone's job and asking it to quit was all.
 pub fn unload(support: &Path) {
     if super::is_macos() {
         let label = label(support);
@@ -59,8 +60,7 @@ pub fn unload(support: &Path) {
 /// while you're logged in at the screen, and has what the server asks of the Mac (other apps
 /// scripted, the keychain); `user/<uid>` is there over SSH alone.
 fn domains() -> [String; 2] {
-    // SAFETY: getuid only reads this process's user id.
-    let uid = unsafe { libc::getuid() };
+    let uid = super::tty::user_id();
     [format!("gui/{uid}"), format!("user/{uid}")]
 }
 
@@ -115,14 +115,22 @@ fn plist_for(job: &Job, label: &str) -> plist::Value {
     Value::Dictionary(d)
 }
 
-/// `<exe> serve` in a session of its own, with nothing of this process's but what `job` gives it.
+/// `<exe> serve` on its own (`detach`), with nothing of this process's but what `job` gives it.
 /// Its parent waits for it on a thread, so it isn't left a zombie should it end while the app that
 /// started it runs on.
 fn start_detached(job: &Job) -> Result<()> {
-    use std::os::unix::process::CommandExt;
     let log = std::fs::OpenOptions::new().create(true).append(true).open(job.log).with_context(|| format!("opening {}", job.log.display()))?;
     let mut cmd = std::process::Command::new(job.exe);
     cmd.arg("serve").env_clear().envs(job.env.iter().map(|(k, v)| (k, v))).stdin(std::process::Stdio::null()).stdout(log.try_clone()?).stderr(log);
+    let mut child = detach(&mut cmd).with_context(|| format!("starting {}", job.exe.display()))?;
+    std::thread::spawn(move || child.wait());
+    Ok(())
+}
+
+/// Starts it in a session of its own.
+#[cfg(unix)]
+fn detach(cmd: &mut std::process::Command) -> std::io::Result<std::process::Child> {
+    use std::os::unix::process::CommandExt;
     // SAFETY: setsid is async-signal-safe, and is all that runs between fork and exec.
     unsafe {
         cmd.pre_exec(|| {
@@ -130,9 +138,19 @@ fn start_detached(job: &Job) -> Result<()> {
             Ok(())
         });
     }
-    let mut child = cmd.spawn().with_context(|| format!("starting {}", job.exe.display()))?;
-    std::thread::spawn(move || child.wait());
-    Ok(())
+    cmd.spawn()
+}
+
+/// Starts it with no console and in a process group of its own, so a closing console or its
+/// Ctrl+C doesn't reach it, and out of the job the starter runs in (a terminal's, an IDE's),
+/// which may end every process in it as it closes. A job that lets nothing out refuses the
+/// breakaway: then it's started in the job after all.
+#[cfg(windows)]
+fn detach(cmd: &mut std::process::Command) -> std::io::Result<std::process::Child> {
+    use std::os::windows::process::CommandExt;
+    use windows_sys::Win32::System::Threading::{CREATE_BREAKAWAY_FROM_JOB, CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW};
+    let flags = CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP;
+    cmd.creation_flags(flags | CREATE_BREAKAWAY_FROM_JOB).spawn().or_else(|_| cmd.creation_flags(flags).spawn())
 }
 
 /// Where the server's output goes: beside Codealong's other logs.

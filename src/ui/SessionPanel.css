@@ -191,15 +191,17 @@
   margin: 0 3px;
   background: var(--line);
 }
-/* Linux says its keys in words (Ctrl+Alt+W, platform.ts), which take half again the room macOS's
-   signs do, so there they draw tighter, and as many fit at the width a session's panel has in the
-   main window. */
-.is-linux .ca-hotkey kbd {
+/* Linux and Windows say their keys in words (Ctrl+Alt+W, platform.ts), which take half again the
+   room macOS's signs do, so there they draw tighter, and as many fit at the width a session's
+   panel has in the main window. */
+.is-linux .ca-hotkey kbd,
+.is-windows .ca-hotkey kbd {
   padding: 0 2px;
   letter-spacing: -0.02em;
 }
 @container queuestrip (max-width: 520px) {
-  .is-linux .ca-hotkey {
+  .is-linux .ca-hotkey,
+  .is-windows .ca-hotkey {
     padding: 0 1px;
   }
 }

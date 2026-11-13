@@ -387,10 +387,7 @@ pub fn on_offer<'a>(events: &'a [Meeting], rules: &Rules, answered: &HashMap<Str
 
 /// A local time's parts: year, month, day, hour, minute.
 fn local(ms: i64) -> (i32, u32, u32, u32, u32) {
-    let secs = ms.div_euclid(1000) as libc::time_t;
-    // SAFETY: localtime_r fills the struct it's given; a zeroed tm is a valid one.
-    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-    unsafe { libc::localtime_r(&secs, &mut tm) };
+    let tm = crate::os::system::localtime(ms.div_euclid(1000));
     (tm.tm_year + 1900, (tm.tm_mon + 1) as u32, tm.tm_mday as u32, tm.tm_hour as u32, tm.tm_min as u32)
 }
 

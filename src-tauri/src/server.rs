@@ -1,5 +1,5 @@
 //! The server's socket (serve.rs), for the `codealong` command (cli.rs) and the app (view.rs):
-//! JSON lines over a Unix socket next to the config, one request per line and one reply per line.
+//! JSON lines over a Unix socket next to the config (an AF_UNIX socket on Windows too, os/sock.rs), one request per line and one reply per line.
 //! A request is what a window's command does, through the same engine handle, so the engine stays
 //! the one writer of todos.json and a reply is the board the windows have. An app also holds a
 //! connection open that the server writes events to (`Subscribe`, views.rs), and hands it the
@@ -7,14 +7,13 @@
 //! running the server, and only them.
 
 use std::io::{BufRead, BufReader, Read, Write};
-use std::os::unix::fs::PermissionsExt;
-use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use crate::config::support_dir;
+use crate::os::sock::{UnixListener, UnixStream};
 use crate::calls::Ctx;
 use crate::engine::Handle;
 use crate::peers::{AskView, DeviceView, DevicesView, FoundView, MeView};
@@ -296,13 +295,12 @@ pub fn serve(bound: Bound, ctx: Ctx) -> Result<(), String> {
         .map_err(|e| format!("Couldn't start the socket's thread: {e}"))
 }
 
-/// The socket at `p`, mode 0600, and which socket it is (`socket_id`), told as it's bound, before
+/// The socket at `p`, mode 0600, and which socket it is (`os::sock::id`), told as it's bound, before
 /// anything can close it.
 fn listen(p: &Path) -> std::io::Result<(UnixListener, Option<(u64, u64)>)> {
-    use std::os::fd::AsRawFd;
     let listener = UnixListener::bind(p)?;
-    let _ = std::fs::set_permissions(p, std::fs::Permissions::from_mode(0o600));
-    let id = socket_id(listener.as_raw_fd());
+    let _ = crate::os::files::set_mode(p, 0o600);
+    let id = crate::os::sock::id(&listener);
     Ok((listener, id))
 }
 
@@ -322,14 +320,12 @@ fn listen(p: &Path) -> std::io::Result<(UnixListener, Option<(u64, u64)>)> {
 /// leaves the old. The old number is closed only while it's still the old socket's, since once
 /// it was closed under it, it may be the new socket's or another part of the app's.
 fn accept_on(p: &Path, (mut listener, mut id): (UnixListener, Option<(u64, u64)>), mut serve: impl FnMut(UnixStream)) {
-    use std::os::fd::{AsRawFd, IntoRawFd};
-
     // A socket that can't be told is taken for one that isn't the listener's.
-    let still = |fd, id: Option<(u64, u64)>| id.is_some() && socket_id(fd) == id;
+    let still = |l: &UnixListener, id: Option<(u64, u64)>| id.is_some() && crate::os::sock::id(l) == id;
     loop {
         // Asked before each accept, since a number closed meanwhile may be another listening
         // socket's by now, which accept would wait on and serve.
-        let why = if !still(listener.as_raw_fd(), id) {
+        let why = if !still(&listener, id) {
             "its descriptor isn't the socket's any more".to_string()
         } else {
             match listener.accept() {
@@ -354,10 +350,11 @@ fn accept_on(p: &Path, (mut listener, mut id): (UnixListener, Option<(u64, u64)>
         match listen(&fresh).and_then(|l| std::fs::rename(&fresh, p).map(|_| l)) {
             Ok((l, new_id)) => {
                 let old = std::mem::replace(&mut listener, l);
-                if still(old.as_raw_fd(), id) {
+                if still(&old, id) {
                     drop(old);
                 } else {
-                    let _ = old.into_raw_fd();
+                    // Its number is someone else's now: forgotten, not closed.
+                    std::mem::forget(old);
                 }
                 id = new_id;
             }
@@ -367,14 +364,6 @@ fn accept_on(p: &Path, (mut listener, mut id): (UnixListener, Option<(u64, u64)>
             }
         }
     }
-}
-
-/// Which socket a listener's descriptor `fd` is now, by its device and inode, which a copy of it
-/// shares and no other socket or file has; None once the descriptor is closed.
-fn socket_id(fd: std::os::fd::RawFd) -> Option<(u64, u64)> {
-    // SAFETY: fstat only writes the struct it's given, and fails on a closed descriptor.
-    let mut st: libc::stat = unsafe { std::mem::zeroed() };
-    (unsafe { libc::fstat(fd, &mut st) } == 0).then_some((st.st_dev as u64, st.st_ino as u64))
 }
 
 fn connection(stream: UnixStream, ctx: &Ctx) {
@@ -893,23 +882,24 @@ pub fn opened_plainly(args: &[String]) -> bool {
 /// running one be and says why instead.
 pub fn take_over(opened_plainly: bool) -> Result<(), String> {
     let Some(Ok(status)) = ask_within(&Request::Status, Duration::from_secs(3)) else { return Ok(()) };
-    let Some(pid) = status.get("pid").and_then(Value::as_u64).map(|p| p as libc::pid_t) else { return Ok(()) };
+    let Some(pid) = status.get("pid").and_then(Value::as_u64).map(|p| p as u32) else { return Ok(()) };
     if !opened_plainly {
         return Err(format!("Codealong is already running (pid {pid}), and that isn't a codealong command: see codealong --help."));
     }
+    use crate::os::procs::{alive, signal, Signal};
     if !matches!(ask_within(&Request::Quit, Duration::from_secs(3)), Some(Ok(_))) {
-        unsafe { libc::kill(pid, libc::SIGTERM) };
+        let _ = signal(pid, Signal::Terminate);
     }
     // Five seconds to quit, then SIGTERM; three more, then SIGKILL: a copy that hangs on quitting
     // would otherwise keep this one from ever opening.
     for tenth in 0..100 {
-        if unsafe { libc::kill(pid, 0) } != 0 {
+        if !alive(pid) {
             return Ok(());
         }
-        match tenth {
-            50 => unsafe { libc::kill(pid, libc::SIGTERM) },
-            80 => unsafe { libc::kill(pid, libc::SIGKILL) },
-            _ => 0,
+        let _ = match tenth {
+            50 => signal(pid, Signal::Terminate),
+            80 => signal(pid, Signal::Kill),
+            _ => Ok(()),
         };
         std::thread::sleep(Duration::from_millis(100));
     }
@@ -923,6 +913,7 @@ mod tests {
     /// A socket `accept_on` serves in a folder of its own, answering each request with a 1 MB
     /// reply: its path, the listener's descriptor, the inode at its path, and the reply. `before`
     /// is done to the descriptor before the thread that serves it starts.
+    #[cfg(unix)]
     fn served(name: &str, before: impl FnOnce(i32)) -> (PathBuf, i32, u64, String) {
         use std::os::fd::AsRawFd;
         use std::os::unix::fs::MetadataExt;
@@ -947,7 +938,16 @@ mod tests {
         (p, fd, first, expected)
     }
 
+    /// Which socket the descriptor `fd` is, as `os::sock::id` tells a listener's.
+    #[cfg(unix)]
+    fn socket_id(fd: i32) -> Option<(u64, u64)> {
+        // SAFETY: fstat only writes the struct it's given, and fails on a closed descriptor.
+        let mut st: libc::stat = unsafe { std::mem::zeroed() };
+        (unsafe { libc::fstat(fd, &mut st) } == 0).then_some((st.st_dev as u64, st.st_ino as u64))
+    }
+
     /// Whether another socket than the one with inode `first` is at `p` within `wait`.
+    #[cfg(unix)]
     fn reopened(p: &Path, first: u64, wait: Duration) -> bool {
         use std::os::unix::fs::MetadataExt;
         let since = std::time::Instant::now();
@@ -963,6 +963,7 @@ mod tests {
     /// What the running app's listener went through (`accept_on`): its descriptor replaced while
     /// accept waits on it. A long reply still comes whole, from the socket opened in its place.
     #[test]
+    #[cfg(unix)]
     fn a_listener_replaced_under_its_accept_still_answers_in_full() {
         let (p, fd, first, expected) = served("replaced", |_| {});
         let ours = socket_id(fd);
@@ -1000,6 +1001,7 @@ mod tests {
     /// to take: it isn't closed with the old one's, and goes on answering. Closed while accept
     /// waits on it, or before its thread starts.
     #[test]
+    #[cfg(unix)]
     fn a_listener_closed_under_its_accept_is_opened_again_and_kept() {
         for closed_first in [true, false] {
             // Linux leaves an accept waiting on a closed descriptor's socket, until a command comes.
@@ -1031,6 +1033,7 @@ mod tests {
     /// a new socket is opened at its path rather than the other one served, and the other's
     /// number is left to it.
     #[test]
+    #[cfg(unix)]
     fn a_listener_whose_number_another_listener_took_is_opened_again() {
         use std::os::fd::AsRawFd;
 

@@ -14,7 +14,7 @@
 //! instead, as the engine always was, and goes when the app does.
 
 use std::io::{BufRead, BufReader, Write};
-use std::os::unix::net::UnixStream;
+use crate::os::sock::UnixStream;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, RwLock};
 use std::time::Duration;
@@ -134,8 +134,8 @@ pub fn take_over(opened_plainly: bool, since: i64) -> Result<(), String> {
         // A server too busy to answer: the apps it has are ended here instead.
         _ => {
             for view in status.views.iter().filter(|v| v.since < since) {
-                // SAFETY: kill only signals a process; one gone by now is refused.
-                unsafe { libc::kill(view.pid as libc::pid_t, libc::SIGTERM) };
+                // One gone by now is refused.
+                let _ = crate::os::procs::signal(view.pid, crate::os::procs::Signal::Terminate);
             }
             Ok(())
         }

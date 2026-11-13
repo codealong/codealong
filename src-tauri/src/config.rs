@@ -1288,7 +1288,7 @@ pub struct DefaultShortcuts {
 pub fn default_shortcuts() -> DefaultShortcuts {
     match crate::os::current() {
         crate::os::Os::MacOs => DefaultShortcuts { quick_panel: "Option+Cmd+/", chat: "Option+Cmd+'", waiting: "Option+Cmd+.", improve: "Option+Cmd+,", main_window: "Option+Cmd+;", talk: "Option+Cmd+[", talk_orchestrator: "Option+Cmd+]", listen: "Option+Cmd+=" },
-        crate::os::Os::Linux => DefaultShortcuts { quick_panel: "Ctrl+Alt+/", chat: "Ctrl+Alt+'", waiting: "Ctrl+Alt+.", improve: "Ctrl+Alt+,", main_window: "Ctrl+Alt+;", talk: "Ctrl+Alt+[", talk_orchestrator: "Ctrl+Alt+]", listen: "Ctrl+Alt+=" },
+        crate::os::Os::Linux | crate::os::Os::Windows => DefaultShortcuts { quick_panel: "Ctrl+Alt+/", chat: "Ctrl+Alt+'", waiting: "Ctrl+Alt+.", improve: "Ctrl+Alt+,", main_window: "Ctrl+Alt+;", talk: "Ctrl+Alt+[", talk_orchestrator: "Ctrl+Alt+]", listen: "Ctrl+Alt+=" },
     }
 }
 
@@ -2003,7 +2003,7 @@ fn debug_comment() -> String {
 fn shortcuts_comment() -> String {
     let (a, b) = match crate::os::current() {
         crate::os::Os::MacOs => ("Option+Cmd+/", "Cmd+Ctrl+K"),
-        crate::os::Os::Linux => ("Ctrl+Alt+/", "Ctrl+Shift+K"),
+        crate::os::Os::Linux | crate::os::Os::Windows => ("Ctrl+Alt+/", "Ctrl+Shift+K"),
     };
     format!("# Shortcuts that work in any app, such as \"{a}\" or \"{b}\". \"\" turns one off.\n# quick_panel opens the quick panel: find a session, or start one.\n# chat opens the quick panel set to start a chat of its own, in no project.\n# waiting opens the first session that waits on you, to answer one after another: in the notch\n# when the bar is docked there, else in the waiting window.\n# improve opens the quick panel to improve Codealong itself, with pictures of its windows.\n# main_window brings Codealong's window forward, or hides Codealong when it's the window you're in.\n# talk and talk_orchestrator, with [experimental] voice on, are held while you talk: to the session\n# you're looking at, and to your orchestrator. listen, with voice on, opens the quick panel set to\n# listen: Codealong hears a meeting from then on.\n")
 }

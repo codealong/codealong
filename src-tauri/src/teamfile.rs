@@ -855,7 +855,7 @@ rerequest_after_fixes = true
         let outside = dir.join("outside.md");
         std::fs::write(&outside, "Secret words.").unwrap();
         std::fs::write(dir.join(FILE), "[reviews]\ninstructions_file = \"review.md\"\n").unwrap();
-        std::os::unix::fs::symlink(&outside, dir.join(".codealong/review.md")).unwrap();
+        crate::os::files::symlink(&outside, dir.join(".codealong/review.md")).unwrap();
         let e = read_folder(&dir).unwrap().unwrap_err();
         assert!(e.contains(".codealong/review.md is a link"), "{e}");
         sh(&dir, &["init", "-q", "-b", "main"]);
@@ -870,7 +870,7 @@ rerequest_after_fixes = true
         std::fs::write(real.join("config.toml"), "").unwrap();
         let linked = dir.join("linked");
         std::fs::create_dir_all(&linked).unwrap();
-        std::os::unix::fs::symlink(&real, linked.join(DIR)).unwrap();
+        crate::os::files::symlink(&real, linked.join(DIR)).unwrap();
         assert!(read_folder(&linked).unwrap().unwrap_err().contains(".codealong is a link"));
     }
 

@@ -31,7 +31,7 @@ pub fn naps(bundle: &str) -> bool {
     match current() {
         Os::MacOs => napping(read(bundle), read("-g")),
         // Nothing naps there.
-        Os::Linux => false,
+        Os::Linux | Os::Windows => false,
     }
 }
 

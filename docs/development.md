@@ -96,8 +96,8 @@ home of its own there (`~/run-home`, kept between runs): its own config.toml, se
 socket, and nothing of the Mac's.
 
 What Codealong asks of the OS is in `src-tauri/src/os/`. What only one OS can call (AppKit and
-WebKit, GTK, the kernel's own calls) is an area there with a `macos.rs` and a `linux.rs` that give
-the same functions, picked as it's built; that's the only place `cfg(target_os)` decides what's
+WebKit, GTK, Win32, the kernel's own calls) is an area there with a `macos.rs`, a `linux.rs` and a
+`windows.rs` (Windows below) that give the same functions, picked as it's built; that's the only place `cfg(target_os)` decides what's
 compiled, which a test checks. What merely differs, a path or a program to run, goes by
 `os::current()`, so both OSes' ways compile and are tested on either, a test asking as if on the
 other with `os::as_if`:
@@ -128,6 +128,53 @@ for their usage, and the menu bar (Tauri makes none on Linux), so what only it h
 sessions…. The windows' keys are written for macOS, and `src/platform.ts` presses and says
 them as Linux has them (⌘ is Ctrl, ⌥ and ⌃ are Alt); `PREVIEW_PLATFORM=linux` previews them.
 `.claude/rules/linux.md` has what was found there.
+
+## Windows
+
+The engine and the app build for Windows 10 (1803) and later, x64 and Arm64, with WebView2. It's
+a first cut: it compiles, and its tests compile, but it hasn't run there yet, and some of what
+Linux has isn't there either (below). Two scripts check it from a Mac:
+
+```bash
+scripts/windows-check.sh [--tests]   # cargo check for Windows, cross-compiled here (cargo-xwin)
+scripts/windows-vm.sh                # a Windows 11 Arm64 VM under QEMU, made the first time
+scripts/windows-vm.sh test           # cargo test in it, on a copy of this checkout
+scripts/windows-vm.sh build          # tauri build --no-bundle: codealong.exe
+scripts/windows-vm.sh run [secs]     # the app on the VM's desktop; .preview/windows.png
+scripts/windows-vm.sh shell [cmd…]   # PowerShell in the VM's copy of the checkout
+```
+
+`windows-check.sh` needs cargo-xwin, the `x86_64-pc-windows-msvc` target and Homebrew's LLVM (its
+header says how); it takes a minute or two, where the VM's first build takes many. The VM installs
+itself from Microsoft's ISO with no clicks (`scripts/windows/`: the answer file, OpenSSH at first
+logon, then Visual Studio's build tools, Rust, Node, Git for Windows and Zig over SSH), which takes
+an hour or two the first time. Microsoft's download page sometimes refuses a script; then download
+the Arm64 ISO in a browser and give it as `WINDOWS_ISO=<file>`.
+
+Each area of `src-tauri/src/os/` has a `windows.rs` beside its `macos.rs` and `linux.rs`, through
+Win32 (`windows-sys`). What macOS and Linux share, POSIX's, is a `posix.rs` where an area has
+both (`os/procs`, `os/pty`), and the flat modules pick by `cfg(unix)` and `cfg(windows)` inside:
+
+| | Windows |
+|---|---|
+| `os/windows/` | borderless windows kept on top through Tauri; screens, the pointer and opacity through Win32 |
+| `os/procs/` | a Toolhelp snapshot, `GetProcessTimes`, the TCP table, and each process's PEB for its folder, environment and command line; no `ps`, so `procs::list` reads that table |
+| `os/sock.rs` | the server's socket is AF_UNIX there too (uds_windows) |
+| `os/pty/` | Codealong's own terminals aren't on Windows yet (no ConPTY), and say so |
+| `os/system/`, `os/exits/` | `GlobalMemoryStatusEx`, thread priorities, process handles waited on |
+| `os/sound/` | `PlaySound`, the sounds in `C:\Windows\Media` |
+| `os/login/` | a value under the registry's `Run` key, which Task Manager's Startup apps lists |
+| `os/dirs.rs` | `AppData\Roaming\Codealong`; logs and caches in `AppData\Local\Codealong` |
+| `os/open.rs` | the shell's own handler (`rundll32 url.dll,FileProtocolHandler`) |
+| `os/secrets.rs` | Credential Manager |
+| `launch::terminals()` | `launch/windows.rs`: Windows Terminal, running a new terminal's command in Git Bash |
+
+What Windows goes without, besides what Linux does: Codealong's own terminals, typing into a
+session's terminal, finding its tab and bringing it forward (Windows Terminal takes no scripts),
+tmux, Claude Code's and the Codex app's own sockets, a server handing its terminals to a new build,
+and the menu bar. The windows' keys are Linux's (⌘ is Ctrl, ⌥ and ⌃ are Alt);
+`PREVIEW_PLATFORM=windows` previews them. `.claude/rules/microsoft-windows.md` has what was found
+there.
 
 ## Ghostty's terminal library
 
@@ -380,7 +427,7 @@ as the engine always was.
 | `src/codealongLinks.ts`, `src/ui/SessionLink.tsx` | Links to a session or a todo in a conversation, as the skill has agents write them (`codealong://session/<key>`): which one a link names, and the link with a session's card on hover. The window says what it lists through the PR links' host |
 | `src-tauri/src/chrometabs.rs` | The Chrome tabs a Claude Code session drove through Claude in Chrome, read from its transcript; which profile they're in (the extension's storage, then History); bringing its tab forward by AppleScript, or its last page again in that profile |
 | `src-tauri/src/detect.rs` | The harness accounts on this device: folders, sign-ins, and the wrappers and aliases that run them |
-| `src-tauri/src/os/` | Everything asked of macOS or Linux, each area with both OSes' sides (its `mod.rs` header; the Linux table above) |
+| `src-tauri/src/os/` | Everything asked of macOS, Linux or Windows, each area with each OS's side (its `mod.rs` header; the Linux and Windows tables above) |
 | `src-tauri/src/panel.rs`, `os/windows/` | The one AppKit (and on Linux GTK) layer for the windows that float (the bar, its peek, the quick panel, the cards and sessions kept on the desktop, the lines between cards): turning a Tauri window into a non-activating panel and back, what each kind answers about the keyboard, every window's level (`Level`), showing, hiding, taking and handing back the keyboard, frames, screens and the pointer |
 | `src-tauri/src/geometry.rs` | Rectangles on the screen (`Rect`, AppKit's y up) and in a window's page (`PageRect`, y down from its window's top) with the flip between them, the screen a thing is on, and keeping a window on it (pure, tested) |
 | `src-tauri/src/front.rs` | Bringing the main window forward, asking another app to come forward after a panel opened something in it, and whether an app is the active one |

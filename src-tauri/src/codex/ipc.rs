@@ -4,7 +4,7 @@
 //! window that owns the thread.
 
 use std::io::{Read, Write};
-use std::os::unix::net::UnixStream;
+use crate::os::sock::UnixStream;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
@@ -641,7 +641,7 @@ mod tests {
     /// in, and answers the first request for the window with `result`, handing that request back.
     fn window_router(home: &Path, result: Value) -> std::thread::JoinHandle<Value> {
         std::fs::create_dir_all(home.join("ipc")).unwrap();
-        let listener = std::os::unix::net::UnixListener::bind(home.join("ipc/ipc.sock")).unwrap();
+        let listener = crate::os::sock::UnixListener::bind(home.join("ipc/ipc.sock")).unwrap();
         std::thread::spawn(move || {
             let (mut conn, _) = listener.accept().unwrap();
             let mut buf = Vec::new();
@@ -781,7 +781,7 @@ mod tests {
     fn starts_a_codex_turn_through_the_window_that_owns_the_thread() {
         let home = scratch("codex-start");
         std::fs::create_dir_all(home.join("ipc")).unwrap();
-        let listener = std::os::unix::net::UnixListener::bind(home.join("ipc/ipc.sock")).unwrap();
+        let listener = crate::os::sock::UnixListener::bind(home.join("ipc/ipc.sock")).unwrap();
         let router = std::thread::spawn(move || {
             let (mut conn, _) = listener.accept().unwrap();
             let mut buf = Vec::new();
@@ -865,7 +865,7 @@ mod tests {
     /// then it says what it was asked.
     fn router(home: &Path, owner: Option<&'static str>, started: Value) -> std::thread::JoinHandle<Vec<String>> {
         std::fs::create_dir_all(home.join("ipc")).unwrap();
-        let listener = std::os::unix::net::UnixListener::bind(home.join("ipc/ipc.sock")).unwrap();
+        let listener = crate::os::sock::UnixListener::bind(home.join("ipc/ipc.sock")).unwrap();
         std::thread::spawn(move || {
             let (mut conn, _) = listener.accept().unwrap();
             let mut buf = Vec::new();

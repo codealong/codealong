@@ -31,7 +31,7 @@ scripts/checks.sh                       # every browser check (scripts/preview/*
 scripts/relaunch.sh                     # builds Codealong Dev, then quits it and reopens it from Applications
 scripts/release.sh                      # the installer for other Macs: universal, Developer ID, notarized
 scripts/check-release.sh <version>      # a release on GitHub as a download gets it; the /release skill ships one
-scripts/linux-vm.sh [test|build|run]    # a Linux VM (Lima) to build, test and run it on Linux in
+scripts/{linux,windows}-vm.sh [test|build|run]  # a VM (Lima, QEMU) to build, test and run it in
 ```
 
 Every checkout and worktree builds into one directory, `codealong-target` next to the main
@@ -382,9 +382,9 @@ Each rule names the file whose header has the rest.
   is a new token, not a hand-written `font:` nor a family, size, line height or weight beside one.
   `styles.test.ts` says what else it holds. Icons are Tabler outline paths in `src/ui/icons.ts`.
 - UI copy is sentence case and plain words. Comments explain why, in plain sentences.
-- It builds and runs on Linux too. What it asks of the OS is `src-tauri/src/os/` (its `mod.rs`
-  header), and only there does `cfg(target_os)` pick what's compiled: a call to AppKit, GTK or
-  an OS's own `libc` function goes in an area's `macos.rs` and `linux.rs`. What merely differs
+- It builds for Linux and Windows too. What it asks of the OS is `src-tauri/src/os/` (its `mod.rs`
+  header), and only there does `cfg(target_os)` pick what's compiled: a call to AppKit, GTK, Win32
+  or an OS's own `libc` function goes in an area's `<os>.rs`. What merely differs
   (a path, the program that opens a link, which terminals there are) goes by `os::current()`, so
   both sides compile and are tested on either (`os::as_if`). A side with nothing to do says why;
   one asked for what only macOS does fails with `os::only_on_macos`. `scripts/linux-vm.sh test`
@@ -407,8 +407,8 @@ its adapter, and add what you find to it, not here.
   `libghostty.md`: Ghostty's terminal library, under Codealong's own terminals. `chrome.md`:
   Chrome's profiles and tabs, Claude in Chrome.
 - `windows.md`: Tauri, AppKit and WebKit (panels and their levels, the notch, the keyboard,
-  events). `macos-privacy.md`: macOS's privacy prompts and Gatekeeper's. `linux.md`: Linux, its desktops and
-  the harnesses there, and trying it in the VM.
+  events). `macos-privacy.md`: macOS's privacy prompts and Gatekeeper's. `linux.md`, `microsoft-windows.md`: Linux and Windows,
+  their desktops, the harnesses there, and their VMs.
 - `github.md`: `gh`, GraphQL points and polling. `jev.md`: TypeSafe. `devices.md`: Tailscale,
   iroh and testing linked devices.
 - `preview.md`: writing browser checks. `performance.md`: the timing log and benches.

@@ -15,7 +15,7 @@
 //! app session is told nothing rather than holding a message no one will see.
 
 use std::io::Write;
-use std::os::unix::net::UnixStream;
+use crate::os::sock::UnixStream;
 use std::time::Duration;
 
 use anyhow::{anyhow, bail, Result};

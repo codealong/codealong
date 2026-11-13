@@ -62,7 +62,7 @@ pub fn app_db(home: &Path) -> Option<PathBuf> {
     if file_name(home) != ".cursor" {
         return None;
     }
-    Some(crate::os::dirs::app_data(home.parent()?, "Cursor", "Cursor").join("User/globalStorage").join(STATE_DB))
+    Some(crate::os::dirs::app_data(home.parent()?, "Cursor", "Cursor", "Roaming/Cursor").join("User/globalStorage").join(STATE_DB))
 }
 
 /// The command that runs an account's command line: its own, when config.toml gives one.
@@ -2766,7 +2766,7 @@ mod tests {
         // The ones it hides are still named.
         assert_eq!(model_names(&db).get("glm-5.2").map(String::as_str), Some("GLM 5.2"));
         let dir = std::env::temp_dir().join(format!("codealong-cursor-models-{}", std::process::id()));
-        let db_path = crate::os::dirs::app_data(&dir, "Cursor", "Cursor").join("User/globalStorage").join(STATE_DB);
+        let db_path = crate::os::dirs::app_data(&dir, "Cursor", "Cursor", "Roaming/Cursor").join("User/globalStorage").join(STATE_DB);
         std::fs::create_dir_all(db_path.parent().unwrap()).unwrap();
         db.execute("VACUUM INTO ?1", [db_path.to_string_lossy()]).unwrap();
         let listed: Vec<(String, String)> = start_models(&dir.join(".cursor")).into_iter().map(|m| (m.id, m.label)).collect();
@@ -3024,7 +3024,7 @@ mod tests {
         assert!(!trust_folder(&home, &folder, &user).unwrap());
         // By a link too, which the command line, started there, takes for the folder it leads to.
         let link = root.join("me/linked");
-        std::os::unix::fs::symlink(&folder, &link).unwrap();
+        crate::os::files::symlink(&folder, &link).unwrap();
         assert!(trust_folder(&home, &link, &user).unwrap());
         assert!(home.join("projects").join(slug(&link.to_string_lossy())).join(TRUSTED).is_file());
         assert!(trust_folder(&home, &user, &user).is_err());

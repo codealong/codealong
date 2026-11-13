@@ -564,9 +564,9 @@ mod tests {
         write(&dir.join("canvas/SKILL.md"), "---\nname: canvas\nmetadata:\n  surfaces:\n    - ide\n---\n");
         write(&dir.join("config/SKILL.md"), "---\nname: config\nmetadata:\n  surfaces: \"cli, ide\"\n---\n");
         write(&elsewhere.join("shared/SKILL.md"), "---\nname: shared\n---\n");
-        std::os::unix::fs::symlink(elsewhere.join("shared"), dir.join("shared")).unwrap();
+        crate::os::files::symlink(elsewhere.join("shared"), dir.join("shared")).unwrap();
         write(&elsewhere.join("bundle/review/SKILL.md"), "---\nname: review\n---\n");
-        std::os::unix::fs::symlink(elsewhere.join("bundle"), dir.join("bundle")).unwrap();
+        crate::os::files::symlink(elsewhere.join("bundle"), dir.join("bundle")).unwrap();
 
         let read = |contained: bool| -> Vec<(String, String)> {
             let root = Root::skills(dir.clone(), 3).as_commands(AsCommands { surface: "cli", contained });
@@ -611,7 +611,7 @@ mod tests {
         write(&dir.join(".claude/commands/git/review.md"), "Review the diff\n");
         write(&dir.join(".codex/skills/probe/SKILL.md"), "---\nname: probe\ndescription: Probes\n---\n");
         std::fs::create_dir_all(dir.join(".agents")).unwrap();
-        std::os::unix::fs::symlink("../.claude/skills", dir.join(".agents/skills")).unwrap();
+        crate::os::files::symlink("../.claude/skills", dir.join(".agents/skills")).unwrap();
         write(&dir.join("app/.claude/skills/local/SKILL.md"), "---\ndescription: Only here\n---\n");
         write(&dir.join(".cursor/skills/tidy-up/SKILL.md"), "---\nname: tidy\ndescription: Tidies\n---\n");
 

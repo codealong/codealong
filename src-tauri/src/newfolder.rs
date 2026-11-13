@@ -143,8 +143,8 @@ fn completions(dir: &Path, start: &str, home: &Path) -> Vec<String> {
 fn guarded(dir: &Path, home: &Path) -> bool {
     match os::current() {
         Os::MacOs => ["Desktop", "Documents", "Downloads", "Library"].iter().any(|f| dir.starts_with(home.join(f))) || dir.starts_with("/Volumes"),
-        // Linux asks about none.
-        Os::Linux => false,
+        // Linux and Windows ask about none.
+        Os::Linux | Os::Windows => false,
     }
 }
 

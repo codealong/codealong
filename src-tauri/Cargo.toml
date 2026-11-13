@@ -85,6 +85,13 @@ objc2-service-management = { version = "0.3", default-features = false, features
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = "0.18"
 
+# Win32 for what Codealong asks of Windows (os/*/windows.rs), the version Tauri builds already;
+# and AF_UNIX sockets, which Windows has had since Windows 10 (1803) and std doesn't wrap there,
+# for the server's socket (os/sock.rs).
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Cryptography", "Win32_Security_Credentials", "Win32_System_Threading", "Win32_System_Diagnostics_ToolHelp", "Win32_System_ProcessStatus", "Win32_System_SystemInformation", "Win32_System_Registry", "Win32_System_RemoteDesktop", "Win32_System_Console", "Win32_System_Pipes", "Win32_System_IO", "Win32_System_JobObjects", "Win32_System_Memory", "Win32_System_Diagnostics_Debug", "Win32_System_Kernel", "Win32_System_StationsAndDesktops", "Win32_System_Power", "Win32_Storage_FileSystem", "Win32_Media_Audio", "Win32_Graphics_Gdi", "Win32_UI_WindowsAndMessaging", "Win32_UI_HiDpi", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_NetworkManagement_IpHelper", "Win32_Networking_WinSock"] }
+uds_windows = "1"
+
 # updates.rs's end-to-end test runs the updater in Tauri's mock runtime, which opens no window.
 [dev-dependencies]
 tauri = { version = "2", features = ["test"] }

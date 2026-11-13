@@ -2314,12 +2314,12 @@ mod tests {
         assert_eq!(p.cannot.as_deref(), Some("Its account's background service isn't running."));
 
         // A stand-in for the service, at the socket the account's folder hashes to.
-        let socket = daemon::daemon_socket_path(&home, unsafe { libc::getuid() });
+        let socket = daemon::daemon_socket_path(&home, crate::os::tty::user_id());
         let _ = std::fs::remove_dir_all(socket.parent().unwrap());
         std::fs::create_dir_all(socket.parent().unwrap()).unwrap();
         std::fs::create_dir_all(home.join("daemon")).unwrap();
         std::fs::write(home.join("daemon/control.key"), "k\n").unwrap();
-        let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+        let listener = crate::os::sock::UnixListener::bind(&socket).unwrap();
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
             for conn in listener.incoming().take(4) {

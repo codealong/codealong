@@ -4,7 +4,7 @@
 //! it now, or a dialog's keys).
 
 use std::io::{BufRead, BufReader, Read, Write};
-use std::os::unix::net::UnixStream;
+use crate::os::sock::UnixStream;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -19,7 +19,7 @@ use crate::send::{boxed, sent, Delivery, MayHaveArrived, Own, Sent, Way};
 
 /// Claude Code's daemon socket for an account, when its daemon is running.
 pub fn daemon_socket(home: &Path) -> Option<PathBuf> {
-    let path = daemon_socket_path(home, unsafe { libc::getuid() });
+    let path = daemon_socket_path(home, crate::os::tty::user_id());
     path.exists().then_some(path)
 }
 
@@ -234,7 +234,7 @@ mod tests {
         let dir = scratch("attach");
         let socket = dir.join("c.sock");
         std::fs::write(dir.join("control.key"), "k\n").unwrap();
-        let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+        let listener = crate::os::sock::UnixListener::bind(&socket).unwrap();
         let daemon = std::thread::spawn(move || {
             let (mut conn, _) = listener.accept().unwrap();
             let mut reader = BufReader::new(conn.try_clone().unwrap());
@@ -255,7 +255,7 @@ mod tests {
 
         // A job the daemon doesn't have is refused, with its reason.
         let _ = std::fs::remove_file(&socket);
-        let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+        let listener = crate::os::sock::UnixListener::bind(&socket).unwrap();
         let daemon = std::thread::spawn(move || {
             let (mut conn, _) = listener.accept().unwrap();
             let mut line = String::new();
@@ -280,7 +280,7 @@ mod tests {
     fn a_daemon_that_says_no_is_said_so() {
         let dir = scratch("reply");
         let socket = dir.join("c.sock");
-        let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+        let listener = crate::os::sock::UnixListener::bind(&socket).unwrap();
         let daemon = std::thread::spawn(move || {
             let (mut conn, _) = listener.accept().unwrap();
             let mut line = String::new();
@@ -301,7 +301,7 @@ mod tests {
     fn a_daemon_that_doesnt_answer_may_have_taken_it() {
         let dir = scratch("reply-unheard");
         let socket = dir.join("c.sock");
-        let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+        let listener = crate::os::sock::UnixListener::bind(&socket).unwrap();
         let daemon = std::thread::spawn(move || {
             for answer in [&b""[..], b"garbled\n"] {
                 let (mut conn, _) = listener.accept().unwrap();

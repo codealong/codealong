@@ -25,13 +25,11 @@
 //! any other way (a crash, a quit) ends their shells.
 
 mod keys;
-pub mod pty;
 mod queries;
 pub mod screen;
 
 use std::collections::{BTreeMap, HashMap};
 use std::io::{Read, Write};
-use std::os::fd::{AsRawFd, OwnedFd};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
@@ -43,6 +41,7 @@ use serde::{Deserialize, Serialize};
 pub use pty::Size;
 pub use screen::{Frame, Input, Theme};
 
+use crate::os::pty;
 use crate::util::now_ms;
 
 /// How often a terminal sends a frame while its program prints.
@@ -308,7 +307,8 @@ pub fn open(o: Open) -> Result<Glance, String> {
         let given = last_given();
         (sane(o.size.unwrap_or(given.0)), o.theme.or_else(|| given.1.clone()))
     };
-    let opened = pty::Pty::open(&pty::Spawn { program: Path::new(&shell), arg0: &arg0, args: &args, cwd: &o.folder, env: &env }, size).map_err(|e| format!("Couldn't start {shell_name}: {e}"))?;
+    // A system with no terminals of Codealong's to open (Windows, for now) says so in its words.
+    let opened = pty::Pty::open(&pty::Spawn { program: Path::new(&shell), arg0: &arg0, args: &args, cwd: &o.folder, env: &env }, size).map_err(|e| if e.kind() == std::io::ErrorKind::Unsupported { e.to_string() } else { format!("Couldn't start {shell_name}: {e}") })?;
     let id = new_id();
     let shown = o.shown.or(o.command);
     let glance = Glance {
@@ -331,7 +331,7 @@ pub fn open(o: Open) -> Result<Glance, String> {
     let pid = opened.pid();
     let pty::Pty { master, mut child, .. } = opened;
     let started = Started { glance, pid, master, size, theme, close_on_exit: o.close_on_exit, done: o.done, input: o.input.map(String::into_bytes).unwrap_or_default(), snapshot: None };
-    spawn(started, move || child.wait().map(|s| exit_code(&s)).unwrap_or(-1))
+    spawn(started, move || child.wait().map(|s| pty::exit_code(&s)).unwrap_or(-1))
 }
 
 /// A terminal's side and process, and how its thread starts: a new screen, or the one another
@@ -339,7 +339,7 @@ pub fn open(o: Open) -> Result<Glance, String> {
 struct Started {
     glance: Glance,
     pid: u32,
-    master: OwnedFd,
+    master: pty::Master,
     size: Size,
     theme: Option<Theme>,
     close_on_exit: bool,
@@ -356,12 +356,12 @@ fn spawn(st: Started, wait: impl FnOnce() -> i32 + Send + 'static) -> Result<Gla
     let id = glance.id.clone();
     let (tx, rx) = mpsc::channel();
     // Its reader and writer wait in poll, never in a read or a write (`read`, `write`).
-    let fds = pty::nonblocking(master.as_raw_fd()).and_then(|()| master.try_clone()).and_then(|r| master.try_clone().map(|w| (r, w)));
+    let fds = master.nonblocking().and_then(|()| master.try_clone()).and_then(|r| master.try_clone().map(|w| (r, w)));
     let (reader, writer) = match fds {
         Ok(fds) => fds,
         Err(e) => {
             pty::hang_up(pid, true);
-            reap(pid);
+            pty::reap(pid);
             return Err(format!("Couldn't start {}: {e}", glance.shell));
         }
     };
@@ -372,7 +372,7 @@ fn spawn(st: Started, wait: impl FnOnce() -> i32 + Send + 'static) -> Result<Gla
         });
         if let Err(e) = waiting {
             pty::hang_up(pid, true);
-            reap(pid);
+            pty::reap(pid);
             return Err(format!("Couldn't start {}: {e}", glance.shell));
         }
     }
@@ -413,45 +413,25 @@ fn spawn(st: Started, wait: impl FnOnce() -> i32 + Send + 'static) -> Result<Gla
     Ok(glance)
 }
 
-/// Reaps a process of this server's that won't be waited on otherwise.
-fn reap(pid: u32) {
-    // SAFETY: waitpid on a child of this process; one already reaped answers an error.
-    unsafe { libc::waitpid(pid as libc::pid_t, std::ptr::null_mut(), 0) };
-}
-
 /// Waits for a process this server took over to end (`take_over`): its child since before the
 /// server became this build, so waited on by its pid. One reaped before then (it ended as the
 /// server changed) is waited on until it's gone, its status unknown.
 fn wait_pid(pid: u32) -> i32 {
-    loop {
-        let mut status: libc::c_int = 0;
-        // SAFETY: waitpid fills a status for a child of this process.
-        let r = unsafe { libc::waitpid(pid as libc::pid_t, &mut status, 0) };
-        if r == pid as libc::pid_t {
-            if libc::WIFEXITED(status) {
-                return libc::WEXITSTATUS(status);
-            }
-            if libc::WIFSIGNALED(status) {
-                return 128 + libc::WTERMSIG(status);
-            }
-            continue;
-        }
-        if std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
-            continue;
-        }
-        while crate::procs::pid_alive(pid) {
-            std::thread::sleep(Duration::from_millis(500));
-        }
-        return -1;
+    if let Some(code) = pty::wait_child(pid) {
+        return code;
     }
+    while crate::procs::pid_alive(pid) {
+        std::thread::sleep(Duration::from_millis(500));
+    }
+    -1
 }
 
 /// Hands every running terminal to the next build of the server, which this process is about to
 /// become (serve.rs `hand_over`): each reader stops first, so all it read is in its terminal's
 /// queue ahead of the question, then each terminal's thread answers with the terminal, its side
-/// as a descriptor that outlives the change (`pty::inheritable`), and its screen's snapshot,
-/// written to a file in `dir`, and ends, leaving its process running. One that ended or doesn't
-/// answer isn't handed over.
+/// as a descriptor that outlives the change (`pty::Master::to_hand_over`), and its screen's
+/// snapshot, written to a file in `dir`, and ends, leaving its process running. One that ended or
+/// doesn't answer isn't handed over.
 pub fn hand_over(dir: &Path) -> Vec<Handed> {
     hand_over_these(dir, |_| true)
 }
@@ -504,7 +484,6 @@ pub fn any_running() -> bool {
 /// its program, told its size changed, where the snapshot can't be read), its process waited on
 /// by its pid. Each snapshot's file goes once it's read. How many it took.
 pub fn take_over(handed: Vec<Handed>) -> usize {
-    use std::os::fd::FromRawFd;
     let mut taken = 0;
     for h in handed {
         if h.fd < 0 {
@@ -512,9 +491,13 @@ pub fn take_over(handed: Vec<Handed>) -> usize {
         }
         // SAFETY: the descriptor was handed down by the server this process was before it became
         // this build, and nothing else in this process has it.
-        let master = unsafe { OwnedFd::from_raw_fd(h.fd) };
-        // Not for the processes this build starts.
-        let _ = pty::cloexec(master.as_raw_fd());
+        let master = match unsafe { pty::Master::from_handed(h.fd) } {
+            Ok(master) => master,
+            Err(e) => {
+                eprintln!("Couldn't take terminal {} over: {e}", h.glance.id);
+                continue;
+            }
+        };
         let snapshot = h.snapshot.as_ref().and_then(|p| {
             let bytes = std::fs::read(p).ok();
             let _ = std::fs::remove_file(p);
@@ -548,11 +531,6 @@ fn abandon(id: &str, pid: u32, closed: &AtomicBool) {
     if listed {
         changed();
     }
-}
-
-fn exit_code(s: &std::process::ExitStatus) -> i32 {
-    use std::os::unix::process::ExitStatusExt;
-    s.code().unwrap_or_else(|| 128 + s.signal().unwrap_or(0))
 }
 
 /// A size no terminal is too small or too large to take.
@@ -775,12 +753,10 @@ const HAND_OVER_WAIT: Duration = Duration::from_secs(3);
 const WRITE_POLL: Duration = Duration::from_millis(100);
 
 /// Reads what the process prints, until the terminal's other side closes or the terminal does.
-fn read(fd: OwnedFd, tx: Sender<Msg>, closed: Arc<AtomicBool>) {
-    let raw = fd.as_raw_fd();
-    let mut file = std::fs::File::from(fd);
+fn read(mut master: pty::Master, tx: Sender<Msg>, closed: Arc<AtomicBool>) {
     let mut buf = vec![0u8; 64 * 1024];
     while !closed.load(Ordering::Relaxed) {
-        if !pty::readable(raw, READ_POLL.as_millis() as i32) {
+        if !master.readable(READ_POLL.as_millis() as i32) {
             continue;
         }
         // Looked at again between the wait and the read, so a hand-over asked meanwhile reads
@@ -788,7 +764,7 @@ fn read(fd: OwnedFd, tx: Sender<Msg>, closed: Arc<AtomicBool>) {
         if closed.load(Ordering::Relaxed) {
             break;
         }
-        match file.read(&mut buf) {
+        match master.read(&mut buf) {
             Ok(0) => break,
             Ok(n) => {
                 if tx.send(Msg::Output(buf[..n].to_vec())).is_err() {
@@ -807,9 +783,7 @@ fn read(fd: OwnedFd, tx: Sender<Msg>, closed: Arc<AtomicBool>) {
 /// rather than in a write (the terminal's side doesn't block, `spawn`), so `stop` (a hand-over)
 /// stops it even while the program isn't reading. What it hadn't written goes back through
 /// `done` as it ends: nothing once it has written all there was.
-fn write(fd: OwnedFd, rx: Receiver<Vec<u8>>, done: Sender<Vec<u8>>, stop: Arc<AtomicBool>) {
-    let raw = fd.as_raw_fd();
-    let mut file = std::fs::File::from(fd);
+fn write(mut master: pty::Master, rx: Receiver<Vec<u8>>, done: Sender<Vec<u8>>, stop: Arc<AtomicBool>) {
     let mut left: Vec<u8> = Vec::new();
     'all: loop {
         let bytes = match rx.recv_timeout(WRITE_POLL) {
@@ -824,10 +798,10 @@ fn write(fd: OwnedFd, rx: Receiver<Vec<u8>>, done: Sender<Vec<u8>>, stop: Arc<At
                 left.extend_from_slice(&bytes[at..]);
                 break 'all;
             }
-            if !pty::writable(raw, WRITE_POLL.as_millis() as i32) {
+            if !master.writable(WRITE_POLL.as_millis() as i32) {
                 continue;
             }
-            match file.write(&bytes[at..]) {
+            match master.write(&bytes[at..]) {
                 Ok(n) => at += n,
                 Err(e) if matches!(e.kind(), std::io::ErrorKind::Interrupted | std::io::ErrorKind::WouldBlock) => {}
                 // The terminal's gone: nothing more will be read.
@@ -856,7 +830,7 @@ struct How {
 }
 
 /// A terminal's thread: its emulator, fed and asked, and its frames sent while a window shows it.
-fn run(id: &str, pid: u32, master: OwnedFd, how: How, rx: Receiver<Msg>, out: Sender<Vec<u8>>, closed: Arc<AtomicBool>) -> Result<(), String> {
+fn run(id: &str, pid: u32, master: pty::Master, how: How, rx: Receiver<Msg>, out: Sender<Vec<u8>>, closed: Arc<AtomicBool>) -> Result<(), String> {
     let How { size, theme, close_on_exit, done, snapshot, written, stop_writing } = how;
     let answers = out.clone();
     let answer = move |b: &[u8]| {
@@ -881,7 +855,7 @@ fn run(id: &str, pid: u32, master: OwnedFd, how: How, rx: Receiver<Msg>, out: Se
         None => screen::Screen::new(size, answer).map_err(|e| format!("{e:?}"))?,
     };
     if handed && !restored_ok {
-        pty::redraw(master.as_raw_fd());
+        master.redraw();
     }
     let mut theme_now = theme.clone();
     // The reader has stopped (`Msg::Hangup`), and a hand-over asked for (`Msg::HandOver`).
@@ -943,14 +917,14 @@ fn run(id: &str, pid: u32, master: OwnedFd, how: How, rx: Receiver<Msg>, out: Se
                     });
                     if attached && taps.is_empty() {
                         if let Some(w) = window_size {
-                            resize_to(&mut screen, master.as_raw_fd(), w);
+                            resize_to(&mut screen, &master, w);
                         }
                     }
                     dirty = true;
                 }
                 Msg::Attach { tap, size, out: to, reply } => {
                     if let Some(s) = size {
-                        resize_to(&mut screen, master.as_raw_fd(), s);
+                        resize_to(&mut screen, &master, s);
                     }
                     let _ = reply.send(screen.vt());
                     taps.push((tap, to, queries::Queries::default()));
@@ -958,7 +932,7 @@ fn run(id: &str, pid: u32, master: OwnedFd, how: How, rx: Receiver<Msg>, out: Se
                 }
                 Msg::AttachSize(s) => {
                     if !taps.is_empty() {
-                        resize_to(&mut screen, master.as_raw_fd(), s);
+                        resize_to(&mut screen, &master, s);
                         dirty = true;
                     }
                 }
@@ -966,7 +940,7 @@ fn run(id: &str, pid: u32, master: OwnedFd, how: How, rx: Receiver<Msg>, out: Se
                     taps.retain(|(t, _, _)| *t != tap);
                     if taps.is_empty() {
                         if let Some(w) = window_size {
-                            resize_to(&mut screen, master.as_raw_fd(), w);
+                            resize_to(&mut screen, &master, w);
                             dirty = true;
                         }
                     }
@@ -1011,7 +985,7 @@ fn run(id: &str, pid: u32, master: OwnedFd, how: How, rx: Receiver<Msg>, out: Se
                     // as it lets go.
                     window_size = Some(s);
                     if taps.is_empty() && s != screen.size() {
-                        resize_to(&mut screen, master.as_raw_fd(), s);
+                        resize_to(&mut screen, &master, s);
                         dirty = true;
                     }
                 }
@@ -1094,7 +1068,7 @@ fn run(id: &str, pid: u32, master: OwnedFd, how: How, rx: Receiver<Msg>, out: Se
                 eprintln!("Terminal {id}'s reader didn't stop in time: what it reads from here on is lost to the next build.");
             }
             let glance = state().list.iter().find(|e| e.glance.id == id).map(|e| e.glance.clone());
-            let handed = glance.zip(if running { pty::inheritable(master.as_raw_fd()) } else { None }).map(|(glance, fd)| Handed { glance, fd, pid, size: screen.size(), theme: theme_now.clone(), close_on_exit, done: done.clone(), snapshot: None, pending: Vec::new() });
+            let handed = glance.zip(if running { master.to_hand_over() } else { None }).map(|(glance, fd)| Handed { glance, fd, pid, size: screen.size(), theme: theme_now.clone(), close_on_exit, done: done.clone(), snapshot: None, pending: Vec::new() });
             let snapshot = screen.snapshot();
             drop(screen);
             drop(out);
@@ -1135,7 +1109,7 @@ fn run(id: &str, pid: u32, master: OwnedFd, how: How, rx: Receiver<Msg>, out: Se
         let answered = asking.asks.is_some() && stirred.elapsed() < QUIET_BEFORE_ASKING;
         if running && (last_look.elapsed() >= LOOK_EVERY || answered) {
             last_look = Instant::now();
-            let front = pty::foreground(master.as_raw_fd()).filter(|g| *g != pid);
+            let front = master.foreground().filter(|g| *g != pid);
             let program = front.and_then(|g| crate::procs::parent_and_name(g).map(|(_, name)| name));
             // Only a command can ask, and only till it ends: a shell at its own prompt waits on
             // you too, as a run's wrapper does once its command has ended, and a session's own
@@ -1225,10 +1199,10 @@ fn reads_as_asking(before: &str) -> bool {
 }
 
 /// A new size for the screen and the terminal, which signals the program in front.
-fn resize_to(screen: &mut screen::Screen, master: std::os::fd::RawFd, size: Size) {
+fn resize_to(screen: &mut screen::Screen, master: &pty::Master, size: Size) {
     if size != screen.size() {
         screen.resize(size);
-        pty::resize(master, size);
+        master.resize(size);
     }
 }
 
@@ -1256,6 +1230,7 @@ mod tests {
 
     /// A command runs in a terminal of its own, which keeps what it printed and how it ended.
     #[test]
+    #[cfg_attr(windows, ignore = "Codealong's own terminals aren't on Windows yet")]
     fn a_command_runs_in_its_own_terminal_and_its_end_is_listed() {
         let dir = std::env::temp_dir();
         let g = open(Open { session: "test:session:one".into(), folder: dir.clone(), command: Some("printf 'from the terminal\\n'; exit 3".into()), size: Some(DEFAULT_SIZE), ..Default::default() }).expect("a terminal");
@@ -1272,6 +1247,7 @@ mod tests {
 
     /// Typing reaches the program, in the order it was typed.
     #[test]
+    #[cfg_attr(windows, ignore = "Codealong's own terminals aren't on Windows yet")]
     fn what_a_window_types_reaches_the_program() {
         let dir = std::env::temp_dir();
         let g = open(Open { session: "test:session:two".into(), folder: dir, command: Some("read line; echo \"got $line\"; sleep 1".into()), size: Some(DEFAULT_SIZE), ..Default::default() }).unwrap();
@@ -1288,6 +1264,7 @@ mod tests {
     /// and stops asking as it's answered; one whose line sits still while it works at something
     /// never asks.
     #[test]
+    #[cfg_attr(windows, ignore = "Codealong's own terminals aren't on Windows yet")]
     fn a_command_at_a_question_asks_it_until_its_answered() {
         let g = open(Open { session: "test:asks:one".into(), folder: std::env::temp_dir(), command: Some("printf 'Continue? [y/N] '; read answer; echo \"got $answer\"; sleep 5".into()), size: Some(DEFAULT_SIZE), ..Default::default() }).unwrap();
         assert!(wait_for(|| glance(&g.id).is_some_and(|g| g.asks.is_some())), "{:?}", glance(&g.id));
@@ -1347,6 +1324,7 @@ mod tests {
 
     /// Closing a terminal hangs up on what runs in it.
     #[test]
+    #[cfg_attr(windows, ignore = "Codealong's own terminals aren't on Windows yet")]
     fn closing_a_terminal_ends_its_process() {
         let g = open(Open { session: "test:session:three".into(), folder: std::env::temp_dir(), command: Some("sleep 59.125".into()), size: Some(DEFAULT_SIZE), ..Default::default() }).unwrap();
         assert!(wait_for(|| glance(&g.id).is_some_and(|g| g.program.is_some() || g.running)));
@@ -1358,6 +1336,7 @@ mod tests {
 
     /// A session moved to another account takes its terminals with it; one archived closes them.
     #[test]
+    #[cfg_attr(windows, ignore = "Codealong's own terminals aren't on Windows yet")]
     fn a_sessions_terminals_follow_it_when_it_moves_and_close_with_it() {
         let g = open(Open { session: "test:moves:old".into(), folder: std::env::temp_dir(), size: Some(DEFAULT_SIZE), ..Default::default() }).unwrap();
         follow("test:moves:old", "test:moves:new");
@@ -1371,6 +1350,7 @@ mod tests {
     /// starts, is found by its device, takes bytes as if typed, and becomes the session's own once
     /// the session's process turns up in it.
     #[test]
+    #[cfg_attr(windows, ignore = "Codealong's own terminals aren't on Windows yet")]
     fn a_terminal_for_a_start_is_typed_its_line_and_found_by_its_device() {
         let g = open(Open { folder: std::env::temp_dir(), command: Some("read line; echo \"got $line\"; read more; echo \"then $more\"; sleep 1".into()), input: Some("first\n".into()), size: Some(DEFAULT_SIZE), ..Default::default() }).unwrap();
         assert!(g.session.is_empty() && !g.hosts, "no session's yet");
@@ -1389,6 +1369,7 @@ mod tests {
     /// A terminal handed over (as a server does that becomes a new build) is taken back with its
     /// screen and goes on taking input, its process never having noticed.
     #[test]
+    #[cfg_attr(windows, ignore = "Codealong's own terminals aren't on Windows yet")]
     fn a_terminal_handed_over_is_taken_back_with_its_screen() {
         let g = open(Open { folder: std::env::temp_dir(), command: Some("read a; echo \"got:$a\"; read b; echo \"then:$b\"; sleep 30".into()), size: Some(DEFAULT_SIZE), ..Default::default() }).unwrap();
         write_to(&g.id, b"first\r".to_vec()).unwrap();
@@ -1422,6 +1403,7 @@ mod tests {
     /// works it out again: an answer typed meanwhile would otherwise leave it asking. The file its
     /// command makes as it ends goes across with it.
     #[test]
+    #[cfg_attr(windows, ignore = "Codealong's own terminals aren't on Windows yet")]
     fn a_terminal_handed_over_while_it_asks_works_it_out_again() {
         let done = std::env::temp_dir().join(format!("codealong-handover-done-{}", std::process::id()));
         let g = open(Open { folder: std::env::temp_dir(), command: Some("printf 'Name? '; read a; echo \"got:$a\"; sleep 30".into()), size: Some(DEFAULT_SIZE), done: Some(done.clone()), ..Default::default() }).unwrap();
@@ -1443,23 +1425,14 @@ mod tests {
     /// What's on its way to a program that isn't reading goes across in a hand-over, for the next
     /// build to write, rather than being lost with the old build's writer.
     #[test]
+    #[cfg_attr(windows, ignore = "Codealong's own terminals aren't on Windows yet")]
     fn what_a_program_hasnt_read_yet_goes_across() {
         // In raw mode, as a full-screen program has it: there the terminal holds a program's
         // unread input up to a limit and makes the writer wait past it, where a line-reading one
         // throws away what's past its line's limit.
         let g = open(Open { folder: std::env::temp_dir(), command: Some("stty raw -echo; sleep 30".into()), size: Some(DEFAULT_SIZE), ..Default::default() }).unwrap();
         // Once `stty` has made it raw: line mode off, as its device says.
-        let raw = || {
-            use std::os::fd::AsRawFd;
-            use std::os::unix::fs::OpenOptionsExt;
-            let Ok(f) = std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NOCTTY | libc::O_NONBLOCK).open(&g.tty) else { return false };
-            // SAFETY: tcgetattr fills a plain struct for an open descriptor.
-            unsafe {
-                let mut t: libc::termios = std::mem::zeroed();
-                libc::tcgetattr(f.as_raw_fd(), &mut t) == 0 && t.c_lflag & libc::ICANON == 0
-            }
-        };
-        assert!(wait_for(raw), "raw mode on {}", g.tty);
+        assert!(wait_for(|| crate::os::tty::reads_keys(Path::new(&g.tty))), "raw mode on {}", g.tty);
         // More than the terminal holds for a program that doesn't read.
         write_to(&g.id, vec![b'x'; 64 * 1024]).unwrap();
         std::thread::sleep(Duration::from_millis(300));
@@ -1476,6 +1449,7 @@ mod tests {
     /// The sessions the last server's terminals held, as it wrote them, less those whose terminal
     /// came across, ended with it.
     #[test]
+    #[cfg_attr(windows, ignore = "Codealong's own terminals aren't on Windows yet")]
     fn sessions_whose_terminal_didnt_come_across_ended_with_the_server() {
         let dir = std::env::temp_dir().join(format!("codealong-living-test-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
@@ -1495,6 +1469,7 @@ mod tests {
     /// prints; the terminal has the attached one's size while it's attached, and the window's
     /// again once it lets go.
     #[test]
+    #[cfg_attr(windows, ignore = "Codealong's own terminals aren't on Windows yet")]
     fn an_attached_terminal_gets_the_screen_then_the_output_at_its_size() {
         let g = open(Open { folder: std::env::temp_dir(), command: Some("echo before; while read l; do echo \"got:$l\"; stty size; done".into()), size: Some(DEFAULT_SIZE), ..Default::default() }).unwrap();
         resize(&g.id, Size { cols: 90, rows: 20, ..DEFAULT_SIZE }).unwrap();

@@ -9,7 +9,6 @@ use std::path::Path;
 /// `/resume` lists sessions by.
 pub fn name_transcript(transcript: &Path, name: &str) -> anyhow::Result<()> {
     use std::io::Write;
-    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
     let (Some(dir), Some(id)) = (transcript.parent(), transcript.file_stem().and_then(|s| s.to_str())) else {
         anyhow::bail!("{} isn't a transcript.", transcript.display());
     };
@@ -19,9 +18,9 @@ pub fn name_transcript(transcript: &Path, name: &str) -> anyhow::Result<()> {
     let cut = ends_mid_line(transcript);
     std::fs::OpenOptions::new().append(true).open(transcript)?.write_all(format!("{}{line}\n", if cut { "\n" } else { "" }).as_bytes())?;
     let folder = dir.join(id);
-    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&folder)?;
+    crate::os::files::dir_mode(std::fs::DirBuilder::new().recursive(true), 0o700).create(&folder)?;
     let part = folder.join(format!(".custom-title.json.{}", std::process::id()));
-    std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(&part)?.write_all(serde_json::json!({ "customTitle": name }).to_string().as_bytes())?;
+    crate::os::files::create_mode(std::fs::OpenOptions::new().write(true).create(true).truncate(true), 0o600).open(&part)?.write_all(serde_json::json!({ "customTitle": name }).to_string().as_bytes())?;
     std::fs::rename(&part, folder.join("custom-title.json"))?;
     Ok(())
 }
@@ -52,7 +51,6 @@ mod tests {
     #[test]
     fn names_a_session_where_claude_code_keeps_it() {
         use crate::harness::Adapter;
-        use std::os::unix::fs::PermissionsExt;
         let home = crate::fixtures::scratch("rename");
         let dir = home.join("projects/-x");
         std::fs::create_dir_all(&dir).unwrap();
@@ -76,8 +74,11 @@ mod tests {
         // What /resume lists it by, readable only by you.
         let sidecar = dir.join(from).join("custom-title.json");
         assert_eq!(std::fs::read_to_string(&sidecar).unwrap(), r#"{"customTitle":"Photo tools, \"v2\""}"#);
-        assert_eq!(std::fs::metadata(&sidecar).unwrap().permissions().mode() & 0o777, 0o600);
-        assert_eq!(std::fs::metadata(dir.join(from)).unwrap().permissions().mode() & 0o777, 0o700);
+        // Only POSIX has modes: on Windows a file in your profile is yours alone already.
+        if cfg!(unix) {
+            let mode = |p: &std::path::Path| crate::os::files::mode_of(&std::fs::metadata(p).unwrap()) & 0o777;
+            assert_eq!((mode(&sidecar), mode(&dir.join(from))), (0o600, 0o700));
+        }
         // A session that hasn't written a transcript yet has nowhere to keep a name.
         assert!(ClaudeCode.rename(&ctx, &session("0f5e1d2c", None), name).is_err());
     }

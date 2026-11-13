@@ -1,6 +1,6 @@
-//! Where things are kept: Codealong's own folders, which macOS has in the Library and Linux in the
-//! XDG base folders (`$XDG_CONFIG_HOME` and the rest, else their defaults in your home), and
-//! where another app keeps its data on each.
+//! Where things are kept: Codealong's own folders, which macOS has in the Library, Linux in the
+//! XDG base folders (`$XDG_CONFIG_HOME` and the rest, else their defaults in your home) and
+//! Windows in your home's AppData, and where another app keeps its data on each.
 
 use std::path::{Path, PathBuf};
 
@@ -8,19 +8,23 @@ use super::Os;
 use crate::util::home;
 
 /// Codealong's own files: config.toml, the todos, the socket and what the app keeps. On Linux the
-/// XDG config folder's, where config.toml is looked for.
+/// XDG config folder's, where config.toml is looked for; on Windows the roaming AppData's, which
+/// follows you to another PC on a domain.
 pub fn support_dir() -> PathBuf {
     match super::current() {
         Os::MacOs => home().join("Library/Application Support/Codealong"),
         Os::Linux => xdg_in(&home(), "XDG_CONFIG_HOME", ".config").join("codealong"),
+        Os::Windows => home().join("AppData").join("Roaming").join("Codealong"),
     }
 }
 
-/// Where Codealong's logs go: macOS's place for them, and on Linux the XDG state folder's.
+/// Where Codealong's logs go: macOS's place for them, on Linux the XDG state folder's, and on
+/// Windows the local AppData's, which stays on this PC.
 pub fn logs_dir() -> PathBuf {
     match super::current() {
         Os::MacOs => home().join("Library/Logs/Codealong"),
         Os::Linux => xdg_in(&home(), "XDG_STATE_HOME", ".local/state").join("codealong"),
+        Os::Windows => home().join("AppData").join("Local").join("Codealong").join("Logs"),
     }
 }
 
@@ -29,23 +33,26 @@ pub fn cache_dir() -> PathBuf {
     match super::current() {
         Os::MacOs => home().join("Library/Caches/Codealong"),
         Os::Linux => xdg_in(&home(), "XDG_CACHE_HOME", ".cache").join("codealong"),
+        Os::Windows => home().join("AppData").join("Local").join("Codealong").join("Cache"),
     }
 }
 
 /// Where the desktop looks for what to start at login on Linux (XDG autostart): the XDG config
-/// folder's `autostart`. macOS has login items instead (os/login).
-#[cfg_attr(target_os = "macos", allow(dead_code))]
+/// folder's `autostart`. macOS has login items instead, and Windows its Run key (os/login).
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub fn autostart_dir() -> PathBuf {
     xdg_in(&home(), "XDG_CONFIG_HOME", ".config").join("autostart")
 }
 
 /// Where an app keeps its data in the home `in_home` (yours, or the one an account's folder is
-/// in): its folder in macOS's Application Support, named `macos`, or on Linux in the config
-/// folder, named `linux` (Chrome's are `Google/Chrome` and `google-chrome`).
-pub fn app_data(in_home: &Path, macos: &str, linux: &str) -> PathBuf {
+/// in): its folder in macOS's Application Support, named `macos`, on Linux in the config
+/// folder, named `linux`, and on Windows in AppData, `windows` being where in it (Chrome's are
+/// `Google/Chrome`, `google-chrome` and `Local/Google/Chrome/User Data`).
+pub fn app_data(in_home: &Path, macos: &str, linux: &str, windows: &str) -> PathBuf {
     match super::current() {
         Os::MacOs => in_home.join("Library/Application Support").join(macos),
         Os::Linux => xdg_in(in_home, "XDG_CONFIG_HOME", ".config").join(linux),
+        Os::Windows => windows.split('/').fold(in_home.join("AppData"), |p, part| p.join(part)),
     }
 }
 
@@ -63,7 +70,7 @@ fn in_home_or(in_home: &Path, set: Option<PathBuf>, default: &str) -> PathBuf {
 }
 
 /// The per-user temporary folder macOS gives apps (`getconf DARWIN_USER_TEMP_DIR`): a shell's
-/// TMPDIR can be one an agent's sandbox set. Linux has none of its own.
+/// TMPDIR can be one an agent's sandbox set. Linux and Windows have none of their own.
 #[cfg(target_os = "macos")]
 pub fn user_temp_dir() -> Option<String> {
     let mut buf = vec![0u8; 1024];
@@ -73,7 +80,7 @@ pub fn user_temp_dir() -> Option<String> {
     (n > 1 && n <= buf.len()).then(|| String::from_utf8_lossy(&buf[..n - 1]).into_owned())
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(not(target_os = "macos"))]
 pub fn user_temp_dir() -> Option<String> {
     None
 }
@@ -86,12 +93,16 @@ mod tests {
     #[test]
     fn each_os_keeps_codealongs_and_other_apps_files_in_its_own_places() {
         let h = home();
-        let mac = as_if(Os::MacOs, || (support_dir(), logs_dir(), cache_dir(), app_data(Path::new("/Users/me"), "Google/Chrome", "google-chrome")));
+        let mac = as_if(Os::MacOs, || (support_dir(), logs_dir(), cache_dir(), app_data(Path::new("/Users/me"), "Google/Chrome", "google-chrome", "Local/Google/Chrome/User Data")));
         assert_eq!(mac.0, h.join("Library/Application Support/Codealong"));
         assert_eq!(mac.1, h.join("Library/Logs/Codealong"));
         assert_eq!(mac.2, h.join("Library/Caches/Codealong"));
         assert_eq!(mac.3, PathBuf::from("/Users/me/Library/Application Support/Google/Chrome"));
-        assert_eq!(as_if(Os::Linux, || app_data(Path::new("/home/other"), "Cursor", "Cursor")), PathBuf::from("/home/other/.config/Cursor"));
+        assert_eq!(as_if(Os::Linux, || app_data(Path::new("/home/other"), "Cursor", "Cursor", "Roaming/Cursor")), PathBuf::from("/home/other/.config/Cursor"));
+        let win = as_if(Os::Windows, || (support_dir(), logs_dir(), app_data(Path::new("/Users/me"), "Google/Chrome", "google-chrome", "Local/Google/Chrome/User Data")));
+        assert_eq!(win.0, h.join("AppData").join("Roaming").join("Codealong"));
+        assert_eq!(win.1, h.join("AppData").join("Local").join("Codealong").join("Logs"));
+        assert_eq!(win.2, Path::new("/Users/me").join("AppData").join("Local").join("Google").join("Chrome").join("User Data"));
         // An XDG folder counts only in the home it's for: another home's, or a copy's own home,
         // aren't moved by the settings of the session it was started from.
         let me = Path::new("/home/me");

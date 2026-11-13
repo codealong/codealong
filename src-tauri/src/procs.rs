@@ -4,7 +4,6 @@
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::io::Read;
-use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{Arc, OnceLock};
@@ -19,12 +18,7 @@ use crate::os::procs::listed;
 pub use crate::os::procs::{cwd_of, environment, listeners, open_files, open_kinds, parent_pid, proc_start_ms, tree, tty, Tree};
 
 pub fn pid_alive(pid: u32) -> bool {
-    if pid == 0 {
-        return false;
-    }
-    // SAFETY: kill with signal 0 only checks for existence and permission.
-    let r = unsafe { libc::kill(pid as libc::pid_t, 0) };
-    r == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+    crate::os::procs::alive(pid)
 }
 
 /// A process's parent and name as `ps -c` shows them (its executable's file name, cut to 16
@@ -58,39 +52,42 @@ pub fn ancestors(pid: u32) -> Vec<u32> {
 /// command typed in a terminal can find. None when the shell didn't answer.
 pub fn login_path() -> Option<&'static str> {
     static PATH: OnceLock<Option<String>> = OnceLock::new();
-    PATH.get_or_init(|| login_var("PATH").filter(|p| p.contains('/'))).as_deref()
+    PATH.get_or_init(|| login_var("PATH").filter(|p| p.contains(std::path::MAIN_SEPARATOR))).as_deref()
 }
 
 /// A variable as the login shell sets it, which a command typed in a terminal gets and an app
 /// opened from the Dock doesn't. None when it's unset or empty, or the shell didn't answer. `name`
-/// goes into the shell's command as it is, so it's a variable's name and nothing else.
+/// goes into the shell's command as it is, so it's a variable's name and nothing else. Windows has
+/// no login shell, and gives an app the user's environment wherever it's started from: it's read
+/// from there.
 pub fn login_var(name: &str) -> Option<String> {
+    if crate::os::is_windows() {
+        return std::env::var(name).ok().filter(|v| !v.is_empty());
+    }
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
     run_with_path(&shell, &["-lc", &format!("printf %s \"${name}\"")], None, Duration::from_secs(4), "/usr/bin:/bin", false).ok().filter(|v| !v.is_empty())
 }
 
 /// The PATH of the user's login shell. Apps launched from Finder get a minimal PATH, so
 /// `git` and `gh` would otherwise not be found. A program run with it is started through
-/// `command`.
+/// `command`. On Windows the PATH Codealong was given, and `~/.local/bin`, where Claude Code's
+/// installer puts it there as on macOS.
 pub fn user_path() -> &'static str {
     static PATH: OnceLock<String> = OnceLock::new();
     PATH.get_or_init(|| {
         let h = home();
-        let mut parts: Vec<String> = login_path().map(|p| p.split(':').map(String::from).collect()).unwrap_or_default();
-        for extra in [
-            h.join(".local/bin").display().to_string(),
-            "/opt/homebrew/bin".to_string(),
-            "/usr/local/bin".to_string(),
-            "/usr/bin".to_string(),
-            "/bin".to_string(),
-            "/usr/sbin".to_string(),
-            "/sbin".to_string(),
-        ] {
+        let mut parts: Vec<PathBuf> = login_path().map(|p| std::env::split_paths(p).collect()).unwrap_or_default();
+        let extras: Vec<PathBuf> = if crate::os::is_windows() {
+            vec![h.join(".local").join("bin")]
+        } else {
+            vec![h.join(".local/bin"), "/opt/homebrew/bin".into(), "/usr/local/bin".into(), "/usr/bin".into(), "/bin".into(), "/usr/sbin".into(), "/sbin".into()]
+        };
+        for extra in extras {
             if !parts.contains(&extra) {
                 parts.push(extra);
             }
         }
-        parts.join(":")
+        std::env::join_paths(parts).map(|p| p.to_string_lossy().into_owned()).unwrap_or_default()
     })
 }
 
@@ -105,9 +102,8 @@ pub fn user_path() -> &'static str {
 /// named as it was given (its `argv[0]`). A name `path` doesn't have fails as `exec` would have:
 /// No such file or directory.
 pub fn command(program: impl AsRef<OsStr>, path: &str, cwd: Option<&Path>) -> std::io::Result<Command> {
-    use std::os::unix::process::CommandExt;
     let program = program.as_ref();
-    let mut cmd = if program.as_bytes().contains(&b'/') {
+    let mut cmd = if Path::new(program).components().count() > 1 {
         Command::new(program)
     } else {
         // Absolute, so the program is found where it runs, and named from anywhere.
@@ -116,14 +112,15 @@ pub fn command(program: impl AsRef<OsStr>, path: &str, cwd: Option<&Path>) -> st
         match found_in(program, path, &here) {
             Some(Found::Runs(at)) => {
                 let mut cmd = Command::new(at);
-                cmd.arg0(program);
+                crate::os::procs::set_arg0(&mut cmd, program);
                 cmd
             }
             // `exec` hands a file the kernel won't start to the shell: under the program's name on
             // macOS, which keeps `sh` out of its POSIX mode, and under the shell's elsewhere.
             Some(Found::Script(at)) => {
                 let mut cmd = Command::new("/bin/sh");
-                cmd.arg0(if crate::os::current() == crate::os::Os::MacOs { program } else { OsStr::new("/bin/sh") }).arg(at);
+                crate::os::procs::set_arg0(&mut cmd, if crate::os::current() == crate::os::Os::MacOs { program } else { OsStr::new("/bin/sh") });
+                cmd.arg(at);
                 cmd
             }
             None => return Err(std::io::Error::from_raw_os_error(libc::ENOENT)),
@@ -152,11 +149,17 @@ const BINARY: [&[u8]; 7] = [b"\xcf\xfa\xed\xfe", b"\xce\xfa\xed\xfe", b"\xfe\xed
 /// (a relative one, the empty one too, from `here`) with a file of that name this user may run,
 /// passing over one whose `#!` names a program that isn't there, as `exec` does when the kernel
 /// can't start it. The kernel reads the `#!` line from the first 512 bytes (macOS's
-/// `IMG_SHSIZE`), and only a space or a tab ends the program it names.
+/// `IMG_SHSIZE`), and only a space or a tab ends the program it names. On Windows a program is
+/// found by its name with each extension Windows runs (`os::procs::names_to_find`), and Windows
+/// starts whatever it finds, by its extension.
 fn found_in(program: &OsStr, path: &str, here: &Path) -> Option<Found> {
-    path.split(':').map(|dir| here.join(dir).join(program)).find_map(|at| {
+    let names = crate::os::procs::names_to_find(program);
+    std::env::split_paths(path).flat_map(|dir| names.iter().map(move |name| here.join(&dir).join(name)).collect::<Vec<_>>()).find_map(|at| {
         if !std::fs::metadata(&at).is_ok_and(|m| m.is_file()) || !may_run(&at) {
             return None;
+        }
+        if crate::os::is_windows() {
+            return Some(Found::Runs(at));
         }
         let mut head = [0u8; 512];
         // A file this user may run but not read is the kernel's to start, as a binary can be.
@@ -168,7 +171,8 @@ fn found_in(program: &OsStr, path: &str, here: &Path) -> Option<Found> {
             Some(line) => {
                 let line = line.split(|&b| b == b'\n').next().unwrap_or_default();
                 let interpreter = line.split(|&b| b == b' ' || b == b'\t').find(|w| !w.is_empty()).unwrap_or_default();
-                (!interpreter.is_empty() && may_run(&here.join(OsStr::from_bytes(interpreter)))).then_some(Found::Runs(at))
+                let interpreter = std::str::from_utf8(interpreter).unwrap_or_default();
+                (!interpreter.is_empty() && may_run(&here.join(interpreter))).then_some(Found::Runs(at))
             }
             None if BINARY.iter().any(|magic| head.starts_with(magic)) => Some(Found::Runs(at)),
             None => Some(Found::Script(at)),
@@ -178,16 +182,15 @@ fn found_in(program: &OsStr, path: &str, here: &Path) -> Option<Found> {
 
 /// Whether this user may run the file at `at`, as the kernel decides it.
 fn may_run(at: &Path) -> bool {
-    let Ok(c) = std::ffi::CString::new(at.as_os_str().as_bytes()) else {
-        return false;
-    };
-    // SAFETY: access reads the NUL-terminated path it's given.
-    unsafe { libc::access(c.as_ptr(), libc::X_OK) == 0 }
+    crate::os::procs::may_run(at)
 }
 
 /// The first child of `pid` whose command line `pick` makes something of, asking for each child's
 /// command line in turn until one does.
 pub fn find_child<T>(pid: u32, mut pick: impl FnMut(&str) -> Option<T>) -> Option<T> {
+    if let Some(rows) = crate::os::procs::table() {
+        return rows.iter().filter(|r| r.ppid == pid).find_map(|r| pick(&r.command));
+    }
     let kids = run("pgrep", &["-P", &pid.to_string()], None, Duration::from_secs(2)).ok()?;
     kids.split_whitespace().find_map(|kid| run("ps", &["-ww", "-o", "command=", "-p", kid], None, Duration::from_secs(2)).ok().and_then(|c| pick(&c)))
 }
@@ -291,9 +294,14 @@ impl Listing {
 }
 
 /// Every process, from one `ps` run; none when it fails or `timeout` passes. Full command lines
-/// (`-ww`), with each process's parent and CPU time for its command trees.
+/// (`-ww`), with each process's parent and CPU time for its command trees. Windows has no `ps`:
+/// its process table is read for the same, no process with a terminal.
 pub fn list(timeout: Duration) -> Listed {
     let at = now_ms();
+    if let Some(rows) = crate::os::procs::table() {
+        let lines = rows.into_iter().map(|r| PsLine { pid: r.pid, ppid: r.ppid, tty: "??".into(), cpu: r.cpu_ms.map(|ms| ms / 10), command: r.command }).collect();
+        return Listed { at, lines };
+    }
     let lines = run("/bin/ps", &["-axww", "-o", "pid=,ppid=,tty=,time=,command="], None, timeout).map(|out| ps_lines(&out)).unwrap_or_default();
     Listed { at, lines }
 }
@@ -456,59 +464,32 @@ fn not_started(program: &str, e: std::io::Error) -> anyhow::Error {
 }
 
 fn drive_raw(mut cmd: Command, program: &str, input: Option<&[u8]>, timeout: Duration, background: bool) -> Result<Raw> {
-    use std::io::{ErrorKind, Write};
-    use std::os::fd::AsRawFd;
-
     let deadline = Instant::now() + timeout;
     cmd.stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() }).stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = cmd.spawn().map_err(|e| not_started(program, e))?;
     if background {
         // Lowered once it's started: lowering it in the child, before its program runs, takes a
         // fork (`command`). The moment between goes to loading the program.
-        // SAFETY: setpriority on the process just started, which fails harmlessly if it's gone.
-        unsafe {
-            libc::setpriority(libc::PRIO_PROCESS, child.id() as libc::id_t, 10);
-        }
+        crate::os::procs::lower_priority(child.id());
     }
-    let mut stdin = child.stdin.take().inspect(|w| nonblocking(w.as_raw_fd()));
-    let mut pending = input.unwrap_or_default();
-    let mut out = Drain::new(child.stdout.take());
-    let mut err = Drain::new(child.stderr.take());
+    let mut pipes = crate::os::procs::Pipes::new(&mut child, input.unwrap_or_default());
     let mut exited: Option<(std::process::ExitStatus, Instant)> = None;
     loop {
-        if let Some(w) = stdin.as_mut() {
-            loop {
-                if pending.is_empty() {
-                    // Closed, so the program sees the end of its input.
-                    stdin = None;
-                    break;
-                }
-                match w.write(pending) {
-                    Ok(n) => pending = &pending[n..],
-                    Err(e) if e.kind() == ErrorKind::Interrupted => {}
-                    Err(e) if e.kind() == ErrorKind::WouldBlock => break,
-                    // The program closed its stdin without reading it all, which is its call.
-                    Err(_) => {
-                        stdin = None;
-                        break;
-                    }
-                }
-            }
-        }
+        pipes.write();
         if exited.is_none() {
             if let Some(status) = child.try_wait()? {
                 exited = Some((status, Instant::now()));
-                stdin = None;
+                pipes.close_input();
             }
         }
         // Read after the exit is seen, so everything the program wrote is in the pipes by then.
-        out.read();
-        err.read();
+        pipes.read();
         let now = Instant::now();
         match exited {
             Some((status, at)) => {
-                if (!out.open() && !err.open()) || now >= (at + LINGER).min(deadline) {
-                    return Ok(Raw { ok: status.success(), out: out.got, err: err.got });
+                if !pipes.open() || now >= (at + LINGER).min(deadline) {
+                    let (out, err) = pipes.output();
+                    return Ok(Raw { ok: status.success(), out, err });
                 }
             }
             None if now >= deadline => {
@@ -521,73 +502,13 @@ fn drive_raw(mut cmd: Command, program: &str, input: Option<&[u8]>, timeout: Dur
             None => {}
         }
         // Waits for a pipe to be ready, or a few milliseconds for the exit, which no pipe says.
-        let mut fds: Vec<libc::pollfd> = [out.fd(), err.fd()].into_iter().flatten().map(|fd| libc::pollfd { fd, events: libc::POLLIN, revents: 0 }).collect();
-        if let Some(w) = stdin.as_ref() {
-            fds.push(libc::pollfd { fd: w.as_raw_fd(), events: libc::POLLOUT, revents: 0 });
-        }
-        let wait = deadline.saturating_duration_since(now).min(Duration::from_millis(5));
-        // SAFETY: `fds` is a live array of pollfd of the length passed.
-        unsafe {
-            libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, wait.as_millis().max(1) as libc::c_int);
-        }
+        pipes.wait(deadline.saturating_duration_since(now).min(Duration::from_millis(5)));
     }
 }
 
-/// Makes reads and writes on `fd` answer at once, with `WouldBlock` where they'd wait.
-pub fn nonblocking(fd: std::os::fd::RawFd) {
-    // SAFETY: fcntl on a descriptor this process owns, changing only its status flags.
-    unsafe {
-        let flags = libc::fcntl(fd, libc::F_GETFL);
-        if flags >= 0 {
-            libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
-        }
-    }
-}
-
-/// One of a child's output pipes, read without blocking until it ends.
-struct Drain<R> {
-    pipe: Option<R>,
-    got: Vec<u8>,
-}
-
-impl<R: Read + std::os::fd::AsRawFd> Drain<R> {
-    fn new(pipe: Option<R>) -> Self {
-        if let Some(p) = &pipe {
-            nonblocking(p.as_raw_fd());
-        }
-        Drain { pipe, got: Vec::new() }
-    }
-
-    fn open(&self) -> bool {
-        self.pipe.is_some()
-    }
-
-    fn fd(&self) -> Option<std::os::fd::RawFd> {
-        self.pipe.as_ref().map(|p| p.as_raw_fd())
-    }
-
-    /// Takes what's in the pipe now. At most a megabyte a call, far more than a pipe holds, so
-    /// something writing as fast as it's read can't keep the deadline from being looked at.
-    fn read(&mut self) {
-        let Some(p) = self.pipe.as_mut() else { return };
-        let mut buf = [0u8; 16 * 1024];
-        for _ in 0..64 {
-            match p.read(&mut buf) {
-                Ok(0) => {
-                    self.pipe = None;
-                    return;
-                }
-                Ok(n) => self.got.extend_from_slice(&buf[..n]),
-                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
-                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => return,
-                Err(_) => {
-                    self.pipe = None;
-                    return;
-                }
-            }
-        }
-    }
-}
+/// Makes reads and writes on a pipe answer at once, with `WouldBlock` where they'd wait, where
+/// the OS can (os/procs).
+pub use crate::os::procs::nonblocking;
 
 /// A test's stand-in for the programs `run` and `run_stdin` start: while one is set on a thread,
 /// a program run there is handed to it (its arguments, what goes in on stdin, how long it would
@@ -696,6 +617,7 @@ mod tests {
     /// A process made the leader of a new session on a terminal of its own is that terminal's
     /// foreground group, as a shell in a tab is at its prompt.
     #[test]
+    #[cfg(unix)]
     fn reads_the_foreground_group_of_a_process_terminal() {
         use std::os::unix::process::CommandExt;
         let (mut master, mut slave) = (0, 0);
@@ -757,6 +679,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn open_files_are_found() {
         let dir = std::env::temp_dir().join(format!("codealong-open-files-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -774,6 +697,7 @@ mod tests {
 
     /// A `cat` reading a pipe and writing another holds those two and /dev/null for its errors.
     #[test]
+    #[cfg(unix)]
     fn a_processes_descriptors_are_counted_by_kind() {
         let mut cat = std::process::Command::new("cat").stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().unwrap();
         let kinds = open_kinds(cat.id());
@@ -797,6 +721,7 @@ mod tests {
 
     /// How many times this thread forks while `f` runs. `pthread_atfork`'s first handler runs in
     /// the thread that forks, before it does, so other tests' forks aren't counted.
+    #[cfg(unix)]
     fn forks_in(f: impl FnOnce()) -> u32 {
         static COUNTING: std::sync::Once = std::sync::Once::new();
         extern "C" fn forking() {
@@ -812,6 +737,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn starts_programs_without_forking() {
         let forks = forks_in(|| {
             // Named without a folder, found in the user's PATH, and still called by its name.
@@ -838,6 +764,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn finds_a_program_where_exec_would() {
         use std::os::unix::fs::PermissionsExt;
         let dir = std::env::temp_dir().join(format!("codealong-found-in-{}", std::process::id()));

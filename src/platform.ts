@@ -1,16 +1,18 @@
 // The platform the windows run on, and keys as it has them: the one place that knows. The app's
 // own chords are written in macOS's terms ('Shift+Cmd+E', 'Ctrl+Cmd+W', menus.ts, queue.ts), and
 // everything that matches one (`chordPressed`, `held`, `cmd`) or says one (`chordKeys`,
-// `keysIn`) asks here, so on macOS they're pressed and shown as they're written and on Linux as
-// `platformChord` makes them.
+// `keysIn`) asks here, so on macOS they're pressed and shown as they're written and on Linux and
+// Windows as `platformChord` makes them.
 //
 // On Linux a page sees only Ctrl, Alt and Shift: WebKitGTK reports no Super to a page at all, no
 // `metaKey` and no `getModifierState` (2.52 under X11, Super on mod4, checked in the VM on
 // 2026-10-16). macOS's four modifiers can't go one to one onto three, so ⌘ is Ctrl, ⌥ and ⌃ are
 // both Alt, ⇧ is Shift, and `LINUX` names the few chords that would then be another's, or a key
-// the desktop keeps. A test holds every chord the app has to being distinct there.
+// the desktop keeps. A test holds every chord the app has to being distinct there. Windows has them
+// as Linux does: its Windows key is the system's (Win+L, Win+D, Win+E, Win and a digit), as Super
+// is a Linux desktop's.
 
-export type Platform = 'mac' | 'linux';
+export type Platform = 'mac' | 'linux' | 'windows';
 
 declare global {
   interface Window {
@@ -27,13 +29,14 @@ export function setPlatform(p: Platform | null): void {
   forced = p;
 }
 
-/** Linux when WebKitGTK's user agent says so (`X11; Linux`); macOS otherwise, which WKWebView is
- *  and the headless Chrome the preview renders in says it is. Tests run in Node, whose user agent
- *  names no platform. */
+/** Linux when WebKitGTK's user agent says so (`X11; Linux`), Windows when WebView2's does
+ *  (`Windows NT 10.0`); macOS otherwise, which WKWebView is and the headless Chrome the preview
+ *  renders in says it is. Tests run in Node, whose user agent names no platform. */
 export function platform(): Platform {
   if (forced) return forced;
   if (typeof window !== 'undefined' && window.__CODEALONG_PLATFORM__) return window.__CODEALONG_PLATFORM__;
-  return typeof navigator !== 'undefined' && /\bLinux\b/.test(navigator.userAgent ?? '') ? 'linux' : 'mac';
+  const agent = typeof navigator !== 'undefined' ? (navigator.userAgent ?? '') : '';
+  return /\bWindows\b/.test(agent) ? 'windows' : /\bLinux\b/.test(agent) ? 'linux' : 'mac';
 }
 
 /** A modifier as the app's chords write it, in macOS's terms (`Option` is `Alt`). */

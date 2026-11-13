@@ -1,8 +1,9 @@
 //! Opening Codealong when you log in (Settings › General), so your other devices can reach it
 //! without your opening it. On macOS the app is a login item, registered with ServiceManagement,
 //! which System Settings › General › Login Items lists; on Linux an XDG autostart entry, a desktop
-//! file in `~/.config/autostart` that the desktop starts at login. Neither is kept in config.toml:
-//! either can be turned off from the system's side too, so whether it's on is asked of the system
+//! file in `~/.config/autostart` that the desktop starts at login; on Windows a value under the
+//! registry's `Run` key, which Task Manager's Startup apps lists. None is kept in config.toml:
+//! each can be turned off from the system's side too, so whether it's on is asked of the system
 //! each time, and nothing turns it back on by itself.
 
 use std::path::{Path, PathBuf};
@@ -17,6 +18,10 @@ pub use macos::*;
 mod linux;
 #[cfg(target_os = "linux")]
 pub use linux::*;
+#[cfg(target_os = "windows")]
+mod windows;
+#[cfg(target_os = "windows")]
+pub use windows::*;
 
 /// Whether the app opens at login.
 #[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -25,20 +30,20 @@ pub enum AtLogin {
     Off,
     On,
     /// Registered, but macOS waits for you to allow it in System Settings › General › Login Items.
-    /// Linux asks no one.
-    #[cfg_attr(target_os = "linux", allow(dead_code))]
+    /// Linux and Windows ask no one.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     Approve,
 }
 
 /// The autostart entry for the app named `name`: `codealong.desktop`, or `codealong-dev.desktop`
 /// for Codealong Dev, so each copy has its own.
-#[cfg_attr(target_os = "macos", allow(dead_code))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn autostart_file(name: &str) -> PathBuf {
     super::dirs::autostart_dir().join(format!("{}.desktop", name.to_lowercase().replace(' ', "-")))
 }
 
 /// The autostart entry that opens `exe` at login.
-#[cfg_attr(target_os = "macos", allow(dead_code))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn autostart_entry(name: &str, exe: &Path) -> String {
     format!("[Desktop Entry]\nType=Application\nName={name}\nExec={}\nX-GNOME-Autostart-enabled=true\n", exec_arg(&exe.to_string_lossy()))
 }
@@ -46,7 +51,7 @@ fn autostart_entry(name: &str, exe: &Path) -> String {
 /// A path as the one argument of a desktop entry's `Exec`, as the Desktop Entry spec has it: in
 /// quotes, with `"`, `` ` ``, `$` and `\` escaped inside them and `%` doubled (it starts a field
 /// code), then every backslash doubled again, as in any string value, which is read first.
-#[cfg_attr(target_os = "macos", allow(dead_code))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn exec_arg(path: &str) -> String {
     let mut quoted = String::from("\"");
     for c in path.chars() {
@@ -65,7 +70,7 @@ fn exec_arg(path: &str) -> String {
 
 /// Whether an autostart entry starts at login: one the desktop turned off (`Hidden=true`, or
 /// GNOME's `X-GNOME-Autostart-enabled=false`) doesn't.
-#[cfg_attr(target_os = "macos", allow(dead_code))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn autostart_on(entry: &str) -> bool {
     !entry.lines().filter_map(|l| l.split_once('=')).any(|(k, v)| matches!((k.trim(), v.trim()), ("Hidden", "true") | ("X-GNOME-Autostart-enabled", "false")))
 }

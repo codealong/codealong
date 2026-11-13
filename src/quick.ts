@@ -714,7 +714,7 @@ const MOD_ALIASES: Record<string, string> = {
  *  shortcut plugin reads it. */
 function modOf(part: string): string | undefined {
   const m = MOD_ALIASES[part.toLowerCase()];
-  return m === 'Cmd' && platform() === 'linux' && /^c(md|ommand)orc(trl|ontrol)$/i.test(part) ? 'Ctrl' : m;
+  return m === 'Cmd' && platform() !== 'mac' && /^c(md|ommand)orc(trl|ontrol)$/i.test(part) ? 'Ctrl' : m;
 }
 
 /** Keys whose names read better as symbols. */
@@ -822,15 +822,16 @@ function keyName(code: string): string | null {
  * The shortcut a key press makes, as config.toml writes it, or why it can't be one. Keys are
  * read by where they sit (`code`), so ⌥ turning letters into symbols doesn't matter. The same
  * rules as the engine's: ⌃, ⌥ or ⌘ unless it's a function key, and not ⌘ alone with a key. On
- * Linux those are Ctrl, Alt and Super, and Ctrl alone is every app's; a page there never sees
- * Super (platform.ts), so a shortcut with it is written in config.toml.
+ * Linux and Windows those are Ctrl, Alt and Super (Windows' Windows key), and Ctrl alone is every
+ * app's; a page on Linux never sees Super (platform.ts), so a shortcut with it is written in
+ * config.toml.
  */
 export function shortcutFromKey(e: { code: string; metaKey: boolean; ctrlKey: boolean; altKey: boolean; shiftKey: boolean }): { shortcut: string } | { error: string } | null {
   if (['MetaLeft', 'MetaRight', 'OSLeft', 'OSRight', 'ControlLeft', 'ControlRight', 'AltLeft', 'AltRight', 'ShiftLeft', 'ShiftRight', 'CapsLock', 'Fn'].includes(e.code)) return null;
   const key = keyName(e.code);
   if (!key) return { error: 'That key can’t be part of a shortcut.' };
   const fn = /^F\d+$/.test(key);
-  if (platform() === 'linux') {
+  if (platform() !== 'mac') {
     if (!fn && !e.ctrlKey && !e.altKey && !e.metaKey) return { error: 'Use Ctrl or Alt with it, or it would take a key you type.' };
     if (e.altKey && !e.ctrlKey && !e.metaKey && key === 'Tab') return { error: 'The desktop keeps Alt+Tab for switching windows.' };
     if (e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey && key !== 'Space' && !fn) return { error: `Ctrl+${shortcutLabel(key)} is a shortcut in most apps. Add Alt.` };

@@ -442,10 +442,15 @@ fn word(status: &Status) -> String {
 // ---- the Mac (its load and memory are os::system's) ----
 
 /// Every process, from one `ps`; an error when it doesn't answer, so nothing is judged on half a
-/// table. `ps` on a Mac that stalls can take a long while, so it's given one.
+/// table. `ps` on a Mac that stalls can take a long while, so it's given one. Windows' table is
+/// read instead, having no `ps`.
 pub fn processes() -> anyhow::Result<Vec<Proc>> {
+    let now = crate::util::now_ms();
+    if let Some(rows) = crate::os::procs::table() {
+        return Ok(rows.into_iter().filter_map(|r| Some(Proc { pid: r.pid, ppid: r.ppid, age_ms: now - r.started_ms?, started: r.started_ms?, command: r.command })).collect());
+    }
     let out = crate::procs::run("/bin/ps", &["-axww", "-o", "pid=,ppid=,etime=,command="], None, Duration::from_secs(60))?;
-    Ok(parse_ps(&out, crate::util::now_ms()))
+    Ok(parse_ps(&out, now))
 }
 
 fn parse_ps(out: &str, now: i64) -> Vec<Proc> {
@@ -510,10 +515,10 @@ impl Target {
     }
 }
 
-fn signal(targets: &[Target], sig: libc::c_int) {
+fn signal(targets: &[Target], sig: crate::os::procs::Signal) {
     for t in targets.iter().filter(|t| t.here()) {
-        // SAFETY: kill only sends a signal; a pid that's gone or not ours fails harmlessly.
-        unsafe { libc::kill(t.pid as libc::pid_t, sig) };
+        // A pid that's gone or not ours fails harmlessly.
+        let _ = crate::os::procs::signal(t.pid, sig);
     }
 }
 
@@ -551,7 +556,7 @@ pub fn end(found: &[Found], table: &[Proc], protected: &HashSet<u32>, board: &Bo
     // The roots first, so an agent can close what it started itself; then what's left of each tree.
     let roots: Vec<Target> = trees.iter().map(|t| t.1).collect();
     let asked: Vec<Target> = trees.iter().filter(|t| job(t.0).is_none()).map(|t| t.1).collect();
-    signal(&asked, libc::SIGTERM);
+    signal(&asked, crate::os::procs::Signal::Terminate);
     let stopped: HashMap<usize, Result<(), String>> = std::thread::scope(|scope| {
         let stops: Vec<_> = trees
             .iter()
@@ -566,9 +571,9 @@ pub fn end(found: &[Found], table: &[Proc], protected: &HashSet<u32>, board: &Bo
     wait_gone(&roots, Duration::from_secs(10));
     let all: Vec<Target> = trees.iter().flat_map(|(_, root, children)| std::iter::once(*root).chain(children.iter().copied())).collect();
     let rest = wait_gone(&all, Duration::ZERO);
-    signal(&rest, libc::SIGTERM);
+    signal(&rest, crate::os::procs::Signal::Terminate);
     let rest = wait_gone(&rest, Duration::from_secs(5));
-    signal(&rest, libc::SIGKILL);
+    signal(&rest, crate::os::procs::Signal::Kill);
     let rest = wait_gone(&rest, Duration::from_secs(3));
 
     // Dev processes that started again in the worktrees just cleared, as an Nx daemon does: only
@@ -593,8 +598,8 @@ pub fn end(found: &[Found], table: &[Proc], protected: &HashSet<u32>, board: &Bo
                 })
                 .filter_map(Target::of)
                 .collect();
-            signal(&again, libc::SIGTERM);
-            signal(&wait_gone(&again, Duration::from_secs(5)), libc::SIGKILL);
+            signal(&again, crate::os::procs::Signal::Terminate);
+            signal(&wait_gone(&again, Duration::from_secs(5)), crate::os::procs::Signal::Kill);
         }
     }
     for (i, root, children) in &trees {
@@ -616,9 +621,9 @@ pub fn end_tree(table: &[Proc], root: u32) -> Vec<u32> {
     let kids = children_of(table);
     let by_pid: HashMap<u32, &Proc> = table.iter().map(|p| (p.pid, p)).collect();
     let tree: Vec<Target> = std::iter::once(root).chain(descendants(&kids, root)).filter_map(|p| by_pid.get(&p)).filter_map(|p| Target::of(p)).collect();
-    signal(&tree, libc::SIGTERM);
+    signal(&tree, crate::os::procs::Signal::Terminate);
     let rest = wait_gone(&tree, Duration::from_secs(3));
-    signal(&rest, libc::SIGKILL);
+    signal(&rest, crate::os::procs::Signal::Kill);
     wait_gone(&rest, Duration::from_secs(2)).iter().map(|t| t.pid).collect()
 }
 
@@ -865,8 +870,8 @@ mod tests {
         assert!([root, a, b].iter().all(|&p| gone(p)));
         assert!(crate::procs::pid_alive(renamed) && crate::procs::pid_alive(reused));
         for pid in [renamed, reused] {
-            // SAFETY: kill only sends a signal, to a sleep this test started.
-            unsafe { libc::kill(pid as libc::pid_t, libc::SIGKILL) };
+            // A sleep this test started.
+            let _ = crate::os::procs::signal(pid, crate::os::procs::Signal::Kill);
         }
     }
 

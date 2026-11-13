@@ -274,8 +274,10 @@ mod tests {
         assert_eq!(v["projects"][folder.to_str().unwrap()][TRUSTED], Value::Bool(true));
         assert_eq!(v["oauthAccount"]["emailAddress"], "a@b.c");
         assert!(!dir.join(".claude.json.lock").exists());
-        use std::os::unix::fs::PermissionsExt;
-        assert_eq!(std::fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
+        // Only POSIX has modes: on Windows a file in your profile is yours alone already.
+        if cfg!(unix) {
+            assert_eq!(crate::os::files::mode_of(&std::fs::metadata(&file).unwrap()) & 0o777, 0o600);
+        }
         // Once trusted, the file isn't written again.
         let before = std::fs::read_to_string(&file).unwrap();
         assert!(!trust_folder_in(&file, &folder, &home).unwrap());

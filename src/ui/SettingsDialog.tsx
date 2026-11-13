@@ -536,6 +536,7 @@ function EmblemsFields({ cfg, disabled, onSave }: { cfg: Config; disabled: boole
 const AT_LOGIN_SAYS: Record<Platform, string> = {
   mac: 'Codealong opens when you log in to this Mac, so your other devices can reach it without your opening it. System Settings › General › Login Items lists it, and can turn it off too.',
   linux: 'Codealong opens when you log in, so your other devices can reach it without your opening it. It’s an entry in ~/.config/autostart, which your desktop starts at login.',
+  windows: 'Codealong opens when you sign in to Windows, so your other devices can reach it without your opening it. Task Manager’s Startup apps lists it, and can turn it off too.',
 };
 
 /**
@@ -1672,6 +1673,7 @@ const SHORTCUTS: { which: ShortcutStatus['which']; key: keyof Config['shortcuts'
     says: {
       mac: 'Brings the Codealong window you were in last to the front, from any app. Press it again there to hide Codealong, as ⌘H does, and go back to the app you were in.',
       linux: 'Brings the Codealong window you were in last to the front, from any app. Press it again there to hide Codealong and go back to the app you were in.',
+      windows: 'Brings the Codealong window you were in last to the front, from any app. Press it again there to hide Codealong and go back to the app you were in.',
     },
   },
 ];

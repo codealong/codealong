@@ -42,7 +42,7 @@ pub struct Profile {
 
 /// Chrome's data folder, with a folder for each profile and `Local State`.
 pub fn data_dir() -> PathBuf {
-    crate::os::dirs::app_data(&home(), "Google/Chrome", "google-chrome")
+    crate::os::dirs::app_data(&home(), "Google/Chrome", "google-chrome", "Local/Google/Chrome/User Data")
 }
 
 fn local_state() -> PathBuf {
@@ -110,6 +110,7 @@ pub fn open(url: &str, profile: &Profile) -> Result<()> {
     let opened = match os::current() {
         Os::MacOs => os::open::launch(App::Id(BUNDLE_ID), true, &[&dir, url], Duration::from_secs(10)),
         Os::Linux => os::open::start_detached(COMMAND, &[&dir, url], Duration::from_secs(10)),
+        Os::Windows => os::open::start_detached(&windows_command(), &[&dir, url], Duration::from_secs(10)),
     };
     opened.map_err(|e| anyhow!("Couldn't open {url} in Chrome's {} profile: {e}", profile.name))
 }
@@ -119,12 +120,24 @@ pub fn open_page(url: &str) -> Result<()> {
     let opened = match os::current() {
         Os::MacOs => os::open::in_app(App::Id(BUNDLE_ID), Some(url), Duration::from_secs(10)),
         Os::Linux => os::open::start_detached(COMMAND, &[url], Duration::from_secs(10)),
+        Os::Windows => os::open::start_detached(&windows_command(), &[url], Duration::from_secs(10)),
     };
     opened.map_err(|e| anyhow!("Couldn't open {url} in Chrome: {e}"))
 }
 
 /// Chrome's command on Linux.
 const COMMAND: &str = "google-chrome";
+
+/// Chrome's program on Windows, which its installer doesn't put on the PATH: where it installs
+/// for every user, else for you alone.
+fn windows_command() -> String {
+    ["ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA"]
+        .iter()
+        .filter_map(std::env::var_os)
+        .map(|d| std::path::PathBuf::from(d).join("Google/Chrome/Application/chrome.exe"))
+        .find(|p| p.is_file())
+        .map_or_else(|| "chrome".to_string(), |p| p.to_string_lossy().into_owned())
+}
 
 #[cfg(test)]
 mod tests {

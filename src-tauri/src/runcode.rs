@@ -224,12 +224,14 @@ pub fn commands() -> Vec<String> {
 
 fn commands_on(path: &str) -> Vec<String> {
     let mut names: std::collections::BTreeSet<String> = BUILTINS.iter().map(|b| b.to_string()).collect();
-    for dir in path.split(':').filter(|d| !d.is_empty()) {
+    for dir in std::env::split_paths(path).filter(|d| !d.as_os_str().is_empty()) {
         let Ok(entries) = std::fs::read_dir(dir) else { continue };
         for e in entries.flatten() {
             let Ok(name) = e.file_name().into_string() else { continue };
             if !name.starts_with('.') && crate::detect::is_executable(&e.path()) {
-                names.insert(name);
+                // Typed without its extension on Windows (`git` for git.exe).
+                let typed = if crate::os::is_windows() { std::path::Path::new(&name).file_stem().map_or(name.clone(), |s| s.to_string_lossy().into_owned()) } else { name };
+                names.insert(typed);
             }
         }
     }
@@ -245,6 +247,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn commands_are_the_programs_on_the_path_and_the_shells_own() {
         use std::os::unix::fs::PermissionsExt;
         let dir = std::env::temp_dir().join(format!("codealong-runcode-{}", std::process::id()));

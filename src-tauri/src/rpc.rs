@@ -14,7 +14,6 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::io::{self, BufRead, BufReader, Write};
-use std::os::fd::AsRawFd;
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{channel, RecvTimeoutError, Sender};
@@ -158,7 +157,7 @@ impl Client {
         let stderr = child.stderr.take();
         // Written without blocking, so a child that stops reading holds a write only as long as
         // its deadline, and never past the client's end (`Link::write`).
-        crate::procs::nonblocking(stdin.as_raw_fd());
+        crate::procs::nonblocking(&stdin);
         let tail = Arc::new(Mutex::new(VecDeque::new()));
         let link = Arc::new(Link { pid: child.id(), wire, stdin: Mutex::new(Some(stdin)), child: Mutex::new(child), next: AtomicU64::new(1), waiting: Mutex::new(Some(HashMap::new())), tail: tail.clone(), ending: AtomicBool::new(false) });
         // Ends when stderr does, which the reader below waits for.
@@ -299,7 +298,6 @@ impl Link {
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => {}
                 Err(e) => return Err(e),
             }
-            let fd = pipe.as_raw_fd();
             let now = Instant::now();
             let late = deadline.is_some_and(|d| now >= d);
             if late || self.ending.load(Ordering::SeqCst) {
@@ -309,11 +307,8 @@ impl Link {
                 return Err(if late { io::Error::new(io::ErrorKind::TimedOut, "it isn't reading its input") } else { closed() });
             }
             let wait = deadline.map_or(TICK, |d| d.saturating_duration_since(now).min(TICK));
-            let mut ready = libc::pollfd { fd, events: libc::POLLOUT, revents: 0 };
-            // SAFETY: one live pollfd, and a count of one.
-            unsafe {
-                libc::poll(&mut ready, 1, wait.as_millis().max(1) as libc::c_int);
-            }
+            let Some(pipe) = stdin.as_ref() else { return Err(closed()) };
+            crate::os::procs::wait_writable(pipe, wait);
         }
         Ok(true)
     }

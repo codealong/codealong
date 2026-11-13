@@ -425,7 +425,7 @@ pub fn not_configured(found: Vec<Found>, accounts: &[AccountCfg], known: &[Strin
 /// Every account on this Mac, configured or not.
 pub fn find_all() -> Vec<Found> {
     let h = home();
-    let path_dirs: Vec<PathBuf> = crate::procs::user_path().split(':').filter(|p| !p.is_empty()).map(PathBuf::from).collect();
+    let path_dirs: Vec<PathBuf> = std::env::split_paths(crate::procs::user_path()).filter(|p| !p.as_os_str().is_empty()).collect();
     let decls = shell_decls(&h, &path_dirs);
     let folders = gather(&h, &decls);
     build(&folders, &|harness: &str| installed(harness, &h, &path_dirs), now_ms())
@@ -561,13 +561,19 @@ fn inspect(f: &mut Folder) {
 /// Whether the harness is on this Mac: its command on the PATH or where its installer puts it,
 /// or its app.
 fn installed(harness: &str, h: &Path, path_dirs: &[PathBuf]) -> bool {
-    let on_path = |name: &str| path_dirs.iter().any(|d| is_executable(&d.join(name)));
+    let on_path = |name: &str| in_dirs(path_dirs.iter(), name);
     crate::harness::named(harness).is_some_and(|a| a.installed(h, &on_path))
 }
 
+/// Whether a command is in one of `dirs`: by its name, or on Windows its name with an extension
+/// Windows runs (`claude.cmd`, `claude.exe`).
+fn in_dirs<P: AsRef<Path>>(dirs: impl Iterator<Item = P>, name: &str) -> bool {
+    let names = crate::os::procs::names_to_find(std::ffi::OsStr::new(name));
+    dirs.into_iter().any(|d| names.iter().any(|n| is_executable(&d.as_ref().join(n))))
+}
+
 pub(crate) fn is_executable(p: &Path) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::metadata(p).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+    std::fs::metadata(p).is_ok_and(|m| crate::os::files::runs(p, &m))
 }
 
 /// An app in /Applications or ~/Applications.
@@ -591,7 +597,7 @@ fn bundle_id_is(app: &Path, id: &str) -> bool {
 
 /// Whether a command is on the PATH Codealong gives the programs it runs.
 pub fn on_user_path(name: &str) -> bool {
-    crate::procs::user_path().split(':').filter(|p| !p.is_empty()).any(|d| is_executable(&Path::new(d).join(name)))
+    in_dirs(std::env::split_paths(crate::procs::user_path()).filter(|p| !p.as_os_str().is_empty()), name)
 }
 
 /// A `VAR=value` word, as a command sets one for its program.

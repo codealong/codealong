@@ -12,7 +12,7 @@
 
 use std::collections::HashMap;
 use std::io::Write;
-use std::os::unix::net::UnixStream;
+use crate::os::sock::UnixStream;
 use std::sync::mpsc::{self, RecvTimeoutError, SyncSender};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
@@ -151,8 +151,7 @@ pub fn any() -> bool {
 /// The apps connected, the latest last. One whose process has gone is left out: it's let go only
 /// at the next write to it, a ping away at most.
 pub fn list() -> Vec<Info> {
-    // SAFETY: kill with no signal only asks whether the process is there.
-    let alive = |pid: u32| unsafe { libc::kill(pid as libc::pid_t, 0) } == 0;
+    let alive = crate::os::procs::alive;
     views().lock().map(|v| v.views.iter().filter(|view| alive(view.info.pid)).map(|view| view.info.clone()).collect()).unwrap_or_default()
 }
 
@@ -282,16 +281,14 @@ pub fn quit_all(wait: Duration, before: Option<i64>) {
             let _ = view.send(quit.clone());
         }
     }
-    // SAFETY: kill with no signal only asks whether the process is there.
-    let alive = |pid: u32| pid != std::process::id() && unsafe { libc::kill(pid as libc::pid_t, 0) } == 0;
+    let alive = |pid: u32| pid != std::process::id() && crate::os::procs::alive(pid);
     let until = Instant::now() + wait;
     while pids.iter().any(|p| alive(*p)) && Instant::now() < until {
         std::thread::sleep(Duration::from_millis(100));
     }
     for pid in pids.iter().copied().filter(|p| alive(*p)) {
         eprintln!("A view (pid {pid}) didn't quit when asked; ending it.");
-        // SAFETY: as above, with the signal that ends it.
-        unsafe { libc::kill(pid as libc::pid_t, libc::SIGTERM) };
+        let _ = crate::os::procs::signal(pid, crate::os::procs::Signal::Terminate);
     }
     // Gone, they'd be let go only at the next ping.
     if let Ok(mut v) = views().lock() {

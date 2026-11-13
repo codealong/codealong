@@ -66,8 +66,7 @@ fn small_file(path: &Path) -> Option<PathBuf> {
 }
 
 fn as_path(bytes: &[u8]) -> Option<PathBuf> {
-    use std::os::unix::ffi::OsStrExt;
-    (!bytes.is_empty()).then(|| PathBuf::from(std::ffi::OsStr::from_bytes(bytes)))
+    (!bytes.is_empty()).then(|| crate::os::files::path_from_bytes(bytes)).flatten()
 }
 
 /// The git folder a `.git` file names (`gitdir: <path>`), from the folder it's in.
@@ -234,7 +233,7 @@ mod tests {
         worktree(&main.join(".git/worktrees/wt"), &wt, &wt);
         assert_eq!(trust_target(&wt), main);
         let link = home.join("r/alias");
-        std::os::unix::fs::symlink(&main, &link).unwrap();
+        crate::os::files::symlink(&main, &link).unwrap();
         let by_link = home.join("r/wt-link");
         worktree(&link.join(".git/worktrees/wt-link"), &by_link, &by_link);
         assert_eq!(trust_root(&by_link), Some(link.clone()));

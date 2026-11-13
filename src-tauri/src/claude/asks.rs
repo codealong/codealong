@@ -24,7 +24,7 @@
 //! nor open the log.
 
 use std::io::Write;
-use std::os::unix::net::UnixStream;
+use crate::os::sock::UnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::mpsc::{channel, RecvTimeoutError, Sender};

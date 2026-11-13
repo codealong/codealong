@@ -1,7 +1,7 @@
 //! The sounds the OS has for what comes to wait on you (sounds.rs): where it keeps them and yours,
 //! which files they are, the two a new config.toml names, and playing one. On macOS the ones
 //! NSSound finds by name; on Linux the freedesktop sound theme's, which desktops install, played
-//! through PulseAudio or PipeWire.
+//! through PulseAudio or PipeWire; on Windows its own, in C:\Windows\Media.
 
 use std::path::{Path, PathBuf};
 
@@ -15,23 +15,29 @@ pub use macos::play;
 mod linux;
 #[cfg(target_os = "linux")]
 pub use linux::play;
+#[cfg(target_os = "windows")]
+mod windows;
+#[cfg(target_os = "windows")]
+pub use windows::play;
 
 /// The sounds a new config.toml names for something needing you and a turn ending: on macOS a
-/// pop and a click, which every Mac has; on Linux the sound theme's.
+/// pop and a click, which every Mac has; on Linux the sound theme's; on Windows its notification
+/// sounds, which every Windows 10 and 11 has.
 pub fn defaults() -> (&'static str, &'static str) {
     match super::current() {
         Os::MacOs => ("Pop", "Tink"),
         Os::Linux => ("message-new-instant", "complete"),
+        Os::Windows => ("Windows Notify Messaging", "Windows Notify System Generic"),
     }
 }
 
 /// The sound a new config.toml names for a meeting about to start (meetings.rs): on macOS a
-/// glass, which every Mac has and which carries from another screen; none on Linux, which has
-/// no meetings yet.
+/// glass, which every Mac has and which carries from another screen; none on Linux and Windows,
+/// which have no meetings yet.
 pub fn meeting_default() -> &'static str {
     match super::current() {
         Os::MacOs => "Glass",
-        Os::Linux => "",
+        Os::Linux | Os::Windows => "",
     }
 }
 
@@ -41,7 +47,8 @@ pub fn default_may_be_missing() -> bool {
 }
 
 /// The folders the sounds are found in, yours first: on macOS those NSSound's `soundNamed:`
-/// looks in, in its order (yours, the Mac's, macOS's); on Linux yours, then the theme's.
+/// looks in, in its order (yours, the Mac's, macOS's); on Linux yours, then the theme's; on
+/// Windows its own.
 pub fn folders() -> Vec<PathBuf> {
     let mut out = Vec::new();
     match super::current() {
@@ -53,6 +60,7 @@ pub fn folders() -> Vec<PathBuf> {
             out.extend(dirs::data_dir().map(|d| d.join("sounds")));
             out.extend(["/usr/local/share/sounds", "/usr/share/sounds/freedesktop/stereo"].map(PathBuf::from));
         }
+        Os::Windows => out.push(PathBuf::from(std::env::var_os("WINDIR").unwrap_or_else(|| "C:\\Windows".into())).join("Media")),
     }
     out
 }
@@ -62,6 +70,7 @@ pub fn names_said() -> &'static str {
     match super::current() {
         Os::MacOs => "Each is the name of a sound in /System/Library/Sounds (\"Pop\", \"Tink\", \"Bottle\", \"Purr\"...)\n# or ~/Library/Sounds, or \"\" for none. volume: in percent of the Mac's own.",
         Os::Linux => "Each is the name of a sound in /usr/share/sounds/freedesktop/stereo (\"message-new-instant\",\n# \"complete\", \"bell\"...) or ~/.local/share/sounds, or \"\" for none. volume: in percent of the system's.",
+        Os::Windows => "Each is the name of a sound in C:\\Windows\\Media (\"Windows Notify Messaging\", \"Windows Ding\",\n# \"chimes\"...), or \"\" for none. volume: in percent of Codealong's own in the volume mixer.",
     }
 }
 
@@ -70,6 +79,7 @@ pub fn is_sound(p: &Path) -> bool {
     let kinds: &[&str] = match super::current() {
         Os::MacOs => &["aiff", "aif", "aifc", "wav", "caf", "mp3", "m4a", "aac", "au", "snd"],
         Os::Linux => &["oga", "ogg", "wav", "flac"],
+        Os::Windows => &["wav"],
     };
     p.extension().and_then(|x| x.to_str()).is_some_and(|x| kinds.contains(&x.to_ascii_lowercase().as_str()))
 }

@@ -1,6 +1,8 @@
 //! The kernel's process table, read without starting `ps`: a process's start, parent, name,
-//! terminal, folder, environment, open files and listening ports. procs.rs builds on these and
-//! re-exports them; macOS's are `macos.rs`, Linux's (`/proc`) `linux.rs`.
+//! terminal, folder, environment, open files and listening ports; and what's asked of a process
+//! (signals), of a program as it's started, and of its pipes. procs.rs builds on these and
+//! re-exports them; macOS's are `macos.rs`, Linux's (`/proc`) `linux.rs`, Windows' `windows.rs`,
+//! and what macOS and Linux do alike through POSIX `posix.rs`.
 
 #[cfg(target_os = "macos")]
 mod macos;
@@ -10,6 +12,49 @@ pub use macos::*;
 mod linux;
 #[cfg(target_os = "linux")]
 pub use linux::*;
+#[cfg(target_os = "windows")]
+mod windows;
+#[cfg(target_os = "windows")]
+pub use windows::*;
+#[cfg(unix)]
+mod posix;
+#[cfg(unix)]
+pub use posix::*;
+
+/// What a process is told (`signal`): POSIX's signals. Windows has none of them; there, those that
+/// end a process end it, Continue does nothing (nothing is stopped there), and an interrupt
+/// can't be sent.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Signal {
+    /// SIGHUP: its terminal went.
+    HangUp,
+    /// SIGINT: Ctrl-C.
+    Interrupt,
+    /// SIGTERM: asked to quit.
+    Terminate,
+    /// SIGKILL.
+    Kill,
+    /// SIGCONT.
+    Continue,
+}
+
+/// A process as one look at the whole table finds it: its parent, the CPU it has used, when it
+/// started, and its command line, its arguments joined with spaces (`table`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Row {
+    pub pid: u32,
+    pub ppid: u32,
+    pub cpu_ms: Option<u64>,
+    pub started_ms: Option<i64>,
+    pub command: String,
+}
+
+/// A descriptor passed on through `exec_keeping`: POSIX's number for an open file. Windows has
+/// handles instead, and never passes one on this way.
+#[cfg(unix)]
+pub type Fd = std::os::fd::RawFd;
+#[cfg(windows)]
+pub type Fd = i32;
 
 /// How many descriptors a process holds, of each kind (`open_kinds`).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]

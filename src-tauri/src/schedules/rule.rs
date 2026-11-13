@@ -54,10 +54,7 @@ pub struct Local;
 
 impl Zone for Local {
     fn civil(&self, ms: i64) -> Civil {
-        let secs = ms.div_euclid(1000) as libc::time_t;
-        // SAFETY: localtime_r fills the struct it's given; a zeroed tm is a valid one.
-        let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-        unsafe { libc::localtime_r(&secs, &mut tm) };
+        let tm = crate::os::system::localtime(ms.div_euclid(1000));
         Civil { year: tm.tm_year as i64 + 1900, month: tm.tm_mon as i64 + 1, day: tm.tm_mday as i64, hour: tm.tm_hour as i64, minute: tm.tm_min as i64 }
     }
 

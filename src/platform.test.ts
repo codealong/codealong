@@ -195,3 +195,24 @@ describe('on Linux', () => {
     expect(keysIn(undefined)).toBeUndefined();
   });
 });
+
+describe('on Windows', () => {
+  it('presses and says chords as Linux does', () => {
+    for (const c of new Set(APP_CHORDS.map((c) => writeChord(parseChord(c))))) {
+      setPlatform('linux');
+      const linux = [platformChord(c), chordKeys(c).join(' ')];
+      setPlatform('windows');
+      expect([platformChord(c), chordKeys(c).join(' ')], c).toEqual(linux);
+    }
+    expect(cmd(press('k', { ctrl: true }))).toBe(true);
+    expect(keysIn('Settings (⌘,)')).toBe('Settings (Ctrl+,)');
+  });
+
+  it('leaves Windows its own keys', () => {
+    setPlatform('windows');
+    const taken = new Set(APP_CHORDS.map((c) => platformChord(c)));
+    for (const system of ['Alt+Tab', 'Alt+Shift+Tab', 'Alt+F4', 'Alt+Space', 'Ctrl+Alt+Delete', 'Ctrl+Shift+Escape', 'Ctrl+Escape']) {
+      expect(taken.has(system), `the app takes Windows' ${system}`).toBe(false);
+    }
+  });
+});

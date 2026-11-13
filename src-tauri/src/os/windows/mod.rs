@@ -1,7 +1,7 @@
 //! The windows: the panels that float over other apps (panel.rs has what kind each is and when
 //! each step happens, and re-exports these), and what's asked of any window's page beyond what
 //! Tauri gives. macOS's are AppKit and WebKit through objc2, `macos.rs`; Linux's are Tauri and
-//! GTK, `linux.rs`, where much of it has nothing to do.
+//! GTK, `linux.rs`, and Windows' Tauri and Win32, `windows.rs`, where much of it has nothing to do.
 
 use std::time::Duration;
 
@@ -16,16 +16,21 @@ pub use macos::*;
 mod linux;
 #[cfg(target_os = "linux")]
 pub use linux::*;
+#[cfg(target_os = "windows")]
+mod windows;
+#[cfg(target_os = "windows")]
+pub use windows::*;
 
 /// Whether the desktop shows the items apps put in its menu bar or tray (menubar.rs). A Mac's
 /// menu bar always does. On Linux an item is a StatusNotifierItem, shown by a host (KDE's panel,
 /// GNOME's with its AppIndicator extension, most others) that has told the session bus's
 /// StatusNotifierWatcher it's there; a watcher can run with no host, which shows nothing. Asked of
 /// the watcher with `gdbus`, which GLib has wherever GTK is, so it waits on a program: off the
-/// main thread. A desktop with only an old XEmbed tray is taken for one without.
+/// main thread. A desktop with only an old XEmbed tray is taken for one without. Windows' taskbar
+/// always has its notification area.
 pub fn tray_shown() -> bool {
     match super::current() {
-        Os::MacOs => true,
+        Os::MacOs | Os::Windows => true,
         Os::Linux => {
             let asked = [
                 "call",

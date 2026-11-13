@@ -47,8 +47,6 @@
 //! `script` keeps it.
 
 use std::io::Write as _;
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{channel, RecvTimeoutError, Sender};
@@ -62,6 +60,7 @@ use serde_json::{json, Value};
 
 use crate::config::support_dir;
 use crate::model::{AppNames, Lane, RunningIn, Session, Status, TERMINAL_ASKS};
+use crate::os::sock::UnixStream;
 use crate::os::{self, Os};
 use crate::procs;
 use crate::util::{code, now_ms, one_line, sh_quote, tilde, truncate, without_cd, words, DAY_MS};
@@ -627,11 +626,11 @@ pub const OWN: &str = "Codealong";
 /// A run's folder, its wrapper closing the tab `closes_after` the command ends (zero: never).
 fn write_folder(d: &Path, run: &Run, closes_after: Duration) -> Result<()> {
     std::fs::create_dir_all(runs_dir())?;
-    let _ = std::fs::set_permissions(runs_dir(), std::fs::Permissions::from_mode(0o700));
+    let _ = os::files::set_mode(&runs_dir(), 0o700);
     std::fs::create_dir(d)?;
-    std::fs::set_permissions(d, std::fs::Permissions::from_mode(0o700))?;
+    os::files::set_mode(d, 0o700)?;
     let write = |name: &str, text: &str| -> Result<()> {
-        let mut f = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(d.join(name))?;
+        let mut f = os::files::create_mode(std::fs::OpenOptions::new().write(true).create_new(true), 0o600).open(d.join(name))?;
         f.write_all(text.as_bytes())?;
         Ok(())
     };
@@ -704,11 +703,12 @@ fi
 /// shell noting its pid and sourcing the command. macOS's `script` takes the command's words and
 /// exits with its status. util-linux's takes the command as one line, which it gives `$SHELL -c`
 /// (`$run` here, which can read it), and exits with its status only with `-e`; `-f` writes each
-/// output as it comes, as macOS's `-F` does.
+/// output as it comes, as macOS's `-F` does. Windows has no `script` of its own; a POSIX shell
+/// there (Cygwin's, MSYS2's) has util-linux's.
 fn under_script() -> String {
     match os::current() {
         Os::MacOs => format!(r#"CODEALONG_RUN_DIR="$d" /usr/bin/script -q -F "$d/{OUTPUT}" "$run" -l -i -c 'printf %s "$$" > "$CODEALONG_RUN_DIR/{SHELL}"; . "$CODEALONG_RUN_DIR/{COMMAND}"'"#),
-        Os::Linux => format!(r#"CODEALONG_RUN_DIR="$d" SHELL="$run" script -q -f -e -O "$d/{OUTPUT}" -c "exec \"\$SHELL\" -l -i -c 'printf %s \"\$\$\" > \"\$CODEALONG_RUN_DIR/{SHELL}\"; . \"\$CODEALONG_RUN_DIR/{COMMAND}\"'""#),
+        Os::Linux | Os::Windows => format!(r#"CODEALONG_RUN_DIR="$d" SHELL="$run" script -q -f -e -O "$d/{OUTPUT}" -c "exec \"\$SHELL\" -l -i -c 'printf %s \"\$\$\" > \"\$CODEALONG_RUN_DIR/{SHELL}\"; . \"\$CODEALONG_RUN_DIR/{COMMAND}\"'""#),
     }
 }
 
@@ -1281,9 +1281,8 @@ pub fn stop(id: &str) -> Result<String> {
     let d = run_folder(id)?;
     let shell = noted_pid(&d, SHELL, 0, s.run.allowed_at).ok_or_else(|| anyhow!("It's still starting in its tab; try again in a moment."))?;
     let group = procs::foreground_group(shell).unwrap_or(shell);
-    // SAFETY: kill with a negative pid signals that process group.
-    if unsafe { libc::kill(-(group as libc::pid_t), libc::SIGINT) } != 0 {
-        bail!("Couldn't interrupt it: {}", std::io::Error::last_os_error());
+    if let Err(e) = crate::os::procs::signal_group(group, crate::os::procs::Signal::Interrupt) {
+        bail!("Couldn't interrupt it: {e}");
     }
     let started = Instant::now();
     while started.elapsed() < Duration::from_secs(5) {
@@ -1331,9 +1330,9 @@ pub fn close(id: &str) -> Result<String> {
     claim_for_close(&d)?;
     // The tab's shell started its own group, which the wrapper and `script` are in; the command's
     // shell, on `script`'s terminal, is hung up as `script` ends.
-    // SAFETY: kill with a negative pid signals that process group.
-    if unsafe { libc::kill(-(wrapper as libc::pid_t), libc::SIGHUP) } != 0 && unsafe { libc::kill(wrapper as libc::pid_t, libc::SIGHUP) } != 0 {
-        bail!("Couldn't close its tab: {}", std::io::Error::last_os_error());
+    use crate::os::procs::{signal, signal_group, Signal};
+    if let Err(e) = signal_group(wrapper, Signal::HangUp).or_else(|_| signal(wrapper, Signal::HangUp)) {
+        bail!("Couldn't close its tab: {e}");
     }
     let started = Instant::now();
     while procs::pid_alive(wrapper) && started.elapsed() < Duration::from_secs(5) {
@@ -1386,7 +1385,7 @@ mod tests {
     fn no_script(wrapper: String) -> String {
         match os::current() {
             Os::MacOs => wrapper.replace("/usr/bin/script -q -F", "sh -c 'shift; \"$@\"' script"),
-            Os::Linux => wrapper.replace("script -q -f -e", "sh -c 'shift 3; exec \"$SHELL\" -c \"$1\"' script"),
+            Os::Linux | Os::Windows => wrapper.replace("script -q -f -e", "sh -c 'shift 3; exec \"$SHELL\" -c \"$1\"' script"),
         }
     }
 
@@ -1969,7 +1968,7 @@ mod tests {
         TEST_RUNS.with(|r| *r.borrow_mut() = Some(scratch.join("runs")));
         std::fs::create_dir_all(scratch.join("runs/run-abc123")).unwrap();
         std::fs::create_dir_all(scratch.join("forged")).unwrap();
-        std::os::unix::fs::symlink(scratch.join("forged"), scratch.join("runs/run-linked")).unwrap();
+        os::files::symlink(&scratch.join("forged"), &scratch.join("runs/run-linked")).unwrap();
         assert!(run_folder("run-abc123").is_ok());
         for id in ["run-linked", "run-missing", "run-../forged", "../forged", "/tmp", "run-", "abc123", "run-a/b"] {
             assert!(run_folder(id).is_err(), "{id}");
@@ -2091,6 +2090,7 @@ mod tests {
     /// terminal's process, so the run's folder says how it ended and what it printed as a tab's
     /// would, and closing the run hangs up the wrapper, which closes the terminal.
     #[test]
+    #[cfg_attr(windows, ignore = "Codealong's own terminals aren't on Windows yet")]
     fn a_run_in_codealongs_own_terminal_is_kept_as_a_tabs_is() {
         let scratch = crate::fixtures::scratch("terminal-own-run");
         TEST_RUNS.with(|r| *r.borrow_mut() = Some(scratch.join("runs")));
@@ -2122,6 +2122,7 @@ mod tests {
     /// A run that stops at a question in Codealong's terminal is read as asking it, through the
     /// wrapper and `script` it runs under, until it's answered there.
     #[test]
+    #[cfg_attr(windows, ignore = "Codealong's own terminals aren't on Windows yet")]
     fn a_run_at_a_question_in_codealongs_terminal_asks_it() {
         let scratch = crate::fixtures::scratch("terminal-own-asks");
         TEST_RUNS.with(|r| *r.borrow_mut() = Some(scratch.join("runs")));
@@ -2267,6 +2268,7 @@ mod tests {
     /// leaves alone. In `sh`, with a stub in `script`'s place, as above, and a pipe for the tab's
     /// keyboard.
     #[test]
+    #[cfg(unix)]
     fn the_wrapper_closes_its_tab_after_the_wait_unless_you_took_a_shell_there() {
         use std::os::unix::process::ExitStatusExt;
         use std::process::{Child, Command, Stdio};

@@ -77,22 +77,23 @@ const KNOWN: &[Known] = &[
 
 /// Where editors are looked for: on macOS where apps are installed, by hand or Homebrew, for one
 /// user (JetBrains Toolbox puts its IDEs there, or in a folder of its own there), and by Setapp;
-/// on Linux the folders on your PATH.
+/// on Linux and Windows the folders on your PATH.
 fn app_dirs() -> Vec<PathBuf> {
     match os::current() {
         Os::MacOs => {
             let h = home();
             vec![PathBuf::from("/Applications"), h.join("Applications"), h.join("Applications/JetBrains Toolbox"), PathBuf::from("/Applications/Setapp")]
         }
-        Os::Linux => procs::user_path().split(':').filter(|d| !d.is_empty()).map(PathBuf::from).collect(),
+        Os::Linux | Os::Windows => std::env::split_paths(procs::user_path()).filter(|d| !d.as_os_str().is_empty()).collect(),
     }
 }
 
-/// Where a known editor is: its app on macOS, its command on Linux.
+/// Where a known editor is: its app on macOS, its command on Linux and Windows (there with the
+/// extension it has, `code.cmd`).
 fn find_in(dirs: &[PathBuf], k: &Known) -> Option<PathBuf> {
     match os::current() {
         Os::MacOs => k.apps.iter().flat_map(|app| dirs.iter().map(move |d| d.join(format!("{app}.app")))).find(|p| p.is_dir()),
-        Os::Linux => k.commands.iter().flat_map(|c| dirs.iter().map(move |d| d.join(c))).find(|p| p.is_file()),
+        Os::Linux | Os::Windows => k.commands.iter().flat_map(|c| crate::os::procs::names_to_find(std::ffi::OsStr::new(c))).flat_map(|c| dirs.iter().map(move |d| d.join(&c))).find(|p| p.is_file()),
     }
 }
 
@@ -148,15 +149,15 @@ fn command_for(dirs: &[PathBuf], id: &str) -> Option<PathBuf> {
     }
 }
 
-/// Opens `path`, a folder or a file, in the editor `id` names: its app on macOS; on Linux its
-/// command, left to run by itself, since some (JetBrains') stay until you quit.
+/// Opens `path`, a folder or a file, in the editor `id` names: its app on macOS; on Linux and
+/// Windows its command, left to run by itself, since some (JetBrains') stay until you quit.
 pub fn open(id: &str, path: &Path) -> Result<()> {
     let dirs = app_dirs();
     let path = path.to_string_lossy();
     match os::current() {
         Os::MacOs => os::open::in_app(App::Named(&app_for(&dirs, id)), Some(&path), Duration::from_secs(15))
             .map_err(|_| anyhow!("Couldn't open {}. Is it installed?", name(id))),
-        Os::Linux => {
+        Os::Linux | Os::Windows => {
             let program = command_for(&dirs, id).ok_or_else(|| anyhow!("Couldn't open {}. Is it installed?", name(id)))?;
             os::open::start_detached(&program.to_string_lossy(), &[&path], Duration::from_secs(15)).map_err(|e| anyhow!("Couldn't open {}: {e}", name(id)))
         }
@@ -173,7 +174,7 @@ fn cli_in(dirs: &[PathBuf], id: &str) -> Option<(PathBuf, Goto)> {
     let program = match os::current() {
         Os::MacOs if cli.path.contains('/') => found.join(cli.path),
         Os::MacOs => found.join("Contents/Resources/app/bin").join(cli.path),
-        Os::Linux => found,
+        Os::Linux | Os::Windows => found,
     };
     program.is_file().then_some((program, cli.goto))
 }

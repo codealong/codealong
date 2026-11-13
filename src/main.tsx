@@ -60,7 +60,7 @@ if (isDesktop) document.documentElement.classList.add('is-desktop');
 if (isLineage) document.documentElement.classList.add('is-lineage');
 // On Linux the window manager draws a board window's title bar, so the page leaves no room for
 // macOS's window buttons (App.css).
-if (platform() === 'linux') document.documentElement.classList.add('is-linux');
+if (platform() !== 'mac') document.documentElement.classList.add(platform() === 'linux' ? 'is-linux' : 'is-windows');
 // The board's windows draw the notices, at the end of the accounts bar: their own, and those the
 // other windows hand on.
 if (!isBar && !isQuick && !isWaiting && !isPeek && !isDesktop && !isLineage) drawNoticesHere();

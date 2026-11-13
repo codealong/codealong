@@ -261,8 +261,8 @@ pub fn link_command(dir: Option<PathBuf>) -> Result<PathBuf> {
     } else if link.exists() {
         bail!("{} exists and isn't a symlink; move it out of the way.", link.display());
     }
-    std::os::unix::fs::symlink(&exe, &link).with_context(|| format!("linking {}", link.display()))?;
-    let on_path = std::env::var("PATH").unwrap_or_default().split(':').any(|p| Path::new(p) == dir);
+    crate::os::files::symlink(&exe, &link).with_context(|| format!("linking {}", link.display()))?;
+    let on_path = std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()).any(|p| p == dir);
     if !on_path {
         eprintln!("{} isn't on PATH in this shell; add it, or run the command by its path.", dir.display());
     }
@@ -292,7 +292,7 @@ fn follow_links_in(dirs: &[PathBuf], exe: &Path) {
         // Made beside it and renamed over it, so the command is never missing in between.
         let next = dir.join(".codealong-link");
         let _ = std::fs::remove_file(&next);
-        if std::os::unix::fs::symlink(exe, &next).is_err() || std::fs::rename(&next, &link).is_err() {
+        if crate::os::files::symlink(exe, &next).is_err() || std::fs::rename(&next, &link).is_err() {
             let _ = std::fs::remove_file(&next);
             eprintln!("Couldn't point {} at {}", link.display(), exe.display());
         }
@@ -396,11 +396,12 @@ fn dock_environment(caller: impl Fn(&str) -> Option<String>, shell: &str, temp: 
 /// the one the Dock gives an app, as an app opened by hand is given (`open_as_the_dock_does`), so
 /// nothing of the shell or the agent session that ran the command reaches the server or what it
 /// starts. On Linux, where the desktop's own (the display, the session bus) comes only from the
-/// starter, this process's, less what's an agent session's or a terminal's of its own.
+/// starter, this process's, less what's an agent session's or a terminal's of its own, and so on
+/// Windows, where the environment is the user's wherever it's started from.
 pub fn server_environment() -> Vec<(String, String)> {
     match crate::os::current() {
         crate::os::Os::MacOs => dock_environment(|name| std::env::var(name).ok(), &crate::launch::login_shell(), crate::os::dirs::user_temp_dir().as_deref(), launchd_ssh_agent().as_deref()),
-        crate::os::Os::Linux => std::env::vars().filter(|(name, _)| !of_a_session(name)).collect(),
+        crate::os::Os::Linux | crate::os::Os::Windows => std::env::vars().filter(|(name, _)| !of_a_session(name)).collect(),
     }
 }
 
@@ -595,9 +596,8 @@ fn stage_marketplace_from(src: &Path, skill: Option<&Path>, dst: &Path, live: bo
     }
     // The bundle's resources can come without the command's execute bit.
     if let Ok(bins) = std::fs::read_dir(tmp.join("plugin/bin")) {
-        use std::os::unix::fs::PermissionsExt;
         for b in bins.flatten() {
-            std::fs::set_permissions(b.path(), std::fs::Permissions::from_mode(0o755))?;
+            crate::os::files::set_mode(&b.path(), 0o755)?;
         }
     }
     if dst.exists() {
@@ -773,7 +773,7 @@ pub struct AccountSkill {
 
 /// Whether a folder is on a PATH string, by exact entry.
 fn dir_on_path(dir: &Path, path: Option<&str>) -> bool {
-    path.unwrap_or_default().split(':').any(|p| !p.is_empty() && Path::new(p) == dir)
+    std::env::split_paths(path.unwrap_or_default()).any(|p| !p.as_os_str().is_empty() && p == dir)
 }
 
 fn command_status() -> CommandStatus {
@@ -909,9 +909,9 @@ mod tests {
         std::fs::create_dir_all(&other_bin).unwrap();
         let dev = tmp.join("Codealong Dev.app/Contents/MacOS/codealong");
         let installed = tmp.join("Codealong.app/Contents/MacOS/codealong");
-        std::os::unix::fs::symlink(&installed, bin.join("codealong")).unwrap();
+        crate::os::files::symlink(&installed, bin.join("codealong")).unwrap();
         // Someone's own link, to a script of theirs: not Codealong's to move.
-        std::os::unix::fs::symlink(tmp.join("my-wrapper.sh"), other_bin.join("codealong")).unwrap();
+        crate::os::files::symlink(tmp.join("my-wrapper.sh"), other_bin.join("codealong")).unwrap();
 
         follow_links_in(&[bin.clone(), other_bin.clone()], &dev);
         assert_eq!(std::fs::read_link(bin.join("codealong")).unwrap(), dev);
@@ -1033,7 +1033,7 @@ mod tests {
         std::fs::write(src.join("plugin/.claude-plugin/plugin.json"), r#"{"name":"codealong","version":"1.0.0"}"#).unwrap();
         std::fs::write(src.join("plugin/bin/codealong"), "#!/bin/sh\n").unwrap();
         std::fs::write(src.join("skills/codealong/SKILL.md"), "skill").unwrap();
-        std::os::unix::fs::symlink("../skills", src.join("plugin/skills")).unwrap();
+        crate::os::files::symlink("../skills", src.join("plugin/skills")).unwrap();
         let dst = root.join("staged");
         let v1 = stage_marketplace_from(&src, None, &dst, false).unwrap();
         assert!(v1.starts_with("1.0.0+") && v1.len() == "1.0.0+".len() + 8, "{v1}");
@@ -1042,8 +1042,10 @@ mod tests {
         assert_eq!(m["plugins"][0]["version"], Value::String(v1.clone()));
         assert_eq!(std::fs::read_to_string(dst.join("plugin/skills/codealong/SKILL.md")).unwrap(), "skill");
         assert!(!dst.join("plugin/skills").is_symlink(), "a copy, not the link");
-        use std::os::unix::fs::PermissionsExt;
-        assert_eq!(std::fs::metadata(dst.join("plugin/bin/codealong")).unwrap().permissions().mode() & 0o777, 0o755);
+        // Only POSIX has modes: on Windows a program runs by its extension.
+        if cfg!(unix) {
+            assert_eq!(crate::os::files::mode_of(&std::fs::metadata(dst.join("plugin/bin/codealong")).unwrap()) & 0o777, 0o755);
+        }
         assert!(!dst.join("skills").exists(), "only the marketplace's parts");
         // The same files are the same version; a changed skill is a new one.
         assert_eq!(stage_marketplace_from(&src, None, &dst, false).unwrap(), v1);

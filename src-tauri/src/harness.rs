@@ -1546,8 +1546,7 @@ mod tests {
         std::fs::create_dir_all(home.join(".local/bin")).unwrap();
         let cli = home.join(".local/bin/cursor-agent");
         std::fs::write(&cli, "#!/bin/sh\n").unwrap();
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o755)).unwrap();
+        crate::os::files::set_mode(&cli, 0o755).unwrap();
         assert_eq!(adapter(Harness::Cursor).missing_cli(&cursor, home), None);
         assert!(crate::start::places_of(&cursor, home).is_ok());
         // Antigravity's runs `agy` though config.toml gives no command.

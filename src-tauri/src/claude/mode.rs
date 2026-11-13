@@ -147,6 +147,8 @@ pub(super) fn settings_files(home: &Path, cwd: &Path) -> [PathBuf; 4] {
     let managed = match crate::os::current() {
         crate::os::Os::MacOs => "/Library/Application Support/ClaudeCode",
         crate::os::Os::Linux => "/etc/claude-code",
+        // As Claude Code 2.1.323 names it on Windows.
+        crate::os::Os::Windows => r"C:\Program Files\ClaudeCode",
     };
     [home.join("settings.json"), cwd.join(".claude/settings.json"), cwd.join(".claude/settings.local.json"), Path::new(managed).join("managed-settings.json")]
 }

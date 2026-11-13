@@ -5222,6 +5222,7 @@ mod tests {
     /// that fails is said too. Runs in a copy of this test binary with a home of its own, as a
     /// scan reads and writes there.
     #[test]
+    #[cfg(unix)]
     fn a_state_file_that_does_not_read_is_never_written_over() {
         use super::*;
         use std::os::unix::fs::PermissionsExt;

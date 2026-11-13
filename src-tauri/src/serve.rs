@@ -323,25 +323,22 @@ pub fn start() -> Result<Ctx, String> {
 /// its children (they're waited on as before), launchd keeps its job, and macOS's privacy grants,
 /// which go by the process that started them, hold. Each terminal's screen goes across as a
 /// snapshot, listed in a file the new build reads (`take_handover`), and its side as a descriptor
-/// sent through a socket (`pty::send_fds`): the descriptors are never inheritable, so a process
-/// another thread starts as this one changes gets none, and only the socket's other end is passed
-/// through the exec. Returns only when it couldn't: why.
+/// sent through a socket (`os::pty::HandOverSocket`): the descriptors are never inheritable, so a
+/// process another thread starts as this one changes gets none, and only the socket's other end is
+/// passed through the exec. Returns only when it couldn't: why.
 pub fn hand_over() -> String {
-    use std::os::fd::AsRawFd;
     let dir = config::support_dir().join("handover");
     let mut handed = Handover { version: 1, terminals: terminals::hand_over(&dir) };
-    let (keep, give) = match std::os::unix::net::UnixDatagram::pair() {
+    // Room for every terminal's message at once, as nothing reads them until the new build does.
+    let (keep, give) = match os::pty::HandOverSocket::pair(HAND_OVER_ROOM) {
         Ok(pair) => pair,
         Err(e) => return format!("couldn't make the socket to hand the terminals over in: {e}"),
     };
-    // Room for every terminal's message at once, as nothing reads them until the new build does.
-    terminals::pty::socket_room(keep.as_raw_fd(), HAND_OVER_ROOM);
-    terminals::pty::socket_room(give.as_raw_fd(), HAND_OVER_ROOM);
     let mut sent = 0;
     for batch in handed.terminals.chunks(FDS_A_MESSAGE) {
-        let fds: Vec<i32> = batch.iter().map(|h| h.fd).collect();
+        let fds: Vec<os::procs::Fd> = batch.iter().map(|h| h.fd).collect();
         let ids = batch.iter().map(|h| h.glance.id.as_str()).collect::<Vec<_>>().join("\n");
-        if let Err(e) = terminals::pty::send_fds(give.as_raw_fd(), &fds, ids.as_bytes()) {
+        if let Err(e) = give.send(&fds, ids.as_bytes()) {
             // The ones that didn't fit end with this build, as without a hand-over; the rest
             // still go.
             eprintln!("Only {sent} of {} terminals could be handed over: {e}", handed.terminals.len());
@@ -352,7 +349,7 @@ pub fn hand_over() -> String {
     // The socket holds them now: this process's copies go.
     for h in &mut handed.terminals {
         // SAFETY: closing a copy this process made for the hand-over and owns alone.
-        unsafe { libc::close(h.fd) };
+        unsafe { os::pty::close(h.fd) };
         h.fd = -1;
     }
     drop(give);
@@ -365,8 +362,8 @@ pub fn hand_over() -> String {
     let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
     let mut env: Vec<(std::ffi::OsString, std::ffi::OsString)> = std::env::vars_os().filter(|(k, _)| k != HANDOVER_VAR && k != HANDOVER_FDS_VAR).collect();
     env.push((HANDOVER_VAR.into(), file.clone().into_os_string()));
-    env.push((HANDOVER_FDS_VAR.into(), keep.as_raw_fd().to_string().into()));
-    let err = os::procs::exec_keeping(&exe, &args, &env, &[keep.as_raw_fd()]);
+    env.push((HANDOVER_FDS_VAR.into(), keep.fd().to_string().into()));
+    let err = os::procs::exec_keeping(&exe, &args, &env, &[keep.fd()]);
     format!("couldn't run {}: {err}", exe.display())
 }
 
@@ -377,22 +374,21 @@ pub fn hand_over() -> String {
 /// are reaped as they end.
 fn take_handover() {
     let Some(file) = std::env::var_os(HANDOVER_VAR) else { return };
-    let socket = std::env::var(HANDOVER_FDS_VAR).ok().and_then(|s| s.parse::<i32>().ok());
+    let socket = std::env::var(HANDOVER_FDS_VAR).ok().and_then(|s| s.parse::<os::procs::Fd>().ok());
     std::env::remove_var(HANDOVER_VAR);
     std::env::remove_var(HANDOVER_FDS_VAR);
     // The descriptors waiting in the socket, by their terminals' ids, each closed on exec as it's
     // taken, before anything here starts a process.
-    let mut fds: std::collections::HashMap<String, i32> = std::collections::HashMap::new();
-    if let Some(sock) = socket {
-        let _ = terminals::pty::cloexec(sock);
-        while let Ok(Some((got, ids))) = terminals::pty::recv_fds(sock, FDS_A_MESSAGE) {
+    let mut fds: std::collections::HashMap<String, os::procs::Fd> = std::collections::HashMap::new();
+    // SAFETY: the socket's end this process was handed, which nothing else here has; it's closed
+    // once read to its end.
+    if let Some(sock) = socket.and_then(|fd| unsafe { os::pty::HandOverSocket::from_handed(fd) }.ok()) {
+        while let Ok(Some((got, ids))) = sock.recv(FDS_A_MESSAGE) {
             let ids = String::from_utf8_lossy(&ids).into_owned();
             for (id, fd) in ids.split('\n').zip(got) {
                 fds.insert(id.to_string(), fd);
             }
         }
-        // SAFETY: the socket's end this process was handed, read to its end.
-        unsafe { libc::close(sock) };
     }
     let read = std::fs::read(&file).ok().and_then(|b| serde_json::from_slice::<Handover>(&b).ok());
     let _ = std::fs::remove_file(&file);
@@ -400,7 +396,7 @@ fn take_handover() {
         eprintln!("The terminals the server's last build handed over couldn't be read from {}.", PathBuf::from(&file).display());
         for fd in fds.into_values() {
             // SAFETY: a descriptor this process was handed and nothing will use.
-            unsafe { libc::close(fd) };
+            unsafe { os::pty::close(fd) };
         }
         return;
     };
@@ -409,16 +405,13 @@ fn take_handover() {
     }
     for fd in fds.into_values() {
         // SAFETY: as above: handed over with no terminal listed for it.
-        unsafe { libc::close(fd) };
+        unsafe { os::pty::close(fd) };
     }
     let theirs: Vec<u32> = handed.terminals.iter().map(|h| h.pid).collect();
     let me = std::process::id();
     let strays: Vec<u32> = crate::procs::list(Duration::from_secs(5)).lines.iter().filter(|p| p.ppid == me && !theirs.contains(&p.pid)).map(|p| p.pid).collect();
     for pid in strays {
-        std::thread::spawn(move || {
-            // SAFETY: waitpid on a child this process started before it became this build.
-            unsafe { libc::waitpid(pid as libc::pid_t, std::ptr::null_mut(), 0) };
-        });
+        std::thread::spawn(move || os::pty::reap(pid));
     }
     if let Ok(mut h) = HANDED.lock() {
         *h = Some(handed);
@@ -461,13 +454,11 @@ fn keep_run_lock(file: std::fs::File) {
 
 /// The run lock for the files in `dir`, held for as long as the file is open.
 fn run_lock(dir: &std::path::Path) -> Result<std::fs::File, String> {
-    use std::os::fd::AsRawFd;
     let _ = std::fs::create_dir_all(dir);
     let path = dir.join("server.run.lock");
     let file = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(&path).map_err(|e| format!("Couldn't open {}: {e}", path.display()))?;
-    // SAFETY: flock on a descriptor this process owns. Each open is a lock of its own, so a second
-    // start in this process is refused as another's is.
-    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+    // Each open is a lock of its own, so a second start in this process is refused as another's is.
+    if file.try_lock().is_err() {
         return Err("Another of Codealong's servers is running for these files.".into());
     }
     Ok(file)
@@ -624,18 +615,17 @@ pub fn restart() -> bool {
 fn stop_it(s: &Status, asked: Request) {
     // One too stuck to answer is ended at once rather than waited on.
     if !matches!(server::ask_within(&asked, Duration::from_secs(3)), Some(Ok(_))) {
-        // SAFETY: kill only signals a process; one gone by now is refused.
-        unsafe { libc::kill(s.pid as libc::pid_t, libc::SIGTERM) };
+        // One gone by now is refused.
+        let _ = os::procs::signal(s.pid, os::procs::Signal::Terminate);
     }
     let until = Instant::now() + QUIT_WAIT;
-    // SAFETY: kill with no signal only asks whether the process is there.
-    while unsafe { libc::kill(s.pid as libc::pid_t, 0) } == 0 && Instant::now() < until {
+    while os::procs::alive(s.pid) && Instant::now() < until {
         std::thread::sleep(Duration::from_millis(100));
     }
     os::background::unload(&config::support_dir());
-    if unsafe { libc::kill(s.pid as libc::pid_t, 0) } == 0 {
-        // Not launchd's (one started by hand, or on Linux): ended outright.
-        unsafe { libc::kill(s.pid as libc::pid_t, libc::SIGKILL) };
+    if os::procs::alive(s.pid) {
+        // Not launchd's (one started by hand, or on Linux and Windows): ended outright.
+        let _ = os::procs::signal(s.pid, os::procs::Signal::Kill);
     }
 }
 

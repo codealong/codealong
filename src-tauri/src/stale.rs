@@ -398,9 +398,9 @@ pub fn tabs_now(mut uses: Uses) -> Vec<Tab> {
 
 /// When a terminal device was last read from or written to.
 fn last_used(device: &Path) -> Option<i64> {
-    use std::os::unix::fs::MetadataExt;
     let m = std::fs::metadata(device).ok()?;
-    Some((m.atime() * 1000 + m.atime_nsec() / 1_000_000).max(m.mtime() * 1000 + m.mtime_nsec() / 1_000_000))
+    let ms = |t: std::io::Result<std::time::SystemTime>| t.ok()?.duration_since(std::time::UNIX_EPOCH).ok().map(|d| d.as_millis() as i64);
+    ms(m.accessed()).max(ms(m.modified()))
 }
 
 /// The tabs in a process listing, without the kernel's times and folders: the processes on
@@ -545,8 +545,9 @@ mod tests {
         let taken: Vec<&str> = crate::launch::terminals().iter().filter(|t| takes_tabs_of(**t)).map(|t| t.name()).collect();
         match crate::os::current() {
             crate::os::Os::MacOs => assert_eq!(taken, ["Ghostty", "iTerm2", "Terminal", "Rex", "Codealong"]),
-            // Linux's terminal is a tmux session: only Codealong's own have tabs to close.
-            crate::os::Os::Linux => assert_eq!(taken, ["Codealong"]),
+            // Linux's terminal is a tmux session, and Windows Terminal lists no tabs: only
+            // Codealong's own have tabs to close.
+            crate::os::Os::Linux | crate::os::Os::Windows => assert_eq!(taken, ["Codealong"]),
         }
     }
 
@@ -774,7 +775,7 @@ mod tests {
         let sleep_runs = tab.as_ref().is_some_and(|t| crate::procs::pid_alive(t.runs[0].0));
         // Only the shells in the test's own folders are hung up, which closes their tabs.
         for t in tabs_now(Uses::default()).into_iter().filter(|t| t.cwd == behind_at || t.cwd == front_at) {
-            unsafe { libc::kill(t.shell as libc::pid_t, libc::SIGHUP) };
+            let _ = crate::os::procs::signal(t.shell, crate::os::procs::Signal::HangUp);
         }
         let _ = std::fs::remove_dir_all(&root);
         assert!(tab.is_some(), "the sleep's tab never showed");

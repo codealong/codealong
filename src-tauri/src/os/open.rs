@@ -1,8 +1,10 @@
 //! Opening things as a click would: a link or a file in the app the OS has for it, a file shown in
 //! its folder, an app by its name or ID, and a program left to run by itself. macOS's `open` does
 //! all but the last; Linux has `xdg-open` for links and files and an app's own command, which
-//! `start_detached` runs, and opens no app by name. Each is a program run, so both OSes' ways
-//! compile and are tested on either. Each caller says how long it gets and what a failure is
+//! `start_detached` runs, and opens no app by name; Windows opens links and files with the
+//! shell's own handler (`rundll32 url.dll,FileProtocolHandler`, which `start` and Explorer go
+//! to), and no app by name either. Each but Windows' `start_detached` is a program run, so every
+//! OS's way compiles and is tested on any. Each caller says how long it gets and what a failure is
 //! called.
 
 use std::path::Path;
@@ -34,14 +36,16 @@ pub fn url(target: &str, timeout: Duration) -> Result<()> {
     match super::current() {
         Os::MacOs => procs::run("/usr/bin/open", &[target], None, timeout).map(drop),
         Os::Linux => procs::run("xdg-open", &[target], None, timeout).map(drop),
+        Os::Windows => procs::run("rundll32.exe", &["url.dll,FileProtocolHandler", target], None, timeout).map(drop),
     }
 }
 
-/// A file shown where it is: in the Finder, selected; on Linux its folder, in the file manager.
+/// A file shown where it is: in the Finder, selected; on Linux and Windows its folder, in the
+/// file manager (Explorer's `/select` would pick it out, but says it failed whenever it works).
 pub fn reveal(path: &Path, timeout: Duration) -> Result<()> {
     match super::current() {
         Os::MacOs => procs::run("/usr/bin/open", &["-R", &path.to_string_lossy()], None, timeout).map(drop),
-        Os::Linux => url(&path.parent().unwrap_or(path).to_string_lossy(), timeout),
+        Os::Linux | Os::Windows => url(&path.parent().unwrap_or(path).to_string_lossy(), timeout),
     }
 }
 
@@ -53,7 +57,7 @@ pub fn in_app(app: App, target: Option<&str>, timeout: Duration) -> Result<()> {
             args.extend(target);
             procs::run("/usr/bin/open", &args, None, timeout).map(drop)
         }
-        Os::Linux => Err(super::only_on_macos("Opening an app by its name")),
+        Os::Linux | Os::Windows => Err(super::only_on_macos("Opening an app by its name")),
     }
 }
 
@@ -68,7 +72,7 @@ pub fn launch(app: App, new_copy: bool, args: &[&str], timeout: Duration) -> Res
             all.extend_from_slice(args);
             procs::run("/usr/bin/open", &all, None, timeout).map(drop)
         }
-        Os::Linux => Err(super::only_on_macos("Opening an app by its name")),
+        Os::Linux | Os::Windows => Err(super::only_on_macos("Opening an app by its name")),
     }
 }
 
@@ -79,12 +83,41 @@ pub fn launch(app: App, new_copy: bool, args: &[&str], timeout: Duration) -> Res
 /// it waits a moment for one that fails as it starts. One that's quick to hand over to a copy
 /// already running (GNOME Terminal's, VS Code's, Chrome's) and exits cleanly has started. One
 /// that fails later than that, or out of sight, isn't seen. Linux's way to open an app: macOS's
-/// is `open`, and it has no `setsid`.
+/// is `open`, and it has no `setsid`. On Windows it's started detached from Codealong's console
+/// and process group, and watched for the same moment.
 pub fn start_detached(program: &str, args: &[&str], timeout: Duration) -> Result<()> {
+    if super::NATIVE == Os::Windows {
+        return start_detached_here(program, args);
+    }
     let mut all = vec!["-c", START_DETACHED, program];
     all.extend_from_slice(args);
     // The shell's words are about the program: they're said of it.
     procs::run("/bin/sh", &all, None, timeout).map(drop).map_err(|e| anyhow!("{program} {}", e.to_string().trim_start_matches("/bin/sh").trim()))
+}
+
+#[cfg(target_os = "windows")]
+fn start_detached_here(program: &str, args: &[&str]) -> Result<()> {
+    use std::os::windows::process::CommandExt;
+    use windows_sys::Win32::System::Threading::{CREATE_NEW_PROCESS_GROUP, DETACHED_PROCESS};
+    let mut child = std::process::Command::new(program)
+        .args(args)
+        .creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|e| if e.kind() == std::io::ErrorKind::NotFound { anyhow!("{program} is not installed") } else { anyhow!("{program} couldn't start: {e}") })?;
+    std::thread::sleep(Duration::from_millis(300));
+    match child.try_wait() {
+        Ok(Some(status)) if !status.success() => Err(anyhow!("{program} exited with status {} as it started", status.code().unwrap_or(-1))),
+        _ => Ok(()),
+    }
+}
+
+/// Asked only on Windows (`start_detached`).
+#[cfg(not(target_os = "windows"))]
+fn start_detached_here(_program: &str, _args: &[&str]) -> Result<()> {
+    unreachable!("start_detached_here is Windows'")
 }
 
 pub(crate) const START_DETACHED: &str = "command -v \"$0\" >/dev/null || { echo 'is not installed' >&2; exit 127; }; setsid \"$0\" \"$@\" </dev/null >/dev/null 2>&1 & started=$!; sleep 0.3; kill -0 \"$started\" 2>/dev/null && exit 0; wait \"$started\" || { s=$?; echo \"exited with status $s as it started\" >&2; exit $s; }";
@@ -117,9 +150,16 @@ mod tests {
             reveal(Path::new("/r/a.md"), t).unwrap();
             (in_app(App::Named("Cursor"), Some("/r"), t).unwrap_err().to_string(), launch(App::Id("x"), false, &[], t).is_err())
         });
+
+        let windows = as_if(Os::Windows, || {
+            url("https://a.test", t).unwrap();
+            reveal(Path::new("C:/r/a.md"), t).unwrap();
+            in_app(App::Named("Cursor"), Some("/r"), t).is_err()
+        });
         procs::stand_in::set(None);
 
         assert_eq!(linux, ("Opening an app by its name is only on macOS.".to_string(), true));
+        assert!(windows);
         assert_eq!(
             *sent.borrow(),
             [
@@ -131,6 +171,8 @@ mod tests {
                 r#"/usr/bin/open ["-n", "-a", "Ghostty.app", "--args", "--x"] 10s"#,
                 r#"xdg-open ["https://a.test"] 10s"#,
                 r#"xdg-open ["/r"] 10s"#,
+                r#"rundll32.exe ["url.dll,FileProtocolHandler", "https://a.test"] 10s"#,
+                r#"rundll32.exe ["url.dll,FileProtocolHandler", "C:/r"] 10s"#,
             ]
         );
     }

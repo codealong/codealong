@@ -3082,7 +3082,7 @@ mod tests {
         assert!(!trust_folder(&settings, &folder, &home).unwrap());
         // A link to it is trusted by the path it's started with, and by where it leads.
         let link = home.join("link");
-        std::os::unix::fs::symlink(&folder, &link).unwrap();
+        crate::os::files::symlink(&folder, &link).unwrap();
         assert!(trust_folder(&settings, &link, &home).unwrap());
         let listed: Value = serde_json::from_str(&std::fs::read_to_string(&settings).unwrap()).unwrap();
         assert_eq!(listed["trustedWorkspaces"].as_array().unwrap().len(), 3);

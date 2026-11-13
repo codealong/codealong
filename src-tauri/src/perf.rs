@@ -337,19 +337,12 @@ fn hash_of<T: serde::Serialize>(v: &T) -> u64 {
 }
 
 fn loadavg() -> f64 {
-    let mut l = [0f64; 3];
-    // SAFETY: getloadavg writes at most the one value asked for into a buffer of three.
-    let n = unsafe { libc::getloadavg(l.as_mut_ptr(), 1) };
-    if n >= 1 { l[0] } else { 0.0 }
+    crate::os::system::load_average()
 }
 
 fn local_tm() -> (libc::tm, u32) {
     let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
-    let secs = now.as_secs() as libc::time_t;
-    // SAFETY: localtime_r fills the struct it's given; a zeroed tm is a valid one.
-    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-    unsafe { libc::localtime_r(&secs, &mut tm) };
-    (tm, now.subsec_millis())
+    (crate::os::system::localtime(now.as_secs() as i64), now.subsec_millis())
 }
 
 fn clock() -> String {

@@ -39,33 +39,34 @@ pub fn keychain_services(config_dir: &Path) -> Vec<String> {
 /// The keychain account Claude Code files sign-ins under.
 fn keychain_account() -> String {
     std::env::var("USER")
+        .or_else(|_| std::env::var("USERNAME"))
         .ok()
         .filter(|u| !u.is_empty() && u.chars().all(|c| c.is_ascii_alphanumeric() || "._-".contains(c)))
         .unwrap_or_else(|| "claude-code-user".to_string())
 }
 
 /// True when Claude Code keeps a sign-in for this config folder: in the keychain on macOS, read
-/// without the secret, and in the folder's `.credentials.json` on Linux.
+/// without the secret, and in the folder's `.credentials.json` on Linux and Windows.
 pub fn claude_signed_in(config_dir: &Path) -> bool {
     match os::current() {
         Os::MacOs => {
             let account = keychain_account();
             keychain_services(config_dir).iter().any(|svc| os::secrets::keychain_has(svc, &account, KEYCHAIN_TIMEOUT))
         }
-        Os::Linux => config_dir.join(".credentials.json").is_file(),
+        Os::Linux | Os::Windows => config_dir.join(".credentials.json").is_file(),
     }
 }
 
 /// The sign-ins kept for this config folder, as the JSON Claude Code keeps: on macOS the
 /// keychain's items, the default's first, each read only once the one before it is found wanting,
-/// since each can hold a prompt; on Linux the folder's `.credentials.json`.
+/// since each can hold a prompt; on Linux and Windows the folder's `.credentials.json`.
 fn kept_sign_ins(config_dir: &Path) -> Box<dyn Iterator<Item = String>> {
     match os::current() {
         Os::MacOs => {
             let account = keychain_account();
             Box::new(keychain_services(config_dir).into_iter().filter_map(move |svc| os::secrets::keychain_read(&svc, &account, KEYCHAIN_TIMEOUT)))
         }
-        Os::Linux => Box::new(std::fs::read_to_string(config_dir.join(".credentials.json")).ok().into_iter()),
+        Os::Linux | Os::Windows => Box::new(std::fs::read_to_string(config_dir.join(".credentials.json")).ok().into_iter()),
     }
 }
 

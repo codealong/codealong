@@ -120,14 +120,13 @@ fn clear_old(store: &Path, now: SystemTime) {
 
 /// Gives a folder of read-only files back their write bit, so it can be removed.
 fn make_writable(dir: &Path) {
-    use std::os::unix::fs::PermissionsExt;
     let Ok(entries) = std::fs::read_dir(dir) else { return };
     for e in entries.flatten() {
         let p = e.path();
         if p.is_dir() {
             make_writable(&p);
         } else {
-            let _ = std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o644));
+            let _ = crate::os::files::set_mode(&p, 0o644);
         }
     }
 }
@@ -160,7 +159,6 @@ fn empty_at(store: &Path, slug: &str, number: u64, path: &Path) -> PathBuf {
 /// Writes `bytes` at `file`, read-only, unless it's there already: a file at a commit never
 /// changes.
 fn keep(file: &Path, bytes: impl FnOnce() -> Result<Vec<u8>>) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt;
     if file.is_file() {
         return Ok(());
     }
@@ -169,7 +167,7 @@ fn keep(file: &Path, bytes: impl FnOnce() -> Result<Vec<u8>>) -> Result<()> {
         std::fs::create_dir_all(dir)?;
     }
     std::fs::write(file, bytes)?;
-    std::fs::set_permissions(file, std::fs::Permissions::from_mode(0o444))?;
+    crate::os::files::set_mode(file, 0o444)?;
     Ok(())
 }
 
@@ -348,7 +346,7 @@ mod tests {
         // Nor is a link in the repo followed out of the worktree.
         let outside = crate::fixtures::scratch("prdiff-outside");
         std::fs::write(outside.join("secret"), "theirs\n").unwrap();
-        std::os::unix::fs::symlink(outside.join("secret"), wt.join("src/link.ts")).unwrap();
+        crate::os::files::symlink(outside.join("secret"), wt.join("src/link.ts")).unwrap();
         let (_, linked) = sides(&ask("src/link.ts", "modified", None), "acme/app", 7, &e, Some(&wt), &store, &read).unwrap();
         assert_eq!(linked, kept_at(&store, "acme/app", 7, "bbbbbbb1", Path::new("src/link.ts")));
         assert!(in_worktree(&wt, Path::new("src/link.ts")).is_none());

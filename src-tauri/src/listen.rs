@@ -488,10 +488,7 @@ pub fn says_nothing(reply: &str) -> bool {
 
 /// A time of day by this Mac's clock, "14:03:22".
 fn clock(ms: i64) -> String {
-    let secs = ms.div_euclid(1000) as libc::time_t;
-    // SAFETY: localtime_r fills the struct it's given; a zeroed tm is a valid one.
-    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-    unsafe { libc::localtime_r(&secs, &mut tm) };
+    let tm = crate::os::system::localtime(ms.div_euclid(1000));
     format!("{:02}:{:02}:{:02}", tm.tm_hour, tm.tm_min, tm.tm_sec)
 }
 

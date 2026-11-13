@@ -229,7 +229,6 @@ fn facts(path: &Path, base: Option<&str>) -> Result<Facts, String> {
 /// the index has a link), a link by where it points. One that's neither, or can't be read, counts
 /// as changed; one that isn't there (a sparse checkout's) has nothing to lose.
 fn hidden_changes(path: &Path) -> Result<u32, String> {
-    use std::os::unix::fs::PermissionsExt;
     let dir = path.to_string_lossy();
     let fail = |e: anyhow::Error| last_line(&e.to_string()).to_string();
     let git = |args: &[&str]| procs::run("git", &[&["-C", dir.as_ref()], args].concat(), None, CHECK_WAIT).map_err(fail);
@@ -251,7 +250,7 @@ fn hidden_changes(path: &Path) -> Result<u32, String> {
         match std::fs::symlink_metadata(path.join(file)) {
             Ok(m) if m.is_file() => {
                 // Executable as git has it: by its owner's bit alone.
-                let mode = if m.permissions().mode() & 0o100 != 0 { "100755" } else { "100644" };
+                let mode = if crate::os::files::mode_of(&m) & 0o100 != 0 { "100755" } else { "100644" };
                 match staged(file) {
                     Some(s) if s.first() == Some(&mode) => files.push(file),
                     _ => changed += 1,
@@ -725,6 +724,7 @@ mod tests {
     /// repository in an ignored folder, reuse its reflog shows, and work that came in after the
     /// check. `cargo test cleanup::tests::keeps`.
     #[test]
+    #[cfg(unix)]
     fn keeps_what_the_board_cant_see_and_what_changed_after_the_check() {
         let dir = std::env::temp_dir().join(format!("codealong-cleanup-keeps-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -819,17 +819,17 @@ mod tests {
         // A session that started in it meanwhile keeps it, as the board has it then.
         assert_eq!(carry_out(&p, &|| 1), Err("wt stays: a session is running in it now.".into()));
         // A tracked link git is told not to look at, pointed elsewhere.
-        std::os::unix::fs::symlink("local.conf", wt.join("link")).unwrap();
+        crate::os::files::symlink("local.conf", wt.join("link")).unwrap();
         at(&wt, &["add", "link"]);
         at(&wt, &["commit", "-q", "-m", "link"]);
         at(&wt, &["push", "-q", "origin", "HEAD:refs/heads/wt"]);
         at(&wt, &["update-index", "--assume-unchanged", "link"]);
         assert_eq!(kept(&board), None, "a link as the index has it");
         std::fs::remove_file(wt.join("link")).unwrap();
-        std::os::unix::fs::symlink(".gitignore", wt.join("link")).unwrap();
+        crate::os::files::symlink(".gitignore", wt.join("link")).unwrap();
         assert_eq!(kept(&board).as_deref(), Some("1 uncommitted file"));
         std::fs::remove_file(wt.join("link")).unwrap();
-        std::os::unix::fs::symlink("local.conf", wt.join("link")).unwrap();
+        crate::os::files::symlink("local.conf", wt.join("link")).unwrap();
         at(&wt, &["update-index", "--no-assume-unchanged", "link"]);
         at(&wt, &["reset", "-q", "--hard", "origin/main"]);
         // One that has taken new work three times is reusable, though the board read no git: the

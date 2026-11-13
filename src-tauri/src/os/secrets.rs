@@ -1,8 +1,9 @@
 //! Secrets kept for Codealong (Jev's API key, this device's key), by service name: in the login
 //! keychain on macOS, through `security`, and on Linux in the desktop's Secret Service (GNOME
 //! Keyring, KWallet), through libsecret's `secret-tool`, which a desktop without one makes fail.
-//! Both are programs, so both ways compile and are tested on either OS. A secret never goes on a
-//! command line: `security -i` and `secret-tool store` read it from stdin. The keychain's own
+//! Both are programs, so both ways compile and are tested on either OS. On Windows they're kept
+//! in Credential Manager, as generic credentials, through its own calls (`credentials`). A secret
+//! never goes on a command line: `security -i` and `secret-tool store` read it from stdin. The keychain's own
 //! lookups are here too, for what other programs keep in it (Claude Code's sign-in).
 
 use std::time::Duration;
@@ -15,9 +16,9 @@ use crate::procs;
 /// A locked keychain can hold `security` at a prompt; don't wait on it forever.
 const TIMEOUT: Duration = Duration::from_secs(15);
 
-/// The account Codealong files its items under: your user name.
+/// The account Codealong files its items under: your user name (`USERNAME` on Windows).
 pub fn account() -> String {
-    std::env::var("USER").ok().filter(|u| !u.is_empty() && u.chars().all(|c| c.is_ascii_alphanumeric() || "._-".contains(c))).unwrap_or_else(|| "codealong".into())
+    std::env::var("USER").or_else(|_| std::env::var("USERNAME")).ok().filter(|u| !u.is_empty() && u.chars().all(|c| c.is_ascii_alphanumeric() || "._-".contains(c))).unwrap_or_else(|| "codealong".into())
 }
 
 /// The secret kept for `service`, if there's one.
@@ -25,6 +26,7 @@ pub fn read(service: &str) -> Option<String> {
     let out = match super::current() {
         Os::MacOs => keychain_read(service, &account(), TIMEOUT)?,
         Os::Linux => procs::run("secret-tool", &["lookup", "service", service, "account", &account()], None, TIMEOUT).ok()?,
+        Os::Windows => credentials::read(service)?,
     };
     Some(out.trim().to_string()).filter(|s| !s.is_empty())
 }
@@ -33,7 +35,7 @@ pub fn read(service: &str) -> Option<String> {
 pub fn has(service: &str) -> bool {
     match super::current() {
         Os::MacOs => keychain_has(service, &account(), TIMEOUT),
-        Os::Linux => read(service).is_some(),
+        Os::Linux | Os::Windows => read(service).is_some(),
     }
 }
 
@@ -51,6 +53,7 @@ pub fn save(service: &str, secret: &str) -> Result<()> {
             Ok(())
         }
         Os::Linux => procs::run_stdin("secret-tool", &["store", &format!("--label={service}"), "service", service, "account", &account()], secret, TIMEOUT).map(drop),
+        Os::Windows => credentials::save(service, &account(), secret),
     }
 }
 
@@ -59,7 +62,72 @@ pub fn delete(service: &str) {
     let _ = match super::current() {
         Os::MacOs => procs::run("/usr/bin/security", &["delete-generic-password", "-a", &account(), "-s", service], None, TIMEOUT),
         Os::Linux => procs::run("secret-tool", &["clear", "service", service, "account", &account()], None, TIMEOUT),
+        Os::Windows => {
+            credentials::delete(service);
+            Ok(String::new())
+        }
     };
+}
+
+/// Credential Manager's generic credentials, each named for its service.
+#[cfg(target_os = "windows")]
+mod credentials {
+    use std::os::windows::ffi::OsStrExt;
+
+    use windows_sys::Win32::Security::Credentials::{CredDeleteW, CredFree, CredReadW, CredWriteW, CREDENTIALW, CRED_PERSIST_LOCAL_MACHINE, CRED_TYPE_GENERIC};
+
+    fn wide(s: &str) -> Vec<u16> {
+        std::ffi::OsStr::new(s).encode_wide().chain([0]).collect()
+    }
+
+    pub fn read(service: &str) -> Option<String> {
+        let name = wide(service);
+        let mut cred: *mut CREDENTIALW = std::ptr::null_mut();
+        // SAFETY: on success the credential is Windows' to free, after its blob is copied out.
+        unsafe {
+            if CredReadW(name.as_ptr(), CRED_TYPE_GENERIC, 0, &mut cred) == 0 {
+                return None;
+            }
+            let blob = std::slice::from_raw_parts((*cred).CredentialBlob, (*cred).CredentialBlobSize as usize).to_vec();
+            CredFree(cred.cast());
+            String::from_utf8(blob).ok()
+        }
+    }
+
+    pub fn save(service: &str, account: &str, secret: &str) -> anyhow::Result<()> {
+        let (name, user) = (wide(service), wide(account));
+        // SAFETY: a zeroed credential with the fields Windows reads set; every pointer outlives
+        // the call, which copies what it keeps.
+        let mut cred: CREDENTIALW = unsafe { std::mem::zeroed() };
+        cred.Type = CRED_TYPE_GENERIC;
+        cred.TargetName = name.as_ptr() as *mut u16;
+        cred.UserName = user.as_ptr() as *mut u16;
+        cred.CredentialBlob = secret.as_ptr() as *mut u8;
+        cred.CredentialBlobSize = secret.len() as u32;
+        cred.Persist = CRED_PERSIST_LOCAL_MACHINE;
+        anyhow::ensure!(unsafe { CredWriteW(&cred, 0) } != 0, "Credential Manager didn't take it.");
+        Ok(())
+    }
+
+    pub fn delete(service: &str) {
+        // SAFETY: a NUL-ended wide string that outlives the call; nothing there is no matter.
+        unsafe { CredDeleteW(wide(service).as_ptr(), CRED_TYPE_GENERIC, 0) };
+    }
+}
+
+/// Credential Manager is Windows' own; elsewhere it's asked only as if on Windows, in a test,
+/// and keeps nothing.
+#[cfg(not(target_os = "windows"))]
+mod credentials {
+    pub fn read(_service: &str) -> Option<String> {
+        None
+    }
+
+    pub fn save(_service: &str, _account: &str, _secret: &str) -> anyhow::Result<()> {
+        anyhow::bail!("Credential Manager is Windows'.")
+    }
+
+    pub fn delete(_service: &str) {}
 }
 
 /// Whether the macOS keychain has an item for `service` and `account`, reading no secret.

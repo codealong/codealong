@@ -17,6 +17,7 @@ mod rex;
 pub(crate) mod stage;
 mod terminal_app;
 mod tmux;
+mod windows;
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -196,11 +197,13 @@ fn app_installed(app: &str) -> bool {
 
 /// Every terminal on this OS: the profiles first, in the order Settings lists them and a new
 /// config.toml picks the first one installed. On macOS the apps Codealong scripts; on Linux the
-/// desktop's emulator through tmux. tmux sessions run in any terminal.
+/// desktop's emulator through tmux; on Windows Windows Terminal, which nothing types into. tmux
+/// sessions run in any terminal; Codealong's own terminals aren't on Windows yet, and say so.
 pub fn terminals() -> &'static [&'static dyn Terminal] {
     match os::current() {
         Os::MacOs => &[&ghostty::Ghostty, &iterm::ITerm2, &terminal_app::AppleTerminal, &rex::Rex, &codealong::Own, &tmux::Tmux],
         Os::Linux => &[&linux::LinuxTerminal, &codealong::Own, &tmux::Tmux],
+        Os::Windows => &[&windows::WindowsTerminal, &codealong::Own, &tmux::Tmux],
     }
 }
 
@@ -313,15 +316,7 @@ fn fresh_line(line: &str) -> String {
 
 /// The login shell, as the user database has it: what a terminal app starts in a new tab.
 pub(crate) fn login_shell() -> String {
-    // SAFETY: getpwuid_r fills `pw` with pointers into `buf`, which outlives their use here.
-    let from_db = unsafe {
-        let mut pw: libc::passwd = std::mem::zeroed();
-        let mut found: *mut libc::passwd = std::ptr::null_mut();
-        let mut buf = vec![0 as libc::c_char; 4096];
-        let r = libc::getpwuid_r(libc::getuid(), &mut pw, buf.as_mut_ptr(), buf.len(), &mut found);
-        (r == 0 && !found.is_null() && !pw.pw_shell.is_null()).then(|| std::ffi::CStr::from_ptr(pw.pw_shell).to_string_lossy().into_owned())
-    };
-    from_db.filter(|s| Path::new(s).is_file()).unwrap_or_else(|| "/bin/zsh".to_string())
+    os::tty::login_shell().filter(|s| Path::new(s).is_file()).unwrap_or_else(|| "/bin/zsh".to_string())
 }
 
 /// Where the next launcher goes, one number per launch so two at once never share a file.
@@ -337,13 +332,12 @@ const STALE_LAUNCHER: Duration = Duration::from_secs(600);
 /// tab's would. It's in the per-user temporary folder, readable only by you.
 fn launcher(dir: &Path, env: &[(String, String)]) -> Result<PathBuf> {
     use std::io::Write;
-    use std::os::unix::fs::OpenOptionsExt;
     let tmp = std::env::temp_dir();
     sweep_launchers(&tmp);
     let n = LAUNCHES.fetch_add(1, Ordering::SeqCst);
     let path = tmp.join(format!("codealong-launch-{}-{}-{n}.sh", std::process::id(), crate::util::now_ms()));
     let text = launcher_text(&path, dir, env, &login_shell());
-    let mut f = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&path)?;
+    let mut f = os::files::create_mode(std::fs::OpenOptions::new().write(true).create_new(true), 0o600).open(&path)?;
     f.write_all(text.as_bytes())?;
     Ok(path)
 }
@@ -774,24 +768,21 @@ struct Turn<'a> {
 /// it. Without the file (a folder that can't be written, the tests) each process goes by its
 /// own turns alone.
 fn shared_turn(deadline: Option<Instant>) -> Option<Option<std::fs::File>> {
-    use std::os::fd::AsRawFd;
     if cfg!(test) {
         return Some(None);
     }
     let path = crate::config::support_dir().join("terminal-marks.lock");
     let Ok(file) = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(&path) else { return Some(None) };
-    let how = if deadline.is_some() { libc::LOCK_EX | libc::LOCK_NB } else { libc::LOCK_EX };
+    use std::fs::TryLockError;
     loop {
-        // SAFETY: flock on a descriptor this process owns; it's released as the file closes.
-        if unsafe { libc::flock(file.as_raw_fd(), how) } == 0 {
-            return Some(Some(file));
-        }
-        let e = std::io::Error::last_os_error();
-        match e.kind() {
-            std::io::ErrorKind::Interrupted => {}
-            std::io::ErrorKind::WouldBlock if deadline.is_some_and(|d| Instant::now() < d) => std::thread::sleep(Duration::from_millis(20)),
-            std::io::ErrorKind::WouldBlock => return None,
-            _ => return Some(None),
+        // Released as the file closes.
+        let taken = if deadline.is_some() { file.try_lock() } else { file.lock().map_err(TryLockError::Error) };
+        match taken {
+            Ok(()) => return Some(Some(file)),
+            Err(TryLockError::Error(e)) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(TryLockError::WouldBlock) if deadline.is_some_and(|d| Instant::now() < d) => std::thread::sleep(Duration::from_millis(20)),
+            Err(TryLockError::WouldBlock) => return None,
+            Err(TryLockError::Error(_)) => return Some(None),
         }
     }
 }
@@ -827,14 +818,7 @@ fn wait_for_shell(tty: &str, launcher: Option<&Path>) -> bool {
 /// Whether a program on the terminal reads it a key at a time, as a shell's line editor does
 /// while it waits for you: canonical mode off. Asked of the terminal device; nothing is written.
 fn line_editor_waiting(tty: &Path) -> bool {
-    use std::os::fd::AsRawFd;
-    use std::os::unix::fs::OpenOptionsExt;
-    let Ok(f) = std::fs::OpenOptions::new().write(true).custom_flags(libc::O_NOCTTY | libc::O_NONBLOCK).open(tty) else { return false };
-    // SAFETY: tcgetattr fills a plain-old-data struct for an open descriptor.
-    unsafe {
-        let mut t: libc::termios = std::mem::zeroed();
-        libc::tcgetattr(f.as_raw_fd(), &mut t) == 0 && t.c_lflag & libc::ICANON == 0
-    }
+    os::tty::reads_keys(tty)
 }
 
 /// Where the unique folders Codealong reports on a session's TTY start.
@@ -1193,13 +1177,12 @@ fn hang_up(pids: &[u32]) -> Vec<bool> {
     if let Some(exited) = stage::hang_up(pids) {
         return exited;
     }
-    // SAFETY: getpgid and kill take plain numbers; a process that's gone answers an error.
-    let alive = |pid: u32| unsafe { libc::kill(pid as libc::pid_t, 0) } == 0;
+    use crate::os::procs::{alive, group_of, signal, signal_group, Signal};
+    // A process that's gone answers an error.
     for &pid in pids {
-        let pid = pid as libc::pid_t;
-        let target = if unsafe { libc::getpgid(pid) } == pid { -pid } else { pid };
-        unsafe { libc::kill(target, libc::SIGHUP) };
-        unsafe { libc::kill(target, libc::SIGCONT) };
+        for sig in [Signal::HangUp, Signal::Continue] {
+            let _ = if group_of(pid) == Some(pid) { signal_group(pid, sig) } else { signal(pid, sig) };
+        }
     }
     let started = std::time::Instant::now();
     while pids.iter().any(|p| alive(*p)) && started.elapsed() < Duration::from_secs(10) {
@@ -1218,6 +1201,7 @@ pub enum HostKind {
     Codealong,
     Tmux,
     Linux,
+    Windows,
 }
 
 /// The terminals Codealong can press keys in, for messages.
@@ -1450,8 +1434,7 @@ fn write_osc7(tty: &Path, dir: &str) -> std::io::Result<()> {
         return Ok(());
     }
     use std::io::Write;
-    use std::os::unix::fs::OpenOptionsExt;
-    let mut f = std::fs::OpenOptions::new().write(true).custom_flags(libc::O_NOCTTY | libc::O_NONBLOCK).open(tty)?;
+    let mut f = os::tty::open_to_write(tty)?;
     f.write_all(osc7(dir).as_bytes())
 }
 
@@ -1534,10 +1517,9 @@ fn named_file(path: &Path) -> Result<(String, PathBuf)> {
 /// (an app, a script, a program, or a link or a Finder alias, whatever it points at) is shown in
 /// the Finder, so a click on a name an agent wrote runs nothing.
 pub fn open_file(path: &Path) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt;
     let (name, real) = named_file(path)?;
     let meta = std::fs::metadata(&real).map_err(|e| anyhow!("Couldn't open {name}: {e}"))?;
-    let (folder, mode) = (meta.is_dir(), meta.permissions().mode());
+    let (folder, mode) = (meta.is_dir(), os::files::mode_of(&meta));
     // A link opens what it links to, so that's what's judged, by its own name too.
     if runs_when_opened(path, folder, mode) || runs_when_opened(&real, folder, mode) || os::files::finder_alias(&real) {
         return reveal(path);
@@ -2297,6 +2279,7 @@ end run
             let named = match crate::os::NATIVE {
                 Os::MacOs => tty.starts_with("tty"),
                 Os::Linux => !tty.starts_with('?'),
+                Os::Windows => false,
             };
             let want = named.then(|| Path::new("/dev").join(tty));
             assert_eq!(procs::tty(pid), want, "pid {pid}");

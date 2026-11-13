@@ -2702,7 +2702,6 @@ mod tests {
 
     #[test]
     fn a_snapshot_takes_answers_confirmed_lately() {
-        use std::os::unix::fs::PermissionsExt;
         let dir = scratch("fresh");
         let slugs = vec!["sprucehq/spark".to_string()];
         let stamp = Stamp { glance: "a".into(), at: 1 };
@@ -2711,7 +2710,10 @@ mod tests {
         save(&dir, REQUESTED, &stamp, search);
         assert!(fresh(&dir, &slugs, &[], SystemTime::now()).is_none(), "a repo's answer is missing");
         save(&dir, &slugs[0], &stamp, PRS);
-        assert_eq!(std::fs::metadata(saved_path(&dir, &slugs[0])).unwrap().permissions().mode() & 0o777, 0o600);
+        // Only POSIX has modes: on Windows a file in your profile is yours alone already.
+        if cfg!(unix) {
+            assert_eq!(crate::os::files::mode_of(&std::fs::metadata(saved_path(&dir, &slugs[0])).unwrap()) & 0o777, 0o600);
+        }
         let answers = fresh(&dir, &slugs, &[], SystemTime::now()).unwrap();
         assert!(matches!(&answers[0], Answer::Requested(Ok(found), _) if found.prs.is_empty()));
         assert!(matches!(&answers[1], Answer::Repo(slug, Ok(repo), Some(at)) if slug == &slugs[0] && repo.prs.len() == 2 && at == &stamp));

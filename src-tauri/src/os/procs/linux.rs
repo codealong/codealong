@@ -326,7 +326,7 @@ mod tests {
 /// process another thread starts in that moment would get them as well, which is why the server
 /// hands over one socket this way rather than its terminals (serve.rs `hand_over`). Returns only
 /// when it couldn't: why.
-pub fn exec_keeping(exe: &Path, args: &[std::ffi::OsString], env: &[(std::ffi::OsString, std::ffi::OsString)], keep: &[std::os::fd::RawFd]) -> std::io::Error {
+pub fn exec_keeping(exe: &Path, args: &[std::ffi::OsString], env: &[(std::ffi::OsString, std::ffi::OsString)], keep: &[super::Fd]) -> std::io::Error {
     use std::os::unix::process::CommandExt;
     let keep = keep.to_vec();
     let mut become_it = std::process::Command::new(exe);
