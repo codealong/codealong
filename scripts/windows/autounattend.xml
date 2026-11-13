@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Windows 11 Arm64 with no clicks, for scripts/windows-vm.sh, which puts this file at the root of
      the medium it makes with the password it generated in place of @PASSWORD@: the NVMe disk wiped,
-     Windows 11 Pro (picked by its description, "Windows 11 Pro" in Microsoft's ISO and in one UUP
-     dump's converter makes, which names it "Windows 11 Professional"), a local administrator "dev" that logs on by itself at every start, then
-     \setup\firstlogon.ps1 from the same medium, which turns on OpenSSH. Setup loads the network's
-     driver (NetKVM, for QEMU's virtio-net) from \$WinPEDriver$ on that medium too, and copies it
-     into the installed Windows. The checks for TPM, Secure Boot, RAM and CPU are skipped: QEMU's
+     Windows 11 Pro (picked by its description, "Windows 11 Pro" in Microsoft's ISO and in the one
+     UUP dump's converter makes, which names it "Windows 11 Professional"), a local administrator
+     "dev" that logs on by itself at every start, then \setup\firstlogon.ps1 from the same medium,
+     which turns on OpenSSH. Setup loads the network's driver (NetKVM, for QEMU's virtio-net) from
+     \$WinPEDriver$ on that medium too, and copies it into the installed Windows. The checks for TPM, Secure Boot, RAM and CPU are skipped: QEMU's
      machine has neither TPM nor Secure Boot. -->
 <unattend xmlns="urn:schemas-microsoft-com:unattend" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
   <settings pass="windowsPE">
@@ -140,6 +140,13 @@
         <RunSynchronousCommand wcm:action="add">
           <Order>4</Order>
           <Path>reg.exe add HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System /v EnableFirstLogonAnimation /t REG_DWORD /d 0 /f</Path>
+        </RunSynchronousCommand>
+        <!-- OOBE's own check for updates (its zero-day patch), which stopped at "Something went
+             wrong" (OOBEZDP) until Skip was clicked, on Windows made from Windows Update's files:
+             this policy is said to leave it out. -->
+        <RunSynchronousCommand wcm:action="add">
+          <Order>5</Order>
+          <Path>reg.exe add HKLM\SOFTWARE\Policies\Microsoft\Windows\CloudContent /v DisableCloudOptimizedContent /t REG_DWORD /d 1 /f</Path>
         </RunSynchronousCommand>
       </RunSynchronous>
     </component>

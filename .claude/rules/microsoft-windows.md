@@ -102,8 +102,16 @@ the app's windows, not this. Paths are under `src-tauri/src/`.
   `disable-legacy=on` on virtio-net changed nothing of the hang above. Windows PE has no driver
   for `usb-net` or `e1000e` either.
 - QEMU's `-nic` takes no `romfile=`: the network is `-netdev` and `-device virtio-net-pci`.
-- The VM's machine boots to its firmware with both drives on 2026-11-13 (QEMU 11.1.3, HVF, an
-  M1 Max); Windows' install itself hasn't run yet.
+- Windows installed from the UUP ISO on 2026-11-13 (QEMU 11.1.3, HVF, an M1 Max whose memory
+  other work had full, which made everything slow): Setup's copying took 42 minutes, its second
+  phase and OOBE 25 more. OOBE stopped once at "Something went wrong" (OOBEZDP: its own check for
+  updates, which went on in the background and finished after) until Skip was clicked; the answer
+  file now sets `DisableCloudOptimizedContent`, said to leave that check out, not yet seen through
+  an install. In the installed Windows NetKVM works (10.0.2.15 from QEMU's NAT), and OpenSSH came
+  from Windows Update.
+- Windows' OpenSSH makes its firewall rule (OpenSSH-Server-In-TCP) for private networks alone,
+  and Windows takes QEMU's network for a public one: sshd listened and SSH timed out at the
+  banner until firstlogon.ps1 opened the rule to every profile.
 - A program started over SSH runs in session 0, no one's desktop: the app is started from a
   scheduled task in the logged-on user's session (`scripts/windows/run.ps1`).
 
