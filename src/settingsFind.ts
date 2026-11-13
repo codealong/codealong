@@ -1,7 +1,7 @@
 // Searching Settings (ui/SettingsFind.tsx): what the words typed find among a section's settings.
 // It reads the settings as the form shows them, so whatever a field says is found without a list
-// to keep beside it: a setting is a field, a card (an account, a device, a routing group) or one
-// of Jev's features, and it's found by its label, what it says under it, the choices it offers,
+// to keep beside it: a setting is a field, a card (an account, a device, a routing group), one
+// of Jev's features or a part of a section under a heading of its own, and it's found by its label, what it says under it, the choices it offers,
 // what's typed in it and the name of its section, every word somewhere in those, by the quick
 // panel's rule (quick.ts `wordAt`). A setting with settings inside it (a routing group's card among
 // the groups) shows whole when its own words match, and otherwise with only the ones inside that

@@ -198,7 +198,12 @@
 .ca-settings-experiment > .ca-checkbox {
   margin-top: 2px;
 }
-.ca-settings-subhead {
+/* A part is one setting to a search (SettingsFind.tsx `SETTING`), so its heading finds it whole
+   and shows over what's found in it. */
+.ca-settings-part {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
   margin-top: var(--space-2);
 }
 /* The calendars whose meetings are offered (MeetingsFields): a column of ticks under each

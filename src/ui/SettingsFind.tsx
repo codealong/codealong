@@ -14,8 +14,10 @@ import { findWords, foundIn, spansIn, type Piece } from '../settingsFind';
 import { Button, Icon } from './primitives';
 import { useEscape } from './useDismiss';
 
-/** What a search counts as one setting. */
-const SETTING = '.ca-field, .ca-ucard, .ca-jev-feature';
+/** What a search counts as one setting. A part of a section under a heading of its own (Voice's
+ *  Talk and Meetings) is one, holding its settings as a card does: its heading finds it whole, and
+ *  shows over the ones in it that are found. */
+const SETTING = '.ca-field, .ca-ucard, .ca-jev-feature, .ca-settings-part';
 /** What a section says now, which shows whatever the words: an error, a question to confirm, what
  *  an action did. */
 const ALERT = '[role="alert"], [role="status"], .ca-form-error';

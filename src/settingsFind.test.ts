@@ -93,6 +93,17 @@ describe('what of a section shows', () => {
     expect(found.hidden).not.toContain('fast Most room');
   });
 
+  it('finds a part of a section by its heading, and a setting in it by the heading’s words with its own', () => {
+    // Settings › Experimental's Voice: its box, then a part under a heading of its own.
+    const voice = chrome('', setting('Voice'), setting('', chrome('Meetings'), setting('Listen now'), setting('A session that listens is told what’s new')));
+    const whole = foundIn(voice, findWords('meetings'), 'Experimental');
+    expect(whole.count).toBe(1);
+    expect(whole.hidden).toEqual(['Voice']);
+    const one = foundIn(voice, findWords('meetings told'), 'Experimental');
+    expect(one.count).toBe(1);
+    expect(one.hidden).toEqual(['Voice', 'Listen now']);
+  });
+
   it('keeps a setting that showed for these words', () => {
     const found = foundIn(pane, findWords('terminal'), 'Automation', new Set(['Review pull requests that wait on your review']));
     expect(found.count).toBe(2);

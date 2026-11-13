@@ -2402,21 +2402,25 @@ function ExperimentalPane({ cfg, view, disabled, onSave }: PaneProps & { view: C
                 <ProfileSelect value={voice.locale} profiles={SPOKEN} onChange={(locale) => setVoice({ locale })} />
                 <small>One language at a time, as you talk and in meetings. Its speech model is downloaded by macOS the first time it’s used.</small>
               </label>
-              <h4 className="ca-label ca-settings-subhead">Talk</h4>
-              {TALK_SHORTCUTS.filter((f) => f.which !== 'listen').map(voiceShortcut)}
-              <label className="ca-field ca-settings-check">
-                <CheckBox checked={voice.send_on_release} onChange={(on) => setVoice({ send_on_release: on })} />
-                <span>Send what I say to my orchestrator as I let go</span>
-                <small>Without reading it over first, so it goes with a line saying it was dictated and may be misheard. Off, it waits in the orchestrator’s box for you to send.</small>
-              </label>
-              <h4 className="ca-label ca-settings-subhead">Meetings</h4>
-              {TALK_SHORTCUTS.filter((f) => f.which === 'listen').map(voiceShortcut)}
-              <label className="ca-field">
-                <span>A session that listens is told what’s new</span>
-                <ProfileSelect value={String(voice.tell_every)} profiles={TELL_EVERY} onChange={(s) => setVoice({ tell_every: Number(s) })} />
-                <small>At a pause in what’s said, and never while its last answer is still being written. Sooner makes a coach quicker and uses more of the account’s plan: each telling is a turn.</small>
-              </label>
-              <MeetingsFields cfg={cfg} voice={voice} setVoice={setVoice} />
+              <div className="ca-settings-part">
+                <h4 className="ca-label">Talk</h4>
+                {TALK_SHORTCUTS.filter((f) => f.which !== 'listen').map(voiceShortcut)}
+                <label className="ca-field ca-settings-check">
+                  <CheckBox checked={voice.send_on_release} onChange={(on) => setVoice({ send_on_release: on })} />
+                  <span>Send what I say to my orchestrator as I let go</span>
+                  <small>Without reading it over first, so it goes with a line saying it was dictated and may be misheard. Off, it waits in the orchestrator’s box for you to send.</small>
+                </label>
+              </div>
+              <div className="ca-settings-part">
+                <h4 className="ca-label">Meetings</h4>
+                {TALK_SHORTCUTS.filter((f) => f.which === 'listen').map(voiceShortcut)}
+                <label className="ca-field">
+                  <span>A session that listens is told what’s new</span>
+                  <ProfileSelect value={String(voice.tell_every)} profiles={TELL_EVERY} onChange={(s) => setVoice({ tell_every: Number(s) })} />
+                  <small>At a pause in what’s said, and never while its last answer is still being written. Sooner makes a coach quicker and uses more of the account’s plan: each telling is a turn.</small>
+                </label>
+                <MeetingsFields cfg={cfg} voice={voice} setVoice={setVoice} />
+              </div>
             </>
           )}
         </section>
