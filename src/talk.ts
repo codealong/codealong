@@ -100,8 +100,10 @@ let going: Going | null = null;
 let latest = 0;
 const watchers = new Set<() => void>();
 
-/** Notes what this window is told of a press, for `useGoing`. */
+/** Notes what this window is told of a press, for `useGoing`, and the end of the one a field's
+ *  microphone began (`begun`), however many began since: said where its words went, it's over. */
 function noteGoing(talk: Talk): void {
+  if (begun?.id === talk.id && talk.phase !== 'listening' && talk.phase !== 'settling') begun = null;
   if (talk.id < latest) return;
   const field = talk.id !== latest ? (talk.to === 'looking' ? fieldWithKeys() : null) : (going?.field ?? null);
   latest = talk.id;
@@ -111,8 +113,8 @@ function noteGoing(talk: Talk): void {
   for (const w of watchers) w();
 }
 
-/** The press a field's microphone began last (`talkInto`): its id once the engine has said it,
- *  and whether the field went first (`dropBegunIn`). */
+/** The press a field's microphone began last (`talkInto`), until it's over: its id once the
+ *  engine has said it, and whether the field went first (`dropBegunIn`). */
 interface Begun {
   field: Element;
   id: number | null;
@@ -140,18 +142,18 @@ export async function talkedInto(field: HTMLElement): Promise<void> {
   await talkTo(false);
 }
 
-/** Drops the press `field`'s microphone began, if it may still be going, as the field goes (its
- *  peek put away, another session shown): no key held will end it, and its words would land in
- *  whatever has the keyboard next. The engine drops it too as its window closes or hides
- *  (dictation.rs `window_gone`). A press begun by the key ends as the key comes up, as ever. */
+/** Drops the press `field`'s microphone began, if it isn't over, as the field goes (its peek put
+ *  away, another session shown): no key held will end it, and its words, listening or settling,
+ *  would land in whatever has the keyboard next. The engine drops it too as its window closes or
+ *  hides while it listens (dictation.rs `window_gone`). A press begun by the key ends as the key
+ *  comes up, as ever. */
 export function dropBegunIn(field: Element): void {
   const b = begun;
   if (!b || b.field !== field) return;
   begun = null;
   b.gone = true;
-  // Its id not said yet: `talkInto` drops it once it is. Over already (told of, and not the
-  // one going): nothing to drop.
-  if (b.id === null || (b.id <= latest && going?.talk.id !== b.id)) return;
+  // Its id not said yet: `talkInto` drops it once it is.
+  if (b.id === null) return;
   // Not said when it fails: the box is gone, and a press ends by itself after three minutes.
   void talkTo(false, b.id).catch(() => {});
 }

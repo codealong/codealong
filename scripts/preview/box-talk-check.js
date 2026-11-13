@@ -28,6 +28,7 @@
   // The engine's `talk`: a press begun says its id (dictation.rs `click`); held back while
   // `holding`, until the check lets it through.
   var id = 0;
+  var settlingId = 0;
   var holding = false;
   var held = null;
   var real = window.__TAURI_INTERNALS__.invoke;
@@ -181,6 +182,33 @@
       return show();
     })
     .then(function () {
+      // Stopped, its last words still settling, with a press to your orchestrator begun since.
+      mic().click();
+      return until(function () { return talks() === 9; }, 3000, 'a press begun');
+    })
+    .then(function () {
+      talk({});
+      return until(on, 3000, 'the microphone listening');
+    })
+    .then(function () {
+      mic().click();
+      return until(function () { return talks() === 10; }, 3000, 'the press stopped');
+    })
+    .then(function () {
+      settlingId = id;
+      talk({ phase: 'settling', text: 'Rename it' });
+      id += 1;
+      talk({ to: 'orchestrator' });
+      return hide();
+    })
+    .then(function () { return until(function () { return talks() === 11; }, 3000, 'the settling press dropped'); })
+    .then(function () {
+      check('the box going drops the press it began while its words settle, a newer one begun or not', last('talk').on === false && last('talk').drop === settlingId, JSON.stringify(last('talk')));
+      window.__emit('talk', { id: settlingId, phase: 'nothing', to: 'looking', text: '', level: 0 });
+      talk({ to: 'orchestrator', phase: 'sent' });
+      return show();
+    })
+    .then(function () {
       // Begun by the key held while the box has the keyboard: the key's coming up ends it.
       box().focus();
       id += 1;
@@ -193,7 +221,7 @@
     })
     .then(function () { return wait(150); })
     .then(function () {
-      check('and the box going doesn’t drop it', talks() === 8, JSON.stringify(last('talk')));
+      check('and the box going doesn’t drop it', talks() === 11, JSON.stringify(last('talk')));
       talk({ phase: 'nothing' });
       id += 1;
       talk({ standsIn: true, text: 'Check the build' });
