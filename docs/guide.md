@@ -666,7 +666,8 @@ there, to send or change.
 A card the pointer brings up (a PR's, a session's helpers) goes away on a key, which still does
 what it does, but not on ⌘, ⇧, ⌥ or ⌃ alone, nor on ⌘C, which copies what you selected on it, nor
 on keys typed into a field on it. Once you press something on it, it stays up as the pointer
-leaves, until you press elsewhere or a key, so a merge's commit can be written there.
+leaves, until you press elsewhere or a key, and a dialog opened from it (a merge's commit) keeps
+it up under the dialog until the dialog has gone.
 
 #### Replies as they're written
 
@@ -1549,16 +1550,19 @@ open PR's chip or a link to it brings up, at its foot before Open on GitHub, so 
 merges from the session. It's what you may do now, and under the
 row where it stands for merging when it isn't plainly ready (blocked and why, behind its base,
 conflicts, a draft, in the merge queue, auto-merge on). Merge it with a merge commit, squashed or
-rebased (picked from the button's caret and kept per repo, GitHub's pick for you until then), the
-commit's title and message first, GitHub's own for that way to start from, with the email it goes
-under and whether the branch goes too (⌘⏎ confirms); turn auto-merge on or off; add it to the merge
+rebased (picked from the button's caret and kept per repo, GitHub's pick for you until then): the
+button asks first in a dialog, as Merge and done does, with the commit's title and message,
+GitHub's own for that way to start from, the way itself to change, the email it goes under and
+whether the branch goes too (⌘⏎, or Return in the title, confirms; Escape puts it away). The
+dialog covers the window, or in the notch and the waiting window the card it's on, and a PR's
+hover card stays up under it. Turn auto-merge on or off (the same dialog); add it to the merge
 queue or take it out; merge past the rules where you may; bring its branch up to date by a merge or
 a rebase; mark a draft ready for review; resolve conflicts on GitHub; delete a merged or closed PR's
 branch. A merge names the head commit the box was read at, so GitHub refuses one whose branch has
 moved since. Confirmed, a merge shows at once, without waiting for GitHub: the PR is merged in every
-window and its box says what was done. If GitHub refuses it, the PR is back as it was and the box
-says why, with the commit back as you wrote it to send again; a box that has gone by then (another
-PR shown, a card put away) has its window say why instead.
+window and its box says what was done. If GitHub refuses it, the PR is back as it was and the
+dialog comes back, saying why, with the commit as you wrote it to send again; a box that has gone
+by then (another PR shown, a card put away) has its window say why instead.
 
 A PR's primary session (see [PRs](#prs)) can merge it and be done with in one go, once GitHub says
 the PR is ready to merge: Merge and done (⇧⌘M), first on the strip over the session with Seen and

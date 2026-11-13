@@ -23,15 +23,14 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { mergeDoneAhead } from '../ahead';
 import { useLatest } from '../latest';
 import { mergeBox } from '../api';
-import { below, showContextMenu } from '../contextMenu';
 import { middleTruncate } from '../format';
 import { doneWords, METHOD, offers, opFor, pickMethod, rereads, standing, type MergeForm } from '../merge';
 import { whatDoneDoes, type MergeDoneAsk } from '../menus';
 import { useReloads } from '../reload';
 import { errorText } from '../report';
 import type { MergeBox as Box, MergeMethod, Session } from '../types';
-import { CommitFields, methodItems, RECHECK_MS, RECHECKS, TONE_ICON, useCommit, useMethod } from './MergeBox';
-import { Button, Dialog, Icon } from './primitives';
+import { CommitFields, MethodChip, RECHECK_MS, RECHECKS, TONE_ICON, useCommit, useMethod } from './MergeBox';
+import { Button, cx, Dialog, Icon } from './primitives';
 
 /** What the dialog says it does: merges the PR into its base, then marks the session done, and
  *  what that ends of it, the work under way first. */
@@ -154,11 +153,11 @@ function MergeDoneDialog({ ask, onClose }: MergeDoneDialogProps) {
   if (read.box) return <Ready key={offers(read.box).merge ? 'merges' : 'waits'} ask={ask} box={read.box} checking={checking} onClose={onClose} />;
   return (
     <Dialog
-      className="ca-mergedonedlg"
+      className={cx('ca-mergedlg', 'ca-mergedonedlg')}
       title="Merge and done"
       lede={mergeDoneWords(ask)}
       onClose={onClose}
-      aside={ask.refused ? <p className="ca-form-error ca-mergedonedlg-error">{ask.refused.why}</p> : undefined}
+      aside={ask.refused ? <p className="ca-form-error ca-mergedlg-error">{ask.refused.why}</p> : undefined}
       foot={
         <>
           <Button variant="ghost" size="sm" onClick={onClose}>
@@ -213,12 +212,12 @@ function Ready({ ask, box, checking, onClose }: { ask: MergeDoneAsk; box: Box; c
 
   return (
     <Dialog
-      className="ca-mergedonedlg"
+      className={cx('ca-mergedlg', 'ca-mergedonedlg')}
       title="Merge and done"
       lede={mergeDoneWords(ask)}
       onClose={onClose}
       onSubmit={confirm}
-      aside={error ? <p className="ca-form-error ca-mergedonedlg-error">{error}</p> : undefined}
+      aside={error ? <p className="ca-form-error ca-mergedlg-error">{error}</p> : undefined}
       foot={
         <>
           <Button variant="ghost" size="sm" onClick={onClose}>
@@ -233,19 +232,7 @@ function Ready({ ask, box, checking, onClose }: { ask: MergeDoneAsk; box: Box; c
       <div className="ca-dialog-body">
         {merges && method ? (
           <>
-            <div className="ca-mergedonedlg-method">
-              <span>Merge by</span>
-              <button
-                type="button"
-                className="ca-modelmenu-chip"
-                aria-haspopup="menu"
-                title="How it merges: kept for this repo"
-                onClick={(e) => void showContextMenu(methodItems(box, method, pick), below(e.currentTarget)).catch((err: unknown) => setError(errorText(err)))}
-              >
-                <span>{METHOD[method].label}</span>
-                <Icon name="chevron-down" size={12} />
-              </button>
-            </div>
+            <MethodChip box={box} method={method} pick={pick} onError={setError} />
             <CommitFields box={box} mode="merge" method={method} commit={commit} busy={false} onError={setError} />
           </>
         ) : (

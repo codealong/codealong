@@ -186,6 +186,13 @@ export function confirmLabel(mode: MergeMode, method: MergeMethod): string {
   return mode === 'auto' ? 'Confirm auto-merge' : METHOD[method].confirm;
 }
 
+/** What the dialog the commit is written in says over it: the PR, and what confirming does. */
+export function mergeAsk(mode: MergeMode, pr: Pick<PrItem, 'number' | 'title' | 'base'>): { title: string; lede: string } {
+  const into = pr.base ? ` into ${pr.base}` : '';
+  if (mode === 'auto') return { title: `Auto-merge #${pr.number}`, lede: `GitHub merges “${pr.title}”${into} with this commit once its requirements are met.` };
+  return { title: `Merge #${pr.number}`, lede: `Merges “${pr.title}”${into}.` };
+}
+
 /** What a PR's box is read for: the PR as last updated, and what the board says of where it stands
  *  for merging, its state (its review in it), GitHub's merge status and its checks, which change
  *  without the PR being updated, as when its checks finish. A box read for another is read again. */

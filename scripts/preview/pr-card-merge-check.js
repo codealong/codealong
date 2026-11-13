@@ -3,13 +3,13 @@
 // no Show in Codealong, which a click on the chip does, and an open PR's card ends in GitHub's
 // merge box (MergeBox.tsx), read as the card shows and once for it, its button GitHub's pick for
 // you with Open on GitHub after it in the row. Left untouched, the card goes as the pointer leaves it.
-// Pressing the merge button shows the commit on the card, which stays up from then on as the
-// pointer leaves and stays inside the window as it grows, and as the pointer passes over another
-// PR's chip; keys typed into the commit and Tab and Space on its box don't put it away, a
-// right-click in it is the field's own menu and elsewhere on the card none, and Escape there puts
-// the commit away and leaves the card. ⌘⏎ merges the PR with what was written, and the card stays,
-// saying so; a key typed elsewhere then puts it away, and shown again it goes as the pointer
-// leaves. The session's PR is made an open one that's someone else's, whatever it is today, and
+// Pressing the merge button opens a dialog over the window with the commit, and the card stays up
+// under it from then on as the pointer leaves, and as the pointer passes over another PR's chip;
+// a press in the dialog, keys typed into the commit and Tab and Space on its box don't put it
+// away, a right-click in the commit is the field's own menu and elsewhere on the card none, and
+// Escape there puts the dialog away and leaves the card. ⌘⏎ merges the PR with what was written,
+// and the card stays, saying so; a key typed elsewhere then puts it away, and shown again it goes
+// as the pointer leaves. The session's PR is made an open one that's someone else's, whatever it is today, and
 // another PR lists the session too.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/pr-card-merge-check.js
 (function () {
@@ -51,7 +51,7 @@
   var cardRef = function () { var r = card() && q('.ca-prhover-ref', card()); return r ? r.textContent : null; };
   var card = function () { return q('.ca-prhover'); };
   var main = function () { return card() && q('.ca-merge-main > .ca-btn', card()); };
-  var commit = function () { return card() && q('.ca-merge-write .ca-field input', card()); };
+  var commit = function () { return q('.ca-mergedlg .ca-field input'); };
   var note = function () { var n = card() && q('.ca-merge-note', card()); return n ? n.textContent : null; };
   var labels = function () { return all('button', card()).map(function (b) { return b.textContent.trim(); }); };
   var hover = function (el) { el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, relatedTarget: document.body })); };
@@ -104,20 +104,22 @@
       return until(function () { return !!commit(); }, 2000, 'the commit');
     })
     .then(function () {
-      check('pressing it shows the commit GitHub would write, on the card', commit().value === squashed, commit().value);
+      var scrim = q('.ca-mergedlg').closest('.ca-scrim');
+      check('pressing it opens the commit GitHub would write in a dialog over the window', commit().value === squashed && !!scrim && scrim.parentElement === document.body && !card().contains(scrim), commit().value);
       check('which has the keyboard', document.activeElement === commit());
       leave(card());
+      press(q('.ca-mergedlg .ca-dialog-lede'));
       return wait(500);
     })
     .then(function () {
-      check('pressed, the card stays up as the pointer leaves', !!card());
-      check('and inside the window as it grows', inWindow(), JSON.stringify(card().getBoundingClientRect()));
+      check('the card stays up under it as the pointer leaves, and on a press in the dialog', !!card() && !!commit());
+      check('and inside the window', inWindow(), JSON.stringify(card().getBoundingClientRect()));
       key(commit(), { key: 'a' });
       return wait(50);
     })
     .then(function () {
       check('a key typed into the commit leaves it up', !!card() && !!commit());
-      var box = q('.ca-merge-opts .ca-check input', card());
+      var box = q('.ca-mergedlg .ca-merge-opts .ca-check input');
       if (box) {
         key(box, { key: 'Tab' });
         key(box, { key: ' ' });
@@ -146,7 +148,7 @@
       return wait(50);
     })
     .then(function () {
-      check('Escape there puts the commit away and leaves the card', !!card() && !commit() && !!main());
+      check('Escape there puts the dialog away and leaves the card', !!card() && !q('.ca-mergedlg') && !!main());
       press(main());
       return until(function () { return !!commit(); }, 2000, 'the commit again');
     })

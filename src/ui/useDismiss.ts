@@ -28,7 +28,7 @@ export interface DismissOptions {
    *  key. `any` is for a card the pointer brought up: any key puts it away and still does what
    *  it does, but a modifier alone and ⌘C, which copies what's selected on it (`keyLeavesHover`),
    *  and one that goes to something on it, a field or a box the keyboard is on, which is the
-   *  card's: a merge's commit written on a PR's card (PrLink.tsx), Tab and Space through it. There
+   *  card's: the switch and the box on a PR's card (PrLink.tsx), Tab and Space through them. There
    *  Escape still puts it away, unless what it went to takes it. `none` leaves keys to the
    *  caller. */
   keys?: 'escape' | 'any' | 'none';
@@ -112,7 +112,7 @@ export function useDismiss(ref: RefObject<Element | null> | null, onClose: () =>
       if (!keyLeavesHover(e) && !onIt(e.target)) close();
     };
     // Heard after what's on it, as `escapeTopmost` is: a field that puts something away with
-    // Escape (a merge's commit) takes it.
+    // Escape takes it.
     const onEscapeOnIt = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && !e.defaultPrevented && !e.isComposing && onIt(e.target)) close();
     };

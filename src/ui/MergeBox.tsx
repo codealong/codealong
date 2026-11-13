@@ -5,16 +5,18 @@
 // (merge.ts says which), and under the row where it stands for merging, unless that's plainly
 // ready. The main button merges with the method beside it, picked from its caret and kept per
 // repo, or turns on auto-merge, or adds it to the merge queue; a box under the row merges past
-// the rules for one who may. Merging, like GitHub's, takes a second press: under the row, the
-// commit's title and message as GitHub would write them for that method, to change, the email it
-// goes under, and whether the branch goes with it. ⌘⏎ in them confirms and Escape puts them away.
-// Confirmed, a merge shows done at once, as though GitHub had merged it (`act`): the commit put
-// away, the box merged and saying what it did, until GitHub answers; one it refuses brings the
-// commit back as it was written, with why. Bringing the branch up to date, taking it out of
-// draft, turning auto-merge off, leaving the queue and deleting a merged branch are a press each,
-// as on GitHub. The commit's fields
-// (`CommitFields`, `useCommit`) and the method kept per repo (`useMethod`) are Merge and done…'s
-// too (MergeDone.tsx).
+// the rules for one who may. Merging, like GitHub's, takes a second press, in a dialog as Merge
+// and done… has (`MergeDialog`): the commit's title and message as GitHub would write them for
+// that method, to change, the method itself, the email it goes under, and whether the branch goes
+// with it. ⌘⏎ or Return in its title confirms and Escape puts it away. It's lifted out of the box
+// (primitives.tsx `DialogHost`): over the window, or over the card it's on in a floating window,
+// and a PR link's card (PrLink.tsx) stays up under it. Confirmed, a merge shows done at once, as
+// though GitHub had merged it (`act`): the dialog put away, the box merged and saying what it did,
+// until GitHub answers; one it refuses brings the dialog back with the commit as it was written,
+// and why. Bringing the branch up to date, taking it out of draft, turning auto-merge off, leaving
+// the queue and deleting a merged branch are a press each, as on GitHub. The commit's fields
+// (`CommitFields`, `useCommit`), the method's chip (`MethodChip`) and the method kept per repo
+// (`useMethod`) are Merge and done…'s too (MergeDone.tsx).
 //
 // The box is read when it shows (prmerge.rs `merge_box`), kept for the PR as long as it isn't
 // updated, read again a few times while GitHub works out whether it can merge, again after each
@@ -24,13 +26,13 @@ import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, 
 import { mergeAhead } from '../ahead';
 import { mergeBox, openUrl } from '../api';
 import { below, showContextMenu, type MenuSpec } from '../contextMenu';
-import { boxKey, commitText, confirmLabel, DELETE_KEY, deletesWith, doneWords, mainMode, mergingBox, METHOD, METHODS_KEY, methodsByRepo, modeLabel, offers, opFor, pickMethod, plainlyReady, rereads, standing, type MergeForm, type MergeMode, type Tone } from '../merge';
+import { boxKey, commitText, confirmLabel, DELETE_KEY, deletesWith, doneWords, mainMode, mergeAsk, mergingBox, METHOD, METHODS_KEY, methodsByRepo, modeLabel, offers, opFor, pickMethod, plainlyReady, rereads, standing, type MergeForm, type MergeMode, type Tone } from '../merge';
 import { errorText, type Report } from '../report';
 import { onReload, reloadCount, useReloads } from '../reload';
 import { useLatest } from '../latest';
 import { flag, readStored, writeStored } from '../stored';
 import type { MergeBox as Box, MergeMethod, MergeOp, PrItem } from '../types';
-import { Button, CheckBox, cx, Icon } from './primitives';
+import { Button, CheckBox, cx, Dialog, Icon } from './primitives';
 import { cmd, keysIn } from '../platform';
 
 /** Boxes already read, by what they were read for (merge.ts `boxKey`), so going back to a PR
@@ -226,7 +228,8 @@ function Loaded({ pr, box, note, setNote, reread, lead, trail, goesOn, report }:
     fill(method);
     setNote(null);
     setWriting(true);
-    // The title takes the keyboard with its start in view: a long one would show only its end.
+    // The title takes the keyboard from the dialog with its start in view: a long one would show
+    // only its end. Brought back by a refusal, it doesn't: the dialog takes it itself.
     window.setTimeout(() => {
       const el = titleBox.current;
       if (!el) return;
@@ -247,18 +250,14 @@ function Loaded({ pr, box, note, setNote, reread, lead, trail, goesOn, report }:
     act(opFor(box, mode, { method, title, body, email, deleteBranch }));
   };
 
-  // ⌘⏎ confirms from the fields, before a card's own ⌘⏎ (which approves) hears it; Escape puts
-  // them away and nothing else.
+  // ⌘⏎ confirms from the fields, the message's too, before a card's own ⌘⏎ (which approves)
+  // hears it. Escape is the dialog's.
   const onFieldKey = (e: ReactKeyboardEvent) => {
     if (e.nativeEvent.isComposing) return;
     if (e.key === 'Enter' && cmd(e)) {
       e.preventDefault();
       e.stopPropagation();
       confirm();
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      e.stopPropagation();
-      setWriting(false);
     }
   };
 
@@ -277,7 +276,7 @@ function Loaded({ pr, box, note, setNote, reread, lead, trail, goesOn, report }:
   const tone = shown.state === 'MERGED' ? 'merged' : said.tone;
   const plain = plainlyReady(shown, pr);
 
-  const buttons = !writing && (
+  const buttons = (
     <>
       {mode && method && (
         <div className="ca-split ca-merge-main">
@@ -348,32 +347,108 @@ function Loaded({ pr, box, note, setNote, reread, lead, trail, goesOn, report }:
           </div>
         </div>
       )}
-      {can.bypass && !writing && (
+      {can.bypass && (
         <label className={cx('ca-check', 'ca-merge-bypass', doing && 'is-disabled')} title="You may merge it before its requirements are met: GitHub lets it past the repo’s rules">
           <CheckBox checked={bypassing} disabled={!!doing} onChange={setBypassing} />
           Merge without waiting for its requirements (bypass rules)
         </label>
       )}
-      {writing && mode && method && (
-        <div className="ca-merge-write">
-          {mode === 'bypass' && <p className="ca-merge-warn">It merges now, without waiting for its requirements: past the repo’s rules.</p>}
-          {mode === 'auto' && <p className="ca-meta">GitHub merges it with this commit once its requirements are met.</p>}
-          <CommitFields box={box} mode={mode} method={method} commit={commit} busy={!!doing} titleRef={titleBox} onKey={onFieldKey} onError={(why) => setNote({ text: why, error: true })} />
-          <div className="ca-merge-confirm">
-            <Button variant="primary" size="sm" icon="merge" disabled={!!doing} onClick={confirm} title={keysIn(`${confirmLabel(mode, method)} (⌘⏎)`)}>
-              {busyWord ?? confirmLabel(mode, method)}
-            </Button>
-            <Button variant="ghost" size="sm" disabled={!!doing} onClick={() => setWriting(false)}>
-              Cancel
-            </Button>
-          </div>
-        </div>
-      )}
-      {note && (
+      {/* While the dialog is up, what went wrong is said in it. */}
+      {note && !(writing && note.error) && (
         <p className={cx('ca-merge-note', note.error && 'is-error')} role="status">
           {note.text}
         </p>
       )}
+      {writing && mode && method && (
+        <MergeDialog
+          pr={pr}
+          box={box}
+          mode={mode}
+          method={method}
+          commit={commit}
+          doing={busyWord}
+          busy={!!doing}
+          error={note?.error ? note.text : null}
+          titleRef={titleBox}
+          onKey={onFieldKey}
+          onPick={pick}
+          onError={(why) => setNote({ text: why, error: true })}
+          onConfirm={confirm}
+          onClose={() => setWriting(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+interface MergeDialogProps {
+  pr: PrItem;
+  box: Box;
+  mode: MergeMode;
+  method: MergeMethod;
+  commit: Commit;
+  /** What the confirm button says while it's done: turning auto-merge on. */
+  doing: string | null;
+  busy: boolean;
+  error: string | null;
+  titleRef: Ref<HTMLInputElement>;
+  onKey: (e: ReactKeyboardEvent) => void;
+  onPick: (m: MergeMethod) => void;
+  onError: (why: string) => void;
+  onConfirm: () => void;
+  onClose: () => void;
+}
+
+/** The merge's second press: the commit it goes in with, and the button that does it. */
+function MergeDialog({ pr, box, mode, method, commit, doing, busy, error, titleRef, onKey, onPick, onError, onConfirm, onClose }: MergeDialogProps) {
+  const ask = mergeAsk(mode, pr);
+  const label = confirmLabel(mode, method);
+  return (
+    <Dialog
+      lifted
+      className="ca-mergedlg"
+      title={ask.title}
+      lede={ask.lede}
+      busy={busy}
+      onClose={onClose}
+      onSubmit={onConfirm}
+      aside={error ? <p className="ca-form-error ca-mergedlg-error">{error}</p> : undefined}
+      foot={
+        <>
+          <Button variant="ghost" size="sm" disabled={busy} onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="primary" size="sm" type="submit" icon="merge" disabled={busy} title={keysIn(`${label} (⌘⏎)`)}>
+            {doing ?? label}
+          </Button>
+        </>
+      }
+    >
+      <div className="ca-dialog-body">
+        {mode === 'bypass' && <p className="ca-merge-warn">It merges now, without waiting for its requirements: past the repo’s rules.</p>}
+        <MethodChip box={box} method={method} busy={busy} pick={onPick} onError={onError} />
+        <CommitFields box={box} mode={mode} method={method} commit={commit} busy={busy} titleRef={titleRef} onKey={onKey} onError={onError} />
+      </div>
+    </Dialog>
+  );
+}
+
+/** The method a merge goes by, in its dialog, from a menu of the ways the repo allows. */
+export function MethodChip({ box, method, busy = false, pick, onError }: { box: Pick<Box, 'methods'>; method: MergeMethod; busy?: boolean; pick: (m: MergeMethod) => void; onError: (why: string) => void }) {
+  return (
+    <div className="ca-merge-method">
+      <span>Merge by</span>
+      <button
+        type="button"
+        className="ca-modelmenu-chip"
+        aria-haspopup="menu"
+        title="How it merges: kept for this repo"
+        disabled={busy}
+        onClick={(e) => void showContextMenu(methodItems(box, method, pick), below(e.currentTarget)).catch((err: unknown) => onError(errorText(err)))}
+      >
+        <span>{METHOD[method].label}</span>
+        <Icon name="chevron-down" size={12} />
+      </button>
     </div>
   );
 }
@@ -415,7 +490,7 @@ export function useCommit(box: Box, first: MergeMethod | null = null, written?: 
 
 export type Commit = ReturnType<typeof useCommit>;
 
-/** The commit's fields, under the box's row as a merge is confirmed and in Merge and done…
+/** The commit's fields, in the dialog a merge is confirmed in and in Merge and done…
  *  (MergeDone.tsx): its title and message, or what a rebase does, which writes none; the email
  *  it goes under, where there's a choice; and whether the branch goes with it. `onKey` hears
  *  the keys in them; `onError` why the email's menu didn't show. */

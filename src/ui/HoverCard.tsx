@@ -2,19 +2,22 @@
 // session's helpers chip (HelpersCard.tsx). It shows once the pointer has rested a moment, or at
 // once while another has just closed, and takes the pointer: moving onto it keeps it up, so its
 // rows and buttons can be used. Once something on it is pressed it stays up when the pointer
-// leaves, so a merge's commit message can be written there and a menu from it used. One is up at
+// leaves, so a menu from it can be used. One is up at
 // a time: another's showing closes it, but not once it's been pressed, when the other waits. It
 // goes on a key (which still does what it does), but not on a modifier alone or ⌘C, which copies
 // what's selected on it (useDismiss.ts `keyLeavesHover`), nor one that goes to something on it
 // but Escape; on a press elsewhere; and when the window goes to the background. It follows what
 // it's beside as the page scrolls and as it grows, under it or over it, wherever there's more
 // room, and stays on its side once pressed, so it doesn't jump from under the pointer. A
-// right-click on it shows no menu but a text field's own, for copy and paste.
+// right-click on it shows no menu but a text field's own, for copy and paste. A dialog opened
+// from it (a merge's commit, MergeBox.tsx) keeps it up under the dialog, held, and puts nothing
+// of it away until the dialog has gone (primitives.tsx `DialogHost`).
 
-import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type MutableRefObject, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
+import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type MutableRefObject, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { fieldAt } from '../contextMenu';
-import { cx } from './primitives';
+import { useLatest } from '../latest';
+import { cx, DialogHostContext } from './primitives';
 import { useDismiss } from './useDismiss';
 
 const SHOW_MS = 350;
@@ -133,7 +136,22 @@ export function HoverCard({ card: c, label, className, children }: { card: Hover
   };
   useLayoutEffect(() => place.current());
 
-  useDismiss(el, c.close, { inside: (t) => !!anchor?.contains(t), keys: 'any', blur: true });
+  // Dialogs opened from it, which hold it up and keep its dismissal off while they're up.
+  const [dialogs, setDialogs] = useState(0);
+  const cardNow = useLatest(c);
+  const outer = useContext(DialogHostContext);
+  const host = useMemo(
+    () => ({
+      place: outer.place,
+      keep: () => {
+        cardNow.current.hold();
+        setDialogs((n) => n + 1);
+        return () => setDialogs((n) => n - 1);
+      },
+    }),
+    [outer.place, cardNow],
+  );
+  useDismiss(el, c.close, { inside: (t) => !!anchor?.contains(t), keys: 'any', blur: true, when: dialogs === 0 });
   useEffect(() => {
     let frame = 0;
     // Scrolling within the card itself moves nothing it's placed by.
@@ -185,7 +203,7 @@ export function HoverCard({ card: c, label, className, children }: { card: Hover
         if (!fieldAt(e.target)) e.preventDefault();
       }}
     >
-      {children}
+      <DialogHostContext.Provider value={host}>{children}</DialogHostContext.Provider>
     </div>,
     document.body,
   );

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { boxKey, commitText, confirmLabel, deletesWith, doneWords, mainMode, mergingBox, methodsByRepo, modeLabel, offers, opFor, pickMethod, plainlyReady, rereads, standing, type MergeForm } from './merge';
+import { boxKey, commitText, confirmLabel, deletesWith, doneWords, mainMode, mergeAsk, mergingBox, methodsByRepo, modeLabel, offers, opFor, pickMethod, plainlyReady, rereads, standing, type MergeForm } from './merge';
 import * as fx from './testing/fixtures';
 import type { Checks, MergeBox } from './types';
 
@@ -164,6 +164,13 @@ describe('the method', () => {
     expect(confirmLabel('auto', 'rebase')).toBe('Confirm auto-merge');
     expect(commitText(box(), 'squash')).toEqual({ title: 'Add teams (#7)', body: '* Add teams' });
     expect(commitText(box(), 'rebase')).toBeNull();
+  });
+
+  it('says in its dialog which PR goes where, and when', () => {
+    const pr = { number: 7, title: 'Add teams', base: 'main' };
+    expect(mergeAsk('merge', pr)).toEqual({ title: 'Merge #7', lede: 'Merges “Add teams” into main.' });
+    expect(mergeAsk('bypass', { ...pr, base: null })).toEqual({ title: 'Merge #7', lede: 'Merges “Add teams”.' });
+    expect(mergeAsk('auto', pr)).toEqual({ title: 'Auto-merge #7', lede: 'GitHub merges “Add teams” into main with this commit once its requirements are met.' });
   });
 
   it('keeps the picks by repo, dropping what it can’t read', () => {

@@ -46,7 +46,8 @@ import { reloadKey, zoomKey } from './cardHost';
 import { PrBoxView, usePrBox } from './PrBox';
 import { PrDetails, usePrTab } from './PrInspector';
 import type { PrRowItem } from './PrsView';
-import { cx, type PanelBackTo } from './primitives';
+import { cx, DialogHostContext, useDialogPlace, type PanelBackTo } from './primitives';
+import { dialogUp } from './focusTrap';
 import { QueueStrip, snoozeKeys, snoozeRange, type Hotkeys, type Notice, type Queue, type StripAction } from './SessionPanel';
 
 /** What a window does for a PR's actions, less what the card knows for every window. */
@@ -118,6 +119,8 @@ export function PrCard({ item, now, lanes, usage, reviews, can, outgoing = false
   const { reviewable, stillOpen, review } = box;
   const tabs = usePrTab(pr);
   const onDesktop = menus.useDesktopPins();
+  // The merge box's dialog covers the card, as a session's card has its dialogs.
+  const [placeDialogs, dialogHost] = useDialogPlace();
 
   const open = (url: string) => void openUrl(url).catch((e: unknown) => report.error(errorText(e)));
   const show = (spec: MenuSpec, at?: { x: number; y: number }) => void showContextMenu(spec, at).catch((e: unknown) => report.error(errorText(e)));
@@ -152,7 +155,8 @@ export function PrCard({ item, now, lanes, usage, reviews, can, outgoing = false
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.isComposing) return;
-      if (zoomKey(e, reportNow.current) || reloadKey(e, reportNow.current)) return;
+      // Under a dialog (the merge box's), its keys are the dialog's: ⌘⏎ there isn't Approve.
+      if (zoomKey(e, reportNow.current) || reloadKey(e, reportNow.current) || dialogUp()) return;
       const action = menus.prChorded(latest.current, e);
       if (!action) return;
       e.preventDefault();
@@ -195,6 +199,7 @@ export function PrCard({ item, now, lanes, usage, reviews, can, outgoing = false
 
   return (
     <div
+      ref={placeDialogs}
       className={cx('ca-reply', 'ca-prreview')}
       data-find="files"
       style={cardZoom(zoom)}
@@ -204,11 +209,13 @@ export function PrCard({ item, now, lanes, usage, reviews, can, outgoing = false
         menu({ x: e.clientX, y: e.clientY });
       }}
     >
-      <QueueStrip queue={queue} notice={notice} hotkeys={hotkeys} buttons={buttons} />
-      <div className="ca-prreview-body ca-prinsp">
-        <PrDetails item={item} now={now} onMenu={menu} keys goesOn={goesOn} back={back} tabs={tabs} report={report} apps={apps} teamFiles={teamFiles} onShowSession={onShowSession} onOpenSession={onOpenSession} onShowLane={onShowLane} onLaneMenu={onLaneMenu} onSessionMenu={onSessionMenu} />
-      </div>
-      <PrBoxView pr={pr} box={box} keys={{ approve: sign('approve'), comment: sign('comment') }} after={after} onShow={tabs.show} />
+      <DialogHostContext.Provider value={dialogHost}>
+        <QueueStrip queue={queue} notice={notice} hotkeys={hotkeys} buttons={buttons} />
+        <div className="ca-prreview-body ca-prinsp">
+          <PrDetails item={item} now={now} onMenu={menu} keys goesOn={goesOn} back={back} tabs={tabs} report={report} apps={apps} teamFiles={teamFiles} onShowSession={onShowSession} onOpenSession={onOpenSession} onShowLane={onShowLane} onLaneMenu={onLaneMenu} onSessionMenu={onSessionMenu} />
+        </div>
+        <PrBoxView pr={pr} box={box} keys={{ approve: sign('approve'), comment: sign('comment') }} after={after} onShow={tabs.show} />
+      </DialogHostContext.Provider>
     </div>
   );
 }

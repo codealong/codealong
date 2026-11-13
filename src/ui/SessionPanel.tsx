@@ -48,7 +48,7 @@ import { SessionTerminal, SessionViewSwitch, showView } from './terminal/Session
 import { cardZoom, scaleOf } from '../zoom';
 import { EditDialog } from './EditFrom';
 import { MoveDialog } from './MoveAccount';
-import { Button, cx, Icon, OneLine, Rich } from './primitives';
+import { Button, cx, DialogHostContext, Icon, OneLine, Rich, useDialogPlace } from './primitives';
 import { runFolder } from './RunButton';
 import { SessionHeader, type SessionHeaderProps } from './SessionHeader';
 import { Reply } from './SessionReply';
@@ -423,6 +423,8 @@ function KeptAway({ sessionKey }: { sessionKey: string }) {
 export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, autoFocus, keys, onSending, onSent, onFailed, onAnswered, onDone, onLoaded, onThreadMenu, find, dialog, terminals, ...header }: SessionPanelProps) {
   const { lane, session: s, apps, now, onOpen, onMenu, device, renaming } = header;
   const listening = useListening(s.key);
+  // A dialog opened from inside the card, from a PR's card over its conversation, say, covers it.
+  const [placeDialogs, dialogHost] = useDialogPlace();
   const terminal = apps.terminal;
   const openIt = () => onOpen(s.openTarget);
   // Sending and marking seen go on to the next only from a session that waits on you itself.
@@ -527,6 +529,7 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
   if (variant === 'card') {
     return (
       <div
+        ref={placeDialogs}
         className="ca-reply"
         data-find="conversation"
         data-shows-session={key}
@@ -538,7 +541,7 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
           onMenu();
         }}
       >
-        {body}
+        <DialogHostContext.Provider value={dialogHost}>{body}</DialogHostContext.Provider>
       </div>
     );
   }

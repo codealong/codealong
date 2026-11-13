@@ -1,14 +1,16 @@
 // Checks a PR's merge box (MergeBox.tsx, merge.ts) in its panel in the PRs view, whose row of
 // buttons, Approve's too, is right under the PR's title. A PR plainly ready to merge says so in
 // its filled button, GitHub's pick for you, with a caret for the other ways and no line under the
-// row; pressing it shows the commit GitHub would write for that way, which the caret's menu
-// switches (a rebase writes none), the email it goes under, and whether the branch goes too. ⌘⏎
-// in the fields confirms, and approves nothing; it sends the head the box saw with what was
-// written, and the way picked is kept for the repo. A merge shows as it's asked, before GitHub
-// answers (the stub takes a moment): the PR's row leaves its section for Merged & closed, folded,
-// while its panel stays on it, its box merged, the commit put away and what it did said; once
-// GitHub refuses one, the row is back where it was and the box says why, the commit back as it
-// was written to send again. With Merged & closed unfolded the row says Merged there. Escape puts the commit away and leaves the panel up. Then,
+// row; pressing it opens a dialog over the window with the commit GitHub would write for that
+// way, which the caret's menu and the dialog's own chip switch (a rebase writes none), the email
+// it goes under, and whether the branch goes too. ⌘⏎ in the fields confirms, and approves
+// nothing; it sends the head the box saw with what was written, and the way picked is kept for
+// the repo. A merge shows as it's asked, before GitHub answers (the stub takes a moment): the
+// PR's row leaves its section for Merged & closed, folded, while its panel stays on it, its box
+// merged, the dialog put away and what it did said; once GitHub refuses one, the row is back
+// where it was and the dialog back, saying why, with the commit as it was written to send again.
+// With Merged & closed unfolded the row says Merged there. Escape puts the dialog away and
+// leaves the panel up. Then,
 // as the box is read again after each act: a blocked PR offers auto-merge, and merging past the
 // rules once its box is ticked, and a branch behind its base Update branch, with how; a draft
 // offers Ready for review; and a merged PR whose branch is still there, deleting it, what was
@@ -68,8 +70,11 @@
   var main = function () { return q('.ca-merge-main > .ca-btn'); };
   var caret = function () { return q('.ca-merge-main .ca-split-caret'); };
   var button = function (text) { return all('.ca-merge .ca-btn').filter(function (b) { return b.textContent === text; })[0]; };
-  var title = function () { return q('.ca-merge-write .ca-field input'); };
-  var message = function () { return q('.ca-merge-write textarea'); };
+  var dialog = function () { return q('.ca-mergedlg'); };
+  var title = function () { return q('.ca-mergedlg .ca-field input'); };
+  var message = function () { return q('.ca-mergedlg textarea'); };
+  var footButton = function (text) { return all('.ca-mergedlg .ca-dialog-foot .ca-btn').filter(function (b) { return b.textContent === text; })[0]; };
+  var refused = function () { var e = q('.ca-mergedlg .ca-form-error'); return e ? e.textContent : null; };
   var note = function () { var n = q('.ca-merge-note'); return n ? n.textContent : null; };
   var merges = function () { return sent('merge_pr'); };
   var cmdEnter = function (el) { key(el, { key: 'Enter', metaKey: true }); };
@@ -118,14 +123,35 @@
       squashed = pr.title + ' (#' + pr.number + ')';
       check('pressing it shows the commit GitHub would write', title().value === squashed && message().value.indexOf('* ' + pr.title) === 0, title().value);
       check('the title has the keyboard', document.activeElement === title());
-      var confirm = all('.ca-merge-write .ca-btn')[0];
-      check('the confirm button says the way', confirm.textContent === 'Confirm squash and merge', confirm.textContent);
-      check('the commit takes the button row’s place, caret and all', !caret());
+      var confirm = q('.ca-mergedlg .ca-dialog-foot .ca-btn--primary');
+      check('the confirm button says the way', !!confirm && confirm.textContent === 'Confirm squash and merge', confirm && confirm.textContent);
+      var scrim = dialog().closest('.ca-scrim');
+      check('the commit is written in a dialog over the window, named for the PR', !!scrim && scrim.parentElement === document.body && q('.ca-mergedlg h2').textContent === 'Merge #' + pr.number, q('.ca-mergedlg h2').textContent);
+      check('which says where it goes', /^Merges “.*” into /.test(q('.ca-mergedlg .ca-dialog-lede').textContent), q('.ca-mergedlg .ca-dialog-lede').textContent);
+      q('.ca-mergedlg .ca-merge-method .ca-modelmenu-chip').click();
+      return wait(50);
+    })
+    .then(function () {
+      check('its chip lists the three ways, the one picked checked', JSON.stringify(menuLabels()) === JSON.stringify(['Create a merge commit', 'Squash and merge ✓', 'Rebase and merge']), JSON.stringify(menuLabels()));
+      menuItem('Create a merge commit')();
+      return wait(50);
+    })
+    .then(function () {
+      check('picking another there writes its commit', title().value.indexOf('Merge pull request #' + pr.number) === 0 && q('.ca-mergedlg .ca-dialog-foot .ca-btn--primary').textContent === 'Confirm merge', title().value);
+      q('.ca-mergedlg .ca-merge-method .ca-modelmenu-chip').click();
+      return wait(50);
+    })
+    .then(function () {
+      menuItem('Squash and merge')();
+      return wait(50);
+    })
+    .then(function () {
+      check('and back, the squash’s again', title().value === squashed, title().value);
       key(title(), { key: 'Escape' });
       return wait(50);
     })
     .then(function () {
-      check('Escape puts the commit away, and leaves the panel up', !title() && !!q('.ca-prinsp') && !!main());
+      check('Escape puts the dialog away, and leaves the panel up', !dialog() && !!q('.ca-prinsp') && !!main());
       caret().click();
       return wait(50);
     })
@@ -158,8 +184,8 @@
       return wait(100);
     })
     .then(function () {
-      check('a rebase writes no commit of its own', !title() && !message() && !!q('.ca-merge-write') && /one by one/.test(q('.ca-merge-write').textContent), q('.ca-merge-write') && q('.ca-merge-write').textContent);
-      all('.ca-merge-write .ca-btn').filter(function (b) { return b.textContent === 'Cancel'; })[0].click();
+      check('a rebase writes no commit of its own', !title() && !message() && !!dialog() && /one by one/.test(q('.ca-mergedlg .ca-dialog-body').textContent), dialog() && q('.ca-mergedlg .ca-dialog-body').textContent);
+      footButton('Cancel').click();
       return wait(50);
     })
     .then(function () {
@@ -199,11 +225,11 @@
       check('a merge leaves its section as it’s asked, before GitHub answers', listed() === 'not listed' && merges().length === 1, listed());
       check('and its panel stays on it', shown() === '#' + pr.number, shown());
       check('the box shows it merged meanwhile, the commit put away, saying what it did', says() === 'Merged' && !title() && !main() && note() === 'Squashed and merged #' + pr.number + ' and deleted ' + pr.head + '.', says() + ' / ' + note());
-      return until(function () { return !!q('.ca-merge-note.is-error'); }, 2000, 'the refusal');
+      return until(function () { return !!refused(); }, 2000, 'the refusal');
     })
     .then(function () {
       check('one GitHub refuses is back where it was', listed() === 'Others', listed());
-      check('a merge GitHub refuses says why', /Head branch was modified/.test(note()) && q('.ca-merge-note').classList.contains('is-error'), note());
+      check('a merge GitHub refuses brings the dialog back, saying why', /Head branch was modified/.test(refused()) && !q('.ca-merge-note.is-error'), refused());
       check('and the commit is still there to send again', !!title() && title().value === 'fail');
       check('⌘⏎ in the commit didn’t approve the PR', calls('review_pr').length === 0, calls('review_pr').length);
       type(title(), 'Ship teams (#' + pr.number + ')');
@@ -239,8 +265,8 @@
       return until(function () { return !!title(); }, 2000, 'the commit');
     })
     .then(function () {
-      check('past the rules, the commit warns', /past the repo’s rules/.test(q('.ca-merge-warn').textContent));
-      all('.ca-merge-write .ca-btn').filter(function (b) { return b.textContent === 'Cancel'; })[0].click();
+      check('past the rules, the commit warns', /past the repo’s rules/.test(q('.ca-mergedlg .ca-merge-warn').textContent));
+      footButton('Cancel').click();
       return wait(50);
     })
     .then(function () {

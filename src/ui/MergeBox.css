@@ -1,6 +1,7 @@
 /* A PR's merge box (MergeBox.tsx): the row of buttons it shares with the window's own, where it
-   stands for merging under it, and the commit written before a merge. The row is panel.css's,
-   the split button Inspector.css's, the fields controls.css's. */
+   stands for merging under it, and the dialog the commit is written in before a merge, which
+   Merge and done… (MergeDone.tsx) shares. The row is panel.css's, the split button
+   Inspector.css's, the fields controls.css's, the dialog dialog.css's. */
 
 .ca-merge {
   display: grid;
@@ -44,7 +45,6 @@
   color: var(--ink-3);
 }
 
-.ca-merge-confirm,
 .ca-merge-opts {
   display: flex;
   flex-wrap: wrap;
@@ -59,16 +59,25 @@
   color: var(--alert);
 }
 
-/* The commit, before a merge. */
-.ca-merge-write {
-  display: grid;
-  gap: var(--space-3);
-  padding: var(--space-3);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
+/* The commit, in the dialog a merge is confirmed in. */
+.ca-dialog.ca-mergedlg {
+  width: min(560px, 100%);
 }
-.ca-merge-write > .ca-meta {
+.ca-mergedlg .ca-dialog-body > .ca-meta {
   margin: 0;
+}
+.ca-merge-method {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  font: var(--type-meta-strong);
+  color: var(--ink-2);
+}
+/* Why the merge didn't go, at the foot's start, beside the buttons. */
+.ca-mergedlg-error {
+  min-width: 0;
+  margin-right: var(--space-3);
 }
 .ca-merge-warn {
   margin: 0;

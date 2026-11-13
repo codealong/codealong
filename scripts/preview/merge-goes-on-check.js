@@ -1,8 +1,9 @@
 // Checks merging a PR from its card in the waiting window (PrCard.tsx, MergeBox.tsx, ahead.ts
 // `mergeAhead`): the merge leaves what waits on you as a review does, so confirming it goes on to
 // the next at once, before GitHub answers, the strip saying it merged; and one GitHub refuses
-// (the stub refuses a commit titled "fail") comes back round, the strip saying why. A session
-// needs you and two PRs ask for your review; nothing else waits.
+// (the stub refuses a commit titled "fail") comes back round, the strip saying why. The commit is
+// written in a dialog over the card, not the window. A session needs you and two PRs ask for your
+// review; nothing else waits.
 //   PREVIEW_WAIT=60000 scripts/preview.sh waiting '' scripts/preview/merge-goes-on-check.js
 (function () {
   localStorage.removeItem('codealong.merge.methods');
@@ -45,7 +46,7 @@
   var prTitle = function () { var t = q('.ca-prreview .ca-prinsp-title'); return t ? t.textContent : null; };
   var strip = function () { var t = q('.ca-reply-queue-note'); return t ? t.textContent : ''; };
   var main = function () { return q('.ca-prreview .ca-merge-main > .ca-btn'); };
-  var title = function () { return q('.ca-merge-write .ca-field input'); };
+  var title = function () { return q('.ca-mergedlg .ca-field input'); };
   var merges = function () { return sent('merge_pr'); };
   var onReview = function (name) { return until(function () { return prTitle() === name && !!main(); }, 3000, name); };
   /** Presses merge on the card shown and confirms it with `text` as the commit's title. */
@@ -64,7 +65,14 @@
       return onReview('Review X');
     })
     .then(function () {
-      return merge('Ship X');
+      main().click();
+      return until(function () { return !!title(); }, 2000, 'the commit');
+    })
+    .then(function () {
+      var scrim = q('.ca-mergedlg').closest('.ca-scrim');
+      check('the commit is written in a dialog over the card', !!scrim && scrim.parentElement === q('.ca-prreview'), scrim && scrim.parentElement && scrim.parentElement.className);
+      type(title(), 'Ship X');
+      key(title(), { key: 'Enter', metaKey: true });
     })
     .then(function () { return wait(100); })
     .then(function () {

@@ -1,7 +1,8 @@
 // Small pieces from the Codealong design system, typed for the live board.
 
 import type { AriaRole, ButtonHTMLAttributes, CSSProperties, FormEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode, TextareaHTMLAttributes } from 'react';
-import { forwardRef, Fragment, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { createContext, forwardRef, Fragment, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { CLICK_WAIT_MS } from '../bar';
 import { imageUrl } from '../api';
 import { fieldAt, typingIn } from '../contextMenu';
@@ -394,23 +395,52 @@ interface DialogProps {
   aside?: ReactNode;
   /** The dialog's own class, for its width and what's in it. */
   className?: string;
+  /** Drawn in its host's place (`DialogHost`) rather than where it's rendered: one opened from
+   *  deep inside a card or from a card the pointer brought up (a PR's merge box, MergeBox.tsx). */
+  lifted?: boolean;
   children?: ReactNode;
+}
+
+/** Where a `lifted` dialog goes, and what it keeps up while it's up. A session's or a PR's card
+ *  in a floating window (`.ca-reply`) gives its own element, so a dialog covers the card rather
+ *  than the window, which in the notch is taller than the card and would put it below what's
+ *  seen; elsewhere it's the window's body. A card the pointer brought up (HoverCard.tsx) gives
+ *  `keep`, which holds it up, and its dismissal off, while a dialog opened from it is up: a
+ *  press, a key or the window going to the background is the dialog's then. */
+export interface DialogHost {
+  place: Element | null;
+  /** Called as a dialog inside opens; what it returns, as it closes. */
+  keep?: () => () => void;
+}
+
+export const DialogHostContext = createContext<DialogHost>({ place: null });
+
+/** A card's own element as the place its lifted dialogs go: the ref for the element, and the
+ *  host to give what's inside it (`DialogHostContext`). */
+export function useDialogPlace(): [(el: HTMLElement | null) => void, DialogHost] {
+  const [place, setPlace] = useState<HTMLElement | null>(null);
+  const host = useMemo(() => ({ place }), [place]);
+  return [setPlace, host];
 }
 
 /** A dialog over the window: every one is this. It owns what they share: the scrim and a press
  *  on it, Escape (after any popover open inside it, `useEscape`), its name for a screen reader,
  *  its header and ✕, and the keyboard, which it takes as it opens, keeps (Tab goes round it,
- *  not out to the window behind, `useFocusTrap`) and hands back to what had it. */
-export function Dialog({ title, lede, busy = false, onClose, onSubmit, foot, aside, className, children }: DialogProps) {
+ *  not out to the window behind, `useFocusTrap`) and hands back to what had it; and, opened from
+ *  a card the pointer brought up, the card kept up under it (`DialogHost`). */
+export function Dialog({ title, lede, busy = false, onClose, onSubmit, foot, aside, className, lifted = false, children }: DialogProps) {
   const id = useId();
   const box = useRef<HTMLDivElement & HTMLFormElement>(null);
+  const host = useContext(DialogHostContext);
   const close = () => {
     if (!busy) onClose();
   };
   useEscape(close);
   useFocusTrap(box);
+  const { keep } = host;
+  useEffect(() => keep?.(), [keep]);
   const Box = onSubmit ? 'form' : 'div';
-  return (
+  const dialog = (
     <div
       className="ca-scrim"
       onMouseDown={(e) => {
@@ -449,6 +479,7 @@ export function Dialog({ title, lede, busy = false, onClose, onSubmit, foot, asi
       </Box>
     </div>
   );
+  return lifted ? createPortal(dialog, host.place ?? document.body) : dialog;
 }
 
 /** One choice of a segmented control. */

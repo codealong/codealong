@@ -267,7 +267,7 @@
       check('and that the command it left running stops', /gh pr checks --watch`, which it left running in the background, stops with it\./.test(lede), lede);
       var go = await until(function () { var b = confirm(); return b && !b.disabled ? b : null; }, 5000, 'its button never read the box');
       check('its button has the keyboard', document.activeElement === go, document.activeElement ? document.activeElement.outerHTML.slice(0, 80) : 'nothing');
-      var method = q('.ca-mergedonedlg-method .ca-modelmenu-chip');
+      var method = q('.ca-mergedonedlg .ca-merge-method .ca-modelmenu-chip');
       check('it merges the way GitHub picks for you, kept for the repo', !!method && method.textContent === 'Squash and merge', method ? method.textContent : 'no method');
       check('with the commit GitHub would write for it', !!titleField() && titleField().value === pr.title + ' (#' + pr.number + ')', titleField() ? titleField().value : 'no title');
       footButton('Cancel').click();
