@@ -19,9 +19,11 @@
   border-top: 0;
 }
 /* A call to allow or questions to answer, there: a tinted card as wide as the field, just over it,
-   as suggested replies are, rather than a strip across the panel with a rule under it. */
+   as suggested replies are, rather than a strip across the panel with a rule under it. Its sides
+   are as near its edge as its top, which keeps a command's line as wide as the strip had it. */
 .ca-thread + .ca-composer.is-approval:not(.ca-notch-card *) {
   margin: 0 var(--space-4) var(--space-2);
+  padding: var(--space-3);
   border-top: 0;
   border-radius: var(--radius-lg);
 }
