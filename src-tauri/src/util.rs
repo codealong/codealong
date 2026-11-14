@@ -576,7 +576,7 @@ pub fn resolve(base: &str, path: &str) -> String {
     let path = path.to_string_lossy();
     // Not one Windows reads with a drive or a share before it (`//server/share`), which it keeps.
     let prefixed = |p: &str| matches!(Path::new(p).components().next(), Some(Component::Prefix(_)));
-    if base.starts_with('/') && !prefixed(base) && ((path.starts_with('/') && !prefixed(&path)) || !path.contains(['\\', ':'])) {
+    if base.starts_with('/') && !prefixed(base) && !prefixed(&path) && (path.starts_with('/') || !path.contains(['\\', ':'])) {
         let joined = if path.starts_with('/') { path.into_owned() } else { format!("{base}/{path}") };
         let mut parts: Vec<&str> = Vec::new();
         for part in joined.split('/') {

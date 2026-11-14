@@ -1028,9 +1028,10 @@ pub fn runs(pid: u32) -> bool {
 
 /// `runs`, with `parent_and_name` the process table. Its parent is the adapter's process: on
 /// macOS and Linux the one Codealong started, its shell having become the adapter (`exec`); on
-/// Windows one under Git Bash's bash and its launcher, which Codealong started (`procs::sh`). So
-/// above the parent only a bash may come before the adapter, and a `claude` started from the
-/// shell of a session an adapter runs, or by that session, isn't the adapter's.
+/// Windows one under the Git Bash Codealong started it through (`procs::sh`), its bash alone or
+/// that and its launcher. So above the parent only bash comes, the one Codealong started last,
+/// and a `claude` started from the shell of a session an adapter runs, or by that session, isn't
+/// the adapter's.
 fn started_by_adapter(pid: u32, adapters: &[u32], parent_and_name: impl Fn(u32) -> Option<(u32, String)>) -> bool {
     let Some((parent, _)) = parent_and_name(pid) else { return false };
     if adapters.contains(&parent) {
@@ -1039,11 +1040,11 @@ fn started_by_adapter(pid: u32, adapters: &[u32], parent_and_name: impl Fn(u32) 
     let mut at = parent;
     for _ in 0..2 {
         let Some((up, _)) = parent_and_name(at) else { return false };
-        if adapters.contains(&up) {
-            return at != parent;
-        }
         if parent_and_name(up).is_none_or(|(_, name)| name != "bash") {
             return false;
+        }
+        if adapters.contains(&up) {
+            return true;
         }
         at = up;
     }
@@ -2099,8 +2100,10 @@ mod tests {
         let table = |rows: &'static [(u32, u32, &'static str)]| move |pid: u32| rows.iter().find(|r| r.0 == pid).map(|r| (r.1, r.2.to_string()));
         // macOS and Linux: the shell Codealong started became the adapter.
         assert!(started_by_adapter(10, &[5], table(&[(10, 5, "claude"), (5, 1, "node")])));
-        // Windows: the adapter under Git Bash's bash, under its launcher, which Codealong started.
+        // Windows: the adapter under Git Bash's bash, under its launcher, which Codealong started;
+        // or under bash alone, found on the PATH.
         assert!(started_by_adapter(10, &[3], table(&[(10, 9, "claude"), (9, 4, "node"), (4, 3, "bash"), (3, 1, "bash")])));
+        assert!(started_by_adapter(10, &[3], table(&[(10, 9, "claude"), (9, 3, "node"), (3, 1, "bash")])));
         // A claude started from the shell of a session the adapter runs, or by that session itself.
         assert!(!started_by_adapter(20, &[5], table(&[(20, 15, "zsh"), (15, 10, "claude"), (10, 5, "claude"), (5, 1, "node")])));
         assert!(!started_by_adapter(20, &[5], table(&[(20, 10, "claude"), (10, 5, "claude"), (5, 1, "node")])));
