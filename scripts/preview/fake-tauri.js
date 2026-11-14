@@ -1101,7 +1101,9 @@ window.__TAURI_INTERNALS__ = {
       }
       return Promise.resolve(!pasted);
     }
-    if (cmd === 'terminal_copy') return Promise.resolve('npm test');
+    // A terminal's selection: what a check put in `__terminalSelection` (null for none), else a
+    // command.
+    if (cmd === 'terminal_copy') return Promise.resolve(window.__terminalSelection !== undefined ? window.__terminalSelection : 'npm test');
     // Everything a terminal holds, scrollback included: what a check put in `__terminalText`,
     // else a short one.
     if (cmd === 'terminal_text') return Promise.resolve(window.__terminalText != null ? window.__terminalText : '$ npm test\n\n  12 passed\n');

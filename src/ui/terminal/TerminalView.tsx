@@ -92,41 +92,46 @@ export function TerminalView({ id, focusAt, onLeave, session }: TerminalViewProp
             const c = control.current;
             // A program that takes the mouse gets the right-click itself (`pointer`).
             if (!c || c.takesRightClick(e.nativeEvent)) return;
-            // What it reads goes into the box's text as the session's draft; a selection of
-            // nothing adds nothing, as Copy copies nothing.
-            const toBox = (key: string, all: boolean) =>
-              c.read(all, async (text) => {
-                if (text && (await addToBox(key, text))) said(all ? 'Added all its text to the session’s box.' : 'Added the selection to the session’s box.');
-              });
-            // Sent, it goes from here as a message from the box would; one that didn't go is in
-            // the session's box, with what you were writing there. The terminal's keys don't wait
-            // for it: what's typed meanwhile goes on to the terminal.
-            const toSession = (s: Session) =>
-              c.read(false, (text) => {
-                if (!text) return said('Nothing’s selected to send.');
-                sendToTheSession(s, text).then(
+            const at = { x: e.clientX, y: e.clientY };
+            // The menu acts on what was selected as you asked for it, read before it shows, so
+            // nothing done meanwhile changes what it copies or sends, and what needs a selection
+            // is dimmed without one.
+            c.read(false, (selected) => {
+              // What it reads goes into the box's text as the session's draft.
+              const toBox = (key: string, text: string, all: boolean) =>
+                void addToBox(key, text).then(
+                  (added) => added && said(all ? 'Added all its text to the session’s box.' : 'Added the selection to the session’s box.'),
+                  (e: unknown) => said(errorText(e), true),
+                );
+              // Sent, it goes from here as a message from the box would; one that didn't go is
+              // in the session's box, with what you were writing there. The terminal's keys don't
+              // wait for it: what's typed meanwhile goes on to the terminal.
+              const toSession = (s: Session, text: string) =>
+                void sendToTheSession(s, text).then(
                   (sent) => said(!sent ? 'Nothing’s selected to send.' : sentWorthSaying(sent) ? sent.message : 'Sent the selection to the session.'),
                   (e: unknown) => said(errorText(e), true),
                 );
+              const some = !!selected;
+              // Not returned: the terminal's input doesn't wait for the menu to close.
+              void showContextMenu(
+                [
+                  { label: 'Copy', enabled: some, run: () => selected && void navigator.clipboard.writeText(selected).catch((e: unknown) => said(errorText(e), true)) },
+                  { label: 'Select all', run: () => c.selectAll() },
+                  'separator',
+                  { label: 'Copy all text', run: () => c.copyAll() },
+                  ...(session
+                    ? ([
+                        'separator',
+                        { label: 'Send to the session', enabled: some, run: () => selected && toSession(session, selected) },
+                        { label: 'Add to the session’s box', enabled: some, run: () => selected && toBox(session.key, selected, false) },
+                        { label: 'Add all text to the session’s box', run: () => c.read(true, (all) => all && toBox(session.key, all, true)) },
+                      ] as const)
+                    : []),
+                ],
+                at,
+              ).catch(() => {
+                // A menu that didn't show leaves nothing undone: the terminal is as it was.
               });
-            void showContextMenu(
-              [
-                { label: 'Copy', run: () => c.copy() },
-                { label: 'Select all', run: () => c.selectAll() },
-                'separator',
-                { label: 'Copy all text', run: () => c.copyAll() },
-                ...(session
-                  ? ([
-                      'separator',
-                      { label: 'Send to the session', run: () => toSession(session) },
-                      { label: 'Add to the session’s box', run: () => toBox(session.key, false) },
-                      { label: 'Add all text to the session’s box', run: () => toBox(session.key, true) },
-                    ] as const)
-                  : []),
-              ],
-              { x: e.clientX, y: e.clientY },
-            ).catch(() => {
-              // A menu that didn't show leaves nothing undone: the terminal is as it was.
             });
           }}
         />

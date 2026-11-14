@@ -30,6 +30,7 @@ const resizes: string[] = [];
 const given: TerminalInput[] = [];
 
 const { TerminalController } = await import('./controller');
+const { setPlatform } = await import('../../platform');
 
 const key = (text: string): TerminalInput => ({ kind: 'key', code: 'KeyA', text, mods: {} });
 
@@ -88,9 +89,9 @@ describe('a drag the window loses', () => {
     given.length = 0;
     const canvas = { getBoundingClientRect: () => ({ left: 10, top: 10 }) } as HTMLCanvasElement;
     const c = new TerminalController('t', {} as HTMLElement, canvas, { onLeave: () => {}, onUnsafePaste: () => {}, onError: () => {}, onPointer: () => {} });
-    const at = (y: number, buttons: number) => ({ button: 0, buttons, clientX: 30, clientY: y, shiftKey: false, ctrlKey: false, altKey: false, metaKey: false }) as PointerEvent;
+    const at = (y: number, buttons: number, button = 0) => ({ button, buttons, clientX: 30, clientY: y, shiftKey: false, ctrlKey: false, altKey: false, metaKey: false }) as PointerEvent;
     c.pointer(at(40, 1), 'down');
-    c.pointer(at(-20, 1), 'move');
+    c.pointer(at(-20, 1, -1), 'move');
     // Folding the drawer with the button still down.
     c.stop();
     for (let i = 0; i < 3; i++) await answer();
@@ -101,6 +102,40 @@ describe('a drag the window loses', () => {
     c.letGo();
     await answer();
     expect(given).toEqual([]);
+  });
+});
+
+describe('a press and the selection it would clear', () => {
+  afterEach(() => setPlatform(null));
+
+  /** A controller over a canvas at 10,10, and the mouse inputs it sent, as `action:button@x`. */
+  async function pressed(events: [Partial<PointerEvent>, 'down' | 'up' | 'move'][]) {
+    sent.length = 0;
+    held.length = 0;
+    given.length = 0;
+    const canvas = { getBoundingClientRect: () => ({ left: 10, top: 10 }) } as HTMLCanvasElement;
+    const c = new TerminalController('t', {} as HTMLElement, canvas, { onLeave: () => {}, onUnsafePaste: () => {}, onError: () => {}, onPointer: () => {} });
+    for (const [e, how] of events) c.pointer({ button: -1, buttons: 0, clientX: 30, clientY: 30, shiftKey: false, ctrlKey: false, altKey: false, metaKey: false, ...e } as PointerEvent, how);
+    for (let i = 0; i < events.length; i++) await answer();
+    return given.flatMap((i) => (i.kind === 'mouse' ? [`${i.action}:${i.button ?? ''}@${i.x}`] : []));
+  }
+
+  it('takes ⌃ and a click on macOS for the right-click it is, not a press that clears the selection', async () => {
+    setPlatform('mac');
+    expect(await pressed([[{ button: 0, buttons: 1, ctrlKey: true }, 'down']])).toEqual([]);
+    setPlatform('linux');
+    expect(await pressed([[{ button: 0, buttons: 1, ctrlKey: true }, 'down']]), 'elsewhere it’s a click with Ctrl').toEqual(['down:left@20']);
+  });
+
+  it('takes a left press WebKit gives as a move, after a right-click’s menu took the right button’s release, for the press it is', async () => {
+    const mouse = await pressed([
+      [{ button: 2, buttons: 2 }, 'down'],
+      // The menu's loop takes the right button's release; WebKit takes it as held still.
+      [{ button: 0, buttons: 1, clientX: 40 }, 'move'],
+      [{ button: -1, buttons: 1, clientX: 60 }, 'move'],
+      [{ button: 0, buttons: 0, clientX: 60 }, 'up'],
+    ]);
+    expect(mouse, 'a drag that selects, from where it was pressed').toEqual(['down:left@30', 'move:@50', 'up:left@50']);
   });
 });
 

@@ -15,7 +15,7 @@
 import { onTerminalFrame, openUrl, terminalCopy, terminalInput, terminalPaste, terminalResize, terminalText, terminalTheme, terminalWatch } from '../../api';
 import { hasKeys, onKeysHere, rememberSize, themeOf } from '../../terminals';
 import type { TerminalInput, TerminalTheme } from '../../types';
-import { cmd } from '../../platform';
+import { cmd, contextPress } from '../../platform';
 import { scaleOf } from '../../zoom';
 import { apply, emptyGrid, linkAt, type GridState } from './grid';
 import { modsOf, routeKey } from './keys';
@@ -26,6 +26,8 @@ import { buildScene, type Metrics } from './scene';
 const WATCH_EVERY = 8000;
 /** How long the cursor shows, and hides, as it blinks. */
 const BLINK_MS = 530;
+/** Each button's bit in a pointer event's `buttons`, by its `button`: left, middle, right. */
+const BUTTON_BITS: readonly number[] = [1, 4, 2];
 
 export interface Hooks {
   /** The keyboard goes back to where it came from (⌃`). */
@@ -357,13 +359,23 @@ export class TerminalController {
     return linkAt(this.grid.lines[row] ?? [], this.grid.cols, col);
   }
 
-  pointer(e: PointerEvent, action: 'down' | 'up' | 'move'): void {
+  pointer(e: PointerEvent, how: 'down' | 'up' | 'move'): void {
+    // A move that names a button is that button pressed or let go while another is held (the
+    // Pointer Events' chorded presses). WebKit takes the right button as held still after a
+    // right-click's menu, whose loop took its release, so the next left press comes as a move:
+    // taken for one, the first drag after a menu selected nothing.
+    const bit = how === 'move' ? BUTTON_BITS[e.button] : undefined;
+    const action = bit === undefined ? how : e.buttons & bit ? 'down' : 'up';
     const p = this.at(e);
     const button = e.button === 0 ? 'left' : e.button === 1 ? 'middle' : e.button === 2 ? 'right' : undefined;
     // ⌘ and a click opens a link, as in Ghostty; the program doesn't get the click.
     const link = cmd(e) ? this.linkUnder(p) : null;
     if (action === 'move') this.hooks.onPointer(link ? 'pointer' : this.grid.mouse && !e.shiftKey ? 'default' : 'text');
     if (action === 'down') {
+      // ⌃ and a click is macOS's right-click: it asks for the menu (TerminalView.tsx), and
+      // isn't a press, which would clear the selection the menu is for. A program that takes
+      // the mouse gets it as it is, as in Ghostty.
+      if (contextPress(e) && !this.takesRightClick(e)) return;
       this.pressed = { ...p, link };
       if (link) return;
     }

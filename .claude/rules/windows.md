@@ -174,6 +174,15 @@ under `src-tauri/src/`.
   `com.apple.symbolichotkeys`, which lists only the ones changed from their defaults.
 - Tauri's `plugin:menu|popup` (2.11.6, the same in 2.12.0) keeps the page's resource table
   locked while a menu is up, which hung the app: `lib.rs` (`popup_menu`).
+- A right-click's native menu (muda's `popUpMenuPositioningItem`) runs its loop while the button
+  is still down, and the loop takes its release: WebKit then takes that button as held, so the
+  next press of the left comes to the page as a `pointermove` naming button 0 (the Pointer Events'
+  chorded press), not a `pointerdown`, and only its release as a `pointerup`. ⌃-click comes as a
+  `pointerdown` of button 0 with `ctrlKey`, then `contextmenu`. Both seen in a WKWebView harness
+  (Swift, events sent straight to the web view, the right button's release left out) on
+  2026-11-14; that the real menu's loop takes the release is read from muda's code and AppKit's
+  menu tracking, not seen. The terminal goes by both (`ui/terminal/controller.ts` `pointer`);
+  anything else that reads presses from pointer events misses the first press after a menu.
 - A key equivalent (⌘ and a key) goes to the page before the menu bar, and to the menu only when
   the page doesn't prevent it; WKWebView's `pageZoom` shrinks the page's CSS pixels and is in
   its `devicePixelRatio` (2.5 on a Retina screen at 125%). Both checked in a WKWebView whose

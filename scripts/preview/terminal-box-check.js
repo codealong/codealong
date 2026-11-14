@@ -2,7 +2,9 @@
 // and the edges of its window when it's popped out (ui/terminal/TerminalView.tsx, terminals.ts
 // `addToBox`, TerminalWindow.tsx, useSizeGrips.tsx). In a session's drawer: a drag that goes
 // past the terminal's top is sent with where it went, which the engine scrolls on from
-// (screen.rs `autoscroll`); its right-click menu sends the selection to the session as a code
+// (screen.rs `autoscroll`); ⌃ and a click asks for its right-click menu without pressing in it;
+// the menu reads the selection before it shows, and dims what needs one when there's none; it
+// sends the selection to the session as a code
 // block, leaving the box as it was, adds it to the session's box, the box taking the keyboard,
 // and all its text, longer than a box takes, as a file attached. Popped out: the menu has the
 // same, and its right edge, bottom edge and the corner between them size its window
@@ -10,8 +12,10 @@
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/terminal-box-check.js
 //   PREVIEW_WAIT=30000 scripts/preview.sh terminal '' scripts/preview/terminal-box-check.js
 (function () {
+  // A move names no button (-1), as a browser's does: one that names a button is a press or a
+  // release (TerminalController `pointer`).
   var pointer = function (el, type, x, y, buttons) {
-    el.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, button: 0, buttons: buttons, screenX: x, screenY: y, clientX: x, clientY: y, pointerId: 1, isPrimary: true, pointerType: 'mouse' }));
+    el.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, button: type === 'pointermove' ? -1 : 0, buttons: buttons, screenX: x, screenY: y, clientX: x, clientY: y, pointerId: 1, isPrimary: true, pointerType: 'mouse' }));
   };
   // setPointerCapture needs a real pointer: the stand-in keeps the drag going.
   Element.prototype.setPointerCapture = function () {};
@@ -37,8 +41,27 @@
     var moves = [].concat.apply([], sent('terminal_input').map(function (s) { return s.inputs; })).filter(function (i) { return i.kind === 'mouse' && i.action === 'move'; });
     check('a drag past the top is sent from where it went, above the screen', moves.some(function (m) { return m.y < 0; }), JSON.stringify(moves));
 
-    var labels = await menuOf(canvas);
+    // ⌃ and a click is macOS's right-click: it asks for the menu, and the terminal isn't sent a
+    // press, which would clear the selection the menu is for. A plain press before it is.
+    var before = window.__calls.length;
+    pointer(canvas, 'pointerdown', r.left + 20, r.top + 20, 1);
+    pointer(canvas, 'pointerup', r.left + 20, r.top + 20, 0);
+    canvas.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, buttons: 1, ctrlKey: true, clientX: r.left + 40, clientY: r.top + 20, pointerId: 1, isPrimary: true, pointerType: 'mouse' }));
+    var labels = await menuOf(canvas, { button: 0, ctrlKey: true, clientX: r.left + 40, clientY: r.top + 20 });
+    var since = window.__calls.slice(before);
+    var pressed = [].concat.apply([], since.filter(function (c) { return c[0] === 'terminal_input'; }).map(function (c) { return c[1].inputs; })).filter(function (i) { return i.kind === 'mouse' && i.action === 'down'; });
+    check('⌃ and a click asks for the menu without pressing in the terminal', pressed.length === 1 && pressed[0].x === 20 * devicePixelRatio, JSON.stringify(pressed));
+    var asked = since.map(function (c) { return c[0]; }).filter(function (n) { return n === 'terminal_copy' || n === 'plugin:menu|new'; });
+    check('the menu reads the selection before it shows, to act on what was selected then', asked[0] === 'terminal_copy' && asked.indexOf('plugin:menu|new') > 0, asked.join(' | '));
     check('its menu sends the selection to the session, or adds it or everything to the session’s box', labels.indexOf(SEND) >= 0 && labels.indexOf(ADD) >= 0 && labels.indexOf(ADD_ALL) >= 0, labels.join(' | '));
+
+    // With nothing selected, what needs a selection is dimmed, and everything's text is still there.
+    window.__terminalSelection = null;
+    await menuOf(canvas);
+    var dimmed = lastMenu().filter(function (i) { return i.text && i.enabled === false; }).map(function (i) { return i.text; });
+    check('with nothing selected, Copy, Send and Add are dimmed, and the rest not', JSON.stringify(dimmed) === JSON.stringify(['Copy', SEND, ADD]), JSON.stringify(dimmed));
+    window.__terminalSelection = undefined;
+    await menuOf(canvas);
     box.value = '';
     box.blur();
     menuItem(SEND)();

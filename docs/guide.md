@@ -3054,9 +3054,11 @@ selection from where it began to where you click, by words or lines when it bega
 or triple-click, as in Ghostty, Terminal and iTerm2: for a long one, click at one end, scroll to
 the other and Shift-click there. Typing forgets where it began. ⌘C copies the selection, ⌘V pastes (a paste
 with line breaks into a shell that would run each line asks first), ⌘A selects everything, and
-⌘-click opens a web address. A right-click has Copy, Select all and Copy all text, which copies its
-scrollback too, then Send to the session, Add to the session's box and Add all text to the
-session's box. Send to the session sends the selection to the session at once, as a message from
+⌘-click opens a web address. A right-click (or ⌃-click, which leaves the selection as it is) has
+Copy, Select all and Copy all text, which copies its scrollback too, then Send to the session, Add
+to the session's box and Add all text to the session's box. What it copies, sends or adds is what
+was selected as you right-clicked; with nothing selected, the items for the selection are dimmed.
+Send to the session sends the selection to the session at once, as a message from
 its box would go, leaving what you're writing there alone: for what speaks for itself, like what a
 command an agent asked you to run printed. A note under the terminal says it went; one that
 doesn't go says why and is put in the session's box. The other two put the selection or
