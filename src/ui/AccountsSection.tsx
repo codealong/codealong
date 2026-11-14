@@ -678,7 +678,7 @@ export function AccountsSection({ focus, usage, training, mcp, terminal, now, on
       {!draft && accounts !== null && found.length > 0 && (
         <section className="ca-found" aria-labelledby="ca-found-title">
           <h4 className="ca-label" id="ca-found-title">
-            Found on this Mac
+            Found on this machine
           </h4>
           <div className="ca-found-list">
             {found.map((f) => (

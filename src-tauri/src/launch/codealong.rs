@@ -66,9 +66,11 @@ impl Terminal for Own {
         Some("codealong")
     }
 
-    /// Part of Codealong, so always there.
+    /// Part of Codealong, so always there, but on Windows, which hasn't its terminals yet
+    /// (`os::pty`): there settings don't offer it, and a config.toml without a terminal names
+    /// Windows Terminal (`default_terminal`).
     fn installed(&self) -> bool {
-        true
+        crate::os::current() != crate::os::Os::Windows
     }
 
     /// Found by the session's terminal device instead (`hosting`): the processes above it are the

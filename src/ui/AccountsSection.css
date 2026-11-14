@@ -1,6 +1,6 @@
 /* Settings › Accounts: the accounts found on this Mac that config.toml doesn't list. */
 
-/* Settings › Accounts › Found on this Mac: accounts Codealong could read but doesn't. Dashed,
+/* Settings › Accounts › Found on this machine: accounts Codealong could read but doesn't. Dashed,
    like something not read yet. */
 .ca-found {
   display: grid;

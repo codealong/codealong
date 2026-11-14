@@ -923,7 +923,7 @@ Codealong finds each agent by the files it keeps: Claude Code's `~/.claude` and 
 folders your shell's wrappers and aliases point `CLAUDE_CONFIG_DIR`, `CODEX_HOME`,
 `CURSOR_CONFIG_DIR` or `XDG_DATA_HOME` at, which also name the account and start it. On first run,
 the ones in use or signed in go into config.toml; the rest, and any found later, wait under
-Settings › Accounts › *Found on this Mac*. What else Codealong keeps beside config.toml is listed
+Settings › Accounts › *Found on this machine*. What else Codealong keeps beside config.toml is listed
 in the guide's [Files Codealong keeps](docs/guide.md#files-codealong-keeps).
 
 ## Privacy and safety
@@ -1037,7 +1037,7 @@ and sends new work to the right one. You keep your terminal and your apps.
 
 ### If something's missing
 
-- **An agent's sessions don't show.** Look under Settings › Accounts › *Found on this Mac*, or add
+- **An agent's sessions don't show.** Look under Settings › Accounts › *Found on this machine*, or add
   the account there by hand.
 - **A repo's worktrees don't show.** Add the folder it's in to Settings › General (Codealong looks
   three levels deep). Sessions outside your folders are listed under *Elsewhere*.

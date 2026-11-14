@@ -2192,6 +2192,10 @@ end run
         // Terminal comes with macOS, so a config.toml always has a terminal that's here.
         assert!(terminal_app("terminal").unwrap().installed());
         assert!(terminal_app(default_terminal()).unwrap().installed());
+        // Windows hasn't Codealong's own terminals yet, so a Windows without Windows Terminal
+        // names that, which says it isn't installed, rather than Codealong's.
+        let windows = os::as_if(Os::Windows, || (terminal_app("codealong").unwrap().installed(), terminal_name(default_terminal())));
+        assert_eq!(windows, (false, "Windows Terminal".to_string()));
         assert!(terminal_open("kitty", Placement { new_terminal: NewTerminal::Window, near: &crate::board::ALONE, behind: false, label: None }, Path::new("/"), None).unwrap_err().to_string().contains("\"iterm2\""));
     }
 

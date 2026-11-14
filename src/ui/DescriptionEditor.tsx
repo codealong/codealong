@@ -127,7 +127,7 @@ export function KeptImage({ name, alt }: { name: string; alt: string }) {
     return (
       <span className="ca-desc-noimg">
         <Icon name="photo" size={13} />
-        {from ? 'Image didn’t come from its Mac' : 'Image not on this Mac'}
+        {from ? 'Image didn’t come from its machine' : 'Image not on this machine'}
         {from && (
           <button
             type="button"

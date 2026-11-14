@@ -2343,7 +2343,7 @@ signs in accounts, says how each pays (a plan's price a month, or by the token; 
 used and cost*), tags one whose command line isn't on this machine (Cursor's app without
 `cursor-agent`, say: not on the PATH a terminal has, nor where its installer puts it), which then
 starts nothing that needs it, and offers to have an agent on another account install it,
-and under Found on this Mac lists the ones Codealong could read but doesn't, to add
+and under Found on this machine lists the ones Codealong could read but doesn't, to add
 with a click (with the agent skill, unless you untick it); Routing has Auto's rule, routing groups and Jev's routing instructions; Automation has what Codealong does by itself:
 the agent that reviews the pull requests that wait on your review (the account, model and effort it
 runs on, picked in the agent menu at the foot of a box like a session's that holds what it's told,

@@ -368,7 +368,7 @@ function Rail(p: SidebarProps) {
       {showDevices && p.devices && (
         <>
           <span className="ca-rail-sep" aria-hidden="true" />
-          <RailButton icon="device-desktop" label={`${p.devices.me.name || 'This device'} · this Mac`} active={p.deviceFilter.includes('here')} badge={p.deviceNeeds.get(null)} onClick={() => p.onDevice('here')} />
+          <RailButton icon="device-desktop" label={`${p.devices.me.name || 'This device'} · this machine`} active={p.deviceFilter.includes('here')} badge={p.deviceNeeds.get(null)} onClick={() => p.onDevice('here')} />
           {p.devices.devices.map((d) => (
             <RailButton
               key={d.key}

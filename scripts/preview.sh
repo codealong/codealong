@@ -113,7 +113,7 @@
 # PREVIEW_DEVICES=<file> shows your other devices from it (scripts/preview/devices-sample.json
 # has some): Settings › Devices, the sidebar's Devices, and a few of the board's own worktrees
 # shown as if they were on those devices.
-# PREVIEW_FOUND=<file> lists the accounts in it under Settings › Accounts › Found on this Mac
+# PREVIEW_FOUND=<file> lists the accounts in it under Settings › Accounts › Found on this machine
 # (scripts/preview/found-sample.json has some) in place of the ones this Mac has but config.toml
 # doesn't list, which are often none.
 # PREVIEW_SETUP=<file> gives the setup wizard what's in it (scripts/preview/setup-sample.json is a

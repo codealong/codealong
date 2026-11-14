@@ -45,7 +45,7 @@ const MORE: { section: SettingsSection; icon: string; title: string; says: strin
     section: 'devices',
     icon: 'device-desktop',
     title: 'Your other devices',
-    says: 'Shows your other Macs’ agents here and in the iPhone app, to read and answer from either. They talk directly, over your tailnet or iroh, encrypted end to end.',
+    says: 'Shows your other machines’ agents here and in the iPhone app, to read and answer from either. They talk directly, over your tailnet or iroh, encrypted end to end.',
     button: 'Set up devices',
   },
   {
@@ -58,7 +58,7 @@ const MORE: { section: SettingsSection; icon: string; title: string; says: strin
 ];
 
 const LEDE: Record<SetupStep, string> = {
-  accounts: 'Codealong found these agent accounts on this Mac. It shows the sessions of the ones you keep, and how much of each plan they’ve used.',
+  accounts: 'Codealong found these agent accounts on this machine. It shows the sessions of the ones you keep, and how much of each plan they’ve used.',
   folders: 'Codealong looks for repos in these folders, three levels deep, and shows each one’s worktrees and the agents working in them.',
   apps: 'Where Codealong opens a session’s terminal, and a worktree’s folder.',
   emblems: 'Codealong can give each session an emblem beside its title, an emoji or a small picture, so sessions side by side read apart at a glance and you can remember one as “the dinosaur”.',
@@ -200,7 +200,7 @@ export function SetupDialog({ onClose, onDone, onSettings, now }: { onClose: () 
           !error && <p className="ca-setup-wait">Looking for your agents and repos…</p>
         ) : step === 'accounts' ? (
           view.accounts.length === 0 ? (
-            <p className="ca-setup-empty">No agent accounts on this Mac yet. Codealong reads Claude Code, Codex, OpenCode, Antigravity and Cursor: sign in to one, and Settings › Accounts finds it.</p>
+            <p className="ca-setup-empty">No agent accounts on this machine yet. Codealong reads Claude Code, Codex, OpenCode, Antigravity and Cursor: sign in to one, and Settings › Accounts finds it.</p>
           ) : (
             <div className="ca-setup-list">
               {view.accounts.map((a) => (

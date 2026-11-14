@@ -88,7 +88,7 @@
   gap: var(--space-3);
   border-color: var(--line-strong);
 }
-/* The skill box in the new-account form and under Found on this Mac: as wide as its words. */
+/* The skill box in the new-account form and under Found on this machine: as wide as its words. */
 .ca-acct-skill {
   justify-self: start;
 }
