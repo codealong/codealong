@@ -6,7 +6,8 @@
 // read the reply that way is under the pointer: Jev (insights.rs `waits_question`), or the agent
 // that tagged it (`codealong session tag --waits-until`). Nothing snoozes by itself, and the line
 // goes with the reply it read: once the session is sent something, a turn of its starts, it's
-// snoozed, or the time comes.
+// snoozed, or the time comes. A snooze until a usage limit lifts is its banner's button instead
+// (SessionHeader.tsx), beside what the banner says of the limit.
 
 import type { MenuGroup } from '../contextMenu';
 import { chordKeys, chordSigns } from '../menus';
@@ -24,7 +25,7 @@ interface Props {
 export function SnoozeSuggestion({ session, snooze, now }: Props) {
   const suggested = suggestedSnooze(session, now);
   const action = suggestedIn(snooze);
-  if (!suggested || !action) return null;
+  if (suggested?.why !== 'reply' || !action) return null;
   const when = untilWords(suggested.until, now);
   return (
     <div className="ca-suggest ca-snoozesuggest" role="group" aria-label="Suggested snooze">

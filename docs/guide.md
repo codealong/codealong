@@ -387,6 +387,12 @@ own Continue automatically at usage limit, 30 to 90 seconds after); then Codealo
 session stopped again straight after it was told a few times running is left for you, with a
 notice. `[limits] continue_when_lifted = false` (Settings › Automation) turns that off.
 
+To leave it until then, **Snooze until it lifts** beside its Limit snoozes it until the limit lifts
+(the first line of its Snooze menu too, and ⌃⌘8, in every window). It's back as its Limit then,
+for the minute or few until it's told to carry on, is in Working while it goes on, and waits on you
+as Your turn once that's done; with `continue_when_lifted` off, it's back for you to send it
+something.
+
 #### Network errors
 
 A Claude Code session, or an Antigravity one in its command line, whose turn ended because it
@@ -3197,7 +3203,9 @@ morning; an agent that read the session can say any time (`codealong session tag
 --ending <how its reply ends> --waits-until <when>`, when as `session snooze` reads it). The offer is for the reply it read: it
 goes once the session is sent something or takes a turn, once it's snoozed, and when the time
 comes. Such a session isn't [Finished](#finished-sessions), before the time or after it: the
-work it put off is then due.
+work it put off is then due. A session stopped at its usage limit is offered a snooze until the
+limit lifts the same way, its Limit's button in place of the line above its box
+([Usage limits](#usage-limits)).
 
 #### Quiet
 

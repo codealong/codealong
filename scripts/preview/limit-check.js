@@ -1,7 +1,9 @@
 // Checks a session its account's usage limit stopped (Session.limit, start.rs `limit_moves`), in
 // the bar's peek: its header says which limit and when it lifts, and offers the move to the
 // account with room as a button, which asks for move_session with that account; its menu's Move
-// to says it goes on. The limit is put on a real Claude Code session, since a board rarely has one.
+// to says it goes on. Beside it, Snooze until it lifts snoozes it until then (snooze.ts
+// `suggestedSnooze`), as its Snooze menu's first line and ⌃⌘8 do. The limit is put on a real
+// Claude Code session, since a board rarely has one.
 //   PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/limit-check.js
 (function () {
   var get = function (file) {
@@ -41,7 +43,7 @@
           if (s.key !== key) return;
           s.status = 'error';
           s.excerpt = 'You’ve hit your monthly spend limit · raise it at claude.ai/settings/usage';
-          s.limit = { meter: 'week', resetsAt: lifts, spendCapped: true, at: Date.now() - 60000, moveTo: other };
+          s.limit = { meter: 'week', resetsAt: lifts, spendCapped: true, at: Date.now() - 60000, moveTo: other, continues: true };
         });
       });
       return b;
@@ -53,9 +55,13 @@
       var line = await until(function () { return document.querySelector('.ca-sessinsp-head .ca-sessinsp-limit'); }, 20000);
       var words = line.querySelector('.ca-sessinsp-limit-words').textContent;
       check('its header says which limit stopped it', words.indexOf(picked.account + '’s weekly limit') >= 0, words);
-      check('and when it lifts', /It lifts in 3h \d+m\./.test(words), words);
+      check('and when it lifts, and that Codealong carries it on then', /It lifts in 3h \d+m, and Codealong tells it to carry on then\./.test(words), words);
       check('and leaves the move to the button', words.indexOf('has room') < 0, words);
-      var button = line.querySelector('button');
+      var named = function (re) { return all('button', line).filter(function (b) { return re.test(b.textContent); })[0]; };
+      var button = named(/^Move to /);
+      var snooze = named(/^Snooze until it lifts$/);
+      check('it offers a snooze until the limit lifts', !!snooze, all('button', line).map(function (b) { return b.textContent; }).join(' | '));
+      check('which says when that is, and its key', snooze && /until .*\d.*, when the limit lifts \((⌃⌘|Ctrl\+Alt\+)8\)$/.test(snooze.title), snooze ? snooze.title : 'no button');
       check('it offers the move to the account with room', button && button.textContent === 'Move to ' + other + ' and go on', button ? button.textContent : 'no button');
       var more = document.querySelector('.ca-sessinsp-head [aria-label="More"]');
       if (more) {
@@ -74,6 +80,12 @@
         var asked = calls('move_session')[0][1];
         check('the button asks to move it there', asked.key === key && asked.account === other, JSON.stringify(asked));
       }
+      // The move leaves the board as it was (the stub moves nothing), so the banner is still there.
+      snooze = await until(function () { var l = document.querySelector('.ca-sessinsp-head .ca-sessinsp-limit'); return l && all('button', l).filter(function (b) { return /^Snooze until it lifts$/.test(b.textContent); })[0]; }, 3000);
+      snooze.click();
+      await until(function () { return calls('snooze_sessions').length > 0; }, 3000);
+      var snoozed = calls('snooze_sessions')[0][1];
+      check('the snooze runs until the limit lifts', snoozed.keys.join() === key && snoozed.until === lifts, JSON.stringify(snoozed));
     } catch (e) {
       return stopped(e);
     }

@@ -5,7 +5,9 @@
 // state.json; these are the menus that set them, and Pick a time… asks the main window for any
 // other time (ui/SnoozeDialog.tsx). A session whose last reply says its work goes on at a later
 // time is offered a snooze until then (`suggestedSnooze`): first in its Snooze menu, with a chord
-// of its own, and above its box (ui/SnoozeSuggestion.tsx).
+// of its own, and above its box (ui/SnoozeSuggestion.tsx). One stopped at its usage limit is
+// offered one until the limit lifts the same way, its banner's button in place of the line above
+// its box (ui/SessionHeader.tsx).
 
 import { snoozeAhead, snoozedFrom, snoozeReviewsAhead } from './ahead';
 import { showMain } from './api';
@@ -39,28 +41,41 @@ export const SUGGESTED_CHORD = 'Ctrl+Cmd+8';
 /** Every chord a Snooze menu can have. */
 const MENU_CHORDS = [...SNOOZE_CHORDS, SUGGESTED_CHORD];
 
-/** A time to offer a snooze until, and who read the session's last reply that way. */
+/** A time to offer a snooze until, and why then. */
 export interface SuggestedSnooze {
   until: number;
-  /** Jev's read, or the agent that tagged it (insights.ts `readBy`), with the agent's note. */
-  by: string;
+  /** What comes then: its last reply says the work goes on (`reply`), or the usage limit that
+   *  stopped it lifts (`limit`). */
+  why: 'reply' | 'limit';
+  /** Who read the reply that way: Jev, or the agent that tagged it (insights.ts `readBy`), with
+   *  the agent's note. None for a limit, which its harness said. */
+  by?: string;
 }
+
+/** What ends a suggested time's line in a Snooze menu, by why it's suggested. */
+const SUGGESTED_WHY: Record<SuggestedSnooze['why'], string> = { reply: 'as its reply says', limit: 'when its limit lifts' };
 
 /** A suggested time less than this far off isn't worth a snooze. */
 const WORTH = 5 * MIN;
 
 /**
- * The time to offer a snooze until for a session: when its last reply says the work goes on,
- * with nothing for you or it to do before then, as Jev read it (insights.rs `waits_question`) or
- * an agent that tagged it said (`codealong session tag --waits-until`). None for a reply that
- * names no such time, once the time is all but here, and for a session that's snoozed already or
- * archived. Only offered: nothing snoozes by itself.
+ * The time to offer a snooze until for a session: when the usage limit that stopped its turn
+ * lifts (`Session.limit`), as nothing goes on before then, and Codealong may tell it to carry on
+ * a few minutes after (`SessionLimit.continues`); else when its last reply says the work goes
+ * on, with nothing for you or it to do before then, as Jev read it (insights.rs
+ * `waits_question`) or an agent that tagged it said (`codealong session tag --waits-until`).
+ * None for a limit that doesn't say when it lifts and a reply that names no such time, once the
+ * time is all but here, and for a session that's snoozed already or archived. Only offered:
+ * nothing snoozes by itself.
  */
-export function suggestedSnooze(s: Pick<Session, 'insight' | 'snoozedUntil' | 'archived'>, now: number): SuggestedSnooze | null {
+export function suggestedSnooze(s: Pick<Session, 'insight' | 'snoozedUntil' | 'archived' | 'limit'> & Partial<Pick<Session, 'status'>>, now: number): SuggestedSnooze | null {
+  if (s.snoozedUntil || s.archived) return null;
+  const lifts = s.status !== 'working' ? s.limit?.resetsAt : null;
+  if (lifts && lifts - now >= WORTH) return { until: lifts, why: 'limit' };
   const until = s.insight?.waitsUntil;
-  if (!until || until - now < WORTH || s.snoozedUntil || s.archived) return null;
+  if (!until || until - now < WORTH) return null;
   const note = s.insight?.by && s.insight.note ? `: ${s.insight.note}` : '';
-  return { until, by: `${readBy(s.insight)}${note}` };
+  return { until, why: 'reply', by: `${readBy(s.insight)}${note}` };
 }
 
 /** The next morning at nine: this morning's in the small hours. */
@@ -159,9 +174,9 @@ interface SnoozeOpts {
   onDone: (act: Promise<void>) => void;
   /** Each time says its chord, where the window takes them. */
   chords?: boolean;
-  /** The time its last reply says the work goes on, for one session (`suggestedSnooze`): offered
-   *  first, with a chord of its own. */
-  suggested?: number;
+  /** The time suggested for one session, and why (`suggestedSnooze`): offered first, with a chord
+   *  of its own. */
+  suggested?: Pick<SuggestedSnooze, 'until' | 'why'> | null;
 }
 
 /** A snooze's times as a submenu, each setting it with `set`; Pick a time…, which asks the main
@@ -171,7 +186,8 @@ function timesMenu(set: (until: number | null) => Promise<void>, ask: SnoozeAsk,
   const done = opts.onDone;
   const time = (c: SnoozeChoice): TimeAction => ({ label: c.label, run: () => done(set(c.until)), chord: c.chord, ...(opts.chords ? { accelerator: c.chord } : {}) });
   const items: (TimeAction | MenuAction | 'separator')[] = snoozeChoices(now).map(time);
-  if (opts.suggested) items.unshift(time({ label: `Until ${untilWords(opts.suggested, now)}, as its reply says`, until: opts.suggested, chord: SUGGESTED_CHORD }), 'separator');
+  const suggested = opts.suggested;
+  if (suggested) items.unshift(time({ label: `Until ${untilWords(suggested.until, now)}, ${SUGGESTED_WHY[suggested.why]}`, until: suggested.until, chord: SUGGESTED_CHORD }), 'separator');
   items.push({
     label: 'Pick a time…',
     run: () => {

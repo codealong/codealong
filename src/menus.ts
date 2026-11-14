@@ -524,9 +524,9 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
     // Kept on the Mac it runs on, so it's first on every device. It joins the top of what waits
     // on you rather than leaving it, so a window working through that stays.
     raise: s.archived ? undefined : { label: s.raised ? 'Back in line' : 'Move to top', run: () => void raiseAhead([s.key], !s.raised).catch((e: unknown) => report.error(errorText(e))) },
-    // On the Mac it runs on, which keeps it, so it's snoozed on every device. The time its last
-    // reply says the work goes on is offered first.
-    snooze: s.archived ? undefined : snoozeMenu([s.key], Date.now(), { until: s.snoozedUntil, suggested: suggestedSnooze(s, Date.now())?.until, onDone: settle('snoozed'), chords: !!can.keys }),
+    // On the Mac it runs on, which keeps it, so it's snoozed on every device. The time its limit
+    // lifts, or its last reply says the work goes on, is offered first.
+    snooze: s.archived ? undefined : snoozeMenu([s.key], Date.now(), { until: s.snoozedUntil, suggested: suggestedSnooze(s, Date.now()), onDone: settle('snoozed'), chords: !!can.keys }),
     // Kept on the Mac it runs on too. Quieted, a turn that ended leaves what waits on you, and a
     // window working through that goes on; one that needs you stays.
     quiet: s.archived

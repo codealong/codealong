@@ -1264,6 +1264,20 @@ describe('actions by name', () => {
     expect(press(sessionActions(lane(), { ...waits, archived: true }, can))).toBeNull();
   });
 
+  it('offers a snooze until its usage limit lifts, first in the menu and on ⌃⌘8', () => {
+    const left: string[] = [];
+    const can: SessionCan = { ...base, keys: 'chords', left: (done) => left.push(done) };
+    const lifts = Date.now() + 5 * 3_600_000;
+    const stopped = { ...session(), status: 'error' as const, limit: { meter: 'week', resetsAt: lifts, at: Date.now() - 60_000, moveTo: null, continues: true } };
+    const acts = sessionActions(lane(), stopped, can);
+    const [first] = acts.snooze?.items ?? [];
+    expect(first !== 'separator' && first.label).toMatch(/^Until .+, when its limit lifts$/);
+    const pressed = chorded(acts, { key: '8', code: '', metaKey: true, ctrlKey: true, altKey: false, shiftKey: false });
+    expect(pressed).toBe(first);
+    pressed?.run();
+    expect(left).toEqual(['snoozed']);
+  });
+
   it('closes a session’s terminal on ⌃⌘W, which no letter alone does, and says it left', () => {
     const left: string[] = [];
     const can: SessionCan = { ...base, keys: 'chords', left: (done) => left.push(done) };

@@ -85,7 +85,7 @@ describe('snooze', () => {
   it('offers a snooze until the time a session’s last reply says its work goes on', () => {
     const thursday = oct(1, 9);
     const read = { archived: false, insight: { waitsUntil: thursday } };
-    expect(suggestedSnooze(read, NOW)).toEqual({ until: thursday, by: 'Jev’s read' });
+    expect(suggestedSnooze(read, NOW)).toEqual({ until: thursday, why: 'reply', by: 'Jev’s read' });
     // An agent's tag says who, and why where it said.
     const tagged = { archived: false, insight: { waitsUntil: thursday, by: 'claude:claude:boss', byTitle: 'Orchestrator', note: 'The release is Thursday' } };
     expect(suggestedSnooze(tagged, NOW)?.by).toBe('Tagged by Orchestrator: The release is Thursday');
@@ -99,9 +99,33 @@ describe('snooze', () => {
     expect(suggestedSnooze({ ...read, archived: true }, NOW)).toBeNull();
   });
 
+  it('offers a snooze until the usage limit that stopped a session lifts, ahead of its reply’s time', () => {
+    const lifts = at(28, 22);
+    const limit = { meter: 'week', resetsAt: lifts, at: at(28, 13), moveTo: 'claude2', continues: true };
+    const stopped = { archived: false, status: 'error' as const, limit };
+    expect(suggestedSnooze(stopped, NOW)).toEqual({ until: lifts, why: 'limit' });
+    // The limit is what holds it up, whatever its last reply said of later.
+    expect(suggestedSnooze({ ...stopped, insight: { waitsUntil: oct(1, 9) } }, NOW)?.why).toBe('limit');
+    // Not once it's working again, nor for a limit that doesn't say when it lifts, nor one that
+    // lifts in a moment or has lifted: its reply's time stands then, where it has one.
+    const thursday = { waitsUntil: oct(1, 9) };
+    expect(suggestedSnooze({ ...stopped, status: 'working' }, NOW)).toBeNull();
+    expect(suggestedSnooze({ ...stopped, status: 'working', insight: thursday }, NOW)?.why).toBe('reply');
+    expect(suggestedSnooze({ ...stopped, limit: { ...limit, resetsAt: null } }, NOW)).toBeNull();
+    expect(suggestedSnooze({ ...stopped, limit: { ...limit, resetsAt: at(28, 14, 12) } }, NOW)).toBeNull();
+    expect(suggestedSnooze({ ...stopped, limit: { ...limit, resetsAt: at(28, 14) }, insight: thursday }, NOW)?.why).toBe('reply');
+    // Nor for a session that's snoozed already or archived.
+    expect(suggestedSnooze({ ...stopped, snoozedUntil: at(28, 15) }, NOW)).toBeNull();
+    expect(suggestedSnooze({ ...stopped, archived: true }, NOW)).toBeNull();
+    // Its menu's first line says why then.
+    const menu = snoozeMenu(['k'], NOW, { onDone: () => {}, suggested: suggestedSnooze(stopped, NOW), chords: true });
+    expect(labels(menu)[0]).toBe('Until 10 PM, when its limit lifts');
+    expect(snoozeChorded(menu, '8')?.label).toBe('Until 10 PM, when its limit lifts');
+  });
+
   it('puts the suggested time first in the menu, with a chord of its own', () => {
     const onDone = () => {};
-    const menu = snoozeMenu(['k'], NOW, { onDone, suggested: oct(1, 9), chords: true });
+    const menu = snoozeMenu(['k'], NOW, { onDone, suggested: { until: oct(1, 9), why: 'reply' }, chords: true });
     expect(labels(menu).slice(0, 3)).toEqual(['Until Thu 9 AM, as its reply says', '-', 'For 15 minutes']);
     expect(labels(menu)).toHaveLength(10);
     const first = menu.items[0] as MenuAction;

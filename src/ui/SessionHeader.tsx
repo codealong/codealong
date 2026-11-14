@@ -45,9 +45,9 @@ import { absolute, ago, agoPhrase, duration, middleTruncate, tildePath } from '.
 import { MOVES_ACCOUNTS, sessionName, sessionPlace } from '../harness';
 import { apiErrorWords, cutOffWords, endedOnApiError, limitWords, raisedBy, seenable, setAside, sideTitle } from '../lanes';
 import { cameLines, cameLineWords, cameWord, originWord, type CameLine, type Kin, type Lineage } from '../lineage';
-import { CHORDS, chordKeys, type SessionActions } from '../menus';
+import { CHORDS, chordKeys, chordSigns, type SessionActions } from '../menus';
 import { showSide } from '../side';
-import { untilWords } from '../snooze';
+import { SUGGESTED_CHORD, suggestedIn, suggestedSnooze, untilWords } from '../snooze';
 import { sessionTokens } from '../api';
 import { cacheShare, money, tokenCount, totalTokens } from '../spend';
 import type { Board, DeviceView, Label, Lane, Pr, Session, SessionSpent, SideGlance, Target, Todo } from '../types';
@@ -426,6 +426,11 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
   const leads = shownHere ? (folder.find((t) => t.id.startsWith('l|editor|'))?.id ?? null) : s.openTarget;
   const since = s.statusSince ? (s.status === 'working' ? `for ${duration(s.statusSince, now)}` : agoPhrase(s.statusSince, now)) : agoPhrase(s.lastActivity, now);
   const snoozed = s.snoozedUntil ? ` · snoozed until ${untilWords(s.snoozedUntil, now)}` : '';
+  // A snooze until its usage limit lifts, beside what the banner says of the limit: the first line
+  // of its Snooze menu, run from there (snooze.ts `suggestedIn`), so a window working through what
+  // waits on you goes on to the next, as ⌃⌘8 does.
+  const liftsAt = suggestedSnooze(s, now);
+  const snoozeTillLifted = liftsAt?.why === 'limit' ? suggestedIn(actions?.snooze) : null;
   const quiet = s.quiet ? ' · quiet' : '';
   const agentSeen = s.agentSeen ? ' · seen by its agent' : '';
   const raised = s.raised ? ` · moved to the top${raisedBy(s.raised)}` : '';
@@ -559,6 +564,11 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
         <div className="ca-sessinsp-limit" role="note">
           <Icon name="alert" size={12} />
           <span className="ca-sessinsp-limit-words">{limitWords(s.account, s.limit, now, !!actions?.moveOn, MOVES_ACCOUNTS.includes(s.harness))}</span>
+          {snoozeTillLifted && liftsAt && (
+            <Button size="sm" title={`It leaves what waits on you until ${untilWords(liftsAt.until, now)}, when the limit lifts (${chordSigns(SUGGESTED_CHORD)})`} onClick={() => snoozeTillLifted.run()}>
+              Snooze until it lifts
+            </Button>
+          )}
           {actions?.moveOn ? (
             <Button size="sm" title="Its conversation goes on under that account, told to carry on where it stopped; this one is closed and archived" onClick={() => actions.moveOn?.run()}>
               {actions.moveOn.label}
