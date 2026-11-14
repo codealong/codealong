@@ -241,11 +241,6 @@ impl Saved {
         }
     }
 
-    /// Where the bar shows once it's turned on again.
-    fn on(&self) -> Mode {
-        Saved { off: false, ..self.clone() }.mode()
-    }
-
     /// Read leniently: bar.json is only where the bar was and how you left it (on or off, in the
     /// notch), which a drag or a click sets again, so one that doesn't read starts the bar afresh
     /// and is saved over at its next move, rather than leaving the bar unable to keep its place.
@@ -587,11 +582,6 @@ pub fn shape_frame(window: Rect, shape: PageRect) -> Rect {
     shape.to_screen(window).outset(CARD_MARGIN)
 }
 
-/// Whether the bar is on.
-pub fn is_on(app: &AppHandle) -> bool {
-    mode_of(app) != Mode::Off
-}
-
 /// Where the bar shows: floating, while it does for now in the menu bar's place.
 pub fn mode_of(app: &AppHandle) -> Mode {
     let Some(state) = app.try_state::<Bar>() else { return Mode::Off };
@@ -621,12 +611,6 @@ pub fn set_keep_open(app: &AppHandle, keep: bool) {
         let view = mode_view(&handle);
         let _ = handle.emit("bar-mode", view);
     });
-}
-
-/// Turns the bar on or off; on, it shows where it last did.
-pub fn set_on(app: &AppHandle, on: bool) {
-    let last = app.try_state::<Bar>().and_then(|s| s.saved.lock().ok().map(|s| s.on())).unwrap_or(Mode::Floating);
-    set_mode(app, if on { last } else { Mode::Off });
 }
 
 /// Moves the bar to the notch or back to where it floated, or turns it off, and tells every
@@ -737,7 +721,6 @@ fn show_as(app: &AppHandle, mode: Mode) {
         }
         let view = mode_view(&handle);
         let _ = handle.emit("bar-mode", view);
-        let _ = handle.emit("floating-bar", mode != Mode::Off);
     });
 }
 
@@ -911,16 +894,17 @@ mod tests {
         let mut s = Saved::default();
         s.set(Mode::MenuBar);
         assert_eq!(s.mode(), Mode::MenuBar);
-        // Turned off and on again, it's back in the menu bar.
+        // Turned off, where it showed is kept.
         s.set(Mode::Off);
-        assert_eq!((s.mode(), s.on()), (Mode::Off, Mode::MenuBar));
+        assert_eq!(s.mode(), Mode::Off);
+        assert!(s.menu_bar);
         // Leaving the menu bar for the window: where the window was is kept throughout.
         s.set(Mode::Floating);
         assert_eq!(s.mode(), Mode::Floating);
         s.set(Mode::MenuBar);
         s.set(Mode::Off);
         s.set(Mode::Notch);
-        assert_eq!((s.mode(), s.on()), (Mode::Notch, Mode::Notch));
+        assert_eq!(s.mode(), Mode::Notch);
         assert!(!s.menu_bar);
         assert!(Mode::Floating.has_window() && Mode::Notch.has_window());
         assert!(!Mode::MenuBar.has_window() && !Mode::Off.has_window());
