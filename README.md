@@ -254,6 +254,14 @@ curl -fsSL "https://ziglang.org/download/0.17.0/zig-$(uname -m)-linux-0.17.0.tar
 export PATH="$HOME/.local/zig:$PATH"
 ```
 
+If Linuxbrew's `pkg-config` is earlier on your `PATH` and bundling reports `Can't detect any
+appindicator library`, point it at Ubuntu's package metadata:
+
+```bash
+export PKG_CONFIG=/usr/bin/pkg-config
+export PKG_CONFIG_PATH="/usr/lib/$(gcc -print-multiarch)/pkgconfig:/usr/share/pkgconfig"
+```
+
 Then clone and build:
 
 ```bash
