@@ -1868,6 +1868,11 @@ export interface PillRect {
   h: number;
 }
 
+/** How long the pointer rests on a session before the peek shows it: on the floating bar's pill
+ *  (Bar.tsx), or in the main window's PR or todo panel (PanelSession.tsx `usePeekOnHover`). Long
+ *  enough that passing over it doesn't open it. */
+export const PEEK_AFTER_MS = 300;
+
 /** Shows a session in the floating bar's peek: for a hover over its pill, with `focus` ready to
  *  type into, or with `rename` its name ready to change. Without a pill it opens where it last
  *  was. */
@@ -1876,15 +1881,16 @@ export async function peekOpen(key: string, pill: PillRect | null, focus = false
   await invoke('peek_open', { key, pill, focus, rename });
 }
 
-/** Shows a session in the peek beside its row in the main window's PR or todo panel (`row`: the
- *  panel's sides and the row's top and bottom, as the page measures them), ready to type into,
- *  with its find bar on `find` (peek.rs `beside`). The window takes points, which a zoomed page's
- *  pixels aren't. */
+/** Shows a session in the peek beside its row in the main window's PR or todo panel, for a hover
+ *  over it (`row`: the panel's sides and the row's top and bottom, as the page measures them),
+ *  with its find bar on `find` (peek.rs `beside`). As over a pill, a click in the peek gives it
+ *  the keyboard, and until then it closes once the pointer has been off the row and the peek a
+ *  moment. The window takes points, which a zoomed page's pixels aren't. */
 export async function peekBeside(key: string, row: PillRect, find?: string | null): Promise<void> {
   if (!inTauri) return;
   const z = pageZoom();
   const pill = { x: row.x * z, y: row.y * z, w: row.w * z, h: row.h * z };
-  await invoke('peek_open', { key, pill, beside: true, focus: true, find: find ?? null });
+  await invoke('peek_open', { key, pill, beside: true, focus: false, find: find ?? null });
 }
 
 /** The peek's page is laid out for the open `id`, at this height: time to show it. */

@@ -8,7 +8,7 @@
 import { useCallback, useMemo } from 'react';
 import type { DeviceFilter } from './devices';
 import { needsOn, withDevices, workingOn } from './devices';
-import { AGENT_BAY, bySession, byStatusTime, filterByAge, homeOf, type HelperGlance, inboxCounts, keptCopy, listedStatus, listedUnder, prNeedsWork, runsShownKey, sessionHomes, sideTitle, snoozedApart, unattended, workingFor, worktreeName, type BoardRow, type Filter, type LaneCopies, type Placed } from './lanes';
+import { AGENT_BAY, bySession, byStatusTime, filterByAge, homeOf, type HelperGlance, inboxCounts, keptCopy, listedStatus, listedUnder, prNeedsWork, runsShownKey, selfShownKey, sessionHomes, sideTitle, snoozedApart, unattended, workingFor, worktreeName, type BoardRow, type Filter, type LaneCopies, type Placed } from './lanes';
 import type { Pins } from './pins';
 import type { RefKind } from './canvas/model';
 import { columnsOf, stageOfColumn, type BoardColumn, type BoardDoc, type Stage } from './boards/model';
@@ -561,7 +561,8 @@ function keeping(shown: string[], need: readonly string[]): string[] {
  * row a call; one no session on the board started (a script in a terminal of yours) is listed as
  * a session of its own. Otherwise a helper or a run is listed on its own only while it waits on
  * you: one whose session isn't listed, and a review of a PR that waits on your review, which its
- * PR lists. A search lists every one it finds. A helper's own helpers go under it in turn, so its
+ * PR lists; or once a window asked to show one nothing lists it under (`selfShownKey`, a review
+ * of a PR clicked in its panel). A search lists every one it finds. A helper's own helpers go under it in turn, so its
  * chip's double-click does too; and the helpers of a session you asked to see them all of come
  * from `all` (every session not archived), not only `rows`, since the age and status filters
  * leave out ones its chip counts.
@@ -573,9 +574,9 @@ export function placeHelpers(rows: SessionItem[], searching: boolean, shown: Rea
   const candidates = [...rows, ...more];
   const onBoard = new Set(all.map((r) => r.session.key));
   const orphan = (s: Session) => !!s.headless && !onBoard.has(workingFor(s) ?? '');
-  // Your own sessions, helpers and runs that need you or a search found, and runs no session
-  // here started, whatever's above them.
-  const listed = new Set(rows.filter(({ session: s }) => searching || !unattended(s) || orphan(s)).map((r) => r.session.key));
+  // Your own sessions, helpers and runs that need you or a search found or a window showed, and
+  // runs no session here started, whatever's above them.
+  const listed = new Set(rows.filter(({ session: s }) => searching || !unattended(s) || orphan(s) || shown.has(selfShownKey(s.key))).map((r) => r.session.key));
   // Then the helpers under a listed session, a level at a time: the ones at work, or all of them
   // where you asked; and its runs where you asked.
   for (let grew = true; grew; ) {
@@ -613,10 +614,13 @@ export function chainOf(item: SessionItem, all: readonly SessionItem[], started 
  *  filters, and widens the age filter for its chain, `ageListingChain`): unchanged when Sessions
  *  lists it among `all` then, else with every helper or every headless run of its session listed
  *  (`listedAll`), as its chip's double-click would, and so on up its chain (`chainOf`) to a
- *  session that's listed: a run of a finished helper needs that helper listed too. The keys it
+ *  session that's listed: a run of a finished helper needs that helper listed too. One at the top
+ *  of its chain that isn't listed (a finished review of a PR, which no session started) is listed
+ *  on its own (`selfShownKey`). The keys it
  *  needs go last together, ones there already moved there, so trimming to `HELPERS_SHOWN_MAX`
  *  takes the oldest others, never one of them. Without it, a finished helper or a run the quick
- *  panel found would be selected and not listed, and the panel would show another session. */
+ *  panel found, or a review clicked in its PR's panel, would be selected and not listed, and the
+ *  panel would show another session. */
 export function revealing(shown: string[], all: readonly SessionItem[], item: SessionItem): string[] {
   const lists = (keys: string[]) => placeHelpers([...all], false, new Set(keys), all).some((r) => r.session.key === item.session.key);
   const need: string[] = [];
@@ -624,7 +628,10 @@ export function revealing(shown: string[], all: readonly SessionItem[], item: Se
     const next = keeping(shown, need);
     if (lists(next)) return next;
     const key = listingKey(r);
-    if (key.length === 0) break;
+    if (key.length === 0) {
+      need.push(selfShownKey(r.session.key));
+      break;
+    }
     need.push(...key);
   }
   return keeping(shown, need);

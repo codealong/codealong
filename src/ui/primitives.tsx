@@ -1,6 +1,6 @@
 // Small pieces from the Codealong design system, typed for the live board.
 
-import type { AriaRole, ButtonHTMLAttributes, CSSProperties, FormEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode, TextareaHTMLAttributes } from 'react';
+import type { AriaRole, ButtonHTMLAttributes, CSSProperties, DOMAttributes, FormEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode, TextareaHTMLAttributes } from 'react';
 import { createContext, forwardRef, Fragment, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { CLICK_WAIT_MS } from '../bar';
@@ -697,13 +697,19 @@ interface ChipProps {
   label?: string;
   /** A chip whose click shows a list: whether it's up. */
   expanded?: boolean;
+  /** What the pointer resting on it does: a session's chip in a panel shows it in the peek
+   *  (PanelSession.tsx `usePeekOnHover`). */
+  hover?: HoverHandlers;
   children?: ReactNode;
 }
+
+/** The pointer's coming, going and pressing, for something that answers a hover. */
+export type HoverHandlers = Pick<DOMAttributes<HTMLElement>, 'onPointerEnter' | 'onPointerLeave' | 'onPointerDown'>;
 
 /** A chip: one shape and size wherever it shows, and one answer to clicks (`chipHandlers`). The
  *  named chips below and in TodoBits.tsx say what's in one; anything else a row labels goes
  *  through this too, with its own class for its fill. */
-export function Chip({ kind = 'chip', className, title, does, act, inRow = false, twice, onMenu, remove, label, expanded, children }: ChipProps) {
+export function Chip({ kind = 'chip', className, title, does, act, inRow = false, twice, onMenu, remove, label, expanded, hover, children }: ChipProps) {
   const base = CHIP_CLASS[kind];
   const wait = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tip =
@@ -731,7 +737,7 @@ export function Chip({ kind = 'chip', className, title, does, act, inRow = false
   );
   if (!act || (inRow && !twice)) {
     return (
-      <span className={cx(base, className)} title={tip} onContextMenu={onContextMenu} {...chipHandlers(act, inRow)}>
+      <span className={cx(base, className)} title={tip} onContextMenu={onContextMenu} {...hover} {...chipHandlers(act, inRow)}>
         {inner}
       </span>
     );
@@ -745,6 +751,7 @@ export function Chip({ kind = 'chip', className, title, does, act, inRow = false
       aria-haspopup={expanded === undefined ? undefined : 'menu'}
       aria-expanded={expanded}
       onContextMenu={onContextMenu}
+      {...hover}
       {...chipHandlers(act, false, twice && { run: twice.run, wait })}
     >
       {inner}
@@ -764,21 +771,23 @@ export function MoreChip({ names, className }: { names: string[]; className?: st
 
 /** A session's account and where it runs. With `onOpen`, a click opens it where it runs; with
  *  `inRow` too, it's on a list's row, where a click selects the row, so a double-click opens it.
- *  A panel that lists it (PanelSession.tsx `PanelPlaces`) shows it in the peek instead
- *  (`onShow`), with its menu on a right-click, and says more of it on hover (`detail`).
+ *  A panel that lists it (PanelSession.tsx `PanelPlaces`) shows it instead (`onShow`), with its
+ *  menu on a right-click, the peek on a hover in the main window (`hover`), and says more of it
+ *  in its tooltip (`detail`).
  *  `named` says its title instead, with the account on hover, where the chip stands for the
  *  session: on a PR's or a todo's row and in their panels, where nothing else names it. */
-export function HarnessChip({ session, withStatus = true, named = false, onOpen, onShow, onMenu, inRow = false, className, detail, children }: { session: Session; withStatus?: boolean; named?: boolean; onOpen?: () => void; onShow?: () => void; onMenu?: () => void; inRow?: boolean; className?: string; detail?: string; children?: ReactNode }) {
+export function HarnessChip({ session, withStatus = true, named = false, onOpen, onShow, onMenu, hover, inRow = false, className, detail, children }: { session: Session; withStatus?: boolean; named?: boolean; onOpen?: () => void; onShow?: () => void; onMenu?: () => void; hover?: HoverHandlers; inRow?: boolean; className?: string; detail?: string; children?: ReactNode }) {
   const status = archivedShows(session) ? 'Archived' : STATUS_WORD[session.status];
   const said = named ? `${session.title}\n${session.account} (${HARNESS_WORD[session.harness]}) · ${status}` : `${session.account} · ${session.title} · ${status}`;
   return (
     <Chip
       className={cx(named && 'ca-sesschip', className)}
       title={`${said}${detail ? `\n${detail}` : ''}`}
-      does={onShow ? 'show it in the peek, right-click for its menu' : `open in ${sessionPlace(session, 'terminal')}`}
+      does={onShow ? 'show it, right-click for its menu' : `open in ${sessionPlace(session, 'terminal')}`}
       act={onShow ?? onOpen}
       inRow={inRow}
       onMenu={onMenu}
+      hover={hover}
     >
       {withStatus && <SessionGlyph s={session} size={10} />}
       {/* Named, the chip stands for the session: its emblem, where it has one, says which. */}

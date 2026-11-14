@@ -13,11 +13,12 @@
 //! peek, it goes back to how a hover has it rather than closing under you.
 //!
 //! A card pinned to the desktop opens it the same way, under or over the card. The main window's
-//! PR and todo panels open it on a click on one of their sessions, ready to answer, beside the
-//! panel and level with the session's row there (`beside`): the session is something the PR or
-//! todo is about, so it's looked at and answered there and put away, the panel staying as it was.
-//! Its Main window button shows the session in Sessions, its list and the queue of what waits on
-//! you.
+//! PR and todo panels open it as a hover over a pill does, when the pointer rests on one of their
+//! sessions, beside the panel and level with the session's row there (`beside`), which counts as
+//! the pill across the panel's width: the session is something the PR or todo is about, so it's
+//! looked at and answered there and put away, the panel staying as it was. Its Main window button
+//! shows the session in Sessions, its list and the queue of what waits on you, as a click on the
+//! session in the panel does.
 //!
 //! Dragging its far edge or corner makes it bigger, and dragging its header moves it. Its Keep
 //! button or letting go of either drag keeps it on the desktop: the session gets a window of its

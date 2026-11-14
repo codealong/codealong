@@ -1,12 +1,15 @@
 // A session a PR's or todo's panel lists shows in the peek, beside the panel (MainPanel.tsx
-// `peekFromPanel`, PanelSession.tsx, peek.rs `beside`), not in the panel's place: a click on its
-// chip asks for the peek ready to answer, by the panel's sides and the chip's line, and the PR's
-// or todo's panel stays, its row still selected. With the details open, a click on a session's
-// row waits a moment for a second before it asks, by that row, and a double-click opens the
-// session where it runs without the peek (in Sessions, for one Codealong runs). What another
-// window asks the main window to say shows as a toast. In the peek's own page, an open with a
-// search's words opens its find bar on them, and what goes wrong in a peek opened beside the main
-// window is said there as a toast, where one opened from a pill says it on the bar.
+// `peekFromPanel`, PanelSession.tsx `usePeekOnHover`, peek.rs `beside`), while the pointer rests
+// on it: resting on its chip a moment asks for the peek without the keyboard, as a hover over a
+// pill does, by the panel's sides and the chip's line, and the PR's or todo's panel stays, its row
+// still selected; a pointer that leaves or presses before then asks for nothing. With the details
+// open, resting on a session's row asks by that row, and a double-click opens the session where
+// it runs without the peek (in Sessions, for one Codealong runs), putting the peek away. A click
+// on a session's chip shows it in Sessions, as the peek's Main window button does, putting the
+// peek away and asking for none. What another window asks the main window to say shows as a
+// toast. In the peek's own page, an open with a search's words opens its find bar on them, and
+// what goes wrong in a peek opened beside the main window is said there as a toast, where one
+// opened from a pill says it on the bar.
 //   scripts/preview.sh prs '' scripts/preview/panel-peek-check.js
 //   PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh todo '' scripts/preview/panel-peek-check.js
 //   scripts/preview.sh peek '' scripts/preview/panel-peek-check.js
@@ -27,6 +30,14 @@
     el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 2 }));
     el.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true, detail: 2 }));
   };
+  // The pointer coming onto something and leaving it, from and to outside the page, and the
+  // button going down on it without a click.
+  var enter = function (el) { el.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, cancelable: true, pointerType: 'mouse', buttons: 0 })); };
+  var leave = function (el) { el.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, cancelable: true, pointerType: 'mouse', buttons: 0 })); };
+  var down = function (el) { el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerType: 'mouse', button: 0, buttons: 1 })); };
+  // A view's keys (mainKeys.ts `VIEW_CHORDS`): ⇧⌘ and its letter.
+  var go = function (letter) { (document.activeElement || document.body).dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: letter, code: 'Key' + letter, metaKey: true, shiftKey: true })); };
+  var shown = function () { var m = q('main.ca-board'); return m ? m.getAttribute('aria-label') : null; };
   var near = function (a, b) { return Math.abs(a - b) < 1; };
   var titleOf = function (el) { var t = q('.ca-sesschip-title, .ca-psess-title', el); return t ? t.textContent : null; };
   var board = null;
@@ -47,32 +58,53 @@
     check(what + ' asks for the peek, once', opens.length === from + 1, String(opens.length - from));
     if (!p) return;
     check('for that session', keysTitled(titleOf(clicked)).indexOf(p.key) >= 0, p.key + ' for “' + titleOf(clicked) + '”');
-    check('beside the panel, ready to answer', p.beside === true && p.focus === true, JSON.stringify(p));
+    check('beside the panel, without the keyboard', p.beside === true && p.focus === false, JSON.stringify(p));
     check('by the panel’s sides', !!p.pill && near(p.pill.x, side.left) && near(p.pill.w, side.width), JSON.stringify(p.pill) + ' / ' + Math.round(side.left) + '+' + Math.round(side.width));
-    check('level with what was clicked', !!p.pill && near(p.pill.y, at.top) && near(p.pill.h, at.height), JSON.stringify(p.pill) + ' / ' + Math.round(at.top) + '+' + Math.round(at.height));
+    check('level with what it rests on', !!p.pill && near(p.pill.y, at.top) && near(p.pill.h, at.height), JSON.stringify(p.pill) + ' / ' + Math.round(at.top) + '+' + Math.round(at.height));
   };
 
-  // `kind`: 'pr' or 'todo'; `panel` the panel, `row` the list's row it's for.
-  var run = function (kind, panel, row) {
-    var places = q('.ca-places', panel());
-    var chip = places && all('.ca-sesschip', places)[0];
+  // The panel's chips, its details closed: they stay open for the next PR or todo once opened.
+  var chips = function (panel) {
+    if (q('.ca-tree', panel())) press(q('.ca-detailsbtn', panel()));
+    return until(function () { return all('.ca-places .ca-sesschip', panel())[0]; }, 3000, 'the panel’s session chips');
+  };
+
+  // `kind`: 'pr' or 'todo'; `panel` the panel, `row` the list's row it's for, `select` its view
+  // with the row selected again, from wherever a click went.
+  var run = function (kind, panel, row, select) {
+    var chip = q('.ca-places .ca-sesschip', panel());
     if (!chip) return stopped('the ' + kind + '’s panel lists no session');
     var from = sent('peek_open').length;
-    press(chip);
+    enter(chip);
+    check('resting on a session’s chip asks for nothing at once', sent('peek_open').length === from);
     return wait(400)
       .then(function () {
-        asked('a click on a session’s chip', from, panel(), chip, chip);
+        asked('resting on a session’s chip', from, panel(), chip, chip);
         check('the ' + kind + '’s panel stays', !!panel() && !q('.ca-panelback') && !q('.ca-sessinsp'));
         check('its row still selected', row().getAttribute('aria-selected') === 'true');
+        leave(chip);
+        // Gone before the moment's up, then back and pressed.
+        from = sent('peek_open').length;
+        enter(chip);
+        return wait(100);
+      })
+      .then(function () {
+        leave(chip);
+        enter(chip);
+        down(chip);
+        return wait(400);
+      })
+      .then(function () {
+        check('a pointer that leaves or presses before the moment’s up asks for nothing', sent('peek_open').length === from, String(sent('peek_open').length - from));
         press(q('.ca-detailsbtn', panel()));
         return until(function () { return q('.ca-psess-main', panel()); }, 3000, 'the tree, with the details open');
       })
       .then(function (main) {
         from = sent('peek_open').length;
-        press(main);
-        check('a click on a session’s row waits for a second', sent('peek_open').length === from);
+        enter(main);
         return wait(400).then(function () {
-          asked('then it', from, panel(), main, main);
+          asked('resting on a session’s row', from, panel(), main, main);
+          leave(main);
           var opens = q('.ca-psess-open', main.closest('.ca-psess'));
           if (opens.disabled) return note('its first session is on another Mac: a double-click wasn’t checked');
           // One Codealong runs lives in Sessions' panel, which is where it opens.
@@ -81,16 +113,34 @@
           });
           from = sent('peek_open').length;
           var opened = sent('open_target').length;
+          var hid = sent('peek_hide').length;
           twice(main);
           return wait(400).then(function () {
             if (hosted) check('a double-click shows one Codealong runs in Sessions, where it lives', !panel() && !!q('.ca-sessinsp'));
             else check('a double-click opens it where it runs', sent('open_target').length === opened + 1, String(sent('open_target').length - opened));
-            check('without the peek', sent('peek_open').length === from, String(sent('peek_open').length - from));
+            check('without the peek, putting it away', sent('peek_open').length === from && sent('peek_hide').length > hid, (sent('peek_open').length - from) + ' opens, ' + (sent('peek_hide').length - hid) + ' hides');
           });
         });
       })
+      .then(function () { return panel() ? null : select(); })
+      .then(function () { return chips(panel); })
+      .then(function (chip2) {
+        var title = titleOf(chip2);
+        from = sent('peek_open').length;
+        var hid = sent('peek_hide').length;
+        press(chip2);
+        var heading = function () { var h = q('.ca-sessinsp .ca-sessinsp-title'); return h ? h.textContent : null; };
+        // Sessions lists it whatever it is, a finished review of the PR too (boardLists.ts
+        // `revealing`), so it's that session's panel there, not the top row's.
+        return until(function () { return !panel() && heading() === title; }, 3000)
+          .catch(function () {})
+          .then(function () {
+            check('a click on a session’s chip shows it in Sessions', shown() === 'Sessions', shown());
+            check('that session', heading() === title, title + ' / ' + heading());
+            check('putting the peek away, asking for none', sent('peek_open').length === from && sent('peek_hide').length > hid, (sent('peek_open').length - from) + ' opens, ' + (sent('peek_hide').length - hid) + ' hides');
+          });
+      })
       .then(function () {
-        if (panel()) press(q('.ca-detailsbtn', panel()));
         // What the peek says went wrong, as it asks this window to say it.
         window.__emit('toast', 'Didn’t send to it, so it’s back in its box: Ghostty said no.');
         return until(function () { return q('.ca-toast'); }, 3000, 'the toast');
@@ -100,24 +150,37 @@
       });
   };
 
+  // The view (its key's letter), from wherever the window is, with `pick`'s row selected and its
+  // panel up.
+  var selecting = function (letter, list, pick, panel) {
+    return function () {
+      var there = q(list) ? Promise.resolve() : (go(letter), until(function () { return q(list); }, 5000, 'the view again'));
+      return there.then(function () {
+        press(pick());
+        return until(panel, 5000, 'the panel');
+      });
+    };
+  };
+
   var prs = function () {
-    var rows = all('.ca-prrow').filter(function (r) { return !!q('.ca-prrow-agents', r); });
-    if (rows.length === 0) return stopped('no PR on this board has a session on this Mac');
-    var row = rows[0];
-    var rowOf = function () { return row.closest('[role="option"]') || row; };
-    press(row);
-    return until(function () { return q('.ca-prinsp-head .ca-places'); }, 5000, 'the PR panel’s chips').then(function () {
-      return run('PR', function () { return q('.ca-prpanel'); }, rowOf);
-    });
+    var pick = function () { return all('.ca-prrow').filter(function (r) { return !!q('.ca-prrow-agents', r); })[0]; };
+    if (!pick()) return stopped('no PR on this board has a session on this Mac');
+    var panel = function () { return q('.ca-prpanel'); };
+    var rowOf = function () { var row = pick(); return row.closest('[role="option"]') || row; };
+    var select = selecting('P', '.ca-prrow', pick, panel);
+    return select()
+      .then(function () { return chips(panel); })
+      .then(function () { return run('PR', panel, rowOf, select); });
   };
 
   var todos = function () {
-    var row = q('.ca-todorow');
-    var rowOf = function () { return row.closest('[role="option"]') || row; };
-    press(row);
-    return until(function () { return q('.ca-todoinsp'); }, 5000, 'the todo panel').then(function () {
-      return run('todo', function () { return q('.ca-todoinsp'); }, rowOf);
-    });
+    var pick = function () { return q('.ca-todorow'); };
+    var panel = function () { return q('.ca-todoinsp'); };
+    var rowOf = function () { var row = pick(); return row.closest('[role="option"]') || row; };
+    var select = selecting('T', '.ca-todorow', pick, panel);
+    return select()
+      .then(function () { return chips(panel); })
+      .then(function () { return run('todo', panel, rowOf, select); });
   };
 
   // Keeping the session on the desktop fails, for something the peek says went wrong.

@@ -125,8 +125,9 @@ export interface PrDetailsProps {
    *  the pointer from a right-click on the header (a PR's card, PrCard.tsx, takes one anywhere
    *  on it too). */
   onMenu?: (at?: { x: number; y: number }) => void;
-  /** Shows a session (`at`: what was clicked): the main window's panel in the peek beside it, a
-   *  PR's card in the session's place (PrCard.tsx). */
+  /** A click on a session: the main window's panel shows it in Sessions, a PR's card in the
+   *  session's place (PrCard.tsx). In the main window a hover shows it in the peek
+   *  (PanelSession.tsx `PeekOnHover`). */
   onShowSession: ShowSession;
   /** Opens a session where it runs. */
   onOpenSession: (lane: Lane, session: Session) => void;

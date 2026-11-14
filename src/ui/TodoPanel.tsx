@@ -302,7 +302,8 @@ interface TodoPanelProps {
   onRun: (op: TodoOp) => void;
   /** Opens the new-session sheet for this todo. */
   onStart: () => void;
-  /** Shows a session in the peek beside the panel (`at` is what was clicked). */
+  /** A click on a session: it shows in Sessions. A hover shows it in the peek beside the panel
+   *  (PanelSession.tsx `PeekOnHover`). */
   onShowSession: ShowSession;
   /** Opens a session where it runs. */
   onOpenSession: (lane: Lane, session: Session) => void;

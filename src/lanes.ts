@@ -109,6 +109,13 @@ export function sidesShownKey(parent: string): string {
   return `sides:${parent}`;
 }
 
+/** What Sessions keeps to list a helper or a run on its own that nothing on the board lists it
+ *  under (a review of a PR), once a window asked to show it (boardLists.ts `revealing`), beside
+ *  the keys that list a session's helpers, runs and side conversations. */
+export function selfShownKey(key: string): string {
+  return `self:${key}`;
+}
+
 /** What works for a session that Sessions can list in full under it: its helpers, the headless
  *  runs its commands started, its side conversations. */
 export type KidKind = 'helpers' | 'runs' | 'sides';

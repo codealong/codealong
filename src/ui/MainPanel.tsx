@@ -5,12 +5,13 @@
 // card, or what to select. Any panel can show the worktree a chip or link shows in its place, and
 // a session's, worktree's or todo's the PR its chip shows, with the way back (`drill`), the list
 // staying as it was. A session a PR's or todo's panel lists shows in the peek beside the panel
-// instead (`peekFromPanel`): the list, its queue and the panel stay as they were. The window
-// passes what the panels show and what their clicks do.
+// while the pointer rests on it (`peekFromPanel`), the list, its queue and the panel staying as
+// they were, and a click on it shows it in Sessions (`showFromPanel`). The window passes what
+// the panels show and what their clicks do.
 
 import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { renameAhead } from '../ahead';
-import { dismissTodoHint, openUrl, peekBeside } from '../api';
+import { dismissTodoHint, openUrl, peekBeside, peekHide } from '../api';
 import type { Entities } from '../canvas/model';
 import { showContextMenu, type MenuSpec } from '../contextMenu';
 import { deviceOf } from '../devices';
@@ -27,7 +28,7 @@ import type { WaitingQueue } from '../useWaitingQueue';
 import type { useListPicks } from '../useListPicks';
 import type { useTodoView } from '../useTodoView';
 import { Inspector } from './Inspector';
-import type { ShowSession } from './PanelSession';
+import { PeekOnHover, type PeekSession, type ShowSession } from './PanelSession';
 import { PrInspector } from './PrInspector';
 import type { PanelBackTo } from './primitives';
 import type { PrRowItem } from './PrsView';
@@ -165,45 +166,59 @@ export function MainPanel(props: MainPanelProps) {
   // The schedule each session came from, for the line over its title.
   const bySchedule = useMemo(() => scheduleBySession(board?.schedules), [board?.schedules]);
 
-  /** A session a PR's or todo's panel lists, in the peek beside the panel, level with what was
-   *  clicked (`at`: its row, its chip, a review's Session link), ready to answer and on
-   *  the words a search found it by. The PR or todo stays where it was, and its Main window button
-   *  shows the session in Sessions, its list and the queue. */
-  const peekFromPanel: ShowSession = (_lane, session, at) => {
+  /** A session a PR's or todo's panel lists, in the peek beside the panel while the pointer rests
+   *  on it, level with what it rests on (`at`: its row, its chip, a review's Session link), and on
+   *  the words a search found it by. The PR or todo stays where it was; a click in the peek gives
+   *  it the keyboard, and its Main window button shows the session in Sessions, as a click on it
+   *  in the panel does (`showFromPanel`). */
+  const peekFromPanel: PeekSession = (_lane, session, at) => {
     const row = at.getBoundingClientRect();
     const panel = (at.closest('.ca-insp') ?? at).getBoundingClientRect();
     peekBeside(session.key, { x: panel.left, y: row.top, w: panel.width, h: row.height }, findIn(session.key)?.words).catch((e: unknown) => setToast(errorText(e)));
   };
+  // What a click on one of them does. The peek up for it goes first: the pointer is still where
+  // it was, which would keep it up over the window the session goes to. One that didn't hide
+  // goes once the pointer leaves it.
+  const showFromPanel: ShowSession = (lane, session) => {
+    peekHide().catch(() => {});
+    showSessionFromPanel(lane, session);
+  };
+  const openFromPanel = (lane: Lane, session: Session) => {
+    peekHide().catch(() => {});
+    open(lane, session.openTarget);
+  };
 
   const todoPanel = (item: TodoItem) =>
     drilledPanel(item.key, middleTruncate(item.todo.title, 40)) ?? (
-    <TodoPanel
-      key={item.todo.id}
-      item={item}
-      todos={todoStore.todos}
-      onShowTodo={showTodoFromPanel}
-      labels={todoStore.labels}
-      lanes={laneById}
-      now={now}
-      onRun={runTodo}
-      onStart={() => startForTodo(item)}
-      onShowSession={peekFromPanel}
-      onOpenSession={(lane, session) => open(lane, session.openTarget)}
-      onShowLane={showLaneFromPanel}
-      onLaneMenu={(lane) => laneMenu(lane)}
-      onSessionMenu={(lane, s) => sessionMenu(lane, s, 'worktree')}
-      onLinkMenu={(at) => todoLinkMenu(item, at)}
-      onMoreMenu={(at) => todoMoreMenu(item, at)}
-      onMenu={() => todoMenu(item)}
-      onLabelMenu={labelMenu}
-      onError={setToast}
-      hint={board?.jev?.todos ? board.todoHints?.[item.todo.id] : null}
-      onDismissHint={() => void dismissTodoHint(item.todo.id)}
-      suggest={!!board?.jev?.todos}
-      projects={projectsForTodos}
-      pickDue={duePick === item.todo.id}
-      onPickDue={duePicked}
-    />
+    <PeekOnHover.Provider value={peekFromPanel}>
+      <TodoPanel
+        key={item.todo.id}
+        item={item}
+        todos={todoStore.todos}
+        onShowTodo={showTodoFromPanel}
+        labels={todoStore.labels}
+        lanes={laneById}
+        now={now}
+        onRun={runTodo}
+        onStart={() => startForTodo(item)}
+        onShowSession={showFromPanel}
+        onOpenSession={openFromPanel}
+        onShowLane={showLaneFromPanel}
+        onLaneMenu={(lane) => laneMenu(lane)}
+        onSessionMenu={(lane, s) => sessionMenu(lane, s, 'worktree')}
+        onLinkMenu={(at) => todoLinkMenu(item, at)}
+        onMoreMenu={(at) => todoMoreMenu(item, at)}
+        onMenu={() => todoMenu(item)}
+        onLabelMenu={labelMenu}
+        onError={setToast}
+        hint={board?.jev?.todos ? board.todoHints?.[item.todo.id] : null}
+        onDismissHint={() => void dismissTodoHint(item.todo.id)}
+        suggest={!!board?.jev?.todos}
+        projects={projectsForTodos}
+        pickDue={duePick === item.todo.id}
+        onPickDue={duePicked}
+      />
+    </PeekOnHover.Provider>
   );
   /** Several todos picked together: one session for all of them. */
   const todoPickPanel = (rows: TodoItem[]) => (
@@ -220,28 +235,30 @@ export function MainPanel(props: MainPanelProps) {
    *  (`max`: whether it does, and the way to switch). */
   const prPanel = (item: PrRowItem, max?: { on: boolean; toggle: () => void }, back?: PanelBackTo): ReactNode =>
     drilledPanel(item.key, `PR #${item.pr.number}`) ?? (
-    <PrInspector
-      key={item.pr.key}
-      item={item}
-      now={now}
-      approving={approving.has(item.pr.key)}
-      onApprove={() => approve(item.pr)}
-      report={{ error: setToast, info: setToast }}
-      usage={board?.usage ?? []}
-      apps={board?.apps}
-      teamFiles={board?.teamFiles}
-      onReview={(el) => reviewMenuFrom(item.pr, el)}
-      onSnooze={(el) => snoozeMenuFrom(item.pr, el)}
-      onMenu={(at) => prMenu(item, at)}
-      onShowSession={peekFromPanel}
-      onOpenSession={(lane, session) => open(lane, session.openTarget)}
-      onShowLane={showLaneFromPanel}
-      onLaneMenu={laneMenu}
-      onSessionMenu={(lane, s) => sessionMenu(lane, s, 'worktree')}
-      maximized={max?.on}
-      onMaximize={max?.toggle}
-      back={back}
-    />
+    <PeekOnHover.Provider value={peekFromPanel}>
+      <PrInspector
+        key={item.pr.key}
+        item={item}
+        now={now}
+        approving={approving.has(item.pr.key)}
+        onApprove={() => approve(item.pr)}
+        report={{ error: setToast, info: setToast }}
+        usage={board?.usage ?? []}
+        apps={board?.apps}
+        teamFiles={board?.teamFiles}
+        onReview={(el) => reviewMenuFrom(item.pr, el)}
+        onSnooze={(el) => snoozeMenuFrom(item.pr, el)}
+        onMenu={(at) => prMenu(item, at)}
+        onShowSession={showFromPanel}
+        onOpenSession={openFromPanel}
+        onShowLane={showLaneFromPanel}
+        onLaneMenu={laneMenu}
+        onSessionMenu={(lane, s) => sessionMenu(lane, s, 'worktree')}
+        maximized={max?.on}
+        onMaximize={max?.toggle}
+        back={back}
+      />
+    </PeekOnHover.Provider>
   );
   const inspector = (lane: Lane | null, focusKey: string | null, back?: PanelBackTo) => (
     <Inspector

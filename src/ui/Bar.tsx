@@ -17,7 +17,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { barMode, dragToDesktop, fitBar, getBarFeed, onBarFeed, onDesktopDragEnd, onBarMode, onBarNote, onPeekShown, onWaitingShortcut, peekHide, peekOpen, sessionAt, setBarMode, setNotchOpen, showMain, showQuick, showWaiting, type BarModeView, type PillRect } from '../api';
+import { barMode, dragToDesktop, fitBar, getBarFeed, onBarFeed, onDesktopDragEnd, onBarMode, onBarNote, onPeekShown, onWaitingShortcut, PEEK_AFTER_MS, peekHide, peekOpen, sessionAt, setBarMode, setNotchOpen, showMain, showQuick, showWaiting, type BarModeView, type PillRect } from '../api';
 import { BAR_PROJECT_KEY, CLICK_WAIT_MS, elsewhereWaits, fitGroups, GROUPS, plain, projectWaits, type Group, type GroupFit, type WaitCounts } from '../bar';
 import { showContextMenu, type MenuAction, type MenuSpec } from '../contextMenu';
 import { useEditorIcons, type Apps } from '../editors';
@@ -61,9 +61,8 @@ const PADDING = 5;
 const MARK = 24;
 /** A folded pill is measured holding this, so a real count never outgrows it. */
 const FOLD_SAMPLE = '+88';
-/** How long the pointer rests on a session's pill before the peek shows it, and before it moves
- *  to another pill once it's up: long enough that passing over the bar doesn't open it. */
-const PEEK_AFTER_MS = 300;
+/** How long the pointer rests on another pill before the peek moves to it once it's up; before
+ *  it's up, `PEEK_AFTER_MS`. */
 const PEEK_SWITCH_MS = 90;
 /** How far a session's pill moves with the button down before it's dragged off the bar rather
  *  than clicked. */

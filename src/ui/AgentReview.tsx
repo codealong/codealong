@@ -26,7 +26,7 @@ import { againFor, againTitle, autoReviewWords, suggestWords, tryAgain } from '.
 import { strings, useStored } from '../stored';
 import type { AutoReview, Draft, DraftComment, Lane, LineComment, PrDetail, PrItem, Session, TeamFile, WrittenReview } from '../types';
 import { Markdown } from './Markdown';
-import type { ShowSession } from './PanelSession';
+import { usePeekOnHover, type ShowSession } from './PanelSession';
 import { BoxText, Button, cx, Icon, Seg } from './primitives';
 import { prIsOpen } from './PrsView';
 import { cmd, keysIn } from '../platform';
@@ -37,10 +37,12 @@ const short = (sha: string) => sha.slice(0, 7);
 /** How long a Remove waits for the click that does it. */
 const ARMED_MS = 4000;
 
-/** The way to a review's session and to where it went on GitHub. */
+/** The way to a review's session, the peek on a hover in the main window as its chip has it
+ *  (PanelSession.tsx), and to where it went on GitHub. */
 function Links({ link, session, sessions, onShowSession }: { link: string | null | undefined; session: string | null | undefined; sessions: { lane: Lane; session: Session }[]; onShowSession: ShowSession }) {
   const held = sessions.find((s) => s.session.key === session);
   const draft = link?.endsWith('/files');
+  const hover = usePeekOnHover();
   return (
     <>
       {link && (
@@ -49,7 +51,7 @@ function Links({ link, session, sessions, onShowSession }: { link: string | null
         </button>
       )}
       {held && (
-        <button type="button" className="ca-linkbtn" title="Show the session that reviewed it" onClick={(e) => onShowSession(held.lane, held.session, e.currentTarget)}>
+        <button type="button" className="ca-linkbtn" title="Show the session that reviewed it" {...hover(held.lane, held.session)} onClick={() => onShowSession(held.lane, held.session)}>
           Session
         </button>
       )}

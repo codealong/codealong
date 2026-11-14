@@ -65,7 +65,7 @@ import {
   harnessSchedulesIn,
 } from './boardLists';
 import { needsOn } from './devices';
-import { bayOf, runsShownKey, sessionHomes, unattended } from './lanes';
+import { bayOf, runsShownKey, selfShownKey, sessionHomes, unattended } from './lanes';
 import { ALL_PROJECTS } from './quick';
 import { blankSchedule } from './schedules';
 import { todoItem, type TodoItem } from './todos';
@@ -623,6 +623,18 @@ describe('the Sessions view’s lists', () => {
       expect(placeHelpers(plain, false)).toBe(plain);
       // Archived helpers aren't counted.
       expect(helperCounts(sessionItemsOf([lane('/r/a', [boss, { ...done, archived: true }])])).size).toBe(0);
+    });
+
+    it('lists a finished review a window asks to show on its own, no session above it to list it under', () => {
+      const items = sessionItemsOf([lane('/r/a', [boss, done, review])]);
+      const row = (s: Session) => items.find((r) => r.session.key === s.key)!;
+      const shown = revealing(['x'], items, row(review));
+      expect(shown).toEqual(['x', selfShownKey(review.key)]);
+      expect(keysOf(placeHelpers(items, false, new Set(shown)))).toEqual([boss.key, review.key]);
+      // Its key lists only it: not a helper of a session with that key.
+      expect(keysOf(placeHelpers(items, false, new Set([selfShownKey(boss.key)])))).toEqual([boss.key]);
+      // A finished helper of a session is still listed with every helper of its session.
+      expect(revealing([], items, row(done))).toEqual([boss.key]);
     });
 
     it('lists a helper or a review you’re talking to as a session of yours, still counted on its session’s chip', () => {

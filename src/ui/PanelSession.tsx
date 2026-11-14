@@ -3,28 +3,74 @@
 // primary session's worktree and that session leading (`primaryFirst`); and
 // with the panel's details open, drawn like the sidebar's tree (`PanelPlace`), each session under
 // its worktree (`PanelSession`) with its title, then who runs it and what it's doing, as the
-// Sessions view says it. A worktree on another of your Macs wears that Mac's badge in both. A
-// click on a session, chip or row, shows it in the peek beside the panel, ready to answer
-// (`ShowSession`, peek.rs `beside`), the panel staying as it was; on a row, double-click or the
-// arrow opens it where it runs, as double-click does in every list, a click waiting a moment for
-// the second, but for one on another Mac, which has nowhere here to open. A click on a worktree
-// shows it in Worktrees; a right-click on either gives its menu.
+// Sessions view says it. A worktree on another of your Macs wears that Mac's badge in both. In
+// the main window, the pointer resting on a session, chip or row, shows it in the peek beside
+// the panel (`usePeekOnHover`, peek.rs `beside`), as resting on a pill of the floating bar does,
+// the panel staying as it was; a click shows it in Sessions (`ShowSession`), as the peek's Main
+// window button does. On a row, double-click or the arrow opens it where it runs, as
+// double-click does in every list, a click waiting a moment for the second, but for one on
+// another Mac, which has nowhere here to open. A click on a worktree shows it in Worktrees; a
+// right-click on either gives its menu.
 
-import { useRef } from 'react';
+import { createContext, useContext, useEffect, useRef, type PointerEvent as ReactPointerEvent } from 'react';
+import { PEEK_AFTER_MS } from '../api';
 import { absolute, ago } from '../format';
 import { sessionWhy } from '../lanes';
+import { useLatest } from '../latest';
 import { flag, useStored } from '../stored';
 import type { Lane, Session } from '../types';
 import { DeviceBadge } from './DeviceBadge';
-import { Button, chipHandlers, cx, HarnessChip, Icon, LaneGlyph, SessionEmblem, SessionGlyph, WorktreeChip, type ClickWait } from './primitives';
+import { Button, chipHandlers, cx, HarnessChip, Icon, LaneGlyph, SessionEmblem, SessionGlyph, WorktreeChip, type ClickWait, type HoverHandlers } from './primitives';
 import { ProjectSaidHere } from './ProjectSaid';
 
 /** What the Primary tag on a todo's session means. */
 export const TODO_PRIMARY = "The todo's primary session: where the work on it goes on. Sessions started for it while this one runs work alongside it.";
 
-/** A click on one of a panel's sessions. `at` is what was clicked, its row or its chip, which the
- *  main window opens the peek level with (MainPanel.tsx `peekFromPanel`). */
-export type ShowSession = (lane: Lane, session: Session, at: Element) => void;
+/** A click on one of a panel's sessions: the main window shows it in Sessions (MainPanel.tsx
+ *  `showFromPanel`), a PR's card in the session's place (PrCard.tsx). */
+export type ShowSession = (lane: Lane, session: Session) => void;
+
+/** The pointer resting on one of a panel's sessions. `at` is what it rests on, its row, its chip
+ *  or a review's Session link, which the main window opens the peek level with (MainPanel.tsx
+ *  `peekFromPanel`). */
+export type PeekSession = (lane: Lane, session: Session, at: Element) => void;
+
+/** What the window does with a session the pointer rests on in a panel: the main window shows it
+ *  in the peek. The windows that show a PR as a card (PrCard.tsx) don't say, and there a hover
+ *  does nothing. */
+export const PeekOnHover = createContext<PeekSession | null>(null);
+
+/** The handlers that show a session in the peek once the pointer has rested a moment on what they
+ *  go on (`PEEK_AFTER_MS`), where the window says what a hover does (`PeekOnHover`). A press, or
+ *  leaving before then, shows nothing; the engine puts the peek away once the pointer has left it
+ *  and what it rested on (peek.rs `watch_pointer`). One wait for all a component's sessions, as
+ *  the pointer rests on one at a time. */
+export function usePeekOnHover(): (lane: Lane, session: Session) => HoverHandlers {
+  const peek = useLatest(useContext(PeekOnHover));
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stop = () => {
+    if (timer.current != null) clearTimeout(timer.current);
+    timer.current = null;
+  };
+  useEffect(() => stop, []);
+  return (lane, session) =>
+    peek.current
+      ? {
+          onPointerEnter: (e: ReactPointerEvent<HTMLElement>) => {
+            // Pressed on its way in: a drag, not a look.
+            if (e.buttons & 1) return;
+            stop();
+            const at = e.currentTarget;
+            timer.current = setTimeout(() => {
+              timer.current = null;
+              peek.current?.(lane, session, at);
+            }, PEEK_AFTER_MS);
+          },
+          onPointerLeave: stop,
+          onPointerDown: stop,
+        }
+      : {};
+}
 
 interface PanelSessionProps {
   lane: Lane;
@@ -40,13 +86,10 @@ interface PanelSessionProps {
 export function PanelSession({ lane, session: s, now, onShow, onOpen, onMenu, primary }: PanelSessionProps) {
   // One on another of your Macs has nowhere here to open it: a click shows it at once.
   const opens = !!s.openTarget;
-  const main = useRef<HTMLButtonElement>(null);
-  // A click waiting for a second, which opens it where it runs instead, so the peek doesn't
-  // show and go again on a double-click.
+  // A click waiting for a second, which opens it where it runs instead, so the main window doesn't
+  // go to Sessions on its way.
   const wait: ClickWait = useRef(null);
-  const show = () => {
-    if (main.current) onShow(lane, s, main.current);
-  };
+  const hover = usePeekOnHover();
   return (
     <div
       role="treeitem"
@@ -57,11 +100,11 @@ export function PanelSession({ lane, session: s, now, onShow, onOpen, onMenu, pr
       }}
     >
       <button
-        ref={main}
         type="button"
         className="ca-psess-main"
-        title={`${s.title}\nClick to show it in the peek${opens ? ' · double-click to open it where it runs' : ''}`}
-        {...chipHandlers(show, false, opens ? { run: () => onOpen(lane, s), wait } : undefined)}
+        title={`${s.title}\nClick to show it${opens ? ' · double-click to open it where it runs' : ''}`}
+        {...hover(lane, s)}
+        {...chipHandlers(() => onShow(lane, s), false, opens ? { run: () => onOpen(lane, s), wait } : undefined)}
       >
         <SessionGlyph s={s} size={10} />
         <span className="ca-psess-text">
@@ -169,9 +212,8 @@ export function primaryFirst(places: Place[], key: string | null | undefined): P
 /** The worktrees and sessions behind a PR or a todo: chips, or with `open` the tree. */
 export function PanelPlaces({ places: given, open, label, project, now, onShowLane, onLaneMenu, onShowSession, onOpenSession, onSessionMenu, primary = null }: PanelPlacesProps) {
   const places = primaryFirst(given, primary?.key);
-  // The chip a click is on, noted as the click comes down to it (a chip says nothing of itself to
-  // what it does): a session's opens the peek level with its own line, the chips wrapping.
-  const clicked = useRef<Element | null>(null);
+  // A session's chip opens the peek level with its own line, the chips wrapping.
+  const hover = usePeekOnHover();
   if (open) {
     return (
       <div className="ca-tree" role="tree" aria-label={label}>
@@ -194,14 +236,7 @@ export function PanelPlaces({ places: given, open, label, project, now, onShowLa
     );
   }
   return (
-    <div
-      className="ca-places"
-      role="list"
-      aria-label={label}
-      onClickCapture={(e) => {
-        clicked.current = (e.target as Element).closest('.ca-chip');
-      }}
-    >
+    <div className="ca-places" role="list" aria-label={label}>
       {places.map(({ lane, sessions, note }) => (
         <span key={lane.id} className="ca-places-group" role="listitem">
           <ProjectSaidHere project={project}>
@@ -216,10 +251,9 @@ export function PanelPlaces({ places: given, open, label, project, now, onShowLa
                 named
                 className={cx(s.visitor && 'is-visitor', s.archived && 'is-archived')}
                 detail={`${s.visitor ?? sessionWhy(s.detail, s.headline, now)}${main ? `\nPrimary: ${primary.means}` : ''}`}
-                onShow={() => {
-                  if (clicked.current) onShowSession(lane, s, clicked.current);
-                }}
+                onShow={() => onShowSession(lane, s)}
                 onMenu={() => onSessionMenu(lane, s)}
+                hover={hover(lane, s)}
               >
                 {main && <span className="ca-places-primary">primary</span>}
               </HarnessChip>
