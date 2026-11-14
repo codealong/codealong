@@ -254,6 +254,19 @@ there first, and Gatekeeper's checks.
   environment of `v*` tags without approval (release-secrets.sh makes it). Not tried yet: an
   install from it, which needs a public release. Homebrew's own cask list comes later, once the
   repo has the stars and forks it asks for.
+- **Linux and Windows installers (written, not run on a tag yet).** `release.yml`'s `installers`
+  job builds them beside the Mac's, each on its own OS and processor, with
+  `scripts/installers.sh build`: an AppImage, a .deb and an .rpm for x86_64 and aarch64 (on Ubuntu
+  22.04, whose libraries most distributions are newer than), and an NSIS setup .exe for x64 and
+  Arm64 that installs for the user alone. Each is signed with the update key, which the release
+  environment holds (each of the four jobs waits for its approval, given at once with the Mac's),
+  and `publish-installers` puts them in the Mac's draft and their entries in its latest.json
+  (`linux-x86_64-deb` and the rest, the updater asking for its installer's first), with a copy of
+  each without the version (`Codealong_x64-setup.exe`) that a link to the latest release can name.
+  The setup isn't signed with a code-signing certificate, so SmartScreen warns of it until one is
+  bought. `gh workflow run release.yml` builds them unsigned, to try, as the run's artifacts.
+  Not chosen: Flatpak and Snap, whose sandboxes keep an app from the agents' folders and from
+  starting processes and tmux; the AUR and winget are packages others keep, made from these.
 - **The Claude Code plugin.** `/plugin marketplace add codealong/codealong` reads the repo too,
   so it works for others once the repo is public.
 - **A beta channel.** Prereleases (`v0.3.0-beta.1`) don't move `latest`, so they need a manifest

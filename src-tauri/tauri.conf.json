@@ -72,6 +72,19 @@
     "macOS": {
       "minimumSystemVersion": "13.0",
       "entitlements": "./Entitlements.plist"
+    },
+    "linux": {
+      "deb": {
+        "depends": ["tmux"]
+      },
+      "rpm": {
+        "depends": ["tmux"]
+      }
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
     }
   }
 }

@@ -4,6 +4,13 @@
 # draft is published, which is what hands the update to installed copies and moves the Homebrew
 # cask (homebrew.yml); design/plans/releases.md has the routine.
 #
+# Linux's and Windows' installers build beside it, each on its own OS and processor
+# (scripts/installers.sh): an AppImage, a .deb and an .rpm, and an NSIS setup .exe, each signed
+# with the update key, then put in the same draft with their updates in its latest.json. Not
+# signed with a code-signing certificate on Windows yet, so SmartScreen warns of the setup there.
+# `gh workflow run release.yml` builds those installers alone, unsigned, as the run's artifacts, to
+# try one: the Mac's job and the draft are a tag's.
+#
 # The keys are secrets of the `release` environment, which only v* tags may deploy to, so a
 # workflow changed on a branch never sees them; scripts/release-secrets.sh puts them there from
 # 1Password. While the repository is private the job is skipped: environments need a paid plan
@@ -13,6 +20,7 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 concurrency:
   group: release-${{ github.ref }}
@@ -23,7 +31,7 @@ permissions:
 
 jobs:
   release:
-    if: ${{ !github.event.repository.private }}
+    if: ${{ github.event_name == 'push' && !github.event.repository.private }}
     # The SDK the app links against decides how macOS draws its windows and controls, so it's the
     # same macOS as the Macs it's built on by hand.
     runs-on: macos-26
@@ -99,3 +107,85 @@ jobs:
         run: |
           security delete-keychain "$RUNNER_TEMP/release.keychain-db" 2>/dev/null || true
           rm -rf "$RUNNER_TEMP/private_keys"
+
+  installers:
+    if: ${{ !github.event.repository.private }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Ubuntu 22.04's libraries, older than most distributions people run, so what's built
+          # there runs on theirs.
+          - { runner: ubuntu-22.04, platform: linux-x86_64 }
+          - { runner: ubuntu-22.04-arm, platform: linux-aarch64 }
+          - { runner: windows-2025, platform: windows-x86_64 }
+          - { runner: windows-11-arm, platform: windows-aarch64 }
+    runs-on: ${{ matrix.runner }}
+    # A tag's build signs with the update key, a secret of the release environment; one run by
+    # hand has neither, and builds unsigned.
+    environment: ${{ github.event_name == 'push' && 'release' || '' }}
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: bash
+    env:
+      CARGO_TERM_COLOR: never
+      # Outside the checkout, as every checkout's builds are on a Mac (.cargo/config.toml).
+      CARGO_TARGET_DIR: ${{ github.workspace }}/../target
+    steps:
+      - uses: actions/checkout@v7
+      - name: The tag is the version
+        if: github.event_name == 'push'
+        run: |
+          version="$(node -p "require('./src-tauri/tauri.conf.json').version")"
+          [ "$GITHUB_REF_NAME" = "v$version" ] || { echo "The tag is $GITHUB_REF_NAME but the app's version is $version: tag with scripts/version.sh." >&2; exit 1; }
+      - name: What Tauri builds on, on Linux
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev libgtk-3-dev \
+            libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev pkg-config file
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - uses: dtolnay/rust-toolchain@stable
+      # Ghostty's terminal library (libghostty-vt) builds from Ghostty's source with Zig
+      # (docs/development.md).
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.17.0
+      # Writes the crates' licenses that go in the app (src-tauri/about.toml).
+      - run: cargo install cargo-about --version 0.9.2 --locked --features cli
+      - name: Build the installers
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: scripts/installers.sh build dist/installers
+      - uses: actions/upload-artifact@v7
+        with:
+          name: installers-${{ matrix.platform }}
+          path: dist/installers
+          if-no-files-found: error
+
+  # Whatever built of them, into the Mac's draft, once it's there: a platform that failed is left
+  # out, and can be built again and put in by hand (scripts/installers.sh publish).
+  publish-installers:
+    needs: [release, installers]
+    if: ${{ always() && github.event_name == 'push' && needs.release.result == 'success' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: installers-*
+          merge-multiple: true
+          path: dist/installers
+      - name: Into the draft, and its latest.json
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/installers.sh publish "$GITHUB_REF_NAME" dist/installers

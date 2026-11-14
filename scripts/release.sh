@@ -214,23 +214,11 @@ if ! "$venv/bin/python" -c 'import dmgbuild' 2>/dev/null; then
   "$venv/bin/pip" install --quiet --disable-pip-version-check "dmgbuild==$dmgbuild_version"
 fi
 
-# What the app is built from that others wrote, with their licenses, which their licenses ask to
-# go with every copy: THIRD_PARTY_NOTICES.md, the fonts' licenses, and every crate the app links
-# (cargo-about, from src-tauri/about.toml; a license it doesn't accept stops the release). It goes
-# in the app as THIRD_PARTY_LICENSES.txt, beside LICENSE and NOTICE.
+# What the app is built from that others wrote, with their licenses (scripts/licenses.sh): it goes
+# in the app as THIRD_PARTY_LICENSES.txt, beside LICENSE and NOTICE, and a license cargo-about
+# doesn't accept stops the release.
 licenses="$work/THIRD_PARTY_LICENSES.txt"
-{
-  cat THIRD_PARTY_NOTICES.md
-  for f in src/fonts/OFL-*.txt; do
-    printf '\n\n## %s\n\n' "$(basename "$f")"
-    cat "$f"
-  done
-  printf '\n\n'
-  cargo about generate --manifest-path src-tauri/Cargo.toml --locked --fail -c src-tauri/about.toml src-tauri/about.hbs 2>"$work/about.log"
-} >"$licenses" || {
-  cat "$work/about.log" >&2
-  fail "cargo-about couldn't list the crates' licenses (above): a new crate's license may need looking at, and adding to src-tauri/about.toml."
-}
+scripts/licenses.sh "$licenses" || fail "The licenses that go with the app couldn't be written (above)."
 node -e 'process.stdout.write(JSON.stringify({ bundle: { resources: { [process.argv[1]]: "THIRD_PARTY_LICENSES.txt" } } }))' "$licenses" >"$work/release.conf.json"
 
 echo "Building Codealong $version ($archs), signed as $identity."
