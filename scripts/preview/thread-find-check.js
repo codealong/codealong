@@ -11,6 +11,8 @@
 // ⌘F opens it again with the words ready to type over. A second session says "needle" only two
 // pages back: typing it goes there by itself. Words that go on from one paragraph of a prompt
 // into the next are found there. Words said nowhere say so. The prompt pinned over the top stays.
+// A third session says its title only in its first page: from the list, stepping on through the
+// title's matches goes into that page.
 // ⌘F finds in the whole window, starting where you are (findKeys.ts): from the list it starts in
 // the list, finding in the panel too; after a click on the conversation, and with the panel taking
 // the whole window, it opens as well; ⌥⌘F opens the list's find (ListBar.tsx) from the box, and ⌘K
@@ -49,15 +51,19 @@
   pagesB.newest = page(900, [['you', 'Prompt 9'], ['agent', long('Late B')]], 800);
   pagesB[800] = page(800, [['agent', long('Middle B')]], 700);
   pagesB[700] = page(700, [['you', 'Prompt 7'], ['agent', long('Early B') + '\n\nThe needle is here.']], null);
+  var pagesC = {};
+  pagesC.newest = page(650, [['you', 'Prompt C2'], ['agent', long('Late C')]], 600);
+  pagesC[600] = page(600, [['you', 'Prompt C1'], ['agent', 'Find C was here first.']], null);
   var A = null;
   var B = null;
+  var C = null;
   var hadB = 0;
 
   var real = window.__TAURI_INTERNALS__.invoke;
   window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
-    if (cmd === 'session_page' && ((A && args.key === A.key) || (B && args.key === B.key))) {
+    if (cmd === 'session_page' && ((A && args.key === A.key) || (B && args.key === B.key) || (C && args.key === C.key))) {
       window.__calls.push([cmd, args, options]);
-      var set = args.key === A.key ? pagesA : pagesB;
+      var set = args.key === A.key ? pagesA : args.key === B.key ? pagesB : pagesC;
       var b = args.before;
       return wait(40).then(function () { return JSON.parse(JSON.stringify(b == null ? set.newest : set[b])); });
     }
@@ -67,14 +73,16 @@
       board.lanes.forEach(function (l) {
         l.sessions.forEach(function (s) {
           if (s.status === 'needs' || s.status === 'error' || s.status === 'unread' || s.status === 'working') s.status = 'idle';
-          if (B || l.hidden || s.visitor || s.archived) return;
-          s.status = 'unread';
-          s.statusSince = now - (A ? 120e3 : 60e3);
+          if (C || l.hidden || s.visitor || s.archived) return;
+          // C waits on no one, so the waiting window shows A or B.
+          s.status = B ? 'idle' : 'unread';
+          s.statusSince = now - (B ? 180e3 : A ? 120e3 : 60e3);
           s.lastActivity = s.statusSince;
           s.hosted = false;
           s.stoppable = false;
-          s.title = A ? 'Find B' : 'Find A';
-          if (A) B = { key: s.key, lane: l.id };
+          s.title = B ? 'Find C' : A ? 'Find B' : 'Find A';
+          if (B) C = { key: s.key, lane: l.id };
+          else if (A) B = { key: s.key, lane: l.id };
           else A = { key: s.key, lane: l.id };
         });
       });
@@ -277,8 +285,34 @@
       check('the keyboard stays in the bar', document.activeElement === field());
       return press(field(), { key: 'Escape' });
     })
+    // A step on past a conversation that says the words only further back goes into it: C's title
+    // shows on its row and over its panel, and its first page, not laid out, says it too.
+    .then(function () { return open(C, 'Find C'); })
+    .then(function () {
+      var list = q('.ca-board-list');
+      list.focus();
+      return press(list, { key: 'f', metaKey: true });
+    })
+    .then(function () {
+      type(field(), 'Find C');
+      return until(function () { return / of \d+$/.test(count() || ''); }, 5000).catch(function () {});
+    })
+    .then(function () {
+      var total = parseInt((count() || '').split(' of ')[1], 10);
+      check('words a conversation says only further back count, where you are first', total >= 3 && within('.ca-board') && !/Find C was here first/.test(thread().textContent), count());
+      var steps = function (n) {
+        if (n === 0 || within('.ca-thread')) return Promise.resolve();
+        return press(field(), { key: 'Enter' }).then(function () { return wait(300); }).then(function () { return steps(n - 1); });
+      };
+      return steps(total + 1).then(function () { return total; });
+    })
+    .then(function (total) {
+      check('stepping on past it goes into them, laying out its first page', within('.ca-thread') && /Find C was here first/.test(at().startContainer.textContent) && count() === total + ' of ' + total, count() + ' ' + atText());
+      return press(field(), { key: 'Escape' });
+    })
     // ⌘F finds in the whole window, starting where you are (findKeys.ts): from the list, in the
     // list. B's title shows on its row and over its panel.
+    .then(function () { return open(B, 'Find B'); })
     .then(function () {
       var list = q('.ca-board-list');
       list.focus();

@@ -1014,6 +1014,8 @@ export function CanvasView(props: CanvasViewProps) {
     <div
       ref={rootRef}
       className={cx('ca-cv', moving && 'is-moving', spaceHeld && 'is-panning', tool !== 'select' && `is-tool-${tool}`, near ? 'is-near' : 'is-far')}
+      // What it cuts off it pans to, so the window's find finds it (WindowFind.tsx).
+      data-find-pans
       tabIndex={-1}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}

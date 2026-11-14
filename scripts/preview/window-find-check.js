@@ -3,8 +3,8 @@
 // in it; typing marks every match the window shows, in the list and the panel beside it alike, and
 // counts them, on the first in view where you are; it narrows nothing. It finds words across bold
 // within a line, but not from one line into the next, and passes over what doesn't show (hidden
-// by display, visibility or opacity), what's marked aria-hidden or data-find-skip, and what a field
-// holds. A line added while it's open is found as it comes, the match you're on staying. ⏎ steps
+// by display, visibility or opacity, or cut off past an ellipsis), what's marked aria-hidden or
+// data-find-skip, and what a field holds. A line added while it's open is found as it comes, the match you're on staying. ⏎ steps
 // on, round from the last to the first, ⇧⏎ back; ⌘G and ⇧⌘G step from outside the bar. Past 1000
 // matches it marks 1000 and says 1000+. Escape closes it, clears the marks and gives the keyboard
 // back. ⌥⌘F and / open the list's own find instead, and in Settings ⌘F is Settings' search.
@@ -42,8 +42,11 @@
   var counted = function (re) { return until(function () { return re.test(count() || ''); }, 4000).catch(function () {}); };
   var fixture = document.createElement('div');
   fixture.id = 'wf-fixture';
-  fixture.setAttribute('style', 'position: fixed; left: 300px; bottom: 0; width: 400px; max-height: 200px; overflow: hidden; background: white; font-size: 10px;');
+  fixture.setAttribute('style', 'position: fixed; left: 300px; bottom: 0; width: 400px; max-height: 200px; overflow: auto; background: white; font-size: 10px;');
+  // Laid out tight, so its first lines show without scrolling: the check's page draws no frames,
+  // which the boxes are drawn again in once something scrolls.
   fixture.innerHTML = [
+    '<style>#wf-fixture p { margin: 0; line-height: 12px; }</style>',
     '<p id="wf-one">zqvx one</p>',
     '<p style="display: none">zqvx hidden</p>',
     '<p style="visibility: hidden">zqvx invisible</p>',
@@ -54,6 +57,7 @@
     '<textarea>zqvx in a box</textarea>',
     '<p id="wf-bold">zq<b>vx</b> across bold</p>',
     '<div>zq</div><div>vx</div>',
+    '<p style="width: 60px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis">a long line cut off before zqvx</p>',
   ].join('');
   var name = null;
   var back = null;

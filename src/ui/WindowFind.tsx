@@ -28,7 +28,7 @@ import { useLatest } from '../latest';
 import { appKeyInTerminal, held, keysIn, typed } from '../platform';
 import { countWords, findPattern, MOST, spansIn, startOf, stepTo, type Place } from '../windowFind';
 import { scaleOf } from '../zoom';
-import { clipsIn, type Clip } from './clips';
+import { ALL, clipsIn, type Clip } from './clips';
 import { dialogUp } from './focusTrap';
 import { Button, Icon } from './primitives';
 
@@ -126,10 +126,18 @@ function isShown(el: Element): boolean {
 }
 
 /** Every match shown in `root`, in the order it reads, at most `MOST`, the sources' own where
- *  their elements are; `capped` when there were more. */
+ *  their elements are; `capped` when there were more. Not one cut off where no scrolling reaches
+ *  it (past an ellipsis, under a message cut to its first lines): it couldn't be shown. */
 function scan(root: Element, pattern: RegExp, sources: ReadonlyMap<Element, FindSource>): { hits: Hit[]; capped: boolean } {
   const hits: Hit[] = [];
   let capped = false;
+  const cutOf = clipsIn(null, ALL, true);
+  const inSight = (range: Range) => {
+    const r = range.getBoundingClientRect();
+    if (r.width === 0 && r.height === 0) return false;
+    const cut = cutOf(range.startContainer.parentElement);
+    return r.right > cut.left && r.left < cut.right && r.bottom > cut.top && r.top < cut.bottom;
+  };
   const shown = new Map<Element, boolean>();
   const visible = (el: Element) => {
     let v = shown.get(el);
@@ -142,22 +150,22 @@ function scan(root: Element, pattern: RegExp, sources: ReadonlyMap<Element, Find
   let starts: number[] = [];
   let text = '';
   let line: Element = root;
-  const take = (found: FoundRange[], source: FindSource | null, room: number) => {
-    if (found.length > room) capped = true;
-    for (const f of found.slice(0, room)) hits.push({ ...f, source });
+  const take = (f: FoundRange, source: FindSource | null) => {
+    if (capped || !inSight(f.range)) return;
+    if (hits.length >= MOST) capped = true;
+    else hits.push({ ...f, source });
   };
   const flush = () => {
     if (nodes.length > 0 && !capped) {
-      const room = MOST - hits.length;
       let n = counted.get(line) ?? 0;
-      const found: FoundRange[] = spansIn(text, starts, pattern, room + 1).map((s) => {
+      for (const s of spansIn(text, starts, pattern)) {
         const range = document.createRange();
         range.setStart(nodes[s.first], s.from);
         range.setEnd(nodes[s.last], s.to);
-        return { range, key: line, n: n++ };
-      });
+        take({ range, key: line, n: n++ }, null);
+        if (capped) break;
+      }
       counted.set(line, n);
-      take(found, null, room);
     }
     nodes = [];
     starts = [];
@@ -181,8 +189,8 @@ function scan(root: Element, pattern: RegExp, sources: ReadonlyMap<Element, Find
         const source = sources.get(child);
         if (source) {
           flush();
-          const room = MOST - hits.length;
-          if (visible(child)) take(source.hits(pattern, room + 1), source, room);
+          // Some it lays out may be cut off: more than there's room for, to know there were more.
+          if (visible(child)) for (const f of source.hits(pattern, MOST - hits.length + 64)) take(f, source);
           continue;
         }
         visit(child, LINES.has(child.tagName) ? child : at);
@@ -197,12 +205,23 @@ function scan(root: Element, pattern: RegExp, sources: ReadonlyMap<Element, Find
 /** What the window leaves in sight of what's in an element, by the boxes around it that clip. */
 const clipsInWindow = () => clipsIn(null, { left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight });
 
+/** Where a match is against what its scrollers leave in sight: above, in sight, or below (one
+ *  off to a side counts as further on, out of sight). */
 function placeOf(range: Range, clipOf: (el: Element | null) => Clip): Place {
   const r = range.getBoundingClientRect();
   const view = clipOf(range.startContainer.parentElement);
   if (r.bottom <= view.top) return -1;
-  if (r.top >= view.bottom) return 1;
+  if (r.top >= view.bottom || r.right <= view.left || r.left >= view.right) return 1;
   return 0;
+}
+
+/** Whether something else is drawn over the middle of `b`, which shows `own`'s text: the strip
+ *  stuck over a list, a conversation's pinned prompt, a popover, the find's own bar. What doesn't
+ *  take the pointer (the marks) isn't counted. */
+function coveredAt(b: { left: number; top: number; right: number; bottom: number }, own: Element | null): boolean {
+  if (!own) return false;
+  const over = document.elementFromPoint((b.left + b.right) / 2, (b.top + b.bottom) / 2);
+  return !!over && !own.contains(over) && !over.contains(own);
 }
 
 /** The match a new find starts on among `hits` (none empty), where you are (`startOf`). */
@@ -231,7 +250,9 @@ export function scrollToRange(range: Range, from: Element | null, top = 0): void
     if (y) {
       const at = (r.top - box.top) / scale;
       const end = (r.bottom - box.top) / scale;
-      if (at < covered + 8 || end > el.clientHeight - 16) el.scrollTop = Math.max(0, el.scrollTop + at - el.clientHeight / 3);
+      // In sight but under what's drawn over it, as the strip stuck over a list is, it goes a
+      // third of the way down too.
+      if (at < covered + 8 || end > el.clientHeight - 16 || coveredAt(r, range.startContainer.parentElement)) el.scrollTop = Math.max(0, el.scrollTop + at - el.clientHeight / 3);
     }
     if (x) {
       const at = (r.left - box.left) / scale;
@@ -251,7 +272,8 @@ function bringIntoView(range: Range): void {
 
 /**
  * Marks the matches: the one you're on with a CSS highlight, drawn in ink as a selection is, and
- * every other one in sight with a box over it in `layer`, which covers the window. Not all of them
+ * every other one in sight with a box over it in `layer`, which covers the window, none where
+ * something else is drawn over the text. Not all of them
  * with highlights: WebKit checks every highlighted range for each piece of text it draws, some
  * 5 ms a range (.claude/rules/windows.md), so a find that marks hundreds of places would hold the
  * window for seconds at each repaint, as Settings' search did (SettingsFind.tsx `paint`). A box
@@ -268,13 +290,16 @@ function paint(layer: HTMLElement | null, all: Hit[], at: Hit | null): void {
   layer.dataset.shown = String(all.length);
   const clipOf = clipsInWindow();
   const boxes: Clip[] = [];
-  const cut = (b: Clip, clip: Clip) => {
+  // Cut off where the text is, and none where something's drawn over it: the layer is over the
+  // whole window, so a box would show over the strip stuck over a list, or a popover.
+  const cut = (b: Clip, clip: Clip, own: Element | null) => {
     const box = { left: Math.max(b.left, clip.left), top: Math.max(b.top, clip.top), right: Math.min(b.right, clip.right), bottom: Math.min(b.bottom, clip.bottom) };
-    if (box.right > box.left && box.bottom > box.top) boxes.push(box);
+    if (box.right > box.left && box.bottom > box.top && !coveredAt(box, own)) boxes.push(box);
   };
   for (const h of all) {
     if (h === at) continue;
-    const clip = clipOf(h.range.startContainer.parentElement);
+    const own = h.range.startContainer.parentElement;
+    const clip = clipOf(own);
     if (clip.right <= clip.left || clip.bottom <= clip.top) continue;
     let line: Clip | null = null;
     for (const r of h.range.getClientRects()) {
@@ -283,10 +308,10 @@ function paint(layer: HTMLElement | null, all: Hit[], at: Hit | null): void {
         line.right = Math.max(line.right, r.right);
         continue;
       }
-      if (line) cut(line, clip);
+      if (line) cut(line, clip, own);
       line = { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
     }
-    if (line) cut(line, clip);
+    if (line) cut(line, clip, own);
   }
   boxes.forEach((b, i) => {
     const el = (layer.children[i] as HTMLElement | undefined) ?? layer.appendChild(document.createElement('span'));
@@ -305,6 +330,21 @@ const showing = (s: FindSource) => {
   const el = s.el();
   return !!el && el.isConnected && el.getClientRects().length > 0;
 };
+
+/** Whether `el` is on the way of a step from `from` to `to` in the order the window reads: after
+ *  one and before the other, going on (1) or back (-1), and round the window when the step goes
+ *  round it. With nothing gone to yet, the step starts at the window's start going on, its end
+ *  going back; with nothing laid out to go to, everything's on the way. */
+function between(el: Element, from: Hit | undefined, to: Hit | undefined, dir: -1 | 1): boolean {
+  const precedes = (a: Node, b: Node) => a !== b && !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+  const a = from?.range.startContainer;
+  const b = to?.range.startContainer;
+  if (!b) return true;
+  if (!a) return dir > 0 ? precedes(el, b) : precedes(b, el);
+  const [lo, hi] = dir > 0 ? [a, b] : [b, a];
+  const round = dir > 0 ? !precedes(a, b) : !precedes(b, a);
+  return round ? precedes(lo, el) || precedes(el, hi) : precedes(lo, el) && precedes(el, hi);
+}
 
 /** A source shown that says it further back, or is still reading to find out. */
 const further = (s: FindSource | undefined): s is FindSource => !!s && (s.earlier > 0 || s.reading) && showing(s);
@@ -472,7 +512,8 @@ export function WindowFind({ children }: { children: ReactNode }) {
   const refreshNow = useLatest(refresh);
 
   /** On to the next match (1) or back to the one before (-1), round the window; back from the
-   *  first a conversation lays out goes into its pages further back first. */
+   *  first a conversation lays out goes into its pages further back first, and a step past a
+   *  conversation that says it only further back goes into it. */
   const step = useCallback(
     (dir: -1 | 1) => {
       askedBy.current = null;
@@ -482,12 +523,11 @@ export function WindowFind({ children }: { children: ReactNode }) {
       if (dir < 0) {
         const src = at?.source ?? undefined;
         if (at && src && further(src) && found.find((h) => h.source === src) === at) return startSeek(src, at);
-        if (!at && found.length === 0) {
-          const any = [...sources.current].find(further);
-          if (any) return startSeek(any, null);
-        }
       }
-      const i = stepTo(at ? found.indexOf(at) : null, found.length, dir);
+      const from = at ? found.indexOf(at) : -1;
+      const i = stepTo(from < 0 ? null : from, found.length, dir);
+      const passed = [...sources.current].find((s) => further(s) && !found.some((h) => h.source === s) && between(s.el()!, found[from], found[i], dir));
+      if (passed) return startSeek(passed, null);
       if (i >= 0) goTo(i);
     },
     [goTo, startSeek],
