@@ -42,7 +42,9 @@
     check('a drag past the top is sent from where it went, above the screen', moves.some(function (m) { return m.y < 0; }), JSON.stringify(moves));
 
     // ⌃ and a click is macOS's right-click: it asks for the menu, and the terminal isn't sent a
-    // press, which would clear the selection the menu is for. A plain press before it is.
+    // press, which would clear the selection the menu is for. A plain press before it is. On
+    // Linux and Windows (PREVIEW_PLATFORM) it's a press with Ctrl, as the program gets it there.
+    var mac = (window.__CODEALONG_PLATFORM__ || (/\b(Windows|Linux)\b/.test(navigator.userAgent) ? 'other' : 'mac')) === 'mac';
     var before = window.__calls.length;
     pointer(canvas, 'pointerdown', r.left + 20, r.top + 20, 1);
     pointer(canvas, 'pointerup', r.left + 20, r.top + 20, 0);
@@ -50,7 +52,7 @@
     var labels = await menuOf(canvas, { button: 0, ctrlKey: true, clientX: r.left + 40, clientY: r.top + 20 });
     var since = window.__calls.slice(before);
     var pressed = [].concat.apply([], since.filter(function (c) { return c[0] === 'terminal_input'; }).map(function (c) { return c[1].inputs; })).filter(function (i) { return i.kind === 'mouse' && i.action === 'down'; });
-    check('⌃ and a click asks for the menu without pressing in the terminal', pressed.length === 1 && pressed[0].x === 20 * devicePixelRatio, JSON.stringify(pressed));
+    check(mac ? '⌃ and a click asks for the menu without pressing in the terminal' : 'Ctrl and a click is a press', pressed.length === (mac ? 1 : 2) && pressed[0].x === 20 * devicePixelRatio, JSON.stringify(pressed));
     var asked = since.map(function (c) { return c[0]; }).filter(function (n) { return n === 'terminal_copy' || n === 'plugin:menu|new'; });
     check('the menu reads the selection before it shows, to act on what was selected then', asked[0] === 'terminal_copy' && asked.indexOf('plugin:menu|new') > 0, asked.join(' | '));
     check('its menu sends the selection to the session, or adds it or everything to the session’s box', labels.indexOf(SEND) >= 0 && labels.indexOf(ADD) >= 0 && labels.indexOf(ADD_ALL) >= 0, labels.join(' | '));

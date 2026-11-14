@@ -127,15 +127,24 @@ describe('a press and the selection it would clear', () => {
     expect(await pressed([[{ button: 0, buttons: 1, ctrlKey: true }, 'down']]), 'elsewhere it’s a click with Ctrl').toEqual(['down:left@20']);
   });
 
+  // As a WKWebView sends them (2026-11-14): the press and every move of its drag name button 0.
+  const draggedAfterAMenu: [Partial<PointerEvent>, 'down' | 'up' | 'move'][] = [
+    [{ button: 0, buttons: 1, clientX: 40 }, 'move'],
+    [{ button: 0, buttons: 1, clientX: 60 }, 'move'],
+    [{ button: 0, buttons: 1, clientX: 70 }, 'move'],
+    [{ button: 0, buttons: 0, clientX: 70 }, 'up'],
+  ];
+
   it('takes a left press WebKit gives as a move, after a right-click’s menu took the right button’s release, for the press it is', async () => {
-    const mouse = await pressed([
-      [{ button: 2, buttons: 2 }, 'down'],
-      // The menu's loop takes the right button's release; WebKit takes it as held still.
-      [{ button: 0, buttons: 1, clientX: 40 }, 'move'],
-      [{ button: -1, buttons: 1, clientX: 60 }, 'move'],
-      [{ button: 0, buttons: 0, clientX: 60 }, 'up'],
-    ]);
-    expect(mouse, 'a drag that selects, from where it was pressed').toEqual(['down:left@30', 'move:@50', 'up:left@50']);
+    // The menu's loop takes the right button's release; WebKit takes it as held still.
+    const mouse = await pressed([[{ button: 2, buttons: 2 }, 'down'], ...draggedAfterAMenu]);
+    expect(mouse, 'a drag that selects, from where it was pressed').toEqual(['down:left@30', 'move:@50', 'move:@60', 'up:left@60']);
+  });
+
+  it('and after a ⌃-click’s menu, whose loop took the left button’s release', async () => {
+    setPlatform('mac');
+    const mouse = await pressed([[{ button: 0, buttons: 1, ctrlKey: true }, 'down'], ...draggedAfterAMenu]);
+    expect(mouse).toEqual(['down:left@30', 'move:@50', 'move:@60', 'up:left@60']);
   });
 });
 

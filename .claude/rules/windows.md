@@ -177,7 +177,8 @@ under `src-tauri/src/`.
 - A right-click's native menu (muda's `popUpMenuPositioningItem`) runs its loop while the button
   is still down, and the loop takes its release: WebKit then takes that button as held, so the
   next press of the left comes to the page as a `pointermove` naming button 0 (the Pointer Events'
-  chorded press), not a `pointerdown`, and only its release as a `pointerup`. ⌃-click comes as a
+  chorded press), not a `pointerdown`, every move of its drag names button 0 too (WebKit's last
+  button stays the right's), and only its release comes as a `pointerup`. ⌃-click comes as a
   `pointerdown` of button 0 with `ctrlKey`, then `contextmenu`. Both seen in a WKWebView harness
   (Swift, events sent straight to the web view, the right button's release left out) on
   2026-11-14; that the real menu's loop takes the release is read from muda's code and AppKit's

@@ -26,8 +26,6 @@ import { buildScene, type Metrics } from './scene';
 const WATCH_EVERY = 8000;
 /** How long the cursor shows, and hides, as it blinks. */
 const BLINK_MS = 530;
-/** Each button's bit in a pointer event's `buttons`, by its `button`: left, middle, right. */
-const BUTTON_BITS: readonly number[] = [1, 4, 2];
 
 export interface Hooks {
   /** The keyboard goes back to where it came from (⌃`). */
@@ -98,6 +96,9 @@ export class TerminalController {
   /** Where the pointer is while the left button's down in the terminal: a drag the terminal
    *  takes on past its edge (screen.rs `autoscroll`) until it hears the button let go. */
   private dragging: { x: number; y: number } | null = null;
+  /** Whether the left button is down from a press the terminal took (a drag's, or a link's): not
+   *  a ⌃-click's, which is the menu's, whose loop takes its release. */
+  private leftDown = false;
   private stopped = false;
 
   constructor(
@@ -360,12 +361,13 @@ export class TerminalController {
   }
 
   pointer(e: PointerEvent, how: 'down' | 'up' | 'move'): void {
-    // A move that names a button is that button pressed or let go while another is held (the
+    // A move that names the left button is its press or release while another is held (the
     // Pointer Events' chorded presses). WebKit takes the right button as held still after a
-    // right-click's menu, whose loop took its release, so the next left press comes as a move:
-    // taken for one, the first drag after a menu selected nothing.
-    const bit = how === 'move' ? BUTTON_BITS[e.button] : undefined;
-    const action = bit === undefined ? how : e.buttons & bit ? 'down' : 'up';
+    // right-click's menu, whose loop took its release, so the next left press comes as a move,
+    // and every move of its drag names the button too: the press is the first while the button
+    // isn't down here. Not taken for one, the first drag after a menu selected nothing.
+    const named = how === 'move' && e.button === 0 ? (e.buttons & 1) !== 0 : null;
+    const action = named === true && !this.leftDown ? 'down' : named === false && this.leftDown ? 'up' : how;
     const p = this.at(e);
     const button = e.button === 0 ? 'left' : e.button === 1 ? 'middle' : e.button === 2 ? 'right' : undefined;
     // ⌘ and a click opens a link, as in Ghostty; the program doesn't get the click.
@@ -376,9 +378,11 @@ export class TerminalController {
       // isn't a press, which would clear the selection the menu is for. A program that takes
       // the mouse gets it as it is, as in Ghostty.
       if (contextPress(e) && !this.takesRightClick(e)) return;
+      if (button === 'left') this.leftDown = true;
       this.pressed = { ...p, link };
       if (link) return;
     }
+    if (action === 'up' && button === 'left') this.leftDown = false;
     if (action === 'up' && this.pressed?.link) {
       const { link: opened, x, y } = this.pressed;
       this.pressed = null;
@@ -398,6 +402,7 @@ export class TerminalController {
   /** The page lost the drag the left button began (the pointer cancelled, or the view going): the
    *  terminal is told the button went up where the pointer last was, as it would be. */
   letGo(): void {
+    this.leftDown = false;
     const at = this.dragging;
     if (!at) return;
     this.dragging = null;
