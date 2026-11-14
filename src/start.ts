@@ -84,12 +84,6 @@ function near(m: Meter, cap?: number | null): boolean {
   return m.severity === 'critical' || m.percent >= NEAR_LIMIT;
 }
 
-/** Whether a model's own limit (Fable's week, say) still has room on an account. */
-export function modelHasRoom(u: Usage | undefined, model: string, cap?: number | null): boolean {
-  const own = modelMeter(u, model);
-  return !own || !near(own, cap);
-}
-
 /** Auto's account, and why: its weekly limit resets soonest, so its room is the first to be
  *  lost (`reset`); it has the most room (`room`); or there are no numbers to go by (`first`). */
 export interface AutoPick {

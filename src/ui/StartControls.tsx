@@ -5,7 +5,7 @@
 
 import { usageNote } from '../harness';
 import type { AgentOption, AutoPick, ModelOption } from '../start';
-import { accountHeadWords, agentOptionWords, autoOptionWords, effortDefaultTitle, effortNote, groupOptionWords, isAuto, pickFromGroup, placeNote } from '../start';
+import { accountHeadWords, agentOptionWords, autoOptionWords, effortDefaultTitle, effortNote, groupOptionWords, isAuto, pickFromGroup } from '../start';
 import type { Harness, Lane, Meter, RoutingGroup, StartAccount, StartPlace, Usage } from '../types';
 import type { PickerOption, PickerSection } from './Picker';
 import { Icon, Kbd, Seg } from './primitives';
@@ -13,22 +13,6 @@ import { UsageMeter } from './UsageBar';
 
 export function placeIcon(place: StartPlace): string {
   return place === 'terminal' ? 'terminal' : place === 'background' ? 'stack' : 'app';
-}
-
-/** Where it goes, as a menu of the places on offer: each with its icon, and under its name what
- *  it is (start.ts `placeNote`). Picked seldom, so it's a chip that says the place, not a row of
- *  every place; with one place there's nothing to pick, and the words of the start or the box
- *  say where it goes. */
-export function placeSections(places: StartAccount['places'], resuming = false): PickerSection[] {
-  return [
-    {
-      key: 'places',
-      options: places.map((p) => {
-        const note = placeNote(p.place, p.behind, resuming);
-        return { id: p.place, text: `${p.label} ${note}`, label: p.label, detail: note, lead: <Icon name={placeIcon(p.place)} size={14} /> };
-      }),
-    },
-  ];
 }
 
 /** One of an account's lines in a model menu: its own model or one of its models, checked when

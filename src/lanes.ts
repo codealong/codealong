@@ -391,12 +391,6 @@ function prOpen(pr: Pick<Pr, 'state'>): boolean {
   return pr.state !== 'merged' && pr.state !== 'closed';
 }
 
-/** The lane's open PR when its checks are failing. */
-export function failingPr(lane: Lane): Pr | null {
-  const pr = lane.pr;
-  return pr && prOpen(pr) && pr.checks.failed > 0 ? pr : null;
-}
-
 /** Whether an open PR needs work: failing checks or changes requested. The sidebar's PR needs
  *  work, for worktrees, sessions, PRs and todos alike. */
 export function prNeedsWork(pr: Pick<Pr, 'state' | 'checks'> | null | undefined): boolean {

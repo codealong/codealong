@@ -370,5 +370,3 @@ export function useRowDrag<T extends DropTarget = DropTarget>(options: RowDragOp
     dropTarget: drag?.zone.at === 'target' ? drag.zone.target : null,
   };
 }
-
-export type RowDrag = ReturnType<typeof useRowDrag>;
