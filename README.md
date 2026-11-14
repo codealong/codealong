@@ -43,7 +43,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/notch-demo.gif" alt="A short film of the bar docked in the MacBook notch, working through what waits on you: Command-Return allows a session's git push and goes on to a session that asks a question, an answer is picked, a teammate's pull request that an agent already reviewed is approved, three finished turns are marked seen, and the notch closes with nothing waiting and six agents at work." width="100%" />
+  <img src="docs/images/notch-demo.webp" alt="A short film of the bar docked in the MacBook notch, over a dusk landscape, working through what waits on you: Command-Return allows a session's git push and goes on to a session that asks a question, an answer is picked, a teammate's pull request that an agent already reviewed is approved, three finished turns are marked seen, and the notch closes with nothing waiting and six agents at work." width="100%" />
 </p>
 
 <p align="center">
@@ -68,7 +68,7 @@ wrap, proxy or replace anything, and it needs no account, no API key and no serv
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/images/sessions-dark.webp" />
-    <img src="docs/images/sessions-light.webp" alt="Codealong's Sessions view: every agent session on two machines in one list, the three that need you first, then finished turns and running agents. One open on the right wants to run git push, with Deny, Always and Allow. Plan usage for every account runs across the top." width="100%" />
+    <img src="docs/images/sessions-light.webp" alt="Codealong's Sessions view: every agent session on two machines in one list, each with an emoji beside its title to know it by, the three that need you first, then finished turns and running agents. One open on the right wants to run git push, with Deny, Always and Allow. Plan usage for every account runs across the top." width="100%" />
   </picture>
 </p>
 
@@ -168,7 +168,7 @@ where they ask ([what works with each agent](#what-works-with-each-agent)). More
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/images/quick-dark.webp" />
-    <img src="docs/images/quick-light.webp" alt="The quick panel: a prompt typed, the todo it matches found, and the agent menu open on Auto, which would start it on claude-work with Opus, above each account's plan usage and models." width="640" />
+    <img src="docs/images/quick-light.webp" alt="The quick panel: a prompt typed, the todo it matches found, and the agent menu open on Auto, which would start it on claude-work with Opus, above each account's plan usage and models." width="720" />
   </picture>
 </p>
 
@@ -365,7 +365,7 @@ sounds, or turn them off, in Settings › Sounds.
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/images/bar-dark.webp" />
-    <img src="docs/images/bar-light.webp" alt="The floating bar: pills for the three sessions that need you, finished work, running agents, a PR to review and three todos ready to start." width="640" />
+    <img src="docs/images/bar-light.webp" alt="The floating bar: pills for the three sessions that need you, finished work, running agents, a PR to review and three todos ready to start." width="720" />
   </picture>
 </p>
 
@@ -382,7 +382,7 @@ waiting on, and open where they ask.
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/images/waiting-dark.webp" />
-    <img src="docs/images/waiting-light.webp" alt="The Waiting on you window: Claude Code asks whether to keep rate-limit counters in Redis or in-process, each choice with what it means, and a box for an answer of your own." width="560" />
+    <img src="docs/images/waiting-light.webp" alt="The Waiting on you window: Claude Code asks whether to keep rate-limit counters in Redis or in-process, each choice with what it means, and a box for an answer of your own." width="640" />
   </picture>
 </p>
 
