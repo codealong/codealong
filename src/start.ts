@@ -528,8 +528,8 @@ export function placeTakesModel(place: StartPlace, resuming = false): boolean {
   return onCommandLine(place) || place === 'codealong' || (place === 'codex-app' && !resuming);
 }
 
-/** A place's line under its name in a menu of places (StartControls.tsx `placeLine`): what it is
- *  beyond its name, and that an app goes on its own model, as a model picked gives way there. */
+/** A place's title in the agent menu's Runs in row (AgentMenu.tsx `AgentFoot`): what it is beyond
+ *  its name, and that an app goes on its own model, as a model picked gives way there. */
 export function placeNote(place: StartPlace, behind = false, resuming = false): string {
   switch (place) {
     case 'terminal':
@@ -543,11 +543,11 @@ export function placeNote(place: StartPlace, behind = false, resuming = false): 
   }
 }
 
-/** What's picked in the quick panel's agent menu and its places, null for nothing picked. */
 /** The effort row's Default, picked: the account's own level, over the one a routing group's
  *  member names, which an effort not picked (null) takes. */
 export const OWN_EFFORT = 'own';
 
+/** What's picked in the quick panel's agent menu and its places, null for nothing picked. */
 export interface StartPicks {
   /** An agent menu id (`agentId`). */
   agent: string | null;

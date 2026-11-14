@@ -710,7 +710,7 @@ function SideRowView({ sessionKey, side: g, now, onShow }: SideRowProps) {
 export const SideRow = memoRow(SideRowView);
 
 /** The end of what's listed under a session where you asked to see every one of a kind (`Fold`,
- *  boardLists.ts `foldsOf`): a click lists only the ones at work again, as the kind's chip's
+ *  lanes.ts `foldsOf`): a click lists only the ones at work again, as the kind's chip's
  *  double-click does, so the way back is in sight. `head` is whether it's for the session at the
  *  family's head, which needs no name. */
 export function FoldRow({ fold, head, onFold }: { fold: Fold; head: boolean; onFold: (fold: Fold) => void }) {

@@ -1,11 +1,12 @@
 //! Your other devices (`[devices]` in config.toml). Codealong on each device finds the others, on your
-//! tailnet (tailnet.rs) or, once linked, anywhere through iroh (irohnet.rs), and keeps a
-//! connection open to each. Over it (peerproto.rs) each device sends the other its feed
+//! tailnet (tailnet.rs) or, once linked, anywhere through iroh (codealong-peer's net.rs), and keeps
+//! a connection open to each. Over it (codealong-peer's proto.rs) each device sends the other its feed
 //! (peerfeed.rs), so the windows here show that device's worktrees and sessions beside this one's,
 //! and asks it things: a page of a session's conversation, what a session waits on you for, a
 //! search of what was said, and, when remote control is on over there, to send a prompt or
 //! answer an approval. The device that's asked runs the same function a window's command runs
-//! there (`Hooks::answer`, in lib.rs), as server.rs does for the `codealong` command.
+//! there (`Hooks::answer`, which serve.rs sets to actions.rs `answer`), as server.rs does for the
+//! `codealong` command.
 //!
 //! Trust goes by device key, and each device keeps its own list of the devices it's linked with
 //! (`devices.json`). Being on the same tailnet links nothing: you link a device once, by answering

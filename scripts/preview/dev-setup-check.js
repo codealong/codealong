@@ -1,6 +1,6 @@
 // Checks Switch to Codealong Dev? (DevSetupDialog.tsx, Quick.tsx): Improve Codealong in the
 // installed app (the board's `improve.installed`) asks first, inside the panel's card; Set it up
-// starts a session on the panel's account with improve.ts's `devSetupPrompt`, in the source's
+// starts a session on the panel's account with agentTasks.ts's `devSetupTask`, in the source's
 // checkout when this machine has one and in a chat of its own to clone one when it doesn't, never
 // on another Mac that has the source; Not now and Escape leave the panel as Improve opens it;
 // Don't suggest this again keeps it from asking; and a build of the source never asks.

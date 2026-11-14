@@ -1,4 +1,4 @@
-// Checks the Sessions view's panel working through what waits on you (App.tsx `goOn`,
+// Checks the Sessions view's panel working through what waits on you (useWaitingQueue.ts,
 // SessionsView.tsx `waitingQueue`): four sessions that need you, two of them on a call to allow,
 // and one whose turn ended. ⌘⏎ in the box sends and goes on; on a call, ⌘⏎ with words in the box
 // denies it with them and goes on, and in an empty box allows it and goes on; ⌘] skips and ⌘[

@@ -936,7 +936,7 @@ calls! {
         Ok(schedules::harnesses::list(&cfg, &c.engine.board(), util::now_ms()))
     }
 
-    /// A change to the schedules (schedules.rs `Op`): what it came to.
+    /// A change to the schedules (schedules/mod.rs `Op`): what it came to.
     fn schedule_op(c, op: schedules::Op) -> Result<Value, String> {
         let cfg = config::current().map_err(words)?;
         let board = c.engine.board();

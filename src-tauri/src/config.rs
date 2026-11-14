@@ -1093,7 +1093,7 @@ pub struct ExperimentalCfg {
     /// your orchestrator, and sessions that listen to a meeting. `[voice]` has its settings.
     #[serde(default)]
     pub voice: bool,
-    /// Analytics (turns.rs, left.rs, stance.rs): who began each session and each turn of its, what
+    /// Analytics (began.rs, turns.rs, stance.rs): who began each session and each turn of its, what
     /// your prompts did with what the agent had said, and how the sessions you marked done stood,
     /// kept in the ledger and shown in the Analytics window.
     #[serde(default)]

@@ -891,7 +891,7 @@ fn web_link(url: &str) -> Result<(), String> {
     }
 }
 
-/// Chrome's profiles, in its picker's order, for a link's menu (`src/linkMenu.ts`): none when
+/// Chrome's profiles, in its picker's order, for a link's menu (src/menus.ts `linkMenu`): none when
 /// Chrome isn't set up here. It reads Chrome's own file, which is small.
 #[tauri::command]
 async fn chrome_profiles() -> Result<Vec<chrome::Profile>, String> {

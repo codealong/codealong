@@ -1,4 +1,4 @@
-// Checks the box of a session on another of your Macs (SessionReply.tsx, SessionModel.tsx,
+// Checks the box of a session on another of your Macs (SessionReply.tsx, SessionAgent.tsx,
 // startAccounts.ts `useDeviceStartAccounts`): a Codex app thread there says its model as a menu of
 // that Mac's account's models, asked of that Mac (`device_start_options`), and picking one asks
 // the engine to switch the thread there, by its key from here; one that Mac runs through Codealong

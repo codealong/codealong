@@ -51,7 +51,7 @@ pub struct BarFeed {
     /// True until the engine's first full scan has finished.
     pub loading: bool,
     /// The board's time: a change the bar shows ahead of the engine goes once a feed this new
-    /// arrives (src/pending.ts).
+    /// arrives (src/ahead.ts).
     pub generated_at: i64,
     pub theme: Theme,
     /// The zoom, in percent: the session or PR the notch shows draws at it (zoom.rs).

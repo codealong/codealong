@@ -1978,11 +1978,6 @@ end run
         assert_eq!(still.trim(), "false", "the terminal is still open");
     }
 
-    /// Opens a Ghostty window whose program records the bytes that reach it, in raw mode with
-    /// bracketed paste on as Claude Code runs, presses 1 and Escape there as answering a
-    /// permission prompt does, and checks both arrived as typed keys: `send key` sent nothing
-    /// for the digit. It opens a window, so it's opt in: `cargo test ghostty_presses_keys --
-    /// --ignored`.
     /// Finds the Ghostty tab of a process that runs in one, as a send does before it types, and
     /// types nothing: `CODEALONG_TEST_PID=<pid> cargo test ghostty_finds_a_tab -- --ignored
     /// --nocapture`. The tab's folder changes for a moment and is put back, as a click's does.
@@ -2000,6 +1995,11 @@ end run
         assert!(id.is_some());
     }
 
+    /// Opens a Ghostty window whose program records the bytes that reach it, in raw mode with
+    /// bracketed paste on as Claude Code runs, presses 1 and Escape there as answering a
+    /// permission prompt does, and checks both arrived as typed keys: `send key` sent nothing
+    /// for the digit. It opens a window, so it's opt in: `cargo test ghostty_presses_keys --
+    /// --ignored`.
     #[test]
     #[ignore]
     fn ghostty_presses_keys() {

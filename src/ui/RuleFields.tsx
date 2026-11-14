@@ -1,7 +1,7 @@
 // A rule's parts, to pick (boards/model.ts `Rule`): the kinds of things, their stages and
 // statuses, todo labels, repos, accounts, how recently they moved on, and words in their titles.
 // Every part picked must hold, and within one any pick does. The board dialog takes in what a
-// rule says (BoardDialog.tsx), and a column holds what its rule says (ColumnDialog.tsx).
+// rule says (BoardDialog.tsx), and a column holds what its rule says (BoardDialog.tsx `ColumnDialog`).
 
 import { useState, type ReactNode } from 'react';
 import { ACTIVES, KINDS, KIND_WORD, STAGES, STAGE_WORD, STATUS_PICKS, STATUS_WORD, type Active, type Rule } from '../boards/model';

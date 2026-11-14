@@ -601,7 +601,7 @@ export function closedWord(ts: Todo[]): string {
 
 /** What a session started from a todo is asked: the title, the description, then which todo
  *  it is, so the agent can mark it done through the codealong skill, and its primary session
- *  (`primaryLine`) when `holding` says whether that one still has it. `todo_prompt` in cli.rs
+ *  (`primaryLine`) when `holding` says whether that one still has it. `prompt` in todos.rs
  *  writes the same text. */
 export function todoPrompt(t: Todo, holding?: boolean): string {
   const title = t.title.trim();
@@ -612,7 +612,7 @@ export function todoPrompt(t: Todo, holding?: boolean): string {
 
 /** What a session started on a todo is told of the todo's primary session: that it's running,
  *  so this one sends it what it finds; or that it had the todo before, where its work is.
- *  `primary_line` in cli.rs writes the same text. */
+ *  `primary_line` in todos.rs writes the same text. */
 export function primaryLine(t: Todo, holding: boolean): string | null {
   const key = t.primary?.session;
   if (!key) return null;
@@ -623,7 +623,7 @@ export function primaryLine(t: Todo, holding: boolean): string | null {
 
 /** What one session started for several todos is asked: each one's title and description,
  *  numbered, then which todos they are, and their primary sessions when `holding` is given.
- *  One todo is `todoPrompt`'s. `todos_prompt` in cli.rs writes the same text. */
+ *  One todo is `todoPrompt`'s. `prompt_for` in todos.rs writes the same text. */
 export function todosPrompt(ts: Todo[], holding?: (t: Todo) => boolean): string {
   if (ts.length === 1) return todoPrompt(ts[0], holding?.(ts[0]));
   const parts = ts.flatMap((t, i) => [`${i + 1}. ${t.title.trim() || 'Untitled'}`, t.description.trim()].filter(Boolean));

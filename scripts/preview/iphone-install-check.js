@@ -1,6 +1,6 @@
 // Checks Get the iPhone app in Settings › Devices (DevicesSection.tsx): on the card for linking a
 // phone, it opens the quick panel on a chat of its own with the prompt that installs the app with
-// you (devices.ts `IPHONE_PROMPT`). On Linux, which can't build it, there's no button.
+// you (agentTasks.ts `iphoneTask`). On Linux, which can't build it, there's no button.
 //   PREVIEW_WAIT=60000 PREVIEW_DEVICES=scripts/preview/devices-sample.json scripts/preview.sh sessions '' scripts/preview/iphone-install-check.js
 //   PREVIEW_PLATFORM=linux PREVIEW_WAIT=60000 PREVIEW_DEVICES=scripts/preview/devices-sample.json scripts/preview.sh sessions '' scripts/preview/iphone-install-check.js
 (function () {

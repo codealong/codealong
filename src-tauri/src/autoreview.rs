@@ -111,7 +111,7 @@
 //! again, as though the author had asked GitHub for your review; so does one whose author wrote
 //! after you did, though GitHub asks nobody. An agent that can't
 //! tell leaves it to you. The PR's box submits it by hand, as the verdict its agent suggests, with
-//! what you wrote before it (`submit_now`, through lib.rs `review_pr`).
+//! what you wrote before it (`submit_now`, through calls.rs `review_pr`).
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::PathBuf;

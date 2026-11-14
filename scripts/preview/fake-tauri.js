@@ -617,7 +617,7 @@ window.__TAURI_INTERNALS__ = {
         return found;
       });
     }
-    // Training turned off at an account's provider (lib.rs `stop_training`): the reading after
+    // Training turned off at an account's provider (calls.rs `stop_training`): the reading after
     // is off, or what the fixture's `stopsTo` says, for a turn-off that didn't take.
     if (cmd === 'stop_training') {
       return optionalJson('./training-fixture.json').then(function (f) {

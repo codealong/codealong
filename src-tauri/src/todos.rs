@@ -287,7 +287,7 @@ pub struct Todo {
     pub project: String,
     #[serde(default)]
     pub title: String,
-    /// Plain text. Images are `![…](images/<name>)`; see images.rs.
+    /// Plain text. Images are `![…](images/<name>)`; see attachments.rs.
     #[serde(default)]
     pub description: String,
     #[serde(default)]
@@ -445,7 +445,7 @@ impl Lanes for LaneIndex {
 }
 
 /// Whether a todo's primary session still has it: it's running, or it became primary so lately
-/// that the board doesn't list it yet. `primaryOf` in src/todos.ts shows the same.
+/// that the board doesn't list it yet. `primaryHolds` in src/todos.ts shows the same.
 pub fn holds(p: &Primary, lanes: &dyn Lanes, now: i64) -> bool {
     match lanes.running(&p.session) {
         Some(running) => running,

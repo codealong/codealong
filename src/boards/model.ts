@@ -10,7 +10,8 @@ import type { OnBoard, RefKind } from '../canvas/model';
 import { ALL_PROJECTS } from '../quick';
 import type { Label } from '../types';
 
-/** How far a card's work has got, as the stage columns have it (rules.ts `stageOf`). */
+/** How far a card's work has got, as the stage columns have it (rules.ts `todoStage`,
+ *  `sessionStage`, `prStage`). */
 export type Stage = 'todo' | 'progress' | 'review' | 'done';
 /** An agent's status, as the sidebar's statuses name them. */
 export type StatusPick = 'needs' | 'unread' | 'working';

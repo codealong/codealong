@@ -495,7 +495,7 @@ fn match_score(e: &Entry, words: &[String]) -> u8 {
 
 /// Whether `text` has `word`. Among other words, a word of one or two letters counts only
 /// whole ("class c" shouldn't match every message with a c in it); alone it's a search as you
-/// type and matches anywhere. The same rule as `hasWord` in src/quick.ts.
+/// type and matches anywhere. The same rule as `wordAt` in src/quick.ts.
 pub fn has_word(text: &str, word: &str, of: usize) -> bool {
     let whole = of > 1 && word.chars().count() <= 2;
     has_edged(text, word, whole, whole)

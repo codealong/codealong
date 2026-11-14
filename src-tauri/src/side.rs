@@ -87,7 +87,7 @@ pub use codealong_peer::api::{Side, SideKept as Kept, SideTurn as Turn};
 
 /// A side conversation as the board lists it (`glances`): what it was first asked, how far it
 /// went and whether its copy is answering, without what was said. The windows list it under its
-/// session (src/boardLists.ts `sideRows`) and in its header, and read the rest as they show it.
+/// session (src/ui/LaneRow.tsx `SideRow`) and in its header, and read the rest as they show it.
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Glance {

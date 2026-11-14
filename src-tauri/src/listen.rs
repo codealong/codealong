@@ -109,7 +109,7 @@ pub const YOU: &str = "You";
 pub const THEM: &str = "Them";
 
 /// What a telling of what was heard starts with. The windows know one by it and draw its lines
-/// as the meeting (src/listening.ts `heardIn`), so the two change together.
+/// as the meeting (src/listening.ts `toldIn`), so the two change together.
 pub const HEARD: &str = "Heard, ";
 
 /// What the session is asked to make of what it hears.

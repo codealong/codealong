@@ -66,7 +66,7 @@ pub enum Msg {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         error: Option<String>,
     },
-    /// Asks to be linked. `secret` comes from a link code this device made (irohnet.rs); without
+    /// Asks to be linked. `secret` comes from a link code this device made (net.rs); without
     /// one, only a device on the same tailnet account can ask, and you answer on this device.
     LinkAsk {
         #[serde(default, skip_serializing_if = "Option::is_none")]

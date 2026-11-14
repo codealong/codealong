@@ -2207,7 +2207,7 @@ export async function canvasSave(board: string, doc: unknown): Promise<void> {
   await invoke('canvas_save', { board, doc });
 }
 
-/** Calls `cb` when another window saved a board's canvas (lib.rs `canvas_save`), so one showing
+/** Calls `cb` when another window saved a board's canvas (calls.rs `canvas_save`), so one showing
  *  the same board reads it again. */
 export function onCanvasSaved(cb: (saved: { board: string; from: string }) => void): () => void {
   return onWindowEvent<{ board: string; from: string }>('canvas-saved', cb);

@@ -1937,7 +1937,7 @@ fn pr_merge_box(_engine: &Handle, c: &Call) -> Result<Value, String> {
     serde_json::to_value(crate::prmerge::merge_box(&p.repo, p.number).map_err(words)?).map_err(words)
 }
 
-/// Reviews a PR as you, as the PR card's box does (lib.rs `review_pr`).
+/// Reviews a PR as you, as the PR card's box does (calls.rs `review_pr`).
 fn pr_review(engine: &Handle, c: &Call) -> Result<Value, String> {
     use codealong_peer::pr::Verdict;
     let p: params::PrReview = c.read()?;
@@ -1968,7 +1968,7 @@ fn draft_shown(found: Option<(String, u64, u64)>, shown: Option<&str>, number: u
     }
 }
 
-/// Does what the merge box does, as you (lib.rs `merge_pr`). The op crosses in codealong-peer's
+/// Does what the merge box does, as you (calls.rs `merge_pr`). The op crosses in codealong-peer's
 /// shape, which is the engine's own (`prmerge::Op`), as its tests check.
 fn pr_merge(engine: &Handle, c: &Call) -> Result<Value, String> {
     let p: params::PrMerge = c.read()?;
