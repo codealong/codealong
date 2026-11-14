@@ -969,10 +969,19 @@ fn store_written(dir: &Path) -> Option<i64> {
     store.is_file().then(|| [&store, &wal].into_iter().filter_map(|p| crate::util::mtime_ms(p)).max()).flatten()
 }
 
+/// What each command line chat's database said (`read_meta`), by the chat's folder, with when
+/// the database was last written (`store_written`) when it was read. Opening a chat's database
+/// takes a millisecond or more, and every read of the chats opened each one the window holds:
+/// 124 of them took 135 to 550 ms on the engine's thread (2026-11-14), every couple of seconds
+/// while the app or a chat was writing.
+pub type Metas = HashMap<PathBuf, (i64, Meta)>;
+
 /// The command line's chats under `home`, written to since `since_ms` or in `keep`, newest
 /// first, but not subagents': each in the folder its `meta.json` says, which an older one has
-/// none of (`cli_cwd`). One a chat, however many folders have a copy (`cli_chat_dir`).
-pub fn read_cli_chats(home: &Path, since_ms: i64, keep: &HashSet<String>) -> Vec<Chat> {
+/// none of (`cli_cwd`). One a chat, however many folders have a copy (`cli_chat_dir`). A
+/// database not written since `metas` read it isn't opened again, and `metas` is left with the
+/// chats read this time.
+pub fn read_cli_chats(home: &Path, since_ms: i64, keep: &HashSet<String>, metas: &mut Metas) -> Vec<Chat> {
     let Ok(folders) = std::fs::read_dir(home.join("chats")) else { return Vec::new() };
     let mut latest: HashMap<String, (i64, PathBuf)> = HashMap::new();
     for dir in folders.flatten().filter_map(|f| std::fs::read_dir(f.path()).ok()).flatten().flatten().map(|c| c.path()) {
@@ -984,7 +993,8 @@ pub fn read_cli_chats(home: &Path, since_ms: i64, keep: &HashSet<String>) -> Vec
         }
     }
     let mut out = Vec::new();
-    for (id, (_, dir)) in latest {
+    let mut read = Metas::new();
+    for (id, (at, dir)) in latest {
         let store = dir.join(STORE_DB);
         let side = read_sidecar(&dir);
         let transcript = cli_transcript(home, &id, &side);
@@ -996,13 +1006,18 @@ pub fn read_cli_chats(home: &Path, since_ms: i64, keep: &HashSet<String>) -> Vec
         if side.subagent {
             continue;
         }
-        let meta = read_meta(&store);
+        let meta = match metas.remove(&dir) {
+            Some((was, meta)) if was == at => meta,
+            _ => read_meta(&store),
+        };
+        read.insert(dir.clone(), (at, meta.clone()));
         if meta.subagent {
             continue;
         }
         let transcript_at = transcript.as_deref().and_then(crate::util::mtime_ms);
         out.push(Chat { id, title: meta.name, cwd: side.cwd, created_at: meta.created_at.unwrap_or(written), last_updated: written, model: meta.model, mode: meta.mode, approval: meta.approval, cli: true, dir: Some(dir), transcript, transcript_at, ..Chat::default() });
     }
+    *metas = read;
     out.sort_by(|a, b| b.last_updated.cmp(&a.last_updated));
     out
 }
@@ -1374,6 +1389,8 @@ pub struct Reader {
     /// a model they lack, and not more than once a minute.
     names: HashMap<String, String>,
     names_at: Option<Instant>,
+    /// What the command line's chats' databases said, by account (`Metas`).
+    metas: HashMap<String, Metas>,
     looked_at: Option<Instant>,
     read_at: Option<Instant>,
 }
@@ -1417,7 +1434,7 @@ impl Reader {
             }
             rows.extend(app);
         }
-        for mut c in read_cli_chats(&home, look.since, &keep) {
+        for mut c in read_cli_chats(&home, look.since, &keep, self.metas.entry(a.name.clone()).or_default()) {
             let process = self.held(&c.id);
             // Walking the disk for its folder is done once a chat.
             let cwd = c.cwd.clone().or_else(|| before.get(&c.id).and_then(|old| old.cwd.clone())).or_else(|| cli_cwd(&c));
@@ -2408,7 +2425,7 @@ impl crate::harness::Adapter for Cursor {
 
     fn session_cwds(&self, home: &Path, since: i64) -> Vec<String> {
         let app = app_db(home).and_then(|p| crate::harness::open_database(&p)).and_then(|db| read_app_chats(&db, since, &HashSet::new()).ok()).unwrap_or_default();
-        let cli = read_cli_chats(home, since, &HashSet::new()).into_iter().map(|c| Chat { cwd: cli_cwd(&c), ..c });
+        let cli = read_cli_chats(home, since, &HashSet::new(), &mut Metas::new()).into_iter().map(|c| Chat { cwd: cli_cwd(&c), ..c });
         app.into_iter().chain(cli).filter_map(|c| c.cwd).collect()
     }
 
@@ -2962,11 +2979,38 @@ mod tests {
         let sub = home.join("chats/d16e/sub2");
         std::fs::create_dir_all(&sub).unwrap();
         Connection::open(sub.join(STORE_DB)).unwrap().execute_batch(r#"CREATE TABLE meta (key TEXT, value TEXT); INSERT INTO meta VALUES ('0', '{"name":"New Agent","subagentInfo":{"parentAgentId":"c1"}}');"#).unwrap();
-        let rows = read_cli_chats(&home, 0, &HashSet::new());
+        let rows = read_cli_chats(&home, 0, &HashSet::new(), &mut Metas::new());
         assert_eq!(rows.iter().map(|c| (c.id.as_str(), c.title.as_deref(), c.cwd.as_deref())).collect::<Vec<_>>(), [("c1", Some("Hi There"), Some("/Users/me/projects/atlas-agent-restart-deferral"))]);
         assert_eq!(cli_chat_dir(&home, "c1"), Some(home.join("chats/d16e/c1")));
         assert_eq!(cli_chat_dir(&home, "unwritten"), None);
         assert_eq!(parse_sidecar("{}"), Sidecar::default());
+    }
+
+    /// A chat's database is opened again only once it has been written since it was read
+    /// (`Metas`), and a chat that's gone is forgotten.
+    #[test]
+    fn a_command_line_chats_database_is_read_again_only_once_written() {
+        let dir = crate::fixtures::scratch("cursor-metas");
+        let home = dir.join(".cursor");
+        let chat = home.join("chats/d16e/c1");
+        std::fs::create_dir_all(&chat).unwrap();
+        let store = chat.join(STORE_DB);
+        let named = |name: &str, secs: u64| {
+            Connection::open(&store).unwrap().execute_batch(&format!("CREATE TABLE IF NOT EXISTS meta (key TEXT, value TEXT); DELETE FROM meta; INSERT INTO meta VALUES ('0', '{{\"name\":\"{name}\"}}');")).unwrap();
+            std::fs::File::options().write(true).open(&store).unwrap().set_modified(std::time::UNIX_EPOCH + Duration::from_secs(1_790_000_000 + secs)).unwrap();
+        };
+        let titles = |metas: &mut Metas| read_cli_chats(&home, 0, &HashSet::new(), metas).into_iter().map(|c| c.title.unwrap_or_default()).collect::<Vec<_>>();
+        let mut metas = Metas::new();
+        named("First", 100);
+        assert_eq!(titles(&mut metas), ["First"]);
+        // Its time as before: what was read stands, unopened.
+        named("Second", 100);
+        assert_eq!(titles(&mut metas), ["First"]);
+        named("Second", 200);
+        assert_eq!(titles(&mut metas), ["Second"]);
+        std::fs::remove_dir_all(&chat).unwrap();
+        assert_eq!(titles(&mut metas), Vec::<String>::new());
+        assert!(metas.is_empty());
     }
 
     /// `--resume <id>` in another folder than the chat's makes a new chat there under the same id,
@@ -2991,7 +3035,7 @@ mod tests {
             aged(&path, secs);
             path
         };
-        let read = || read_cli_chats(&home, 0, &HashSet::new()).into_iter().map(|c| (c.title, c.cwd, c.transcript)).collect::<Vec<_>>();
+        let read = || read_cli_chats(&home, 0, &HashSet::new(), &mut Metas::new()).into_iter().map(|c| (c.title, c.cwd, c.transcript)).collect::<Vec<_>>();
         let row = |title: &str, cwd: &str, transcript: Option<&PathBuf>| (Some(title.to_string()), Some(cwd.to_string()), transcript.cloned());
         // Started in a worktree, then resumed in its main checkout once the worktree had gone.
         let (worktree, checkout) = ("/Users/me/projects/atlas/wt/release", "/Users/me/projects/atlas");
@@ -3182,7 +3226,7 @@ mod tests {
         let listed = read_app_chats(&db, 0, &HashSet::new()).unwrap();
         let lengths = written(&db, &listed.iter().map(|c| c.id.as_str()).collect::<Vec<_>>());
         println!("a read with nothing new: {} µs for {} chats' lengths and models", started.elapsed().as_micros(), lengths.len());
-        chats.extend(read_cli_chats(&home, 0, &HashSet::new()).into_iter().map(|c| Chat { cwd: cli_cwd(&c), ..c }));
+        chats.extend(read_cli_chats(&home, 0, &HashSet::new(), &mut Metas::new()).into_iter().map(|c| Chat { cwd: cli_cwd(&c), ..c }));
         let (procs, app_running) = processes(crate::procs::Listing::default().all());
         println!("{} chats ({app_ms} ms for the app's), the app {}running, {} command line processes", chats.len(), if app_running { "" } else { "not " }, procs.len());
         let now = crate::util::now_ms();
