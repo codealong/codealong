@@ -493,7 +493,7 @@ mod tests {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
         let entry = serde_json::json!({ "url": format!("{base}/github/Codealong.app.tar.gz"), "signature": "unused" });
-        let platforms: serde_json::Map<_, _> = ["darwin-aarch64", "darwin-x86_64", "linux-x86_64", "linux-aarch64"].iter().map(|p| (p.to_string(), entry.clone())).collect();
+        let platforms: serde_json::Map<_, _> = ["darwin-aarch64", "darwin-x86_64", "linux-x86_64", "linux-aarch64", "windows-x86_64", "windows-aarch64"].iter().map(|p| (p.to_string(), entry.clone())).collect();
         let manifest = serde_json::to_vec(&serde_json::json!({ "version": "0.0.2", "platforms": platforms })).unwrap();
         let asked = std::sync::Arc::new(Mutex::new(Vec::<String>::new()));
         let (log, to) = (asked.clone(), format!("{base}/github/latest.json"));

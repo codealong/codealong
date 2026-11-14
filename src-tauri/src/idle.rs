@@ -868,7 +868,7 @@ mod tests {
         assert_eq!(exit_asked(key), None);
         assert_eq!(exit_watched(key, 0), Watched::Over);
         // A process that has ended asks nothing any more, and its watch takes the record once.
-        let mut child = std::process::Command::new("true").spawn().unwrap();
+        let mut child = std::process::Command::new(crate::procs::posix_tool("true")).spawn().unwrap();
         let gone = child.id();
         child.wait().unwrap();
         note_exit_asked(key, ExitAsked { pid: gone, host: Some(7), ..asked_here(None) });

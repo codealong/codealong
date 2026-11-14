@@ -1505,7 +1505,7 @@ fn named_file(path: &Path) -> Result<(String, PathBuf)> {
         bail!("{} isn't a full path.", path.display());
     }
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| path.display().to_string());
-    match std::fs::canonicalize(path) {
+    match dunce::canonicalize(path) {
         Ok(real) => Ok((name, real)),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => bail!("{name} isn't on this Mac any more."),
         Err(e) => bail!("Couldn't open {name}: {e}"),
@@ -1727,7 +1727,7 @@ mod tests {
     #[ignore]
     fn ghostty_groups_and_names_tabs() {
         let scratch = crate::fixtures::scratch("tabs");
-        let dir = std::fs::canonicalize(&*scratch).unwrap();
+        let dir = dunce::canonicalize(&*scratch).unwrap();
         let (alpha, beta) = (dir.join("alpha"), dir.join("beta"));
         std::fs::create_dir_all(&alpha).unwrap();
         std::fs::create_dir_all(&beta).unwrap();
@@ -1786,7 +1786,7 @@ end run
     #[test]
     #[ignore]
     fn tty_apps_hand_over_the_folder_and_environment() {
-        let dir = std::fs::canonicalize(std::env::temp_dir()).unwrap().join(format!("codealong-hand {}", std::process::id()));
+        let dir = dunce::canonicalize(std::env::temp_dir()).unwrap().join(format!("codealong-hand {}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let prompt = "Fix the \"flaky\" test\n\tthen run `npm test` and $(say nope) 'quoted' -v";
         let apps: [(&str, fn() -> Result<Vec<String>>, fn(&[&str]) -> Result<()>); 2] = [("iterm2", iterm::ttys, iterm::close), ("terminal", terminal_app::ttys, terminal_app::close)];
@@ -2214,6 +2214,7 @@ end run
 
     /// The launcher runs: its folder and environment reach the shell it becomes, and it's gone.
     #[test]
+    #[cfg_attr(windows, ignore = "a launcher is for macOS's and Linux's terminals; Windows' run launch/windows.rs's script")]
     fn a_launcher_hands_over_the_folder_and_environment() {
         let dir = std::env::temp_dir().join(format!("codealong-launch-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -2223,7 +2224,7 @@ end run
         let text = std::fs::read_to_string(&path).unwrap();
         let body = text.lines().filter(|l| !l.starts_with("exec ")).collect::<Vec<_>>().join("\n");
         std::fs::write(&path, format!("{body}\npwd; printenv CODEALONG_PROMPT\n")).unwrap();
-        let out = procs::run("/bin/sh", &[&path.to_string_lossy()], None, Duration::from_secs(10)).unwrap();
+        let out = procs::run(&crate::procs::posix_tool("sh"), &[&path.to_string_lossy()], None, Duration::from_secs(10)).unwrap();
         assert!(!path.exists(), "the launcher is still there");
         assert_eq!(out, format!("{}\n{prompt}\n", dir.display()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -2237,13 +2238,14 @@ end run
         assert!(!name.is_empty());
         assert!(runs_under(me, &name));
         assert!(!runs_under(me, "no-such-program"));
-        let mut sleeper = std::process::Command::new("/bin/sleep").arg("30").stdin(std::process::Stdio::null()).spawn().unwrap();
+        let mut sleeper = std::process::Command::new(crate::procs::posix_tool("sleep")).arg("30").stdin(std::process::Stdio::null()).spawn().unwrap();
         let child = sleeper.id();
         // Linux names the new program a moment after `spawn` returns, which until then has the
-        // name of the thread that started it.
+        // name of the thread that started it; Windows' list of processes is a snapshot up to a
+        // quarter of a second old, which may not have it yet.
         let started = Instant::now();
         let mut seen = procs::parent_and_name(child);
-        while seen.as_ref().is_some_and(|(_, n)| n != "sleep") && started.elapsed() < Duration::from_secs(5) {
+        while !seen.as_ref().is_some_and(|(_, n)| n == "sleep") && started.elapsed() < Duration::from_secs(5) {
             std::thread::sleep(Duration::from_millis(20));
             seen = procs::parent_and_name(child);
         }
@@ -2252,44 +2254,52 @@ end run
         // Every process `ps` lists has the parent, name and terminal it says, other users'
         // included, and is under Ghostty when `ps` puts it there: the root `login` in a Ghostty
         // tab's line is on the way, when one is open.
-        let table = procs::run("/bin/ps", &["-A", "-o", "pid=,ppid=,tty=,ucomm="], None, Duration::from_secs(20)).unwrap();
-        let rows: Vec<(u32, u32, &str, &str)> = table
-            .lines()
-            .filter_map(|line| {
-                let mut f = line.split_whitespace();
-                let (pid, ppid, tty) = (f.next()?.parse().ok()?, f.next()?.parse().ok()?, f.next()?);
-                // A name can have spaces: the rest of the line.
-                let name = line[line.find(tty)? + tty.len()..].trim();
-                Some((pid, ppid, tty, name))
-            })
-            .collect();
-        let by_ps = |pid: u32| rows.iter().find(|r| r.0 == pid).map(|r| (r.1, r.3.to_string()));
-        let mut checked = 0;
-        for &(pid, ppid, tty, name) in &rows {
-            // A Linux kernel thread names itself for the work it's on, which changes as it goes.
-            if ppid == 2 {
-                continue;
+        // `ps` is macOS's and Linux's; Windows reads its process table itself (os::procs::table).
+        if !crate::os::is_windows() {
+            let table = procs::run("/bin/ps", &["-A", "-o", "pid=,ppid=,tty=,ucomm="], None, Duration::from_secs(20)).unwrap();
+            let rows: Vec<(u32, u32, &str, &str)> = table
+                .lines()
+                .filter_map(|line| {
+                    let mut f = line.split_whitespace();
+                    let (pid, ppid, tty) = (f.next()?.parse().ok()?, f.next()?.parse().ok()?, f.next()?);
+                    // A name can have spaces: the rest of the line.
+                    let name = line[line.find(tty)? + tty.len()..].trim();
+                    Some((pid, ppid, tty, name))
+                })
+                .collect();
+            let by_ps = |pid: u32| rows.iter().find(|r| r.0 == pid).map(|r| (r.1, r.3.to_string()));
+            let mut checked = 0;
+            for &(pid, ppid, tty, name) in &rows {
+                // A Linux kernel thread names itself for the work it's on, which changes as it goes.
+                if ppid == 2 {
+                    continue;
+                }
+                // Gone since `ps` looked.
+                let Some((parent, kernel_name)) = procs::parent_and_name(pid) else { continue };
+                // A name cut to 16 characters can end in a space, which `ps` doesn't print.
+                assert_eq!((parent, kernel_name.trim_end()), (ppid, name), "pid {pid}");
+                // macOS names a tab's (`ttys004`) and not its console; Linux every terminal ps names
+                // (`pts/3`, a VM's console `hvc0`), but none (`?`).
+                let named = match crate::os::NATIVE {
+                    Os::MacOs => tty.starts_with("tty"),
+                    Os::Linux => !tty.starts_with('?'),
+                    Os::Windows => false,
+                };
+                let want = named.then(|| Path::new("/dev").join(tty));
+                assert_eq!(procs::tty(pid), want, "pid {pid}");
+                assert_eq!(runs_under(pid, "ghostty"), runs_under_by(pid, "ghostty", by_ps), "pid {pid}");
+                assert_eq!(kind_by(pid, procs::parent_and_name), kind_by(pid, by_ps), "pid {pid}");
+                checked += 1;
             }
-            // Gone since `ps` looked.
-            let Some((parent, kernel_name)) = procs::parent_and_name(pid) else { continue };
-            // A name cut to 16 characters can end in a space, which `ps` doesn't print.
-            assert_eq!((parent, kernel_name.trim_end()), (ppid, name), "pid {pid}");
-            // macOS names a tab's (`ttys004`) and not its console; Linux every terminal ps names
-            // (`pts/3`, a VM's console `hvc0`), but none (`?`).
-            let named = match crate::os::NATIVE {
-                Os::MacOs => tty.starts_with("tty"),
-                Os::Linux => !tty.starts_with('?'),
-                Os::Windows => false,
-            };
-            let want = named.then(|| Path::new("/dev").join(tty));
-            assert_eq!(procs::tty(pid), want, "pid {pid}");
-            assert_eq!(runs_under(pid, "ghostty"), runs_under_by(pid, "ghostty", by_ps), "pid {pid}");
-            assert_eq!(kind_by(pid, procs::parent_and_name), kind_by(pid, by_ps), "pid {pid}");
-            checked += 1;
+            assert!(checked > 10, "only {checked} processes checked");
         }
-        assert!(checked > 10, "only {checked} processes checked");
         let _ = sleeper.kill();
         let _ = sleeper.wait();
+        // On Windows, once the snapshot of its processes no longer has it.
+        let gone = Instant::now() + Duration::from_secs(2);
+        while procs::parent_and_name(child).is_some() && Instant::now() < gone {
+            std::thread::sleep(Duration::from_millis(20));
+        }
         assert_eq!(procs::parent_and_name(child), None);
     }
 

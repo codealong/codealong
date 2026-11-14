@@ -100,6 +100,56 @@ pub fn user_path() -> &'static str {
     })
 }
 
+/// The POSIX shell a command line written for one runs in: an account's command, which may set
+/// variables first as in a terminal, or a worktree's hooks. `/bin/sh`; on Windows Git Bash's
+/// bash, which Claude Code runs its own commands in there, and whose launcher puts Git's own
+/// programs (`sleep`, `cat`) on the PATH, which its `usr\bin\sh.exe` alone doesn't.
+pub fn sh() -> Result<String> {
+    if !crate::os::is_windows() {
+        return Ok("/bin/sh".to_string());
+    }
+    git_bash().map(|p| p.to_string_lossy().into_owned()).ok_or_else(|| {
+        anyhow!("Git Bash isn't installed: on Windows Codealong runs what's written for a shell in its bash, as Claude Code does. Install Git for Windows.")
+    })
+}
+
+/// Git Bash's bash: on the PATH, but not Windows' own `bash.exe` in System32, which is WSL's and
+/// runs in Linux; else where Git for Windows installs it.
+pub fn git_bash() -> Option<PathBuf> {
+    let system = std::env::var_os("SystemRoot").map(PathBuf::from);
+    let names = crate::os::procs::names_to_find(OsStr::new("bash"));
+    let on_path = std::env::split_paths(user_path()).flat_map(|d| names.iter().map(move |n| d.join(n)).collect::<Vec<_>>());
+    on_path.filter(|p| system.as_ref().is_none_or(|s| !p.starts_with(s))).find(|p| p.is_file()).or_else(|| {
+        ["ProgramFiles", "ProgramW6432", "LOCALAPPDATA"]
+            .iter()
+            .filter_map(std::env::var_os)
+            .map(|d| if Path::new(&d).ends_with("Local") { PathBuf::from(d).join("Programs/Git/bin/bash.exe") } else { PathBuf::from(d).join("Git/bin/bash.exe") })
+            .find(|p| p.is_file())
+    })
+}
+
+/// `$!` in a test's shell script, as the OS numbers that process: Git Bash on Windows numbers its
+/// processes its own way, and keeps Windows' number for one in `/proc/<its number>/winpid`.
+#[cfg(test)]
+pub const LAST_PID: &str = r#"$(cat /proc/$!/winpid 2>/dev/null || echo $!)"#;
+
+/// A POSIX program a test starts as a stand-in (`sleep`, `cat`, `echo`): /bin's, else /usr/bin's
+/// (macOS keeps `true` there), or on Windows the one Git for Windows has (in its `usr\bin`); `sh`
+/// is `sh()`'s.
+#[cfg(test)]
+pub fn posix_tool(name: &str) -> String {
+    if name == "sh" {
+        return sh().unwrap();
+    }
+    if !crate::os::is_windows() {
+        let bin = format!("/bin/{name}");
+        return if Path::new(&bin).exists() { bin } else { format!("/usr/bin/{name}") };
+    }
+    let bash = git_bash().expect("Git for Windows, whose programs the tests start");
+    let git = bash.ancestors().find(|a| a.join("usr").join("bin").is_dir()).expect("Git for Windows' usr\\bin").to_path_buf();
+    git.join("usr").join("bin").join(format!("{name}.exe")).to_string_lossy().into_owned()
+}
+
 /// A command that runs `program` in `cwd` (Codealong's own folder when None) with `path` as its
 /// PATH, started without forking Codealong. Rust starts a program with `posix_spawn` unless the
 /// command changes PATH and names its program without a folder, or runs code of its own before
@@ -342,12 +392,12 @@ pub fn run(program: &str, args: &[&str], cwd: Option<&Path>, timeout: Duration) 
 }
 
 /// `run`, with `unset` left out of the program's environment.
-pub fn run_without(program: &str, args: &[&str], unset: &[&str], timeout: Duration) -> Result<String> {
+pub fn run_without(program: &str, args: &[&str], cwd: Option<&Path>, unset: &[&str], timeout: Duration) -> Result<String> {
     #[cfg(test)]
     if let Some(answer) = stand_in::run(program, args, None, timeout) {
         return answer;
     }
-    let mut cmd = command(program, user_path(), None).map_err(|e| not_started(program, e))?;
+    let mut cmd = command(program, user_path(), cwd).map_err(|e| not_started(program, e))?;
     cmd.args(args);
     for name in unset {
         cmd.env_remove(name);
@@ -576,9 +626,15 @@ mod tests {
     /// while nothing starts or ends and next to no CPU is used.
     #[test]
     fn a_process_tree_lists_what_runs_under_it_and_counts_its_cpu() {
-        let mut child = std::process::Command::new("/bin/sleep").arg("30.25").spawn().unwrap();
+        let mut child = std::process::Command::new(crate::procs::posix_tool("sleep")).arg("30.25").spawn().unwrap();
         let me = std::process::id();
-        let t = super::tree(me).expect("this test's own process");
+        // On Windows, once the snapshot of its processes has the child.
+        let listed = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        let mut t = super::tree(me).expect("this test's own process");
+        while !t.pids.contains(&child.id()) && std::time::Instant::now() < listed {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            t = super::tree(me).unwrap();
+        }
         assert_eq!(t.pids[0], me);
         assert!(t.pids.contains(&child.id()), "{t:?} lists {}", child.id());
         assert!(t.cpu_ns > 0, "a test that has run has used CPU");
@@ -592,6 +648,11 @@ mod tests {
         assert!(!after.rested_since(&t));
         let _ = child.kill();
         let _ = child.wait();
+        // Windows' list of processes is a snapshot up to a quarter of a second old.
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while super::tree(me).unwrap().pids.contains(&child.id()) && std::time::Instant::now() < until {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
         assert!(!super::tree(me).unwrap().pids.contains(&child.id()), "an ended process leaves it");
         assert!(super::Tree { pids: vec![1, 2], cpu_ns: 5_000_000 }.rested_since(&super::Tree { pids: vec![1, 2], cpu_ns: 0 }));
         assert!(!super::Tree { pids: vec![1], cpu_ns: 0 }.rested_since(&super::Tree { pids: vec![1, 2], cpu_ns: 0 }));
@@ -633,7 +694,7 @@ mod tests {
         // SAFETY: openpty fills the two descriptors; the name, settings and size may be null.
         let opened = unsafe { libc::openpty(&mut master, &mut slave, std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut()) };
         assert_eq!(opened, 0, "a pseudo-terminal");
-        let mut cmd = Command::new("/bin/sleep");
+        let mut cmd = Command::new(crate::procs::posix_tool("sleep"));
         cmd.arg("10").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
         // SAFETY: only async-signal-safe calls between fork and exec.
         unsafe {
@@ -695,7 +756,7 @@ mod tests {
         let path = dir.join("rollout-test.jsonl");
         let held = std::fs::File::create(&path).unwrap();
         // The kernel names a file by its real path: /private/var/folders/… for $TMPDIR.
-        let real = std::fs::canonicalize(&path).unwrap();
+        let real = dunce::canonicalize(&path).unwrap();
         assert!(open_files(std::process::id()).unwrap().contains(&real));
         drop(held);
         assert!(!open_files(std::process::id()).unwrap().contains(&real));
@@ -708,7 +769,7 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn a_processes_descriptors_are_counted_by_kind() {
-        let mut cat = std::process::Command::new("cat").stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().unwrap();
+        let mut cat = std::process::Command::new(crate::procs::posix_tool("cat")).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().unwrap();
         let kinds = open_kinds(cat.id());
         let _ = cat.kill();
         let _ = cat.wait();
@@ -719,8 +780,8 @@ mod tests {
 
     #[test]
     fn runs_commands_with_timeouts() {
-        assert_eq!(run("/bin/echo", &["hi"], None, Duration::from_secs(2)).unwrap(), "hi\n");
-        assert!(run("/bin/sleep", &["3"], None, Duration::from_millis(200)).is_err());
+        assert_eq!(run(&crate::procs::posix_tool("echo"), &["hi"], None, Duration::from_secs(2)).unwrap(), "hi\n");
+        assert!(run(&crate::procs::posix_tool("sleep"), &["3"], None, Duration::from_millis(200)).is_err());
         assert!(run("/usr/bin/false", &[], None, Duration::from_secs(2)).is_err());
     }
 
@@ -831,7 +892,7 @@ mod tests {
         // The shell prints 200 KB before it reads a byte of its 200 KB of input: neither fits
         // in a pipe, so the input has to go in while the output is read.
         let input = "x".repeat(200_000);
-        let out = run_stdin("/bin/sh", &["-c", "head -c 200000 /dev/zero | tr '\\0' a; wc -c"], &input, Duration::from_secs(10)).unwrap();
+        let out = run_stdin(&crate::procs::posix_tool("sh"), &["-c", "head -c 200000 /dev/zero | tr '\\0' a; wc -c"], &input, Duration::from_secs(10)).unwrap();
         assert_eq!(out.len() - out.trim_start_matches('a').len(), 200_000);
         assert_eq!(out.trim_start_matches('a').trim(), "200000");
     }
@@ -839,7 +900,7 @@ mod tests {
     #[test]
     fn input_nobody_reads_is_cut_off_by_the_deadline() {
         let started = Instant::now();
-        let e = run_stdin("/bin/sleep", &["10"], &"x".repeat(1 << 20), Duration::from_millis(300)).unwrap_err();
+        let e = run_stdin(&crate::procs::posix_tool("sleep"), &["10"], &"x".repeat(1 << 20), Duration::from_millis(300)).unwrap_err();
         assert!(e.to_string().contains("timed out"), "{e}");
         assert!(started.elapsed() < Duration::from_secs(3), "{:?}", started.elapsed());
     }
@@ -848,8 +909,8 @@ mod tests {
     fn something_left_running_with_the_output_doesnt_hold_the_answer() {
         // The background sleep keeps the shell's stdout and stderr open after the shell exits.
         let started = Instant::now();
-        assert_eq!(run("/bin/sh", &["-c", "echo hi; sleep 10 &"], None, Duration::from_secs(8)).unwrap(), "hi\n");
-        assert_eq!(run_stdin("/bin/sh", &["-c", "cat; sleep 10 &"], "typed", Duration::from_secs(8)).unwrap(), "typed");
+        assert_eq!(run(&crate::procs::posix_tool("sh"), &["-c", "echo hi; sleep 10 &"], None, Duration::from_secs(8)).unwrap(), "hi\n");
+        assert_eq!(run_stdin(&crate::procs::posix_tool("sh"), &["-c", "cat; sleep 10 &"], "typed", Duration::from_secs(8)).unwrap(), "typed");
         assert!(started.elapsed() < Duration::from_secs(3), "{:?}", started.elapsed());
     }
 }

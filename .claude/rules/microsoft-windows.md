@@ -23,10 +23,10 @@ the app's windows, not this. Paths are under `src-tauri/src/`.
   So a command's pipes are threads on Windows (`os/procs/windows.rs` `Pipes`), stopped once the
   command is done, as a process it left behind may hold them. std reads and writes a child's
   pipes as overlapped I/O (Rust 1.98), which `CancelIoEx` on the pipe cancels and
-  `CancelSynchronousIo` on the thread doesn't. And
-  rpc.rs's writes to a child wait until it reads, so a write's deadline isn't kept there: a child
-  that stops reading holds the line until it ends (not settled; it wants a write of its own
-  thread, tried on Windows).
+  `CancelSynchronousIo` on the thread doesn't. A write to a child waits until it reads, so
+  rpc.rs's deadline is kept by a thread that cancels a write still waiting then
+  (`os::procs::write_within`); Windows doesn't say how much of it went, so the child's input is
+  closed after, as after a half-written line on POSIX.
 - Rust's `Command` finds `name.exe` alone on the PATH, never a `.cmd`, which is what npm installs
   for a command (`claude.cmd`). `os::procs::names_to_find` gives a program's names with PATHEXT's
   extensions, which `procs::command`, harness detection (detect.rs) and the editors use.
@@ -58,6 +58,32 @@ the app's windows, not this. Paths are under `src-tauri/src/`.
   it wants each monitor's points mapped onto the desktop's.
 - A command line on Windows is kept as it was started, quoted by Windows' rules: util.rs `args`
   splits it so, where `ps`'s on macOS and Linux are split at spaces.
+- `std::fs::canonicalize` puts `\\?\` before every path, which Claude Code's, Codex's and
+  Antigravity's settings and git don't take for the folder: paths are made real with
+  `dunce::canonicalize` (os/mod.rs's tests keep std's out).
+- Claude Code keys `.claude.json`'s `projects` by the folder with every `\` turned to `/`
+  (2.1.100's `normalize(path).replaceAll("\\","/")`, on every OS), so its trust for a Windows
+  folder is `C:/Users/…` (claude/trust.rs `trust_keys`). Its 2.1.2xx builds are Bun bytecode;
+  2.1.100's npm package was the last with readable JavaScript.
+- What's written for a POSIX shell (a worktree's hooks, an account's command, Antigravity's)
+  runs in Git Bash's bash (`procs::sh`), as Claude Code runs its own. Git Bash numbers its
+  processes its own way: `$!` there isn't Windows' pid, which `/proc/<n>/winpid` has. Its
+  `bin\bash.exe` is a launcher that runs `usr\bin\bash.exe`; an `exec` there leaves that bash
+  waiting as the program's parent (an adapter is three processes below the one Codealong started:
+  acp.rs `runs`), while a background job (`sleep &`, fork then exec) is left with a parent that
+  has gone, so nothing climbs from a command an agent ran in Git Bash to its shell. Killing the
+  launcher leaves the bash and its program running: an adapter that doesn't leave when its input
+  closes outlives rpc.rs's kill (not settled; it wants the whole tree ended, or a job object).
+- Windows' process list is a snapshot kept a quarter of a second (`os/procs/windows.rs`
+  `FRESH`): a process started or ended within it isn't seen yet.
+- A variable's name in another process's environment is read in capitals, as Windows matches
+  them (its own `Path` is `PATH`).
+- A link's target is followed only with Windows' own separators (`os::files::symlink` turns
+  `/` around); a link to a folder is another kind than a link to a file, and tar.exe makes
+  every link a file's, so windows-vm.sh makes a checkout's links to folders again.
+- A view whose connection closed was still held five seconds after one write to it on Windows
+  (2026-11-14), and let go once written to again: views.rs's tests write pings while they wait,
+  as the server's own pings do.
 - A key combination with Ctrl and Alt is AltGr on many layouts (German, French…), which types
   `@`, `[` or `€`: the windows' Ctrl+Alt chords and the default shortcuts (Ctrl+Alt+/…) may take
   a character someone types. Not settled.
@@ -132,9 +158,7 @@ the app's windows, not this. Paths are under `src-tauri/src/`.
 
 ## Unchecked
 
-- 2026-11-13: everything at run time. The app, the server, the socket, the process table, the
-  windows on the desktop, Windows Terminal starts, sounds, Open at login, Credential Manager and
-  every harness's sessions there have only been compiled. The engine's tests ran in the VM on
-  2026-11-13: 1989 passed and 128 failed, most of them tests that start `/bin/sh` or
-  `/bin/sleep` as a stand-in, fixtures with Unix paths, and canonical paths in Windows' `\\?\`
-  form; the binary's and codealong-peer's tests haven't run.
+- 2026-11-14: the app on its desktop, and every harness's sessions there. The engine's and
+  codealong-peer's tests pass in the VM (2108 and 29 on 2026-11-14), less 69 for what Windows
+  hasn't (Codealong's own terminals, zsh, Rex, the Codex app's log, a background job's parent)
+  or for another OS's ways a Windows host can't play; the app hasn't been built or run there.

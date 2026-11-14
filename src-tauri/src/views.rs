@@ -335,9 +335,13 @@ mod tests {
         }
     }
 
+    /// Waits for the server to let go of an app's connections whose ends closed, writing to them
+    /// as its pings do: on Windows a write to a socket whose other end closed can go through once,
+    /// and only the next fails.
     fn gone(pid: u32) {
         let until = Instant::now() + Duration::from_secs(5);
         while holding(pid) > 0 && Instant::now() < until {
+            emit("ping", &Value::Null);
             std::thread::sleep(Duration::from_millis(5));
         }
     }
@@ -399,7 +403,7 @@ mod tests {
         let _t = turn();
         // Live processes stand in for the apps, as `quit_all` asks of each whether it's there, and
         // ends one that doesn't quit; both opened at once, so neither connecting quits the other.
-        let mut stand_ins: Vec<std::process::Child> = (0..2).map(|_| std::process::Command::new("sleep").arg("30").spawn().unwrap()).collect();
+        let mut stand_ins: Vec<std::process::Child> = (0..2).map(|_| std::process::Command::new(crate::procs::posix_tool("sleep")).arg("30").spawn().unwrap()).collect();
         let (a, b) = (stand_ins[0].id(), stand_ins[1].id());
         let mut first = connect(Info { pid: a, since: 2_000, ..Default::default() }, vec![]);
         let mut second = connect(Info { pid: b, since: 2_000, ..Default::default() }, vec![]);

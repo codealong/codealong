@@ -628,7 +628,7 @@ mod tests {
         hosted.wait_for_tab(true).unwrap();
         let waiting = waiting_tabs();
         assert_eq!(waiting.iter().map(|(w, shown)| (&w.hosted, w.label.as_str(), w.behind, *shown)).collect::<Vec<_>>(), [(&hosted, "a test", true, false)]);
-        assert_eq!(waiting[0].0.dir.canonicalize().unwrap(), scratch.canonicalize().unwrap());
+        assert_eq!(dunce::canonicalize(&waiting[0].0.dir).unwrap(), dunce::canonicalize(&scratch).unwrap());
         assert_eq!(waiting_tabs().len(), 1, "listing takes nothing");
         hosted.handled();
         assert!(waiting_tabs().is_empty(), "it waits no longer once handled");

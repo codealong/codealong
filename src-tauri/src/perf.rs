@@ -517,6 +517,8 @@ Total number in stack (recursive counted multiple, when >=5):
         let mut paths: Vec<PathBuf> = (0..5).map(|i| home.join(format!("code/app/node_modules/pkg{i}/index.js"))).collect();
         paths.extend((0..2).map(|i| PathBuf::from(format!("/private/tmp/build/out/file{i}"))));
         paths.push(home.join("code/app/src/main.ts"));
-        assert_eq!(busiest_in(&paths, home), "/Users/me/code/app/node_modules (5), /private/tmp/build/out (2), /Users/me/code/app/src (1)");
+        // Each folder as the paths' own parts make it, which on Windows are `\`-joined.
+        let (modules, out, src) = (home.join("code").join("app").join("node_modules"), std::path::Path::new("/private/tmp/build/out").components().collect::<PathBuf>(), home.join("code").join("app").join("src"));
+        assert_eq!(busiest_in(&paths, home), format!("{} (5), {} (2), {} (1)", modules.display(), out.display(), src.display()));
     }
 }

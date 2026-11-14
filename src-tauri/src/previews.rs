@@ -424,7 +424,7 @@ impl Scanner {
         self.canon.retain(|k, _| roots.contains(k));
         for r in roots {
             if !self.canon.contains_key(r) {
-                self.canon.insert(r.clone(), std::fs::canonicalize(r).unwrap_or_else(|_| r.clone()));
+                self.canon.insert(r.clone(), dunce::canonicalize(r).unwrap_or_else(|_| r.clone()));
             }
         }
         let own = std::process::id();
@@ -654,6 +654,7 @@ mod tests {
     /// A page served in a worktree is found and read; a port that isn't HTTP is found and isn't
     /// a page; and the kernel's word that the server's process ended reaches the watcher.
     #[test]
+    #[cfg_attr(windows, ignore = "starts a server with /usr/bin/python3, which Windows hasn't")]
     fn finds_servers_in_worktrees() {
         let dir = std::env::temp_dir().join(format!("codealong-previews-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();

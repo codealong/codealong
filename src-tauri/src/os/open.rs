@@ -86,7 +86,7 @@ pub fn launch(app: App, new_copy: bool, args: &[&str], timeout: Duration) -> Res
 /// is `open`, and it has no `setsid`. On Windows it's started detached from Codealong's console
 /// and process group, and watched for the same moment.
 pub fn start_detached(program: &str, args: &[&str], timeout: Duration) -> Result<()> {
-    if super::NATIVE == Os::Windows {
+    if super::current() == Os::Windows {
         return start_detached_here(program, args);
     }
     let mut all = vec!["-c", START_DETACHED, program];
@@ -185,11 +185,11 @@ mod tests {
         if crate::os::NATIVE != Os::Linux {
             return;
         }
-        assert!(start_detached("/bin/sleep", &["2"], Duration::from_secs(5)).is_ok());
-        assert!(start_detached("/bin/true", &[], Duration::from_secs(5)).is_ok());
+        assert!(start_detached(&crate::procs::posix_tool("sleep"), &["2"], Duration::from_secs(5)).is_ok());
+        assert!(start_detached(&crate::procs::posix_tool("true"), &[], Duration::from_secs(5)).is_ok());
         let e = start_detached("no-such-program-codealong", &["x"], Duration::from_secs(5)).unwrap_err();
         assert_eq!(e.to_string(), "no-such-program-codealong is not installed");
-        let e = start_detached("/bin/sh", &["-c", "exit 3"], Duration::from_secs(5)).unwrap_err();
+        let e = start_detached(&crate::procs::posix_tool("sh"), &["-c", "exit 3"], Duration::from_secs(5)).unwrap_err();
         assert!(e.to_string().ends_with("exited with status 3 as it started"), "{e}");
     }
 }

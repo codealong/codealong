@@ -471,7 +471,7 @@ fn agent(a: &AccountCfg) -> Result<Arc<Agent>> {
     let _installing = runs_a_package(a).then(|| INSTALLING.read().unwrap_or_else(|e| e.into_inner()));
     let (command, env) = adapter_command(a).map_err(|e| anyhow!(e))?;
     // Through a shell, so an account's command may set variables the way it does in a terminal.
-    let mut cmd = Command::new("/bin/sh");
+    let mut cmd = Command::new(crate::procs::sh()?);
     cmd.args(["-c", &format!("exec {command}")]).envs(env).env("PATH", adapter_path()).current_dir(crate::util::home());
     let ag = connect(&a.name, cmd, log_file(&a.name)).with_context(|| format!("Couldn't start {}'s agent ({command}).", a.name))?;
     let init = match ag.initialize() {
@@ -1018,9 +1018,13 @@ fn current_option(options: &Value, category: &str) -> Option<String> {
 /// each session it holds, which lists itself among the account's sessions (`sessions/<pid>.json`)
 /// and runs the account's hooks, Codealong's permission hook among them. What it asks comes
 /// through its adapter (`on_permission`), so the hook's copy of a request isn't one to hold.
+///
+/// Its adapter's process is its parent where the shell an adapter is started through (`agent`)
+/// becomes the adapter. On Windows that's Git Bash, whose launcher runs bash, which runs the
+/// adapter as a process of its own: the process Codealong started is its parent's grandparent.
 pub fn runs(pid: u32) -> bool {
     let adapters: Vec<u32> = state().agents.values().map(|a| a.client.pid()).collect();
-    crate::procs::parent_pid(pid).is_some_and(|p| adapters.contains(&p))
+    crate::procs::ancestors(pid).iter().skip(1).take(3).any(|p| adapters.contains(p))
 }
 
 /// Whether Codealong runs this session (or ran it, and can again).
@@ -1906,7 +1910,7 @@ mod tests {
             r#"*'"method":"session/cancel"'*) exit 0;; esac; done"#.to_string(),
         ]
         .join(" ");
-        let mut cmd = Command::new("/bin/sh");
+        let mut cmd = Command::new(crate::procs::posix_tool("sh"));
         cmd.args(["-c", &script, "sh"]).arg(&heard);
         let account = "test-adapter-lines";
         let key = key_of(Harness::Codex, account, "s1");
@@ -1945,7 +1949,7 @@ mod tests {
     /// A stand-in adapter, made `account`'s process: `script` runs in sh with the file to keep
     /// each line it reads in as `$1`, `heard` in `dir`.
     fn stand_in(account: &str, script: &str, dir: &Path) -> Arc<Agent> {
-        let mut cmd = Command::new("/bin/sh");
+        let mut cmd = Command::new(crate::procs::posix_tool("sh"));
         cmd.args(["-c", script, "sh"]).arg(dir.join("heard"));
         let ag = connect(account, cmd, std::fs::File::create(dir.join("log")).unwrap()).unwrap();
         state().agents.insert(account.into(), ag.clone());
@@ -2049,19 +2053,21 @@ mod tests {
     /// A process an adapter started is one of Codealong's own sessions (claude-agent-acp's
     /// `claude`, which runs the permission hook); any other process isn't.
     #[test]
+    #[cfg_attr(windows, ignore = "Git Bash starts a background job by fork and exec, whose Windows parent is gone by then, so nothing climbs to its shell")]
     fn knows_the_processes_its_adapters_started() {
         let dir = store::test_dir("acp-runs");
         let child = dir.join("child");
-        let script = format!(r#"sleep 30 & echo $! > '{}'; while IFS= read -r line; do :; done"#, child.display());
+        let script = format!(r#"sleep 30 & echo {} > '{}'; while IFS= read -r line; do :; done"#, crate::procs::LAST_PID, child.display());
         let account = "test-adapter-runs";
         let _ag = stand_in(account, &script, &dir);
         wait_until("its child to start", 10, || std::fs::read_to_string(&child).is_ok_and(|s| s.ends_with('\n')));
         let pid: u32 = std::fs::read_to_string(&child).unwrap().trim().parse().unwrap();
-        assert!(runs(pid));
+        // Windows' list of processes is a snapshot up to a quarter of a second old.
+        wait_until("its child to be listed", 10, || runs(pid));
         assert!(!runs(std::process::id()));
         state().agents.remove(account);
-        let _ = Command::new("kill").arg(pid.to_string()).status();
-        assert!(!runs(pid));
+        let _ = crate::os::procs::signal(pid, crate::os::procs::Signal::Terminate);
+        wait_until("its child to be gone", 10, || !runs(pid));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -2157,7 +2163,7 @@ mod tests {
         let asked = Permission { rpc: json!("w1"), tool_call: "call-w1".into(), label: "Run ls".into(), input: None, options: vec![Offered { id: "ok".into(), kind: "allow_once".into(), name: "Yes".into() }], plan: false, answering: false, asked_at: 0 };
         state().sessions.insert(key.clone(), Hosted { account: account.into(), id: "s1".into(), cwd: "/w".into(), loaded: true, running: true, permissions: vec![asked], queue: vec!["And then?".into()], text: "Working".into(), ..Default::default() });
         let ag = stand_in(account, keeps, &stayed);
-        let mut cmd = Command::new("/bin/sh");
+        let mut cmd = Command::new(crate::procs::posix_tool("sh"));
         cmd.args(["-c", keeps, "sh"]).arg(let_go.join("heard"));
         let other = connect(account, cmd, std::fs::File::create(let_go.join("log")).unwrap()).unwrap();
 
@@ -2189,7 +2195,7 @@ mod tests {
         let dir = store::test_dir("acp-stops-starting");
         let account = "test-adapter-stops-starting";
         // It answers the handshake and leaves.
-        let mut cmd = Command::new("/bin/sh");
+        let mut cmd = Command::new(crate::procs::posix_tool("sh"));
         cmd.args(["-c", r#"read -r line; echo '{"jsonrpc":"2.0","id":1,"result":{}}'"#]);
         let gone = connect(account, cmd, std::fs::File::create(dir.join("log")).unwrap()).unwrap();
         gone.initialize().unwrap();
@@ -2208,7 +2214,7 @@ mod tests {
         // The next one is kept, and the old one's end, heard late, leaves it alone.
         state().agents.insert(account.into(), gone.clone());
         let keeps = r#"while IFS= read -r line; do printf '%s\n' "$line" >> "$1"; done"#;
-        let mut cmd = Command::new("/bin/sh");
+        let mut cmd = Command::new(crate::procs::posix_tool("sh"));
         cmd.args(["-c", keeps, "sh"]).arg(dir.join("heard"));
         let next = connect(account, cmd, std::fs::File::create(dir.join("log2")).unwrap()).unwrap();
         assert!(Arc::ptr_eq(&keep_agent(account, next.clone()).unwrap(), &next));
@@ -2408,13 +2414,13 @@ mod tests {
     fn an_install_that_hangs_is_stopped_and_says_so() {
         let dir = store::test_dir("acp-npm");
         let failed = |npm: &str, args: &[&str], timeout: Duration| run_npm(npm, args, &dir, timeout).err().expect("it fails").to_string();
-        let e = failed("/bin/sleep", &["30"], Duration::from_millis(300));
+        let e = failed(&crate::procs::posix_tool("sleep"), &["30"], Duration::from_millis(300));
         assert!(e.starts_with("npm timed out after "), "{e}");
         // No npm at all still says what to install.
         let e = failed("/nowhere/npm", &["install"], Duration::from_secs(5));
         assert!(e.starts_with("npm isn't installed: the adapters are Node packages."), "{e}");
         // And one that ran is read as before, whatever it exited with.
-        let Ok(out) = run_npm("/bin/sh", &["-c", "echo 'npm ERR! 404' >&2; exit 1"], &dir, Duration::from_secs(5)) else { panic!("it ran") };
+        let Ok(out) = run_npm(&crate::procs::posix_tool("sh"), &["-c", "echo 'npm ERR! 404' >&2; exit 1"], &dir, Duration::from_secs(5)) else { panic!("it ran") };
         assert_eq!((out.ok, out.err.lines().last()), (false, Some("npm ERR! 404")));
         let _ = std::fs::remove_dir_all(&dir);
     }

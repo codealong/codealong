@@ -96,12 +96,12 @@ fn resolve(typed: &str, home: &Path) -> Option<PathBuf> {
     let mut out = PathBuf::new();
     for part in expand_in(t, home).components() {
         match part {
-            Component::RootDir => out.push("/"),
-            Component::Normal(p) => out.push(p),
+            // Windows' drive (`C:`) too, which a home folder there starts with.
+            Component::Prefix(_) | Component::RootDir | Component::Normal(_) => out.push(part),
             Component::ParentDir => {
                 out.pop();
             }
-            Component::CurDir | Component::Prefix(_) => {}
+            Component::CurDir => {}
         }
     }
     Some(out)
@@ -205,7 +205,7 @@ mod tests {
         std::fs::create_dir_all(h.join("projects/atlas")).unwrap();
         let new = at("~/projects/kestrel", &h);
         assert_eq!((new.shown.as_str(), new.name.as_str(), new.exists, new.refused.as_deref()), ("~/projects/kestrel", "kestrel", false, None));
-        assert_eq!(new.path, h.join("projects/kestrel").to_string_lossy());
+        assert_eq!(new.path, h.join("projects").join("kestrel").to_string_lossy());
         let there = at("~/projects/atlas", &h);
         assert!(there.exists && there.refused.is_none());
         assert_eq!(at("~/projets/kestrel", &h).refused.as_deref(), Some("~/projets isn't there."), "a typo above it makes nothing");

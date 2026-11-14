@@ -161,7 +161,7 @@ fn hearing(_: &Args, _: &[String]) -> Done {
 fn transcribe(_: &Args, rest: &[String]) -> Done {
     use crate::ear::{Ear, Event, From, Source, Spec};
     let path = rest.first().ok_or(Stop::Usage)?;
-    let path = std::fs::canonicalize(path).map_err(|e| Stop::Failed(format!("{path}: {e}")))?;
+    let path = dunce::canonicalize(path).map_err(|e| Stop::Failed(format!("{path}: {e}")))?;
     let spec = Spec { sources: vec![Source { name: crate::listen::THEM.into(), from: From::File { path: path.to_string_lossy().into_owned(), paced: false } }], locale: rest.get(1).cloned().unwrap_or_default(), hints: Vec::new() };
     let (tx, rx) = std::sync::mpsc::channel();
     let ear = Ear::start(&spec, move |event| {

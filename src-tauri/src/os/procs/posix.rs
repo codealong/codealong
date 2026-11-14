@@ -110,8 +110,30 @@ fn set_nonblocking(fd: RawFd) {
     }
 }
 
+/// Writes all of `bytes` to a child's input, set not to wait (`nonblocking`), as it takes them,
+/// asking every `tick` it waits whether to give up.
+pub fn write_within(pipe: &mut ChildStdin, bytes: &[u8], tick: Duration, give_up: &(dyn Fn() -> bool + Sync)) -> std::io::Result<super::Wrote> {
+    let mut rest = bytes;
+    while !rest.is_empty() {
+        match pipe.write(rest) {
+            Ok(n) => {
+                rest = &rest[n..];
+                continue;
+            }
+            Err(e) if e.kind() == ErrorKind::Interrupted => continue,
+            Err(e) if e.kind() == ErrorKind::WouldBlock => {}
+            Err(e) => return Err(e),
+        }
+        if give_up() {
+            return Ok(if rest.len() < bytes.len() { super::Wrote::Part } else { super::Wrote::Nothing });
+        }
+        wait_writable(pipe, tick);
+    }
+    Ok(super::Wrote::All)
+}
+
 /// Waits up to `wait` for a nonblocking pipe that refused a write to take more.
-pub fn wait_writable(pipe: &impl AsRawFd, wait: Duration) {
+fn wait_writable(pipe: &impl AsRawFd, wait: Duration) {
     let mut ready = libc::pollfd { fd: pipe.as_raw_fd(), events: libc::POLLOUT, revents: 0 };
     // SAFETY: one live pollfd, and a count of one.
     unsafe {

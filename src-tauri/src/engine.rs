@@ -4724,7 +4724,7 @@ struct WorktreeFiles {
 fn read_worktree(path: &Path) -> WorktreeFiles {
     // A linked worktree's `.git` is a file that names its git folder; a main checkout's is that folder.
     // Made canonical, as the watcher's paths are, so a change under it is matched to its lane.
-    let gitdir = if path.join(".git").is_file() { crate::repos::linked_gitdir(path).map(|d| std::fs::canonicalize(&d).unwrap_or(d)) } else { None };
+    let gitdir = if path.join(".git").is_file() { crate::repos::linked_gitdir(path).map(|d| dunce::canonicalize(&d).unwrap_or(d)) } else { None };
     let mut b = GitignoreBuilder::new(path);
     b.add(path.join(".gitignore"));
     WorktreeFiles { gitdir, ignore: b.build().ok() }
@@ -5419,7 +5419,7 @@ mod tests {
             let _ = std::fs::remove_dir_all(&home);
             std::fs::create_dir_all(&home).unwrap();
             // As git reports paths: /private/var, not /var.
-            let home = std::fs::canonicalize(&home).unwrap();
+            let home = dunce::canonicalize(&home).unwrap();
             let run = std::process::Command::new(std::env::current_exe().unwrap())
                 .args(["engine::tests::the_first_scan_publishes_while_a_worktree_read_is_held", "--exact", "--nocapture"])
                 .env("HOME", &home)
@@ -5955,6 +5955,7 @@ mod tests {
     /// A terminal opened to start a session becomes that session's own once its process runs
     /// there, found by the device; a session elsewhere takes none.
     #[test]
+    #[cfg_attr(windows, ignore = "Codealong's own terminals aren't on Windows yet")]
     fn a_session_running_in_a_terminal_of_codealongs_makes_it_its_own() {
         use super::*;
         use crate::terminals;

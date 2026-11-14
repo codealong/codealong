@@ -2437,7 +2437,7 @@ fn listen(cmd: ListenCmd, c: &mut Client, json: bool) -> Result<()> {
         ListenCmd::Start { session, file, at_speed, role, start_sessions, prompt } => {
             needs_server(c)?;
             let key = resolve_session(c, &session)?;
-            let path = std::fs::canonicalize(crate::util::expand(&file)).with_context(|| format!("{file} isn't there to hear."))?;
+            let path = dunce::canonicalize(crate::util::expand(&file)).with_context(|| format!("{file} isn't there to hear."))?;
             let role = match role {
                 RoleArg::Notes => Role::Notes,
                 RoleArg::Coach => Role::Coach,
@@ -6454,7 +6454,7 @@ fn with_options(c: &mut Client, mut s: crate::schedules::Schedule, o: ScheduleOp
     if o.chat {
         (s.run.folder, s.run.worktree) = (String::new(), false);
     } else if let Some(worktree) = o.worktree {
-        let dir = std::fs::canonicalize(expand(&worktree)).unwrap_or_else(|_| expand(&worktree));
+        let dir = dunce::canonicalize(expand(&worktree)).unwrap_or_else(|_| expand(&worktree));
         s.run.folder = match lane_for_path(c.board()?, &dir) {
             Some(lane) => lane.path.clone(),
             None if s.run.to == To::Session => String::new(),
@@ -7759,7 +7759,7 @@ fn terminal_run(c: &mut Client, a: TerminalRunArgs, json: bool) -> Result<()> {
         }
         None => std::env::current_dir().context("reading the current folder")?,
     };
-    let cwd = cwd.canonicalize().with_context(|| format!("{} isn't a folder here", tilde(&cwd)))?;
+    let cwd = dunce::canonicalize(&cwd).with_context(|| format!("{} isn't a folder here", tilde(&cwd)))?;
     eprintln!("Asking your user to allow it in Codealong, and waiting for their answer…");
     // No other command on this Mac has this one's pid while it runs.
     let ask = terminal::Ask { session: session.clone(), command, cwd, token: Some(format!("{}-{}", std::process::id(), now_ms())) };

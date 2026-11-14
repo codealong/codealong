@@ -751,7 +751,7 @@ mod tests {
         let (behind, front) = (root.join("behind"), root.join("front"));
         std::fs::create_dir_all(&behind).unwrap();
         std::fs::create_dir_all(&front).unwrap();
-        let real = |dir: &Path| dir.canonicalize().unwrap().to_string_lossy().into_owned();
+        let real = |dir: &Path| dunce::canonicalize(dir).unwrap().to_string_lossy().into_owned();
         let (behind_at, front_at) = (real(&behind), real(&front));
         let find = |at: &str, ready: &dyn Fn(&Tab) -> bool| {
             for _ in 0..100 {

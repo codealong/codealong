@@ -286,7 +286,7 @@ fn walk_skills(dir: &Path, depth: usize, below_link: bool, seen: &mut HashSet<Pa
         match std::fs::read_to_string(&file) {
             // A skill reached twice (through a link) is one skill.
             Ok(text) => {
-                let real = std::fs::canonicalize(&file).unwrap_or(file);
+                let real = dunce::canonicalize(&file).unwrap_or(file);
                 if seen.insert(real.clone()) {
                     out.push(Found { folder: path, real, text, below_link });
                 }
@@ -356,7 +356,7 @@ fn described(name: String, front: &HashMap<String, String>, body: &str) -> Optio
 /// `metadata.surfaces` leaves out the harness's program, one a link takes out of a folder that
 /// keeps to itself, or, where links are followed out, one below the folder a link leads to.
 fn command_skills(mut found: Vec<Found>, root: &Root, how: AsCommands) -> Vec<File> {
-    let real_root = std::fs::canonicalize(&root.dir).unwrap_or_else(|_| root.dir.clone());
+    let real_root = dunce::canonicalize(&root.dir).unwrap_or_else(|_| root.dir.clone());
     found.retain(|f| if how.contained { f.real.starts_with(&real_root) } else { !f.below_link });
     found.sort_by_key(|f| f.folder.join("SKILL.md").to_string_lossy().into_owned());
     let mut shared: HashMap<String, usize> = HashMap::new();

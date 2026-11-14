@@ -886,8 +886,8 @@ pub fn lane_at<'a>(board: &'a Board, dir: &Path) -> Option<&'a Lane> {
 
 /// The worktree the folder is in: the lane whose path contains it, the deepest one.
 pub fn lane_for_path<'a>(board: &'a Board, dir: &Path) -> Option<&'a Lane> {
-    let dir = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
-    board.lanes.iter().filter(|l| dir.starts_with(&l.path) || std::fs::canonicalize(&l.path).is_ok_and(|p| dir.starts_with(p))).max_by_key(|l| l.path.len())
+    let dir = dunce::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
+    board.lanes.iter().filter(|l| dir.starts_with(&l.path) || dunce::canonicalize(&l.path).is_ok_and(|p| dir.starts_with(p))).max_by_key(|l| l.path.len())
 }
 
 /// The launch for one start, as its harness takes it (`Adapter::start_in_terminal`,

@@ -253,8 +253,9 @@ impl Forks {
 /// once.
 pub fn job_folder_owner(path: &Path) -> Option<String> {
     static KNOWN: Mutex<Option<HashMap<PathBuf, String>>> = Mutex::new(None);
-    // Asked of every session's folder as the board is composed: most have no jobs folder.
-    if !path.to_string_lossy().contains("/jobs/") {
+    // Asked of every session's folder as the board is composed: most have no jobs folder. Its
+    // components say for sure below, whichever separator the path has.
+    if !path.to_string_lossy().contains("jobs") {
         return None;
     }
     let parts: Vec<_> = path.components().collect();

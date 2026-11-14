@@ -1494,8 +1494,9 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "Codealong's own terminals aren't on Windows yet")]
     fn reads_the_folder_a_shell_reports() {
-        let dir = std::env::temp_dir().canonicalize().unwrap();
+        let dir = dunce::canonicalize(std::env::temp_dir()).unwrap();
         let d = dir.to_string_lossy();
         assert_eq!(folder_of(&format!("file://somehost{d}")), Some(d.to_string()));
         assert_eq!(folder_of("file://somehost/no/such/folder/here"), None);

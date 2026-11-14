@@ -21,7 +21,7 @@
 
 use std::path::{Path, PathBuf};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use data_encoding::HEXLOWER;
 use serde::Serialize;
 use serde_json::Value;
@@ -36,7 +36,7 @@ const MARKER: &str = ".codealong-version";
 /// symlink `link_command` made when it's run as `codealong`; resolved, so a link is never made
 /// to point at itself and the bundle's Resources are found through it.
 fn this_binary() -> std::io::Result<PathBuf> {
-    std::env::current_exe().and_then(std::fs::canonicalize)
+    std::env::current_exe().and_then(dunce::canonicalize)
 }
 
 /// The skill folder shipped with this binary, when it can be found.
@@ -49,7 +49,7 @@ pub fn skill_source() -> Option<PathBuf> {
         }
     }
     candidates.push(Path::new(env!("CARGO_MANIFEST_DIR")).join("../skills/codealong"));
-    candidates.into_iter().find(|p| p.join("SKILL.md").is_file()).and_then(|p| std::fs::canonicalize(p).ok())
+    candidates.into_iter().find(|p| p.join("SKILL.md").is_file()).and_then(|p| dunce::canonicalize(p).ok())
 }
 
 /// Where the account's harness reads personal skills, or None when Codealong doesn't know.
@@ -453,7 +453,7 @@ pub fn plugin_source() -> Option<PathBuf> {
     candidates
         .into_iter()
         .find(|p| p.join(".claude-plugin/marketplace.json").is_file() && p.join("plugin/.claude-plugin/plugin.json").is_file())
-        .and_then(|p| std::fs::canonicalize(p).ok())
+        .and_then(|p| dunce::canonicalize(p).ok())
 }
 
 /// The plugin's version in a marketplace folder: what Claude Code compares to update it.
@@ -661,7 +661,7 @@ fn marketplace_source(home: &Path) -> Option<Value> {
 
 fn is_ours(source: &Value, ours: &Path) -> bool {
     let path = source.get("path").and_then(Value::as_str).map(Path::new);
-    source.get("source").and_then(Value::as_str) == Some("directory") && path.is_some_and(|p| p == ours || std::fs::canonicalize(p).ok() == std::fs::canonicalize(ours).ok())
+    source.get("source").and_then(Value::as_str) == Some("directory") && path.is_some_and(|p| p == ours || dunce::canonicalize(p).ok() == dunce::canonicalize(ours).ok())
 }
 
 /// Whether Codealong goes into the account as a plugin rather than a skill copy: its harness has
@@ -673,11 +673,18 @@ pub fn takes_plugin(a: &AccountCfg) -> bool {
 /// Runs `claude plugin <args>` for an account: with its folder as `CLAUDE_CONFIG_DIR`, or without
 /// one for `~/.claude` (claude/mod.rs `usual_folder`).
 fn claude_plugin(home: &Path, args: &[&str]) -> Result<String> {
-    let config = format!("CLAUDE_CONFIG_DIR={}", home.display());
-    let mut all: Vec<&str> = if crate::claude::usual_folder(home) { vec!["-u", "CLAUDE_CONFIG_DIR"] } else { vec![config.as_str()] };
-    all.extend(["claude", "plugin"]);
+    let wait = std::time::Duration::from_secs(120);
+    let mut all = vec!["plugin"];
     all.extend(args);
-    crate::procs::run("/usr/bin/env", &all, Some(&crate::util::home()), std::time::Duration::from_secs(120))
+    if crate::claude::usual_folder(home) {
+        return crate::procs::run_without("claude", &all, Some(&crate::util::home()), &["CLAUDE_CONFIG_DIR"], wait);
+    }
+    let o = crate::procs::run_in("claude", &all, &crate::util::home(), &[("CLAUDE_CONFIG_DIR".into(), home.display().to_string())], "", wait)?;
+    if o.ok {
+        Ok(o.out)
+    } else {
+        Err(anyhow!("claude {}", o.err.trim()))
+    }
 }
 
 /// Runs `claude plugin <verb>` on the plugin as the account's own (user scope), the install
@@ -965,7 +972,8 @@ mod tests {
 
     #[test]
     fn a_folder_is_on_path_only_as_an_entry() {
-        let path = Some("/opt/homebrew/bin:/usr/local/bin::/usr/bin");
+        let joined = std::env::join_paths(["/opt/homebrew/bin", "/usr/local/bin", "", "/usr/bin"]).unwrap().into_string().unwrap();
+        let path = Some(joined.as_str());
         assert!(dir_on_path(Path::new("/usr/local/bin"), path));
         assert!(dir_on_path(Path::new("/usr/bin"), path));
         assert!(!dir_on_path(Path::new("/usr/local"), path));
@@ -982,7 +990,7 @@ mod tests {
         let a = AccountCfg { name: "claude9".into(), harness: "claude".into(), home: root.join("claude9").to_string_lossy().into_owned(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         let row = account_skill(Some(&src), &a);
         assert_eq!((row.installed, row.current), (false, false));
-        assert!(row.path.as_deref().unwrap().ends_with("claude9/skills/codealong"));
+        assert!(Path::new(row.path.as_deref().unwrap()).ends_with("claude9/skills/codealong"));
         copy_skill(&src, &skill_dir(&a).unwrap()).unwrap();
         let row = account_skill(Some(&src), &a);
         assert_eq!((row.installed, row.current, row.edited), (true, true, false));
@@ -1054,7 +1062,8 @@ mod tests {
         assert!(v2 != v1 && v2.starts_with("1.0.0+"));
         assert_eq!(plugin_version(&dst).as_deref(), Some(v2.as_str()));
         // The bundle's plugin has no skill of its own: the app's copy goes in.
-        std::fs::remove_file(src.join("plugin/skills")).unwrap();
+        // A link to a folder is a folder to take away, to Windows.
+        std::fs::remove_file(src.join("plugin/skills")).or_else(|_| std::fs::remove_dir(src.join("plugin/skills"))).unwrap();
         let v3 = stage_marketplace_from(&src, Some(&src.join("skills/codealong")), &dst, false).unwrap();
         assert_eq!(v3, v2, "the same files, whichever way they came");
         std::fs::remove_dir_all(&dst).unwrap();

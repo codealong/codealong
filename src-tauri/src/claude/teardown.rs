@@ -45,13 +45,13 @@ pub fn remove_hooks(main: &Path, worktree: &Path) -> Vec<Hook> {
 /// say they made or hold the worktree at `path` (`worktreePath`), by their short ids.
 pub fn jobs_in(home: &Path, path: &Path) -> Vec<String> {
     let Ok(entries) = std::fs::read_dir(home.join("jobs")) else { return Vec::new() };
-    let real = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let real = dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     let mut jobs: Vec<String> = entries
         .flatten()
         .filter(|e| {
             let Ok(bytes) = std::fs::read(e.path().join("state.json")) else { return false };
             let Some(held) = worktree_of(&bytes) else { return false };
-            held == path || std::fs::canonicalize(&held).is_ok_and(|h| h == real)
+            held == path || dunce::canonicalize(&held).is_ok_and(|h| h == real)
         })
         .map(|e| e.file_name().to_string_lossy().into_owned())
         .filter(|job| is_job_id(job))
@@ -79,7 +79,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("codealong-teardown-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join(".claude")).unwrap();
-        std::fs::canonicalize(&dir).unwrap()
+        dunce::canonicalize(&dir).unwrap()
     }
 
     #[test]

@@ -179,8 +179,8 @@ fn from_github(slug: &str, path: &str, sha: &str) -> Result<Vec<u8>> {
 /// The file at `path` in `worktree`, if it's a file there and inside it: a link in the repo to
 /// somewhere else isn't followed out of it.
 fn in_worktree(worktree: &Path, path: &Path) -> Option<PathBuf> {
-    let root = worktree.canonicalize().ok()?;
-    let file = worktree.join(path).canonicalize().ok()?;
+    let root = dunce::canonicalize(worktree).ok()?;
+    let file = dunce::canonicalize(worktree.join(path)).ok()?;
     (file.starts_with(&root) && file.is_file()).then_some(file)
 }
 
@@ -339,7 +339,7 @@ mod tests {
         let e = Ends { head: "bbbbbbb1".into(), base: "aaaaaaa1".into() };
         let read = |path: &str, sha: &str| Ok(format!("{path} at {sha}\n").into_bytes());
         let (_, new) = sides(&ask("src/a.ts", "modified", None), "acme/app", 7, &e, Some(&wt), &store, &read).unwrap();
-        assert_eq!(new, wt.join("src/a.ts").canonicalize().unwrap());
+        assert_eq!(new, dunce::canonicalize(wt.join("src/a.ts")).unwrap());
         // A file the worktree doesn't have (removed there, say) is read from the PR's head.
         let (_, gone) = sides(&ask("src/b.ts", "modified", None), "acme/app", 7, &e, Some(&wt), &store, &read).unwrap();
         assert_eq!(gone, kept_at(&store, "acme/app", 7, "bbbbbbb1", Path::new("src/b.ts")));

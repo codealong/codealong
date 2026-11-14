@@ -227,7 +227,8 @@ pub fn tty(pid: u32) -> Option<Option<PathBuf>> {
 
 /// Every Linux terminal emulator is on the PATH when the apps are installed.
 pub fn on_path(command: &str) -> Option<Option<PathBuf>> {
-    staged(|s| s.setup.installed.then(|| PathBuf::from("/usr/bin").join(command)))
+    // As the OS played has it, whichever the tests run on.
+    staged(|s| s.setup.installed.then(|| PathBuf::from(format!("/usr/bin/{command}"))))
 }
 
 /// Rex's command is there when the apps are installed.
@@ -1607,6 +1608,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "Rex is macOS's, and the launcher it's sent here has the Windows host's path")]
     fn rex_is_sent_a_window_in_its_projects_session_beside_its_folder_or_a_session_of_its_own() {
         // In the session named for its project, whatever its case, after the tabs there of the
         // nearest folders that have one, with the launcher as its program for the environment,

@@ -192,6 +192,7 @@ mod tests {
     /// A process in one of Codealong's terminals is found there by its device, typed into as a
     /// send types (a paste, then Return), and pressed keys in; closing its tab ends it.
     #[test]
+    #[cfg_attr(windows, ignore = "Codealong's own terminals aren't on Windows yet")]
     fn a_session_in_codealongs_terminal_is_typed_into_and_closed() {
         let g = terminals::open(terminals::Open { folder: std::env::temp_dir(), command: Some("read line; echo \"got:$line\"; read key; echo \"key:$key\"; sleep 30".into()), size: Some(terminals::DEFAULT_SIZE), ..Default::default() }).unwrap();
         let name = g.tty.trim_start_matches("/dev/").to_string();

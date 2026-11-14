@@ -205,7 +205,11 @@ pub fn read_folder(folder: &Path) -> Option<Parsed> {
         for part in Path::new(rel).components() {
             at.push(part);
             match std::fs::symlink_metadata(&at) {
-                Ok(m) if m.file_type().is_symlink() => return Err(format!("{} {LINK}.", at.strip_prefix(folder).unwrap_or(&at).display())),
+                // Named as the repo names it, with `/`, as the other messages here are.
+                Ok(m) if m.file_type().is_symlink() => {
+                    let named: Vec<_> = at.strip_prefix(folder).unwrap_or(&at).iter().map(|part| part.to_string_lossy()).collect();
+                    return Err(format!("{} {LINK}.", named.join("/")));
+                }
                 Ok(_) => {}
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
                 Err(e) => return Err(format!("reading {rel}: {e}")),

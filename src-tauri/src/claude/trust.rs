@@ -42,15 +42,15 @@ pub fn trusts(home: &Path, folder: &Path) -> bool {
 }
 
 fn trusts_in(file: &Path, folder: &Path) -> bool {
-    let Ok(folder) = std::fs::canonicalize(folder) else { return false };
+    let Ok(folder) = dunce::canonicalize(folder) else { return false };
     let Ok(keys) = trust_keys(&folder) else { return false };
     std::fs::read_to_string(file).is_ok_and(|text| matches!(with_trust(&text, &keys), Ok(None)))
 }
 
 fn trust_folder_in(file: &Path, folder: &Path, user_home: &Path) -> anyhow::Result<bool> {
     // Claude Code goes by its working folder, which the system gives with links resolved.
-    let folder = std::fs::canonicalize(folder)?;
-    let user_home = std::fs::canonicalize(user_home).unwrap_or_else(|_| user_home.to_path_buf());
+    let folder = dunce::canonicalize(folder)?;
+    let user_home = dunce::canonicalize(user_home).unwrap_or_else(|_| user_home.to_path_buf());
     // It trusts the home folder one session at a time, and every folder outside a repo goes by
     // the folders above it, so trusting home or above would trust nearly everything.
     if user_home.starts_with(&folder) {
@@ -77,7 +77,9 @@ fn trust_folder_in(file: &Path, folder: &Path, user_home: &Path) -> anyhow::Resu
 
 /// The `projects` entries Claude Code looks at to tell whether it trusts `folder` (2.1.285's
 /// code): its own first, the one a trust adds, then each folder's above it, up to its worktree's
-/// root in a repo and all the way up outside one, and its repo's main checkout's.
+/// root in a repo and all the way up outside one, and its repo's main checkout's. Each is named
+/// as Claude Code names them, every `\` turned to `/` on every OS (2.1.100's
+/// `normalize(path).replaceAll("\\","/")`), so a Windows folder is `C:/Users/…`.
 fn trust_keys(folder: &Path) -> anyhow::Result<Vec<String>> {
     let located = crate::repos::locate(folder);
     let mut keys: Vec<&Path> = Vec::new();
@@ -90,8 +92,9 @@ fn trust_keys(folder: &Path) -> anyhow::Result<Vec<String>> {
     keys.extend(located.as_ref().map(|(_, main)| main.as_path()));
     // A main checkout is its own.
     keys.dedup();
-    let own = keys[0].to_str().ok_or_else(|| anyhow::anyhow!("{} isn't a name Claude Code can keep", folder.display()))?;
-    Ok(std::iter::once(own.to_string()).chain(keys[1..].iter().filter_map(|k| k.to_str()).map(String::from)).collect())
+    let key = |p: &Path| p.to_str().map(|s| s.replace('\\', "/"));
+    let own = key(keys[0]).ok_or_else(|| anyhow::anyhow!("{} isn't a name Claude Code can keep", folder.display()))?;
+    Ok(std::iter::once(own).chain(keys[1..].iter().filter_map(|k| key(k))).collect())
 }
 
 /// `text`, Claude Code's state file, with the entry for `keys[0]` (the folder's own, see
@@ -237,7 +240,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("codealong-trust-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::canonicalize(&dir).unwrap()
+        dunce::canonicalize(&dir).unwrap()
     }
 
     #[test]
@@ -249,7 +252,7 @@ mod tests {
         std::fs::write(main.join(".git/worktrees/wt/commondir"), "../..\n").unwrap();
         std::fs::create_dir_all(wt.join("sub")).unwrap();
         std::fs::write(wt.join(".git"), format!("gitdir: {}\n", main.join(".git/worktrees/wt").display())).unwrap();
-        let s = |p: &Path| p.to_str().unwrap().to_string();
+        let s = |p: &Path| p.to_str().unwrap().replace('\\', "/");
         assert_eq!(trust_keys(&wt.join("sub")).unwrap(), vec![s(&wt.join("sub")), s(&wt), s(&main)]);
         assert_eq!(trust_keys(&main).unwrap(), vec![s(&main)]);
         // Outside a repo, every folder up to the top.
@@ -257,7 +260,7 @@ mod tests {
         std::fs::create_dir_all(&loose).unwrap();
         let got = trust_keys(&loose).unwrap();
         assert_eq!(got.first(), Some(&s(&loose)));
-        assert_eq!(got.last().map(String::as_str), Some("/"));
+        assert_eq!(got.last(), Some(&s(loose.ancestors().last().unwrap())));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -271,7 +274,7 @@ mod tests {
         let home = dir.join("home");
         assert!(trust_folder_in(&file, &folder, &home).unwrap());
         let v: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
-        assert_eq!(v["projects"][folder.to_str().unwrap()][TRUSTED], Value::Bool(true));
+        assert_eq!(v["projects"][&folder.to_str().unwrap().replace('\\', "/")][TRUSTED], Value::Bool(true));
         assert_eq!(v["oauthAccount"]["emailAddress"], "a@b.c");
         assert!(!dir.join(".claude.json.lock").exists());
         // Only POSIX has modes: on Windows a file in your profile is yours alone already.
@@ -294,7 +297,7 @@ mod tests {
         let file = dir.join(".claude.json");
         let folder = dir.join("proj");
         std::fs::create_dir_all(&folder).unwrap();
-        let text = format!("{{\"projects\": {{\"{}\": {{\"{TRUSTED}\": true}}}}}}", folder.display());
+        let text = format!("{{\"projects\": {{\"{}\": {{\"{TRUSTED}\": true}}}}}}", folder.display().to_string().replace('\\', "/"));
         std::fs::write(&file, &text).unwrap();
         assert!(trusts_in(&file, &folder));
         assert!(trusts_in(&file, &folder.join(".")));
@@ -349,7 +352,7 @@ mod tests {
         letting_go.join().unwrap();
         // Untouched for longer than proper-lockfile's 10 seconds: left by a process that's gone.
         std::fs::create_dir(&lock).unwrap();
-        std::fs::File::open(&lock).unwrap().set_modified(SystemTime::now() - Duration::from_secs(20)).unwrap();
+        crate::os::files::set_modified(&lock, SystemTime::now() - Duration::from_secs(20)).unwrap();
         std::fs::create_dir_all(dir.join("b")).unwrap();
         assert!(trust_folder_in(&file, &dir.join("b"), &home).unwrap());
         assert!(!lock.exists());

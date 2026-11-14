@@ -700,7 +700,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("codealong-rex-check-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         // As its processes have it: /var is /private/var.
-        let dir = dir.canonicalize().unwrap();
+        let dir = dunce::canonicalize(&dir).unwrap();
         let out = dir.join("out");
         let place = Placement { new_terminal: NewTerminal::Window, near: &crate::board::ALONE, behind: true, label: Some("codealong check") };
         let env = [("CODEALONG_CHECK".to_string(), "it's here".to_string())];

@@ -192,7 +192,7 @@ pub fn binary() -> Result<PathBuf, Refused> {
         return Ok(named);
     }
     // Beside the engine, through whatever link the command was run by.
-    let beside = std::env::current_exe().and_then(std::fs::canonicalize).ok().and_then(|exe| exe.parent().map(|dir| dir.join(NAME)));
+    let beside = std::env::current_exe().and_then(dunce::canonicalize).ok().and_then(|exe| exe.parent().map(|dir| dir.join(NAME)));
     match beside {
         Some(path) if path.is_file() => Ok(path),
         _ => Err(Refused::new(UNAVAILABLE, "This build of Codealong was made without its hearing (scripts/ear.sh builds it).")),

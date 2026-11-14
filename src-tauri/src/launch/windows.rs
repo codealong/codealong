@@ -32,17 +32,13 @@ fn wt() -> Option<PathBuf> {
     on_path("wt")
 }
 
-/// Git Bash's bash: on the PATH, but not Windows' own `bash.exe` in System32, which is WSL's and
-/// runs in Linux; else where Git for Windows installs it.
+/// Git Bash's bash (`procs::git_bash`), or in a test the one it stages.
 fn bash() -> Option<PathBuf> {
-    let system = std::env::var_os("SystemRoot").map(PathBuf::from);
-    on_path("bash").filter(|p| system.as_ref().is_none_or(|s| !p.starts_with(s))).or_else(|| {
-        ["ProgramFiles", "ProgramW6432", "LOCALAPPDATA"]
-            .iter()
-            .filter_map(std::env::var_os)
-            .map(|d| if Path::new(&d).ends_with("Local") { PathBuf::from(d).join("Programs/Git/bin/bash.exe") } else { PathBuf::from(d).join("Git/bin/bash.exe") })
-            .find(|p| p.is_file())
-    })
+    #[cfg(test)]
+    if let Some(staged) = super::stage::on_path("bash") {
+        return staged;
+    }
+    crate::procs::git_bash()
 }
 
 /// The script a new window's bash runs: it deletes itself, goes to `dir`, sets `env`, runs `line`

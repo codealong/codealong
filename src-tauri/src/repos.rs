@@ -115,7 +115,7 @@ pub fn locate(path: &Path) -> Option<(PathBuf, PathBuf)> {
             let gitdir = linked_gitdir(d)?;
             let common = std::fs::read_to_string(gitdir.join("commondir")).ok()?;
             let common = gitdir.join(common.trim());
-            let common = std::fs::canonicalize(&common).unwrap_or(common);
+            let common = dunce::canonicalize(&common).unwrap_or(common);
             let main = common.parent()?.to_path_buf();
             return Some((d.to_path_buf(), main));
         }
@@ -344,10 +344,10 @@ mod tests {
         std::fs::write(admin.join("commondir"), "../..\n").unwrap();
         std::fs::write(wt.join(".git"), "gitdir: ../main/.git/worktrees/wt\n").unwrap();
         let gitdir = linked_gitdir(&wt).unwrap();
-        assert_eq!(std::fs::canonicalize(&gitdir).unwrap(), std::fs::canonicalize(&admin).unwrap());
+        assert_eq!(dunce::canonicalize(&gitdir).unwrap(), dunce::canonicalize(&admin).unwrap());
         let (worktree, checkout) = locate(&wt.join("src")).or_else(|| locate(&wt)).unwrap();
         assert_eq!(worktree, wt);
-        assert_eq!(std::fs::canonicalize(checkout).unwrap(), std::fs::canonicalize(&main).unwrap());
+        assert_eq!(dunce::canonicalize(checkout).unwrap(), dunce::canonicalize(&main).unwrap());
         // An absolute one reads as it's written.
         std::fs::write(wt.join(".git"), format!("gitdir: {}\n", admin.display())).unwrap();
         assert_eq!(linked_gitdir(&wt).unwrap(), admin);

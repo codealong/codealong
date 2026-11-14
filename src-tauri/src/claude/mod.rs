@@ -1725,7 +1725,8 @@ fn resume_args(account: &AccountCfg, s: &Session, home_of: impl Fn(&str) -> Opti
 
 /// `resume_from` for a command line typed into a shell: an ID as it is, a path quoted.
 fn shell_word(from: &str) -> String {
-    if from.contains('/') {
+    // A path, whichever separator it has (Windows' is `\`, which a shell takes for an escape).
+    if from.contains(['/', '\\']) {
         crate::util::sh_quote(from)
     } else {
         from.to_string()
@@ -2256,7 +2257,7 @@ mod tests {
     fn questions_show_in_the_conversation_and_wait_where_the_session_runs() {
         use crate::harness::Adapter;
         let home = crate::fixtures::scratch("questions");
-        let dir = home.join("projects/-x");
+        let dir = home.join("projects").join("-x");
         std::fs::create_dir_all(home.join("sessions")).unwrap();
         std::fs::create_dir_all(&dir).unwrap();
         let id = "5c1d7e2a";
@@ -2319,7 +2320,7 @@ mod tests {
         use crate::harness::{Adapter, Answer};
         use std::io::{BufRead, BufReader, Read, Write};
         let home = crate::fixtures::scratch("job-questions");
-        let dir = home.join("projects/-x");
+        let dir = home.join("projects").join("-x");
         std::fs::create_dir_all(home.join("sessions")).unwrap();
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::create_dir_all(home.join("jobs/1a2b3c4d")).unwrap();
@@ -2497,7 +2498,7 @@ mod tests {
         let (old_home, new_home) = (crate::fixtures::scratch("moved-from"), crate::fixtures::scratch("moved-to"));
         let account = |name: &str, home: &Path| AccountCfg { name: name.into(), harness: "claude".into(), home: home.to_string_lossy().into_owned(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         let (from, to) = (account("claude", &old_home), account("claude2", &new_home));
-        let project = old_home.join("projects/-Users-me-app");
+        let project = old_home.join("projects").join("-Users-me-app");
         std::fs::create_dir_all(&project).unwrap();
         let transcript = project.join("s1.jsonl");
         std::fs::write(&transcript, r#"{"type":"user","sessionId":"s1","cwd":"/Users/me/app","timestamp":"2026-09-23T15:00:00.000Z","message":{"role":"user","content":"Fix the build"}}
@@ -2529,7 +2530,7 @@ mod tests {
         assert_eq!(shell_word(&transcript.to_string_lossy()), crate::util::sh_quote(&transcript.to_string_lossy()));
         assert_eq!(shell_word("s1"), "s1");
         // Once it has written its own, the board goes on from that.
-        let own = new_home.join("projects/-Users-me-app");
+        let own = new_home.join("projects").join("-Users-me-app");
         std::fs::create_dir_all(&own).unwrap();
         std::fs::write(own.join("c0.jsonl"), "{}\n").unwrap();
         assert_eq!(records_in(&to, &Session { continues: None, ..copy.clone() }, home_of), [own.join("c0.jsonl")]);
@@ -2543,7 +2544,7 @@ mod tests {
         use crate::harness::Reader as _;
         let home = crate::fixtures::scratch("app-forks");
         let account = AccountCfg { name: "claude".into(), harness: "claude".into(), home: home.to_string_lossy().into_owned(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
-        let project = home.join("projects/-Users-me-app");
+        let project = home.join("projects").join("-Users-me-app");
         std::fs::create_dir_all(&project).unwrap();
         let line = |session: &str, at: &str, text: &str| serde_json::json!({ "type": "user", "sessionId": session, "cwd": "/Users/me/app", "entrypoint": "claude-desktop", "timestamp": at, "origin": { "kind": "human" }, "message": { "role": "user", "content": text } }).to_string() + "\n";
         let title = |session: &str, title: &str| serde_json::json!({ "type": "custom-title", "customTitle": title, "sessionId": session }).to_string() + "\n";
@@ -2587,7 +2588,7 @@ mod tests {
         let (old_home, new_home) = (crate::fixtures::scratch("closed-copy-from"), crate::fixtures::scratch("closed-copy-to"));
         let account = |name: &str, home: &Path| AccountCfg { name: name.into(), harness: "claude".into(), home: home.to_string_lossy().into_owned(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         let (from, to) = (account("claude", &old_home), account("claude2", &new_home));
-        let project = old_home.join("projects/-Users-me-app");
+        let project = old_home.join("projects").join("-Users-me-app");
         std::fs::create_dir_all(&project).unwrap();
         let transcript = project.join("s1.jsonl");
         std::fs::write(&transcript, r#"{"type":"user","sessionId":"s1","cwd":"/Users/me/app","timestamp":"2026-09-23T15:00:00.000Z","message":{"role":"user","content":"Fix the build"}}
@@ -2634,7 +2635,7 @@ mod tests {
         assert!(reader.closed_copies(&to, &HashSet::new(), &origins, &look_archived)[0].archived);
 
         // Once its first message has written its own transcript, it resumes by its own ID.
-        let own = new_home.join("projects/-Users-me-app");
+        let own = new_home.join("projects").join("-Users-me-app");
         std::fs::create_dir_all(&own).unwrap();
         std::fs::write(own.join("c0.jsonl"), "{}\n").unwrap();
         assert_eq!(resume_args(&to, &Session { continues: None, ..copy.clone() }, home_of), "c0");
@@ -2660,7 +2661,7 @@ mod tests {
         use std::io::Write;
 
         let home = crate::fixtures::scratch("claude-reader");
-        let project = home.join("projects/-Users-me-app");
+        let project = home.join("projects").join("-Users-me-app");
         std::fs::create_dir_all(project.join("s1/subagents")).unwrap();
         let account = AccountCfg { name: "claude9".into(), harness: "claude".into(), home: home.to_string_lossy().into_owned(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None };
         let seen = crate::state::SeenState::default();
@@ -2698,8 +2699,8 @@ mod tests {
 
         // A subagent started once the session had gone into a worktree logs under that
         // worktree's project; a session the reader doesn't keep has none listed.
-        let elsewhere = home.join("projects/-Users-me-app-wt/s1/subagents/agent-b.jsonl");
-        let stranger = home.join("projects/-Users-me-app-wt/s2/subagents/agent-c.jsonl");
+        let elsewhere = home.join("projects").join("-Users-me-app-wt").join("s1").join("subagents").join("agent-b.jsonl");
+        let stranger = home.join("projects").join("-Users-me-app-wt").join("s2").join("subagents").join("agent-c.jsonl");
         for f in [&elsewhere, &stranger] {
             std::fs::create_dir_all(f.parent().unwrap()).unwrap();
             std::fs::write(f, "{}\n").unwrap();
@@ -2714,7 +2715,7 @@ mod tests {
         // A transcript come on late, as one resumed from before the window is, goes with its
         // subagents' logs so far, wherever they are; after that only their new lines are handed on.
         let old = project.join("s3.jsonl");
-        let old_sub = home.join("projects/-Users-me-app-wt/s3/subagents/agent-d.jsonl");
+        let old_sub = home.join("projects").join("-Users-me-app-wt").join("s3").join("subagents").join("agent-d.jsonl");
         std::fs::create_dir_all(old_sub.parent().unwrap()).unwrap();
         std::fs::write(&old_sub, "{}\n").unwrap();
         std::fs::write(&old, "{\"type\":\"user\",\"sessionId\":\"s3\",\"cwd\":\"/Users/me/app\",\"timestamp\":\"2026-09-20T15:00:00.000Z\",\"message\":{\"role\":\"user\",\"content\":\"Publish the report\"}}\n").unwrap();

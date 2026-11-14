@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 /// folder. A bare repository's worktree, a copied one, or one whose main checkout keeps its git
 /// folder elsewhere has none, and goes by the folder itself.
 fn trust_root(folder: &Path) -> Option<PathBuf> {
-    let real = |p: &Path| std::fs::canonicalize(p).ok();
+    let real = |p: &Path| dunce::canonicalize(p).ok();
     let mut dir = if folder.is_dir() { folder.to_path_buf() } else { folder.parent()?.to_path_buf() };
     let root = loop {
         let found = dir.ancestors().find(|d| d.join(".git").exists())?.to_path_buf();
@@ -103,7 +103,7 @@ fn lookup_keys(folder: &Path) -> Vec<String> {
     let root = trust_root(folder);
     let mut keys = Vec::new();
     for path in std::iter::once(folder).chain(root.as_deref()) {
-        let real = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        let real = dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
         for p in [real.as_path(), path] {
             let key = p.to_string_lossy().into_owned();
             if !keys.contains(&key) {
@@ -118,7 +118,7 @@ fn lookup_keys(folder: &Path) -> Vec<String> {
 /// (`trust_root`), else the folder, with its links resolved.
 fn trust_target(folder: &Path) -> PathBuf {
     let target = trust_root(folder).unwrap_or_else(|| folder.to_path_buf());
-    std::fs::canonicalize(&target).unwrap_or(target)
+    dunce::canonicalize(&target).unwrap_or(target)
 }
 
 /// Trusts `folder` for the account whose config is `config` (`<CODEX_HOME>/config.toml`), so a
@@ -192,12 +192,14 @@ mod tests {
 
     #[test]
     fn trusts_a_folder_by_its_repo_unless_codex_has_an_answer() {
-        let dir = std::fs::canonicalize(crate::fixtures::scratch("codex-trust")).unwrap();
+        let dir = dunce::canonicalize(crate::fixtures::scratch("codex-trust")).unwrap();
         let home = dir.join("home");
-        let repo = home.join("r/app");
+        // A key as Codex writes it, quoted as TOML has it quoted: `'C:\…'` on Windows.
+        let quoted = |p: &Path| toml_edit::Key::new(p.to_string_lossy()).to_string();
+        let repo = home.join("r").join("app");
         std::fs::create_dir_all(repo.join(".git")).unwrap();
         std::fs::write(repo.join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
-        let chat = home.join("chats/2026-10-13-ab12");
+        let chat = home.join("chats").join("2026-10-13-ab12");
         std::fs::create_dir_all(&chat).unwrap();
         let config = dir.join("config.toml");
         // As Codex writes it.
@@ -207,12 +209,12 @@ mod tests {
         // A folder in a repo goes by the repo.
         assert!(trust_folder(&config, &repo.join("src"), &home).unwrap());
         let text = std::fs::read_to_string(&config).unwrap();
-        assert_eq!(text, format!("{written}\n[projects.\"{}\"]\ntrust_level = \"trusted\"\n", repo.display()));
+        assert_eq!(text, format!("{written}\n[projects.{}]\ntrust_level = \"trusted\"\n", quoted(&repo)));
         assert!(!trust_folder(&config, &repo, &home).unwrap());
         // A folder outside one by itself, its parent's entry not counting.
         assert!(trust_folder(&config, &chat, &home).unwrap());
-        assert!(std::fs::read_to_string(&config).unwrap().contains(&format!("[projects.\"{}\"]", chat.display())));
-        let other = home.join("chats/2026-10-13-cd34");
+        assert!(std::fs::read_to_string(&config).unwrap().contains(&format!("[projects.{}]", quoted(&chat))));
+        let other = home.join("chats").join("2026-10-13-cd34");
         std::fs::create_dir_all(&other).unwrap();
         assert!(trust_folder(&config, &other, &home).unwrap());
 
@@ -226,18 +228,18 @@ mod tests {
             std::fs::write(admin.join("gitdir"), format!("{}\n", named.join(".git").display())).unwrap();
             std::fs::write(admin.join("HEAD"), "ref: refs/heads/wt\n").unwrap();
         };
-        let main = home.join("r/main");
+        let main = home.join("r").join("main");
         std::fs::create_dir_all(main.join(".git")).unwrap();
         std::fs::write(main.join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
-        let wt = home.join("r/wt");
+        let wt = home.join("r").join("wt");
         worktree(&main.join(".git/worktrees/wt"), &wt, &wt);
         assert_eq!(trust_target(&wt), main);
-        let link = home.join("r/alias");
+        let link = home.join("r").join("alias");
         crate::os::files::symlink(&main, &link).unwrap();
-        let by_link = home.join("r/wt-link");
+        let by_link = home.join("r").join("wt-link");
         worktree(&link.join(".git/worktrees/wt-link"), &by_link, &by_link);
         assert_eq!(trust_root(&by_link), Some(link.clone()));
-        let copy = home.join("r/wt-copy");
+        let copy = home.join("r").join("wt-copy");
         std::fs::create_dir_all(&copy).unwrap();
         std::fs::copy(wt.join(".git"), copy.join(".git")).unwrap();
         assert_eq!(trust_target(&copy), copy);
@@ -247,7 +249,7 @@ mod tests {
         assert_eq!(trust_target(&feature), feature);
         // A `.git` that names its git folder from where it is, through the link, spells the main
         // checkout by the link, its `..` worked out.
-        let relative = home.join("r/wt-rel");
+        let relative = home.join("r").join("wt-rel");
         std::fs::create_dir_all(link.join(".git/worktrees/wt-rel")).unwrap();
         std::fs::create_dir_all(&relative).unwrap();
         std::fs::write(relative.join(".git"), "gitdir: ../alias/.git/worktrees/wt-rel\n").unwrap();
@@ -255,14 +257,14 @@ mod tests {
         std::fs::write(link.join(".git/worktrees/wt-rel/gitdir"), format!("{}\n", relative.join(".git").display())).unwrap();
         assert_eq!(trust_root(&relative), Some(link.clone()));
         // An answer kept under the link's spelling is found.
-        let untrusted_link = format!("[projects.\"{}\"]\ntrust_level = \"untrusted\"\n", link.display());
+        let untrusted_link = format!("[projects.{}]\ntrust_level = \"untrusted\"\n", quoted(&link));
         assert_eq!(with_trust(&untrusted_link, &lookup_keys(&by_link), &trust_target(&by_link).to_string_lossy()).unwrap(), None);
 
         // An answer of untrusted stands.
-        let untrusted = format!("[projects.\"{}\"]\ntrust_level = \"untrusted\"\n", repo.display());
+        let untrusted = format!("[projects.{}]\ntrust_level = \"untrusted\"\n", quoted(&repo));
         assert_eq!(with_trust(&untrusted, &lookup_keys(&repo), &repo.to_string_lossy()).unwrap(), None);
         // An entry for the folder that says nothing comes first, so it's the one that's answered.
-        let empty = format!("[projects.\"{}\"]\n[projects.\"{}\"]\ntrust_level = \"untrusted\"\n", wt.display(), main.display());
+        let empty = format!("[projects.{}]\n[projects.{}]\ntrust_level = \"untrusted\"\n", quoted(&wt), quoted(&main));
         let answered: toml::Table = with_trust(&empty, &lookup_keys(&wt), &trust_target(&wt).to_string_lossy()).unwrap().unwrap().parse().unwrap();
         assert_eq!(answered["projects"][&wt.to_string_lossy().into_owned()]["trust_level"].as_str(), Some("trusted"));
         assert_eq!(answered["projects"][&main.to_string_lossy().into_owned()]["trust_level"].as_str(), Some("untrusted"));

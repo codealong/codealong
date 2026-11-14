@@ -384,14 +384,15 @@ pub fn environment(pid: u32) -> Option<HashMap<String, String>> {
 
 /// An environment block: `NAME=value` wide strings, each ending in a NUL, the block in another.
 /// Windows' own entries for each drive's folder (`=C:=C:\work`) start with `=`, and aren't
-/// variables.
+/// variables. Names come back in capitals: Windows matches them whatever their case (its own
+/// `Path` is `PATH`), and the names asked for here are written so.
 fn environ(wide: &[u16]) -> HashMap<String, String> {
     wide.split(|&c| c == 0)
         .take_while(|v| !v.is_empty())
         .filter_map(|v| {
             let s = String::from_utf16_lossy(v);
             let (k, v) = s.split_once('=')?;
-            (!k.is_empty()).then(|| (k.to_string(), v.to_string()))
+            (!k.is_empty()).then(|| (k.to_uppercase(), v.to_string()))
         })
         .collect()
 }
@@ -493,9 +494,40 @@ pub fn lower_priority(pid: u32) {
 /// not to wait for a broken one), so writes to one wait until the child reads.
 pub fn nonblocking<P>(_pipe: &P) {}
 
-/// Never reached on Windows, where writes wait (`nonblocking`): a moment's sleep.
-pub fn wait_writable<P>(_pipe: &P, wait: Duration) {
-    std::thread::sleep(wait);
+/// Writes all of `bytes` to a child's input. A write there waits until the child takes it
+/// (`nonblocking`), so a thread of its own asks every `tick` whether to give up, and then cancels
+/// it (`CancelIoEx`, as `Pipes` does). Windows doesn't say how much of a cancelled write went, so
+/// it's taken for part of it.
+pub fn write_within(pipe: &mut std::process::ChildStdin, bytes: &[u8], tick: Duration, give_up: &(dyn Fn() -> bool + Sync)) -> std::io::Result<super::Wrote> {
+    use std::io::Write;
+    use std::os::windows::io::AsRawHandle;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::mpsc::{channel, RecvTimeoutError};
+    use windows_sys::Win32::System::IO::CancelIoEx;
+    let handle = pipe.as_raw_handle() as usize;
+    let cancelled = &AtomicBool::new(false);
+    let (done, waiting) = channel::<()>();
+    let wrote = std::thread::scope(|s| {
+        s.spawn(move || {
+            while let Err(RecvTimeoutError::Timeout) = waiting.recv_timeout(tick) {
+                if give_up() {
+                    cancelled.store(true, Ordering::SeqCst);
+                    // SAFETY: the pipe's own handle, open until the write below has returned and
+                    // this scope has ended; one with nothing waiting on it answers that there was
+                    // nothing to cancel, and the next tick cancels a write that started after.
+                    unsafe { CancelIoEx(handle as HANDLE, std::ptr::null()) };
+                }
+            }
+        });
+        let wrote = pipe.write_all(bytes);
+        drop(done);
+        wrote
+    });
+    match wrote {
+        Ok(()) => Ok(super::Wrote::All),
+        Err(_) if cancelled.load(Ordering::SeqCst) => Ok(super::Wrote::Part),
+        Err(e) => Err(e),
+    }
 }
 
 /// A child's stdin, stdout and stderr, driven without the caller's thread waiting on them: a
@@ -651,12 +683,13 @@ mod tests {
 
     #[test]
     fn reads_an_environment_block_without_the_drives_folders() {
-        let block: Vec<u16> = "=C:=C:\\work\0HOME=C:\\Users\\me\0EMPTY=\0EQ=a=b\0\0".encode_utf16().collect();
+        let block: Vec<u16> = "=C:=C:\\work\0HOME=C:\\Users\\me\0EMPTY=\0EQ=a=b\0Path=C:\\Windows\0\0".encode_utf16().collect();
         let env = environ(&block);
-        assert_eq!(env.len(), 3);
+        assert_eq!(env.len(), 4);
         assert_eq!(env["HOME"], "C:\\Users\\me");
         assert_eq!(env["EMPTY"], "");
         assert_eq!(env["EQ"], "a=b");
+        assert_eq!(env["PATH"], "C:\\Windows");
     }
 
     #[test]

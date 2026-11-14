@@ -351,7 +351,7 @@ fn shell_path(dir: &Path) -> String {
 /// A folder as config.toml and state.json compare it: resolved, without a trailing slash.
 pub fn folder_key(home: &str) -> String {
     let p = expand(home.trim());
-    let p = std::fs::canonicalize(&p).unwrap_or(p);
+    let p = dunce::canonicalize(&p).unwrap_or(p);
     p.to_string_lossy().trim_end_matches('/').to_string()
 }
 
@@ -567,7 +567,7 @@ fn installed(harness: &str, h: &Path, path_dirs: &[PathBuf]) -> bool {
 
 /// Whether a command is in one of `dirs`: by its name, or on Windows its name with an extension
 /// Windows runs (`claude.cmd`, `claude.exe`).
-fn in_dirs<P: AsRef<Path>>(dirs: impl Iterator<Item = P>, name: &str) -> bool {
+pub(crate) fn in_dirs<P: AsRef<Path>>(dirs: impl Iterator<Item = P>, name: &str) -> bool {
     let names = crate::os::procs::names_to_find(std::ffi::OsStr::new(name));
     dirs.into_iter().any(|d| names.iter().any(|n| is_executable(&d.as_ref().join(n))))
 }

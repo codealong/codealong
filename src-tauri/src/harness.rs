@@ -1554,7 +1554,8 @@ mod tests {
         assert_eq!(adapter(Harness::Cursor).missing_cli(&cursor, home), Some("cursor-agent"));
         assert!(crate::start::places_of(&cursor, home).is_err());
         std::fs::create_dir_all(home.join(".local/bin")).unwrap();
-        let cli = home.join(".local/bin/cursor-agent");
+        // Windows runs a file by its extension: npm's own commands there are `.cmd`s.
+        let cli = home.join(".local").join("bin").join(if crate::os::is_windows() { "cursor-agent.cmd" } else { "cursor-agent" });
         std::fs::write(&cli, "#!/bin/sh\n").unwrap();
         crate::os::files::set_mode(&cli, 0o755).unwrap();
         assert_eq!(adapter(Harness::Cursor).missing_cli(&cursor, home), None);

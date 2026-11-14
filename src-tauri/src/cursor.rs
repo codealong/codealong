@@ -73,7 +73,7 @@ pub fn cli_command(account: &AccountCfg) -> &str {
 /// Whether `cursor-agent` is installed for the user whose home is `home`: where its installer
 /// puts it, or, for you, anywhere on your PATH.
 pub fn cli_installed(home: &Path) -> bool {
-    crate::detect::is_executable(&home.join(".local/bin").join(CLI)) || (home == crate::util::home() && crate::detect::on_user_path(CLI))
+    crate::detect::in_dirs(std::iter::once(home.join(".local").join("bin")), CLI) || (home == crate::util::home() && crate::detect::on_user_path(CLI))
 }
 
 /// The file in a folder's records (`projects/<slug>`) that says the command line trusts the
@@ -127,7 +127,7 @@ pub fn trust_folder(data: &Path, folder: &Path, user_home: &Path) -> anyhow::Res
         anyhow::bail!("{} holds the home folder", folder.display());
     }
     let given = folder.to_string_lossy().trim_end_matches('/').to_string();
-    let real = std::fs::canonicalize(folder).ok().map(|p| p.to_string_lossy().into_owned());
+    let real = dunce::canonicalize(folder).ok().map(|p| p.to_string_lossy().into_owned());
     let mut wrote = false;
     for path in std::iter::once(given.clone()).chain(real.filter(|r| *r != given)) {
         let records = data.join("projects").join(slug(&path));
@@ -3011,7 +3011,7 @@ mod tests {
     #[test]
     fn trusts_a_folder_as_its_prompt_does_and_not_the_home_folder() {
         let dir = crate::fixtures::scratch("cursor-trust");
-        let root = std::fs::canonicalize(&*dir).unwrap();
+        let root = dunce::canonicalize(&*dir).unwrap();
         let (home, user) = (root.join("me/.cursor"), root.join("me"));
         let folder = root.join("me/projects/app two");
         std::fs::create_dir_all(&folder).unwrap();

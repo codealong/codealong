@@ -400,14 +400,17 @@ fn replace(text: &str, mut with: impl FnMut(usize, usize, Kind, &str) -> Option<
     out
 }
 
+/// A kept file's full path as text: its folder, a `/` (which Windows takes too), and its
+/// reference's part after the folder's name, so `shorten_in` finds the folder in it whichever OS
+/// wrote it.
+fn full_path(dir: &Path, rest: &str) -> String {
+    format!("{}/{rest}", dir.to_string_lossy().trim_end_matches(['/', '\\']))
+}
+
 /// The text with each attachment as the agent should get it.
 pub fn expand_in(text: &str, images: &Path, files: &Path, style: Style) -> String {
     replace(text, |start, end, kind, rest| {
-        let full = match kind {
-            Kind::Image => images.join(rest),
-            Kind::File => files.join(rest),
-        };
-        let full = full.to_string_lossy().to_string();
+        let full = full_path(if kind == Kind::Image { images } else { files }, rest);
         Some(match (style, markdown_span(text, start, end)) {
             (Style::Mention, Some((from, to))) => (from, to, format!("@\"{full}\"")),
             (Style::Mention, None) => (start, end, format!("@\"{full}\"")),
@@ -444,7 +447,7 @@ pub fn expand(text: &str, style: Style) -> String {
 fn strip_images_in(text: &str, images: &Path, files: &Path, style: Style, mut take: impl FnMut(&str, &Path) -> bool) -> String {
     let short = shorten_in(text, images, files);
     let stripped = replace(&short, |start, end, kind, rest| {
-        if kind != Kind::Image || !take(rest, &images.join(rest)) {
+        if kind != Kind::Image || !take(rest, Path::new(&full_path(images, rest))) {
             return None;
         }
         let (mut from, mut to) = markdown_span(&short, start, end).unwrap_or((start, end));
@@ -517,22 +520,26 @@ pub fn going_with_in(text: &str, images: &Path, files: &Path) -> Result<Vec<(Str
 
 /// Text that went out with full paths (`Style::Path`) as a window writes it again, each kept
 /// file by its `images/…` or `files/…` reference, so it shows as it did when you sent it. Any
-/// other path under the folders (a name Codealong wouldn't have made) stays as it is.
+/// other path under the folders (a name Codealong wouldn't have made) stays as it is. The folder
+/// may end in either separator: `full_path` writes a `/`, and Windows' own a `\`.
 pub fn shorten_in(text: &str, images: &Path, files: &Path) -> String {
     let mut out = text.to_string();
     for (dir, prefix, valid) in [(images, IMAGES, valid_image as fn(&str) -> bool), (files, FILES, valid_file)] {
-        let dir = format!("{}/", dir.to_string_lossy().trim_end_matches('/'));
-        let mut short = String::with_capacity(out.len());
-        let mut rest = out.as_str();
-        while let Some(i) = rest.find(&dir) {
-            let body = &rest[i + dir.len()..];
-            let len = body.find(|c: char| !(safe_char(c) || c == '/')).unwrap_or(body.len());
-            short.push_str(&rest[..i]);
-            short.push_str(if valid(body[..len].trim_end_matches('.')) { prefix } else { &dir });
-            rest = body;
+        let dir = dir.to_string_lossy();
+        for sep in ['/', '\\'] {
+            let dir = format!("{}{sep}", dir.trim_end_matches(['/', '\\']));
+            let mut short = String::with_capacity(out.len());
+            let mut rest = out.as_str();
+            while let Some(i) = rest.find(&dir) {
+                let body = &rest[i + dir.len()..];
+                let len = body.find(|c: char| !(safe_char(c) || c == '/')).unwrap_or(body.len());
+                short.push_str(&rest[..i]);
+                short.push_str(if valid(body[..len].trim_end_matches('.')) { prefix } else { &dir });
+                rest = body;
+            }
+            short.push_str(rest);
+            out = short;
         }
-        short.push_str(rest);
-        out = short;
     }
     out
 }
@@ -840,6 +847,18 @@ mod tests {
         // A path there that's no kept file's (a listing of the folder, say) is left whole.
         let listing = "ls /Users/me/Library/Application Support/Codealong/images/ shows /Users/me/Library/Application Support/Codealong/images/notes.txt";
         assert_eq!(shorten_in(listing, images, files), listing);
+    }
+
+    #[test]
+    fn windows_folders_shorten_back_whichever_separator_follows_them() {
+        let (images, files) = (Path::new(r"C:\Users\me\AppData\Roaming\Codealong\images"), Path::new(r"C:\Users\me\AppData\Roaming\Codealong\files"));
+        let text = "Look:\n![image](images/fedcba9876543210.png) and [log](files/0123456789abcdef/crash.log)";
+        let sent = expand_in(text, images, files, Style::Path);
+        assert_eq!(sent, r"Look:
+![image](C:\Users\me\AppData\Roaming\Codealong\images/fedcba9876543210.png) and [log](C:\Users\me\AppData\Roaming\Codealong\files/0123456789abcdef/crash.log)");
+        assert_eq!(shorten_in(&sent, images, files), text);
+        // As a path Windows wrote, with its own separator after the folder.
+        assert_eq!(shorten_in(r"![image](C:\Users\me\AppData\Roaming\Codealong\images\fedcba9876543210.png)", images, files), "![image](images/fedcba9876543210.png)");
     }
 
     #[test]

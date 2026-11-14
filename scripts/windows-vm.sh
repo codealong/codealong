@@ -234,6 +234,17 @@ sync() {
   scp_vm "$tarball" "dev@127.0.0.1:$copy.tgz"
   rm -f "$tarball"
   ssh_vm "Get-ChildItem -Force ~/$copy | Where-Object Name -ne 'node_modules' | Remove-Item -Recurse -Force; tar -xzf \$HOME/$copy.tgz -C \$HOME/$copy; \$s = \$LASTEXITCODE; Remove-Item ~/$copy.tgz; exit \$s"
+  # tar.exe makes every link a file's link, which Windows won't follow into a folder: a link to a
+  # folder (plugin/skills/codealong) is made again as one, with the target it had.
+  local link links=()
+  while IFS= read -r link; do
+    if [ -d "$link" ]; then links+=("${link#./}"); fi
+  done < <(find . \( -path ./node_modules -o -path ./.git -o -path ./src-tauri/target \) -prune -o -type l -print)
+  for link in "${links[@]}"; do
+    local target win="${link//\//\\}"
+    target="$(readlink "$link")"
+    ssh_vm "Set-Location ~/$copy; Remove-Item -Force '$win'; cmd /c mklink /D '$win' '${target//\//\\}' | Out-Null; exit \$LASTEXITCODE"
+  done
 }
 
 frontend() {

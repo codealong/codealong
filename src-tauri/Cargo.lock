@@ -600,6 +600,7 @@ dependencies = [
  "codealong-peer",
  "data-encoding",
  "dirs",
+ "dunce",
  "gtk",
  "ignore",
  "iroh",

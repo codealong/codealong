@@ -215,7 +215,7 @@ const EDITOR_HANDOFF: &[&str] = &["VSCODE_IPC_HOOK_CLI", "ELECTRON_RUN_AS_NODE"]
 
 fn run_cli(program: &Path, args: &[String], id: &str) -> Result<()> {
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
-    procs::run_without(&program.to_string_lossy(), &args, EDITOR_HANDOFF, Duration::from_secs(20)).map(|_| ()).map_err(|e| anyhow!("Couldn't open {}: {e}", name(id)))
+    procs::run_without(&program.to_string_lossy(), &args, None, EDITOR_HANDOFF, Duration::from_secs(20)).map(|_| ()).map_err(|e| anyhow!("Couldn't open {}: {e}", name(id)))
 }
 
 /// Opens `file` in the editor `id`, at `line`: on its command line where it has one, else as a
@@ -288,7 +288,7 @@ mod tests {
         let ids: Vec<String> = installed_in(&dirs).into_iter().map(|p| p.id).collect();
         assert_eq!(ids, ["vscode", "zed", "pycharm"]);
         // A known editor opens from where it was found, and one that wasn't by its app's name.
-        assert_eq!(app_for(&dirs, "pycharm"), root.join("home/Applications/PyCharm CE.app").to_string_lossy());
+        assert_eq!(app_for(&dirs, "pycharm"), dirs[1].join("PyCharm CE.app").to_string_lossy());
         assert_eq!(app_for(&dirs, "cursor"), "Cursor");
         // Anything else is an app's name or path, for `open -a`.
         assert_eq!(app_for(&dirs, "TextMate"), "TextMate");
@@ -316,6 +316,7 @@ mod tests {
     /// On Linux an editor is its command on the PATH, which takes a line and a diff when the Mac
     /// app's command line does.
     #[test]
+    #[cfg_attr(windows, ignore = "Windows runs a file by its extension, which these stand-ins for Linux's commands haven't")]
     fn finds_linux_editors_by_their_commands_in_menu_order() {
         let _linux = os::AsIf::new(Os::Linux);
         let root = crate::fixtures::scratch("editors-linux");

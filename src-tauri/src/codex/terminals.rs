@@ -74,7 +74,7 @@ pub fn terminals(processes: &[crate::procs::PsLine]) -> Vec<Terminal> {
                 Some(d) => d,
                 None => crate::procs::cwd_of(p.pid)?,
             };
-            let cwd = std::fs::canonicalize(&cwd).unwrap_or(cwd);
+            let cwd = dunce::canonicalize(&cwd).unwrap_or(cwd);
             Some(Terminal { pid: p.pid, cwd, thread, started_at: crate::procs::proc_start_ms(p.pid)?, own_features: own_features(&p.command) })
         })
         .collect()

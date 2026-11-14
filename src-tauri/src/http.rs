@@ -99,7 +99,7 @@ mod tests {
     #[test]
     fn reads_the_status_after_the_body() {
         procs::stand_in::set(Some(Box::new(|program, args, input, _| {
-            assert_eq!(program, "/usr/bin/curl");
+            assert_eq!(program, curl());
             assert!(!args.iter().any(|a| a.contains("Bearer")), "the sign-in stays off the command line");
             assert_eq!(args[0], "-q", "and out of whatever ~/.curlrc says");
             assert!(input.unwrap().contains("Bearer abc"));

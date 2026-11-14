@@ -1742,7 +1742,7 @@ mod tests {
             said.contains(" with Dana Kestrel and Lee Atlas. Their earlier meetings are in /Users/me/Meetings, a folder each with its notes.md; this one repeats, so the last one's notes may say what was left open. What your user writes to you while it goes on is their own note of it: work it into yours."),
             "{said}"
         );
-        assert!(said.contains("Keep notes of it in /Users/me/Meetings/2026-11-10 1400 Renewal call/notes.md"), "{said}");
+        assert!(said.contains(&format!("Keep notes of it in {}", l.notes().display())), "{said}");
         // One that doesn't repeat has no last time; one that's no meeting's says none of it, and
         // keeps its files in its own folder.
         let once = Listening { meeting: Some(ear::Meeting { series: None, ..meeting }), ..l.clone() };

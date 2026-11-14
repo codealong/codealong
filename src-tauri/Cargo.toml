@@ -60,6 +60,10 @@ iroh = "1"
 data-encoding = "2"
 # Pictures drawn for session emblems are shrunk before they're kept (emblems.rs); tauri builds it already.
 png = "0.18"
+# A path's real form, as std's canonicalize gives it, but on Windows without the `\\?\` it puts
+# before every path, which other programs' settings and git don't take (os/mod.rs's tests keep
+# std's out); tauri builds it already.
+dunce = "1"
 # Link codes as QR codes, for the phone app to scan (Settings › Devices).
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 # Codealong's own terminals (terminals.rs): Ghostty's terminal emulator, libghostty-vt 1.0, which

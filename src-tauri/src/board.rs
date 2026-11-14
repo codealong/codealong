@@ -6557,15 +6557,22 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "Git Bash starts a background job by fork and exec, whose Windows parent is gone by then, so nothing climbs to its shell")]
     fn a_real_process_climbs_to_the_one_that_started_its_shell() {
         // This test as the session, a shell its command opened, and a run the shell started.
-        let mut shell = std::process::Command::new("/bin/sh").args(["-c", "sleep 5 & echo $!; wait"]).stdout(std::process::Stdio::piped()).spawn().unwrap();
+        let mut shell = std::process::Command::new(crate::procs::posix_tool("sh")).args(["-c", &format!("sleep 5 & echo {}; wait", crate::procs::LAST_PID)]).stdout(std::process::Stdio::piped()).spawn().unwrap();
         let mut line = String::new();
         std::io::BufRead::read_line(&mut std::io::BufReader::new(shell.stdout.take().unwrap()), &mut line).unwrap();
         let run: u32 = line.trim().parse().unwrap();
         let by_pid = HashMap::from([(std::process::id(), "claude:claude:me")]);
-        let found = started_by(run, crate::procs::parent_pid, &by_pid);
-        let _ = std::process::Command::new("/bin/kill").arg(run.to_string()).status();
+        // Windows' list of processes is a snapshot up to a quarter of a second old.
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        let mut found = started_by(run, crate::procs::parent_pid, &by_pid);
+        while found.is_none() && std::time::Instant::now() < until {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            found = started_by(run, crate::procs::parent_pid, &by_pid);
+        }
+        let _ = crate::os::procs::signal(run, crate::os::procs::Signal::Terminate);
         let _ = shell.wait();
         assert_eq!(found, Some("claude:claude:me"));
     }

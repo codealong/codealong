@@ -122,34 +122,56 @@ impl Drop for AsIf {
 mod tests {
     use super::*;
 
+    /// Each of the engine's source files, but those under `skip`, with its path under src/.
+    fn sources(skip: Option<&str>) -> Vec<(String, String)> {
+        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut out = Vec::new();
+        let mut files = vec![src.clone()];
+        while let Some(at) = files.pop() {
+            if at.is_dir() {
+                if skip.is_none_or(|s| at != src.join(s)) {
+                    files.extend(std::fs::read_dir(&at).unwrap().flatten().map(|e| e.path()));
+                }
+                continue;
+            }
+            if at.extension().is_some_and(|e| e == "rs") {
+                out.push((at.strip_prefix(&src).unwrap().display().to_string(), std::fs::read_to_string(&at).unwrap()));
+            }
+        }
+        out
+    }
+
     /// Only the OS's own calls are picked as the engine is built, and only here: everything else
     /// compiles on either OS and goes by `current()`. A test of what only one OS has (its sounds,
     /// its `sips`) may say so by its `#[test]`.
     #[test]
     fn only_os_compiles_by_os() {
-        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
         let mut found = Vec::new();
-        let mut files = vec![src.clone()];
-        while let Some(at) = files.pop() {
-            if at.is_dir() {
-                if at != src.join("os") {
-                    files.extend(std::fs::read_dir(&at).unwrap().flatten().map(|e| e.path()));
-                }
-                continue;
-            }
-            if at.extension().map_or(true, |e| e != "rs") {
-                continue;
-            }
-            let text = std::fs::read_to_string(&at).unwrap();
+        for (file, text) in sources(Some("os")) {
             let lines: Vec<&str> = text.lines().collect();
             for (i, line) in lines.iter().enumerate() {
                 let under_test = i > 0 && lines[i - 1].trim() == "#[test]";
                 if line.contains(&format!("target_{}", "os")) && !under_test {
-                    found.push(format!("{}:{}", at.strip_prefix(&src).unwrap().display(), i + 1));
+                    found.push(format!("{file}:{}", i + 1));
                 }
             }
         }
         assert!(found.is_empty(), "OS conditions outside os/: {found:?}");
+    }
+
+    /// std's canonicalize puts `\\?\` before every path on Windows, which Claude Code's, Codex's
+    /// and Antigravity's settings and git don't take for the same folder; dunce's leaves it off.
+    #[test]
+    fn paths_are_made_real_by_dunce() {
+        let std_ones = [format!("fs::{}(", "canonicalize"), format!(".{}()", "canonicalize")];
+        let found: Vec<String> = sources(None)
+            .into_iter()
+            .flat_map(|(file, text)| {
+                let lines: Vec<String> = text.lines().enumerate().filter(|(_, l)| std_ones.iter().any(|s| l.contains(s.as_str()))).map(|(i, _)| format!("{file}:{}", i + 1)).collect();
+                lines
+            })
+            .collect();
+        assert!(found.is_empty(), "std's canonicalize, not dunce's: {found:?}");
     }
 
     #[test]

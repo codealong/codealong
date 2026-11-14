@@ -109,7 +109,7 @@ impl Server {
 /// project's hook, which 0.162.1 and the app's 0.163.0-alpha then both listed as trusted.
 pub fn trust_hook(codex_home: &Path, file: &Path, command: &str) -> Result<bool> {
     // Codex names it by its path with links resolved (`/private/var` for `/var`).
-    let file = &std::fs::canonicalize(file).unwrap_or_else(|_| file.to_path_buf());
+    let file = &dunce::canonicalize(file).unwrap_or_else(|_| file.to_path_buf());
     with_server(codex_home, |s| {
         let listed = || -> Result<Value> {
             let all = s.request("hooks/list", json!({ "cwds": [codex_home] }))?;
@@ -330,7 +330,7 @@ pub fn set_name(codex_home: &Path, thread_id: &str, name: &str) -> Result<()> {
 #[cfg(test)]
 pub(super) fn stand_in(heard: &Path, answer: &str) -> Command {
     let script = format!(r#"while IFS= read -r line; do printf '%s\n' "$line" >> "$1"; case "$line" in *'"id":'*) id=${{line#*\"id\":}}; id=${{id%%,*}}; {answer};; esac; done"#);
-    let mut cmd = Command::new("/bin/sh");
+    let mut cmd = Command::new(crate::procs::posix_tool("sh"));
     cmd.args(["-c", &script, "sh"]).arg(heard);
     cmd
 }

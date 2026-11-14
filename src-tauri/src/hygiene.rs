@@ -825,7 +825,7 @@ mod tests {
     #[test]
     fn ending_takes_a_process_with_its_children_and_leaves_any_the_table_doesnt_name() {
         let spawn = |secs: &str| {
-            let mut child = std::process::Command::new("/bin/sleep").arg(secs).spawn().unwrap();
+            let mut child = std::process::Command::new(crate::procs::posix_tool("sleep")).arg(secs).spawn().unwrap();
             let pid = child.id();
             // Reaped as it ends, so it doesn't linger as a zombie that still answers to its pid.
             std::thread::spawn(move || child.wait());

@@ -498,7 +498,7 @@ pub fn is_server(s: &Status) -> bool {
 
 /// This process's binary, as its path reads once links are followed.
 pub fn this_binary() -> Option<PathBuf> {
-    std::env::current_exe().and_then(std::fs::canonicalize).ok()
+    std::env::current_exe().and_then(dunce::canonicalize).ok()
 }
 
 /// Whether a server is this build's own: the same binary, built with the same engine. Codealong

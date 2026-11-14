@@ -140,7 +140,7 @@ pub fn listed(home: &Path, wait: Duration) -> Vec<Builtin> {
 static FOLDER: LazyLock<PathBuf> = LazyLock::new(|| {
     let dir = std::env::temp_dir().join("codealong-claude-skills");
     let _ = std::fs::create_dir_all(&dir);
-    std::fs::canonicalize(&dir).unwrap_or(dir)
+    dunce::canonicalize(&dir).unwrap_or(dir)
 });
 
 /// Whether a live session in `cwd` is the run that lists the skills, which is no session.

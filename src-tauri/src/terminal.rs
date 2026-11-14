@@ -1949,7 +1949,7 @@ mod tests {
     /// tab. The wrapper's is `mkdir` in sh, as here.
     #[test]
     fn a_tab_goes_to_whichever_claims_it_first() {
-        let return_key = |d: &Path| std::process::Command::new("/bin/sh").arg("-c").arg(format!("mkdir {}/{CLAIM} 2>/dev/null", sh_quote(&d.to_string_lossy()))).status().unwrap().success();
+        let return_key = |d: &Path| std::process::Command::new(crate::procs::posix_tool("sh")).arg("-c").arg(format!("mkdir {}/{CLAIM} 2>/dev/null", sh_quote(&d.to_string_lossy()))).status().unwrap().success();
         let d = crate::fixtures::scratch("terminal-claim-close");
         claim_for_close(&d).unwrap();
         assert!(!return_key(&d), "closing: Return ends the wrapper");
@@ -2025,7 +2025,7 @@ mod tests {
         // The wrapper as a tab runs it, `script` stubbed as the wrapper tests do, from its text, as
         // a shell that had opened it before anything was taken away would have it.
         let run_wrapper = |text: &str| {
-            std::process::Command::new("/bin/sh").arg("-c").arg(no_script(text.to_string())).env("SHELL", "/bin/sh").env("HOME", &home).env_remove("ENV").stdin(std::process::Stdio::null()).output().unwrap();
+            std::process::Command::new(crate::procs::posix_tool("sh")).arg("-c").arg(no_script(text.to_string())).env("SHELL", crate::procs::posix_tool("sh")).env("HOME", &home).env_remove("ENV").stdin(std::process::Stdio::null()).output().unwrap();
         };
         let ran = || std::fs::read_to_string(&marker).unwrap_or_default();
 
@@ -2047,7 +2047,7 @@ mod tests {
         assert!(withdraw_unstarted("run-late").unwrap());
         assert!(!late.exists());
         assert!(std::fs::read_dir(runs_dir()).unwrap().flatten().all(|e| !e.file_name().to_string_lossy().starts_with(".withdrawn-")), "moved away whole, then taken apart");
-        let typed = std::process::Command::new("/bin/sh").args(["-c", TYPED.trim()]).env(ENV, &late).stdin(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status().unwrap();
+        let typed = std::process::Command::new(crate::procs::posix_tool("sh")).args(["-c", TYPED.trim()]).env(ENV, &late).stdin(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status().unwrap();
         assert!(!typed.success(), "the line a late tab types finds no wrapper");
         run_wrapper(&text.replace(&claimed.to_string_lossy().into_owned(), &late.to_string_lossy()));
         assert_eq!(ran(), "", "nor does a wrapper that had opened it run anything");
@@ -2231,7 +2231,7 @@ mod tests {
         let home = d.join("home");
         std::fs::create_dir_all(&home).unwrap();
         std::fs::write(home.join(".profile"), "echo 'read its profile'\n").unwrap();
-        let out = std::process::Command::new("/bin/sh").arg("-c").arg(&text).env("SHELL", "/bin/sh").env("HOME", &home).env_remove("ENV").env_remove("BASH_ENV").output().unwrap();
+        let out = std::process::Command::new(crate::procs::posix_tool("sh")).arg("-c").arg(&text).env("SHELL", crate::procs::posix_tool("sh")).env("HOME", &home).env_remove("ENV").env_remove("BASH_ENV").output().unwrap();
         let shown = String::from_utf8_lossy(&out.stdout);
         assert!(shown.contains("read its profile"), "{shown}");
         assert!(shown.contains("Codealong runs this for Fix the 'build', as you allowed:"), "{shown}");
@@ -2250,6 +2250,7 @@ mod tests {
     /// would, so an alias one line defines works on the next (an `eval` of the whole text parses it
     /// all first). zsh with a home of the test's own, so none of your startup files run.
     #[test]
+    #[cfg_attr(windows, ignore = "zsh isn't on Windows")]
     fn a_command_runs_a_line_at_a_time_in_zsh() {
         let d = crate::fixtures::scratch("terminal-wrapper-zsh");
         std::fs::write(d.join(COMMAND), "alias greet='echo hello from an alias'\ngreet\n").unwrap();
@@ -2257,7 +2258,7 @@ mod tests {
         let text = no_script(wrapper(&d, &run, Duration::ZERO));
         let home = d.join("home");
         std::fs::create_dir_all(&home).unwrap();
-        let out = std::process::Command::new("/bin/sh").arg("-c").arg(&text).env("SHELL", "/bin/zsh").env("HOME", &home).env("ZDOTDIR", &home).output().unwrap();
+        let out = std::process::Command::new(crate::procs::posix_tool("sh")).arg("-c").arg(&text).env("SHELL", "/bin/zsh").env("HOME", &home).env("ZDOTDIR", &home).output().unwrap();
         let shown = String::from_utf8_lossy(&out.stdout);
         assert!(shown.contains("hello from an alias"), "{shown}{}", String::from_utf8_lossy(&out.stderr));
         assert_eq!(std::fs::read_to_string(d.join(EXIT)).unwrap().trim(), "0");
@@ -2280,10 +2281,10 @@ mod tests {
             assert!(text.contains("This tab closes in a second, unless you press Return for a shell in it."), "{text}");
             let home = d.join("home");
             std::fs::create_dir_all(&home).unwrap();
-            let child = Command::new("/bin/sh")
+            let child = Command::new(crate::procs::posix_tool("sh"))
                 .arg("-c")
                 .arg(&text)
-                .env("SHELL", "/bin/sh")
+                .env("SHELL", crate::procs::posix_tool("sh"))
                 .env("HOME", &home)
                 .env_remove("ENV")
                 .env_remove("BASH_ENV")

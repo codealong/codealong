@@ -109,7 +109,7 @@ pub fn trust_folder(settings: &Path, folder: &Path, user_home: &Path) -> anyhow:
         anyhow::bail!("{} holds the home folder", folder.display());
     }
     let given = folder.to_str().map(|p| p.trim_end_matches('/').to_string()).filter(|p| !p.is_empty()).ok_or_else(|| anyhow::anyhow!("{} isn't a folder Antigravity can keep", folder.display()))?;
-    let real = std::fs::canonicalize(folder).ok().and_then(|p| p.to_str().map(String::from));
+    let real = dunce::canonicalize(folder).ok().and_then(|p| p.to_str().map(String::from));
     let paths: Vec<String> = std::iter::once(given.clone()).chain(real.filter(|r| *r != given)).collect();
     // Two starts at once would each write back the list they read, losing one folder. agy takes
     // no lock of its own on the file, so only Codealong's writes wait for each other.
@@ -1355,7 +1355,7 @@ fn models(command: &str) -> Vec<crate::start::ModelOption> {
         let command = format!("{command} models");
         std::thread::spawn(move || {
             // Through a shell: an account's command may set variables first.
-            let listed = procs::run_background("/bin/sh", &["-c", &command], None, Duration::from_secs(30)).map(|out| listed_models(&out)).unwrap_or_default();
+            let listed = procs::sh().and_then(|sh| procs::run_background(&sh, &["-c", &command], None, Duration::from_secs(30))).map(|out| listed_models(&out)).unwrap_or_default();
             let mut lock = KEPT.lock().unwrap_or_else(|e| e.into_inner());
             if let Some(kept) = lock.as_mut() {
                 if kept.on_answer(Instant::now(), listed) {
@@ -1416,7 +1416,7 @@ pub fn read_usage(account: &AccountCfg, now: i64) -> crate::model::Usage {
     let _ = std::fs::create_dir_all(log.parent().unwrap_or(Path::new("/tmp")));
     // Through a shell, as `models` asks: an account's command may set variables first.
     let command = format!("{cli} -p /usage --output-format json --log-file {}", crate::util::sh_quote(&log.to_string_lossy()));
-    let answer = match procs::run_in("/bin/sh", &["-c", &command], &crate::util::home(), &[], "", USAGE_TIMEOUT) {
+    let answer = match procs::sh().and_then(|sh| procs::run_in(&sh, &["-c", &command], &crate::util::home(), &[], "", USAGE_TIMEOUT)) {
         Ok(out) => usage_answer(&out.out),
         Err(_) => UsageAnswer::Failed(format!("{} didn't answer in {} seconds", code(cli), USAGE_TIMEOUT.as_secs())),
     };
@@ -3069,14 +3069,14 @@ mod tests {
         let home = dir.join("home");
         let folder = home.join("r/app");
         std::fs::create_dir_all(&folder).unwrap();
-        let folder = std::fs::canonicalize(&folder).unwrap();
+        let folder = dunce::canonicalize(&folder).unwrap();
         let settings = dir.join("settings.json");
         // As the command line writes it.
         let written = "{\n  \"model\": \"Gemini 3.8 Flash (High)\",\n  \"permissions\": {\n    \"allow\": [\n      \"command(pwd)\"\n    ]\n  },\n  \"trustedWorkspaces\": [\n    \"/r/other\"\n  ]\n}\n";
         std::fs::write(&settings, written).unwrap();
         assert!(trust_folder(&settings, &folder, &home).unwrap());
         let text = std::fs::read_to_string(&settings).unwrap();
-        let want = written.replace("\"/r/other\"\n", &format!("\"/r/other\",\n    \"{}\"\n", folder.display()));
+        let want = written.replace("\"/r/other\"\n", &format!("\"/r/other\",\n    {}\n", serde_json::to_string(&folder).unwrap()));
         assert_eq!(text, want);
         // Trusted already: the file is left alone.
         assert!(!trust_folder(&settings, &folder, &home).unwrap());

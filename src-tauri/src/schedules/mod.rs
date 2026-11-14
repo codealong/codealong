@@ -790,7 +790,7 @@ pub fn place<'a>(s: &Schedule, board: &'a Board) -> Option<&'a crate::model::Lan
 /// or a repo's checkout, and a run would start there instead.
 pub fn worktree<'a>(board: &'a Board, folder: &str) -> Option<&'a crate::model::Lane> {
     let dir = crate::util::expand(folder);
-    let real = |p: &std::path::Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    let real = |p: &std::path::Path| dunce::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
     let want = real(&dir);
     board.lanes.iter().find(|l| std::path::Path::new(&l.path) == dir || std::path::Path::new(&l.id) == dir || real(std::path::Path::new(&l.path)) == want)
 }

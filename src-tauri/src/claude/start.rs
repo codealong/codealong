@@ -267,7 +267,7 @@ mod tests {
         let home = crate::fixtures::scratch("move");
         let id = "4f1c2a9e-0b7d-4e21-9c55-1a2b3c4d5e6f";
         // Resumed from another folder once, it has a transcript in each; the later one goes on.
-        let (old, new) = (home.join("projects/-r-old"), home.join("projects/-r-it's"));
+        let (old, new) = (home.join("projects").join("-r-old"), home.join("projects").join("-r-it's"));
         for dir in [&old, &new] {
             std::fs::create_dir_all(dir).unwrap();
             std::fs::write(dir.join(format!("{id}.jsonl")), "{}\n").unwrap();

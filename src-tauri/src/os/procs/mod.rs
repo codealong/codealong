@@ -38,6 +38,17 @@ pub enum Signal {
     Continue,
 }
 
+/// How much of a write to a child's input went before it was given up on (`write_within`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Wrote {
+    All,
+    /// None of it: POSIX says so; Windows can't tell this from `Part`.
+    #[cfg_attr(windows, allow(dead_code))]
+    Nothing,
+    /// Part of it, or on Windows perhaps none: the child reads the rest of a line run into the next.
+    Part,
+}
+
 /// A process as one look at the whole table finds it: its parent, the CPU it has used, when it
 /// started, and its command line, its arguments joined with spaces (`table`).
 #[derive(Clone, Debug, PartialEq)]

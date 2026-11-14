@@ -454,7 +454,7 @@ pub fn session_process(home: &Path, session: &str) -> Option<u32> {
 /// The account a hook's session is on, by its folder (`CLAUDE_CONFIG_DIR`, else `~/.claude`):
 /// None for one config.toml doesn't list, whose sessions Codealong doesn't show.
 pub fn account_for<'a>(cfg: &'a crate::config::Config, home: &Path) -> Option<&'a crate::config::AccountCfg> {
-    let same = |a: &Path| a == home || std::fs::canonicalize(a).ok().zip(std::fs::canonicalize(home).ok()).is_some_and(|(x, y)| x == y);
+    let same = |a: &Path| a == home || dunce::canonicalize(a).ok().zip(dunce::canonicalize(home).ok()).is_some_and(|(x, y)| x == y);
     cfg.accounts.iter().find(|a| a.harness == "claude" && same(&a.home_path()))
 }
 

@@ -472,7 +472,7 @@ fn carry_out(plan: &Plan, running: &dyn Fn() -> usize) -> Result<Gone, String> {
     } else {
         let mut failed = None;
         for h in &plan.hooks {
-            match procs::run_in("/bin/sh", &["-c", &h.command], &h.cwd, &h.env, &h.input, h.timeout) {
+            match procs::sh().and_then(|sh| procs::run_in(&sh, &["-c", &h.command], &h.cwd, &h.env, &h.input, h.timeout)) {
                 Ok(o) if o.ok => {}
                 Ok(o) => failed = failed.or(Some(last_line(&o.err).to_string())),
                 Err(e) => failed = failed.or(Some(last_line(&e.to_string()).to_string())),
@@ -516,9 +516,9 @@ fn carry_out(plan: &Plan, running: &dyn Fn() -> usize) -> Result<Gone, String> {
 /// it stays. `board` reads the board as it is, as `remove` does.
 pub fn after_job(board: &dyn Fn() -> Board, cfg: &Config, s: &Session) -> Option<Result<Gone, String>> {
     let own = Path::new(s.own_worktree.as_deref()?);
-    let real = std::fs::canonicalize(own).ok();
+    let real = dunce::canonicalize(own).ok();
     let lanes = board().lanes;
-    let lane = lanes.iter().find(|l| l.device.is_none() && (Path::new(&l.path) == own || real.as_deref().is_some_and(|r| std::fs::canonicalize(&l.path).is_ok_and(|p| p == r))))?;
+    let lane = lanes.iter().find(|l| l.device.is_none() && (Path::new(&l.path) == own || real.as_deref().is_some_and(|r| dunce::canonicalize(&l.path).is_ok_and(|p| p == r))))?;
     let name = lane.callsign.clone();
     Some(match remove(board, cfg, &lane.id, Some(s)) {
         Ok(Removed { plan: Plan { kept: Some(why), .. }, .. }) => Err(format!("Its worktree, {name}, stays: {why}.")),
@@ -615,7 +615,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("codealong-cleanup-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        let dir = std::fs::canonicalize(&dir).unwrap();
+        let dir = dunce::canonicalize(&dir).unwrap();
         let main = dir.join("app");
         let git = |args: &[&str]| procs::run("git", &[&["-C", main.to_str().unwrap()], args].concat(), None, Duration::from_secs(20)).unwrap();
         std::fs::create_dir_all(&main).unwrap();
@@ -669,7 +669,7 @@ mod tests {
         git(&["worktree", "add", "-q", "-b", "worktree-hooked", wt.to_str().unwrap(), "main"]);
         let log = dir.join("hook.log");
         let hook = Hook {
-            command: format!("cat > {log}; git -C \"$CLAUDE_PROJECT_DIR\" worktree remove --force {wt}", log = log.display(), wt = wt.display()),
+            command: format!("cat > {log}; git -C \"$CLAUDE_PROJECT_DIR\" worktree remove --force {wt}", log = crate::util::sh_quote(&log.to_string_lossy()), wt = crate::util::sh_quote(&wt.to_string_lossy())),
             cwd: main.clone(),
             env: vec![("CLAUDE_PROJECT_DIR".into(), main.to_string_lossy().into_owned())],
             input: serde_json::json!({ "hook_event_name": "WorktreeRemove", "worktree_path": wt }).to_string(),
@@ -681,7 +681,7 @@ mod tests {
         assert!(std::fs::read_to_string(&log).unwrap().contains("\"worktree_path\""));
         // A hook that takes the folder and then fails says so.
         git(&["worktree", "add", "-q", "-b", "worktree-half", wt.to_str().unwrap(), "main"]);
-        let half = Hook { command: format!("git -C \"$CLAUDE_PROJECT_DIR\" worktree remove --force {}; echo 'port 3000 still taken' >&2; exit 1", wt.display()), ..p.hooks[0].clone() };
+        let half = Hook { command: format!("git -C \"$CLAUDE_PROJECT_DIR\" worktree remove --force {}; echo 'port 3000 still taken' >&2; exit 1", crate::util::sh_quote(&wt.to_string_lossy())), ..p.hooks[0].clone() };
         let p = Plan { hooks: vec![half], after: vec![], ..plan(&board, &cfg, wt.to_str().unwrap(), None).unwrap() };
         assert_eq!(carry_out(&p, &|| 0), Ok(Gone { said: "Removed the worktree brave-otter through the repo's WorktreeRemove hook, which failed, though: port 3000 still taken.".into(), partly: true }));
         let _ = std::fs::remove_dir_all(&dir);
@@ -694,7 +694,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("codealong-cleanup-submodule-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        let dir = std::fs::canonicalize(&dir).unwrap();
+        let dir = dunce::canonicalize(&dir).unwrap();
         let at = |p: &Path, args: &[&str]| procs::run("git", &[&["-C", p.to_str().unwrap(), "-c", "user.name=t", "-c", "user.email=t@t", "-c", "protocol.file.allow=always"], args].concat(), None, Duration::from_secs(30)).unwrap();
         let (lib, main) = (dir.join("lib"), dir.join("app"));
         std::fs::create_dir_all(&lib).unwrap();
@@ -729,7 +729,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("codealong-cleanup-keeps-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        let dir = std::fs::canonicalize(&dir).unwrap();
+        let dir = dunce::canonicalize(&dir).unwrap();
         let main = dir.join("app");
         let at = |p: &Path, args: &[&str]| procs::run("git", &[&["-C", p.to_str().unwrap(), "-c", "user.name=t", "-c", "user.email=t@t"], args].concat(), None, Duration::from_secs(20)).unwrap();
         std::fs::create_dir_all(&main).unwrap();

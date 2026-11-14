@@ -1310,8 +1310,8 @@ fn others_may_say(cwd: &Path, codex_home: &Path, started_at: i64, words: &[&str]
     if since(system) || says(&system.join("config.toml")) {
         return true;
     }
-    let own = std::fs::canonicalize(codex_home).ok();
-    let is_own = |dot: &Path| dot == codex_home || own.is_some() && std::fs::canonicalize(dot).ok() == own;
+    let own = dunce::canonicalize(codex_home).ok();
+    let is_own = |dot: &Path| dot == codex_home || own.is_some() && dunce::canonicalize(dot).ok() == own;
     cwd.ancestors().map(|dir| dir.join(".codex")).filter(|dot| !is_own(dot)).any(|dot| since(&dot) || says(&dot.join("config.toml")))
 }
 

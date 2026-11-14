@@ -65,8 +65,10 @@ fn xdg_in(in_home: &Path, var: &str, default: &str) -> PathBuf {
 /// (an account's) aren't moved by your settings, and a copy of Codealong given a home of its own
 /// (a test's, or one run to debug) keeps everything in it, not in the folders of the session it
 /// was started from: GitHub's runners set `XDG_CONFIG_HOME`, and tests shared one config.toml.
+/// A relative one doesn't count, as XDG has it (a Linux path has no drive, so on Windows, where
+/// a test asks as if on Linux, it's one with a root).
 fn in_home_or(in_home: &Path, set: Option<PathBuf>, default: &str) -> PathBuf {
-    set.filter(|p| p.is_absolute() && p.starts_with(in_home)).unwrap_or_else(|| in_home.join(default))
+    set.filter(|p| p.has_root() && p.starts_with(in_home)).unwrap_or_else(|| in_home.join(default))
 }
 
 /// The per-user temporary folder macOS gives apps (`getconf DARWIN_USER_TEMP_DIR`): a shell's

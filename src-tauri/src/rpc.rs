@@ -13,7 +13,7 @@
 //! without a process).
 
 use std::collections::{HashMap, VecDeque};
-use std::io::{self, BufRead, BufReader, Write};
+use std::io::{self, BufRead, BufReader};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{channel, RecvTimeoutError, Sender};
@@ -21,6 +21,8 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
+
+use crate::os::procs::Wrote;
 
 /// How many of the child's last stderr lines are kept.
 const TAIL: usize = 5;
@@ -279,7 +281,6 @@ impl Link {
         let closed = || io::Error::new(io::ErrorKind::BrokenPipe, "its input is closed");
         let mut text = line.to_string();
         text.push('\n');
-        let mut rest = text.as_bytes();
         let mut stdin = lock(&self.stdin);
         if stdin.is_none() {
             return Err(closed());
@@ -287,30 +288,17 @@ impl Link {
         if !wanted() {
             return Ok(false);
         }
-        while !rest.is_empty() {
-            let Some(pipe) = stdin.as_mut() else { return Err(closed()) };
-            match pipe.write(rest) {
-                Ok(n) => {
-                    rest = &rest[n..];
-                    continue;
-                }
-                Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
-                Err(e) if e.kind() == io::ErrorKind::WouldBlock => {}
-                Err(e) => return Err(e),
-            }
-            let now = Instant::now();
-            let late = deadline.is_some_and(|d| now >= d);
-            if late || self.ending.load(Ordering::SeqCst) {
-                if rest.len() < text.len() {
+        let Some(pipe) = stdin.as_mut() else { return Err(closed()) };
+        let late = || deadline.is_some_and(|d| Instant::now() >= d);
+        match crate::os::procs::write_within(pipe, text.as_bytes(), TICK, &|| late() || self.ending.load(Ordering::SeqCst))? {
+            Wrote::All => Ok(true),
+            gave_up => {
+                if gave_up == Wrote::Part {
                     stdin.take();
                 }
-                return Err(if late { io::Error::new(io::ErrorKind::TimedOut, "it isn't reading its input") } else { closed() });
+                Err(if late() { io::Error::new(io::ErrorKind::TimedOut, "it isn't reading its input") } else { closed() })
             }
-            let wait = deadline.map_or(TICK, |d| d.saturating_duration_since(now).min(TICK));
-            let Some(pipe) = stdin.as_ref() else { return Err(closed()) };
-            crate::os::procs::wait_writable(pipe, wait);
         }
-        Ok(true)
     }
 
     /// Sends a request, numbered from 1 in the order they're made, and waits for its answer:
@@ -410,7 +398,7 @@ mod tests {
     /// A child that runs `script` in `/bin/sh`, and what it wrote that wasn't an answer: each
     /// line, then `None` when its output ended, with its last stderr lines.
     fn child(script: &str, wire: Wire) -> (Client, Receiver<(Option<Value>, Vec<String>)>) {
-        let mut cmd = Command::new("/bin/sh");
+        let mut cmd = Command::new(crate::procs::posix_tool("sh"));
         cmd.args(["-c", &format!("{ANSWER}{script}")]);
         let (tx, rx) = channel();
         let client = Client::spawn(cmd, Stderr::Tail, wire, move |link, heard| match heard {
@@ -503,7 +491,7 @@ mod tests {
     /// once it has said it is goes after it, even from another thread.
     #[test]
     fn a_request_goes_only_if_still_wanted_and_before_what_follows() {
-        let mut cmd = Command::new("/bin/cat");
+        let mut cmd = Command::new(crate::procs::posix_tool("cat"));
         cmd.arg("-u");
         let (tx, rx) = channel();
         let client = Client::spawn(cmd, Stderr::Tail, Wire::Bare, move |_, heard| {
@@ -541,7 +529,7 @@ mod tests {
     #[test]
     fn lines_are_written_as_each_protocol_has_them() {
         let wrote = |wire: Wire| {
-            let mut cmd = Command::new("/bin/cat");
+            let mut cmd = Command::new(crate::procs::posix_tool("cat"));
             cmd.arg("-u");
             let (tx, rx) = channel();
             let client = Client::spawn(cmd, Stderr::Tail, wire, move |_, heard| {

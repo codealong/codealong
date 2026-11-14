@@ -852,7 +852,8 @@ mod tests {
         assert_eq!((&m["text"], &m["cwd"], &m["createdAt"]), (&json!("and the docs"), &json!("/r/app"), &json!(1_790_000_000_000i64)));
         assert_eq!(m["context"], json!({ "prompt": "and the docs", "addedFiles": [], "fileAttachments": [], "ideContext": null, "imageAttachments": [], "workspaceRoots": ["/r/app"] }));
         // Attached images go as `localImage` items, taken out of the text.
-        let img = attachments::images_dir().join("0123456789abcdef.png");
+        // A kept image's path as text has it (attachments.rs `full_path`), `/` after the folder.
+        let img = format!("{}/0123456789abcdef.png", attachments::images_dir().display());
         let with_img = request("Match this:\n![image](images/0123456789abcdef.png)");
         assert_eq!(with_img["params"]["input"], json!([{ "type": "text", "text": "Match this:", "text_elements": [] }, { "type": "localImage", "path": img }]));
         assert_eq!(with_img["params"]["restoreMessage"]["text"], "Match this:");
@@ -976,6 +977,7 @@ mod tests {
     /// The running app's log says which threads its windows took; another process's log, a
     /// window following a thread, and a thread whose id isn't one don't count.
     #[test]
+    #[cfg_attr(windows, ignore = "reads the Codex app's log with pgrep and grep, which Windows hasn't")]
     fn finds_the_threads_the_running_codex_apps_windows_took_in_its_log() {
         let logs = scratch("codex-logs");
         let day = logs.join("2026/10/10");

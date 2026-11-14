@@ -99,7 +99,7 @@ mod tests {
         let s = session(Surface::Cli, Status::Idle, true, Some(42));
         let reg = registry(json!({ "kind": "bg", "jobId": "6e07c149" }));
         let routes = route_for(&s, Some(&reg), Path::new("/h"), Some(Path::new("/tmp/d/control.sock"))).unwrap();
-        assert_eq!(routes, vec![Background { socket: "/tmp/d/control.sock".into(), key_file: "/h/daemon/control.key".into(), job: "6e07c149".into() }.into(), socket(None)]);
+        assert_eq!(routes, vec![Background { socket: "/tmp/d/control.sock".into(), key_file: Path::new("/h").join("daemon/control.key"), job: "6e07c149".into() }.into(), socket(None)]);
         // Without the daemon running, the job's socket still takes it.
         let routes = route_for(&s, Some(&reg), Path::new("/h"), None).unwrap();
         assert_eq!(routes, vec![socket(None)]);
@@ -119,7 +119,7 @@ mod tests {
         assert_eq!(typed_routes(claude_routes(&s, Some(&registry(json!({}))), Path::new("/h"), None, None)), vec![Route::Type { pid: 42 }]);
         // A background job's daemon pastes it into the job's box.
         let reg = registry(json!({ "kind": "bg", "jobId": "6e07c149" }));
-        let job = Background { socket: "/tmp/d/control.sock".into(), key_file: "/h/daemon/control.key".into(), job: "6e07c149".into() };
+        let job = Background { socket: "/tmp/d/control.sock".into(), key_file: Path::new("/h").join("daemon/control.key"), job: "6e07c149".into() };
         assert_eq!(typed_routes(claude_routes(&s, Some(&reg), Path::new("/h"), Some(Path::new("/tmp/d/control.sock")), None)), vec![job.into()]);
         // A Claude app session, or one that isn't running, has no box to type it into.
         let app = session(Surface::App, Status::Idle, true, Some(42));

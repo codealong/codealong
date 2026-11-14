@@ -65,11 +65,12 @@ pub fn tilde(p: &Path) -> String {
     tilde_in(p, &home())
 }
 
-/// `tilde`, with `home` as the home directory.
+/// `tilde`, with `home` as the home directory. What's under it is written with `/`, as `~/`
+/// is, on Windows too, which takes either.
 pub fn tilde_in(p: &Path, home: &Path) -> String {
     match p.strip_prefix(home) {
         Ok(rest) if rest.as_os_str().is_empty() => "~".to_string(),
-        Ok(rest) => format!("~/{}", rest.display()),
+        Ok(rest) => format!("~/{}", rest.iter().map(|part| part.to_string_lossy()).collect::<Vec<_>>().join("/")),
         Err(_) => p.display().to_string(),
     }
 }
@@ -566,10 +567,28 @@ pub fn file_name(p: &Path) -> String {
 }
 
 /// `path` against `base`, with `~` expanded and `.` and `..` folded, without touching the disk:
-/// the folder may be gone by the time a log is read.
+/// the folder may be gone by the time a log is read. A path written the POSIX way (a record made
+/// on macOS or Linux, a POSIX shell's) resolves that way on every OS, where Windows' own would
+/// write it back with its separators.
 pub fn resolve(base: &str, path: &str) -> String {
     use std::path::Component;
-    let joined = Path::new(base).join(expand(path));
+    let path = expand(path);
+    let path = path.to_string_lossy();
+    if base.starts_with('/') && (path.starts_with('/') || !path.contains(['\\', ':'])) {
+        let joined = if path.starts_with('/') { path.into_owned() } else { format!("{base}/{path}") };
+        let mut parts: Vec<&str> = Vec::new();
+        for part in joined.split('/') {
+            match part {
+                "" | "." => {}
+                ".." => {
+                    parts.pop();
+                }
+                part => parts.push(part),
+            }
+        }
+        return format!("/{}", parts.join("/"));
+    }
+    let joined = Path::new(base).join(&*path);
     let mut out = PathBuf::new();
     for c in joined.components() {
         match c {
@@ -858,7 +877,7 @@ pub fn parallel_map<T: Send, R: Send>(items: Vec<T>, f: impl Fn(T) -> Option<R> 
 /// it, as the harnesses write theirs, and readable only by you, as they keep them.
 pub fn write_whole(file: &Path, text: &str) -> anyhow::Result<()> {
     use std::io::Write;
-    let target = std::fs::canonicalize(file).unwrap_or_else(|_| file.to_path_buf());
+    let target = dunce::canonicalize(file).unwrap_or_else(|_| file.to_path_buf());
     let name = target.file_name().and_then(|n| n.to_str()).unwrap_or("file");
     let temp = target.with_file_name(format!("{name}.codealong-{}", std::process::id()));
     let written = (|| -> std::io::Result<()> {
@@ -1009,7 +1028,7 @@ mod tests {
         assert_eq!(command_dir("  cd \"../my app\" && make", base).as_deref(), Some("/Users/me/projects/my app"));
         assert_eq!(command_dir("cd ../my\\ app && make", base).as_deref(), Some("/Users/me/projects/my app"));
         assert_eq!(command_dir("cd src/ui && npx vitest run", base).as_deref(), Some("/Users/me/projects/app/src/ui"));
-        assert_eq!(command_dir("cd ~/projects/x", base), Some(format!("{}/projects/x", home().display())));
+        assert_eq!(command_dir("cd ~/projects/x", base), Some(home().join("projects").join("x").display().to_string()));
         assert_eq!(command_dir("cd $WORKTREE && ls", base), None);
         assert_eq!(command_dir("cd - && ls", base), None);
         assert_eq!(command_dir("cdk deploy", base).as_deref(), Some(base));

@@ -89,13 +89,16 @@ pub fn runs(path: &Path, meta: &Metadata) -> bool {
 
 /// A link at `link` to `target`, which a relative target names from the link's folder. On
 /// Windows a link to a folder is another kind than a link to a file, picked by what's there;
-/// making one takes Developer Mode or an administrator.
+/// making one takes Developer Mode or an administrator; and a link's target is followed only
+/// with Windows' own separators, so a `/` in it is turned around.
 pub fn symlink(target: impl AsRef<Path>, link: impl AsRef<Path>) -> std::io::Result<()> {
     let (target, link) = (target.as_ref(), link.as_ref());
     #[cfg(unix)]
     return std::os::unix::fs::symlink(target, link);
     #[cfg(windows)]
     {
+        let target = std::path::PathBuf::from(target.to_string_lossy().replace('/', "\\"));
+        let target = target.as_path();
         let resolved = link.parent().map_or_else(|| target.to_path_buf(), |dir| dir.join(target));
         if resolved.is_dir() {
             std::os::windows::fs::symlink_dir(target, link)
@@ -150,6 +153,20 @@ pub fn open_no_follow(path: &Path) -> std::io::Result<std::fs::File> {
             return Err(std::io::Error::other("it's a link"));
         }
         std::fs::File::open(path)
+    }
+}
+
+/// Sets when the file or folder at `path` last changed, for a test that ages one. Windows opens a
+/// folder only with `FILE_FLAG_BACKUP_SEMANTICS`, and changes its times only for a handle with
+/// `FILE_WRITE_ATTRIBUTES`, which reading doesn't ask for.
+#[cfg(test)]
+pub fn set_modified(path: &Path, when: std::time::SystemTime) -> std::io::Result<()> {
+    #[cfg(unix)]
+    return std::fs::File::open(path)?.set_modified(when);
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        OpenOptions::new().access_mode(0x100).custom_flags(0x0200_0000).open(path)?.set_modified(when)
     }
 }
 

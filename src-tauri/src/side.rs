@@ -1161,7 +1161,7 @@ mod tests {
     #[test]
     fn answers_in_the_order_asked() {
         let key = "test:side:order";
-        open_with(key, "/bin/cat", &[]);
+        open_with(key, &crate::procs::posix_tool("cat"), &[]);
         put(key, "one");
         put(key, "two");
         let side = wait_for(key, |s| !s.running);
@@ -1183,7 +1183,7 @@ mod tests {
     #[test]
     fn a_copy_has_its_secret_in_its_environment() {
         let key = "test:side:secret";
-        open_with(key, "/bin/sh", &["-c", "read -r a; read -r b; read -r c; printf '{\"say\":\"%s\"}\\n{\"done\":true}\\n' \"$CODEALONG_SIDE\"; cat"]);
+        open_with(key, &crate::procs::posix_tool("sh"), &["-c", "read -r a; read -r b; read -r c; printf '{\"say\":\"%s\"}\\n{\"done\":true}\\n' \"$CODEALONG_SIDE\"; cat"]);
         let secret = state().open.get(key).unwrap().proc.as_ref().unwrap().secret.clone();
         put(key, "What's yours?");
         let side = wait_for(key, |s| !s.running);
@@ -1206,8 +1206,8 @@ mod tests {
     #[test]
     fn a_stuck_copy_holds_up_no_other() {
         let (stuck, other) = ("test:side:stuck", "test:side:other");
-        open_with(stuck, "/bin/sleep", &["600"]);
-        open_with(other, "/bin/cat", &[]);
+        open_with(stuck, &crate::procs::posix_tool("sleep"), &["600"]);
+        open_with(other, &crate::procs::posix_tool("cat"), &[]);
         let started = Instant::now();
         // More than the 64 KB its input holds.
         put(stuck, &"x".repeat(1 << 20));
@@ -1224,7 +1224,7 @@ mod tests {
     #[test]
     fn a_copy_that_stops_says_why() {
         let key = "test:side:stops";
-        open_with(key, "/bin/sh", &["-c", "echo 'No conversation found' >&2; sleep 0.2"]);
+        open_with(key, &crate::procs::posix_tool("sh"), &["-c", "echo 'No conversation found' >&2; sleep 0.2"]);
         put(key, "anyone there?");
         let side = wait_for(key, |s| s.ended);
         assert!(!side.running);
@@ -1238,7 +1238,7 @@ mod tests {
     #[test]
     fn an_idle_copy_ends_and_keeps_what_was_said() {
         let key = "test:side:idle";
-        open_with(key, "/bin/cat", &[]);
+        open_with(key, &crate::procs::posix_tool("cat"), &[]);
         put(key, "one");
         wait_for(key, |s| !s.running);
         // Only this test's copy: the others' are answering, or closed.
@@ -1273,7 +1273,7 @@ mod tests {
     #[test]
     fn a_question_asked_while_one_closed_is_being_kept_goes_on_from_all_it_said() {
         let key = "test:side:being-kept";
-        open_with(key, "/bin/cat", &[]);
+        open_with(key, &crate::procs::posix_tool("cat"), &[]);
         put(key, "one");
         let first = wait_for(key, |s| !s.running);
         // Closed, and not kept yet: `put_away` hasn't run.
@@ -1291,13 +1291,13 @@ mod tests {
 
     /// A copy that answers as `Echo` does, as `ask_with` makes one.
     fn echo() -> Result<(Recipe, PathBuf, String)> {
-        Ok((Recipe { program: "/bin/cat".into(), args: Vec::new(), env: Vec::new(), unset: Vec::new(), dialect: Box::new(Echo) }, PathBuf::from("/"), "A session".into()))
+        Ok((Recipe { program: crate::procs::posix_tool("cat").into(), args: Vec::new(), env: Vec::new(), unset: Vec::new(), dialect: Box::new(Echo) }, PathBuf::from("/"), "A session".into()))
     }
 
     /// A copy that takes a moment over each line it's sent, a tenth of a second.
     fn slowly() -> Result<(Recipe, PathBuf, String)> {
         let args = ["-c", "while read -r l; do sleep 0.1; printf '%s\\n' \"$l\"; done"].map(String::from).to_vec();
-        Ok((Recipe { program: "/bin/sh".into(), args, env: Vec::new(), unset: Vec::new(), dialect: Box::new(Echo) }, PathBuf::from("/"), "A session".into()))
+        Ok((Recipe { program: crate::procs::posix_tool("sh").into(), args, env: Vec::new(), unset: Vec::new(), dialect: Box::new(Echo) }, PathBuf::from("/"), "A session".into()))
     }
 
     /// What its session goes by to wait on you for it: when it finished what it was asked.
@@ -1358,7 +1358,7 @@ mod tests {
     #[test]
     fn a_question_asked_as_one_is_read_goes_on_in_it() {
         let key = "test:side:goes-on";
-        open_with(key, "/bin/cat", &[]);
+        open_with(key, &crate::procs::posix_tool("cat"), &[]);
         put(key, "what's open?");
         let before = wait_for(key, |s| !s.running);
         let before_pid = state().open.get(key).unwrap().proc.as_ref().unwrap().pid;
@@ -1378,8 +1378,8 @@ mod tests {
         let answer = &side.turns[2].answer;
         assert!(answer.starts_with("You asked: This side conversation began with an earlier copy"), "{answer}");
         // What was pasted with a question goes as its path, as it did then.
-        let image = crate::attachments::images_dir().join("0123456789abcdef.png");
-        assert!(answer.contains(&format!("<question>\nwhich commits need a review? {}\n</question>\n<answer>\n#177 and #182.\n</answer>\n\n<question>\nwho wrote them?\n</question>\n<answer>\n(No answer: Closed before it answered.)\n</answer>", image.display())), "{answer}");
+        let image = format!("{}/0123456789abcdef.png", crate::attachments::images_dir().display());
+        assert!(answer.contains(&format!("<question>\nwhich commits need a review? {}\n</question>\n<answer>\n#177 and #182.\n</answer>\n\n<question>\nwho wrote them?\n</question>\n<answer>\n(No answer: Closed before it answered.)\n</answer>", image)), "{answer}");
         assert!(answer.ends_with("What you're asked now:\n\nwho reviews them?"), "{answer}");
         // What's shown and kept is what was typed.
         assert_eq!(state().open.get(key).map(|o| (o.started_at, kept_of(o).unwrap().turns.len())), Some((2, 3)));
@@ -1392,7 +1392,7 @@ mod tests {
     #[test]
     fn a_fork_from_a_side_conversation_is_told_what_was_said_there() {
         let key = "test:side:fork";
-        open_with(key, "/bin/cat", &[]);
+        open_with(key, &crate::procs::posix_tool("cat"), &[]);
         put(key, "what's left before the release?");
         let open = wait_for(key, |s| !s.running);
         let kept_in = store::test_dir("sides-fork").join("sides.json");
@@ -1426,7 +1426,7 @@ mod tests {
     #[test]
     fn a_question_to_one_whose_copy_ended_goes_on_in_it() {
         let key = "test:side:ended";
-        open_with(key, "/bin/cat", &[]);
+        open_with(key, &crate::procs::posix_tool("cat"), &[]);
         put(key, "one");
         let first = wait_for(key, |s| !s.running);
         {
@@ -1449,7 +1449,7 @@ mod tests {
     fn a_question_to_one_closed_and_still_answering_goes_to_its_copy() {
         let key = "test:side:reopened";
         // Each line comes back almost half a second after it went, so it's still answering.
-        open_with(key, "/bin/sh", &["-c", "while read -r l; do sleep 0.4; printf '%s\\n' \"$l\"; done"]);
+        open_with(key, &crate::procs::posix_tool("sh"), &["-c", "while read -r l; do sleep 0.4; printf '%s\\n' \"$l\"; done"]);
         put(key, "one");
         let (id, pid) = state().open.get(key).map(|o| (o.side.id.clone(), o.proc.as_ref().unwrap().pid)).unwrap();
         close(key);
@@ -1493,7 +1493,7 @@ mod tests {
         let key = "test:side:closing";
         told();
         // An answer that takes a moment: each line comes back a fifth of a second after it went.
-        open_with(key, "/bin/sh", &["-c", "while read -r l; do sleep 0.2; printf '%s\\n' \"$l\"; done"]);
+        open_with(key, &crate::procs::posix_tool("sh"), &["-c", "while read -r l; do sleep 0.2; printf '%s\\n' \"$l\"; done"]);
         put(key, "one");
         put(key, "two");
         let pid = state().open.get(key).unwrap().proc.as_ref().unwrap().pid;
@@ -1517,7 +1517,7 @@ mod tests {
     fn a_closed_copy_that_answers_nothing_is_stopped() {
         let key = "test:side:closed-stuck";
         told();
-        open_with(key, "/bin/sleep", &["600"]);
+        open_with(key, &crate::procs::posix_tool("sleep"), &["600"]);
         put(key, "anyone there?");
         let pid = state().open.get(key).unwrap().proc.as_ref().unwrap().pid;
         close(key);
@@ -1538,7 +1538,7 @@ mod tests {
     fn forgetting_a_closed_copy_still_answering_stops_it() {
         let key = "test:side:closed-forgotten";
         told();
-        open_with(key, "/bin/sleep", &["600"]);
+        open_with(key, &crate::procs::posix_tool("sleep"), &["600"]);
         put(key, "anyone there?");
         let pid = state().open.get(key).unwrap().proc.as_ref().unwrap().pid;
         close(key);
