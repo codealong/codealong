@@ -155,12 +155,13 @@ your editor.
 - **No notch needed.** An external display gets one drawn for it. Or float the bar over every app,
   as it does on Linux, keep it in the menu bar, pin a session to your desktop, or work through
   everything in the *Waiting on you* window.
-- **Later is a key away.** ⌃⌘1 to ⌃⌘7 snooze what can wait, and a short sound says when something
-  new needs you.
+- **Later is a key away.** ⌃⌘1 to ⌃⌘7 snooze what can wait, ⌃⌘8 until its usage limit lifts or
+  the day its reply says the work goes on, and a short sound says when something new needs you.
 
 Approvals and questions are answered there for Claude Code, OpenCode, Antigravity's command line
-and any agent you run inside Codealong, Codex among them; the rest show what they wait on and open
-where they ask ([what works with each agent](#what-works-with-each-agent)). More in
+and any agent you run inside Codealong, and approvals for Codex's and Cursor's command lines in the
+terminals that let Codealong answer them; the rest show what they wait on and open where they ask
+([what works with each agent](#what-works-with-each-agent)). More in
 [Answer agents without switching apps](#answer-agents-without-switching-apps).
 
 ## Say what you want done, from any app
@@ -375,11 +376,14 @@ The keys are the same everywhere: **⌘⏎** sends your reply (or allows the cal
 next agent waiting, **⌘⌫** denies, **⌘E** marks a finished turn seen, **⌘]** skips, and
 **⌃⌘1** to **⌃⌘7** snooze a session for 15 minutes, half an hour, an hour, three hours, until 5 PM,
 until tomorrow morning or until next week, and its Snooze menu's Pick a time… for any other.
+Where a session's reply says its work goes on later, or its usage limit stopped it, **⌃⌘8**
+snoozes it until then.
 
 Approvals and questions can be answered for Claude Code (in a terminal, as a background job or in
 the Claude app), OpenCode, Antigravity's command line in a terminal that takes keypresses, and any
-agent you run inside Codealong. Codex, the Cursor app and the Antigravity app show what they're
-waiting on, and open where they ask.
+agent you run inside Codealong; approvals for Codex's command line too, in a terminal that takes
+keypresses, and for Cursor's in Rex, tmux or Codealong's own terminal, where its prompt can be
+read. The Codex, Cursor and Antigravity apps show what they're waiting on, and open where they ask.
 
 <p align="center">
   <picture>
@@ -401,7 +405,9 @@ checks, comments and diffs.
 - **Snooze** a review request until later.
 - **Nudge a PR's agent**: its primary session (the one that pushed to it most, usually the one that
   opened it, or one you pick) is told when someone reviews, asks for changes or comments, or when
-  checks fail, so it takes it from there; it's never told to merge.
+  checks fail, so it takes it from there; it's never told to merge. A session whose next step
+  hangs on a PR can watch it (`codealong pr watch`), and is told of its approval, merge or close
+  too, resumed for it if it has stopped.
 - **Ask about a PR**: put questions to an agent that has read its whole diff.
 - **Automatic reviews** (optional): an agent on the account, model and effort you pick reviews each PR
   that asks for your review, told what to look for by instructions you can edit (which can have it
@@ -469,8 +475,9 @@ OpenCode's service. Paste screenshots or files into it. From there you can also:
   which never hears of it;
 - **fork** a session into a copy that carries on alongside (`/fork`);
 - **copy** any code block, or **run** a shell block in a new terminal where the session works;
-- **rename, pin, snooze, quiet, archive** or **mark as done** (which closes its terminal and
-  archives it), or **move** a Claude Code session to another account or worktree.
+- **rename, label, pin, snooze, quiet, archive** or **mark as done** (which closes its terminal and
+  archives it), or **move** a Claude Code session to another account or worktree;
+- **pop it out** of the main window into a window of its own, to keep it in view as you work.
 
 Out of room mid-task? A Claude Code session stopped by its usage limit offers to move to an
 account with room and carry on, or moves by itself if you let it. Lid closed and the network
@@ -585,8 +592,11 @@ said is typed where your caret is in Codealong, or from another app into the qui
 opens to hear it; hold ⌥⌘] to talk to your orchestrator from any app. And a session can listen to a meeting: it keeps notes, coaches you a few words at a time
 beside your camera, or files a todo for each thing a customer asks for. Press ⌥⌘= as one begins
 (Listen now) and Codealong hears it from then on, with a session started for it; or have a
-session you already have listen (Listen… in its menu). Speech becomes text on your Mac, with
-macOS's own model, and no audio is kept ([the guide](docs/guide.md#voice) has the rest).
+session you already have listen (Listen… in its menu). Let it read your calendar and it counts
+down to each meeting and offers to take its notes as it starts, keeping each meeting's transcript
+and notes in a folder of its own for any session to work from afterwards. Speech becomes text on
+your Mac, with macOS's own model, and no audio is kept ([the guide](docs/guide.md#voice) has the
+rest).
 
 ## What works with each agent
 
@@ -608,18 +618,19 @@ session where it lives.**
 | **Claude Code** in a terminal | ✓ | Types into its tab | ✓ | ✓ | ✓ | Weekly, per model |
 | **Claude Code** background jobs | ✓ | Its background service | ✓ | ✓ | ✓ | Weekly, per model |
 | **Claude app** | ✓ | As a message from another session | ✓ (with the plugin) | Opens it with the prompt | Its signed-in account | Shared with Claude Code |
-| **Codex CLI** | ✓ | Types into its tab | In its terminal | ✓ | ✓ | 5-hour, weekly |
+| **Codex CLI** | ✓ | Types into its tab | In Ghostty, iTerm2, Rex and tmux (with the skill's hook) | ✓ | ✓ | 5-hour, weekly |
 | **Codex app** | ✓ | Starts a new turn | In the app | ✓ | Its signed-in account | 5-hour, weekly |
 | **OpenCode** | ✓ | Its own service | ✓ | ✓ | ✓ | You bring the provider |
 | **Antigravity** | ✓ | Types into `agy`'s tab; the app opens with the prompt on the clipboard | `agy` in a terminal; the app in the app | `agy` in a terminal; the app in its own window | — | Weekly, per model group (with `agy`) |
-| **Cursor** (new) | ✓ | `cursor-agent` in a terminal; app chats open with the prompt on the clipboard | `cursor-agent` in its terminal; app chats in Cursor | `cursor-agent` | — | Monthly, Cursor's models and the others |
+| **Cursor** (new) | ✓ | `cursor-agent` in a terminal; app chats open with the prompt on the clipboard | `cursor-agent` in Rex, tmux and Codealong's terminal; app chats in Cursor | `cursor-agent` | — | Monthly, Cursor's models and the others |
 | **In Codealong** (Claude Code, Codex or OpenCode) | ✓ | ✓ | ✓ | ✓ | ✓ | Per account |
 
 Terminals: Ghostty (the exact tab, keypresses, new tabs beside their worktree), Rex (the same, with
 a Rex session for each project), iTerm2 and tmux (typing and keypresses), and Terminal (typing).
 Approvals for Claude Code go through Codealong's plugin, which Settings › Agents installs into each
-account. *In Codealong* means the agent runs in
-Codealong's own panel, over the [Agent Client Protocol](https://agentclientprotocol.com).
+account, and Codex's through a hook it puts in each Codex account beside the skill. *In Codealong*
+means the agent runs in Codealong's own panel, over the
+[Agent Client Protocol](https://agentclientprotocol.com).
 
 ## Keyboard shortcuts
 
@@ -655,7 +666,9 @@ From any app (change them in Settings › General):
 | ⌘E / ⇧⌘E | Mark seen / mark as done |
 | ⌘] / ⌘[ | Next / previous of what waits on you (in Sessions, the notch and the waiting window) |
 | ⌃⌘1 – ⌃⌘7 | Snooze: 15 minutes, 30 minutes, 1 hour, 3 hours, 5 PM, tomorrow morning, next week |
+| ⌃⌘8 | Snooze until the time offered: when its usage limit lifts, or when its reply says the work goes on |
 | ⌃⌘P · ⌃⌘A · ⌃⌘R · ⌃⌘U | Pin, archive, rename, mark as unread |
+| ⌃⌘0 | Move to top: first in every queue of what waits on you |
 | ⌃⌘W | Close the session's terminal (the conversation stays, to resume) |
 | ⌘F | Find where you are: in a session's conversation, a PR's files, or the view's list |
 | ⌥⌘F | Find in the view's list, from anywhere |
@@ -765,6 +778,7 @@ days = 14                      # prompts and replies searched this far back; 0 i
 enabled = false
 name = ""                      # this machine's name on your other devices; "" is the computer's name
 tailscale = true               # find them on your tailnet
+port = 47471                   # the TCP port Codealong listens on there, on this machine's tailnet address only (1024 and up)
 iroh = true                    # reach linked devices anywhere
 remote_control = false         # let linked devices act on sessions here
 in_bar = true                  # their sessions show in the bar, the notch and Waiting on you too, while they're connected
@@ -1041,9 +1055,11 @@ and sends new work to the right one. You keep your terminal and your apps.
 whichever one you run) and Windows support. A harness is one module behind the `Adapter` and
 `Reader` in `src-tauri/src/harness.rs`, and [adding a harness](.claude/rules/adding-a-harness.md)
 says what one needs. Everything Codealong asks of the OS is in `src-tauri/src/os/`: each area that
-makes the OS's own calls has a `macos.rs` and a `linux.rs` giving the same functions, and what
-merely differs, a path or a program to run, goes by `os::current()`. Windows starts with a
-`windows.rs` beside each and a third case there. [Building from source](#building-from-source) and
+makes the OS's own calls has a `macos.rs`, a `linux.rs` and a `windows.rs` giving the same
+functions, and what merely differs, a path or a program to run, goes by `os::current()`. The
+Windows side is a first cut that builds and passes most of the engine's tests but hasn't run as an
+app yet; [what it goes without](docs/development.md#windows) is where to start.
+[Building from source](#building-from-source) and
 [docs/development.md](docs/development.md) have the rest, and
 [CONTRIBUTING.md](CONTRIBUTING.md) what a pull request needs: an issue first for anything bigger
 than a fix, and screenshots of any changed UI.
