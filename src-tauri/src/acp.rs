@@ -546,7 +546,10 @@ fn connect(account: &str, cmd: Command, log: std::fs::File) -> std::io::Result<A
 /// The login shell's PATH, and where OpenCode's installer puts it, which only an interactive
 /// shell adds.
 fn adapter_path() -> String {
-    format!("{}:{}", crate::procs::user_path(), crate::util::home().join(".opencode/bin").display())
+    // Joined as the OS joins a PATH: with `;` on Windows, which Git Bash turns into its own.
+    let mut dirs: Vec<PathBuf> = std::env::split_paths(crate::procs::user_path()).collect();
+    dirs.push(crate::util::home().join(".opencode").join("bin"));
+    std::env::join_paths(dirs).map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|_| crate::procs::user_path().to_string())
 }
 
 fn log_path(account: &str) -> PathBuf {
@@ -1018,13 +1021,33 @@ fn current_option(options: &Value, category: &str) -> Option<String> {
 /// each session it holds, which lists itself among the account's sessions (`sessions/<pid>.json`)
 /// and runs the account's hooks, Codealong's permission hook among them. What it asks comes
 /// through its adapter (`on_permission`), so the hook's copy of a request isn't one to hold.
-///
-/// Its adapter's process is its parent where the shell an adapter is started through (`agent`)
-/// becomes the adapter. On Windows that's Git Bash, whose launcher runs bash, which runs the
-/// adapter as a process of its own: the process Codealong started is its parent's grandparent.
 pub fn runs(pid: u32) -> bool {
     let adapters: Vec<u32> = state().agents.values().map(|a| a.client.pid()).collect();
-    crate::procs::ancestors(pid).iter().skip(1).take(3).any(|p| adapters.contains(p))
+    started_by_adapter(pid, &adapters, crate::procs::parent_and_name)
+}
+
+/// `runs`, with `parent_and_name` the process table. Its parent is the adapter's process: on
+/// macOS and Linux the one Codealong started, its shell having become the adapter (`exec`); on
+/// Windows one under Git Bash's bash and its launcher, which Codealong started (`procs::sh`). So
+/// above the parent only a bash may come before the adapter, and a `claude` started from the
+/// shell of a session an adapter runs, or by that session, isn't the adapter's.
+fn started_by_adapter(pid: u32, adapters: &[u32], parent_and_name: impl Fn(u32) -> Option<(u32, String)>) -> bool {
+    let Some((parent, _)) = parent_and_name(pid) else { return false };
+    if adapters.contains(&parent) {
+        return true;
+    }
+    let mut at = parent;
+    for _ in 0..2 {
+        let Some((up, _)) = parent_and_name(at) else { return false };
+        if adapters.contains(&up) {
+            return at != parent;
+        }
+        if parent_and_name(up).is_none_or(|(_, name)| name != "bash") {
+            return false;
+        }
+        at = up;
+    }
+    false
 }
 
 /// Whether Codealong runs this session (or ran it, and can again).
@@ -2069,6 +2092,19 @@ mod tests {
         let _ = crate::os::procs::signal(pid, crate::os::procs::Signal::Terminate);
         wait_until("its child to be gone", 10, || !runs(pid));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_process_is_an_adapters_only_through_its_own_shell() {
+        let table = |rows: &'static [(u32, u32, &'static str)]| move |pid: u32| rows.iter().find(|r| r.0 == pid).map(|r| (r.1, r.2.to_string()));
+        // macOS and Linux: the shell Codealong started became the adapter.
+        assert!(started_by_adapter(10, &[5], table(&[(10, 5, "claude"), (5, 1, "node")])));
+        // Windows: the adapter under Git Bash's bash, under its launcher, which Codealong started.
+        assert!(started_by_adapter(10, &[3], table(&[(10, 9, "claude"), (9, 4, "node"), (4, 3, "bash"), (3, 1, "bash")])));
+        // A claude started from the shell of a session the adapter runs, or by that session itself.
+        assert!(!started_by_adapter(20, &[5], table(&[(20, 15, "zsh"), (15, 10, "claude"), (10, 5, "claude"), (5, 1, "node")])));
+        assert!(!started_by_adapter(20, &[5], table(&[(20, 10, "claude"), (10, 5, "claude"), (5, 1, "node")])));
+        assert!(!started_by_adapter(10, &[5], table(&[])));
     }
 
     /// The answers claude-agent-acp 0.81.2 offers for Claude Code's `ExitPlanMode`, as its

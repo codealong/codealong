@@ -574,7 +574,9 @@ pub fn resolve(base: &str, path: &str) -> String {
     use std::path::Component;
     let path = expand(path);
     let path = path.to_string_lossy();
-    if base.starts_with('/') && (path.starts_with('/') || !path.contains(['\\', ':'])) {
+    // Not one Windows reads with a drive or a share before it (`//server/share`), which it keeps.
+    let prefixed = |p: &str| matches!(Path::new(p).components().next(), Some(Component::Prefix(_)));
+    if base.starts_with('/') && !prefixed(base) && ((path.starts_with('/') && !prefixed(&path)) || !path.contains(['\\', ':'])) {
         let joined = if path.starts_with('/') { path.into_owned() } else { format!("{base}/{path}") };
         let mut parts: Vec<&str> = Vec::new();
         for part in joined.split('/') {
@@ -1017,6 +1019,14 @@ mod tests {
         assert_eq!(one_line("Implemented in [#1017](https://github.com/x/y/pull/1017) and **merged**", 80), "Implemented in #1017 and merged");
         assert_eq!(one_line(":::writing{variant=\"standard\" id=\"83147\"}\nW&M 3 is ready.\n:::", 40), "W&M 3 is ready.");
         assert_eq!(one_line(":::\n\nAfter the block", 40), "After the block");
+    }
+
+    /// A network checkout keeps its server and share, whichever way its separators lean.
+    #[test]
+    #[cfg(windows)]
+    fn a_path_on_a_windows_share_keeps_it() {
+        assert_eq!(Path::new(&resolve("//server/share/repo", "src/main.rs")), Path::new(r"\\server\share\repo\src\main.rs"));
+        assert_eq!(Path::new(&resolve("/Users/me/app", "//server/share/x")), Path::new(r"\\server\share\x"));
     }
 
     #[test]
