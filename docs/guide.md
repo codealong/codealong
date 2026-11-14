@@ -282,8 +282,11 @@ the sidebar does; the find finds a session by a label's name; a board whose rule
 takes in the sessions you put it on, and their worktrees, as it takes in its todos'.
 
 A label isn't Jev's read nor an agent's tag (Landed, Pushed, Asks you…), which say where one turn
-left things and go once the next starts: a label stays until you take it off. An agent puts one on
-with `codealong session label <key> --add <name>` when you ask it to sort sessions. Labels are kept
+left things and go once the next starts: a label stays until you take it off, and goes with the
+work: a session moved to another account or worktree puts its labels on the copy that carries on,
+and so does a fork (Fork, Edit from here) whose harness says at once which session it made. An
+agent puts one on with `codealong session label <key> --add <name>` when you ask it to sort
+sessions. Labels are kept
 on the session's Mac with what you've pinned and snoozed, so a session on another device wears that
 Mac's labels: Labels › offers this Mac's by name, and one that Mac doesn't have yet is made there.
 
@@ -414,7 +417,8 @@ Any API error that ended a turn, a lost connection's included, shows in the sess
 harness's words ("529 Overloaded…", "No response from API…"), with **Try again** beside it, and a
 Claude Code session whose turn ended on one that isn't a lost connection says API error in the
 lists. Try again sends the session a message of yours saying its last turn ended on an API error
-and to carry on where it left off, as if you'd typed it. Where Codealong is to carry it on by itself
+and to carry on where it left off, as if you'd typed it; one that isn't running is resumed where
+Carry on would resume it (*Cut off*). Where Codealong is to carry it on by itself
 once the API can be reached, the button is **Try now**. A usage limit has its own note (*Usage
 limits*), and Claude Code's errors that trying again doesn't mend get none: a sign-in that needs
 `/login`, and a request the API turned down for what it held.
@@ -892,8 +896,9 @@ don't say, so their sessions have none.
 
 #### Approvals and questions
 
-When a session waits on you to allow a tool call, the call shows above the box with Allow (⌘⏎) and
-Deny (⌘⌫, with nothing written in the box, and the session stays shown so you can say what to do
+When a session waits on you to allow a tool call, the call shows just above the box, in a tinted
+card as wide as it, with Allow (⌘⏎) and Deny (⌘⌫, with nothing written in the box, and the
+session stays shown so you can say what to do
 instead): a session Codealong runs is answered through its agent, and calls it asks about together
 (Claude Code reading several files at once) show one after another; OpenCode's are answered through its service, Claude Code's through the Codealong plugin's
 `PermissionRequest` hook when the account has the plugin (wherever the session runs: any terminal,
@@ -942,10 +947,12 @@ peek under a tall header, say), the conversation gives up its room first, then t
 choices scroll together while your own answer's box and the buttons stay in view. The arrow at the
 end of the box's head minimizes it to that head, which says the question on one line, so you can
 read the conversation above while you think about your answer; a click on the question, the arrow
-again, the call's own *Asks you* line in the conversation, or ⌘⏎ where ⌘⏎ answers (the waiting
-window) shows the box again with your picks as you left them. While the box shows the questions,
-that line opens no copy of them, which couldn't be answered. It stays minimized as you go to another session and back, until the session asks you
-again. Your picks, your own words and the question you were on are kept until you answer: go to
+again, or ⌘⏎ where ⌘⏎ answers (the waiting window) shows the box again with your picks as you left
+them. It stays minimized as you go to another session and back, until the session asks you
+again. While the box shows a call to allow or questions to answer, minimized or not, the
+conversation leaves out that call's own line, which would only say it again just above the box
+(where the box can't tell it's the same call, the line stays); once answered, it's a line like
+any other. Your picks, your own words and the question you were on are kept until you answer: go to
 another session and back, open the same session in the peek, the notch or the waiting window, or
 restart Codealong, and the box has them as you left them, newer than an answer that didn't go.
 Two windows showing it at once show the same picks. They're kept for that call, so when the
@@ -4634,8 +4641,11 @@ replies suggested for sessions, until the sessions move on, in `suggestions.json
 emblem, the emoji Jev picked or the picture drawn for it, in `emblems.json`; each command you
 allowed an agent to run in your terminal, with what it printed, for a week in `terminal-runs/`;
 what `codealong changes` saw at each of its last dozen looks, for a week, in `changes.json`; an
-orchestrator's answers, cursor and narrative in `orchestrator/`; what every
-model call used, and Claude's extra usage as it was read, in `ledger.sqlite` (the Analytics window's).
+orchestrator's answers, cursor and narrative in `orchestrator/`; an agent's messages held for a
+session that waits on you, until they go, in `held-messages.json`; what every
+model call used, and Claude's extra usage as it was read, in `ledger.sqlite` (the Analytics window's,
+which with `[experimental] analytics` on also keeps who began each turn and how the sessions you
+marked done stood).
 Todos and labels are in `todos.json`, which is watched, so an agent or an editor can add to it.
 The listenings (*Voice*) are in `listenings.json`, and each one's transcript and notes in a folder
 of its own in `listenings/`; a meeting taken from your calendar has its folder in `meetings/`
