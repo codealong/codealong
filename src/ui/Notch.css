@@ -282,8 +282,9 @@ html.is-notch body {
   -webkit-user-select: none;
   user-select: none;
 }
-/* The box, at the shape's foot, on the notch's black as the rest is: the field stands a step off
-   it, where elsewhere the strip around the field does. */
+/* The box, at the shape's foot, on the notch's black as the conversation over it is: the field
+   stands a step off the black, with no rule or strip of its own over it, as elsewhere
+   (SessionReply.css). */
 .ca-notch-card .ca-composer {
   background: var(--notch);
 }
