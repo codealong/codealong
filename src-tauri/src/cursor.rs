@@ -882,9 +882,10 @@ pub fn parse_meta(value: &str) -> Meta {
     Meta { name: text("name"), created_at: v.get("createdAt").and_then(Value::as_i64), model: text("lastUsedModel"), mode: text("mode"), approval, subagent }
 }
 
-fn read_meta(store: &Path) -> Meta {
-    let Some(db) = crate::harness::open_database(store) else { return Meta::default() };
-    db.query_row("SELECT value FROM meta WHERE key = '0'", [], |r| r.get::<_, String>(0)).map(|v| parse_meta(&v)).unwrap_or_default()
+/// None when the database can't be opened or has no meta row yet.
+fn read_meta(store: &Path) -> Option<Meta> {
+    let db = crate::harness::open_database(store)?;
+    db.query_row("SELECT value FROM meta WHERE key = '0'", [], |r| r.get::<_, String>(0)).map(|v| parse_meta(&v)).ok()
 }
 
 /// What the command line writes beside a chat's database as it makes it, `meta.json`
@@ -1007,10 +1008,14 @@ pub fn read_cli_chats(home: &Path, since_ms: i64, keep: &HashSet<String>, metas:
             continue;
         }
         let meta = match metas.remove(&dir) {
-            Some((was, meta)) if was == at => meta,
+            Some((was, meta)) if was == at => Some(meta),
             _ => read_meta(&store),
         };
-        read.insert(dir.clone(), (at, meta.clone()));
+        // A read that failed is tried again next time, written since or not.
+        if let Some(meta) = &meta {
+            read.insert(dir.clone(), (at, meta.clone()));
+        }
+        let meta = meta.unwrap_or_default();
         if meta.subagent {
             continue;
         }
@@ -2987,7 +2992,7 @@ mod tests {
     }
 
     /// A chat's database is opened again only once it has been written since it was read
-    /// (`Metas`), and a chat that's gone is forgotten.
+    /// (`Metas`), but a read that failed is tried again; a chat that's gone is forgotten.
     #[test]
     fn a_command_line_chats_database_is_read_again_only_once_written() {
         let dir = crate::fixtures::scratch("cursor-metas");
@@ -2995,12 +3000,18 @@ mod tests {
         let chat = home.join("chats/d16e/c1");
         std::fs::create_dir_all(&chat).unwrap();
         let store = chat.join(STORE_DB);
+        let aged = |secs: u64| std::fs::File::options().write(true).open(&store).unwrap().set_modified(std::time::UNIX_EPOCH + Duration::from_secs(1_790_000_000 + secs)).unwrap();
         let named = |name: &str, secs: u64| {
             Connection::open(&store).unwrap().execute_batch(&format!("CREATE TABLE IF NOT EXISTS meta (key TEXT, value TEXT); DELETE FROM meta; INSERT INTO meta VALUES ('0', '{{\"name\":\"{name}\"}}');")).unwrap();
-            std::fs::File::options().write(true).open(&store).unwrap().set_modified(std::time::UNIX_EPOCH + Duration::from_secs(1_790_000_000 + secs)).unwrap();
+            aged(secs);
         };
         let titles = |metas: &mut Metas| read_cli_chats(&home, 0, &HashSet::new(), metas).into_iter().map(|c| c.title.unwrap_or_default()).collect::<Vec<_>>();
         let mut metas = Metas::new();
+        // No meta row yet: nothing is kept of the read, so it's read again at the same time.
+        Connection::open(&store).unwrap().execute_batch("CREATE TABLE blobs (id TEXT, data BLOB);").unwrap();
+        aged(100);
+        assert_eq!(titles(&mut metas), [""]);
+        assert!(metas.is_empty());
         named("First", 100);
         assert_eq!(titles(&mut metas), ["First"]);
         // Its time as before: what was read stands, unopened.

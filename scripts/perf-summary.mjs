@@ -42,14 +42,14 @@ const seconds = (t) => {
   const [h, m, s] = t.split(':').map(Number);
   return h * 3600 + m * 60 + s;
 };
-// Minutes from a run's first line to its last. The lines carry only the time of day, so a
-// clock that goes back by more than half a day has passed midnight; the app's and its server's
-// lines can go back by a second, as each stamps its own.
+// Minutes from a run's first line to its last. The lines carry only the time of day, so a step
+// of more than half a day either way crosses midnight: the app's and its server's lines can be a
+// second out of order, as each stamps its own, and so on either side of it.
 const minutes = (run) => {
   let s = 0;
   for (let i = 1; i < run.length; i++) {
     const d = seconds(clock(run[i])) - seconds(clock(run[i - 1]));
-    s += d < -43200 ? d + 86400 : d;
+    s += d < -43200 ? d + 86400 : d > 43200 ? d - 86400 : d;
   }
   return Math.max(1, s) / 60;
 };

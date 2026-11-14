@@ -106,10 +106,16 @@ fn keep_bounded(f: &File, path: &Path, cut_at: u64) -> Option<File> {
     if there == Some(ours) && ours < cut_at {
         return None;
     }
-    if there.is_some_and(|len| len >= cut_at) {
-        let mut cut = path.as_os_str().to_owned();
-        cut.push(".1");
-        let _ = std::fs::rename(path, cut);
+    // Only the writer holding the lock on the file cuts it, and only while the file at `path` is
+    // still that one: two cutting at once would have the second move the first's new file over
+    // the old one in perf.log.1.
+    if ours >= cut_at && f.try_lock().is_ok() {
+        if std::fs::metadata(path).is_ok_and(|m| m.len() == ours) {
+            let mut cut = path.as_os_str().to_owned();
+            cut.push(".1");
+            let _ = std::fs::rename(path, cut);
+        }
+        let _ = f.unlock();
     }
     OpenOptions::new().create(true).append(true).open(path).ok()
 }
@@ -551,6 +557,11 @@ Total number in stack (recursive counted multiple, when >=5):
         assert!(keep_bounded(&app, &path, 20).is_none());
         assert!(keep_bounded(&server, &path, 20).is_none());
         server.write_all(b"0123456789").unwrap();
+        // The server holds it, cutting it itself: the app leaves it be.
+        server.try_lock().unwrap();
+        assert!(keep_bounded(&app, &path, 20).is_some());
+        assert!(!dir.join("perf.log.1").exists(), "only the writer holding the lock cuts");
+        server.unlock().unwrap();
         let mut fresh = keep_bounded(&app, &path, 20).expect("past its limit, the log is cut");
         assert_eq!(std::fs::read_to_string(dir.join("perf.log.1")).unwrap(), "01234567890123456789");
         fresh.write_all(b"app").unwrap();
