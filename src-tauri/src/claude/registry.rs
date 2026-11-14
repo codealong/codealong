@@ -53,7 +53,7 @@ pub struct RegistryEntry {
     /// For a background job, the arguments it was started with, from the service's roster
     /// (`launched_with`): its process is a spare's (`claude bg-spare`), whose command line says
     /// nothing of them, so they're what says which modes it offers (mode.rs `cycled_modes`).
-    pub launched_with: Option<String>,
+    pub launched_with: Option<Vec<String>>,
     /// For a background job waiting on the questions it asks, the first of them, from its record
     /// (`job_questions`), which has them whether or not its transcript or the plugin's hook does.
     pub asks: Option<String>,
@@ -188,15 +188,15 @@ pub fn resumed_from(roster: &Value, job: &str) -> Option<String> {
     (!from.is_empty() && own != Some(from.as_str())).then_some(from)
 }
 
-/// The arguments a background job was started with, from the service's roster:
-/// `workers.<job>.dispatch.launch.args` (`--session-id <id>`, then what `claude --bg` was given
-/// besides `--bg`), up to the `--` its prompt comes after, joined with spaces as a command line
-/// is. None for a job the roster doesn't give them for (one the service brought back, `mode:
-/// "resume"` with no `args`).
-pub fn launched_with(roster: &Value, job: &str) -> Option<String> {
-    let args = roster.get("workers")?.get(job)?.pointer("/dispatch/launch/args")?.as_array()?;
-    let before: Vec<&str> = args.iter().filter_map(Value::as_str).take_while(|a| *a != "--").collect();
-    Some(before.join(" "))
+/// The arguments a background job was started with, from the service's roster, each whole, up
+/// to the `--` its prompt comes after: `workers.<job>.dispatch.launch.args` for one started
+/// afresh (`--session-id <id>`, then what `claude --bg` was given besides `--bg`), `flagArgs` for
+/// one the service resumed (`mode: "resume"`, its options without the resume's own: `--model
+/// opus -- <prompt>`, 2.1.325). None for a job the roster doesn't give them for.
+pub fn launched_with(roster: &Value, job: &str) -> Option<Vec<String>> {
+    let launch = roster.get("workers")?.get(job)?.pointer("/dispatch/launch")?;
+    let args = launch.get("args").or_else(|| launch.get("flagArgs"))?.as_array()?;
+    Some(args.iter().filter_map(Value::as_str).take_while(|a| *a != "--").map(String::from).collect())
 }
 
 /// A record newer than this may not name what it forked from yet, so it's read again.
@@ -401,12 +401,19 @@ mod tests {
     fn a_jobs_launch_arguments_come_from_the_roster_without_its_prompt() {
         let roster = serde_json::json!({"workers": {
             "4f5bdab8": {"dispatch": {"source": "shell", "launch": {"mode": "prompt", "args": ["--session-id", "4f5bdab8-7858-40ea-b6b6-842aad5cc9d5", "--model", "haiku", "--dangerously-skip-permissions", "--", "--permission-mode plan, it said"]}}},
-            "3615f788": {"dispatch": {"source": "fleet", "launch": {"mode": "resume", "sessionId": "3615f788-0000-4000-8000-000000000000"}}}
+            "3615f788": {"dispatch": {"source": "fleet", "launch": {"mode": "resume", "sessionId": "3615f788-0000-4000-8000-000000000000", "fork": false, "flagArgs": ["--model", "opus", "--allow-dangerously-skip-permissions", "--", "Lets merge this"]}}},
+            "8563dfe9": {"dispatch": {"source": "spare", "launch": {"mode": "resume", "sessionId": "8563dfe9-0000-4000-8000-000000000000"}}},
+            "c0237a91": {"dispatch": {"source": "shell", "launch": {"mode": "prompt", "args": ["--session-id", "c0237a91-208f-42ce-982c-e7482f8c1859", "--add-dir", "/Users/me/Library/Application Support/Codealong/images", "Why --permission-mode plan here?"]}}}
         }});
-        assert_eq!(launched_with(&roster, "4f5bdab8").as_deref(), Some("--session-id 4f5bdab8-7858-40ea-b6b6-842aad5cc9d5 --model haiku --dangerously-skip-permissions"));
-        // Brought back by the service, with no arguments of its own; not in the roster.
-        assert_eq!(launched_with(&roster, "3615f788"), None);
-        assert_eq!(launched_with(&roster, "00000000"), None);
+        let args = |job: &str| launched_with(&roster, job);
+        assert_eq!(args("4f5bdab8"), Some(["--session-id", "4f5bdab8-7858-40ea-b6b6-842aad5cc9d5", "--model", "haiku", "--dangerously-skip-permissions"].map(String::from).to_vec()));
+        // Resumed by the service: its options are the resume's.
+        assert_eq!(args("3615f788"), Some(["--model", "opus", "--allow-dangerously-skip-permissions"].map(String::from).to_vec()));
+        // A path and a prompt given without `--` stay whole.
+        assert_eq!(args("c0237a91").map(|a| a[3..].to_vec()), Some(["/Users/me/Library/Application Support/Codealong/images", "Why --permission-mode plan here?"].map(String::from).to_vec()));
+        // None in its launch, and not in the roster.
+        assert_eq!(args("8563dfe9"), None);
+        assert_eq!(args("00000000"), None);
     }
 
     #[test]

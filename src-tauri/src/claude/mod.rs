@@ -1543,12 +1543,11 @@ impl crate::harness::Reader for Reader {
                     // its tab, or a background job's through its account's service
                     // (`press_in_job`). A job's process is a spare's, so what it was started with
                     // is the roster's.
-                    let job = reg.filter(|r| r.kind.as_deref() == Some("bg"));
-                    let command = match job {
-                        Some(job) => job.launched_with.as_deref(),
-                        None => s.pid.and_then(|pid| look.ps.all().iter().find(|p| p.pid == pid)).map(|p| p.command.as_str()),
+                    let args: Vec<&str> = match reg.filter(|r| r.kind.as_deref() == Some("bg")) {
+                        Some(job) => job.launched_with.iter().flatten().map(String::as_str).collect(),
+                        None => s.pid.and_then(|pid| look.ps.all().iter().find(|p| p.pid == pid)).map(|p| mode::words(&p.command)).unwrap_or_default(),
                     };
-                    s.modes = mode::cycled_modes(&a.home_path(), Path::new(&s.cwd), Some(recorded), command);
+                    s.modes = mode::cycled_modes(&a.home_path(), Path::new(&s.cwd), Some(recorded), &args);
                     s.mode = s.mode.map(|m| m.with_id(recorded));
                 }
                 s.continues = from.map(|f| f.id);
@@ -2192,7 +2191,11 @@ fn clears_context_in(texts: impl Iterator<Item = String>) -> bool {
 /// `permission_mode` reads) says nothing of how it started, since it may have been switched.
 fn live_mode(account: &AccountCfg, s: &Session, registry: Option<&registry::RegistryEntry>) -> Option<String> {
     let records = records_in(account, s, home_of_account);
-    let starts = || mode::starting_mode(&account.home_path(), Path::new(&s.cwd), s.pid.and_then(procs::command_line).as_deref());
+    // A job's arguments where the roster was read for it, else its process's command line.
+    let starts = || match registry.and_then(|r| r.launched_with.as_ref()) {
+        Some(job) => mode::starting_mode(&account.home_path(), Path::new(&s.cwd), &job.iter().map(String::as_str).collect::<Vec<_>>()),
+        None => mode::starting_mode(&account.home_path(), Path::new(&s.cwd), &s.pid.and_then(procs::command_line).as_deref().map(mode::words).unwrap_or_default()),
+    };
     permission_mode(registry, &records).or_else(|| records.is_empty().then(starts).flatten())
 }
 

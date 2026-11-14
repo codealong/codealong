@@ -40,15 +40,15 @@ pub(super) fn permission_mode(registry: Option<&RegistryEntry>, transcripts: &[P
 /// that isn't a Bypass settings turn off; none where nothing says. A default of Bypass or Auto
 /// counts only where the account's or the managed settings say it themselves ("only
 /// policy/user/flag settings may grant bypass mode (projectSettings and localSettings are
-/// repo-controllable)"), else it starts in Manual. `command` is its process's command line (a
-/// background job's is its spare's, which names no mode), `home` the account's folder and `cwd`
-/// the session's.
-pub(super) fn starting_mode(home: &Path, cwd: &Path, command: Option<&str>) -> Option<String> {
-    starting_by(&offers(&settings_files(home, cwd), &super::trust::state_file(home)), command.unwrap_or_default())
+/// repo-controllable)"), else it starts in Manual. `args` are what it was started with
+/// (`started_in`; a background job's process is a spare's, which names no mode), `home` the
+/// account's folder and `cwd` the session's.
+pub(super) fn starting_mode(home: &Path, cwd: &Path, args: &[&str]) -> Option<String> {
+    starting_by(&offers(&settings_files(home, cwd), &super::trust::state_file(home)), args)
 }
 
-fn starting_by(offers: &Offers, command: &str) -> Option<String> {
-    let started = started_in(command);
+fn starting_by(offers: &Offers, args: &[&str]) -> Option<String> {
+    let started = started_in(args);
     let default = offers.default_mode.clone().map(|m| match m.as_str() {
         "bypassPermissions" | "auto" if !offers.default_granted => "default".to_string(),
         _ => m,
@@ -79,15 +79,15 @@ pub fn session_mode(raw: &str) -> Option<SessionMode> {
 /// and Auto again): Manual, Accept edits and Plan, then Bypass where the session offers it, then
 /// Auto where it does, and round to Manual. Don't Ask steps to Manual. Claude Code writes the
 /// mode it's switched to only with the next prompt, so what a press leads to is worked out from
-/// this (cycle.rs). `recorded` is the mode its record says it's in, `command` its process's
-/// command line, `home` the account's folder and `cwd` the session's.
-pub fn cycled_modes(home: &Path, cwd: &Path, recorded: Option<&str>, command: Option<&str>) -> Vec<SessionMode> {
-    cycled_by(&offers(&settings_files(home, cwd), &super::trust::state_file(home)), recorded, command)
+/// this (cycle.rs). `recorded` is the mode its record says it's in, `args` what it was started
+/// with (`started_in`), `home` the account's folder and `cwd` the session's.
+pub fn cycled_modes(home: &Path, cwd: &Path, recorded: Option<&str>, args: &[&str]) -> Vec<SessionMode> {
+    cycled_by(&offers(&settings_files(home, cwd), &super::trust::state_file(home)), recorded, args)
 }
 
 /// `cycled_modes` by what its settings say (`offers`).
-fn cycled_by(offers: &Offers, recorded: Option<&str>, command: Option<&str>) -> Vec<SessionMode> {
-    let started = started_in(command.unwrap_or_default());
+fn cycled_by(offers: &Offers, recorded: Option<&str>, args: &[&str]) -> Vec<SessionMode> {
+    let started = started_in(args);
     let starts = started.mode.as_deref().or(offers.default_mode.as_deref());
     // Offered to a session that started bypassing, or was let to (`isBypassPermissionsModeAvailable`).
     let bypass = !offers.no_bypass && (started.skips || starts == Some("bypassPermissions") || started.may_bypass || recorded == Some("bypassPermissions"));
@@ -112,11 +112,13 @@ pub fn mode_id(raw: &str) -> &str {
     }
 }
 
-/// What a session's command line says of its modes: `--permission-mode`, and whether
+/// What a session was started with says of its modes: `--permission-mode`, and whether
 /// `--dangerously-skip-permissions` started it bypassing (`skips`, which wins over the mode
-/// wherever it comes) or `--allow-dangerously-skip-permissions` let it. Nothing after `--` is
-/// read; before it, a word of the prompt can't be told from an argument in `ps`'s line, so a
-/// prompt that is one of these words alone counts too.
+/// wherever it comes) or `--allow-dangerously-skip-permissions` let it. `args` are a background
+/// job's arguments as its service keeps them, each whole (registry.rs `launched_with`), or a
+/// process's command line split at its spaces (`words`). Nothing after `--` is read; before it,
+/// a prompt given without one is an argument, which only one of these flags alone matches, but
+/// in `ps`'s line its words can't be told from arguments, so one of them there counts too.
 #[derive(Debug, Default, PartialEq)]
 struct Started {
     mode: Option<String>,
@@ -124,9 +126,9 @@ struct Started {
     may_bypass: bool,
 }
 
-fn started_in(command: &str) -> Started {
+fn started_in(args: &[&str]) -> Started {
     let mut out = Started::default();
-    let mut words = command.split_whitespace();
+    let mut words = args.iter().copied();
     while let Some(w) = words.next() {
         match w.split_once('=') {
             Some(("--permission-mode", mode)) => out.mode = Some(mode.to_string()),
@@ -139,6 +141,11 @@ fn started_in(command: &str) -> Started {
         }
     }
     out
+}
+
+/// A process's command line as `started_in` reads it, split at its spaces.
+pub(super) fn words(command: &str) -> Vec<&str> {
+    command.split_whitespace().collect()
 }
 
 /// What Claude Code's settings and the flags it keeps in its state file say of the modes it
@@ -258,7 +265,7 @@ mod tests {
         let files: Vec<PathBuf> = ["account.json", "repo.json", "local.json", "managed.json"].iter().map(|f| dir.join(f)).collect();
         let state = dir.join("state.json");
         let set = |i: usize, text: &str| std::fs::write(&files[i], text).unwrap();
-        let ids = |recorded: Option<&str>, command: Option<&str>| cycled_by(&offers(&files, &state), recorded, command).into_iter().map(|m| m.id).collect::<Vec<_>>();
+        let ids = |recorded: Option<&str>, command: Option<&str>| cycled_by(&offers(&files, &state), recorded, &words(command.unwrap_or_default())).into_iter().map(|m| m.id).collect::<Vec<_>>();
         // Nothing set: Auto is on by Anthropic's default, and nothing started it bypassing.
         assert_eq!(ids(Some("default"), Some("claude --session-id 1 hi")), ["default", "acceptEdits", "plan", "auto"]);
         // Started bypassing, or let to: Bypass before Auto.
@@ -290,10 +297,10 @@ mod tests {
         assert_eq!(ids(Some("default"), None), ["default", "acceptEdits", "plan", "bypassPermissions"]);
         set(3, r#"{"permissions":{"disableBypassPermissionsMode":"disable","defaultMode":"bypassPermissions"}}"#);
         assert_eq!(ids(Some("bypassPermissions"), None), ["default", "acceptEdits", "plan", "auto"]);
-        assert_eq!(cycled_by(&offers(&files, &state), Some("auto"), None)[3].label, "Auto");
+        assert_eq!(cycled_by(&offers(&files, &state), Some("auto"), &[])[3].label, "Auto");
         // The mode one starts in, before its transcript says: the flags over the settings, the
         // skip over the mode, and no Bypass where it's turned off.
-        let starts = |command: &str| starting_by(&offers(&files, &state), command);
+        let starts = |command: &str| starting_by(&offers(&files, &state), &words(command));
         assert_eq!(starts("claude bg-spare --bg-spare /tmp/s.sock"), None, "the managed default is turned off");
         assert_eq!(starts("claude --permission-mode plan").as_deref(), Some("plan"));
         assert_eq!(starts("claude --dangerously-skip-permissions --permission-mode plan").as_deref(), Some("plan"), "the skip turned off");
@@ -321,7 +328,11 @@ mod tests {
         crate::os::as_if(crate::os::Os::MacOs, || assert_eq!(settings_files(home, repo)[3], Path::new("/Library/Application Support/ClaudeCode/managed-settings.json")));
         crate::os::as_if(crate::os::Os::Linux, || assert_eq!(settings_files(home, repo)[3], Path::new("/etc/claude-code/managed-settings.json")));
         assert_eq!(mode_id("manual"), "default");
-        assert_eq!(started_in("claude --permission-mode"), Started::default());
+        assert_eq!(started_in(&words("claude --permission-mode")), Started::default());
+        // A job's arguments as its service keeps them, a prompt given without `--` whole among
+        // them: its words aren't flags.
+        let job = ["--session-id", "1", "--permission-mode", "plan", "Explain --allow-dangerously-skip-permissions"];
+        assert_eq!(started_in(&job), Started { mode: Some("plan".into()), ..Started::default() });
     }
 
     #[test]

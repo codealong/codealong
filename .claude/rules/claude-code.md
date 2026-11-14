@@ -602,8 +602,9 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   account's `defaultMode`, went to Auto, then two more to Accept edits, and its next prompt was
   written `acceptEdits`; 2026-11-13): `claude/mod.rs` (`press_in_job`). Its process is a spare's,
   whose command line names no flag, so what it was started with is the roster's
-  `dispatch.launch.args` (`claude/registry.rs` `launched_with`); a job the service brought back
-  (`source: "fleet"`, `mode: "resume"`) has none there.
+  `dispatch.launch.args`, or `flagArgs` for one the service resumed (`mode: "resume"`, the
+  resume's options without its own: `--model opus -- <prompt>`), each argument whole, a prompt
+  given without `--` among them (`claude/registry.rs` `launched_with`).
 - Background jobs through the account's daemon, `/tmp/cc-daemon-<uid>/<first 8 hex of
   sha256(config dir)>/control.sock`: `reply` hands a job a prompt (pasted, then Return), and
   `attach` types into its terminal, an Escape that stops its turn included: `claude/daemon.rs`,
