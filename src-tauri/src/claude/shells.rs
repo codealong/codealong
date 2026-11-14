@@ -71,7 +71,7 @@ mod tests {
         let pids: Vec<u32> = std::env::var("CODEALONG_TEST_PIDS").unwrap_or_default().split(',').filter_map(|p| p.parse().ok()).collect();
         let look = || {
             let listed = procs::list(std::time::Duration::from_secs(30)).lines;
-            command_trees(&listed, &pids).into_iter().map(|(pid, tree)| (pid, (tree.waits_behind(&listed, procs::open_files), tree))).collect::<HashMap<_, _>>()
+            command_trees(&listed, &pids).into_iter().map(|(pid, tree)| (pid, (tree.waits_behind(&listed, procs::open_files, procs::held_exclusively), tree))).collect::<HashMap<_, _>>()
         };
         let before = look();
         std::thread::sleep(std::time::Duration::from_secs(60));

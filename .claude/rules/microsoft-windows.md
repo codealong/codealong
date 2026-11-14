@@ -38,6 +38,10 @@ the app's windows, not this. Paths are under `src-tauri/src/`.
   its child isn't taken for it.
 - Windows has no `ps`: `os::procs::table` reads every process for `procs::list`, `find_child` and
   hygiene, and is None on macOS and Linux, which keep running `ps`.
+- Nor does Codealong read which files a process has open there (`os/procs/windows.rs`
+  `open_files`), so a command a session left running that waits its turn behind another build
+  for a lock (procs.rs `CommandTree::waits_behind`) is taken for one left sitting after 15 quiet
+  minutes, as on macOS before 2026-11-14.
 - Apps started from the Start menu get the user's whole environment, so there's no login shell to
   ask (`procs::login_var`). `$HOME` isn't set there; util.rs `home` reads it first anyway, so a
   copy run with a home of its own keeps everything in it, as on macOS.

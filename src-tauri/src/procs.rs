@@ -275,30 +275,37 @@ impl CommandTree {
     }
 
     /// What a command whose processes do nothing waits behind: the processes outside it that run
-    /// the same program as one of its own and have open a lock file it has open too, and every
-    /// process under them. A build queued for a lock (cargo's on a target folder another build
-    /// has) does nothing at all while it waits, and keeps the file open, as the build that holds
-    /// it does; so while what it waits behind is active, it's waiting its turn, not left sitting.
-    /// Cargo 1.98 keeps `.cargo-lock`, `.cargo-build-lock` and `.cargo-artifact-lock` open in the
-    /// target's profile folder, waiting or building. A lock file is one whose name says so: every
-    /// cargo run also keeps `~/.cargo/.global-cache` and `.package-cache-mutate` open, which would
-    /// tie any two together. `open` is `open_files`.
-    pub fn waits_behind(&self, listed: &[PsLine], open: impl Fn(u32) -> Option<Vec<PathBuf>>) -> CommandTree {
+    /// the same program as one of its own and have open a lock file it has open too, which one of
+    /// them holds exclusively, and every process under them. A build queued for a lock (cargo's
+    /// on a build folder another build has) does nothing at all while it waits, and keeps the
+    /// file open, as the build that holds it does; so while what it waits behind is active, it's
+    /// waiting its turn, not left sitting.
+    ///
+    /// Cargo 1.98 keeps `.cargo-lock`, `.cargo-build-lock` and `.cargo-artifact-lock` open in a
+    /// profile folder, waiting or building, all three read and write. It takes `.cargo-lock`
+    /// shared, so builds of one target folder with build folders of their own all hold it and
+    /// none waits on another; the other two exclusively (`cargo check` skips the artifact one).
+    /// So only a file held exclusively (`held`, which is `held_exclusively`) counts: one process
+    /// holds it, and the quiet one that has it open is waiting for it. A lock file is one whose
+    /// name says so: every cargo run also keeps `~/.cargo/.global-cache` (a database, locked its
+    /// own way) and `.package-cache-mutate` open. `open` is `open_files`, which Windows doesn't
+    /// answer: there a build queued for a lock is taken for one left sitting.
+    pub fn waits_behind(&self, listed: &[PsLine], open: impl Fn(u32) -> Option<Vec<PathBuf>>, held: impl Fn(&Path) -> bool) -> CommandTree {
         fn program(command: &str) -> Option<&str> {
             program_and_rest(command).map(|(path, _)| program_name(path))
         }
         let locks = |pid: u32| open(pid).unwrap_or_default().into_iter().filter(|f| names_a_lock(f)).collect::<Vec<_>>();
         let mine = |pid: u32| self.cpu.iter().any(|(p, _)| *p == pid);
-        let held: Vec<(&str, PathBuf)> = listed.iter().filter(|p| mine(p.pid)).filter_map(|p| Some((program(&p.command)?, p.pid))).flat_map(|(name, pid)| locks(pid).into_iter().map(move |f| (name, f))).collect();
-        if held.is_empty() {
+        let waits: Vec<(&str, PathBuf)> = listed.iter().filter(|p| mine(p.pid)).filter_map(|p| Some((program(&p.command)?, p.pid))).flat_map(|(name, pid)| locks(pid).into_iter().map(move |f| (name, f))).collect();
+        if waits.is_empty() {
             return CommandTree::default();
         }
         let ahead: Vec<(u32, u64)> = listed
             .iter()
             .filter(|p| !mine(p.pid))
             .filter_map(|p| Some((p, program(&p.command)?)))
-            .filter(|(_, name)| held.iter().any(|(n, _)| n == name))
-            .filter(|(p, name)| locks(p.pid).iter().any(|f| held.iter().any(|(n, h)| n == name && h == f)))
+            .filter(|(_, name)| waits.iter().any(|(n, _)| n == name))
+            .filter(|(p, name)| locks(p.pid).iter().any(|f| waits.iter().any(|(n, w)| n == name && w == f) && held(f)))
             .filter_map(|(p, _)| Some((p.pid, p.cpu?)))
             .collect();
         under(&cpu_rows(listed), ahead)
@@ -308,6 +315,13 @@ impl CommandTree {
 /// Whether a file's name says it's a lock: `.cargo-lock`, `.cargo-build-lock`, `gradle.lock`.
 fn names_a_lock(file: &Path) -> bool {
     file.file_name().is_some_and(|n| n.to_string_lossy().to_ascii_lowercase().contains("lock"))
+}
+
+/// Whether a process holds a lock on `file` exclusively, as cargo holds a build folder's: a
+/// shared lock of Codealong's own on it is refused. One that's had is given back at once, as the
+/// file closes, so a build that asks for the lock in that moment waits that long.
+pub fn held_exclusively(file: &Path) -> bool {
+    std::fs::File::open(file).is_ok_and(|f| matches!(f.try_lock_shared(), Err(std::fs::TryLockError::WouldBlock)))
 }
 
 /// What `ps` listed, as pid, parent, CPU and command line, leaving out a process whose CPU time it
@@ -663,12 +677,13 @@ mod tests {
         assert!(tree(&[(300, 1), (301, 88), (310, 0)]).active_since(&before));
     }
 
-    /// A build queued for a lock waits behind the build that has it open too: the same program,
-    /// the same lock file, and what that one runs. Not behind one of another target folder, which
-    /// shares only cargo's cache files with it, nor behind another program that has its lock open.
+    /// A build queued for a lock waits behind the build that holds it: the same program, the same
+    /// lock file, held exclusively, and what that one runs. Not behind one with a build folder of
+    /// its own that shares only the target folder's shared lock with it, nor one of another target
+    /// folder, which shares only cargo's cache files, nor another program that has its lock open.
     #[test]
     fn a_quiet_command_waits_behind_a_build_holding_its_lock() {
-        use std::path::PathBuf;
+        use std::path::{Path, PathBuf};
         let row = |pid: u32, ppid: u32, cpu: u64, command: &str| super::PsLine { pid, ppid, tty: "??".into(), cpu: Some(cpu), command: command.into() };
         let listed = [
             row(100, 1, 500, "claude"),
@@ -678,25 +693,51 @@ mod tests {
             row(500, 40, 102, "/home/me/.rustup/toolchains/stable/bin/cargo test --lib"),
             row(501, 500, 15000, "/home/me/.rustup/toolchains/stable/bin/rustc --crate-name northwind"),
             row(600, 41, 50, "/home/me/.rustup/toolchains/stable/bin/cargo build --release"),
-            row(700, 42, 3, "vim .cargo-lock"),
+            row(700, 42, 3, "vim .cargo-build-lock"),
+            row(800, 43, 9000, "/home/me/.rustup/toolchains/stable/bin/cargo check"),
         ];
         let open = |pid: u32| -> Option<Vec<PathBuf>> {
             let cache = "/home/me/.cargo/.global-cache";
             let files: &[&str] = match pid {
-                302 => &["/dev/null", cache, "/work/target/debug/.cargo-lock"],
-                500 => &["/dev/null", cache, "/work/target/debug/.cargo-lock"],
-                600 => &["/dev/null", cache, "/work/target/release/.cargo-lock"],
-                700 => &["/work/target/debug/.cargo-lock"],
+                302 | 500 => &["/dev/null", cache, "/work/target/debug/.cargo-lock", "/work/target/debug/.cargo-build-lock"],
+                600 => &["/dev/null", cache, "/work/target/release/.cargo-lock", "/work/target/release/.cargo-build-lock"],
+                700 => &["/work/target/debug/.cargo-build-lock"],
+                800 => &["/dev/null", cache, "/work/target/debug/.cargo-lock", "/work/atlas-build/debug/.cargo-build-lock"],
                 _ => &["/dev/null"],
             };
             Some(files.iter().map(PathBuf::from).collect())
         };
+        let held = |f: &Path| f.file_name().is_some_and(|n| n == ".cargo-build-lock");
         let tree = &super::command_trees(&listed, &[100], |c| c.contains("eval '"))[&100];
         assert_eq!(tree.cpu, vec![(300, 1), (301, 1), (302, 62)]);
-        assert_eq!(tree.waits_behind(&listed, open).cpu, vec![(500, 102), (501, 15000)]);
+        assert_eq!(tree.waits_behind(&listed, open, held).cpu, vec![(500, 102), (501, 15000)]);
+        // Builds that share only locks taken shared don't wait on each other.
+        assert!(tree.waits_behind(&listed, open, |_| false).cpu.is_empty());
         // One with no lock open waits behind nothing.
         let quiet = super::CommandTree { cpu: vec![(301, 1)] };
-        assert!(quiet.waits_behind(&listed, open).cpu.is_empty());
+        assert!(quiet.waits_behind(&listed, open, held).cpu.is_empty());
+    }
+
+    /// A lock file is held exclusively while another open of it has the exclusive lock, not while
+    /// it's held shared or not at all; and asking leaves it as it was.
+    #[test]
+    fn a_lock_held_exclusively_is_told_from_a_shared_one() {
+        let dir = std::env::temp_dir().join(format!("codealong-lock-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(".cargo-build-lock");
+        let file = std::fs::File::create(&path).unwrap();
+        assert!(!super::held_exclusively(&path));
+        file.lock().unwrap();
+        assert!(super::held_exclusively(&path));
+        assert!(super::held_exclusively(&path), "asking doesn't take it");
+        file.unlock().unwrap();
+        file.lock_shared().unwrap();
+        assert!(!super::held_exclusively(&path));
+        file.unlock().unwrap();
+        // Codealong's own shared lock went with its look: the file can be had exclusively again.
+        assert!(file.try_lock().is_ok());
+        assert!(!super::held_exclusively(&dir.join("no-such.lock")));
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     /// A tree is the process and everything under it, with the CPU they've used; it's at rest

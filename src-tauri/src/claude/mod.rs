@@ -1339,7 +1339,7 @@ impl Reader {
                     // A build queued for a lock another build holds does nothing until it gets
                     // it: while that one works, this one is waiting its turn.
                     let active = tree.active_since(&w.tree);
-                    let behind = if active { procs::CommandTree::default() } else { tree.waits_behind(listed, procs::open_files) };
+                    let behind = if active { procs::CommandTree::default() } else { tree.waits_behind(listed, procs::open_files, procs::held_exclusively) };
                     if active || (!w.behind.cpu.is_empty() && behind.active_since(&w.behind)) {
                         w.active_at = now;
                     }
