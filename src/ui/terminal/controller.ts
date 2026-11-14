@@ -314,6 +314,15 @@ export class TerminalController {
     this.flush();
   }
 
+  /** The selection's text for the terminal's own menu (TerminalView.tsx), once a drag still going
+   *  has ended where it is, keeping what it selected: the menu's loop takes the buttons'
+   *  releases, and the drag would go on from its old start at the next press after it. */
+  readForMenu(then: (text: string | null) => unknown): void {
+    this.pressed = null;
+    this.letGo();
+    this.read(false, then);
+  }
+
   /** Copies the selection. */
   copy(): void {
     this.read(false, (text) => (text ? navigator.clipboard.writeText(text) : undefined));

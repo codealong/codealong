@@ -96,7 +96,7 @@ export function TerminalView({ id, focusAt, onLeave, session }: TerminalViewProp
             // The menu acts on what was selected as you asked for it, read before it shows, so
             // nothing done meanwhile changes what it copies or sends, and what needs a selection
             // is dimmed without one.
-            c.read(false, (selected) => {
+            c.readForMenu((selected) => {
               // What it reads goes into the box's text as the session's draft.
               const toBox = (key: string, text: string, all: boolean) =>
                 void addToBox(key, text).then(

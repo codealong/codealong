@@ -108,14 +108,19 @@ describe('a drag the window loses', () => {
 describe('a press and the selection it would clear', () => {
   afterEach(() => setPlatform(null));
 
+  type Step = [Partial<PointerEvent>, 'down' | 'up' | 'move'] | ((c: InstanceType<typeof TerminalController>) => void);
+
   /** A controller over a canvas at 10,10, and the mouse inputs it sent, as `action:button@x`. */
-  async function pressed(events: [Partial<PointerEvent>, 'down' | 'up' | 'move'][]) {
+  async function pressed(events: Step[]) {
     sent.length = 0;
     held.length = 0;
     given.length = 0;
     const canvas = { getBoundingClientRect: () => ({ left: 10, top: 10 }) } as HTMLCanvasElement;
     const c = new TerminalController('t', {} as HTMLElement, canvas, { onLeave: () => {}, onUnsafePaste: () => {}, onError: () => {}, onPointer: () => {} });
-    for (const [e, how] of events) c.pointer({ button: -1, buttons: 0, clientX: 30, clientY: 30, shiftKey: false, ctrlKey: false, altKey: false, metaKey: false, ...e } as PointerEvent, how);
+    for (const step of events) {
+      if (typeof step === 'function') step(c);
+      else c.pointer({ button: -1, buttons: 0, clientX: 30, clientY: 30, shiftKey: false, ctrlKey: false, altKey: false, metaKey: false, ...step[0] } as PointerEvent, step[1]);
+    }
     for (let i = 0; i < events.length; i++) await answer();
     return given.flatMap((i) => (i.kind === 'mouse' ? [`${i.action}:${i.button ?? ''}@${i.x}`] : []));
   }
@@ -128,7 +133,7 @@ describe('a press and the selection it would clear', () => {
   });
 
   // As a WKWebView sends them (2026-11-14): the press and every move of its drag name button 0.
-  const draggedAfterAMenu: [Partial<PointerEvent>, 'down' | 'up' | 'move'][] = [
+  const draggedAfterAMenu: Step[] = [
     [{ button: 0, buttons: 1, clientX: 40 }, 'move'],
     [{ button: 0, buttons: 1, clientX: 60 }, 'move'],
     [{ button: 0, buttons: 1, clientX: 70 }, 'move'],
@@ -139,6 +144,18 @@ describe('a press and the selection it would clear', () => {
     // The menu's loop takes the right button's release; WebKit takes it as held still.
     const mouse = await pressed([[{ button: 2, buttons: 2 }, 'down'], ...draggedAfterAMenu]);
     expect(mouse, 'a drag that selects, from where it was pressed').toEqual(['down:left@30', 'move:@50', 'move:@60', 'up:left@60']);
+  });
+
+  it('ends a drag its menu opens in the middle of, keeping what it selected, so the next press starts afresh', async () => {
+    const mouse = await pressed([
+      [{ button: 0, buttons: 1, clientX: 20 }, 'down'],
+      [{ button: -1, buttons: 1, clientX: 40 }, 'move'],
+      // A right-click with the left button held: the menu's loop takes both releases.
+      [{ button: 2, buttons: 3, clientX: 40 }, 'move'],
+      (c) => c.readForMenu(() => {}),
+      ...draggedAfterAMenu,
+    ]);
+    expect(mouse).toEqual(['down:left@10', 'move:@30', 'move:@30', 'up:left@30', 'down:left@30', 'move:@50', 'move:@60', 'up:left@60']);
   });
 
   it('and after a ⌃-click’s menu, whose loop took the left button’s release', async () => {
