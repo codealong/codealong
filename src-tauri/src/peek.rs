@@ -138,10 +138,12 @@ pub fn place(bar: Rect, pill: Rect, screen: Rect, zoom: u32) -> Place {
 
 /// Where the peek goes for a row in a window it would cover if it hung from it: a session in the
 /// main window's PR or todo panel (`row`: that panel's sides, the session's row's top and bottom).
-/// On the row's left, over the list beside the panel, else on its right, else at the screen's left
-/// edge; the card's top level with the row's, or higher where the row is too low on the screen for
-/// the tallest card. It hangs from its top edge, as it does under the bar, and is as much wider and
-/// may be as much taller at a `zoom` (a percent).
+/// On the row's left, over the list beside the panel, else on its right; the card's top level with
+/// the row's, or higher where the row is too low on the screen for the tallest card. It hangs from
+/// its top edge, as it does under the bar, and is as much wider and may be as much taller at a
+/// `zoom` (a percent). With room on neither side (the panel takes the whole window) it goes under
+/// the row or over it (`across`). It opens for the pointer resting on the row, so it never covers
+/// the row, whose click shows the session in the main window.
 pub fn beside(row: Rect, screen: Rect, zoom: u32) -> Place {
     let z = crate::zoom::factor(zoom);
     let w = (CARD.0 * z + 2.0 * MARGIN).min(screen.w).round();
@@ -152,12 +154,25 @@ pub fn beside(row: Rect, screen: Rect, zoom: u32) -> Place {
     } else if row.right() + w <= screen.right() {
         row.right()
     } else {
-        screen.x
+        return across(row, screen, w, tallest);
     };
     // Hanging from its top edge, the card's top is `NEAR` under the window's.
     let edge = (row.top() + NEAR).max(screen.y + tallest.min(screen.h)).min(screen.top());
     let full = edge - screen.y;
     Place { x: x.round(), w, edge, below: true, room: full.min(tallest), full, wide: screen.right() - x.round() }
+}
+
+/// Where the peek goes for a row with no room beside it: under the row, its window's top at the
+/// row's bottom, or over it where there's too little room under it and more over it, its bottom at
+/// the row's top; centered on the row and kept on the screen, as under the bar (`place`).
+fn across(row: Rect, screen: Rect, w: f64, tallest: f64) -> Place {
+    let under = row.y - screen.y;
+    let over = screen.top() - row.top();
+    let below = under >= MIN_ROOM || under >= over;
+    let (cx, _) = row.center();
+    let x = (cx - w / 2.0).min(screen.right() - w).max(screen.x).round();
+    let (edge, full) = if below { (row.y, under) } else { (row.top(), over) };
+    Place { x, w, edge, below, room: full.min(tallest), full, wide: screen.right() - x }
 }
 
 /// The peek's frame dragged by its header: moved as far as the pointer has gone since the drag
@@ -713,13 +728,32 @@ mod tests {
         let p = beside(r(300.0, 545.0, 400.0, 30.0), SCREEN, 100);
         assert_eq!(p.x, 700.0);
         assert_eq!(p.wide, 1500.0 - 700.0);
-        // No room on either side (a panel that takes the whole window): at the screen's left edge.
-        assert_eq!(beside(r(300.0, 545.0, 1000.0, 30.0), SCREEN, 100).x, 0.0);
         // Zoomed, it's as much wider, and still on the screen.
         let z = beside(r(900.0, 545.0, 500.0, 30.0), SCREEN, 125);
         assert_eq!(z.w, CARD.0 * 1.25 + 2.0 * MARGIN);
         assert_eq!(z.x, 900.0 - z.w);
         assert_eq!(z.room, CARD.1 * 1.25 + FAR + NEAR);
+    }
+
+    #[test]
+    fn goes_under_or_over_a_row_with_no_room_beside_it_never_covering_it() {
+        // A panel that takes the whole window: no room on either side of it.
+        let row = r(300.0, 545.0, 1000.0, 30.0);
+        let p = beside(row, SCREEN, 100);
+        // Under the row, centered on it, its window's top at the row's bottom.
+        assert!(p.below);
+        assert_eq!((p.x, p.edge), (800.0 - WIDTH / 2.0, 545.0));
+        let f = p.frame(300.0);
+        assert_eq!(f.top(), row.y);
+        assert!(!f.contains(row.center()));
+        assert_eq!(p.room, MAX_HEIGHT.min(545.0));
+        // A row low on the screen: over it, its window's bottom at the row's top.
+        let low = r(300.0, 100.0, 1000.0, 30.0);
+        let o = beside(low, SCREEN, 100);
+        assert!(!o.below);
+        assert_eq!(o.edge, low.top());
+        assert_eq!(o.frame(300.0).y, low.top());
+        assert_eq!(o.full, 875.0 - 130.0);
     }
 
     #[test]

@@ -1688,7 +1688,8 @@ asked for changes to a PR of yours, else on Description. The tree under On this 
 worktree has anything GitHub doesn't, and lists the agents that worked on the PR, including one
 that made the worktree from another folder, with each one's title and what it's doing. Resting the
 pointer on one of those sessions, here or in a todo's panel (or a review's Session link), shows it
-in the peek beside the panel, level with it, as resting on a pill of the floating bar does: its
+in the peek beside the panel, level with it (under it when the panel takes the whole window), as
+resting on a pill of the floating bar does: its
 conversation, on the words a search found the PR by when it did, and a box to answer it. The PR or
 todo stays in the panel and selected in the list, and the peek goes once the pointer has left it
 and the session's line; click in it to answer, and ⏎ sends and puts it away, as do Escape and a

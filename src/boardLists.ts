@@ -615,24 +615,21 @@ export function chainOf(item: SessionItem, all: readonly SessionItem[], started 
  *  lists it among `all` then, else with every helper or every headless run of its session listed
  *  (`listedAll`), as its chip's double-click would, and so on up its chain (`chainOf`) to a
  *  session that's listed: a run of a finished helper needs that helper listed too. One at the top
- *  of its chain that isn't listed (a finished review of a PR, which no session started) is listed
- *  on its own (`selfShownKey`). The keys it
+ *  of its chain that isn't listed, with no session on the board above it (a finished review of a
+ *  PR, which no session started, or a helper whose session is archived), is listed on its own
+ *  (`selfShownKey`). The keys it
  *  needs go last together, ones there already moved there, so trimming to `HELPERS_SHOWN_MAX`
  *  takes the oldest others, never one of them. Without it, a finished helper or a run the quick
  *  panel found, or a review clicked in its PR's panel, would be selected and not listed, and the
  *  panel would show another session. */
 export function revealing(shown: string[], all: readonly SessionItem[], item: SessionItem): string[] {
   const lists = (keys: string[]) => placeHelpers([...all], false, new Set(keys), all).some((r) => r.session.key === item.session.key);
+  const chain = chainOf(item, all);
   const need: string[] = [];
-  for (const r of chainOf(item, all)) {
+  for (const [i, r] of chain.entries()) {
     const next = keeping(shown, need);
     if (lists(next)) return next;
-    const key = listingKey(r);
-    if (key.length === 0) {
-      need.push(selfShownKey(r.session.key));
-      break;
-    }
-    need.push(...key);
+    need.push(...(i === chain.length - 1 ? [selfShownKey(r.session.key)] : listingKey(r)));
   }
   return keeping(shown, need);
 }

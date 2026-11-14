@@ -635,6 +635,12 @@ describe('the Sessions view’s lists', () => {
       expect(keysOf(placeHelpers(items, false, new Set([selfShownKey(boss.key)])))).toEqual([boss.key]);
       // A finished helper of a session is still listed with every helper of its session.
       expect(revealing([], items, row(done))).toEqual([boss.key]);
+      // One whose session is archived, so not on the board: on its own too.
+      const orphaned = helper('codex:codex:orphaned', 'idle', { parent: 'claude:claude:archived' });
+      const alone = sessionItemsOf([lane('/r/a', [boss, orphaned])]);
+      const theirs = revealing([], alone, alone.find((r) => r.session.key === orphaned.key)!);
+      expect(theirs).toEqual([selfShownKey(orphaned.key)]);
+      expect(keysOf(placeHelpers(alone, false, new Set(theirs)))).toEqual([boss.key, orphaned.key]);
     });
 
     it('lists a helper or a review you’re talking to as a session of yours, still counted on its session’s chip', () => {

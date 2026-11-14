@@ -274,8 +274,9 @@ under `src-tauri/src/`.
   row to it and closes once the pointer leaves both (the row counts across the panel's width);
   that a click in it takes the keyboard, and a click back in the main window, Escape and ⏎ put it
   away and the main window has the keyboard again after; that a click on the session puts it
-  away as Sessions shows the session; and that it lands where the page measured at a zoom
-  (`peekBeside` scales by the page zoom). On
+  away as Sessions shows the session; that with the PR panel taking the whole window it opens
+  under the row (or over it), leaving the row to click (`across`); and that it lands where the
+  page measured at a zoom (`peekBeside` scales by the page zoom). On
   Linux and Windows it goes by the window's inside (`os::windows::content`), under the title bar
   the window manager draws, which hasn't run there. The engine's placement is tested and the
   preview shows what the page asks for and that a failure in it toasts in the main window
