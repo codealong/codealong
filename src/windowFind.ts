@@ -35,10 +35,10 @@ export interface Span {
 }
 
 /** The matches in `text`, read from pieces that start at `starts`, as spans of the pieces, in
- *  order: at most `most`. A match runs across pieces as the words read across them. */
-export function spansIn(text: string, starts: readonly number[], pattern: RegExp, most = Infinity): Span[] {
-  const out: Span[] = [];
-  if (most <= 0 || starts.length === 0) return out;
+ *  order, as they're asked for: a find stops reading once it has as many as it takes. A match
+ *  runs across pieces as the words read across them. */
+export function* spansIn(text: string, starts: readonly number[], pattern: RegExp): Generator<Span> {
+  if (starts.length === 0) return;
   let first = 0;
   for (const m of text.matchAll(pattern)) {
     const from = m.index;
@@ -46,10 +46,8 @@ export function spansIn(text: string, starts: readonly number[], pattern: RegExp
     while (first + 1 < starts.length && starts[first + 1] <= from) first++;
     let last = first;
     while (last + 1 < starts.length && starts[last + 1] < to) last++;
-    out.push({ first, from: from - starts[first], last, to: to - starts[last] });
-    if (out.length >= most) break;
+    yield { first, from: from - starts[first], last, to: to - starts[last] };
   }
-  return out;
 }
 
 /** Where a match is against the view it's in: above it, in it, or below it. */

@@ -19,8 +19,9 @@ export const ALL: Clip = { left: -Infinity, top: -Infinity, right: Infinity, bot
  * What of an element inside `root` its ancestors' overflow leaves in sight, where they cut it
  * off (an ellipsis, a list that scrolls), within `outer`, in the page's coordinates. With `fixed`,
  * what no scrolling can bring into sight: what scrolls, or moves what's in it another way
- * (`data-find-pans`, the canvas), can show anything in it, whatever cuts it off around it, so
- * only what cuts off inside it counts. Each element's is worked out once a call.
+ * (`data-find-pans`, the canvas), can show anything in it where some of it is left in sight, so
+ * then only what cuts off inside it counts; one that can't scroll that way, or that's cut off
+ * itself, cuts as any box does. Each element's is worked out once a call.
  */
 export function clipsIn(root: Element | null, outer: Clip = ALL, fixed = false): (el: Element | null) => Clip {
   const scrolls = (overflow: string) => overflow === 'auto' || overflow === 'scroll';
@@ -35,8 +36,9 @@ export function clipsIn(root: Element | null, outer: Clip = ALL, fixed = false):
     let y = overflowY !== 'visible';
     if (fixed) {
       const pans = el.hasAttribute('data-find-pans');
-      if (pans || scrolls(overflowX)) [x, clip] = [false, { ...clip, left: -Infinity, right: Infinity }];
-      if (pans || scrolls(overflowY)) [y, clip] = [false, { ...clip, top: -Infinity, bottom: Infinity }];
+      const r = el.getBoundingClientRect();
+      if ((pans || (scrolls(overflowX) && el.scrollWidth > el.clientWidth)) && r.right > clip.left && r.left < clip.right) [x, clip] = [false, { ...clip, left: -Infinity, right: Infinity }];
+      if ((pans || (scrolls(overflowY) && el.scrollHeight > el.clientHeight)) && r.bottom > clip.top && r.top < clip.bottom) [y, clip] = [false, { ...clip, top: -Infinity, bottom: Infinity }];
     }
     if (x || y) {
       // Its rect is on the screen's scale, its own lengths on its own (a card's CSS zoom, the

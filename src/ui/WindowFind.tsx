@@ -60,8 +60,8 @@ export interface FoundRange {
  *  back goes into the count. */
 export interface FindSource {
   el: () => HTMLElement | null;
-  /** Its matches laid out, in order, at most `most`. */
-  hits: (pattern: RegExp, most: number) => FoundRange[];
+  /** Hands `each` its matches laid out, in order, until `each` says it has enough. */
+  hits: (pattern: RegExp, each: (found: FoundRange) => boolean) => void;
   /** Matches further back than what's laid out, in what's been read of it so far. */
   earlier: number;
   /** Not all read yet, and reading on (it can't when a page couldn't be read). */
@@ -189,8 +189,11 @@ function scan(root: Element, pattern: RegExp, sources: ReadonlyMap<Element, Find
         const source = sources.get(child);
         if (source) {
           flush();
-          // Some it lays out may be cut off: more than there's room for, to know there were more.
-          if (visible(child)) for (const f of source.hits(pattern, MOST - hits.length + 64)) take(f, source);
+          if (visible(child))
+            source.hits(pattern, (f) => {
+              take(f, source);
+              return !capped;
+            });
           continue;
         }
         visit(child, LINES.has(child.tagName) ? child : at);
@@ -215,13 +218,27 @@ function placeOf(range: Range, clipOf: (el: Element | null) => Clip): Place {
   return 0;
 }
 
-/** Whether something else is drawn over the middle of `b`, which shows `own`'s text: the strip
- *  stuck over a list, a conversation's pinned prompt, a popover, the find's own bar. What doesn't
- *  take the pointer (the marks) isn't counted. */
-function coveredAt(b: { left: number; top: number; right: number; bottom: number }, own: Element | null): boolean {
-  if (!own) return false;
-  const over = document.elementFromPoint((b.left + b.right) / 2, (b.top + b.bottom) / 2);
-  return !!over && !own.contains(over) && !over.contains(own);
+/** What of `b`, a box over a line of `range`, isn't under something else drawn over it: the
+ *  strip stuck over a list, a conversation's pinned prompt, a popover, the find's own bar. Read at
+ *  its top and bottom edges, across the middle, so what covers a part of it cuts it there; null
+ *  when both are covered. What's in the match's own element (a word of it in bold, a highlighted
+ *  token) isn't over it, nor is what doesn't take the pointer (the marks). */
+function uncovered(b: Clip, range: Range): Clip | null {
+  const common = range.commonAncestorContainer;
+  const own = common instanceof Element ? common : common.parentElement;
+  if (!own) return b;
+  const x = (b.left + b.right) / 2;
+  const over = (y: number) => {
+    const el = document.elementFromPoint(x, y);
+    return el && !own.contains(el) && !el.contains(own) ? el : null;
+  };
+  const top = over(b.top + 1);
+  const bottom = over(b.bottom - 1);
+  if (top && bottom) return null;
+  const left = { ...b };
+  if (top) left.top = Math.max(left.top, top.getBoundingClientRect().bottom);
+  if (bottom) left.bottom = Math.min(left.bottom, bottom.getBoundingClientRect().top);
+  return left.bottom > left.top ? left : null;
 }
 
 /** The match a new find starts on among `hits` (none empty), where you are (`startOf`). */
@@ -252,7 +269,10 @@ export function scrollToRange(range: Range, from: Element | null, top = 0): void
       const end = (r.bottom - box.top) / scale;
       // In sight but under what's drawn over it, as the strip stuck over a list is, it goes a
       // third of the way down too.
-      if (at < covered + 8 || end > el.clientHeight - 16 || coveredAt(r, range.startContainer.parentElement)) el.scrollTop = Math.max(0, el.scrollTop + at - el.clientHeight / 3);
+      const whole = { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
+      const shown = uncovered(whole, range);
+      const under = !shown || shown.top !== whole.top || shown.bottom !== whole.bottom;
+      if (at < covered + 8 || end > el.clientHeight - 16 || under) el.scrollTop = Math.max(0, el.scrollTop + at - el.clientHeight / 3);
     }
     if (x) {
       const at = (r.left - box.left) / scale;
@@ -292,14 +312,14 @@ function paint(layer: HTMLElement | null, all: Hit[], at: Hit | null): void {
   const boxes: Clip[] = [];
   // Cut off where the text is, and none where something's drawn over it: the layer is over the
   // whole window, so a box would show over the strip stuck over a list, or a popover.
-  const cut = (b: Clip, clip: Clip, own: Element | null) => {
+  const cut = (b: Clip, clip: Clip, range: Range) => {
     const box = { left: Math.max(b.left, clip.left), top: Math.max(b.top, clip.top), right: Math.min(b.right, clip.right), bottom: Math.min(b.bottom, clip.bottom) };
-    if (box.right > box.left && box.bottom > box.top && !coveredAt(box, own)) boxes.push(box);
+    const shown = box.right > box.left && box.bottom > box.top ? uncovered(box, range) : null;
+    if (shown) boxes.push(shown);
   };
   for (const h of all) {
     if (h === at) continue;
-    const own = h.range.startContainer.parentElement;
-    const clip = clipOf(own);
+    const clip = clipOf(h.range.startContainer.parentElement);
     if (clip.right <= clip.left || clip.bottom <= clip.top) continue;
     let line: Clip | null = null;
     for (const r of h.range.getClientRects()) {
@@ -308,10 +328,10 @@ function paint(layer: HTMLElement | null, all: Hit[], at: Hit | null): void {
         line.right = Math.max(line.right, r.right);
         continue;
       }
-      if (line) cut(line, clip, own);
+      if (line) cut(line, clip, h.range);
       line = { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
     }
-    if (line) cut(line, clip, own);
+    if (line) cut(line, clip, h.range);
   }
   boxes.forEach((b, i) => {
     const el = (layer.children[i] as HTMLElement | undefined) ?? layer.appendChild(document.createElement('span'));
@@ -380,7 +400,8 @@ export function WindowFind({ children }: { children: ReactNode }) {
   const [view, setView] = useState<{ at: number | null; shown: number; capped: boolean }>({ at: null, shown: 0, capped: false });
   // Going back into a source's pages further back, from the match you were on (null: from its
   // end), and whether the pages it asked for are being laid out.
-  const seek = useRef<{ source: FindSource; from: Hit | null; showing: boolean } | null>(null);
+  // `then`: where a step that went into it on its way goes when nothing further back says it.
+  const seek = useRef<{ source: FindSource; from: Hit | null; then: Hit | null; showing: boolean } | null>(null);
   const [looking, setLooking] = useState(false);
   // Where the next new query starts, when a search asked for it there; and where you were as ⌘F
   // opened the bar, before the keyboard went into it (findKeys.ts `findArea`).
@@ -419,8 +440,8 @@ export function WindowFind({ children }: { children: ReactNode }) {
     return found.hits;
   }, []);
 
-  const startSeek = useCallback((source: FindSource, from: Hit | null) => {
-    seek.current = { source, from, showing: false };
+  const startSeek = useCallback((source: FindSource, from: Hit | null, then: Hit | null = null) => {
+    seek.current = { source, from, then, showing: false };
     setLooking(true);
     source.seek();
   }, []);
@@ -527,7 +548,7 @@ export function WindowFind({ children }: { children: ReactNode }) {
       const from = at ? found.indexOf(at) : -1;
       const i = stepTo(from < 0 ? null : from, found.length, dir);
       const passed = [...sources.current].find((s) => further(s) && !found.some((h) => h.source === s) && between(s.el()!, found[from], found[i], dir));
-      if (passed) return startSeek(passed, null);
+      if (passed) return startSeek(passed, null, found[i] ?? null);
       if (i >= 0) goTo(i);
     },
     [goTo, startSeek],
@@ -578,6 +599,10 @@ export function WindowFind({ children }: { children: ReactNode }) {
           const i = found.findIndex((h) => same(h, s.from!));
           const j = stepTo(i, found.length, -1);
           if (j >= 0 && j !== i) goTo(j);
+        } else if (s.then) {
+          // A step that went into it on its way: on to where it was going.
+          const i = found.findIndex((h) => same(h, s.then!));
+          if (i >= 0) goTo(i);
         } else if (!current.current && found.length > 0) goTo(found.indexOf(pick(found)));
       },
       ask: (words, region, by) => {

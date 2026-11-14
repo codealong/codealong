@@ -52,13 +52,12 @@ const SKIP = '.ca-codeblock-tools, .ca-codeblock-note, [aria-hidden="true"]';
  *  the pages further back are counted (threadFind.ts), where their text nodes would run together. */
 const BLOCK = 'p, li, pre, blockquote, td, th, div';
 
-/** Every match laid out, in the order they read, at most `most`. A match can run across the
- *  elements a line is made of (a word in bold, a link), and from one paragraph or item into the
- *  next, as the words read across a line break, but not from one root into the next. */
-function matchesIn(scroller: HTMLElement, roots: string, pattern: RegExp, most: number): FoundRange[] {
-  const out: FoundRange[] = [];
+/** Hands `each` every match laid out, in the order they read, until it says it has enough. A
+ *  match can run across the elements a line is made of (a word in bold, a link), and from one
+ *  paragraph or item into the next, as the words read across a line break, but not from one root
+ *  into the next. */
+function matchesIn(scroller: HTMLElement, roots: string, pattern: RegExp, each: (found: FoundRange) => boolean): void {
   for (const root of scroller.querySelectorAll(roots)) {
-    if (out.length >= most) break;
     const nodes: Text[] = [];
     const starts: number[] = [];
     let text = '';
@@ -77,14 +76,14 @@ function matchesIn(scroller: HTMLElement, roots: string, pattern: RegExp, most: 
       starts.push(text.length);
       text += (node as Text).data;
     }
-    spansIn(text, starts, pattern, most - out.length).forEach((s, n) => {
+    let n = 0;
+    for (const s of spansIn(text, starts, pattern)) {
       const range = document.createRange();
       range.setStart(nodes[s.first], s.from);
       range.setEnd(nodes[s.last], s.to);
-      out.push({ range, key: root, n });
-    });
+      if (!each({ range, key: root, n: n++ })) return;
+    }
   }
-  return out;
 }
 
 /** Makes the conversation `host` lays out one of the window's find's sources, asked to find
@@ -117,9 +116,9 @@ export function useThreadFind(host: FindHost, asked?: FindAsk | null): void {
   const source = useMemo<FindSource>(
     () => ({
       el: () => hostNow.current.scroller.current,
-      hits: (p, most) => {
+      hits: (p, each) => {
         const el = hostNow.current.scroller.current;
-        return el ? matchesIn(el, hostNow.current.roots, p, most) : [];
+        if (el) matchesIn(el, hostNow.current.roots, p, each);
       },
       earlier: 0,
       partial: false,

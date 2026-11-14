@@ -3,8 +3,9 @@
 // in it; typing marks every match the window shows, in the list and the panel beside it alike, and
 // counts them, on the first in view where you are; it narrows nothing. It finds words across bold
 // within a line, but not from one line into the next, and passes over what doesn't show (hidden
-// by display, visibility or opacity, or cut off past an ellipsis), what's marked aria-hidden or
-// data-find-skip, and what a field holds. A line added while it's open is found as it comes, the match you're on staying. ⏎ steps
+// by display, visibility or opacity, or cut off past an ellipsis or in a scroller cut off itself),
+// what's marked aria-hidden or data-find-skip, and what a field holds; words split across inline
+// elements are boxed. A line added while it's open is found as it comes, the match you're on staying. ⏎ steps
 // on, round from the last to the first, ⇧⏎ back; ⌘G and ⇧⌘G step from outside the bar. Past 1000
 // matches it marks 1000 and says 1000+. Escape closes it, clears the marks and gives the keyboard
 // back. ⌥⌘F and / open the list's own find instead, and in Settings ⌘F is Settings' search.
@@ -122,6 +123,25 @@
       }).then(function () {
         check('⇧⌘G steps back', parseInt(count(), 10) === ((n + 0) % 3) + 1, count());
       });
+    })
+    .then(function () {
+      // Words split across inline elements, and a box that scrolls but is cut off itself where
+      // nothing scrolls it into sight.
+      var more = document.createElement('div');
+      more.innerHTML = [
+        '<p id="wf-split"><b>qx</b><em>split</em> one</p>',
+        '<p id="wf-split2">qxsplit two</p>',
+        '<div style="height: 12px; overflow: hidden"><div style="height: 14px; overflow: auto; margin-top: 30px">a<br>b<br>qxsplit nested</div></div>',
+      ].join('');
+      fixture.insertBefore(more, fixture.firstChild);
+      field().focus();
+      type(field(), 'qxsplit');
+      return counted(/ of 2$/);
+    })
+    .then(function () {
+      check('what a box that’s cut off itself scrolls isn’t found', / of 2$/.test(count() || '') && shown() === 2, count());
+      if (!atIn('#wf-split2')) field().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+      check('words split across inline elements are boxed', atIn('#wf-split2') && boxIn('#wf-split'), boxes().length + ' boxes');
     })
     .then(function () {
       var many = document.createElement('p');

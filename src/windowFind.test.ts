@@ -35,26 +35,27 @@ describe('spansIn', () => {
   const text = pieces.join('');
 
   it('places each match in the pieces it starts and ends in', () => {
-    expect(spansIn(text, starts, findPattern('lighthouse')!)).toEqual([
+    expect([...spansIn(text, starts, findPattern('lighthouse')!)]).toEqual([
       { first: 0, from: 4, last: 1, to: 5 },
       { first: 2, from: 16, last: 2, to: 26 },
     ]);
   });
 
   it('finds within one piece, and at a piece’s very start', () => {
-    expect(spansIn(text, starts, findPattern('house')!)).toEqual([
+    expect([...spansIn(text, starts, findPattern('house')!)]).toEqual([
       { first: 1, from: 0, last: 1, to: 5 },
       { first: 2, from: 21, last: 2, to: 26 },
     ]);
   });
 
-  it('stops at the most it’s asked for', () => {
-    expect(spansIn(text, starts, findPattern('e')!, 2)).toHaveLength(2);
-    expect(spansIn(text, starts, findPattern('e')!, 0)).toEqual([]);
+  it('gives them as they’re asked for, so a find can stop', () => {
+    const each = spansIn(text, starts, findPattern('e')!);
+    expect(each.next().value).toEqual({ first: 0, from: 2, last: 0, to: 3 });
+    expect(each.next().value).toEqual({ first: 1, from: 4, last: 1, to: 5 });
   });
 
   it('finds nothing in no pieces', () => {
-    expect(spansIn('', [], findPattern('a')!)).toEqual([]);
+    expect([...spansIn('', [], findPattern('a')!)]).toEqual([]);
   });
 });
 
