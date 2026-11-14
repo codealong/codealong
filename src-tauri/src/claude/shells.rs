@@ -63,16 +63,22 @@ mod tests {
     }
 
     /// `CODEALONG_TEST_PIDS=<pid,…> cargo test command_trees_here -- --ignored --nocapture`
-    /// prints what those Claude sessions' shells are running, looked at twice a minute apart.
+    /// prints what those Claude sessions' shells are running, looked at twice a minute apart, and
+    /// what each waits behind for a lock and whether that was active.
     #[test]
     #[ignore]
     fn command_trees_here() {
         let pids: Vec<u32> = std::env::var("CODEALONG_TEST_PIDS").unwrap_or_default().split(',').filter_map(|p| p.parse().ok()).collect();
-        let look = || command_trees(&procs::list(std::time::Duration::from_secs(30)).lines, &pids);
+        let look = || {
+            let listed = procs::list(std::time::Duration::from_secs(30)).lines;
+            command_trees(&listed, &pids).into_iter().map(|(pid, tree)| (pid, (tree.waits_behind(&listed, procs::open_files), tree))).collect::<HashMap<_, _>>()
+        };
         let before = look();
         std::thread::sleep(std::time::Duration::from_secs(60));
-        for (pid, after) in look() {
-            println!("{pid}: {:?} → {:?}, active: {}", before[&pid].cpu, after.cpu, after.active_since(&before[&pid]));
+        for (pid, (behind, after)) in look() {
+            let (was_behind, was) = &before[&pid];
+            println!("{pid}: {:?} → {:?}, active: {}", was.cpu, after.cpu, after.active_since(was));
+            println!("  behind {:?} → {:?}, active: {}", was_behind.cpu, behind.cpu, !was_behind.cpu.is_empty() && behind.active_since(was_behind));
         }
     }
 

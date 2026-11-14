@@ -68,7 +68,9 @@ pub struct Quiet<'a> {
 /// A command left running in the background that has done nothing for this long is left
 /// sitting there: a dev server, a sign-in waiting on a browser, `tail -f`. Its session's turn
 /// is over, and it wakes only if the command ends, so it isn't Working. Polls start a process
-/// or use CPU well within this; `sleep 600` loops are the rare exception.
+/// or use CPU well within this; `sleep 600` loops are the rare exception. A build queued for a
+/// lock does nothing at all while it waits, so it counts as active while the build ahead of it
+/// is (claude/mod.rs `watch_background`, procs.rs `CommandTree::waits_behind`).
 pub const BACKGROUND_QUIET_MS: i64 = 15 * 60 * 1000;
 const MAX_SESSIONS_PER_LANE: usize = 30;
 /// How a session from another lane is labeled in the worktree it made. One that only worked

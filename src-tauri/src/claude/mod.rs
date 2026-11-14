@@ -1204,7 +1204,11 @@ struct BackgroundWatch {
     /// The registry's status time: a new turn that leaves a command running starts afresh.
     since: i64,
     tree: procs::CommandTree,
-    /// When its processes were last seen starting a process or using CPU.
+    /// What it waited behind at the last look, while its own processes did nothing
+    /// (`CommandTree::waits_behind`).
+    behind: procs::CommandTree,
+    /// When its processes were last seen starting a process or using CPU, or what they wait
+    /// behind for a lock was.
     active_at: i64,
 }
 
@@ -1332,16 +1336,21 @@ impl Reader {
             let Some(tree) = trees.remove(&pid) else { continue };
             match self.background.get_mut(&pid) {
                 Some(w) if w.since == since => {
-                    if tree.active_since(&w.tree) {
+                    // A build queued for a lock another build holds does nothing until it gets
+                    // it: while that one works, this one is waiting its turn.
+                    let active = tree.active_since(&w.tree);
+                    let behind = if active { procs::CommandTree::default() } else { tree.waits_behind(listed, procs::open_files) };
+                    if active || (!w.behind.cpu.is_empty() && behind.active_since(&w.behind)) {
                         w.active_at = now;
                     }
                     w.tree = tree;
+                    w.behind = behind;
                 }
                 _ => {
                     // Seen for the first time, perhaps long after the turn ended (the app just
                     // started): give it a few looks to show it's doing something.
                     let active_at = since.max(now - crate::board::BACKGROUND_QUIET_MS + 3 * BACKGROUND_EVERY.as_millis() as i64);
-                    self.background.insert(pid, BackgroundWatch { since, tree, active_at });
+                    self.background.insert(pid, BackgroundWatch { since, tree, behind: procs::CommandTree::default(), active_at });
                 }
             }
         }

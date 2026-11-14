@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Result};
 
-use crate::util::{home, now_ms};
+use crate::util::{home, now_ms, program_and_rest, program_name};
 
 // The kernel's process table (os/procs).
 use crate::os::procs::listed;
@@ -273,24 +273,65 @@ impl CommandTree {
             None => true,
         })
     }
+
+    /// What a command whose processes do nothing waits behind: the processes outside it that run
+    /// the same program as one of its own and have open a lock file it has open too, and every
+    /// process under them. A build queued for a lock (cargo's on a target folder another build
+    /// has) does nothing at all while it waits, and keeps the file open, as the build that holds
+    /// it does; so while what it waits behind is active, it's waiting its turn, not left sitting.
+    /// Cargo 1.98 keeps `.cargo-lock`, `.cargo-build-lock` and `.cargo-artifact-lock` open in the
+    /// target's profile folder, waiting or building. A lock file is one whose name says so: every
+    /// cargo run also keeps `~/.cargo/.global-cache` and `.package-cache-mutate` open, which would
+    /// tie any two together. `open` is `open_files`.
+    pub fn waits_behind(&self, listed: &[PsLine], open: impl Fn(u32) -> Option<Vec<PathBuf>>) -> CommandTree {
+        fn program(command: &str) -> Option<&str> {
+            program_and_rest(command).map(|(path, _)| program_name(path))
+        }
+        let locks = |pid: u32| open(pid).unwrap_or_default().into_iter().filter(|f| names_a_lock(f)).collect::<Vec<_>>();
+        let mine = |pid: u32| self.cpu.iter().any(|(p, _)| *p == pid);
+        let held: Vec<(&str, PathBuf)> = listed.iter().filter(|p| mine(p.pid)).filter_map(|p| Some((program(&p.command)?, p.pid))).flat_map(|(name, pid)| locks(pid).into_iter().map(move |f| (name, f))).collect();
+        if held.is_empty() {
+            return CommandTree::default();
+        }
+        let ahead: Vec<(u32, u64)> = listed
+            .iter()
+            .filter(|p| !mine(p.pid))
+            .filter_map(|p| Some((p, program(&p.command)?)))
+            .filter(|(_, name)| held.iter().any(|(n, _)| n == name))
+            .filter(|(p, name)| locks(p.pid).iter().any(|f| held.iter().any(|(n, h)| n == name && h == f)))
+            .filter_map(|(p, _)| Some((p.pid, p.cpu?)))
+            .collect();
+        under(&cpu_rows(listed), ahead)
+    }
+}
+
+/// Whether a file's name says it's a lock: `.cargo-lock`, `.cargo-build-lock`, `gradle.lock`.
+fn names_a_lock(file: &Path) -> bool {
+    file.file_name().is_some_and(|n| n.to_string_lossy().to_ascii_lowercase().contains("lock"))
+}
+
+/// What `ps` listed, as pid, parent, CPU and command line, leaving out a process whose CPU time it
+/// didn't give.
+fn cpu_rows(listed: &[PsLine]) -> Vec<(u32, u32, u64, &str)> {
+    listed.iter().filter_map(|p| Some((p.pid, p.ppid, p.cpu?, p.command.as_str()))).collect()
+}
+
+/// `roots` and every process under them, nearest first, with the CPU each has used.
+fn under(rows: &[(u32, u32, u64, &str)], mut tree: Vec<(u32, u64)>) -> CommandTree {
+    let mut i = 0;
+    while i < tree.len() && tree.len() < 512 {
+        let parent = tree[i].0;
+        tree.extend(rows.iter().filter(|r| r.1 == parent && !tree.iter().any(|(p, _)| *p == r.0)).map(|r| (r.0, r.2)).collect::<Vec<_>>());
+        i += 1;
+    }
+    CommandTree { cpu: tree }
 }
 
 /// The command trees of several sessions' processes, from one look at the process table
 /// (`Listing`). A process whose CPU time `ps` didn't give isn't in them.
 pub fn command_trees(listed: &[PsLine], pids: &[u32], root: fn(&str) -> bool) -> HashMap<u32, CommandTree> {
-    let rows: Vec<(u32, u32, u64, &str)> = listed.iter().filter_map(|p| Some((p.pid, p.ppid, p.cpu?, p.command.as_str()))).collect();
-    pids.iter()
-        .map(|&session| {
-            let mut tree: Vec<(u32, u64)> = rows.iter().filter(|r| r.1 == session && root(r.3)).map(|r| (r.0, r.2)).collect();
-            let mut i = 0;
-            while i < tree.len() && tree.len() < 512 {
-                let parent = tree[i].0;
-                tree.extend(rows.iter().filter(|r| r.1 == parent).map(|r| (r.0, r.2)));
-                i += 1;
-            }
-            (session, CommandTree { cpu: tree })
-        })
-        .collect()
+    let rows = cpu_rows(listed);
+    pids.iter().map(|&session| (session, under(&rows, rows.iter().filter(|r| r.1 == session && root(r.3)).map(|r| (r.0, r.2)).collect()))).collect()
 }
 
 /// `ps`'s `time`: `0:00.88`, `12:34.56` or `1:02:03.45`, in hundredths of a second.
@@ -620,6 +661,42 @@ mod tests {
         assert!(!tree(&[(300, 1)]).active_since(&before));
         assert!(tree(&[(300, 1), (301, 98)]).active_since(&before));
         assert!(tree(&[(300, 1), (301, 88), (310, 0)]).active_since(&before));
+    }
+
+    /// A build queued for a lock waits behind the build that has it open too: the same program,
+    /// the same lock file, and what that one runs. Not behind one of another target folder, which
+    /// shares only cargo's cache files with it, nor behind another program that has its lock open.
+    #[test]
+    fn a_quiet_command_waits_behind_a_build_holding_its_lock() {
+        use std::path::PathBuf;
+        let row = |pid: u32, ppid: u32, cpu: u64, command: &str| super::PsLine { pid, ppid, tty: "??".into(), cpu: Some(cpu), command: command.into() };
+        let listed = [
+            row(100, 1, 500, "claude"),
+            row(300, 100, 1, "/bin/zsh -c eval 'scripts/checks.sh' < /dev/null"),
+            row(301, 300, 1, "bash scripts/checks.sh"),
+            row(302, 301, 62, "/home/me/.rustup/toolchains/stable/bin/cargo build --quiet --bin northwind"),
+            row(500, 40, 102, "/home/me/.rustup/toolchains/stable/bin/cargo test --lib"),
+            row(501, 500, 15000, "/home/me/.rustup/toolchains/stable/bin/rustc --crate-name northwind"),
+            row(600, 41, 50, "/home/me/.rustup/toolchains/stable/bin/cargo build --release"),
+            row(700, 42, 3, "vim .cargo-lock"),
+        ];
+        let open = |pid: u32| -> Option<Vec<PathBuf>> {
+            let cache = "/home/me/.cargo/.global-cache";
+            let files: &[&str] = match pid {
+                302 => &["/dev/null", cache, "/work/target/debug/.cargo-lock"],
+                500 => &["/dev/null", cache, "/work/target/debug/.cargo-lock"],
+                600 => &["/dev/null", cache, "/work/target/release/.cargo-lock"],
+                700 => &["/work/target/debug/.cargo-lock"],
+                _ => &["/dev/null"],
+            };
+            Some(files.iter().map(PathBuf::from).collect())
+        };
+        let tree = &super::command_trees(&listed, &[100], |c| c.contains("eval '"))[&100];
+        assert_eq!(tree.cpu, vec![(300, 1), (301, 1), (302, 62)]);
+        assert_eq!(tree.waits_behind(&listed, open).cpu, vec![(500, 102), (501, 15000)]);
+        // One with no lock open waits behind nothing.
+        let quiet = super::CommandTree { cpu: vec![(301, 1)] };
+        assert!(quiet.waits_behind(&listed, open).cpu.is_empty());
     }
 
     /// A tree is the process and everything under it, with the CPU they've used; it's at rest

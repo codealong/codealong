@@ -3942,7 +3942,10 @@ off is a [label](#labels).
 A Claude session whose turn left a command running in the background (registry status `shell`) is
 *Working* while that command does something. The engine looks at the command's processes once a
 minute; when none has started or used CPU for 15 minutes (a dev server, a sign-in waiting on a
-browser, `tail -f`), the turn is over and the row says *Left running*. Jev's read of the command
+browser, `tail -f`), the turn is over and the row says *Left running*. A command queued behind
+another for a lock (a cargo build waiting for one that has its target folder: the same program,
+with the same lock file open) does nothing while it waits, so it stays *Working* for as long as the
+one ahead of it works. Jev's read of the command
 can say so sooner, when it looks like a server or a watcher, but only of a session that has nothing
 else running in the background: one that left a dev server running and waits on a build, or left a
 Monitor watching a log, is still waiting.
