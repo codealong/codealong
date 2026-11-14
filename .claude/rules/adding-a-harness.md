@@ -29,7 +29,9 @@ a change to what's sent shows there. What each harness records and accepts is in
    everything else defaults to saying it can't. What it can answer, by what asks:
    - a session's panel: `conversation` and `conversation_after` (`transcript.rs` pages a file of
      JSON lines given a line parser), `writing` (a reply the harness hands over as it's written,
-     ahead of its record), `pending`, `answer`, `deny_saying`, `answer_questions`, `open_calls`;
+     ahead of its record), `pending`, `answer`, `deny_saying`, `answer_questions`, `open_calls`,
+     and `allow_for_review` (what an automatic review's session waits on that Codealong allows a
+     reviewer itself, a web search);
    - opening: `targets`, `open` for a way of its own and `app` for its app's name, `app_bundle`
      for the app a way lands in (so it can be brought forward); the engine does `focus`,
      `resume` (`resume_typed`, `Session::resume_command` unless the harness types another) and
@@ -52,6 +54,10 @@ a change to what's sent shows there. What each harness records and accepts is in
      `Session::own_worktree`), `rename`,
      `interrupts` and `interrupt`, `archive`, `skips_permission_prompts`, `runs_its_commands`,
      `session_var` (the variable its commands are given the session's ID in);
+   - switching a running session: `model_command` and `effort_command` (typed into its terminal),
+     `switches_mid_turn` (whether those take effect mid-turn rather than waiting for the turn),
+     `mode_picker` (the modes Shift+Tab steps through) and `press_in_job` (keys pressed in a
+     background job's terminal UI, which has no tab to press them in);
    - what it left running in the background (`Session::tasks`, which its reader fills): `task_output`
      (the last of what one printed; by default the file `BackgroundTask::output` names), and
      `stop_task`, which by default ends the shell running it, found by `shell_script` (what a
@@ -70,6 +76,9 @@ a change to what's sent shows there. What each harness records and accepts is in
    - the token ledger (ledger.rs): `records_tokens`, then `token_files` and `token_use` for
      records that are files of lines, `token_uses_since` for calls kept in a database, each call
      named the same in every record that copies it;
+   - analytics (turns.rs, `[experimental] analytics`): `turn_files` and `turn_step` (what came in
+     to each session and who from; by default the files search reads, through `prose`), and
+     `said_once` (what was said, each message once where a fork's copies repeat it);
    - skills (skills.rs): `worktree_skills` and `account_skills` (the folders it reads them
      from), `builtin_skills` (the ones its program holds), `skill_mention` (how a prompt runs one
      by name) and `skill_uses`;
@@ -84,7 +93,8 @@ a change to what's sent shows there. What each harness records and accepts is in
      records read as text without parsing, `output_marks` and `folder_marks` (a tool's output,
      and what comes before the folder a command ran in) and `pr_needles` with `pr_made` (a PR
      the session made, for prlinks.rs) and `pushed` (a branch it pushed to), and
-     `artifact_needles` with `artifact_made` (a page on the web it made, for artifacts.rs).
+     `artifact_needles` with `artifact_made` (a page on the web it made, for artifacts.rs), and
+     `same_page` where such a page has more than one address.
 3. A `harness::Reader` in the module, which `Adapter::reader` makes and the engine keeps without
    looking inside: `scan` (every account's sessions afresh, at launch and when config.toml
    changes), `watch` (the folders to watch), `owns` and `apply` (taking in the files that
