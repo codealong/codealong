@@ -46,12 +46,6 @@ const SETTLE_MS = 300;
  *  keeps changing. */
 const SOON_MS = 40;
 const SCAN_MS = 200;
-/** How near the edge of what it scrolls in a box has to be for something stuck there (the strip
- *  over a list and its sections' headings, a conversation's pinned prompt) to cover it. Further
- *  in, nothing's looked for over it: a look costs some 0.15 ms (2026-11-14, Chrome at a load of
- *  300), two a box, and what floats over the whole window (popovers, menus, dialogs, the find's
- *  own bar) is drawn over the marks' layer anyway. */
-const STUCK_PX = 96;
 
 /** A match laid out: its text, and which of its line's (or root's) matches it is, to know it again
  *  once the window has changed around it. */
@@ -309,10 +303,24 @@ function bringIntoView(range: Range): void {
   if (el.dispatchEvent(asked)) scrollToRange(range, el);
 }
 
+/** What can be drawn over a text elsewhere in the window: what's stuck, pinned or placed over the
+ *  rest (position sticky, fixed or absolute), the strip over a list and a conversation's pinned
+ *  prompt, the canvas's toolbar and cards, a popover; not the find's own (`skip`). Read once a
+ *  scan: a look for what covers a box costs some 0.15 ms (Chrome at a load of 300, 2026-11-14),
+ *  two a box, so only a box over one of these is looked at (`paint`). */
+function coversIn(root: Element, skip: readonly (Element | null)[]): Element[] {
+  const out: Element[] = [];
+  for (const el of root.querySelectorAll('*')) {
+    const { position } = getComputedStyle(el);
+    if ((position === 'sticky' || position === 'fixed' || position === 'absolute') && !skip.some((s) => s?.contains(el))) out.push(el);
+  }
+  return out;
+}
+
 /**
  * Marks the matches: the one you're on with a CSS highlight, drawn in ink as a selection is, and
  * every other one in sight with a box over it in `layer`, which covers the window, none where
- * something else is drawn over the text. Not all of them
+ * something else (one of `covers`) is drawn over the text. Not all of them
  * with highlights: WebKit checks every highlighted range for each piece of text it draws, some
  * 5 ms a range (.claude/rules/windows.md), so a find that marks hundreds of places would hold the
  * window for seconds at each repaint, as Settings' search did (SettingsFind.tsx `paint`). A box
@@ -320,7 +328,7 @@ function bringIntoView(range: Range): void {
  * of a match on one line (a word half in bold) are one box. The boxes are reused as they're drawn
  * again, for each scroll.
  */
-function paint(layer: HTMLElement | null, all: Hit[], at: Hit | null): void {
+function paint(layer: HTMLElement | null, all: Hit[], at: Hit | null, covers: readonly Element[]): void {
   const reg = typeof CSS !== 'undefined' ? CSS.highlights : undefined;
   if (reg && at) {
     if (reg.get('ca-find-at')?.has(at.range) !== true) reg.set('ca-find-at', new Highlight(at.range));
@@ -329,25 +337,17 @@ function paint(layer: HTMLElement | null, all: Hit[], at: Hit | null): void {
   layer.dataset.shown = String(all.length);
   const clipOf = clipsInWindow();
   const boxes: Clip[] = [];
-  // The box each text scrolls in, up and down, whose edges what's stuck covers; null for none.
-  const scrollers = new Map<Element, DOMRect | null>();
-  const scrollerOf = (el: Element | null): DOMRect | null => {
-    if (!el) return null;
-    const known = scrollers.get(el);
-    if (known !== undefined) return known;
-    const own = el.scrollHeight > el.clientHeight && /(auto|scroll)/.test(getComputedStyle(el).overflowY);
-    const found = own ? el.getBoundingClientRect() : scrollerOf(el.parentElement);
-    scrollers.set(el, found);
-    return found;
-  };
-  // Cut off where the text is, and where something's stuck over it near the edge of what it
-  // scrolls in (`STUCK_PX`): the layer is over the whole window, so a box would show over the strip
-  // stuck over a list, which is drawn in the list's own stacking.
+  // Where what can cover a text is now (it moves as things scroll).
+  const over = covers.map((el) => ({ el, r: el.getBoundingClientRect() })).filter((c) => c.r.width > 0 && c.r.height > 0);
+  // Cut off where the text is, and where something's drawn over it: the layer is over the whole
+  // window, so a box would show over the strip stuck over a list, which is drawn in the list's own
+  // stacking, as the canvas's toolbar is in the canvas's.
   const cut = (b: Clip, clip: Clip, range: Range) => {
     const box = { left: Math.max(b.left, clip.left), top: Math.max(b.top, clip.top), right: Math.min(b.right, clip.right), bottom: Math.min(b.bottom, clip.bottom) };
-    const view = scrollerOf(range.startContainer.parentElement);
-    const edge = !!view && (box.top - Math.max(view.top, 0) < STUCK_PX || Math.min(view.bottom, window.innerHeight) - box.bottom < STUCK_PX);
-    const shown = box.right > box.left && box.bottom > box.top ? (edge ? uncovered(box, range) : box) : null;
+    if (box.right <= box.left || box.bottom <= box.top) return;
+    const text = range.startContainer.parentElement;
+    const under = over.some((c) => c.r.left < box.right && c.r.right > box.left && c.r.top < box.bottom && c.r.bottom > box.top && !c.el.contains(text));
+    const shown = under ? uncovered(box, range) : box;
     if (shown) boxes.push(shown);
   };
   for (const h of all) {
@@ -429,6 +429,8 @@ export function WindowFind({ children }: { children: ReactNode }) {
   // The matches laid out, whether there were more, the one you're on, and what the bar says of them.
   const hits = useRef<Hit[]>([]);
   const capped = useRef(false);
+  // What can be drawn over them, read with them (`coversIn`).
+  const covers = useRef<Element[]>([]);
   const current = useRef<Hit | null>(null);
   const [view, setView] = useState<{ at: number | null; shown: number; capped: boolean }>({ at: null, shown: 0, capped: false });
   // Going back into a source's pages further back, from the match you were on (null: from its
@@ -448,7 +450,7 @@ export function WindowFind({ children }: { children: ReactNode }) {
     current.current = at;
     const i = at ? hits.current.indexOf(at) : -1;
     setView({ at: i < 0 ? null : i, shown: hits.current.length, capped: capped.current });
-    paint(layer.current, hits.current, at);
+    paint(layer.current, hits.current, at, covers.current);
   }, []);
 
   const goTo = useCallback(
@@ -470,6 +472,7 @@ export function WindowFind({ children }: { children: ReactNode }) {
     const found = scan(document.body, p, at);
     hits.current = found.hits;
     capped.current = found.capped;
+    covers.current = coversIn(document.body, [bar.current, layer.current]);
     return found.hits;
   }, []);
 
@@ -684,7 +687,7 @@ export function WindowFind({ children }: { children: ReactNode }) {
       if (frame != null) return;
       frame = window.requestAnimationFrame(() => {
         frame = null;
-        paint(layer.current, hits.current, current.current);
+        paint(layer.current, hits.current, current.current, covers.current);
       });
     };
     const later = () => {

@@ -6,7 +6,8 @@
 // by display, visibility or opacity, or cut off past an ellipsis or in a scroller cut off itself),
 // what's marked aria-hidden or data-find-skip, and what a field holds, nor what a scroller can't
 // scroll into sight; words split across inline elements are boxed, and a box under a strip stuck
-// over a scroller, or a prompt pinned there as a conversation pins one, stops at its edge. A line added while it's open is found as it comes, the match you're on staying. ⏎ steps
+// over a scroller, a prompt pinned there as a conversation pins one, or a toolbar over a surface
+// that scrolls nothing (the canvas's), stops at its edge, and none shows under a tall cover. A line added while it's open is found as it comes, the match you're on staying. ⏎ steps
 // on, round from the last to the first, ⇧⏎ back; ⌘G and ⇧⌘G step from outside the bar. Past 1000
 // matches it marks 1000 and says 1000+. Escape closes it, clears the marks and gives the keyboard
 // back. ⌥⌘F and / open the list's own find instead, and in Settings ⌘F is Settings' search.
@@ -193,6 +194,40 @@
       var area = q('#wf-pinbox').getBoundingClientRect();
       var under = boxes().map(function (b) { return b.getBoundingClientRect(); }).filter(function (r) { return r.bottom > area.top && r.top < area.bottom; });
       check('a box under a pinned prompt stops at the prompt, not at its holder', under.length === 1 && under[0].top >= pinned.bottom - 0.5, count() + '; boxes ' + under.map(function (r) { return Math.round(r.top) + '..' + Math.round(r.bottom); }).join(',') + ', prompt to ' + Math.round(pinned.bottom));
+      // A toolbar placed over a surface with a stacking of its own that scrolls nothing, as the
+      // canvas's is.
+      var iso = document.createElement('div');
+      iso.innerHTML = [
+        '<p>qxiso two</p>',
+        '<div id="wf-iso" style="isolation: isolate; position: relative; height: 60px; overflow: hidden">',
+        '<div id="wf-isobar" style="position: absolute; top: 0; left: 0; width: 200px; height: 20px; z-index: 4; background: #ccc"></div>',
+        '<p style="padding-top: 14px">qxiso one</p></div>',
+      ].join('');
+      fixture.insertBefore(iso, fixture.firstChild);
+      type(field(), 'qxiso');
+      return counted(/ of 2$/);
+    })
+    .then(function () {
+      var bar = q('#wf-isobar').getBoundingClientRect();
+      var area = q('#wf-iso').getBoundingClientRect();
+      var under = boxes().map(function (b) { return b.getBoundingClientRect(); }).filter(function (r) { return r.bottom > area.top && r.top < area.bottom; });
+      check('a box under a toolbar over a surface that scrolls nothing stops at the toolbar', under.length === 1 && under[0].top >= bar.bottom - 0.5, count() + '; boxes ' + under.map(function (r) { return Math.round(r.top) + '..' + Math.round(r.bottom); }).join(',') + ', toolbar to ' + Math.round(bar.bottom));
+      // A cover stuck over a scroller, taller than a line is from the scroller's edge.
+      var tall = document.createElement('div');
+      tall.innerHTML = [
+        '<p>qxtall two</p>',
+        '<div id="wf-tall" style="height: 180px; overflow: auto">',
+        '<div style="position: sticky; top: 0; height: 0; z-index: 1"><div id="wf-tallcover" style="position: absolute; top: 0; left: 0; right: 0; height: 150px; overflow: hidden; background: #ccc"></div></div>',
+        '<p style="padding-top: 120px">qxtall one</p><div style="height: 300px"></div></div>',
+      ].join('');
+      fixture.insertBefore(tall, fixture.firstChild);
+      type(field(), 'qxtall');
+      return counted(/ of 2$/);
+    })
+    .then(function () {
+      var cover = q('#wf-tallcover').getBoundingClientRect();
+      var over = boxes().map(function (b) { return b.getBoundingClientRect(); }).filter(function (r) { return r.bottom > cover.top && r.top < cover.bottom && r.right > cover.left && r.left < cover.right; });
+      check('no box over a match a tall cover hides', / of 2$/.test(count() || '') && over.length === 0, count() + '; boxes ' + over.map(function (r) { return Math.round(r.top) + '..' + Math.round(r.bottom); }).join(',') + ' over a cover ' + Math.round(cover.top) + '..' + Math.round(cover.bottom));
     })
     .then(function () {
       var many = document.createElement('p');
