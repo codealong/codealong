@@ -73,7 +73,8 @@
       board.lanes.forEach(function (l) {
         l.sessions.forEach(function (s) {
           if (s.status === 'needs' || s.status === 'error' || s.status === 'unread' || s.status === 'working') s.status = 'idle';
-          if (C || l.hidden || s.visitor || s.archived) return;
+          // Not a helper's, which shows under the session it works for rather than as a row.
+          if (C || l.hidden || s.visitor || s.archived || s.helper) return;
           // C waits on no one, so the waiting window shows A or B.
           s.status = B ? 'idle' : 'unread';
           s.statusSince = now - (B ? 180e3 : A ? 120e3 : 60e3);
@@ -144,7 +145,7 @@
   // times, four of them in A's pages and three in B's.
   var waiting = function () {
     var which = null;
-    return until(function () { which = title(); return (which === 'Find A' || shown === 'Find B') && thread() && box() && !/Reading the conversation/.test(thread().textContent); }, 5000)
+    return until(function () { which = title(); return (which === 'Find A' || which === 'Find B') && thread() && box() && !/Reading the conversation/.test(thread().textContent); }, 5000)
       .then(function () { return wait(300); })
       .then(function () { return press(box(), { key: 'f', metaKey: true }); })
       .then(function (e) {
