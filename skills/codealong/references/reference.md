@@ -48,7 +48,7 @@ Commands:
              `--model <model>` when one is named) and have it answer in a few lines. The
              app reads them at launch and every hour; an account it hasn't read yet is
              read here
-  tokens     What sessions on this Mac used and cost, from the app's token ledger:
+  tokens     What sessions on this machine used and cost, from the app's token ledger:
              tokens, what they'd cost at API prices, and what was paid (each account's
              plan, its `monthly` in config.toml, a day's share at a time; Claude's extra
              usage; and accounts that pay by the token). Rows by account, model, folder,
@@ -79,18 +79,18 @@ Commands:
              its Schedules view with each one's runs. What's watched costs no usage: an
              agent runs only once something happens
   sessions   Sessions on the board: every agent, live or not, with its status and where
-             it works. Lists by default; `find` searches. This Mac's, and with --devices
-             your other Macs' too
+             it works. Lists by default; `find` searches. This machine's, and with
+             --devices your other machines' too
   session    One session: in full (`show`: status, excerpt, folder, branch, PR, how to
              resume it, and where its own records are), its conversation (`transcript`),
              replies suggested for its user to send with a click (`suggest`), in the
              Codealong app (`open`), a message to it where it runs (`send`), what it
              waits on its user for (`pending`) and denying it (`answer`), stopping its
              turn (`stop`), naming it (`rename`) and forking it into the background
-             (`fork`). A session on another of your Macs is named by its key as
+             (`fork`). A session on another of your machines is named by its key as
              `sessions --devices` lists it (`@<short>:…`) or by its id, and what's asked
-             of it is asked of that Mac, as Codealong's windows ask it; a message to it,
-             or marking it done, isn't the command's to do there
+             of it is asked of that machine, as Codealong's windows ask it; a message to
+             it, or marking it done, isn't the command's to do there
   worktrees  Worktrees the board knows: each with its branch, PR, status, and the agents
              running in it now (`agents`: sessions a process has open, or that are
              working or waiting on you; `working`: those working or waiting on you).
@@ -170,16 +170,16 @@ Commands:
              and told once it can be. Without --since, or with a duration, it goes by
              times alone, which can't tell a review's change. The session running it is
              left out
-  hygiene    Processes left over from old sessions, and this Mac's load, memory and
-             swap, for keeping a Mac with many agents usable. It lists: the processes of
-             sessions quiet for --after (an agent's own process and what it runs; not
-             one working or waiting on you, unless it's archived), older copies of a
-             background job's attach client (`claude attach <job>` in a second tab), a
-             harness's background processes left with no parent, and dev servers and
-             watchers in a linked worktree no session has been active in for --after
-             (never a repo's main checkout). A quiet session's process is kept while it
-             waits on a wakeup it scheduled itself that its process alone would fire
-             (Claude Code's `ScheduleWakeup` or `CronCreate`: a loop's next tick, a
+  hygiene    Processes left over from old sessions, and this machine's load, memory and
+             swap, for keeping a machine with many agents usable. It lists: the
+             processes of sessions quiet for --after (an agent's own process and what it
+             runs; not one working or waiting on you, unless it's archived), older
+             copies of a background job's attach client (`claude attach <job>` in a
+             second tab), a harness's background processes left with no parent, and dev
+             servers and watchers in a linked worktree no session has been active in for
+             --after (never a repo's main checkout). A quiet session's process is kept
+             while it waits on a wakeup it scheduled itself that its process alone would
+             fire (Claude Code's `ScheduleWakeup` or `CronCreate`: a loop's next tick, a
              check in two days), and listed under `kept` with when (`wakesAt`). With
              --kill it ends those, each with its child processes: it checks again that
              each process runs the same command first, stops a background job through
@@ -397,7 +397,7 @@ Options:
 ## codealong tokens
 
 ```
-What sessions on this Mac used and cost, from the app's token ledger: tokens, what
+What sessions on this machine used and cost, from the app's token ledger: tokens, what
 they'd cost at API prices, and what was paid (each account's plan, its `monthly` in
 config.toml, a day's share at a time; Claude's extra usage; and accounts that pay by the
 token). Rows by account, model, folder, session or day; JSON has them all
@@ -1519,8 +1519,8 @@ Options:
           user, rather than skip the run
 
       --skip-missed[=<YES|NO>]
-          Skip a time missed while the Mac slept or the app was closed, rather than run
-          the latest one once it's back
+          Skip a time missed while the machine slept or the app was closed, rather than
+          run the latest one once it's back
 
       --per-day <N>
           The most runs a day
@@ -1702,8 +1702,8 @@ Options:
           user, rather than skip the run
 
       --skip-missed[=<YES|NO>]
-          Skip a time missed while the Mac slept or the app was closed, rather than run
-          the latest one once it's back
+          Skip a time missed while the machine slept or the app was closed, rather than
+          run the latest one once it's back
 
       --per-day <N>
           The most runs a day
@@ -1912,7 +1912,8 @@ Options:
 
 ```
 Sessions on the board: every agent, live or not, with its status and where it works.
-Lists by default; `find` searches. This Mac's, and with --devices your other Macs' too
+Lists by default; `find` searches. This machine's, and with --devices your other
+machines' too
 
 Usage: codealong sessions [OPTIONS] [COMMAND]
 
@@ -1982,10 +1983,10 @@ Options:
           on. Repeatable: those with any of them
 
       --devices
-          Your other Macs' sessions too, as Codealong's windows show them beside this
-          Mac's: each key starts with `@<short>:`, the Mac's short id (`devices` lists
-          them), and a session command given one asks that Mac. One that's away shows as
-          it was last seen
+          Your other machines' sessions too, as Codealong's windows show them beside
+          this machine's: each key starts with `@<short>:`, the machine's short id
+          (`devices` lists them), and a session command given one asks that machine. One
+          that's away shows as it was last seen
 
       --since <SINCE>
           Active within this long: 90m, 24h, 3d, 7d (the default), or all
@@ -2069,10 +2070,10 @@ Options:
           on. Repeatable: those with any of them
 
       --devices
-          Your other Macs' sessions too, as Codealong's windows show them beside this
-          Mac's: each key starts with `@<short>:`, the Mac's short id (`devices` lists
-          them), and a session command given one asks that Mac. One that's away shows as
-          it was last seen
+          Your other machines' sessions too, as Codealong's windows show them beside
+          this machine's: each key starts with `@<short>:`, the machine's short id
+          (`devices` lists them), and a session command given one asks that machine. One
+          that's away shows as it was last seen
 
       --since <SINCE>
           Active within this long: 90m, 24h, 3d, 7d (the default), or all
@@ -2143,10 +2144,10 @@ where its own records are), its conversation (`transcript`), replies suggested f
 user to send with a click (`suggest`), in the Codealong app (`open`), a message to it
 where it runs (`send`), what it waits on its user for (`pending`) and denying it
 (`answer`), stopping its turn (`stop`), naming it (`rename`) and forking it into the
-background (`fork`). A session on another of your Macs is named by its key as `sessions
---devices` lists it (`@<short>:…`) or by its id, and what's asked of it is asked of that
-Mac, as Codealong's windows ask it; a message to it, or marking it done, isn't the
-command's to do there
+background (`fork`). A session on another of your machines is named by its key as
+`sessions --devices` lists it (`@<short>:…`) or by its id, and what's asked of it is
+asked of that machine, as Codealong's windows ask it; a message to it, or marking it
+done, isn't the command's to do there
 
 Usage: codealong session [OPTIONS] <COMMAND>
 
@@ -2207,8 +2208,8 @@ Commands:
               before then calls that off. A session this one started with `codealong
               start`: it ends now and is marked seen and archived, and Codealong's main
               window says which session did it, with an Undo. Never a session that's
-              working, waiting on its user, or on another Mac; any other session is its
-              user's to mark done, in Codealong
+              working, waiting on its user, or on another machine; any other session is
+              its user's to mark done, in Codealong
   seen        Mark the turn this session is taking seen, from inside it, when its user
               needs to do nothing about it: a loop's tick or a check that found nothing
               new, a watch with nothing to report. Once the turn ends it's idle rather
@@ -2292,17 +2293,17 @@ Commands:
               --label`). Unlike a tag (`session tag`), which is a read of one turn and
               goes when the next starts, a label stays until it's taken off; put one on
               only when your user asked, or an orchestrator's labelling is what they set
-              it to do. A session on another of your Macs is labelled there, with that
-              Mac's labels. Prints the labels it has now; `session show`, `sessions`
-              (`--label` to list only those with one) say them too
+              it to do. A session on another of your machines is labelled there, with
+              that machine's labels. Prints the labels it has now; `session show`,
+              `sessions` (`--label` to list only those with one) say them too
   snooze      Snooze a session, as Snooze in its menu in Codealong does: it leaves Needs
               you and Your turn on every device, and the mark stops counting it, until
               WHEN, when it's back as it is then (as Your turn when nothing else would
               bring it). A prompt sent to it ends the snooze, and --wake ends it now.
-              WHEN is on this Mac's clock: a span from now (30m, 2h, 3d), a time (5pm,
-              17:30: the next one), a day (tomorrow, fri, next week, 2026-11-03: at 9
-              AM) or a day and a time (tomorrow 2pm, fri 17:00, 2026-11-03 15:00). A
-              session on another device is snoozed on its Mac
+              WHEN is on this machine's clock: a span from now (30m, 2h, 3d), a time
+              (5pm, 17:30: the next one), a day (tomorrow, fri, next week, 2026-11-03:
+              at 9 AM) or a day and a time (tomorrow 2pm, fri 17:00, 2026-11-03 15:00).
+              A session on another device is snoozed on its machine
   raise       Move a session to the top of what waits on your user, as Move to top in
               its menu in Codealong does: the notch, the waiting window, the floating
               bar and the next key in every window go to it first, after any your user
@@ -2314,7 +2315,8 @@ Commands:
               session's name. Turned down for one your user moved there themselves
               (theirs to undo), while it's snoozed, and after your user moves it back to
               its place, until it's sent something or its status changes. --lower moves
-              back one an agent moved. A session on another device is moved on its Mac
+              back one an agent moved. A session on another device is moved on its
+              machine
   rename      Name a session where its harness keeps names (Claude Code's /rename, a
               Codex thread's name, an OpenCode session's title), so the harness shows
               the name as Codealong does
@@ -2556,7 +2558,7 @@ and its last reply stays in Your turn for its user to read and mark done, or wit
 --archive is marked seen and archived too; a prompt or message that comes to it before
 then calls that off. A session this one started with `codealong start`: it ends now and
 is marked seen and archived, and Codealong's main window says which session did it, with
-an Undo. Never a session that's working, waiting on its user, or on another Mac; any
+an Undo. Never a session that's working, waiting on its user, or on another machine; any
 other session is its user's to mark done, in Codealong
 
 Usage: codealong session done [OPTIONS] <KEY>
@@ -2858,8 +2860,8 @@ Options:
 
       --risk <0-3>
           How risky the call it waits on its user to allow looks: 0 reads only, 1
-          changes files or state on this Mac, 2 affects shared or remote things (pushes,
-          deploys, sends), 3 destructive or hard to undo. Shown while it waits
+          changes files or state on this machine, 2 affects shared or remote things
+          (pushes, deploys, sends), 3 destructive or hard to undo. Shown while it waits
 
       --background <KIND>
           What the command its turn left running in the background does: polling (checks
@@ -2905,8 +2907,9 @@ filters by them, and a board whose rule names a label takes in the sessions with
 (`board rule --label`). Unlike a tag (`session tag`), which is a read of one turn and
 goes when the next starts, a label stays until it's taken off; put one on only when your
 user asked, or an orchestrator's labelling is what they set it to do. A session on
-another of your Macs is labelled there, with that Mac's labels. Prints the labels it has
-now; `session show`, `sessions` (`--label` to list only those with one) say them too
+another of your machines is labelled there, with that machine's labels. Prints the
+labels it has now; `session show`, `sessions` (`--label` to list only those with one)
+say them too
 
 Usage: codealong session label [OPTIONS] <KEY>
 
@@ -2940,10 +2943,10 @@ Options:
 Snooze a session, as Snooze in its menu in Codealong does: it leaves Needs you and Your
 turn on every device, and the mark stops counting it, until WHEN, when it's back as it
 is then (as Your turn when nothing else would bring it). A prompt sent to it ends the
-snooze, and --wake ends it now. WHEN is on this Mac's clock: a span from now (30m, 2h,
-3d), a time (5pm, 17:30: the next one), a day (tomorrow, fri, next week, 2026-11-03: at
-9 AM) or a day and a time (tomorrow 2pm, fri 17:00, 2026-11-03 15:00). A session on
-another device is snoozed on its Mac
+snooze, and --wake ends it now. WHEN is on this machine's clock: a span from now (30m,
+2h, 3d), a time (5pm, 17:30: the next one), a day (tomorrow, fri, next week, 2026-11-03:
+at 9 AM) or a day and a time (tomorrow 2pm, fri 17:00, 2026-11-03 15:00). A session on
+another device is snoozed on its machine
 
 Usage: codealong session snooze [OPTIONS] <KEY> [WHEN]...
 
@@ -2984,7 +2987,8 @@ waits on or what can't wait (a deploy held up, a PR others are blocked behind), 
 a time, and say why in --note, which shows on it with your session's name. Turned down
 for one your user moved there themselves (theirs to undo), while it's snoozed, and after
 your user moves it back to its place, until it's sent something or its status changes.
---lower moves back one an agent moved. A session on another device is moved on its Mac
+--lower moves back one an agent moved. A session on another device is moved on its
+machine
 
 Usage: codealong session raise [OPTIONS] <KEY>
 
@@ -3214,12 +3218,12 @@ Commands:
           a message when someone else reviews the PR, asks for changes or comments (with
           what they wrote), when it's approved, merged or closed, and when its checks
           fail or its branch comes to conflict with its base, with where the PR stands.
-          One on this Mac that has stopped is resumed out of sight with what asks for
-          work (comments, changes asked for, failing checks, conflicts), unless another
-          of the PR's sessions runs (`[sessions] resume_for_pr_news`). Its primary
-          session is the one that pushed to its branch most, the one that opened it
-          counting as once at least and winning a tie, never an automatic review of it,
-          unless another was made it here or from the PR's menu in the app (Primary
+          One on this machine that has stopped is resumed out of sight with what asks
+          for work (comments, changes asked for, failing checks, conflicts), unless
+          another of the PR's sessions runs (`[sessions] resume_for_pr_news`). Its
+          primary session is the one that pushed to its branch most, the one that opened
+          it counting as once at least and winning a tie, never an automatic review of
+          it, unless another was made it here or from the PR's menu in the app (Primary
           session); the PR's other sessions aren't told. What the signed-in user did,
           which is what its own agent did through gh, isn't told. Run from a session,
           that session becomes the one told, unless another running session is the PR's
@@ -3236,10 +3240,10 @@ Commands:
           session does next hangs on what happens to the PR, its approval say. It takes
           the same options, and run from a session it makes that session the one told in
           the same way. A PR approved already tells its session that now. A primary
-          session on this Mac that has stopped is resumed out of sight to be told all of
-          this, spending its account's usage, unless you archived it, another of the
-          PR's sessions runs, or `[sessions] resume_for_pr_news` is off. Archiving the
-          session ends the watch; the session that takes the PR over next isn't
+          session on this machine that has stopped is resumed out of sight to be told
+          all of this, spending its account's usage, unless you archived it, another of
+          the PR's sessions runs, or `[sessions] resume_for_pr_news` is off. Archiving
+          the session ends the watch; the session that takes the PR over next isn't
           watching. Run where there's no session to tell (outside one, on a PR with
           none), it says so and changes nothing. --off stops the watch and leaves its
           nudge as it was, telling what its settings say; `pr nudge --off` stops both
@@ -3373,8 +3377,8 @@ Options:
 Have a PR's primary session told of what happens on it: while it runs, it gets a message
 when someone else reviews the PR, asks for changes or comments (with what they wrote),
 when it's approved, merged or closed, and when its checks fail or its branch comes to
-conflict with its base, with where the PR stands. One on this Mac that has stopped is
-resumed out of sight with what asks for work (comments, changes asked for, failing
+conflict with its base, with where the PR stands. One on this machine that has stopped
+is resumed out of sight with what asks for work (comments, changes asked for, failing
 checks, conflicts), unless another of the PR's sessions runs (`[sessions]
 resume_for_pr_news`). Its primary session is the one that pushed to its branch most, the
 one that opened it counting as once at least and winning a tie, never an automatic
@@ -3428,8 +3432,8 @@ Watch a PR: have its primary session told of everything that happens on it, what
 an approval, a merge and a close told too, for when what a session does next hangs on
 what happens to the PR, its approval say. It takes the same options, and run from a
 session it makes that session the one told in the same way. A PR approved already tells
-its session that now. A primary session on this Mac that has stopped is resumed out of
-sight to be told all of this, spending its account's usage, unless you archived it,
+its session that now. A primary session on this machine that has stopped is resumed out
+of sight to be told all of this, spending its account's usage, unless you archived it,
 another of the PR's sessions runs, or `[sessions] resume_for_pr_news` is off. Archiving
 the session ends the watch; the session that takes the PR over next isn't watching. Run
 where there's no session to tell (outside one, on a PR with none), it says so and
@@ -3853,11 +3857,11 @@ Options:
           [default: .]
 
       --device <DEVICE>
-          Start it on another of your Macs, by name or short id (`codealong devices`
-          lists them), which needs remote control on there. That Mac picks the worktree,
-          account, model and place as `codealong start` run there would, from its own
-          folders, accounts and settings; the session it starts is listed here as one of
-          that device's
+          Start it on another of your machines, by name or short id (`codealong devices`
+          lists them), which needs remote control on there. That machine picks the
+          worktree, account, model and place as `codealong start` run there would, from
+          its own folders, accounts and settings; the session it starts is listed here
+          as one of that device's
 
       --new-worktree
           Have Claude Code make a fresh worktree for it (`claude --worktree`)
@@ -3930,8 +3934,8 @@ Usage: codealong config [OPTIONS] <COMMAND>
 
 Commands:
   show   The settings as the app reads them, the file's path and text, its error if it
-         doesn't parse, the terminal and editor profiles, and accounts found on this Mac
-         that aren't configured
+         doesn't parse, the terminal and editor profiles, and accounts found on this
+         machine that aren't configured
   check  Whether a config.toml parses and passes the app's checks: the live one, or
          FILE. With --repo, a repo's team settings instead (.codealong/config.toml, as
          FOLDER's working tree has them; they go for the team once merged into the
@@ -3956,7 +3960,7 @@ Options:
 
 ```
 The settings as the app reads them, the file's path and text, its error if it doesn't
-parse, the terminal and editor profiles, and accounts found on this Mac that aren't
+parse, the terminal and editor profiles, and accounts found on this machine that aren't
 configured
 
 Usage: codealong config show [OPTIONS]
@@ -4569,22 +4573,23 @@ Options:
 ## codealong hygiene
 
 ```
-Processes left over from old sessions, and this Mac's load, memory and swap, for keeping
-a Mac with many agents usable. It lists: the processes of sessions quiet for --after (an
-agent's own process and what it runs; not one working or waiting on you, unless it's
-archived), older copies of a background job's attach client (`claude attach <job>` in a
-second tab), a harness's background processes left with no parent, and dev servers and
-watchers in a linked worktree no session has been active in for --after (never a repo's
-main checkout). A quiet session's process is kept while it waits on a wakeup it
-scheduled itself that its process alone would fire (Claude Code's `ScheduleWakeup` or
-`CronCreate`: a loop's next tick, a check in two days), and listed under `kept` with
-when (`wakesAt`). With --kill it ends those, each with its child processes: it checks
-again that each process runs the same command first, stops a background job through its
-harness as Close does and asks the rest to end (SIGTERM), kills what's left after a
-while (SIGKILL), sweeps once more for dev processes that came back in the worktrees it
-cleared, and logs each to --log. A session whose process ended keeps its conversation
-and resumes as usual. It judges nothing, and kills nothing, when the app doesn't answer
-or is still reading after a start: without its board, every session would look old
+Processes left over from old sessions, and this machine's load, memory and swap, for
+keeping a machine with many agents usable. It lists: the processes of sessions quiet for
+--after (an agent's own process and what it runs; not one working or waiting on you,
+unless it's archived), older copies of a background job's attach client (`claude attach
+<job>` in a second tab), a harness's background processes left with no parent, and dev
+servers and watchers in a linked worktree no session has been active in for --after
+(never a repo's main checkout). A quiet session's process is kept while it waits on a
+wakeup it scheduled itself that its process alone would fire (Claude Code's
+`ScheduleWakeup` or `CronCreate`: a loop's next tick, a check in two days), and listed
+under `kept` with when (`wakesAt`). With --kill it ends those, each with its child
+processes: it checks again that each process runs the same command first, stops a
+background job through its harness as Close does and asks the rest to end (SIGTERM),
+kills what's left after a while (SIGKILL), sweeps once more for dev processes that came
+back in the worktrees it cleared, and logs each to --log. A session whose process ended
+keeps its conversation and resumes as usual. It judges nothing, and kills nothing, when
+the app doesn't answer or is still reading after a start: without its board, every
+session would look old
 
 Usage: codealong hygiene [OPTIONS]
 

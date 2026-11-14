@@ -272,7 +272,8 @@ goes without; [the development notes](docs/development.md#windows) say what else
 
 **You'll need:**
 
-- macOS 13 or later, Linux under X11, or Windows 10 (1803) or later, built from source
+- macOS 13 or later, Linux under X11, or Windows 10 (version 2004) or later, built from source,
+  where sessions open in Windows Terminal
 - At least one coding agent: [Claude Code](https://code.claude.com/docs), the
   [Codex](https://openai.com/codex/) CLI or app, [OpenCode](https://opencode.ai),
   [Antigravity](https://antigravity.google) or [Cursor](https://cursor.com)
@@ -1040,7 +1041,8 @@ commands. Some of what macOS gives it has no counterpart there, the notch among 
 [the development notes](docs/development.md#linux) say what, and how to try it in a VM.
 
 **And Windows?**
-Not yet, and help is welcome: [Contributing](#contributing) says where Windows support starts.
+An early build, from source: [On Windows](#on-windows) says how, and what it hasn't yet. Help is
+welcome: [Contributing](#contributing) says where Windows support starts.
 
 **Can I answer my agents from my phone?**
 Soon: [Codealong for iPhone](https://github.com/codealong/codealong-ios) is early, and for now you
@@ -1077,8 +1079,8 @@ whichever one you run) and Windows support. A harness is one module behind the `
 says what one needs. Everything Codealong asks of the OS is in `src-tauri/src/os/`: each area that
 makes the OS's own calls has a `macos.rs`, a `linux.rs` and a `windows.rs` giving the same
 functions, and what merely differs, a path or a program to run, goes by `os::current()`. The
-Windows side is a first cut that builds and passes most of the engine's tests but hasn't run as an
-app yet; [what it goes without](docs/development.md#windows) is where to start.
+Windows side is a first cut: it builds, the engine's tests pass and the app runs, but it's had
+little use; [what it goes without](docs/development.md#windows) is where to start.
 [Building from source](#building-from-source) and
 [docs/development.md](docs/development.md) have the rest, and
 [CONTRIBUTING.md](CONTRIBUTING.md) what a pull request needs: an issue first for anything bigger

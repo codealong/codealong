@@ -162,7 +162,10 @@ the app's windows, not this. Paths are under `src-tauri/src/`.
 
 ## Unchecked
 
-- 2026-11-14: the app on its desktop, and every harness's sessions there. The engine's and
+- 2026-11-14: every harness's sessions there, and the app past its first run. The engine's and
   codealong-peer's tests pass in the VM (2108 and 29 on 2026-11-14), less 69 for what Windows
   hasn't (Codealong's own terminals, zsh, Rex, the Codex app's log, a background job's parent)
-  or for another OS's ways a Windows host can't play; the app hasn't been built or run there.
+  or for another OS's ways a Windows host can't play. The app builds there (`tauri build --no-bundle`,
+  27 minutes in the VM) and ran on 2026-11-14: its main window, the floating bar, setup finding
+  Claude Code and Codex, and the quick panel on Ctrl+Alt+/; nothing past that has been tried, and
+  that Windows had no Windows Terminal to start a session in.
