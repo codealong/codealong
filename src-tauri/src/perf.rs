@@ -64,7 +64,7 @@ pub fn set_enabled(on: bool) {
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
-    match OpenOptions::new().create(true).append(true).open(&path) {
+    match open_log(&path) {
         Ok(f) => {
             *slot = Some(keep_bounded(&f, &path, CUT_AT).unwrap_or(f));
             drop(slot);
@@ -117,7 +117,13 @@ fn keep_bounded(f: &File, path: &Path, cut_at: u64) -> Option<File> {
         }
         let _ = f.unlock();
     }
-    OpenOptions::new().create(true).append(true).open(path).ok()
+    open_log(path).ok()
+}
+
+/// The log, opened to append to and to read: Windows takes a lock (`File::try_lock`) only on a
+/// handle that may read or write, which one that only appends may not.
+fn open_log(path: &Path) -> std::io::Result<File> {
+    OpenOptions::new().create(true).read(true).append(true).open(path)
 }
 
 /// Logs how long something waited, when it's long enough to matter.
@@ -550,7 +556,7 @@ Total number in stack (recursive counted multiple, when >=5):
     fn the_log_is_cut_at_its_limit_and_both_writers_follow() {
         let dir = crate::fixtures::scratch("perf-cut");
         let path = dir.join("perf.log");
-        let open = || OpenOptions::new().create(true).append(true).open(&path).unwrap();
+        let open = || open_log(&path).unwrap();
         let (mut app, mut server) = (open(), open());
         app.write_all(b"0123456789").unwrap();
         // Under the limit, and the file there is the one each writes: nothing to do.
