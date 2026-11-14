@@ -498,7 +498,7 @@ export function FileLink({ path, opens = true }: { path: string; opens?: boolean
   );
   if (!opens || away || !path.startsWith('/')) {
     return (
-      <span className="ca-md-file" title={away ? `${path}, on the session’s Mac` : path}>
+      <span className="ca-md-file" title={away ? `${path}, on the session’s machine` : path}>
         {shown}
       </span>
     );

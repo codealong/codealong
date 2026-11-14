@@ -1527,7 +1527,7 @@ mod tests {
         let revealed = |f: &Path| format!("/usr/bin/open [\"-R\", {:?}] (10s)", shown(f));
         assert_eq!(p.log, [format!("/usr/bin/open [{:?}] (10s)", shown(&shot)), revealed(&script), revealed(&program), revealed(&app), revealed(&disguised)]);
         let p = played(ok, || (open_file(&dir.join("gone.pdf")), open_file(Path::new("shots/after.png"))));
-        assert_eq!(err(p.got.0), "gone.pdf isn't on this Mac any more.");
+        assert_eq!(err(p.got.0), "gone.pdf isn't on this machine any more.");
         assert_eq!(err(p.got.1), "shots/after.png isn't a full path.");
         assert!(p.log.is_empty());
         let p = played(no, || open_file(&shot));

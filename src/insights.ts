@@ -42,7 +42,7 @@ export function landingLabel(i: SessionInsight | undefined): InsightLabel | null
 
 const RISK: { label: string; tone: Tone; says: string }[] = [
   { label: 'Reads only', tone: 'quiet', says: 'only reads or inspects' },
-  { label: 'Local changes', tone: 'info', says: 'changes files or state on this Mac' },
+  { label: 'Local changes', tone: 'info', says: 'changes files or state on this machine' },
   { label: 'Remote effects', tone: 'warn', says: 'pushes, deploys, publishes, sends or changes shared things' },
   { label: 'Destructive', tone: 'bad', says: 'deletes data or is hard to undo' },
 ];

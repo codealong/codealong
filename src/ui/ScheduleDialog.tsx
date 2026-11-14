@@ -377,7 +377,7 @@ export function ScheduleDialog({ schedule, board, devices, now, onClose, onSaved
               <span>Run once, then stop</span>
             </label>
             {when.kind === 'time' && (
-              <label className="ca-check" title="A time missed while the Mac slept or Codealong was closed runs once, late, when it’s back">
+              <label className="ca-check" title="A time missed while the machine slept or Codealong was closed runs once, late, when it’s back">
                 <CheckBox checked={draft.catchUp === 'once'} onChange={(on) => setDraft({ ...draft, catchUp: on ? 'once' : 'skip' })} />
                 <span>Run a missed time when back</span>
               </label>

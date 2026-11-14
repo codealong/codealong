@@ -5,7 +5,7 @@ Generated from `codealong --help` by `scripts/skill-reference.sh`. Don't edit by
 ## codealong
 
 ```
-Codealong from the command line: the todo list, every agent session on this Mac, the
+Codealong from the command line: the todo list, every agent session on this machine, the
 worktrees they run in, and the accounts they run on.
 
 Answers come from Codealong's server, which runs the engine whether or not the app is

@@ -831,7 +831,7 @@ pub fn open_config(b: &Board) -> Result<()> {
 pub fn open_team_file(b: &Board, slug: &str) -> Result<()> {
     let lanes = b.lanes.iter().filter(|l| l.device.is_none() && l.repo_slug.as_deref() == Some(slug));
     let root = lanes.clone().find(|l| l.origin == Origin::Main).or_else(|| lanes.clone().next()).map(|l| PathBuf::from(&l.path));
-    let root = root.ok_or_else(|| anyhow!("There's no checkout of {slug} on this Mac."))?;
+    let root = root.ok_or_else(|| anyhow!("There's no checkout of {slug} on this machine."))?;
     let file = root.join(teamfile::FILE);
     if !file.is_file() {
         bail!("{} has no {}.", tilde(&root), teamfile::FILE);

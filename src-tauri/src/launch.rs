@@ -1507,7 +1507,7 @@ fn named_file(path: &Path) -> Result<(String, PathBuf)> {
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| path.display().to_string());
     match dunce::canonicalize(path) {
         Ok(real) => Ok((name, real)),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => bail!("{name} isn't on this Mac any more."),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => bail!("{name} isn't on this machine any more."),
         Err(e) => bail!("Couldn't open {name}: {e}"),
     }
 }
@@ -1646,7 +1646,7 @@ mod tests {
         let at = |p: &str| dir.join(p).to_string_lossy().into_owned();
         let kinds = path_kinds(&[at("plans/steps.md"), at("plans"), at("plans/gone.md"), "plans/steps.md".into(), String::new()]);
         assert_eq!(kinds, [Some(PathKind::File), Some(PathKind::Folder), None, None, None]);
-        assert_eq!(named_file(&dir.join("plans/gone.md")).unwrap_err().to_string(), "gone.md isn't on this Mac any more.");
+        assert_eq!(named_file(&dir.join("plans/gone.md")).unwrap_err().to_string(), "gone.md isn't on this machine any more.");
         assert_eq!(named_file(Path::new("plans/steps.md")).unwrap_err().to_string(), "plans/steps.md isn't a full path.");
         assert_eq!(named_file(&dir.join("plans/steps.md")).unwrap().0, "steps.md");
         assert!(edit_file("cursor", &dir.join("plans/gone.md"), Some(3)).is_err());

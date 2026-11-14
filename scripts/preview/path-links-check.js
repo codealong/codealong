@@ -43,7 +43,7 @@
     // A file that was there when the reply showed and was cleared before the click.
     if (cmd === 'open_file' && /cleared/.test((args || {}).path)) {
       window.__calls.push([cmd, args, options]);
-      return Promise.reject('cleared.md isn’t on this Mac any more.');
+      return Promise.reject('cleared.md isn’t on this machine any more.');
     }
     var p = real(cmd, args, options);
     if (cmd !== 'get_board') return p;
@@ -89,7 +89,7 @@
       return until(function () { return q('.ca-md-file-why', reply()); }, 3000);
     })
     .then(function (why) {
-      check('one that’s gone since says so in place', why.textContent === 'cleared.md isn’t on this Mac any more.', why.textContent);
+      check('one that’s gone since says so in place', why.textContent === 'cleared.md isn’t on this machine any more.', why.textContent);
       return menuOf(linkTo(STEPS));
     })
     .then(function (labels) {

@@ -252,7 +252,7 @@ const REQUESTS: &[Request] = &[
     Request { name: api::MARK_SEEN, here: mark_seen, ..ANY },
     Request { name: api::MARK_UNREAD, here: mark_unread, ..ANY },
     // A session's agent says its own turn needs nothing from you, from the command on its Mac.
-    Request { name: AGENT_SEEN, only_here: Some("A session marks its own turn seen, on the Mac it runs on."), here: agent_seen, ..ANY },
+    Request { name: AGENT_SEEN, only_here: Some("A session marks its own turn seen, on the machine it runs on."), here: agent_seen, ..ANY },
     // A snooze is kept on the session's Mac, so it's snoozed there and everywhere it shows.
     Request { name: api::SESSION_SNOOZE, here: snooze, ..ANY },
     // So is setting one aside for its side conversation, which runs there too.
@@ -298,11 +298,11 @@ const REQUESTS: &[Request] = &[
     Request { name: api::SESSION_EFFORT, here: switch_effort, ..ANY },
     Request { name: api::SESSION_MODE, here: switch_mode, command: mode_is_its_users, ..ANY },
     // A fork into a terminal opens one, and closing one ends it: both need someone at that Mac.
-    Request { name: FORK_TERMINAL, only_here: Some("Fork it on the Mac it runs on."), here: fork_terminal, ..ANY },
+    Request { name: FORK_TERMINAL, only_here: Some("Fork it on the machine it runs on."), here: fork_terminal, ..ANY },
     // A move opens a terminal too, and closes the session's own. Which account a conversation
     // goes on under, and whose usage it spends, is its user's to choose.
-    Request { name: MOVE, only_here: Some("Move it on the Mac it runs on."), here: move_session, command: move_in_windows, ..ANY },
-    Request { name: CLOSE, only_here: Some("Close it on the Mac it runs on."), here: close, ..ANY },
+    Request { name: MOVE, only_here: Some("Move it on the machine it runs on."), here: move_session, command: move_in_windows, ..ANY },
+    Request { name: CLOSE, only_here: Some("Close it on the machine it runs on."), here: close, ..ANY },
     // Done ends no more than the session, and what it leaves for someone at its Mac (a question
     // about its worktree) it says. It's you who's done with a session, not an agent. A worktree
     // its harness made can take most of a minute to remove (idle.rs `exit`), and a background
@@ -329,7 +329,7 @@ const REQUESTS: &[Request] = &[
     // A command you ran for a session (led by `!`, or Run on a block in its conversation) runs in a
     // tab of yours on its Mac, as you, and the session is told what it printed. Not the command's:
     // its agent asks with `codealong terminal run`, which you allow.
-    Request { name: RUN_COMMAND, only_here: Some("Run it on the Mac the session runs on."), here: run_command, command: run_is_yours, ..ANY },
+    Request { name: RUN_COMMAND, only_here: Some("Run it on the machine the session runs on."), here: run_command, command: run_is_yours, ..ANY },
     // A session listens through the microphone and the audio of the Mac it runs on, which are
     // its user's to turn on, at that Mac: the command may end a listening, and start one only on
     // a recording.
@@ -546,7 +546,7 @@ fn carry_images(peers: &Peers, req: &Request, device: &str, params: &mut Value) 
 /// device's name, and how it's asked to keep an image.
 fn carry_images_in(text: &mut Value, (images, files): (&std::path::Path, &std::path::Path), mac: &str, mut keep: impl FnMut(Value) -> Result<Value, String>) -> Result<(), String> {
     let Some(prompt) = text.as_str() else { return Ok(()) };
-    let going = crate::attachments::going_with_in(prompt, images, files).map_err(|name| format!("“{name}” is a file kept on this Mac, and only images go to {mac} with what you send. Attach it there, or paste what's in it."))?;
+    let going = crate::attachments::going_with_in(prompt, images, files).map_err(|name| format!("“{name}” is a file kept on this machine, and only images go to {mac} with what you send. Attach it there, or paste what's in it."))?;
     if going.is_empty() {
         return Ok(());
     }
@@ -799,7 +799,7 @@ fn answer_run(engine: &Handle, c: &Call, key: &str, id: &str, answer: api::Answe
     match answer {
         api::Answer::Deny => crate::terminal::deny(key, id, saying).map(Value::String).ok_or_else(gone),
         api::Answer::Always => Err("A command for your terminal is asked about every time: allow it once, or deny it.".into()),
-        api::Answer::Allow if !matches!(c.from, From::Here | From::Phone) => Err("A command runs in your terminal only when you allow it on its Mac or from your phone.".into()),
+        api::Answer::Allow if !matches!(c.from, From::Here | From::Phone) => Err("A command runs in your terminal only when you allow it on its machine or from your phone.".into()),
         api::Answer::Allow => {
             let open = |a: &crate::terminal::Asked| {
                 let (apps, lanes, title) = engine.read(|b| (b.apps.clone(), b.lanes.clone(), b.session(&a.ask.session).map(|(_, s)| s.title.clone()).unwrap_or_default()));
@@ -1817,7 +1817,7 @@ fn done_anyway(engine: &Handle, peers: &Peers, device: &str, own: &str, why: &st
     if !live {
         return to_value(api::Done { done: true, message: format!("Done with “{title}”: it's archived."), noted: false });
     }
-    let mac = mac.unwrap_or_else(|| "its Mac".into());
+    let mac = mac.unwrap_or_else(|| "its machine".into());
     let why = if why.contains(UNKNOWN) { format!("Codealong there is from before it could be asked to close it: update it on {mac}.") } else { why.to_string() };
     let message = format!("Done with “{title}”: it's archived, but still open on {mac}. {why}");
     to_value(api::Done { done: true, message, noted: true })
@@ -2052,7 +2052,7 @@ fn one_at_a_time(device: &str) -> std::sync::Arc<std::sync::Mutex<()>> {
 /// and no bigger than `most`.
 fn kept_image(file: &std::path::Path, most: usize) -> Result<Vec<u8>, String> {
     use std::io::Read;
-    let gone = || "That image is gone from this Mac.".to_string();
+    let gone = || "That image is gone from this machine.".to_string();
     let f = crate::os::files::open_no_follow(file).map_err(|_| gone())?;
     let meta = f.metadata().map_err(|_| gone())?;
     if !meta.is_file() {
@@ -2293,7 +2293,7 @@ mod tests {
         // Another file kept here can't go, and nothing's asked.
         let log = attachments::keep_in(&dirs.0, &dirs.1, b"line 1\n", "crash.log").unwrap();
         let (sent, asked) = carry(&format!("{prompt}\n{}", log.reference()), kept_as(&shot.path));
-        assert!(sent.unwrap_err().starts_with("“crash.log” is a file kept on this Mac, and only images go to Mini"));
+        assert!(sent.unwrap_err().starts_with("“crash.log” is a file kept on this machine, and only images go to Mini"));
         assert!(asked.is_empty());
     }
 
@@ -2366,7 +2366,7 @@ mod tests {
         let engine = Handle::for_tests();
         // A worktree's targets open, and its preview and reuse mark are set, on its own Mac.
         let lane = "@a1b2c3d4e5:/Users/sam/app";
-        for (name, words) in [(OPEN, "it opens there"), (PREVIEW, "set its preview there"), (REUSABLE, "mark it there"), (RUN_COMMAND, "on the Mac the session runs on")] {
+        for (name, words) in [(OPEN, "it opens there"), (PREVIEW, "set its preview there"), (REUSABLE, "mark it there"), (RUN_COMMAND, "on the machine the session runs on")] {
             let err = run(&engine, &peers, name, lane, json!({ "target": "editor", "on": true })).unwrap_err();
             assert!(err.contains(words), "{name}: {err}");
         }
@@ -2609,7 +2609,7 @@ mod tests {
         assert!(command_may_ask(api::START_PICK, &json!({ "account": "auto" })).is_ok());
         let lane = "@a1b2c3d4e5:/r/app";
         assert!(run_as(&engine, &peers, &command, api::START, On::Key(lane), spec).unwrap_err().contains("isn't linked"));
-        assert!(elsewhere(find(FORK_TERMINAL).unwrap(), &From::Here).unwrap_err().contains("on the Mac it runs on"));
+        assert!(elsewhere(find(FORK_TERMINAL).unwrap(), &From::Here).unwrap_err().contains("on the machine it runs on"));
         // A window may allow, and so may a device, which peers.rs lets through only with remote
         // control on: both get as far as the session.
         for from in [From::Here, From::Device, From::Phone] {

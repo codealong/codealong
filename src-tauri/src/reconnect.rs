@@ -79,7 +79,7 @@ impl Why {
     /// What Codealong says to a session it tells to carry on.
     pub fn message(self) -> &'static str {
         match self {
-            Why::Connection => "Your last turn ended because the API couldn't be reached (the Mac slept or lost its connection). It can be reached again, so carry on where you left off.",
+            Why::Connection => "Your last turn ended because the API couldn't be reached (the machine slept or lost its connection). It can be reached again, so carry on where you left off.",
             Why::Limit => "Your last turn stopped at your account's usage limit, which has lifted now, so carry on where you left off.",
             Why::CutOff => crate::start::CARRY_ON,
         }

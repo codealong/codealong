@@ -36,7 +36,7 @@ function settingsWords(s: ScheduleItem): string[] {
   if (s.quiet) out.push('Its sessions are quiet: they wait on you only when they need you.');
   if (s.notes) out.push('Each run reads and adds to its notes.');
   if (r.to === 'new') out.push(s.overlap === 'allow' ? 'Starts another while the last run still works.' : 'Skips a run while the last one still works or waits on you.');
-  out.push(s.catchUp === 'once' ? 'A time missed while the Mac slept or Codealong was closed runs once when it’s back.' : 'A time missed while the Mac slept or Codealong was closed is skipped.');
+  out.push(s.catchUp === 'once' ? 'A time missed while the machine slept or Codealong was closed runs once when it’s back.' : 'A time missed while the machine slept or Codealong was closed is skipped.');
   if (s.perDay) out.push(`At most ${s.perDay} run${s.perDay === 1 ? '' : 's'} a day.`);
   return out;
 }

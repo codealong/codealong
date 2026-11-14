@@ -155,7 +155,7 @@ impl Own for Message {
             if d.from_agent() {
                 bail!("{title} skips permission prompts and your session doesn't, so Claude Code would hold your message for its user to allow, and the Claude app can't show that; nothing was sent.");
             }
-            bail!("{title} skips permission prompts, so Claude Code would hold a message from here for you to allow, and the Claude app can't show that. Send it from Codealong on the Mac it runs on, or in the Claude app.");
+            bail!("{title} skips permission prompts, so Claude Code would hold a message from here for you to allow, and the Claude app can't show that. Send it from Codealong on the machine it runs on, or in the Claude app.");
         }
         let text = attachments::expand(d.text, Style::Path);
         peer_send(&self.socket, &self.session_id, &text, claim, d.agent)?;

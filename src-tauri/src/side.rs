@@ -858,7 +858,7 @@ fn pr_rules(pr: &PrItem, folder: Option<&Path>, holds: bool, reads: &Path) -> St
     let here = match folder {
         Some(_) if holds => "The folder you're in has its branch checked out, so the code here is the PR's.".to_string(),
         Some(_) => format!("The folder you're in is a checkout of {} without its branch: the code here is what the PR changes, and its changes are only in the diff.", pr.repo_slug),
-        None => format!("There's no checkout of {} on this Mac, so the diff is all of its code you have.", pr.repo_slug),
+        None => format!("There's no checkout of {} on this machine, so the diff is all of its code you have.", pr.repo_slug),
     };
     format!("{what} {read} {here} Read files and run commands that only look, to answer well. Don't change files, git state or anything else, don't push, and don't comment on GitHub: if you're asked to change something, say what you'd change instead. Don't start subagents. Answer briefly, and say where in the code (path and line) when it helps.")
 }
@@ -1714,7 +1714,7 @@ mod tests {
         assert!(rules.contains("/support/pr-reading/o+r+7/pr.md") && rules.contains("/support/pr-reading/o+r+7/pr.diff"));
         assert!(rules.contains("has its branch checked out") && rules.contains("don't comment on GitHub"));
         assert!(pr_rules(&pr, Some(Path::new("/main")), false, reads).contains("a checkout of o/r without its branch"));
-        assert!(pr_rules(&pr, None, false, reads).contains("no checkout of o/r on this Mac"));
+        assert!(pr_rules(&pr, None, false, reads).contains("no checkout of o/r on this machine"));
         assert_eq!(reading_dir(&pr).file_name().unwrap(), "o+r+7");
     }
 

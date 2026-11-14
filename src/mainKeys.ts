@@ -260,7 +260,7 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
     const at = terminalAt;
     const act = at?.session ? actionsRef.current.session(at.lane, at.session, 'session').terminal : at ? actionsRef.current.lane(at.lane).terminal : undefined;
     if (act) act.run();
-    else say(at ? `${at.lane.callsign} is on another device: a terminal opens only on this Mac.` : 'Nothing selected has a folder to open a terminal in.');
+    else say(at ? `${at.lane.callsign} is on another device: a terminal opens only on this machine.` : 'Nothing selected has a folder to open a terminal in.');
     return;
   }
   // ⌃- goes back to the session you were looking at before and ⌃⇧- forward again, from any

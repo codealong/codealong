@@ -240,7 +240,7 @@ pub fn open(place: Place, yours: &str, ask: &Ask) -> Result<()> {
     let Place { worktree, head } = place;
     match ask.how.as_str() {
         "file" => {
-            let worktree = worktree.ok_or_else(|| anyhow!("No worktree on this Mac holds #{number}, so there's no file of it to open."))?;
+            let worktree = worktree.ok_or_else(|| anyhow!("No worktree on this machine holds #{number}, so there's no file of it to open."))?;
             let file = in_worktree(&worktree, &relative(&ask.path)?).ok_or_else(|| anyhow!("{} isn't in {} now.", ask.path, worktree.display()))?;
             editors::open_at(yours, &file, ask.line)
         }

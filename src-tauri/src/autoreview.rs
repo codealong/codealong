@@ -2651,7 +2651,7 @@ fn new_start(board: &Board, cfg: &Config, pr: &PrItem, head: &str, since: Option
     let other_harness = if pr.mine { reviews.own.other_harness } else { reviews.other_harness };
     let avoid = seat.avoid.or_else(|| other_harness.then(|| pr_harness(&board.lanes, pr)).flatten());
     let (account, model, effort, place) = reviewer_place(cfg, board, seat, avoid)?;
-    let (lane, holds) = crate::side::pr_lane(board, pr).ok_or_else(|| format!("there's no checkout of {} on this Mac", pr.repo_slug))?;
+    let (lane, holds) = crate::side::pr_lane(board, pr).ok_or_else(|| format!("there's no checkout of {} on this machine", pr.repo_slug))?;
     let prompt = first_prompt(pr, head, since, holds, login, &goes(&reviews, &board.lanes, pr), &instructions_for(&reviews, pr), files);
     Ok(StartSpec { lane_id: lane.id.clone(), account, place, prompt, model, effort, worktree: false, todos: Vec::new(), from: None, helper: false, report: false })
 }

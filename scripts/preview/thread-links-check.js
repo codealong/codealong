@@ -41,7 +41,7 @@
     // A sent file in a scratch folder that's been cleared since.
     if (cmd === 'open_file' && /gone/.test((args || {}).path)) {
       window.__calls.push([cmd, args, options]);
-      return Promise.reject('before.png isn’t on this Mac any more.');
+      return Promise.reject('before.png isn’t on this machine any more.');
     }
     var p = real(cmd, args, options);
     if (cmd !== 'get_board') return p;
@@ -108,7 +108,7 @@
         files[1].click();
         return until(function () { return sent[0].querySelector('.ca-md-file-why'); }, 3000);
       }).then(function () {
-        check('one that’s gone says so in place', sent[0].querySelector('.ca-md-file-why').textContent === 'before.png isn’t on this Mac any more.', sent[0].querySelector('.ca-md-file-why').textContent);
+        check('one that’s gone says so in place', sent[0].querySelector('.ca-md-file-why').textContent === 'before.png isn’t on this machine any more.', sent[0].querySelector('.ca-md-file-why').textContent);
       });
     })
     .then(function () {

@@ -1118,7 +1118,7 @@ pub(crate) fn agent_routes(session: &Session, routes: Vec<Route>) -> Result<Vec<
         let title = quoted(&session.title);
         let word = adapter.harness().word();
         bail!(if left_to_send {
-            format!("{word} takes no prompts from outside; Codealong can only put one on the clipboard for someone at this Mac, so nothing was sent.")
+            format!("{word} takes no prompts from outside; Codealong can only put one on the clipboard for someone at this machine, so nothing was sent.")
         } else if !session.live {
             format!("{title} {NOT_STARTED_AGAIN}")
         } else if adapter.takes_messages() {

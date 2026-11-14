@@ -392,7 +392,7 @@ describe('what the quick panel says of a start', () => {
     expect(startHappens(plan({ lane: null }))).toBe('No worktrees in this project yet.');
     expect(startHappens(plan({ lane: null, reading: true }))).toBe('Reading worktrees…');
     expect(startHappens(plan({ lane: null, mac: { name: 'Studio', error: null } }))).toBe('No worktrees in this project on Studio.');
-    expect(startHappens(plan({ lane: null, mac: { name: null, error: null } }))).toBe('No worktrees in this project on That Mac.');
+    expect(startHappens(plan({ lane: null, mac: { name: null, error: null } }))).toBe('No worktrees in this project on That machine.');
     expect(startHappens(plan({ account: null }))).toBe('');
     expect(startHappens(plan({ place: null, mac: { name: 'Studio', error: null } }))).toBe('');
     expect(startHappens(plan({ place: null, mac: { name: 'Studio', error: 'it timed out' } }))).toBe('Studio didn’t say where its accounts can start: it timed out');
@@ -400,7 +400,7 @@ describe('what the quick panel says of a start', () => {
 
   it('puts another Mac’s name first', () => {
     expect(startHappens(plan({ mac: { name: 'Studio', error: null } }))).toBe('On Studio: Starts work in feature in Ghostty.');
-    expect(startHappens(plan({ mac: { name: null, error: null } }))).toBe('On That Mac: Starts work in feature in Ghostty.');
+    expect(startHappens(plan({ mac: { name: null, error: null } }))).toBe('On That machine: Starts work in feature in Ghostty.');
   });
 
   it('titles a start by where it starts, as Jev’s suggestions do', () => {

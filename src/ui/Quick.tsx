@@ -587,7 +587,7 @@ export function Quick() {
             if (d) setDevices(d);
             clearNotice('quick-devices');
           })
-          .catch((e: unknown) => reportNotice(failedNotice('quick-devices', 'Can’t read your other devices', 'The quick panel couldn’t read your other Macs, so it can’t start sessions there', e)));
+          .catch((e: unknown) => reportNotice(failedNotice('quick-devices', 'Can’t read your other devices', 'The quick panel couldn’t read your other machines, so it can’t start sessions there', e)));
     };
     const openNow = (by: 'script' | 'page', ctx: QuickOpen, b: Board | null) => {
       opening.current = by;
@@ -2991,12 +2991,12 @@ export function Quick() {
           <div className="ca-quick-bar">
             {macs.length > 0 && !listen && (
               <div className="ca-quick-pick">
-                <button type="button" data-picker-trigger className="ca-quick-chip" title={keysIn(deviceInfo ? `On ${deviceInfo.name}\nMac (⌘D)` : 'Mac (⌘D)')} aria-haspopup="dialog" aria-expanded={picker === 'device'} onClick={() => togglePicker('device')}>
+                <button type="button" data-picker-trigger className="ca-quick-chip" title={keysIn(deviceInfo ? `On ${deviceInfo.name}\nMachine (⌘D)` : 'Machine (⌘D)')} aria-haspopup="dialog" aria-expanded={picker === 'device'} onClick={() => togglePicker('device')}>
                   {deviceInfo ? <i className={`ca-labeldot is-${deviceInfo.color}`} aria-hidden="true" /> : <Icon name="device-desktop" size={14} />}
                   <span>{deviceInfo ? deviceLabel(deviceInfo.name) : 'This machine'}</span>
                   <Icon name="chevron-down" size={12} />
                 </button>
-                {picker === 'device' && <Picker sections={deviceSections} value={deviceNow ?? HERE} placeholder="Mac" onPick={pickDevice} onClose={() => { setPicker(null); refocus(); }} />}
+                {picker === 'device' && <Picker sections={deviceSections} value={deviceNow ?? HERE} placeholder="Machine" onPick={pickDevice} onClose={() => { setPicker(null); refocus(); }} />}
               </div>
             )}
             <div className="ca-quick-pick">

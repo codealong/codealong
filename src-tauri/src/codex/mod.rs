@@ -1240,7 +1240,7 @@ fn already_archived(codex_home: &Path, id: &str) -> bool {
 
 fn record(a: &Codex, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> anyhow::Result<PathBuf> {
     use crate::harness::Adapter;
-    a.records(ctx.account, s).into_iter().next().ok_or_else(|| anyhow::anyhow!("Its rollout isn't on this Mac any more."))
+    a.records(ctx.account, s).into_iter().next().ok_or_else(|| anyhow::anyhow!("Its rollout isn't on this machine any more."))
 }
 
 impl Codex {

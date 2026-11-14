@@ -387,8 +387,8 @@ describe('sessionFlag', () => {
     const lost = s({ status: 'unread', excerpt: "API Error: Can't reach the API server — check your internet or DNS (ENOTFOUND)", connectionLost: { at: NOW - 60_000, continues: true } });
     expect(sessionFlag(lost)).toMatchObject({ label: 'Network error', tone: 'warn' });
     // A Mac from before API errors says only that the connection was lost.
-    expect(apiErrorWords({ connectionLost: { at: NOW, continues: true } })).toBe('Its last turn ended because it couldn’t reach its API: the Mac slept, or the network dropped. Codealong tells it to carry on once the API can be reached again.');
-    expect(apiErrorWords({ connectionLost: { at: NOW } })).toBe('Its last turn ended because it couldn’t reach its API: the Mac slept, or the network dropped. Send it something to try again.');
+    expect(apiErrorWords({ connectionLost: { at: NOW, continues: true } })).toBe('Its last turn ended because it couldn’t reach its API: the machine slept, or the network dropped. Codealong tells it to carry on once the API can be reached again.');
+    expect(apiErrorWords({ connectionLost: { at: NOW } })).toBe('Its last turn ended because it couldn’t reach its API: the machine slept, or the network dropped. Send it something to try again.');
     // Its harness's words where it said them.
     const refused = { connectionLost: { at: NOW, continues: true }, apiError: { at: NOW, said: 'Connection refused — a firewall or proxy may be blocking it (ECONNREFUSED)' } };
     expect(apiErrorWords(refused, true)).toBe('Its last turn ended on an API error: Connection refused — a firewall or proxy may be blocking it (ECONNREFUSED). Codealong tells it to carry on once the API can be reached again.');
@@ -414,8 +414,8 @@ describe('sessionFlag', () => {
     expect(sessionFlag(cut)).toMatchObject({ label: 'Cut off', tone: 'bad' });
     expect(sessionHeadline(cut)).toEqual(['`claude2` was cut off · Fix the test', 'running `yarn test`']);
     expect(sessionFlag({ ...cut, status: 'stopped' })).toMatchObject({ label: 'Cut off' });
-    expect(cutOffWords()).toBe('Its last turn was cut off partway: what ran it ended (its terminal closed, Codealong or the Mac restarted, or it was killed). Resume it, or send it something, to carry on.');
-    expect(cutOffWords(true)).toBe('Its last turn was cut off partway: what ran it ended (its terminal closed, Codealong or the Mac restarted, or it was killed).');
+    expect(cutOffWords()).toBe('Its last turn was cut off partway: what ran it ended (its terminal closed, Codealong or the machine restarted, or it was killed). Resume it, or send it something, to carry on.');
+    expect(cutOffWords(true)).toBe('Its last turn was cut off partway: what ran it ended (its terminal closed, Codealong or the machine restarted, or it was killed).');
     // Resumed, it's working: nothing to flag.
     expect(sessionFlag({ ...cut, status: 'working' })).toBeNull();
     // Read and left as it is, it's marked seen as a finished turn is; another error isn't.

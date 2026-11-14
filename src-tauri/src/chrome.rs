@@ -96,7 +96,7 @@ pub fn resolve(wanted: &str) -> Result<Profile> {
 
 fn resolve_in(all: &[Profile], wanted: &str) -> Result<Profile> {
     if all.is_empty() {
-        bail!("Chrome lists no profiles on this Mac, so nothing can open in “{}”.", wanted.trim());
+        bail!("Chrome lists no profiles on this machine, so nothing can open in “{}”.", wanted.trim());
     }
     find(all, wanted).cloned().ok_or_else(|| {
         let names: Vec<&str> = all.iter().map(|p| p.id.as_str()).collect();

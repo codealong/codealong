@@ -1177,7 +1177,7 @@ fn tuning<'a>(adapter: &dyn Adapter, place: Place, resuming: bool, model: Option
 /// its user rejected ("The user doesn't want to proceed with this tool use", then "[Request
 /// interrupted by user for tool use]", seen in a session Codealong ran, cut off by a relaunch on
 /// 2026-10-15), which the agent, and whoever reads the transcript, takes for a no.
-pub const CARRY_ON: &str = "Your last turn was cut off partway: what was running you ended (its terminal closed, Codealong or the Mac restarted, or it was killed). If the call you were making then says your user rejected it or interrupted you, that was the cut, not them. Check what your last step did, since a command it ran may have been stopped, then carry on where you left off.";
+pub const CARRY_ON: &str = "Your last turn was cut off partway: what was running you ended (its terminal closed, Codealong or the machine restarted, or it was killed). If the call you were making then says your user rejected it or interrupted you, that was the cut, not them. Check what your last step did, since a command it ran may have been stopped, then carry on where you left off.";
 
 /// How a session that wasn't running went on: the key it goes on under (a copy's, where its
 /// harness copied it; none where the harness hasn't said yet), and what to say of it, as a send
@@ -1529,7 +1529,7 @@ pub fn move_to_folder(board: &Board, cfg: &Config, key: &str, lane_id: &str) -> 
     }
     let to = board.lanes.iter().find(|l| l.id == lane_id).ok_or_else(|| anyhow!("That worktree just changed. Try again."))?;
     if to.device.is_some() {
-        bail!("{} is on another device, and a session moves only between folders on its own Mac.", to.callsign);
+        bail!("{} is on another device, and a session moves only between folders on its own machine.", to.callsign);
     }
     let home_lane = board.lanes.iter().find(|l| l.sessions.iter().any(|x| x.key == key && x.visitor.is_none()));
     if home_lane.is_some_and(|l| l.id == to.id) {

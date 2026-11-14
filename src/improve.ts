@@ -71,8 +71,8 @@ export function improveWords(improve: Improve | undefined, loading: boolean, rem
   if (loading || improve?.project) return null;
   if (improve?.source) return { text: `Codealong’s source is in ${improve.source.root}, in none of your projects. A project for it puts its worktrees on the board, where this session starts.`, add: true };
   if (remote) {
-    const mac = remote.device?.name ?? 'another Mac';
-    return { text: `Codealong’s source is on ${mac}, not on this Mac, so the session starts there and the pictures go with it. To start here, clone github.com/codealong/codealong into a folder Codealong searches (Settings › General lists them).`, add: false };
+    const mac = remote.device?.name ?? 'another machine';
+    return { text: `Codealong’s source is on ${mac}, not on this machine, so the session starts there and the pictures go with it. To start here, clone github.com/codealong/codealong into a folder Codealong searches (Settings › General lists them).`, add: false };
   }
   return { text: 'Codealong’s source isn’t in a folder Codealong searches. Clone github.com/codealong/codealong into one (Settings › General lists them), and a session can improve it from here.', add: false };
 }

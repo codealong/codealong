@@ -83,7 +83,7 @@ fn log_path() -> PathBuf {
 /// Who asked, as the log and the note say it: `board` names the session that ran the command.
 pub fn who(board: &Board, from: &From) -> String {
     match from {
-        From::Here => "a window on this Mac".into(),
+        From::Here => "a window on this machine".into(),
         From::Phone => "your phone".into(),
         From::Device => "another device".into(),
         From::Command(Some(key)) => match board.session(key) {
@@ -243,7 +243,7 @@ mod tests {
 
     const KEY: &str = "claude:claude:atlas";
 
-    const WINDOW: &str = "a window on this Mac";
+    const WINDOW: &str = "a window on this machine";
 
     fn asked(what: Stop, key: &'static str, who: &'static str, at: i64) -> Asked<'static> {
         Asked { what, key, title: "Northwind sync", who, at }
@@ -259,8 +259,8 @@ mod tests {
     fn a_stop_reads_back_from_its_two_lines_with_tabs_and_breaks_flattened() {
         let a = Asked { title: "Fix\tthe\nparser", ..asked(Stop::Stop, KEY, WINDOW, 1_000) };
         let (first, second) = (asked_line("2026-10-26 17:30:44.120", &a), went_line("2026-10-26 17:30:44.620", &a, 1_500, None));
-        assert_eq!(first, "2026-10-26 17:30:44.120\tstop\tFix the parser\ta window on this Mac\tasked\tclaude:claude:atlas\t1000\n");
-        assert_eq!(second, "2026-10-26 17:30:44.620\tstop\tFix the parser\ta window on this Mac\tdone\tclaude:claude:atlas\t1000\t1500\n");
+        assert_eq!(first, "2026-10-26 17:30:44.120\tstop\tFix the parser\ta window on this machine\tasked\tclaude:claude:atlas\t1000\n");
+        assert_eq!(second, "2026-10-26 17:30:44.620\tstop\tFix the parser\ta window on this machine\tdone\tclaude:claude:atlas\t1000\t1500\n");
         let back = Logged { what: Stop::Stop, who: WINDOW.into(), key: KEY.into(), at: 1_000, done: Some(1_500) };
         assert_eq!(logged(&(first.clone() + &second)), [back]);
         // Under way, it's there as asked.
@@ -296,13 +296,13 @@ mod tests {
 
     #[test]
     fn a_stop_note_says_who_stopped_it_when_codealong_did() {
-        assert_eq!(said(&went(Stop::Stop, KEY, WINDOW, 100_000), &[101_000]), ["Stopped from Codealong (a window on this Mac)"]);
+        assert_eq!(said(&went(Stop::Stop, KEY, WINDOW, 100_000), &[101_000]), ["Stopped from Codealong (a window on this machine)"]);
         // A mark a moment before the log's clock was read is still its.
-        assert_eq!(said(&went(Stop::Stop, KEY, WINDOW, 100_000), &[99_000]), ["Stopped from Codealong (a window on this Mac)"]);
+        assert_eq!(said(&went(Stop::Stop, KEY, WINDOW, 100_000), &[99_000]), ["Stopped from Codealong (a window on this machine)"]);
         let moved = went(Stop::Move, KEY, "“Kestrel lead”, with the codealong command", 100_000);
         assert_eq!(said(&moved, &[100_200]), ["Stopped from Codealong to move it (“Kestrel lead”, with the codealong command)"]);
         // Read while it's still under way, before it says how it went.
-        assert_eq!(said(&asked_line("t", &asked(Stop::Stop, KEY, WINDOW, 100_000)), &[100_300]), ["Stopped from Codealong (a window on this Mac)"]);
+        assert_eq!(said(&asked_line("t", &asked(Stop::Stop, KEY, WINDOW, 100_000)), &[100_300]), ["Stopped from Codealong (a window on this machine)"]);
     }
 
     #[test]
@@ -323,13 +323,13 @@ mod tests {
     fn each_stop_makes_one_note() {
         // Two stops close together: each note is the stop asked before it.
         let log = went(Stop::Stop, KEY, WINDOW, 100_000) + &went(Stop::Deny, KEY, "your phone", 103_000);
-        assert_eq!(said(&log, &[101_000, 104_000]), ["Stopped from Codealong (a window on this Mac)", "Denied from Codealong (your phone)"]);
+        assert_eq!(said(&log, &[101_000, 104_000]), ["Stopped from Codealong (a window on this machine)", "Denied from Codealong (your phone)"]);
         // Asked in that order, logged as they ended: the later ended first.
         let (first, second) = (asked(Stop::Stop, KEY, WINDOW, 100_000), asked(Stop::Deny, KEY, "your phone", 103_000));
         let log = [asked_line("t", &first), asked_line("t", &second), went_line("t", &second, 103_200, None), went_line("t", &first, 104_000, None)].concat();
-        assert_eq!(said(&log, &[101_000, 104_000]), ["Stopped from Codealong (a window on this Mac)", "Denied from Codealong (your phone)"]);
+        assert_eq!(said(&log, &[101_000, 104_000]), ["Stopped from Codealong (a window on this machine)", "Denied from Codealong (your phone)"]);
         // A stop in its terminal soon after one from here isn't taken for it too.
-        assert_eq!(said(&went(Stop::Stop, KEY, WINDOW, 100_000), &[100_300, 106_000]), ["Stopped from Codealong (a window on this Mac)", STOPPED]);
+        assert_eq!(said(&went(Stop::Stop, KEY, WINDOW, 100_000), &[100_300, 106_000]), ["Stopped from Codealong (a window on this machine)", STOPPED]);
     }
 
     #[test]
@@ -337,9 +337,9 @@ mod tests {
         // The note read first, then a page of what came after it with another, then the first again.
         let log = went(Stop::Stop, KEY, WINDOW, 100_000);
         let mut claims = Claims::new();
-        assert_eq!(said_with(&log, &[(100_300, 10)], &mut claims), ["Stopped from Codealong (a window on this Mac)"]);
+        assert_eq!(said_with(&log, &[(100_300, 10)], &mut claims), ["Stopped from Codealong (a window on this machine)"]);
         assert_eq!(said_with(&log, &[(106_000, 20)], &mut claims), [STOPPED]);
-        assert_eq!(said_with(&log, &[(100_300, 10), (106_000, 20)], &mut claims), ["Stopped from Codealong (a window on this Mac)", STOPPED]);
+        assert_eq!(said_with(&log, &[(100_300, 10), (106_000, 20)], &mut claims), ["Stopped from Codealong (a window on this machine)", STOPPED]);
     }
 
     #[test]
@@ -348,7 +348,7 @@ mod tests {
         let board = Board { lanes: vec![crate::fixtures::lane("/r", vec![s])], ..Board::default() };
         assert_eq!(who(&board, &From::Command(Some("claude:claude:boss".into()))), "“Kestrel lead”, with the codealong command");
         assert_eq!(who(&board, &From::Command(Some("claude:claude:gone".into()))), "claude:claude:gone, with the codealong command");
-        assert_eq!(who(&board, &From::Here), "a window on this Mac");
+        assert_eq!(who(&board, &From::Here), "a window on this machine");
         assert_eq!(who(&board, &From::Phone), "your phone");
     }
 }

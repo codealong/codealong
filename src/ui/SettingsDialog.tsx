@@ -729,7 +729,7 @@ function SoundsPane({ cfg, names, disabled, onSave, onError }: PaneProps & { nam
             />
             <output className="ca-settings-volume-at">{volume}%</output>
           </div>
-          <small>Of the Mac’s own volume.</small>
+          <small>Of this machine’s own volume.</small>
         </label>
         <p className="ca-settings-lede">
           To stay out of the way, nothing sounds for what already waits when Codealong opens, nor for a session that comes back to you within 15 seconds of going back to work (you just sent it something or answered it, so you’re likely watching), nor for a snoozed
@@ -782,7 +782,7 @@ function LimitsField({ cfg, disabled, onSave }: PaneProps) {
       <label className="ca-field ca-settings-check">
         <CheckBox checked={continues} onChange={(on) => saveSessions({ continue_after_network_error: on })} />
         <span>Carry on after a network error</span>
-        <small>When a session’s turn ends because it couldn’t reach its API, as happens when the Mac sleeps with the lid closed or the network drops, Codealong tells it to carry on once the API can be reached again. Claude Code sessions, and Antigravity’s in its command line, for now.</small>
+        <small>When a session’s turn ends because it couldn’t reach its API, as happens when the machine sleeps with the lid closed or the network drops, Codealong tells it to carry on once the API can be reached again. Claude Code sessions, and Antigravity’s in its command line, for now.</small>
       </label>
       <label className="ca-field ca-settings-check">
         <CheckBox checked={restarts} onChange={(on) => saveSessions({ continue_after_restart: on })} />

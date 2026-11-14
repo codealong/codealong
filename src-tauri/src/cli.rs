@@ -35,8 +35,8 @@ use crate::todos::{self, Label, Todo, TodoOp, TodoPatch, TodoReview, TodoStatus,
 use crate::usage;
 use crate::util::{self, base36, expand, now_ms, one_line, tilde, truncate};
 
-const ABOUT: &str = "Codealong from the command line: the todo list, every agent session on this Mac, the worktrees they run in, and the accounts they run on.";
-const LONG_ABOUT: &str = "Codealong from the command line: the todo list, every agent session on this Mac, the worktrees they run in, and the accounts they run on.
+const ABOUT: &str = "Codealong from the command line: the todo list, every agent session on this machine, the worktrees they run in, and the accounts they run on.";
+const LONG_ABOUT: &str = "Codealong from the command line: the todo list, every agent session on this machine, the worktrees they run in, and the accounts they run on.
 
 Answers come from Codealong's server, which runs the engine whether or not the app is open, and todo changes go through it. A command starts the server when it isn't running (`codealong server`). Where it can't be started (an agent's sandbox may not let a command start it), the files are read directly and sessions show without git status or PRs.
 
@@ -5992,7 +5992,7 @@ fn session_named_anywhere(board: &Board, elsewhere: &[Lane], k: &str) -> Result<
     match there.len() {
         0 => Err(no_session(board, k)),
         1 => Ok(there[0].key.clone()),
-        n => bail!("{n} sessions on your other Macs start with {k}; give more of the id."),
+        n => bail!("{n} sessions on your other machines start with {k}; give more of the id."),
     }
 }
 
@@ -7353,7 +7353,7 @@ fn changes(c: &mut Client, a: &ChangesArgs, json: bool) -> Result<()> {
                 (Some(look), at)
             }
             None => {
-                notes.push(format!("No look is kept for cursor {cursor} (each is kept a week, on the Mac that took it), so this goes by times since then."));
+                notes.push(format!("No look is kept for cursor {cursor} (each is kept a week, on the machine that took it), so this goes by times since then."));
                 (None, cursor.parse().unwrap_or(now - util::DAY_MS))
             }
         },
@@ -9233,7 +9233,7 @@ mod tests {
         assert_eq!(resolve_any_session(&mut c, "fff1").unwrap(), "@a1b2c3d4e5:codex:codex:fff111");
         // One here goes first: a start that names this Mac's never names another's instead.
         assert_eq!(resolve_any_session(&mut c, "ab").unwrap(), "claude:claude:abc123");
-        assert_eq!(resolve_any_session(&mut c, "@a1b2c3d4e5:").unwrap_err().to_string(), "3 sessions on your other Macs start with @a1b2c3d4e5:; give more of the id.");
+        assert_eq!(resolve_any_session(&mut c, "@a1b2c3d4e5:").unwrap_err().to_string(), "3 sessions on your other machines start with @a1b2c3d4e5:; give more of the id.");
         // One listed there only under a worktree it visited is named all the same.
         assert_eq!(resolve_any_session(&mut c, "vvv2").unwrap(), "@a1b2c3d4e5:claude:claude:vvv222");
         assert_eq!(resolve_any_session(&mut c, "nope").unwrap_err().to_string(), "There's no session nope. `codealong sessions` lists them.");

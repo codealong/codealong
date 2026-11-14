@@ -110,7 +110,7 @@ impl ClaudeCode {
     fn newest_record(&self, ctx: &crate::harness::Ctx, s: &Session) -> anyhow::Result<PathBuf> {
         use crate::harness::Adapter;
         let newest = self.records(ctx.account, s).into_iter().max_by_key(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok());
-        newest.ok_or_else(|| anyhow::anyhow!(if s.live { "Nothing's been said in it yet, so there's nothing to move." } else { "Its transcript isn't on this Mac any more." }))
+        newest.ok_or_else(|| anyhow::anyhow!(if s.live { "Nothing's been said in it yet, so there's nothing to move." } else { "Its transcript isn't on this machine any more." }))
     }
 }
 
@@ -1744,7 +1744,7 @@ fn shell_word(from: &str) -> String {
 
 fn record(a: &ClaudeCode, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> anyhow::Result<PathBuf> {
     use crate::harness::Adapter;
-    a.records(ctx.account, s).into_iter().next().ok_or_else(|| anyhow::anyhow!("Its transcript isn't on this Mac any more."))
+    a.records(ctx.account, s).into_iter().next().ok_or_else(|| anyhow::anyhow!("Its transcript isn't on this machine any more."))
 }
 
 /// Presses `keys` in a background job's terminal, by its registry entry, through its account's

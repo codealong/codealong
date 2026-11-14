@@ -981,7 +981,7 @@ export function attachmentsNote(count: number): string {
 /** What the start row adds when a session for todos starts on another Mac: the todos are this
  *  Mac's, so the session isn't linked to them. */
 export function todosStayNote(count: number): string {
-  return ` Todos are this Mac’s, so ${count > 1 ? 'they aren’t' : 'it isn’t'} linked to the session.`;
+  return ` Todos are this machine’s, so ${count > 1 ? 'they aren’t' : 'it isn’t'} linked to the session.`;
 }
 
 /** A Mac's worktrees in the project, for its line in the Mac menu. */

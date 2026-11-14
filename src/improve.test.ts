@@ -72,7 +72,7 @@ describe('improveWords', () => {
     const remote = { id: '@abc:/m/codealong', codealong: true, device: { name: 'Mini', short: 'abc', color: 'blue', online: true, lastSeen: null } } as unknown as Lane;
     const words = improveWords({}, false, remote);
     expect(words?.add).toBe(false);
-    expect(words?.text).toMatch(/^Codealong’s source is on Mini, not on this Mac, so the session starts there and the pictures go with it/);
+    expect(words?.text).toMatch(/^Codealong’s source is on Mini, not on this machine, so the session starts there and the pictures go with it/);
   });
 
   it('offers a project for a source in none, and says where to clone one otherwise', () => {

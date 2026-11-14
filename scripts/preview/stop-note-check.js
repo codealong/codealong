@@ -21,7 +21,7 @@
           item('you', 'Ship it once the checks pass.', 0),
           item('tool', 'Bash · `npm run release`', 1, { id: 'cut', input: 'npm run release' }),
           item('result', '', 2, { id: 'cut', failed: true, output: 'The user doesn’t want to proceed with this tool use.' }),
-          item('note', 'Stopped from Codealong (a window on this Mac)', 3, { stop: true }),
+          item('note', 'Stopped from Codealong (a window on this machine)', 3, { stop: true }),
           item('you', 'Ok, go on.', 4),
           item('note', 'The turn was stopped', 5, { stop: true }),
           item('note', 'The conversation was compacted here', 6),
@@ -56,7 +56,7 @@
       var ours = stops()[0];
       var theirs = stops()[1];
       var plain = notes().filter(function (n) { return !n.classList.contains('is-stop'); }).pop();
-      check('says Codealong stopped it, and who asked', ours.textContent === 'Stopped from Codealong (a window on this Mac)', ours.textContent);
+      check('says Codealong stopped it, and who asked', ours.textContent === 'Stopped from Codealong (a window on this machine)', ours.textContent);
       check('one Codealong didn’t make says only that it was stopped', theirs.textContent === 'The turn was stopped', theirs.textContent);
       check('each has a stop sign', !!ours.querySelector('svg') && !!theirs.querySelector('svg'));
       check('the other notes keep their look', !!plain && plain.textContent === 'The conversation was compacted here' && !plain.querySelector('svg'), plain && plain.outerHTML);

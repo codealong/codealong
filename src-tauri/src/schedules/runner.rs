@@ -455,7 +455,7 @@ pub fn plan_in(file: &File, runs: &Runs, board: &Board, busy: &HashSet<String>, 
                     c.hour * 60 + c.minute
                 });
                 let (mut why, mut said) = match late {
-                    true => (format!("{at}, late"), format!("its {at} run, late: the Mac was asleep or Codealong was closed at {at}")),
+                    true => (format!("{at}, late"), format!("its {at} run, late: the machine was asleep or Codealong was closed at {at}")),
                     false => (at.clone(), format!("its {at} run")),
                 };
                 if let Some(other) = instead_of(line.as_ref()) {
@@ -657,7 +657,7 @@ pub fn apply(runs: &mut Runs, note: &Note) {
             // it leaves that one: times only go forward.
             t.last_due = Some(t.last_due.map_or(*due, |d| d.max(*due)));
             if *missed {
-                note_run(t, RunRecord { at: now_ms(), due: Some(*due), why: "Missed".into(), outcome: Outcome::Missed, said: "The Mac was asleep or Codealong was closed when it came.".into(), ..RunRecord::default() });
+                note_run(t, RunRecord { at: now_ms(), due: Some(*due), why: "Missed".into(), outcome: Outcome::Missed, said: "The machine was asleep or Codealong was closed when it came.".into(), ..RunRecord::default() });
             }
         }
         Note::Shown { id, run_at, key, thread } => {
@@ -1430,7 +1430,7 @@ mod tests {
         // Asleep from Sunday noon to Tuesday 9:30: one run, for 8:00, late.
         let back = ms(&z, 2026, 10, 20, 9, 30);
         let (jobs, _) = plan(&File { schedules: vec![s.clone()], ..File::default() }, &runs, &board(), &HashSet::new(), back, &z);
-        assert_eq!(jobs, vec![Job::Fire { id: "a".into(), cause: Cause { why: "8:00, late".into(), said: "its 8:00 run, late: the Mac was asleep or Codealong was closed at 8:00".into(), due: Some(ms(&z, 2026, 10, 20, 8, 0)), ..Cause::default() } }]);
+        assert_eq!(jobs, vec![Job::Fire { id: "a".into(), cause: Cause { why: "8:00, late".into(), said: "its 8:00 run, late: the machine was asleep or Codealong was closed at 8:00".into(), due: Some(ms(&z, 2026, 10, 20, 8, 0)), ..Cause::default() } }]);
         s.catch_up = CatchUp::Skip;
         let (jobs, notes) = plan(&File { schedules: vec![s], ..File::default() }, &runs, &board(), &HashSet::new(), back, &z);
         assert!(jobs.is_empty());
@@ -1921,7 +1921,7 @@ mod tests {
             assert_eq!(plan_at(&s, &runs, &ran, &none, back, back + 2000).1, vec![Note::Passed { id: "a".into(), due: at, missed: false }]);
             // Nothing heard by the time it's waited: it runs it, late.
             let (jobs, _, _) = plan_at(&s, &runs, &unheard, &none, back, back + machines::SETTLE_MS);
-            assert_eq!(jobs, fire("9:00, late", "its 9:00 run, late: the Mac was asleep or Codealong was closed at 9:00", at));
+            assert_eq!(jobs, fire("9:00, late", "its 9:00 run, late: the machine was asleep or Codealong was closed at 9:00", at));
         }
 
         #[test]

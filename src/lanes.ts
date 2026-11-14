@@ -570,7 +570,7 @@ export function endedOnApiError(s: Pick<Session, 'apiError' | 'connectionLost' |
  *  else you (left out where a button beside it offers to try again). */
 export function apiErrorWords(s: Pick<Session, 'apiError' | 'connectionLost'>, offered = false): string {
   const said = s.apiError?.said.trim().replace(/[\s.]+$/, '');
-  const what = said ? `Its last turn ended on an API error: ${said}.` : 'Its last turn ended because it couldn’t reach its API: the Mac slept, or the network dropped.';
+  const what = said ? `Its last turn ended on an API error: ${said}.` : 'Its last turn ended because it couldn’t reach its API: the machine slept, or the network dropped.';
   const then = s.connectionLost?.continues ? ' Codealong tells it to carry on once the API can be reached again.' : offered ? '' : ' Send it something to try again.';
   return `${what}${then}`;
 }
@@ -579,7 +579,7 @@ export function apiErrorWords(s: Pick<Session, 'apiError' | 'connectionLost'>, o
  *  beside it offers that). */
 export function cutOffWords(offered = false): string {
   const then = offered ? '' : ' Resume it, or send it something, to carry on.';
-  return `Its last turn was cut off partway: what ran it ended (its terminal closed, Codealong or the Mac restarted, or it was killed).${then}`;
+  return `Its last turn was cut off partway: what ran it ended (its terminal closed, Codealong or the machine restarted, or it was killed).${then}`;
 }
 
 /**

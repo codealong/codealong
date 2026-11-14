@@ -805,8 +805,8 @@ describe('what the start row and the Mac menu say', () => {
   it('adds what goes with the prompt, and what isn’t linked on another Mac', () => {
     expect(attachmentsNote(1)).toBe(' The attachment goes as a file path the agent opens.');
     expect(attachmentsNote(2)).toBe(' Attachments go as file paths the agent opens.');
-    expect(todosStayNote(1)).toBe(' Todos are this Mac’s, so it isn’t linked to the session.');
-    expect(todosStayNote(2)).toBe(' Todos are this Mac’s, so they aren’t linked to the session.');
+    expect(todosStayNote(1)).toBe(' Todos are this machine’s, so it isn’t linked to the session.');
+    expect(todosStayNote(2)).toBe(' Todos are this machine’s, so they aren’t linked to the session.');
   });
 
   it('says first that a todo’s primary session is running, so a new one works alongside it', () => {

@@ -252,9 +252,27 @@ picks one). Keys are Linux's: ⌘ is Ctrl, and ⌥ and ⌃ are Alt. A few things
 the notch, the Claude and Codex apps, and Antigravity's and Cursor's usage among them;
 [the development notes](docs/development.md#linux) say what else differs.
 
+#### On Windows
+
+An early build, from source only: it builds, its tests pass and it runs on Windows 11 on Arm, but
+it hasn't had much use there. With Visual Studio's C++ build tools (and their clang, on Arm),
+Rust, Node, [Git for Windows](https://gitforwindows.org) and [Zig](https://ziglang.org) 0.17:
+
+```powershell
+git clone https://github.com/codealong/codealong.git
+cd codealong
+npm install
+npm run tauri build -- --no-bundle   # codealong.exe in ..\codealong-target\release
+```
+
+Sessions open in [Windows Terminal](https://aka.ms/terminal), running their commands in Git Bash,
+as Claude Code does on Windows. Keys are as on Linux. Codealong's own terminals aren't there yet,
+nor typing into a session's terminal, finding its tab or bringing it forward, besides what Linux
+goes without; [the development notes](docs/development.md#windows) say what else differs.
+
 **You'll need:**
 
-- macOS 13 or later, or Linux under X11
+- macOS 13 or later, Linux under X11, or Windows 10 (1803) or later, built from source
 - At least one coding agent: [Claude Code](https://code.claude.com/docs), the
   [Codex](https://openai.com/codex/) CLI or app, [OpenCode](https://opencode.ai),
   [Antigravity](https://antigravity.google) or [Cursor](https://cursor.com)
@@ -607,7 +625,8 @@ one.
 **Systems:** macOS 13 or later, on Apple silicon or Intel. Linux too, under X11, [built from
 source](#on-linux) for now: sessions run in tmux, shown in your terminal emulator, and a few things are
 macOS's alone, the notch and the Claude and Codex apps among them ([what
-differs](docs/development.md#linux)). Windows isn't supported yet.
+differs](docs/development.md#linux)). Windows is an early build, from source too: sessions open in
+Windows Terminal, and Codealong's own terminals aren't there yet ([on Windows](#on-windows)).
 
 Codealong reads what every agent already writes, so it sees all of them. What it can do from
 there depends on what each one lets another program do. **Where it can't act, it opens the

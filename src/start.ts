@@ -734,7 +734,7 @@ export interface StartPlan {
 
 /** The start row's line: what starting does, and where. */
 export function startHappens(p: StartPlan): string {
-  const mac = p.mac?.name ?? 'That Mac';
+  const mac = p.mac?.name ?? 'That machine';
   const there = startHappensThere(p, mac);
   return p.mac && p.lane && p.account && p.place ? `On ${mac}: ${there}` : there;
 }
