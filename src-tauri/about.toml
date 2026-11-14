@@ -19,6 +19,7 @@ accepted = [
     "CDLA-Permissive-2.0",
 ]
 # The Macs a release is built for; what only builds elsewhere (Linux, Windows) isn't in the app.
+# scripts/licenses.sh puts a Linux or Windows installer's own target in their place.
 targets = ["aarch64-apple-darwin", "x86_64-apple-darwin"]
 ignore-build-dependencies = true
 ignore-dev-dependencies = true

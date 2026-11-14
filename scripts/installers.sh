@@ -25,8 +25,8 @@ fail() {
 
 version="$(node -p "require('./src-tauri/tauri.conf.json').version")"
 
-# A path as the OS's own programs take it: on Windows, Git Bash's /tmp/… as C:\…, which Tauri and
-# Node want in a file they're given, where Git Bash doesn't turn it around for them.
+# A path as the OS's own programs take it: on Windows, Git Bash's /tmp/… as C:\…, which Tauri
+# and Node want in a file they're given, where Git Bash doesn't turn it around for them.
 native() {
   if command -v cygpath >/dev/null; then cygpath -w "$1"; else echo "$1"; fi
 }
@@ -52,7 +52,7 @@ build() {
   if command -v cygpath >/dev/null; then bundle="$(cygpath -u "$target")/release/bundle"; fi
   local work
   work="$(mktemp -d)"
-  scripts/licenses.sh "$work/THIRD_PARTY_LICENSES.txt"
+  scripts/licenses.sh "$work/THIRD_PARTY_LICENSES.txt" "$host"
   node -e 'process.stdout.write(JSON.stringify({ bundle: { resources: { [process.argv[1]]: "THIRD_PARTY_LICENSES.txt" } } }))' "$(native "$work/THIRD_PARTY_LICENSES.txt")" >"$work/release.conf.json"
   rm -rf "$bundle"
   echo "Building Codealong $version for $os on $arch: $bundles."
@@ -65,16 +65,17 @@ build() {
     signed=1
     trusted="$(key_id "$(node -p "require('./src-tauri/tauri.conf.json').plugins.updater.pubkey")")"
   fi
-  # Each bundle's own folder, the installer's name for the updater, and the file.
-  local entries=() kind file name stable
-  for kind in appimage deb rpm nsis; do
+  # Each bundle the build was asked for, in its own folder: its name is the updater's for it.
+  local entries=() kinds kind file name stable
+  IFS=, read -ra kinds <<<"$bundles"
+  for kind in "${kinds[@]}"; do
     case "$kind" in
-      appimage) file="$(find "$bundle/appimage" -maxdepth 1 -name '*.AppImage' 2>/dev/null | head -1)" ;;
-      deb) file="$(find "$bundle/deb" -maxdepth 1 -name '*.deb' 2>/dev/null | head -1)" ;;
-      rpm) file="$(find "$bundle/rpm" -maxdepth 1 -name '*.rpm' 2>/dev/null | head -1)" ;;
-      nsis) file="$(find "$bundle/nsis" -maxdepth 1 -name '*-setup.exe' 2>/dev/null | head -1)" ;;
+      appimage) file="$(find "$bundle/appimage" -maxdepth 1 -name '*.AppImage' | head -1)" ;;
+      deb) file="$(find "$bundle/deb" -maxdepth 1 -name '*.deb' | head -1)" ;;
+      rpm) file="$(find "$bundle/rpm" -maxdepth 1 -name '*.rpm' | head -1)" ;;
+      nsis) file="$(find "$bundle/nsis" -maxdepth 1 -name '*-setup.exe' | head -1)" ;;
     esac
-    [ -n "$file" ] || continue
+    [ -n "$file" ] || fail "the build made no $kind in $bundle/$kind"
     name="$(basename "$file")"
     cp "$file" "$out/$name"
     # Tauri's name without the version: Codealong_0.21.0_amd64.deb, Codealong-0.21.0-1.x86_64.rpm.
@@ -86,14 +87,14 @@ build() {
       (cd "$out" && sha256sum "$f" >"$f.sha256")
     done
     if [ "$signed" = 1 ]; then
-      npx tauri signer sign "$out/$name" >/dev/null
+      # With the version signed in, which the app asks of an update (requireSignedVersion).
+      npx tauri signer sign --app-version "$version" "$out/$name" >/dev/null
       [ -s "$out/$name.sig" ] || fail "signing $name wrote no $name.sig"
       [ "$(key_id "$(cat "$out/$name.sig")")" = "$trusted" ] ||
         fail "$name is signed with another key than the one the app trusts (plugins.updater.pubkey)"
       entries+=("$kind" "$name")
     fi
   done
-  [ -n "$(find "$out" -maxdepth 1 -type f | head -1)" ] || fail "the build made none of $bundles"
   if [ "$signed" = 1 ]; then
     # This platform's entries for latest.json, its URLs given at publish: the AppImage's or the
     # setup's under the platform's own name too, for a copy that doesn't say how it was installed.
