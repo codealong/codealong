@@ -82,9 +82,9 @@
           if (!s.visitor && !s.archived && !s.helper && !s.headless && s.status === 'working') working++;
         });
       });
-      var here = all('.ca-side-dev-sub').filter(function (e) { return /^This Mac · /.test(e.textContent); })[0];
-      if (!here) note('no devices in the sidebar, so this Mac’s line wasn’t checked');
-      else check('this Mac’s line doesn’t count them as at work', here.textContent === 'This Mac · ' + working + ' working', here.textContent + ' / ' + working);
+      var here = all('.ca-side-dev-sub').filter(function (e) { return /^This machine · /.test(e.textContent); })[0];
+      if (!here) note('no devices in the sidebar, so this machine’s line wasn’t checked');
+      else check('this machine’s line doesn’t count them as at work', here.textContent === 'This machine · ' + working + ' working', here.textContent + ' / ' + working);
       done();
     } catch (e) {
       stopped(e);

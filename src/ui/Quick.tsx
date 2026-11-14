@@ -2306,12 +2306,12 @@ export function Quick() {
   const deviceSections: PickerSection[] = useMemo(() => {
     if (!devices) return [];
     const count = (short: string | null) => worktreeCount((short ? devices.lanes.filter((l) => shortOf(l.id) === short) : (board?.lanes ?? [])).filter((l) => !l.startsChats && inProject(l, current)).length, current);
-    const here = devices.me.name || 'This Mac';
+    const here = devices.me.name || 'This machine';
     return [
       {
         key: 'macs',
         options: [
-          { id: HERE, text: `${here} this mac`, label: here, detail: `This Mac · ${count(null)}`, lead: <Icon name="device-desktop" size={14} /> },
+          { id: HERE, text: `${here} this machine this mac`, label: here, detail: `This machine · ${count(null)}`, lead: <Icon name="device-desktop" size={14} /> },
           ...macs.map((d) => {
             const { away, off, title } = macUnavailable(d, now);
             return {
@@ -2993,7 +2993,7 @@ export function Quick() {
               <div className="ca-quick-pick">
                 <button type="button" data-picker-trigger className="ca-quick-chip" title={keysIn(deviceInfo ? `On ${deviceInfo.name}\nMac (⌘D)` : 'Mac (⌘D)')} aria-haspopup="dialog" aria-expanded={picker === 'device'} onClick={() => togglePicker('device')}>
                   {deviceInfo ? <i className={`ca-labeldot is-${deviceInfo.color}`} aria-hidden="true" /> : <Icon name="device-desktop" size={14} />}
-                  <span>{deviceInfo ? deviceLabel(deviceInfo.name) : 'This Mac'}</span>
+                  <span>{deviceInfo ? deviceLabel(deviceInfo.name) : 'This machine'}</span>
                   <Icon name="chevron-down" size={12} />
                 </button>
                 {picker === 'device' && <Picker sections={deviceSections} value={deviceNow ?? HERE} placeholder="Mac" onPick={pickDevice} onClose={() => { setPicker(null); refocus(); }} />}

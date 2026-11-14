@@ -181,7 +181,7 @@ function Open(p: SidebarProps) {
             <DeviceRow
               lead={<Icon name="device-desktop" size={14} />}
               name={p.devices.me.name || 'This device'}
-              sub={p.loading ? 'This Mac · reading sessions…' : `This Mac · ${p.deviceWorking.get(null) ?? 0} working`}
+              sub={p.loading ? 'This machine · reading sessions…' : `This machine · ${p.deviceWorking.get(null) ?? 0} working`}
               needs={p.deviceNeeds.get(null) ?? 0}
               active={p.deviceFilter.includes('here')}
               onClick={() => p.onDevice('here')}
