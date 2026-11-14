@@ -66,10 +66,13 @@ impl Found {
         AccountCfg { name: self.name.clone(), harness: self.harness.clone(), home: self.home.clone(), command: self.command.clone(), start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false, chrome_profile: None }
     }
 
-    /// An account config.toml lists that nothing on this Mac turned up: what config.toml says of it.
+    /// An account config.toml lists that the search didn't turn up, a folder of its own it
+    /// doesn't look in, say: what config.toml says of it, signed in as Settings › Accounts reads
+    /// it (`usage::describe`), so the setup wizard says so and lets it draw emblems.
     pub fn of_listed(a: &AccountCfg) -> Found {
-        let folder_exists = a.home_path().is_dir();
-        Found { name: a.name.clone(), harness: a.harness.clone(), home: a.home.clone(), command: a.command.clone(), via: None, state: State::Idle, signed_in: false, folder_exists, email: None, sign_in_note: None, last_used: None, new: false }
+        let info = crate::usage::describe(a);
+        let state = if info.signed_in { State::SignedIn } else { State::Idle };
+        Found { name: a.name.clone(), harness: a.harness.clone(), home: a.home.clone(), command: a.command.clone(), via: None, state, signed_in: info.signed_in, folder_exists: info.folder_exists, email: info.email, sign_in_note: info.sign_in_note, last_used: None, new: false }
     }
 }
 

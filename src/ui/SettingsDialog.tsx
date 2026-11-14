@@ -4,7 +4,7 @@
 // in AccountsSection. A search over the sections shows every section's settings that match
 // (SettingsFind.tsx).
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { askForCalendar, getConfig, hearingStatus, onQuickShortcut, openAtLogin, openTeamFile, openUrl, pauseQuickShortcut, playSound, quickShortcut, jevKey, saveConfig, saveConfigText, setJevKey, setOpenAtLogin, setReusable, setTerminalAwake, startOptions, takeTeamSettings, terminalAwake, testJev } from '../api';
 import { nudgeKind, nudgeMerges, withMerges } from '../prStatus';
 import { heldSaid, shortcutFromKey, shortcutLabel, takenFor } from '../quick';
@@ -505,16 +505,10 @@ export function EmblemsFields({ cfg, drawers: canDraw, disabled, onSave }: { cfg
   const save = (next: Partial<EmblemsCfg>) => onSave({ ...cfg, emblems: { ...emblems, ...next } });
   // Drawn only with an account that draws, or its save would be refused; one already set stays.
   const kinds = EMBLEM_KINDS.filter((k) => k.id !== 'drawn' || drawers.length > 0 || emblems.kind === 'drawn');
-  // Whether Jev has a key, for emoji: the key's field shows while there's none, and stays once a
-  // key was saved in it, saying so.
-  const [hasKey, setHasKey] = useState<boolean | null>(null);
+  // For emoji, the key's field shows while there's no key, and stays once one was saved in it,
+  // saying so.
+  const hasKey = useJevKey();
   const [keyHere, setKeyHere] = useState(false);
-  useEffect(() => {
-    // Not saying it failed: the field then shows, and saving a key in it says what went wrong.
-    jevKey()
-      .then(setHasKey)
-      .catch(() => setHasKey(false));
-  }, []);
   return (
     <>
       <div className="ca-field">
@@ -526,16 +520,7 @@ export function EmblemsFields({ cfg, drawers: canDraw, disabled, onSave }: { cfg
         </small>
       </div>
       {emblems.kind === 'emoji' && (hasKey === false || keyHere) && (
-        <JevKeyField
-          label="Jev’s key"
-          model={cfg.jev?.model ?? JEV_OFF.model}
-          hasKey={hasKey}
-          saved="Saved in the keychain: Jev picks your sessions’ emoji from now on."
-          onChanged={async () => {
-            setKeyHere(true);
-            setHasKey(await jevKey());
-          }}
-        />
+        <JevKeyField label="Jev’s key" model={cfg.jev?.model ?? JEV_OFF.model} saved="Saved in the keychain: Jev picks your sessions’ emoji from now on." onChanged={() => setKeyHere(true)} />
       )}
       {emblems.kind === 'drawn' && drawers.length > 1 && (
         <label className="ca-field">
@@ -1750,13 +1735,46 @@ function jevFeatureName(feature: string): string {
   return JEV_FEATURES.find((f) => f.id === feature)?.label ?? ({ emblems: 'Session emblems', test: 'Test button', prompts: 'What your prompts did' } as Record<string, string>)[feature] ?? feature;
 }
 
+/** Whether the keychain has a key for Jev, as it was last read: null until it has been. One value
+ *  for every field that shows it, so a key saved or removed in one shows in the others (Settings'
+ *  search shows General's Session emblems and Settings › Jev at once). */
+let jevKeySaved: boolean | null = null;
+const jevKeyWatchers = new Set<() => void>();
+
+function watchJevKey(tell: () => void): () => void {
+  jevKeyWatchers.add(tell);
+  return () => {
+    jevKeyWatchers.delete(tell);
+  };
+}
+
+/** Reads the keychain again, for every field that shows the key. One that can't be read counts as
+ *  none: the box to paste one into shows, and saving a key there says what's wrong. */
+async function readJevKey(): Promise<void> {
+  const has = await jevKey().catch(() => false);
+  if (has === jevKeySaved) return;
+  jevKeySaved = has;
+  jevKeyWatchers.forEach((tell) => tell());
+}
+
+/** `jevKeySaved`, read again as a field that shows it opens. */
+function useJevKey(): boolean | null {
+  const has = useSyncExternalStore(watchJevKey, () => jevKeySaved);
+  useEffect(() => {
+    void readJevKey();
+  }, []);
+  return has;
+}
+
 /**
  * The TypeSafe key's field: a box to paste one into while there's none, else Test, Replace and
- * Remove. The key goes to the keychain as its button is pressed and never comes back to the page.
- * Settings › Jev's, and Session emblems' while emoji want one (`EmblemsFields`), which the setup
- * wizard shows too: it's no form of its own, so Return saves the key, not the form it's in.
+ * Remove. The key goes to the keychain as its button is pressed and never comes back to the page;
+ * `onChanged` hears that a button was pressed, once the keychain is read again. Settings › Jev's,
+ * and Session emblems' while emoji want one (`EmblemsFields`), which the setup wizard shows too:
+ * it's no form of its own, so Return saves the key, not the form it's in.
  */
-function JevKeyField({ label, model, hasKey, saved, onChanged }: { label: string; model: string; hasKey: boolean | null; saved: string; onChanged: () => Promise<void> }) {
+function JevKeyField({ label, model, saved, onChanged }: { label: string; model: string; saved: string; onChanged?: () => void }) {
+  const hasKey = useJevKey();
   const [editing, setEditing] = useState(false);
   const [key, setKey] = useState('');
   const [busy, setBusy] = useState(false);
@@ -1771,7 +1789,8 @@ function JevKeyField({ label, model, hasKey, saved, onChanged }: { label: string
     } catch (e) {
       setNote({ ok: false, text: errorText(e) });
     }
-    await onChanged();
+    await readJevKey();
+    onChanged?.();
     setBusy(false);
   };
 
@@ -1850,14 +1869,10 @@ function JevKeyField({ label, model, hasKey, saved, onChanged }: { label: string
  * switch per feature that says what it does and what it sends.
  */
 function JevPane({ jev, disabled, onChange }: { jev: JevCfg; disabled: boolean; onChange: (j: JevCfg) => void }) {
-  const [hasKey, setHasKey] = useState<boolean | null>(null);
+  const hasKey = useJevKey();
   // Bumped after each of the key's buttons, so the usage reads again with the Test button's
   // request in it.
   const [asked, setAsked] = useState(0);
-
-  useEffect(() => {
-    void jevKey().then(setHasKey);
-  }, []);
 
   const noKey = hasKey === false;
 
@@ -1871,16 +1886,7 @@ function JevPane({ jev, disabled, onChange }: { jev: JevCfg; disabled: boolean; 
         </p>
       </div>
       <fieldset className="ca-settings-fields" disabled={disabled}>
-        <JevKeyField
-          label="API key"
-          model={jev.model}
-          hasKey={hasKey}
-          saved="Saved in the keychain. Test it, then turn on what you want below."
-          onChanged={async () => {
-            setHasKey(await jevKey());
-            setAsked((n) => n + 1);
-          }}
-        />
+        <JevKeyField label="API key" model={jev.model} saved="Saved in the keychain. Test it, then turn on what you want below." onChanged={() => setAsked((n) => n + 1)} />
         <JevUsage nameOf={jevFeatureName} stamp={asked} hasKey={hasKey === true} />
         <div className="ca-field">
           <span>What to use it for</span>

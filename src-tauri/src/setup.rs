@@ -274,6 +274,19 @@ mod tests {
         assert_eq!(said, [("codex", true), ("codex-off", false), ("codex-gone", false), ("claude", false), ("codex-old", false)], "Codex draws; Claude Code doesn't, nor a Codex account turned off, signed out or not on this Mac");
     }
 
+    /// One in a folder of its own the search doesn't look in is read for its sign-in all the same.
+    #[test]
+    fn a_listed_account_the_search_missed_draws_once_signed_in() {
+        let dir = std::env::temp_dir().join(format!("codealong-setup-{}-codex-elsewhere", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("auth.json"), "{}").unwrap();
+        let config = vec![AccountCfg { home: dir.to_string_lossy().into_owned(), ..found("kestrel", "codex", "~/.codex").account() }];
+        let rows = accounts_of(vec![], &config, &[]);
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(rows[0].found.signed_in && rows[0].found.state == detect::State::SignedIn, "{:?}", rows[0].found);
+        assert!(rows[0].draws);
+    }
+
     #[test]
     fn folders_listed_first_then_where_agents_worked_and_none_without_repos() {
         let h = p("/Users/me");

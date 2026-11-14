@@ -1,14 +1,22 @@
 // Checks Settings › General's session emblems (`[emblems]`): None, Emoji and Drawn, each saying
-// what it does; Emoji with a box for Jev's key while the keychain has none (the stub's has none);
-// Drawn offered with an account that draws (Codex), and once picked, a box for how
-// they're drawn that shows Codealong's own style until you write yours and saves yours as you
+// what it does; Emoji with a box for Jev's key while the keychain has none (the check's has none
+// until one is saved), and under a search that shows it beside Settings › Jev's, a key saved in one
+// shows in the other; Drawn offered with an account that draws (Codex), and once picked, a box for
+// how they're drawn that shows Codealong's own style until you write yours and saves yours as you
 // leave it. config.toml reads back as it was saved, as the engine's would.
 //   scripts/preview.sh sessions '' scripts/preview/settings-emblems-check.js
 (function () {
   var latest = null;
+  var jevKey = '';
   var invoke = window.__TAURI_INTERNALS__.invoke;
   window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
     if (cmd === 'save_config') latest = args.config;
+    if (cmd === 'jev_key') return Promise.resolve(jevKey !== '');
+    if (cmd === 'set_jev_key') {
+      window.__calls.push([cmd, args]);
+      jevKey = args.key.trim();
+      return Promise.resolve(null);
+    }
     var p = invoke(cmd, args, options);
     if (cmd !== 'get_config') return p;
     return p.then(function (view) { return latest ? Object.assign({}, view, { config: latest }) : view; });
@@ -35,9 +43,27 @@
     await until(function () { return latest && latest.emblems && latest.emblems.kind === 'emoji'; }, 5000, 'Emoji saved');
     await until(function () { return /Jev picks an emoji/.test(named('Session emblems').textContent); }, 5000, 'what Emoji does');
     check('Emoji says Jev picks one, and needs its key', /needs a TypeSafe key for Jev/.test(named('Session emblems').textContent));
-    // The stub's keychain has no key, so its field asks for one here, as Settings › Jev does.
+    // The keychain has no key yet, so its field asks for one here, as Settings › Jev does.
     check('with no key yet, a box for it', !!(named('Jev’s key') && named('Jev’s key').querySelector('input[type="password"]')));
     check('no box for how they’re drawn', !named('How they’re drawn'));
+    // A search that finds both key fields shows General's and Jev's at once: a key saved in one
+    // shows in the other.
+    var find = q('.ca-settings-find input');
+    type(find, 'TypeSafe');
+    var both = await until(function () {
+      var here = named('Jev’s key');
+      var jev = named('API key');
+      return here && jev && here.querySelector('input[type="password"]') && jev.querySelector('input[type="password"]') && [here, jev];
+    }, 5000, 'a search for TypeSafe didn’t show both key fields');
+    var keyBox = both[0].querySelector('input[type="password"]');
+    keyBox.focus();
+    type(keyBox, 'ts-made-up-key');
+    key(keyBox, { key: 'Enter' });
+    await until(function () { return calls('set_jev_key').length === 1; }, 5000, 'Return didn’t save the key');
+    await until(function () { return /Saved in the keychain/.test(named('API key').textContent); }, 5000, 'Settings › Jev’s field didn’t hear the key was saved');
+    check('a key saved under Session emblems shows in Settings › Jev’s field too', !named('API key').querySelector('input[type="password"]') && /Saved in the keychain/.test(named('Jev’s key').textContent));
+    type(find, '');
+    await until(function () { return named('Session emblems'); }, 5000, 'clearing the search didn’t bring General back');
     if (!draws) {
       check('without an account that draws, Drawn isn’t offered, and it says what would', !choice('Drawn') && /add one in Settings › Accounts/.test(named('Session emblems').textContent));
       return done();
